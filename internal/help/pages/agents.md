@@ -218,14 +218,25 @@ does that for all of them. What was shown is what runs. A pane started on a
 routed model says so in its header — `claude · haiku ↘` — with the rule in
 its tooltip.
 
-Routing moves work between the models of the agent the run is on, never to
-another agent, and only between models whose tier it knows. Claude Code's
+Routing moves work between the models of the agent the run is on, and only
+between models whose tier it knows. It sends work to another agent only when
+you turn on **Let a rule send work to another agent**, in the same place, and
+a rule names that agent's `model` and `agent`. A rule like that could send test
+runs to a local model through an OpenAI-compatible endpoint, say. Even then,
+only a new fan-out row or helper moves, never a conversation already under
+way. The other agent has to be installed or keyed and trusted for the project,
+and, if it has an address of its own, something has to be answering there. The
+fan-out dialog shows the agent a row will run on, and the pane's header names
+the agent and model it would otherwise have used. Claude Code's
 **Default** is whatever the CLI is set to, which might be its smallest model
 or its largest, so routing leaves work on it alone: choose a model for the run
 in the fan-out, or make one your default, for routing to choose from it.
 
 **Suggest** and **Automatic** are the same for a fan-out, since the dialog asks
-before anything starts either way. **Never go below** keeps routing off the
+before anything starts either way. **Automatic** also routes a helper an agent
+starts with `flockdeck spawn` without `--agent` or `--model`; with
+**Suggest** such a helper runs as asked, since there is nobody to show a
+suggestion to. **Never go below** keeps routing off the
 smaller tiers for a project where the work matters.
 
 The policy is kept in `agents.json` — and only there, never in a file inside a
@@ -268,7 +279,10 @@ writes a project's entry back without its `routing`, so a project's policy is
 lost that way.
 
 **Routing makes no request.** It decides from these rules alone and
-makes no request of any kind; the routed mark on a pane travels only as the
+makes no request of any kind. The one exception: with **Let a rule send work
+to another agent** on, before moving a row to an agent with an address of its
+own, it opens a connection to that address, and closes it at once without
+sending anything, to check something is listening. The routed mark on a pane travels only as the
 rest of the pane's state does, to your own paired devices when remote access
 is on. What it chose, and whether you kept it, is kept
 in `routing.jsonl` in the state directory, for your own numbers: the rule's

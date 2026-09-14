@@ -645,9 +645,21 @@ never routes a fan-out itself — the dialog sends the rows as though they had
 been chosen by hand — so what was shown is what runs. A pane started on a
 routed model says so in its header, `claude · haiku ↘`.
 
-Routing only ever changes the model, never the agent, and only between models
-whose tier it knows; Claude Code's *Default*, which is whatever the CLI is set
-to, is left alone. It makes no request of any kind. What it chose, and whether
+Routing changes the model, and only between models whose tier it knows;
+Claude Code's *Default*, which is whatever the CLI is set to, is left alone.
+It changes the agent only when **Let a rule send work to another agent** is on
+(`"crossAgent": true` in the policy) and a rule names another agent's `model`
+and `agent`: a test run sent to a local model through an OpenAI-compatible
+endpoint, say. Only a new fan-out row or a helper started with `flockdeck
+spawn` moves, never a running conversation, and only to an agent that is
+installed or keyed, trusted for the project, and, if it has an address of its
+own, answering. A moved pane records the agent it would otherwise have run
+on. In *Automatic* mode, a helper spawned without `--agent` or `--model` is
+routed too.
+
+Routing makes no request of any kind, except that, with cross-agent routing
+on, it opens a TCP connection to such an agent's address, and closes it at once
+without sending anything, before moving work there. What it chose, and whether
 the choice was kept, goes in `routing.jsonl` in the state directory: rule
 names and model ids, never the task.
 
