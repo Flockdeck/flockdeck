@@ -3,7 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>flockdeck</title>
+<!-- Paints the window's background before app.css has even been requested,
+     let alone parsed, so the moment the app-mode browser opens there is
+     never a flash of its own default (white, on most of them) behind the
+     dark interface -- and the splash screen below, which relies on app.css
+     for its own background -- that are about to load into it. app.css
+     repeats these two rules; that is only for the future proofing of it
+     being the single source for what --bg and --fg actually are, not because
+     this stops applying once it has arrived. -->
+<style>html,body{background:#14161a;color:#d8dee9}</style>
 <!-- The window is a Chromium app-mode window, so this is the application icon
      as much as the tab icon: it is what the taskbar and alt-tab show. There is
      no --app-icon, so the OS asks these links for a bitmap at whatever size it

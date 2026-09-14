@@ -457,6 +457,31 @@ func (s *Server) Addr() string { return s.ln.Addr().String() }
 // Token returns the per-run token.
 func (s *Server) Token() string { return s.token }
 
+// RestoreOpenProjects brings back, in the background, the projects that were
+// open in a previous run besides the one this run was started on (see
+// workspace.RestoreSession, which batches every pane of every one of them
+// into one shared start rather than starting each project's in turn).
+// reportErr, if not nil, is given whatever that could not read.
+//
+// It runs on the workspace's own goroutine, queued the moment the server
+// exists, so it is safe alongside everything else the server does with the
+// workspace from here on — but it does not hold up the caller: New has
+// already returned, and the window is on its way up behind this call rather
+// than behind its result. A dozen background projects, each with panes of
+// its own to start, used to be restored before the window did anything at
+// all; now the browser is already cold-starting while they come back, and a
+// window that connects before they are done simply sees their tabs appear a
+// moment later, the way a change made once the window is up always does.
+func (s *Server) RestoreOpenProjects(reportErr func(error)) {
+	s.do(func() {
+		s.ws.RestoreSession()
+		if err := s.ws.RestoreErrors(); err != nil && reportErr != nil {
+			reportErr(err)
+		}
+		s.Wake()
+	})
+}
+
 // Wake tells the server that workspace state changed and clients should be
 // updated. It is safe to call from any goroutine and never blocks.
 func (s *Server) Wake() {

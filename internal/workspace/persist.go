@@ -178,34 +178,6 @@ func (w *Workspace) Restore() (bool, error) {
 	return n > 0, w.RestoreErrors()
 }
 
-// RestoreStartup is Restore followed by RestoreSession, for the one moment
-// both are wanted together: bringing the application back up. It reports the
-// same as Restore, for the active project alone.
-//
-// Restore and RestoreSession each launch their own project's panes before
-// returning, in batches of up to paneLaunches at a time — the right thing for
-// either called on its own, such as a project opened later by hand, where
-// there is nothing else to overlap the wait with. Called back to back at
-// startup, that is a separate wait per project: three projects with a
-// handful of panes each paid for three rounds of "start up to eight, then
-// wait" instead of the one round that starting them all together would have
-// been, which is how long the window went on showing nothing.
-//
-// RestoreStartup has both build their tabs as they always did, but collects
-// every pane they would have started rather than starting it there, and
-// starts the lot together once both have run, so a window with several
-// projects open waits once, for whichever project has the most to start,
-// rather than once per project.
-func (w *Workspace) RestoreStartup() (bool, error) {
-	var pending []*Pane
-	w.deferLaunch = &pending
-	n := w.restoreProject(w.activeRoot)
-	w.RestoreSession()
-	w.deferLaunch = nil
-	w.launch(pending)
-	return n > 0, w.RestoreErrors()
-}
-
 // RestoreErrors returns what the restores since it was last asked could not
 // read, and forgets it: saved layouts, and the list of open projects that
 // RestoreSession reads.
@@ -699,6 +671,12 @@ func parseDir(s string) layout.Dir {
 // The project the user asked for stays active: reopening the rest is meant to
 // bring back context, not to move them somewhere they did not ask to be.
 //
+// Each restoreProject below builds its tabs as it always did, but collects
+// every pane it would have started rather than starting it there; they are
+// all started together once every project has been read, so a window with
+// several other projects open waits once, for whichever project has the most
+// to start, rather than once per project. See restoreProject's deferLaunch.
+//
 // A list that could not be read, and the layout of any project reopened that
 // could not be, are noted for RestoreErrors.
 func (w *Workspace) RestoreSession() int {
@@ -715,6 +693,8 @@ func (w *Workspace) RestoreSession() int {
 	wasOn := w.activeTab
 	opened := 0
 	var reopened []string
+	var pending []*Pane
+	w.deferLaunch = &pending
 	for _, saved := range sess.Open {
 		// Every other way into the workspace puts a project through
 		// filepath.Abs and the window then compares roots exactly — isOpen,
@@ -758,6 +738,8 @@ func (w *Workspace) RestoreSession() int {
 		}
 		opened++
 	}
+	w.deferLaunch = nil
+	w.launch(pending)
 	// Putting the focus back means the tab it was actually on, not merely a tab
 	// of the right project: focusFirstTabOf would land on the first one and
 	// quietly discard the tab the user quit from.
