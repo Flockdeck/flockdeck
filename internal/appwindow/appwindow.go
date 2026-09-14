@@ -293,6 +293,26 @@ func windowArgs(pageURL, profileDir string, workW, workH int) []string {
 		"--no-first-run",
 		"--no-default-browser-check",
 		"--disable-features=Translate,MediaRouter",
+		// profileDir is a fresh profile made for this window alone (see
+		// profileFor), never the browser's own, so there is nothing in it any
+		// of this would otherwise be doing: no sync to resume, no extensions
+		// or components to check for updates, no phishing list to fetch, no
+		// domain-reliability reports to file. On a brand new profile several
+		// of these start a network request the moment the process comes up,
+		// which is exactly when the window is trying to open -- work that
+		// competed with it for the same network and CPU for no reason this
+		// window has any use for.
+		"--disable-background-networking",
+		"--disable-component-update",
+		"--disable-client-side-phishing-detection",
+		"--disable-domain-reliability",
+		"--disable-sync",
+		// Chromium throttles a window's renderer once it decides it is not
+		// visible, and a window still being placed on screen is exactly the
+		// moment it can be wrong about that -- which read as the interface
+		// being slow to respond just after it appeared.
+		"--disable-backgrounding-occluded-windows",
+		"--disable-renderer-backgrounding",
 	}
 	return append(args, placementArgs(profileDir, pageURL, workW, workH)...)
 }

@@ -23,6 +23,18 @@
 <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
+  <!-- Shown from the instant the page has anything to paint, over the rest of
+       the page while it is still empty chrome: the rail drawn with nothing in
+       it, a project name still saying "project", no tabs. Covering that
+       rather than letting it be seen is the whole of what this is for, so it
+       is markup and CSS alone, needing no script to appear. app.js takes it
+       away once the first state has actually been drawn -- see dismissSplash
+       -- fading rather than vanishing, since the change from one to the
+       other is exactly the flash this exists to avoid. -->
+  <div id="splash" aria-hidden="true">
+    <img class="splash-mark" src="assets/icon.svg" alt="" width="56" height="56">
+  </div>
+
   <!-- The rail: the open projects, and everything that opens a dialog. Each
        button's label is real text, kept out of sight beside the icon while the
        rail is a column of icons and shown when a narrow screen folds the rail

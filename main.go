@@ -866,12 +866,16 @@ func run(opts options) error {
 		// A layout that fails to restore should never stop the app starting,
 		// but it is said: the project comes up without its tabs, and the
 		// windows hear of the file only once a save has moved it aside.
+		//
+		// RestoreStartup also brings back the other projects that were open
+		// last time, and starts every pane of every one of them together,
+		// rather than one project's worth at a time: with several projects
+		// open that was several separate waits, each for its own project's
+		// panes, in a row, before the window showed anything at all.
 		var restoreErr error
-		restored, restoreErr = ws.Restore()
-		// Bring back the other projects that were open last time, too.
-		ws.RestoreSession()
-		if err := errors.Join(restoreErr, ws.RestoreErrors()); err != nil {
-			fmt.Fprintln(os.Stderr, "flockdeck:", err)
+		restored, restoreErr = ws.RestoreStartup()
+		if restoreErr != nil {
+			fmt.Fprintln(os.Stderr, "flockdeck:", restoreErr)
 		}
 	}
 	if !restored {

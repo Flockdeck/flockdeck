@@ -1044,6 +1044,28 @@
     prunePanes(s);
     notifyAttention(s);
     renderHints();
+    // The first state is the moment there is finally something real to look
+    // at, rather than the rail and an empty top bar: see dismissSplash.
+    dismissSplash();
+  }
+
+  /** Whether the splash has already been taken away, so the first state to
+   *  arrive is the only one that tries: every push after it finds #splash
+   *  already gone. */
+  let splashGone = false;
+
+  /** dismissSplash fades the splash screen out and, once the fade has had
+   *  time to run, hides it for good. Applying the state is what it was
+   *  waiting for -- the rail, the tabs and the panes are all drawn by the
+   *  time applyState calls this -- so there is nothing left under it worth
+   *  covering. */
+  function dismissSplash() {
+    if (splashGone) return;
+    splashGone = true;
+    const el = $("splash");
+    if (!el) return;
+    el.classList.add("gone");
+    setTimeout(() => { el.hidden = true; }, 220);
   }
 
   /** Structure ignores weights: a drag must not trigger a rebuild. */
