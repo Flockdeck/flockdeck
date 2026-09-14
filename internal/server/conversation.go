@@ -343,14 +343,24 @@ func (s *Server) conversationClose(c *controlClient, paneID string) {
 
 // ConversationHookEvent is told a pane's id whenever a hook event about it
 // arrives (see Workspace.SetConversationHook), which is the sign that its
-// transcript may have grown a line worth tailing. A pane nobody has opened
-// yet, or that has never had a client since the last time it was open, costs
-// nothing here: refreshConversation is only ever reached for a pane the hub
-// already holds.
+// transcript may have grown a line worth tailing. A pane already held by the
+// hub -- a client has it open, or has had it open before -- is simply
+// re-tailed. One never opened by any client is still worth a stream of its
+// own now, so the phone's inbox row can show a preview of an agent pane
+// nobody has looked at yet: resolvePane answers found=false for a shell or a
+// pane that has gone, which is the only filter needed to keep this to agent
+// panes.
 func (s *Server) ConversationHookEvent(paneID string) {
-	pc, ok := s.convos.lookup(paneID)
-	if !ok {
-		return
+	pc, existed := s.convos.lookup(paneID)
+	if !existed {
+		r := s.resolvePane(paneID)
+		if !r.found {
+			return
+		}
+		pc = s.convos.get(paneID)
+		pc.mu.Lock()
+		s.syncStreamLocked(pc, r)
+		pc.mu.Unlock()
 	}
 	s.refreshConversation(paneID, pc)
 }
@@ -368,12 +378,13 @@ func (s *Server) refreshConversation(paneID string, pc *paneConvo) {
 		stream, ok := transcript.StreamFor(pc.spec, sessionID)
 		pc.stream, pc.supported = stream, ok
 		if !pc.supported {
+			s.preview.drop(paneID)
 			for c := range pc.watchers {
 				c.sendJSON(conversationPageMsg{Type: "conversationPage", ID: paneID, Supported: false})
 			}
 			return
 		}
-		pc.stream.Refresh()
+		s.notePreview(paneID, pc.stream.Refresh())
 		snapshot := pc.stream.Snapshot()
 		start := max(0, len(snapshot)-conversationPageSize)
 		page := snapshot[start:]
@@ -390,11 +401,15 @@ func (s *Server) refreshConversation(paneID string, pc *paneConvo) {
 		return
 	}
 
-	if !pc.supported || pc.stream == nil || len(pc.watchers) == 0 {
+	if !pc.supported || pc.stream == nil {
 		return
 	}
+	// Refreshed for the inbox preview whether or not anyone is watching --
+	// this is the one place a pane's transcript is tailed for a client that
+	// has never opened it -- but only pushed on to clients that are.
 	changed := pc.stream.Refresh()
-	if len(changed) == 0 {
+	s.notePreview(paneID, changed)
+	if len(changed) == 0 || len(pc.watchers) == 0 {
 		return
 	}
 	cursor := changed[len(changed)-1].ID
