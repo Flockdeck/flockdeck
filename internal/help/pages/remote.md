@@ -28,6 +28,23 @@ on that connection. The few things only another launch of the binary may do —
 open a project from the command line, quit the instance — still insist on the
 token, so a remote window cannot reach them.
 
+## Self-hosted: running it on a server, not a desk
+
+"Your desktop" above doesn't have to be a desktop. `flockdeck -no-window`
+serves headless — no window, and no browser is ever looked for on that
+machine — so it runs just as well on a spare box, a home server, a NAS or a
+cheap VPS as it does on the machine in front of you. Pair it the same way
+(`flockdeck remote enable` then `flockdeck remote pair`) and it's a desktop
+in every way that matters here: full interface, chat on a phone, fan out, the
+lot. That makes the free app a self-hosted stand-in for a paid "run my coding
+agents in the cloud" service, on hardware you already control.
+
+`-detach` also releases the terminal that started it, so an SSH session can
+end without ending Flockdeck. Under a process supervisor such as systemd,
+plain `-no-window` is usually the better fit: it keeps the terminal as its
+interface and leaves managing the process's lifecycle and logs to the
+supervisor.
+
 ## Done only at the desk
 
 A window reached through the relay is not offered these, and Flockdeck refuses

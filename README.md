@@ -62,6 +62,9 @@ keys` keeps it.
 - **Everything comes back**: layouts, the set of projects you had open, and
   each pane's conversation.
 - **Agents can outlive the window** — detach, close it, reattach later.
+- **Run it on a server instead of a desk** — `-no-window` needs no browser on
+  that machine either, so a spare box, a home server or a cheap VPS works as
+  well as a laptop; pair it and it's a desktop in every way that matters.
 - **Reach them from another device** — pair a laptop, tablet or phone through
   a relay, with no port opened on this machine.
 - **One agent's plan becomes several agents doing the work**, each in its own
@@ -245,7 +248,7 @@ flockdeck -shell          # first pane is a shell, not an agent
 flockdeck -agent codex    # every new pane this run is that agent
 flockdeck -detach         # run with no window; attach to it later
 flockdeck -quit           # stop a running instance and its agents
-flockdeck -no-window      # just serve; print the URL and open it yourself
+flockdeck -no-window      # serve headless, no browser needed here; print the URL and open it yourself
 flockdeck -solo           # start a separate instance instead of attaching
 flockdeck -version        # print the version
 
@@ -301,6 +304,35 @@ instead, and the browser is pointed at that file. [Remote access](#remote-access
 is a connection this machine makes outward, not one it accepts, and what
 arrives through it is let in because the relay has already checked the device,
 not by the token.
+
+### Self-hosted: running headless, on a server you own
+
+Everything above needs a window and a browser to draw it. `-no-window` and
+`-detach` skip both entirely — no browser is ever looked for, let alone
+started — so there is nothing here a bare Linux box, a Raspberry Pi, a NAS or
+a cheap VPS can't do. That makes the free app a full, self-hosted stand-in for
+a paid "run my coding agents in the cloud" service, on hardware you already
+have or already pay for, with your code never leaving a machine you control:
+
+```sh
+flockdeck -no-window       # on the server: serve headless, print the URL, no browser needed there
+flockdeck remote enable    # enrol it with the relay
+flockdeck remote pair      # a one-time link and QR code, for your phone or laptop
+```
+
+Pairing is exactly [remote access](#remote-access): the server is a desktop
+as far as the relay and a paired device are concerned, so nothing about it —
+tabs, panes, chat on a phone, fan out — is cut down for not having a screen.
+`-detach` also frees the terminal that started it, so an SSH session or a
+`nohup` can end without ending Flockdeck; a process supervisor such as
+systemd is usually better served by plain `-no-window`, which keeps the
+terminal as its interface and lets the supervisor manage the process's
+lifecycle and logs itself.
+
+The only things that stay at "the desk" are a handful of actions a paired
+device is refused for its own safety — quitting or updating Flockdeck,
+turning remote access off, minting a join code, setting an API key — done
+instead from that machine's own terminal, over SSH.
 
 ## Keyboard shortcuts
 
