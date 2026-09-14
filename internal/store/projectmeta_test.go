@@ -1,87 +1,48 @@
 package store
 
 import (
-	"fmt"
 	"path/filepath"
 	"testing"
 )
 
-// TestSetProjectNameAndArchivedPersist covers the picker's own rename and
-// archive actions: each changes one project's entry without disturbing the
-// rest of the list, and an emptied name goes back to none rather than being
-// kept as an empty string.
-func TestSetProjectNameAndArchivedPersist(t *testing.T) {
+// TestSetProjectNameShowsInRecentsAndClearsWithEmpty checks a name chosen by
+// hand appears in Recents and that renaming to the empty string goes back to
+// no name at all, rather than being stored as one.
+func TestSetProjectNameShowsInRecentsAndClearsWithEmpty(t *testing.T) {
 	isolateConfig(t)
-	base := t.TempDir()
-	a, b := filepath.Join(base, "a"), filepath.Join(base, "b")
-	if err := TouchRecents(a, b); err != nil {
+	root := filepath.Join(t.TempDir(), "repo")
+	if err := TouchRecent(root); err != nil {
 		t.Fatalf("touch: %v", err)
 	}
-
-	if err := SetProjectName(a, "  Renamed  "); err != nil {
+	if err := SetProjectName(root, "  My Repo  "); err != nil {
 		t.Fatalf("set name: %v", err)
 	}
-	if err := SetProjectArchived(a, true); err != nil {
-		t.Fatalf("archive: %v", err)
-	}
-
 	list, err := Recents()
 	if err != nil {
 		t.Fatalf("recents: %v", err)
 	}
-	pa, ok := findProject(list, a)
-	if !ok {
-		t.Fatalf("project a not found in %+v", list)
-	}
-	// The name is trimmed, the way a name typed with stray whitespace around
-	// it should be.
-	if pa.Name != "Renamed" {
-		t.Errorf("name = %q, want %q", pa.Name, "Renamed")
-	}
-	if !pa.Archived {
-		t.Error("archived was not recorded")
-	}
-	pb, ok := findProject(list, b)
-	if !ok {
-		t.Fatalf("project b not found in %+v", list)
-	}
-	if pb.Name != "" || pb.Archived {
-		t.Errorf("project b was disturbed: %+v", pb)
+	if len(list) != 1 || list[0].Name != "My Repo" {
+		t.Fatalf("recents = %+v, want one project named %q", list, "My Repo")
 	}
 
-	// An emptied name goes back to none, the way clearing a tab's name does,
-	// rather than being kept as an empty string that would still count as
-	// "named" to a caller checking Name != "".
-	if err := SetProjectName(a, "   "); err != nil {
+	if err := SetProjectName(root, ""); err != nil {
 		t.Fatalf("clear name: %v", err)
-	}
-	if err := SetProjectArchived(a, false); err != nil {
-		t.Fatalf("unarchive: %v", err)
 	}
 	list, err = Recents()
 	if err != nil {
 		t.Fatalf("recents: %v", err)
 	}
-	pa, ok = findProject(list, a)
-	if !ok {
-		t.Fatalf("project a not found in %+v", list)
-	}
-	if pa.Name != "" {
-		t.Errorf("name after clearing = %q, want empty", pa.Name)
-	}
-	if pa.Archived {
-		t.Error("still archived after unarchiving")
+	if len(list) != 1 || list[0].Name != "" {
+		t.Fatalf("recents = %+v, want the name cleared", list)
 	}
 }
 
-// TestUpdateProjectCreatesAnEntryForAnUnknownRoot covers a project renamed or
-// archived before its own TouchRecent has ever run -- a project changed the
-// same moment it is opened for the first time. The change must not be
-// silently lost for want of an entry to attach it to.
-func TestUpdateProjectCreatesAnEntryForAnUnknownRoot(t *testing.T) {
+// TestSetProjectNameOnAProjectNotYetTouchedAddsIt checks a name chosen for a
+// project before it has ever been opened -- so TouchRecent has not put it in
+// the list yet -- is not silently lost.
+func TestSetProjectNameOnAProjectNotYetTouchedAddsIt(t *testing.T) {
 	isolateConfig(t)
-	root := filepath.Join(t.TempDir(), "fresh")
-
+	root := filepath.Join(t.TempDir(), "repo")
 	if err := SetProjectName(root, "Fresh"); err != nil {
 		t.Fatalf("set name: %v", err)
 	}
@@ -89,29 +50,82 @@ func TestUpdateProjectCreatesAnEntryForAnUnknownRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recents: %v", err)
 	}
-	p, ok := findProject(list, filepath.Clean(root))
-	if !ok {
-		t.Fatalf("no entry was created for %s in %+v", root, list)
-	}
-	if p.Name != "Fresh" {
-		t.Errorf("name = %q, want %q", p.Name, "Fresh")
+	if len(list) != 1 || list[0].Name != "Fresh" || !sameRoot(list[0].Root, root) {
+		t.Fatalf("recents = %+v, want one project named Fresh at %s", list, root)
 	}
 }
 
-// TestReorderProjectsOrdersTheGivenRootsLeavingOthersAlone covers the
-// picker's move-up/move-down controls: reordering one section of the list
-// (say, Archived) must not disturb the position already chosen for a
-// project in another section that reorder call was not given.
-func TestReorderProjectsOrdersTheGivenRootsLeavingOthersAlone(t *testing.T) {
+// TestArchiveKeepsAProjectListedButMarked checks archiving is reversible and
+// never drops the project from the list -- it only marks it.
+func TestArchiveKeepsAProjectListedButMarked(t *testing.T) {
 	isolateConfig(t)
-	base := t.TempDir()
-	a, b, c, d := filepath.Join(base, "a"), filepath.Join(base, "b"), filepath.Join(base, "c"), filepath.Join(base, "d")
-	if err := TouchRecents(a, b, c, d); err != nil {
+	root := filepath.Join(t.TempDir(), "repo")
+	if err := TouchRecent(root); err != nil {
 		t.Fatalf("touch: %v", err)
 	}
+	if err := SetProjectArchived(root, true); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	list, err := Recents()
+	if err != nil {
+		t.Fatalf("recents: %v", err)
+	}
+	if len(list) != 1 || !list[0].Archived {
+		t.Fatalf("recents = %+v, want the project archived", list)
+	}
+	if err := SetProjectArchived(root, false); err != nil {
+		t.Fatalf("unarchive: %v", err)
+	}
+	if list, err = Recents(); err != nil {
+		t.Fatalf("recents: %v", err)
+	} else if len(list) != 1 || list[0].Archived {
+		t.Fatalf("recents = %+v, want the project unarchived", list)
+	}
+}
 
-	// Only a and b are reordered; c and d were never given an order and
-	// should keep sorting by LastUsed, after both of the two that were.
+// TestTouchRecentKeepsNameArchivedAndOrder checks that opening a project
+// again -- which TouchRecent records every time a project is opened or
+// switched to -- does not wipe out a name, an archived flag or a position
+// already recorded for it.
+func TestTouchRecentKeepsNameArchivedAndOrder(t *testing.T) {
+	isolateConfig(t)
+	root := filepath.Join(t.TempDir(), "repo")
+	if err := TouchRecent(root); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+	if err := SetProjectName(root, "Kept"); err != nil {
+		t.Fatalf("set name: %v", err)
+	}
+	if err := SetProjectArchived(root, true); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	if err := ReorderProjects([]string{root}); err != nil {
+		t.Fatalf("reorder: %v", err)
+	}
+	if err := TouchRecent(root); err != nil {
+		t.Fatalf("touch again: %v", err)
+	}
+	list, err := Recents()
+	if err != nil {
+		t.Fatalf("recents: %v", err)
+	}
+	if len(list) != 1 || list[0].Name != "Kept" || !list[0].Archived || list[0].Order != 1 {
+		t.Fatalf("recents = %+v, want name, archived and order kept across a touch", list)
+	}
+}
+
+// TestReorderProjectsSortsByHandAheadOfRecency checks that giving projects a
+// position by hand puts them ahead of ones that have none, in the order
+// given, and that a project left out of the reorder keeps sorting by when it
+// was last used.
+func TestReorderProjectsSortsByHandAheadOfRecency(t *testing.T) {
+	isolateConfig(t)
+	base := t.TempDir()
+	a, b, c := filepath.Join(base, "a"), filepath.Join(base, "b"), filepath.Join(base, "c")
+	// c is used last, so recency alone would put it first.
+	if err := TouchRecents(a, b, c); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
 	if err := ReorderProjects([]string{b, a}); err != nil {
 		t.Fatalf("reorder: %v", err)
 	}
@@ -119,79 +133,65 @@ func TestReorderProjectsOrdersTheGivenRootsLeavingOthersAlone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recents: %v", err)
 	}
-	var order []string
+	var got []string
 	for _, p := range list {
-		order = append(order, filepath.Base(p.Root))
+		got = append(got, filepath.Base(p.Root))
 	}
-	// b before a (as given), both before c and d, which fall back to
-	// LastUsed: TouchRecents gave the first of its arguments the most
-	// recent timestamp, so among the two left untouched by the reorder, c
-	// (touched before d) sorts first.
-	if got, want := fmt.Sprint(order), "[b a c d]"; got != want {
-		t.Errorf("order = %s, want %s", got, want)
+	if want := []string{"b", "a", "c"}; !equalStrings(got, want) {
+		t.Errorf("recents order = %v, want %v", got, want)
 	}
 
-	pb, _ := findProject(list, b)
-	pa, _ := findProject(list, a)
-	if pb.Order != 1 || pa.Order != 2 {
-		t.Errorf("orders = b:%d a:%d, want b:1 a:2", pb.Order, pa.Order)
-	}
-	pc, _ := findProject(list, c)
-	pd, _ := findProject(list, d)
-	if pc.Order != 0 || pd.Order != 0 {
-		t.Errorf("untouched projects were given an order: c:%d d:%d", pc.Order, pd.Order)
-	}
-
-	// Reordering again with a project left out keeps the place it already
-	// had rather than losing it.
-	if err := ReorderProjects([]string{a}); err != nil {
+	// Moving b and a again -- b to the back of the two -- keeps c, which has
+	// no position of its own, sorting after both by recency.
+	if err := ReorderProjects([]string{a, b}); err != nil {
 		t.Fatalf("reorder again: %v", err)
 	}
-	list, err = Recents()
-	if err != nil {
+	if list, err = Recents(); err != nil {
 		t.Fatalf("recents: %v", err)
 	}
-	pa, _ = findProject(list, a)
-	if pa.Order != 1 {
-		t.Errorf("a's order after being reordered alone = %d, want 1", pa.Order)
+	got = got[:0]
+	for _, p := range list {
+		got = append(got, filepath.Base(p.Root))
 	}
-	pb, _ = findProject(list, b)
-	if pb.Order != 1 {
-		t.Errorf("b's order, left out of the second call, changed to %d, want it to stay 1", pb.Order)
+	if want := []string{"a", "b", "c"}; !equalStrings(got, want) {
+		t.Errorf("recents order after moving = %v, want %v", got, want)
 	}
 }
 
-// TestAllProjectMetaOmitsProjectsWithNothingChosen covers what the workspace
-// caches from the recent list: only a project with a name, an archived flag
-// or a position chosen by hand is worth a lookup answering, so the map stays
-// small next to a recent list that can hold up to forty entries most of
-// which nobody has touched.
-func TestAllProjectMetaOmitsProjectsWithNothingChosen(t *testing.T) {
+// TestAllProjectMetaOnlyCarriesWhatWasChosen checks AllProjectMeta leaves out
+// a project with nothing chosen for it, and that a lookup finds one under
+// any spelling of its root MetaKey folds the same way normalizeRoot does.
+func TestAllProjectMetaOnlyCarriesWhatWasChosen(t *testing.T) {
 	isolateConfig(t)
 	base := t.TempDir()
-	a, b := filepath.Join(base, "a"), filepath.Join(base, "b")
-	if err := TouchRecents(a, b); err != nil {
+	plain, named := filepath.Join(base, "plain"), filepath.Join(base, "named")
+	if err := TouchRecents(plain, named); err != nil {
 		t.Fatalf("touch: %v", err)
 	}
-	if err := SetProjectName(a, "A"); err != nil {
+	if err := SetProjectName(named, "Named"); err != nil {
 		t.Fatalf("set name: %v", err)
 	}
-
 	meta, err := AllProjectMeta()
 	if err != nil {
 		t.Fatalf("all project meta: %v", err)
 	}
-	if len(meta) != 1 {
-		t.Fatalf("meta = %+v, want exactly the one project with something chosen", meta)
+	if _, ok := meta[MetaKey(plain)]; ok {
+		t.Errorf("a project with nothing chosen for it was carried in the map")
 	}
-	got, ok := meta[MetaKey(a)]
-	if !ok {
-		t.Fatalf("project a missing from %+v", meta)
+	got, ok := meta[MetaKey(named)]
+	if !ok || got.Name != "Named" {
+		t.Fatalf("meta[%s] = %+v, %v, want Name = Named", named, got, ok)
 	}
-	if got.Name != "A" {
-		t.Errorf("name = %q, want %q", got.Name, "A")
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	if _, ok := meta[MetaKey(b)]; ok {
-		t.Errorf("project b, with nothing chosen, was cached anyway")
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
 	}
+	return true
 }

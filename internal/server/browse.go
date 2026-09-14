@@ -45,10 +45,6 @@ type recentView struct {
 	// section; the picker's own Archived section is drawn from these
 	// instead. See store.SetProjectArchived.
 	Archived bool `json:"archived,omitempty"`
-	// Named says Name was chosen by hand rather than derived from the
-	// project's directory, which is when the picker's rename dialog offers
-	// to go back to the automatic one.
-	Named bool `json:"named,omitempty"`
 }
 
 // browse lists the directories inside path so the picker can navigate the file
@@ -319,7 +315,6 @@ func (s *Server) recents(c *controlClient) {
 				Exists:   err == nil && fi.IsDir(),
 				Open:     open[p.Root],
 				Archived: p.Archived,
-				Named:    p.Name != "",
 			})
 		}
 		c.sendJSON(msg)
