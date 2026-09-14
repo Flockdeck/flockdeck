@@ -307,6 +307,13 @@ type Workspace struct {
 	// signal that its transcript may have grown a line worth tailing. Swapped
 	// the same way onWake is, and nil until the server installs itself.
 	onConversation atomic.Pointer[func(string)]
+
+	// recentTouches queues projects switched to for touchRecent's background
+	// writer, and recentOnce starts that writer the first time it is needed.
+	// See touchRecent.
+	recentTouches chan string
+	recentOnce    sync.Once
+	recentDone    chan struct{}
 }
 
 // Options configures a new workspace.
@@ -716,9 +723,52 @@ func (w *Workspace) SelectProject(root string) {
 		return
 	}
 	w.activeRoot = root
-	_ = store.TouchRecent(root)
+	w.touchRecent(root)
 	w.focusFirstTabOf(root)
 	w.wake()
+}
+
+// touchRecent records, off the goroutine that owns the workspace, that root
+// was just switched to.
+//
+// store.TouchRecent is a synchronous write -- flushed to the device and
+// renamed into place -- that measured several milliseconds even on a fast
+// Windows disk (see its own comment); done inline here it stalled every
+// other window's commands and every pane's output behind whichever project
+// switch triggered it, since both wait on the same goroutine. A slow disk,
+// or antivirus scanning a newly-written file, made that stall far worse.
+//
+// The write happens on one long-lived goroutine rather than one spun up per
+// switch: a goroutine blocked in a slow syscall pins an OS thread until it
+// returns, and a burst of switches -- someone holding down the keyboard
+// shortcut, or a script driving the window -- once spun up as many threads
+// as switches, fast enough to starve the machine's scheduler of the very
+// thing it needed to run any of those syscalls. One worker draining a queue
+// costs one thread no matter how many switches land while it works, and
+// still writes them in the order they were asked for, so the recent list
+// ends up naming the right project first regardless of how the writes land.
+//
+// The queue is bounded because a switch is worth recording, not worth
+// blocking the workspace's goroutine to make room for: a backlog of more
+// than a few dozen unwritten switches, on a queue that is only ever a
+// project id, means whatever wrote the oldest of them is long since stale,
+// and the next switch to land behind a full queue catches the list up just
+// as well as the one it replaced would have.
+func (w *Workspace) touchRecent(root string) {
+	w.recentOnce.Do(func() {
+		w.recentTouches = make(chan string, 32)
+		w.recentDone = make(chan struct{})
+		go func() {
+			defer close(w.recentDone)
+			for r := range w.recentTouches {
+				_ = store.TouchRecent(r)
+			}
+		}()
+	})
+	select {
+	case w.recentTouches <- root:
+	default:
+	}
 }
 
 // CloseProject saves a project's layout, closes its tabs and removes it. The
@@ -2491,6 +2541,22 @@ func (w *Workspace) TabNeedsAttention(t *Tab) bool {
 
 // Close terminates every session and stops the hook server.
 func (w *Workspace) Close() {
+	// touchRecent's writer can still be working through queued switches;
+	// closing its queue and waiting for it to let go of recentDone blocks
+	// until the last of them is written, rather than leaving it to land on
+	// its own time, after this run may have already read the recents file
+	// back (a restart reopening what this run had, say) or, in a test, after
+	// isolateConfig has pointed the environment back at the real one.
+	//
+	// Cleared once done rather than left set: a caller that closes a
+	// workspace by hand and, not knowing that, is also handed to
+	// t.Cleanup -- several tests do both -- closes it twice, and a channel
+	// close is not idempotent the way the rest of this method's cleanup is.
+	if w.recentTouches != nil {
+		close(w.recentTouches)
+		<-w.recentDone
+		w.recentTouches = nil
+	}
 	for _, t := range w.Tabs {
 		for _, id := range t.Tree.Panes() {
 			w.destroyPane(id)
