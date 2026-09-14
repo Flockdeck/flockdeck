@@ -89,24 +89,18 @@ func signalLeftBehind(sid int, sig syscall.Signal) bool {
 	return found
 }
 
-// stillRunning reports whether pid names a process that is still running.
-// Signal 0 delivers nothing and only checks that the process exists, which
-// says "running" of a zombie -- a child that has exited and not been waited
-// for -- the same blind spot Windows has for an open handle; not fixable from
-// here, since only the parent that started it can reap it.
-func stillRunning(pid int) bool {
-	return syscall.Kill(pid, 0) == nil
-}
-
-// killTree ends pid and everything left in its session, the same way endTree
+// KillTree ends pid and everything left in its session, the same way endTree
 // ends a pane's own process tree -- see signalSession -- except that pid was
 // never this run's own process, so there is no s.reaped to wait on: SIGHUP is
 // given hangupGrace to be noticed before SIGKILL follows.
 //
 // go-pty makes a pane's process the leader of a session of its own, and pid
-// is read back exactly as it was recorded at that moment (see
-// KillProcessTree's startedHint), so it is still fit to signal as one here.
-func killTree(pid int) {
+// is read back exactly as it was recorded at that moment, so it is still fit
+// to signal as one here. It is exported for a startup sweep to call directly,
+// once it has already confirmed pid still names the same process it was
+// recorded under (see store.ProcessAlive and store.ProcessStartedAt);
+// nothing here repeats that check. See internal/workspace's reaper.
+func KillTree(pid int) {
 	signalSession(pid, syscall.SIGHUP)
 	time.Sleep(hangupGrace)
 	signalSession(pid, syscall.SIGKILL)

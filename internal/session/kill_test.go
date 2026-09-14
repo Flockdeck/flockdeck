@@ -97,6 +97,26 @@ func waitForPID(t *testing.T, s *Session, file string) int {
 	return pid
 }
 
+// TestPidAndStartedAtNameTheProcessARecordCanBeCheckedAgainst covers what a
+// caller outside the package needs to record a pane's process against its
+// working directory: an id a later launch can look for, and when it started,
+// which is what tells that launch the id was not in the meantime handed to
+// something else entirely. See store.TrackWorktreeProc.
+func TestPidAndStartedAtNameTheProcessARecordCanBeCheckedAgainst(t *testing.T) {
+	s, child := startTree(t, "")
+	if pid := s.Pid(); pid == 0 || pid == child {
+		t.Errorf("Pid() = %d, want the pane's own process, not 0 or its child %d", pid, child)
+	}
+	if since := time.Since(s.StartedAt()); since < 0 || since > time.Minute {
+		t.Errorf("StartedAt() = %v, %v ago; want a moment ago", s.StartedAt(), since)
+	}
+
+	empty := &Session{}
+	if pid := empty.Pid(); pid != 0 {
+		t.Errorf("Pid() of a session built without a process = %d, want 0", pid)
+	}
+}
+
 // TestClosingAPaneEndsWhatItStarted covers closing a pane whose process has
 // started something of its own: a shell's background job, a server an agent
 // left running, the node process behind an agent's .cmd shim. Only the pane's

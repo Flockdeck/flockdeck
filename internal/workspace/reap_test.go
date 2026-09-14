@@ -72,35 +72,28 @@ func TestWorktreePaneIsRecordedAndForgotten(t *testing.T) {
 	worktree := filepath.Join(home, "code", "repo-agent-fix")
 	ws, plain, wt := setupWorktreePane(t, home, repo, worktree)
 
-	procs, err := store.WorktreeProcesses()
+	recs, err := store.LoadWorktreeProcs()
 	if err != nil {
 		t.Fatalf("read records: %v", err)
 	}
-	var found *store.WorktreeProcess
-	for i := range procs {
-		switch procs[i].PaneID {
-		case wt.ID:
-			found = &procs[i]
-		case plain.ID:
-			t.Fatalf("a pane inside its own project was recorded as a worktree process: %+v", procs[i])
-		}
+	if _, ok := recs[plain.ID]; ok {
+		t.Fatalf("a pane inside its own project was recorded as a worktree process: %+v", recs[plain.ID])
 	}
-	if found == nil {
-		t.Fatalf("the worktree pane was not recorded; got %+v", procs)
+	found, ok := recs[wt.ID]
+	if !ok {
+		t.Fatalf("the worktree pane was not recorded; got %+v", recs)
 	}
-	if found.PID != wt.Sess.Pid() || !sameDir(found.Cwd, worktree) || !sameDir(found.Repo, repo) {
-		t.Fatalf("recorded %+v, want pid %d, cwd %s, repo %s", found, wt.Sess.Pid(), worktree, repo)
+	if found.PID != wt.Sess.Pid() || !sameDir(found.Path, worktree) {
+		t.Fatalf("recorded %+v, want pid %d, path %s", found, wt.Sess.Pid(), worktree)
 	}
 
 	ws.ClosePaneByID(wt.ID)
-	procs, err = store.WorktreeProcesses()
+	recs, err = store.LoadWorktreeProcs()
 	if err != nil {
 		t.Fatalf("read records after close: %v", err)
 	}
-	for _, p := range procs {
-		if p.PaneID == wt.ID {
-			t.Fatalf("a closed worktree pane's record was not forgotten: %+v", p)
-		}
+	if _, ok := recs[wt.ID]; ok {
+		t.Fatal("a closed worktree pane's record was not forgotten")
 	}
 }
 
@@ -127,19 +120,20 @@ func TestReapStaleWorktreeProcessesEndsALeftoverProcess(t *testing.T) {
 	}
 	waitProcessGone(t, pid)
 
-	procs, err := store.WorktreeProcesses()
+	recs, err := store.LoadWorktreeProcs()
 	if err != nil {
 		t.Fatalf("read records after reaping: %v", err)
 	}
-	if len(procs) != 0 {
-		t.Fatalf("got %d records left after reaping, want 0: %+v", len(procs), procs)
+	if len(recs) != 0 {
+		t.Fatalf("got %d records left after reaping, want 0: %+v", len(recs), recs)
 	}
 
 	// worktree is not a git repository here, so it is never one git lists as
 	// a worktree of anything -- and, empty, its folder should have come free,
 	// which is the whole point: a folder like this is what a process left
 	// running in it kept locked on Windows even after the pane working there
-	// had been closed.
+	// had been closed. Reaping it does not depend on git being able to say
+	// anything about the folder at all: only removing it afterwards does.
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, err := os.Stat(worktree); os.IsNotExist(err) {
@@ -221,4 +215,74 @@ func TestReapStaleWorktreeProcessesLeavesARegisteredWorktreeAlone(t *testing.T) 
 	}
 
 	ws.Close()
+}
+
+// TestNewLeavesAnotherRunningInstancesProcessesAlone covers `-solo`, which
+// starts a second instance beside one that is already up. The registry both
+// instances record their panes into is shared -- there is only one state
+// directory -- so a record naming a process still running does not by itself
+// mean this launch's own sweep may end it: it may be the other instance's own
+// pane, doing exactly what it should. Only once no other instance is
+// recorded as running does a live record mean what a stale one would.
+func TestNewLeavesAnotherRunningInstancesProcessesAlone(t *testing.T) {
+	isolateConfig(t)
+	home := t.TempDir()
+	wtPath := filepath.Join(home, "code", "repo-inuse")
+	if err := os.MkdirAll(wtPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(os.Args[0])
+	cmd.Dir = wtPath
+	cmd.Env = append(os.Environ(), reapSleepEnv+"=1")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start the other instance's process: %v", err)
+	}
+	pid := cmd.Process.Pid
+	t.Cleanup(func() {
+		if p, err := os.FindProcess(pid); err == nil {
+			_ = p.Kill()
+		}
+		_ = cmd.Wait()
+	})
+	if err := store.TrackWorktreeProc("other-instance-pane", pid, time.Now(), wtPath); err != nil {
+		t.Fatalf("track: %v", err)
+	}
+
+	// A running instance recorded under a process id that is not this test
+	// binary's own, and is in fact still running (this same stand-in process
+	// serves both purposes here, standing in for the other instance's server
+	// as well as its pane).
+	if err := store.SaveInstance(&store.Instance{PID: pid, URL: "http://127.0.0.1:0/", Token: "t", Started: time.Now()}); err != nil {
+		t.Fatalf("save instance: %v", err)
+	}
+	t.Cleanup(func() { _ = store.ClearInstance() })
+
+	ws := newTestWorkspace(t, home)
+	t.Cleanup(ws.Close)
+
+	time.Sleep(200 * time.Millisecond)
+	if !store.ProcessAlive(pid) {
+		t.Fatal("a new launch ended a process belonging to another instance it found still running")
+	}
+	recs, err := store.LoadWorktreeProcs()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if _, ok := recs["other-instance-pane"]; !ok {
+		t.Error("the other instance's record was removed even though its process was left alone")
+	}
+}
+
+// reapSleepEnv, when set in this test binary's own environment, makes it
+// stand in for a pane's process left running in a worktree: it does nothing
+// but wait, exactly as a stray shell or agent process does once whatever
+// started it is gone.
+const reapSleepEnv = "FLOCKDECK_WORKSPACE_TEST_REAP_SLEEP"
+
+func init() {
+	if os.Getenv(reapSleepEnv) != "" {
+		time.Sleep(time.Hour)
+		os.Exit(0)
+	}
 }

@@ -221,6 +221,47 @@ func TestAJobHoldingMoreThanThereIsRoomForStillListsWhatFits(t *testing.T) {
 	}
 }
 
+// TestAJobOutlivesFlockdeckOnlyUntilItsHandleIsClosed covers what happens when
+// Flockdeck itself never gets to run endTree at all -- a crash, a `taskkill
+// /F`, a shutdown forceQuit gives up waiting on. None of those run a line of
+// Go: the operating system simply closes every handle the dying process still
+// held, the pane's job among them, and closing it is what has to be enough on
+// its own. Without JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE that only cuts the job's
+// members loose -- which is the bug this covers: a process detach()ed from
+// its pane, exactly like the one a plain kill of the pane's own process
+// already fails to reach, going on running with the pane's directory as its
+// own after Flockdeck is gone, for as long as it likes.
+func TestAJobOutlivesFlockdeckOnlyUntilItsHandleIsClosed(t *testing.T) {
+	s, child := startTree(t, "")
+
+	// Standing in for Flockdeck's own process dying abruptly: nothing walks
+	// the job first, and nothing clears the limit endTree clears before its
+	// own, graceful CloseHandle. The pane's own process is left running too,
+	// exactly as it would be the instant Flockdeck's process table entry
+	// disappears and every handle it held goes with it in the same moment --
+	// there is nothing in between for a real crash either.
+	s.mu.Lock()
+	job := s.tree.job
+	s.tree.job = 0 // so t.Cleanup's s.Close does not act on this job again
+	pane := s.cmd.Process.Pid
+	s.mu.Unlock()
+	if job == 0 {
+		t.Fatal("the process could not be put in a job")
+	}
+	if err := syscall.CloseHandle(job); err != nil {
+		t.Fatalf("close the job handle: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for alive(pane) || alive(child) {
+		if !time.Now().Before(deadline) {
+			t.Fatalf("closing the job handle without a graceful shutdown left pane=%v child=%v running",
+				alive(pane), alive(child))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // TestConsoleProgramsAreToldFromWindowedOnes pins the reading the choice rests
 // on, against programs every Windows machine has.
 func TestConsoleProgramsAreToldFromWindowedOnes(t *testing.T) {

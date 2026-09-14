@@ -25,20 +25,44 @@ import (
 // screen, and closing a terminal does not close it. Nor are the console
 // programs such a program starts, since they are its and not the pane's: the
 // terminal in an editor started with `code .`, the language servers and git it
-// runs. For the same reason the job is not told to take its processes with it
-// when it is closed: Flockdeck exiting must not close somebody's browser
-// either.
-
+// runs. For the same reason endTree clears JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+// before it lets the job go: Flockdeck exiting in the ordinary way must not
+// close somebody's browser either.
+//
+// The job is created with that limit set, though, and it stays set until
+// endTree clears it. Flockdeck does not always get to run endTree: a crash, a
+// `taskkill /F`, a wedged shutdown that forceQuit gives up on, a power cut,
+// all end the process without a line of Go running first, the same way they
+// would if the job had never been made. Windows itself closes every handle a
+// dying process still holds, the job's included, and with the limit still set
+// that alone is enough to take the whole job with it -- so a pane's process,
+// and anything it started, cannot outlive Flockdeck by more than the moment it
+// takes the operating system to notice Flockdeck is gone.
+//
+// That still leaves the case the job was never made to begin with:
+// AssignProcessToJobObject can be refused by security software that has
+// already put its own children in a job, or simply not exist on an old
+// enough Windows. Nothing links the pane to what it started then, on a clean
+// close or a crash alike, and KILL_ON_JOB_CLOSE has nothing to act on. See
+// endTree's fallback to killDescendants for that case, and reap.go for the
+// startup sweep that exists for whatever either safety net still misses.
 var (
 	procCreateJobObjectW           = kernel32.NewProc("CreateJobObjectW")
 	procAssignProcessToJobObject   = kernel32.NewProc("AssignProcessToJobObject")
+	procSetInformationJobObject    = kernel32.NewProc("SetInformationJobObject")
 	procQueryInformationJobObject  = kernel32.NewProc("QueryInformationJobObject")
 	procQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
 	procIsProcessInJob             = kernel32.NewProc("IsProcessInJob")
 )
 
 const (
-	jobObjectBasicProcessIDList = 3
+	jobObjectBasicProcessIDList     = 3
+	jobObjectExtendedLimitInfoClass = 9
+
+	// jobObjectLimitKillOnJobClose is JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: every
+	// process the job still holds is terminated the instant its last handle is
+	// closed, with no cooperation needed from whoever held that handle.
+	jobObjectLimitKillOnJobClose = 0x00002000
 
 	processTerminate               = 0x0001
 	processSetQuota                = 0x0100
@@ -53,6 +77,54 @@ const (
 	// started while the processes already listed were being ended.
 	endPasses = 3
 )
+
+// jobobjectBasicLimitInformation is JOBOBJECT_BASIC_LIMIT_INFORMATION. Only
+// LimitFlags is ever set; the rest stay zero, which asks for no limit.
+type jobobjectBasicLimitInformation struct {
+	PerProcessUserTimeLimit int64
+	PerJobUserTimeLimit     int64
+	LimitFlags              uint32
+	MinimumWorkingSetSize   uintptr
+	MaximumWorkingSetSize   uintptr
+	ActiveProcessLimit      uint32
+	Affinity                uintptr
+	PriorityClass           uint32
+	SchedulingClass         uint32
+}
+
+// jobobjectIOCounters is JOBOBJECT_IO_COUNTERS, an unused part of
+// JOBOBJECT_EXTENDED_LIMIT_INFORMATION that still has to be the right size for
+// SetInformationJobObject to read the rest of the struct correctly.
+type jobobjectIOCounters struct {
+	ReadOperationCount  uint64
+	WriteOperationCount uint64
+	OtherOperationCount uint64
+	ReadTransferCount   uint64
+	WriteTransferCount  uint64
+	OtherTransferCount  uint64
+}
+
+// jobobjectExtendedLimitInformation is JOBOBJECT_EXTENDED_LIMIT_INFORMATION.
+type jobobjectExtendedLimitInformation struct {
+	BasicLimitInformation jobobjectBasicLimitInformation
+	IoInfo                jobobjectIOCounters
+	ProcessMemoryLimit    uintptr
+	JobMemoryLimit        uintptr
+	PeakProcessMemoryUsed uintptr
+	PeakJobMemoryUsed     uintptr
+}
+
+// setKillOnClose sets or clears JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE on job, and
+// reports whether it could.
+func setKillOnClose(job syscall.Handle, on bool) bool {
+	var info jobobjectExtendedLimitInformation
+	if on {
+		info.BasicLimitInformation.LimitFlags = jobObjectLimitKillOnJobClose
+	}
+	r, _, _ := procSetInformationJobObject.Call(uintptr(job), jobObjectExtendedLimitInfoClass,
+		uintptr(unsafe.Pointer(&info)), unsafe.Sizeof(info))
+	return r != 0
+}
 
 // procTree is the job a pane's process was put in, or zero when it could not
 // be. A pane without one is ended the way it always was, one process alone.
@@ -79,6 +151,11 @@ func containTree(pid int) procTree {
 		_ = syscall.CloseHandle(syscall.Handle(job))
 		return procTree{}
 	}
+	// Asked for from the moment the process is in the job, not only once
+	// something has gone wrong: Flockdeck dying is not an event it gets to
+	// react to first. See the package doc above for why this has to be here
+	// rather than only in endTree's ordinary path.
+	setKillOnClose(syscall.Handle(job), true)
 	return procTree{job: syscall.Handle(job)}
 }
 
@@ -310,34 +387,16 @@ func (s *Session) endTree() {
 		_ = syscall.CloseHandle(h)
 	}
 	if job != 0 {
+		// This is the ordinary path -- endTree is running, which is what
+		// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE is there for the absence of.
+		// Cleared first, closing the job below takes only what the walk above
+		// left running that was never meant to be spared: a windowed program
+		// is deliberately left out of "ending", and closing the job with the
+		// limit still on would end it anyway, the moment its last handle --
+		// this one -- goes.
+		setKillOnClose(job, false)
 		_ = syscall.CloseHandle(job)
 	}
-}
-
-// stillActive is the exit code Windows reports for a process that has not
-// exited yet.
-const stillActive = 259
-
-// stillRunning reports whether pid names a process that is still running.
-//
-// Opening a handle is not the test it looks like: Windows keeps a process
-// object alive for as long as anything holds a handle to it, so a process
-// that exited an hour ago can still be opened and its creation time read from
-// -- which is what procMetrics does, and why Started must not be trusted for
-// liveness on its own. The exit code is the state itself.
-func stillRunning(pid int) bool {
-	h, err := syscall.OpenProcess(processQueryLimitedInformation, false, uint32(pid))
-	if err != nil {
-		return false
-	}
-	defer syscall.CloseHandle(h)
-	var code uint32
-	if err := syscall.GetExitCodeProcess(h, &code); err != nil {
-		// The handle opened but will not answer. Saying "running" is the safe
-		// way round for a reaper about to act on it.
-		return true
-	}
-	return code == stillActive
 }
 
 // openLimited opens a process to be ended, without regard to any job: for
@@ -359,10 +418,10 @@ func openLimited(pid uint32) (syscall.Handle, bool) {
 // is not included; the caller ends that one its own way.
 //
 // It is where endTree falls back to when the pane's process could not be put
-// in a job to track its children by, and it is how KillProcessTree ends a
-// past run's own orphaned pane, once nothing links it to anything any more.
-// Either way the process table is all there is left to walk, the way Usage
-// already walks it for CPU and memory.
+// in a job to track its children by, and it is how KillTree ends a past run's
+// own orphaned pane, once nothing links it to anything any more. Either way
+// the process table is all there is left to walk, the way Usage already
+// walks it for CPU and memory.
 //
 // A process claiming root, or one already found under it, as its parent but
 // created before it was is not really descended from it: the id it claims has
@@ -416,12 +475,18 @@ func killDescendants(root uint32) []syscall.Handle {
 	return ending
 }
 
-// killTree ends pid and every process the machine's process table shows
+// KillTree ends pid and every process the machine's process table shows
 // descended from it -- the same thing endTree does for a pane's own tree when
 // it is still in a job, except pid belongs to no job this run can query:
 // whatever job it may once have held its children in died with the run that
-// made it. See killDescendants and KillProcessTree.
-func killTree(pid int) {
+// made it, or was never made at all.
+//
+// It is exported for a startup sweep to call directly, once it has already
+// confirmed the pid still names the same process it was recorded under (see
+// store.ProcessAlive and store.ProcessStartedAt): nothing here repeats that
+// check, since ending the wrong process is not something to guess twice about.
+// See killDescendants, and internal/workspace's reaper.
+func KillTree(pid int) {
 	root := uint32(pid)
 	deadline := time.Now().Add(closeGrace)
 
