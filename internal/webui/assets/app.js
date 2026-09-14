@@ -379,7 +379,13 @@
       // An unpaired device's row goes with its Unpair button, and the
       // keyboard with it: to Pair a device, rather than out of the dialog.
       else if (msg.type === "remoteDevices") { remoteRoster = msg; if (remoteShown()) keepFocus(renderRemote, "#remote-pair"); }
-      else if (msg.type === "remotePair") { remotePairing = msg; if (remoteShown()) keepFocus(renderRemote); }
+      else if (msg.type === "remotePair") {
+        remotePairing = msg;
+        if (remoteShown()) keepFocus(renderRemote);
+        // A fresh link starts the chain; one already going, for the link it
+        // replaces, carries on and finds this one in remotePairing next.
+        if (msg.url && !remotePairPollTimer) remotePairPollTimer = setTimeout(remotePairPoll, REMOTE_PAIR_POLL_MS);
+      }
       else if (msg.type === "remoteOutcome") {
         remoteBusy = "";
         remoteOutcome = msg;
@@ -510,6 +516,33 @@
   let remoteRoster = null;
   let remotePairing = null;
   let remoteChipKey = null;
+
+  /** How often the roster is asked for again while a pairing link is on
+   *  screen, waiting on a scan: nothing else here asks again on its own, so
+   *  a device paired while the link sat there showed up only once the
+   *  dialog was closed and opened again. remotePairPollTimer is the chain's
+   *  own handle, cleared whenever the dialog closes. */
+  const REMOTE_PAIR_POLL_MS = 4000;
+  let remotePairPollTimer = null;
+
+  /** remotePairPoll keeps asking for the roster while remotePairing is a
+   *  link still good to scan. It stops itself the moment that stops being
+   *  true — spent for a fresh one, expired, or the dialog gone — rather
+   *  than at every place that can happen to it. */
+  function remotePairPoll() {
+    remotePairPollTimer = null;
+    const p = remotePairing;
+    const live = p && p.url && (!p.expiresAt || Date.parse(p.expiresAt) > Date.now());
+    if (!live || !remoteShown()) return;
+    send({ cmd: "remoteDevices" });
+    remotePairPollTimer = setTimeout(remotePairPoll, REMOTE_PAIR_POLL_MS);
+  }
+
+  /** remotePairPollStop ends the chain, if one is going. */
+  function remotePairPollStop() {
+    clearTimeout(remotePairPollTimer);
+    remotePairPollTimer = null;
+  }
 
   /** remoteDraft is what has been typed into the form that turns remote
    *  access on, kept across the redraws a state snapshot causes while the
@@ -3628,6 +3661,7 @@
     $("overlay").hidden = true;
     $("overlay-panel").classList.remove("wide", "settings-panel");
     dialog = null;
+    remotePairPollStop();
     focusTerminal();
   }
 
