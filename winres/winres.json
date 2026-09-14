@@ -3,8 +3,14 @@
     "APP": {
       "0000": [
         "../internal/webui/assets/icon-256.png",
+        "../internal/webui/assets/icon-128.png",
+        "../internal/webui/assets/icon-96.png",
+        "../internal/webui/assets/icon-64.png",
         "../internal/webui/assets/icon-48.png",
+        "../internal/webui/assets/icon-40.png",
         "../internal/webui/assets/icon-32.png",
+        "../internal/webui/assets/icon-24.png",
+        "../internal/webui/assets/icon-20.png",
         "../internal/webui/assets/icon-16.png"
       ]
     }
