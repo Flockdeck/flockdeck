@@ -1915,21 +1915,31 @@ func hook(args []string, stdin io.Reader, stdout, stderr io.Writer) {
 		fmt.Fprintln(stderr, "flockdeck hook: -endpoint, -session and -event are all required")
 		return
 	}
-	ctx, err := hooks.Emit(stdin, *endpoint, *token, *sessID, *event)
+	res, err := hooks.Emit(stdin, *endpoint, *token, *sessID, *event)
 	if err != nil {
 		fmt.Fprintln(stderr, "flockdeck hook:", err)
 		return
 	}
-	if strings.TrimSpace(ctx) == "" {
+	if strings.TrimSpace(res.Context) == "" && !res.Allow {
 		return
 	}
-	// SessionStart is the one event that answers back. Claude Code reads a
-	// hook's stdout for this event and adds `additionalContext` to the
-	// session, which is how a pane's agent learns which pane it is.
+	// SessionStart is the one event that answers back with a context. Claude
+	// Code reads a hook's stdout for this event and adds `additionalContext`
+	// to the session, which is how a pane's agent learns which pane it is.
+	// PreToolUse is the other: auto-review having allowed it (see
+	// hooks.SetReviewHandler) is said the same way Claude Code's own hooks
+	// say it, which lets the call through without a prompt ever opening.
 	out, err := json.Marshal(hookOutput{
 		HookSpecificOutput: hookSpecificOutput{
 			HookEventName:     *event,
-			AdditionalContext: ctx,
+			AdditionalContext: res.Context,
+			PermissionDecision: func() string {
+				if res.Allow {
+					return "allow"
+				}
+				return ""
+			}(),
+			PermissionDecisionReason: res.Reason,
 		},
 	})
 	if err != nil {
@@ -1939,13 +1949,18 @@ func hook(args []string, stdin io.Reader, stdout, stderr io.Writer) {
 	_, _ = stdout.Write(out)
 }
 
-// hookOutput is the JSON a command hook prints to feed context back into the
-// session that invoked it.
+// hookOutput is the JSON a command hook prints to feed context, or a
+// permission decision, back into the session that invoked it.
 type hookOutput struct {
 	HookSpecificOutput hookSpecificOutput `json:"hookSpecificOutput"`
 }
 
 type hookSpecificOutput struct {
 	HookEventName     string `json:"hookEventName"`
-	AdditionalContext string `json:"additionalContext"`
+	AdditionalContext string `json:"additionalContext,omitempty"`
+	// PermissionDecision and PermissionDecisionReason are Claude Code's own
+	// PreToolUse hook fields, set only when auto-review has allowed a call --
+	// never "deny", which this never says. Left empty for every other event.
+	PermissionDecision       string `json:"permissionDecision,omitempty"`
+	PermissionDecisionReason string `json:"permissionDecisionReason,omitempty"`
 }

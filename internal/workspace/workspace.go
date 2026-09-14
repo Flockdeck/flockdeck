@@ -34,6 +34,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/layout"
+	"github.com/jmwri/flockdeck/internal/review"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -129,6 +130,24 @@ type Pane struct {
 	// there is nowhere it needs clearing when the pane closes: the Pane it
 	// lives on is simply gone.
 	Muted bool
+	// AutoReview opts this pane into auto-review approvals: a PreToolUse call
+	// is put to reviewTool before Claude Code would otherwise show its own
+	// permission prompt, and one the reviewer is confident is safe is let
+	// through without ever reaching that prompt or turning the pane amber.
+	// See SetPaneAutoReview.
+	//
+	// It answers only what is already going to be asked about -- Claude
+	// Code's own permission settings are never touched, and nothing here can
+	// ever say "deny" -- so turning it off simply goes back to asking about
+	// everything, exactly as every pane without it does today.
+	//
+	// Like Muted it is not persisted: a restart starts over asking about
+	// everything until the user turns it back on.
+	AutoReview bool
+	// AutoApproved counts the calls auto-review has let through for this pane
+	// without a prompt, so a person who turned it on has something to see for
+	// it. It is not persisted either.
+	AutoApproved int
 }
 
 // Alive reports whether the pane has a running process.
@@ -268,6 +287,13 @@ type Workspace struct {
 	// catalog's defaults and is outranked by a pane that names one itself.
 	runAgent string
 
+	// reviewer decides auto-review approvals for a pane that has them turned
+	// on -- see reviewTool. It defaults to review.Decide and is only ever
+	// swapped by a test, so that a policy smarter than a fixed allowlist (a
+	// model asked to look at the call, say) can be dropped in later without
+	// reviewTool or anything upstream of it having to change.
+	reviewer func(tool, toolInputJSON string) review.Decision
+
 	// onWake is swapped rather than assigned. The server installs itself once
 	// the workspace is built, by which time the panes restored with it are
 	// already running and calling it from their readers.
@@ -317,6 +343,7 @@ func New(opts Options) (*Workspace, error) {
 		activeRoot:   root,
 		selfExe:      selfExe,
 		settingsDir:  settingsDir,
+		reviewer:     review.Decide,
 	}
 	w.SetWake(opts.OnWake)
 	_ = store.TouchRecent(root)
@@ -335,6 +362,7 @@ func New(opts Options) (*Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
+	srv.SetReviewHandler(w.reviewTool)
 	w.hookSrv = srv
 	return w, nil
 }
@@ -429,6 +457,41 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		return
 	}
 	sess.SetStatusFull(st, detail, ev.ToolInput)
+}
+
+// reviewTool answers a PreToolUse hook's request for a permission decision --
+// see hooks.SetReviewHandler, which this is installed as. Only a pane with
+// AutoReview on is put to the reviewer at all, and answering false here is
+// answered to Claude Code exactly as no handler being installed at all would
+// be: the request goes on to its own permission prompt, unchanged.
+func (w *Workspace) reviewTool(sessionID string, ev hooks.Event) (allow bool, reason string) {
+	w.mu.Lock()
+	p := w.panes[sessionID]
+	// A hook from the process before a restart, on the pane's own id: the
+	// launch mismatch handleHook guards against applies here for the same
+	// reason -- this must never decide for the wrong incarnation of a pane's
+	// own AutoReview choice.
+	if p != nil && ev.Launch != "" && ev.Launch != p.launch {
+		p = nil
+	}
+	on := p != nil && p.AutoReview
+	w.mu.Unlock()
+	if !on {
+		return false, ""
+	}
+
+	d := w.reviewer(ev.Tool, ev.ToolInput)
+	if !d.Allow {
+		return false, ""
+	}
+
+	w.mu.Lock()
+	if p := w.panes[sessionID]; p != nil {
+		p.AutoApproved++
+	}
+	w.mu.Unlock()
+	w.wake()
+	return true, d.Reason
 }
 
 // ----------------------------------------------------------------- projects
@@ -1950,6 +2013,30 @@ func (w *Workspace) SetPaneMuted(id string, muted bool) bool {
 	}
 	if p.Muted != muted {
 		p.Muted = muted
+		w.wake()
+	}
+	return true
+}
+
+// SetPaneAutoReview turns auto-review approvals on or off for one pane -- see
+// Pane.AutoReview and reviewTool, which is where it is read. It reports
+// whether the pane was found, which is false for one already closed, and is
+// what an autoReview command for a gone id is refused by.
+//
+// It writes under w.mu, unlike SetPaneMuted: reviewTool reads AutoReview from
+// the hook server's own goroutines, not the one that owns the workspace.
+func (w *Workspace) SetPaneAutoReview(id string, on bool) bool {
+	w.mu.Lock()
+	p := w.panes[id]
+	changed := p != nil && p.AutoReview != on
+	if changed {
+		p.AutoReview = on
+	}
+	w.mu.Unlock()
+	if p == nil {
+		return false
+	}
+	if changed {
 		w.wake()
 	}
 	return true

@@ -36,7 +36,7 @@ type reporter struct {
 	cwd      string
 	// emit is the client half, kept as a field so a test can watch what would
 	// have been sent without a server to send it to.
-	emit func(stdin io.Reader, endpoint, token, session, event string) (string, error)
+	emit func(stdin io.Reader, endpoint, token, session, event string) (hooks.Response, error)
 	// usageEndpoint is where each call's spending goes, beside the lifecycle
 	// events, and report the client half that sends it.
 	usageEndpoint string
@@ -139,7 +139,7 @@ func (r *reporter) send(event string, in hookInput) string {
 	if err != nil {
 		return ""
 	}
-	return out
+	return out.Context
 }
 
 // sessionStart announces the pane and returns the briefing Flockdeck answers with:

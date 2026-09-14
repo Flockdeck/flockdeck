@@ -245,6 +245,7 @@ type Server struct {
 	onSpawn   func(SpawnRequest) (SpawnResult, error)
 	onContext func(sessionID string) string
 	onUsage   func(spend.Report)
+	onReview  func(sessionID string, ev Event) (allow bool, reason string)
 }
 
 // SessionStart is the lifecycle event a pane's agent fires as it starts,
@@ -267,6 +268,21 @@ const SessionStart = "SessionStart"
 func (s *Server) SetContextHandler(fn func(sessionID string) string) {
 	s.mu.Lock()
 	s.onContext = fn
+	s.mu.Unlock()
+}
+
+// SetReviewHandler installs auto-review approvals: the function consulted on
+// every PreToolUse call, which answers whether the pane it names is safe to
+// let this one through without asking. It is not asked at all for a pane
+// where auto-review is off, which is the handler's own decision to make --
+// this server only ever forwards what it is told.
+//
+// Returning allow == false is answered exactly as no handler being installed
+// at all is: the request falls through to Claude Code's own permission
+// prompt, unchanged from every build before this one. See Response.Allow.
+func (s *Server) SetReviewHandler(fn func(sessionID string, ev Event) (allow bool, reason string)) {
+	s.mu.Lock()
+	s.onReview = fn
 	s.mu.Unlock()
 }
 
@@ -315,23 +331,60 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.on(p.Event)
 	}
 
-	// Only SessionStart has anything to say back. Building the context costs a
-	// trip through the goroutine that owns the workspace, so it is not done
-	// for the events that fire on every tool call.
 	s.mu.RLock()
-	fn := s.onContext
+	ctxFn, reviewFn := s.onContext, s.onReview
 	s.mu.RUnlock()
-	if p.Event.Event != SessionStart || fn == nil || p.SessionID == "" {
+
+	var rep reply
+	answered := false
+	// Only SessionStart has a context to say back. Building it costs a trip
+	// through the goroutine that owns the workspace, so it is not done for
+	// the events that fire on every tool call.
+	if p.Event.Event == SessionStart && ctxFn != nil && p.SessionID != "" {
+		rep.Context = ctxFn(p.SessionID)
+		answered = true
+	}
+	// Only PreToolUse is worth reviewing: it is the one event Claude Code
+	// still reads a reply from once its own permission prompt would open, so
+	// it is the only place a decision can spare the prompt at all.
+	if p.Event.Event == "PreToolUse" && reviewFn != nil && p.SessionID != "" {
+		if allow, reason := reviewFn(p.SessionID, p.Event); allow {
+			rep.PermissionDecision, rep.PermissionReason = "allow", reason
+			answered = true
+		}
+	}
+	if !answered {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(reply{Context: fn(p.SessionID)})
+	_ = json.NewEncoder(w).Encode(rep)
 }
 
 // reply is what the server answers a hook with.
 type reply struct {
 	Context string `json:"context,omitempty"`
+	// PermissionDecision is "allow" where auto-review has decided a
+	// PreToolUse call is safe to let through unasked, and PermissionReason
+	// says why -- see Response.Allow. Never anything else: this protocol has
+	// no way to say "deny", on purpose.
+	PermissionDecision string `json:"permissionDecision,omitempty"`
+	PermissionReason   string `json:"permissionReason,omitempty"`
+}
+
+// Response is what Emit returns once a hook's request has been answered.
+type Response struct {
+	// Context is the pane description a SessionStart hook is answered with,
+	// empty for every other event.
+	Context string
+	// Allow is true where auto-review has decided a PreToolUse call needs no
+	// prompt at all -- see SetReviewHandler. False is not a refusal, only
+	// "answered as it always has been": whatever Claude Code's own permission
+	// settings would otherwise do with this call still happens.
+	Allow bool
+	// Reason is why, shown to the agent as the permission decision's reason.
+	// Empty when Allow is false.
+	Reason string
 }
 
 // Endpoint is the URL panes should post their events to.
@@ -383,15 +436,15 @@ func clip(s string, n int) string {
 // and posts the event -- unless it is a Notification of something finished,
 // which is not reported at all.
 //
-// What it returns is the pane briefing, and only a SessionStart is answered
-// with one: the caller prints it for the agent to read. An agent reporting its
-// own lifecycle rather than being wrapped in a hook command — Flockdeck's chat
-// client does — calls this with a nil stdin and shows what comes back the same
-// way.
+// What it returns is the pane briefing and, for a PreToolUse call, whether
+// auto-review has decided it needs no prompt at all -- see Response and
+// SetReviewHandler. An agent reporting its own lifecycle rather than being
+// wrapped in a hook command — Flockdeck's chat client does — calls this with
+// a nil stdin and shows what comes back the same way.
 //
 // It is deliberately forgiving: a hook that fails must never block or break
 // the session it is reporting on.
-func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, error) {
+func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (Response, error) {
 	// Which start of the pane this is comes from the environment, where the
 	// pane put it: the hook and Flockdeck's chat client both run inside it.
 	p := payload{Event: Event{SessionID: sessionID, Event: event, Launch: os.Getenv(LaunchEnv)}, Token: token}
@@ -409,7 +462,7 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 				p.Source = cp.How
 			}
 			if event == "Notification" && finishedNotifications[cp.NotificationType] {
-				return "", nil
+				return Response{}, nil
 			}
 			p.NotificationType = cp.NotificationType
 			if event == "PostToolUseFailure" && cp.IsInterrupt {
@@ -420,18 +473,18 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 
 	body, err := json.Marshal(p)
 	if err != nil {
-		return "", err
+		return Response{}, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return Response{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return Response{}, err
 	}
 	defer resp.Body.Close()
 	// A refusal is silent otherwise, and a hook that is being refused looks
@@ -441,16 +494,16 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (string, er
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		if text := strings.TrimSpace(string(msg)); text != "" {
-			return "", fmt.Errorf("the application refused the %s hook: %s", event, text)
+			return Response{}, fmt.Errorf("the application refused the %s hook: %s", event, text)
 		}
-		return "", fmt.Errorf("the application refused the %s hook: %s", event, resp.Status)
+		return Response{}, fmt.Errorf("the application refused the %s hook: %s", event, resp.Status)
 	}
 	var out reply
 	if resp.StatusCode == http.StatusOK {
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out)
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
-	return out.Context, nil
+	return Response{Context: out.Context, Allow: out.PermissionDecision == "allow", Reason: out.PermissionReason}, nil
 }
 
 // SpawnRequest is a pane asking the application to start another agent.
