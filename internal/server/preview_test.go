@@ -44,6 +44,35 @@ func TestPreviewPresentForAgentPaneNeverOpened(t *testing.T) {
 	}
 }
 
+// TestPreviewPresentForChatPaneNeverOpened is TestPreviewPresentForAgentPaneNeverOpened's
+// phase-2 counterpart: a pane running Flockdeck's own chat client gets an
+// inbox preview the same way, from notePreview's own generic reading of
+// transcript.Entry -- nothing here is specific to which adapter produced it.
+func TestPreviewPresentForChatPaneNeverOpened(t *testing.T) {
+	srv, ws := newTestServer(t)
+	paneID := addAgentPane(t, srv, ws, "anthropic")
+
+	writeChatJSONL(t, chatTranscriptPath(t, paneID),
+		`{"type":"user","ts":"2026-09-14T10:00:00Z","text":"hello"}`,
+		`{"type":"assistant","ts":"2026-09-14T10:00:01Z","text":"**hi** there, friend"}`,
+	)
+	srv.ConversationHookEvent(paneID)
+
+	pv, ok := ask(srv, func() paneView { return srv.snapshot().Panes[paneID] })
+	if !ok {
+		t.Fatal("the workspace did not answer")
+	}
+	if pv.Last == nil {
+		t.Fatal("a chat pane with a reply should carry a preview, even unopened")
+	}
+	if pv.Last.Kind != "reply" {
+		t.Errorf("kind = %q, want reply", pv.Last.Kind)
+	}
+	if pv.Last.Text != "hi there, friend" {
+		t.Errorf("text = %q, want markdown stripped", pv.Last.Text)
+	}
+}
+
 // TestPreviewUpdatesOnGrowth covers the "updated when the conversation grows"
 // half of the contract: a second reply replaces the first as the preview,
 // again from ConversationHookEvent alone.
