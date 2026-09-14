@@ -12,10 +12,15 @@ switched from inside the window. These are what is left.
 | `flockdeck -agent codex` | Make every new pane this run that agent |
 | `flockdeck -detach` | Run with no window; attach to it later |
 | `flockdeck -quit` | Stop a running instance and its agents |
-| `flockdeck -no-window` | Just serve; print the URL and open it yourself |
+| `flockdeck -no-window` | Serve headless, no browser needed here; print the URL and open it yourself |
 | `flockdeck -solo` | Start a separate instance instead of attaching |
 | `flockdeck -version` | Print the version |
 | `flockdeck agents` | List the agents and models that `-agent` and `spawn` accept, and which are installed here |
+
+`-no-window` needs no browser on the machine it runs on either, so it's
+equally at home on a server you own — see **Self-hosted** in
+[Remote access](#remote) for running Flockdeck headless and reaching it from
+a paired phone or laptop.
 
 Running the binary again does **not** start a second set of agents. It finds
 the instance already going, hands it the directory you asked for, and opens a

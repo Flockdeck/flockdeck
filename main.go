@@ -247,7 +247,7 @@ func flockdeckFlagSet(c *cliFlags) *flag.FlagSet {
 	fs.StringVar(&c.agent, "agent", "", "`id` of the agent new panes start as for this run; flockdeck agents lists them")
 	fs.BoolVar(&c.fresh, "new", false, "ignore any saved layout and start with a single pane")
 	fs.BoolVar(&c.shell, "shell", false, "open the first pane as a shell instead of an agent")
-	fs.BoolVar(&c.noWindow, "no-window", false, "do not open a window; print the URL and keep serving")
+	fs.BoolVar(&c.noWindow, "no-window", false, "do not open a window or need a browser here; print the URL and keep serving")
 	fs.BoolVar(&c.detach, "detach", false, "keep running without a window; reattach later by running it again")
 	fs.BoolVar(&c.quit, "quit", false, "stop a running instance and its agents")
 	fs.BoolVar(&c.solo, "solo", false, "always start a new instance instead of attaching to a running one")
