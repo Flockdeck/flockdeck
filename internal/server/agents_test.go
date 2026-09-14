@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // TestDefaultForEveryProjectFromTheWindow covers the default every project
@@ -353,6 +355,64 @@ func TestTheCatalogTheWindowIsSent(t *testing.T) {
 	}
 	if got.Project == nil || got.Project.Model != "opus" {
 		t.Errorf("project default = %+v, want opus", got.Project)
+	}
+}
+
+// TestAgentsOverviewCarriesAHelpersParent covers what the phone's list groups
+// a helper under: the overview names its parent's pane id while the parent is
+// still open, and stops naming it once the parent closes -- from then on the
+// helper is the user's own, and must read as an ordinary row rather than
+// orphaned under a pane that no longer exists.
+func TestAgentsOverviewCarriesAHelpersParent(t *testing.T) {
+	srv, ws := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	lead, ok := ask(srv, func() string { return ws.CurrentTab().Focus })
+	if !ok || lead == "" {
+		t.Fatal("no lead pane to spawn a helper from")
+	}
+	helper, ok := ask(srv, func() string {
+		id, err := ws.Spawn(lead, workspace.SpawnOptions{Task: "help", Kind: session.KindShell, SpawnedByAgent: true})
+		if err != nil {
+			t.Error(err)
+		}
+		return id
+	})
+	if !ok || helper == "" {
+		t.Fatal("the helper did not start")
+	}
+
+	find := func() (agentView, bool) {
+		var ag agentsMsg
+		sendCmd(t, conn, command{Cmd: "agents"})
+		readUntil(t, conn, "agents", &ag)
+		for _, a := range ag.Items {
+			if a.PaneID == helper {
+				return a, true
+			}
+		}
+		return agentView{}, false
+	}
+
+	av, ok := find()
+	if !ok {
+		t.Fatal("the helper was not listed in the overview")
+	}
+	if av.Parent != lead {
+		t.Errorf("helper's parent = %q, want the lead pane %q", av.Parent, lead)
+	}
+
+	if ok, _ := ask(srv, func() bool { return ws.ClosePaneByID(lead) }); !ok {
+		t.Fatal("could not close the lead pane")
+	}
+
+	av, ok = find()
+	if !ok {
+		t.Fatal("the helper was not listed in the overview after its parent closed")
+	}
+	if av.Parent != "" {
+		t.Errorf("helper's parent = %q after its parent closed, want none", av.Parent)
 	}
 }
 
