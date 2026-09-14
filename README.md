@@ -1010,9 +1010,8 @@ thinking fold into one line, "12 steps · 3 files edited · 4 commands", tapped
 open to see each step; an edit shows its diff, with line numbers. A question
 or a permission prompt appears as a card with buttons in the chat, rather
 than needing the terminal — multiple choice, a typed answer, and Yes/No for a
-permission are all covered, though a call that asks several questions at
-once only puts the first one on a card, and the rest still need the
-terminal.
+permission are all covered, including a call that asks several questions at
+once: answer them one at a time on the card, then send them all together.
 
 While an agent works, "Working for 3m — Bash", naming what it's doing, sits
 above the prompt box, and a **Stop** button — the same as pressing Escape —
