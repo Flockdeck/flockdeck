@@ -47,6 +47,11 @@ type claudeStream struct {
 	detail  map[string]Detail
 
 	autoID int
+
+	// light is whether this stream is in preview-only mode -- see
+	// SetLight. Zero value is false, so a freshly built stream defaults to
+	// full, matching every caller that built one before this field existed.
+	light bool
 }
 
 func newClaudeStream(home, sessionID string) *claudeStream {
@@ -111,6 +116,47 @@ func (s *claudeStream) Snapshot() []Entry {
 // catches by noticing the id changed -- nothing in this stream is ever
 // replaced in place, so there is never anything to report here.
 func (s *claudeStream) Reset() bool { return false }
+
+// SetLight implements Stream.
+func (s *claudeStream) SetLight(light bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if light == s.light {
+		return
+	}
+	s.light = light
+	if light {
+		s.entries = nil
+		s.index = map[string]int{}
+		s.detail = map[string]Detail{}
+		return
+	}
+	// Coming back to full: light mode never kept the entries it tailed
+	// through, so the only way to answer with the whole conversation again
+	// is to read the file from the top, same as a stream built fresh.
+	s.offset = 0
+	s.carry = nil
+	s.autoID = 0
+	s.entries = nil
+	s.index = map[string]int{}
+	s.detail = map[string]Detail{}
+}
+
+// EntryCount implements Stream.
+func (s *claudeStream) EntryCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.entries)
+}
+
+// setDetail records an entry's trimmed-away full body, except in light mode,
+// where nothing is worth keeping for a pane nobody is watching.
+func (s *claudeStream) setDetail(id string, d Detail) {
+	if s.light {
+		return
+	}
+	s.detail[id] = d
+}
 
 // Detail implements Stream.
 func (s *claudeStream) Detail(id string) (Detail, bool) {
@@ -430,7 +476,7 @@ func (s *claudeStream) promptOrNotice(line streamLine, id, ts, text string) []En
 // person needs to see, the full text is what they see if they ask.
 func (s *claudeStream) notice(id, ts, summary, full string) Entry {
 	e := s.add(Entry{ID: s.lineID(id), Kind: KindNotice, TS: ts, Text: summary, HasDetail: true})
-	s.detail[e.ID] = Detail{Text: full}
+	s.setDetail(e.ID, Detail{Text: full})
 	return e
 }
 
@@ -499,7 +545,7 @@ func (s *claudeStream) applyAssistant(line streamLine) []Entry {
 		case "thinking":
 			changed = append(changed, s.add(Entry{ID: id, Kind: KindThinking, TS: line.Timestamp, Chars: len([]rune(b.Text))}))
 			if b.Text != "" {
-				s.detail[id] = Detail{Text: b.Text}
+				s.setDetail(id, Detail{Text: b.Text})
 			}
 		case "tool_use":
 			input := b.Input
@@ -525,6 +571,13 @@ func (s *claudeStream) lineID(uuid string) string {
 }
 
 func (s *claudeStream) add(e Entry) Entry {
+	if s.light {
+		// Still translated and returned -- Refresh's caller (the inbox
+		// preview) needs the entry -- just never retained: a pane nobody
+		// has open keeps no history in memory, only the latest reply,
+		// which the caller reads straight off Refresh's return value.
+		return e
+	}
 	s.index[e.ID] = len(s.entries)
 	s.entries = append(s.entries, e)
 	return e
@@ -591,7 +644,7 @@ func (s *claudeStream) startTool(id, name string, rawInput json.RawMessage, ts s
 		} else {
 			e.HasDetail = true
 			e.Summary = diffSummary(diff)
-			s.detail[id] = Detail{Diff: diff}
+			s.setDetail(id, Detail{Diff: diff})
 		}
 	}
 	return s.add(e)
@@ -627,7 +680,7 @@ func (s *claudeStream) applyToolResult(b rawBlock, ts string) []Entry {
 			e.Summary = summary
 			if hasDetail {
 				e.HasDetail = true
-				s.detail[e.ID] = Detail{Text: text}
+				s.setDetail(e.ID, Detail{Text: text})
 			}
 		}
 	}); ok {
@@ -660,7 +713,7 @@ func (s *claudeStream) addImage(id, ts string, b rawBlock) (Entry, bool) {
 		return Entry{}, false
 	}
 	e := Entry{ID: id, Kind: KindImage, TS: ts, MediaType: mediaType, Bytes: len(data), Width: width, Height: height, HasDetail: true}
-	s.detail[id] = Detail{Data: base64.StdEncoding.EncodeToString(data)}
+	s.setDetail(id, Detail{Data: base64.StdEncoding.EncodeToString(data)})
 	return s.add(e), true
 }
 

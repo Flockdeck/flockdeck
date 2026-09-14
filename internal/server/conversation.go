@@ -28,6 +28,14 @@ const conversationPageSize = 50
 // there is nothing to catch up on between them.
 var conversationPollInterval = 2 * time.Second
 
+// conversationIdleDowngradeDelay is how long a pane sits with nobody
+// watching its conversation before the stream drops back to light
+// (preview-only) mode -- see paneConvo.scheduleLightDowngrade. Not
+// immediate, so a client that closes and quickly reopens the same pane (a
+// phone locking and unlocking, a reconnect) does not pay for a full rebuild
+// of the stream it just had.
+var conversationIdleDowngradeDelay = 30 * time.Second
+
 // conversationHub is every pane's live chat-view stream that at least one
 // client has opened, and which clients are watching each. It outlives any
 // one client's connection -- a cursor from an earlier page is honoured for
@@ -93,7 +101,8 @@ func (h *conversationHub) watched() []string {
 	return ids
 }
 
-// dropClient forgets a client that has gone, everywhere it was watching.
+// dropClient forgets a client that has gone, everywhere it was watching, and
+// starts each pane it was the last watcher of back toward light mode.
 func (h *conversationHub) dropClient(c *controlClient) {
 	h.mu.Lock()
 	panes := make([]*paneConvo, 0, len(h.panes))
@@ -103,9 +112,28 @@ func (h *conversationHub) dropClient(c *controlClient) {
 	h.mu.Unlock()
 	for _, pc := range panes {
 		pc.mu.Lock()
+		_, watched := pc.watchers[c]
 		delete(pc.watchers, c)
+		empty := watched && len(pc.watchers) == 0
 		pc.mu.Unlock()
+		if empty {
+			pc.scheduleLightDowngrade()
+		}
 	}
+}
+
+// scheduleLightDowngrade drops pc's stream back to light mode once
+// conversationIdleDowngradeDelay has passed with nobody watching it --
+// re-checked when the timer fires rather than assumed, since a client may
+// have reopened the pane in the meantime.
+func (pc *paneConvo) scheduleLightDowngrade() {
+	time.AfterFunc(conversationIdleDowngradeDelay, func() {
+		pc.mu.Lock()
+		defer pc.mu.Unlock()
+		if len(pc.watchers) == 0 && pc.stream != nil {
+			pc.stream.SetLight(true)
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +217,7 @@ func (s *Server) conversationOpen(c *controlClient, paneID, after string) {
 		pc := s.convos.get(paneID)
 		pc.mu.Lock()
 		defer pc.mu.Unlock()
-		s.syncStreamLocked(pc, r)
+		s.syncStreamLocked(pc, r, false)
 		if !pc.supported {
 			c.sendJSON(conversationPageMsg{Type: "conversationPage", ID: paneID, Supported: false})
 			return
@@ -219,14 +247,21 @@ func (s *Server) conversationOpen(c *controlClient, paneID, after string) {
 // syncStreamLocked makes pc match what the pane is running now, building a
 // fresh stream the first time a pane is opened, and again whenever the
 // conversation it is in has changed under it -- a /clear or a resume, which
-// the SessionStart hook already tells Workspace about. pc.mu must be held.
-func (s *Server) syncStreamLocked(pc *paneConvo, r resolvedPane) {
+// the SessionStart hook already tells Workspace about. Either way, the
+// stream ends up in the requested memory mode: light for a pane nobody is
+// watching yet, full for a client that is opening it right now. pc.mu must
+// be held.
+func (s *Server) syncStreamLocked(pc *paneConvo, r resolvedPane, light bool) {
 	if pc.stream != nil && pc.sessionID == r.sessionID {
+		pc.stream.SetLight(light)
 		return
 	}
 	pc.spec, pc.sessionID = r.spec, r.sessionID
 	stream, ok := transcript.StreamFor(r.spec, r.sessionID)
 	pc.stream, pc.supported = stream, ok
+	if ok {
+		stream.SetLight(light)
+	}
 }
 
 // pageFor answers an open request's page: the newest conversationPageSize
@@ -344,7 +379,11 @@ func (s *Server) conversationClose(c *controlClient, paneID string) {
 	}
 	pc.mu.Lock()
 	delete(pc.watchers, c)
+	empty := len(pc.watchers) == 0
 	pc.mu.Unlock()
+	if empty {
+		pc.scheduleLightDowngrade()
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -369,7 +408,9 @@ func (s *Server) ConversationHookEvent(paneID string) {
 		}
 		pc = s.convos.get(paneID)
 		pc.mu.Lock()
-		s.syncStreamLocked(pc, r)
+		// Nobody has this pane open yet -- it is only here for the inbox
+		// preview -- so its stream starts light.
+		s.syncStreamLocked(pc, r, true)
 		pc.mu.Unlock()
 	}
 	s.refreshConversation(paneID, pc)
@@ -394,6 +435,9 @@ func (s *Server) refreshConversation(paneID string, pc *paneConvo) {
 			}
 			return
 		}
+		// A pane still nobody has open keeps its new stream light too, the
+		// same as if this were its first ever conversation.
+		stream.SetLight(len(pc.watchers) == 0)
 		s.notePreview(paneID, pc.stream.Refresh())
 		// Already answered as a reset below, whatever this says -- a new
 		// session id is reset enough on its own -- so this only drains it for

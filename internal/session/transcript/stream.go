@@ -121,6 +121,24 @@ type Stream interface {
 	// internal/server/conversation.go's refreshConversation), so its Stream
 	// always answers false.
 	Reset() bool
+
+	// SetLight switches the stream between its two memory modes. Light
+	// (true) is for a pane no client has open: Refresh still tails the file
+	// and still returns every entry that is new or changed, so a caller
+	// reading only the reply text off that return value (the inbox preview)
+	// keeps working exactly as before, but nothing is retained -- there is
+	// no whole conversation sitting in memory just to show 140 characters of
+	// it. Full (false) is what a client's chat view needs: every entry seen
+	// kept for paging and detail. Switching from light to full discards
+	// whatever light mode did not keep and re-reads the transcript from the
+	// start on the next Refresh, so a pane's first open after a stretch of
+	// being unwatched still shows its whole history, not only what arrived
+	// since. Calling SetLight with the mode it is already in is a no-op.
+	SetLight(light bool)
+
+	// EntryCount reports how many entries the stream currently retains --
+	// zero for one in light mode, which is the point.
+	EntryCount() int
 }
 
 // Streamer is a Reader that can also tail its agent's conversation live. Only

@@ -133,6 +133,45 @@ func TestPreviewAbsentForShellPane(t *testing.T) {
 	}
 }
 
+// TestPreviewNeverOpenedPaneHoldsNoFullHistory covers the memory half of the
+// inbox preview's contract: several replies tailed for a pane nobody has
+// opened must not leave a whole conversation sitting in memory, only the
+// preview itself -- the point of the stream's light mode.
+func TestPreviewNeverOpenedPaneHoldsNoFullHistory(t *testing.T) {
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	root := ws.ActiveRoot()
+	path := claudeTranscriptPath(home, root, paneID)
+
+	writeClaudeJSONL(t, path,
+		`{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"text","text":"first reply"}]}}`,
+	)
+	srv.ConversationHookEvent(paneID)
+
+	appendJSONL(t, path,
+		`{"type":"assistant","uuid":"a2","message":{"role":"assistant","content":[{"type":"text","text":"second reply"}]}}`,
+	)
+	srv.ConversationHookEvent(paneID)
+
+	last, ok := srv.preview.get(paneID)
+	if !ok || last.Text != "second reply" {
+		t.Fatalf("preview = %+v, ok=%v; want the newest reply", last, ok)
+	}
+
+	pc, ok := srv.convos.lookup(paneID)
+	if !ok {
+		t.Fatal("no conversation entry for a pane that has had hook events")
+	}
+	pc.mu.Lock()
+	n := pc.stream.EntryCount()
+	pc.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("EntryCount = %d, want 0 for a pane nobody has opened", n)
+	}
+}
+
 // TestPreviewTextStripsMarkdownAndCaps covers previewText directly: common
 // markdown syntax removed, whitespace collapsed, and a long reply capped
 // rather than sent whole -- an inbox row is a line or two, not the chat view.

@@ -423,6 +423,101 @@ func TestConversationDetailReturnsAnImagesBytes(t *testing.T) {
 	}
 }
 
+// TestConversationOpenAfterBeingTailedLightGivesFullHistory covers the
+// promotion path: a pane tailed light for a while, because nobody had it
+// open, must still show its whole history when finally opened -- not only
+// what arrived after that.
+func TestConversationOpenAfterBeingTailedLightGivesFullHistory(t *testing.T) {
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	root := ws.ActiveRoot()
+	path := claudeTranscriptPath(home, root, paneID)
+
+	writeClaudeJSONL(t, path,
+		`{"type":"user","uuid":"u1","message":{"role":"user","content":"hello"}}`,
+		`{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"text","text":"first reply"}]}}`,
+	)
+	srv.ConversationHookEvent(paneID)
+
+	pc, ok := srv.convos.lookup(paneID)
+	if !ok {
+		t.Fatal("no conversation entry after a hook event")
+	}
+	pc.mu.Lock()
+	n := pc.stream.EntryCount()
+	pc.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("EntryCount = %d before opening, want 0 (light mode)", n)
+	}
+
+	appendJSONL(t, path,
+		`{"type":"assistant","uuid":"a2","message":{"role":"assistant","content":[{"type":"text","text":"second reply"}]}}`,
+	)
+	srv.ConversationHookEvent(paneID)
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, paneID, "")
+	page := decodePage(t, nextRaw(t, c))
+	if len(page.Entries) != 3 {
+		t.Fatalf("entries = %+v, want all 3 lines, including those written before the pane was ever opened", page.Entries)
+	}
+	if page.Entries[0].Text != "hello" || page.Entries[1].Markdown != "first reply" || page.Entries[2].Markdown != "second reply" {
+		t.Errorf("entries = %+v", page.Entries)
+	}
+}
+
+// TestConversationCloseDropsBackToLightAfterADelay covers giving memory
+// back: once the last client watching a pane closes it, the stream should
+// drop back to light mode -- after conversationIdleDowngradeDelay, not
+// immediately, so a quick reopen is not punished with a full rebuild.
+func TestConversationCloseDropsBackToLightAfterADelay(t *testing.T) {
+	old := conversationIdleDowngradeDelay
+	conversationIdleDowngradeDelay = 50 * time.Millisecond
+	t.Cleanup(func() { conversationIdleDowngradeDelay = old })
+
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	root := ws.ActiveRoot()
+	writeClaudeJSONL(t, claudeTranscriptPath(home, root, paneID),
+		`{"type":"user","uuid":"u1","message":{"role":"user","content":"hello"}}`,
+	)
+
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(c, paneID, "")
+	decodePage(t, nextRaw(t, c))
+
+	pc, ok := srv.convos.lookup(paneID)
+	if !ok {
+		t.Fatal("no conversation entry after opening")
+	}
+	pc.mu.Lock()
+	n := pc.stream.EntryCount()
+	pc.mu.Unlock()
+	if n == 0 {
+		t.Fatal("EntryCount = 0 right after opening, want the full history retained")
+	}
+
+	srv.conversationClose(c, paneID)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		pc.mu.Lock()
+		n = pc.stream.EntryCount()
+		pc.mu.Unlock()
+		if n == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("EntryCount stayed %d after closing the last client and waiting past the downgrade delay", n)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func appendJSONL(t *testing.T, path string, lines ...string) {
 	t.Helper()
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)

@@ -459,3 +459,75 @@ func TestClaudeStreamSupportedBeforeFirstPrompt(t *testing.T) {
 		t.Errorf("Snapshot on a file that does not exist: got %v", got)
 	}
 }
+
+// TestClaudeStreamLightModeKeepsNoEntries covers the point of light mode: a
+// pane nobody has open still gets every reply Refresh sees -- the inbox
+// preview reads those straight off Refresh's own return value -- but the
+// stream itself retains none of them, growth of the transcript included.
+func TestClaudeStreamLightModeKeepsNoEntries(t *testing.T) {
+	home := t.TempDir()
+	const sessionID = "55555555-5555-5555-5555-555555555555"
+	path := writeTranscript(t, filepath.Join(home, "projects", "proj1"), sessionID,
+		`{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"text","text":"first reply"}]}}`,
+	)
+	spec := fixtureSpec(home)
+
+	stream, ok := StreamFor(spec, sessionID)
+	if !ok {
+		t.Fatal("StreamFor: claude Spec answered unsupported")
+	}
+	stream.SetLight(true)
+
+	changed := stream.Refresh()
+	if len(changed) != 1 || changed[0].Markdown != "first reply" {
+		t.Fatalf("light Refresh = %+v, want the reply translated as normal", changed)
+	}
+	if n := stream.EntryCount(); n != 0 {
+		t.Fatalf("EntryCount = %d, want 0 in light mode", n)
+	}
+
+	appendRaw(t, path, `{"type":"assistant","uuid":"a2","message":{"role":"assistant","content":[{"type":"text","text":"second reply"}]}}`+"\n")
+	changed = stream.Refresh()
+	if len(changed) != 1 || changed[0].Markdown != "second reply" {
+		t.Fatalf("light Refresh after growth = %+v, want the new reply", changed)
+	}
+	if n := stream.EntryCount(); n != 0 {
+		t.Fatalf("EntryCount after growth = %d, want still 0 in light mode", n)
+	}
+}
+
+// TestClaudeStreamPromotingToFullRebuildsWholeHistory covers a pane tailed
+// light for a while -- nobody had it open -- and then opened: it must show
+// the whole conversation, not only what arrived after the promotion.
+func TestClaudeStreamPromotingToFullRebuildsWholeHistory(t *testing.T) {
+	home := t.TempDir()
+	const sessionID = "66666666-6666-6666-6666-666666666666"
+	path := writeTranscript(t, filepath.Join(home, "projects", "proj1"), sessionID,
+		`{"type":"user","uuid":"u1","message":{"role":"user","content":"hello"}}`,
+		`{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"text","text":"first reply"}]}}`,
+	)
+	spec := fixtureSpec(home)
+
+	stream, ok := StreamFor(spec, sessionID)
+	if !ok {
+		t.Fatal("StreamFor: claude Spec answered unsupported")
+	}
+	stream.SetLight(true)
+	stream.Refresh()
+	if n := stream.EntryCount(); n != 0 {
+		t.Fatalf("EntryCount = %d, want 0 before promotion", n)
+	}
+
+	appendRaw(t, path, `{"type":"assistant","uuid":"a2","message":{"role":"assistant","content":[{"type":"text","text":"second reply"}]}}`+"\n")
+	stream.Refresh()
+
+	stream.SetLight(false)
+	stream.Refresh()
+	entries := stream.Snapshot()
+	if len(entries) != 3 {
+		t.Fatalf("entries after promotion = %+v, want all 3 lines, including those tailed while light", entries)
+	}
+	if entries[0].Text != "hello" || entries[1].Markdown != "first reply" || entries[2].Markdown != "second reply" {
+		t.Errorf("entries after promotion = %+v", entries)
+	}
+}
