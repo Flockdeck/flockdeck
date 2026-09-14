@@ -2610,7 +2610,7 @@ const stops = () => {
 };
 
 h.click(h.$("btn-update"));
-const notes = h.$("overlay-body").querySelector("pre.update-notes");
+const notes = h.$("overlay-body").querySelector("div.update-notes");
 assert.strictEqual(notes.getAttribute("tabindex"), "0", "the release notes cannot be focused, so they cannot be scrolled from the keyboard");
 assert.strictEqual(notes.getAttribute("role"), "region");
 assert.strictEqual(notes.getAttribute("aria-label"), "Release notes");
@@ -2642,6 +2642,46 @@ assert.strictEqual(diff.getAttribute("tabindex"), "0", "drawing the rest took th
 
 h.click(rows[1]);
 assert.strictEqual(diff.getAttribute("aria-label"), "Diff of a/two.go", "the diff is still named after the file before");
+`)
+}
+
+// Curated release notes are Markdown-ish prose — a title, headings, bullet
+// lists, **bold** — and used to show up in the update dialog as literal
+// text, "##" and "-" characters included, because the box rendered them as a
+// flat preformatted block. renderNotes turns the shapes docs/releases/*.md
+// actually uses into real elements instead.
+func TestReleaseNotesRenderAsMarkdown(t *testing.T) {
+	runFrontEnd(t, `
+const NL = String.fromCharCode(10);
+const notesText = [
+  "# Flockdeck v9.9.9",
+  "",
+  "## Faster fan-out",
+  "",
+  "Starting several agents at once now takes **half the time** it used to.",
+  "",
+  "- Say so in Settings › Agents › Routing.",
+  "- Reload the phone view to see it there too.",
+].join(NL);
+h.hello();
+h.recv(fixture({ update: { version: "9.9.9", notes: notesText } }));
+h.click(h.$("btn-update"));
+const box = h.$("overlay-body").querySelector("div.update-notes");
+assert.ok(box, "the notes box is no longer a div");
+assert.ok(!box.textContent.includes("##"), "a heading marker leaked into the rendered text");
+assert.ok(!box.textContent.includes("- Say so"), "a bullet marker leaked into the rendered text");
+
+const headings = box.querySelectorAll("h3, h4").map((n) => n.textContent);
+assert.deepStrictEqual(headings, ["Flockdeck v9.9.9", "Faster fan-out"], "the title and the theme did not become headings");
+
+const items = box.querySelectorAll("li").map((n) => n.textContent);
+assert.deepStrictEqual(items, [
+  "Say so in Settings › Agents › Routing.",
+  "Reload the phone view to see it there too.",
+], "the bullets did not become a list");
+
+const bold = box.querySelector("strong");
+assert.strictEqual(bold && bold.textContent, "half the time", "**bold** did not render as emphasis");
 `)
 }
 

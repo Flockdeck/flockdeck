@@ -702,10 +702,25 @@ textarea:focus-visible {
 }
 .remote-link:focus { outline: none; border-color: var(--accent); }
 .update-notes {
-  max-height: 220px; overflow: auto; white-space: pre-wrap;
+  max-height: 220px; overflow: auto;
   background: var(--bg-dim, #14171d); border: 1px solid var(--line, #2a2f3a);
   border-radius: 6px; padding: 10px 12px; margin: 12px 0;
   font-size: 12px; line-height: 1.5;
+}
+/* Headings, paragraphs and lists rendered from the note's Markdown-ish text
+ * (renderNotes in app.js) rather than the literal preformatted text this box
+ * used to show. */
+.update-notes h3, .update-notes h4, .update-notes h5, .update-notes h6 {
+  margin: 12px 0 4px; font-size: 12px; font-weight: 600; color: var(--fg);
+}
+.update-notes :first-child { margin-top: 0; }
+.update-notes p { margin: 0 0 8px; }
+.update-notes ul { margin: 0 0 8px; padding-left: 18px; }
+.update-notes li { margin: 2px 0; }
+.update-notes :last-child { margin-bottom: 0; }
+.update-notes code {
+  font-family: ui-monospace, Consolas, monospace; font-size: 11px;
+  background: var(--bg-inset); border-radius: 3px; padding: 1px 4px;
 }
 .update-row { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
 .chip.danger:hover { background: var(--exited); color: #1a0d0c; }
