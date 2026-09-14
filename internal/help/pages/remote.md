@@ -125,6 +125,11 @@ open as a chat, a few parts fall back gracefully on a desktop too old to send
 them, rather than breaking: no live timer, a plain "waiting for you — open
 the terminal to answer" banner instead of a question or permission card, and
 no preview text in the paired device's list.
+**New agent**, near the top of a desktop's page in the relay's client, starts
+one without going to the desk: choose a project already open there, an agent
+and model, optionally a fresh worktree, and a first message, then **Start**.
+It opens straight into that agent's conversation once it starts, and refuses
+a project the desktop does not already have open rather than opening one.
 
 ## Notifications on your phone
 

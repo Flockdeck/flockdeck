@@ -410,6 +410,98 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 	}()
 }
 
+// startAgent starts one fresh agent in an already open project and answers
+// the window that asked for it with the new pane's id, so it can open that
+// pane's chat straight away -- what lets somebody start an agent from their
+// phone and land in it, rather than having to go and find it on the desk.
+//
+// Unlike newTab and fanout, root need not be the active project: a phone
+// names whichever open project it is looking at, which the desk may be
+// showing something else entirely. And unlike a fan-out's own children, the
+// pane this starts is never a helper -- it carries no Parent -- so it
+// notifies its user exactly as one opened by hand would; see
+// workspace.StartAgent.
+//
+// A window that is not reached through the relay can do everything this does
+// through newTab or fanout already (see control.go's command dispatch), so
+// this adds no power a window at the desk did not already have -- only a way
+// to reach it without the desk.
+func (s *Server) startAgent(c *controlClient, cmd command) {
+	task := strings.TrimSpace(cmd.Task)
+	if task == "" {
+		c.notify("a task is required to start an agent", true)
+		return
+	}
+	// Settled before anything as slow as a worktree is cut, so a bad root or
+	// an agent that does not exist is refused at once rather than after a
+	// wait that was always going to end in the same refusal.
+	type facts struct {
+		root string
+		err  error
+	}
+	f, ok := ask(s, func() facts {
+		root, _, err := s.ws.ValidateStartAgent(cmd.Root, cmd.Agent, cmd.Model)
+		return facts{root: root, err: err}
+	})
+	if !ok {
+		return
+	}
+	if f.err != nil {
+		c.notify(f.err.Error(), true)
+		return
+	}
+	root := f.root
+
+	go func() {
+		defer s.surviveFor(c, "starting an agent")
+		// job carries the branch and worktree StartAgent should run in, and
+		// nothing else: it is the same shape a fan-out gives a single task,
+		// reused here for its worktree naming rather than duplicated.
+		job := &fanoutJob{task: task, cwd: root}
+		var repo string
+		if cmd.Worktree {
+			repo = gitRoot(root)
+			switch {
+			case !gitx.Available():
+				c.notify("git is not installed, so no worktree can be created", true)
+				return
+			case repo == "":
+				c.notify(fmt.Sprintf("%s is not in a git repository, so no worktree can be created", filepath.Base(root)), true)
+				return
+			}
+			if !prepareWorktrees(c, repo, []*fanoutJob{job}) {
+				return
+			}
+			if job.err != nil {
+				c.notify(job.err.Error(), true)
+				return
+			}
+		}
+
+		type spawned struct {
+			id  string
+			err error
+		}
+		r, ok := ask(s, func() spawned {
+			id, err := s.ws.StartAgent(root, cmd.Agent, cmd.Model, job.cwd, task)
+			return spawned{id: id, err: err}
+		})
+		if !ok {
+			return
+		}
+		if r.err != nil {
+			msg := r.err.Error()
+			if err := discardWorktree(repo, job, s.paneWorkingIn); err != nil {
+				msg += fmt.Sprintf(" (%v)", err)
+			}
+			c.notify(msg, true)
+			return
+		}
+		c.sendJSON(map[string]any{"type": "agentStarted", "paneId": r.id, "id": cmd.ID})
+		s.Wake()
+	}()
+}
+
 // revealFirstChild shows the person the first agent a fan-out started: its tab
 // selected and its pane focused, so that what they type next goes to it. That
 // is the tab the fan-out opened for its agents, or the tab it split into, where

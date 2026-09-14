@@ -241,6 +241,12 @@ type stateMsg struct {
 	// enrolled for remote access — in which case the window shows nothing
 	// about it at all.
 	Remote *remoteView `json:"remote,omitempty"`
+	// CanStartAgent says this instance understands the startAgent command, so
+	// a phone can offer to start one. It is always true where this field is
+	// sent at all; a window is a phone reading an older desktop's state the
+	// moment it is absent, which is what lets it hide the offer instead of
+	// sending a command that would be silently dropped.
+	CanStartAgent bool `json:"canStartAgent,omitempty"`
 }
 
 // projectView is one open project as the picker and switcher show it.
@@ -426,6 +432,11 @@ type command struct {
 	// phone calls the file. See imageattach.go.
 	MediaType string `json:"mediaType"`
 	Data      string `json:"data"`
+	// Task and Worktree are startAgent's own: the opening prompt for the agent
+	// it starts, and whether it should run in a fresh worktree cut from Root
+	// rather than in the project itself. See startAgent.
+	Task     string `json:"task"`
+	Worktree bool   `json:"worktree"`
 }
 
 // ---------------------------------------------------------------------------
@@ -457,6 +468,7 @@ func (s *Server) snapshot() stateMsg {
 		Panes:           map[string]paneView{},
 		Update:          s.Update(),
 		Remote:          s.remoteSnapshot(),
+		CanStartAgent:   true,
 	}
 	// These are sized rather than grown, and made rather than left nil: the
 	// window walks them without checking them first, so an empty one has to
@@ -1056,6 +1068,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			Split:      cmd.Split,
 			Trust:      cmd.Trust,
 		})
+		return
+	case "startAgent":
+		s.startAgent(c, cmd)
 		return
 	case "routeTasks":
 		s.routeTasks(c, cmd)

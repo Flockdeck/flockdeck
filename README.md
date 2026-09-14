@@ -1038,6 +1038,13 @@ them, rather than breaking: no live timer, a plain "waiting for you — open
 the terminal to answer" banner instead of a question or permission card, and
 no preview text in the paired device's list.
 
+**New agent**, on that same client, starts one without going to the desk: pick
+a project already open there, an agent and model, optionally a fresh
+worktree, and a first message, and it opens straight into that agent's
+conversation once it starts. It only ever starts a pane in a project the
+desktop already has open — it never opens one on your say-so — and its agent
+notifies you the same way any other pane you started yourself would.
+
 Pairing is a link that works once and expires in minutes, shown as a QR code
 by **Remote access…** in the command palette (and the **Remote** button in the
 rail) or printed by `flockdeck remote pair`. The
