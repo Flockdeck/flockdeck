@@ -247,6 +247,12 @@ type stateMsg struct {
 	// moment it is absent, which is what lets it hide the offer instead of
 	// sending a command that would be silently dropped.
 	CanStartAgent bool `json:"canStartAgent,omitempty"`
+	// CanSearchConversation says this instance understands the
+	// conversationSearch command, so a phone can offer a search button in the
+	// chat header. Always true where sent at all; an older desktop that
+	// never sends it is exactly the case a phone should hide the button for,
+	// rather than send a command that would be silently dropped.
+	CanSearchConversation bool `json:"canSearchConversation,omitempty"`
 }
 
 // projectView is one open project as the picker and switcher show it.
@@ -427,6 +433,10 @@ type command struct {
 	After  string `json:"after"`
 	Before string `json:"before"`
 	Entry  string `json:"entry"`
+	// Q is conversationSearch's own query: plain text, matched
+	// case-insensitively against a pane's whole conversation. See
+	// conversation_search.go.
+	Q string `json:"q"`
 	// MediaType and Data are attachImage's own: a picture's content type as
 	// the phone claims it, and its bytes, base64. Name (above) is what the
 	// phone calls the file. See imageattach.go.
@@ -457,18 +467,19 @@ func (s *Server) snapshot() stateMsg {
 	}
 
 	msg := stateMsg{
-		Type:            "state",
-		Root:            ws.ActiveRoot(),
-		ClaudeAvailable: ws.ClaudeAvailable(),
-		ActiveTab:       ws.ActiveTabID(),
-		Broadcast:       ws.Broadcast,
-		Waiting:         waiting,
-		Working:         working,
-		Agents:          s.catalog(),
-		Panes:           map[string]paneView{},
-		Update:          s.Update(),
-		Remote:          s.remoteSnapshot(),
-		CanStartAgent:   true,
+		Type:                  "state",
+		Root:                  ws.ActiveRoot(),
+		ClaudeAvailable:       ws.ClaudeAvailable(),
+		ActiveTab:             ws.ActiveTabID(),
+		Broadcast:             ws.Broadcast,
+		Waiting:               waiting,
+		Working:               working,
+		Agents:                s.catalog(),
+		Panes:                 map[string]paneView{},
+		Update:                s.Update(),
+		Remote:                s.remoteSnapshot(),
+		CanStartAgent:         true,
+		CanSearchConversation: true,
 	}
 	// These are sized rather than grown, and made rather than left nil: the
 	// window walks them without checking them first, so an empty one has to
@@ -1137,6 +1148,10 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "conversationClose":
 		s.conversationClose(c, cmd.ID)
+		return
+
+	case "conversationSearch":
+		s.conversationSearch(c, cmd.ID, cmd.Q)
 		return
 	case "attachImage":
 		s.attachImage(c, cmd.ID, cmd.Name, cmd.MediaType, cmd.Data)
