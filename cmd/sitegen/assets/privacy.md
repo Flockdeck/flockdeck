@@ -45,7 +45,9 @@ The same folder also holds:
 - updates it has downloaded and not yet installed;
 - if you turn on remote access, the relay's address, the random identifiers
   of this desktop and its account, the name you gave the desktop, and the
-  token it signs in to the relay with.
+  token it signs in to the relay with;
+- a photo you attach to a message from a paired phone, removed after about a
+  week.
 
 If the app fails to start, it writes
 the error to a file there, `error.log`, which can include the paths of files
@@ -141,6 +143,12 @@ routing chose for it. Remote access is **not end-to-end encrypted.**
 
 The relay does not record, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through remote access.
+Where a pane opens as a conversation rather than a terminal (a Claude Code
+pane, or Flockdeck's own chat client), that conversation passes through the
+relay the same way, and the relay stores none of it. A photo you attach to
+a message from your phone passes through it too, but is kept only on your
+desktop, in Flockdeck's own folder, never your project, and removed after
+about a week.
 
 Notifications are the exception. When an agent has been waiting on you for a
 while and you haven't touched this computer — no keyboard or mouse input in

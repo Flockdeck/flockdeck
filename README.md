@@ -987,10 +987,55 @@ it, so glancing from a phone leaves the desk's terminal alone, and typing on the
 phone fits it to the phone until you type at the desk again.
 
 A paired browser opens the relay's own client first, built for a small screen.
-It shows which agents are waiting, opens any pane's terminal, and lets you
-answer a permission question with a tap. **Full interface**, in its top bar,
-opens this window through the same tunnel. The client resizes a pane only when
-you ask it to fit the pane to the screen.
+It shows which agents are waiting, opens any pane — as a chat with the agent
+where Flockdeck can read one, its terminal otherwise — and lets you answer a
+question or a permission prompt with a tap. **Full interface**, in its top
+bar, opens this window through the same tunnel. The client resizes a pane
+only when you ask it to fit the pane to the screen.
+
+### Your agents on your phone
+
+Opening a pane from a paired device shows a chat with the agent, not its raw
+terminal, for a Claude Code pane and for Flockdeck's own chat client (the
+built-in Anthropic, OpenAI, Google and OpenAI-compatible agents) — anything
+else still opens as a terminal, because Flockdeck doesn't yet read what it's
+saying. Nothing to turn on: the phone asks the desktop when it opens a pane,
+and gets a chat back if there is one to give it. A **Chat**/**Terminal**
+switch in the pane's own header moves between the two anyway, and is
+remembered there, per device, per pane.
+
+Replies render as Markdown — headings, lists, tables, quotes, and code with a
+copy button, a wrap toggle and syntax colouring. Each turn's tool calls and
+thinking fold into one line, "12 steps · 3 files edited · 4 commands", tapped
+open to see each step; an edit shows its diff, with line numbers. A question
+or a permission prompt appears as a card with buttons in the chat, rather
+than needing the terminal — multiple choice, a typed answer, and Yes/No for a
+permission are all covered, though a call that asks several questions at
+once only puts the first one on a card, and the rest still need the
+terminal.
+
+While an agent works, a **Stop** button — the same as pressing Escape — and
+"Working for 3m — Bash", naming what it's doing, sit above the prompt box;
+once it's idle, quick replies — Continue, Yes, go ahead, Explain that more
+simply, Run the tests — cover the common ones without typing. Every open
+pane also appears in the paired device's list with its latest reply, or the
+question it's waiting on, a time, and an unread dot, so you can see what's
+happened everywhere without opening each one. Messages Flockdeck itself
+injects — a background task finishing, a session notice — show as small
+notes, never as if you had typed them.
+
+A screenshot in the conversation shows as a thumbnail that opens full
+screen; you can attach a photo from the phone too. It's shrunk on the phone
+before it's sent, kept on this desktop — in Flockdeck's own folder, never
+your project — and removed after about a week; the agent is told its file
+path, the same way typing one would tell it.
+
+Most of this needs a fairly recent Flockdeck on the desktop; paired with an
+older one, a pane simply opens as a terminal instead. Even where a pane does
+open as a chat, a few parts fall back gracefully on a desktop too old to send
+them, rather than breaking: no live timer, a plain "waiting for you — open
+the terminal to answer" banner instead of a question or permission card, and
+no preview text in the paired device's list.
 
 Pairing is a link that works once and expires in minutes, shown as a QR code
 by **Remote access…** in the command palette (and the **Remote** button in the
