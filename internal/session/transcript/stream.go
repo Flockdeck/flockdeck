@@ -111,6 +111,16 @@ type Stream interface {
 	// full output, a thinking block's text, an oversized diff, or a
 	// subagent's own transcript, addressed by the subagent tool's entry id.
 	Detail(id string) (Detail, bool)
+	// Reset reports whether the conversation was replaced in place since this
+	// was last asked -- true once, the first time it is asked after the
+	// replacement, then false again until another happens. This is for an
+	// agent whose own /clear (or equivalent) keeps the same session id and
+	// file rather than starting a new one, the way Flockdeck's own chat client's
+	// does: Claude Code needs nothing here, because its /clear is already
+	// caught by the session id changing under it (see
+	// internal/server/conversation.go's refreshConversation), so its Stream
+	// always answers false.
+	Reset() bool
 }
 
 // Streamer is a Reader that can also tail its agent's conversation live. Only

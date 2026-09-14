@@ -106,6 +106,12 @@ func (s *claudeStream) Snapshot() []Entry {
 	return s.entries
 }
 
+// Reset implements Stream. Claude Code's own /clear starts an entirely new
+// session id and file, which conversation.go's refreshConversation already
+// catches by noticing the id changed -- nothing in this stream is ever
+// replaced in place, so there is never anything to report here.
+func (s *claudeStream) Reset() bool { return false }
+
 // Detail implements Stream.
 func (s *claudeStream) Detail(id string) (Detail, bool) {
 	s.mu.Lock()

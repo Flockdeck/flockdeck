@@ -196,6 +196,16 @@ func (s *Server) conversationOpen(c *controlClient, paneID, after string) {
 		}
 		pc.watchers[c] = true
 		pc.stream.Refresh()
+		// Drained, not read: a stream built just now from the whole file may
+		// have passed over a past /clear (a chat pane's own, which keeps the
+		// same session id -- see Stream.Reset) on its way to the end, and
+		// that is not news to a client that is only now opening the pane for
+		// the first time. pageFor's own cursor-mismatch fallback already
+		// answers reset:true correctly when it matters (a cursor from before
+		// a /clear it does not recognise); left undrained here, the flag
+		// would instead surface later as a spurious reset on the first live
+		// append.
+		pc.stream.Reset()
 		snapshot := pc.stream.Snapshot()
 
 		entries, atStart, cursor, reset := pageFor(snapshot, after)
@@ -385,6 +395,10 @@ func (s *Server) refreshConversation(paneID string, pc *paneConvo) {
 			return
 		}
 		s.notePreview(paneID, pc.stream.Refresh())
+		// Already answered as a reset below, whatever this says -- a new
+		// session id is reset enough on its own -- so this only drains it for
+		// the next call, the same reason conversationOpen does.
+		pc.stream.Reset()
 		snapshot := pc.stream.Snapshot()
 		start := max(0, len(snapshot)-conversationPageSize)
 		page := snapshot[start:]
@@ -409,6 +423,28 @@ func (s *Server) refreshConversation(paneID string, pc *paneConvo) {
 	// has never opened it -- but only pushed on to clients that are.
 	changed := pc.stream.Refresh()
 	s.notePreview(paneID, changed)
+	// A conversation can be replaced in place under an unchanged session id
+	// -- a chat pane's own /clear, which (unlike Claude Code's) never gets a
+	// new one; see Stream.Reset. A client already watching must be told to
+	// drop what it has, the same as the session-id-changed branch above,
+	// rather than have this arrive as an append underneath stale entries
+	// nothing will ever remove.
+	if pc.stream.Reset() {
+		snapshot := pc.stream.Snapshot()
+		start := max(0, len(snapshot)-conversationPageSize)
+		page := snapshot[start:]
+		cursor := ""
+		if len(page) > 0 {
+			cursor = page[len(page)-1].ID
+		}
+		for c := range pc.watchers {
+			c.sendJSON(conversationPageMsg{
+				Type: "conversationPage", ID: paneID, Supported: true, Agent: pc.spec.ID,
+				Entries: page, Cursor: cursor, AtStart: start == 0, Reset: true,
+			})
+		}
+		return
+	}
 	if len(changed) == 0 || len(pc.watchers) == 0 {
 		return
 	}
