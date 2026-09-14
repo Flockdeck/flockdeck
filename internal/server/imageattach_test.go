@@ -122,6 +122,38 @@ func TestAttachImageRefusesOversizeData(t *testing.T) {
 	}
 }
 
+// TestAttachImageIsRateLimitedPerWindow covers the backstop against a phone
+// sending attachImage in a tight loop: each call decodes and writes up to
+// maxAttachedImageBytes to disk, and nothing before this bounded how many of
+// those one window could ask for in a burst.
+func TestAttachImageIsRateLimitedPerWindow(t *testing.T) {
+	srv, ws := newTestServer(t)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	c := &controlClient{out: make(chan []byte, 256)}
+
+	for i := 0; i < attachImageRateLimit; i++ {
+		srv.attachImage(c, paneID, "photo.png", "image/png", tinyPNGBase64Bytes)
+		msg := decodeAttachResult(t, nextRaw(t, c))
+		if msg.Error != "" {
+			t.Fatalf("call %d: attachImage said %q, want it to succeed", i, msg.Error)
+		}
+	}
+
+	srv.attachImage(c, paneID, "photo.png", "image/png", tinyPNGBase64Bytes)
+	msg := decodeAttachResult(t, nextRaw(t, c))
+	if msg.Error == "" || msg.Path != "" {
+		t.Fatalf("call %d: attachImage said %+v, want a rate-limit refusal", attachImageRateLimit, msg)
+	}
+
+	// A second window is unaffected: the limit is per connection, not global.
+	other := &controlClient{out: make(chan []byte, 8)}
+	srv.attachImage(other, paneID, "photo.png", "image/png", tinyPNGBase64Bytes)
+	msg = decodeAttachResult(t, nextRaw(t, other))
+	if msg.Error != "" {
+		t.Fatalf("a fresh window was refused by another window's rate limit: %q", msg.Error)
+	}
+}
+
 // TestCleanupAttachedImagesRemovesOldFilesOnly covers the retention sweep:
 // an old attachment goes, a fresh one stays, and a pane folder emptied by the
 // sweep is removed too.

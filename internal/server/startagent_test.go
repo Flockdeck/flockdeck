@@ -24,8 +24,16 @@ type startAgentReply struct {
 // reads back whichever comes first: an agentStarted message or a notice.
 func runStartAgent(t *testing.T, srv *Server, cmd command) startAgentReply {
 	t.Helper()
-	cmd.Cmd = "startAgent"
 	c := &controlClient{out: make(chan []byte, 32)}
+	return runStartAgentOn(t, srv, c, cmd)
+}
+
+// runStartAgentOn is runStartAgent against a controlClient the caller keeps,
+// so a test can send it startAgent more than once and see its rate limiter
+// carry state between calls, the way one window's really does.
+func runStartAgentOn(t *testing.T, srv *Server, c *controlClient, cmd command) startAgentReply {
+	t.Helper()
+	cmd.Cmd = "startAgent"
 	srv.startAgent(c, cmd)
 	deadline := time.After(15 * time.Second)
 	for {
@@ -229,5 +237,38 @@ func TestStartAgentInAFreshWorktree(t *testing.T) {
 	wantBranch := workspace.BranchNameFor("add a health endpoint")
 	if p.Branch != wantBranch {
 		t.Errorf("branch = %q, want the fan-out's own naming for the task, %q", p.Branch, wantBranch)
+	}
+}
+
+// TestStartAgentIsRateLimitedPerWindow covers the backstop against a phone
+// calling startAgent in a tight loop: each call spawns a real agent process
+// and, with worktree:true, cuts a worktree, and nothing before this bounded
+// how many of those one window could ask for in a burst.
+func TestStartAgentIsRateLimitedPerWindow(t *testing.T) {
+	srv, ws := fanoutServer(t)
+	root := ws.ActiveRoot()
+	c := &controlClient{out: make(chan []byte, 256)}
+
+	for i := 0; i < startAgentRateLimit; i++ {
+		reply := runStartAgentOn(t, srv, c, command{Root: root, Agent: "gocli", Task: "task"})
+		if reply.notice != "" {
+			t.Fatalf("call %d: startAgent said %q, want it to succeed", i, reply.notice)
+		}
+	}
+
+	reply := runStartAgentOn(t, srv, c, command{Root: root, Agent: "gocli", Task: "one too many"})
+	if !reply.isErr {
+		t.Fatalf("call %d: startAgent said %q, want a rate-limit refusal", startAgentRateLimit, reply.notice)
+	}
+	if reply.paneID != "" {
+		t.Error("a rate-limited call must not start a pane")
+	}
+
+	// A second window is unaffected: the limit is per connection, not global,
+	// so it must not be told to wait for a burst it had no part in.
+	other := &controlClient{out: make(chan []byte, 8)}
+	reply = runStartAgentOn(t, srv, other, command{Root: root, Agent: "gocli", Task: "from another window"})
+	if reply.notice != "" {
+		t.Fatalf("a fresh window was refused by another window's rate limit: %q", reply.notice)
 	}
 }

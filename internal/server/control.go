@@ -789,6 +789,42 @@ type controlClient struct {
 	mu      sync.Mutex
 	pending []byte
 	ready   chan struct{}
+
+	// startAgentLimit and attachImageLimit bound how often this window can
+	// start an agent or attach a picture -- see rateLimiter. Each spends real
+	// resources (a process and a worktree; a decode and a disk write), and
+	// unlike a fan-out's own MaxTasks there was nothing here to stop a window
+	// asking for either as fast as it can send frames.
+	startAgentLimit  rateLimiter
+	attachImageLimit rateLimiter
+}
+
+// rateLimiter is a sliding-window limit on how often something may happen:
+// at most limit calls within window are let through, per instance. The zero
+// value is ready to use.
+type rateLimiter struct {
+	mu    sync.Mutex
+	times []time.Time
+}
+
+// allow reports whether another call may go ahead now, and records it if so.
+func (r *rateLimiter) allow(limit int, window time.Duration) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	cutoff := now.Add(-window)
+	kept := r.times[:0]
+	for _, t := range r.times {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	r.times = kept
+	if len(r.times) >= limit {
+		return false
+	}
+	r.times = append(r.times, now)
+	return true
 }
 
 // send queues a one-off message, dropping it if the window cannot keep up.
