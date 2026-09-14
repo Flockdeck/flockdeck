@@ -16,8 +16,7 @@ import (
 // the reason it is right to. The key is the file, relative to the module root,
 // and the function's name.
 var exempt = map[string]string{
-	"internal/appwindow/appwindow.go:startAppMode": "the browser is a GUI program, and its window is the whole point",
-	"cli_update.go:relaunch":                       "it is the next Flockdeck, which has to come back the way this one was started",
+	"cli_update.go:relaunch": "it is the next Flockdeck, which has to come back the way this one was started",
 }
 
 // Every console program Flockdeck starts in the background opens a terminal
