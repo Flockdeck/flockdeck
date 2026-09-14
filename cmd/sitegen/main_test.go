@@ -1079,12 +1079,12 @@ func TestFaviconIsTheAppIcon(t *testing.T) {
 	if !bytes.Equal(iconICO, ico) {
 		t.Error("cmd/sitegen/assets/favicon.ico differs from internal/webui/assets/icon.ico; copy the app's icon over it")
 	}
-	touch, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "assets", "icon-256.png"))
+	touch, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "assets", "icon-180.png"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(touchIcon, touch) {
-		t.Error("cmd/sitegen/assets/apple-touch-icon.png differs from internal/webui/assets/icon-256.png; copy the app's icon over it")
+		t.Error("cmd/sitegen/assets/apple-touch-icon.png differs from internal/webui/assets/icon-180.png; copy the app's icon over it")
 	}
 }
 
@@ -1119,7 +1119,7 @@ func TestEveryPageHasItsIcons(t *testing.T) {
 	}
 	for page, body := range pages {
 		for _, link := range []string{
-			`<link rel="icon" href="favicon.ico" sizes="32x32">`,
+			`<link rel="icon" href="favicon.ico" sizes="16x16 20x20 24x24 32x32 40x40 48x48 64x64 96x96 128x128 256x256">`,
 			`<link rel="icon" href="favicon.svg" type="image/svg+xml">`,
 			`<link rel="apple-touch-icon" href="apple-touch-icon.png">`,
 		} {

@@ -95,13 +95,16 @@ var icon []byte
 // iconICO is the same icon for whatever asks for /favicon.ico on its own, as
 // browsers, feed readers and bookmark tools do whether or not a page names it,
 // and for a browser that shows no SVG in its tabs. It too is the application's
-// own, internal/webui/assets/icon.ico, copied.
+// own, internal/webui/assets/icon.ico, copied — a multi-resolution ICO (16
+// through 256px) so Windows never has to stretch one small bitmap to a size
+// it does not have.
 //
 //go:embed assets/favicon.ico
 var iconICO []byte
 
 // touchIcon is the icon a phone puts on its home screen: the application's
-// own internal/webui/assets/icon-256.png, copied, like the other two.
+// own internal/webui/assets/icon-180.png, copied, like the other two — 180px
+// is what iOS actually asks an apple-touch-icon for.
 //
 //go:embed assets/apple-touch-icon.png
 var touchIcon []byte
