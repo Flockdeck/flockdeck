@@ -154,10 +154,139 @@ func TestPaneRouteSaysWhichWayTheModelMoved(t *testing.T) {
 		{workspace.Pane{Agent: "claude", Model: "opus"}, "", "", ""},
 	}
 	for _, tc := range tests {
-		rule, from, dir := paneRoute(c, &tc.pane)
+		rule, from, _, dir := paneRoute(c, &tc.pane)
 		if rule != tc.rule || from != tc.from || dir != tc.to {
 			t.Errorf("%+v: %q %q %q, want %q %q %q", tc.pane, rule, from, dir, tc.rule, tc.from, tc.to)
 		}
+	}
+}
+
+// A pane routed to another agent has its RoutedFrom model's tier read off
+// that agent's own catalog entry, not the pane's current one.
+func TestPaneRouteReadsTheBaselineModelsTierFromItsOwnAgent(t *testing.T) {
+	c := agent.Merge(nil)
+	pane := workspace.Pane{Agent: "openai-compatible", Model: "qwen2.5-coder",
+		Routed: "tests go local", RoutedFrom: "sonnet", RoutedFromAgent: "claude"}
+	rule, from, fromAgent, dir := paneRoute(c, &pane)
+	if rule != "tests go local" || from != "sonnet" || fromAgent != "claude" || dir != "" {
+		t.Errorf("rule %q, from %q on %q, dir %q; want dir left unset -- openai-compatible's own model has no tier here",
+			rule, from, fromAgent, dir)
+	}
+}
+
+// ollamaCatalog is a catalog with a local, OpenAI-compatible agent that
+// offers one tiered model, for the cross-agent tests below.
+func ollamaCatalog(routing string) *agent.Catalog {
+	return agent.Merge(&agent.File{
+		Defaults: agent.Defaults{Agent: "claude", Model: "sonnet"},
+		Routing:  json.RawMessage(routing),
+		Agents: []json.RawMessage{json.RawMessage(`{"id": "openai-compatible",
+			"api": {"baseURL": "http://127.0.0.1:11434/v1"},
+			"models": [{"id": "qwen2.5-coder", "name": "Qwen 2.5 Coder", "tier": "small"}]}`)},
+	})
+}
+
+// stubReachable makes endpointReachable answer ok without dialing anything,
+// restoring the real dial and the reachability cache on cleanup.
+func stubReachable(t *testing.T, ok bool) {
+	t.Helper()
+	orig := dialReachable
+	dialReachable = func(string) bool { return ok }
+	agent.Refresh()
+	t.Cleanup(func() {
+		dialReachable = orig
+		reach.Lock()
+		reach.seen = map[string]reachResult{}
+		reach.Unlock()
+	})
+}
+
+// A row moves to another agent only with the policy's own switch on, and the
+// reason names the agent, the model, and that it costs nothing per token.
+func TestRouteRowsMoveARowToAnotherAgent(t *testing.T) {
+	stubReachable(t, true)
+	policy := `{"mode": "suggest", "crossAgent": true, "rules": [
+		{"name": "tests go local", "model": "qwen2.5-coder", "agent": "openai-compatible", "when": {"task": "tests"}}
+	]}`
+	routes, _, _ := routeRows(ollamaCatalog(policy), "", "claude", "sonnet", []string{"run the tests"})
+	if len(routes) != 1 || routes[0] == nil {
+		t.Fatalf("routes = %v", routes)
+	}
+	r := routes[0]
+	if r.Agent != "openai-compatible" || r.Model != "qwen2.5-coder" || r.Rule != "tests go local" {
+		t.Errorf("routed %+v", r)
+	}
+	if !strings.Contains(r.Reason, "Qwen 2.5 Coder") || !strings.Contains(r.Reason, "no per-token cost") {
+		t.Errorf("reason %q does not name the model and its cost", r.Reason)
+	}
+}
+
+// The same rule does nothing at all while the policy's crossAgent switch is
+// off, which is what a file that says nothing about it already means.
+func TestRouteRowsLeaveCrossAgentRulesAloneWithoutTheSwitch(t *testing.T) {
+	stubReachable(t, true)
+	policy := `{"mode": "suggest", "rules": [
+		{"name": "tests go local", "model": "qwen2.5-coder", "agent": "openai-compatible", "when": {"task": "tests"}}
+	]}`
+	routes, _, _ := routeRows(ollamaCatalog(policy), "", "claude", "sonnet", []string{"run the tests"})
+	if routes != nil {
+		t.Errorf("routes = %v, want nothing routed with crossAgent off", routes)
+	}
+}
+
+// otherAgentFor refuses an endpoint that does not answer, so a fan-out never
+// cuts a worktree for a pane that could never connect.
+func TestOtherAgentForRefusesAnUnreachableEndpoint(t *testing.T) {
+	stubReachable(t, false)
+	c := ollamaCatalog(`{}`)
+	if _, ok := otherAgentFor(c, "")("openai-compatible"); ok {
+		t.Error("an endpoint that answers false to every dial was reported usable")
+	}
+}
+
+// endpointReachable remembers its answer, so a fan-out asking about a dozen
+// rows dials an endpoint once rather than once per row.
+func TestEndpointReachableCaches(t *testing.T) {
+	calls := 0
+	orig := dialReachable
+	dialReachable = func(string) bool { calls++; return true }
+	t.Cleanup(func() {
+		dialReachable = orig
+		reach.Lock()
+		reach.seen = map[string]reachResult{}
+		reach.Unlock()
+	})
+	endpointReachable("http://127.0.0.1:11434/v1")
+	endpointReachable("http://127.0.0.1:11434/v1")
+	if calls != 1 {
+		t.Errorf("dialed %d times, want the second answer cached", calls)
+	}
+}
+
+// A spawned helper is routed only in auto mode, since there is no dialog for
+// suggest to fill in, and it records what it would have run without routing.
+func TestRouteSpawnChoiceOnlyInAutoMode(t *testing.T) {
+	suggest := ollamaCatalog(`{"mode": "suggest"}`)
+	if d, _, _ := routeSpawnChoice(suggest, "", "run the tests"); d.Routed {
+		t.Errorf("decided %+v, want nothing routed outside auto mode", d)
+	}
+	auto := ollamaCatalog(`{"mode": "auto"}`)
+	d, baseAgent, baseModel := routeSpawnChoice(auto, "", "run the tests")
+	if !d.Routed || d.Model != "haiku" || d.Agent != "" || baseAgent != "claude" || baseModel != "sonnet" {
+		t.Errorf("decided %+v (base %q on %q)", d, baseModel, baseAgent)
+	}
+}
+
+// A spawned helper can be routed to another agent too, under the same switch
+// a fan-out row is.
+func TestRouteSpawnChoiceCanCrossAgents(t *testing.T) {
+	stubReachable(t, true)
+	policy := `{"mode": "auto", "crossAgent": true, "rules": [
+		{"name": "tests go local", "model": "qwen2.5-coder", "agent": "openai-compatible", "when": {"task": "tests"}}
+	]}`
+	d, baseAgent, baseModel := routeSpawnChoice(ollamaCatalog(policy), "", "run the tests")
+	if !d.Routed || d.Agent != "openai-compatible" || d.Model != "qwen2.5-coder" || baseAgent != "claude" || baseModel != "sonnet" {
+		t.Errorf("decided %+v (base %q on %q)", d, baseModel, baseAgent)
 	}
 }
 

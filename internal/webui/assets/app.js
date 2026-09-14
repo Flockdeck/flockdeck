@@ -2995,8 +2995,14 @@
     const arrow = v.route === "down" ? " ↘" : v.route === "up" ? " ↗" : "";
     p.agent.append(el("span", "agent-name", v.model ? v.agent + " · " + v.model : v.agent));
     if (arrow) p.agent.append(el("span", "agent-route", arrow));
+    // A pane routed to another agent names it beside the model, since
+    // "sonnet" on its own means nothing once it is not this pane's own
+    // agent's model any more.
+    const from = v.routedFromAgent && v.routedFromAgent !== v.agent
+      ? v.routedFromAgent + " · " + (v.routedFrom || "Default")
+      : (v.routedFrom || "Default");
     const routed = v.routed
-      ? " Routed" + (v.route ? " " + v.route : "") + " from " + (v.routedFrom || "Default") + " by the rule '" + v.routed + "'."
+      ? " Routed" + (v.route ? " " + v.route : "") + " from " + from + " by the rule '" + v.routed + "'."
       : "";
     // Cut short like the branch, and named in its bubble for the same reason.
     describe(p.agent, p.agent.textContent + " — " + TIPS.agent + routed);
@@ -7322,6 +7328,22 @@
     pane.append(settingRow("Never go below",
       "The smallest models routing may choose, " + (own ? "for this project." : "for every project.") +
       " Mid keeps the smallest models off work that matters.", floor));
+
+    const cross = el("input");
+    cross.type = "checkbox";
+    cross.id = "set-route-cross";
+    cross.checked = !!r.crossAgent;
+    cross.onchange = () => {
+      const req = { cmd: "setRouting", target: "crossAgent", text: cross.checked ? "true" : "false" };
+      if (!own) req.kind = "all";
+      send(req);
+    };
+    const crossLabel = el("label", "fan-opt");
+    crossLabel.append(cross, document.createTextNode(" Let a rule send work to another agent"));
+    pane.append(settingRow("Routing across agents",
+      "A rule may name another agent's model, not only a smaller or stronger model of this one — a local model " +
+      "through an OpenAI-compatible endpoint, say. That pane runs a different program, with its own login, tools " +
+      "and transcript. Off until you turn it on, " + (own ? "for this project." : "for every project."), crossLabel));
     if (r.note) {
       const note = el("p", "set-lede", r.note);
       note.id = "set-route-note";
@@ -7573,7 +7595,7 @@
         taskLines().forEach((t) => {
           const r = activeRoute(t);
           if (!r) return;
-          overridden.push({ rule: r.rule, agent: pickParts(runSel.value)[0], routed: r.model, chosen: pickParts(runSel.value)[1] });
+          overridden.push({ rule: r.rule, agent: r.agent || pickParts(runSel.value)[0], routed: r.model, chosen: pickParts(runSel.value)[1] });
           overrides.set(t, "");
         });
         renderRows();
@@ -7607,11 +7629,13 @@
      *  chosen for the row since. */
     const activeRoute = (task) => (routing && !overrides.has(task) && routed.get(task)) || null;
     /** What a row's select holds: somebody's choice, else routing's, else
-     *  the run's. */
+     *  the run's. A route that moved the row to another agent keeps that
+     *  agent here; one that only chose a smaller or stronger model of the
+     *  run's own agent still reads on the run's. */
     const effective = (task) => {
       if (overrides.has(task)) return overrides.get(task);
       const r = activeRoute(task);
-      return r ? pickParts(runSel.value)[0] + "\n" + r.model : "";
+      return r ? (r.agent || pickParts(runSel.value)[0]) + "\n" + r.model : "";
     };
 
     const opts = el("div", "fan-opts");
@@ -7670,7 +7694,7 @@
       const runID = pickParts(runSel.value)[0];
       const byAgent = new Map();
       lines.forEach((task) => {
-        const id = pickParts(overrides.get(task))[0] || runID;
+        const id = pickParts(effective(task))[0] || runID;
         byAgent.set(id, (byAgent.get(id) || 0) + 1);
       });
       if (byAgent.size < 2) return plural;
@@ -7692,8 +7716,8 @@
     };
     const trustApplies = (lines) => {
       const runID = choosable ? pickParts(runSel.value)[0] : (m.agent || (catalog[0] && catalog[0].id) || "claude");
-      if (asksTrust(runID) && lines.some((t) => !pickParts(overrides.get(t))[0])) return true;
-      return lines.some((t) => asksTrust(pickParts(overrides.get(t))[0]));
+      if (asksTrust(runID) && lines.some((t) => !pickParts(effective(t))[0])) return true;
+      return lines.some((t) => asksTrust(pickParts(effective(t))[0]));
     };
 
     const updateCount = () => {
@@ -7791,7 +7815,7 @@
         // run".
         const was = activeRoute(task);
         if (was) {
-          overridden.push({ rule: was.rule, agent: pickParts(runSel.value)[0], routed: was.model,
+          overridden.push({ rule: was.rule, agent: was.agent || pickParts(runSel.value)[0], routed: was.model,
             chosen: pickParts(sel.value)[1] || pickParts(runSel.value)[1] });
         }
         if (sel.value || was) overrides.set(task, sel.value);

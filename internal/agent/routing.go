@@ -35,6 +35,16 @@ type RoutingPolicy struct {
 	Mode string `json:"mode,omitempty"`
 	// Floor is the lowest tier routing may choose; empty is small.
 	Floor string `json:"floor,omitempty"`
+	// CrossAgent lets a rule that names another agent's model (Model and
+	// Agent, below) move work to that agent, not only to that model. It is
+	// its own switch, off by default, because writing such a rule is not by
+	// itself the deliberate choice this is meant to be gated on: a rule pack
+	// pasted from the help page, or a rule kept from before this build,
+	// would otherwise start spending through a different login the moment
+	// it was read. Cross-agent moves are further limited to a fan-out row or
+	// a spawned helper -- never a chat turn or a pane already running -- and
+	// only to an agent the caller reports as usable right now.
+	CrossAgent bool `json:"crossAgent,omitempty"`
 	// Rules are tried in order and the first that matches decides. Absent
 	// means the built-in rules; an empty list means none at all.
 	Rules []RoutingRule `json:"rules,omitempty"`
@@ -216,10 +226,10 @@ func (c *Catalog) RoutingFor(project string) (RoutingPolicy, bool) {
 	return c.Routing, false
 }
 
-// SetRouting changes one setting of a routing policy in agents.json: "mode"
-// or "floor", for one project where project names one and for every project
-// otherwise. Everything else the policy says -- its rules, and any key a later
-// build wrote -- is kept as it was written.
+// SetRouting changes one setting of a routing policy in agents.json: "mode",
+// "floor" or "crossAgent", for one project where project names one and for
+// every project otherwise. Everything else the policy says -- its rules, and
+// any key a later build wrote -- is kept as it was written.
 //
 // A project given a policy of its own starts from a copy of every project's,
 // since a project's policy replaces that one whole: turning routing on for one
@@ -236,6 +246,10 @@ func SetRouting(dir, project, field, value string) error {
 	case "floor":
 		if value != "" && TierRank(value) == 0 {
 			return fmt.Errorf("%q is not a tier; the tiers are small, mid and top", value)
+		}
+	case "crossAgent":
+		if value != "" && value != "true" && value != "false" {
+			return fmt.Errorf("%q is not true or false", value)
 		}
 	default:
 		return fmt.Errorf("routing has no setting called %q", field)
@@ -291,7 +305,9 @@ func SetRouting(dir, project, field, value string) error {
 }
 
 // setRoutingField sets one key of a policy as written, leaving the rest of it
-// byte for byte. An empty floor is taken out, since it means small anyway.
+// byte for byte. An empty floor is taken out, since it means small anyway,
+// and "crossAgent" set to "false" is taken out the same way, since that is
+// what its absence already means.
 func setRoutingField(raw json.RawMessage, field, value string) (json.RawMessage, error) {
 	obj := map[string]json.RawMessage{}
 	if t := bytes.TrimSpace(raw); len(t) > 0 && !bytes.Equal(t, []byte("null")) {
@@ -299,10 +315,14 @@ func setRoutingField(raw json.RawMessage, field, value string) (json.RawMessage,
 			return nil, fmt.Errorf(`"routing" in %s is not an object, so it was not changed`, ConfigName)
 		}
 	}
-	if value == "" {
+	if value == "" || (field == "crossAgent" && value == "false") {
 		delete(obj, field)
 	} else {
-		v, err := marshalUnescaped(value)
+		var toWrite any = value
+		if field == "crossAgent" {
+			toWrite = value == "true"
+		}
+		v, err := marshalUnescaped(toWrite)
 		if err != nil {
 			return nil, err
 		}

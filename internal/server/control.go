@@ -355,17 +355,20 @@ type paneView struct {
 	// Routed names the routing rule that chose the model, RoutedFrom the
 	// model the pane would otherwise have run, and Route whether that moved
 	// it "down" or "up". All are left out for a model chosen any other way.
-	Routed     string `json:"routed,omitempty"`
-	RoutedFrom string `json:"routedFrom,omitempty"`
-	Route      string `json:"route,omitempty"`
-	Err        string `json:"err,omitempty"`
-	Broadcast  bool   `json:"broadcast"`
-	Cols       int    `json:"cols"`
-	Rows       int    `json:"rows"`
-	Dirty      int    `json:"dirty"`
-	Untracked  int    `json:"untracked"`
-	Ahead      int    `json:"ahead"`
-	Behind     int    `json:"behind"`
+	// RoutedFromAgent names the agent RoutedFrom belongs to, and is left out
+	// unless routing moved the pane to another agent, not only another model.
+	Routed          string `json:"routed,omitempty"`
+	RoutedFrom      string `json:"routedFrom,omitempty"`
+	RoutedFromAgent string `json:"routedFromAgent,omitempty"`
+	Route           string `json:"route,omitempty"`
+	Err             string `json:"err,omitempty"`
+	Broadcast       bool   `json:"broadcast"`
+	Cols            int    `json:"cols"`
+	Rows            int    `json:"rows"`
+	Dirty           int    `json:"dirty"`
+	Untracked       int    `json:"untracked"`
+	Ahead           int    `json:"ahead"`
+	Behind          int    `json:"behind"`
 	// GitTimedOut says the last read of the pane's checkout gave up before git
 	// answered, so the four counts above are the ones read before that and may
 	// no longer be true. The header says so instead of showing them.
@@ -597,7 +600,7 @@ func (s *Server) snapshot() stateMsg {
 				}
 			}
 			pv.Agent, pv.Model = paneAgent(p)
-			pv.Routed, pv.RoutedFrom, pv.Route = paneRoute(cat, p)
+			pv.Routed, pv.RoutedFrom, pv.RoutedFromAgent, pv.Route = paneRoute(cat, p)
 			// The common case is a pane of the tab's own project, where the
 			// two are the same string and there is nothing to clean or fold.
 			if paneRoot := ws.RootOf(p.ID); paneRoot != "" && paneRoot != t.Root &&

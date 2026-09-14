@@ -34,14 +34,25 @@ const SourceRule = "rule"
 type Input struct {
 	Kind string // KindFanout, KindSpawn or KindTurn
 	Task string // the row, the spawn task, or the prompt
-	// Agent is the agent the work will run on. Routing never changes it:
-	// another agent is another login, other tools and another transcript,
-	// which is far more than a model.
+	// Agent is the agent the work would run on without routing. A rule may
+	// still move it to another agent -- see OtherAgent -- but routing never
+	// does that on its own: another agent is another login, other tools and
+	// another transcript, which is far more than a model.
 	Agent agent.Spec
 	// Current is the model the work would get without routing.
 	Current string
 	// NoDowngrade says the work may only be moved to a stronger model.
 	NoDowngrade bool
+	// OtherAgent resolves an agent id to its Spec, but only when work could
+	// be handed to it here and now: installed or keyed, trusted for the
+	// project, and, for an endpoint of its own, answering. It is the
+	// caller's to supply, because deciding stays pure and does no I/O of its
+	// own. Nil means work is never moved to another agent, whatever a rule
+	// asks for -- which is also true for any Kind other than KindFanout and
+	// KindSpawn, and for a policy whose CrossAgent is off: a running
+	// conversation cannot change agent under it, and a switch nobody turned
+	// on for this project is not one routing takes on its own.
+	OtherAgent func(id string) (agent.Spec, bool)
 }
 
 // Decision is what routing made of one piece of work.
@@ -53,6 +64,10 @@ type Decision struct {
 	Routed bool
 	// Up says the work was moved to a stronger model than it would have had.
 	Up bool
+	// Agent is the agent the work moves to, and empty when it stays on the
+	// one it was going to run on. Set only by a rule naming a model of
+	// another agent, and only when Input.OtherAgent allowed it.
+	Agent string
 	// Source is what chose (SourceRule), and Rule the rule's name.
 	Source string
 	Rule   string
@@ -97,9 +112,10 @@ func RulesOf(p agent.RoutingPolicy) []agent.RoutingRule {
 // Router is a policy made ready to decide with: its rules compiled once, for a
 // fan-out that asks about a dozen rows at a time.
 type Router struct {
-	mode  string
-	floor int
-	rules []rule
+	mode       string
+	floor      int
+	crossAgent bool
+	rules      []rule
 }
 
 type rule struct {
@@ -111,7 +127,7 @@ type rule struct {
 // does not compile, a tier that is not one -- is left out; the catalog has
 // already named it in its notice when agents.json was read.
 func New(p agent.RoutingPolicy) *Router {
-	r := &Router{mode: p.Mode, floor: max(agent.TierRank(p.Floor), 1)}
+	r := &Router{mode: p.Mode, floor: max(agent.TierRank(p.Floor), 1), crossAgent: p.CrossAgent}
 	if p.Floor != "" && agent.TierRank(p.Floor) == 0 {
 		// A floor nobody can read is taken at its most cautious.
 		r.floor = agent.TierRank(agent.TierTop)
@@ -153,22 +169,30 @@ func (r *Router) Decide(in Input) Decision {
 	}
 	words := len(strings.Fields(in.Task))
 	files := filesIn(in.Task)
+	// Cross-agent matching needs all three: the policy's own switch, a fresh
+	// pane to put it in rather than one already running or a chat turn, and
+	// a caller that can actually say whether another agent is ready. Without
+	// any one of them a rule naming another agent's model is judged exactly
+	// as it always was: about that agent's own work, and nobody else's.
+	crossOK := r.crossAgent && in.OtherAgent != nil && (in.Kind == KindFanout || in.Kind == KindSpawn)
 	for _, ru := range r.rules {
-		if ru.matches(in, words, files) {
+		if ru.matches(in, words, files, crossOK) {
 			return r.apply(ru, in)
 		}
 	}
 	return Decision{}
 }
 
-func (ru rule) matches(in Input, words int, files []string) bool {
+func (ru rule) matches(in Input, words int, files []string, crossOK bool) bool {
 	w := ru.When
 	switch {
 	// A rule for another agent's model is not about this work, so it does
-	// not match it. Taken as a match that changed nothing, it was the first
-	// match, and every rule after it went untried: a Codex rule placed above
-	// the rest left every Claude row alone.
-	case ru.Model != "" && ru.Agent != in.Agent.ID,
+	// not match it, unless cross-agent routing is allowed here -- in which
+	// case naming that agent is exactly what makes the rule about this work.
+	// Taken as a match that changed nothing, it was the first match, and
+	// every rule after it went untried: a Codex rule placed above the rest
+	// left every Claude row alone.
+	case ru.Model != "" && ru.Agent != in.Agent.ID && !crossOK,
 		w.Kind != "" && w.Kind != in.Kind,
 		w.Agent != "" && w.Agent != in.Agent.ID,
 		w.MinWords > 0 && words < w.MinWords,
@@ -194,17 +218,30 @@ func (r *Router) apply(ru rule, in Input) Decision {
 		return left(modelName(in.Agent, in.Current) + " is a model of no known size, so routing leaves it alone")
 	}
 
+	// A rule whose Agent differs from the work's own reaches this point only
+	// when Decide judged cross-agent routing allowed here (matches, above),
+	// so what remains is asking the caller whether that agent can actually
+	// take the work right now.
+	dest, crossing := in.Agent, false
+	if ru.Model != "" && ru.Agent != in.Agent.ID {
+		other, ok := in.OtherAgent(ru.Agent)
+		if !ok {
+			return left(ru.Agent + " is not ready to take work right now")
+		}
+		dest, crossing = other, true
+	}
+
 	var target agent.Model
 	raised := false
 	if ru.Model != "" {
-		m, ok := findModel(in.Agent, ru.Model)
+		m, ok := findModel(dest, ru.Model)
 		switch {
 		case !ok:
-			return left(in.Agent.Name + " does not offer " + ru.Model)
+			return left(dest.Name + " does not offer " + ru.Model)
 		case agent.TierRank(m.Tier) == 0:
-			return left(modelName(in.Agent, m.ID) + " is a model of no known size, and nothing is routed to one")
+			return left(modelName(dest, m.ID) + " is a model of no known size, and nothing is routed to one")
 		case agent.TierRank(m.Tier) < r.floor:
-			return left(modelName(in.Agent, m.ID) + " is below the lowest tier routing may choose here")
+			return left(modelName(dest, m.ID) + " is below the lowest tier routing may choose here")
 		}
 		target = m
 	} else {
@@ -221,19 +258,26 @@ func (r *Router) apply(ru rule, in Input) Decision {
 
 	t := agent.TierRank(target.Tier)
 	switch {
-	case target.ID == in.Current:
+	case !crossing && target.ID == in.Current:
 		return left("the work is already on " + modelName(in.Agent, in.Current))
 	case in.NoDowngrade && t < cur:
 		return left("this work may not be moved to a smaller model")
 	}
 	reason := fmt.Sprintf("%s → %s", named, target.Tier)
+	if crossing {
+		reason = fmt.Sprintf("%s → %s · %s", named, dest.Name, modelName(dest, target.ID))
+	}
 	if raised {
 		reason += fmt.Sprintf(" (%s, raised to the lowest tier routing may choose here)", ru.Tier)
 	}
-	return Decision{
+	d := Decision{
 		Model: target.ID, Tier: target.Tier, Routed: true, Up: t > cur,
 		Source: SourceRule, Rule: ru.Name, Reason: reason,
 	}
+	if crossing {
+		d.Agent = dest.ID
+	}
+	return d
 }
 
 // pick is the agent's model for a tier: the current one where it is already in

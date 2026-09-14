@@ -132,8 +132,9 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 			Agent: p.Agent,
 			Model: p.Model,
 			// Written only for a routed pane, like Root below.
-			Routed:     p.Routed,
-			RoutedFrom: p.RoutedFrom,
+			Routed:          p.Routed,
+			RoutedFrom:      p.RoutedFrom,
+			RoutedFromAgent: p.RoutedFromAgent,
 			// Zero, and so left out, for a pane no window has measured.
 			Cols: p.Cols,
 			Rows: p.Rows,
@@ -513,18 +514,19 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 	}
 	if n.Pane != nil {
 		p := &Pane{
-			ID:           n.Pane.ID,
-			Kind:         parseKind(n.Pane.Kind),
-			Cwd:          n.Pane.Cwd,
-			Name:         n.Pane.Name,
-			Task:         n.Pane.Task,
-			Root:         n.Pane.Root,
-			Agent:        n.Pane.Agent,
-			Model:        n.Pane.Model,
-			Routed:       n.Pane.Routed,
-			RoutedFrom:   n.Pane.RoutedFrom,
-			Conversation: n.Pane.Conversation,
-			Parent:       n.Pane.Parent,
+			ID:              n.Pane.ID,
+			Kind:            parseKind(n.Pane.Kind),
+			Cwd:             n.Pane.Cwd,
+			Name:            n.Pane.Name,
+			Task:            n.Pane.Task,
+			Root:            n.Pane.Root,
+			Agent:           n.Pane.Agent,
+			Model:           n.Pane.Model,
+			Routed:          n.Pane.Routed,
+			RoutedFrom:      n.Pane.RoutedFrom,
+			RoutedFromAgent: n.Pane.RoutedFromAgent,
+			Conversation:    n.Pane.Conversation,
+			Parent:          n.Pane.Parent,
 		}
 		if p.Root == "" {
 			p.Root = tabRoot

@@ -906,9 +906,12 @@ type SpawnOptions struct {
 	Model string
 	// Routed names the routing rule that chose Model, and RoutedFrom the
 	// model the child would otherwise have run. They are recorded on the pane
-	// so its header says the model was routed, and why.
-	Routed     string
-	RoutedFrom string
+	// so its header says the model was routed, and why. RoutedFromAgent names
+	// the agent RoutedFrom belongs to, set only when routing moved the child
+	// to another agent, not only another model.
+	Routed          string
+	RoutedFrom      string
+	RoutedFromAgent string
 	// SpawnedByAgent marks a child started by its parent's own `flockdeck
 	// spawn`, so the pane records the parent as its Pane.Parent -- as opposed
 	// to a fan-out the user ran themselves from the window, whose children are
@@ -994,8 +997,14 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	}
 	if p.IsAgent() {
 		p.Agent, p.Model = agentID, model
-		if o.Routed != "" && model == o.Model {
-			p.Routed, p.RoutedFrom = o.Routed, o.RoutedFrom
+		// o.Agent is "" for same-agent routing, which never touches it -- a
+		// fan-out row or a spawned helper left to the project's own default
+		// agent -- so only an o.Agent that was actually given has to match
+		// what this resolved to. Requiring an exact match unconditionally
+		// dropped the badge on every same-agent route a helper had, since
+		// spawn only ever routes a helper asked for no agent of its own.
+		if o.Routed != "" && model == o.Model && (o.Agent == "" || agentID == o.Agent) {
+			p.Routed, p.RoutedFrom, p.RoutedFromAgent = o.Routed, o.RoutedFrom, o.RoutedFromAgent
 		}
 	}
 	w.mu.Lock()
