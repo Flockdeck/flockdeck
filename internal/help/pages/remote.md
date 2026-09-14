@@ -90,7 +90,10 @@ else still opens as a terminal, because Flockdeck doesn't yet read what it's
 saying. Nothing to turn on: the phone asks the desktop when it opens a pane,
 and gets a chat back if there is one to give it. A **Chat**/**Terminal**
 switch in the pane's own header moves between the two anyway, and is
-remembered there, per device, per pane.
+remembered there, per device, per pane. A search button beside it opens a
+slim bar over the conversation — type to see matching prompts, replies and
+tool summaries as you go, and tap one to jump straight to it, paging in
+older history if it isn't loaded yet.
 
 Replies render as Markdown — headings, lists, tables, quotes, and code with a
 copy button, a wrap toggle and syntax colouring. Each turn's tool calls and
