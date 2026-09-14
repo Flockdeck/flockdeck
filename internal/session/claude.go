@@ -369,7 +369,14 @@ func quoteArgFor(goos, s string) string {
 
 // StatusForEvent maps a Claude lifecycle event to the pane status it implies.
 // The second return value is false for events that should not change status.
-func StatusForEvent(event, tool string) (Status, string, bool) {
+//
+// notificationType is only meaningful for a Notification event; it is
+// Claude Code's own notification_type, and what tells its idle nudge
+// (idlePromptNotification) -- sent about a minute after a pane has simply
+// gone quiet -- apart from a real ask: a permission prompt, an MCP
+// elicitation, or Flockdeck's own chat client naming the tool it wants
+// permission for.
+func StatusForEvent(event, tool, notificationType string) (Status, string, bool) {
 	switch event {
 	case "SessionStart":
 		// Subscribed to for its reply, not for status: it fires again on a
@@ -389,9 +396,18 @@ func StatusForEvent(event, tool string) (Status, string, bool) {
 	case "PostToolUse":
 		return StatusWorking, "", true
 	case "Notification":
-		// Fired when Claude needs permission or has been idle waiting on input.
-		// Claude's names no tool; Flockdeck's own chat client names the one it
-		// is asking permission for.
+		// Claude Code fires this both for a real ask -- a permission prompt or
+		// an MCP elicitation -- and for its idle nudge, about a minute after a
+		// pane has simply gone quiet waiting for a new prompt. Only the ask is
+		// something to turn the pane amber for; the nudge leaves it exactly as
+		// the Stop before it left it, same as an event this switch does not
+		// know at all.
+		//
+		// Claude's own ask names no tool; Flockdeck's own chat client names
+		// the one it is asking permission for.
+		if notificationType == idlePromptNotification {
+			return StatusIdle, "", false
+		}
 		return StatusWaiting, tool, true
 	case "Stop":
 		return StatusIdle, "", true
@@ -426,18 +442,8 @@ func StatusForEvent(event, tool string) (Status, string, bool) {
 // idlePromptNotification is the notification_type Claude Code sends when a
 // pane has simply gone quiet, waiting for a new prompt -- as opposed to a
 // Notification about something it actually needs answered: a permission
-// prompt, an MCP elicitation, an agent asking for input. See IsIdleReminder.
+// prompt, an MCP elicitation, an agent asking for input. See StatusForEvent.
 const idlePromptNotification = "idle_prompt"
-
-// IsIdleReminder reports whether a lifecycle event is Claude Code's idle
-// nudge rather than a real ask. Only a Notification carries a notification
-// type at all, so every other event -- including PreToolUse's
-// AskUserQuestion and the PermissionRequest event itself, both of which
-// StatusForEvent already maps to StatusWaiting -- answers false here and goes
-// on turning a pane amber regardless of who, if anyone, is watching it.
-func IsIdleReminder(event, notificationType string) bool {
-	return event == "Notification" && notificationType == idlePromptNotification
-}
 
 // ConversationExists reports whether Claude Code has a stored transcript for a
 // session id.

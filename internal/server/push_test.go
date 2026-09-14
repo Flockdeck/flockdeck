@@ -11,6 +11,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -120,6 +121,45 @@ func TestAWaitThatLastsIsPushedOnce(t *testing.T) {
 	waitIn(t, srv, ws, id)
 	if n := due(srv, time.Now().Add(time.Hour)); n != nil {
 		t.Errorf("pushed with the switch off: %+v", n)
+	}
+}
+
+// TestIdleReminderIsNeverPushed covers the fix at the push boundary, through
+// the real hook HTTP path rather than a status set by hand: a pane that has
+// simply finished its turn and gone quiet must never be pushed to a phone as
+// an agent needing you, because nobody is blocked on anything.
+func TestIdleReminderIsNeverPushed(t *testing.T) {
+	// A dev session running inside a real Flockdeck pane inherits its
+	// FLOCKDECK_LAUNCH, which hooks.Emit would then send as this event's own
+	// Launch -- and workspace.handleHook drops any event naming a launch that
+	// is not the freshly spawned test pane's, so the hook would be silently
+	// ignored.
+	t.Setenv(hooks.LaunchEnv, "")
+
+	srv, ws := newTestServer(t)
+	enrolled(srv)
+	pane := srv.firstPaneID(t)
+	hookSrv := ws.HookServer()
+
+	if _, err := hooks.Emit(nil, hookSrv.Endpoint(), hookSrv.Token(), pane, "Stop"); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	since, ok := ask(srv, func() time.Time { return ws.Pane(pane).Sess.StatusSince() })
+	if !ok {
+		t.Fatal("the workspace did not answer")
+	}
+
+	body := strings.NewReader(`{"notification_type":"idle_prompt"}`)
+	if _, err := hooks.Emit(body, hookSrv.Endpoint(), hookSrv.Token(), pane, "Notification"); err != nil {
+		t.Fatalf("Notification: %v", err)
+	}
+	st, ok := ask(srv, func() session.Status { st, _ := ws.Pane(pane).Sess.Status(); return st })
+	if !ok || st != session.StatusIdle {
+		t.Fatalf("status after an idle nudge = %v, want idle", st)
+	}
+
+	if n := due(srv, since.Add(time.Hour)); n != nil {
+		t.Errorf("a pane that merely finished its turn was pushed: %+v", n)
 	}
 }
 

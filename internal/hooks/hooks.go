@@ -72,7 +72,7 @@ type Event struct {
 	// NotificationType is what a Notification is about -- Claude Code's
 	// notification_type, carried through so the receiving end can tell an idle
 	// nudge ("idle_prompt") apart from a real ask ("permission_prompt" and the
-	// rest); see session.IsIdleReminder. Empty for every other event, and for a
+	// rest); see session.StatusForEvent. Empty for every other event, and for a
 	// Notification from a Claude Code too old to say.
 	NotificationType string `json:"notificationType,omitempty"`
 }

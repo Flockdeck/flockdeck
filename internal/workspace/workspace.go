@@ -112,8 +112,9 @@ type Pane struct {
 	// Parent is the pane whose agent started this one with its own `flockdeck
 	// spawn`, so this pane is that agent's helper rather than the user's own.
 	// Empty for a pane the user started themselves -- opened by hand, or by a
-	// fan-out run from the window -- and for a helper whose parent has since
-	// been closed: see handleHook, which is where it is read.
+	// fan-out run from the window. It is never cleared once set, even once
+	// that pane closes; a reader wanting to know whether the parent is still
+	// open checks separately, as internal/server's agents.go does.
 	//
 	// It is persisted with the layout, so a restored helper still knows whose
 	// it is; see encodeNode and decodeNode.
@@ -388,10 +389,9 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		p = nil
 	}
 	var sess *session.Session
-	var parent, paneID string
+	var paneID string
 	if p != nil {
 		sess = p.Sess
-		parent = p.Parent
 		paneID = p.ID
 		// Every event says which conversation the agent is in, and after
 		// /clear that is a new one. Following it is what lets a restart, a
@@ -419,7 +419,7 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		w.nameTabAfterPrompt(p.ID, ev.Prompt)
 	}
 
-	st, detail, ok := session.StatusForEvent(ev.Event, ev.Tool)
+	st, detail, ok := session.StatusForEvent(ev.Event, ev.Tool, ev.NotificationType)
 	if !ok {
 		return
 	}
@@ -428,29 +428,7 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	if st == session.StatusExited {
 		return
 	}
-	// A helper's own idle nudge -- nobody has asked it anything, it has simply
-	// gone quiet -- is the parent agent's to notice, for as long as the parent
-	// is still open to notice it: the lead agent reads its screen, or gets told
-	// through a status it asked for, not through a phone push or a desktop
-	// notification meant for a person. A real question is never swallowed this
-	// way: it turns the pane amber whether or not a parent is watching, since
-	// only a person can answer it, and a parent that has stopped watching --
-	// its own pane closed -- hands the helper back to the person, from its next
-	// idle nudge on.
-	//
-	// This is decided here, where every consumer of a pane's status already
-	// meets it, rather than separately in the push loop and the web UI.
-	if st == session.StatusWaiting && session.IsIdleReminder(ev.Event, ev.NotificationType) && w.hasOpenPane(parent) {
-		return
-	}
 	sess.SetStatusFull(st, detail, ev.ToolInput)
-}
-
-// hasOpenPane reports whether id names a pane the workspace still has, empty
-// naming none. A pane taken out of every tab is destroyed with it, so this is
-// also how a helper learns its parent has been closed.
-func (w *Workspace) hasOpenPane(id string) bool {
-	return id != "" && w.Pane(id) != nil
 }
 
 // ----------------------------------------------------------------- projects
