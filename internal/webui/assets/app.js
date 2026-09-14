@@ -1586,27 +1586,43 @@
     return describe(span, tip);
   }
 
-  /** ICONS maps a workspace state to the mark that stands for it. The window is
-   *  a Chromium app-mode window, so the favicon is the application icon: this
-   *  is what puts "an agent is waiting" in the taskbar while the window is
-   *  behind three others and the title bar cannot be read. */
+  /** ICON_SIZES are the raster sizes rendered for every state below. The
+   *  window is a Chromium app-mode window with no --app-icon, so the OS gets
+   *  the taskbar/Alt-Tab icon by asking the page's own favicon links for a
+   *  bitmap at whatever size it needs; offering only one size forced it to
+   *  stretch that one bitmap for every other size it was asked for, which is
+   *  what made the taskbar icon blurry at anything but exactly 32px. */
+  const ICON_SIZES = [16, 32, 48, 128, 192, 256];
+
+  /** ICONS maps a workspace state to the marks that stand for it: the vector
+   *  source (crisp at any size a browser rasterizes it at, in the tab strip)
+   *  and one crisp raster per ICON_SIZES (what a taskbar/window-icon request
+   *  that does not rasterize SVG falls back to). This is what puts "an agent
+   *  is waiting" in the taskbar while the window is behind three others and
+   *  the title bar cannot be read. */
   const ICONS = {
-    waiting: basePath + "assets/icon-waiting.svg",
-    working: basePath + "assets/icon.svg",
-    idle: basePath + "assets/icon-idle.svg",
+    waiting: { svg: basePath + "assets/icon-waiting.svg", prefix: basePath + "assets/icon-waiting-" },
+    working: { svg: basePath + "assets/icon.svg", prefix: basePath + "assets/icon-" },
+    idle: { svg: basePath + "assets/icon-idle.svg", prefix: basePath + "assets/icon-idle-" },
   };
   let iconState = "";
 
-  /** setFavicon points the icon link at the mark for state. Assigning the same
-   *  href again makes some browsers drop and refetch the icon, which shows up
-   *  as the tab flickering on every state push, so an unchanged state is left
-   *  alone — and the pushes are frequent. */
+  /** setFavicon points every icon link — the vector one and each sized raster
+   *  fallback — at the marks for state. Assigning the same href again makes
+   *  some browsers drop and refetch the icon, which shows up as the tab
+   *  flickering on every state push, so an unchanged state is left alone —
+   *  and the pushes are frequent. */
   function setFavicon(state) {
     if (state === iconState) return;
     const link = $("favicon");
     if (!link) return;
     iconState = state;
-    link.href = ICONS[state];
+    const icons = ICONS[state];
+    link.href = icons.svg;
+    for (const size of ICON_SIZES) {
+      const sized = $("favicon-" + size);
+      if (sized) sized.href = icons.prefix + size + ".png";
+    }
   }
 
   /** The counts the summary is currently showing. A status push arrives every
