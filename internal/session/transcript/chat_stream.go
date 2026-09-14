@@ -20,11 +20,22 @@ import (
 // same reasoning as Claude's: a pane that has not been prompted yet has
 // nothing to show, not an agent the phone should fall back to the terminal
 // for.
+//
+// The session id names a file in the chats folder, so it must be one plain
+// name. It is whatever the pane's own process last reported through the
+// hook, and a misbehaving one reporting "../x" must not point this at a
+// transcript outside that folder.
 func (Chat) Stream(_ agent.Spec, sessionID string) (Stream, bool) {
-	if sessionID == "" {
+	if !plainName(sessionID) {
 		return nil, false
 	}
 	return newChatStream(sessionID), true
+}
+
+// plainName reports whether s is a single file name: not empty, not "." or
+// "..", and with no directory separator of any platform in it.
+func plainName(s string) bool {
+	return s != "" && s != "." && s != ".." && s == filepath.Base(s) && !strings.Contains(s, "/")
 }
 
 // chatStream tails one chat transcript and keeps the Entry values it has
