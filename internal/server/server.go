@@ -214,6 +214,10 @@ type Server struct {
 	// convos is the phone chat view's live streams, one per pane that has
 	// been opened by at least one client. See conversation.go.
 	convos conversationHub
+
+	// preview is each agent pane's latest-reply preview, for the phone's
+	// inbox row. See preview.go.
+	preview previewCache
 }
 
 // UpdateView is a downloaded release as the interface shows it.
@@ -274,6 +278,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		conversations: allConversations,
 		book:          spend.NewBook(),
 		convos:        newConversationHub(),
+		preview:       newPreviewCache(),
 	}
 
 	mux := http.NewServeMux()

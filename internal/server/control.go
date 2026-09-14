@@ -297,6 +297,10 @@ type paneView struct {
 	// screen. Both are left out for a pane not waiting on either.
 	Ask        *askView        `json:"ask,omitempty"`
 	Permission *permissionView `json:"permission,omitempty"`
+	// Last is this pane's agent's latest reply, trimmed for the phone's
+	// inbox row -- left out for a shell, and for an agent pane whose
+	// adapter has not seen a reply yet. See preview.go.
+	Last *lastReplyView `json:"last,omitempty"`
 	// Agent and Model are what the pane is running, drawn in the header beside
 	// the branch. Both are left out for a shell, which is running neither.
 	Agent string `json:"agent,omitempty"`
@@ -515,6 +519,11 @@ func (s *Server) snapshot() stateMsg {
 			}
 			if st == session.StatusWaiting && p.Sess != nil {
 				pv.Ask, pv.Permission = waitingViews(detail, p.Sess.ToolInput())
+			}
+			if pv.Kind != "shell" {
+				if last, ok := s.preview.get(p.ID); ok {
+					pv.Last = &last
+				}
 			}
 			pv.Agent, pv.Model = paneAgent(p)
 			pv.Routed, pv.RoutedFrom, pv.Route = paneRoute(cat, p)
