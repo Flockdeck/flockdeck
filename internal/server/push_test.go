@@ -429,6 +429,68 @@ func TestAPushIsSentAndItsFailureShown(t *testing.T) {
 	waitFor(t, func() bool { v := srv.remoteSnapshot(); return v != nil && v.PushError == refusal.Error() })
 }
 
+// A pane muted from the phone is left out of the push entirely, while a
+// waiting pane that is not muted is still told of, by name, as though the
+// muted one did not exist.
+func TestAMutedPaneIsLeftOutOfThePush(t *testing.T) {
+	srv, ws := newTestServer(t)
+	enrolled(srv)
+	a := firstPane(t, srv, ws)
+	b := addPane(t, srv, ws, "second")
+	since := waitIn(t, srv, ws, a)
+	waitIn(t, srv, ws, b)
+	if muted, ok := ask(srv, func() bool { return ws.SetPaneMuted(a, true) }); !ok || !muted {
+		t.Fatal("muting a pane that exists was refused")
+	}
+
+	n := due(srv, since.Add(30*time.Second))
+	if n == nil {
+		t.Fatal("the unmuted pane's wait was not pushed")
+	}
+	// Naming one pane, not counting two, is what shows the muted pane was left
+	// out rather than merely folded into a count: with both counted this would
+	// have been "2 agents need you", opening the machine's list rather than
+	// pane b's own pane.
+	if n.URL != "/d/h1/"+b {
+		t.Errorf("the push opened %q, want the unmuted pane %q alone: %+v", n.URL, b, n)
+	}
+	if name := paneName(srv, ws, b); !strings.HasPrefix(n.Title, name+" · ") || !strings.HasSuffix(n.Title, " needs you") {
+		t.Errorf("the push %q does not name the unmuted pane %q alone", n.Title, name)
+	}
+}
+
+// Unmuted, a pane's wait is told of exactly as any other's, once the delay
+// and the gap since the last push have passed.
+func TestUnmutingAPaneBringsItsWaitBack(t *testing.T) {
+	srv, ws := newTestServer(t)
+	enrolled(srv)
+	id, since := waitingPane(t, srv, ws)
+	ask(srv, func() bool { return ws.SetPaneMuted(id, true) })
+	if n := due(srv, since.Add(30*time.Second)); n != nil {
+		t.Fatalf("a muted pane's wait was pushed: %+v", n)
+	}
+
+	ask(srv, func() bool { return ws.SetPaneMuted(id, false) })
+	n := due(srv, since.Add(30*time.Second))
+	if n == nil || n.URL != "/d/h1/"+id {
+		t.Fatalf("unmuting did not bring the wait back: %+v", n)
+	}
+}
+
+// Closing a pane leaves nothing behind that remembers it was muted: there is
+// no pane left to mute or unmute.
+func TestClosingAPaneForgetsItWasMuted(t *testing.T) {
+	srv, ws := newTestServer(t)
+	id := addPane(t, srv, ws, "second")
+	if muted, ok := ask(srv, func() bool { return ws.SetPaneMuted(id, true) }); !ok || !muted {
+		t.Fatal("muting the pane was refused")
+	}
+	ask(srv, func() bool { return ws.ClosePaneByID(id) })
+	if found, ok := ask(srv, func() bool { return ws.SetPaneMuted(id, true) }); !ok || found {
+		t.Error("a closed pane could still be muted, as though it were still remembered")
+	}
+}
+
 // waitFor waits for cond, for a few seconds at most.
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()

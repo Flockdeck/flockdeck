@@ -1118,6 +1118,10 @@ Settings → **Remote access** says what is sent:
   machine* needs you", rather than naming the pane and its project — for a
   lock screen others can see.
 
+A single agent that is chatty and safe to leave can also be muted from its
+own row or header on the phone, which leaves it out of what is sent while it
+goes on showing as waiting everywhere, including here.
+
 Each notification is encrypted here, on this machine, for the device it goes
 to (Web Push, RFC 8291): the relay only signs it and passes it on, and cannot
 read it, nor can the push service that carries it — Apple's, Google's,

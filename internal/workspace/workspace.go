@@ -118,6 +118,16 @@ type Pane struct {
 	// It is persisted with the layout, so a restored helper still knows whose
 	// it is; see encodeNode and decodeNode.
 	Parent string
+	// Muted is set from a phone that would rather not be pushed to about this
+	// pane's waits while it is chatty, though it still shows waiting
+	// everywhere else -- the desk's markers, the phone's list, and the desk's
+	// own notification. See SetPaneMuted and push.go's pushDue, which is the
+	// only thing that reads it.
+	//
+	// It is not persisted, so it does not survive a restart of Flockdeck, and
+	// there is nowhere it needs clearing when the pane closes: the Pane it
+	// lives on is simply gone.
+	Muted bool
 }
 
 // Alive reports whether the pane has a running process.
@@ -1947,6 +1957,23 @@ func (w *Workspace) ToggleZoomByID(id string) bool {
 	}
 	t.Focus = id
 	t.Zoom = !t.Zoom
+	return true
+}
+
+// SetPaneMuted mutes or unmutes a pane's phone push notifications -- see
+// push.go's pushDue, which leaves a muted pane's wait out of the ones a push
+// is built from. It reports whether the pane was found, which is false for
+// one already closed, and is what a mutePane command for a gone id is
+// refused by.
+func (w *Workspace) SetPaneMuted(id string, muted bool) bool {
+	p := w.Pane(id)
+	if p == nil {
+		return false
+	}
+	if p.Muted != muted {
+		p.Muted = muted
+		w.wake()
+	}
 	return true
 }
 
