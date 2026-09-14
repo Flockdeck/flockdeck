@@ -278,6 +278,9 @@ type projectView struct {
 	// window asks for again when this summary moves, follows a split or a
 	// closed idle pane as well as a change of status.
 	Panes int `json:"panes"`
+	// Archived says this project is archived (see workspace.Project); an
+	// open project may still be one, since archiving it does not close it.
+	Archived bool `json:"archived,omitempty"`
 }
 
 type tabView struct {
@@ -487,6 +490,14 @@ type command struct {
 	// stop, having its PreToolUse calls put to auto-review approvals. See
 	// Workspace.SetPaneAutoReview.
 	AutoReview bool `json:"autoReview"`
+	// Archived is archiveProject's own: whether the named project should be
+	// kept, or no longer kept, out of the picker's ordinary lists. See
+	// store.SetProjectArchived.
+	Archived bool `json:"archived"`
+	// Roots is reorderProjects' own: every project in a list the picker
+	// draws, in the order it should be shown in from now on. See
+	// store.ReorderProjects.
+	Roots []string `json:"roots"`
 }
 
 // ---------------------------------------------------------------------------
@@ -536,6 +547,7 @@ func (s *Server) snapshot() stateMsg {
 		msg.Projects = append(msg.Projects, projectView{
 			Root: p.Root, Name: p.Name, Active: p.Active,
 			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working, Panes: p.Panes,
+			Archived: p.Archived,
 		})
 	}
 
@@ -1338,6 +1350,79 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// The list is about to be sent again with the project still on
 			// it; without this the entry just refuses to go away.
 			c.notify("could not forget "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+		}
+		s.recents(c)
+		return
+	case "renameProject":
+		// On the workspace goroutine, guarded against opening or touching a
+		// project the same way forgetRecent's own write is: both rewrite the
+		// same file, and side by side one could put back what the other had
+		// just changed.
+		if err, ok := ask(s, func() error { return store.SetProjectName(cmd.Root, cmd.Text) }); ok {
+			if err != nil {
+				c.notify("could not rename "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+			} else {
+				// The open project's own name, part of the main snapshot
+				// rather than the recent list, has to be told to look again
+				// too -- ReloadAgents is why the picker's other settings do
+				// the same after a save.
+				s.ws.ReloadProjectMeta()
+				s.wakeAsked()
+			}
+		}
+		s.recents(c)
+		return
+	case "archiveProject":
+		if err, ok := ask(s, func() error { return store.SetProjectArchived(cmd.Root, cmd.Archived) }); ok {
+			if err != nil {
+				verb := "archive"
+				if !cmd.Archived {
+					verb = "unarchive"
+				}
+				c.notify("could not "+verb+" "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+			} else {
+				s.ws.ReloadProjectMeta()
+				s.wakeAsked()
+			}
+		}
+		s.recents(c)
+		return
+	case "reorderProjects":
+		if err, ok := ask(s, func() error { return store.ReorderProjects(cmd.Roots) }); ok {
+			if err != nil {
+				c.notify("could not reorder projects: "+err.Error(), true)
+			} else {
+				s.ws.ReloadProjectMeta()
+				s.wakeAsked()
+			}
+		}
+		s.recents(c)
+		return
+	case "removeProject":
+		// Closing it, if it is open, and forgetting it happen as one step on
+		// the workspace goroutine, the same way renameProject's write does --
+		// a window drawing the picker mid-remove must not see it closed with
+		// the recent list still holding it, or forgotten while it is still
+		// open and showing in the switcher.
+		//
+		// The last open project can't be closed (CloseProject itself simply
+		// declines), and must not be silently forgotten out from under
+		// itself either: the picker would show nothing open at all.
+		err, ok := ask(s, func() error {
+			if _, open := s.ws.OpenRootFor(cmd.Root); open && len(s.ws.Projects()) <= 1 {
+				return fmt.Errorf("%s can't be removed: close another project first, or it would leave nothing open", filepath.Base(cmd.Root))
+			}
+			if err := s.ws.CloseProject(cmd.Root); err != nil {
+				return err
+			}
+			return store.ForgetRecent(cmd.Root)
+		})
+		if ok {
+			if err != nil {
+				c.notify("could not remove "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+			} else {
+				s.wakeAsked()
+			}
 		}
 		s.recents(c)
 		return

@@ -1109,6 +1109,20 @@ func adoptProfile(old, dir string) {
 type Project struct {
 	Root     string    `json:"root"`
 	LastUsed time.Time `json:"lastUsed"`
+	// Name is a display name chosen by hand for this project, which the
+	// switcher and picker show in place of the one derived from its
+	// directory. Empty means none has been chosen. See SetProjectName.
+	Name string `json:"name,omitempty"`
+	// Archived keeps a project out of the picker's ordinary lists without
+	// removing it from the recent list or touching anything on disk. An
+	// archived project is still found and can still be opened from the
+	// picker's own Archived section. See SetProjectArchived.
+	Archived bool `json:"archived,omitempty"`
+	// Order is a position chosen by hand, ascending from one, used to sort
+	// the picker's lists once a project has been moved within them. Zero
+	// means none has been chosen, and such a project sorts after every one
+	// that has an Order, by LastUsed as it always did. See ReorderProjects.
+	Order int `json:"order,omitempty"`
 }
 
 // recentsFile is the global list of projects, kept separately from the
@@ -1146,7 +1160,7 @@ func Recents() ([]Project, error) {
 		quarantine(filepath.Join(dir, recentsFile), recentsWhat, KeptDamaged)
 		return nil, nil
 	}
-	sort.SliceStable(list, func(i, j int) bool { return list[i].LastUsed.After(list[j].LastUsed) })
+	sort.SliceStable(list, func(i, j int) bool { return projectLess(list[i], list[j]) })
 
 	// Collapse entries that name the same directory, keeping the most recent.
 	// The file outlives any one version of this code, so it can hold paths
@@ -1172,6 +1186,22 @@ func Recents() ([]Project, error) {
 		out = out[:maxRecents]
 	}
 	return out, nil
+}
+
+// projectLess orders the recent list for display: a project positioned by
+// hand comes before one that has not been, and among those positioned
+// alike -- both by hand or neither -- the one used more recently comes
+// first. This is also the order ReorderProjects assigns Order in, so a
+// list sorted once by hand and never touched again keeps reading back the
+// way it was left.
+func projectLess(a, b Project) bool {
+	if (a.Order != 0) != (b.Order != 0) {
+		return a.Order != 0
+	}
+	if a.Order != b.Order {
+		return a.Order < b.Order
+	}
+	return a.LastUsed.After(b.LastUsed)
 }
 
 // TouchRecent records that a project was opened, moving it to the front.
@@ -1235,7 +1265,15 @@ func TouchRecents(roots ...string) error {
 	for i, c := range clean {
 		// A nanosecond apart, so the list comes back in the order given
 		// however it is sorted.
-		out = append(out, Project{Root: c, LastUsed: now.Add(-time.Duration(i))})
+		p := Project{Root: c, LastUsed: now.Add(-time.Duration(i))}
+		// A name chosen by hand, an archived flag or a position chosen by
+		// hand belongs to the project, not to the moment it was opened, so
+		// opening it again must not lose whichever of those were already
+		// recorded for it.
+		if prior, ok := findProject(list, c); ok {
+			p.Name, p.Archived, p.Order = prior.Name, prior.Archived, prior.Order
+		}
+		out = append(out, p)
 	}
 	for _, p := range list {
 		if !containsRoot(clean, p.Root) {
@@ -1258,6 +1296,16 @@ func containsRoot(roots []string, root string) bool {
 	return false
 }
 
+// findProject returns the entry in list naming the same project as root.
+func findProject(list []Project, root string) (Project, bool) {
+	for _, p := range list {
+		if sameRoot(p.Root, root) {
+			return p, true
+		}
+	}
+	return Project{}, false
+}
+
 // ForgetRecent drops a project from the remembered list.
 func ForgetRecent(root string) error {
 	list, err := Recents()
@@ -1277,6 +1325,115 @@ func ForgetRecent(root string) error {
 	}
 	return writeRecents(out)
 }
+
+// SetProjectName gives a project a display name chosen by hand, which the
+// switcher and picker show in place of the one derived from its
+// directory. An empty name goes back to that one -- the picker's rename
+// dialog sends the same, the way clearing a tab's name does.
+func SetProjectName(root, name string) error {
+	return updateProject(root, func(p *Project) { p.Name = strings.TrimSpace(name) })
+}
+
+// SetProjectArchived archives or unarchives a project: kept, or no longer
+// kept, out of the picker's ordinary lists. Nothing on disk is touched
+// either way, and a project already open stays open -- it only drops into
+// the picker's Archived section, rather than its Recent one, once it is
+// next closed.
+func SetProjectArchived(root string, archived bool) error {
+	return updateProject(root, func(p *Project) { p.Archived = archived })
+}
+
+// updateProject changes one project's entry in the recent list with fn and
+// saves it. A root with no entry yet -- a project renamed or archived in
+// the same moment it is opened for the first time, before its own
+// TouchRecent has landed -- is given one, so the change is not silently
+// lost.
+func updateProject(root string, fn func(*Project)) error {
+	if strings.TrimSpace(root) == "" {
+		return errors.New("project: empty path")
+	}
+	list, err := Recents()
+	if err != nil {
+		return err
+	}
+	clean := filepath.Clean(root)
+	for i := range list {
+		if sameRoot(list[i].Root, clean) {
+			fn(&list[i])
+			return writeRecents(list)
+		}
+	}
+	p := Project{Root: clean, LastUsed: time.Now()}
+	fn(&p)
+	return writeRecents(append(list, p))
+}
+
+// ReorderProjects gives each named project a position ascending from one,
+// in the order given, so the picker's lists are sorted by hand from then
+// on (see projectLess). A project left out of order keeps whatever
+// position it already had -- moving one project within a list must not
+// disturb where every other one in it was left.
+func ReorderProjects(order []string) error {
+	if len(order) == 0 {
+		return nil
+	}
+	list, err := Recents()
+	if err != nil {
+		return err
+	}
+	pos := make(map[string]int, len(order))
+	for i, root := range order {
+		pos[normalizeRoot(root)] = i + 1
+	}
+	changed := false
+	for i := range list {
+		if p, ok := pos[normalizeRoot(list[i].Root)]; ok && list[i].Order != p {
+			list[i].Order = p
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return writeRecents(list)
+}
+
+// ProjectMeta is a project's own display settings -- a name chosen by
+// hand, whether it is archived, and where it sits in a list ordered by
+// hand -- kept apart from Project so a caller that only wants these need
+// not carry LastUsed around too. See AllProjectMeta.
+type ProjectMeta struct {
+	Name     string
+	Archived bool
+	Order    int
+}
+
+// AllProjectMeta reads every project's display settings from the recent
+// list, keyed as MetaKey compares them, so a lookup finds a project
+// however its own spelling of the root differs from the one recorded.
+//
+// It is for a caller that wants to cache these rather than read the list
+// on every use -- the workspace does, since Projects is asked for on
+// every wake and a snapshot is built many times a second. See
+// Workspace.ReloadProjectMeta.
+func AllProjectMeta() (map[string]ProjectMeta, error) {
+	list, err := Recents()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]ProjectMeta, len(list))
+	for _, p := range list {
+		if p.Name == "" && !p.Archived && p.Order == 0 {
+			continue
+		}
+		out[normalizeRoot(p.Root)] = ProjectMeta{Name: p.Name, Archived: p.Archived, Order: p.Order}
+	}
+	return out, nil
+}
+
+// MetaKey is the key AllProjectMeta's map uses for a root, for a caller
+// that already holds the map and wants to look one project up in it.
+func MetaKey(root string) string { return normalizeRoot(root) }
 
 func writeRecents(list []Project) error {
 	dir, err := Dir()

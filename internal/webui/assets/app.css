@@ -298,6 +298,8 @@ body { flex-direction: row; }
   font-size: 18px; line-height: 1; padding: 2px 8px; border-radius: var(--radius); cursor: pointer;
 }
 .icon-btn:hover { background: #22262e; color: var(--fg); }
+.icon-btn:disabled { opacity: .35; cursor: default; }
+.icon-btn:disabled:hover { background: transparent; color: var(--fg-dim); }
 
 /* Keyboard focus. Every button in here is transparent or sits on a near-black
  * panel, so the browser's own focus ring all but disappears and there is no
@@ -735,12 +737,18 @@ textarea:focus-visible {
   text-transform: uppercase; color: var(--fg-dim);
 }
 .proj-row {
-  display: flex; align-items: center; gap: 10px; padding: 7px 8px;
+  display: flex; align-items: center; gap: 10px; padding: 7px 8px; flex-wrap: wrap;
   border: 1px solid transparent; border-radius: var(--radius);
 }
 .proj-row:hover { background: #22262e; border-color: var(--line); }
 .proj-row.active { background: var(--bg-inset); border-color: var(--accent); }
 .proj-row.missing { opacity: .55; }
+.proj-row.archived { opacity: .7; }
+/* The row's own switch/open button already flexes to fill the row (.proj-go);
+ * the buttons beside it -- rename, archive, reorder, remove -- are grouped so
+ * they wrap onto a line of their own on a narrow window rather than each
+ * wrapping alone and breaking up the row. */
+.proj-actions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
 /* Switching to the project is a real button covering everything that describes
  * it, so it takes the row's own layout and gives up every part of looking like
  * a button. The buttons that are meant to look like buttons sit beside it. */
