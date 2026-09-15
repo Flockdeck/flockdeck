@@ -113,13 +113,38 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// A window reached through the relay is somebody using the pane from their
 	// phone, from its opening to its closing; see relayUse.
 	relay := fromRemote(r)
+	// tc is what the rest of this function reads and writes the terminal
+	// through: conn itself, unless the handshake below end-to-end encrypts
+	// this socket, in which case every frame from here on is one
+	// internal/e2e frame -- see e2eConn.
+	var tc termConn = conn
+	encrypted := false
 	if relay {
 		relayUse.mark(id, time.Now())
 		defer func() { relayUse.mark(id, time.Now()) }()
+		// The device asking is named by this header, which the relay itself
+		// sets on the tunnel connection and strips any client-supplied copy
+		// of first -- so a browser cannot claim to be a device it is not,
+		// which matters here as much as it does to authorisation, since it
+		// is also the identity a public key is looked up against.
+		device := r.Header.Get("Flockdeck-Remote-Device")
+		if ra := s.remoteAccess(); ra != nil && ra.E2ECapable(ctx, device) {
+			sess, err := s.e2eHandshake(ctx, ra, conn, device)
+			if err != nil {
+				// Both sides are supposed to have a key on file, so a
+				// handshake that still fails is treated as a fault, not a
+				// reason to fall back to plaintext -- silently downgrading
+				// here is exactly the strip a relay in the middle would
+				// want, and it is the one case internal/e2e's own threat
+				// model does not otherwise cover.
+				_ = conn.Close(websocket.StatusPolicyViolation, "end-to-end handshake failed")
+				return
+			}
+			tc, encrypted = &e2eConn{conn: conn, sess: sess}, true
+		}
 		// The desk is told this pane's terminal has a phone open on it, and
 		// again once this socket closes -- see remoteViewersFor.
-		device := r.Header.Get("Flockdeck-Remote-Device")
-		remoteTermViewers.add(id, viewer, device)
+		remoteTermViewers.add(id, viewer, device, encrypted)
 		s.Wake()
 		defer func() {
 			remoteTermViewers.remove(id, viewer)
@@ -156,7 +181,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// armRepaint.
 	var repaint atomic.Bool
 	go s.applyResizes(ctx, id, measured, &repaint)
-	go s.readInput(ctx, cancel, conn, id, viewer, relay, measured, &live)
+	go s.readInput(ctx, cancel, tc, id, viewer, relay, measured, &live)
 	var writes writeGauge
 	go keepalive(ctx, cancel, conn, &writes, s.pingInterval, s.pingTimeout)
 
@@ -177,7 +202,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 				// One that replaces it after a restart starts from nothing.
 				from = -1
 				h := streamHeader{Epoch: sess.Epoch(), Offset: start, Resumed: resumed, End: start + int64(len(replay))}
-				if err := writeHeader(ctx, conn, &writes, h); err != nil {
+				if err := writeHeader(ctx, tc, &writes, h); err != nil {
 					if subID >= 0 {
 						sess.Unsubscribe(subID)
 					}
@@ -187,7 +212,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 				subID, replay, out = sess.Subscribe()
 			}
 			s.armRepaint(ctx, &repaint, id, viewer, sess, fresh)
-			ended := streamOutput(ctx, conn, replay, out, liveFrame(r), &writes)
+			ended := streamOutput(ctx, tc, replay, out, liveFrame(r), &writes)
 			if subID >= 0 {
 				sess.Unsubscribe(subID)
 			}
@@ -216,7 +241,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		// for itself while a restart still cost it a reconnection. A pane that
 		// never started anything has nothing to undo.
 		if sess != nil {
-			if err := writeChunk(ctx, conn, &writes, termReset); err != nil {
+			if err := writeChunk(ctx, tc, &writes, termReset); err != nil {
 				return
 			}
 		}
@@ -282,7 +307,7 @@ var termReset = []byte("\x1bc")
 
 // readInput forwards what the window sends: keystrokes as binary frames,
 // everything else as JSON control messages.
-func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn *websocket.Conn, id string, viewer int64, relay bool, measured chan<- struct{}, live *atomic.Pointer[session.Session]) {
+func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn termConn, id string, viewer int64, relay bool, measured chan<- struct{}, live *atomic.Pointer[session.Session]) {
 	defer cancel()
 	// A size is recorded here and applied elsewhere. Applying it means reaching
 	// the workspace goroutine, which can be busy for seconds at a time opening
@@ -591,7 +616,7 @@ func (s *Server) paneSession(id string) (sess *session.Session, found bool, err 
 //
 // It returns true when the session's stream ended, leaving the connection
 // usable, and false when the connection itself went away.
-func streamOutput(ctx context.Context, conn *websocket.Conn, replay []byte, out <-chan []byte, frame int, writes *writeGauge) bool {
+func streamOutput(ctx context.Context, conn termConn, replay []byte, out <-chan []byte, frame int, writes *writeGauge) bool {
 	// The replay goes out a frame at a time, and each frame has the write's
 	// budget to itself. Sent whole, half a megabyte of history on a slow link
 	// -- a phone reaching this through the relay -- outlasted that budget, the
@@ -894,7 +919,7 @@ type streamHeader struct {
 
 // writeHeader sends a streamHeader, as the only text frame a terminal socket
 // ever carries.
-func writeHeader(ctx context.Context, conn *websocket.Conn, writes *writeGauge, h streamHeader) error {
+func writeHeader(ctx context.Context, conn termConn, writes *writeGauge, h streamHeader) error {
 	data, err := json.Marshal(h)
 	if err != nil {
 		return err
@@ -902,7 +927,7 @@ func writeHeader(ctx context.Context, conn *websocket.Conn, writes *writeGauge, 
 	return writes.write(ctx, conn, websocket.MessageText, data)
 }
 
-func writeChunk(ctx context.Context, conn *websocket.Conn, writes *writeGauge, data []byte) error {
+func writeChunk(ctx context.Context, conn termConn, writes *writeGauge, data []byte) error {
 	return writes.write(ctx, conn, websocket.MessageBinary, data)
 }
 
@@ -921,7 +946,7 @@ type writeGauge struct {
 }
 
 // write sends one frame within the write budget. A nil gauge counts nothing.
-func (g *writeGauge) write(ctx context.Context, conn *websocket.Conn, typ websocket.MessageType, data []byte) error {
+func (g *writeGauge) write(ctx context.Context, conn termConn, typ websocket.MessageType, data []byte) error {
 	writeCtx, cancel := context.WithTimeout(ctx, writeBudget)
 	defer cancel()
 	if g == nil {

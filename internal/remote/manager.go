@@ -2,9 +2,11 @@ package remote
 
 import (
 	"context"
+	"crypto/ecdh"
 	"errors"
 	"net"
 	"sync"
+	"time"
 )
 
 // ErrNotEnabled is what anything that needs an enrolment is told when there is
@@ -41,6 +43,17 @@ type Manager struct {
 	// after it -- a rename or a `flockdeck remote` finishing while the
 	// instance shuts down -- from starting a tunnel nothing would serve.
 	closed bool
+
+	// e2eMu guards this machine's end-to-end identity and what it has
+	// learned of the account's devices' keys (e2ekey.go), separately from mu
+	// above so that a slow relay call for either never holds up Status,
+	// Client or Reload's own bookkeeping.
+	e2eMu          sync.Mutex
+	e2ePriv        *ecdh.PrivateKey
+	e2eRosterCache map[string]string
+	e2eRosterAt    time.Time
+	e2eRegErr      error
+	e2eRegAt       time.Time
 }
 
 // NewManager makes a manager with nothing running. serve answers each tunnel's
@@ -71,6 +84,18 @@ func (m *Manager) Reload() error {
 	cfg, err := m.load()
 	if err != nil {
 		return err
+	}
+	if cfg != nil {
+		// Best-effort, and never blocks bringing the tunnel up: a relay that
+		// cannot be reached right now for this leaves terminals unencrypted
+		// until the next Reload -- an app restart, or the dialog's "try
+		// again" -- succeeds, rather than holding remote access itself up on
+		// a key nothing needs to serve a request through the tunnel.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), e2eRegisterTimeout)
+			defer cancel()
+			_ = m.EnsureE2EKey(ctx)
+		}()
 	}
 
 	m.mu.Lock()

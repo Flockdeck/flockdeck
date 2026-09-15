@@ -145,6 +145,13 @@ type Device struct {
 	Name     string    `json:"name"`
 	Created  time.Time `json:"created"`
 	LastSeen time.Time `json:"lastSeen"`
+	// PublicKey is this device's long-term key for end-to-end encrypting the
+	// terminals it opens (internal/e2e), base64url -- what this host hands to
+	// RespondHostHandshake for this device's hello. Empty until the browser
+	// has registered one with POST /api/v1/device/e2e-key, which an older
+	// client that predates end-to-end encryption never will: a terminal
+	// opened by one of those is served unencrypted rather than refused.
+	PublicKey string `json:"publicKey,omitempty"`
 }
 
 // Host is a desktop enrolled in the account; Self marks this one. URL is
@@ -156,6 +163,11 @@ type Host struct {
 	LastSeen time.Time `json:"lastSeen"`
 	Self     bool      `json:"self"`
 	URL      string    `json:"url,omitempty"`
+	// PublicKey is this desktop's long-term key for end-to-end encrypting its
+	// terminals (internal/e2e), base64url. Empty until it has registered one
+	// with POST /api/v1/host/e2e-key -- which EnsureE2EKey does, on this
+	// machine's own entry, as soon as the tunnel is up.
+	PublicKey string `json:"publicKey,omitempty"`
 }
 
 // Roster is everything the account has paired and enrolled.
@@ -334,6 +346,22 @@ func (c *Client) RenameDevice(ctx context.Context, deviceID, name string) error 
 // Unregister removes this host from the relay, which spends its token.
 func (c *Client) Unregister(ctx context.Context) error {
 	return c.call(ctx, http.MethodDelete, "/api/v1/host", nil, nil)
+}
+
+// e2eKeyRequest is a device's or a host's long-term public key for
+// end-to-end encrypting terminal traffic, as internal/e2e.EncodePublicKey
+// writes it: unpadded base64url of an uncompressed P-256 point. It mirrors
+// flockdeck-relay's own E2EKeyRequest, which POST /api/v1/host/e2e-key reads.
+type e2eKeyRequest struct {
+	PublicKey string `json:"publicKey"`
+}
+
+// SetE2EKey registers or rotates this host's long-term key for end-to-end
+// encrypting the terminals it serves (internal/e2e). It is idempotent: called
+// again with the same key, or a new one after a rotation, it simply replaces
+// whatever the relay had on file.
+func (c *Client) SetE2EKey(ctx context.Context, publicKey string) error {
+	return c.call(ctx, http.MethodPost, "/api/v1/host/e2e-key", e2eKeyRequest{PublicKey: publicKey}, nil)
 }
 
 // call makes one request and decodes the answer into out, if there is one.

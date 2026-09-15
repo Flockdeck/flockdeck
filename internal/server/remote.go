@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/e2e"
 	"github.com/jmwri/flockdeck/internal/remote"
 )
 
@@ -43,6 +44,14 @@ type RemoteAccess interface {
 	Move(ctx context.Context, req remote.EnableRequest) (untold error, err error)
 	Rename(ctx context.Context, name string) error
 	Reconnect() error
+
+	// E2ECapable and E2ERespond are this machine's side of end-to-end
+	// encrypting one terminal socket (internal/e2e); see handlePTY's use of
+	// both. E2ECapable answers false, never an error, for anything that
+	// stops it finding out -- which handlePTY takes the same way as "no", by
+	// serving the terminal unencrypted rather than refusing it.
+	E2ECapable(ctx context.Context, deviceID string) bool
+	E2ERespond(ctx context.Context, deviceID string, hello []byte) (*e2e.Session, []byte, error)
 }
 
 type remoteHolder struct{ RemoteAccess }
