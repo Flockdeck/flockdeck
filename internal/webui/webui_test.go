@@ -1763,7 +1763,7 @@ assert.ok(bars.every((b) => b.getAttribute("aria-label")), "the rows have no nam
 const stops = (bar) => bar.children.filter((b) => b.tabIndex !== -1).length;
 assert.deepStrictEqual(bars.map(stops), [1, 1, 1, 1, 1, 1],
   "each row of buttons is more than one stop on the way through the window");
-assert.strictEqual(bars[0].children.length, 5, "five things to do with a pane");
+assert.strictEqual(bars[0].children.length, 6, "six things to do with a pane");
 
 // The arrows walk the row and take the stop with them.
 const buttons = bars[0].children;
@@ -1773,7 +1773,7 @@ assert.ok(h.doc.activeElement === buttons[1], "the right arrow did not move alon
 assert.strictEqual(buttons[1].tabIndex, 0, "the stop did not move with the focus");
 assert.strictEqual(buttons[0].tabIndex, -1);
 h.key({ key: "End" });
-assert.ok(h.doc.activeElement === buttons[4], "End did not go to the last button");
+assert.ok(h.doc.activeElement === buttons[5], "End did not go to the last button");
 h.key({ key: "ArrowRight" });
 assert.ok(h.doc.activeElement === buttons[0], "the row does not wrap");
 
@@ -1783,13 +1783,13 @@ h.doc.body.focus();
 h.key({ key: "Tab" });
 h.key({ key: "Tab" });
 assert.strictEqual(stops(bars[0]), 1, "the row grew a second stop");
-assert.strictEqual(buttons[4].tabIndex, 0, "the stop did not stay where it was left");
+assert.strictEqual(buttons[5].tabIndex, 0, "the stop did not stay where it was left");
 
 // And they still do what they say.
-buttons[4].focus();
+buttons[5].focus();
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "closePane", id: "p0" });
-buttons[3].focus();
+buttons[4].focus();
 h.key({ key: " " });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "toggleZoom", id: "p0" });
 `)
