@@ -237,6 +237,12 @@ type stateMsg struct {
 	// restart, or nil when there is nothing to apply. It rides on the snapshot
 	// so the badge appears without the page having to ask.
 	Update *UpdateView `json:"update,omitempty"`
+	// Recall says the version this instance is running has been pulled since
+	// it was installed, a known problem rather than just an update being
+	// available, so the window can show something distinct from the update
+	// chip Update rides in on. Nil where nothing has recalled it, or nothing
+	// has checked yet.
+	Recall *RecallView `json:"recall,omitempty"`
 	// Remote is the tunnel to the relay, or nil when this machine is not
 	// enrolled for remote access — in which case the window shows nothing
 	// about it at all.
@@ -518,6 +524,7 @@ func (s *Server) snapshot() stateMsg {
 		Agents:                s.catalog(),
 		Panes:                 map[string]paneView{},
 		Update:                s.Update(),
+		Recall:                s.Recall(),
 		Remote:                s.remoteSnapshot(),
 		CanStartAgent:         true,
 		CanSearchConversation: true,
