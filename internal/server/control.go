@@ -311,6 +311,11 @@ type tabView struct {
 	// Named says the title was chosen by hand, which is when the rename
 	// dialog offers to go back to the automatic one.
 	Named bool `json:"named,omitempty"`
+	// Delegated says a fan-out placed its own children into this tab (see
+	// workspace.Tab.Delegated), which is what tells the window a settled
+	// multi-pane tab is delegated work safe to roll up into a summary card,
+	// rather than an ordinary split a person happens to have left idle.
+	Delegated bool `json:"delegated,omitempty"`
 }
 
 type nodeView struct {
@@ -632,6 +637,7 @@ func (s *Server) snapshot() stateMsg {
 			Zoom:      t.Zoom,
 			Attention: ws.TabNeedsAttention(t),
 			Named:     t.Named,
+			Delegated: t.Delegated,
 			Root:      root,
 		})
 		// Cleaning the tab's directory once rather than once per pane: it is

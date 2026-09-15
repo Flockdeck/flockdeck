@@ -1901,7 +1901,7 @@ const state = (statuses) => {
     kids.push(leaf("m" + i, "q" + i));
   });
   return fixture({
-    tabs: [{ id: "t9", title: "fan out", focus: "q0", root: split("h", kids) }],
+    tabs: [{ id: "t9", title: "fan out", focus: "q0", delegated: true, root: split("h", kids) }],
     panes: panes, waiting: statuses.filter((s) => s === "waiting").length,
   });
 };
@@ -1916,8 +1916,9 @@ assert.strictEqual(h.notifications.length, 1,
   "one notification for the lot, not " + h.notifications.length + " that overwrite each other");
 const all = h.notifications[0];
 assert.strictEqual(all.title, "3 agents need you", "got: " + all.title);
-["task 0", "task 1", "task 2"].forEach((n) =>
-  assert.ok(all.body.includes(n), "the notification does not name " + n + ": " + all.body));
+// They are one job (see jobOf), so the body reads as one sentence about the
+// fan-out rather than each task named on its own.
+assert.strictEqual(all.body, "fan out: 3 want your input", "got: " + all.body);
 
 // Clicking it goes to the agent that asked, not merely to the window.
 all.onclick();
@@ -1939,6 +1940,31 @@ h.doc._hasFocus = true;
 h.recv(state(["working", "working", "working"]));
 h.recv(state(["waiting", "waiting", "waiting"]));
 assert.strictEqual(h.notifications.length, 2, "the window is in front and was interrupted anyway");
+`)
+}
+
+// A settled tab only rolls up into a summary card, and only groups its
+// prompts into one notification, when the server says a fan-out actually
+// filled it (tab.delegated) -- never merely because it happens to hold two
+// or more idle agent panes. A person is free to build exactly that shape by
+// hand with an ordinary split, and it must go on showing its real terminals
+// and naming each agent on its own, the way it always has.
+func TestAnOrdinaryMultiPaneTabIsNeverMistakenForAFanOut(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }] }));
+assert.strictEqual(h.terms.length, 2, "an ordinary two-agent split was rolled up into a summary card");
+assert.ok(!h.$("workspace").querySelector(".summary-card"), "a card was drawn for a tab no fan-out filled");
+
+h.doc._hasFocus = false;
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1", { name: "one", status: "waiting" }), p2: pane("p2", { name: "two", status: "waiting" }) },
+  waiting: 2 }));
+assert.strictEqual(h.notifications.length, 1, "two agents stopping together sent more than one notification");
+assert.strictEqual(h.notifications[0].title, "2 agents need you", "got: " + h.notifications[0].title);
+assert.ok(!/^one: /.test(h.notifications[0].body), "an ordinary split's prompts were grouped under the tab's own name: " + h.notifications[0].body);
 `)
 }
 
@@ -6945,7 +6971,7 @@ const forgets = () => h.$("overlay-body").querySelectorAll("button.proj-forget")
 assert.strictEqual(forgets().length, 3, "each recent project has its ×");
 forgets()[1].focus();
 h.click(forgets()[1]);
-assert.deepStrictEqual(h.commands().pop(), { cmd: "forgetRecent", root: "C:/old/beta" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "removeProject", root: "C:/old/beta" });
 h.recv(recent(["alpha", "gamma"]));
 assert.ok(h.doc.activeElement === forgets()[1], "the keyboard did not go to the project that took the forgotten one's place");
 

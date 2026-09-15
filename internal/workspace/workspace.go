@@ -189,6 +189,20 @@ type Tab struct {
 	Focus string
 	// Zoom temporarily gives the focused pane the whole window.
 	Zoom bool
+	// Delegated is set on a tab Spawn has placed a fan-out's own child into
+	// -- gathering several into one together, or giving a lone helper a new
+	// tab of its own -- and never on one an ordinary split put a pane into.
+	// It is not persisted: a restart resumes agents into tabs nothing has
+	// just delegated work into, and starts each over the ordinary way.
+	//
+	// This is the one reliable way to tell "two or more idle agent panes
+	// sharing a tab" apart from "an ordinary tab of several agents a person
+	// split together by hand, which simply happen to have gone idle at the
+	// same time" -- the window's own settled-tab-collapses-to-a-summary-card
+	// behaviour (see webui's tabSettleInfo) must never guess at fan-out from
+	// pane count alone, since a person is free to build exactly the same
+	// shape by hand.
+	Delegated bool
 	// AutoTitle is set while the title is still the directory name the tab was
 	// given automatically, so the first prompt may replace it. Renaming a tab
 	// by hand clears it and the title is then left alone.

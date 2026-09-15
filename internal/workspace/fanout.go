@@ -1002,13 +1002,16 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	if o.SpawnedByAgent && parent != nil {
 		p.Parent = parentPaneID
 	}
-	// A child with no parent -- a fan-out run from the window, whose children
-	// carry no Parent even though this call is given one -- starts AutoReview
-	// from the installation's own default rather than off unconditionally.
-	// One spawned by its own parent's `flockdeck spawn` inherits the parent's
-	// live value instead, once that lands; until then it starts off, as it
-	// always has.
-	if p.Parent == "" {
+	// A pane started with no parent pane behind it at all -- opened by hand,
+	// or a fan-out with no boss pane to speak of -- starts AutoReview from
+	// the installation's own default rather than off unconditionally. This
+	// is parent == nil, not p.Parent == "": a window-driven fan-out row has
+	// a real parent (the pane whose plan it came from) and inherits that
+	// pane's live AutoReview above, even though p.Parent itself is left
+	// empty for it (see the assignment above and Pane.Parent) -- checking
+	// the field here instead of the pointer would silently overwrite that
+	// inheritance with the installation default for every such row.
+	if parent == nil {
 		p.AutoReview = store.LoadPrefs().AutoReviewDefault
 	}
 	if p.IsAgent() {
@@ -1042,6 +1045,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		// added one at a time, each of which would otherwise halve the last.
 		t.Tree = layout.Grid(append(t.Tree.Panes(), p.ID))
 		t.Zoom = false
+		t.Delegated = true
 		placed = true
 	}
 	if !placed && o.Split && parent != nil {
@@ -1067,11 +1071,12 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 			}
 		}
 		t := &Tab{
-			ID:    uuid.NewString(),
-			Root:  root,
-			Title: title,
-			Tree:  layout.NewLeaf(p.ID),
-			Focus: p.ID,
+			ID:        uuid.NewString(),
+			Root:      root,
+			Title:     title,
+			Tree:      layout.NewLeaf(p.ID),
+			Focus:     p.ID,
+			Delegated: true,
 		}
 		w.Tabs = append(w.Tabs, t)
 	}

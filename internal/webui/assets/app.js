@@ -1358,22 +1358,28 @@
   /** tabSettleInfo says whether tab is a delegated job that has stopped:
    *  nobody left in it working or starting, so there is nothing left to
    *  watch and everything to report. Only a tab a fan-out actually filled
-   *  counts -- two or more agent panes, none of them a shell, which cannot
-   *  "finish" a turn the way an agent does -- since Spawn always gathers a
-   *  fan-out's own children into one tab together (see fanout.go), and an
-   *  ordinary tab of one pane has nothing to collapse in the first place.
-   *  None of them may carry a parent, either: a helper split into its own
-   *  manager's tab (SpawnOptions.Split) shares it with that manager's own
-   *  pane, which is the boss's own conversation, not delegated work, and
-   *  must never vanish into a card just because it happens to have gone
-   *  idle at the same moment as the helper beside it. ids is every pane in
-   *  the tab either way, for the caller to walk. */
+   *  counts -- tab.delegated (see workspace.Tab.Delegated and
+   *  server.tabView), set server-side exactly when Spawn gathered a
+   *  fan-out's own children into this tab, never by an ordinary split --
+   *  and then only with two or more agent panes in it, none of them a
+   *  shell, which cannot "finish" a turn the way an agent does; a lone
+   *  helper's tab of one pane has nothing to collapse in the first place.
+   *  A person is free to build the exact same shape by hand, splitting
+   *  several agents into one tab themselves, and that must never vanish
+   *  into a card just because every one of them happens to have gone idle
+   *  at the same moment -- tab.delegated is what tells the two apart,
+   *  where the pane count and kind alone cannot. None of them may carry a
+   *  parent, either: a helper split into its own manager's tab
+   *  (SpawnOptions.Split) shares it with that manager's own pane, which is
+   *  the boss's own conversation, not delegated work, even though Spawn
+   *  does mark that placement delegated too. ids is every pane in the tab
+   *  either way, for the caller to walk. */
   function tabSettleInfo(tab, s) {
     const idSet = new Set();
     collectPanes(tab.root, idSet);
     const ids = [...idSet];
     const views = ids.map((id) => s.panes && s.panes[id]).filter(Boolean);
-    const settled = views.length >= 2 && !views.some((v) => v.kind === "shell" || v.parent) &&
+    const settled = !!tab.delegated && views.length >= 2 && !views.some((v) => v.kind === "shell" || v.parent) &&
       views.every((v) => v.status !== "working" && v.status !== "starting");
     if (!settled) cardHidden.delete(tab.id);
     return { settled, ids };
@@ -5409,9 +5415,14 @@
    *  parent is one; a helper started by `flockdeck spawn` carries its
    *  starting pane as v.parent (Pane.Parent), walked up to the pane at the
    *  root of the chain, so a manager that itself spawned a helper still
-   *  groups under the same name. Returns null for a pane that is nobody's
-   *  fan-out row and started no chain of its own -- an ordinary pane,
-   *  grouped with nothing. */
+   *  groups under the same name. A fan-out's own tab is told apart from an
+   *  ordinary multi-agent tab a person built by hand by tab.delegated (see
+   *  workspace.Tab.Delegated), not by pane count alone -- the same signal
+   *  tabSettleInfo relies on, and for the same reason: a person is free to
+   *  split several agents into one tab themselves, and that must not read
+   *  as one job just because it looks like one from the pane count. Returns
+   *  null for a pane that is nobody's fan-out row and started no chain of
+   *  its own -- an ordinary pane, grouped with nothing. */
   function jobOf(id, s) {
     const v = s.panes && s.panes[id];
     if (!v) return null;
@@ -5427,7 +5438,7 @@
     }
     const tabId = tabIdOfPane(id);
     const tab = tabId && (s.tabs || []).find((t) => t.id === tabId);
-    if (!tab) return null;
+    if (!tab || !tab.delegated) return null;
     const ids = new Set();
     collectPanes(tab.root, ids);
     if (ids.size < 2) return null;
