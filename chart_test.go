@@ -178,17 +178,22 @@ func TestChartEnvNamesAreKnown(t *testing.T) {
 	}
 }
 
-// Every flag the chart's Deployment passes in args is one flockdeck takes.
+// Every flag the chart's Deployment passes to the flockdeck container in
+// args is one flockdeck takes. Scoped to that one container's own block: the
+// portproxy sidecar alongside it runs a different binary (cmd/portproxy)
+// with its own flags (-listen), which this check has no business judging
+// against flockdeck's flag set.
 func TestChartArgsFlagsAreKnown(t *testing.T) {
 	flags := topLevelFlags(t)
 	deployment := readChartFile(t, "templates/deployment.yaml")
-	passed := regexp.MustCompile(`(?m)^\s*-\s-([a-z][a-z0-9-]*)`).FindAllStringSubmatch(deployment, -1)
+	flockdeckBlock := containerBlock(t, deployment, "flockdeck")
+	passed := regexp.MustCompile(`(?m)^\s*-\s-([a-z][a-z0-9-]*)`).FindAllStringSubmatch(flockdeckBlock, -1)
 	if len(passed) == 0 {
-		t.Fatal("found no -flag arguments in the chart's deployment; the pattern no longer matches how it passes them")
+		t.Fatal("found no -flag arguments passed to the flockdeck container; the pattern no longer matches how it passes them")
 	}
 	for _, m := range passed {
 		if !flags[m[1]] {
-			t.Errorf("the chart's deployment passes -%s, which flockdeck does not take", m[1])
+			t.Errorf("the chart's deployment passes -%s to flockdeck, which it does not take", m[1])
 		}
 	}
 }
@@ -225,18 +230,78 @@ func TestChartRunsOneFlockdeck(t *testing.T) {
 	}
 }
 
-// The chart deliberately ships no Service or Ingress: self-hosted service
-// mode's server binds 127.0.0.1 on a random port each start (no
-// bind-address flag, no fixed port -- see internal/server.New), so neither
-// object could ever route anything real. Shipping one that looks like it
-// works and does not is worse than shipping neither; this test is a
-// tripwire so that changes back, if self-hosted service mode ever grows a
-// bind-address/fixed-port option, in the Go source, not by accident in the
-// chart.
-func TestChartHasNoServiceOrIngress(t *testing.T) {
-	for _, base := range []string{"service.yaml", "ingress.yaml"} {
-		if _, err := os.Stat(filepath.Join(chartDir, "templates", base)); err == nil {
-			t.Errorf("templates/%s exists, but flockdeck's server has no fixed address for it to route to (see this test's own comment) -- confirm internal/server.New still has no bind-address/fixed-port option before adding it back", base)
-		}
+// containerBlock returns the text of one container list item under a
+// deployment's containers:, from its "- name: <name>" line up to (but not
+// including) whatever comes next at the same indentation -- another
+// container, or the end of containers: entirely -- enough to ask "does this
+// one container declare a port" without a full YAML/Helm template engine.
+//
+// The boundary has to match the container's own indentation exactly, not
+// just any "- name:" line: a container's own volumeMounts and ports entries
+// are themselves "- name: <x>" list items, only indented further in, and a
+// boundary that did not tell them apart would cut the block off at the
+// first of those instead of at the next container.
+func containerBlock(t *testing.T, deployment, name string) string {
+	t.Helper()
+	start := regexp.MustCompile(`(?m)^([ \t]*)-\s*name:\s*` + regexp.QuoteMeta(name) + `\s*$`).FindStringSubmatchIndex(deployment)
+	if start == nil {
+		t.Fatalf("no container named %q found in templates/deployment.yaml", name)
+	}
+	indent := deployment[start[2]:start[3]]
+	rest := deployment[start[1]:]
+	nextAtSameIndent := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(indent) + `\S`)
+	if next := nextAtSameIndent.FindStringIndex(rest); next != nil {
+		rest = rest[:next[0]]
+	}
+	return rest
+}
+
+// TestChartServiceRoutesToSidecarNotFlockdeck is what replaced
+// TestChartHasNoServiceOrIngress: self-hosted service mode's server still
+// binds 127.0.0.1 on a random port each start (no bind-address flag, no
+// fixed port -- see internal/server.New), so a Service could still never
+// route to flockdeck's own container directly. What changed is the
+// flockdeck-portproxy sidecar (cmd/portproxy) alongside it in the same pod,
+// which does listen on a fixed port and forwards to flockdeck's real one --
+// so now a Service exists, but it must point at the sidecar, never at
+// flockdeck's own container. This is the tripwire for that: flockdeck's own
+// container must go on declaring no containerPort at all (it still has none
+// to declare truthfully), and the Service's targetPort must name the
+// sidecar's own named port instead.
+func TestChartServiceRoutesToSidecarNotFlockdeck(t *testing.T) {
+	deployment := readChartFile(t, "templates/deployment.yaml")
+
+	flockdeckBlock := containerBlock(t, deployment, "flockdeck")
+	if strings.Contains(flockdeckBlock, "containerPort") {
+		t.Error("the flockdeck container now declares a containerPort; it still has no fixed, predictable port of its own (see internal/server.New) -- a Service must keep routing to the portproxy sidecar instead")
+	}
+
+	sidecarBlock := containerBlock(t, deployment, "portproxy")
+	portName := regexp.MustCompile(`(?m)^\s*-\s*name:\s*(\S+)\s*$`).FindStringSubmatch(sidecarBlock)
+	if portName == nil || !strings.Contains(sidecarBlock, "containerPort") {
+		t.Fatal("the portproxy sidecar container has no named containerPort for a Service to target")
+	}
+
+	if _, err := os.Stat(filepath.Join(chartDir, "templates", "service.yaml")); err != nil {
+		t.Fatalf("templates/service.yaml does not exist: %v", err)
+	}
+	service := readChartFile(t, "templates/service.yaml")
+	if !regexp.MustCompile(`targetPort:\s*` + regexp.QuoteMeta(portName[1])).MatchString(service) {
+		t.Errorf("service.yaml's targetPort does not name %q, the portproxy sidecar's own containerPort name -- it must route to the sidecar, not to flockdeck's own (portless) container", portName[1])
+	}
+	if !strings.Contains(service, `include "flockdeck.selectorLabels"`) {
+		t.Error("service.yaml does not select the chart's own pod labels (flockdeck.selectorLabels), so it could be routing to some other workload entirely")
+	}
+}
+
+// TestChartHasNoIngress: a Service is the meaningful unlock the sidecar
+// buys (see this chart's README.md); Ingress is left out deliberately
+// rather than guessed at (TLS, a host, a controller's own annotations are a
+// bigger surface than this follow-up covers). This is a tripwire, the same
+// idea as TestChartServiceRoutesToSidecarNotFlockdeck's predecessor: an
+// Ingress showing up here should be a deliberate addition, not an accident.
+func TestChartHasNoIngress(t *testing.T) {
+	if _, err := os.Stat(filepath.Join(chartDir, "templates", "ingress.yaml")); err == nil {
+		t.Error("templates/ingress.yaml exists; this chart deliberately leaves Ingress out for now (see README.md) -- if that changed on purpose, update this test rather than deleting it")
 	}
 }

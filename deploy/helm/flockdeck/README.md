@@ -36,27 +36,49 @@ At minimum, decide:
 
 ## Reaching the web UI
 
-Read this before you install, because it is the one thing this chart cannot
-paper over: self-hosted service mode's server binds `127.0.0.1` only, inside
-the pod, on a port chosen at random each start, with a fresh per-run token as
-its only auth. There is no bind-address flag and no persistent token (see
-`internal/server.New` in the main repository, and the correction recorded in
-`flockdeck-planning/12-installation-simplification.md`) -- so there is no
-fixed, predictable address a Kubernetes `Service` or an `Ingress` could ever
-route to, and this chart ships neither rather than ship one that looks like
-it works and does not.
+Read this before you install: self-hosted service mode's server binds
+`127.0.0.1` only, inside the pod, on a port chosen at random each start, with
+a fresh per-run token as its only auth. There is no bind-address flag and no
+persistent token (see `internal/server.New` in the main repository, and the
+correction recorded in `flockdeck-planning/12-installation-simplification.md`)
+-- so flockdeck's own container still has no fixed, predictable address of
+its own for a `Service` to route to directly.
 
-Two ways to actually reach it, in order of how permanent they are:
+What this chart does about that is a small sidecar container,
+`flockdeck-portproxy` (`cmd/portproxy` in the main repository, built into the
+same image), that sits alongside flockdeck in the same pod. Containers in one
+pod share a network namespace, so it can do what flockdeck's own server
+cannot: listen on a fixed port (`sidecar.port`, default `8080`) and forward
+every connection, byte for byte, to whatever port flockdeck actually bound
+this run -- discovered from the instance record flockdeck writes at
+start-up, the same one `docker/healthcheck.sh` already reads. It carries no
+authorization logic of its own: it forwards flockdeck's own auth challenge
+completely unchanged, so reaching it without the token gets the same 403
+flockdeck would give directly. This is what makes a real `Service`
+possible (`service.enabled`, default `true`), and it is what that Service
+routes to -- never to flockdeck's own container, which still declares no
+`containerPort` at all.
 
-1. **For now, from inside the cluster's reach:** `kubectl exec` the pod to
-   read its instance record, then `kubectl port-forward` that exact port.
-   `kubectl port-forward` reaches a loopback-bound process just fine --
-   it runs its forwarding helper inside the pod's own network namespace,
-   the same one `127.0.0.1` refers to -- but only for the specific port
-   named at the time, which changes on every restart. `helm install`'s own
-   NOTES (`helm get notes <release>` later) has the exact commands.
+Three ways to actually reach it, in order of how permanent they are:
 
-2. **For real, from anywhere -- a phone, a browser off this cluster, no
+1. **The Service, from inside the cluster (or fronted by your own Ingress
+   or gateway):** `http://<release>-flockdeck.<namespace>.svc:<service.port>/?t=<token>`,
+   where `<token>` still comes from the instance record (see below) --
+   the Service and its sidecar fix the address, not the auth. This is the
+   one actually new here: point your own Ingress, gateway, or another
+   in-cluster workload at this Service the way you would any other.
+   `Ingress` itself is not shipped by this chart (see "Values" below).
+
+2. **For now, from outside the cluster's reach, without relying on the
+   Service:** `kubectl exec` the pod to read its instance record, then
+   `kubectl port-forward` that exact port. `kubectl port-forward` reaches a
+   loopback-bound process just fine -- it runs its forwarding helper inside
+   the pod's own network namespace, the same one `127.0.0.1` refers to --
+   but only for the specific port named at the time, which changes on every
+   restart. `helm install`'s own NOTES (`helm get notes <release>` later)
+   has the exact commands.
+
+3. **For real, from anywhere -- a phone, a browser off this cluster, no
    inbound access to the cluster at all:** enrol the instance with a relay,
    the same remote-access mechanism the desktop app uses, over an outbound
    connection this pod makes itself:
@@ -74,12 +96,18 @@ Two ways to actually reach it, in order of how permanent they are:
    its own at start-up, the same way `flockdeck-relay`'s own chart has you
    run `... invite` by `kubectl exec` rather than at install.
 
-A sidecar that proxies a fixed port to the pod's own random loopback port
-(containers in one pod share a network namespace, so this is possible without
-any change to flockdeck itself) would let a normal `Service`/`Ingress` work
-after all; it is deliberately not built here; it is real, scoped follow-up
-work, not something to guess at and ship unverified with no cluster to test
-it against.
+The token itself is not exposed by the Service or the sidecar; get it the
+same way regardless of which path above you use:
+
+```sh
+kubectl exec -n <namespace> deploy/<release>-flockdeck -- \
+  sh -c 'cat "$HOME/.config/flockdeck/instance.json"'
+```
+
+`Ingress` is deliberately left out of this chart for now -- a `Service` is
+the meaningful unlock the sidecar buys, and getting an `Ingress` right (TLS,
+a host, a controller's own annotations) is a bigger surface than this chart
+takes a view on; put your own in front of the Service above.
 
 ## Values
 
@@ -92,6 +120,9 @@ See `values.yaml`, commented inline. The notable groups:
   `FLOCKDECK_SOLO`); `flockdeck -h` in the image documents each.
 - `remote.*` -- relay enrolment (see above); `apiKey.*` -- the fallback key
   an API agent uses.
+- `sidecar.*` -- the `flockdeck-portproxy` container's fixed port and
+  resources; `service.*` -- the `Service` in front of it (see "Reaching the
+  web UI" above).
 - `persistence.state.*` / `persistence.workspace.*` -- the two volumes
   (see above).
 - `extraEnv`, `extraArgs`, `extraInitContainers`, `extraVolumes` /
@@ -105,7 +136,13 @@ flag definitions and every `FLOCKDECK_*` name its own source mentions, and
 fails the build if this chart sets an environment variable or passes a flag
 the binary does not read, or reads one this chart has no way to set -- the
 same drift check `flockdeck-relay`'s own chart has (`cmd/flockdeck-relay/chart_test.go`
-there). Run it with `go test ./... -run Chart` from the repository root.
+there). It also checks that the `Service` routes to the `flockdeck-portproxy`
+sidecar's own named port and never to flockdeck's own (still portless)
+container, and that no `ingress.yaml` has crept in. Run it with
+`go test ./... -run Chart` from the repository root. `cmd/portproxy`'s own
+tests (`go test ./cmd/portproxy/...`) cover the sidecar binary itself: that it
+finds flockdeck's real address from the instance record, and relays bytes
+both ways.
 
 `helm lint --strict` and `helm template` (a real cluster is not needed for
 either) are worth running against any local change; wiring them, and a

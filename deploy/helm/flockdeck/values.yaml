@@ -4,11 +4,15 @@
 # self-hosted service mode's server binds 127.0.0.1 only, on a random port
 # chosen at each start, with a fresh per-run token as its only auth (no
 # bind-address flag, no persistent token: see internal/server.New in the
-# flockdeck repo). That is not something this chart's Service or an Ingress
-# can route around, so neither is shipped: see README.md for what to use
-# instead (kubectl exec / port-forward, or flockdeck's own relay-enrolment
-# remote access, which is the real answer for reaching this from a phone or
-# a browser off-cluster).
+# flockdeck repo), which is not something a Service could route to on its
+# own. This chart's pod carries a second, small sidecar container
+# (flockdeck-portproxy, cmd/portproxy in the main repo, built into the same
+# image) that listens on a fixed port and forwards to whatever port
+# flockdeck actually bound this run -- containers in one pod share a network
+# namespace, so this works without any change to flockdeck's own server --
+# and the Service below routes to that fixed port, not to flockdeck's own
+# container. See README.md for the details, and for kubectl exec/port-forward
+# and flockdeck's own relay-enrolment remote access as the other ways in.
 #
 # There is no replica count to set, for the same reason flockdeck-relay's
 # chart has none: a second pod would be a second Flockdeck with its own
@@ -25,6 +29,37 @@ image:
 # public on GHCR (ghcr.io/jmwri/flockdeck), so this is empty unless your
 # cluster's own egress policy needs a mirror with its own credentials.
 imagePullSecrets: []
+
+# The flockdeck-portproxy sidecar (cmd/portproxy in the main repo, built into
+# the same image as flockdeck itself) that gives the Service below a fixed
+# port to route to. It listens on `port` below and forwards every connection
+# to whatever port flockdeck actually bound this run, discovered from the
+# instance record flockdeck writes at start-up -- see README.md, "Reaching
+# the web UI". It carries no auth of its own: it forwards bytes unchanged,
+# so whoever connects through the Service still needs the token, the same as
+# kubectl exec/port-forward already requires.
+sidecar:
+  port: 8080
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 250m
+      memory: 64Mi
+
+# A ClusterIP Service pointed at the sidecar's fixed port above, not at
+# flockdeck's own container (which still has no fixed port to name). This is
+# the actual unlock the sidecar buys: something a normal Service, and
+# whatever your own Ingress or gateway already fronts ClusterIP Services
+# with, can route to. It does not replace the token: the Service gets you to
+# the sidecar, and the sidecar still forwards flockdeck's own auth challenge
+# unchanged, so reaching this Service without the token from the instance
+# record gets the same 403 as reaching flockdeck directly would.
+service:
+  enabled: true
+  type: ClusterIP
+  port: 8080
 
 # The workspace flockdeck opens: -C, or $FLOCKDECK_DIR. Left empty, it opens
 # whatever was last open (or nothing, on a first start) rather than a fixed

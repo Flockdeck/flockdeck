@@ -4,21 +4,39 @@ Reaching the web UI
 --------------------
 Self-hosted service mode's server binds 127.0.0.1 only, inside the pod, on a
 port chosen at random each start, with a fresh per-run token as its only
-auth -- there is no fixed port or bind-address setting to point a Service or
-an Ingress at, which is why this chart ships neither. Once the pod is
-Running:
+auth -- flockdeck's own container still has no fixed port or bind-address
+setting for a Service to point at directly.
+
+{{- if .Values.service.enabled }}
+
+This chart's flockdeck-portproxy sidecar fixes that: it listens on
+{{ .Values.sidecar.port }} and forwards to whatever port flockdeck actually
+bound this run, so the Service this release created routes there:
+
+  http://{{ include "flockdeck.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}/?t=<token>
+
+from inside the cluster (or behind your own Ingress/gateway pointed at that
+Service). The sidecar forwards flockdeck's own auth challenge unchanged, so
+<token> is still required -- get it the same way as below.
+{{- else }}
+
+service.enabled is false, so no Service was created for this release; see
+values.yaml's sidecar.*/service.* if you want one.
+{{- end }}
+
+Whichever way in you use, get the token from the instance record:
 
   kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "flockdeck.fullname" . }} -- \
     sh -c 'cat "$HOME/.config/flockdeck/instance.json"'
 
-names the URL (its port) and the token this run is using. Port-forward that
-exact port to your machine:
+which also names the exact port flockdeck itself bound this run, for
+port-forwarding straight to it without the Service:
 
   kubectl port-forward -n {{ .Release.Namespace }} deploy/{{ include "flockdeck.fullname" . }} <port>:<port>
 
-then open http://localhost:<port>/?t=<token> in a browser. The port and the
-token both change on every restart, so this is a "for now" answer, not a
-bookmark.
+then open http://localhost:<port>/?t=<token> in a browser. That port and the
+token both change on every restart of flockdeck itself; the Service's own
+address above does not.
 
 For a real, lasting way in -- from a phone, or a browser off this cluster,
 with no port-forward and no inbound access to the cluster at all -- enrol

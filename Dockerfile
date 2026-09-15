@@ -39,6 +39,15 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
 	-o /out/flockdeck .
 
+# cmd/portproxy: the fixed-port sidecar the Helm chart runs as a second
+# container in flockdeck's own pod (see its own doc comment for what it does
+# and why it lives here rather than as its own image). Built alongside
+# flockdeck itself so the chart's sidecar container can just run a different
+# binary out of this same, already-scanned-and-signed image instead of
+# pulling and trusting a second one.
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" \
+	-o /out/flockdeck-portproxy ./cmd/portproxy
+
 # ---- runtime ------------------------------------------------------------
 FROM alpine:3.20
 
@@ -66,6 +75,7 @@ RUN apk add --no-cache ca-certificates git bash tini jq \
 	&& chown -R flockdeck:flockdeck /workspace /home/flockdeck
 
 COPY --from=build /out/flockdeck /usr/local/bin/flockdeck
+COPY --from=build /out/flockdeck-portproxy /usr/local/bin/flockdeck-portproxy
 COPY --chmod=755 docker/healthcheck.sh /usr/local/bin/flockdeck-healthcheck
 COPY LICENSE THIRD-PARTY-NOTICES.md /licenses/
 
@@ -96,14 +106,14 @@ WORKDIR /workspace
 # a long-running container to self-update instead of being redeployed.
 ENV FLOCKDECK_UPDATE=off
 
-# Documentation only, not a working port to publish with `docker run -p`:
-# self-hosted service mode's server always listens on 127.0.0.1 only, on a
-# random port chosen at each start, with a fresh per-run token as its only
-# auth (internal/server.New) -- it deliberately ships no bind-address flag or
-# persistent token (see the correction in
+# Documentation only for a plain `docker run`, not a working port to publish
+# with `-p`: self-hosted service mode's server always listens on 127.0.0.1
+# only, on a random port chosen at each start, with a fresh per-run token as
+# its only auth (internal/server.New) -- it deliberately ships no
+# bind-address flag or persistent token (see the correction in
 # flockdeck-planning/12-installation-simplification.md). That is loopback
 # *inside this container's network namespace*, so publishing a host port
-# with `-p` reaches nothing. Three ways to actually reach the web UI:
+# with `-p` reaches nothing. Four ways to actually reach the web UI:
 #   1. `docker exec -it <container> flockdeck` prints the URL of the
 #      instance already running, to open by hand from inside the container
 #      (or over `docker exec -it <container> sh` and curl it locally).
@@ -117,9 +127,17 @@ ENV FLOCKDECK_UPDATE=off
 #      instance with a relay it dials out to, which is the real answer for
 #      reaching it from a phone or a browser off this machine -- no inbound
 #      port needed at all. README.md's "Self-hosted" section covers this.
-# On Kubernetes, `kubectl port-forward` reaches loopback-bound processes
-# inside a pod's network namespace the same way `docker exec` does inside a
-# container's -- see deploy/helm/flockdeck/README.md.
+#   4. On Kubernetes, the Helm chart's flockdeck-portproxy sidecar (this same
+#      image, run as a second container in flockdeck's own pod -- see
+#      cmd/portproxy and deploy/helm/flockdeck) actually listens on this
+#      port, 8080, and forwards to whatever port flockdeck bound this run;
+#      that is what its Service and this EXPOSE line describe. A plain
+#      `docker run` has no such sidecar, so options 1-3 above are what apply
+#      there.
+# `kubectl port-forward` also reaches loopback-bound processes inside a
+# pod's network namespace directly, the same way `docker exec` does inside a
+# container's, without needing the sidecar at all -- see
+# deploy/helm/flockdeck/README.md.
 EXPOSE 8080
 
 # Runs as the flockdeck user, so it can read its own instance record

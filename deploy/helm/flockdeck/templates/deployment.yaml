@@ -138,9 +138,10 @@ spec:
           # No ports: declaring one here would claim flockdeck listens on a
           # fixed, predictable port, and it does not -- self-hosted service
           # mode's server always binds 127.0.0.1 on a port chosen at random
-          # each start (internal/server.New in the flockdeck repo). See this
-          # chart's README.md, "Reaching the web UI", for what to use
-          # instead of a Service/Ingress here.
+          # each start (internal/server.New in the flockdeck repo). The
+          # flockdeck-portproxy sidecar below, and the Service in front of
+          # it, are what give this pod a fixed address; see this chart's
+          # README.md, "Reaching the web UI".
           volumeMounts:
             - name: state
               mountPath: /home/flockdeck
@@ -154,11 +155,11 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           # No HTTP probe: the same random-port reason there is no ports:
-          # block above means there is no fixed address a startup/readiness
-          # probe could ask, either. exec into the instance record and its
-          # own token instead (docker/healthcheck.sh in the flockdeck repo
-          # is exactly that, and is baked into the image as its
-          # HEALTHCHECK, which `docker inspect`/`kubectl describe pod`
+          # block above means there is no fixed address a probe could ask
+          # directly, either. Every probe here execs into the instance
+          # record and its own token instead (docker/healthcheck.sh in the
+          # flockdeck repo is exactly that, and is baked into the image as
+          # its HEALTHCHECK, which `docker inspect`/`kubectl describe pod`
           # surface even without a Kubernetes probe of its own).
           startupProbe:
             exec:
@@ -170,8 +171,60 @@ spec:
               command: ["/usr/local/bin/flockdeck-healthcheck"]
             periodSeconds: 30
             timeoutSeconds: 10
+          # readinessProbe, on top of startup/liveness above: this is what
+          # keeps the Service (which now exists -- see service.yaml) from
+          # routing to the sidecar before flockdeck itself is actually
+          # answering. A pod is only added to a Service's endpoints once
+          # every container with a readiness probe passes it; the sidecar's
+          # own probe below only confirms its listener is up, not that
+          # flockdeck behind it is, so this one is what actually gates
+          # traffic.
+          readinessProbe:
+            exec:
+              command: ["/usr/local/bin/flockdeck-healthcheck"]
+            periodSeconds: 5
+            timeoutSeconds: 5
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+        # flockdeck-portproxy: the fixed-port sidecar that makes the Service
+        # below possible (see cmd/portproxy in the main repo, and the
+        # comment on sidecar.* in values.yaml). Same image as flockdeck's
+        # own container, run as a different binary via command -- no second
+        # image to pull, scan or trust separately.
+        - name: portproxy
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/flockdeck-portproxy"]
+          args:
+            - -listen=:{{ .Values.sidecar.port }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.sidecar.port }}
+              protocol: TCP
+          # Read-only: this container only ever reads the instance record
+          # flockdeck's own container writes ($HOME/.config/flockdeck,
+          # internal/store.LoadInstance) to learn its current port, and never
+          # writes to this volume itself.
+          volumeMounts:
+            - name: state
+              mountPath: /home/flockdeck
+              readOnly: true
+          # A TCP check that its own listener has come up -- effectively
+          # immediate, and not a claim that flockdeck behind it is ready too;
+          # the main container's readinessProbe above is what gates the
+          # Service actually forwarding anywhere useful.
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.sidecar.port }}
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.sidecar.resources | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
