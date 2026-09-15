@@ -463,7 +463,7 @@ func TestUsageNamesTheEnvironment(t *testing.T) {
 	fs.SetOutput(&buf)
 	usage(fs)
 	for _, name := range []string{
-		"FLOCKDECK_BROWSER", "FLOCKDECK_UPDATE", "FLOCKDECK_RELAY", "FLOCKDECK_API_KEY",
+		"FLOCKDECK_UPDATE", "FLOCKDECK_RELAY", "FLOCKDECK_API_KEY",
 		dirEnv, startAgentEnv, freshEnv, shellFirstEnv, noWindowEnv, detachEnv, soloEnv,
 	} {
 		if !strings.Contains(buf.String(), name) {

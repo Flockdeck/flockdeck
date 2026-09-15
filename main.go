@@ -34,8 +34,26 @@ import (
 	"github.com/jmwri/flockdeck/internal/server"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/webui"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
+
+// appName and appDescription identify Flockdeck to Wails: the window's
+// title, its taskbar/about-box identity, and (together with webui.Icon) what
+// makes the window genuinely Flockdeck's own rather than a browser's -- see
+// internal/appwindow.
+const (
+	appName        = "Flockdeck"
+	appDescription = "Run several coding agents at once, in tabs and split panes."
+)
+
+// windowConfig is the appwindow.Config every window this program opens is
+// created with, whichever of the two places that happens (showWindow, for
+// this instance's own window, and attach, for a second launch's window onto
+// an instance already running).
+func windowConfig() appwindow.Config {
+	return appwindow.Config{Name: appName, Description: appDescription, Icon: webui.Icon()}
+}
 
 // version is overridden at build time with -ldflags "-X main.version=...".
 var version = "dev"
@@ -347,9 +365,6 @@ func usage(fs *flag.FlagSet) {
 	// These are settings with no flag, so this is the only place a person
 	// reading the usage would learn that they exist.
 	fmt.Fprintf(out, "\nEnvironment:\n")
-	fmt.Fprintf(out, "  %s=<name or program>\n", appwindow.BrowserEnv)
-	fmt.Fprintf(out, "        the browser that provides the window, instead of the first one found:\n")
-	fmt.Fprintf(out, "        chrome, edge, brave, chromium or vivaldi, or the path to one\n")
 	fmt.Fprintf(out, "  %s=off\n", updateEnv)
 	fmt.Fprintf(out, "        do not look for new releases in the background; update still works\n")
 	fmt.Fprintf(out, "  %s=<url>\n", remote.RelayEnv)
@@ -678,21 +693,12 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 		fmt.Println(" ", url)
 		return nil
 	}
-	profile, err := store.BrowserProfileDir()
-	if err != nil {
-		return err
-	}
-	// The browser is started at a one-time link rather than at the address
-	// with the token in it, which would stay on its command line for anybody
-	// on the machine to read (see server.WindowURL). Only an instance from an
-	// earlier build, which gives out no links, is opened the old way.
-	//
-	// appwindow.Open goes further still and keeps that link itself off the
-	// browser's command line, in a local redirect file where it can (see
-	// R3.7.2); its own backstop timer removes that file once the link has
-	// had time to be used or to run out, since this launch has no window of
-	// its own onto the running instance to say precisely when either happens
-	// -- unlike showWindow's own use of Open, which does.
+	// The window is pointed at a one-time link rather than at the address
+	// with the token in it (see server.WindowURL). Only an instance from an
+	// earlier build, which gives out no links, is opened the old way. Unlike
+	// the browser this package used to spawn, the link never touches a
+	// command line or a file on disk -- Wails loads it directly inside this
+	// process -- so there is nothing here for a redirect file to protect.
 	asked := time.Now()
 	link, err := server.RequestWindowURL(base, inst.Token)
 	if errors.Is(err, server.ErrNoWindowLinks) {
@@ -705,15 +711,21 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 		return fmt.Errorf("the flockdeck already running would not give a window a way in (%s); open this URL manually:\n  %s",
 			redactToken(err.Error(), inst.Token), url)
 	}
-	if _, err := appwindow.Open(link, profile); err != nil {
+	win, err := appwindow.Open(windowConfig(), link)
+	if err != nil {
 		// The instance carries on without us, so its address stays good.
-		if errors.Is(err, appwindow.ErrNoBrowser) {
-			return fmt.Errorf("%w — set %s to one, or open this URL manually:\n  %s",
-				err, appwindow.BrowserEnv, url)
+		if openErr := appwindow.OpenDefault(link); openErr == nil {
+			fmt.Println("Could not open Flockdeck's own window (" + err.Error() + "); opened in your default browser instead.")
+			return nil
 		}
 		return fmt.Errorf("%w — open this URL manually:\n  %s", err, url)
 	}
-	return nil
+	// This launch's only job from here is to keep the window's process
+	// alive for as long as the window is open -- the same role the browser
+	// this package used to spawn played on its own, as a separate process.
+	// The instance it is a window onto runs on regardless of when this
+	// returns.
+	return win.Run()
 }
 
 // joinRunning reports the instance a launch should join, if there is one.
@@ -905,6 +917,15 @@ func run(opts options) error {
 			// when joining: the project goes to the running instance and
 			// its address is printed, rather than a window being opened by
 			// the one flag that asked for none.
+			//
+			// Released explicitly, ahead of the deferred call above: unlike
+			// the instance this launch is joining, attach's own window (see
+			// its doc) is not done starting up once it opens -- it is Wails'
+			// window-owning process, and blocks running it for as long as
+			// the window stays open. Holding the start lock that long would
+			// stop every other launch from starting or attaching until the
+			// user closed this window.
+			releaseStart()
 			return attach(inst, base, root, opts.noWindow || opts.detach)
 		}
 	}
@@ -1048,7 +1069,6 @@ func run(opts options) error {
 	if err != nil {
 		return err
 	}
-	defer win.Close()
 
 	// Start-up is over, and with it everything worth printing to a terminal
 	// this was run from: -detach's address and how to stop it, the notes on
@@ -1062,7 +1082,30 @@ func run(opts options) error {
 		releaseConsole()
 	}
 
-	<-quit
+	if win != nil {
+		// win.Run starts Wails' native event loop and blocks until the
+		// window closes -- which is either the user closing it by hand, or
+		// win.Close being called here because something else (a signal, the
+		// UI's own Quit command, srv.OnLastClientGone) has already asked to
+		// stop, over on the quit channel every other trigger closes. Either
+		// way, Run returning is this run's "the window is done" -- the same
+		// moment <-quit alone used to mark, back when the window was a
+		// separate browser process whose own end had nothing to do with
+		// this one's event loop.
+		go func() {
+			<-quit
+			win.Close()
+		}()
+		if err := win.Run(); err != nil {
+			shutdownFailed("the window ended", err)
+		}
+		// Run can return because the user closed the window, which nothing
+		// above has told quit about yet -- stop is idempotent (sync.Once),
+		// so this is a no-op on every other path, where it already has.
+		stop()
+	} else {
+		<-quit
+	}
 
 	// The tunnel is a way in like the local port, so it is closed with it,
 	// before anything is saved.
@@ -1110,58 +1153,27 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 		return nil, nil
 	}
 
-	profile, err := store.BrowserProfileDir()
+	// The window is pointed at a one-time link, not at URL: the address, with
+	// the token in it, is only ever printed, for the user to open by hand
+	// (see server.WindowURL). Unlike the browser this package used to spawn,
+	// Wails loads the link directly inside this process rather than on a
+	// separate process's command line, so there is no redirect file here for
+	// anything to protect or clean up.
+	url := srv.WindowURL()
+	win, err := appwindow.Open(windowConfig(), url)
 	if err != nil {
-		return nil, err
-	}
-	// The window's browser is started at a one-time link, not at URL: the
-	// address stays on its command line all day, for anybody on the machine
-	// to read (see server.WindowURL). URL, with the token in it, is only ever
-	// printed, for the user to open by hand.
-	//
-	// appwindow.Open itself keeps that link off the browser's own command
-	// line in turn, writing it into a local redirect file where it can (see
-	// R3.7.2); win.RedirectFile names that file, when there is one, so it can
-	// be removed the moment link stops working rather than left to that
-	// package's own backstop timer -- this server can say precisely when
-	// that is, which nothing reached over /window (attach's own launch of a
-	// window, elsewhere) can.
-	url, link := srv.NewWindowLink()
-	win, err := appwindow.Open(url, profile)
-	if err != nil {
-		// Unlike attaching, this server is ours and stops with us, so the
-		// address it was serving will not answer by the time anyone reads
-		// this. Name the ways to get a window instead.
-		if errors.Is(err, appwindow.ErrNoBrowser) {
-			return nil, fmt.Errorf("%w — set %s to one, or run `flockdeck -no-window` and open the URL it prints",
-				err, appwindow.BrowserEnv)
+		// Better an ordinary tab than no interface at all, as when the
+		// platform has no working webview -- WebView2 missing on Windows,
+		// WebKitGTK missing on Linux. The address is printed either way: a
+		// desktop that could not show Flockdeck's own window may well not
+		// show a browser tab either.
+		if openErr := appwindow.OpenDefault(srv.WindowURL()); openErr == nil {
+			fmt.Println("Could not open Flockdeck's own window (" + err.Error() + "); opened in your default browser instead.")
+		} else {
+			showStartupError(noteWindowFailed(err))
 		}
-		return nil, fmt.Errorf("open the window: %w — or run `flockdeck -no-window` and open the URL it prints", err)
-	}
-	if file := win.RedirectFile(); file != "" && !srv.SetLinkFile(link, file) {
-		// Redeemed or run out already, in the moment between the file being
-		// written and this being asked: nothing else is going to remove it.
-		_ = os.Remove(file)
-	}
-
-	if win.AppMode {
-		go watchWindow(win.Wait, srv.Detached, stop, func(err error) {
-			note := noteWindowFailed(err)
-			// Better an ordinary tab than no interface at all, as when no
-			// app-mode browser is found. Whether or not one opens, the address
-			// is printed: a desktop that could not show the window may well
-			// not show a tab either.
-			if appwindow.OpenDefault(srv.WindowURL()) == nil {
-				fmt.Println("Trying your default browser instead.")
-			}
-			printServing(opts, recorded, srv.URL())
-			// Last, since on Windows it waits for the box to be dismissed.
-			showStartupError(note)
-		})
-	} else {
-		// A tab in the user's own browser cannot be watched, so fall back
-		// to shutting down when the page disconnects.
-		fmt.Println("Opened in your browser:", srv.URL())
+		printServing(opts, recorded, srv.URL())
+		return nil, nil
 	}
 
 	// Whichever way the UI is shown, losing every connected window for more
@@ -1205,38 +1217,16 @@ func printServing(opts options, recorded bool, url string) {
 	}
 }
 
-// watchWindow waits for an app-mode window's browser to end, and stops the
-// application when that is the user closing the window -- unless they asked
-// to leave the agents running, or it handed the window to a browser already
-// running, which leaves only the connection to tell when it closes.
-//
-// A browser that failed as it started is neither: there never was a window
-// to close. It used to stop the application all the same, at once and without
-// a word -- on Linux with no display, say, where nothing else would have said
-// why. failed is told instead, and the application carries on without a
-// window, stopping as a run without one does.
-func watchWindow(wait func() error, detached func() bool, stop func(), failed func(error)) {
-	err := wait()
-	var start *appwindow.StartError
-	switch {
-	case errors.Is(err, appwindow.ErrHandedOff):
-	case errors.As(err, &start):
-		failed(err)
-	case !detached():
-		stop()
-	}
-}
-
-// windowFailedNote is what a run says when its window's browser failed as it
-// started.
+// windowFailedNote is what a run says when Flockdeck's own window could not
+// be opened at all -- including in the default browser, which showWindow
+// tries first: the platform has no working webview and no browser either.
 func windowFailedNote(err error) string {
 	return fmt.Sprintf("flockdeck: the window did not open: %v\n"+
-		"Set %s to another browser, or run `flockdeck -no-window` and open the address it prints yourself.",
-		err, appwindow.BrowserEnv)
+		"Run `flockdeck -no-window` and open the address it prints instead.", err)
 }
 
-// noteWindowFailed says that the window's browser failed as it started, and
-// returns what it said.
+// noteWindowFailed says that the window could not be opened, and returns what
+// it said.
 //
 // It can say so as much as five seconds after start-up, when the Windows
 // release has let its terminal go, or never had one: started from a shortcut,
