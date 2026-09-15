@@ -162,6 +162,16 @@ func TestGhInstallRefusesASecondAttemptWhileOneIsRunning(t *testing.T) {
 		t.Errorf("got %+v, want an error notice refusing the second attempt", notice)
 	}
 	close(release)
+
+	// Read the first install's own progress and status messages before
+	// returning, rather than leaving its goroutine running past the end of
+	// the test: fakeGH's cleanup restores the package's gh seams the moment
+	// this function returns, and the goroutine reads them itself, in
+	// buildGHStatus, once ghTryInstall's stub does.
+	var done ghProgressMsg
+	recvJSON(t, c1, &done)
+	var status ghStatusMsg
+	recvJSON(t, c1, &status)
 }
 
 // TestGhLoginCancelStopsTheFlow covers the panel's own Cancel button: without
@@ -225,6 +235,14 @@ func TestGhInstallAndLoginRefuseEachOther(t *testing.T) {
 		t.Errorf("got %+v, want the install refused while a login is running", notice)
 	}
 	close(release)
+
+	// Read the login goroutine's own status message before returning, rather
+	// than leaving it running past the end of the test: fakeGH's cleanup
+	// restores the package's gh seams the moment this function returns, and
+	// the goroutine reads them itself, in buildGHStatus, once ghLoginFn's
+	// stub does.
+	var status ghStatusMsg
+	recvJSON(t, c1, &status)
 }
 
 func TestGhPRsListsAndCarriesAnError(t *testing.T) {
