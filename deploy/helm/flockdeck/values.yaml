@@ -1,0 +1,196 @@
+# Flockdeck, self-hosted, as a team already running Kubernetes deploys it.
+#
+# Read this chart's README.md first, in particular "Reaching the web UI" --
+# self-hosted service mode's server binds 127.0.0.1 only, on a random port
+# chosen at each start, with a fresh per-run token as its only auth (no
+# bind-address flag, no persistent token: see internal/server.New in the
+# flockdeck repo), which is not something a Service could route to on its
+# own. This chart's pod carries a second, small sidecar container
+# (flockdeck-portproxy, cmd/portproxy in the main repo, built into the same
+# image) that listens on a fixed port and forwards to whatever port
+# flockdeck actually bound this run -- containers in one pod share a network
+# namespace, so this works without any change to flockdeck's own server --
+# and the Service below routes to that fixed port, not to flockdeck's own
+# container. See README.md for the details, and for kubectl exec/port-forward
+# and flockdeck's own relay-enrolment remote access as the other ways in.
+#
+# There is no replica count to set, for the same reason flockdeck-relay's
+# chart has none: a second pod would be a second Flockdeck with its own
+# agents, its own saved layout and its own instance record, not two views of
+# one workspace. Point every device at the one instance this chart runs.
+
+image:
+  repository: ghcr.io/jmwri/flockdeck
+  # Empty for the chart's appVersion. Pin a release rather than following one.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Names of pull secrets that already exist in the namespace. flockdeck is
+# public on GHCR (ghcr.io/jmwri/flockdeck), so this is empty unless your
+# cluster's own egress policy needs a mirror with its own credentials.
+imagePullSecrets: []
+
+# The flockdeck-portproxy sidecar (cmd/portproxy in the main repo, built into
+# the same image as flockdeck itself) that gives the Service below a fixed
+# port to route to. It listens on `port` below and forwards every connection
+# to whatever port flockdeck actually bound this run, discovered from the
+# instance record flockdeck writes at start-up -- see README.md, "Reaching
+# the web UI". It carries no auth of its own: it forwards bytes unchanged,
+# so whoever connects through the Service still needs the token, the same as
+# kubectl exec/port-forward already requires.
+sidecar:
+  port: 8080
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 250m
+      memory: 64Mi
+
+# A ClusterIP Service pointed at the sidecar's fixed port above, not at
+# flockdeck's own container (which still has no fixed port to name). This is
+# the actual unlock the sidecar buys: something a normal Service, and
+# whatever your own Ingress or gateway already fronts ClusterIP Services
+# with, can route to. It does not replace the token: the Service gets you to
+# the sidecar, and the sidecar still forwards flockdeck's own auth challenge
+# unchanged, so reaching this Service without the token from the instance
+# record gets the same 403 as reaching flockdeck directly would.
+service:
+  enabled: true
+  type: ClusterIP
+  port: 8080
+
+# The workspace flockdeck opens: -C, or $FLOCKDECK_DIR. Left empty, it opens
+# whatever was last open (or nothing, on a first start) rather than a fixed
+# path -- set dir to mount a project at a path other than the default
+# /workspace, and see persistence.workspace below for keeping one there
+# across restarts. Populating it (cloning a repository in, most likely) is
+# your job: extraInitContainers below is where that goes.
+dir: ""
+
+# `id` of the agent new panes start as for this run (-agent /
+# $FLOCKDECK_START_AGENT), e.g. "claude". Empty uses flockdeck's own default.
+agent: ""
+
+# Start with a single pane rather than the last saved layout (-new /
+# $FLOCKDECK_FRESH). Rarely wanted once persistence.state below is enabled,
+# since the saved layout is exactly what that volume is for.
+fresh: false
+
+# Open the first pane as a shell instead of an agent (-shell /
+# $FLOCKDECK_SHELL_FIRST).
+shellFirst: false
+
+# Always start a new instance instead of attaching to a running one (-solo /
+# $FLOCKDECK_SOLO). There is only ever one pod here to attach to, so this is
+# an escape hatch for troubleshooting, not something a normal install needs.
+solo: false
+
+# Enrol this instance with a relay for real remote access -- a phone or a
+# browser off this cluster -- entirely over an outbound connection, with no
+# inbound port needed (see README.md, "Reaching the web UI"). Setting relay
+# alone does not enrol anything by itself: it only seeds the default for
+# `flockdeck remote enable`, which is a one-time, deliberate step run with
+# kubectl exec once the pod is up (README.md has the exact command), the
+# same way flockdeck-relay's own chart has you run `... invite` by exec
+# rather than at install. join and invite are one-time bootstrap codes, kept
+# out of the chart-managed Secret's plain values by existingSecret, the same
+# three-way shape as flockdeck-relay's chart.
+remote:
+  # The relay's URL, e.g. https://relay.example.com or your own self-hosted
+  # flockdeck-relay's publicUrl. Empty uses flockdeck's own default relay.
+  url: ""
+  # The name this machine goes by on your devices. Empty defaults to the pod
+  # name.
+  name: ""
+  # A code from `flockdeck remote pair -desktop` on another machine, to join
+  # its account instead of enrolling a new one.
+  join: ""
+  # An invitation code, for a relay that asks for one.
+  invite: ""
+  # A Secret of your own with the keys remoteJoin and/or remoteInvite, in
+  # place of join/invite above. Only used for the keys it actually has
+  # (each is mounted with optional: true).
+  existingSecret: ""
+
+# The key an API agent uses when neither its own variables nor
+# `flockdeck keys set` (persisted in persistence.state, so set once and kept)
+# hold one (-> $FLOCKDECK_API_KEY).
+apiKey:
+  value: ""
+  # A Secret of your own with the key named below, in place of value.
+  existingSecret: ""
+  existingSecretKey: apiKey
+
+# Where flockdeck keeps state that ought to survive a restart or a pull of a
+# newer image: the saved layout, the recent-projects list, generated
+# per-session agent settings, and anything `flockdeck keys set` stored
+# ($HOME/.config/flockdeck, which os.UserConfigDir resolves under the pod's
+# $HOME). It holds no long-lived secret -- self-hosted service mode's own
+# auth token is generated fresh each start and is never the same twice -- so
+# losing this volume costs convenience (the saved layout, agent settings),
+# never a credential.
+persistence:
+  state:
+    enabled: true
+    size: 1Gi
+    # Empty for the cluster's default storage class.
+    storageClass: ""
+    # A claim of your own, in place of the one the chart makes.
+    existingClaim: ""
+  # The project flockdeck opens, mounted at /workspace (or dir above, if
+  # set). Off by default: most teams either bring their own existingClaim
+  # already populated with a checkout, or mount their project some other way
+  # entirely (extraVolumes below). Turning this on without populating the
+  # volume first gives flockdeck an empty directory to open, which is valid
+  # but rarely what you want.
+  workspace:
+    enabled: false
+    size: 5Gi
+    storageClass: ""
+    existingClaim: ""
+
+# More environment for the container, as a container's env list -- anything
+# not yet promoted to a first-class value above, including any of the
+# FLOCKDECK_* variables `flockdeck -h` lists that this chart does not
+# already set.
+extraEnv: []
+# More arguments appended after -no-window, e.g. ["-agent=claude"]. One given
+# twice is the later that counts, matching flag.Parse itself.
+extraArgs: []
+# Containers that run before flockdeck's, sharing its volumes -- the place to
+# put a `git clone` into persistence.workspace, or anything else that has to
+# be ready before flockdeck opens dir.
+extraInitContainers: []
+# Additional volumes and their mounts on the main container, alongside
+# state/workspace above -- an existing checkout mounted read-only, a
+# ConfigMap of agent settings, and so on.
+extraVolumes: []
+extraVolumeMounts: []
+
+serviceAccount:
+  create: true
+  # Empty for the chart's full name.
+  name: ""
+
+# flockdeck's own: it never asks the Kubernetes API for anything, and, unlike
+# the relay, keeps every agent's own process (a shell, git, an agent CLI)
+# inside its pod too, which is why these defaults are well above the
+# relay's.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+nameOverride: ""
+fullnameOverride: ""

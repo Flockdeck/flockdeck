@@ -1,0 +1,68 @@
+name: helm-chart
+
+# helm lint --strict, helm template, and kubeconform on the rendered
+# manifests -- none of which need a real cluster, so they run on every push
+# and pull request that touches the chart, the same as test.yml does for the
+# Go code. This is the toolchain flockdeck-relay's own chart was checked
+# with by hand (alpine/helm and ghcr.io/yannh/kubeconform, no local Helm
+# install needed); deploy/helm/flockdeck/README.md notes what this does not
+# yet cover -- an actual `kind`-based install, which flockdeck-relay's own
+# chart never got either (see its TASK-REPORT.md's "Later work").
+#
+# Unverified: never run -- there was no way to invoke a GitHub Actions
+# workflow, or even a local `helm` binary, in the environment this was
+# written in (see this repository's chart_test.go for what *was* checked:
+# the drift between the chart, the Dockerfile and flockdeck's actual flags
+# and environment, entirely in Go and run as part of `go test`).
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "deploy/helm/flockdeck/**"
+      - ".github/workflows/helm-chart.yml"
+  pull_request:
+    paths:
+      - "deploy/helm/flockdeck/**"
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-template:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: helm lint --strict
+        uses: docker://alpine/helm:3.15.3
+        with:
+          args: lint --strict deploy/helm/flockdeck
+
+      - name: helm template
+        uses: docker://alpine/helm:3.15.3
+        with:
+          args: template flockdeck deploy/helm/flockdeck --output-dir /tmp/rendered
+
+      # Also with persistence and remote enrolment turned on, so the
+      # templates that only render conditionally are checked too, not only
+      # the chart's own defaults.
+      - name: helm template (persistence + remote enabled)
+        uses: docker://alpine/helm:3.15.3
+        with:
+          args: >-
+            template flockdeck deploy/helm/flockdeck
+            --set persistence.workspace.enabled=true
+            --set remote.url=https://relay.example.com
+            --set remote.join=example-join-code
+            --set apiKey.value=example-key
+            --output-dir /tmp/rendered-full
+
+      - name: kubeconform
+        uses: docker://ghcr.io/yannh/kubeconform:latest-alpine
+        with:
+          args: >-
+            -strict -summary
+            -kubernetes-version 1.30.0
+            /tmp/rendered /tmp/rendered-full

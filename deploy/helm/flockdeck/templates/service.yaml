@@ -1,0 +1,25 @@
+{{- if .Values.service.enabled }}
+# Routes to the flockdeck-portproxy sidecar's fixed port (see
+# deployment.yaml's second container, and cmd/portproxy in the main repo),
+# never to flockdeck's own container -- which still has no containerPort at
+# all, because it still has no fixed, predictable port of its own (see
+# internal/server.New). The sidecar is what makes a Service possible here;
+# see this chart's README.md, "Reaching the web UI", for the whole story,
+# including that this Service does not stand in for the auth token -- the
+# sidecar forwards flockdeck's own challenge unchanged.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "flockdeck.fullname" . }}
+  labels:
+    {{- include "flockdeck.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "flockdeck.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}
