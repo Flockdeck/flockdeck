@@ -1028,6 +1028,7 @@ func run(opts options) error {
 		restarting.Store(true)
 		stop()
 	}
+	srv.OnCheckForUpdates = func() (string, bool) { return checkForUpdatesNow(srv) }
 
 	// Record where this instance is listening so a later launch can attach.
 	// Only now, with the callbacks that answer for it in place: the server has

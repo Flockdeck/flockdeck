@@ -29,7 +29,7 @@
        into a menu; either way it is the button's name. The icons are drawn
        from app.js, from one set of path data. -->
   <nav id="rail" aria-label="Projects and tools">
-    <img class="rail-mark" src="assets/icon.svg" alt="" width="24" height="24">
+    <img id="rail-mark" class="rail-mark" src="assets/icon.svg" alt="" width="24" height="24">
     <!-- Wide screens only: a narrow one folds the rail into a menu instead,
          which is already as wide as it needs to be. app.js fills in whether
          pressing it opens the rail out or folds it away. -->
@@ -61,11 +61,7 @@
   <div id="main">
     <header id="topbar">
       <!-- Only on a narrow screen, where the rail is folded away. -->
-      <button id="rail-toggle" class="bar-btn" aria-controls="rail" aria-expanded="false"><span class="ico" data-icon="menu" aria-hidden="true"></span></button>
-      <button id="project-btn" class="project">
-        <span id="project-name">project</span><span id="project-branch" hidden></span><span class="ico caret" data-icon="chev" data-size="14" aria-hidden="true"></span>
-      </button>
-      <div class="divider-v"></div>
+      <button id="rail-toggle" class="bar-btn" aria-controls="rail" aria-expanded="false"><span class="ico" data-icon="menu" aria-hidden="true"></span><span class="rail-badge" aria-hidden="true"></span></button>
       <div id="tabbar">
         <div id="tabs" role="tablist" aria-label="Tabs"></div>
         <span class="new-tab-group">

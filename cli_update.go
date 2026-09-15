@@ -542,46 +542,12 @@ func watchForUpdates(ctx context.Context, srv *server.Server) {
 		offer(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
 	}
 
-	// recalled is the version last reported to the window as recalled, ""
-	// for none, so a round that finds nothing changed does not wake the
-	// window over it.
-	recalled := ""
-
 	for {
 		// One question to GitHub a round, and its answer decides the round;
 		// a failed check leaves whatever is staged alone. A round with updates
 		// turned off in the window asks nothing at all.
 		if !updatesOff() {
-			if latest, err := selfupdate.Latest(ctx); err == nil && latest != nil && !latest.Draft {
-				staged := ""
-				if p, ok := stagedUpdate(dir, version); ok {
-					staged = p.Version
-				}
-				discard, fetch := updateSteps(latest.Version, staged, version)
-				if discard {
-					selfupdate.Discard(dir)
-					offer(nil)
-				}
-				if fetch {
-					if p, err := selfupdate.Stage(ctx, latest, dir); err == nil {
-						offer(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
-					}
-				}
-			}
-
-			// Checked every round Latest is, not only when looking for
-			// something newer: a recall is a distinct signal from the update
-			// chip above, "the version you are running has a known problem,"
-			// which Newer never answers on its own since it only ever
-			// compares against something newer.
-			switch rv := selfupdate.Recall(ctx, version); {
-			case rv != nil && rv.Version != recalled:
-				recalled = rv.Version
-				srv.SetRecall(&server.RecallView{Version: rv.Version, Reason: rv.Reason, Upgrade: rv.Upgrade})
-			case rv == nil && recalled != "":
-				recalled = ""
-				srv.SetRecall(nil)
-			}
+			checkRound(ctx, dir, srv)
 		}
 		select {
 		case <-ctx.Done():
@@ -589,6 +555,99 @@ func watchForUpdates(ctx context.Context, srv *server.Server) {
 		case <-time.After(updateInterval):
 		}
 	}
+}
+
+// checkRound is one round of looking for a newer release: it is the body of
+// watchForUpdates' loop, and also what the interface's manual "Check for
+// updates" action runs, so that a person who clicks it and the watcher that
+// runs on its own cannot come to different conclusions about what is staged.
+//
+// The watcher's rounds are silent and ignore what this returns; the manual
+// action is a person waiting on an answer, and is given the message worded
+// for them.
+func checkRound(ctx context.Context, dir string, srv *server.Server) (message string, isErr bool) {
+	offer := func(u *server.UpdateView) {
+		srv.SetUpdate(u)
+		srv.Wake()
+	}
+
+	// Checked every round, independent of whether the newer-release check
+	// below succeeds: a recall is a distinct signal from the update chip,
+	// "the version you are running has a known problem," which the rest of
+	// this function never answers since it only ever compares against
+	// something newer. Compared against srv's own Recall rather than a
+	// variable threaded through the caller's loop, so this round and a
+	// manual check both leave the same trail regardless of which one runs
+	// it, and a round that finds nothing changed does not wake the window
+	// over it.
+	switch rv, was := selfupdate.Recall(ctx, version), srv.Recall(); {
+	case rv != nil && (was == nil || was.Version != rv.Version):
+		srv.SetRecall(&server.RecallView{Version: rv.Version, Reason: rv.Reason, Upgrade: rv.Upgrade})
+	case rv == nil && was != nil:
+		srv.SetRecall(nil)
+	}
+
+	latest, err := selfupdate.Latest(ctx)
+	if err != nil {
+		return explainUnreachable(err, "look for a newer release").Error(), true
+	}
+	staged := ""
+	if p, ok := stagedUpdate(dir, version); ok {
+		staged = p.Version
+	}
+	// A draft has not been published yet, and comparing against it as though
+	// it were the latest release would offer something nobody can download.
+	latestVersion := latest.Version
+	if latest.Draft {
+		latestVersion = ""
+	}
+	discard, fetch := updateSteps(latestVersion, staged, version)
+	if discard {
+		selfupdate.Discard(dir)
+		offer(nil)
+		staged = ""
+	}
+	if !fetch {
+		if staged != "" {
+			return "Version " + staged + " is already downloaded and ready to install.", false
+		}
+		if latestVersion == "" {
+			return upToDate(version, version), false
+		}
+		return upToDate(version, latestVersion), false
+	}
+	p, err := selfupdate.Stage(ctx, latest, dir)
+	if err != nil {
+		if errors.Is(err, selfupdate.ErrNoAsset) {
+			return fmt.Sprintf("%v — nothing was built for this platform", err), true
+		}
+		return explainUnreachable(err, "download the release").Error(), true
+	}
+	offer(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
+	return "Downloaded version " + p.Version + ". Restart flockdeck when you are ready to install it.", false
+}
+
+// checkForUpdatesNow is the manual "Check for updates" action in the
+// interface: OnCheckForUpdates, wired to it in main. Unlike the watcher it
+// runs regardless of the switch in Settings, which only ever governed
+// checking in the background -- someone who clicked a button marked "Check
+// for updates" is asking this once, not turning the background check back on
+// -- but not regardless of updateEnv, which is for a machine that is never to
+// touch updates at all, clicked button or not.
+func checkForUpdatesNow(srv *server.Server) (string, bool) {
+	if !selfupdate.Parseable(version) {
+		return "This build was not made from a release, so there is no released version to compare it with.", true
+	}
+	if strings.EqualFold(os.Getenv(updateEnv), "off") {
+		return updateEnv + "=off is set in the environment, so this build never checks for updates.", true
+	}
+	dir, err := updatesDir()
+	if err != nil {
+		return err.Error(), true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	return checkRound(ctx, dir, srv)
 }
 
 // updateSteps decides one round of the watcher from the newest published

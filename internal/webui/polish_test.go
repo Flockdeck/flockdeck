@@ -340,7 +340,7 @@ const two = (w) => fixture({ projects: [
   { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
   { root: "C:/other", name: "other", active: false, tabs: 1, waiting: w, working: 0 }] });
 h.recv(two(0));
-h.click(h.$("project-btn"));
+h.click(h.$("rail-open"));
 const go = () => h.$("overlay-body").querySelectorAll("button.proj-go")[1];
 go().focus();
 h.recv(two(1));

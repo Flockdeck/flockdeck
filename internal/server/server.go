@@ -173,6 +173,12 @@ type Server struct {
 	// lets go of what tied it to the way it was started: on Windows, the console
 	// a -no-window run was launched from, whose closing would otherwise end it.
 	OnDetach func()
+	// OnCheckForUpdates is called when the interface asks to check for a
+	// newer release right now, rather than waiting for however much is left
+	// of the background watcher's next round. Unlike that watcher, which is
+	// silent unless something changes, this is a person waiting on an answer:
+	// what it returns is told to the window that asked, whatever it found.
+	OnCheckForUpdates func() (message string, isErr bool)
 
 	// update is the release waiting to be applied, if one has been downloaded.
 	// It is read on every snapshot and written by whatever is watching for

@@ -82,6 +82,18 @@ func TestConfirmRollback(t *testing.T) {
 	}
 }
 
+// withVersion sets the package's own stamp for the life of a test, and puts
+// it back after: checkForUpdatesNow's first question is whether this build
+// was made from a release at all, and "dev" -- what every test binary is
+// stamped, having gone through none of cmd/release -- answers no before
+// either of the two tests below can ask anything else.
+func withVersion(t *testing.T, v string) {
+	t.Helper()
+	old := version
+	version = v
+	t.Cleanup(func() { version = old })
+}
+
 // stageForTest leaves a staged update of the given version in a directory of
 // its own, beside a program to be replaced, and returns both.
 func stageForTest(t *testing.T, staged string) (dir, exe string) {
@@ -247,6 +259,29 @@ func TestApplyStagedRespectsUpdatesOff(t *testing.T) {
 	applyStaged(&bytes.Buffer{}, dir, exe, "v1.4.0")
 	if got, _ := os.ReadFile(exe); string(got) != "running" {
 		t.Errorf("program = %q with updates turned off, want it left alone", got)
+	}
+}
+
+// The manual "Check for updates" action in the settings is the same question
+// `flockdeck update -check` asks, asked from the window instead. A build
+// nothing published was ever compared with has nothing to check.
+func TestCheckForUpdatesNowRefusesABuildThatIsNotARelease(t *testing.T) {
+	withVersion(t, "dev")
+	msg, isErr := checkForUpdatesNow(nil)
+	if !isErr || !strings.Contains(msg, "not made from a release") {
+		t.Errorf("checkForUpdatesNow() = %q, isErr %v, want it refused as not a release", msg, isErr)
+	}
+}
+
+// FLOCKDECK_UPDATE=off is for a machine that is never to touch updates,
+// packaged by somebody who runs their own updater; a button in a window is
+// still asking, so it has to be refused the same as the background watcher.
+func TestCheckForUpdatesNowRespectsTheEnvironment(t *testing.T) {
+	withVersion(t, "v1.4.0")
+	t.Setenv(updateEnv, "off")
+	msg, isErr := checkForUpdatesNow(nil)
+	if !isErr || !strings.Contains(msg, updateEnv+"=off") {
+		t.Errorf("checkForUpdatesNow() = %q, isErr %v, want it refused by the environment", msg, isErr)
 	}
 }
 
