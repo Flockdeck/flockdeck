@@ -344,6 +344,13 @@ type paneView struct {
 	// when nobody reached through the relay has it open. See
 	// remoteviewers.go.
 	RemoteViewers []string `json:"remoteViewers,omitempty"`
+	// RemoteInsecure says one of those windows -- a terminal reached through
+	// the relay, specifically -- is not end-to-end encrypted: a browser that
+	// predates the feature, or one this host's own handshake could not
+	// complete. Left out, the zero value, when every remote terminal on this
+	// pane is encrypted, or none is open at all. See remoteviewers.go and
+	// internal/e2e.
+	RemoteInsecure bool `json:"remoteInsecure,omitempty"`
 	// Last is this pane's agent's latest reply, trimmed for the phone's
 	// inbox row -- left out for a shell, and for an agent pane whose
 	// adapter has not seen a reply yet. See preview.go.
@@ -592,6 +599,7 @@ func (s *Server) snapshot() stateMsg {
 				AutoApproved: p.AutoApproved,
 			}
 			pv.RemoteViewers = s.remoteViewersFor(p.ID)
+			pv.RemoteInsecure = remoteTermViewers.insecure(p.ID)
 			if st == session.StatusWaiting && p.Sess != nil {
 				pv.Ask, pv.Permission = waitingViews(detail, p.Sess.ToolInput())
 			}

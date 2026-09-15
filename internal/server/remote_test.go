@@ -17,6 +17,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/jmwri/flockdeck/internal/e2e"
 	"github.com/jmwri/flockdeck/internal/remote"
 )
 
@@ -45,6 +46,22 @@ type fakeRemote struct {
 	moved      []remote.EnableRequest
 	moveErr    error
 	moveUntold error
+	// e2eCapable is what E2ECapable answers, keyed by device id; a device
+	// not in the map is not capable, the same as a real Manager's answer for
+	// one that has not registered a key.
+	e2eCapable map[string]bool
+}
+
+// E2ECapable and E2ERespond stand in for a real Manager's end-to-end
+// handshake: no test in this file drives a real handshake through a fake
+// remote, so E2ECapable simply reports what the test set up and E2ERespond
+// is never expected to be called when it did not.
+func (f *fakeRemote) E2ECapable(_ context.Context, deviceID string) bool {
+	return f.e2eCapable[deviceID]
+}
+
+func (f *fakeRemote) E2ERespond(_ context.Context, _ string, _ []byte) (*e2e.Session, []byte, error) {
+	return nil, nil, remote.ErrNoE2EKey
 }
 
 func (f *fakeRemote) Move(_ context.Context, req remote.EnableRequest) (error, error) {
