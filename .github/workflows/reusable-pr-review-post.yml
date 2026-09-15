@@ -1,0 +1,115 @@
+# Reusable workflow: call an LLM to review a PR's diff and post the result
+# as a PR comment. This is the "trusted" half of the split in
+# flockdeck-planning/06-contributor-workflow.md (b.2) — the only place in
+# the whole pipeline that holds write access or an LLM API key. It never
+# checks out the contributor's code; it only reads the diff artifact that
+# reusable-pr-diff.yml already produced (in a separate, untrusted job or
+# workflow run) and posts text.
+#
+# For public repos this should be called in response to a `workflow_run`
+# event (the safe pattern for commenting on a PR from an untrusted source —
+# see GitHub's "pwn request" guidance in the plan's Sources), which hands
+# this job a token with no path back into the fork's checkout at all. For
+# internal-only private repos it can be called directly as a second job in
+# the same run (see e.g. flockdeck-relay's pr-review.yml) since the actor is
+# already trusted.
+#
+# NEEDS MANUAL SETUP before this does anything real:
+#   - `llm-api-key` (required) has no default; wire it to whichever LLM
+#     provider Flockdeck settles on. The step below is a placeholder.
+#   - `review-app-id` / `review-app-private-key` are optional: without them
+#     this falls back to the calling job's own GITHUB_TOKEN, which can only
+#     comment on same-repo (non-fork) PRs. A GitHub App (plan item (a)) is
+#     what's needed to comment on PRs from forks of public repos, and is not
+#     something that can be registered from the command line — see
+#     .github/CONTRIBUTOR_WORKFLOW_SETUP.md for what to create and where the
+#     resulting secrets go.
+name: PR review - post (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      artifact-run-id:
+        description: "Run ID that produced the pr-review-diff artifact (usually github.event.workflow_run.id, or github.run_id when called as a second job in the same run)"
+        type: number
+        required: true
+    secrets:
+      review-app-id:
+        description: "GitHub App ID used to mint a scoped installation token for posting the comment. Unset falls back to GITHUB_TOKEN (same-repo PRs only)."
+        required: false
+      review-app-private-key:
+        required: false
+      llm-api-key:
+        description: "API key for the LLM used to generate the review. TODO: point this at whichever provider Flockdeck settles on."
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review-and-post:
+    name: Review and comment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download diff artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-review-diff
+          run-id: ${{ inputs.artifact-run-id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # pr-meta.json came out of the untrusted diff job, so its contents are
+      # treated as untrusted input here: the repository is checked against
+      # this job's own context, and the PR number is required to be a plain
+      # integer before it's ever interpolated into a shell command.
+      - name: Validate metadata and extract the PR number
+        id: meta
+        run: |
+          repo=$(jq -r '.repository' pr-meta.json)
+          pr=$(jq -r '.pr_number' pr-meta.json)
+          if [ "$repo" != "${{ github.repository }}" ]; then
+            echo "::error::artifact repository ($repo) does not match ${{ github.repository }}"
+            exit 1
+          fi
+          case "$pr" in
+            ''|*[!0-9]*)
+              echo "::error::artifact pr_number '$pr' is not a plain integer"
+              exit 1
+              ;;
+          esac
+          echo "pr-number=$pr" >> "$GITHUB_OUTPUT"
+
+      # TODO: replace with the real LLM call once a provider/model and
+      # prompt are decided. This shape (send the diff, get review text back)
+      # is deliberately provider-agnostic so swapping the API is a one-step
+      # change confined to this step. llm-api-key never reaches the
+      # diff-producing job, which is the whole point of the split.
+      - name: Generate review with the LLM
+        env:
+          LLM_API_KEY: ${{ secrets.llm-api-key }}
+        run: |
+          diff_bytes=$(wc -c < pr.diff)
+          {
+            echo "### Automated review"
+            echo
+            echo "_(placeholder — wire this step to the real LLM call; see the TODO in reusable-pr-review-post.yml)_"
+            echo
+            echo "Diff size reviewed: ${diff_bytes} bytes."
+          } > review.md
+
+      - name: Mint a GitHub App installation token
+        id: app-token
+        if: ${{ secrets.review-app-id != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.review-app-id }}
+          private-key: ${{ secrets.review-app-private-key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Post the review as a PR comment
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment "${{ steps.meta.outputs.pr-number }}" --repo "${{ github.repository }}" --body-file review.md

@@ -1,0 +1,40 @@
+# Trusted half of the PR-review pipeline for this public repo. Triggered by
+# `workflow_run` after pr-review.yml finishes — the standard safe pattern
+# for commenting on a PR from an untrusted source (see the plan's Sources on
+# "pwn requests"): this job gets write access and can hold secrets, but it
+# never checks out the PR's code, only the diff artifact the untrusted job
+# already produced.
+#
+# NEEDS MANUAL SETUP: create the `pr-review-external` environment in this
+# repo's Settings > Environments with required reviewers configured, so a
+# human approves before this runs for a first-time or forked-repo
+# contributor (plan b.4). Until that environment exists, GitHub runs this
+# job ungated. Established internal contributors can be exempted from the
+# gate by scoping the environment's required-reviewers rule accordingly, or
+# by adding an `if:` here once there's a reliable way to identify them (e.g.
+# `github.event.workflow_run.actor.login` against a known list) — deferred
+# for now rather than guessing at a mechanism. See
+# .github/CONTRIBUTOR_WORKFLOW_SETUP.md for the full manual checklist,
+# including the GitHub App and secrets this workflow expects.
+name: PR review - post
+
+on:
+  workflow_run:
+    workflows: ["PR review"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  post:
+    if: github.event.workflow_run.conclusion == 'success'
+    environment: pr-review-external
+    uses: Flockdeck/flockdeck/.github/workflows/reusable-pr-review-post.yml@main
+    with:
+      artifact-run-id: ${{ github.event.workflow_run.id }}
+    secrets:
+      review-app-id: ${{ secrets.PR_REVIEW_APP_ID }}
+      review-app-private-key: ${{ secrets.PR_REVIEW_APP_PRIVATE_KEY }}
+      llm-api-key: ${{ secrets.PR_REVIEW_LLM_API_KEY }}

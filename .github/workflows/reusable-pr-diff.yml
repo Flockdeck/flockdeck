@@ -1,0 +1,76 @@
+# Reusable workflow: produce a PR's diff as a build artifact, with no
+# secrets and no write permissions.
+#
+# This is the "untrusted" half of the contributor-review split described in
+# flockdeck-planning/06-contributor-workflow.md (b.2): it is meant to be
+# called from a plain `pull_request` trigger for public repos (or, for
+# internal-only private repos, from `pull_request_target` directly — see
+# each caller's own comments), checks out the contributor's own commit, and
+# never has anything but a read-only, repo-scoped token. A separate, trusted
+# workflow (reusable-pr-review-post.yml) reads the artifact this produces
+# and is the only place that ever holds an LLM API key or a token that can
+# write to the PR — it never checks out the contributor's code itself.
+#
+# Hosted in this public repo (not a private one) deliberately: a *public*
+# reusable workflow can be called from any repo in the org, public or
+# private, with no extra "allow cross-repo access" setting to configure.
+# Compare reusable-compat-check.yml in flockdeck-relay, which is private and
+# does need that setting turned on manually.
+name: PR review - diff (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      pr-number:
+        description: "Pull request number in the calling repo"
+        type: number
+        required: true
+      head-sha:
+        description: "Commit to check out and review (the PR's head)"
+        type: string
+        required: true
+      base-ref:
+        description: "Branch to diff against (the PR's base branch)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    name: Compute PR diff
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head-sha }}
+          fetch-depth: 0
+
+      # The fixed artifact name (rather than one keyed by PR number) is what
+      # lets the trusted post-job find it from a workflow_run event without
+      # needing GitHub's `workflow_run.pull_requests` context, which is
+      # empty for fork-originated PRs — the metadata file below carries the
+      # PR number instead, and the post job treats it as untrusted input.
+      - name: Compute diff against base and write metadata
+        run: |
+          git fetch origin "${{ inputs.base-ref }}" --depth=1
+          git diff "origin/${{ inputs.base-ref }}" "${{ inputs.head-sha }}" > pr.diff
+          jq -n \
+            --argjson pr_number "${{ inputs.pr-number }}" \
+            --arg head_sha "${{ inputs.head-sha }}" \
+            --arg base_ref "${{ inputs.base-ref }}" \
+            --arg repository "${{ github.repository }}" \
+            '{pr_number: $pr_number, head_sha: $head_sha, base_ref: $base_ref, repository: $repository}' \
+            > pr-meta.json
+          wc -l pr.diff
+
+      - name: Upload diff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-review-diff
+          path: |
+            pr.diff
+            pr-meta.json
+          retention-days: 7
