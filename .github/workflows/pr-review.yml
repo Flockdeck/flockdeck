@@ -1,0 +1,23 @@
+# Untrusted half of the PR-review pipeline for this public repo: runs on the
+# plain `pull_request` trigger (not `pull_request_target`), so it gets a
+# read-only, repo-scoped token and no org secrets even for a PR from a
+# fork — the actual security boundary, per
+# flockdeck-planning/06-contributor-workflow.md (b.1). It only computes a
+# diff and uploads it as an artifact; pr-review-post.yml, triggered
+# separately afterwards, is what reviews and comments.
+name: PR review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    uses: Flockdeck/flockdeck/.github/workflows/reusable-pr-diff.yml@main
+    with:
+      pr-number: ${{ github.event.pull_request.number }}
+      head-sha: ${{ github.event.pull_request.head.sha }}
+      base-ref: ${{ github.event.pull_request.base.ref }}
