@@ -247,7 +247,11 @@ func (w *Workspace) restoreProject(root string) int {
 		}
 		added++
 	}
-	w.launch(r.waiting)
+	if w.deferLaunch != nil {
+		*w.deferLaunch = append(*w.deferLaunch, r.waiting...)
+	} else {
+		w.launch(r.waiting)
+	}
 	if added == 0 {
 		return 0
 	}
@@ -668,6 +672,12 @@ func parseDir(s string) layout.Dir {
 // The project the user asked for stays active: reopening the rest is meant to
 // bring back context, not to move them somewhere they did not ask to be.
 //
+// Each restoreProject below builds its tabs as it always did, but collects
+// every pane it would have started rather than starting it there; they are
+// all started together once every project has been read, so a window with
+// several other projects open waits once, for whichever project has the most
+// to start, rather than once per project. See restoreProject's deferLaunch.
+//
 // A list that could not be read, and the layout of any project reopened that
 // could not be, are noted for RestoreErrors.
 func (w *Workspace) RestoreSession() int {
@@ -684,6 +694,8 @@ func (w *Workspace) RestoreSession() int {
 	wasOn := w.activeTab
 	opened := 0
 	var reopened []string
+	var pending []*Pane
+	w.deferLaunch = &pending
 	for _, saved := range sess.Open {
 		// Every other way into the workspace puts a project through
 		// filepath.Abs and the window then compares roots exactly — isOpen,
@@ -728,6 +740,8 @@ func (w *Workspace) RestoreSession() int {
 		}
 		opened++
 	}
+	w.deferLaunch = nil
+	w.launch(pending)
 	// Putting the focus back means the tab it was actually on, not merely a tab
 	// of the right project: focusFirstTabOf would land on the first one and
 	// quietly discard the tab the user quit from.

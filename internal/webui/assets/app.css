@@ -112,6 +112,23 @@ body { display: flex; flex-direction: column; }
 .ico { display: flex; flex: 0 0 auto; }
 .ico svg { display: block; }
 
+/* ------------------------------------------------------------------ splash */
+
+/* Covers the rail and the empty top bar while they are still just chrome with
+ * nothing in it -- the project name reading "project", no tabs -- so what is
+ * seen first is a plain loading screen rather than a shell popping in a piece
+ * at a time. dismissSplash fades it and, once the fade has run, hides it for
+ * good: opacity alone would leave it sat over the interface, invisible but
+ * still catching every click. */
+#splash {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg);
+  opacity: 1; transition: opacity .18s ease-out;
+}
+#splash.gone { opacity: 0; pointer-events: none; }
+.splash-mark { width: 56px; height: 56px; animation: pulse 1.6s ease-in-out infinite; }
+
 /* ---------------------------------------------------------------- the rail */
 
 /* The page is the rail beside everything else. The top bar, the hints, the

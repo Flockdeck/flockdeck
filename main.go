@@ -953,6 +953,14 @@ func run(opts options) error {
 	// Build the initial workspace before the server exists. Once it is
 	// running, every access to the workspace has to go through its owner
 	// goroutine, so setting up here keeps startup free of that constraint.
+	//
+	// Only the project this run was started on is restored here. The other
+	// projects open last time are brought back once the server exists (see
+	// RestoreOpenProjects below), on its own goroutine, so a session left
+	// with a dozen background projects does not hold up this one's window
+	// behind every one of their panes starting: only this project's own do,
+	// and those already start together rather than one at a time — see
+	// restoreProject's batching in package workspace.
 	restored := false
 	if !opts.fresh {
 		// A layout that fails to restore should never stop the app starting,
@@ -960,10 +968,8 @@ func run(opts options) error {
 		// windows hear of the file only once a save has moved it aside.
 		var restoreErr error
 		restored, restoreErr = ws.Restore()
-		// Bring back the other projects that were open last time, too.
-		ws.RestoreSession()
-		if err := errors.Join(restoreErr, ws.RestoreErrors()); err != nil {
-			fmt.Fprintln(os.Stderr, "flockdeck:", err)
+		if restoreErr != nil {
+			fmt.Fprintln(os.Stderr, "flockdeck:", restoreErr)
 		}
 	}
 	if !restored {
@@ -982,6 +988,14 @@ func run(opts options) error {
 	defer srv.Close()
 	ws.SetWake(srv.Wake)
 	ws.SetConversationHook(srv.ConversationHookEvent)
+
+	// Bring back the other projects that were open last time, too — see the
+	// comment above the project this run was started on being restored.
+	if !opts.fresh {
+		srv.RestoreOpenProjects(func(err error) {
+			fmt.Fprintln(os.Stderr, "flockdeck:", err)
+		})
+	}
 
 	// Remote access, for a machine enrolled with a relay. It is started from
 	// whatever the enrolment says now and told to look again whenever

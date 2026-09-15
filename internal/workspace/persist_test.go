@@ -1338,6 +1338,59 @@ func TestRestoreStartsEveryPaneAtOnce(t *testing.T) {
 	}
 }
 
+// TestRestoreSessionStartsEveryProjectsPanesAtOnce checks that RestoreSession
+// starts the panes of every project it reopens together, rather than
+// finishing one project's panes before moving on to the next one's.
+//
+// Each project here has fewer panes than paneLaunches on its own, so a
+// project batching only its own panes (the old behaviour) would never have
+// paneLaunches panes starting at once; only batching across every reopened
+// project, as RestoreSession now does, gets there. See
+// TestRestoreStartsEveryPaneAtOnce, which checks the same thing for a single
+// project's own panes.
+func TestRestoreSessionStartsEveryProjectsPanesAtOnce(t *testing.T) {
+	isolateConfig(t)
+	first, second, third := t.TempDir(), t.TempDir(), t.TempDir()
+
+	const panesPerProject = paneLaunches / 2
+	for _, root := range []string{second, third} {
+		saved := &store.State{}
+		for i := 0; i < panesPerProject; i++ {
+			saved.Tabs = append(saved.Tabs, store.Tab{
+				Title: fmt.Sprint("tab", i),
+				Root:  &store.Node{Pane: &store.Pane{ID: uuid.NewString(), Kind: "shell", Cwd: root}},
+			})
+		}
+		if err := store.Save(root, saved); err != nil {
+			t.Fatalf("save %s: %v", root, err)
+		}
+	}
+	if err := store.SaveSession(&store.Session{Open: []string{second, third}}); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+
+	const panes = panesPerProject * 2
+	arrive, met := meetAll(panes)
+	start := launchPane
+	launchPane = func(w *Workspace, p *Pane, resume bool) {
+		arrive()
+		start(w, p, resume)
+	}
+	t.Cleanup(func() { launchPane = start })
+
+	ws := newTestWorkspace(t, first)
+	if n := ws.RestoreSession(); n != 2 {
+		t.Fatalf("reopened %d extra projects, want 2", n)
+	}
+	if !met() {
+		t.Errorf("the %d panes across both projects were never starting at once; they were started one project at a time", panes)
+	}
+
+	if len(ws.Projects()) != 3 {
+		t.Fatalf("expected 3 open projects, got %d", len(ws.Projects()))
+	}
+}
+
 // meetAll returns a gate for n callers and a report of whether all n were ever
 // inside it at the same time. Each caller waits at the gate until the last one
 // arrives, so work done together passes straight through. Work done one item
