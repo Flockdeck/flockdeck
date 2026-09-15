@@ -39,6 +39,39 @@ func TestTheLogKeepsDecisionsAndNoTask(t *testing.T) {
 	}
 }
 
+// Stats is the evidence the log is kept for: how often each rule's decision
+// was kept versus overridden, so a person editing rules by hand has the
+// override rate instead of counting lines themselves.
+func TestStats(t *testing.T) {
+	entries := []LogEntry{
+		{Source: SourceRule, Rule: "hard work", Outcome: OutcomeKept},
+		{Source: SourceRule, Rule: "hard work", Outcome: OutcomeOverridden + "sonnet"},
+		{Source: SourceRule, Rule: "hard work", Outcome: OutcomeKept},
+		{Source: SourceRule, Rule: "run the tests", Outcome: OutcomeKept},
+		// A fallback decision names no rule, and is left out: there is
+		// nothing in agents.json for it to say is worth editing.
+		{Source: SourceFallback, Rule: "", Outcome: OutcomeKept},
+	}
+	got := Stats(entries)
+	if len(got) != 2 {
+		t.Fatalf("Stats = %+v, want two rules", got)
+	}
+	if got[0].Rule != "hard work" || got[0].Kept != 2 || got[0].Overridden != 1 || got[0].Total() != 3 {
+		t.Errorf("hard work = %+v, want 2 kept, 1 overridden", got[0])
+	}
+	if rate := got[0].OverrideRate(); rate < 0.333 || rate > 0.334 {
+		t.Errorf("hard work's override rate = %v, want ~1/3", rate)
+	}
+	if got[1].Rule != "run the tests" || got[1].OverrideRate() != 0 {
+		t.Errorf("run the tests = %+v, want never overridden", got[1])
+	}
+
+	byRate := StatsByOverrideRate(entries)
+	if byRate[0].Rule != "hard work" {
+		t.Errorf("StatsByOverrideRate = %+v, want the most-overridden rule first", byRate)
+	}
+}
+
 func TestTheLogIsTrimmedToItsCap(t *testing.T) {
 	dir := t.TempDir()
 	batch := make([]LogEntry, 1000)

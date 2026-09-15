@@ -7329,6 +7329,19 @@
       "The smallest models routing may choose, " + (own ? "for this project." : "for every project.") +
       " Mid keeps the smallest models off work that matters.", floor));
 
+    const strategy = select("set-route-strategy",
+      [["", "Cost-first, quality-aware"], ["cost", "Minimise cost"]],
+      policy.strategy === "cost" ? "cost" : "");
+    strategy.onchange = () => {
+      const req = { cmd: "setRouting", target: "strategy", text: strategy.value };
+      if (!own) req.kind = "all";
+      send(req);
+    };
+    pane.append(settingRow("Strategy",
+      "Minimise cost also routes work no rule recognises to the cheapest available model; " +
+      "quality-aware leaves unrecognised work where it was. Either way a rule that matches still decides first, " +
+      "and “Never go below” still holds.", strategy));
+
     const cross = el("input");
     cross.type = "checkbox";
     cross.id = "set-route-cross";
@@ -7356,6 +7369,14 @@
       const row = el("div", "route-rule");
       row.append(el("span", "route-rule-name", rule.name), el("span", "pick-tier", rule.choice),
         el("span", "route-rule-when", "when " + rule.when));
+      // The log's own account of the rule, where it has decided at least
+      // once: the evidence for hand-editing a rule that is overridden a lot,
+      // read back rather than left for someone to count lines themselves.
+      const total = (rule.kept || 0) + (rule.overridden || 0);
+      if (total > 0) {
+        const pct = Math.round((100 * (rule.overridden || 0)) / total);
+        row.append(el("span", "route-rule-stat", "overridden " + pct + "% of the time (" + (rule.overridden || 0) + " of " + total + ")"));
+      }
       list.append(row);
     });
     if (!(r.rules || []).length) list.append(el("div", "set-desc", "No rules, so routing changes nothing."));

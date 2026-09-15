@@ -23,6 +23,23 @@ const (
 	RoutingAuto = "auto"
 )
 
+// The routing strategies. Strategy is orthogonal to Mode: Mode says whether a
+// decision is shown, applied or ignored; Strategy says how aggressively it
+// favors cost.
+const (
+	// StrategyBalanced is cost-first-but-quality-aware: rules move clearly
+	// mechanical work down and clearly hard work up, and work no rule
+	// recognises is left exactly where it was. It is what an empty Strategy
+	// means, so a file from before this build reads as it always has.
+	StrategyBalanced = "balanced"
+	// StrategyCost is pure cost-minimisation: work no rule recognises is
+	// still routed, to the cheapest model the floor allows, rather than left
+	// alone. A rule that matches, and Floor, both still decide exactly as
+	// they do under StrategyBalanced -- this only changes what happens when
+	// nothing matches.
+	StrategyCost = "cost"
+)
+
 // RoutingPolicy says whether, and how, Flockdeck chooses the model a piece of
 // work runs on.
 //
@@ -35,6 +52,9 @@ type RoutingPolicy struct {
 	Mode string `json:"mode,omitempty"`
 	// Floor is the lowest tier routing may choose; empty is small.
 	Floor string `json:"floor,omitempty"`
+	// Strategy is StrategyBalanced or StrategyCost; empty is StrategyBalanced,
+	// so a file from before this build means what it always has.
+	Strategy string `json:"strategy,omitempty"`
 	// CrossAgent lets a rule that names another agent's model (Model and
 	// Agent, below) move work to that agent, not only to that model. It is
 	// its own switch, off by default, because writing such a rule is not by
@@ -107,6 +127,16 @@ func checkRouting(p *RoutingPolicy, where string) []string {
 		// The cautious reading of a floor nobody can read is the highest.
 		problems = append(problems, fmt.Sprintf("%s: floor %q is not small, mid or top, so nothing there is moved below top", where, p.Floor))
 		p.Floor = TierTop
+	}
+	p.Strategy = strings.ToLower(strings.TrimSpace(p.Strategy))
+	switch p.Strategy {
+	case "", StrategyBalanced, StrategyCost:
+	default:
+		// The cautious reading of a strategy nobody can read is the one that
+		// never routes work it was not asked to, the same reasoning "off" is
+		// mode's cautious default.
+		problems = append(problems, fmt.Sprintf("%s: strategy %q is not balanced or cost, so routing stays quality-aware there", where, p.Strategy))
+		p.Strategy = StrategyBalanced
 	}
 	if p.Rules == nil {
 		return problems
@@ -227,8 +257,9 @@ func (c *Catalog) RoutingFor(project string) (RoutingPolicy, bool) {
 }
 
 // SetRouting changes one setting of a routing policy in agents.json: "mode",
-// "floor" or "crossAgent", for one project where project names one and for
-// every project otherwise. Everything else the policy says -- its rules, and
+// "floor", "strategy" or "crossAgent", for one project where project names
+// one and for every project otherwise. Everything else the policy says -- its
+// rules, and
 // any key a later build wrote -- is kept as it was written.
 //
 // A project given a policy of its own starts from a copy of every project's,
@@ -246,6 +277,10 @@ func SetRouting(dir, project, field, value string) error {
 	case "floor":
 		if value != "" && TierRank(value) == 0 {
 			return fmt.Errorf("%q is not a tier; the tiers are small, mid and top", value)
+		}
+	case "strategy":
+		if value != "" && value != StrategyBalanced && value != StrategyCost {
+			return fmt.Errorf("%q is not a routing strategy; the strategies are balanced and cost", value)
 		}
 	case "crossAgent":
 		if value != "" && value != "true" && value != "false" {
@@ -305,9 +340,9 @@ func SetRouting(dir, project, field, value string) error {
 }
 
 // setRoutingField sets one key of a policy as written, leaving the rest of it
-// byte for byte. An empty floor is taken out, since it means small anyway,
-// and "crossAgent" set to "false" is taken out the same way, since that is
-// what its absence already means.
+// byte for byte. An empty floor is taken out, since it means small anyway;
+// "crossAgent" set to "false", and "strategy" set to "balanced", are taken
+// out the same way, since that is what their absence already means.
 func setRoutingField(raw json.RawMessage, field, value string) (json.RawMessage, error) {
 	obj := map[string]json.RawMessage{}
 	if t := bytes.TrimSpace(raw); len(t) > 0 && !bytes.Equal(t, []byte("null")) {
@@ -315,7 +350,7 @@ func setRoutingField(raw json.RawMessage, field, value string) (json.RawMessage,
 			return nil, fmt.Errorf(`"routing" in %s is not an object, so it was not changed`, ConfigName)
 		}
 	}
-	if value == "" || (field == "crossAgent" && value == "false") {
+	if value == "" || (field == "crossAgent" && value == "false") || (field == "strategy" && value == StrategyBalanced) {
 		delete(obj, field)
 	} else {
 		var toWrite any = value

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -155,6 +157,64 @@ func ReadLog(dir string) ([]LogEntry, error) {
 		}
 	}
 	return out, sc.Err()
+}
+
+// RuleStat is one rule's record in the routing log: how often the log has it
+// deciding, and how often what it chose was changed before the work started.
+type RuleStat struct {
+	Rule       string
+	Kept       int
+	Overridden int
+}
+
+// Total is how many logged decisions the rule made, kept or overridden.
+func (s RuleStat) Total() int { return s.Kept + s.Overridden }
+
+// OverrideRate is the share of the rule's decisions that were changed before
+// the work started, or 0 for a rule the log has never seen decide.
+func (s RuleStat) OverrideRate() float64 {
+	if s.Total() == 0 {
+		return 0
+	}
+	return float64(s.Overridden) / float64(s.Total())
+}
+
+// Stats summarises a routing log by rule: this is the evidence routing.jsonl
+// is kept for -- the override rate that says which rules are worth
+// hand-editing -- read back rather than left for a person to add up line by
+// line. It only reports; nothing here changes a rule or a policy. A decision
+// StrategyCost's fallback made (Source SourceFallback, Rule "") is not a
+// named rule, so it is left out: there is nothing in agents.json to edit for
+// it. Rules are returned in the order they are first seen, oldest first.
+func Stats(entries []LogEntry) []RuleStat {
+	at := map[string]int{}
+	var out []RuleStat
+	for _, e := range entries {
+		if e.Rule == "" {
+			continue
+		}
+		i, ok := at[e.Rule]
+		if !ok {
+			i = len(out)
+			at[e.Rule] = i
+			out = append(out, RuleStat{Rule: e.Rule})
+		}
+		if strings.HasPrefix(e.Outcome, OutcomeOverridden) {
+			out[i].Overridden++
+		} else {
+			out[i].Kept++
+		}
+	}
+	return out
+}
+
+// StatsByOverrideRate is Stats, ordered worst first -- the rule most often
+// overridden is the one most worth a person's attention -- and stable for
+// rules tied on rate, so the same log always reads the same way.
+func StatsByOverrideRate(entries []LogEntry) []RuleStat {
+	out := Stats(entries)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].OverrideRate() > out[j].OverrideRate() })
+	return out
 }
 
 // ClearLog deletes the log in dir.

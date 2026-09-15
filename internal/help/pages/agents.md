@@ -239,6 +239,15 @@ starts with `flockdeck spawn` without `--agent` or `--model`; with
 suggestion to. **Never go below** keeps routing off the
 smaller tiers for a project where the work matters.
 
+**Strategy** decides what happens to a task no rule matches. **Cost-first,
+quality-aware** — the default — leaves it exactly where it was, the same as
+routing off would for that row. **Minimise cost** routes it too, to the
+cheapest model **Never go below** allows on the agent it was already going to
+run on, never to another agent. Either strategy, a rule that matches still
+decides first and **Never go below** still holds; the strategy only changes
+what happens when nothing matches. The row's tooltip says "no rule matched" for
+a suggestion made this way, so it is never mistaken for a rule's own reason.
+
 The policy is kept in `agents.json` — and only there, never in a file inside a
 repository, so a repository you clone cannot change what your key spends:
 
@@ -247,6 +256,7 @@ repository, so a repository you clone cannot change what your key spends:
   "routing": {
     "mode": "suggest",
     "floor": "",
+    "strategy": "",
     "rules": [
       { "name": "run the tests", "tier": "small",
         "when": { "task": "^(re-?)?run (the |all )?(unit |integration )?tests?\\b" } },
@@ -263,7 +273,9 @@ repository, so a repository you clone cannot change what your key spends:
 ```
 
 Rules are tried in order and the **first that matches decides**; a task no rule
-matches is left alone. Every condition in `when` must hold: `task` is a
+matches is left alone under `"strategy": "balanced"` (the default, same as
+leaving `strategy` out), or routed to the cheapest model the floor allows
+under `"strategy": "cost"`. Every condition in `when` must hold: `task` is a
 regular expression matched without regard to case; `minWords` and `maxWords`
 bound the task's length; `files` are globs matched against the paths the task
 names (`**` is any number of directories, and a glob with no `/` matches a
@@ -286,7 +298,9 @@ sending anything, to check something is listening. The routed mark on a pane tra
 rest of the pane's state does, to your own paired devices when remote access
 is on. What it chose, and whether you kept it, is kept
 in `routing.jsonl` in the state directory, for your own numbers: the rule's
-name and the models, never the task. Settings has **Clear routing history**,
-and to turn all of it off, set every project to **Off**. A file that does not parse is a notice in the
+name and the models, never the task. Settings lists each rule beside how often
+the log shows it overridden, once it has decided at least once — the evidence
+for deciding which rules are worth hand-editing. Settings has **Clear routing
+history**, and to turn all of it off, set every project to **Off**. A file that does not parse is a notice in the
 interface and nothing worse — the built-in agents carry on, because a typo in a
 settings file is not a reason to be unable to start work.
