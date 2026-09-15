@@ -434,16 +434,24 @@ make package    <span class="c"># archives for all six platforms</span></code></
     <details open>
       <summary>Is Flockdeck free?</summary>
       <p>The desktop app is, for good: it's free and open source under the MIT
-         licence. The shared relay is free to use for now; a paid plan for it
-         is coming.</p>
+         licence, on your own computer or self-hosted on a server you run.
+         Reaching it from your phone through Flockdeck's shared relay is free
+         for a 30-day trial, then a small subscription — there's no permanent
+         free tier for the relay, since somebody has to pay for running it.</p>
+      <p>If you'd like to say thank you, you can
+         <a href="#sponsor">sponsor Flockdeck</a>. It buys nothing: the app is
+         the same for everyone.</p>
     </details>
     <details>
       <summary>Is there a paid version?</summary>
-      <p>Not yet. A plan for the shared relay is coming, and so is
-         <a href="#enterprise">Enterprise</a>, for companies to run the relay
-         on their own infrastructure with SSO and support — see
+      <p>The shared relay is a subscription after its free trial. Companies
+         that can't have Flockdeck's relay in the loop at all can license the
+         whole stack — relay and remote access included — to run entirely on
+         their own infrastructure, with SSO: see
+         <a href="#enterprise">Enterprise</a>, in progress, with SSO and an
+         audit log already built and under test — see
          <a href="https://docs.flockdeck.ai/self-hosting/overview.html">self-hosting the relay</a>.
-         The app stays free and open source.</p>
+         The app itself stays free and open source either way.</p>
     </details>
     <details>
       <summary>Which agents does it work with?</summary>
@@ -533,6 +541,32 @@ make package    <span class="c"># archives for all six platforms</span></code></
          (arm64) machines.</p>
     </details>
   </div>
+</section>
+
+<!-- Sponsoring: a way to give money that buys nothing, which the section says
+     in so many words, since the likeliest trouble is a sponsor expecting
+     priority. The names come from assets/sponsors.txt, and are only those
+     who asked to be named: a name, and a link where they gave one, with no
+     logo, so that a company's line is not an advertisement. -->
+<section class="band" id="sponsor">
+  <p class="eyebrow">Sponsor</p>
+  <h2>Say thank you.</h2>
+  <p>Flockdeck is free and open source. If it's useful to you or your
+     company, you can sponsor it through GitHub Sponsors. Sponsoring buys no
+     features, support or priority: the app is the same for everyone.</p>
+  <p class="cta"><a class="button ghost" href="{{ .Sponsor }}">Sponsor on GitHub</a></p>
+  <h3>Sponsors</h3>
+  {{- if .Sponsors}}
+  <ul class="sponsors">
+    {{- range .Sponsors}}
+    <li>{{if .Link}}<a href="{{.Link}}" rel="sponsored">{{.Name}}</a>{{else}}{{.Name}}{{end}}</li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p>No one is listed yet.</p>
+  {{- end}}
+  <p class="aside">Sponsors are named here only if they ask to be, by name and
+     a link.</p>
 </section>
 
 </main>

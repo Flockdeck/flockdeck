@@ -6902,7 +6902,7 @@
     { id: "agents", label: "Agents", words: "default agent model project claude status line usage limits spend" },
     { id: "keys", label: "API keys", words: "api keys key token secret" },
     { id: "remote", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet push notify notification notifications waiting anonymous identifying" },
-    { id: "plan", label: "Account & plan", words: "account plan free enterprise self-hosted relay sso company companies licence license support paid" },
+    { id: "plan", label: "Account & plan", words: "account plan free enterprise self-hosted relay sso company companies licence license support paid sponsor sponsors sponsorship donate github" },
   ];
   /** The section on show, kept from one opening to the next. */
   let settingsSection = "general";
@@ -6925,6 +6925,10 @@
     ["set-legal-terms", "Terms", "https://flockdeck.ai/terms.html"],
     ["set-legal-licences", "Licences", "https://flockdeck.ai/licences.html"],
   ];
+
+  /** Where somebody who wants to give something back can: the GitHub Sponsors
+   *  account .github/FUNDING.yml names, which a test keeps this level with. */
+  const SPONSOR_URL = "https://github.com/sponsors/jmwri";
 
   /** A few monospaced fonts to suggest; any other installed one can be typed. */
   const FONT_SUGGESTIONS = ["Cascadia Mono", "Cascadia Code", "JetBrains Mono", "Fira Code", "Consolas",
@@ -7540,6 +7544,7 @@
     link.append(document.createTextNode("Read about Enterprise"), iconEl("ext", 13));
     soon.append(link);
     pane.append(soon);
+    pane.append(sponsorLine());
     // Whose it is and under what licence, and the pages that say what the
     // shared relay keeps and on what terms: quiet, at the foot of the section
     // about the account, where somebody looking for them looks. They open in
@@ -7555,6 +7560,24 @@
       legal.append(document.createTextNode(" · "), a);
     });
     pane.append(legal);
+  }
+
+  /** sponsorLine is the one place the app mentions sponsorship: a line under
+   *  the plans, drawn only when this section is, that links to GitHub Sponsors
+   *  and does nothing else. It is not a plan, so it is kept apart from the
+   *  cards; it counts nothing, asks nothing and never appears on its own, and
+   *  sponsoring changes nothing in the app, which the line says. */
+  function sponsorLine() {
+    const line = el("p", "plan-sponsor");
+    line.id = "set-sponsor";
+    const a = el("a");
+    a.id = "set-sponsor-link";
+    a.setAttribute("href", SPONSOR_URL);
+    a.target = "_blank";
+    a.rel = "noreferrer noopener";
+    a.append(document.createTextNode("Sponsor Flockdeck"), iconEl("ext", 12));
+    line.append(a, document.createTextNode(" on GitHub, if it is useful to you. Sponsoring is a thank-you, and buys nothing."));
+    return line;
   }
 
   // --------------------------------------------------------------- fan out

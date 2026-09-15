@@ -41,6 +41,10 @@ access](#remote) lists them.
   companies to run the relay on their own infrastructure with SSO and support.
   At its foot are the privacy policy and terms for the shared relay, and the
   licences.
+  - **Sponsor Flockdeck** — a link to
+    [GitHub Sponsors](https://github.com/sponsors/jmwri), under the plans, for
+    anyone who wants to say thank you. Sponsoring buys nothing, and the app is
+    the same either way.
 
 Type into **Find a setting** to narrow the sections to the ones that mention a
 word. On a narrow screen the sections go across the top.

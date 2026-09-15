@@ -1138,6 +1138,11 @@ textarea:focus-visible {
   border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--fg); text-decoration: none;
 }
 .plan-link:hover { background: #22262e; }
+/* Sponsoring, under the plans and apart from them: a sentence in the
+ * section's quiet grey with a link in it, not a card or a button. */
+.plan-sponsor { margin: 18px 0 0; font-size: 13px; color: var(--fg-dim); }
+.plan-sponsor a { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); text-underline-offset: 2px; }
+.plan-sponsor a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
 .plan-legal { margin: 22px 0 0; font-size: 12px; color: var(--fg-dim); line-height: 1.8; }
 .plan-legal a { color: var(--fg-dim); text-underline-offset: 2px; }
 .plan-legal a:hover { color: var(--fg); }

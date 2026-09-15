@@ -308,6 +308,15 @@ above. Downloads from dl.flockdeck.ai
 may get its content delivery network's security cookie, as
 [Who else is involved](#who-else-is-involved) describes.
 
+## Sponsoring
+
+If you sponsor Flockdeck, you do it through GitHub Sponsors, which handles
+the payment under its own terms and [privacy
+statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement).
+We see what GitHub shows a maintainer about a sponsor. This website names a
+sponsor only if they ask to be named, and takes the name off when they ask.
+Sponsoring buys no features, support or priority.
+
 ## Why this data is used (lawful basis)
 
 - **To provide remote access,** which you asked for: the account, desktop and
