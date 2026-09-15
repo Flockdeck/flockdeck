@@ -121,7 +121,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
 
+      # Explicit shell: this job now also runs on windows-latest, where a
+      # run: step with none named defaults to PowerShell -- "$TAG" there
+      # reads no such thing (PowerShell's own is $env:TAG) and expands to
+      # nothing, which is how v0.3.26-rc.8 shipped flockdeck__windows_amd64.zip,
+      # its version silently dropped from the name.
       - name: Build and package
+        shell: bash
         env:
           TAG: ${{ needs.version.outputs.tag }}
         run: go run ./cmd/release -version "$TAG" -out dist -platforms ${{ matrix.platforms }}
