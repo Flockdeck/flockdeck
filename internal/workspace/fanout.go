@@ -14,6 +14,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // recentOutputBytes is how much of a pane's output the task extractor reads.
@@ -1001,6 +1002,15 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	if o.SpawnedByAgent && parent != nil {
 		p.Parent = parentPaneID
 	}
+	// A child with no parent -- a fan-out run from the window, whose children
+	// carry no Parent even though this call is given one -- starts AutoReview
+	// from the installation's own default rather than off unconditionally.
+	// One spawned by its own parent's `flockdeck spawn` inherits the parent's
+	// live value instead, once that lands; until then it starts off, as it
+	// always has.
+	if p.Parent == "" {
+		p.AutoReview = store.LoadPrefs().AutoReviewDefault
+	}
 	if p.IsAgent() {
 		p.Agent, p.Model = agentID, model
 		// o.Agent is "" for same-agent routing, which never touches it -- a
@@ -1142,6 +1152,10 @@ func (w *Workspace) StartAgent(root, agentID, model, cwd, task string) (string, 
 		Task:    task,
 		Agent:   agentID,
 		Model:   model,
+		// Never given a Parent (see the doc comment above), so it starts
+		// AutoReview from the installation's own default like any other pane
+		// the user started themselves.
+		AutoReview: store.LoadPrefs().AutoReviewDefault,
 	}
 	w.mu.Lock()
 	w.panes[p.ID] = p

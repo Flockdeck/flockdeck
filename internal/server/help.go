@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/internal/keybindings"
 	"github.com/jmwri/flockdeck/internal/store"
 )
 
@@ -20,7 +21,7 @@ import (
 // person has already been shown.
 type helloMsg struct {
 	Type  string      `json:"type"`
-	Keys  []help.Key  `json:"keys"`
+	Keys  []keyView   `json:"keys"`
 	Prefs store.Prefs `json:"prefs"`
 	// Remote says the window was reached through the relay, so that it can
 	// leave out what only the desk may do: restart onto an update, turn
@@ -29,28 +30,61 @@ type helloMsg struct {
 	Remote bool `json:"remote,omitempty"`
 }
 
+// keyView is one action as a window is told of it: help.Key, with whether
+// keybindings.json gives it something other than its built-in binding.
+// Settings › Keybindings is the only reader of Overridden -- it is what
+// lights up a row's Reset and the section's "Reset every shortcut" -- but it
+// rides on every hello and every keyTableMsg alike, the same as every other
+// field here, rather than being asked for on its own.
+type keyView struct {
+	help.Key
+	Overridden bool `json:"overridden,omitempty"`
+}
+
 // sendHello gives a freshly connected window the key table and the prefs. It
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
-	keys := help.Keys
-	if c.remote {
-		keys = remoteKeys
-	}
-	data, err := json.Marshal(helloMsg{Type: "hello", Keys: keys, Prefs: s.prefs, Remote: c.remote})
+	data, err := json.Marshal(helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: s.prefs, Remote: c.remote})
 	if err != nil {
 		return
 	}
 	c.send(data)
 }
 
-// remoteKeys is the key table without what a window reached through the relay
+// effectiveKeys is the key table a window is sent: help.Keys with every
+// remapping in keybindings.json applied, and -- for a window reached through
+// the relay -- without what only the desk may do.
+//
+// The overrides are read fresh each call, the way agents.json is: a remap
+// saved from one window has to reach every other window's palette and
+// keydown handling, and it does, through keyTableMsg, but a window connecting
+// for the first time has no earlier keyTableMsg to have caught.
+func effectiveKeys(remote bool) []keyView {
+	f, err := keybindings.Load()
+	var overrides map[string]string
+	if err == nil {
+		overrides = f.Overrides
+	}
+	eff := keybindings.Effective(overrides)
+	views := make([]keyView, len(eff))
+	for i, k := range eff {
+		_, overridden := overrides[k.ID]
+		views[i] = keyView{Key: k, Overridden: overridden}
+	}
+	if !remote {
+		return views
+	}
+	return remoteFiltered(views)
+}
+
+// remoteFiltered is keys without what a window reached through the relay
 // cannot do. Detach and Quit are the desk's to choose -- a phone's window
 // closing never stopped anything, and nothing on the phone could start the
 // agents again -- and the server refuses both from there. Offered anyway, Quit
 // asked whether to stop every agent only for the answer to be no.
-var remoteKeys = func() []help.Key {
-	out := make([]help.Key, 0, len(help.Keys))
-	for _, k := range help.Keys {
+func remoteFiltered(keys []keyView) []keyView {
+	out := make([]keyView, 0, len(keys))
+	for _, k := range keys {
 		switch k.ID {
 		case "detach", "quit":
 			continue
@@ -58,7 +92,32 @@ var remoteKeys = func() []help.Key {
 		out = append(out, k)
 	}
 	return out
-}()
+}
+
+// keyTableMsg tells every window the key table has changed -- a binding was
+// remapped or reset -- so its palette, its tooltips and its keydown handling
+// all pick up the new binding without a reconnect. It carries the whole
+// table, the way prefsMsg carries the whole of the preferences, so a window
+// need not reconcile a partial change against what it already has.
+//
+// Its type is "keyTable" rather than "keys", which the API keys dialog's
+// message already is.
+type keyTableMsg struct {
+	Type string    `json:"type"`
+	Keys []keyView `json:"keys"`
+}
+
+// broadcastKeys tells every window what the key table now is, one copy per
+// window since a window reached through the relay is sent fewer actions.
+func (s *Server) broadcastKeys() {
+	for _, cl := range s.clientList() {
+		data, err := json.Marshal(keyTableMsg{Type: "keyTable", Keys: effectiveKeys(cl.remote)})
+		if err != nil {
+			return
+		}
+		cl.send(data)
+	}
+}
 
 // prefsMsg tells every window that the preferences changed, so a second window
 // does not go on offering a hint that was dismissed in the first.
@@ -262,6 +321,43 @@ func (s *Server) setRailWidth(c *controlClient, width int) {
 		return
 	}
 	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.RailWidth, width) })
+}
+
+// setTheme records which palette the window is drawn in; a theme the window
+// does not draw is refused rather than kept.
+func (s *Server) setTheme(c *controlClient, theme string) {
+	switch theme {
+	case "dark":
+		theme = ""
+	case "", "light", "system":
+	default:
+		return
+	}
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.Theme, theme) })
+}
+
+// setAccentColor records which of the fixed swatches the window's accent is;
+// a colour outside that set would go illegible against one palette or the
+// other and is refused. "" is the default blue.
+func (s *Server) setAccentColor(c *controlClient, color string) {
+	switch color {
+	case "", "blue", "purple", "green", "orange", "pink", "teal":
+	default:
+		return
+	}
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.AccentColor, color) })
+}
+
+// setFanOutSameTab records whether the fan-out dialog's "Put them in this
+// tab" checkbox starts ticked.
+func (s *Server) setFanOutSameTab(c *controlClient, on bool) {
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.FanOut.SameTab, on) })
+}
+
+// setAutoReviewDefault records the value Pane.AutoReview starts at for a pane
+// with no parent. See Prefs.AutoReviewDefault.
+func (s *Server) setAutoReviewDefault(c *controlClient, on bool) {
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.AutoReviewDefault, on) })
 }
 
 // setStatusLine records when a Claude pane's status line is routed through

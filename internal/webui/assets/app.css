@@ -22,6 +22,72 @@
   --header-h: 26px;
 }
 
+/* The accent swatches Settings › Appearance offers, dark-safe: each reaches
+ * at least 4.5:1 on --bg-inset and --bg-raised, which is everywhere an
+ * accent stands for text or an outline against this palette. The default
+ * swatch is plain --accent above and gets no [data-accent] rule of its own. */
+:root[data-accent="purple"] { --accent: #b48cf0; }
+:root[data-accent="green"]  { --accent: #4fd17a; }
+:root[data-accent="orange"] { --accent: #f0a552; }
+:root[data-accent="pink"]   { --accent: #f28fc0; }
+:root[data-accent="teal"]   { --accent: #4fd0c6; }
+
+/* The light palette: Settings › Appearance's Light, forced with
+ * [data-theme="light"] regardless of the system's own setting, and Follow
+ * system's own light half, applied by the media query beneath this block to
+ * :root with no [data-theme] at all -- which is what "system" leaves on the
+ * root, so the OS decides between this and the plain dark :root above.
+ * "Dark" and the default (no preference made yet) are always the bare :root,
+ * whatever the system prefers: this used to be the only palette there was,
+ * and it stays what nobody has asked to change gets. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f5f7;
+  --bg-raised: #ffffff;
+  --bg-inset: #e8eaee;
+  --line: #d6dae1;
+  --line-strong: #b7bec9;
+  --field-line: #6b7280;
+  --fg: #1b1e24;
+  --fg-dim: #545c68;
+  --accent: #1f5fd6;
+  --working: #17803d;
+  --waiting: #8a6200;
+  --idle: #6b7280;
+  --exited: #c9302c;
+  --cast: #9a5713;
+}
+:root[data-theme="light"][data-accent="purple"] { --accent: #7c4dd6; }
+:root[data-theme="light"][data-accent="green"]  { --accent: #12803a; }
+:root[data-theme="light"][data-accent="orange"] { --accent: #b5590c; }
+:root[data-theme="light"][data-accent="pink"]   { --accent: #b93c85; }
+:root[data-theme="light"][data-accent="teal"]   { --accent: #0e7f77; }
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --bg: #f4f5f7;
+    --bg-raised: #ffffff;
+    --bg-inset: #e8eaee;
+    --line: #d6dae1;
+    --line-strong: #b7bec9;
+    --field-line: #6b7280;
+    --fg: #1b1e24;
+    --fg-dim: #545c68;
+    --accent: #1f5fd6;
+    --working: #17803d;
+    --waiting: #8a6200;
+    --idle: #6b7280;
+    --exited: #c9302c;
+    --cast: #9a5713;
+  }
+  :root:not([data-theme])[data-accent="purple"] { --accent: #7c4dd6; }
+  :root:not([data-theme])[data-accent="green"]  { --accent: #12803a; }
+  :root:not([data-theme])[data-accent="orange"] { --accent: #b5590c; }
+  :root:not([data-theme])[data-accent="pink"]   { --accent: #b93c85; }
+  :root:not([data-theme])[data-accent="teal"]   { --accent: #0e7f77; }
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -1223,6 +1289,52 @@ textarea:focus-visible {
 .pv-cursor.underline { height: 2px; vertical-align: baseline; }
 .pv-cursor.blink { animation: pv-blink 1.1s steps(1) infinite; }
 @keyframes pv-blink { 50% { opacity: 0; } }
+
+/* Settings › Appearance's theme choice and its accent swatches. */
+.set-theme { display: inline-flex; gap: 2px; padding: 2px;
+  border: 1px solid var(--line-strong); border-radius: 7px; background: var(--bg-inset); }
+.swatches { display: inline-flex; gap: 8px; align-items: center; }
+.swatch {
+  width: 26px; height: 26px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 2px solid transparent; /* background is the swatch's own colour, set inline */
+}
+.swatch:hover { border-color: var(--line-strong); }
+.swatch.on { border-color: var(--fg); }
+.swatch:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+
+/* Settings › Behaviour and › Keybindings share the description-under-label
+ * shape settingRow gives every other setting; only what follows is new. */
+.set-sub { font-size: 12px; font-weight: 600; color: var(--fg-dim); text-transform: uppercase;
+  letter-spacing: .04em; margin: 18px 0 6px; }
+.set-sub:first-child { margin-top: 0; }
+
+.keybind-group + .keybind-group { margin-top: 4px; }
+.keybind-row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px;
+  padding: 7px 0; border-bottom: 1px solid var(--line);
+}
+.keybind-row:last-child { border-bottom: 0; }
+.keybind-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.keybind-controls { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.keybind-chord {
+  min-width: 132px; height: 28px; padding: 0 10px; font: inherit; text-align: center;
+  border: 1px solid var(--field-line); border-radius: var(--radius);
+  background: var(--bg-inset); color: var(--fg); cursor: pointer;
+}
+.keybind-chord:hover { border-color: var(--accent); }
+.keybind-chord:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.keybind-chord.empty { color: var(--fg-dim); font-style: italic; }
+.keybind-chord.recording { border-color: var(--accent); color: var(--accent); animation: keybind-pulse 1.2s ease-in-out infinite; }
+@keyframes keybind-pulse { 50% { opacity: .55; } }
+.keybind-chord.changed { border-color: var(--accent); }
+.keybind-reset {
+  height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: transparent; color: var(--fg-dim); font: inherit; cursor: pointer;
+}
+.keybind-reset:hover { color: var(--fg); border-color: var(--field-line); }
+.keybind-reset:disabled { opacity: .35; cursor: default; }
+.keybind-error { flex-basis: 100%; color: var(--exited); font-size: 12px; }
+.keybind-note { font-size: 12px; color: var(--fg-dim); margin: 2px 0 14px; }
 
 .plan-card { padding: 16px 18px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
 .plan-card.current { border-color: var(--line-strong); }

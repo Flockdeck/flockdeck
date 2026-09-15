@@ -663,8 +663,7 @@ func writeCommandLine(b *strings.Builder, flockdeck string) {
 		"`-version` shape a fresh start and mean nothing from in here: `-detach` in particular "+
 		"does not detach the instance already running, it opens another window onto it — "+
 		"closing the window and leaving the agents running is "+how("detach")+". "+
-		"`FLOCKDECK_BROWSER` picks the browser that "+
-		"provides the window. The interface is a local page: Flockdeck serves it on `127.0.0.1` on "+
+		"The interface is a local page: Flockdeck serves it on `127.0.0.1` on "+
 		"a random port, behind a token generated for each run. Nothing else reaches it unless "+
 		"the user turns on remote access, which serves the same interface through Flockdeck's "+
 		"relay.\n\n", flockdeck, flockdeck)

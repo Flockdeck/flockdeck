@@ -61,6 +61,25 @@ type Prefs struct {
 	// when an agent has been waiting a while. Left out of the file while it is
 	// all defaults.
 	Push PushPrefs `json:"push,omitzero"`
+	// Theme is which palette the window is drawn in: "dark" (the default,
+	// unchanged from before this existed), "light", or "system", which follows
+	// prefers-color-scheme. Empty means "dark", so a file written before this
+	// existed reads the same as it always looked.
+	Theme string `json:"theme,omitempty"`
+	// AccentColor is one of a small fixed set of swatches, by name, rather than
+	// a free colour: a colour picked by hand could go illegible against either
+	// palette. Empty is the default blue.
+	AccentColor string `json:"accentColor,omitempty"`
+	// FanOut is the default the fan-out dialog's own preference-worthy
+	// checkbox starts on. Left out of the file while it is all defaults.
+	FanOut FanOutPrefs `json:"fanOut,omitzero"`
+	// AutoReviewDefault is the value Pane.AutoReview starts at for a pane with
+	// no parent -- one opened by hand, or a fresh row of a fan-out run from the
+	// window -- rather than inherited from a parent that spawned it with its
+	// own `flockdeck spawn`. Off by default, as the switch itself is: a restart
+	// still asks about everything until this, or the pane's own switch, says
+	// otherwise. See workspace.Pane.AutoReview.
+	AutoReviewDefault bool `json:"autoReviewDefault,omitempty"`
 
 	// extra is every top-level key the file held that this build does not
 	// know, as it was written. A newer build's setting would otherwise go at
@@ -120,6 +139,16 @@ type PushPrefs struct {
 	// DelaySeconds is how long a pane has to have been waiting before the
 	// devices are told. Zero is the default, 30 seconds.
 	DelaySeconds int `json:"delaySeconds,omitempty"`
+}
+
+// FanOutPrefs are the preferences the fan-out dialog starts on.
+type FanOutPrefs struct {
+	// SameTab starts the dialog's "Put them in this tab, beside the agent
+	// that planned them" checkbox ticked, so a fan-out's children land beside
+	// their parent instead of in a new tab of their own. False, its zero
+	// value, is a new tab -- the dialog's own default before this existed, so
+	// a file written before this existed still means what it always meant.
+	SameTab bool `json:"sameTab,omitempty"`
 }
 
 // SpendPrefs are the preferences for spend and limits.

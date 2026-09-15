@@ -1973,6 +1973,10 @@ func (w *Workspace) newPane(c Choice, cwd, name, root string) *Pane {
 	p := &Pane{
 		ID: uuid.NewString(), Kind: c.Kind, Cwd: cwd, Name: name, Root: root,
 		Branch: branchOf(cwd),
+		// A pane opened by hand has no parent to inherit AutoReview from, so
+		// it starts on the installation's own default; see
+		// Prefs.AutoReviewDefault.
+		AutoReview: store.LoadPrefs().AutoReviewDefault,
 	}
 	// A shell runs no agent, so it is never given one to remember: a kind and
 	// an agent that disagreed would be written to the layout and read back as

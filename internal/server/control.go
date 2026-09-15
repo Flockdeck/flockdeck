@@ -1467,6 +1467,27 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "railWidth":
 		s.setRailWidth(c, cmd.Size)
 		return
+	case "theme":
+		s.setTheme(c, cmd.Text)
+		return
+	case "accentColor":
+		s.setAccentColor(c, cmd.Text)
+		return
+	case "fanOutSameTab":
+		s.setFanOutSameTab(c, cmd.Kind == "on")
+		return
+	case "autoReviewDefault":
+		s.setAutoReviewDefault(c, cmd.Kind == "on")
+		return
+	case "setKeybinding":
+		s.setKeybinding(c, cmd.ID, cmd.Text)
+		return
+	case "resetKeybinding":
+		s.resetKeybinding(c, cmd.ID)
+		return
+	case "resetKeybindings":
+		s.resetKeybindings(c)
+		return
 	case "forgetRecent":
 		// On the workspace goroutine, where opening or switching to a project
 		// rewrites the same list (TouchRecent). Each is a read and a rewrite
