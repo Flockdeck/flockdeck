@@ -1,14 +1,15 @@
 # Getting started
 
-Flockdeck runs several coding agents at once, each in a real terminal, and
-answers one question at a glance: which agent needs you right now.
+Flockdeck runs your coding agents on hardware you control — your desk, or a
+machine that never sleeps — and reaches you wherever you are. Every agent
+pane is a real program in a genuine pseudo-terminal, so it behaves exactly as
+it does in a normal terminal — permission prompts, slash commands, plan mode,
+colours, mouse. Claude Code is what a pane runs unless you say otherwise; any
+other coding agent, and any model API spoken to directly, is a pick away.
 
-Every agent pane is a real program in a genuine pseudo-terminal, so it behaves
-exactly as it does in a normal terminal — permission prompts, slash commands,
-plan mode, colours, mouse. Claude Code is what a pane runs unless you say
-otherwise; any other coding agent, and any model API spoken to directly, is a
-pick away. What the app adds is everything you need once there is more than one
-of them.
+Running several of them at once is where Flockdeck earns its keep: it
+answers one question at a glance — which agent needs you right now — and
+what follows is everything you need once there is more than one of them.
 
 ## The three things to know first
 

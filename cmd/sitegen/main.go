@@ -257,9 +257,9 @@ var pages = []struct {
 	Social                 string
 }{
 	{Path: "", Template: "index.html.tmpl",
-		Title:       "Flockdeck | Run all your coding agents at once",
-		Description: "Flockdeck runs Claude Code, Codex, Gemini and other coding agents side by side, and shows you which one needs your input. For Windows, macOS and Linux.",
-		Social:      "Run all your coding agents side by side and see which one needs you."},
+		Title:       "Flockdeck | Coding agents on hardware you control",
+		Description: "Flockdeck runs Claude Code, Codex, Gemini or your own model on hardware you already own, self-hosted or on your desk, and reaches your phone with no port opened. Free and open source, for Windows, macOS and Linux.",
+		Social:      "Run your coding agents on hardware you control, and reach them from your phone."},
 	{Path: "privacy.html", Template: "doc.html.tmpl", Source: "privacy.md",
 		Title:       "Privacy policy | Flockdeck",
 		Description: "What personal data the Flockdeck desktop app, the Flockdeck relay and this website involve, who else is involved, and your rights over it."},
