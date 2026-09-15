@@ -54,6 +54,13 @@ type Manager struct {
 	e2eRosterAt    time.Time
 	e2eRegErr      error
 	e2eRegAt       time.Time
+
+	// e2eCancel and e2eWG are Reload's background EnsureE2EKey call: cancel
+	// aborts whichever relay round trip is in flight, and the group is what
+	// Close waits on, so nothing is still touching this machine's identity
+	// file, or the account's relay, once Close has returned.
+	e2eCancel context.CancelFunc
+	e2eWG     sync.WaitGroup
 }
 
 // NewManager makes a manager with nothing running. serve answers each tunnel's
@@ -91,8 +98,21 @@ func (m *Manager) Reload() error {
 		// until the next Reload -- an app restart, or the dialog's "try
 		// again" -- succeeds, rather than holding remote access itself up on
 		// a key nothing needs to serve a request through the tunnel.
+		//
+		// Tracked rather than left to run loose: Close cancels it and waits
+		// for it, so quitting -- or a test's cleanup removing this
+		// machine's state directory -- never races this writing the identity
+		// file or reaching the relay after Close has returned.
+		ctx, cancel := context.WithTimeout(context.Background(), e2eRegisterTimeout)
+		m.mu.Lock()
+		if m.e2eCancel != nil {
+			m.e2eCancel() // superseded by this reload's own attempt
+		}
+		m.e2eCancel = cancel
+		m.mu.Unlock()
+		m.e2eWG.Add(1)
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), e2eRegisterTimeout)
+			defer m.e2eWG.Done()
 			defer cancel()
 			_ = m.EnsureE2EKey(ctx)
 		}()
@@ -261,7 +281,10 @@ func (m *Manager) Disable(ctx context.Context, force bool) (untold error, err er
 	return untold, rerr
 }
 
-// Close closes the tunnel, and every remote window with it.
+// Close closes the tunnel, and every remote window with it. It also cancels
+// and waits for Reload's background EnsureE2EKey call, if one is in flight,
+// so that nothing this instance started is still running once Close has
+// returned.
 func (m *Manager) Close() {
 	m.reloading.Lock()
 	defer m.reloading.Unlock()
@@ -269,8 +292,13 @@ func (m *Manager) Close() {
 	m.mu.Lock()
 	c := m.conn
 	m.conn = nil
+	cancelE2E := m.e2eCancel
 	m.mu.Unlock()
 	if c != nil {
 		c.Stop()
 	}
+	if cancelE2E != nil {
+		cancelE2E()
+	}
+	m.e2eWG.Wait()
 }

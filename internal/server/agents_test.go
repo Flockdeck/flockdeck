@@ -450,34 +450,40 @@ func TestAgentsOverviewSaysWhatAWaitingPaneWants(t *testing.T) {
 		return agentView{}, false
 	}
 
+	// Asked again until Waiting matches, rather than trusting the first
+	// "agents" message read: listAgents can answer one request twice, at
+	// once and again once it has refreshed every project's git status, and a
+	// second answer left over from an earlier request can still be on its
+	// way when the next one is sent and read as its answer instead (the same
+	// race TestAgentsOverviewCarriesAHelpersParent's own retry loop is for).
+	waitForWaiting := func(want string) agentView {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			av, ok := find()
+			if !ok {
+				t.Fatal("the pane was not listed in the overview")
+			}
+			if av.Waiting == want {
+				return av
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("waiting = %q, 10s after the change, want %q", av.Waiting, want)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
 	p, _ := ask(srv, func() *workspace.Pane { return ws.Pane(id) })
 	p.Sess.SetStatusFull(session.StatusWaiting, "Bash", `{"command":"rm -rf build"}`)
-	av, ok := find()
-	if !ok {
-		t.Fatal("the pane was not listed in the overview")
-	}
-	if av.Waiting != "Run: rm -rf build" {
-		t.Errorf("waiting = %q, want the Bash command as a permission prompt would word it", av.Waiting)
-	}
+	waitForWaiting("Run: rm -rf build")
 
 	p.Sess.SetStatusFull(session.StatusWaiting, "AskUserQuestion",
 		`{"questions":[{"header":"Colour","question":"Which colour?","options":[{"label":"Red"}]}]}`)
-	av, ok = find()
-	if !ok {
-		t.Fatal("the pane was not listed in the overview")
-	}
-	if av.Waiting != "asking a question" {
-		t.Errorf("waiting = %q, want \"asking a question\" for an AskUserQuestion call", av.Waiting)
-	}
+	waitForWaiting("asking a question")
 
 	p.Sess.SetStatusFull(session.StatusWorking, "", "")
-	av, ok = find()
-	if !ok {
-		t.Fatal("the pane was not listed in the overview")
-	}
-	if av.Waiting != "" {
-		t.Errorf("waiting = %q, want empty once the pane is working again", av.Waiting)
-	}
+	waitForWaiting("")
 }
 
 // TestStatePushCarriesAHelpersParent covers paneView.Parent, added so a
