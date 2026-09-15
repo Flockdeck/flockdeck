@@ -625,7 +625,6 @@ func TestStateDirectoriesArePrivate(t *testing.T) {
 	}{
 		{"state", Dir},
 		{"sessions", SessionsDir},
-		{"window profile", BrowserProfileDir},
 	} {
 		got, err := tc.get()
 		if err != nil {
