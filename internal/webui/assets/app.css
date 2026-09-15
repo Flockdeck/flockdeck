@@ -855,6 +855,42 @@ textarea:focus-visible {
  * colour is used instead. */
 .agent-status.idle, .agent-status.starting { color: var(--fg-dim); }
 .agent-status.exited { color: var(--exited); }
+/* A helper's row names the pane it was spawned from, and a waiting row says
+ * what it is waiting on you for -- both meta items like the branch and the
+ * running tool beside them, coloured to match how the rest of the app
+ * already marks "this needs you" and "this is somebody else's own pane". */
+.agent-parent { font-style: italic; }
+.agent-waiting { color: var(--waiting); }
+
+/* ------------------------------------------------------------ summary card */
+
+/* What a settled fan-out or helper tree collapses to in place of its grid of
+ * terminals: fills the tab exactly as the grid it replaces would. */
+.summary-card { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 16px; }
+.summary-card-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 10px;
+}
+.summary-card-title { font-weight: 600; font-size: 15px; }
+.summary-card-sub { color: var(--fg-dim); font-size: 12px; flex: 1 1 auto; }
+.summary-card-list { display: flex; flex-direction: column; }
+.summary-card-row {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 4px;
+  border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.summary-card-row:last-child { border-bottom: 0; }
+.summary-card-row:hover { background: #22262e; }
+.summary-card-row .dot { margin-top: 5px; }
+.summary-card-main { flex: 1 1 auto; min-width: 0; }
+.summary-card-name { display: flex; align-items: baseline; gap: 8px; font-weight: 600; }
+.summary-card-branch { font-weight: 400; color: var(--fg-dim); font-size: 11px; }
+.summary-card-line {
+  color: var(--fg-dim); font-size: 12px; margin-top: 3px; overflow-wrap: anywhere;
+}
+.summary-card-outcome { font-size: 11px; white-space: nowrap; flex: 0 0 auto; }
+.summary-card-outcome.done { color: var(--fg-dim); }
+.summary-card-outcome.needs { color: var(--waiting); font-weight: 600; }
+.summary-card-outcome.failed { color: var(--exited); font-weight: 600; }
 
 /* ------------------------------------------------------------------ review */
 
