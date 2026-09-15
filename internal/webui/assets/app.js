@@ -1340,14 +1340,53 @@
 
   // ----------------------------------------------------------------- layout
 
-  /** shapeOf is what a tab has to be redrawn for. Weights are left out so a
-   *  drag does not rebuild anything; zoom is in, because it changes which
-   *  panes are on screen, and while zoomed so is the focused pane. */
-  function shapeOf(tab) {
+  /** cardHidden is which settled tabs the boss has put back to the grid by
+   *  hand, in place of the summary card this collapses to on its own --
+   *  cleared the moment the tab starts working again (see tabSettleInfo),
+   *  so the next time it finishes the card is offered fresh rather than
+   *  staying dismissed for good. */
+  const cardHidden = new Set();
+
+  /** tabSettleInfo says whether tab is a delegated job that has stopped:
+   *  nobody left in it working or starting, so there is nothing left to
+   *  watch and everything to report. Only a tab a fan-out actually filled
+   *  counts -- two or more agent panes, none of them a shell, which cannot
+   *  "finish" a turn the way an agent does -- since Spawn always gathers a
+   *  fan-out's own children into one tab together (see fanout.go), and an
+   *  ordinary tab of one pane has nothing to collapse in the first place.
+   *  None of them may carry a parent, either: a helper split into its own
+   *  manager's tab (SpawnOptions.Split) shares it with that manager's own
+   *  pane, which is the boss's own conversation, not delegated work, and
+   *  must never vanish into a card just because it happens to have gone
+   *  idle at the same moment as the helper beside it. ids is every pane in
+   *  the tab either way, for the caller to walk. */
+  function tabSettleInfo(tab, s) {
+    const idSet = new Set();
+    collectPanes(tab.root, idSet);
+    const ids = [...idSet];
+    const views = ids.map((id) => s.panes && s.panes[id]).filter(Boolean);
+    const settled = views.length >= 2 && !views.some((v) => v.kind === "shell" || v.parent) &&
+      views.every((v) => v.status !== "working" && v.status !== "starting");
+    if (!settled) cardHidden.delete(tab.id);
+    return { settled, ids };
+  }
+
+  /** shapeOf is what a tab has to be redrawn for, given info already worked
+   *  out for it by tabSettleInfo. Weights are left out so a drag does not
+   *  rebuild anything; zoom is in, because it changes which panes are on
+   *  screen, and while zoomed so is the focused pane. card is in for the
+   *  same reason: a settled fan-out collapses to a summary in its place,
+   *  and each pane's own outcome -- its status, whether it failed, its
+   *  latest reply -- has to redraw the card when any of them changes, even
+   *  though the tree beneath it does not. */
+  function shapeOf(tab, s, info) {
+    const card = info.settled && !cardHidden.has(tab.id);
     return JSON.stringify({
       tree: structureOf(tab.root),
       zoom: tab.zoom,
       focus: tab.zoom ? tab.focus : "",
+      card,
+      outcomes: card ? info.ids.map((id) => outcomeKey(s.panes[id])).join("|") : "",
     });
   }
 
@@ -1392,7 +1431,8 @@
 
     let activeRebuilt = false;
     s.tabs.forEach((tab, i) => {
-      const shape = shapeOf(tab);
+      const info = tabSettleInfo(tab, s);
+      const shape = shapeOf(tab, s, info);
       let page = tabPages.get(tab.id);
       if (!page || tabShapes.get(tab.id) !== shape) {
         if (page) page.remove();
@@ -1408,6 +1448,12 @@
           // registry with their terminals and connections intact, simply
           // detached from the document until the zoom is released.
           page.append(ensurePane(tab.focus).wrap);
+        } else if (info.settled && !cardHidden.has(tab.id)) {
+          // Nobody left working or starting: the grid of terminals nobody
+          // is reading collapses to one card, a line per pane, the same way
+          // Zoom already takes every pane but one out of the document --
+          // the others stay alive in the registry, simply not on screen.
+          page.append(buildSummaryCard(tab, s, info.ids));
         } else {
           page.append(buildNode(tab.root, tab));
         }
@@ -1446,6 +1492,92 @@
       split.append(buildNode(child, tab));
     });
     return split;
+  }
+
+  /** outcomeOf reads a settled pane's line for the summary card: done, needs
+   *  input or failed (the three the plan this implements asks for), and the
+   *  one line of detail that goes with it -- what a waiting pane wants, in
+   *  the same words a permission prompt would show; why a pane failed, in
+   *  its own words; or its agent's own latest reply, the same one-line
+   *  preview the phone's inbox already shows, for one that simply finished.
+   *  A pane the push has not caught up with yet reads as done rather than
+   *  as nothing, since by the time the card is showing at all every member
+   *  has already stopped one way or another. */
+  function outcomeOf(v) {
+    if (!v) return { kind: "done", label: "done", text: "" };
+    if (v.status === "waiting") {
+      const label = kindLabel(v);
+      return { kind: "needs", label: "needs input", text: label ? "Wants " + label + "." : (v.detail || "") };
+    }
+    if (v.err) return { kind: "failed", label: "failed", text: v.err };
+    return { kind: "done", label: "done", text: (v.last && v.last.text) || "" };
+  }
+
+  /** outcomeKey is outcomeOf's own text folded into shapeOf's cache key, so
+   *  the card redraws when what it would say about a pane changes, without
+   *  redrawing on every unrelated field a settled pane's view still carries
+   *  (its CPU, its git counts, and the rest of a header nobody is looking
+   *  at while the card is up). */
+  function outcomeKey(v) {
+    if (!v) return "";
+    const out = outcomeOf(v);
+    return out.kind + ":" + out.text;
+  }
+
+  /** buildSummaryCard is what a settled fan-out collapses to in place of its
+   *  grid: one line per pane instead of a wall of terminals nobody is
+   *  reading, pulled from data already on the push -- name, branch, status,
+   *  latest reply -- rather than anything built new for this. A line
+   *  expands to its own pane with the same toggleZoom a click on any pane's
+   *  own ⤢ already sends; "Back to grid" is the same zoom taken all the way
+   *  out, offered once instead of once per pane. */
+  function buildSummaryCard(tab, s, ids) {
+    const views = ids.map((id) => ({ id, v: s.panes && s.panes[id] })).filter((x) => x.v);
+    const counts = { done: 0, needs: 0, failed: 0 };
+    const outcomes = new Map();
+    views.forEach(({ id, v }) => {
+      const out = outcomeOf(v);
+      outcomes.set(id, out);
+      counts[out.kind]++;
+    });
+
+    const card = el("div", "summary-card");
+    const head = el("div", "summary-card-head");
+    head.append(el("div", "summary-card-title", (tab.title || "This job") + " finished"));
+    const bits = [];
+    if (counts.needs) bits.push(counts.needs + (counts.needs === 1 ? " needs input" : " need input"));
+    if (counts.failed) bits.push(counts.failed + " failed");
+    if (counts.done) bits.push(counts.done + " done");
+    head.append(el("div", "summary-card-sub", bits.join(", ") + " — " + views.length + (views.length === 1 ? " agent" : " agents")));
+    const back = el("button", "chip", "Back to grid");
+    describe(back, "Show every pane again, running or not.");
+    back.onclick = () => {
+      cardHidden.add(tab.id);
+      if (state) applyState(state);
+    };
+    head.append(back);
+    card.append(head);
+
+    const list = el("div", "summary-card-list");
+    views.forEach(({ id, v }) => {
+      const out = outcomes.get(id);
+      const row = el("div", "summary-card-row");
+      const dot = el("span", "dot " + (out.kind === "failed" ? "exited" : v.status));
+      dot.setAttribute("aria-hidden", "true");
+      row.append(describe(dot, TIPS[v.status] || v.status));
+      const main = el("div", "summary-card-main");
+      const title = el("div", "summary-card-name");
+      title.append(el("span", null, v.name || ""));
+      if (v.branch) title.append(el("span", "summary-card-branch", "⎇ " + v.branch));
+      main.append(title);
+      if (out.text) main.append(el("div", "summary-card-line", out.text));
+      row.append(main);
+      row.append(el("span", "summary-card-outcome " + out.kind, out.label));
+      rowAction(row, () => send({ cmd: "toggleZoom", id }), false, v.name);
+      list.append(row);
+    });
+    card.append(list);
+    return card;
   }
 
   /** The divider being dragged, if one is. A state push carries the weights the
@@ -5123,6 +5255,94 @@
    *  and a rise in it is the event. */
   const lastProjectWaiting = new Map();
 
+  /** jobOf reports the unit of delegated work a waiting pane belongs to, so
+   *  several prompts that are really one job (a fan-out's rows, or an
+   *  agent's own helpers) can be told about together instead of as
+   *  unrelated interruptions. A fan-out's children share a tab of their
+   *  own (see fanout.go's Spawn), so a tab of two or more panes with no
+   *  parent is one; a helper started by `flockdeck spawn` carries its
+   *  starting pane as v.parent (Pane.Parent), walked up to the pane at the
+   *  root of the chain, so a manager that itself spawned a helper still
+   *  groups under the same name. Returns null for a pane that is nobody's
+   *  fan-out row and started no chain of its own -- an ordinary pane,
+   *  grouped with nothing. */
+  function jobOf(id, s) {
+    const v = s.panes && s.panes[id];
+    if (!v) return null;
+    if (v.parent) {
+      let root = v.parent;
+      const seen = new Set([id]);
+      while (s.panes[root] && s.panes[root].parent && !seen.has(root)) {
+        seen.add(root);
+        root = s.panes[root].parent;
+      }
+      const name = (s.panes[root] && s.panes[root].name) || "";
+      return { key: "spawn:" + root, name: name ? name + "’s helpers" : "a helper tree" };
+    }
+    const tabId = tabIdOfPane(id);
+    const tab = tabId && (s.tabs || []).find((t) => t.id === tabId);
+    if (!tab) return null;
+    const ids = new Set();
+    collectPanes(tab.root, ids);
+    if (ids.size < 2) return null;
+    return { key: "tab:" + tabId, name: tab.title || "" };
+  }
+
+  /** kindLabel is what a waiting pane wants, as a short noun phrase for a
+   *  notification or a review list -- "a file write", "a command to run",
+   *  "a question" -- built from the same tool and input a permission
+   *  prompt itself would show (see waiting.go's permissionViewFor), so the
+   *  boss can judge what several prompts amount to before opening any of
+   *  them. */
+  function kindLabel(v) {
+    if (!v) return "";
+    if (v.ask) return "a question";
+    if (v.permission) {
+      switch (v.permission.tool) {
+        case "Bash": return "a command to run";
+        case "Edit": case "MultiEdit": case "Write": return "a file write";
+        default: return "to use " + v.permission.tool;
+      }
+    }
+    return "";
+  }
+
+  /** kindBreakdown counts a group of waiting panes by kindLabel, worded the
+   *  way "3 of 6 agents want to write files" reads in the plan this
+   *  implements: "2 want a file write, 1 is asking a question". */
+  function kindBreakdown(items, s) {
+    const counts = new Map();
+    for (const f of items) {
+      const label = kindLabel(s.panes[f.id]) || "your input";
+      counts.set(label, (counts.get(label) || 0) + 1);
+    }
+    return [...counts.entries()].map(([label, n]) => {
+      if (label === "a question") return n + (n === 1 ? " is" : " are") + " asking a question";
+      return n + " want " + label;
+    }).join(", ");
+  }
+
+  /** groupedWaitingBody is the notification body for several panes that just
+   *  started waiting at once: named by their shared job and broken down by
+   *  what each wants when they are all the one job, so a fan-out of six
+   *  reaching a permission question together reads as one sentence about
+   *  that fan-out rather than six names with nothing to say what they have
+   *  in common. Falls back to the plain list of names otherwise. */
+  function groupedWaitingBody(fresh, s) {
+    const groups = new Map();
+    for (const f of fresh) {
+      const job = jobOf(f.id, s);
+      const key = job ? job.key : "solo:" + f.id;
+      if (!groups.has(key)) groups.set(key, { name: job ? job.name : "", items: [] });
+      groups.get(key).items.push(f);
+    }
+    if (groups.size === 1) {
+      const only = [...groups.values()][0];
+      if (only.name && only.items.length > 1) return only.name + ": " + kindBreakdown(only.items, s);
+    }
+    return fresh.map((f) => f.name).join(", ");
+  }
+
   function notifyAttention(s) {
     // Nothing waiting anywhere: whatever the last notification asked has been
     // answered, from this window or another.
@@ -5160,10 +5380,12 @@
     // whatever order the panes happened to arrive in.
     if (!elsewhere.length) {
       const one = fresh.length === 1;
+      const label = one && kindLabel(s.panes[fresh[0].id]);
+      const oneBody = (fresh[0].branch ? fresh[0].branch + " — " : "") +
+        (label ? (label === "a question" ? "is asking a question" : "wants " + label) : "waiting for input");
       showNotification(
         one ? fresh[0].name + " needs you" : fresh.length + " agents need you",
-        one ? (fresh[0].branch ? fresh[0].branch + " — " : "") + "waiting for input"
-            : fresh.map((f) => f.name).join(", "),
+        one ? oneBody : groupedWaitingBody(fresh, s),
         fresh[0].id);
       return;
     }
@@ -6888,6 +7110,11 @@
       return;
     }
 
+    // So a helper's row can name the pane it belongs to -- the list stays
+    // sorted by what needs a person first, which is the point of it, rather
+    // than regrouped under its parent and losing that order.
+    const byId = new Map(items.map((x) => [x.paneId, x]));
+
     const wrap = section(items.length + (items.length === 1 ? " pane" : " panes"));
     items.forEach((a) => {
       const row = el("div", "agent-row" + (a.active ? " active" : ""));
@@ -6932,6 +7159,21 @@
       }
       if (a.kind === "shell") meta.append(el("span", null, "shell"));
       if (a.detail) meta.append(el("span", null, a.detail));
+      // A helper's own pane, when it is still open, so it reads as part of
+      // the job it was spawned for rather than an unrelated row -- the list
+      // stays sorted by what needs a person first, so this is what says
+      // which of them share a manager.
+      if (a.parent) {
+        const parent = byId.get(a.parent);
+        meta.append(el("span", "agent-parent", "↳ helper of " + (parent ? (parent.tab || parent.name) : "another agent")));
+      }
+      // What a waiting pane's permission prompt or question wants, in the
+      // same words the prompt itself would show -- so a list of several
+      // waiting at once says which is worth a look first, without opening
+      // any of them.
+      if (a.status === "waiting" && a.waiting) {
+        meta.append(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));
+      }
       main.append(meta);
       row.append(main);
 

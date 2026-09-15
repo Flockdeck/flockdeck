@@ -428,6 +428,103 @@ func TestAgentsOverviewCarriesAHelpersParent(t *testing.T) {
 	}
 }
 
+// TestAgentsOverviewSaysWhatAWaitingPaneWants covers the overview's Waiting
+// field: the same words a permission prompt would show, so a list of several
+// panes waiting at once says which is worth a look first without opening any
+// of them -- and empty again once the pane stops waiting.
+func TestAgentsOverviewSaysWhatAWaitingPaneWants(t *testing.T) {
+	srv, ws := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+	id := firstPane(t, srv, ws)
+
+	find := func() (agentView, bool) {
+		var ag agentsMsg
+		sendCmd(t, conn, command{Cmd: "agents"})
+		readUntil(t, conn, "agents", &ag)
+		for _, a := range ag.Items {
+			if a.PaneID == id {
+				return a, true
+			}
+		}
+		return agentView{}, false
+	}
+
+	p, _ := ask(srv, func() *workspace.Pane { return ws.Pane(id) })
+	p.Sess.SetStatusFull(session.StatusWaiting, "Bash", `{"command":"rm -rf build"}`)
+	av, ok := find()
+	if !ok {
+		t.Fatal("the pane was not listed in the overview")
+	}
+	if av.Waiting != "Run: rm -rf build" {
+		t.Errorf("waiting = %q, want the Bash command as a permission prompt would word it", av.Waiting)
+	}
+
+	p.Sess.SetStatusFull(session.StatusWaiting, "AskUserQuestion",
+		`{"questions":[{"header":"Colour","question":"Which colour?","options":[{"label":"Red"}]}]}`)
+	av, ok = find()
+	if !ok {
+		t.Fatal("the pane was not listed in the overview")
+	}
+	if av.Waiting != "asking a question" {
+		t.Errorf("waiting = %q, want \"asking a question\" for an AskUserQuestion call", av.Waiting)
+	}
+
+	p.Sess.SetStatusFull(session.StatusWorking, "", "")
+	av, ok = find()
+	if !ok {
+		t.Fatal("the pane was not listed in the overview")
+	}
+	if av.Waiting != "" {
+		t.Errorf("waiting = %q, want empty once the pane is working again", av.Waiting)
+	}
+}
+
+// TestStatePushCarriesAHelpersParent covers paneView.Parent, added so a
+// window can group a helper's waiting or settled state under the job it
+// belongs to -- the same rule the "agents" overview already follows for its
+// own Parent field: named while the parent pane is open, left out once it
+// closes.
+func TestStatePushCarriesAHelpersParent(t *testing.T) {
+	srv, ws := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	lead, ok := ask(srv, func() string { return ws.CurrentTab().Focus })
+	if !ok || lead == "" {
+		t.Fatal("no lead pane to spawn a helper from")
+	}
+	helper, ok := ask(srv, func() string {
+		id, err := ws.Spawn(lead, workspace.SpawnOptions{Task: "help", Kind: session.KindShell, SpawnedByAgent: true})
+		if err != nil {
+			t.Error(err)
+		}
+		return id
+	})
+	if !ok || helper == "" {
+		t.Fatal("the helper did not start")
+	}
+
+	st := nextState(t, conn, func(s stateMsg) bool {
+		pv, ok := s.Panes[helper]
+		return ok && pv.Parent != ""
+	})
+	if pv := st.Panes[helper]; pv.Parent != lead {
+		t.Errorf("helper's parent = %q, want the lead pane %q", pv.Parent, lead)
+	}
+
+	if ok, _ := ask(srv, func() bool { return ws.ClosePaneByID(lead) }); !ok {
+		t.Fatal("could not close the lead pane")
+	}
+	st = nextState(t, conn, func(s stateMsg) bool {
+		pv, ok := s.Panes[helper]
+		return ok && pv.Parent == ""
+	})
+	if pv := st.Panes[helper]; pv.Parent != "" {
+		t.Errorf("helper's parent = %q once its parent closed, want none", pv.Parent)
+	}
+}
+
 // jsonString writes a path as a JSON string, so a Windows separator reaches
 // the file escaped rather than as the start of an escape sequence.
 func jsonString(s string) string {

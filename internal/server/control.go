@@ -332,8 +332,14 @@ type paneView struct {
 	// a tab holding agents from two projects says which is which; leaving it
 	// out for the ordinary pane keeps the header uncluttered.
 	Project string `json:"project,omitempty"`
-	Status  string `json:"status"`
-	Detail  string `json:"detail"`
+	// Parent is the pane whose agent started this one with its own `flockdeck
+	// spawn` (workspace.Pane.Parent), sent only while that pane is still
+	// open -- the same rule agentView.Parent already follows. It is what
+	// lets a window group this pane's waiting or settled state under the
+	// job it belongs to, rather than showing it as an unrelated pane.
+	Parent string `json:"parent,omitempty"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
 	// StatusSince is when the current status began, RFC 3339 -- how the phone's
 	// chat view times "Working for 3m" without polling: it ticks the gap to now
 	// locally rather than asking again every second. Left out for a pane with
@@ -667,6 +673,12 @@ func (s *Server) snapshot() stateMsg {
 			if paneRoot := ws.RootOf(p.ID); paneRoot != "" && paneRoot != t.Root &&
 				!samePath(filepath.Clean(paneRoot), tabRoot) {
 				pv.Project = projectLabel(names, paneRoot)
+			}
+			// Left out once the parent has closed, the same rule
+			// agentView.Parent already follows, so a window never groups a
+			// pane under a job that no longer exists.
+			if p.Parent != "" && ws.Pane(p.Parent) != nil {
+				pv.Parent = p.Parent
 			}
 			if p.Err != nil {
 				pv.Err = p.Err.Error()
