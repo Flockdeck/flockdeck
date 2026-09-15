@@ -284,26 +284,25 @@ nothing is left running by accident.
 ### How the window works
 
 The interface is a local web app that the binary serves on the loopback
-interface and displays in a **chromeless application window** — no tabs, no
-address bar. It looks and behaves like a native window while keeping the
-program a single dependency-free binary.
-
-That window is provided by a Chromium-based browser in app mode: Chrome, Edge,
-Brave, Chromium or Vivaldi, whichever is found first. On Windows this is always
-satisfied because Edge ships with the OS. If none is installed the page opens
-as an ordinary tab in your default browser instead, which works but looks less
-like an application. `FLOCKDECK_BROWSER` forces a specific one.
+interface and displays in a native window — no tabs, no address bar — built
+with [Wails](https://wails.io), which embeds the platform's own webview
+(WebView2 on Windows, WebKit on macOS, WebKitGTK on Linux) directly inside
+`flockdeck.exe`. The window is genuinely Flockdeck's own process, so the
+taskbar, alt-tab switcher and window manager key its identity, icon and
+pinning to Flockdeck rather than to a browser. If the platform has no working
+webview the page opens as an ordinary tab in your default browser instead,
+which works but looks less like an application.
 
 Nothing is exposed to the network: the server binds to `127.0.0.1` on a random
 port and every request — page, assets and both WebSockets — must carry a token
-generated fresh for each run. The browser is never started with that token, or
-the one-time link that stands in for it, on its command line — another
-account on the same machine can often read one process's command line from
-another's — so the link is written to a file only your account can read
-instead, and the browser is pointed at that file. [Remote access](#remote-access), below, opens no port either: it
-is a connection this machine makes outward, not one it accepts, and what
-arrives through it is let in because the relay has already checked the device,
-not by the token.
+generated fresh for each run. The window is loaded directly inside the
+process from a one-time link that stands in for that token (see
+`server.WindowURL`), so — unlike the browser this used to spawn — neither the
+token nor the link ever touches a command line or a file on disk for another
+account on the machine to read. [Remote access](#remote-access), below, opens
+no port either: it is a connection this machine makes outward, not one it
+accepts, and what arrives through it is let in because the relay has already
+checked the device, not by the token.
 
 ### Self-hosted: running headless, on a server you own
 

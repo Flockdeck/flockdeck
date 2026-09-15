@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/agent"
-	"github.com/jmwri/flockdeck/internal/appwindow"
 	"github.com/jmwri/flockdeck/internal/remote"
 )
 
@@ -46,7 +45,6 @@ func knownFlockdeckEnv() map[string]bool {
 		remoteNameEnv:        true,
 		remote.RelayEnv:      true,
 		updateEnv:            true,
-		appwindow.BrowserEnv: true,
 		agent.FallbackKeyEnv: true,
 	}
 }
@@ -136,9 +134,6 @@ func TestDockerfileDefaultCMDFlagIsKnown(t *testing.T) {
 var chartOmitsEnv = map[string]bool{
 	noWindowEnv: true,
 	detachEnv:   true,
-	// The window's own browser choice: meaningless in a container, which
-	// never opens one under -no-window.
-	appwindow.BrowserEnv: true,
 }
 
 func TestChartEnvNamesAreKnown(t *testing.T) {
