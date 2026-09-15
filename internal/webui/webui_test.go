@@ -4545,6 +4545,72 @@ assert.ok(h.doc.activeElement === h.$("browse-path"), "Open a project did not pu
 `)
 }
 
+// The rail starts as icons alone, the shape it has always had. Widened, it
+// is a panel of icons and names instead, at whatever width a drag or the
+// keyboard last left it, and both survive a restart with the other
+// preferences — kept on the Go side, since the browser forgets local storage
+// on the fresh port every run binds.
+func TestTheRailCanBeWidenedAndResized(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const rail = h.$("rail"), collapse = h.$("rail-collapse"), resize = h.$("rail-resize");
+assert.strictEqual(h.doc.body.classList.contains("rail-expanded"), false, "the rail starts widened");
+assert.strictEqual(collapse.getAttribute("aria-pressed"), "false");
+assert.strictEqual(rail.style.width, "", "a collapsed rail carries a width of its own");
+
+h.click(collapse);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "railExpanded", kind: "on" });
+assert.ok(h.doc.body.classList.contains("rail-expanded"), "clicking the collapse button did not widen the rail");
+assert.strictEqual(collapse.getAttribute("aria-pressed"), "true");
+assert.strictEqual(rail.style.width, "220px", "a rail nobody has resized is not the default width");
+
+// Ctrl+B, from the key table rather than written out here, folds it back.
+h.press("toggleRail");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "railExpanded", kind: "off" });
+assert.ok(!h.doc.body.classList.contains("rail-expanded"), "the binding did not fold the rail back");
+assert.strictEqual(rail.style.width, "", "folded, the rail kept the width it had been widened to");
+
+h.press("toggleRail");
+h.commands();
+
+// The keyboard steps the width once the handle has it, and stops short of
+// what the Go side would refuse.
+assert.strictEqual(resize.getAttribute("role"), "separator");
+assert.strictEqual(resize.getAttribute("aria-orientation"), "vertical");
+resize.focus();
+h.key({ key: "ArrowRight" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "railWidth", size: 236 });
+assert.strictEqual(rail.style.width, "236px");
+assert.strictEqual(resize.getAttribute("aria-valuenow"), "236");
+for (let i = 0; i < 30; i++) h.key({ key: "ArrowRight" });
+assert.strictEqual(rail.style.width, "480px", "the keyboard widened the rail past its maximum");
+for (let i = 0; i < 40; i++) h.key({ key: "ArrowLeft" });
+assert.strictEqual(rail.style.width, "180px", "the keyboard narrowed the rail past its minimum");
+
+// Dragging redraws the rail as the pointer moves, and tells the Go side only
+// once, when the drag is let go — as a split's own divider already does.
+h.dispatch(resize, new h.Ev("pointerdown", { button: 0, pointerId: 1, clientX: 300 }));
+assert.ok(resize.classList.contains("dragging"), "the handle did not mark itself as being dragged");
+assert.ok(h.doc.body.classList.contains("rail-resizing"), "the body did not say a drag was under way");
+const before = h.commands().length;
+h.dispatch(resize, new h.Ev("pointermove", { pointerId: 1, clientX: 340 }));
+assert.strictEqual(rail.style.width, "220px", "the rail did not follow the pointer");
+assert.strictEqual(h.commands().length, before, "a move in the middle of the drag told the Go side already");
+h.dispatch(resize, new h.Ev("pointerup", { pointerId: 1, clientX: 340 }));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "railWidth", size: 220 });
+assert.ok(!resize.classList.contains("dragging"), "letting go left the handle marked as dragged");
+assert.ok(!h.doc.body.classList.contains("rail-resizing"), "letting go left the body saying a drag was under way");
+
+// What arrives with the preferences is clamped the same way a drag is, and a
+// choice made in another window is followed here too.
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], railExpanded: true, railWidth: 5000 } });
+assert.strictEqual(rail.style.width, "480px", "a width from the preferences was not clamped to the maximum");
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], railExpanded: false, railWidth: 480 } });
+assert.ok(!h.doc.body.classList.contains("rail-expanded"), "folding the rail from another window was not followed");
+`)
+}
+
 // Settings opens from the rail, from the palette and with its key - Ctrl+,,
 // which nothing else answers to - and each way shows the one dialog: the
 // sections on the left, walked with the arrows and narrowed by typing, and the

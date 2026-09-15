@@ -447,6 +447,7 @@ which the command palette and the in-app help are also drawn from; run
 | Keys | Action |
 | --- | --- |
 | `Ctrl+,` | Settings |
+| `Ctrl+B` | Expand or collapse the rail |
 | `Ctrl+=` | Increase font size |
 | `Ctrl+-` | Decrease font size |
 | `Ctrl+0` | Reset font size |
