@@ -284,6 +284,18 @@ type projectView struct {
 	// window asks for again when this summary moves, follows a split or a
 	// closed idle pane as well as a change of status.
 	Panes int `json:"panes"`
+	// Members lists every repo inside this project, root and display label.
+	// A project nobody has grouped still carries one entry, itself, so the
+	// switcher always has a member list to show rather than a special case
+	// for a project of one.
+	Members []repoView `json:"members"`
+}
+
+// repoView is one repo inside a project, as the switcher's expandable
+// member list shows it.
+type repoView struct {
+	Root string `json:"root"`
+	Name string `json:"name"`
 }
 
 type tabView struct {
@@ -494,6 +506,9 @@ type command struct {
 	// stop, having its PreToolUse calls put to auto-review approvals. See
 	// Workspace.SetPaneAutoReview.
 	AutoReview bool `json:"autoReview"`
+	// Roots is groupProjects' own: the open projects, named by any of their
+	// own roots, to merge into one. See Workspace.NewGroupFrom.
+	Roots []string `json:"roots"`
 }
 
 // ---------------------------------------------------------------------------
@@ -541,9 +556,14 @@ func (s *Server) snapshot() stateMsg {
 	names := make(map[string]string, len(projects))
 	for _, p := range projects {
 		names[p.Root] = p.Name
+		members := make([]repoView, 0, len(p.Members))
+		for _, m := range p.Members {
+			members = append(members, repoView{Root: m.Root, Name: m.Name})
+		}
 		msg.Projects = append(msg.Projects, projectView{
 			Root: p.Root, Name: p.Name, Active: p.Active,
 			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working, Panes: p.Panes,
+			Members: members,
 		})
 	}
 
@@ -1147,13 +1167,16 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.listWorktrees(c)
 		return
 	case "worktreeAdd":
-		s.addWorktree(c, cmd.Text, cmd.Base, cmd.Path)
+		// Root names which repo the worktree is made in, for a project
+		// spanning more than one; empty means the active project's own, as
+		// it always has for a project of one.
+		s.addWorktree(c, cmd.Root, cmd.Text, cmd.Base, cmd.Path)
 		return
 	case "worktreeRemove":
-		s.removeWorktree(c, cmd.Path, cmd.Force)
+		s.removeWorktree(c, cmd.Root, cmd.Path, cmd.Force)
 		return
 	case "worktreePrune":
-		s.pruneWorktrees(c)
+		s.pruneWorktrees(c, cmd.Root)
 		return
 	case "browse":
 		s.browse(c, cmd.Path)
@@ -1424,8 +1447,39 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 		case "selectProject":
 			ws.SelectProject(cmd.Root)
+		case "selectRepo":
+			// Picking one entry out of a project's own expanded member list,
+			// or a worktree-panel row that names a repo directly: unlike
+			// selectProject, this lands on the repo named rather than the
+			// one the project was last left on.
+			ws.SelectRepo(cmd.Root)
 		case "closeProject":
 			if err := ws.CloseProject(cmd.Root); err != nil {
+				c.notify(err.Error(), true)
+			}
+		case "addRepoToGroup":
+			// Root names the project -- any of its members does -- and Path
+			// the folder to add, the same shape as openProject.
+			path := unquotePath(cmd.Path)
+			if !filepath.IsAbs(path) {
+				c.notify("a repo has to be named by its full path", true)
+				return
+			}
+			if err := ws.AddRepoToGroup(cmd.Root, path); err != nil {
+				c.notify(err.Error(), true)
+				return
+			}
+			c.notify("added "+filepath.Base(path)+" to the project", false)
+		case "removeRepoFromGroup":
+			if err := ws.RemoveRepoFromGroup(cmd.Root); err != nil {
+				c.notify(err.Error(), true)
+			}
+		case "renameGroup":
+			if err := ws.RenameGroup(cmd.Root, cmd.Text); err != nil {
+				c.notify(err.Error(), true)
+			}
+		case "groupProjects":
+			if _, err := ws.NewGroupFrom(cmd.Roots, cmd.Text); err != nil {
 				c.notify(err.Error(), true)
 			}
 		case "splitPane":

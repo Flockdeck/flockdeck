@@ -477,6 +477,7 @@ func (w *Workspace) landOn(t *Tab, paneID string) {
 	if t.Root != w.activeRoot && w.isOpen(t.Root) {
 		w.rememberTab()
 		w.activeRoot = t.Root
+		w.noteActiveRoot()
 	}
 	w.activeTab = t.ID
 }

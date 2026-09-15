@@ -358,6 +358,7 @@ func (w *Workspace) ensureProjectOpen(root string) {
 	defer delete(w.opening, root)
 
 	w.openRoots = append(w.openRoots, root)
+	w.ensureGroup(root)
 	_ = store.TouchRecent(root)
 	// Its own tabs come back too. A project with no saved layout is left
 	// without tabs of its own, which is right: it is open because one of its
@@ -710,6 +711,7 @@ func (w *Workspace) RestoreSession() int {
 			continue
 		}
 		w.openRoots = append(w.openRoots, root)
+		w.ensureGroup(root)
 		// A project reopened every run is one the user is working in, and the
 		// recent list is capped: without this, the projects that are always
 		// open are exactly the ones that age out of the picker, because only

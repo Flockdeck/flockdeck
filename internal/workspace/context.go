@@ -50,6 +50,13 @@ type Sibling struct {
 	// the one fact in the list that changes what the agent should do, and it
 	// is easy to miss when it has to be read off two long paths.
 	SameCheckout bool
+	// Repo names the repo this sibling works in, filled in only when the
+	// reader's own project spans more than one and this sibling's differs
+	// from the reader's own -- see PaneContext.RepoName. A sibling in the
+	// reader's own repo, which is every sibling before projects could span
+	// more than one, leaves this empty and describe() reads exactly as it
+	// always has.
+	Repo string
 }
 
 // PaneContext is everything an agent is told about the situation it is running
@@ -67,7 +74,12 @@ type PaneContext struct {
 
 	ProjectRoot string
 	ProjectName string
-	Cwd         string
+	// RepoName is this pane's own repo, as it reads inside its project's
+	// member list -- see Workspace.repoLabel. It differs from ProjectName
+	// only when the project spans more than one repo, which is when it is
+	// worth saying at all; see render.
+	RepoName string
+	Cwd      string
 	Branch      string
 	// Worktree reports that the pane works in a checkout of its own — a
 	// directory outside the project altogether, which is what fan-out gives
@@ -143,15 +155,17 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 	c.ProjectRoot = w.rootOf(paneID)
 	// Projects are named the way the switcher names them, so an agent and the
 	// user looking at it call the same thing by the same word — and so two
-	// checkouts of one repository are not both simply "the project".
-	names := projectNames(w.openRoots)
+	// checkouts of one repository are not both simply "the project". A
+	// project spanning more than one repo -- see ProjectGroup -- is named by
+	// its group, not by this pane's own repo alone.
+	groups := w.groupsInOrder()
+	groupNames := groupDisplayNames(groups)
+	myGroup := w.groupOf(c.ProjectRoot)
 	c.ProjectName = filepath.Base(c.ProjectRoot)
-	for i, root := range w.openRoots {
-		if sameDir(root, c.ProjectRoot) {
-			c.ProjectName = names[i]
-			break
-		}
+	if myGroup != nil {
+		c.ProjectName = groupNames[myGroup.ID]
 	}
+	c.RepoName = w.repoLabel(c.ProjectRoot)
 	if c.ProjectRoot != "" && !sameDir(c.Cwd, c.ProjectRoot) {
 		c.Subdirectory = underDir(c.Cwd, c.ProjectRoot)
 		c.Worktree = !c.Subdirectory
@@ -176,12 +190,16 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 			// Membership follows the pane rather than the tab, for the same
 			// reason the reader's own project does: an agent borrowed by
 			// another project's tab is still working in this one, and one
-			// borrowed from elsewhere is not.
+			// borrowed from elsewhere is not. It is membership in the whole
+			// project, not the one repo: a sibling working in another member
+			// of the reader's own multi-repo project is a sibling, not
+			// invisible.
 			sibRoot := sib.Root
 			if sibRoot == "" {
 				sibRoot = t.Root
 			}
-			if !sameDir(sibRoot, c.ProjectRoot) {
+			sibGroup := w.groupOf(sibRoot)
+			if myGroup == nil || sibGroup == nil || sibGroup.ID != myGroup.ID {
 				continue
 			}
 			// The session is taken under the lock. A restore starts its panes
@@ -211,6 +229,9 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 				Model:        sibModel,
 				SameCheckout: sameDir(sib.Cwd, c.Cwd),
 			}
+			if lbl := w.repoLabel(sibRoot); lbl != c.RepoName {
+				s.Repo = lbl
+			}
 			switch onOwnTab := own != nil && t.ID == own.ID; {
 			case s.SameCheckout && onOwnTab:
 				ownCheckoutSameTab = append(ownCheckoutSameTab, s)
@@ -231,10 +252,15 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 		c.Siblings = c.Siblings[:maxSiblings]
 	}
 
-	for i, root := range w.openRoots {
-		if !sameDir(root, c.ProjectRoot) {
-			c.OtherProjects = append(c.OtherProjects, names[i])
+	// One entry per other project, not per repo: a project the reader's own
+	// is grouped with names itself once, however many repos it spans, the
+	// same noise this removed from the human switcher removed from what the
+	// agent is told too.
+	for _, g := range groups {
+		if myGroup != nil && g.ID == myGroup.ID {
+			continue
 		}
+		c.OtherProjects = append(c.OtherProjects, groupNames[g.ID])
 	}
 	sort.Strings(c.OtherProjects)
 
@@ -418,6 +444,10 @@ func (c PaneContext) render(viaPrompt bool) string {
 	if c.Subdirectory {
 		fmt.Fprintf(&b, "- The project root is `%s`; you are working in a directory "+
 			"below it, in the same checkout.\n", c.ProjectRoot)
+	}
+	if c.RepoName != "" && c.RepoName != c.ProjectName {
+		fmt.Fprintf(&b, "- This project spans more than one repo; this pane is in %q. "+
+			"The other repos are separate git checkouts, not part of this one.\n", c.RepoName)
 	}
 	if c.TabPanes > 1 {
 		fmt.Fprintf(&b, "- Your tab is split across %d panes; the user can see them all at once.\n", c.TabPanes)
@@ -688,11 +718,17 @@ func (s Sibling) describe() string {
 	if s.Branch != "" {
 		fmt.Fprintf(&b, " on branch `%s`", s.Branch)
 	}
-	if s.SameCheckout {
+	switch {
+	case s.SameCheckout:
 		// The path is the reader's own, so repeating it says nothing; that it
 		// is shared says everything.
 		b.WriteString(" in the same directory as you")
-	} else {
+	case s.Repo != "":
+		// A different repo within the reader's own project: named, since
+		// nothing else here says so, and given the directory too, the way
+		// every other sibling is.
+		fmt.Fprintf(&b, " in %s, in `%s`", s.Repo, s.Cwd)
+	default:
 		fmt.Fprintf(&b, " in `%s`", s.Cwd)
 	}
 	if !s.Shell {
