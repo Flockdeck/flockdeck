@@ -4,7 +4,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Flockdeck",
-  "description": "A desktop app that runs Claude Code, Codex, Gemini and other coding agents side by side, and shows which one needs your input.",
+  "description": "A desktop app that runs Claude Code, Codex, Gemini and other coding agents on hardware you control, self-hosted or on your desk, and reaches your phone or laptop with no port opened.",
   "url": {{ .URL }},
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Windows, macOS, Linux",
@@ -20,10 +20,12 @@
 <main class="wrap" id="main">
 
 <section class="hero">
-  <p class="kicker"><span aria-hidden="true" class="dot waiting">▲</span> Built for multi-agent coding</p>
-  <h1>Run all your coding agents <em>at once</em>.</h1>
-  <p class="lede">Flockdeck runs Claude Code, Codex, Gemini and more side by side
-     in one desktop app, and shows you the moment an agent needs your input.</p>
+  <p class="kicker"><span aria-hidden="true" class="dot waiting">▲</span> Built to keep working after you've gone</p>
+  <h1>Start it on a box that never sleeps. <em>Steer it from wherever you are.</em></h1>
+  <p class="lede">Flockdeck runs Claude Code, Codex, Gemini or your own model on
+     hardware you already own — a spare machine, a NAS, a cheap VPS — and
+     reaches your phone with no port opened and no password. Free and open
+     source, self-hosted or not.</p>
   <p class="cta">
     <a class="button" href="#install">Install Flockdeck</a>
     <a class="button ghost" href="{{ .Repo }}">Source on GitHub</a>
@@ -116,6 +118,14 @@
   <p class="eyebrow">Features</p>
   <h2>Built for running agents in parallel.</h2>
   <div class="grid">
+    <div class="card">
+      <span class="g">self-hosted · remote</span>
+      <h3>Runs on hardware you control</h3>
+      <p>Free to run headless on a spare machine, a home server or a VPS —
+         <code>-no-window</code> needs no browser there either — and pair it
+         from your phone or laptop with a QR code. No port opened, no
+         password.</p>
+    </div>
     <div class="card">
       <span class="g">agents · models</span>
       <h3>Any agent, any model</h3>

@@ -1,13 +1,19 @@
 # Flockdeck
 
-A desktop application for running several coding agents at once.
+A desktop application that runs your coding agents on hardware you control,
+and reaches you wherever you are.
 
-Each agent runs in a real pseudo-terminal, so it behaves exactly as it does in
-a normal terminal — permission prompts, slash commands, plan mode, colours,
-mouse. Around them the app adds what you need to run six at a time: tabs, split
-panes, per-agent status, layout persistence, git worktrees and broadcast input.
-Each agent is told which pane it is and who else is working, so being one of
-several is something it can act on.
+Start it on a spare machine, a home server or a cheap VPS with `-no-window`
+and it needs no browser there either — pair it with `flockdeck remote pair`
+and a QR code, no port opened, no password, and it's a desktop in every way
+that matters from your phone or laptop. Or run it on your own desk: either
+way, Claude Code, Codex, Gemini and the rest run in a real pseudo-terminal, so
+each behaves exactly as it does in a normal terminal — permission prompts,
+slash commands, plan mode, colours, mouse. Around them the app adds what you
+need to run six at a time: tabs, split panes, per-agent status, layout
+persistence, git worktrees and broadcast input. Each agent is told which pane
+it is and who else is working, so being one of several is something it can
+act on.
 
 The agent and the model are chosen per pane. Claude Code is the default;
 beside it Flockdeck runs Codex, Gemini, Aider, opencode or Cursor's agent, and
@@ -37,19 +43,27 @@ keys` keeps it.
 
 ## What it gives you
 
-- **Several agents at once**, each in a real terminal, in tabs and split panes.
+- **Run it on a server instead of a desk** — `-no-window` needs no browser on
+  that machine either, so a spare box, a home server or a cheap VPS works as
+  well as a laptop; pair it and it's a desktop in every way that matters.
+- **Reach them from another device** — pair a laptop, tablet or phone through
+  a relay, with no port opened on this machine.
 - **Any agent, any model, per pane** — a CLI you already have, or a model API
   spoken to directly by the binary itself, picked per pane and remembered per
   project.
-- **Rearrange what is already running** — drag a pane to another edge, another
-  tab or a tab of its own, or merge two tabs into one, without restarting the
-  agent in any of them.
-- **Each agent knows where it is** — its own conversation, its own checkout, and,
-  for Claude Code and the API agents, a briefing at session start on which pane
-  it is and who else is working.
+- **The right model for each task** — routing rules, off until you turn them
+  on, pre-set a fan-out's rows to a smaller model for mechanical work and a
+  stronger one for hard work, shown for you to change before anything starts.
+- **Several agents at once**, each in a real terminal, in tabs and split panes.
 - **One glance tells you who needs you** — per-pane status driven by the agent's
   own lifecycle where it reports one, tab and project markers, and a desktop
   notification when an agent blocks while you are looking elsewhere.
+- **Each agent knows where it is** — its own conversation, its own checkout, and,
+  for Claude Code and the API agents, a briefing at session start on which pane
+  it is and who else is working.
+- **Rearrange what is already running** — drag a pane to another edge, another
+  tab or a tab of its own, or merge two tabs into one, without restarting the
+  agent in any of them.
 - **What each agent has spent, and how near its limit it is** — an estimate of
   the conversation's cost, or its tokens, in the header of each API agent pane,
   and in a Claude Code pane's once its status line is read (by default, where
@@ -62,16 +76,8 @@ keys` keeps it.
 - **Everything comes back**: layouts, the set of projects you had open, and
   each pane's conversation.
 - **Agents can outlive the window** — detach, close it, reattach later.
-- **Run it on a server instead of a desk** — `-no-window` needs no browser on
-  that machine either, so a spare box, a home server or a cheap VPS works as
-  well as a laptop; pair it and it's a desktop in every way that matters.
-- **Reach them from another device** — pair a laptop, tablet or phone through
-  a relay, with no port opened on this machine.
 - **One agent's plan becomes several agents doing the work**, each in its own
   git worktree.
-- **The right model for each task** — routing rules, off until you turn them
-  on, pre-set a fan-out's rows to a smaller model for mechanical work and a
-  stronger one for hard work, shown for you to change before anything starts.
 - **Review, commit and push** what an agent did without leaving the app.
 
 ## Why
