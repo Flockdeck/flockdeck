@@ -54,7 +54,7 @@ import (
 )
 
 // Repo is the repository releases are read from, as owner/name.
-const Repo = "jmwri/flockdeck"
+const Repo = "Flockdeck/flockdeck"
 
 // binaryName is what the binary is called inside a release archive.
 var binaryName = func() string {
