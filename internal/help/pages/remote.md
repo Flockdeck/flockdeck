@@ -337,6 +337,27 @@ If a second Flockdeck on this machine connects to the relay as the same
 machine, the first one steps aside and says so rather than fighting it for the
 connection.
 
+## Moving to another relay
+
+A company that runs its own relay moves its machines onto it from the shared
+one, or from an old relay of its own. **Move to another relay…**, under
+**This machine** in the dialog, asks for the new relay's address and, if it
+asks for them, an invitation or join code; `flockdeck remote move <relay>` does
+the same from a terminal, with `-invite`, `-join` and `-name`.
+
+This machine is enrolled with the new relay first, and taken off the old one
+only once the new one answers, so a relay that is mistyped, down or refusing
+leaves everything as it was. **Every paired device has to pair again**
+afterwards, with the new relay: a device's pairing is kept by the relay it was
+made on, and no other relay can use it. The dialog and the command both say so,
+and ask, before anything is done; a script passes `-yes`. If this is the only
+machine on its account on the old relay, the account and its devices there go
+with it. An old relay that cannot be reached does not stop the move: it goes
+on listing this machine, offline, until a device paired there removes it.
+
+Machines set up from scratch point at a company's relay with `-relay`, or with
+`FLOCKDECK_RELAY` set on managed machines, and need no move.
+
 ## Unpairing, and turning it off
 
 The dialog lists every paired device with an **Unpair** button; unpairing ends
@@ -354,6 +375,7 @@ From a terminal:
 | `flockdeck remote revoke <id or name>` | Unpairs one |
 | `flockdeck remote rename <name>` | Renames this machine; `-device <id or name>` renames a device |
 | `flockdeck remote disable` | Removes this machine from the relay |
+| `flockdeck remote move <relay>` | Moves this machine to another relay; every device then pairs again |
 
 A machine that was wiped or lost before remote access was turned off on it
 cannot take itself off. Remove it from the **Devices** page of a paired device

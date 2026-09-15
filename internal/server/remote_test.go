@@ -40,6 +40,19 @@ type fakeRemote struct {
 	// renaming it is refused with.
 	renamed   []string
 	renameErr error
+	// moved is each move the dialog asked for; moveErr is what moving is
+	// refused with, and moveUntold why the old relay could not be told.
+	moved      []remote.EnableRequest
+	moveErr    error
+	moveUntold error
+}
+
+func (f *fakeRemote) Move(_ context.Context, req remote.EnableRequest) (error, error) {
+	f.moved = append(f.moved, req)
+	if f.moveErr != nil {
+		return nil, f.moveErr
+	}
+	return f.moveUntold, nil
 }
 
 func (f *fakeRemote) Rename(_ context.Context, name string) error {
@@ -110,6 +123,48 @@ func TestTheDialogTurnsRemoteAccessOnAndOff(t *testing.T) {
 	}
 	if len(fake.disabled) != 2 || fake.disabled[0] || !fake.disabled[1] {
 		t.Errorf("remote access was asked to disable with force %v", fake.disabled)
+	}
+}
+
+// TestTheDialogMovesToAnotherRelay covers moving this machine from the Remote
+// access dialog: what the form was filled in with reaches remote access as it
+// was typed, a refusal comes back for the window to show under the form, and
+// an old relay that could not be told is a warning on a move that went ahead,
+// with every device told to pair again.
+func TestTheDialogMovesToAnotherRelay(t *testing.T) {
+	srv, _ := newTestServer(t)
+	fake := &fakeRemote{moveErr: errors.New("this relay needs an invite code")}
+	srv.SetRemote(fake)
+	conn := dialControl(t, srv)
+	type outcome struct {
+		Type, Action, Error, Warning string
+	}
+	var out outcome
+	read := func() {
+		t.Helper()
+		out = outcome{}
+		readUntil(t, conn, "remoteOutcome", &out)
+	}
+
+	sendCmd(t, conn, command{Cmd: "remoteMove", Relay: "relay.company.example", Invite: "fdi_x"})
+	read()
+	if out.Action != "move" || out.Error != "this relay needs an invite code" {
+		t.Errorf("a refused move was answered %+v", out)
+	}
+	if len(fake.moved) != 1 || fake.moved[0] != (remote.EnableRequest{Relay: "relay.company.example", Invite: "fdi_x"}) {
+		t.Errorf("remote access was asked to move with %+v", fake.moved)
+	}
+
+	fake.moveErr, fake.moveUntold = nil, errors.New("dial tcp: no route to host")
+	sendCmd(t, conn, command{Cmd: "remoteMove", Relay: "relay.company.example", Invite: "fdi_y"})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if note.Error || !strings.Contains(note.Text, "pair each device again") {
+		t.Errorf("a move was announced as %+v, want every device told to pair again", note)
+	}
+	read()
+	if out.Error != "" || !strings.Contains(out.Warning, "no route to host") || !strings.Contains(out.Warning, "old relay") {
+		t.Errorf("a move the old relay never heard of was answered %+v, want a warning saying why", out)
 	}
 }
 

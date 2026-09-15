@@ -444,7 +444,8 @@ type command struct {
 	RouteOverrides []routeOverride `json:"routeOverrides"`
 	// Relay, Name, Join and Invite are what the remote access dialog turns
 	// remote access on with, each the flag of the same name to `flockdeck
-	// remote enable`, and each may be empty. Name is also the new name
+	// remote enable`, and each may be empty. remoteMove takes the same, the
+	// relay then being the one to move to. Name is also the new name
 	// remoteRename gives this machine (Kind "host") or the device ID names.
 	Relay  string `json:"relay"`
 	Name   string `json:"name"`
@@ -1267,6 +1268,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "remoteDisable":
 		s.remoteDisable(c, cmd.Force)
+		return
+	case "remoteMove":
+		s.remoteMove(c, cmd)
 		return
 	case "remoteReconnect":
 		s.remoteReconnect(c)

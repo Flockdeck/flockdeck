@@ -440,6 +440,56 @@ assert.ok(!h.$("remote-enable").disabled, "the form can be sent again");
 `)
 }
 
+// A machine is moved to another relay from the dialog as well as a terminal:
+// the form is folded away until asked for, says before its button that every
+// device will pair again, asks again before sending, keeps what was typed
+// across a refusal, and folds away once the move has gone ahead.
+func TestRemoteAccessCanMoveToAnotherRelay(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const remote = { state: "connected", relay: "https://remote.flockdeck.ai", hostId: "h1", viewers: 0,
+  since: "2030-01-01T00:00:00Z" };
+h.recv(fixture({ remote }));
+h.click(h.$("btn-remote"));
+h.recv({ type: "remoteDevices", enabled: true,
+  devices: [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" }],
+  hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
+
+assert.ok(!h.$("remote-move-relay"), "the move form is shown before it is asked for");
+h.click(h.$("remote-move"));
+assert.ok(h.$("remote-move-relay"), "asking to move does not show the form");
+assert.ok(h.$("overlay-body").textContent.includes("have to pair again"), "what moving costs is not said before the button");
+
+h.click(h.$("remote-move-go"));
+assert.ok(h.$("overlay-body").textContent.includes("Name the relay"), "a move with no relay is not told why it went nowhere");
+
+h.$("remote-move-relay").value = "relay.company.example";
+h.$("remote-move-invite").value = "fdi_abc";
+const before = h.commands().length;
+h.win._confirm = false;
+h.click(h.$("remote-move-go"));
+assert.strictEqual(h.commands().length, before, "the machine was moved without asking");
+assert.ok(/pair again/.test(h.win._confirmed), "the question does not say every device pairs again: " + h.win._confirmed);
+assert.ok(/only machine/.test(h.win._confirmed), "the question does not say the account on the old relay goes: " + h.win._confirmed);
+h.win._confirm = true;
+h.click(h.$("remote-move-go"));
+assert.deepStrictEqual(h.commands().pop(),
+  { cmd: "remoteMove", relay: "relay.company.example", invite: "fdi_abc", join: "" });
+assert.ok(h.$("remote-move-go").disabled, "the button waits for the answer rather than asking twice");
+
+h.recv({ type: "remoteOutcome", action: "move", error: "the relay said: this relay needs an invite code" });
+assert.ok(h.$("overlay-body").textContent.includes("needs an invite code"), "the refusal is not shown");
+assert.strictEqual(h.$("remote-move-relay").value, "relay.company.example", "what was typed is lost with the answer");
+assert.ok(!h.$("remote-move-go").disabled, "the form cannot be sent again");
+
+h.recv({ type: "remoteOutcome", action: "move", warning: "The old relay could not be told, so it will go on listing this machine" });
+// The harness keeps every id it has seen, so the button, drawn afresh, is
+// what says whether the form is still open.
+assert.strictEqual(h.$("remote-move").textContent, "Move to another relay…", "a move that went ahead leaves its form open");
+assert.ok(h.$("overlay-body").textContent.includes("old relay could not be told"), "an old relay left untold is not said");
+`)
+}
+
 // runFrontEnd boots app.js against the harness and runs body against it. The
 // body is ordinary node: assert is in scope, and h is the booted front end.
 func runFrontEnd(t *testing.T, body string) string {
@@ -7689,7 +7739,7 @@ function boot(opts) {
         return Promise.resolve({ ok: false, status: 404 });
       }
     },
-    confirm: () => (win._confirm === undefined ? true : win._confirm),
+    confirm: (q) => { win._confirmed = q; return win._confirm === undefined ? true : win._confirm; },
     prompt: () => win._prompt,
     close: () => { win._closed = true; },
     focus: () => {},

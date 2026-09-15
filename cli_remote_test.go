@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -304,8 +305,9 @@ func TestRemoteLifecycle(t *testing.T) {
 	// the refusal says how.
 	other := newFakeRelayAPI(t)
 	if _, _, err := runRemoteCmd(t, "enable", "-relay", other.URL); err == nil ||
-		!strings.Contains(err.Error(), "to move this machine to "+other.URL+", run `flockdeck remote disable`, then `flockdeck remote enable -relay "+other.URL+"`") {
-		t.Errorf("enabling with another relay = %v, want it to say how to move", err)
+		!strings.Contains(err.Error(), "to move this machine to "+other.URL+", run `flockdeck remote move "+other.URL+"`") ||
+		!strings.Contains(err.Error(), "pair again") {
+		t.Errorf("enabling with another relay = %v, want it to say how to move, and what it costs", err)
 	}
 	// The second step is the same command, so what else it was given comes
 	// with it: without the join code it enrolled into an account of its own.
@@ -1101,8 +1103,8 @@ func TestRemoteMoveToAnUnreachableRelay(t *testing.T) {
 	}
 }
 
-// Moving off a relay that can no longer be reached takes disable -force, and
-// the refusal says so, not the plain disable, which would stop there too.
+// Moving off a relay that can no longer be reached is move's to do as well:
+// enable points at it, and move goes ahead, saying the old relay was not told.
 func TestRemoteMoveFromAGoneRelay(t *testing.T) {
 	isolateKeys(t)
 	f := newFakeRelayAPI(t)
@@ -1112,7 +1114,7 @@ func TestRemoteMoveFromAGoneRelay(t *testing.T) {
 	f.Close()
 	other := newFakeRelayAPI(t)
 	_, _, err := runRemoteCmd(t, "enable", "-relay", other.URL)
-	if want := "run `flockdeck remote disable -force`, then `flockdeck remote enable -relay " + other.URL + "`"; err == nil || !strings.Contains(err.Error(), want) {
+	if want := "run `flockdeck remote move " + other.URL + "`"; err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("moving off a relay that is gone = %v, want it to say %q", err, want)
 	}
 	// Enabling again, with the relay out of reach, is most often a network
@@ -1120,6 +1122,120 @@ func TestRemoteMoveFromAGoneRelay(t *testing.T) {
 	_, _, err = runRemoteCmd(t, "enable")
 	if err == nil || !strings.Contains(err.Error(), "try again once the relay can be reached") || !strings.Contains(err.Error(), "leaves this machine listed on it") {
 		t.Errorf("enabling again with the relay out of reach = %v, want it to say to try again, and what -force costs", err)
+	}
+	out, _, err := runRemoteCmd(t, "move", "-yes", other.URL)
+	if err != nil || !strings.Contains(out, "moved: this machine is \"desk\" on "+other.URL) ||
+		!strings.Contains(out, f.URL+" could not be told") {
+		t.Errorf("moving off a relay that is gone = %q, %v; want it moved, saying the old relay was not told", out, err)
+	}
+	if cfg, _ := remote.Load(); cfg == nil || cfg.Relay != other.URL {
+		t.Errorf("after moving off a relay that is gone, the enrolment is %+v", cfg)
+	}
+}
+
+// Moving says, before anything is done, that every device will pair again,
+// and asks; it enrols with the new relay before leaving the old, and a
+// running instance is told in between. Unasked, a script has to say -yes.
+func TestRemoteMove(t *testing.T) {
+	isolateKeys(t)
+	f := newFakeRelayAPI(t)
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
+		t.Fatal(err)
+	}
+	other := newFakeRelayAPI(t)
+
+	// Nobody at a terminal, and no -yes: nothing is done.
+	if _, _, err := runRemoteCmd(t, "move", other.URL); err == nil || !strings.Contains(err.Error(), "-yes") {
+		t.Errorf("move without anyone to ask = %v, want it to say -yes", err)
+	}
+	// Asked, and answered no: nothing is done, and the warning came first.
+	var out bytes.Buffer
+	var saidFirst string
+	err := remoteCmd([]string{"move", other.URL}, remoteIO{out: &out, confirm: func(q string) bool {
+		saidFirst = out.String()
+		return false
+	}})
+	if err != nil || !strings.Contains(out.String(), "nothing has changed") {
+		t.Errorf("move answered no = %q, %v", out.String(), err)
+	}
+	if !strings.Contains(saidFirst, "have to pair again") || !strings.Contains(saidFirst, f.URL) || !strings.Contains(saidFirst, other.URL) {
+		t.Errorf("before asking, move said %q; want where from, where to, and that every device pairs again", saidFirst)
+	}
+	// The one paired device goes with the account, the machine being its only one.
+	if !strings.Contains(saidFirst, "its paired device with it") {
+		t.Errorf("before asking, move said %q; want the account's paired device said to go with it", saidFirst)
+	}
+	if other.saw("POST /api/v1/hosts") || f.saw("DELETE /api/v1/host") {
+		t.Fatal("a move that was not agreed to reached a relay")
+	}
+
+	// Answered yes, with the flags after the relay: moved, and told in order.
+	out.Reset()
+	var order []string
+	err = remoteCmd([]string{"move", other.URL, "-name", "Work PC"}, remoteIO{out: &out,
+		confirm: func(string) bool { return true },
+		reload: func() (bool, error) {
+			// The new relay has the machine, and the old one has not yet been
+			// told, when a running instance is told to move its tunnel.
+			order = append(order, fmt.Sprintf("reload new=%v oldTold=%v", other.saw("GET /api/v1/host/devices"), f.saw("DELETE /api/v1/host")))
+			return true, nil
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(order) != 1 || order[0] != "reload new=true oldTold=false" {
+		t.Errorf("the running instance was told %q; want once, after the new relay answered and before the old one was told", order)
+	}
+	if !f.saw("DELETE /api/v1/host") {
+		t.Error("the old relay was never told the machine had left")
+	}
+	cfg, err := remote.Load()
+	if err != nil || cfg == nil || cfg.Relay != other.URL || cfg.Name != "Work PC" || cfg.Token != "fdh_Work PC" {
+		t.Errorf("after moving, the enrolment is %+v, %v", cfg, err)
+	}
+	for _, want := range []string{"moved: this machine is \"Work PC\" on " + other.URL, "Pair each device again"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("move printed %q; want it to say %q", out.String(), want)
+		}
+	}
+	for _, l := range strings.Split(out.String(), "\n") {
+		if n := len([]rune(l)); n > 80 {
+			t.Errorf("move printed a line %d wide: %q", n, l)
+		}
+	}
+
+	// Where it already is, and with nowhere named.
+	if _, _, err := runRemoteCmd(t, "move", "-yes", other.URL); err == nil || !strings.Contains(err.Error(), "already on") {
+		t.Errorf("moving to the relay it is on = %v", err)
+	}
+	if _, _, err := runRemoteCmd(t, "move"); !errors.Is(err, errReported) {
+		t.Errorf("move with no relay = %v, want its usage", err)
+	}
+}
+
+// Moving a machine that is not enrolled has nothing to move, and says what
+// enrols it there instead; moving to a relay that is not there is found out
+// before anybody is asked.
+func TestRemoteMoveRefusals(t *testing.T) {
+	isolateKeys(t)
+	other := newFakeRelayAPI(t)
+	if _, _, err := runRemoteCmd(t, "move", "-yes", other.URL); err == nil || !strings.Contains(err.Error(), "`flockdeck remote enable -relay "+other.URL+"`") {
+		t.Errorf("moving a machine that is not enrolled = %v", err)
+	}
+	f := newFakeRelayAPI(t)
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
+		t.Fatal(err)
+	}
+	gone := httptest.NewServer(http.NotFoundHandler())
+	goneURL := gone.URL
+	gone.Close()
+	asked := false
+	err := remoteCmd([]string{"move", goneURL}, remoteIO{out: io.Discard, confirm: func(string) bool { asked = true; return true }})
+	if err == nil || !strings.Contains(err.Error(), "nothing has changed") || asked {
+		t.Errorf("moving to a relay that is not there = %v (asked: %v); want it refused before asking", err, asked)
+	}
+	if cfg, _ := remote.Load(); cfg == nil || cfg.Relay != f.URL {
+		t.Errorf("a refused move changed the enrolment to %+v", cfg)
 	}
 }
 

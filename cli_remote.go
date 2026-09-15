@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -33,14 +34,29 @@ type remoteIO struct {
 	// running reports whether flockdeck is running here, which is what
 	// decides whether the tunnel ought to be up.
 	running func() bool
+	// confirm asks the person at the terminal a yes-or-no question, and is
+	// nil when nobody is there to answer one.
+	confirm func(question string) bool
 }
 
 // runRemote implements the `remote` subcommand.
 func runRemote(args []string) error {
-	return remoteCmd(args, remoteIO{out: os.Stdout, reload: reloadRunningRemote, running: func() bool {
+	rio := remoteIO{out: os.Stdout, reload: reloadRunningRemote, running: func() bool {
 		inst, _, err := runningInstance()
 		return err == nil && inst != nil
-	}})
+	}}
+	// A question is only asked of somebody who can answer it. Piped into, the
+	// command is a script, which says -yes instead.
+	if stdinIsTerminal() {
+		in := bufio.NewReader(os.Stdin)
+		rio.confirm = func(question string) bool {
+			fmt.Fprint(os.Stderr, question+" [y/N] ")
+			line, _ := in.ReadString('\n')
+			answer := strings.ToLower(strings.TrimSpace(line))
+			return answer == "y" || answer == "yes"
+		}
+	}
+	return remoteCmd(args, rio)
 }
 
 func remoteCmd(args []string, rio remoteIO) error {
@@ -64,6 +80,8 @@ func remoteCmd(args []string, rio remoteIO) error {
 		err = remoteRenameCmd(args[1:], rio)
 	case "disable":
 		err = remoteDisable(args[1:], rio)
+	case "move":
+		err = remoteMoveCmd(args[1:], rio)
 	case "-h", "--help", "help":
 		// `remote help pair` is how most commands are asked about one of
 		// their own, so it gives that subcommand's help.
@@ -95,6 +113,8 @@ func remoteHelp(name string, rio remoteIO) error {
 		fs = remoteDisableFlagSet(&remoteDisableFlags{})
 	case "rename":
 		fs = remoteRenameFlagSet(&remoteRenameFlags{})
+	case "move":
+		fs = remoteMoveFlagSet(&remoteMoveFlags{})
 	case "devices", "list", "ls":
 		fs = remoteFlags("devices")
 	case "status", "revoke":
@@ -109,7 +129,7 @@ func remoteHelp(name string, rio remoteIO) error {
 }
 
 // remoteCommands are the subcommands a mistyped one is compared with.
-var remoteCommands = []string{"enable", "pair", "status", "devices", "revoke", "rename", "disable"}
+var remoteCommands = []string{"enable", "pair", "status", "devices", "revoke", "rename", "disable", "move"}
 
 // remoteGuesses are words somebody is likely to try for one of them. They are
 // answered with the command's name rather than taken for it: revoke and
@@ -121,6 +141,7 @@ var remoteGuesses = map[string]string{
 	"add": "pair", "link": "pair", "qr": "pair",
 	"info": "status", "state": "status",
 	"name": "rename", "mv": "rename",
+	"migrate": "move", "switch": "move",
 }
 
 // unknownRemote refuses a subcommand that is not one, naming the one most
@@ -180,11 +201,12 @@ Commands:
   revoke <id>    unpair a device, named by its id or its name
   rename <name>  rename this machine; -device <id or name> renames a device
   disable [-force]  remove this machine from the relay
+  move <relay>   enrol with another relay, then leave this one once it answers
 
 Run flockdeck remote help <command> for more about one of them.
 The relay is %s unless -relay or %s
 says otherwise.
-To move to another relay, disable remote access, then enable it with -relay.
+To move to another relay, run move; every device then has to pair again.
 In the window, Remote access… in the command palette does the same things.
 Traffic is encrypted on its way to and from the relay, which decrypts it to
 forward it: the relay is trusted, and it is not end-to-end encrypted.
@@ -208,6 +230,8 @@ var remoteSynopses = map[string][2]string{
 		"Give this machine a new name, which is what every paired device and the\naccount's other machines call it. With -device, rename a paired device\ninstead; `flockdeck remote devices` lists them by id and name."},
 	"disable": {" [-force]",
 		"Take this machine off its relay. If it is the account's only machine, its\npaired devices are unpaired too."},
+	"move": {" [flags] <relay>",
+		"Move this machine to another relay: enrol it there first, and take it off\nthe relay it is on only once the new one answers. Every device paired with\nit has to pair again afterwards, with the new relay, because a device's\npairing belongs to the relay it was made on."},
 }
 
 // remoteFlags is a flag set for one of the subcommands, reporting to stderr
@@ -307,6 +331,20 @@ func remoteDisableFlagSet(f *remoteDisableFlags) *flag.FlagSet {
 	return fs
 }
 
+type remoteMoveFlags struct {
+	name, join, invite string
+	yes                bool
+}
+
+func remoteMoveFlagSet(f *remoteMoveFlags) *flag.FlagSet {
+	fs := remoteFlags("move")
+	fs.StringVar(&f.invite, "invite", "", "an invitation `code`, for a new relay that asks for one")
+	fs.StringVar(&f.join, "join", "", "a `code` from `flockdeck remote pair -desktop` on a machine already on\nthe new relay, to join its account")
+	fs.StringVar(&f.name, "name", "", "the `name` this machine goes by on the new relay (default: the one it has)")
+	fs.BoolVar(&f.yes, "yes", false, "move without asking first, as a script has to")
+	return fs
+}
+
 type remoteRenameFlags struct{ device string }
 
 func remoteRenameFlagSet(f *remoteRenameFlags) *flag.FlagSet {
@@ -347,33 +385,16 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 	var already *remote.AlreadyEnabledError
 	var refused *remote.APIError
 	if errors.As(err, &already) && f.relay != "" {
-		// Asking for another relay is moving this machine, which is two steps,
-		// and the refusal names both rather than only the first.
+		// Asking for another relay is moving this machine, which move does:
+		// enrolling there first, and leaving this one, reachable or not, only
+		// once the new one answers.
 		if want, _ := remote.RelayURL(f.relay); want != "" && !remote.SameRelay(want, already.Relay) {
-			// The first step leaves this machine without a relay until the
-			// second is done, and costs its devices if it is the account's
-			// only machine, so a relay that is not there is found out before
-			// anybody is told to take it.
+			// A relay that is not there is found out now, rather than sent to
+			// move to be found out there.
 			if perr := remote.Probe(context.Background(), want); perr != nil {
-				return fmt.Errorf("%v; %s could not be reached (%v), so check that address before moving this machine there: moving takes disabling remote access here first", err, want, perr)
+				return fmt.Errorf("%v; %s could not be reached (%v), so check that address before moving this machine there", err, want, perr)
 			}
-			// Leaving a relay that could not be asked, which is most often why
-			// somebody moves, takes -force: plain disable would stop at the same.
-			disable := "flockdeck remote disable"
-			if already.Err != nil {
-				disable += " -force"
-			}
-			// The second step is this command again, with everything else it
-			// was given. Without -join it enrolled into an account of its own,
-			// out of reach of the devices paired with the machine it was
-			// meant to join; without -invite it was refused all over again.
-			again := "flockdeck remote enable -relay " + cliWord(want)
-			for _, fl := range [][2]string{{"name", f.name}, {"join", f.join}, {"invite", f.invite}} {
-				if v := strings.TrimSpace(fl[1]); v != "" {
-					again += " -" + fl[0] + " " + cliWord(v)
-				}
-			}
-			return fmt.Errorf("%v; to move this machine to %s, run `%s`, then `%s`", err, want, disable, again)
+			return fmt.Errorf("%v; to move this machine to %s, run `flockdeck remote move %s`, after which every paired device has to pair again", err, want, want)
 		}
 	}
 	switch {
@@ -988,6 +1009,84 @@ func remoteDisable(args []string, rio remoteIO) error {
 		fmt.Fprintf(rio.out, "It was the account's only machine, so its %d paired devices have been unpaired too.\n", lost)
 	}
 	reportReload(rio, "")
+	return nil
+}
+
+// remoteMoveCmd moves this machine to another relay. What it costs, every
+// device pairing again, is said before anything is done, and asked about
+// when somebody is there to answer; a script says -yes instead.
+func remoteMoveCmd(args []string, rio remoteIO) error {
+	var f remoteMoveFlags
+	fs := remoteMoveFlagSet(&f)
+	// The flags may come after the relay, as in `move relay.example -invite C`.
+	if err := fs.Parse(orderSpawnArgs(fs, args)); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return errHelpAsked
+		}
+		return errReported
+	}
+	if fs.NArg() != 1 {
+		// Whoever typed move knows the command and missed the relay, or gave
+		// more than one, so its own usage is the answer.
+		fs.Usage()
+		return errReported
+	}
+	cfg, err := enrolled()
+	if errors.Is(err, remote.ErrNotEnabled) {
+		return fmt.Errorf("remote access is not enabled here, so there is nothing to move; `flockdeck remote enable -relay %s` enrols this machine there", fs.Arg(0))
+	}
+	if err != nil {
+		return err
+	}
+	want, err := remote.CheckRelay(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	if remote.SameRelay(want, cfg.Relay) {
+		return fmt.Errorf("this machine is already on %s, so there is nowhere to move it", cfg.Relay)
+	}
+	// A relay that is not there is found out before anybody is asked to
+	// agree to moving to it.
+	if err := remote.Probe(context.Background(), want); err != nil {
+		return fmt.Errorf("%s could not be reached (%v); nothing has changed, and this machine is still on %s", want, err, cfg.Relay)
+	}
+
+	// What moving costs is said before it is done, since moving back does not
+	// undo it: the pairings made on the old relay stay there.
+	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("This moves %q from %s to %s: it enrols with the new relay first, and leaves the old one only once the new one answers.", cfg.Name, cfg.Relay, want)))
+	fmt.Fprintln(rio.out, fitted("Every device paired with this machine will then have to pair again, with the new relay, because a device's pairing belongs to the relay it was made on."))
+	switch lost := devicesLost(cfg); {
+	case lost == 1:
+		fmt.Fprintln(rio.out, fitted("It is the only machine in its account on the old relay, so the account goes too, and its paired device with it."))
+	case lost > 1:
+		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("It is the only machine in its account on the old relay, so the account goes too, and its %d paired devices with it.", lost)))
+	}
+	if !f.yes {
+		if rio.confirm == nil {
+			return errors.New("nothing has changed; run it again with -yes to move without being asked, as a script has to")
+		}
+		if !rio.confirm("Move it?") {
+			fmt.Fprintln(rio.out, "nothing has changed")
+			return nil
+		}
+	}
+
+	moved, untold, err := remote.Move(context.Background(), version,
+		remote.EnableRequest{Relay: want, Name: f.name, Join: f.join, Invite: f.invite},
+		// The running instance moves its tunnel across before the old relay
+		// is told, rather than seeing it cut by the old relay first.
+		func() { reportReload(rio, "flockdeck will connect to the new relay when it next starts") })
+	if err != nil {
+		// The refusals are enable's -- an invitation needed, a join code used
+		// up -- and so is their advice, with the flags move takes too.
+		advised := enableAdvice(remoteEnableFlags{name: f.name, join: f.join, invite: f.invite}, err)
+		return fmt.Errorf("%v (this machine is still on %s)", advised, cfg.Relay)
+	}
+	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("moved: this machine is %q on %s", moved.Name, moved.Relay)))
+	if untold != nil {
+		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("%s could not be told (%v), so it will go on listing this machine, offline, until a device paired there removes it", cfg.Relay, untold)))
+	}
+	fmt.Fprintln(rio.out, "Pair each device again with `flockdeck remote pair`, or Remote access… in the\nwindow.")
 	return nil
 }
 

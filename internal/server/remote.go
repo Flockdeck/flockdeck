@@ -32,13 +32,15 @@ import (
 // RemoteAccess is what the server needs of remote access: to say how the
 // tunnel is, to reach the relay on the window's behalf, to be told to reread
 // the enrolment, and to turn it on and off, rename this machine and try the
-// relay again from the dialog as `flockdeck remote` does from a terminal.
+// relay again from the dialog as `flockdeck remote` does from a terminal, and
+// to move this machine to another relay.
 type RemoteAccess interface {
 	Status() (remote.Status, bool)
 	Client() (*remote.Client, error)
 	Reload() error
 	Enable(ctx context.Context, req remote.EnableRequest) (replaced bool, err error)
 	Disable(ctx context.Context, force bool) (untold error, err error)
+	Move(ctx context.Context, req remote.EnableRequest) (untold error, err error)
 	Rename(ctx context.Context, name string) error
 	Reconnect() error
 }
@@ -485,6 +487,24 @@ func refusedThroughRelay(c *controlClient, action string) bool {
 	c.sendJSON(remoteOutcomeMsg{Type: "remoteOutcome", Action: action, Error: deskOnlyRemote})
 	c.notify(deskOnlyRemote, true)
 	return true
+}
+
+// remoteMove moves this machine to another relay from the dialog: `flockdeck
+// remote move` without a terminal. The window has already said that every
+// device will pair again, and asked, before this is sent.
+func (s *Server) remoteMove(c *controlClient, cmd command) {
+	req := remote.EnableRequest{Relay: cmd.Relay, Name: cmd.Name, Join: cmd.Join, Invite: cmd.Invite}
+	s.remoteCall(c, "move", "moving to another relay", func(ctx context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
+		untold, err := ra.Move(ctx, req)
+		switch {
+		case err != nil:
+			msg.Error = err.Error()
+			return
+		case untold != nil:
+			msg.Warning = "The old relay could not be told, so it will go on listing this machine, offline, until a device paired there removes it: " + untold.Error()
+		}
+		c.notify("this machine has moved to the new relay; pair each device again", false)
+	})
 }
 
 // remoteReconnect is the dialog's "try again": the relay is tried now rather

@@ -1041,12 +1041,17 @@ flockdeck remote revoke <id>      # unpair one, by its id or its name
 flockdeck remote rename <name>    # what every paired device calls this machine
 flockdeck remote rename -device <id> <name>   # what a paired device is called
 flockdeck remote disable          # remove this machine from the relay
+flockdeck remote move <relay>     # move to another relay; every device pairs again
 ```
 
 `remote pair -desktop` prints a code that `remote enable -join <code>` on
 another machine uses to join the same account, so one paired device reaches
 both. `enable -invite <code>` is for a relay that asks for an invitation, and
 `disable -force` forgets the enrolment here when the relay cannot be told.
+`remote move` (or **Move to another relay…** in the dialog) is for a company
+taking its machines onto a relay of its own: it enrols with the new relay
+first and leaves the old one only once the new one answers, and every paired
+device then pairs again, since a pairing belongs to the relay it was made on.
 
 Flockdeck dials *out* to the relay — `https://remote.flockdeck.ai` unless
 `flockdeck remote enable -relay <url>` or `FLOCKDECK_RELAY` names another — and holds one WebSocket open

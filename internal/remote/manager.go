@@ -188,6 +188,23 @@ func (m *Manager) Enable(ctx context.Context, req EnableRequest) (replaced bool,
 	return replaced, m.Reload()
 }
 
+// Move enrols this machine with another relay and leaves the one it is on,
+// once the new one answers: what `flockdeck remote move` does, for the window.
+// The tunnel is moved across as soon as the new enrolment is saved, before
+// the old relay is told, so the window shows it connecting to the new relay
+// rather than cut off by the old. untold is why the old relay could not be
+// told, when the move went ahead regardless.
+func (m *Manager) Move(ctx context.Context, req EnableRequest) (untold error, err error) {
+	m.enrolling.Lock()
+	defer m.enrolling.Unlock()
+	var rerr error
+	_, untold, err = Move(ctx, m.version, req, func() { rerr = m.Reload() })
+	if err != nil {
+		return nil, err
+	}
+	return untold, rerr
+}
+
 // Disable takes this machine off its relay and closes the tunnel: what
 // `flockdeck remote disable` does, for the window. untold is why the relay
 // could not be told, when force had the enrolment forgotten regardless.
