@@ -148,7 +148,7 @@ func main() {
 	var c cliFlags
 	fs := flockdeckFlagSet(&c)
 	_ = fs.Parse(os.Args[1:]) // ExitOnError: a bad flag has already ended us
-	fs.Visit(func(f *flag.Flag) { c.dirGiven = c.dirGiven || f.Name == "C" })
+	c.dirGiven = dirWasGiven(fs, os.Getenv(dirEnv))
 
 	if c.version {
 		// The platform is part of the answer: it is what a bug report needs
@@ -238,22 +238,83 @@ type cliFlags struct {
 	version bool
 }
 
+// Environment variables behind the top-level flags, for a systemd unit, a
+// container ENTRYPOINT or a Helm env: block that would rather set these once
+// in a manifest than assemble an argv. Each seeds its flag's default before
+// flag.Parse runs (the pattern internal/chat/flags.go already uses and
+// already tests: "a flag beats the environment"), so a flag actually given on
+// the command line still wins. None of these carries a secret, so pattern 1
+// (seed-then-parse) is safe here -- flag.PrintDefaults would otherwise print
+// it for -h and for any bad flag.
+//
+// FLOCKDECK_AGENT is deliberately not reused for -agent: it is already the
+// name a pane's own process reads to know which agent it is
+// (internal/chat/flags.go's paneEnv("AGENT")), read unconditionally from the
+// process environment regardless of who set it. Seeding -agent's default from
+// FLOCKDECK_AGENT would also be read by every pane's `flockdeck chat`
+// invocation, corrupting per-pane agent identity with whatever the service
+// was launched with -- so the default-agent-for-new-panes setting here gets
+// its own name instead.
+const (
+	dirEnv        = "FLOCKDECK_DIR"
+	startAgentEnv = "FLOCKDECK_START_AGENT"
+	freshEnv      = "FLOCKDECK_FRESH"
+	shellFirstEnv = "FLOCKDECK_SHELL_FIRST"
+	noWindowEnv   = "FLOCKDECK_NO_WINDOW"
+	detachEnv     = "FLOCKDECK_DETACH"
+	soloEnv       = "FLOCKDECK_SOLO"
+)
+
+// envBool reports whether name is set in the environment to a value that
+// means yes -- "1" or "true", either case -- which is the shape a systemd
+// unit's Environment= or a container manifest's env: block most often writes
+// a boolean in. Anything else, including unset, false, or 0, is no.
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true":
+		return true
+	}
+	return false
+}
+
 // flockdeckFlagSet defines the top-level command line. It is built here rather
 // than inline in main so that a test can walk the same set the program uses
 // and check the help documents it.
 func flockdeckFlagSet(c *cliFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("flockdeck", flag.ExitOnError)
-	fs.StringVar(&c.dir, "C", ".", "`directory` to open the workspace on")
-	fs.StringVar(&c.agent, "agent", "", "`id` of the agent new panes start as for this run; flockdeck agents lists them")
-	fs.BoolVar(&c.fresh, "new", false, "ignore any saved layout and start with a single pane")
-	fs.BoolVar(&c.shell, "shell", false, "open the first pane as a shell instead of an agent")
-	fs.BoolVar(&c.noWindow, "no-window", false, "do not open a window or need a browser here; print the URL and keep serving")
-	fs.BoolVar(&c.detach, "detach", false, "keep running without a window; reattach later by running it again")
+	fs.StringVar(&c.dir, "C", envOr(dirEnv, "."), "`directory` to open the workspace on\n(default: $"+dirEnv+" if set, else the working directory)")
+	fs.StringVar(&c.agent, "agent", os.Getenv(startAgentEnv), "`id` of the agent new panes start as for this run; flockdeck agents lists them\n(default: $"+startAgentEnv+" if set)")
+	fs.BoolVar(&c.fresh, "new", envBool(freshEnv), "ignore any saved layout and start with a single pane\n(default: $"+freshEnv+" if set to 1 or true)")
+	fs.BoolVar(&c.shell, "shell", envBool(shellFirstEnv), "open the first pane as a shell instead of an agent\n(default: $"+shellFirstEnv+" if set to 1 or true)")
+	fs.BoolVar(&c.noWindow, "no-window", envBool(noWindowEnv), "do not open a window or need a browser here; print the URL and keep serving\n(default: $"+noWindowEnv+" if set to 1 or true)")
+	fs.BoolVar(&c.detach, "detach", envBool(detachEnv), "keep running without a window; reattach later by running it again\n(default: $"+detachEnv+" if set to 1 or true)")
 	fs.BoolVar(&c.quit, "quit", false, "stop a running instance and its agents")
-	fs.BoolVar(&c.solo, "solo", false, "always start a new instance instead of attaching to a running one")
+	fs.BoolVar(&c.solo, "solo", envBool(soloEnv), "always start a new instance instead of attaching to a running one\n(default: $"+soloEnv+" if set to 1 or true)")
 	fs.BoolVar(&c.version, "version", false, "print the version and exit")
 	fs.Usage = func() { usage(fs) }
 	return fs
+}
+
+// envOr is name's value in the environment, or fallback when it is unset or
+// empty.
+func envOr(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// dirWasGiven reports whether the workspace directory was named, rather than
+// left at -C's default, so launchRoot can tell "open this directory" from
+// "nothing named, fall back to cwd/landing logic". fs.Visit alone only sees a
+// flag actually typed on the command line, not one that merely got its
+// default seeded from envDir (FLOCKDECK_DIR) -- so envDir alone, with no -C,
+// has to count as given too, or a systemd unit that sets FLOCKDECK_DIR and
+// passes no -C would have it silently ignored.
+func dirWasGiven(fs *flag.FlagSet, envDir string) bool {
+	visited := false
+	fs.Visit(func(f *flag.Flag) { visited = visited || f.Name == "C" })
+	return visited || envDir != ""
 }
 
 func usage(fs *flag.FlagSet) {
@@ -296,6 +357,14 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  FLOCKDECK_API_KEY=<key>\n")
 	fmt.Fprintf(out, "        the key any API agent uses when neither its own variables nor a key\n")
 	fmt.Fprintf(out, "        stored with `flockdeck keys set` hold one\n")
+	// The rest mirror flags above, for a systemd unit or container manifest
+	// that would rather set these once in the environment than build an argv;
+	// a flag given on the command line still wins over any of them.
+	fmt.Fprintf(out, "  %s=<directory>, %s=<id>, %s=<url>\n", dirEnv, startAgentEnv, remote.RelayEnv)
+	fmt.Fprintf(out, "  %s / %s / %s / %s / %s=1\n", freshEnv, shellFirstEnv, noWindowEnv, detachEnv, soloEnv)
+	fmt.Fprintf(out, "        the environment equivalents of -C, -agent, -relay, -new, -shell,\n")
+	fmt.Fprintf(out, "        -no-window, -detach and -solo, for a systemd unit or container manifest;\n")
+	fmt.Fprintf(out, "        a flag given on the command line always wins\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")
 	fmt.Fprintf(out, "Press F1 in the window for the help: the shortcuts, and how the rest of it works.\n")
 }

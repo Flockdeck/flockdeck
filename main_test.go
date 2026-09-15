@@ -462,10 +462,130 @@ func TestUsageNamesTheEnvironment(t *testing.T) {
 	fs := flockdeckFlagSet(&cliFlags{})
 	fs.SetOutput(&buf)
 	usage(fs)
-	for _, name := range []string{"FLOCKDECK_BROWSER", "FLOCKDECK_UPDATE", "FLOCKDECK_RELAY", "FLOCKDECK_API_KEY"} {
+	for _, name := range []string{
+		"FLOCKDECK_BROWSER", "FLOCKDECK_UPDATE", "FLOCKDECK_RELAY", "FLOCKDECK_API_KEY",
+		dirEnv, startAgentEnv, freshEnv, shellFirstEnv, noWindowEnv, detachEnv, soloEnv,
+	} {
 		if !strings.Contains(buf.String(), name) {
 			t.Errorf("%s is missing from the usage message", name)
 		}
+	}
+}
+
+// Each top-level flag that has an environment equivalent takes its default
+// from the environment, but a flag actually given on the command line still
+// wins -- the same "seed the default, then parse" pattern, and the same
+// guarantee, internal/chat/flags.go already has and tests.
+func TestTopLevelFlagsTakeTheirDefaultFromTheEnvironment(t *testing.T) {
+	t.Setenv(dirEnv, "/srv/project")
+	t.Setenv(startAgentEnv, "codex")
+	t.Setenv(freshEnv, "1")
+	t.Setenv(shellFirstEnv, "true")
+	t.Setenv(noWindowEnv, "1")
+	t.Setenv(detachEnv, "TRUE")
+	t.Setenv(soloEnv, "1")
+
+	var c cliFlags
+	fs := flockdeckFlagSet(&c)
+	if err := fs.Parse(nil); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	switch {
+	case c.dir != "/srv/project":
+		t.Errorf("dir = %q, want the value of %s", c.dir, dirEnv)
+	case c.agent != "codex":
+		t.Errorf("agent = %q, want the value of %s", c.agent, startAgentEnv)
+	case !c.fresh || !c.shell || !c.noWindow || !c.detach || !c.solo:
+		t.Errorf("options = %+v, want every boolean set from its env var", c.options)
+	}
+
+	// A flag actually given beats the environment behind it.
+	c = cliFlags{}
+	fs = flockdeckFlagSet(&c)
+	if err := fs.Parse([]string{"-C", "/elsewhere", "-agent", "claude"}); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if c.dir != "/elsewhere" || c.agent != "claude" {
+		t.Errorf("options = %+v, want the flags to beat %s and %s", c.options, dirEnv, startAgentEnv)
+	}
+}
+
+// envBool is the boolean env vars' own parsing: "1" or "true", either case,
+// mean yes; anything else, including unset, means no.
+func TestEnvBool(t *testing.T) {
+	const name = "FLOCKDECK_TEST_ENV_BOOL"
+	cases := map[string]bool{"": false, "0": false, "false": false, "yes": false, "1": true, "true": true, "TRUE": true, " 1 ": true}
+	for v, want := range cases {
+		t.Setenv(name, v)
+		if got := envBool(name); got != want {
+			t.Errorf("envBool with %s=%q = %v, want %v", name, v, got, want)
+		}
+	}
+}
+
+// dirWasGiven is the trap the plan flagged by name: fs.Visit alone only sees
+// -C actually typed on the command line, not FLOCKDECK_DIR merely seeding its
+// default, so FLOCKDECK_DIR on its own -- no -C -- still has to count as
+// given, or launchRoot would silently ignore it.
+func TestDirWasGiven(t *testing.T) {
+	cases := []struct {
+		name   string
+		args   []string
+		envDir string
+		want   bool
+	}{
+		{"neither", nil, "", false},
+		{"env var alone, no -C on the command line", nil, "/srv/project", true},
+		{"-C alone", []string{"-C", "/elsewhere"}, "", true},
+		{"both", []string{"-C", "/elsewhere"}, "/srv/project", true},
+	}
+	for _, c := range cases {
+		var cf cliFlags
+		fs := flockdeckFlagSet(&cf)
+		if err := fs.Parse(c.args); err != nil {
+			t.Fatalf("%s: Parse: %v", c.name, err)
+		}
+		if got := dirWasGiven(fs, c.envDir); got != c.want {
+			t.Errorf("%s: dirWasGiven = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// FLOCKDECK_AGENT is already taken -- it is what a pane's own `flockdeck chat`
+// reads to know which agent it is (internal/chat's paneEnv("AGENT")). The
+// default-agent-for-new-panes setting must not reuse it, or a service started
+// with FLOCKDECK_AGENT set would have every pane's own chat process read it
+// too, corrupting per-pane agent identity.
+func TestStartAgentEnvDoesNotCollideWithThePaneHandshakeVar(t *testing.T) {
+	if startAgentEnv == "FLOCKDECK_AGENT" {
+		t.Fatal("startAgentEnv must not be FLOCKDECK_AGENT: that name is already the pane-side agent-identity handshake variable")
+	}
+}
+
+// -join, -invite and -name on `remote enable` fall back to the environment
+// too, so a first-boot container entrypoint can enrol with no interactive
+// input; a flag given still wins, as with the top-level flags.
+func TestRemoteEnableFlagsTakeTheirDefaultFromTheEnvironment(t *testing.T) {
+	t.Setenv(remoteJoinEnv, "join-code")
+	t.Setenv(remoteInviteEnv, "invite-code")
+	t.Setenv(remoteNameEnv, "my-server")
+
+	var f remoteEnableFlags
+	fs := remoteEnableFlagSet(&f)
+	if err := fs.Parse(nil); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if f.join != "join-code" || f.invite != "invite-code" || f.name != "my-server" {
+		t.Errorf("flags = %+v", f)
+	}
+
+	f = remoteEnableFlags{}
+	fs = remoteEnableFlagSet(&f)
+	if err := fs.Parse([]string{"-join", "other-code"}); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if f.join != "other-code" {
+		t.Errorf("join = %q, want the flag to beat %s", f.join, remoteJoinEnv)
 	}
 }
 
