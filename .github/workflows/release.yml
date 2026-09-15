@@ -117,10 +117,25 @@ jobs:
       # a linux/amd64 build right before or after this one still links its
       # own. Ubuntu's default sources only carry amd64 packages; arm64's live
       # on ports.ubuntu.com, added here as their own architecture.
+      #
+      # dpkg --add-architecture alone is not enough: the runner's own default
+      # sources (azure.archive.ubuntu.com and, separately, security.ubuntu.com)
+      # are left unrestricted, and apt then tries arm64 against every one of
+      # them -- including security.ubuntu.com, which unlike the archive mirror
+      # answers that with a hard 404 rather than skipping it, failing the
+      # update outright. So every existing source is pinned to amd64 first,
+      # and only the ports.ubuntu.com source added here is asked for arm64.
       - name: Install Linux build dependencies (native amd64 + arm64 cross)
         if: runner.os == 'Linux'
         run: |
           sudo dpkg --add-architecture arm64
+          for f in /etc/apt/sources.list.d/*.sources; do
+            [ -f "$f" ] || continue
+            grep -q '^Architectures:' "$f" || sudo sed -i '/^Types: /a Architectures: amd64' "$f"
+          done
+          if [ -f /etc/apt/sources.list ]; then
+            sudo sed -i -E 's|^deb (http)|deb [arch=amd64] \1|' /etc/apt/sources.list
+          fi
           codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $codename main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $codename-updates main universe" | sudo tee -a /etc/apt/sources.list.d/arm64.list
