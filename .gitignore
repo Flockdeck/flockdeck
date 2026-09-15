@@ -1,5 +1,12 @@
 /dist/
+/bin/
 /flockdeck
 /flockdeck.exe
 /flockdeck-chat.exe
 .idea/
+
+# Fetched fresh from Microsoft by `make installer` (wails3 generate
+# webview2bootstrapper) rather than carried in the repository: it is a
+# third-party redistributable Microsoft updates on its own, not a Flockdeck
+# asset like the icons beside it.
+/build/windows/nsis/MicrosoftEdgeWebview2Setup.exe

@@ -30,7 +30,7 @@ PLATFORMS := \
 	darwin/amd64 \
 	darwin/arm64
 
-.PHONY: all build install test race vet fmt check clean dist package $(PLATFORMS)
+.PHONY: all build install test race vet fmt check clean dist package installer $(PLATFORMS)
 
 all: check build
 
@@ -86,4 +86,23 @@ package:
 	go run ./cmd/release -version $(VERSION) -out $(DIST)
 
 clean:
-	rm -rf $(DIST) $(BINARY) $(BINARY).exe $(CHAT).exe
+	rm -rf $(DIST) bin $(BINARY) $(BINARY).exe $(CHAT).exe
+
+# installer packages flockdeck.exe as a Windows installer using Wails' own
+# NSIS tooling (build/windows/nsis), rather than a build system of its own:
+# Wails is only ever a library dependency here (see internal/appwindow), so
+# `build` above -- a plain `go build` -- is still what produces the binary
+# this packages. build/windows/nsis/project.nsi is wails3's own template
+# (from `wails3 generate build-assets`), customised only to match the
+# binary's real name; build/windows/icon.ico is generated from the same
+# source PNG as the .syso icon resource winres.go's go:generate makes
+# (see build/appicon.png and `wails3 generate icons`).
+#
+# Requires NSIS's makensis on PATH (https://nsis.sourceforge.io/) and, the
+# first time, a network connection to fetch the WebView2 bootstrapper the
+# installer runs (see .gitignore: it is not carried in the repository).
+# Windows only, like the installer it makes.
+installer: build
+	mkdir -p bin
+	test -f build/windows/nsis/MicrosoftEdgeWebview2Setup.exe || wails3 generate webview2bootstrapper -dir build/windows/nsis
+	makensis -DARG_WAILS_AMD64_BINARY="$(CURDIR)/$(BINARY).exe" -DINFO_PRODUCTVERSION=$(patsubst v%,%,$(firstword $(subst -, ,$(VERSION)))) build/windows/nsis/project.nsi
