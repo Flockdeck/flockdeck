@@ -53,6 +53,7 @@
     <a href="{{.Home}}#remote">Remote</a>
     <a href="{{.Home}}#install">Install</a>
     <a href="{{.Home}}#faq">FAQ</a>
+    <a href="trust.html"{{if eq .Path "trust.html"}} aria-current="page"{{end}}>Trust</a>
     <a href="https://docs.flockdeck.ai/">Docs</a>
     <a href="{{.Repo}}">Source</a>
   </nav>
@@ -87,6 +88,7 @@
     <div class="foot-legal">
       <p>© 2026 Jim Wright</p>
       <nav aria-label="Legal">
+        <a href="trust.html"{{if eq .Path "trust.html"}} aria-current="page"{{end}}>Trust</a>
         <a href="privacy.html"{{if eq .Path "privacy.html"}} aria-current="page"{{end}}>Privacy</a>
         <a href="terms.html"{{if eq .Path "terms.html"}} aria-current="page"{{end}}>Terms</a>
         <a href="licences.html"{{if eq .Path "licences.html"}} aria-current="page"{{end}}>Licences</a>
