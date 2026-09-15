@@ -41,6 +41,10 @@ type recentView struct {
 	Name   string `json:"name"`
 	Exists bool   `json:"exists"`
 	Open   bool   `json:"open"`
+	// Archived says this project is kept out of the picker's Recent
+	// section; the picker's own Archived section is drawn from these
+	// instead. See store.SetProjectArchived.
+	Archived bool `json:"archived,omitempty"`
 }
 
 // browse lists the directories inside path so the picker can navigate the file
@@ -301,11 +305,16 @@ func (s *Server) recents(c *controlClient) {
 		msg := recentsMsg{Type: "recents"}
 		for _, p := range list {
 			fi, err := os.Stat(p.Root)
+			name := filepath.Base(p.Root)
+			if p.Name != "" {
+				name = p.Name
+			}
 			msg.Items = append(msg.Items, recentView{
-				Root:   p.Root,
-				Name:   filepath.Base(p.Root),
-				Exists: err == nil && fi.IsDir(),
-				Open:   open[p.Root],
+				Root:     p.Root,
+				Name:     name,
+				Exists:   err == nil && fi.IsDir(),
+				Open:     open[p.Root],
+				Archived: p.Archived,
 			})
 		}
 		c.sendJSON(msg)

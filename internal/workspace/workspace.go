@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -203,7 +204,10 @@ type Tab struct {
 
 // Project is an open project and a summary of what is happening inside it.
 type Project struct {
-	Root    string
+	Root string
+	// Name is what the switcher and picker call this project: the display
+	// name chosen by hand for it (see ReloadProjectMeta), or, absent one,
+	// the name derived from its directory the way it always was.
 	Name    string
 	Active  bool
 	Tabs    int
@@ -218,6 +222,14 @@ type Project struct {
 	// entry, itself, so the switcher's expandable member list has one thing
 	// to expand into rather than a special case for a project of one.
 	Members []RepoSummary
+	// Archived says this project is kept out of the picker's ordinary
+	// lists (see SetProjectArchived); an open project may still be, since
+	// archiving one does not close it.
+	Archived bool
+	// order is the position chosen by hand that Projects sorts its result
+	// by, kept off the exported fields since nothing outside this package
+	// has a use for the number itself, only for the order it produces.
+	order int
 }
 
 // RepoSummary is one repo inside a Project, as the switcher's expandable
@@ -315,6 +327,20 @@ type Workspace struct {
 	// twelve times, and ReloadAgents is how an edit made by hand takes effect
 	// without a restart.
 	catalog *agent.Catalog
+
+	// projectMu guards projectMeta the same way catalogMu guards the
+	// catalog: it is read on every call to Projects, which a snapshot is
+	// built from many times a second, and replaced wholesale by whoever
+	// asks for it to be read again.
+	projectMu sync.RWMutex
+	// projectMeta is each project's own display settings -- a name chosen
+	// by hand, whether it is archived, where it sits in a list ordered by
+	// hand -- read from the recent-projects list and cached here rather
+	// than read fresh every time, for the same reason the catalog is.
+	// ReloadProjectMeta is how a rename, an archive or a reorder made from
+	// the picker takes effect.
+	projectMeta map[string]store.ProjectMeta
+
 	// runAgent is the agent -agent named for this run, which outranks the
 	// catalog's defaults and is outranked by a pane that names one itself.
 	runAgent string
@@ -403,6 +429,10 @@ func New(opts Options) (*Workspace, error) {
 	w.claudeExe, _ = session.LookClaude()
 	w.spawnCmd = spawnCommand(selfExe)
 	w.catalog = agent.Load()
+	// A damaged or absent list is not fatal: every project simply starts
+	// with none of these settings chosen, which is what a fresh install has
+	// anyway.
+	w.projectMeta, _ = store.AllProjectMeta()
 
 	srv, err := hooks.Serve(w.handleHook)
 	if err != nil {
@@ -568,7 +598,24 @@ func (w *Workspace) Projects() []Project {
 		if ag := w.groupOf(w.activeRoot); ag != nil {
 			active = ag.ID == g.ID
 		}
-		out[i] = Project{Root: g.Primary, Name: names[g.ID], Active: active, Members: members}
+		// Per-root display settings (a name chosen by hand, archived, a
+		// position chosen by hand) are keyed by a project's primary root --
+		// they predate groups, from when a project was always exactly one
+		// root, and Primary is still what identifies a project of any size
+		// to the picker (Project.Root, above). A group's own name, set
+		// through renameGroup, is the newer and more specific of the two, so
+		// it wins when both are set; group.Name empty is what groupDisplayNames
+		// already reads as "derive one", and a name chosen by hand before the
+		// project was ever grouped should still surface rather than be lost.
+		meta := w.projectMetaFor(g.Primary)
+		name := names[g.ID]
+		if g.Name == "" && meta.Name != "" {
+			name = meta.Name
+		}
+		out[i] = Project{
+			Root: g.Primary, Name: name, Active: active, Members: members,
+			Archived: meta.Archived, order: meta.Order,
+		}
 		groupIndex[g.ID] = i
 	}
 	// Tabs and panes name their project by a repo root, which indexOf maps
@@ -619,6 +666,16 @@ func (w *Workspace) Projects() []Project {
 			}
 		}
 	}
+	// A project moved within the picker's Open list by hand sorts there
+	// too, ahead of one that has not been moved; among projects alike in
+	// that -- both moved or neither -- the order they were opened in, which
+	// is what this returned before there was a choice, is kept.
+	sort.SliceStable(out, func(i, j int) bool {
+		if (out[i].order != 0) != (out[j].order != 0) {
+			return out[i].order != 0
+		}
+		return out[i].order < out[j].order
+	})
 	return out
 }
 
@@ -1680,6 +1737,34 @@ func (w *Workspace) ReloadAgents() string {
 	w.catalog = c
 	w.catalogMu.Unlock()
 	return c.Notice
+}
+
+// ReloadProjectMeta re-reads every project's display settings -- a name
+// chosen by hand, whether it is archived, where it sits in a list ordered
+// by hand -- from the recent-projects list, so a rename, an archive or a
+// reorder made from the picker takes effect at once. It is safe to call
+// from any goroutine, the way ReloadAgents is.
+//
+// A damaged or unreadable list leaves what was cached before in place
+// rather than clearing it: the picker's own write already failed and told
+// the user so, and a second failure reading the very file it just wrote
+// must not also unname or un-archive every other project on top of that.
+func (w *Workspace) ReloadProjectMeta() {
+	meta, err := store.AllProjectMeta()
+	if err != nil {
+		return
+	}
+	w.projectMu.Lock()
+	w.projectMeta = meta
+	w.projectMu.Unlock()
+}
+
+// projectMetaFor returns root's own display settings, the zero value where
+// none have been chosen.
+func (w *Workspace) projectMetaFor(root string) store.ProjectMeta {
+	w.projectMu.RLock()
+	defer w.projectMu.RUnlock()
+	return w.projectMeta[store.MetaKey(root)]
 }
 
 // agents returns the catalog, reading it once if the workspace was built

@@ -43,6 +43,33 @@ own that closes it.
 The browser is served by the Go side rather than by the page, because a web
 page cannot be handed a real directory path.
 
+## Managing the list
+
+Every project, open or not, carries a small row of its own controls:
+
+- **✎ Rename** gives it a name of its own, shown everywhere the project's
+  name appears — the rail, the top bar, the switcher, another project's pane
+  headers — in place of the one taken from its folder. Renaming to nothing
+  goes back to that one.
+- **Archive** keeps a project out of the Recent list without touching
+  anything on disk or closing it if it is open; it moves into its own
+  Archived section, folded away behind a button until you ask to see it.
+  **Unarchive** brings it back. Archiving the project you are working in does
+  not close it — it simply stops cluttering the picker the next time it is
+  closed.
+- **▲ ▼ Move** reorders a project within the Recent or Archived list it is
+  in. A list nobody has reordered still sorts by when it was last used, as
+  it always did; moving one project the first time puts the whole list in an
+  order you keep from then on.
+- **×** (Recent and Archived only) drops a project from the list, the way it
+  always has — nothing on disk is touched, and opening the folder again puts
+  it straight back.
+
+**Default agent…**, offered on the project you are in, is the same
+per-project default the agent picker's own "Set as default for" checkbox
+saves (see the Agents help page) — reached here without starting a pane
+first.
+
 ## From the command line
 
 ```sh

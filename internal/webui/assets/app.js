@@ -4279,6 +4279,10 @@
 
   /** Whether every recent project is listed, rather than the first eight. */
   let recentsAll = false;
+  /** Whether the Archived section is expanded. It starts collapsed on every
+   *  open of the dialog: an archived project is meant to be out of the way,
+   *  not the first thing seen on opening Projects. */
+  let archivedOpen = false;
 
   /** The projects dialog's Open section is drawn from the state, and was
    *  drawn only when a recents or folder listing arrived: closing a project
@@ -4288,7 +4292,9 @@
    *  pushes that change what it lists, and no others. */
   let projectsKey = "";
   function followProjects(s) {
-    const key = (s.projects || []).map((p) => [p.root, p.active, p.tabs, p.waiting, p.working].join(":")).join("|");
+    const key = (s.projects || [])
+      .map((p) => [p.root, p.name, p.active, p.tabs, p.waiting, p.working, p.archived].join(":"))
+      .join("|");
     if (key === projectsKey) return;
     projectsKey = key;
     // A closed project's row is gone with the keyboard on it: to the project
@@ -4312,6 +4318,7 @@
     dialog = "projects";
     browseDraft = null;
     recentsAll = false;
+    archivedOpen = false;
     openOverlay("Projects", "projects");
     send({ cmd: "recents" });
     send({ cmd: "browse", path: browseState ? browseState.path : (state ? state.root : "") });
@@ -4328,7 +4335,7 @@
     const open = (state && state.projects) || [];
     const openSection = section("Open");
     open.forEach((p) => {
-      const row = el("div", "proj-row" + (p.active ? " active" : ""));
+      const row = el("div", "proj-row" + (p.active ? " active" : "") + (p.archived ? " archived" : ""));
       row.dataset.key = "open:" + p.root;
       // The row's own action — switch to this project — is a real button
       // wrapping everything that describes it, rather than a click handler on
@@ -4375,6 +4382,20 @@
         row.append(split);
       }
 
+      // The default agent is a per-project setting already (agents.json's
+      // own "set as default for this project"), and it is only worked out
+      // for whichever project is active, so the shortcut to it is offered
+      // only there; switching to another project first offers it on that
+      // one's own row.
+      if (p.active) {
+        const agentBtn = el("button", "chip", "Default agent\u2026");
+        describe(agentBtn, "Choose the agent this project opens new panes with when nobody chooses one.");
+        agentBtn.onclick = () => chooseAgent("Default agent for " + p.name, () => {}, { setDefault: true });
+        row.append(agentBtn);
+      }
+
+      row.append(projectActions(p.root, p.name, p.archived, null));
+
       if (open.length > 1) {
         const close = el("button", "icon-btn", "\u00d7");
         describe(close, "Close this project. The agents running in it stop.");
@@ -4395,51 +4416,147 @@
     });
     body.append(openSection);
 
-    // Recent projects that are not already open.
-    const notOpen = recents.filter((r) => !r.open);
-    if (notOpen.length) {
-      const rec = section("Recent");
-      const shown = recentsAll ? notOpen : notOpen.slice(0, 8);
-      shown.forEach((r, i) => {
-        const row = el("div", "proj-row" + (r.exists ? "" : " missing"));
-        row.dataset.key = "recent:" + r.root;
-        const main = el("span", "proj-main");
-        main.append(el("span", "proj-name", r.name));
-        main.append(describe(el("span", "proj-path", r.exists ? r.root : r.root + "  (missing)"), r.root));
-        // A project whose folder has gone cannot be opened, so it stays text
-        // rather than becoming a button that does nothing when it is pressed.
-        if (r.exists) {
-          const go = el("button", "proj-go");
-          go.id = "recent-" + i;
-          go.append(main);
-          go.onclick = () => { send({ cmd: "openProject", path: r.root }); closeOverlay(); };
-          row.append(go);
-        } else {
-          row.append(main);
-        }
-        const forget = el("button", "icon-btn proj-forget", "\u00d7");
-        describe(forget, "Drop this project from the recent list. Nothing on disk is touched.");
-        forget.onclick = () => { forgotAt = i; send({ cmd: "forgetRecent", root: r.root }); };
-        row.append(forget);
-        rec.append(row);
-      });
-      // Eight at first, and the rest - up to forty are remembered - simply
-      // were not there, so an older project could be reached only by browsing
-      // to its folder again.
-      if (shown.length < notOpen.length) {
-        const more = el("button", "chip", "Show " + (notOpen.length - shown.length) + " more");
-        more.onclick = () => {
-          recentsAll = true;
-          renderProjects();
-          const next = $("recent-" + shown.length);
-          if (next) next.focus();
-        };
-        rec.append(more);
+    // Recent projects that are not already open and not archived.
+    const notOpen = recents.filter((r) => !r.open && !r.archived);
+    if (notOpen.length) body.append(renderProjectSection("Recent", notOpen, "recent"));
+
+    // Archived projects: out of the way behind their own toggle, rather than
+    // the first thing seen on opening the dialog.
+    const archived = recents.filter((r) => !r.open && r.archived);
+    if (archived.length) {
+      if (!archivedOpen) {
+        const wrap = el("div", "proj-section");
+        const btn = el("button", "chip", "Show " + archived.length + " archived project" + (archived.length === 1 ? "" : "s"));
+        btn.onclick = () => { archivedOpen = true; renderProjects(); };
+        wrap.append(btn);
+        body.append(wrap);
+      } else {
+        body.append(renderProjectSection("Archived", archived, "archived"));
       }
-      body.append(rec);
     }
 
     body.append(renderBrowser());
+  }
+
+  /** renderProjectSection draws a list of not-open projects -- Recent or
+   *  Archived -- each row offering to open it (when its folder still
+   *  exists), rename it, move it, archive or unarchive it, and forget it.
+   *  `prefix` tells the two sections' rows apart, and moving or forgetting
+   *  a row works from its place in `list`, the section's own full list,
+   *  rather than in whatever is on screen: it must come out the same
+   *  whether the section is showing eight rows or eighty. */
+  function renderProjectSection(title, list, prefix) {
+    const rec = section(title);
+    const shown = prefix === "recent" && !recentsAll ? list.slice(0, 8) : list;
+    shown.forEach((r) => {
+      const at = list.indexOf(r);
+      const row = el("div", "proj-row" + (r.exists ? "" : " missing"));
+      row.dataset.key = prefix + ":" + r.root;
+      const main = el("span", "proj-main");
+      main.append(el("span", "proj-name", r.name));
+      main.append(describe(el("span", "proj-path", r.exists ? r.root : r.root + "  (missing)"), r.root));
+      // A project whose folder has gone cannot be opened, so it stays text
+      // rather than becoming a button that does nothing when it is pressed.
+      if (r.exists) {
+        const go = el("button", "proj-go");
+        go.id = prefix + "-" + at;
+        go.append(main);
+        go.onclick = () => { send({ cmd: "openProject", path: r.root }); closeOverlay(); };
+        row.append(go);
+      } else {
+        row.append(main);
+      }
+      row.append(projectActions(r.root, r.name, r.archived, { list, at }));
+      const forget = el("button", "icon-btn proj-forget", "\u00d7");
+      describe(forget, "Remove this project from the list. Nothing on disk is touched.");
+      // removeProject rather than the plain forgetRecent: it is the same
+      // drop from the list, plus closing the project first on the rare
+      // chance it is open under a spelling this row's own !open filter
+      // missed -- a second window's project, say -- so nothing is forgotten
+      // out from under itself while still on screen.
+      forget.onclick = () => { forgotAt = at; send({ cmd: "removeProject", root: r.root }); };
+      row.append(forget);
+      rec.append(row);
+    });
+    // Eight at first, and the rest - up to forty are remembered - simply
+    // were not there, so an older project could be reached only by browsing
+    // to its folder again. The Archived section, opened by its own toggle
+    // rather than shown by default, lists all of itself at once: it is
+    // already the "more" the Recent section's own button reaches for.
+    if (prefix === "recent" && shown.length < list.length) {
+      const more = el("button", "chip", "Show " + (list.length - shown.length) + " more");
+      more.onclick = () => {
+        recentsAll = true;
+        renderProjects();
+        const next = $(prefix + "-" + shown.length);
+        if (next) next.focus();
+      };
+      rec.append(more);
+    }
+    return rec;
+  }
+
+  /** projectActions is the row of small controls every project offers,
+   *  open or not: rename, and archive or unarchive. `moveCtx`, given as
+   *  `{list, at}`, adds move-up and move-down for a project kept in a list
+   *  ordered by hand (Recent and Archived; an open project's place among
+   *  the others open is not reordered by hand). */
+  function projectActions(root, name, archived, moveCtx) {
+    const actions = el("span", "proj-actions");
+
+    const rename = el("button", "icon-btn", "\u270e");
+    describe(rename, "Rename this project");
+    rename.onclick = () => renameProject(root, name);
+    actions.append(rename);
+
+    if (moveCtx) {
+      const up = el("button", "icon-btn", "\u25b2");
+      describe(up, "Move up");
+      up.disabled = moveCtx.at <= 0;
+      up.onclick = () => moveProject(moveCtx.list, root, -1);
+      actions.append(up);
+      const down = el("button", "icon-btn", "\u25bc");
+      describe(down, "Move down");
+      down.disabled = moveCtx.at >= moveCtx.list.length - 1;
+      down.onclick = () => moveProject(moveCtx.list, root, 1);
+      actions.append(down);
+    }
+
+    const arch = el("button", "chip", archived ? "Unarchive" : "Archive");
+    describe(arch, archived
+      ? "Bring this project back among your other projects."
+      : "Keep this project out of the way, in the picker's own Archived section, until it is brought back. Nothing on disk is touched, and an open project stays open.");
+    arch.onclick = () => send({ cmd: "archiveProject", root, archived: !archived });
+    actions.append(arch);
+
+    return actions;
+  }
+
+  /** renameProject asks for a project's display name, starting from the one
+   *  it has now, the same way remoteRename asks for a device's. An answer
+   *  left empty goes too, the same way an emptied tab name does: it clears
+   *  the name chosen by hand and goes back to the one derived from its
+   *  directory. */
+  function renameProject(root, current) {
+    const name = window.prompt("Rename this project. Leave it empty to use its folder name.", current);
+    if (name === null || name === undefined) return;
+    const next = String(name).trim();
+    if (next === current) return;
+    send({ cmd: "renameProject", root, text: next });
+  }
+
+  /** moveProject swaps a project with its neighbour in a list kept in an
+   *  order chosen by hand, and sends the whole list's new order --
+   *  reorderProjects only places the projects it is given, so whatever is
+   *  not in `list` (an open project, or the other of Recent/Archived) keeps
+   *  the place it already had. */
+  function moveProject(list, root, delta) {
+    const at = list.findIndex((r) => r.root === root);
+    const to = at + delta;
+    if (at < 0 || to < 0 || to >= list.length) return;
+    const roots = list.map((r) => r.root);
+    [roots[at], roots[to]] = [roots[to], roots[at]];
+    send({ cmd: "reorderProjects", roots });
   }
 
   /** rowAction makes a whole row behave as the button it already is to a
@@ -6854,11 +6971,18 @@
   /** The rows on screen, in the order the arrows walk them. */
   let pickRows = [];
 
-  function chooseAgent(title, onPick) {
+  function chooseAgent(title, onPick, opts) {
+    opts = opts || {};
     // address is the address being typed for one agent, while it is: which
     // agent, what has been typed, why the last try was refused, and whether
-    // one is out to be saved.
-    picker = { title, onPick, query: "", index: 0, open: new Set(), setDefault: false, scope: "", address: null };
+    // one is out to be saved. A caller that only wants to set the default --
+    // the Projects dialog's own shortcut to it -- starts with the box
+    // already ticked, since picking an agent here is the only thing it asked
+    // for; ordinarily nobody has said anything yet.
+    picker = {
+      title, onPick, query: "", index: 0, open: new Set(),
+      setDefault: !!opts.setDefault, scope: opts.scope || "", address: null,
+    };
     // A fresh picker starts on its first row, not on the row the last one
     // left picked out, which renderAgentPicker would otherwise carry over.
     pickRows = [];
