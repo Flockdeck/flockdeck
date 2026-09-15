@@ -292,6 +292,32 @@ The shared relay at `https://remote.flockdeck.ai` has a
 about this machine and your devices, how long it keeps it and how to have it
 deleted, and [terms](https://flockdeck.ai/terms.html) for using it.
 
+## The trial, and the subscription
+
+Remote access through the shared relay at `https://remote.flockdeck.ai` is a
+subscription, after a free trial for every account that starts when its first
+machine is enrolled. The desktop app itself is free, every part of it,
+whatever the plan: only reaching it through the shared relay is paid for.
+
+The plan is the relay's to keep, and Flockdeck only shows what the relay says.
+[[action:remote]] shows the account's plan and, during the trial, how many days
+are left, and so does **Account & plan** in the settings. A paired phone or
+browser shows the same on its **Devices** page, which is where you subscribe.
+
+When a trial ends, or a subscription lapses, the relay stops carrying remote
+windows to this machine, and the dialog says so in the relay's own words.
+Nothing else changes: the window on your desk works exactly as before, and a
+paired device can still sign in and open **Devices** to subscribe. Flockdeck
+asks the relay again every few minutes, and at once from **Try again**, so
+remote access comes back by itself once the account is paid for.
+
+Nothing is deleted straight away. The account, its machines and its paired
+devices are kept for 90 days after a trial or subscription ends, and deleted
+after that; subscribing before then puts everything back as it was.
+
+A relay other than the shared one may have no plans at all, and then none of
+this applies: nothing is shown, and nothing stops.
+
 ## Enterprise (coming soon)
 
 For companies: a licence to run the relay on your own infrastructure, with SSO

@@ -236,6 +236,9 @@ type remoteDevicesMsg struct {
 	// can say which entry revoking would end the session in front of you.
 	Current string `json:"current,omitempty"`
 	Error   string `json:"error,omitempty"`
+	// Plan is the account's plan, when the relay reports one. The window
+	// shows it, and nothing here acts on it.
+	Plan *remote.Plan `json:"plan,omitempty"`
 }
 
 type remotePairMsg struct {
@@ -281,6 +284,7 @@ func (s *Server) remoteDevices(c *controlClient) {
 		if roster.Hosts != nil {
 			msg.Hosts = roster.Hosts
 		}
+		msg.Plan = roster.Plan
 		c.sendJSON(msg)
 	}()
 }

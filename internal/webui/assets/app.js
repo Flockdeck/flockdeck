@@ -378,7 +378,12 @@
       else if (msg.type === "agentAddress") addressAnswered(msg);
       // An unpaired device's row goes with its Unpair button, and the
       // keyboard with it: to Pair a device, rather than out of the dialog.
-      else if (msg.type === "remoteDevices") { remoteRoster = msg; if (remoteShown()) keepFocus(renderRemote, "#remote-pair"); }
+      else if (msg.type === "remoteDevices") {
+        remoteRoster = msg;
+        if (remoteShown()) keepFocus(renderRemote, "#remote-pair");
+        // The plan the relay reports is shown in the settings' Account & plan.
+        else if (dialog === "settings" && settingsSection === "plan") renderSettings();
+      }
       else if (msg.type === "remotePair") {
         remotePairing = msg;
         if (remoteShown()) keepFocus(renderRemote);
@@ -572,7 +577,7 @@
     // Amber only when it needs somebody, which is what amber means everywhere
     // else here; green is a working tunnel, grey one still connecting, and
     // no badge at all is remote access turned off.
-    const trouble = !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced");
+    const trouble = !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced" || r.state === "lapsed");
     const pending = !!r && r.state === "connecting";
     b.classList.toggle("trouble", trouble);
     b.classList.toggle("pending", pending);
@@ -609,6 +614,9 @@
       case "error": return "Cannot reach " + where + (r.detail ? ": " + r.detail : "") + "." + remoteRetryClock(r.retryAt);
       case "revoked":
       case "replaced": return r.detail || "Remote access has stopped.";
+      // The relay's own words: it is the relay that stopped remote access,
+      // and nothing on this machine that decided to.
+      case "lapsed": return r.detail || "The relay has stopped remote access for this account.";
       default: return "Not connected to " + where + ".";
     }
   }
@@ -624,6 +632,45 @@
     const d = new Date(t);
     const two = (n) => String(n).padStart(2, "0");
     return " Trying again at " + two(d.getHours()) + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds()) + ".";
+  }
+
+  /** remotePlanText says an account's plan in a sentence, as the relay
+   *  reports it. The relay is what decides anything by a plan; the app only
+   *  shows it, and every part of the app works the same whatever it says. */
+  function remotePlanText(p) {
+    if (p.active === false) {
+      let s = p.message || "The relay has stopped remote access for this account.";
+      if (p.deleteAt) s += " The account and its paired devices are kept until " + remoteDay(p.deleteAt) + ", then deleted.";
+      return s;
+    }
+    if (p.plan === "trial") {
+      const n = remoteDaysLeft(p.ends);
+      return (p.name || "Free trial") + ": " + n + (n === 1 ? " day" : " days") + " left, until " + remoteDay(p.ends) + ".";
+    }
+    return (p.name || "Subscription") + (p.ends ? ", paid until " + remoteDay(p.ends) : "") + ".";
+  }
+
+  /** remoteDaysLeft is the days left until a time the relay reported, a part
+   *  of one counting as one. */
+  function remoteDaysLeft(when) {
+    const t = Date.parse(when || "");
+    if (!(t > 0)) return 0;
+    return Math.max(0, Math.ceil((t - Date.now()) / 86400000));
+  }
+
+  /** remoteDay is a day as people write it: 12 October 2026. */
+  function remoteDay(when) {
+    return new Date(Date.parse(when)).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+  }
+
+  /** remotePlanSection is the account's plan in the remote access dialog. */
+  function remotePlanSection(p) {
+    const box = section("Plan");
+    box.id = "remote-plan";
+    box.append(el("p", p.active === false ? "remote-error" : null, remotePlanText(p)));
+    box.append(el("p", "fan-hint", "Remote access through the relay is paid for from Devices on a paired phone or " +
+      "browser. The desktop app is free, and works the same whatever the plan."));
+    return box;
   }
 
   /** openRemote shows remote access: whether the relay can be reached, a way
@@ -669,6 +716,8 @@
       return;
     }
     if (r) body.append(el("div", "remote-status " + r.state, remoteSummary(r)));
+    // Only a relay that asks for a subscription reports a plan.
+    if (remoteRoster && remoteRoster.plan) body.append(remotePlanSection(remoteRoster.plan));
 
     const pair = section("Pair a device");
     const p = remotePairing;
@@ -6913,7 +6962,8 @@
       else if (id === "remote") {
         remoteRoster = null; remotePairing = null; remoteOutcome = null; remoteBusy = "";
         send({ cmd: "remoteDevices" });
-      } else if (id === "agents") send({ cmd: "refreshAgents" });
+      } else if (id === "plan") send({ cmd: "remoteDevices" });
+      else if (id === "agents") send({ cmd: "refreshAgents" });
     }
     renderSettings();
     const pane = $("settings-pane");
@@ -7380,8 +7430,18 @@
       c.append(head, el("p", "plan-text", text));
       return c;
     };
-    pane.append(card("Free", "Current plan", false,
-      "Every part of the desktop app, and remote access to your panes through the shared relay."));
+    // A relay that asks for a subscription reports the account's plan, and it
+    // is shown here as the relay says it. Nothing in the app depends on it.
+    const relayPlan = remoteRoster && remoteRoster.plan;
+    pane.append(card("Free", "Current plan", false, relayPlan
+      ? "Every part of the desktop app, for good. Remote access through the relay has a plan of its own."
+      : "Every part of the desktop app, and remote access to your panes through the shared relay."));
+    if (relayPlan) {
+      const remote = card("Remote access", relayPlan.name || relayPlan.plan, false, remotePlanText(relayPlan));
+      remote.id = "set-remote-plan";
+      remote.append(el("p", "plan-text", "It is paid for from Devices on a paired phone or browser."));
+      pane.append(remote);
+    }
     const soon = card("Enterprise", "Coming soon", true, "For companies: " + ENTERPRISE_WHAT + ".");
     const link = el("a", "plan-link");
     link.id = "set-plan-link";
