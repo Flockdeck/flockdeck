@@ -542,7 +542,7 @@ h.key({ key: "Enter" });
 assert.ok(h.$("set-tips").disabled, "Show them again is still offered with nothing to show");
 settled("Show them again");
 
-h.click(h.$("settings-tab-terminal"));
+h.click(h.$("settings-tab-appearance"));
 h.$("set-font-up").focus();
 h.key({ key: "Enter" });
 assert.ok(h.$("set-font-up").disabled, "Larger is still offered at the largest size");

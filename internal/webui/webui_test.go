@@ -4497,7 +4497,7 @@ const sections = () => h.$("settings-tabs").children.map((b) => b.textContent);
 
 h.click(h.$("btn-settings"));
 assert.ok(shown(), "the rail's Settings button did not open the settings");
-assert.deepStrictEqual(sections(), ["General", "Terminal", "Agents", "API keys", "Remote access", "Account & plan"]);
+assert.deepStrictEqual(sections(), ["General", "Appearance", "Behaviour", "Keybindings", "Agents", "API keys", "Remote access", "Account & plan"]);
 assert.strictEqual(h.$("settings-tab-general").getAttribute("aria-selected"), "true");
 assert.ok(h.doc.activeElement === h.$("settings-tab-general"), "the keyboard is not on the sections");
 assert.ok((h.$("btn-settings").dataset.tip || "").includes(k.keys), "the Settings button does not give its key");
@@ -4507,8 +4507,8 @@ assert.ok(h.$("overlay").hidden, "Escape left the settings open");
 h.press("settings");
 assert.ok(shown(), k.keys + " did not open the settings");
 h.key({ key: "ArrowDown" });
-assert.strictEqual(h.$("settings-tab-terminal").getAttribute("aria-selected"), "true", "the arrows do not walk the sections");
-assert.ok(h.doc.activeElement === h.$("settings-tab-terminal"), "the keyboard did not follow the arrows");
+assert.strictEqual(h.$("settings-tab-appearance").getAttribute("aria-selected"), "true", "the arrows do not walk the sections");
+assert.ok(h.doc.activeElement === h.$("settings-tab-appearance"), "the keyboard did not follow the arrows");
 assert.ok(h.$("settings-pane").contains(h.$("set-font-size")), "the section reached is not the one shown");
 h.key({ key: "Escape" });
 
@@ -4520,7 +4520,7 @@ const row = h.$("palette-list").children.find((r) => r.querySelector(".pal-label
 assert.ok(row, "the palette has no Settings");
 h.click(row);
 assert.ok(shown(), "the palette's Settings did not open the settings");
-assert.strictEqual(h.$("settings-tab-terminal").getAttribute("aria-selected"), "true", "the settings did not open where they were left");
+assert.strictEqual(h.$("settings-tab-appearance").getAttribute("aria-selected"), "true", "the settings did not open where they were left");
 
 const find = h.$("settings-find");
 find.value = "relay";
@@ -4601,7 +4601,7 @@ assert.strictEqual(h.$("settings-tab-remote").getAttribute("aria-selected"), "tr
 // however it is changed. A key is never shown, and the plan invents no price.
 func TestEachSettingReachesItsSetting(t *testing.T) {
 	runFrontEnd(t, relayPromise+`
-h.hello({ fontSize: 13, scrollback: 10000, dismissedTips: ["palette"] });
+const keys = h.hello({ fontSize: 13, scrollback: 10000, dismissedTips: ["palette"] });
 h.recv(fixture({ update: { version: "9.9.9" } }));
 h.click(h.$("btn-settings"));
 const pane = h.$("settings-pane");
@@ -4625,8 +4625,20 @@ h.click(h.$("set-tips"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "resetTips" });
 assert.ok(h.$("set-tips").disabled, "the hints can still be brought back with none sent away");
 
-// Terminal.
-h.click(h.$("settings-tab-terminal"));
+// Appearance: theme and accent.
+h.click(h.$("settings-tab-appearance"));
+assert.ok(on("set-theme-dark"), "dark is not shown as the theme by default");
+h.click(h.$("set-theme-light"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "theme", text: "light" });
+assert.ok(on("set-theme-light") && !on("set-theme-dark"), "the theme choice did not follow the click");
+assert.strictEqual(h.doc.documentElement.dataset.theme, "light", "the document did not take the theme");
+h.click(h.$("set-accent-purple"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "accentColor", text: "purple" });
+assert.strictEqual(h.doc.documentElement.dataset.accent, "purple", "the document did not take the accent");
+h.click(h.$("set-theme-dark"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "theme", text: "dark" });
+
+// Appearance: terminal.
 h.click(h.$("set-font-up"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 14 });
 assert.strictEqual(h.$("set-font-size").textContent, "14 px");
@@ -4657,6 +4669,33 @@ assert.ok(h.doc.activeElement === h.$("set-cursor-underline"), "the arrows did n
 h.click(h.$("set-cursor-blink"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorBlink", kind: "off" });
 assert.strictEqual(h.terms[0].options.cursorBlink, false, "the terminals' cursors still blink");
+
+// Behaviour.
+h.click(h.$("settings-tab-behaviour"));
+assert.strictEqual(h.$("set-fanout-sametab").checked, false, "fan out's own tab is offered as the default");
+h.$("set-fanout-sametab").checked = true;
+h.dispatch(h.$("set-fanout-sametab"), new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fanOutSameTab", kind: "on" });
+h.click(h.$("set-auto-review-default"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "autoReviewDefault", kind: "on" });
+assert.ok(on("set-auto-review-default"), "the switch did not turn on at once");
+
+// Keybindings.
+h.click(h.$("settings-tab-keybindings"));
+const closePane = h.$("set-keybind-closePane");
+assert.ok(closePane, "closePane has no row in the keybindings settings");
+assert.ok(h.$("set-keybind-reset-closePane").disabled, "an untouched binding offers to reset itself");
+assert.ok(h.$("set-keybind-reset-all").disabled, "nothing has been remapped, and reset-all is offered anyway");
+h.click(closePane);
+h.key({ key: "w", ctrlKey: true, altKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "setKeybinding", id: "closePane", text: "Ctrl+Alt+W" });
+h.recv({ type: "keyTable",
+  keys: keys.map((k) => k.id === "closePane" ? Object.assign({}, k, { keys: "Ctrl+Alt+W", overridden: true }) : k) });
+assert.strictEqual(h.$("set-keybind-closePane").textContent, "Ctrl+Alt+W", "the row did not take the new binding");
+assert.ok(!h.$("set-keybind-reset-closePane").disabled, "a remapped binding still offers no reset");
+assert.ok(!h.$("set-keybind-reset-all").disabled, "a remap did not enable resetting every shortcut");
+h.click(h.$("set-keybind-reset-closePane"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "resetKeybinding", id: "closePane" });
 
 // Agents.
 h.click(h.$("settings-tab-agents"));
@@ -5580,7 +5619,7 @@ assert.ok(h.terms.every((t) => t.disposed || t.options.screenReaderMode === fals
 
 // The settings have a switch for it.
 h.press("settings");
-h.click(h.$("settings-tab-terminal"));
+h.click(h.$("settings-tab-appearance"));
 assert.ok(h.$("set-screen-reader"), "the terminal settings have no switch for screen reader support");
 h.click(h.$("set-screen-reader"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "screenReader", kind: "on" });

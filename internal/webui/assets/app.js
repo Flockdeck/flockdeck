@@ -343,7 +343,13 @@
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === "state") applyState(msg);
       else if (msg.type === "hello") applyHello(msg);
-      else if (msg.type === "prefs") { prefs = msg.prefs ? keepPending(msg.prefs) : prefs; applyPrefs(); renderHints(); settingsChanged(); }
+      else if (msg.type === "prefs") { prefs = msg.prefs ? keepPending(msg.prefs) : prefs; applyPrefs(); applyTheme(); renderHints(); settingsChanged(); }
+      // A remap saved here, or by another window, redraws the palette, the
+      // tooltips and Settings › Keybindings in one go: they all read keyTable
+      // and bindings, never a binding of their own. A capture in progress is
+      // not disturbed -- another window's remap landing mid-keystroke here
+      // would be a strange moment for its row to redraw under the pointer.
+      else if (msg.type === "keyTable") { applyKeyTable(msg.keys || []); if (!keybindEditing) settingsChanged(); }
       // A button that went with its worktree leaves the keyboard on the list
       // - the first row's first button, which removes nothing - rather than
       // out of the dialog.
@@ -4934,19 +4940,14 @@
    *  together and before the first state, because the palette and the
    *  first-run hints are drawn from them. */
   function applyHello(msg) {
-    keyTable = msg.keys || [];
+    applyKeyTable(msg.keys || []);
     remoteWindow = !!msg.remote;
     // The hello is what the server holds, after a drop that may have taken
     // changes sent from here with it, so nothing sent before it is waited on.
     pendingPrefs.clear();
     prefs = msg.prefs || prefs;
     applyPrefs();
-    bindings = new Map();
-    keyTable.forEach((k) => {
-      const s = signatureOf(k.keys);
-      if (s) bindings.set(s, k.id);
-    });
-    describeChrome();
+    applyTheme();
     renderHints();
     // The hello comes again with every reconnect, carrying the preferences
     // as they are now - changed, perhaps, from another window while this one
@@ -4955,6 +4956,22 @@
     // A terminal in a box does not advertise what is around it, and the
     // alternative to opening the help once is finding it by accident.
     if (!prefs.helpSeen) openHelp("getting-started");
+  }
+
+  /** applyKeyTable takes the key table -- every action, with its binding as
+   *  keybindings.json currently leaves or remaps it -- and rebuilds bindings,
+   *  the signature-to-id map every keydown is dispatched through. It is what
+   *  the hello and a later keyTable broadcast, after a remap, both do; only
+   *  the redraw and the rest of hello's own work differ between the two, so
+   *  those stay with their own callers. */
+  function applyKeyTable(keys) {
+    keyTable = keys;
+    bindings = new Map();
+    keyTable.forEach((k) => {
+      const s = signatureOf(k.keys);
+      if (s) bindings.set(s, k.id);
+    });
+    describeChrome();
   }
 
   /** describeChrome labels the buttons that never change with the action they
@@ -6760,7 +6777,12 @@
 
   const SETTINGS_SECTIONS = [
     { id: "general", label: "General", words: "desktop notifications updates releases check hints tips" },
-    { id: "terminal", label: "Terminal", words: "font size family typeface scrollback lines cursor blink block bar underline preview screen reader accessibility" },
+    { id: "appearance", label: "Appearance",
+      words: "theme dark light system follow colour color accent swatch " +
+        "font size family typeface scrollback lines cursor blink block bar underline preview screen reader accessibility" },
+    { id: "behaviour", label: "Behaviour",
+      words: "fan out fanout tab worktree new agents auto review approve approval default defaults" },
+    { id: "keybindings", label: "Keybindings", words: "keyboard shortcuts shortcut remap rebind bindings keys chord conflict" },
     { id: "agents", label: "Agents", words: "default agent model project claude status line usage limits spend" },
     { id: "keys", label: "API keys", words: "api keys key token secret" },
     { id: "remote", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet push notify notification notifications waiting anonymous identifying" },
@@ -6774,6 +6796,13 @@
    *  it can be put right rather than typed again. */
   let fontDraft = null;
   let fontError = "";
+
+  /** The action whose binding is being recorded -- the next keydown becomes
+   *  its chord instead of running whatever it already does -- or "" while
+   *  nothing is. keybindError is what to say about the last attempt, id and
+   *  message together so it is only ever shown beside the row it is about. */
+  let keybindEditing = "";
+  let keybindError = null;
 
   /** The site's section on Enterprise, where what it costs and when it
    *  comes will be said once it is settled. v0.2.9 linked #private-relays,
@@ -6907,6 +6936,8 @@
     if (moved) {
       fontDraft = null;
       fontError = "";
+      keybindEditing = "";
+      keybindError = null;
       // What a section lists is asked for as it is shown, as its own dialog
       // does on opening.
       if (id === "keys") { apiKeys = null; keyEditing = null; send({ cmd: "keys" }); }
@@ -6939,7 +6970,9 @@
 
   const SETTINGS_DRAW = {
     general: settingsGeneral,
-    terminal: settingsTerminal,
+    appearance: settingsAppearance,
+    behaviour: settingsBehaviour,
+    keybindings: settingsKeybindings,
     agents: settingsAgents,
     keys: (pane) => { settingsHead(pane, "API keys"); settingsHost(pane); renderKeys(); },
     remote: (pane) => { settingsHead(pane, "Remote access"); settingsPush(pane); settingsHost(pane); renderRemote(); },
@@ -7106,9 +7139,118 @@
       tips));
   }
 
-  function settingsTerminal(pane) {
-    settingsHead(pane, "Terminal", "How every pane's terminal looks. Changes apply at once, to every pane.");
+  /** The theme choices offered: value, label. "" is Dark, the palette this
+   *  window has always drawn in and still draws in until one of the others is
+   *  chosen. */
+  const THEMES = [["", "Dark"], ["light", "Light"], ["system", "Follow system"]];
 
+  /** The fixed accent swatches: value, what a screen reader calls it. Not a
+   *  free colour picker -- a colour picked by hand could go illegible against
+   *  either palette, and these are chosen to keep contrast on both. Shown in
+   *  the colour app.css gives them for the dark palette, which is close
+   *  enough to place them by; the page itself redraws in whichever palette is
+   *  actually on show. */
+  const ACCENTS = [
+    ["", "Blue (default)", "#4c9aff"],
+    ["purple", "Purple", "#b48cf0"],
+    ["green", "Green", "#4fd17a"],
+    ["orange", "Orange", "#f0a552"],
+    ["pink", "Pink", "#f28fc0"],
+    ["teal", "Teal", "#4fd0c6"],
+  ];
+
+  /** applyTheme puts the chosen palette and accent on the document, which is
+   *  what app.css's [data-theme] and [data-accent] rules key off. It runs
+   *  before the first pane is drawn, and again whenever the preference
+   *  changes from here or from another window. */
+  function applyTheme() {
+    const root = document.documentElement;
+    if (prefs.theme === "light") root.dataset.theme = "light";
+    else if (prefs.theme === "system") delete root.dataset.theme;
+    else root.dataset.theme = "dark";
+    if (prefs.accentColor) root.dataset.accent = prefs.accentColor;
+    else delete root.dataset.accent;
+  }
+
+  function settingsAppearance(pane) {
+    settingsHead(pane, "Appearance", "How the window looks: its palette, its accent, and every pane's terminal.");
+
+    const seg = el("div", "set-theme");
+    seg.id = "set-theme";
+    seg.setAttribute("role", "radiogroup");
+    seg.setAttribute("aria-label", "Theme");
+    THEMES.forEach(([value, label], i) => {
+      const on = (prefs.theme || "") === value;
+      const b = el("button", "seg" + (on ? " on" : ""), label);
+      b.id = "set-theme-" + (value || "dark");
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", String(on));
+      b.tabIndex = on ? 0 : -1;
+      b.onclick = () => chooseTheme(value);
+      b.onkeydown = (ev) => {
+        const by = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[ev.key];
+        if (!by) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        const next = THEMES[(i + by + THEMES.length) % THEMES.length][0];
+        chooseTheme(next);
+        $("set-theme-" + (next || "dark")).focus();
+      };
+      seg.append(b);
+    });
+    pane.append(settingRow("Theme",
+      "Follow system matches this computer's own light or dark setting, and changes with it.", seg));
+
+    const sw = el("div", "swatches");
+    sw.id = "set-accent";
+    sw.setAttribute("role", "radiogroup");
+    sw.setAttribute("aria-label", "Accent colour");
+    ACCENTS.forEach(([value, label, colour], i) => {
+      const on = (prefs.accentColor || "") === value;
+      const b = el("button", "swatch" + (on ? " on" : ""));
+      b.id = "set-accent-" + (value || "blue");
+      b.style.background = colour;
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", String(on));
+      b.setAttribute("aria-label", label);
+      b.tabIndex = on ? 0 : -1;
+      b.onclick = () => chooseAccent(value);
+      b.onkeydown = (ev) => {
+        const by = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[ev.key];
+        if (!by) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        const next = ACCENTS[(i + by + ACCENTS.length) % ACCENTS.length][0];
+        chooseAccent(next);
+        $("set-accent-" + (next || "blue")).focus();
+      };
+      sw.append(b);
+    });
+    pane.append(settingRow("Accent colour", "A small fixed set, kept legible against either palette.", sw));
+
+    pane.append(el("div", "set-sub", "Terminal"));
+    appendTerminalSettings(pane);
+  }
+
+  function chooseTheme(value) {
+    prefs.theme = value;
+    sentPref("theme");
+    applyTheme();
+    send({ cmd: "theme", text: value || "dark" });
+    notice("Theme: " + (THEMES.find(([v]) => v === value) || ["", "Dark"])[1], false);
+    settingsChanged();
+  }
+
+  function chooseAccent(value) {
+    prefs.accentColor = value;
+    sentPref("accentColor");
+    applyTheme();
+    send({ cmd: "accentColor", text: value });
+    notice("Accent: " + (ACCENTS.find(([v]) => v === value) || ACCENTS[0])[1], false);
+    settingsChanged();
+  }
+
+  function appendTerminalSettings(pane) {
     const step = el("div", "stepper");
     step.setAttribute("role", "group");
     const down = el("button", "step-btn");
@@ -7213,6 +7355,204 @@
     pv.append(prompt(), document.createTextNode("go test ./...\nok   example.com/project   4.102s\n"), prompt(),
       el("span", "pv-cursor " + shape + (cursorBlinks() ? " blink" : "")));
     pane.append(pv);
+  }
+
+  function settingsBehaviour(pane) {
+    settingsHead(pane, "Behaviour", "Defaults new panes and new fan-outs start from. Each can still be changed for one pane or one run.");
+
+    const fanOut = prefs.fanOut || {};
+    const sameTab = el("input");
+    sameTab.type = "checkbox";
+    sameTab.id = "set-fanout-sametab";
+    sameTab.checked = !!fanOut.sameTab;
+    sameTab.onchange = () => {
+      prefs.fanOut = Object.assign({}, prefs.fanOut, { sameTab: sameTab.checked });
+      send({ cmd: "fanOutSameTab", kind: sameTab.checked ? "on" : "off" });
+      notice(sameTab.checked ? "Fanned-out agents will start beside the pane that planned them"
+        : "Fanned-out agents will start in a new tab of their own", false);
+      settingsChanged();
+    };
+    const sameTabLabel = el("label", "fan-opt");
+    sameTabLabel.append(sameTab, document.createTextNode(" Put fanned-out agents in this tab, beside the agent that planned them"));
+    pane.append(settingRow("Fan out",
+      "Off, a fan-out's agents land in a new tab of their own. This is only the default the dialog opens on; " +
+      "either way it can still be changed for one run.", sameTabLabel));
+
+    pane.append(el("div", "set-sub", "Auto-review"));
+    pane.append(settingRow("Start new panes with auto-review on",
+      "A pane's own auto-review switch still starts off, whatever this says, unless this is turned on: only a " +
+      "confidently read-only command is ever let through without asking, and it is never asked to say “deny.” " +
+      "A pane opened by hand starts here; one fanned out from another agent starts however plan 3's inheritance " +
+      "lands, once that exists.",
+      switchControl("set-auto-review-default", !!prefs.autoReviewDefault, (on) => setAutoReviewDefault(on))));
+  }
+
+  function setAutoReviewDefault(on) {
+    prefs.autoReviewDefault = on;
+    sentPref("autoReviewDefault");
+    send({ cmd: "autoReviewDefault", kind: on ? "on" : "off" });
+    notice(on ? "New panes start with auto-review on" : "New panes start with auto-review off", false);
+    settingsChanged();
+  }
+
+  // ------------------------------------------------------------ keybindings
+
+  /** riskyBareKey reports whether a chord with no Ctrl and no Alt would still
+   *  reach the focused agent's terminal instead of this window -- true for a
+   *  bare letter, digit or punctuation key, and for Shift alone with one of
+   *  them, which only types the shifted character. A bare function key, or
+   *  Shift with one, is not: F1 and Shift+F6 are built-in bindings today, and
+   *  no terminal program claims a function key. */
+  function riskyBareKey(key, ctrl, alt) {
+    if (ctrl || alt) return false;
+    if (/^F([1-9]|1[0-9])$/.test(key)) return false;
+    if (key === "Esc" || key === "Tab") return false;
+    return true;
+  }
+
+  /** chordFromKeydown turns a keydown into the chord it would be written as,
+   *  or null for one recording has nothing to do with -- a modifier pressed
+   *  alone, waiting for the key that goes with it. */
+  function chordFromKeydown(e) {
+    if (["Control", "Shift", "Alt", "Meta", "OS"].includes(e.key)) return null;
+    let key = e.key;
+    let shift = e.shiftKey;
+    // Ctrl+= and Ctrl++ are the same gesture on most layouts; matching
+    // actionFor's own normalisation keeps a recorded chord able to fire.
+    if (key === "+") { key = "="; shift = false; }
+    const named = { ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓", " ": "Space", Escape: "Esc" };
+    if (named[key]) key = named[key];
+    else if (key.length === 1) key = key.toUpperCase();
+    const parts = [];
+    if (e.ctrlKey) parts.push("Ctrl");
+    if (shift) parts.push("Shift");
+    if (e.altKey) parts.push("Alt");
+    parts.push(key);
+    return parts.join("+");
+  }
+
+  /** startKeybindCapture puts one action's row into "Press a key…", where the
+   *  next keydown this window sees becomes its chord instead of running
+   *  whatever it already does; see the keydown listener's own check of
+   *  keybindEditing. */
+  function startKeybindCapture(id) {
+    keybindEditing = id;
+    keybindError = null;
+    // keepFocus, inside settingsChanged, finds this same button again by its
+    // id once the redraw has it reading "Press a key…" and keeps it focused.
+    settingsChanged();
+  }
+
+  function cancelKeybindCapture() {
+    if (!keybindEditing) return;
+    keybindEditing = "";
+    settingsChanged();
+  }
+
+  /** finishKeybindCapture is what a recorded keydown, Backspace/Delete (which
+   *  clears the binding) or a conflict local to this window comes to: the
+   *  capture ends, and a chord that got this far is sent to be kept. A local
+   *  conflict — this window's own key table already gives it to another
+   *  action — is caught before the round trip a server refusal would cost,
+   *  though the server is still asked to check again, since another window
+   *  could have remapped the very thing in between. */
+  function finishKeybindCapture(id, chord) {
+    keybindEditing = "";
+    if (chord) {
+      const other = bindings.get(signatureOf(chord));
+      if (other && other !== id) {
+        const k = keyTable.find((x) => x.id === other);
+        keybindError = { id, message: chord + " is already " + (k ? k.label : other) };
+        settingsChanged();
+        return;
+      }
+    }
+    keybindError = null;
+    send({ cmd: "setKeybinding", id, text: chord });
+    settingsChanged();
+  }
+
+  /** keybindCaptureKey is every keydown this window sees while keybindEditing
+   *  names an action, in place of the ordinary dispatch below: nothing else
+   *  should run while a chord is being recorded, least of all the very
+   *  binding being replaced. Tab is not handled here at all -- see the
+   *  listener's own check, which cancels the capture and lets Tab go on
+   *  moving the keyboard inside the dialog as it always does. */
+  function keybindCaptureKey(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === "Escape") { cancelKeybindCapture(); return; }
+    if (e.key === "Backspace" || e.key === "Delete") { finishKeybindCapture(keybindEditing, ""); return; }
+    const chord = chordFromKeydown(e);
+    if (chord === null) return; // a modifier alone; keep waiting for the key that goes with it
+    const key = chord.includes("+") ? chord.slice(chord.lastIndexOf("+") + 1) : chord;
+    if (riskyBareKey(key, e.ctrlKey, e.altKey)) {
+      keybindError = { id: keybindEditing, message: chord + " would still reach the agent's terminal; add Ctrl or Alt, or use a function key." };
+      keybindEditing = "";
+      settingsChanged();
+      return;
+    }
+    finishKeybindCapture(keybindEditing, chord);
+  }
+
+  function settingsKeybindings(pane) {
+    settingsHead(pane, "Keybindings",
+      "Shortcuts for this window's own chrome — panes, tabs, agents, the rest. Your terminal tool keeps its own " +
+      "shortcuts separately, for what you type inside a pane; this does not touch those.");
+
+    const resetAll = el("button", "chip", "Reset every shortcut to its default");
+    resetAll.id = "set-keybind-reset-all";
+    resetAll.disabled = !keyTable.some((k) => k.overridden);
+    resetAll.onclick = () => {
+      if (!window.confirm("Put every shortcut in this window back to its default?")) return;
+      send({ cmd: "resetKeybindings" });
+    };
+    pane.append(settingRow("Every shortcut", "Undoes every remapping made here, for every action at once.", resetAll));
+
+    let section = "";
+    keyTable.forEach((k) => {
+      if (k.section !== section) {
+        section = k.section;
+        pane.append(el("div", "set-sub", section));
+      }
+      pane.append(keybindRow(k));
+    });
+  }
+
+  /** keybindRow draws one action: its label, its binding — a button that
+   *  starts recording a new one when pressed — and a reset that only does
+   *  anything once it has been remapped. selectTab's Alt+1 … Alt+9 is a range,
+   *  not a chord, and is shown plainly rather than offered to edit; see
+   *  keybindings.SetBinding, which refuses it for the same reason. */
+  function keybindRow(k) {
+    const row = el("div", "keybind-row");
+    row.append(el("div", "keybind-label", k.label));
+    const controls = el("div", "keybind-controls");
+    const range = k.keys && k.keys.includes("…");
+    if (range) {
+      controls.append(el("span", "keybind-chord empty", k.keys));
+    } else {
+      const recording = keybindEditing === k.id;
+      const btn = el("button", "keybind-chord" + (k.keys ? "" : " empty") + (k.overridden ? " changed" : "") + (recording ? " recording" : ""),
+        recording ? "Press a key…" : (k.keys || "No binding"));
+      btn.id = "set-keybind-" + k.id;
+      btn.setAttribute("aria-label", k.label + (k.keys ? ", " + k.keys : ", no binding") + " — press to change");
+      btn.onclick = () => startKeybindCapture(k.id);
+      controls.append(btn);
+      const reset = el("button", "keybind-reset", "Reset");
+      reset.id = "set-keybind-reset-" + k.id;
+      reset.setAttribute("aria-label", "Reset " + k.label + " to its default");
+      reset.disabled = !k.overridden;
+      reset.onclick = () => send({ cmd: "resetKeybinding", id: k.id });
+      controls.append(reset);
+    }
+    row.append(controls);
+    if (keybindError && keybindError.id === k.id) {
+      const err = el("div", "keybind-error", keybindError.message);
+      err.setAttribute("role", "alert");
+      row.append(err);
+    }
+    return row;
   }
 
   function settingsAgents(pane) {
@@ -7653,6 +7993,8 @@
     const sp = el("label", "fan-opt");
     const spBox = el("input");
     spBox.type = "checkbox";
+    // Settings › Behaviour's own default, until this run's own choice changes it.
+    spBox.checked = !!(prefs.fanOut && prefs.fanOut.sameTab);
     sp.append(spBox, document.createTextNode("Put them in this tab, beside the agent that planned them"));
     sp.title = "Off, the agents share a new tab of their own";
     opts.append(sp);
@@ -8309,6 +8651,16 @@
     if (e.isComposing || e.keyCode === 229) {
       if (!(e.target.classList && e.target.classList.contains("xterm-helper-textarea"))) e.stopPropagation();
       return;
+    }
+    // Recording a new binding for Settings › Keybindings takes over the
+    // keyboard entirely -- what is being replaced, most of all, must not run
+    // while its own row is waiting to hear what replaces it. Tab is the one
+    // key left to fall through: cancelling the capture and letting it go on
+    // moving the keyboard inside the dialog, as it always does, reads better
+    // than recording "Tab" by surprise on the way to the next field.
+    if (keybindEditing) {
+      if (e.key !== "Tab") { keybindCaptureKey(e); return; }
+      cancelKeybindCapture();
     }
     if (e.key === "Tab" && trapTab(e)) return;
     // Nothing behind the disconnected panel can be used, and the shortcuts
