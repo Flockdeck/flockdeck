@@ -180,6 +180,12 @@ type Server struct {
 	// struct that is edited.
 	update atomic.Pointer[UpdateView]
 
+	// recall says the version this instance is running has been pulled, if
+	// the background watcher has found it on the site's recall list. See
+	// RecallView: it is a distinct signal from update, which only ever says
+	// something newer exists, never that what is already running is known-bad.
+	recall atomic.Pointer[RecallView]
+
 	// paneLookup, usageRefresh, pingInterval and pingTimeout are the package
 	// variables of the same names, and saveInterval is layoutSaveInterval, read
 	// once as the server is made. A test shortens them for the server it makes,
@@ -241,6 +247,30 @@ func (s *Server) SetUpdate(u *UpdateView) {
 
 // Update returns the staged release, or nil when there is none.
 func (s *Server) Update() *UpdateView { return s.update.Load() }
+
+// RecallView says the version this instance is running has been recalled: a
+// known problem, found after it was published, not just "something newer
+// exists" -- which is all UpdateView ever says. Upgrade, when the release
+// notice names one, is the version to move to; otherwise the ordinary update
+// path is the way out once a fix is published.
+type RecallView struct {
+	Version string `json:"version"`
+	Reason  string `json:"reason"`
+	Upgrade string `json:"upgrade,omitempty"`
+}
+
+// SetRecall records that the running version has been recalled, or clears it
+// (nil) once the watcher finds it no longer listed -- moved off the version
+// by an update, most likely -- and has the windows told, the same way
+// SetUpdate does.
+func (s *Server) SetRecall(r *RecallView) {
+	s.recall.Store(r)
+	s.Wake()
+}
+
+// Recall returns the running version's recall notice, or nil when it has
+// none.
+func (s *Server) Recall() *RecallView { return s.recall.Load() }
 
 // New starts a server for the workspace on a free loopback port.
 func New(ws *workspace.Workspace) (*Server, error) {

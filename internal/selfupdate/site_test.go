@@ -203,6 +203,53 @@ func (r *release) point(version string) {
 	r.dl.set("/latest.json", append(data, '\n'))
 }
 
+// addVersion publishes another version, distinct from v9.9.9, holding the
+// same archive body already built for r so a test does not need to build a
+// second one. onSite puts it on the download site the way `published` put
+// v9.9.9 there, except latest.json is left alone -- it is meant to be named
+// directly, not found through it. onGH puts it on GitHub by tag, the way
+// Fetch's GitHub fallback reads one.
+func (r *release) addVersion(t *testing.T, version string, onSite, onGH bool) {
+	t.Helper()
+	sums := []byte(fmt.Sprintf("%s  %s\n", sha(r.archive), r.name))
+	sumsSig := Sign(r.key, sums)
+	notesURL := "https://github.com/" + Repo + "/releases/tag/" + version
+
+	if onSite {
+		m := Manifest{Version: version, Date: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), NotesURL: notesURL, Notes: "notes for " + version}
+		for name, data := range map[string][]byte{r.name: r.archive, sumsName: sums, sumsName + sigExt: sumsSig} {
+			r.dl.set("/"+version+"/"+name, data)
+			m.Files = append(m.Files, ManifestFile{
+				Name: name, URL: r.dl.srv.URL + "/" + version + "/" + name, SHA256: sha(data), Size: int64(len(data)),
+			})
+		}
+		data, err := json.MarshalIndent(m, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.dl.set("/"+version+"/manifest.json", data)
+		r.dl.set("/"+version+"/manifest.json.sig", Sign(r.key, data))
+	}
+
+	if onGH {
+		dl := "/" + Repo + "/releases/download/" + version + "/"
+		for name, data := range map[string][]byte{r.name: r.archive, sumsName: sums, sumsName + sigExt: sumsSig} {
+			r.gh.set(dl+name, data)
+		}
+		var assets []map[string]any
+		for _, n := range []string{r.name, sumsName, sumsName + sigExt} {
+			assets = append(assets, map[string]any{"name": n, "browser_download_url": r.gh.srv.URL + dl + n})
+		}
+		api, err := json.Marshal(map[string]any{
+			"tag_name": version, "body": "notes for " + version + " on GitHub", "html_url": notesURL, "assets": assets,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.gh.set("/repos/"+Repo+"/releases/tags/"+version, api)
+	}
+}
+
 func sha(b []byte) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])

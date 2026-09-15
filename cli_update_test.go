@@ -12,6 +12,76 @@ import (
 	"testing"
 )
 
+// `flockdeck update -version=v1.4.0` is the rollback entry point: it takes a
+// release name and, with -yes, skips the confirmation that otherwise stands
+// between it and installing something other than the latest.
+func TestUpdateFlagSetParsesVersionAndYes(t *testing.T) {
+	var f updateFlags
+	if err := parseUpdate(updateFlagSet(&f), []string{"-version=v1.4.0", "-yes"}); err != nil {
+		t.Fatalf("parseUpdate: %v", err)
+	}
+	if f.version != "v1.4.0" || !f.yes {
+		t.Errorf("version = %q, yes = %v; want v1.4.0, true", f.version, f.yes)
+	}
+
+	var g updateFlags
+	if err := parseUpdate(updateFlagSet(&g), nil); err != nil || g.version != "" || g.yes {
+		t.Errorf("with neither flag given: version = %q, yes = %v, err = %v; want unset", g.version, g.yes, err)
+	}
+}
+
+// rollbackVerb says what is actually about to happen -- moving forward,
+// back, or reinstalling the very version already running -- so `flockdeck
+// update -version=` never claims to "roll back" an upgrade or "install" a
+// version already in place.
+func TestRollbackVerb(t *testing.T) {
+	cases := []struct{ candidate, running, want string }{
+		{"v1.5.0", "v1.4.0", "Installing"},
+		{"v1.4.0", "v1.5.0", "Rolling back to"},
+		{"v1.4.0", "v1.4.0", "Reinstalling"},
+	}
+	for _, c := range cases {
+		if got := rollbackVerb(c.candidate, c.running); got != c.want {
+			t.Errorf("rollbackVerb(%q, %q) = %q, want %q", c.candidate, c.running, got, c.want)
+		}
+	}
+}
+
+// Installing a version other than the latest is deliberate, so it is never
+// done without asking -- and piped input never counts as an answer: a script
+// has to pass -yes instead, the same way a pipe is never mistaken for
+// somebody at a keyboard confirming a downgrade they did not mean.
+func TestConfirmRollback(t *testing.T) {
+	if _, err := confirmRollback(&bytes.Buffer{}, strings.NewReader(""), false, "v1.4.0", "v1.5.0"); err == nil {
+		t.Error("confirmRollback with no terminal succeeded without -yes")
+	}
+
+	cases := []struct {
+		typed string
+		want  bool
+	}{
+		{"y\n", true},
+		{"yes\n", true},
+		{"Y\n", true},
+		{"\n", false},
+		{"n\n", false},
+		{"", false}, // EOF with nothing typed
+	}
+	for _, c := range cases {
+		var out bytes.Buffer
+		ok, err := confirmRollback(&out, strings.NewReader(c.typed), true, "v1.4.0", "v1.5.0")
+		if err != nil {
+			t.Fatalf("confirmRollback(%q): %v", c.typed, err)
+		}
+		if ok != c.want {
+			t.Errorf("confirmRollback(%q) = %v, want %v", c.typed, ok, c.want)
+		}
+		if !strings.Contains(out.String(), "v1.4.0") || !strings.Contains(out.String(), "v1.5.0") {
+			t.Errorf("prompt %q does not name both versions", out.String())
+		}
+	}
+}
+
 // stageForTest leaves a staged update of the given version in a directory of
 // its own, beside a program to be replaced, and returns both.
 func stageForTest(t *testing.T, staged string) (dir, exe string) {

@@ -23,6 +23,7 @@ import (
 //	/<version>/<archive>                    each release's files
 //	/<version>/checksums.txt(.sig)          and their SHA-256s, signed
 //	/latest/<archive without the version>   for the site's download buttons
+//	/recalled.json(.sig)                    versions withdrawn after release, signed; see Recall
 //
 // Everything under /<version>/ is written once, when the release is published,
 // and never changes, so it is cached for a year. latest.json is the one file
@@ -40,10 +41,13 @@ import (
 // newer than a copy that never moved to it, and its signature still checks.
 // So whoever can write the site can point latest.json back at it and have it
 // installed, and so can whoever can publish on GitHub, where the updater goes
-// whenever the site fails. There is no revocation list yet, nothing that says
-// which signed releases the key no longer vouches for, so taking a release
-// down does not stop it being put back. Only such a list, or a latest.json
-// that is signed and expires, would.
+// whenever the site fails. latest.json alone still cannot stop that: only
+// unpublishing the release everywhere Latest reads from does (see
+// updateSteps, which already discards a staged download once it is no longer
+// the newest published release). recalled.json is the other half, for a copy
+// that already applied the bad release before it was pulled: a signed list of
+// versions known to be bad, checked by Recall, which the ordinary "is
+// something newer" check (Latest, Newer) never answers on its own.
 //
 // GitHub carries every release as well, checksums.txt.sig with it, and is
 // where the updater goes when the site cannot be reached, answers with
@@ -214,8 +218,7 @@ func siteHost() string {
 // signature before believing it, and carries the same release on GitHub for
 // Stage to fall back to.
 func latestFromSite(ctx context.Context) (*Release, error) {
-	keys := TrustedKeys()
-	if len(keys) == 0 {
+	if len(TrustedKeys()) == 0 {
 		return nil, errNoKey
 	}
 	data, err := fetchSmall(ctx, siteURL+"/"+pointerName, 1<<10)
@@ -229,8 +232,25 @@ func latestFromSite(ctx context.Context) (*Release, error) {
 	if prerelease(version) {
 		return nil, fmt.Errorf("%s names %s, a pre-release, which is never the latest", pointerName, version)
 	}
+	return releaseFromSite(ctx, version)
+}
+
+// releaseFromSite reads one version's manifest from the site directly, rather
+// than through latest.json, and builds the Release it describes the same way
+// latestFromSite does: trusted only once its signature checks against the
+// compiled-in key and it names the version asked for.
+//
+// The site's per-version files are written once, when the release is
+// published, and kept forever (Site's own layout comment), so this works for
+// any version still hosted -- Fetch's use of it -- as well as for the one
+// latest.json currently names.
+func releaseFromSite(ctx context.Context, version string) (*Release, error) {
+	keys := TrustedKeys()
+	if len(keys) == 0 {
+		return nil, errNoKey
+	}
 	at := siteURL + "/" + url.PathEscape(version) + "/" + manifestName
-	data, err = fetchSmall(ctx, at, 1<<20)
+	data, err := fetchSmall(ctx, at, 1<<20)
 	if err != nil {
 		return nil, err
 	}
@@ -245,9 +265,14 @@ func latestFromSite(ctx context.Context) (*Release, error) {
 	if m.Version != version {
 		return nil, mismatchError{fmt.Sprintf("the manifest %s serves as %s's is signed for %s", siteHost(), version, m.Version)}
 	}
+	return releaseFromManifest(m), nil
+}
 
-	rel := &Release{Version: m.Version, Notes: m.Notes, URL: m.NotesURL, sums: map[string]string{}}
-	mirror := &Release{Version: m.Version, Notes: m.Notes, URL: m.NotesURL, sums: rel.sums}
+// releaseFromManifest builds the Release a signed manifest describes, with a
+// GitHub mirror for Stage to fall back to.
+func releaseFromManifest(m *Manifest) *Release {
+	rel := &Release{Version: m.Version, Notes: m.Notes, URL: m.NotesURL, Published: m.Date, sums: map[string]string{}}
+	mirror := &Release{Version: m.Version, Notes: m.Notes, URL: m.NotesURL, Published: m.Date, sums: rel.sums}
 	for _, f := range m.Files {
 		rel.sums[f.Name] = strings.ToLower(f.SHA256)
 		if f.Name == sumsName+sigExt {
@@ -258,7 +283,96 @@ func latestFromSite(ctx context.Context) (*Release, error) {
 		mirror.Assets = append(mirror.Assets, Asset{Name: f.Name, URL: githubDownload(m.Version, f.Name), Size: f.Size})
 	}
 	rel.mirror = mirror
-	return rel, nil
+	return rel
+}
+
+// recalledName is the site's signed list of published releases withdrawn
+// because something was found wrong with them: recalled.json, published
+// beside the manifest so a copy that has already installed one of them can
+// find out. See Recall.
+const recalledName = "recalled.json"
+
+// Recalled is recalled.json as the site holds it.
+type Recalled struct {
+	Versions []RecalledVersion `json:"versions"`
+}
+
+// RecalledVersion is one release recalled.json names: what was wrong with
+// it, and, when the person publishing it knows of one, which version to move
+// to instead of whatever Latest currently returns.
+type RecalledVersion struct {
+	Version string `json:"version"`
+	Reason  string `json:"reason"`
+	Upgrade string `json:"upgrade,omitempty"`
+}
+
+// CheckRecalled reads recalled.json once its signature, the content of
+// recalled.json.sig, has passed VerifyAny, the same way CheckManifest reads
+// a manifest. Signing it matters for the same reason everything else here is
+// signed: an unsigned "you are running a known-bad build" is itself a thing
+// an attacker could forge to push someone toward installing something else.
+func CheckRecalled(keys []ed25519.PublicKey, data, sig []byte) (*Recalled, error) {
+	if err := VerifyAny(keys, data, sig); err != nil {
+		return nil, signatureError{recalledName, siteHost(), err}
+	}
+	var r Recalled
+	if err := json.Unmarshal(data, &r); err != nil {
+		return nil, fmt.Errorf("%s is not a recall list: %w", recalledName, err)
+	}
+	for _, v := range r.Versions {
+		if !Parseable(v.Version) {
+			return nil, fmt.Errorf("%s names %q, which is not a version", recalledName, v.Version)
+		}
+	}
+	return &r, nil
+}
+
+// Recall reports whether running has been recalled: published, then pulled
+// because something was found wrong with it, after copies had already
+// updated into it. Latest and Newer only ever look forward from where a
+// build already is, so nothing else tells a copy that already applied a bad
+// release that the version it is running has a known problem -- this is
+// meant to be checked at the same points Latest already is (the CLI's
+// `update` and the background watcher), not only when looking for something
+// newer.
+//
+// It is best-effort in exactly the way Latest's use in the background
+// watcher already is, and returns nil both when running is not on the list
+// and when the list could not be read at all: a machine offline, a site that
+// briefly fails, or a build with no release key to check the signature
+// against costs nothing but silence until the next check, never a false
+// "you are on a bad build." recalled.json has no GitHub mirror to fall back
+// to, so a signature that does not check -- the site serving something that
+// was not released, worth knowing about -- is logged as a warning the same
+// way a bad manifest or checksums.txt from the site already is, rather than
+// returned as an error nobody who only wants the answer would check for.
+func Recall(ctx context.Context, running string) *RecalledVersion {
+	keys := TrustedKeys()
+	if len(keys) == 0 {
+		return nil
+	}
+	data, err := fetchSmall(ctx, siteURL+"/"+recalledName, 1<<20)
+	if err != nil {
+		return nil
+	}
+	sig, err := fetchSmall(ctx, siteURL+"/"+recalledName+sigExt, 1<<10)
+	if err != nil {
+		return nil
+	}
+	r, err := CheckRecalled(keys, data, sig)
+	if err != nil {
+		if suspicious(err) {
+			logf("flockdeck: warning: %s from %s: %v", recalledName, siteHost(), err)
+		}
+		return nil
+	}
+	for _, v := range r.Versions {
+		if v.Version == running {
+			v := v
+			return &v
+		}
+	}
+	return nil
 }
 
 // githubDownload is where GitHub serves one file of a release. It is a plain
