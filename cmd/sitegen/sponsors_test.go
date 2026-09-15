@@ -66,10 +66,49 @@ func sponsorSection(t *testing.T, page string) string {
 	return strings.Join(strings.Fields(page[from:from+end]), " ")
 }
 
+// testNames is every asset a page's {{asset ...}} may ask for, fingerprinted
+// the same way Build does it, so render can be called directly in a test
+// without going through the whole site.
+func testNames(t *testing.T) map[string]string {
+	t.Helper()
+	names := map[string]string{}
+	css, err := assets.ReadFile("assets/site.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names["site.css"] = fingerprint("site.css", css)
+	fonts, err := assets.ReadDir("assets/fonts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range fonts {
+		if strings.HasSuffix(e.Name(), ".txt") {
+			continue
+		}
+		body, err := assets.ReadFile("assets/fonts/" + e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		names["fonts/"+e.Name()] = fingerprint("fonts/"+e.Name(), body)
+	}
+	shots, err := assets.ReadDir("assets/shots")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range shots {
+		body, err := assets.ReadFile("assets/shots/" + e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		names[e.Name()] = fingerprint(e.Name(), body)
+	}
+	return names
+}
+
 // renderHome draws the landing page for a list of sponsors.
 func renderHome(t *testing.T, sponsors []sponsor) string {
 	t.Helper()
-	files, err := render(site{Repo: defaultRepo, Module: defaultModule, URL: defaultURL, Downloads: downloadsURL, Sponsor: sponsorURL, Sponsors: sponsors})
+	files, err := render(site{Repo: defaultRepo, Module: defaultModule, URL: defaultURL, Downloads: downloadsURL, Sponsor: sponsorURL, Sponsors: sponsors}, testNames(t))
 	if err != nil {
 		t.Fatal(err)
 	}
