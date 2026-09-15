@@ -52,9 +52,12 @@ func Reap(procs []StaleProc, same func(StaleProc) bool, terminate func(pid int) 
 			settled = append(settled, p)
 			continue
 		}
+		// Settled either way: a terminate that failed still leaves nothing
+		// more for this sweep to do about the record, and a caller that kept
+		// retrying it forever would do no better than this one attempt did.
+		settled = append(settled, p)
 		if terminate(p.PID) == nil {
 			killed = append(killed, p)
-			settled = append(settled, p)
 		}
 	}
 	return killed, settled
