@@ -405,6 +405,21 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 			if perr := remote.Probe(context.Background(), want); perr != nil {
 				return fmt.Errorf("%v; %s could not be reached (%v), so check that address before moving this machine there", err, want, perr)
 			}
+			// A join code or a new name asked for at the same time as another
+			// relay is not what move does -- move only carries this machine
+			// to the account it is already in. Getting there instead takes
+			// leaving the current account first, then enabling again with
+			// everything asked for, all at once, on the new relay.
+			if f.join != "" || renaming(f.name) {
+				args := "-relay " + want
+				if renaming(f.name) {
+					args += " -name " + cliWord(strings.TrimSpace(f.name))
+				}
+				if f.join != "" {
+					args += " -join " + cliWord(f.join)
+				}
+				return fmt.Errorf("%v; to join that account on %s instead, run `flockdeck remote disable` first, which unpairs this machine's devices if it is its account's only machine, then `flockdeck remote enable %s`", err, want, args)
+			}
 			return fmt.Errorf("%v; to move this machine to %s, run `flockdeck remote move %s`, after which every paired device has to pair again", err, want, want)
 		}
 	}

@@ -49,6 +49,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # Wails' Linux backend (internal/appwindow) is cgo, against GTK4 and
+      # the GTK4-based WebKitGTK -- go vet/build/test all compile it, on
+      # Linux, whether or not this run ever opens a window. Without these,
+      # every step below fails at the pkg-config stage, not at anything this
+      # repo's own code did.
+      - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
       # The code is kept gofmt-clean by hand. Checked on Linux only: a Windows
       # checkout turns line endings into CRLF, which gofmt would report in
       # every file.
