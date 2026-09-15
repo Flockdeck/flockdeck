@@ -206,6 +206,48 @@ func TestSetRouting(t *testing.T) {
 	}
 }
 
+// Strategy defaults to StrategyBalanced when unset or unreadable, is settable
+// through SetRouting, and "balanced" is taken out rather than kept, since
+// that is what leaving it out already means.
+func TestSetRoutingStrategy(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, `{"version": 1}`)
+
+	if p, _ := LoadFrom(dir).RoutingFor(""); p.Strategy != "" {
+		t.Errorf("strategy = %q with nothing set, want empty (balanced)", p.Strategy)
+	}
+	if err := SetRouting(dir, "", "strategy", "Cost"); err != nil {
+		t.Fatal(err)
+	}
+	if dig(readBack(t, dir), "routing", "strategy") != "cost" {
+		t.Errorf("strategy = %v, want cost", readBack(t, dir)["routing"])
+	}
+	if p, _ := LoadFrom(dir).RoutingFor(""); p.Strategy != StrategyCost {
+		t.Errorf("strategy read back as %q, want cost", p.Strategy)
+	}
+	if err := SetRouting(dir, "", "strategy", "balanced"); err != nil {
+		t.Fatal(err)
+	}
+	if dig(readBack(t, dir), "routing", "strategy") != nil {
+		t.Errorf("strategy = %v after being set back to balanced, want it gone", dig(readBack(t, dir), "routing", "strategy"))
+	}
+	if err := SetRouting(dir, "", "strategy", "cheapest"); err == nil {
+		t.Error(`SetRouting(..., "strategy", "cheapest") was accepted`)
+	}
+}
+
+// A strategy nobody can read leaves routing quality-aware -- the cautious
+// default -- rather than off or as cost-minimising as it gets.
+func TestAStrategyNobodyCanReadIsBalanced(t *testing.T) {
+	c := Merge(&File{Routing: json.RawMessage(`{"mode": "suggest", "strategy": "cheapest"}`)})
+	if !strings.Contains(c.Notice, `"cheapest"`) {
+		t.Errorf("notice does not mention the bad strategy: %s", c.Notice)
+	}
+	if c.Routing.Strategy != StrategyBalanced {
+		t.Errorf("strategy = %q, want balanced", c.Routing.Strategy)
+	}
+}
+
 // crossAgent round-trips as a real JSON boolean, not the string every other
 // routing setting is written as, and "false" is taken out rather than kept,
 // since that is what leaving it out already means.

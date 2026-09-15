@@ -41,6 +41,17 @@ func TestRouteRowsArePositionalAndOnlyWhenOn(t *testing.T) {
 	}
 }
 
+// A project routed with Strategy "cost" gets a suggestion even for a row no
+// rule recognises, unlike the default (balanced) strategy, which leaves such
+// a row alone -- see TestRouteRowsArePositionalAndOnlyWhenOn.
+func TestRouteRowsWithCostStrategyRouteUnmatchedRows(t *testing.T) {
+	c := catalogRouting(`{"mode": "suggest", "strategy": "cost"}`)
+	routes, _, _ := routeRows(c, "/p", "claude", "sonnet", []string{"add a health endpoint"})
+	if len(routes) != 1 || routes[0] == nil || routes[0].Model != "haiku" || routes[0].Rule != "" || routes[0].Reason == "" {
+		t.Fatalf("routes = %+v, want the unmatched row routed to haiku with no rule name", routes)
+	}
+}
+
 // A project's own policy replaces every project's.
 func TestRouteRowsFollowTheProjectsOwnPolicy(t *testing.T) {
 	off := json.RawMessage(`{"mode": "off"}`)
@@ -309,5 +320,50 @@ func TestSettingsSeeTheRulesInForce(t *testing.T) {
 	}
 	if v := routingOf(agent.Merge(nil), ""); v.Every.Mode != agent.RoutingOff || v.Note != "" {
 		t.Errorf("with nothing said: %+v", v)
+	}
+}
+
+// Settings shows Strategy alongside Mode and Floor, defaulting to balanced
+// the same way an unset Mode shows as off.
+func TestSettingsSeeTheStrategy(t *testing.T) {
+	v := routingOf(catalogRouting(`{"mode": "suggest"}`), "")
+	if v.Every.Strategy != agent.StrategyBalanced {
+		t.Errorf("strategy = %q with nothing set, want balanced", v.Every.Strategy)
+	}
+	v = routingOf(catalogRouting(`{"mode": "auto", "strategy": "cost"}`), "")
+	if v.Every.Strategy != agent.StrategyCost {
+		t.Errorf("strategy = %q, want cost", v.Every.Strategy)
+	}
+}
+
+// The rules Settings lists carry the log's own account of how often each was
+// kept versus overridden, so a person editing rules by hand has the evidence
+// routing.jsonl exists for.
+func TestSettingsSeeTheRulesOverrideRate(t *testing.T) {
+	dir := t.TempDir()
+	old := routingLogDir
+	routingLogDir = func() (string, error) { return dir, nil }
+	defer func() { routingLogDir = old }()
+
+	entries := []route.LogEntry{
+		{Kind: route.KindFanout, Source: route.SourceRule, Rule: "rename or move", Baseline: "sonnet", Routed: "haiku", Outcome: route.OutcomeKept},
+		{Kind: route.KindFanout, Source: route.SourceRule, Rule: "rename or move", Baseline: "sonnet", Routed: "haiku", Outcome: route.OutcomeOverridden + "opus"},
+	}
+	if err := route.AppendLog(dir, entries...); err != nil {
+		t.Fatal(err)
+	}
+	v := routingOf(catalogRouting(`{"mode": "suggest"}`), "")
+	found := false
+	for _, r := range v.Rules {
+		if r.Name != "rename or move" {
+			continue
+		}
+		found = true
+		if r.Kept != 1 || r.Overridden != 1 {
+			t.Errorf("rename or move = %+v, want 1 kept and 1 overridden", r)
+		}
+	}
+	if !found {
+		t.Fatalf("rules = %+v, want rename or move among them", v.Rules)
 	}
 }

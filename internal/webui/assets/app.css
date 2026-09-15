@@ -1307,6 +1307,7 @@ kbd {
 .route-rule { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 12px; }
 .route-rule-name { font-weight: 600; }
 .route-rule-when { color: var(--fg-dim); overflow-wrap: anywhere; }
+.route-rule-stat { color: var(--fg-dim); font-style: italic; }
 .pick-foot {
   display: flex; align-items: center; gap: 10px; margin-top: 12px;
   padding-top: 10px; border-top: 1px solid var(--line);

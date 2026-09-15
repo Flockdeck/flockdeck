@@ -402,31 +402,47 @@ type routingView struct {
 }
 
 type routingChoice struct {
-	Mode  string `json:"mode"`
-	Floor string `json:"floor"`
+	Mode     string `json:"mode"`
+	Floor    string `json:"floor"`
+	Strategy string `json:"strategy"`
 }
 
-// ruleView is one rule as Settings lists it, in words.
+// ruleView is one rule as Settings lists it, in words, with the log's own
+// account of how often what it chose was kept, where the log has any.
 type ruleView struct {
-	Name   string `json:"name"`
-	Choice string `json:"choice"`
-	When   string `json:"when"`
+	Name       string `json:"name"`
+	Choice     string `json:"choice"`
+	When       string `json:"when"`
+	Kept       int    `json:"kept,omitempty"`
+	Overridden int    `json:"overridden,omitempty"`
 }
 
 func routingOf(c *agent.Catalog, root string) *routingView {
-	v := &routingView{Every: routingChoice{Mode: modeOr(c.Routing.Mode), Floor: c.Routing.Floor}}
+	v := &routingView{Every: routingChoice{Mode: modeOr(c.Routing.Mode), Floor: c.Routing.Floor, Strategy: strategyOr(c.Routing.Strategy)}}
 	policy, own := c.RoutingFor(root)
 	if own && root != "" {
-		v.Project = &routingChoice{Mode: modeOr(policy.Mode), Floor: policy.Floor}
+		v.Project = &routingChoice{Mode: modeOr(policy.Mode), Floor: policy.Floor, Strategy: strategyOr(policy.Strategy)}
 	}
 	v.BuiltIn = policy.Rules == nil
 	v.CrossAgent = policy.CrossAgent
+	stats := map[string]route.RuleStat{}
+	if dir, err := routingLogDir(); err == nil {
+		if entries, err := route.ReadLog(dir); err == nil {
+			for _, s := range route.Stats(entries) {
+				stats[s.Rule] = s
+			}
+		}
+	}
 	for _, r := range route.RulesOf(policy) {
 		choice := r.Tier
 		if r.Model != "" {
 			choice = r.Agent + " · " + r.Model
 		}
-		v.Rules = append(v.Rules, ruleView{Name: r.Name, Choice: choice, When: describeWhen(r.When)})
+		rv := ruleView{Name: r.Name, Choice: choice, When: describeWhen(r.When)}
+		if s, ok := stats[r.Name]; ok {
+			rv.Kept, rv.Overridden = s.Kept, s.Overridden
+		}
+		v.Rules = append(v.Rules, rv)
 	}
 	if route.New(policy).On() {
 		if spec, model, ok := c.Resolve(root, "", ""); ok {
@@ -486,6 +502,15 @@ func modeOr(mode string) string {
 		return agent.RoutingOff
 	}
 	return mode
+}
+
+// strategyOr is a policy's Strategy as Settings shows it: StrategyBalanced
+// for the empty string, which is what an unset Strategy already means.
+func strategyOr(strategy string) string {
+	if strategy == "" {
+		return agent.StrategyBalanced
+	}
+	return strategy
 }
 
 // describeWhen writes what a rule matches as a person reads it.
@@ -554,6 +579,12 @@ func routingNotice(where, field, value string) string {
 			value = agent.TierSmall
 		}
 		return "routing will choose nothing below " + value + " for " + where
+	}
+	if field == "strategy" {
+		if value == agent.StrategyCost {
+			return "routing now minimises cost for " + where + ": work no rule recognises is routed to the cheapest available model too"
+		}
+		return "routing is now cost-first but quality-aware for " + where + ": work no rule recognises is left where it was"
 	}
 	switch value {
 	case "":

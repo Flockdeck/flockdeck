@@ -20,7 +20,12 @@ the keys change, so whichever you use, the others show it.
   - **Routing** — whether a fan-out's rows come with a model chosen for the
     work: **Off**, which it is until you change it, **Suggest** or
     **Automatic**, for every project and for this one. **Never go below** keeps
-    it off the smaller tiers. The rules in force are listed, with where
+    it off the smaller tiers. **Strategy** is **Cost-first, quality-aware**,
+    the default, or **Minimise cost**: quality-aware leaves work no rule
+    recognises exactly where it was; minimise cost routes it too, to the
+    cheapest model the floor allows. Either way a rule that matches still
+    decides first. The rules in force are listed, each with how often the log
+    shows it overridden where it has decided at least once, with where
     `agents.json` is, since that is where they are edited, and **Clear routing
     history** empties the record of what it chose. [Agents and models](#agents)
     has the rest.
@@ -57,8 +62,8 @@ word. On a narrow screen the sections go across the top.
   **Set as default for** at the foot of the picker. Kept in
   `agents.json`.
 - **Whether a fan-out's models are routed, and by which rules** — **Agents ›
-  Routing** in the settings for the mode and the floor; the rules themselves
-  are edited by hand. Kept in `agents.json`.
+  Routing** in the settings for the mode, the floor and the strategy; the
+  rules themselves are edited by hand. Kept in `agents.json`.
 - **Whether Claude panes read their usage limits** — **Agents › Claude Code's
   usage limits** in the settings. Kept in `prefs.json`.
 - **An API agent's key** — **API keys** in the settings, [[action:apiKeys]], or

@@ -30,6 +30,10 @@ const (
 // SourceRule is the Source of a decision a rule made.
 const SourceRule = "rule"
 
+// SourceFallback is the Source of a decision made not by a rule but by
+// Strategy == agent.StrategyCost, when no rule matched: see Router.fallback.
+const SourceFallback = "fallback"
+
 // Input is one piece of work to decide a model for.
 type Input struct {
 	Kind string // KindFanout, KindSpawn or KindTurn
@@ -113,6 +117,7 @@ func RulesOf(p agent.RoutingPolicy) []agent.RoutingRule {
 // fan-out that asks about a dozen rows at a time.
 type Router struct {
 	mode       string
+	strategy   string
 	floor      int
 	crossAgent bool
 	rules      []rule
@@ -127,7 +132,7 @@ type rule struct {
 // does not compile, a tier that is not one -- is left out; the catalog has
 // already named it in its notice when agents.json was read.
 func New(p agent.RoutingPolicy) *Router {
-	r := &Router{mode: p.Mode, floor: max(agent.TierRank(p.Floor), 1), crossAgent: p.CrossAgent}
+	r := &Router{mode: p.Mode, strategy: p.Strategy, floor: max(agent.TierRank(p.Floor), 1), crossAgent: p.CrossAgent}
 	if p.Floor != "" && agent.TierRank(p.Floor) == 0 {
 		// A floor nobody can read is taken at its most cautious.
 		r.floor = agent.TierRank(agent.TierTop)
@@ -160,9 +165,10 @@ func Decide(p agent.RoutingPolicy, in Input) Decision {
 }
 
 // Decide applies the rules to one piece of work, in order: the first that
-// matches decides, and no match leaves the work exactly as it was. Then the
-// floor, "never downgrade" and what the agent offers bound what that rule may
-// choose.
+// matches decides, and no match leaves the work exactly as it was -- unless
+// the policy's Strategy is agent.StrategyCost, which routes unmatched work
+// too (see fallback). Then the floor, "never downgrade" and what the agent
+// offers bound what that rule, or the fallback, may choose.
 func (r *Router) Decide(in Input) Decision {
 	if !r.On() {
 		return Decision{}
@@ -180,7 +186,41 @@ func (r *Router) Decide(in Input) Decision {
 			return r.apply(ru, in)
 		}
 	}
+	if r.strategy == agent.StrategyCost {
+		return r.fallback(in)
+	}
 	return Decision{}
+}
+
+// fallback is what Decide does when Strategy is agent.StrategyCost and no
+// rule matched: rather than leave the work exactly as it was, it moves it to
+// the agent's own cheapest model at the floor -- the lowest tier routing may
+// ever choose here, reusing pick() the same way a rule naming a tier does.
+// It never crosses agents: a rule is the only thing that does that, chosen by
+// hand, and cost-minimisation of unclassified work does not get to guess at
+// it. Floor and "never downgrade" bind it exactly as they bind a rule.
+func (r *Router) fallback(in Input) Decision {
+	cur := tierOf(in.Agent, in.Current)
+	if cur == 0 {
+		// As with a rule: a model of no known size might already be the
+		// smallest there is, so it is never routed from.
+		return Decision{Source: SourceFallback, Reason: modelName(in.Agent, in.Current) + " is a model of no known size, so routing leaves it alone"}
+	}
+	m, ok := pick(in.Agent, r.floor, in.Current)
+	if !ok {
+		return Decision{Source: SourceFallback, Reason: in.Agent.Name + " has no " + tierName(r.floor) + " model, so cost-minimisation leaves the work alone"}
+	}
+	t := agent.TierRank(m.Tier)
+	switch {
+	case m.ID == in.Current:
+		return Decision{Source: SourceFallback, Reason: "no rule matched; the work is already on " + modelName(in.Agent, in.Current) + ", the cheapest tier cost-minimisation would choose"}
+	case in.NoDowngrade && t < cur:
+		return Decision{Source: SourceFallback, Reason: "no rule matched, and this work may not be moved to a smaller model"}
+	}
+	return Decision{
+		Model: m.ID, Tier: m.Tier, Routed: true, Up: t > cur, Source: SourceFallback,
+		Reason: fmt.Sprintf("no rule matched; cost-minimisation routes unclassified work to the cheapest available tier anyway → %s", m.Tier),
+	}
 }
 
 func (ru rule) matches(in Input, words int, files []string, crossOK bool) bool {

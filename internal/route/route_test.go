@@ -168,6 +168,83 @@ func TestARuleThatChangesNothingSaysWhy(t *testing.T) {
 	}
 }
 
+// Strategy StrategyCost is the one behavioral difference between the two
+// strategies: when no rule matches, it routes the work anyway, to the
+// cheapest model the floor allows, rather than leaving it exactly where it
+// was. A rule that matches still decides first, exactly as it does under the
+// default, unset Strategy (StrategyBalanced).
+func TestCostStrategyFallback(t *testing.T) {
+	codex := agent.Spec{ID: "codex", Name: "Codex", Models: []agent.Model{
+		{ID: "", Name: "Default"},
+		{ID: "gpt-6-astra", Tier: agent.TierTop},
+		{ID: "gpt-5.6-terra", Tier: agent.TierMid},
+	}}
+	costOf := func(p agent.RoutingPolicy) agent.RoutingPolicy {
+		p.Strategy = agent.StrategyCost
+		return p
+	}
+	tests := []struct {
+		name   string
+		policy agent.RoutingPolicy
+		in     Input
+		model  string // "" is left alone
+		up     bool
+		source string // defaults to SourceFallback when model is set
+		rule   string
+	}{
+		{name: "balanced (the default) still leaves unmatched work alone",
+			policy: on(),
+			in:     Input{Task: "add a health endpoint", Agent: claude(), Current: "sonnet"}},
+		{name: "cost routes unmatched work to the floor",
+			policy: costOf(on()),
+			in:     Input{Task: "add a health endpoint", Agent: claude(), Current: "sonnet"},
+			model:  "haiku"},
+		{name: "cost still obeys the floor",
+			policy: costOf(agent.RoutingPolicy{Mode: agent.RoutingSuggest, Floor: agent.TierMid, Rules: []agent.RoutingRule{}}),
+			in:     Input{Task: "add a health endpoint", Agent: claude(), Current: "opus"},
+			model:  "sonnet"},
+		{name: "a matching rule still wins over the fallback",
+			policy: costOf(on(agent.RoutingRule{Name: "hard", Tier: agent.TierTop, When: agent.RuleMatch{Task: "race"}})),
+			in:     Input{Task: "fix the race", Agent: claude(), Current: "sonnet"},
+			model:  "opus", up: true, source: SourceRule, rule: "hard"},
+		{name: "work already at the floor is not re-routed",
+			policy: costOf(on()),
+			in:     Input{Task: "add a health endpoint", Agent: claude(), Current: "haiku"}},
+		{name: "never downgrade holds against the fallback too",
+			policy: costOf(on()),
+			in:     Input{Task: "add a health endpoint", Agent: claude(), Current: "sonnet", NoDowngrade: true}},
+		{name: "a model of no known size is never routed from",
+			policy: costOf(on()),
+			in:     Input{Task: "add a health endpoint", Agent: claude(), Current: ""}},
+		{name: "an agent with no model at the floor is left alone",
+			policy: costOf(on()),
+			in:     Input{Task: "add a health endpoint", Agent: codex, Current: "gpt-5.6-terra"}},
+		{name: "cost never crosses agents on the fallback",
+			policy: agent.RoutingPolicy{Mode: agent.RoutingSuggest, Strategy: agent.StrategyCost, CrossAgent: true, Rules: []agent.RoutingRule{}},
+			in: Input{Task: "add a health endpoint", Agent: claude(), Current: "sonnet",
+				OtherAgent: func(id string) (agent.Spec, bool) { return codex, true }},
+			model: "haiku"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			wantSource := tc.source
+			if wantSource == "" {
+				wantSource = SourceFallback
+			}
+			d := Decide(tc.policy, tc.in)
+			if d.Model != tc.model || d.Routed != (tc.model != "") || d.Agent != "" {
+				t.Fatalf("decided %+v, want model %q and no agent switch", d, tc.model)
+			}
+			if d.Routed && (d.Up != tc.up || d.Source != wantSource || d.Rule != tc.rule || d.Reason == "") {
+				t.Errorf("decided %+v, want up %v, source %q, rule %q, and a reason", d, tc.up, wantSource, tc.rule)
+			}
+			if !d.Routed && d.Reason != "" && d.Source != SourceFallback {
+				t.Errorf("decided %+v, want a fallback source on a decision that explains itself", d)
+			}
+		})
+	}
+}
+
 // The built-in rules against a fixed list of tasks, so a change to one of them
 // shows in review as the answers it changes.
 func TestTheBuiltinRulesOnExampleTasks(t *testing.T) {
