@@ -217,6 +217,10 @@ type Server struct {
 	// push is what the paired devices are told of waits. See push.go.
 	push pushState
 
+	// gh is the GitHub panel's own state: whether an install or a login is
+	// under way right now, and how to cancel it. See ghcli.go.
+	gh ghState
+
 	// convos is the phone chat view's live streams, one per pane that has
 	// been opened by at least one client. See conversation.go.
 	convos conversationHub
