@@ -470,6 +470,74 @@
     b.hidden = false;
   }
 
+  /** renderNotes turns a release note's text into the handful of block and
+   *  inline shapes docs/releases/*.md actually uses — headings, bullet
+   *  lists, paragraphs, **bold** and `code` — rather than a general Markdown
+   *  engine. Curated notes read as prose with bullets, not a flat commit
+   *  list, and showing them as literal preformatted text put a line of stray
+   *  "##" and "-" characters in front of a user instead of the heading and
+   *  list they were meant to be.
+   *
+   *  Built as elements through el() and textContent, never innerHTML, so
+   *  nothing a note contains is ever parsed as markup. Returns an array of
+   *  nodes rather than a DocumentFragment, so the caller can pass it to
+   *  append() (which takes any number of nodes) without either of them
+   *  needing a document to make one in. */
+  function renderNotes(text) {
+    const nodes = [];
+    const lines = text.replace(/\r\n?/g, "\n").split("\n");
+    // inline splits **bold** and `code` out of a line's text, appending the
+    // rest as plain text nodes so unmatched stretches are never lost.
+    const inline = (into, s) => {
+      const re = /\*\*(.+?)\*\*|`(.+?)`/g;
+      let last = 0, m;
+      while ((m = re.exec(s))) {
+        if (m.index > last) into.append(document.createTextNode(s.slice(last, m.index)));
+        into.append(m[1] !== undefined ? el("strong", "", m[1]) : el("code", "", m[2]));
+        last = re.lastIndex;
+      }
+      if (last < s.length) into.append(document.createTextNode(s.slice(last)));
+    };
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) { i++; continue; }
+      const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+      if (heading) {
+        // # is the file's own title, kept as a heading rather than promoted
+        // to h1: the dialog around it already has "Update to vX.Y.Z" as its
+        // own title, and nothing in a note should outrank that.
+        const node = el("h" + Math.min(6, heading[1].length + 2), "");
+        inline(node, heading[2].trim());
+        nodes.push(node);
+        i++;
+        continue;
+      }
+      if (/^[-*]\s+/.test(line)) {
+        const ul = el("ul", "");
+        while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
+          const li = el("li", "");
+          inline(li, lines[i].replace(/^[-*]\s+/, ""));
+          ul.append(li);
+          i++;
+        }
+        nodes.push(ul);
+        continue;
+      }
+      // A paragraph runs until the next blank line, list item or heading;
+      // its own line breaks are folded to spaces the way Markdown reads them.
+      const buf = [];
+      while (i < lines.length && lines[i].trim() && !/^[-*]\s+/.test(lines[i]) && !/^#{1,6}\s+/.test(lines[i])) {
+        buf.push(lines[i].trim());
+        i++;
+      }
+      const p = el("p", "");
+      inline(p, buf.join(" "));
+      nodes.push(p);
+    }
+    return nodes;
+  }
+
   /** openUpdate explains what installing costs before it is done.
    *
    *  What it costs is the running agents: the layout comes back, but a pane is
@@ -490,7 +558,8 @@
       // The notes scroll inside a box of their own, and a box nothing can
       // focus cannot be scrolled from the keyboard: the part below its
       // bottom edge was out of reach without a mouse.
-      const notes = el("pre", "update-notes", u.notes);
+      const notes = el("div", "update-notes");
+      notes.append(...renderNotes(u.notes));
       notes.tabIndex = 0;
       notes.setAttribute("role", "region");
       notes.setAttribute("aria-label", "Release notes");
