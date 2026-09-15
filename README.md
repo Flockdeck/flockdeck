@@ -334,6 +334,35 @@ device is refused for its own safety — quitting or updating Flockdeck,
 turning remote access off, minting a join code, setting an API key — done
 instead from that machine's own terminal, over SSH.
 
+#### Docker and Kubernetes
+
+The same headless run also comes as a container image, `Dockerfile` at the
+repository root, built on Alpine rather than a from-scratch base so a pane's
+shell and agent CLI have somewhere to run — see the Dockerfile's own comments
+for why, and for every `FLOCKDECK_*` variable it reads (also `flockdeck -h`).
+The one thing to know going in: the server inside binds `127.0.0.1` only, on
+a port chosen at random each start, exactly as it does outside a container —
+so `docker run -p` publishes nothing, and reaching it is `docker exec`,
+`--network host`, or `flockdeck remote enable` as above, over an outward
+connection instead of an inbound port. The Dockerfile's own `EXPOSE` comment
+has the detail.
+
+```sh
+docker build -t flockdeck .
+docker run -d --name flockdeck -v flockdeck-state:/home/flockdeck -v "$PWD:/workspace" flockdeck
+docker exec -it flockdeck flockdeck    # prints the URL of the instance already running
+```
+
+For a team already running Kubernetes, `deploy/helm/flockdeck/` is a Helm
+chart built on the same image — one pod (there is no replica count: a saved
+layout and an instance record belong to one process), a `PersistentVolumeClaim`
+for that state, and pod hardening (non-root, read-only root filesystem, no
+Linux capabilities). It deliberately ships no `Service` or `Ingress`: for the
+same loopback-and-random-port reason above, neither could route to anything
+real. `deploy/helm/flockdeck/README.md` has the install guide and what to use
+instead (`kubectl exec` plus `kubectl port-forward`, or `remote enable` for
+real off-cluster access).
+
 ## Keyboard shortcuts
 
 Everything not listed here goes to the focused agent, which needs the rest of

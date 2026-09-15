@@ -1,0 +1,56 @@
+Flockdeck is starting as {{ include "flockdeck.fullname" . }} in {{ .Release.Namespace }}.
+
+Reaching the web UI
+--------------------
+Self-hosted service mode's server binds 127.0.0.1 only, inside the pod, on a
+port chosen at random each start, with a fresh per-run token as its only
+auth -- there is no fixed port or bind-address setting to point a Service or
+an Ingress at, which is why this chart ships neither. Once the pod is
+Running:
+
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "flockdeck.fullname" . }} -- \
+    sh -c 'cat "$HOME/.config/flockdeck/instance.json"'
+
+names the URL (its port) and the token this run is using. Port-forward that
+exact port to your machine:
+
+  kubectl port-forward -n {{ .Release.Namespace }} deploy/{{ include "flockdeck.fullname" . }} <port>:<port>
+
+then open http://localhost:<port>/?t=<token> in a browser. The port and the
+token both change on every restart, so this is a "for now" answer, not a
+bookmark.
+
+For a real, lasting way in -- from a phone, or a browser off this cluster,
+with no port-forward and no inbound access to the cluster at all -- enrol
+this instance with a relay instead, once, the same way you would run any
+other one-off admin command against a pod:
+
+  kubectl exec -n {{ .Release.Namespace }} -it deploy/{{ include "flockdeck.fullname" . }} -- \
+    flockdeck remote enable{{ if .Values.remote.url }} -relay {{ .Values.remote.url }}{{ end }}
+
+{{- if or .Values.remote.join .Values.remote.existingSecret }}
+FLOCKDECK_REMOTE_JOIN is already set from values, so plain `flockdeck remote
+enable` above picks it up without repeating it on the command line.
+{{- end }}
+
+Then pair a device:
+
+  kubectl exec -n {{ .Release.Namespace }} -it deploy/{{ include "flockdeck.fullname" . }} -- \
+    flockdeck remote pair
+
+{{- if not .Values.persistence.state.enabled }}
+
+Persistence
+-----------
+persistence.state.enabled is false: the saved layout, recent-projects list
+and agent settings live in an emptyDir and do not survive this pod being
+replaced. Set persistence.state.enabled: true (the default) to keep them
+across restarts and image upgrades.
+{{- end }}
+{{- if not .Values.persistence.workspace.enabled }}
+
+persistence.workspace is off: flockdeck opens {{ include "flockdeck.workspacePath" . }}
+with nothing in it. Set persistence.workspace.enabled and populate the
+volume (extraInitContainers, or your own existingClaim already holding a
+checkout) to open a real project.
+{{- end }}

@@ -1,0 +1,167 @@
+name: docker-image
+
+# Builds and publishes the self-hosted container image (Dockerfile at the
+# repository root) on the same v* tag release.yml cuts a binary release
+# from, so a GitHub release and a container image are always in sync -- a
+# separate workflow rather than a job added to release.yml itself, so a
+# problem here (a registry outage, a failed scan) cannot hold up or fail the
+# binary release release.yml already reliably produces.
+#
+# Unverified: written against the Dockerfile and the versioning scheme in
+# flockdeck-planning/12-installation-simplification.md, but never run --
+# there was no way to execute a GitHub Actions workflow, or reach a Docker
+# daemon at all, in the environment this was written in. Treat a first real
+# run of this workflow as the actual test of it.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "tag to build (must already exist)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Held to the same tests a binary release is, for the same reason
+  # release.yml calls test.yml itself: nothing is published, image or
+  # binary, that has not passed on every platform.
+  test:
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref }}
+
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      # Push to ghcr.io/jmwri/flockdeck with the workflow's own token --
+      # public, under the current jmwri owner, per
+      # flockdeck-planning/12-installation-simplification.md -- so no
+      # separate registry credential is needed.
+      packages: write
+      contents: read
+      # cosign's keyless signing: it exchanges this OIDC token for a
+      # short-lived certificate from Sigstore's Fulcio, rather than a
+      # signing key kept as a repository secret.
+      id-token: write
+    concurrency:
+      group: docker-image
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - name: Work out the version and tags
+        id: version
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::$TAG is not a version release.yml would also accept; tag v1.2.3, or v1.2.3-rc.1 for a candidate"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # v1.2.3 also tags :v1.2 and :v1 (the newest patch/minor a self-hoster
+          # pinning to either finds); a candidate (v1.2.3-rc.1) only ever
+          # publishes its own exact tag plus the short-sha one below, the same
+          # way release.yml never makes a candidate GitHub's "latest" release.
+          case "$TAG" in
+            *-*) echo "floating=" >> "$GITHUB_OUTPUT" ;;
+            *)
+              minor="${TAG%.*}"
+              major="${minor%.*}"
+              echo "floating=$minor $major latest" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build tag list
+        id: tags
+        env:
+          IMAGE: ghcr.io/jmwri/flockdeck
+          TAG: ${{ steps.version.outputs.tag }}
+          FLOATING: ${{ steps.version.outputs.floating }}
+        run: |
+          tags="$IMAGE:$TAG,$IMAGE:$TAG-${GITHUB_SHA::7}"
+          for t in $FLOATING; do
+            tags="$tags,$IMAGE:$t"
+          done
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+
+      # Multi-arch: amd64 and arm64, so a self-hoster on a Pi or an arm64
+      # VPS (the README's "a NAS or a cheap VPS" self-hosting pitch) gets a
+      # native image rather than emulation.
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.tag }}
+          provenance: true
+          sbom: true
+
+      # A second, explicit SBOM in SPDX form attached as a signed attestation,
+      # on top of build-push-action's own (BuildKit-generated) one above --
+      # Syft reads the actual image rather than the build context, which
+      # catches anything BuildKit's own attestor misses in a base image layer.
+      - name: SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/jmwri/flockdeck@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      # Fails the run on a high/critical CVE in a layer this image actually
+      # ships (base image + the flockdeck binary's own dependencies), rather
+      # than publishing a tag and finding out from a scanner later.
+      - name: Scan for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/jmwri/flockdeck@${{ steps.build.outputs.digest }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - uses: sigstore/cosign-installer@v3
+
+      # Signs the digest every tag above points at, once, rather than each
+      # tag separately -- a tag can move, the digest a self-hoster actually
+      # pulls (by digest, or resolved from a tag at pull time) is what
+      # `cosign verify` checks against.
+      - name: Sign the image
+        run: cosign sign --yes "ghcr.io/jmwri/flockdeck@${{ steps.build.outputs.digest }}"
+
+      - name: Attest the SBOM
+        run: cosign attest --yes --predicate sbom.spdx.json --type spdxjson "ghcr.io/jmwri/flockdeck@${{ steps.build.outputs.digest }}"
+
+      - name: Summary
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### ghcr.io/jmwri/flockdeck:$TAG"
+            echo
+            echo "digest: \`$DIGEST\`"
+            echo
+            echo "verify: \`cosign verify ghcr.io/jmwri/flockdeck@$DIGEST --certificate-identity-regexp '.*' --certificate-oidc-issuer https://token.actions.githubusercontent.com\`"
+          } >> "$GITHUB_STEP_SUMMARY"

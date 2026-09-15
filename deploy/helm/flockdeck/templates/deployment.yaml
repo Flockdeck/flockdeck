@@ -1,0 +1,217 @@
+{{- include "flockdeck.validate" . }}
+{{- $fullname := include "flockdeck.fullname" . }}
+{{- $secret := include "flockdeck.secretName" . }}
+{{- $workspacePath := include "flockdeck.workspacePath" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "flockdeck.labels" . | nindent 4 }}
+spec:
+  # One, and only ever one -- there is no replica count to set. A saved
+  # layout, a recent-projects list and an instance record all belong to one
+  # process; a second pod would be a second Flockdeck with its own agents
+  # and its own idea of what is open, not a second view onto the first's.
+  replicas: 1
+  # Recreate, not a rolling update: the old pod's instance record
+  # ($HOME/.config/flockdeck/instance.json) and whatever lock its workspace
+  # holds have to be gone before the new pod starts, or the new instance
+  # finds a record it cannot use and a workspace it should not touch while
+  # the old one might still be. The old pod fully stopping first -- flushing
+  # its saved layout on the way, since main.go's shutdown does that before
+  # exiting -- is exactly what Recreate gives.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "flockdeck.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # A changed Secret value restarts the pod, so it is actually used --
+        # Kubernetes does not otherwise notice a Secret's contents changing
+        # underneath an already-running pod's env.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "flockdeck.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "flockdeck.serviceAccountName" . }}
+      # flockdeck never asks the Kubernetes API for anything.
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.extraInitContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: flockdeck
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # -no-window is the image's own default (its Dockerfile's CMD),
+          # given again here explicitly rather than relied on: Kubernetes'
+          # own args, once set, replaces the image's CMD outright, so this
+          # is the one place that actually decides it for a pod, and it is
+          # worth being able to read here without opening the image.
+          args:
+            - -no-window
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- with .Values.dir }}
+            - name: FLOCKDECK_DIR
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.agent }}
+            - name: FLOCKDECK_START_AGENT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.fresh }}
+            - name: FLOCKDECK_FRESH
+              value: "true"
+            {{- end }}
+            {{- if .Values.shellFirst }}
+            - name: FLOCKDECK_SHELL_FIRST
+              value: "true"
+            {{- end }}
+            {{- if .Values.solo }}
+            - name: FLOCKDECK_SOLO
+              value: "true"
+            {{- end }}
+            {{- with .Values.remote.url }}
+            - name: FLOCKDECK_RELAY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.remote.name }}
+            - name: FLOCKDECK_REMOTE_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if or .Values.remote.join .Values.remote.existingSecret }}
+            - name: FLOCKDECK_REMOTE_JOIN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.remote.existingSecret | default $secret }}
+                  key: remoteJoin
+                  optional: true
+            {{- end }}
+            {{- if or .Values.remote.invite .Values.remote.existingSecret }}
+            - name: FLOCKDECK_REMOTE_INVITE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.remote.existingSecret | default $secret }}
+                  key: remoteInvite
+                  optional: true
+            {{- end }}
+            {{- if or .Values.apiKey.value .Values.apiKey.existingSecret }}
+            - name: FLOCKDECK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.apiKey.existingSecret | default $secret }}
+                  key: {{ if .Values.apiKey.existingSecret }}{{ .Values.apiKey.existingSecretKey }}{{ else }}apiKey{{ end }}
+            {{- end }}
+            # Redeploying by pulling a new tag, not by having a long-running
+            # pod download and stage a replacement for its own read-only
+            # root filesystem -- see the image's own Dockerfile for the same
+            # default and why.
+            - name: FLOCKDECK_UPDATE
+              value: "off"
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # No ports: declaring one here would claim flockdeck listens on a
+          # fixed, predictable port, and it does not -- self-hosted service
+          # mode's server always binds 127.0.0.1 on a port chosen at random
+          # each start (internal/server.New in the flockdeck repo). See this
+          # chart's README.md, "Reaching the web UI", for what to use
+          # instead of a Service/Ingress here.
+          volumeMounts:
+            - name: state
+              mountPath: /home/flockdeck
+            {{- if .Values.persistence.workspace.enabled }}
+            - name: workspace
+              mountPath: {{ $workspacePath }}
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # No HTTP probe: the same random-port reason there is no ports:
+          # block above means there is no fixed address a startup/readiness
+          # probe could ask, either. exec into the instance record and its
+          # own token instead (docker/healthcheck.sh in the flockdeck repo
+          # is exactly that, and is baked into the image as its
+          # HEALTHCHECK, which `docker inspect`/`kubectl describe pod`
+          # surface even without a Kubernetes probe of its own).
+          startupProbe:
+            exec:
+              command: ["/usr/local/bin/flockdeck-healthcheck"]
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            exec:
+              command: ["/usr/local/bin/flockdeck-healthcheck"]
+            periodSeconds: 30
+            timeoutSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      # Long enough for main.go's own shutdown -- saving the workspace layout,
+      # closing every pane's process, waiting the running agents' own graceful
+      # exits -- to finish before SIGKILL, the same grace a desktop quit gets.
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: state
+          {{- if .Values.persistence.state.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.state.existingClaim | default (printf "%s-state" $fullname) }}
+          {{- else }}
+          # The saved layout, recent-projects list and agent settings do not
+          # survive the pod, only the run -- fine for trying the chart out,
+          # not for keeping a layout across restarts. Set
+          # persistence.state.enabled to keep it.
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.persistence.workspace.enabled }}
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.workspace.existingClaim | default (printf "%s-workspace" $fullname) }}
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
