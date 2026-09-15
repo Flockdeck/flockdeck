@@ -280,14 +280,25 @@ func loadAdvice(err error) error {
 
 type remoteEnableFlags struct{ relay, name, join, invite string }
 
+// Environment variables behind -name, -join and -invite, alongside -relay's
+// existing remote.RelayEnv, so a first-boot container entrypoint or
+// provisioning script can enrol with zero interactive input. A one-time
+// bootstrap step, usually run once by hand, so this is a minor addition next
+// to the steady-state launch flags above -- not something every restart needs.
+const (
+	remoteJoinEnv   = "FLOCKDECK_REMOTE_JOIN"
+	remoteInviteEnv = "FLOCKDECK_REMOTE_INVITE"
+	remoteNameEnv   = "FLOCKDECK_REMOTE_NAME"
+)
+
 func remoteEnableFlagSet(f *remoteEnableFlags) *flag.FlagSet {
 	fs := remoteFlags("enable")
 	// PrintDefaults starts a description at column 8 and indents a line break
 	// in one the same way, so the long ones are broken to fit 80 columns.
 	fs.StringVar(&f.relay, "relay", "", "the relay's `URL`\n(default: $"+remote.RelayEnv+" if set, else "+remote.DefaultRelay+")")
-	fs.StringVar(&f.name, "name", "", "the `name` this machine goes by on your devices (default: its host name)")
-	fs.StringVar(&f.join, "join", "", "a `code` from `flockdeck remote pair -desktop` on another machine,\nto join its account")
-	fs.StringVar(&f.invite, "invite", "", "an invitation `code`, for a relay that asks for one")
+	fs.StringVar(&f.name, "name", os.Getenv(remoteNameEnv), "the `name` this machine goes by on your devices\n(default: $"+remoteNameEnv+" if set, else its host name)")
+	fs.StringVar(&f.join, "join", os.Getenv(remoteJoinEnv), "a `code` from `flockdeck remote pair -desktop` on another machine,\nto join its account (default: $"+remoteJoinEnv+" if set)")
+	fs.StringVar(&f.invite, "invite", os.Getenv(remoteInviteEnv), "an invitation `code`, for a relay that asks for one\n(default: $"+remoteInviteEnv+" if set)")
 	return fs
 }
 
