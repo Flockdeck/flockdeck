@@ -991,6 +991,12 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		Branch:  branchOf(cwd),
 		initial: o.Task,
 		Task:    o.Task,
+		// A child inherits the pane it was started from trusting auto-review
+		// or not. Trust the boss has already extended to one pane -- by
+		// turning auto-review on for it -- carries to the fan-out or the
+		// helper it starts, rather than needing to be found and flipped on a
+		// dozen new panes one at a time. See Pane.AutoReview.
+		AutoReview: parent != nil && parent.AutoReview,
 	}
 	if o.SpawnedByAgent && parent != nil {
 		p.Parent = parentPaneID

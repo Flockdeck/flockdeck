@@ -36,6 +36,47 @@ func TestAgentSpawnRecordsParentButAUserFanoutDoesNot(t *testing.T) {
 	}
 }
 
+// TestSpawnInheritsParentsAutoReview covers trust carrying from a pane to
+// what it starts: a fan-out or a helper begun from a pane with auto-review
+// on inherits it, and one begun from a pane with it off, or with no parent
+// at all, does not turn it on out of nowhere.
+func TestSpawnInheritsParentsAutoReview(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	parent := ws.CurrentTab().Focus
+	if !ws.SetPaneAutoReview(parent, true) {
+		t.Fatal("could not turn auto-review on for the parent")
+	}
+
+	trustedChild, err := ws.Spawn(parent, SpawnOptions{Task: "fan-out task", Kind: session.KindShell})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if p := ws.Pane(trustedChild); !p.AutoReview {
+		t.Error("a fan-out row started from a trusted pane did not inherit AutoReview")
+	}
+
+	helper, err := ws.Spawn(parent, SpawnOptions{Task: "helper task", Kind: session.KindShell, SpawnedByAgent: true})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if p := ws.Pane(helper); !p.AutoReview {
+		t.Error("a helper spawned by a trusted pane did not inherit AutoReview")
+	}
+
+	ws.NewTab(session.KindShell, root, "untrusted")
+	untrusted := ws.CurrentTab().Focus
+	untrustedChild, err := ws.Spawn(untrusted, SpawnOptions{Task: "fan-out task", Kind: session.KindShell})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if p := ws.Pane(untrustedChild); p.AutoReview {
+		t.Error("a fan-out row started from a pane with auto-review off turned it on")
+	}
+}
+
 // TestParentSurvivesSaveAndRestore covers a helper's Parent coming back after
 // the layout is saved and restored, since pane ids -- and so the parent id a
 // helper names -- are the session ids a restore reattaches to.
