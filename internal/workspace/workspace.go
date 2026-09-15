@@ -213,6 +213,18 @@ type Project struct {
 	// that a split or a closed pane changes the summary as it changes the
 	// agents list.
 	Panes int
+	// Members lists every repo in this project, root and display label --
+	// see ProjectGroup. A project nobody has grouped still carries one
+	// entry, itself, so the switcher's expandable member list has one thing
+	// to expand into rather than a special case for a project of one.
+	Members []RepoSummary
+}
+
+// RepoSummary is one repo inside a Project, as the switcher's expandable
+// member list shows it.
+type RepoSummary struct {
+	Root string
+	Name string
 }
 
 // Workspace is the whole application state.
@@ -264,6 +276,23 @@ type Workspace struct {
 	// lastTab remembers which tab each project was left on, so coming back to
 	// a project comes back to what you were doing in it.
 	lastTab map[string]string
+	// groups holds every live ProjectGroup by id, and rootGroup maps an open
+	// root to the id of the group it belongs to. Every open root has an
+	// entry, put there by ensureGroup the moment it is opened -- a project
+	// nobody has grouped is a group of one, which is what keeps this
+	// additive. See groups.go.
+	groups    map[string]*ProjectGroup
+	rootGroup map[string]string
+	// savedGroups is what groups.json held at startup, read once and
+	// cross-referenced as each root is opened over the run -- see
+	// ensureGroup. It is never written to; persistGroups always writes the
+	// live groups map instead.
+	savedGroups []store.ProjectGroup
+	// lastRootInGroup remembers which member of a multi-repo project was
+	// last active, so switching to the project lands there rather than
+	// always on its Primary -- see noteActiveRoot, the group-level
+	// counterpart of lastTab.
+	lastRootInGroup map[string]string
 	// restoreErrs is what the restores since RestoreErrors was last asked
 	// could not read. See RestoreErrors.
 	restoreErrs []error
@@ -348,6 +377,8 @@ func New(opts Options) (*Workspace, error) {
 		settingsDir:  settingsDir,
 		reviewer:     review.Decide,
 	}
+	w.savedGroups = loadSavedGroups()
+	w.ensureGroup(root)
 	w.SetWake(opts.OnWake)
 	_ = store.TouchRecent(root)
 
@@ -499,7 +530,10 @@ func (w *Workspace) reviewTool(sessionID string, ev hooks.Event) (allow bool, re
 
 // ----------------------------------------------------------------- projects
 
-// Projects returns the open projects with a summary of each.
+// Projects returns the open projects with a summary of each. A project
+// spanning more than one repo -- see ProjectGroup -- is one entry here,
+// its counts summed over every member's tabs and panes; a project nobody
+// has grouped is a group of one and reads exactly as it always has.
 //
 // An agent is counted against the project it belongs to rather than the
 // project of the tab it is drawn on. The switcher's badge is what says a
@@ -508,26 +542,35 @@ func (w *Workspace) reviewTool(sessionID string, ev hooks.Event) (allow bool, re
 // while the project that is actually blocked shows nothing.
 func (w *Workspace) Projects() []Project {
 	w.applyPendingTitles()
-	names := projectNames(w.openRoots)
-	out := make([]Project, len(w.openRoots))
-	byRoot := make(map[string]int, len(w.openRoots))
-	for i, root := range w.openRoots {
-		out[i] = Project{Root: root, Name: names[i], Active: root == w.activeRoot}
-		byRoot[root] = i
+	groups := w.groupsInOrder()
+	names := groupDisplayNames(groups)
+	out := make([]Project, len(groups))
+	groupIndex := make(map[string]int, len(groups))
+	for i, g := range groups {
+		memberNames := projectNames(g.Roots)
+		members := make([]RepoSummary, len(g.Roots))
+		for j, r := range g.Roots {
+			members[j] = RepoSummary{Root: r, Name: memberNames[j]}
+		}
+		active := false
+		if ag := w.groupOf(w.activeRoot); ag != nil {
+			active = ag.ID == g.ID
+		}
+		out[i] = Project{Root: g.Primary, Name: names[g.ID], Active: active, Members: members}
+		groupIndex[g.ID] = i
 	}
-	// Tabs and panes name their project with the string it was opened under,
-	// so the map answers almost every lookup; a layout written elsewhere can
-	// spell it in another case, and that falls back to comparing the paths.
+	// Tabs and panes name their project by a repo root, which indexOf maps
+	// through rootGroup to the entry for the whole project.
 	indexOf := func(root string) int {
-		if i, ok := byRoot[root]; ok {
-			return i
+		g := w.groupOf(root)
+		if g == nil {
+			return -1
 		}
-		for i, r := range w.openRoots {
-			if sameDir(r, root) {
-				return i
-			}
+		i, ok := groupIndex[g.ID]
+		if !ok {
+			return -1
 		}
-		return -1
+		return i
 	}
 
 	// One pass over the tabs under one lock, rather than a walk of every tab
@@ -653,6 +696,16 @@ func pathTail(path string, n int) string {
 // that is already open is simply selected. Its saved layout is restored the
 // first time it is opened; if it has none, a single tab is created.
 func (w *Workspace) OpenProject(path string) error {
+	return w.openProjectInto(path, nil)
+}
+
+// openProjectInto is the whole of OpenProject, with the group the newly
+// opened root joins given separately: nil creates a singleton group of its
+// own, the way OpenProject always has; a group given -- AddRepoToGroup's
+// own use -- joins the new root to it instead, so "Add Repo to This
+// Project…" opens exactly like any other project except for which entry in
+// the switcher it lands in.
+func (w *Workspace) openProjectInto(path string, into *ProjectGroup) error {
 	root, err := filepath.Abs(path)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", path, err)
@@ -683,6 +736,12 @@ func (w *Workspace) OpenProject(path string) error {
 	w.openRoots = append(w.openRoots, root)
 	w.activeRoot = root
 	_ = store.TouchRecent(root)
+	if into != nil {
+		w.addToGroup(into, root)
+	} else {
+		w.ensureGroup(root)
+	}
+	w.noteActiveRoot()
 
 	if n := w.restoreProject(root); n == 0 {
 		w.NewTab(w.firstPaneKind(), root, "")
@@ -709,32 +768,97 @@ func (w *Workspace) firstPaneKind() session.Kind {
 	return session.KindClaude
 }
 
-// SelectProject shows an already open project.
+// SelectProject shows an already open project. Naming any one of a
+// multi-repo project's members shows the project on the member it was last
+// worked in, not necessarily the one named -- see noteActiveRoot -- the
+// same way switching to a project by any other route always lands where
+// it was left.
 func (w *Workspace) SelectProject(root string) {
+	root, ok := w.openRootFor(root)
+	if !ok {
+		return
+	}
+	if g := w.groupOf(root); g != nil {
+		if last, ok := w.lastRootInGroup[g.ID]; ok {
+			if open, ok := w.openRootFor(last); ok && w.groupOf(open) == g {
+				root = open
+			}
+		}
+	}
+	w.activeRoot = root
+	_ = store.TouchRecent(root)
+	w.noteActiveRoot()
+	w.focusFirstTabOf(root)
+	w.wake()
+}
+
+// SelectRepo shows an already open project on one particular member repo,
+// rather than the member the project was last left on -- for picking a
+// specific entry out of a project's own expanded member list, or a
+// worktree-panel row that names one directly. SelectProject is what every
+// other route into a project uses, and lands on the last member worked in.
+func (w *Workspace) SelectRepo(root string) {
 	root, ok := w.openRootFor(root)
 	if !ok {
 		return
 	}
 	w.activeRoot = root
 	_ = store.TouchRecent(root)
+	w.noteActiveRoot()
 	w.focusFirstTabOf(root)
 	w.wake()
 }
 
-// CloseProject saves a project's layout, closes its tabs and removes it. The
-// last open project cannot be closed, since the window would have nothing to
-// show.
+// CloseProject saves every member repo's layout, closes their tabs and
+// removes the whole project -- see ProjectGroup. The last open project
+// cannot be closed, since the window would have nothing to show; naming
+// one repo out of several closes all of them, since closing a project
+// closes what it contains. RemoveRepoFromGroup is how one repo alone
+// leaves a project without the rest of it closing too.
 //
-// A layout that cannot be saved does not keep the project open: closing it is
-// what was asked for, and its agents are stopped either way. It is reported
-// instead. The save was the one record of what the project had open, and
-// dropped without a word the project simply came back as it was the time
-// before, with nothing to say why.
+// A layout that cannot be saved does not keep its repo open: closing it is
+// what was asked for, and its agents are stopped either way. It is
+// reported instead, one member's failure named apart from another's.
 func (w *Workspace) CloseProject(root string) error {
 	root, ok := w.openRootFor(root)
-	if !ok || len(w.openRoots) <= 1 {
+	if !ok {
 		return nil
 	}
+	g := w.groupOf(root)
+	if g == nil || len(w.groups) <= 1 {
+		return nil
+	}
+
+	var errs []error
+	for _, member := range append([]string(nil), g.Roots...) {
+		if err := w.closeOneRoot(member, g); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	delete(w.groups, g.ID)
+	delete(w.lastRootInGroup, g.ID)
+	if err := w.persistGroups(); err != nil {
+		errs = append(errs, err)
+	}
+
+	if w.groupOf(w.activeRoot) == nil && len(w.openRoots) > 0 {
+		w.activeRoot = w.openRoots[0]
+		w.noteActiveRoot()
+	}
+	w.focusFirstTabOf(w.activeRoot)
+	w.wake()
+	return errors.Join(errs...)
+}
+
+// closeOneRoot is the whole of closing a single repo root: it saves its
+// layout, rescues or destroys the panes shown in its tabs -- including ones
+// borrowed by another project's tab, and ones its own tabs borrowed from
+// elsewhere -- and drops it from the open list. CloseProject calls it once
+// per member of the group being closed, which is closing: a pane borrowed
+// from another member of that same group must not be "rescued" into a tab
+// there, since that member is about to be closed too, only to a project
+// that is genuinely staying open.
+func (w *Workspace) closeOneRoot(root string, closing *ProjectGroup) error {
 	var saveErr error
 	if err := w.SaveProject(root); err != nil {
 		saveErr = fmt.Errorf("%s was closed, but its layout could not be saved, so it will not open as it was left: %w", filepath.Base(root), err)
@@ -747,12 +871,20 @@ func (w *Workspace) CloseProject(root string) error {
 	var rescued []*Tab
 	for _, t := range w.Tabs {
 		if t.Root == root {
-			// The tab goes, and this project's agents go with it. One borrowed
-			// from a project that is still open is not this project's to stop:
-			// closing a window onto an agent is not the same as ending it, so
-			// it is given a tab of its own back in the project it works in.
+			// The tab goes, and this repo's agents go with it. One borrowed
+			// from a project that is genuinely staying open is not this
+			// repo's to stop: closing a window onto an agent is not the same
+			// as ending it, so it is given a tab of its own back in the
+			// project it works in.
 			for _, id := range t.Tree.Panes() {
-				if home := w.rootOf(id); !sameDir(home, root) && w.isOpen(home) {
+				home := w.rootOf(id)
+				staying := !sameDir(home, root) && w.isOpen(home)
+				if staying && closing != nil {
+					if hg := w.groupOf(home); hg != nil && hg.ID == closing.ID {
+						staying = false
+					}
+				}
+				if staying {
 					if moved := w.tabHolding(id, home); moved != nil {
 						rescued = append(rescued, moved)
 						continue
@@ -763,7 +895,7 @@ func (w *Workspace) CloseProject(root string) error {
 			continue
 		}
 		// A tab belonging to another project may still be showing this one's
-		// agents. Closing a project stops its agents, so they have to be found
+		// agents. Closing a repo stops its agents, so they have to be found
 		// where they are rather than only among its own tabs.
 		//
 		// Which panes are going is settled before any of them do. A tree
@@ -784,7 +916,7 @@ func (w *Workspace) CloseProject(root string) error {
 			for _, id := range going {
 				w.destroyPane(id)
 			}
-			// Nothing of this tab is left once the closing project's panes
+			// Nothing of this tab is left once the closing repo's panes
 			// have gone.
 			continue
 		}
@@ -825,12 +957,8 @@ func (w *Workspace) CloseProject(root string) error {
 	// A project whose folder was away at start, and came back and was opened,
 	// is closed for good: it is not kept for its return any more.
 	w.away = slices.DeleteFunc(w.away, func(a awayRoot) bool { return sameDir(a.root, root) })
+	delete(w.rootGroup, root)
 
-	if w.activeRoot == root {
-		w.activeRoot = w.openRoots[0]
-	}
-	w.focusFirstTabOf(w.activeRoot)
-	w.wake()
 	return saveErr
 }
 
@@ -929,16 +1057,42 @@ func (w *Workspace) focusFirstTabOf(root string) {
 	}
 }
 
-// VisibleTabs returns the tabs of the active project, in order.
+// VisibleTabs returns the tabs of the active project, in order -- every tab
+// belonging to any member of the active group, for a project spanning more
+// than one repo, so its tabs show together rather than splitting across
+// switcher entries. A project nobody has grouped has one member and this
+// reads exactly as it always has.
 func (w *Workspace) VisibleTabs() []*Tab {
 	w.applyPendingTitles()
-	return w.tabsOf(w.activeRoot)
+	g := w.groupOf(w.activeRoot)
+	if g == nil {
+		return w.tabsOf(w.activeRoot)
+	}
+	return w.tabsOfGroup(g)
 }
 
+// tabsOf returns the tabs whose own Root is exactly root -- one repo, not
+// its whole project. SaveProject uses this: persistence stays per repo
+// root, unchanged by grouping, so each member's layout is written from
+// only its own tabs. VisibleTabs wants every member's tabs together and
+// uses tabsOfGroup instead.
 func (w *Workspace) tabsOf(root string) []*Tab {
 	out := make([]*Tab, 0, len(w.Tabs))
 	for _, t := range w.Tabs {
 		if t.Root == root {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// tabsOfGroup returns every tab belonging to any member of g, in the order
+// the tabs were created -- VisibleTabs' own use, and Projects' by way of
+// the Tabs count it does not need a full copy for.
+func (w *Workspace) tabsOfGroup(g *ProjectGroup) []*Tab {
+	out := make([]*Tab, 0, len(w.Tabs))
+	for _, t := range w.Tabs {
+		if tg := w.groupOf(t.Root); tg == g {
 			out = append(out, t)
 		}
 	}
@@ -1802,6 +1956,7 @@ func (w *Workspace) SelectTab(id string) {
 	if t.Root != w.activeRoot && w.isOpen(t.Root) {
 		w.rememberTab()
 		w.activeRoot = t.Root
+		w.noteActiveRoot()
 	}
 	w.activeTab = id
 }

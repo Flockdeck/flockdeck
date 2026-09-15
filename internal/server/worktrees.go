@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/jmwri/flockdeck/internal/gitx"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // worktreeView is one worktree as the panel shows it.
@@ -33,6 +34,14 @@ type worktreeView struct {
 	// Panes is how many open panes are working in this worktree, so it is
 	// obvious which checkouts already have an agent on them.
 	Panes int `json:"panes"`
+	// Repo is which member repo of the project this worktree belongs to,
+	// its own display label -- left out for a project nobody has grouped,
+	// which is every project this panel showed before one could span more
+	// than one repo, so the row reads exactly as it always has.
+	Repo string `json:"repo,omitempty"`
+	// RepoRoot is that repo's own root, alongside Repo, for a row's actions
+	// to target the right checkout when the panel spans more than one.
+	RepoRoot string `json:"repoRoot,omitempty"`
 }
 
 // branchView is a local branch offered when creating a worktree.
@@ -52,13 +61,25 @@ type worktreesMsg struct {
 	Error       string         `json:"error,omitempty"`
 }
 
-// listWorktrees answers a window's request for the repository's worktrees.
+// listWorktrees answers a window's request for the active project's
+// worktrees -- every member repo's, for a project spanning more than one;
+// see ProjectRepos.
 //
 // Git is slow enough that none of this belongs on the goroutine that owns the
-// workspace; only the project root and the pane count are read from there.
+// workspace; only the project's repos and the pane count are read from there.
 func (s *Server) listWorktrees(c *controlClient) {
 	asked := worktreeListings.asked(c)
-	s.sendWorktrees(c, s.activeRoot(), asked)
+	s.sendWorktrees(c, s.projectRepos(s.activeRoot()), asked)
+}
+
+// projectRepos reads root's own project's member repos on the workspace
+// goroutine -- root itself, alone, for a project nobody has grouped.
+func (s *Server) projectRepos(root string) []workspace.RepoSummary {
+	repos, ok := ask(s, func() []workspace.RepoSummary { return s.ws.ProjectRepos(root) })
+	if !ok || len(repos) == 0 {
+		return []workspace.RepoSummary{{Root: root}}
+	}
+	return repos
 }
 
 // worktreeListings is the worktree listings each window has asked for.
@@ -74,12 +95,13 @@ var worktreeListings = newNewestAnswer()
 // hold one back.
 var readWorktrees = collectWorktrees
 
-// sendWorktrees lists root's worktrees for a window, unless the window has
-// asked for another listing since the request numbered asked.
-func (s *Server) sendWorktrees(c *controlClient, root string, asked uint64) {
+// sendWorktrees lists every one of repos' worktrees for a window, merged
+// into one listing, unless the window has asked for another since the
+// request numbered asked.
+func (s *Server) sendWorktrees(c *controlClient, repos []workspace.RepoSummary, asked uint64) {
 	go func() {
 		defer s.surviveFor(c, "listing worktrees")
-		msg := readWorktrees(root)
+		msg := collectGroupWorktrees(repos)
 		if msg.Error == "" {
 			paths := make([]string, 0, len(msg.Items))
 			for _, it := range msg.Items {
@@ -156,6 +178,57 @@ func collectWorktrees(root string) worktreesMsg {
 		})
 	}
 	return msg
+}
+
+// collectGroupWorktrees fans collectWorktrees out across every repo in a
+// project, merging the results into one list with each row tagged by which
+// repo it came from -- see worktreeView.Repo. A project of one repo, which
+// is every project nobody has grouped, runs it exactly as it always ran,
+// on that one repo alone, and tags nothing: the panel reads exactly as it
+// always has.
+func collectGroupWorktrees(repos []workspace.RepoSummary) worktreesMsg {
+	if len(repos) <= 1 {
+		root := ""
+		if len(repos) == 1 {
+			root = repos[0].Root
+		}
+		return readWorktrees(root)
+	}
+
+	results := make([]worktreesMsg, len(repos))
+	var wg sync.WaitGroup
+	for i, repo := range repos {
+		wg.Add(1)
+		go func(i int, root string) {
+			defer wg.Done()
+			results[i] = readWorktrees(root)
+		}(i, repo.Root)
+	}
+	wg.Wait()
+
+	out := worktreesMsg{Type: "worktrees", Root: repos[0].Root}
+	var errs []string
+	for i, r := range results {
+		if i == 0 {
+			out.DefaultBase = r.DefaultBase
+		}
+		for _, it := range r.Items {
+			it.Repo = repos[i].Name
+			it.RepoRoot = repos[i].Root
+			out.Items = append(out.Items, it)
+		}
+		out.Branches = append(out.Branches, r.Branches...)
+		if r.Error != "" {
+			errs = append(errs, repos[i].Name+": "+r.Error)
+		}
+	}
+	// A repo git could not be asked about does not sink the whole listing --
+	// the other members may have answered fine -- but is worth saying when
+	// none of them did.
+	if len(errs) > 0 && len(out.Items) == 0 {
+		out.Error = strings.Join(errs, "; ")
+	}
+	return out
 }
 
 // panesPerPath counts open panes working inside each of the given directories,
@@ -249,9 +322,21 @@ func samePath(a, b string) bool {
 	return a == b
 }
 
-// addWorktree creates a worktree and reports the outcome.
-func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
-	root := s.activeRoot()
+// worktreeTarget is the repo a worktree command runs git against: root when
+// it names one, s.activeRoot() otherwise -- a row's own repo, for a project
+// spanning more than one, and the ordinary single-repo project's only repo
+// where nothing more particular was named.
+func (s *Server) worktreeTarget(root string) string {
+	if root != "" {
+		return root
+	}
+	return s.activeRoot()
+}
+
+// addWorktree creates a worktree in root -- or the active project's own
+// repo, when root names none -- and reports the outcome.
+func (s *Server) addWorktree(c *controlClient, root, branch, base, path string) {
+	root = s.worktreeTarget(root)
 	// The listing this ends on counts from when it was asked for, so a panel
 	// opened on another project meanwhile is not drawn over.
 	asked := worktreeListings.asked(c)
@@ -260,8 +345,9 @@ func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
 		// The listing is sent however this ends, a refusal included. Asking
 		// for it above made any listing the panel was still waiting on out of
 		// date, and one that never came left the panel on "Loading…" -- or on
-		// a list from before -- until it was opened again.
-		defer s.sendWorktrees(c, root, asked)
+		// a list from before -- until it was opened again. It covers the
+		// whole project, not just the one repo the worktree was made in.
+		defer s.sendWorktrees(c, s.projectRepos(root), asked)
 		branch = strings.TrimSpace(branch)
 		if branch == "" {
 			c.notify("a branch name is required", true)
@@ -278,12 +364,12 @@ func (s *Server) addWorktree(c *controlClient, branch, base, path string) {
 	}()
 }
 
-func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
-	root := s.activeRoot()
+func (s *Server) removeWorktree(c *controlClient, root, path string, force bool) {
+	root = s.worktreeTarget(root)
 	asked := worktreeListings.asked(c) // as addWorktree's
 	go func() {
 		defer s.surviveFor(c, "removing a worktree")
-		defer s.sendWorktrees(c, root, asked) // as addWorktree's
+		defer s.sendWorktrees(c, s.projectRepos(root), asked) // as addWorktree's
 		// Removing a worktree deletes its directory. An agent working in it
 		// would be left in a path that no longer exists, with nothing to
 		// explain why everything it does from then on fails, and whatever it
@@ -313,12 +399,12 @@ func (s *Server) removeWorktree(c *controlClient, path string, force bool) {
 	}()
 }
 
-func (s *Server) pruneWorktrees(c *controlClient) {
-	root := s.activeRoot()
+func (s *Server) pruneWorktrees(c *controlClient, root string) {
+	root = s.worktreeTarget(root)
 	asked := worktreeListings.asked(c) // as addWorktree's
 	go func() {
 		defer s.surviveFor(c, "pruning worktrees")
-		defer s.sendWorktrees(c, root, asked) // as addWorktree's
+		defer s.sendWorktrees(c, s.projectRepos(root), asked) // as addWorktree's
 		pruned, err := gitx.Prune(root)
 		if err != nil {
 			c.notify(err.Error(), true)

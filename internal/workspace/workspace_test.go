@@ -24,6 +24,7 @@ func benchWorkspace(projects, tabsPer, panesPer int) *Workspace {
 	for i := 0; i < projects; i++ {
 		root := filepath.Join(string(filepath.Separator)+"projects", fmt.Sprintf("p%d", i))
 		w.openRoots = append(w.openRoots, root)
+		w.ensureGroup(root)
 		for j := 0; j < tabsPer; j++ {
 			var tree *layout.Node
 			var first string

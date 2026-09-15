@@ -23,7 +23,7 @@ func TestRemovingAWorktreeWithoutACountRemovesNothing(t *testing.T) {
 	panesIn = func(*Server, []string) map[string]int { panic("the count went wrong") }
 
 	c := &controlClient{out: make(chan []byte, 8)}
-	srv.removeWorktree(c, wt, true)
+	srv.removeWorktree(c, "", wt, true)
 	var note noticeMsg
 	select {
 	case raw := <-c.out:

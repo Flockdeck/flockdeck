@@ -1448,6 +1448,96 @@ func SaveSession(s *Session) error {
 	return nil
 }
 
+// ProjectGroup is a named collection of one or more repo roots that the
+// switcher, the command palette and an agent's own briefing treat as a
+// single project -- see the workspace package's own ProjectGroup, which
+// this is the persisted form of. Absence of a group for a root means it is
+// a project of one, which is indistinguishable from today's behaviour: a
+// user who upgrades and never groups anything notices nothing.
+type ProjectGroup struct {
+	// ID is stable across a rename or a change of members, so a group
+	// created last run is found again this run as its members are reopened
+	// one at a time rather than all at once -- see workspace.ensureGroup.
+	ID string `json:"id"`
+	// Name is the display name chosen by hand; empty means the switcher
+	// derives one the way it derives every ungrouped project's name.
+	Name string `json:"name,omitempty"`
+	// Roots are the member repos, in the order they were added.
+	Roots []string `json:"roots"`
+	// Primary is the member that is "home": the default cwd for a new tab,
+	// the default worktree-suggestion base, and the tie-breaker for naming.
+	Primary string `json:"primary"`
+}
+
+// groupsFile holds every multi-repo project's grouping, kept apart from the
+// per-root layouts and the recent list so neither has to change shape to
+// carry it. groupsWhat is how the user is told of it.
+const (
+	groupsFile = "groups.json"
+	groupsWhat = "the list of multi-repo projects"
+)
+
+// LoadGroups returns every recorded project grouping, or nil when none has
+// ever been made -- the ordinary case, and indistinguishable from every
+// project being its own group of one.
+func LoadGroups() ([]ProjectGroup, error) {
+	dir, err := Dir()
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(dir, groupsFile)
+	data, err := readState(path)
+	noteRead(path, err)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read groups: %w", err)
+	}
+	var groups []ProjectGroup
+	if json.Unmarshal(data, &groups) != nil {
+		// A damaged file is not worth failing startup over -- every group
+		// simply reverts to a project of one, which is what a fresh install
+		// has anyway -- but it is kept rather than silently overwritten by
+		// the first save that follows.
+		quarantine(path, groupsWhat, KeptDamaged)
+		return nil, nil
+	}
+	out := make([]ProjectGroup, 0, len(groups))
+	for _, g := range groups {
+		if strings.TrimSpace(g.ID) == "" || len(g.Roots) == 0 {
+			continue
+		}
+		out = append(out, g)
+	}
+	return out, nil
+}
+
+// SaveGroups records every project's grouping, replacing whatever was there.
+// A caller with no groups yet -- every project still its own -- need not
+// call this at all; an empty list is written just as readily as any other.
+func SaveGroups(groups []ProjectGroup) error {
+	dir, err := Dir()
+	if err != nil {
+		return err
+	}
+	if groups == nil {
+		groups = []ProjectGroup{}
+	}
+	data, err := json.MarshalIndent(groups, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode groups: %w", err)
+	}
+	path := filepath.Join(dir, groupsFile)
+	if err := keepUnread(path, groupsWhat); err != nil {
+		return fmt.Errorf("write groups: %w", err)
+	}
+	if err := writeAtomic(path, data); err != nil {
+		return fmt.Errorf("write groups: %w", err)
+	}
+	return nil
+}
+
 // Instance records a running flockdeck so a second launch can attach to it
 // instead of starting a rival server, and so agents can outlive the window.
 type Instance struct {
