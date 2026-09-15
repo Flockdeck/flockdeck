@@ -80,7 +80,7 @@ type PaneContext struct {
 	// worth saying at all; see render.
 	RepoName string
 	Cwd      string
-	Branch      string
+	Branch   string
 	// Worktree reports that the pane works in a checkout of its own — a
 	// directory outside the project altogether, which is what fan-out gives
 	// each child, since Flockdeck puts a worktree beside the repository it came
