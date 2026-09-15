@@ -28,7 +28,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -40,12 +39,14 @@ import (
 // cross-compiles from any machine, cgo disabled, because its backend
 // (internal/appwindow) is WebView2 reached through raw syscalls. Linux and
 // macOS build the interface on GTK4/WebKitGTK and Cocoa respectively, both
-// cgo, so those five need a matching machine or cross toolchain: -platforms
-// picks the subset one CI runner builds natively, and linux/arm64 is the one
-// built cross, from the same ubuntu-latest runner as linux/amd64 (see
-// crossLinuxArm64Env). There is no cross toolchain for darwin from a non-Mac host, so a
-// release run on one CI runner alone cannot make one; the workflow runs a
-// build job per host OS instead and merges what each one made (-sums).
+// cgo, so those five need a matching machine: -platforms picks the subset
+// one CI runner builds natively. linux/arm64 tried cross-compiling from the
+// same ubuntu-latest runner as linux/amd64 first, but libwebkitgtk-6.0-dev
+// and its arm64 copy Conflict with each other in apt, so the two could never
+// be installed side by side to link against; it now builds on its own
+// native ubuntu-24.04-arm runner instead, the same way every other platform
+// here does. The workflow runs a build job per platform and merges what
+// each one made (-sums).
 var platforms = []struct{ OS, Arch string }{
 	{"windows", "amd64"},
 	{"windows", "arm64"},
@@ -296,12 +297,9 @@ func archiveExt(goos string) string {
 // Windows stays cgo-free: its window (internal/appwindow) reaches WebView2
 // through raw syscalls, so it is the one target every machine can still
 // cross-compile. Linux and macOS draw their window with GTK4/WebKitGTK and
-// Cocoa, both cgo, so building them needs a C toolchain for the target: the
-// host's own for a native GOARCH, and, for linux/arm64 from an amd64 host,
-// the cross toolchain and pkg-config search path crossLinuxArm64Env points
-// at (installed by the release workflow's Linux job). Darwin has no such
-// cross toolchain from a non-Mac host, which is why -platforms restricts
-// each CI runner to what it can build natively.
+// Cocoa, both cgo, so building them needs the host's own C toolchain for a
+// native GOARCH, which is why -platforms restricts each CI runner to what it
+// can build natively.
 func build(version, goos, goarch, out string) error {
 	ldflags := "-s -w -X main.version=" + version
 	if goos == "windows" {
@@ -312,34 +310,15 @@ func build(version, goos, goarch, out string) error {
 	if goos == "linux" || goos == "darwin" {
 		cgo = "1"
 	}
-	env := append(os.Environ(),
+	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", ldflags, "-o", out, ".")
+	cmd.Env = append(os.Environ(),
 		"GOOS="+goos,
 		"GOARCH="+goarch,
 		"CGO_ENABLED="+cgo,
 	)
-	if goos == "linux" && goarch == "arm64" && runtime.GOARCH != "arm64" {
-		env = append(env, crossLinuxArm64Env()...)
-	}
-
-	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", ldflags, "-o", out, ".")
-	cmd.Env = env
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
-}
-
-// crossLinuxArm64Env is what cross-compiling linux/arm64's cgo needs on top
-// of CGO_ENABLED=1: the cross compiler as CC, since plain gcc/clang on an
-// amd64 host cannot target arm64, and PKG_CONFIG_LIBDIR pointed only at the
-// arm64 .pc files the multiarch packages installed, so pkg-config never
-// answers with the host's own amd64 GTK4/WebKitGTK instead of the target's.
-func crossLinuxArm64Env() []string {
-	return []string{
-		"CC=aarch64-linux-gnu-gcc",
-		"PKG_CONFIG_PATH=",
-		"PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig",
-		"PKG_CONFIG_SYSROOT_DIR=/",
-	}
 }
 
 // extras are shipped inside every archive, beside the binary.
