@@ -28,10 +28,12 @@ settings > GitHub Apps > New GitHub App):
 
 ## 2. LLM API key
 
-Add `PR_REVIEW_LLM_API_KEY` (org- or repo-level, your call) and replace the
-placeholder "Generate review with the LLM" step in
-`reusable-pr-review-post.yml` with a real call once a provider/model/prompt
-are chosen. The step is intentionally isolated so this is a one-step change.
+`reusable-pr-review-post.yml`'s "Generate review with Gemini" step now calls
+Gemini 2.5 Flash for real. What's still needed: add `PR_REVIEW_LLM_API_KEY`
+(org- or repo-level, your call) as a Gemini API key from
+https://aistudio.google.com/apikey. Until it's set, the review call fails
+with a 401/403 and the step just logs a warning and skips posting a comment
+— it won't fail the PR check.
 
 ## 3. Environment protection gate (plan b.4)
 
