@@ -44,7 +44,7 @@ import (
 // internal/appwindow.
 const (
 	appName        = "Flockdeck"
-	appDescription = "Run several coding agents at once, in tabs and split panes."
+	appDescription = "Runs your coding agents on hardware you control."
 )
 
 // windowConfig is the appwindow.Config every window this program opens is
@@ -337,7 +337,7 @@ func dirWasGiven(fs *flag.FlagSet, envDir string) bool {
 
 func usage(fs *flag.FlagSet) {
 	out := fs.Output()
-	fmt.Fprintf(out, "flockdeck — run several coding agents at once, in tabs and split panes.\n\n")
+	fmt.Fprintf(out, "flockdeck — runs your coding agents on hardware you control.\n\n")
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
