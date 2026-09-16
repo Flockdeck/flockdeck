@@ -65,8 +65,30 @@
 // registered with a server, it does not defend against a relay that
 // actively swaps a static public key for its own the moment it is
 // registered; closing that gap needs an out-of-band check -- comparing a
-// fingerprint on both screens -- which is a client-side feature this
-// package leaves room for but does not itself provide.
+// fingerprint on both screens -- which Fingerprint, below, computes from
+// the same two static keys the handshake already trusts the relay to hand
+// out.
+//
+// # Fingerprint
+//
+// Fingerprint(devicePub, hostPub) reduces both static public keys to six
+// five-digit groups, such as "04217 91002 55810 30021 88452 71390": a
+// SHA-256 of the two keys concatenated, device first, cut into six 5-byte
+// chunks, each read as a big-endian integer and taken modulo 100000. A
+// browser and a desktop that hold the keys each believes the other's to be
+// compute the same thirty digits from them alone -- no session, no
+// handshake, nothing that has to have happened yet -- so the two can be
+// compared once, at pairing, or at any later moment either side is unsure,
+// without opening a terminal first. A relay that swapped a static key at
+// registration is holding a different key than the genuine device or host
+// now has, on at least one side of the pair, and that shows up as two
+// different fingerprints on the two screens: the one part of this scheme a
+// person, not a computation, has to check, because a relay that lies about
+// a key can just as well have this package compute an agreeing answer from
+// the lie. Thirty decimal digits is a search space -- 10^30 -- no attacker
+// picking a substitute key gets to brute-force into matching the genuine
+// one's fingerprint, which is what makes comparing thirty digits as good as
+// comparing the keys themselves byte for byte.
 //
 // T1, T2 and T3 are concatenated and fed to HKDF-SHA256 (RFC 5869), salted
 // with both ephemeral public keys so the extract is bound to this exact
@@ -206,6 +228,44 @@ func DecodePublicKey(s string) (*ecdh.PublicKey, error) {
 		return nil, fmt.Errorf("e2e: public key is not a P-256 point: %w", err)
 	}
 	return pub, nil
+}
+
+// fingerprintGroups is how many 5-digit groups Fingerprint makes, and
+// fingerprintGroupBytes how many bytes of the SHA-256 digest go into each
+// one -- six groups of five bytes uses the digest's first 30 bytes, leaving
+// its last 2 unused.
+const (
+	fingerprintGroups     = 6
+	fingerprintGroupBytes = 5
+	fingerprintGroupMod   = 100000
+)
+
+// Fingerprint reduces a device's and a host's long-term public keys to a
+// short code a person can compare on two screens: the out-of-band check the
+// handshake's own mutual authentication cannot make for itself against a
+// relay that swapped a static key the moment it was registered (see this
+// package's own doc for what it closes and why thirty digits is enough).
+//
+// Both ends of a pairing compute the same code from the same two keys
+// regardless of which one calls it -- devicePub and hostPub always mean the
+// device's and the host's static keys, never "mine" and "theirs" -- so it is
+// devicePub first, hostPub second, on both sides, every time.
+func Fingerprint(devicePub, hostPub *ecdh.PublicKey) string {
+	h := sha256.New()
+	h.Write(devicePub.Bytes())
+	h.Write(hostPub.Bytes())
+	sum := h.Sum(nil)
+
+	groups := make([]string, fingerprintGroups)
+	for i := range groups {
+		chunk := sum[i*fingerprintGroupBytes : (i+1)*fingerprintGroupBytes]
+		var v uint64
+		for _, b := range chunk {
+			v = v<<8 | uint64(b)
+		}
+		groups[i] = fmt.Sprintf("%05d", v%fingerprintGroupMod)
+	}
+	return strings.Join(groups, " ")
 }
 
 // DeviceHandshake is a browser's side of opening one terminal session, from

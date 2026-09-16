@@ -666,6 +666,12 @@
   let remoteRoster = null;
   let remotePairing = null;
   let remoteChipKey = null;
+  /** Which paired devices' out-of-band fingerprint (internal/e2e) is shown
+   *  open right now, by device id -- kept here, not on the row, for the
+   *  same reason renaming and cascading state on the Devices page is: a
+   *  dialog drawn again for another reason must not close what someone
+   *  opened to compare against that device's own screen. */
+  const remoteFingerprintOpen = new Set();
 
   /** How often the roster is asked for again while a pairing link is on
    *  screen, waiting on a scan: nothing else here asks again on its own, so
@@ -928,6 +934,15 @@
     const devices = roster.devices || [];
     const dev = section(devices.length === 1 ? "1 paired device" : devices.length + " paired devices");
     if (!devices.length && !roster.error) dev.append(el("div", "dir-empty", "Nothing is paired yet."));
+    // A relay that swapped this machine's or a device's registered key the
+    // moment it was handed out would make the handshake think it had, undetected
+    // (internal/e2e's own doc says so); comparing each device's code against
+    // what it shows on its own Devices page is the one check that catches it.
+    if (devices.some((d) => d.fingerprint)) {
+      dev.append(el("p", "fan-hint",
+        "Tap Verify and compare the code with what a device shows on its own Devices page. " +
+        "If they differ, unpair it: the relay may have handed it the wrong key."));
+    }
     devices.forEach((d) => {
       const item = el("div", "wt-row");
       item.dataset.key = "device:" + d.id;
@@ -938,8 +953,22 @@
       if (mine) title.append(el("span", "wt-flag", "this device"));
       main.append(title);
       main.append(el("div", "wt-meta", "paired " + remoteAgo(d.created) + " · last seen " + remoteAgo(d.lastSeen)));
+      const open = remoteFingerprintOpen.has(d.id);
+      if (d.fingerprint && open) {
+        main.append(el("p", "remote-fingerprint", d.fingerprint));
+      }
       item.append(main);
       const actions = el("div", "wt-actions");
+      if (d.fingerprint) {
+        const verify = el("button", "chip", open ? "Hide code" : "Verify");
+        verify.setAttribute("aria-expanded", open ? "true" : "false");
+        verify.setAttribute("aria-label", (open ? "Hide the code for " : "Verify the code for ") + (d.name || "this device"));
+        verify.onclick = () => {
+          if (open) remoteFingerprintOpen.delete(d.id); else remoteFingerprintOpen.add(d.id);
+          keepFocus(renderRemote);
+        };
+        actions.append(verify);
+      }
       const rename = el("button", "chip", "Rename");
       rename.onclick = () => remoteRename("device", d.id, d.name || "");
       const drop = el("button", "chip danger", "Unpair");
