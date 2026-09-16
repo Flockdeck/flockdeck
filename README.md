@@ -1229,9 +1229,14 @@ page. A machine wiped before remote access was turned off on it can no longer
 take itself off the relay, so that page removes it too.
 
 What the relay can see is stated plainly: traffic is TLS between the browser
-and the relay and between the relay and this machine, and the relay decrypts
-it to route it. It is **trusted**, not end-to-end encrypted. It never sees the
-local server's token or any API key — a request is let in here because it came
+and the relay and between the relay and this machine. Terminal traffic — what
+you type and what comes back — is also **end-to-end encrypted** on top of
+that: the relay carries it but cannot read it, even one you run yourself.
+That defeats an honestly-run relay; it does not yet defend against a relay
+that has been actively compromised and tampered with to swap the keys it
+hands out at pairing, which needs an out-of-band check not built yet. It
+never sees the local server's token or any API key — a request is let in
+here because it came
 through the tunnel, which only the relay can put one on, and the relay has
 already checked the device is paired with the account. The endpoints only
 another launch of the binary uses (`-quit`, opening a project from the command

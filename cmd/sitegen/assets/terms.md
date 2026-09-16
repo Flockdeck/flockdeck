@@ -26,8 +26,11 @@ desktop app itself is free, and never needs the relay.
   your desktops, for the devices you pair, and for keeping them secure. Anyone
   holding one of your paired devices can reach your desktops through it. If a
   device is lost, remove it.
-- **Not end-to-end encrypted.** The relay decrypts traffic to route it, as the
-  [privacy policy](privacy.html) explains. Don't use it for anything you
+- **Terminal traffic is end-to-end encrypted; a pane's state isn't.** The
+  relay carries your keystrokes and their output without being able to read
+  them, but it still decrypts the state of your panes (spend, usage limits,
+  which model routing chose) to route it, as the
+  [privacy policy](privacy.html) explains. Don't send anything through it you
   wouldn't send through a service you trust to that extent.
 - **Fair use.** The relay is shared, and it has limits on how often accounts
   can be created and devices paired. Please don't try to get around them.

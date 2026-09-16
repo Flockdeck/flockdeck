@@ -44,16 +44,23 @@ Flockdeck has nothing to opt into, because it collects nothing to begin with
 release; it's what the app already does, and the desktop app is open source,
 so you can read the source and check.
 
-## What isn't end-to-end encrypted, said plainly
+## What is, and isn't, end-to-end encrypted, said plainly
 
-Remote access is genuinely useful, and most of what it carries is never
-recorded anywhere along the way — but it isn't end-to-end encrypted the way
-push notifications are. Your terminal output and what you type reach the
-relay over TLS, and the relay decrypts that traffic to route it to your other
-devices. It doesn't record, store or log the content, but a compromise of the
-relay itself could expose traffic while it's in flight. If your organisation's
-rules don't allow a third party to decrypt developers' terminal sessions, run
-the relay yourself: see [self-hosting the
+Remote access is genuinely useful, and most of what it carries is now
+end-to-end encrypted the way push notifications are: your terminal output and
+what you type are encrypted with keys the relay hands out but never holds, so
+the relay carries that traffic to your other devices without being able to
+read it — not even a relay you run yourself.
+
+The state of your panes still isn't: what each pane's agent has spent, its
+usage limits, and which model routing chose for it reach the relay decrypted,
+over TLS, so it can route them. It doesn't record, store or log any of it.
+
+This defeats an honestly-run relay. It doesn't yet defend against a relay
+that's been actively compromised and tampered with to swap the keys it hands
+out at pairing — that needs an out-of-band check that hasn't been built yet.
+If your organisation's rules don't allow a third party in that position at
+all, run the relay yourself: see [self-hosting the
 relay](https://docs.flockdeck.ai/self-hosting/overview.html), or the coming
 [Enterprise](./#enterprise) licence.
 

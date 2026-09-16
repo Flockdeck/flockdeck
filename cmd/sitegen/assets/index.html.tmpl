@@ -293,9 +293,9 @@
     <div class="card">
       <span class="g">private</span>
       <h3>Only your desktops</h3>
-      <p>Your devices reach your desktops and nobody else's. Connections are
-         encrypted with TLS over the internet. The relay decrypts traffic to
-         route it, so remote access is not end-to-end encrypted. See
+      <p>Your devices reach your desktops and nobody else's. Terminal traffic
+         is end-to-end encrypted on top of the TLS connection; a pane's spend
+         and usage state still reaches the relay decrypted. See
          <a href="trust.html">trust &amp; privacy</a> for what is, and what
          isn't, said plainly.</p>
     </div>
@@ -324,9 +324,10 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
        and under licence, and nothing about price or date, which are not
        settled. Nobody can run a relay today, individuals are not offered one,
        and the relay is not open source, so nothing here may suggest
-       otherwise. Nor may anything here promise what the shared relay
-       will cost, which is not settled either. The app's own Settings say the
-       same beside it, which is where somebody using it will meet the plan.
+       otherwise. The shared relay's own price is settled now (see the FAQ:
+       £5 a month after its 30-day trial) — it is Enterprise's price and date
+       that remain unsettled, so nothing here may promise what those will be.
+       The app's own Settings say the same beside it, which is where somebody using it will meet the plan.
        v0.2.9's Settings link #private-relays, so that id stays, on the card's
        first line, and lands on the whole card. -->
   <div class="pair plan">
@@ -448,15 +449,15 @@ make package    <span class="c"># archives for all six platforms</span></code></
       <p>The desktop app is, for good: it's free and open source under the MIT
          licence, on your own computer or self-hosted on a server you run.
          Reaching it from your phone through Flockdeck's shared relay is free
-         for a 30-day trial, then a small subscription — there's no permanent
-         free tier for the relay, since somebody has to pay for running it.</p>
+         for a 30-day trial, then £5 a month — there's no permanent free tier
+         for the relay, since somebody has to pay for running it.</p>
       <p>If you'd like to say thank you, you can
          <a href="#sponsor">sponsor Flockdeck</a>. It buys nothing: the app is
          the same for everyone.</p>
     </details>
     <details>
       <summary>Is there a paid version?</summary>
-      <p>The shared relay is a subscription after its free trial. Companies
+      <p>The shared relay is £5 a month after its free trial. Companies
          that can't have Flockdeck's relay in the loop at all can license the
          whole stack — relay and remote access included — to run entirely on
          their own infrastructure, with SSO: see
