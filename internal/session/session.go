@@ -629,6 +629,19 @@ func (s *Session) SubscribeFrom(epoch, off int64) (id int, replay []byte, start 
 // still does across Flockdeck itself being restarted.
 func (s *Session) Epoch() int64 { return s.startedAt.UnixMicro() }
 
+// StartedAt is when the pane's process was started, in wall-clock time. It is
+// StartedAt rather than Epoch for a caller outside the package: Epoch is this
+// run's own name for the session and means nothing to anyone comparing
+// against what the operating system says a process id has been running
+// since.
+//
+// It is what lets a pane's process, once recorded against its working
+// directory (see store.TrackWorktreeProc), be told apart by a later launch
+// from whatever unrelated process the system has since handed the same id
+// to: store.ProcessStartedAt reads the same process by its bare pid, and the
+// two readings are compared, never parsed, against each other.
+func (s *Session) StartedAt() time.Time { return s.startedAt }
+
 // AltScreen reports whether the pane's program has switched to the alternate
 // screen -- a full-screen program: vim, htop, an agent's own full-screen view
 // -- and not back. The replay of one is its screen as it was drawn, a piece at

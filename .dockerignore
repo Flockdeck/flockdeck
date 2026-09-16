@@ -1,0 +1,15 @@
+# Keeps the build context (and so the cache-busting COPY . . layer in
+# Dockerfile) to what the Linux binary actually needs. Mirrors .gitignore
+# plus the things only relevant to a local, non-container dev loop.
+#
+# LICENSE and THIRD-PARTY-NOTICES.md stay: the final stage's
+# COPY LICENSE THIRD-PARTY-NOTICES.md /licenses/ needs both in the context.
+.git
+.github
+.idea
+/dist
+/flockdeck
+/flockdeck.exe
+/flockdeck-chat.exe
+design
+deploy

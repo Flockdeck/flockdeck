@@ -1,0 +1,18 @@
+apiVersion: v2
+name: flockdeck
+description: >-
+  Flockdeck, self-hosted: a headless instance (`flockdeck -no-window`) on a
+  server you own, running several coding agents at once. Built on the same
+  image the Docker install uses (see the repository's Dockerfile).
+type: application
+# The chart's own version, raised whenever anything in it changes -- kept
+# separate from appVersion below so a chart-only fix (a securityContext
+# tweak, a new value) does not force an application release.
+version: 0.1.0
+# The Flockdeck release this chart deploys when image.tag is not set. The
+# image is ghcr.io/jmwri/flockdeck:<appVersion>, the v-prefixed tag
+# release.yml publishes.
+appVersion: "v0.1.0"
+home: https://flockdeck.ai
+sources:
+  - https://github.com/jmwri/flockdeck

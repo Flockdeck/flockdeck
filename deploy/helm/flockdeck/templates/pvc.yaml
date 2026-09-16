@@ -1,0 +1,44 @@
+{{- $fullname := include "flockdeck.fullname" . }}
+{{- if and .Values.persistence.state.enabled (not .Values.persistence.state.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-state
+  labels:
+    {{- include "flockdeck.labels" . | nindent 4 }}
+  annotations:
+    # The saved layout and agent settings are on this volume. Uninstalling
+    # the chart leaves it, so a mistaken uninstall costs no saved work;
+    # delete the claim by hand once it is truly not wanted.
+    helm.sh/resource-policy: keep
+spec:
+  # One pod mounts it, and only ever one -- see deployment.yaml.
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.persistence.state.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.state.size }}
+{{- end }}
+{{- if and .Values.persistence.workspace.enabled (not .Values.persistence.workspace.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-workspace
+  labels:
+    {{- include "flockdeck.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.persistence.workspace.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.workspace.size }}
+{{- end }}

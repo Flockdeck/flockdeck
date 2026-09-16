@@ -3,7 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>flockdeck</title>
+<!-- Paints the window's background before app.css has even been requested,
+     let alone parsed, so the moment the app-mode browser opens there is
+     never a flash of its own default (white, on most of them) behind the
+     dark interface -- and the splash screen below, which relies on app.css
+     for its own background -- that are about to load into it. app.css
+     repeats these two rules; that is only for the future proofing of it
+     being the single source for what --bg and --fg actually are, not because
+     this stops applying once it has arrived. -->
+<style>html,body{background:#14161a;color:#d8dee9}</style>
 <!-- The window is a Chromium app-mode window, so this is the application icon
      as much as the tab icon: it is what the taskbar and alt-tab show. There is
      no --app-icon, so the OS asks these links for a bitmap at whatever size it
@@ -23,13 +33,29 @@
 <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
+  <!-- Shown from the instant the page has anything to paint, over the rest of
+       the page while it is still empty chrome: the rail drawn with nothing in
+       it, a project name still saying "project", no tabs. Covering that
+       rather than letting it be seen is the whole of what this is for, so it
+       is markup and CSS alone, needing no script to appear. app.js takes it
+       away once the first state has actually been drawn -- see dismissSplash
+       -- fading rather than vanishing, since the change from one to the
+       other is exactly the flash this exists to avoid. -->
+  <div id="splash" aria-hidden="true">
+    <img class="splash-mark" src="assets/icon.svg" alt="" width="56" height="56">
+  </div>
+
   <!-- The rail: the open projects, and everything that opens a dialog. Each
        button's label is real text, kept out of sight beside the icon while the
        rail is a column of icons and shown when a narrow screen folds the rail
        into a menu; either way it is the button's name. The icons are drawn
        from app.js, from one set of path data. -->
   <nav id="rail" aria-label="Projects and tools">
-    <img class="rail-mark" src="assets/icon.svg" alt="" width="24" height="24">
+    <img id="rail-mark" class="rail-mark" src="assets/icon.svg" alt="" width="24" height="24">
+    <!-- Wide screens only: a narrow one folds the rail into a menu instead,
+         which is already as wide as it needs to be. app.js fills in whether
+         pressing it opens the rail out or folds it away. -->
+    <button id="rail-collapse" class="rail-btn" aria-pressed="false"><span class="ico rail-collapse-ico" data-icon="chev" aria-hidden="true"></span><span class="rail-label">Widen the rail</span></button>
     <div class="rail-rule"></div>
     <div id="rail-projects" role="group" aria-label="Open projects"></div>
     <button id="rail-open" class="rail-btn"><span class="ico" data-icon="folderplus" aria-hidden="true"></span><span class="rail-label">Open a project</span></button>
@@ -38,6 +64,7 @@
     <button id="btn-changes" class="rail-btn"><span class="ico" data-icon="changes" aria-hidden="true"></span><span class="rail-label">Changes</span></button>
     <button id="btn-history" class="rail-btn"><span class="ico" data-icon="history" aria-hidden="true"></span><span class="rail-label">History</span></button>
     <button id="btn-worktrees" class="rail-btn"><span class="ico" data-icon="worktrees" aria-hidden="true"></span><span class="rail-label">Worktrees</span></button>
+    <button id="btn-github" class="rail-btn"><span class="ico" data-icon="github" aria-hidden="true"></span><span class="rail-label">GitHub</span></button>
     <div class="rail-rule"></div>
     <!-- Always here, so remote access can be found before it is turned on.
          The badge is the tunnel: on, connecting, or wanting attention. -->
@@ -45,6 +72,10 @@
     <button id="btn-help" class="rail-btn"><span class="ico" data-icon="help" aria-hidden="true"></span><span class="rail-label">Help</span></button>
     <button id="btn-settings" class="rail-btn"><span class="ico" data-icon="settings" aria-hidden="true"></span><span class="rail-label">Settings</span></button>
   </nav>
+  <!-- Wide screens only, and only once the rail is expanded: drag it to
+       resize the rail, or give it the keyboard and use the left and right
+       arrow keys. -->
+  <div id="rail-resize" role="separator" aria-orientation="vertical" aria-label="Resize the rail" tabindex="0"></div>
   <!-- Behind the rail while a narrow screen shows it as a menu; a tap here
        puts it away. The style sheet shows it, from the class on the body. -->
   <div id="rail-scrim"></div>
@@ -52,11 +83,7 @@
   <div id="main">
     <header id="topbar">
       <!-- Only on a narrow screen, where the rail is folded away. -->
-      <button id="rail-toggle" class="bar-btn" aria-controls="rail" aria-expanded="false"><span class="ico" data-icon="menu" aria-hidden="true"></span></button>
-      <button id="project-btn" class="project">
-        <span id="project-name">project</span><span id="project-branch" hidden></span><span class="ico caret" data-icon="chev" data-size="14" aria-hidden="true"></span>
-      </button>
-      <div class="divider-v"></div>
+      <button id="rail-toggle" class="bar-btn" aria-controls="rail" aria-expanded="false"><span class="ico" data-icon="menu" aria-hidden="true"></span><span class="rail-badge" aria-hidden="true"></span></button>
       <div id="tabbar">
         <div id="tabs" role="tablist" aria-label="Tabs"></div>
         <span class="new-tab-group">
@@ -81,6 +108,12 @@
       <button id="btn-update" class="update" hidden></button>
     </header>
 
+    <!-- The version actually running has been withdrawn since it was
+         installed -- a distinct, rarer signal than the ordinary update chip,
+         which only ever says something newer exists. Above the hints bar,
+         since this is the one banner that should never lose the slot to a
+         rotating tip. -->
+    <div id="recall-banner" hidden></div>
     <div id="hints" hidden></div>
 
     <main id="workspace"></main>

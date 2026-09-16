@@ -35,9 +35,18 @@ import (
 	"github.com/jmwri/flockdeck/internal/selfupdate"
 )
 
-// platforms is what a release is built for. It matches the Makefile's list,
-// and every one of them cross-compiles from any one machine because the
-// application is built with cgo disabled.
+// platforms is every platform a release ships for. Windows still
+// cross-compiles from any machine, cgo disabled, because its backend
+// (internal/appwindow) is WebView2 reached through raw syscalls. Linux and
+// macOS build the interface on GTK4/WebKitGTK and Cocoa respectively, both
+// cgo, so those five need a matching machine: -platforms picks the subset
+// one CI runner builds natively. linux/arm64 tried cross-compiling from the
+// same ubuntu-latest runner as linux/amd64 first, but libwebkitgtk-6.0-dev
+// and its arm64 copy Conflict with each other in apt, so the two could never
+// be installed side by side to link against; it now builds on its own
+// native ubuntu-24.04-arm runner instead, the same way every other platform
+// here does. The workflow runs a build job per platform and merges what
+// each one made (-sums).
 var platforms = []struct{ OS, Arch string }{
 	{"windows", "amd64"},
 	{"windows", "arm64"},
@@ -45,6 +54,33 @@ var platforms = []struct{ OS, Arch string }{
 	{"linux", "arm64"},
 	{"darwin", "amd64"},
 	{"darwin", "arm64"},
+}
+
+// selectPlatforms parses -platforms ("linux/amd64,linux/arm64") into the
+// matching entries of platforms, or returns every one of them for "".
+func selectPlatforms(spec string) ([]struct{ OS, Arch string }, error) {
+	if spec == "" {
+		return platforms, nil
+	}
+	var picked []struct{ OS, Arch string }
+	for _, s := range strings.Split(spec, ",") {
+		s = strings.TrimSpace(s)
+		osArch := strings.SplitN(s, "/", 2)
+		found := false
+		if len(osArch) == 2 {
+			for _, p := range platforms {
+				if p.OS == osArch[0] && p.Arch == osArch[1] {
+					picked = append(picked, p)
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("%q is not one of the platforms this command builds (os/arch, such as linux/amd64)", s)
+		}
+	}
+	return picked, nil
 }
 
 const binary = "flockdeck"
@@ -64,14 +100,16 @@ const chatBinary = "flockdeck-chat"
 
 func main() {
 	var (
-		version = flag.String("version", "dev", "version to stamp into the binaries and the file names")
-		out     = flag.String("out", "dist", "directory to write the archives to")
-		keygen  = flag.String("keygen", "", "write a new release signing key to this `file`, print its public key, and stop")
-		standby = flag.Bool("standby", false, "with -keygen, make the standby key instead of the primary: for releaseKeyStandby, kept offline, never in a repository secret")
-		sign    = flag.Bool("sign", false, "sign the release already built in -out with the key in "+signingKeyEnv+", and write its manifest and latest.json")
-		base    = flag.String("base", selfupdate.Site, "where the download site serves releases, for the URLs in the manifest")
-		notes   = flag.String("notes", "", "a `file` of release notes to put in the manifest")
-		testKey = flag.Bool("test-key", false, "with -sign, accept a key the updater does not trust, to try the upload against a store of your own; never for a release")
+		version  = flag.String("version", "dev", "version to stamp into the binaries and the file names")
+		out      = flag.String("out", "dist", "directory to write the archives to")
+		keygen   = flag.String("keygen", "", "write a new release signing key to this `file`, print its public key, and stop")
+		standby  = flag.Bool("standby", false, "with -keygen, make the standby key instead of the primary: for releaseKeyStandby, kept offline, never in a repository secret")
+		sign     = flag.Bool("sign", false, "sign the release already built in -out with the key in "+signingKeyEnv+", and write its manifest and latest.json")
+		base     = flag.String("base", selfupdate.Site, "where the download site serves releases, for the URLs in the manifest")
+		notes    = flag.String("notes", "", "a `file` of release notes to put in the manifest")
+		testKey  = flag.Bool("test-key", false, "with -sign, accept a key the updater does not trust, to try the upload against a store of your own; never for a release")
+		platform = flag.String("platforms", "", "comma-separated os/arch pairs to build, such as linux/amd64,linux/arm64 (default: every platform, which needs a cgo toolchain for each on this machine)")
+		sumsOnly = flag.Bool("sums", false, "write checksums.txt for the archives already in -out instead of building, for combining a release built across several machines")
 	)
 	flag.Parse()
 
@@ -84,8 +122,10 @@ func main() {
 			version: *version, out: *out, base: *base, notes: *notes,
 			key: os.Getenv(signingKeyEnv), anyKey: *testKey, now: time.Now(),
 		})
+	case *sumsOnly:
+		err = runSums(*out)
 	default:
-		err = run(*version, *out)
+		err = run(*version, *out, *platform)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "release:", err)
@@ -93,7 +133,11 @@ func main() {
 	}
 }
 
-func run(version, out string) error {
+func run(version, out, platformSpec string) error {
+	picked, err := selectPlatforms(platformSpec)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return err
 	}
@@ -106,9 +150,11 @@ func run(version, out string) error {
 
 	// Sums are collected as the archives are written and spilled at the end,
 	// so checksums.txt can never describe an archive that failed to build.
+	// Building only some platforms (-platforms) still writes one: -sums
+	// recomputes it later from every machine's archives merged together.
 	sums := map[string]string{}
 
-	for _, p := range platforms {
+	for _, p := range picked {
 		name, err := packagePlatform(version, out, p.OS, p.Arch)
 		if err != nil {
 			return err
@@ -122,6 +168,30 @@ func run(version, out string) error {
 		fmt.Printf("%s  %s\n", sum[:12], name)
 	}
 
+	return writeSums(filepath.Join(out, "checksums.txt"), sums)
+}
+
+// runSums writes checksums.txt for the archives already sitting in out,
+// rather than building anything -- for a release assembled from more than one
+// machine's -platforms build, once every archive has been gathered into one
+// directory.
+func runSums(out string) error {
+	entries, err := os.ReadDir(out)
+	if err != nil {
+		return err
+	}
+	skip := map[string]bool{"checksums.txt": true, "checksums.txt.sig": true, "manifest.json": true, "manifest.json.sig": true, "latest.json": true}
+	sums := map[string]string{}
+	for _, e := range entries {
+		if e.IsDir() || skip[e.Name()] {
+			continue
+		}
+		sum, err := sha256File(filepath.Join(out, e.Name()))
+		if err != nil {
+			return err
+		}
+		sums[e.Name()] = sum
+	}
 	return writeSums(filepath.Join(out, "checksums.txt"), sums)
 }
 
@@ -223,17 +293,28 @@ func archiveExt(goos string) string {
 // Makefile does: started from a shortcut it should not flash a console window
 // behind the interface. A program linked that way is given no console, even
 // by a terminal, so the program borrows the terminal's itself (useConsole).
+//
+// Windows stays cgo-free: its window (internal/appwindow) reaches WebView2
+// through raw syscalls, so it is the one target every machine can still
+// cross-compile. Linux and macOS draw their window with GTK4/WebKitGTK and
+// Cocoa, both cgo, so building them needs the host's own C toolchain for a
+// native GOARCH, which is why -platforms restricts each CI runner to what it
+// can build natively.
 func build(version, goos, goarch, out string) error {
 	ldflags := "-s -w -X main.version=" + version
 	if goos == "windows" {
 		ldflags += " -H=windowsgui"
 	}
 
+	cgo := "0"
+	if goos == "linux" || goos == "darwin" {
+		cgo = "1"
+	}
 	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", ldflags, "-o", out, ".")
 	cmd.Env = append(os.Environ(),
 		"GOOS="+goos,
 		"GOARCH="+goarch,
-		"CGO_ENABLED=0",
+		"CGO_ENABLED="+cgo,
 	)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr

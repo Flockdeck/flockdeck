@@ -37,24 +37,34 @@ func (h *conversationHub) remoteChatViewers(paneID string) []string {
 // hands out (see nextViewer) so that two sockets on the same device -- a
 // phone reconnecting before its old socket has timed out -- are each their
 // own entry until one of them closes.
-var remoteTermViewers = &remoteTermViewerSet{panes: map[string]map[int64]string{}}
+var remoteTermViewers = &remoteTermViewerSet{panes: map[string]map[int64]remoteTermViewer{}}
+
+// remoteTermViewer is what is known of one terminal socket reached through
+// the relay: the device it belongs to, and whether handlePTY's handshake
+// end-to-end encrypted it (internal/e2e) -- false for an older browser that
+// has not registered a key, which is served rather than refused, but whose
+// pane a desk may still want to know is carrying its traffic in the clear.
+type remoteTermViewer struct {
+	device    string
+	encrypted bool
+}
 
 type remoteTermViewerSet struct {
 	mu    sync.Mutex
-	panes map[string]map[int64]string
+	panes map[string]map[int64]remoteTermViewer
 }
 
 // add records that a terminal socket reached through the relay is open on
-// pane, on the device named.
-func (r *remoteTermViewerSet) add(pane string, viewer int64, device string) {
+// pane, on the device named, and whether it is end-to-end encrypted.
+func (r *remoteTermViewerSet) add(pane string, viewer int64, device string, encrypted bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	m := r.panes[pane]
 	if m == nil {
-		m = map[int64]string{}
+		m = map[int64]remoteTermViewer{}
 		r.panes[pane] = m
 	}
-	m[viewer] = device
+	m[viewer] = remoteTermViewer{device: device, encrypted: encrypted}
 }
 
 // remove forgets a terminal socket that has closed.
@@ -79,10 +89,27 @@ func (r *remoteTermViewerSet) devices(pane string) []string {
 		return nil
 	}
 	out := make([]string, 0, len(m))
-	for _, d := range m {
-		out = append(out, d)
+	for _, v := range m {
+		out = append(out, v.device)
 	}
 	return out
+}
+
+// insecure reports whether any terminal socket open on pane right now is
+// not end-to-end encrypted -- a browser that predates the feature, or one
+// this host could not complete a handshake's roster lookup for a moment
+// ago. false when nobody reached through the relay has the pane's terminal
+// open at all, the same as when every socket open on it is encrypted: there
+// is nothing to warn about either way.
+func (r *remoteTermViewerSet) insecure(pane string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, v := range r.panes[pane] {
+		if !v.encrypted {
+			return true
+		}
+	}
+	return false
 }
 
 // remoteViewersFor lists the device names of every window reached through the

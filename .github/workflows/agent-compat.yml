@@ -1,0 +1,165 @@
+name: agent-compat
+
+# The live half of the agent/model compatibility check described in
+# flockdeck-planning/13-ci-agent-model-compatibility.md. test.yml's own suite
+# already catches Flockdeck's own mistakes in the catalog
+# (TestBuiltinsPassTheirOwnChecks in internal/agent) on every PR, with no
+# external dependency; this file is the slower, external half -- a real CLI
+# installed and asked for its own --help, a real API asked to accept a model,
+# and a real Claude pane run end to end -- which only ever changes when a
+# vendor changes something Flockdeck did not. So it runs on a schedule rather
+# than on every push the way test.yml does.
+#
+# The one PR-time exception is a change to internal/agent/builtin.go itself,
+# the file where a hand-edited flag or model id is most likely to go stale:
+# the paths filter below runs these same jobs immediately on a PR that touches
+# it, rather than waiting for the next scheduled run. One set of jobs serves
+# both triggers, so "does compatibility still hold" never has two answers that
+# can drift apart from each other.
+#
+# Every job here degrades to a skip, not a failure, when what it needs is
+# missing -- an installer that did not run, a key that is not set as a
+# secret, a CLI not on PATH -- because a fork's pull_request carries none of
+# this repository's secrets, and a job that went red for that would be noise
+# nobody trusted for long. What each job actually asserts is written into the
+# Go tests it calls (internal/agent/cliflags_test.go,
+# internal/chat/livemodels_test.go, internal/server/agentlivesmoke_test.go),
+# not duplicated here.
+on:
+  schedule:
+    # Sunday, 06:00 UTC. Slow, spends real API usage against the secrets
+    # below, and depends on third-party installers rather than Flockdeck's own
+    # code -- exactly why this is weekly rather than on every push.
+    - cron: "0 6 * * 0"
+  pull_request:
+    paths:
+      - "internal/agent/builtin.go"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  cli-flags:
+    # Whether each CLI-wrapped built-in's own --help still has the flags
+    # builtin.go assumes. No key and no live pane needed -- just the vendor's
+    # installer and its own usage text -- so there is nothing to gate this on
+    # for a PR from a fork either.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: claude
+            install: npm install -g @anthropic-ai/claude-code
+          - id: codex
+            install: npm install -g @openai/codex
+          - id: gemini
+            install: npm install -g @google/gemini-cli
+          - id: aider
+            install: python -m pip install aider-install && aider-install
+          - id: opencode
+            # opencode.ai's own documented install script. Not installed
+            # anywhere this was written from -- unverified, in the same
+            # spirit as builtin.go's own opencodeSpec comment. Fix this line
+            # if it breaks; that is itself the signal this job exists to give.
+            install: curl -fsSL https://opencode.ai/install | bash
+          - id: cursor-agent
+            # cursor.com/cli's own documented install script. Equally
+            # unverified.
+            install: curl -fsS https://cursor.com/install | bash
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # A guessed installer breaking -- a script moved, a package renamed --
+      # is worth a warning, not a red job: nothing here claims the command is
+      # right, only that it was the best that could be written without the
+      # tool to hand, and the flag check below skips this agent cleanly
+      # rather than failing when the binary it wanted never arrived.
+      - name: Install ${{ matrix.id }}
+        id: install
+        continue-on-error: true
+        run: ${{ matrix.install }}
+
+      - name: Note a failed install
+        if: steps.install.outcome == 'failure'
+        run: |
+          echo "::warning title=${{ matrix.id }} did not install::the flag check below will skip ${{ matrix.id }}, which is not the same as it passing"
+
+      - name: Check ${{ matrix.id }}'s flags against its own --help
+        run: go test ./internal/agent/... -run "TestBuiltinCLIFlagsAreStillReal/${{ matrix.id }}" -v -timeout 5m
+
+  live-api-models:
+    # Whether every model a built-in API agent lists is still accepted by its
+    # vendor, asked live -- the Gemini-preview-retirement scenario builtin.go's
+    # own comments already worry about. An agent whose key secret is not set
+    # here is skipped by the test itself rather than failing the job, so a
+    # fork's run -- which GitHub gives none of this repository's secrets --
+    # goes green having checked nothing rather than red for lacking what only
+    # a run in this repository carries.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Ask each vendor whether its listed models are still accepted
+        env:
+          FLOCKDECK_LIVE_AGENT_TESTS: "1"
+          ANTHROPIC_API_KEY: ${{ secrets.FLOCKDECK_CI_ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.FLOCKDECK_CI_OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.FLOCKDECK_CI_GEMINI_API_KEY }}
+        run: go test ./internal/chat/... -run TestLiveModelsAreAccepted -v -timeout 10m
+
+  claude-smoke-pane:
+    # The one built-in whose capabilities are claimed rather than guessed
+    # (hooks, resume, transcript, trust), exercised end to end: a real pane
+    # started with the argv BuildArgv builds from claudeSpec, a real prompt
+    # typed into it, its status moving through the lifecycle claude's own
+    # hooks report -- not one Flockdeck infers from its output -- and a real
+    # restart under claudeSpec's ResumeArgs (--resume). Needs claude installed
+    # and a key it can run under; the test itself skips when either is
+    # missing, for the same reason live-api-models does.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install claude
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Run a real pane through Flockdeck's own hook and resume machinery
+        env:
+          FLOCKDECK_LIVE_AGENT_TESTS: "1"
+          ANTHROPIC_API_KEY: ${{ secrets.FLOCKDECK_CI_ANTHROPIC_API_KEY }}
+        run: go test ./internal/server/... -run TestLiveClaudeSmokePane -v -timeout 5m

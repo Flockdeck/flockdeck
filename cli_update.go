@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -57,6 +58,12 @@ func runUpdate(args []string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+
+	warnIfRecalled(ctx, version)
+
+	if f.version != "" {
+		return runRollback(ctx, f)
+	}
 
 	rel, err := selfupdate.Latest(ctx)
 	if err != nil {
@@ -128,6 +135,142 @@ func runUpdate(args []string) error {
 		fmt.Println("Flockdeck is running now: quit it and start it again to switch to the new version.")
 	}
 	return nil
+}
+
+// warnIfRecalled tells a person running `flockdeck update` when the version
+// they are already on has been pulled, whether or not there is anything newer
+// to move to yet.
+//
+// Latest and Newer only ever answer "is something newer available," never
+// "is what I'm running known-bad" -- so without this, somebody who updated
+// just before a recall keeps running the bad build indefinitely, with no
+// signal, until a newer fix happens to ship and they update again through the
+// ordinary path. selfupdate.Recall is best-effort, the same way every other
+// read from the site here is: nothing is printed when it cannot be checked.
+func warnIfRecalled(ctx context.Context, running string) {
+	rv := selfupdate.Recall(ctx, running)
+	if rv == nil {
+		return
+	}
+	fmt.Printf("WARNING: %s has been recalled: %s\n", running, rv.Reason)
+	if rv.Upgrade != "" {
+		fmt.Printf("A fix is available: run `flockdeck update -version=%s` to install it.\n\n", rv.Upgrade)
+	} else {
+		fmt.Println("Run `flockdeck update` once a fixed release is published.")
+		fmt.Println()
+	}
+}
+
+// runRollback implements `flockdeck update -version=X`: installs a named
+// release, forward or back, rather than whatever Latest currently returns.
+//
+// It is the one path here that deliberately skips the Newer guard that keeps
+// every other path -- runUpdate's ordinary case, and the background watcher
+// -- moving only forward: someone who hits a bug wants to pick a previous
+// version and reinstall it themselves, right now, not wait for a fix to be
+// published and offered through the ordinary path. Because that is an
+// exception on purpose, it is never done without confirmation first, unless
+// told not to ask.
+func runRollback(ctx context.Context, f updateFlags) error {
+	rel, err := selfupdate.Fetch(ctx, f.version)
+	if err != nil {
+		return explainUnreachable(err, "look for "+f.version)
+	}
+	if rel.Draft {
+		return fmt.Errorf("%s is a draft release, not a published one", f.version)
+	}
+
+	fmt.Printf("%s %s (you have %s)\n", rollbackVerb(rel.Version, version), rel.Version, version)
+	if rel.URL != "" {
+		fmt.Println(rel.URL)
+	}
+	if f.check {
+		fmt.Println("Run `flockdeck update -version=" + f.version + "` to download it and put it in place.")
+		return nil
+	}
+	if !f.yes {
+		ok, err := confirmRollback(os.Stdout, os.Stdin, stdinIsTerminal(), rel.Version, version)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			fmt.Println("Not installed.")
+			return nil
+		}
+	}
+
+	dir, err := updatesDir()
+	if err != nil {
+		return err
+	}
+	if size := rel.DownloadSize(); size > 0 {
+		fmt.Printf("Downloading %.1f MB…\n", float64(size)/(1<<20))
+	} else {
+		fmt.Println("Downloading…")
+	}
+	staged, err := selfupdate.Stage(ctx, rel, dir)
+	if err != nil {
+		if errors.Is(err, selfupdate.ErrNoAsset) {
+			return fmt.Errorf("%w — nothing was built for this platform", err)
+		}
+		return explainUnreachable(err, "download the release")
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if err := selfupdate.Apply(dir, exe); err != nil {
+		// Same explanation runUpdate gives for the ordinary path: the download
+		// is sound, only putting it in place failed.
+		how := "with sudo"
+		if runtime.GOOS == "windows" {
+			how = "from an administrator shell"
+		}
+		return fmt.Errorf("%w\n\nThe download is fine and is still staged. This usually means\n%s cannot be written to — try again %s,\nor move the program somewhere you own", err, exe, how)
+	}
+
+	fmt.Printf("Installed %s. It will be in use from the next start.\n", staged.Version)
+	if inst, _, err := runningInstance(); err == nil && inst != nil {
+		fmt.Println("Flockdeck is running now: quit it and start it again to switch to it.")
+	}
+	return nil
+}
+
+// rollbackVerb says what installing candidate over running would do, so the
+// message reads honestly whether it moves forward, back, or reinstalls the
+// very version already running.
+func rollbackVerb(candidate, running string) string {
+	switch {
+	case selfupdate.Newer(candidate, running):
+		return "Installing"
+	case selfupdate.Newer(running, candidate):
+		return "Rolling back to"
+	default:
+		return "Reinstalling"
+	}
+}
+
+// confirmRollback asks before installing a version other than the latest,
+// since skipping the Newer guard on purpose is the one thing here that must
+// never happen without somebody meaning it.
+//
+// Piped input never counts as "yes": interactive says whether stdin is a
+// terminal, and a script has to pass -yes instead, the same way `flockdeck
+// keys set` must be piped a key rather than typed one -- otherwise an
+// unattended run reading EOF from a closed pipe could install an old version
+// nobody confirmed.
+func confirmRollback(out io.Writer, in io.Reader, interactive bool, candidate, running string) (bool, error) {
+	if !interactive {
+		return false, fmt.Errorf("this is not an interactive terminal; pass -yes to install %s without asking", candidate)
+	}
+	fmt.Fprintf(out, "Install %s over %s now? [y/N] ", candidate, running)
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false, err
+	}
+	line = strings.TrimSpace(strings.ToLower(line))
+	return line == "y" || line == "yes", nil
 }
 
 // shownVersion is the version to show a person, as opposed to the one updates
@@ -404,22 +547,7 @@ func watchForUpdates(ctx context.Context, srv *server.Server) {
 		// a failed check leaves whatever is staged alone. A round with updates
 		// turned off in the window asks nothing at all.
 		if !updatesOff() {
-			if latest, err := selfupdate.Latest(ctx); err == nil && latest != nil && !latest.Draft {
-				staged := ""
-				if p, ok := stagedUpdate(dir, version); ok {
-					staged = p.Version
-				}
-				discard, fetch := updateSteps(latest.Version, staged, version)
-				if discard {
-					selfupdate.Discard(dir)
-					offer(nil)
-				}
-				if fetch {
-					if p, err := selfupdate.Stage(ctx, latest, dir); err == nil {
-						offer(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
-					}
-				}
-			}
+			checkRound(ctx, dir, srv)
 		}
 		select {
 		case <-ctx.Done():
@@ -427,6 +555,99 @@ func watchForUpdates(ctx context.Context, srv *server.Server) {
 		case <-time.After(updateInterval):
 		}
 	}
+}
+
+// checkRound is one round of looking for a newer release: it is the body of
+// watchForUpdates' loop, and also what the interface's manual "Check for
+// updates" action runs, so that a person who clicks it and the watcher that
+// runs on its own cannot come to different conclusions about what is staged.
+//
+// The watcher's rounds are silent and ignore what this returns; the manual
+// action is a person waiting on an answer, and is given the message worded
+// for them.
+func checkRound(ctx context.Context, dir string, srv *server.Server) (message string, isErr bool) {
+	offer := func(u *server.UpdateView) {
+		srv.SetUpdate(u)
+		srv.Wake()
+	}
+
+	// Checked every round, independent of whether the newer-release check
+	// below succeeds: a recall is a distinct signal from the update chip,
+	// "the version you are running has a known problem," which the rest of
+	// this function never answers since it only ever compares against
+	// something newer. Compared against srv's own Recall rather than a
+	// variable threaded through the caller's loop, so this round and a
+	// manual check both leave the same trail regardless of which one runs
+	// it, and a round that finds nothing changed does not wake the window
+	// over it.
+	switch rv, was := selfupdate.Recall(ctx, version), srv.Recall(); {
+	case rv != nil && (was == nil || was.Version != rv.Version):
+		srv.SetRecall(&server.RecallView{Version: rv.Version, Reason: rv.Reason, Upgrade: rv.Upgrade})
+	case rv == nil && was != nil:
+		srv.SetRecall(nil)
+	}
+
+	latest, err := selfupdate.Latest(ctx)
+	if err != nil {
+		return explainUnreachable(err, "look for a newer release").Error(), true
+	}
+	staged := ""
+	if p, ok := stagedUpdate(dir, version); ok {
+		staged = p.Version
+	}
+	// A draft has not been published yet, and comparing against it as though
+	// it were the latest release would offer something nobody can download.
+	latestVersion := latest.Version
+	if latest.Draft {
+		latestVersion = ""
+	}
+	discard, fetch := updateSteps(latestVersion, staged, version)
+	if discard {
+		selfupdate.Discard(dir)
+		offer(nil)
+		staged = ""
+	}
+	if !fetch {
+		if staged != "" {
+			return "Version " + staged + " is already downloaded and ready to install.", false
+		}
+		if latestVersion == "" {
+			return upToDate(version, version), false
+		}
+		return upToDate(version, latestVersion), false
+	}
+	p, err := selfupdate.Stage(ctx, latest, dir)
+	if err != nil {
+		if errors.Is(err, selfupdate.ErrNoAsset) {
+			return fmt.Sprintf("%v — nothing was built for this platform", err), true
+		}
+		return explainUnreachable(err, "download the release").Error(), true
+	}
+	offer(&server.UpdateView{Version: p.Version, Notes: p.Notes, URL: p.URL})
+	return "Downloaded version " + p.Version + ". Restart flockdeck when you are ready to install it.", false
+}
+
+// checkForUpdatesNow is the manual "Check for updates" action in the
+// interface: OnCheckForUpdates, wired to it in main. Unlike the watcher it
+// runs regardless of the switch in Settings, which only ever governed
+// checking in the background -- someone who clicked a button marked "Check
+// for updates" is asking this once, not turning the background check back on
+// -- but not regardless of updateEnv, which is for a machine that is never to
+// touch updates at all, clicked button or not.
+func checkForUpdatesNow(srv *server.Server) (string, bool) {
+	if !selfupdate.Parseable(version) {
+		return "This build was not made from a release, so there is no released version to compare it with.", true
+	}
+	if strings.EqualFold(os.Getenv(updateEnv), "off") {
+		return updateEnv + "=off is set in the environment, so this build never checks for updates.", true
+	}
+	dir, err := updatesDir()
+	if err != nil {
+		return err.Error(), true
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	return checkRound(ctx, dir, srv)
 }
 
 // updateSteps decides one round of the watcher from the newest published
@@ -448,7 +669,9 @@ func updateSteps(latest, staged, running string) (discard, fetch bool) {
 
 // updateFlags are the flags of `flockdeck update` and where their values land.
 type updateFlags struct {
-	check bool
+	check   bool
+	version string
+	yes     bool
 }
 
 // updateFlagSet defines the command line of `flockdeck update`. It is built
@@ -458,9 +681,11 @@ type updateFlags struct {
 func updateFlagSet(f *updateFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("flockdeck update", flag.ContinueOnError)
 	fs.BoolVar(&f.check, "check", false, "report whether a newer release exists and stop")
+	fs.StringVar(&f.version, "version", "", "install this `release` instead of the latest, forward or back (e.g. v1.4.0)")
+	fs.BoolVar(&f.yes, "yes", false, "with -version, skip the confirmation before installing it")
 	fs.Usage = func() {
 		out := fs.Output()
-		fmt.Fprintf(out, "Usage: flockdeck update [-check]\n\n")
+		fmt.Fprintf(out, "Usage: flockdeck update [-check] [-version=<release> [-yes]]\n\n")
 		// The signature is claimed wherever the release came from: GitHub
 		// carries checksums.txt.sig beside every release's checksums.txt, and
 		// a release read from its API is refused without one.
@@ -469,6 +694,9 @@ func updateFlagSet(f *updateFlags) *flag.FlagSet {
 		fmt.Fprintf(out, "by the release key, and puts it in place. A running instance keeps\n")
 		fmt.Fprintf(out, "going; the new version is used from its next start.\n\nFlags:\n")
 		fs.PrintDefaults()
+		fmt.Fprintf(out, "\n-version installs a specific release instead, checked the same way, and\n")
+		fmt.Fprintf(out, "asks first: it is the way to undo a bad update yourself, right now,\n")
+		fmt.Fprintf(out, "without waiting for a newer fix to be published.\n")
 		fmt.Fprintf(out, "\nA running Flockdeck also downloads new releases in the background and\n")
 		fmt.Fprintf(out, "offers them in the top bar. Set %s=off to stop it doing that.\n", updateEnv)
 	}

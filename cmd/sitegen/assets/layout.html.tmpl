@@ -25,7 +25,7 @@
 <meta property="og:image" content="{{.URL}}/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Flockdeck: run all your coding agents at once. A window of four agents, one waiting on you.">
+<meta property="og:image:alt" content="Flockdeck: built to keep working after you've gone. A window of four agents, one waiting on you.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="{{.URL}}/og.png">
 <link rel="canonical" href="{{.Canonical}}">
@@ -53,6 +53,7 @@
     <a href="{{.Home}}#remote">Remote</a>
     <a href="{{.Home}}#install">Install</a>
     <a href="{{.Home}}#faq">FAQ</a>
+    <a href="trust.html"{{if eq .Path "trust.html"}} aria-current="page"{{end}}>Trust</a>
     <a href="https://docs.flockdeck.ai/">Docs</a>
     <a href="{{.Repo}}">Source</a>
   </nav>
@@ -73,7 +74,7 @@
 {{define "footer"}}
 <footer class="foot">
   <div class="wrap">
-    <p>Flockdeck. Run all your coding agents at once.<br>
+    <p>Flockdeck. Built to keep working after you've gone.<br>
        <span class="foot-note">The desktop app is free and open source under the MIT licence.</span></p>
     <nav aria-label="Footer">
       <a href="{{.Home}}#install">Install</a>
@@ -83,10 +84,12 @@
       <a href="{{.Repo}}/releases">Releases</a>
       <a href="{{.Repo}}">Source</a>
       <a href="{{.Repo}}/blob/main/LICENSE">Licence</a>
+      <a href="{{.Home}}#sponsor">Sponsor</a>
     </nav>
     <div class="foot-legal">
       <p>© 2026 Jim Wright</p>
       <nav aria-label="Legal">
+        <a href="trust.html"{{if eq .Path "trust.html"}} aria-current="page"{{end}}>Trust</a>
         <a href="privacy.html"{{if eq .Path "privacy.html"}} aria-current="page"{{end}}>Privacy</a>
         <a href="terms.html"{{if eq .Path "terms.html"}} aria-current="page"{{end}}>Terms</a>
         <a href="licences.html"{{if eq .Path "licences.html"}} aria-current="page"{{end}}>Licences</a>

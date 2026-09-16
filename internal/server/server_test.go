@@ -18,9 +18,11 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
@@ -1118,6 +1120,86 @@ func (s *Server) projectRoots(t *testing.T) []string {
 		t.Fatal("timed out reading the project list")
 		return nil
 	}
+}
+
+// TestRestoreOpenProjectsRunsInTheBackground checks that RestoreOpenProjects
+// does not hold up its caller on bringing the other projects back — the
+// point of running it after the server (and so the window) already exists,
+// rather than before, as workspace.Restore alone still does for the active
+// project.
+//
+// It queues its work on the workspace's own goroutine (see (*Server).do) and
+// projectRoots queues behind it on the same goroutine, so by the time
+// projectRoots returns, the queued restore has already run to completion:
+// there is no timing race to arbitrate.
+func TestRestoreOpenProjectsRunsInTheBackground(t *testing.T) {
+	dir := stateTempDir(t)
+	t.Setenv("APPDATA", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("HOME", dir)
+	goTelemetryOff(t)
+	_ = t.TempDir()
+
+	first := stateTempDir(t)
+	second := stateTempDir(t)
+
+	// second was left open last time, with a layout of its own, the way a
+	// background project is when the application restarts.
+	if err := store.Save(second, &store.State{Tabs: []store.Tab{{
+		Title: "second-tab",
+		Root:  &store.Node{Pane: &store.Pane{ID: uuid.NewString(), Kind: "shell", Cwd: second}},
+	}}}); err != nil {
+		t.Fatalf("save second's layout: %v", err)
+	}
+	if err := store.SaveSession(&store.Session{Open: []string{second}}); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+
+	ws, err := workspace.New(workspace.Options{Root: first})
+	if err != nil {
+		t.Fatalf("workspace: %v", err)
+	}
+	t.Cleanup(ws.Close)
+	ws.NewTab(session.KindShell, ws.ActiveRoot(), "first")
+
+	srv, err := New(ws)
+	if err != nil {
+		t.Fatalf("server: %v", err)
+	}
+	setIdle(srv, time.Hour, false, true)
+	t.Cleanup(func() {
+		_ = srv.Close()
+		select {
+		case <-srv.Stopped():
+		case <-time.After(10 * time.Second):
+			t.Error("the server's workspace goroutine was still running ten seconds after Close")
+		}
+	})
+	ws.SetWake(srv.Wake)
+
+	// The window's own project is already up before RestoreOpenProjects is
+	// even asked to run: this is what a caller gets back from server.New,
+	// with the second project's restore still to come.
+	if roots := srv.projectRoots(t); len(roots) != 1 {
+		t.Fatalf("projects open before RestoreOpenProjects = %v, want 1", roots)
+	}
+
+	var mu sync.Mutex
+	var restoreErr error
+	srv.RestoreOpenProjects(func(err error) {
+		mu.Lock()
+		restoreErr = err
+		mu.Unlock()
+	})
+
+	if roots := srv.projectRoots(t); len(roots) != 2 {
+		t.Errorf("projects open after RestoreOpenProjects = %v, want 2", roots)
+	}
+	mu.Lock()
+	if restoreErr != nil {
+		t.Errorf("RestoreOpenProjects reported an error: %v", restoreErr)
+	}
+	mu.Unlock()
 }
 
 // TestAProjectCountsItsPanes covers the summary the agents list is asked for

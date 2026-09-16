@@ -15,6 +15,7 @@ h.recv(fixture({ update: { version: "9.9.9", notes: "Faster." } }));
 assert.ok(h.$("btn-update").hidden, "a window reached through the relay is offered the update, whose restart stops every agent at the desk");
 h.click(h.$("btn-settings"));
 assert.ok(!h.$("set-install"), "the settings offer a window reached through the relay the update's restart");
+assert.ok(!h.$("set-check-update"), "the settings offer a window reached through the relay a check the desk should run");
 h.key({ key: "Escape" });
 
 // The desk is offered it as ever.

@@ -406,6 +406,40 @@ func TestSpawnPlacesAChild(t *testing.T) {
 	}
 }
 
+// TestSpawnInheritsAutoReview covers the promise in Pane.AutoReview's own
+// comment: a child starts with its parent's choice, on or off, rather than
+// always defaulting off, so a fan-out or a `flockdeck spawn` from a pane a
+// person already trusted does not hand back a screenful of panes each
+// needing the switch found and flipped by hand.
+func TestSpawnInheritsAutoReview(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	parent := ws.CurrentTab().Focus
+
+	// Off stays off.
+	offChild, err := ws.Spawn(parent, SpawnOptions{Task: "do a thing", Kind: session.KindShell})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if ws.Pane(offChild).AutoReview {
+		t.Error("a child of a pane with auto-review off should start off too")
+	}
+
+	// On carries over.
+	if !ws.SetPaneAutoReview(parent, true) {
+		t.Fatal("SetPaneAutoReview could not find the parent pane")
+	}
+	onChild, err := ws.Spawn(parent, SpawnOptions{Task: "another thing", Kind: session.KindShell})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if !ws.Pane(onChild).AutoReview {
+		t.Error("a child of a pane with auto-review on should start on too")
+	}
+}
+
 // TestSpawnGathersChildrenIntoOneTab covers the placement a fan-out uses: the
 // first child makes a tab, the rest are told to join it, and the tab is a grid
 // rather than each new pane halving the last.

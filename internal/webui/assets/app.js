@@ -25,6 +25,11 @@
     changes: '<path d="M4 2.5h5.2L12 5.3v8.2H4z"></path><path d="M6 7h4M8 5v4M6 11h4"></path>',
     history: '<circle cx="8" cy="8" r="5.5"></circle><path d="M8 5v3.2l2.2 1.4"></path>',
     worktrees: '<circle cx="5" cy="3.5" r="1.5"></circle><circle cx="5" cy="12.5" r="1.5"></circle><circle cx="11" cy="5" r="1.5"></circle><path d="M5 5v6M11 6.5c0 2.8-6 2.2-6 4.5"></path>',
+    github: '<circle cx="5" cy="3.2" r="1.4"></circle><circle cx="5" cy="12.8" r="1.4"></circle><circle cx="11.5" cy="8" r="1.4"></circle><path d="M5 4.6v6.8"></path><path d="M5 6.6c0 3.4 2.6 1.4 6.5 1.4"></path>',
+    // Two branches meeting in one, the shape a pull request itself is drawn as
+    // on github.com -- not the octocat, which is a filled mark and reads as a
+    // smudge stroked at 16px the way every other glyph here is drawn.
+    github: '<circle cx="4.5" cy="4" r="1.5"></circle><circle cx="4.5" cy="12" r="1.5"></circle><circle cx="11.5" cy="4" r="1.5"></circle><path d="M4.5 5.5v5M11.5 5.5v1.7a2.8 2.8 0 0 1-2.8 2.8H8"></path>',
     remote: '<rect x="4.8" y="2" width="6.4" height="12" rx="1.6"></rect><path d="M7.3 11.6h1.4"></path>',
     help: '<circle cx="8" cy="8" r="6"></circle><path d="M6.3 6.4a1.8 1.8 0 1 1 2.5 1.6c-.5.2-.8.6-.8 1.1v.3"></path><path d="M8 11.3v.2"></path>',
     settings: '<path d="M2.5 4.5h6.5M12.5 4.5h1M2.5 11.5h1.5M7.5 11.5h6"></path><circle cx="10.7" cy="4.5" r="1.6"></circle><circle cx="5.7" cy="11.5" r="1.6"></circle>',
@@ -97,6 +102,7 @@
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
     zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back. Double-clicking the pane's header does the same.",
     close:       "Closes this pane and stops the process running in it.",
+    autoReview:  "Lets a confident, read-only command through without asking, instead of stopping for a permission prompt. It only ever says yes: anything it is not sure of still asks, exactly as before. Off by default; a pane this one starts, by fan-out or by its own spawning, starts with the same setting this pane has.",
     usage:       "What this pane is costing the machine: processor share averaged over the last few readings, and memory, across the agent's process and everything it has started.",
     agent:       "The agent running in this pane, and the model it was asked for. A pane that was given no model runs whatever the agent is already set to.",
     chooseAgent: "Asks which agent and which model, instead of starting the one this project runs by default.",
@@ -343,7 +349,13 @@
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === "state") applyState(msg);
       else if (msg.type === "hello") applyHello(msg);
-      else if (msg.type === "prefs") { prefs = msg.prefs ? keepPending(msg.prefs) : prefs; applyPrefs(); renderHints(); settingsChanged(); }
+      else if (msg.type === "prefs") { prefs = msg.prefs ? keepPending(msg.prefs) : prefs; applyPrefs(); applyTheme(); renderHints(); settingsChanged(); }
+      // A remap saved here, or by another window, redraws the palette, the
+      // tooltips and Settings › Keybindings in one go: they all read keyTable
+      // and bindings, never a binding of their own. A capture in progress is
+      // not disturbed -- another window's remap landing mid-keystroke here
+      // would be a strange moment for its row to redraw under the pointer.
+      else if (msg.type === "keyTable") { applyKeyTable(msg.keys || []); if (!keybindEditing) settingsChanged(); }
       // A button that went with its worktree leaves the keyboard on the list
       // - the first row's first button, which removes nothing - rather than
       // out of the dialog.
@@ -378,7 +390,12 @@
       else if (msg.type === "agentAddress") addressAnswered(msg);
       // An unpaired device's row goes with its Unpair button, and the
       // keyboard with it: to Pair a device, rather than out of the dialog.
-      else if (msg.type === "remoteDevices") { remoteRoster = msg; if (remoteShown()) keepFocus(renderRemote, "#remote-pair"); }
+      else if (msg.type === "remoteDevices") {
+        remoteRoster = msg;
+        if (remoteShown()) keepFocus(renderRemote, "#remote-pair");
+        // The plan the relay reports is shown in the settings' Account & plan.
+        else if (dialog === "settings" && settingsSection === "plan") renderSettings();
+      }
       else if (msg.type === "remotePair") {
         remotePairing = msg;
         if (remoteShown()) keepFocus(renderRemote);
@@ -392,6 +409,8 @@
         // A machine that has just been enrolled starts from an empty form the
         // next time it is turned off and on, not from the codes used once.
         if (msg.action === "enable" && !msg.error) remoteDraft = newRemoteDraft();
+        // A move that went ahead is done with its form, and its codes.
+        if (msg.action === "move" && !msg.error) remoteMoveDraft = newRemoteMoveDraft();
         if (remoteShown()) keepFocus(renderRemote);
       }
       else if (msg.type === "fanoutPreview") renderFanout(msg);
@@ -403,6 +422,68 @@
         window.close();
       }
       else if (msg.type === "notice") { commitAnswered(msg.error); notice(msg.text, msg.error); }
+      else if (msg.type === "ghStatus") {
+        ghStatus = msg;
+        if (dialog === "github") keepFocus(renderGithub);
+        else if (dialog === "settings" && settingsSection === "github") keepFocus(renderGhSettings);
+      }
+      else if (msg.type === "ghProgress") {
+        if (msg.line) ghRunLines.push(msg.line);
+        if (msg.code) ghLoginCode = msg.code;
+        if (msg.done) {
+          ghRunning = "";
+          if (msg.error) notice(msg.error, true);
+        }
+        if (dialog === "github") keepFocus(renderGithub);
+        else if (dialog === "settings" && settingsSection === "github") keepFocus(renderGhSettings);
+      }
+      else if (msg.type === "ghPRs") {
+        ghPRList = msg;
+        if (msg.cwd) ghDir = msg.cwd;
+        if (dialog === "github" && ghTab === "prs" && !ghSelected) keepFocus(renderGithub);
+      }
+      else if (msg.type === "ghPR") {
+        if (ghCreating) {
+          ghCreating = false;
+          if (!msg.error && msg.item) {
+            ghCreateOpen = false;
+            ghSelected = { kind: "prs", number: msg.item.number, item: msg.item, error: "" };
+            notice("Pull request opened", false);
+          } else {
+            notice(msg.error || "Could not open the pull request", true);
+          }
+        } else if (ghSelected && ghSelected.kind === "prs") {
+          ghSelected.item = msg.item;
+          ghSelected.error = msg.error || "";
+        }
+        if (dialog === "github") keepFocus(renderGithub);
+      }
+      else if (msg.type === "ghIssues") {
+        ghIssueList = msg;
+        if (msg.cwd) ghDir = msg.cwd;
+        if (dialog === "github" && ghTab === "issues" && !ghSelected) keepFocus(renderGithub);
+      }
+      else if (msg.type === "ghIssue") {
+        if (ghCreating) {
+          ghCreating = false;
+          if (!msg.error && msg.item) {
+            ghCreateOpen = false;
+            ghSelected = { kind: "issues", number: msg.item.number, item: msg.item, error: "" };
+            notice("Issue opened", false);
+          } else {
+            notice(msg.error || "Could not open the issue", true);
+          }
+        } else if (ghSelected && ghSelected.kind === "issues") {
+          ghSelected.item = msg.item;
+          ghSelected.error = msg.error || "";
+        }
+        if (dialog === "github") keepFocus(renderGithub);
+      }
+      else if (msg.type === "ghChecks") {
+        ghChecksData = msg;
+        if (msg.cwd) ghDir = msg.cwd;
+        if (dialog === "github" && ghTab === "checks") keepFocus(renderGithub);
+      }
     };
     ws.onclose = () => {
       if (control !== ws) return; // an attempt that was given up on
@@ -463,6 +544,74 @@
     b.hidden = false;
   }
 
+  /** renderNotes turns a release note's text into the handful of block and
+   *  inline shapes docs/releases/*.md actually uses — headings, bullet
+   *  lists, paragraphs, **bold** and `code` — rather than a general Markdown
+   *  engine. Curated notes read as prose with bullets, not a flat commit
+   *  list, and showing them as literal preformatted text put a line of stray
+   *  "##" and "-" characters in front of a user instead of the heading and
+   *  list they were meant to be.
+   *
+   *  Built as elements through el() and textContent, never innerHTML, so
+   *  nothing a note contains is ever parsed as markup. Returns an array of
+   *  nodes rather than a DocumentFragment, so the caller can pass it to
+   *  append() (which takes any number of nodes) without either of them
+   *  needing a document to make one in. */
+  function renderNotes(text) {
+    const nodes = [];
+    const lines = text.replace(/\r\n?/g, "\n").split("\n");
+    // inline splits **bold** and `code` out of a line's text, appending the
+    // rest as plain text nodes so unmatched stretches are never lost.
+    const inline = (into, s) => {
+      const re = /\*\*(.+?)\*\*|`(.+?)`/g;
+      let last = 0, m;
+      while ((m = re.exec(s))) {
+        if (m.index > last) into.append(document.createTextNode(s.slice(last, m.index)));
+        into.append(m[1] !== undefined ? el("strong", "", m[1]) : el("code", "", m[2]));
+        last = re.lastIndex;
+      }
+      if (last < s.length) into.append(document.createTextNode(s.slice(last)));
+    };
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) { i++; continue; }
+      const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+      if (heading) {
+        // # is the file's own title, kept as a heading rather than promoted
+        // to h1: the dialog around it already has "Update to vX.Y.Z" as its
+        // own title, and nothing in a note should outrank that.
+        const node = el("h" + Math.min(6, heading[1].length + 2), "");
+        inline(node, heading[2].trim());
+        nodes.push(node);
+        i++;
+        continue;
+      }
+      if (/^[-*]\s+/.test(line)) {
+        const ul = el("ul", "");
+        while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
+          const li = el("li", "");
+          inline(li, lines[i].replace(/^[-*]\s+/, ""));
+          ul.append(li);
+          i++;
+        }
+        nodes.push(ul);
+        continue;
+      }
+      // A paragraph runs until the next blank line, list item or heading;
+      // its own line breaks are folded to spaces the way Markdown reads them.
+      const buf = [];
+      while (i < lines.length && lines[i].trim() && !/^[-*]\s+/.test(lines[i]) && !/^#{1,6}\s+/.test(lines[i])) {
+        buf.push(lines[i].trim());
+        i++;
+      }
+      const p = el("p", "");
+      inline(p, buf.join(" "));
+      nodes.push(p);
+    }
+    return nodes;
+  }
+
   /** openUpdate explains what installing costs before it is done.
    *
    *  What it costs is the running agents: the layout comes back, but a pane is
@@ -483,7 +632,8 @@
       // The notes scroll inside a box of their own, and a box nothing can
       // focus cannot be scrolled from the keyboard: the part below its
       // bottom edge was out of reach without a mouse.
-      const notes = el("pre", "update-notes", u.notes);
+      const notes = el("div", "update-notes");
+      notes.append(...renderNotes(u.notes));
       notes.tabIndex = 0;
       notes.setAttribute("role", "region");
       notes.setAttribute("aria-label", "Release notes");
@@ -550,6 +700,10 @@
    *  rather than asking twice, and remoteOutcome the last answer to one. */
   const newRemoteDraft = () => ({ relay: "", name: "", join: "", invite: "", more: false });
   let remoteDraft = newRemoteDraft();
+  /** remoteMoveDraft is the same for the form that moves this machine to
+   *  another relay, folded away until it is asked for. */
+  const newRemoteMoveDraft = () => ({ open: false, relay: "", invite: "", join: "" });
+  let remoteMoveDraft = newRemoteMoveDraft();
   let remoteBusy = "";
   let remoteOutcome = null;
 
@@ -572,7 +726,7 @@
     // Amber only when it needs somebody, which is what amber means everywhere
     // else here; green is a working tunnel, grey one still connecting, and
     // no badge at all is remote access turned off.
-    const trouble = !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced");
+    const trouble = !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced" || r.state === "lapsed");
     const pending = !!r && r.state === "connecting";
     b.classList.toggle("trouble", trouble);
     b.classList.toggle("pending", pending);
@@ -609,6 +763,9 @@
       case "error": return "Cannot reach " + where + (r.detail ? ": " + r.detail : "") + "." + remoteRetryClock(r.retryAt);
       case "revoked":
       case "replaced": return r.detail || "Remote access has stopped.";
+      // The relay's own words: it is the relay that stopped remote access,
+      // and nothing on this machine that decided to.
+      case "lapsed": return r.detail || "The relay has stopped remote access for this account.";
       default: return "Not connected to " + where + ".";
     }
   }
@@ -626,6 +783,45 @@
     return " Trying again at " + two(d.getHours()) + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds()) + ".";
   }
 
+  /** remotePlanText says an account's plan in a sentence, as the relay
+   *  reports it. The relay is what decides anything by a plan; the app only
+   *  shows it, and every part of the app works the same whatever it says. */
+  function remotePlanText(p) {
+    if (p.active === false) {
+      let s = p.message || "The relay has stopped remote access for this account.";
+      if (p.deleteAt) s += " The account and its paired devices are kept until " + remoteDay(p.deleteAt) + ", then deleted.";
+      return s;
+    }
+    if (p.plan === "trial") {
+      const n = remoteDaysLeft(p.ends);
+      return (p.name || "Free trial") + ": " + n + (n === 1 ? " day" : " days") + " left, until " + remoteDay(p.ends) + ".";
+    }
+    return (p.name || "Subscription") + (p.ends ? ", paid until " + remoteDay(p.ends) : "") + ".";
+  }
+
+  /** remoteDaysLeft is the days left until a time the relay reported, a part
+   *  of one counting as one. */
+  function remoteDaysLeft(when) {
+    const t = Date.parse(when || "");
+    if (!(t > 0)) return 0;
+    return Math.max(0, Math.ceil((t - Date.now()) / 86400000));
+  }
+
+  /** remoteDay is a day as people write it: 12 October 2026. */
+  function remoteDay(when) {
+    return new Date(Date.parse(when)).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+  }
+
+  /** remotePlanSection is the account's plan in the remote access dialog. */
+  function remotePlanSection(p) {
+    const box = section("Plan");
+    box.id = "remote-plan";
+    box.append(el("p", p.active === false ? "remote-error" : null, remotePlanText(p)));
+    box.append(el("p", "fan-hint", "Remote access through the relay is paid for from Devices on a paired phone or " +
+      "browser. The desktop app is free, and works the same whatever the plan."));
+    return box;
+  }
+
   /** openRemote shows remote access: whether the relay can be reached, a way
    *  to pair a device, and what is paired already. */
   function openRemote() {
@@ -634,6 +830,7 @@
     remotePairing = null;
     remoteOutcome = null;
     remoteBusy = "";
+    remoteMoveDraft = newRemoteMoveDraft();
     openOverlay("Remote access", "remote");
     renderRemote();
     send({ cmd: "remoteDevices" });
@@ -669,6 +866,8 @@
       return;
     }
     if (r) body.append(el("div", "remote-status " + r.state, remoteSummary(r)));
+    // Only a relay that asks for a subscription reports a plan.
+    if (remoteRoster && remoteRoster.plan) body.append(remotePlanSection(remoteRoster.plan));
 
     const pair = section("Pair a device");
     const p = remotePairing;
@@ -915,9 +1114,23 @@
       if (!window.confirm(q)) return;
       remoteDisable(false);
     };
-    row.append(off);
+    // Moving is for a company taking its machines onto a relay of its own,
+    // so it is offered beside turning it off, and its form folded away.
+    const move = el("button", "chip", remoteMoveDraft.open ? "Keep it here" : "Move to another relay…");
+    move.id = "remote-move";
+    move.disabled = !!remoteBusy;
+    move.onclick = () => {
+      remoteMoveDraft.open = !remoteMoveDraft.open;
+      remoteOutcome = null;
+      renderRemote();
+      const f = $("remote-move-relay");
+      if (f && f.focus) f.focus();
+    };
+    row.append(move, off);
     box.append(row);
-    if (o && o.action !== "enable" && o.error) box.append(el("p", "remote-error", o.error));
+    if (remoteMoveDraft.open) box.append(remoteMoveForm(r, roster));
+    if (o && o.action !== "enable" && o.action !== "move" && o.error) box.append(el("p", "remote-error", o.error));
+    if (o && o.action === "move" && o.warning) box.append(el("p", "remote-error", o.warning));
     if (o && o.untold) {
       box.append(el("p", "fan-hint", "Try again first: a relay that cannot be reached is most often the " +
         "network, for now. Forgetting it here anyway turns remote access off on this machine, but the " +
@@ -954,6 +1167,74 @@
       if (!clip || !clip.writeText) { selectInstead(); return; }
       clip.writeText(text).then(() => notice(done, false), selectInstead);
     } catch { selectInstead(); }
+  }
+
+  /** remoteMoveForm moves this machine to another relay: what `flockdeck
+   *  remote move` asks for, as fields. What moving costs, every device
+   *  pairing again, is said here before the button, and again in the
+   *  question the button asks, since moving back does not undo it. */
+  function remoteMoveForm(r, roster) {
+    const d = remoteMoveDraft;
+    const o = remoteOutcome;
+    const from = String((r && r.relay) || "the relay it is on").replace(/^https?:\/\//, "");
+    const box = el("div", "remote-move");
+    box.append(el("p", "fan-hint", "This machine is enrolled with the new relay first, and leaves " + from +
+      " only once the new one answers. Every device paired with it will then have to pair again, with the new relay."));
+    const form = el("div", "wt-form");
+    const fields = [];
+    const field = (key, id, placeholder, label) => {
+      const f = el("input");
+      f.id = id;
+      f.placeholder = placeholder;
+      f.value = d[key];
+      f.spellcheck = false;
+      f.autocomplete = "off";
+      f.setAttribute("aria-label", label);
+      f.oninput = () => { d[key] = f.value; };
+      f.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); go(); } };
+      fields.push([key, f]);
+      form.append(f);
+    };
+    field("relay", "remote-move-relay", "New relay, e.g. https://relay.example.com", "New relay address");
+    field("invite", "remote-move-invite", "Invitation code, if the new relay asks for one", "Invitation code");
+    field("join", "remote-move-join", "Join code, to join an account already on the new relay", "Join code");
+    box.append(form);
+
+    const go = () => {
+      if (remoteBusy) return;
+      fields.forEach(([key, f]) => { d[key] = f.value; });
+      const to = d.relay.trim();
+      if (!to) {
+        remoteOutcome = { action: "move", error: "Name the relay to move this machine to." };
+        renderRemote();
+        return;
+      }
+      const hosts = (roster && roster.hosts) || [];
+      const devices = (roster && roster.devices) || [];
+      let q = "Move this machine from " + from + " to " + to.replace(/^https?:\/\//, "") + "? " +
+        "Every device paired with it will have to pair again, with the new relay.";
+      // Leaving is taking the account's only machine off the old relay,
+      // which takes the account and its devices there with it.
+      if (hosts.length === 1 && devices.length) {
+        q += " It is the only machine on its account on " + from + ", so the account goes too, and " +
+          (devices.length === 1 ? "its paired device is" : "its " + devices.length + " paired devices are") + " unpaired there.";
+      }
+      if (!window.confirm(q)) return;
+      remoteBusy = "move";
+      remoteOutcome = null;
+      send({ cmd: "remoteMove", relay: to, invite: d.invite.trim(), join: d.join.trim() });
+      renderRemote();
+    };
+    const row = el("div", "update-row");
+    const btn = el("button", "chip primary", remoteBusy === "move" ? "Moving…" : "Move this machine");
+    btn.id = "remote-move-go";
+    btn.disabled = !!remoteBusy;
+    btn.onclick = go;
+    row.append(btn);
+    box.append(row);
+    if (o && o.action === "move" && o.error) box.append(el("p", "remote-error", o.error));
+    box.append(el("p", "fan-hint", "The same from a terminal: flockdeck remote move <relay>."));
+    return box;
   }
 
   /** remoteRename asks for a new name for this machine or a paired device,
@@ -1031,6 +1312,7 @@
     showActiveTab(s, rebuilt);
     renderTabs(s);
     renderRail(s);
+    renderRailToggle(s);
     renderSummary(s);
     announceStatus(s);
     followAgents(s);
@@ -1038,12 +1320,35 @@
     followWorktrees(s);
     followChanges(s);
     renderUpdate(s);
+    renderRecall();
     renderRemoteChip(s);
     updatePaneChrome(s);
     if (!$("promptbar").hidden) labelPrompt(s);
     prunePanes(s);
     notifyAttention(s);
     renderHints();
+    // The first state is the moment there is finally something real to look
+    // at, rather than the rail and an empty top bar: see dismissSplash.
+    dismissSplash();
+  }
+
+  /** Whether the splash has already been taken away, so the first state to
+   *  arrive is the only one that tries: every push after it finds #splash
+   *  already gone. */
+  let splashGone = false;
+
+  /** dismissSplash fades the splash screen out and, once the fade has had
+   *  time to run, hides it for good. Applying the state is what it was
+   *  waiting for -- the rail, the tabs and the panes are all drawn by the
+   *  time applyState calls this -- so there is nothing left under it worth
+   *  covering. */
+  function dismissSplash() {
+    if (splashGone) return;
+    splashGone = true;
+    const el = $("splash");
+    if (!el) return;
+    el.classList.add("gone");
+    setTimeout(() => { el.hidden = true; }, 220);
   }
 
   /** Structure ignores weights: a drag must not trigger a rebuild. */
@@ -1066,14 +1371,59 @@
 
   // ----------------------------------------------------------------- layout
 
-  /** shapeOf is what a tab has to be redrawn for. Weights are left out so a
-   *  drag does not rebuild anything; zoom is in, because it changes which
-   *  panes are on screen, and while zoomed so is the focused pane. */
-  function shapeOf(tab) {
+  /** cardHidden is which settled tabs the boss has put back to the grid by
+   *  hand, in place of the summary card this collapses to on its own --
+   *  cleared the moment the tab starts working again (see tabSettleInfo),
+   *  so the next time it finishes the card is offered fresh rather than
+   *  staying dismissed for good. */
+  const cardHidden = new Set();
+
+  /** tabSettleInfo says whether tab is a delegated job that has stopped:
+   *  nobody left in it working or starting, so there is nothing left to
+   *  watch and everything to report. Only a tab a fan-out actually filled
+   *  counts -- tab.delegated (see workspace.Tab.Delegated and
+   *  server.tabView), set server-side exactly when Spawn gathered a
+   *  fan-out's own children into this tab, never by an ordinary split --
+   *  and then only with two or more agent panes in it, none of them a
+   *  shell, which cannot "finish" a turn the way an agent does; a lone
+   *  helper's tab of one pane has nothing to collapse in the first place.
+   *  A person is free to build the exact same shape by hand, splitting
+   *  several agents into one tab themselves, and that must never vanish
+   *  into a card just because every one of them happens to have gone idle
+   *  at the same moment -- tab.delegated is what tells the two apart,
+   *  where the pane count and kind alone cannot. None of them may carry a
+   *  parent, either: a helper split into its own manager's tab
+   *  (SpawnOptions.Split) shares it with that manager's own pane, which is
+   *  the boss's own conversation, not delegated work, even though Spawn
+   *  does mark that placement delegated too. ids is every pane in the tab
+   *  either way, for the caller to walk. */
+  function tabSettleInfo(tab, s) {
+    const idSet = new Set();
+    collectPanes(tab.root, idSet);
+    const ids = [...idSet];
+    const views = ids.map((id) => s.panes && s.panes[id]).filter(Boolean);
+    const settled = !!tab.delegated && views.length >= 2 && !views.some((v) => v.kind === "shell" || v.parent) &&
+      views.every((v) => v.status !== "working" && v.status !== "starting");
+    if (!settled) cardHidden.delete(tab.id);
+    return { settled, ids };
+  }
+
+  /** shapeOf is what a tab has to be redrawn for, given info already worked
+   *  out for it by tabSettleInfo. Weights are left out so a drag does not
+   *  rebuild anything; zoom is in, because it changes which panes are on
+   *  screen, and while zoomed so is the focused pane. card is in for the
+   *  same reason: a settled fan-out collapses to a summary in its place,
+   *  and each pane's own outcome -- its status, whether it failed, its
+   *  latest reply -- has to redraw the card when any of them changes, even
+   *  though the tree beneath it does not. */
+  function shapeOf(tab, s, info) {
+    const card = info.settled && !cardHidden.has(tab.id);
     return JSON.stringify({
       tree: structureOf(tab.root),
       zoom: tab.zoom,
       focus: tab.zoom ? tab.focus : "",
+      card,
+      outcomes: card ? info.ids.map((id) => outcomeKey(s.panes[id])).join("|") : "",
     });
   }
 
@@ -1118,7 +1468,8 @@
 
     let activeRebuilt = false;
     s.tabs.forEach((tab, i) => {
-      const shape = shapeOf(tab);
+      const info = tabSettleInfo(tab, s);
+      const shape = shapeOf(tab, s, info);
       let page = tabPages.get(tab.id);
       if (!page || tabShapes.get(tab.id) !== shape) {
         if (page) page.remove();
@@ -1134,6 +1485,12 @@
           // registry with their terminals and connections intact, simply
           // detached from the document until the zoom is released.
           page.append(ensurePane(tab.focus).wrap);
+        } else if (info.settled && !cardHidden.has(tab.id)) {
+          // Nobody left working or starting: the grid of terminals nobody
+          // is reading collapses to one card, a line per pane, the same way
+          // Zoom already takes every pane but one out of the document --
+          // the others stay alive in the registry, simply not on screen.
+          page.append(buildSummaryCard(tab, s, info.ids));
         } else {
           page.append(buildNode(tab.root, tab));
         }
@@ -1172,6 +1529,92 @@
       split.append(buildNode(child, tab));
     });
     return split;
+  }
+
+  /** outcomeOf reads a settled pane's line for the summary card: done, needs
+   *  input or failed (the three the plan this implements asks for), and the
+   *  one line of detail that goes with it -- what a waiting pane wants, in
+   *  the same words a permission prompt would show; why a pane failed, in
+   *  its own words; or its agent's own latest reply, the same one-line
+   *  preview the phone's inbox already shows, for one that simply finished.
+   *  A pane the push has not caught up with yet reads as done rather than
+   *  as nothing, since by the time the card is showing at all every member
+   *  has already stopped one way or another. */
+  function outcomeOf(v) {
+    if (!v) return { kind: "done", label: "done", text: "" };
+    if (v.status === "waiting") {
+      const label = kindLabel(v);
+      return { kind: "needs", label: "needs input", text: label ? "Wants " + label + "." : (v.detail || "") };
+    }
+    if (v.err) return { kind: "failed", label: "failed", text: v.err };
+    return { kind: "done", label: "done", text: (v.last && v.last.text) || "" };
+  }
+
+  /** outcomeKey is outcomeOf's own text folded into shapeOf's cache key, so
+   *  the card redraws when what it would say about a pane changes, without
+   *  redrawing on every unrelated field a settled pane's view still carries
+   *  (its CPU, its git counts, and the rest of a header nobody is looking
+   *  at while the card is up). */
+  function outcomeKey(v) {
+    if (!v) return "";
+    const out = outcomeOf(v);
+    return out.kind + ":" + out.text;
+  }
+
+  /** buildSummaryCard is what a settled fan-out collapses to in place of its
+   *  grid: one line per pane instead of a wall of terminals nobody is
+   *  reading, pulled from data already on the push -- name, branch, status,
+   *  latest reply -- rather than anything built new for this. A line
+   *  expands to its own pane with the same toggleZoom a click on any pane's
+   *  own ⤢ already sends; "Back to grid" is the same zoom taken all the way
+   *  out, offered once instead of once per pane. */
+  function buildSummaryCard(tab, s, ids) {
+    const views = ids.map((id) => ({ id, v: s.panes && s.panes[id] })).filter((x) => x.v);
+    const counts = { done: 0, needs: 0, failed: 0 };
+    const outcomes = new Map();
+    views.forEach(({ id, v }) => {
+      const out = outcomeOf(v);
+      outcomes.set(id, out);
+      counts[out.kind]++;
+    });
+
+    const card = el("div", "summary-card");
+    const head = el("div", "summary-card-head");
+    head.append(el("div", "summary-card-title", (tab.title || "This job") + " finished"));
+    const bits = [];
+    if (counts.needs) bits.push(counts.needs + (counts.needs === 1 ? " needs input" : " need input"));
+    if (counts.failed) bits.push(counts.failed + " failed");
+    if (counts.done) bits.push(counts.done + " done");
+    head.append(el("div", "summary-card-sub", bits.join(", ") + " — " + views.length + (views.length === 1 ? " agent" : " agents")));
+    const back = el("button", "chip", "Back to grid");
+    describe(back, "Show every pane again, running or not.");
+    back.onclick = () => {
+      cardHidden.add(tab.id);
+      if (state) applyState(state);
+    };
+    head.append(back);
+    card.append(head);
+
+    const list = el("div", "summary-card-list");
+    views.forEach(({ id, v }) => {
+      const out = outcomes.get(id);
+      const row = el("div", "summary-card-row");
+      const dot = el("span", "dot " + (out.kind === "failed" ? "exited" : v.status));
+      dot.setAttribute("aria-hidden", "true");
+      row.append(describe(dot, TIPS[v.status] || v.status));
+      const main = el("div", "summary-card-main");
+      const title = el("div", "summary-card-name");
+      title.append(el("span", null, v.name || ""));
+      if (v.branch) title.append(el("span", "summary-card-branch", "⎇ " + v.branch));
+      main.append(title);
+      if (out.text) main.append(el("div", "summary-card-line", out.text));
+      row.append(main);
+      row.append(el("span", "summary-card-outcome " + out.kind, out.label));
+      rowAction(row, () => send({ cmd: "toggleZoom", id }), false, v.name);
+      list.append(row);
+    });
+    card.append(list);
+    return card;
   }
 
   /** The divider being dragged, if one is. A state push carries the weights the
@@ -1662,10 +2105,10 @@
   let iconState = "";
 
   /** setFavicon points every icon link — the vector one and each sized raster
-   *  fallback — at the marks for state. Assigning the same href again makes
-   *  some browsers drop and refetch the icon, which shows up as the tab
-   *  flickering on every state push, so an unchanged state is left alone —
-   *  and the pushes are frequent. */
+   *  fallback — and the rail's own mark at the top of the window, at the marks
+   *  for state. Assigning the same href again makes some browsers drop and
+   *  refetch the icon, which shows up as the tab flickering on every state
+   *  push, so an unchanged state is left alone — and the pushes are frequent. */
   function setFavicon(state) {
     if (state === iconState) return;
     const link = $("favicon");
@@ -1677,6 +2120,10 @@
       const sized = $("favicon-" + size);
       if (sized) sized.href = icons.prefix + size + ".png";
     }
+    // The rail's mark is inline in the page rather than a favicon a browser
+    // rasterizes on request, so it only ever needs the one vector source.
+    const mark = $("rail-mark");
+    if (mark) mark.setAttribute("src", icons.svg);
   }
 
   /** The counts the summary is currently showing. A status push arrives every
@@ -1747,39 +2194,6 @@
     if (document.title !== title) document.title = title;
     $("btn-broadcast").classList.toggle("on", !!s.broadcast);
     $("btn-broadcast").setAttribute("aria-pressed", String(!!s.broadcast));
-    renderProjectChip(s);
-  }
-
-  /** renderProjectChip labels the switcher with the active project, and the
-   *  branch its own checkout is on. */
-  function renderProjectChip(s) {
-    const active = (s.projects || []).find((p) => p.active);
-    const name = active ? active.name : "project";
-    if ($("project-name").textContent !== name) $("project-name").textContent = name;
-    // The branch of the project's own folder, read off a pane working there.
-    // A pane in a worktree is on a branch of its own and says so in its
-    // header; with no pane in the folder itself there is nothing to say.
-    const norm = (p) => String(p || "").replace(/\\/g, "/").replace(/\/+$/, "");
-    const root = norm(active ? active.root : s.root);
-    const home = Object.values(s.panes || {}).find((v) => v.branch && norm(v.cwd) === root);
-    const branch = home ? home.branch : "";
-    const bn = $("project-branch");
-    if (bn.textContent !== branch) bn.textContent = branch;
-    bn.hidden = !branch;
-    // The path goes into the same bubble as what the button does and the key
-    // that does it, rather than into a title of its own. A title is taken over
-    // as the tooltip the first time an element is hovered, so writing one here
-    // replaced the button's description with a bare path and took the binding
-    // away with it — the one thing the action table exists to prevent.
-    const btn = $("project-btn");
-    // Highlight when another project needs attention, so switching away does
-    // not hide the fact that an agent there is blocked - and say which, since
-    // the amber on its own says only that something somewhere wants you.
-    const elsewhere = (s.projects || []).filter((p) => !p.active && p.waiting > 0);
-    const why = elsewhere.length ? "waiting on you in " + elsewhere.map((p) => p.name).join(", ") : "";
-    const tip = actionTip("projects", [active ? active.root : "", why].filter(Boolean).join("; "));
-    if (btn.dataset.tip !== tip) describe(btn, tip);
-    btn.classList.toggle("attention", elsewhere.length > 0);
   }
 
   // ------------------------------------------------------------------- rail
@@ -1833,6 +2247,33 @@
       railTiles.delete(root);
     }
     placeRailStop();
+  }
+
+  /** What the toggle's badge was last drawn from, so a push that changes
+   *  nothing it shows - which is nearly every push - does not search the
+   *  document for it. */
+  let railToggleShown = "";
+
+  /** renderRailToggle badges the button that folds the rail away with the
+   *  same amber dot a tile carries, for the one time a tile cannot be seen: a
+   *  narrow window, where the rail itself is out of sight until this button
+   *  is pressed. It counts every project but the one on screen, so an agent
+   *  waiting in the project already open — visible without opening anything —
+   *  does not light a button that has nothing new to show. Open, the tiles
+   *  underneath already carry the badge, so the style sheet hides this copy
+   *  of it rather than showing the same thing twice. */
+  function renderRailToggle(s) {
+    const elsewhere = (s.projects || []).filter((p) => !p.active && (p.waiting || 0) > 0);
+    const key = elsewhere.map((p) => p.root + ":" + p.name).join("|");
+    if (key === railToggleShown) return;
+    railToggleShown = key;
+    const btn = $("rail-toggle");
+    btn.querySelector(".rail-badge").classList.toggle("waiting", elsewhere.length > 0);
+    const why = elsewhere.length
+      ? (elsewhere.length === 1 ? "An agent is" : "Agents are") + " waiting on you in " +
+        elsewhere.map((p) => p.name).join(", ")
+      : "";
+    describe(btn, ["Projects, tools and settings", why].filter(Boolean).join(". "));
   }
 
   /** railTile makes the button for one project, bound to its folder rather
@@ -1894,9 +2335,13 @@
     return out;
   }
 
-  /** railButtons is every button in the rail, in the order the arrows walk. */
+  /** railButtons is every button in the rail, in the order the arrows walk.
+   *  offsetParent leaves out the collapse button on a narrow screen, where
+   *  the style sheet hides it rather than the rail folding into a menu that
+   *  already takes its shape - display:none rather than the hidden
+   *  attribute, so it takes a layout check to notice. */
   function railButtons() {
-    return [...$("rail").querySelectorAll("button")].filter((b) => !b.hidden && !b.disabled);
+    return [...$("rail").querySelectorAll("button")].filter((b) => !b.hidden && !b.disabled && b.offsetParent !== null);
   }
 
   /** placeRailStop keeps exactly one of the rail's buttons as its stop for
@@ -2284,9 +2729,14 @@
     const castBtn = btn("⇉", "Adds this pane to the broadcast set, or takes it out again. " + TIPS.broadcast,
       () => send({ cmd: "toggleBroadcastMember", id }));
     const zoomBtn = btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id }));
+    const reviewBtn = btn("✓", TIPS.autoReview, () => {
+      const v = state && state.panes && state.panes[id];
+      send({ cmd: "autoReview", id, autoReview: !(v && v.autoReview) });
+    });
     actions.append(
       btn("⑂", TIPS.fanOut, () => openFanout(id)),
       castBtn,
+      reviewBtn,
       btn("⟳", TIPS.restart, () => send({ cmd: "restartPane", id })),
       zoomBtn,
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
@@ -2394,7 +2844,7 @@
     // see drawWithWebgl.
 
     p = { id, wrap, header, dot, name, project, branch, agent, remote, git, detail, usage, spend, limit, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, search, dropZone,
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
           shown: {} };
@@ -2910,6 +3360,9 @@
       const zoom = zoomed.has(id) ? String(zoomed.get(id)) : "";
       if (was.zoom !== zoom) { was.zoom = zoom; renderPaneZoom(p, zoomed.get(id)); }
 
+      const review = (v.autoReview ? "1" : "0") + ":" + (v.autoApproved || 0);
+      if (was.review !== review) { was.review = review; renderPaneReview(p, v); }
+
       const focused = !!tab && tab.focus === id;
       p.wrap.classList.toggle("focused", focused);
       speakIfFocused(p, focused);
@@ -2954,6 +3407,22 @@
       ? "Zoomed: " + (hidden === 1 ? "1 other pane is" : hidden + " other panes are") +
         " hidden, still running. Press to bring them back."
       : TIPS.zoom);
+  }
+
+  /** renderPaneReview says whether a pane's PreToolUse calls are put to
+   *  auto-review before Claude Code would otherwise show its own permission
+   *  prompt, and how many it has let through unasked so far -- see
+   *  Pane.AutoReview and Pane.AutoApproved. A child a pane starts, by fan-out
+   *  or by its own `flockdeck spawn`, comes up already showing whatever its
+   *  parent had, since it inherits the same setting. */
+  function renderPaneReview(p, v) {
+    const on = !!v.autoReview;
+    p.reviewBtn.classList.toggle("reviewing", on);
+    p.reviewBtn.setAttribute("aria-pressed", String(on));
+    describe(p.reviewBtn, (on
+      ? "Auto-review is on" + (v.autoApproved ? ": " + v.autoApproved + " command" + (v.autoApproved === 1 ? "" : "s") + " let through unasked so far. " : ". ") +
+        "Press to turn it off."
+      : "Auto-review is off. Press to turn it on. ") + TIPS.autoReview);
   }
 
   /** renderPaneProject names the pane's own project, and is empty for the
@@ -3354,7 +3823,8 @@
       // button that opens the menu is in the top bar.
       () => { if (railFolded()) return null; placeRailStop(); return railStop; },
       // The top bar, at the tab on screen: the strip is most of what it is.
-      () => { const n = state ? tabNodes.get(state.activeTab) : null; return n ? n.btn : $("project-btn"); },
+      // With no tab to land on, New agent tab is the bar's own first stop.
+      () => { const n = state ? tabNodes.get(state.activeTab) : null; return n ? n.btn : $("new-tab"); },
       // The focused pane's buttons, at whichever of them is their stop.
       () => (p ? [...p.actions.children].find((b) => b.tabIndex === 0) || null : null),
       () => (p ? p.term : null),
@@ -3692,6 +4162,8 @@
     else if (dialog === "remote") send({ cmd: "remoteDevices" });
     else if (dialog === "settings" && settingsSection === "keys") send({ cmd: "keys" });
     else if (dialog === "settings" && settingsSection === "remote") send({ cmd: "remoteDevices" });
+    else if (dialog === "settings" && settingsSection === "github") send({ cmd: "ghStatus", path: ghDir });
+    else if (dialog === "github") { send({ cmd: "ghStatus", path: ghDir }); ghRequestTab(); }
     else if (dialog === "projects") {
       send({ cmd: "recents" });
       send({ cmd: "browse", path: browseState ? browseState.path : "" });
@@ -4003,6 +4475,30 @@
 
   /** Whether every recent project is listed, rather than the first eight. */
   let recentsAll = false;
+  /** Whether the Archived section is expanded. It starts collapsed on every
+   *  open of the dialog: an archived project is meant to be out of the way,
+   *  not the first thing seen on opening Projects. */
+  let archivedOpen = false;
+
+  /** Which open projects' member lists are expanded, by root -- a project
+   *  grouped a moment ago should stay expanded through the redraw its own
+   *  grouping causes, not snap shut. */
+  const expandedGroups = new Set();
+
+  /** Set to a project's root while "Add repo…" has taken over the folder
+   *  browser to add into that project rather than open a project of its own;
+   *  null the rest of the time. */
+  let addingRepoTo = null;
+
+  /** Set to a project's own name while addingRepoTo is, so the browser's
+   *  heading can say which project without looking it up again mid-browse. */
+  let addingRepoToName = "";
+
+  /** The roots ticked in "Group open projects…" mode, and whether that
+   *  mode is on at all -- a plain array survives JSON-free comparisons and
+   *  is small enough that indexOf is plenty. */
+  let grouping = false;
+  let groupingPicked = [];
 
   /** The projects dialog's Open section is drawn from the state, and was
    *  drawn only when a recents or folder listing arrived: closing a project
@@ -4012,7 +4508,10 @@
    *  pushes that change what it lists, and no others. */
   let projectsKey = "";
   function followProjects(s) {
-    const key = (s.projects || []).map((p) => [p.root, p.active, p.tabs, p.waiting, p.working].join(":")).join("|");
+    const key = (s.projects || [])
+      .map((p) => [p.root, p.name, p.active, p.tabs, p.waiting, p.working, p.archived,
+        (p.members || []).map((m) => m.root).join(",")].join(":"))
+      .join("|");
     if (key === projectsKey) return;
     projectsKey = key;
     // A closed project's row is gone with the keyboard on it: to the project
@@ -4036,6 +4535,10 @@
     dialog = "projects";
     browseDraft = null;
     recentsAll = false;
+    archivedOpen = false;
+    addingRepoTo = null;
+    grouping = false;
+    groupingPicked = [];
     openOverlay("Projects", "projects");
     send({ cmd: "recents" });
     send({ cmd: "browse", path: browseState ? browseState.path : (state ? state.root : "") });
@@ -4051,8 +4554,56 @@
     // Open projects: switch between them, or close one.
     const open = (state && state.projects) || [];
     const openSection = section("Open");
+
+    if (open.length > 1) {
+      const bar = el("div", "proj-group-bar");
+      if (!grouping) {
+        const start = el("button", "chip", "Group open projects…");
+        describe(start, "Pick two or more of the projects below to treat as one, with agents in each able to see the others.");
+        start.onclick = () => { grouping = true; groupingPicked = []; renderProjects(); };
+        bar.append(start);
+      } else {
+        const count = groupingPicked.length;
+        const confirm = el("button", "chip primary", count ? "Group " + count + " selected" : "Group…");
+        confirm.disabled = count < 2;
+        confirm.onclick = () => {
+          const name = window.prompt("Name this project.", "");
+          if (name === null) return;
+          send({ cmd: "groupProjects", roots: groupingPicked.slice(), text: String(name).trim() });
+          groupingPicked.forEach((r) => expandedGroups.add(r));
+          grouping = false;
+          groupingPicked = [];
+        };
+        const cancel = el("button", "chip", "Cancel");
+        cancel.onclick = () => { grouping = false; groupingPicked = []; renderProjects(); };
+        bar.append(confirm, cancel);
+      }
+      openSection.append(bar);
+    }
+
     open.forEach((p) => {
-      const row = el("div", "proj-row" + (p.active ? " active" : ""));
+      if (grouping) {
+        const row = el("div", "proj-row" + (p.active ? " active" : ""));
+        row.dataset.key = "open:" + p.root;
+        const pick = el("input");
+        pick.type = "checkbox";
+        pick.id = "group-pick-" + encodeURIComponent(p.root);
+        pick.checked = groupingPicked.includes(p.root);
+        pick.onchange = () => {
+          groupingPicked = pick.checked ? [...groupingPicked, p.root] : groupingPicked.filter((r) => r !== p.root);
+          renderProjects();
+        };
+        const label = el("label", "proj-go proj-group-pick");
+        label.htmlFor = pick.id;
+        const main = el("span", "proj-main");
+        main.append(el("span", "proj-name", p.name));
+        main.append(describe(el("span", "proj-path", p.root), p.root));
+        label.append(pick, main);
+        row.append(label);
+        openSection.append(row);
+        return;
+      }
+      const row = el("div", "proj-row" + (p.active ? " active" : "") + (p.archived ? " archived" : ""));
       row.dataset.key = "open:" + p.root;
       // The row's own action — switch to this project — is a real button
       // wrapping everything that describes it, rather than a click handler on
@@ -4063,8 +4614,13 @@
       go.id = "open-" + encodeURIComponent(p.root);
       const main = el("span", "proj-main");
       main.append(el("span", "proj-name", p.name));
-      // Cut from the end with an ellipsis, and paths differ at the end.
-      main.append(describe(el("span", "proj-path", p.root), p.root));
+      // A grouped project spans more than one folder, so its own root is no
+      // longer the whole story -- how many repos it has stands in for it,
+      // and the member list below names each one.
+      const members = p.members || [];
+      main.append(describe(el("span", "proj-path", members.length > 1
+        ? members.length + " repos"
+        : p.root), members.length > 1 ? members.map((m) => m.root).join("\n") : p.root));
       go.append(main);
 
       const badge = el("span", "proj-badge");
@@ -4087,6 +4643,17 @@
       go.onclick = () => { send({ cmd: "selectProject", root: p.root }); closeOverlay(); };
       row.append(go);
 
+      if (members.length > 1) {
+        const expand = el("button", "icon-btn proj-expand", expandedGroups.has(p.root) ? "▾" : "▸");
+        describe(expand, expandedGroups.has(p.root) ? "Hide this project's repos" : "Show this project's repos");
+        expand.setAttribute("aria-expanded", expandedGroups.has(p.root) ? "true" : "false");
+        expand.onclick = () => {
+          if (expandedGroups.has(p.root)) expandedGroups.delete(p.root); else expandedGroups.add(p.root);
+          renderProjects();
+        };
+        row.append(expand);
+      }
+
       // Splitting into the project already on screen is just an ordinary
       // split, so the button is offered on the others.
       if (!p.active) {
@@ -4098,6 +4665,20 @@
         };
         row.append(split);
       }
+
+      // The default agent is a per-project setting already (agents.json's
+      // own "set as default for this project"), and it is only worked out
+      // for whichever project is active, so the shortcut to it is offered
+      // only there; switching to another project first offers it on that
+      // one's own row.
+      if (p.active) {
+        const agentBtn = el("button", "chip", "Default agent\u2026");
+        describe(agentBtn, "Choose the agent this project opens new panes with when nobody chooses one.");
+        agentBtn.onclick = () => chooseAgent("Default agent for " + p.name, () => {}, { setDefault: true });
+        row.append(agentBtn);
+      }
+
+      row.append(projectActions(p.root, p.name, p.archived, null));
 
       if (open.length > 1) {
         const close = el("button", "icon-btn", "\u00d7");
@@ -4115,55 +4696,187 @@
         };
         row.append(close);
       }
+
+      if (members.length > 1 && expandedGroups.has(p.root)) {
+        const memberList = el("div", "proj-members");
+        members.forEach((m) => {
+          const mrow = el("div", "proj-member-row");
+          const mgo = el("button", "proj-member-go");
+          mgo.append(describe(el("span", "proj-member-name", m.name), m.root));
+          mgo.onclick = () => { send({ cmd: "selectRepo", root: m.root }); closeOverlay(); };
+          mrow.append(mgo);
+          const remove = el("button", "icon-btn", "×");
+          describe(remove, "Remove " + m.name + " from this project. It stays open on its own, and nothing on disk is touched.");
+          remove.onclick = () => send({ cmd: "removeRepoFromGroup", root: m.root });
+          mrow.append(remove);
+          memberList.append(mrow);
+        });
+        row.append(memberList);
+      }
+
       openSection.append(row);
     });
     body.append(openSection);
 
-    // Recent projects that are not already open.
-    const notOpen = recents.filter((r) => !r.open);
-    if (notOpen.length) {
-      const rec = section("Recent");
-      const shown = recentsAll ? notOpen : notOpen.slice(0, 8);
-      shown.forEach((r, i) => {
-        const row = el("div", "proj-row" + (r.exists ? "" : " missing"));
-        row.dataset.key = "recent:" + r.root;
-        const main = el("span", "proj-main");
-        main.append(el("span", "proj-name", r.name));
-        main.append(describe(el("span", "proj-path", r.exists ? r.root : r.root + "  (missing)"), r.root));
-        // A project whose folder has gone cannot be opened, so it stays text
-        // rather than becoming a button that does nothing when it is pressed.
-        if (r.exists) {
-          const go = el("button", "proj-go");
-          go.id = "recent-" + i;
-          go.append(main);
-          go.onclick = () => { send({ cmd: "openProject", path: r.root }); closeOverlay(); };
-          row.append(go);
-        } else {
-          row.append(main);
-        }
-        const forget = el("button", "icon-btn proj-forget", "\u00d7");
-        describe(forget, "Drop this project from the recent list. Nothing on disk is touched.");
-        forget.onclick = () => { forgotAt = i; send({ cmd: "forgetRecent", root: r.root }); };
-        row.append(forget);
-        rec.append(row);
-      });
-      // Eight at first, and the rest - up to forty are remembered - simply
-      // were not there, so an older project could be reached only by browsing
-      // to its folder again.
-      if (shown.length < notOpen.length) {
-        const more = el("button", "chip", "Show " + (notOpen.length - shown.length) + " more");
-        more.onclick = () => {
-          recentsAll = true;
-          renderProjects();
-          const next = $("recent-" + shown.length);
-          if (next) next.focus();
-        };
-        rec.append(more);
+    // Recent projects that are not already open and not archived.
+    const notOpen = recents.filter((r) => !r.open && !r.archived);
+    if (notOpen.length) body.append(renderProjectSection("Recent", notOpen, "recent"));
+
+    // Archived projects: out of the way behind their own toggle, rather than
+    // the first thing seen on opening the dialog.
+    const archived = recents.filter((r) => !r.open && r.archived);
+    if (archived.length) {
+      if (!archivedOpen) {
+        const wrap = el("div", "proj-section");
+        const btn = el("button", "chip", "Show " + archived.length + " archived project" + (archived.length === 1 ? "" : "s"));
+        btn.onclick = () => { archivedOpen = true; renderProjects(); };
+        wrap.append(btn);
+        body.append(wrap);
+      } else {
+        body.append(renderProjectSection("Archived", archived, "archived"));
       }
-      body.append(rec);
     }
 
     body.append(renderBrowser());
+  }
+
+  /** renderProjectSection draws a list of not-open projects -- Recent or
+   *  Archived -- each row offering to open it (when its folder still
+   *  exists), rename it, move it, archive or unarchive it, and forget it.
+   *  `prefix` tells the two sections' rows apart, and moving or forgetting
+   *  a row works from its place in `list`, the section's own full list,
+   *  rather than in whatever is on screen: it must come out the same
+   *  whether the section is showing eight rows or eighty. */
+  function renderProjectSection(title, list, prefix) {
+    const rec = section(title);
+    const shown = prefix === "recent" && !recentsAll ? list.slice(0, 8) : list;
+    shown.forEach((r) => {
+      const at = list.indexOf(r);
+      const row = el("div", "proj-row" + (r.exists ? "" : " missing"));
+      row.dataset.key = prefix + ":" + r.root;
+      const main = el("span", "proj-main");
+      main.append(el("span", "proj-name", r.name));
+      main.append(describe(el("span", "proj-path", r.exists ? r.root : r.root + "  (missing)"), r.root));
+      // A project whose folder has gone cannot be opened, so it stays text
+      // rather than becoming a button that does nothing when it is pressed.
+      if (r.exists) {
+        const go = el("button", "proj-go");
+        go.id = prefix + "-" + at;
+        go.append(main);
+        go.onclick = () => { send({ cmd: "openProject", path: r.root }); closeOverlay(); };
+        row.append(go);
+      } else {
+        row.append(main);
+      }
+      row.append(projectActions(r.root, r.name, r.archived, { list, at }));
+      const forget = el("button", "icon-btn proj-forget", "\u00d7");
+      describe(forget, "Remove this project from the list. Nothing on disk is touched.");
+      // removeProject rather than the plain forgetRecent: it is the same
+      // drop from the list, plus closing the project first on the rare
+      // chance it is open under a spelling this row's own !open filter
+      // missed -- a second window's project, say -- so nothing is forgotten
+      // out from under itself while still on screen.
+      forget.onclick = () => { forgotAt = at; send({ cmd: "removeProject", root: r.root }); };
+      row.append(forget);
+      rec.append(row);
+    });
+    // Eight at first, and the rest - up to forty are remembered - simply
+    // were not there, so an older project could be reached only by browsing
+    // to its folder again. The Archived section, opened by its own toggle
+    // rather than shown by default, lists all of itself at once: it is
+    // already the "more" the Recent section's own button reaches for.
+    if (prefix === "recent" && shown.length < list.length) {
+      const more = el("button", "chip", "Show " + (list.length - shown.length) + " more");
+      more.onclick = () => {
+        recentsAll = true;
+        renderProjects();
+        const next = $(prefix + "-" + shown.length);
+        if (next) next.focus();
+      };
+      rec.append(more);
+    }
+    return rec;
+  }
+
+  /** projectActions is the row of small controls every project offers,
+   *  open or not: rename, and archive or unarchive. `moveCtx`, given as
+   *  `{list, at}`, adds move-up and move-down for a project kept in a list
+   *  ordered by hand (Recent and Archived; an open project's place among
+   *  the others open is not reordered by hand). */
+  function projectActions(root, name, archived, moveCtx) {
+    const actions = el("span", "proj-actions");
+
+    const rename = el("button", "icon-btn", "\u270e");
+    describe(rename, "Rename this project");
+    // An open project's name is the live group's own -- reachable by any of
+    // its members' roots -- so that renaming a grouped project through any
+    // one of its rows lands on the one name the switcher shows for all of
+    // them. A closed project (Recent, Archived) has no live group to rename,
+    // only the name the store remembers for it.
+    rename.onclick = () => renameProject(root, name, moveCtx === null);
+    actions.append(rename);
+
+    if (moveCtx === null) {
+      const addRepo = el("button", "chip", "Add repo\u2026");
+      describe(addRepo, "Add another repository to this project, so agents in each can see the others.");
+      addRepo.onclick = () => {
+        addingRepoTo = root;
+        addingRepoToName = name;
+        browseDraft = null;
+        send({ cmd: "browse", path: state ? state.root : "" });
+        renderProjects();
+      };
+      actions.append(addRepo);
+    }
+
+    if (moveCtx) {
+      const up = el("button", "icon-btn", "\u25b2");
+      describe(up, "Move up");
+      up.disabled = moveCtx.at <= 0;
+      up.onclick = () => moveProject(moveCtx.list, root, -1);
+      actions.append(up);
+      const down = el("button", "icon-btn", "\u25bc");
+      describe(down, "Move down");
+      down.disabled = moveCtx.at >= moveCtx.list.length - 1;
+      down.onclick = () => moveProject(moveCtx.list, root, 1);
+      actions.append(down);
+    }
+
+    const arch = el("button", "chip", archived ? "Unarchive" : "Archive");
+    describe(arch, archived
+      ? "Bring this project back among your other projects."
+      : "Keep this project out of the way, in the picker's own Archived section, until it is brought back. Nothing on disk is touched, and an open project stays open.");
+    arch.onclick = () => send({ cmd: "archiveProject", root, archived: !archived });
+    actions.append(arch);
+
+    return actions;
+  }
+
+  /** renameProject asks for a project's display name, starting from the one
+   *  it has now, the same way remoteRename asks for a device's. An answer
+   *  left empty goes too, the same way an emptied tab name does: it clears
+   *  the name chosen by hand and goes back to the one derived from its
+   *  directory. */
+  function renameProject(root, current, isOpen) {
+    const name = window.prompt("Rename this project. Leave it empty to use its folder name.", current);
+    if (name === null || name === undefined) return;
+    const next = String(name).trim();
+    if (next === current) return;
+    send({ cmd: isOpen ? "renameGroup" : "renameProject", root, text: next });
+  }
+
+  /** moveProject swaps a project with its neighbour in a list kept in an
+   *  order chosen by hand, and sends the whole list's new order --
+   *  reorderProjects only places the projects it is given, so whatever is
+   *  not in `list` (an open project, or the other of Recent/Archived) keeps
+   *  the place it already had. */
+  function moveProject(list, root, delta) {
+    const at = list.findIndex((r) => r.root === root);
+    const to = at + delta;
+    if (at < 0 || to < 0 || to >= list.length) return;
+    const roots = list.map((r) => r.root);
+    [roots[at], roots[to]] = [roots[to], roots[at]];
+    send({ cmd: "reorderProjects", roots });
   }
 
   /** rowAction makes a whole row behave as the button it already is to a
@@ -4240,9 +4953,34 @@
 
   /** renderBrowser is the directory picker. A browser cannot hand us a real
    *  path, so navigation is served by the Go side. */
+  /** openOrAddPath sends whichever command the folder browser is currently
+   *  for -- opening target as a project of its own, or adding it to
+   *  addingRepoTo -- and settles the dialog the way that command's own
+   *  result is seen: an ordinary open closes the whole dialog, but adding a
+   *  repo returns to the project list so the group it just joined is there
+   *  to see. */
+  function openOrAddPath(target) {
+    if (!target) return;
+    if (addingRepoTo) {
+      send({ cmd: "addRepoToGroup", root: addingRepoTo, path: target });
+      expandedGroups.add(addingRepoTo);
+      addingRepoTo = null;
+      renderProjects();
+    } else {
+      send({ cmd: "openProject", path: target });
+      closeOverlay();
+    }
+  }
+
   function renderBrowser() {
-    const wrap = section("Open a folder");
+    const wrap = section(addingRepoTo ? "Add a repo to " + addingRepoToName : "Open a folder");
     const b = browseState;
+
+    if (addingRepoTo) {
+      const cancel = el("button", "chip", "Cancel");
+      cancel.onclick = () => { addingRepoTo = null; renderProjects(); };
+      wrap.append(cancel);
+    }
 
     const bar = el("div", "browse-bar");
     const up = el("button", "chip", "\u2191 Up");
@@ -4262,11 +5000,8 @@
       ev.preventDefault();
       send({ cmd: "browse", path: path.value });
     };
-    const openHere = el("button", "chip primary", "Open this folder");
-    openHere.onclick = () => {
-      const target = path.value || (b && b.path);
-      if (target) { send({ cmd: "openProject", path: target }); closeOverlay(); }
-    };
+    const openHere = el("button", "chip primary", addingRepoTo ? "Add this folder" : "Open this folder");
+    openHere.onclick = () => openOrAddPath(path.value || (b && b.path));
     bar.append(up, path, openHere);
     wrap.append(bar);
 
@@ -4307,8 +5042,8 @@
         into.onclick = () => send({ cmd: "browse", path: e.path });
         into.dataset.label = e.name.toLowerCase();
         row.append(into);
-        const openBtn = el("button", "chip", "Open");
-        openBtn.onclick = () => { send({ cmd: "openProject", path: e.path }); closeOverlay(); };
+        const openBtn = el("button", "chip", addingRepoTo ? "Add" : "Open");
+        openBtn.onclick = () => openOrAddPath(e.path);
         row.append(openBtn);
         list.append(row);
       });
@@ -4464,6 +5199,7 @@
     applyCursorStyle();
     applyFontFamily();
     applyScreenReader();
+    applyRail();
   }
 
   /** setScreenReader turns screen reader support on or off. It is kept as
@@ -4623,6 +5359,116 @@
     }
   }
 
+  // ------------------------------------------------------------------- rail
+
+  /** How wide the rail is drawn while it shows names beside its icons, in
+   *  pixels, where nobody has dragged it, and the range a drag or the
+   *  keyboard may leave it at. */
+  const RAIL_WIDTH = 220;
+  const RAIL_MIN = 180;
+  const RAIL_MAX = 480;
+  /** The width in effect now, kept so a drag has something to add its delta
+   *  to and the keyboard something to step from. */
+  let railWidth = RAIL_WIDTH;
+
+  function clampRailWidth(px) {
+    return Math.max(RAIL_MIN, Math.min(RAIL_MAX, px || RAIL_WIDTH));
+  }
+
+  /** applyRail puts the rail's expanded state and width into effect. They
+   *  arrive before the first pane is drawn, and again whenever another
+   *  window changes them. */
+  function applyRail() {
+    railWidth = clampRailWidth(prefs.railWidth);
+    const expanded = !!prefs.railExpanded;
+    document.body.classList.toggle("rail-expanded", expanded);
+    // Collapsed, the width the style sheet already gives an icon rail is left
+    // alone; only "expanded" asks for a width of its own.
+    $("rail").style.width = expanded ? railWidth + "px" : "";
+    $("rail-collapse").setAttribute("aria-pressed", String(expanded));
+    $("rail-resize").setAttribute("aria-valuenow", String(railWidth));
+  }
+
+  /** setRailExpanded widens the rail into a panel of icons and names, or
+   *  folds it back to icons alone. It takes effect here at once, as the
+   *  other switches in the settings do. */
+  function setRailExpanded(on) {
+    prefs.railExpanded = on;
+    sentPref("railExpanded");
+    send({ cmd: "railExpanded", kind: on ? "on" : "off" });
+    notice(on ? "The rail is expanded" : "The rail is collapsed", false);
+    applyRail();
+    settingsChanged();
+  }
+
+  /** liveRailWidth redraws the rail at a width mid-drag, without telling the
+   *  Go side yet: that waits for the drag, or the key press, to be over,
+   *  the way the split dividers already do it. */
+  function liveRailWidth(px) {
+    railWidth = clampRailWidth(px);
+    $("rail").style.width = railWidth + "px";
+    $("rail-resize").setAttribute("aria-valuenow", String(railWidth));
+  }
+
+  /** saveRailWidth draws the rail at a width and tells the Go side, so a
+   *  drag let go or a key pressed both come back the same way next time. */
+  function saveRailWidth(px) {
+    liveRailWidth(px);
+    prefs.railWidth = railWidth;
+    sentPref("railWidth");
+    send({ cmd: "railWidth", size: railWidth });
+    settingsChanged();
+  }
+
+  /** One press of an arrow key moves the rail this many pixels. */
+  const RAIL_RESIZE_STEP = 16;
+
+  /** initRailResize wires the handle that drags the rail's width, the same
+   *  way makeDivider wires a split's: pointer capture so a drag that leaves
+   *  the window is still delivered, and the left and right arrow keys once
+   *  the handle has the keyboard. */
+  function initRailResize() {
+    const handle = $("rail-resize");
+    describe(handle, "Sets how wide the rail is drawn. Drag it, or use the left and right arrow keys.");
+    handle.setAttribute("aria-valuemin", String(RAIL_MIN));
+    handle.setAttribute("aria-valuemax", String(RAIL_MAX));
+
+    handle.addEventListener("keydown", (ev) => {
+      const less = ev.key === "ArrowLeft";
+      const more = ev.key === "ArrowRight";
+      if (!less && !more) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      saveRailWidth(railWidth + (more ? RAIL_RESIZE_STEP : -RAIL_RESIZE_STEP));
+    });
+
+    handle.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      const startX = ev.clientX;
+      const startWidth = railWidth;
+      handle.classList.add("dragging");
+      document.body.classList.add("rail-resizing");
+      try { handle.setPointerCapture(ev.pointerId); } catch { /* older engines */ }
+      const onMove = (m) => {
+        if (m.pointerId !== ev.pointerId) return;
+        liveRailWidth(startWidth + (m.clientX - startX));
+      };
+      const onUp = (u) => {
+        if (u.pointerId !== ev.pointerId) return;
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onUp);
+        handle.removeEventListener("pointercancel", onUp);
+        handle.classList.remove("dragging");
+        document.body.classList.remove("rail-resizing");
+        saveRailWidth(railWidth);
+      };
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onUp);
+      handle.addEventListener("pointercancel", onUp);
+    });
+  }
+
   // ----------------------------------------------------------------- search
 
   /** The pane the find bar was opened on. It is not always the focused one by
@@ -4730,6 +5576,99 @@
    *  and a rise in it is the event. */
   const lastProjectWaiting = new Map();
 
+  /** jobOf reports the unit of delegated work a waiting pane belongs to, so
+   *  several prompts that are really one job (a fan-out's rows, or an
+   *  agent's own helpers) can be told about together instead of as
+   *  unrelated interruptions. A fan-out's children share a tab of their
+   *  own (see fanout.go's Spawn), so a tab of two or more panes with no
+   *  parent is one; a helper started by `flockdeck spawn` carries its
+   *  starting pane as v.parent (Pane.Parent), walked up to the pane at the
+   *  root of the chain, so a manager that itself spawned a helper still
+   *  groups under the same name. A fan-out's own tab is told apart from an
+   *  ordinary multi-agent tab a person built by hand by tab.delegated (see
+   *  workspace.Tab.Delegated), not by pane count alone -- the same signal
+   *  tabSettleInfo relies on, and for the same reason: a person is free to
+   *  split several agents into one tab themselves, and that must not read
+   *  as one job just because it looks like one from the pane count. Returns
+   *  null for a pane that is nobody's fan-out row and started no chain of
+   *  its own -- an ordinary pane, grouped with nothing. */
+  function jobOf(id, s) {
+    const v = s.panes && s.panes[id];
+    if (!v) return null;
+    if (v.parent) {
+      let root = v.parent;
+      const seen = new Set([id]);
+      while (s.panes[root] && s.panes[root].parent && !seen.has(root)) {
+        seen.add(root);
+        root = s.panes[root].parent;
+      }
+      const name = (s.panes[root] && s.panes[root].name) || "";
+      return { key: "spawn:" + root, name: name ? name + "’s helpers" : "a helper tree" };
+    }
+    const tabId = tabIdOfPane(id);
+    const tab = tabId && (s.tabs || []).find((t) => t.id === tabId);
+    if (!tab || !tab.delegated) return null;
+    const ids = new Set();
+    collectPanes(tab.root, ids);
+    if (ids.size < 2) return null;
+    return { key: "tab:" + tabId, name: tab.title || "" };
+  }
+
+  /** kindLabel is what a waiting pane wants, as a short noun phrase for a
+   *  notification or a review list -- "a file write", "a command to run",
+   *  "a question" -- built from the same tool and input a permission
+   *  prompt itself would show (see waiting.go's permissionViewFor), so the
+   *  boss can judge what several prompts amount to before opening any of
+   *  them. */
+  function kindLabel(v) {
+    if (!v) return "";
+    if (v.ask) return "a question";
+    if (v.permission) {
+      switch (v.permission.tool) {
+        case "Bash": return "a command to run";
+        case "Edit": case "MultiEdit": case "Write": return "a file write";
+        default: return "to use " + v.permission.tool;
+      }
+    }
+    return "";
+  }
+
+  /** kindBreakdown counts a group of waiting panes by kindLabel, worded the
+   *  way "3 of 6 agents want to write files" reads in the plan this
+   *  implements: "2 want a file write, 1 is asking a question". */
+  function kindBreakdown(items, s) {
+    const counts = new Map();
+    for (const f of items) {
+      const label = kindLabel(s.panes[f.id]) || "your input";
+      counts.set(label, (counts.get(label) || 0) + 1);
+    }
+    return [...counts.entries()].map(([label, n]) => {
+      if (label === "a question") return n + (n === 1 ? " is" : " are") + " asking a question";
+      return n + " want " + label;
+    }).join(", ");
+  }
+
+  /** groupedWaitingBody is the notification body for several panes that just
+   *  started waiting at once: named by their shared job and broken down by
+   *  what each wants when they are all the one job, so a fan-out of six
+   *  reaching a permission question together reads as one sentence about
+   *  that fan-out rather than six names with nothing to say what they have
+   *  in common. Falls back to the plain list of names otherwise. */
+  function groupedWaitingBody(fresh, s) {
+    const groups = new Map();
+    for (const f of fresh) {
+      const job = jobOf(f.id, s);
+      const key = job ? job.key : "solo:" + f.id;
+      if (!groups.has(key)) groups.set(key, { name: job ? job.name : "", items: [] });
+      groups.get(key).items.push(f);
+    }
+    if (groups.size === 1) {
+      const only = [...groups.values()][0];
+      if (only.name && only.items.length > 1) return only.name + ": " + kindBreakdown(only.items, s);
+    }
+    return fresh.map((f) => f.name).join(", ");
+  }
+
   function notifyAttention(s) {
     // Nothing waiting anywhere: whatever the last notification asked has been
     // answered, from this window or another.
@@ -4767,10 +5706,12 @@
     // whatever order the panes happened to arrive in.
     if (!elsewhere.length) {
       const one = fresh.length === 1;
+      const label = one && kindLabel(s.panes[fresh[0].id]);
+      const oneBody = (fresh[0].branch ? fresh[0].branch + " — " : "") +
+        (label ? (label === "a question" ? "is asking a question" : "wants " + label) : "waiting for input");
       showNotification(
         one ? fresh[0].name + " needs you" : fresh.length + " agents need you",
-        one ? (fresh[0].branch ? fresh[0].branch + " — " : "") + "waiting for input"
-            : fresh.map((f) => f.name).join(", "),
+        one ? oneBody : groupedWaitingBody(fresh, s),
         fresh[0].id);
       return;
     }
@@ -4919,6 +5860,7 @@
     help: () => openHelp(),
 
     settings: () => openSettings(),
+    toggleRail: () => setRailExpanded(!prefs.railExpanded),
     fontUp: () => setFontSize(fontSize + 1),
     fontDown: () => setFontSize(fontSize - 1),
     fontReset: () => setFontSize(13),
@@ -4934,19 +5876,14 @@
    *  together and before the first state, because the palette and the
    *  first-run hints are drawn from them. */
   function applyHello(msg) {
-    keyTable = msg.keys || [];
+    applyKeyTable(msg.keys || []);
     remoteWindow = !!msg.remote;
     // The hello is what the server holds, after a drop that may have taken
     // changes sent from here with it, so nothing sent before it is waited on.
     pendingPrefs.clear();
     prefs = msg.prefs || prefs;
     applyPrefs();
-    bindings = new Map();
-    keyTable.forEach((k) => {
-      const s = signatureOf(k.keys);
-      if (s) bindings.set(s, k.id);
-    });
-    describeChrome();
+    applyTheme();
     renderHints();
     // The hello comes again with every reconnect, carrying the preferences
     // as they are now - changed, perhaps, from another window while this one
@@ -4957,6 +5894,22 @@
     if (!prefs.helpSeen) openHelp("getting-started");
   }
 
+  /** applyKeyTable takes the key table -- every action, with its binding as
+   *  keybindings.json currently leaves or remaps it -- and rebuilds bindings,
+   *  the signature-to-id map every keydown is dispatched through. It is what
+   *  the hello and a later keyTable broadcast, after a remap, both do; only
+   *  the redraw and the rest of hello's own work differ between the two, so
+   *  those stay with their own callers. */
+  function applyKeyTable(keys) {
+    keyTable = keys;
+    bindings = new Map();
+    keyTable.forEach((k) => {
+      const s = signatureOf(k.keys);
+      if (s) bindings.set(s, k.id);
+    });
+    describeChrome();
+  }
+
   /** describeChrome labels the buttons that never change with the action they
    *  run and the key that runs it. Written into the page they would be one
    *  more copy of the bindings to go stale, so they are filled in from the
@@ -4965,8 +5918,6 @@
     const label = (id, node, extra) => {
       if (node && keyTable.some((k) => k.id === id)) describe(node, actionTip(id, extra));
     };
-    // The project switcher is not in this list: its bubble names the project
-    // as well, so renderProjectChip writes it as the project changes.
     label("newAgentTab", $("new-tab"), "or drop a pane here to give it a tab of its own");
     label("newAgentTabChoose", $("new-tab-pick"));
     label("agents", $("summary"));
@@ -4978,6 +5929,7 @@
     label("settings", $("btn-settings"));
     label("palette", $("btn-palette"), "every action there is, searchable");
     label("projects", $("rail-open"), "open a folder as a project");
+    label("toggleRail", $("rail-collapse"));
     // The palette's key, drawn as keys on the button that opens it.
     const k = keyTable.find((x) => x.id === "palette");
     const keys = $("palette-keys");
@@ -5956,6 +6908,479 @@
     });
   }
 
+  // ------------------------------------------------------------------ github
+
+  /** gh's own status -- installed?, signed in? -- shared by the GitHub dialog's
+   *  own header and the Settings section, which show the same thing. */
+  let ghStatus = null;
+  /** The working tree the GitHub panel is reading, echoed back on every answer
+   *  the way changes.cwd is, so a request outlived by a project switch still
+   *  lands on the project it was asked about. */
+  let ghDir = "";
+  /** Which of an install or a sign-in is running right now -- "install",
+   *  "login", or "" when neither is -- and the lines gh has printed so far.
+   *  Cleared each time one starts: this is a running attempt's own log, not
+   *  a history kept once it is over. */
+  let ghRunning = "";
+  let ghRunLines = [];
+  /** The one-time code a running sign-in has shown, until it ends. */
+  let ghLoginCode = "";
+
+  /** Which tab of the GitHub dialog is on show. */
+  let ghTab = "prs";
+  let ghPRState = "";
+  let ghIssueState = "";
+  let ghPRList = null;
+  let ghIssueList = null;
+  let ghChecksData = null;
+  /** The pull request or issue open in the dialog, in place of the list, or
+   *  null for the list itself. */
+  let ghSelected = null;
+  let ghCreateOpen = false;
+  let ghCreateDraft = { title: "", body: "", base: "", draft: false };
+  /** A comment being written, kept by "kind:number" for as long as the
+   *  dialog is open, the same reason worktrees keeps wtDraft: the item is
+   *  redrawn whole on every answer, and a comment half-typed would go with it. */
+  const ghCommentDrafts = new Map();
+  /** Whether a create just asked for is still out, so its answer is told
+   *  from an ordinary read of the same kind of item. */
+  let ghCreating = false;
+
+  /** ghClass buckets any of gh's several words for a check or a run's outcome
+   *  down to the four this panel actually draws differently. */
+  function ghClass(s) {
+    s = (s || "").toLowerCase();
+    if (["success", "pass", "passing"].includes(s)) return "pass";
+    if (["failure", "fail", "failing", "cancelled", "cancel", "timed_out", "startup_failure", "action_required"].includes(s)) return "fail";
+    if (["pending", "queued", "in_progress", "requested", "waiting"].includes(s)) return "pending";
+    return "neutral";
+  }
+
+  function ghInstallClick() {
+    ghRunning = "install";
+    ghRunLines = [];
+    keepFocus(dialog === "github" ? renderGithub : renderGhSettings);
+    send({ cmd: "ghInstall" });
+  }
+  function ghLoginClick() {
+    ghRunning = "login";
+    ghRunLines = [];
+    ghLoginCode = "";
+    keepFocus(dialog === "github" ? renderGithub : renderGhSettings);
+    send({ cmd: "ghLogin" });
+  }
+  function ghLogoutClick() {
+    if (!window.confirm("Sign out of GitHub?")) return;
+    send({ cmd: "ghLogout", path: ghDir });
+  }
+
+  /** ghProgressBox draws the log of a running install or sign-in, and, for a
+   *  sign-in, the one-time code the moment gh has printed it. Shared by the
+   *  dialog and the settings section, which show the same run. */
+  function ghProgressBox() {
+    const box = el("div", "gh-run");
+    if (ghRunning === "login" && ghLoginCode) {
+      box.append(el("p", null, "Enter this code at github.com/login/device:"));
+      box.append(el("div", "gh-code", ghLoginCode));
+    } else {
+      box.append(el("p", null, ghRunning === "install" ? "Installing the GitHub CLI…" : "Opening github.com/login/device…"));
+    }
+    if (ghRunLines.length) box.append(el("div", "gh-log", ghRunLines.join("\n")));
+    if (ghRunning === "login") {
+      const row = el("div", "wt-actions");
+      const cancel = el("button", "chip", "Cancel");
+      cancel.onclick = () => send({ cmd: "ghLoginCancel" });
+      row.append(cancel);
+      box.append(row);
+    }
+    return box;
+  }
+
+  // -------------------------------------------------------- settings section
+
+  /** ghShown is where the GitHub status is drawn right now, or null while it
+   *  is on neither screen -- the same idea as remoteHost. */
+  function ghShown() {
+    if (dialog === "github") return null; // renderGithub draws its own header
+    if (dialog === "settings" && settingsSection === "github") return $("settings-host");
+    return null;
+  }
+
+  function renderGhSettings() {
+    const body = ghShown();
+    if (!body) return;
+    body.textContent = "";
+    if (!ghStatus) { body.append(el("div", "dir-empty", "Checking…")); return; }
+    if (ghRunning) { body.append(ghProgressBox()); return; }
+    const st = ghStatus;
+    if (st.error) body.append(el("p", "remote-error", st.error));
+
+    if (!st.installed) {
+      body.append(el("p", "fan-hint",
+        "The GitHub CLI (gh) is what talks to GitHub for pull requests, issues and CI status here. It is not on this machine yet."));
+      const row = el("div", "update-row");
+      if (st.installManager) {
+        const install = el("button", "chip primary", "Install with " + st.installManager);
+        install.id = "gh-install";
+        install.onclick = ghInstallClick;
+        row.append(install);
+      }
+      const link = el("a", "chip", "Get it from cli.github.com");
+      link.href = st.installUrl || "https://cli.github.com";
+      link.target = "_blank";
+      link.rel = "noopener";
+      row.append(link);
+      body.append(row);
+      return;
+    }
+    if (!st.loggedIn) {
+      body.append(el("p", "fan-hint",
+        "gh is installed but not signed in. Signing in opens a one-time code to enter at github.com/login/device."));
+      const row = el("div", "update-row");
+      const login = el("button", "chip primary", "Sign in with GitHub");
+      login.id = "gh-signin";
+      login.onclick = ghLoginClick;
+      row.append(login);
+      body.append(row);
+      return;
+    }
+    body.append(el("div", "remote-status", "Signed in to " + (st.host || "github.com") + " as " + st.account));
+    const row = el("div", "update-row");
+    const logout = el("button", "chip danger", "Sign out");
+    logout.onclick = ghLogoutClick;
+    row.append(logout);
+    body.append(row);
+  }
+
+  // ----------------------------------------------------------------- dialog
+
+  /** ghRequestTab asks for whatever the tab on show needs. */
+  function ghRequestTab() {
+    if (ghTab === "prs") send({ cmd: "ghPRs", path: ghDir, ghState: ghPRState });
+    else if (ghTab === "issues") send({ cmd: "ghIssues", path: ghDir, ghState: ghIssueState });
+    else send({ cmd: "ghChecks", path: ghDir });
+  }
+
+  function openGithub(path) {
+    dialog = "github";
+    ghSelected = null;
+    ghCreateOpen = false;
+    ghStatus = null;
+    ghRunning = "";
+    ghRunLines = [];
+    ghLoginCode = "";
+    if (path) ghDir = path;
+    openOverlay("GitHub", "github");
+    $("overlay-body").append(el("div", "dir-empty", "Reading GitHub status…"));
+    send({ cmd: "ghStatus", path: ghDir });
+    ghRequestTab();
+  }
+
+  function renderGithub() {
+    if (dialog !== "github") return; // see openWorktrees
+    const body = $("overlay-body");
+    body.textContent = "";
+
+    if (!ghStatus) { body.append(el("div", "dir-empty", "Reading GitHub status…")); return; }
+    if (ghRunning) { body.append(ghProgressBox()); return; }
+    if (!ghStatus.installed || !ghStatus.loggedIn) {
+      body.append(el("p", "fan-hint", ghStatus.installed
+        ? "Sign in to GitHub to see pull requests, issues and CI here."
+        : "The GitHub CLI is not installed on this machine yet."));
+      const go = el("button", "chip primary", "Open GitHub settings");
+      go.onclick = () => openSettings("github");
+      body.append(go);
+      return;
+    }
+
+    const tabs = el("div", "gh-tabs");
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", "GitHub");
+    [["prs", "Pull requests"], ["issues", "Issues"], ["checks", "Checks"]].forEach(([id, label]) => {
+      const on = ghTab === id;
+      const b = el("button", "chip gh-tab" + (on ? " sel" : ""), label);
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", String(on));
+      b.onclick = () => {
+        if (ghTab === id) return;
+        ghTab = id;
+        ghSelected = null;
+        ghCreateOpen = false;
+        keepFocus(renderGithub);
+        ghRequestTab();
+      };
+      tabs.append(b);
+    });
+    body.append(tabs);
+
+    if (ghSelected) body.append(ghDetailView());
+    else if (ghTab === "checks") body.append(ghChecksView());
+    else body.append(ghListView(ghTab));
+
+    body.append(rootLabel(ghDir));
+  }
+
+  /** ghListView is the Pull requests and Issues tabs: a state filter, a way to
+   *  open a new one, and the list itself. */
+  function ghListView(kind) {
+    const wrap = el("div", "gh-list-wrap");
+    const list = kind === "prs" ? ghPRList : ghIssueList;
+    const state = kind === "prs" ? ghPRState : ghIssueState;
+
+    const bar = el("div", "wt-actions");
+    const states = kind === "prs"
+      ? [["", "Open"], ["closed", "Closed"], ["merged", "Merged"], ["all", "All"]]
+      : [["", "Open"], ["closed", "Closed"], ["all", "All"]];
+    states.forEach(([val, label]) => {
+      const b = el("button", "chip" + (state === val ? " on" : ""), label);
+      b.onclick = () => {
+        if (kind === "prs") ghPRState = val; else ghIssueState = val;
+        if (kind === "prs") ghPRList = null; else ghIssueList = null;
+        keepFocus(renderGithub);
+        ghRequestTab();
+      };
+      bar.append(b);
+    });
+    const create = el("button", "chip primary", kind === "prs" ? "New pull request" : "New issue");
+    create.onclick = () => {
+      ghCreateOpen = true;
+      ghCreateDraft = { title: "", body: "", base: "", draft: false };
+      keepFocus(renderGithub);
+    };
+    bar.append(create);
+    wrap.append(bar);
+
+    if (ghCreateOpen) wrap.append(ghCreateForm(kind));
+
+    if (!list) { wrap.append(el("div", "dir-empty", "Reading…")); return wrap; }
+    if (list.error) { wrap.append(el("p", "remote-error", list.error)); return wrap; }
+    const items = list.items || [];
+    if (!items.length) { wrap.append(el("div", "dir-empty", "Nothing here.")); return wrap; }
+    items.forEach((item) => wrap.append(ghRow(kind, item)));
+    return wrap;
+  }
+
+  function ghRow(kind, item) {
+    const row = el("div", "wt-row");
+    row.dataset.key = kind + ":" + item.number;
+    const main = el("div", "wt-main");
+    const title = el("div", "wt-title");
+    const open = el("button", "gh-open", "#" + item.number + " " + item.title);
+    open.onclick = () => ghOpenItem(kind, item.number);
+    title.append(open);
+    if (kind === "prs" && item.isDraft) title.append(el("span", "wt-flag", "draft"));
+    title.append(el("span", "wt-flag", (item.state || "").toLowerCase()));
+    main.append(title);
+    main.append(el("div", "wt-meta", (item.author && item.author.login ? item.author.login + " · " : "") + "updated " + remoteAgo(item.updatedAt)));
+    row.append(main);
+    return row;
+  }
+
+  function ghOpenItem(kind, number) {
+    ghSelected = { kind, number, item: null, error: "" };
+    keepFocus(renderGithub);
+    send({ cmd: kind === "prs" ? "ghPR" : "ghIssue", path: ghDir, ghNumber: number });
+  }
+
+  /** ghCreateForm is the new pull request / new issue form, opened above the
+   *  list it will land in once gh has answered. */
+  function ghCreateForm(kind) {
+    const box = el("div", "gh-create");
+    const title = el("input");
+    title.placeholder = "Title";
+    title.setAttribute("aria-label", "Title");
+    title.value = ghCreateDraft.title;
+    title.oninput = () => { ghCreateDraft.title = title.value; };
+    box.append(title);
+    const body = el("textarea");
+    body.placeholder = "Description (optional)";
+    body.setAttribute("aria-label", "Description");
+    body.value = ghCreateDraft.body;
+    body.oninput = () => { ghCreateDraft.body = body.value; };
+    box.append(body);
+    if (kind === "prs") {
+      const row = el("div", "gh-create-row");
+      const base = el("input");
+      base.placeholder = "Base branch (default: the repository's own)";
+      base.setAttribute("aria-label", "Base branch");
+      base.value = ghCreateDraft.base;
+      base.oninput = () => { ghCreateDraft.base = base.value; };
+      row.append(base);
+      const draftBtn = el("button", "chip" + (ghCreateDraft.draft ? " on" : ""), ghCreateDraft.draft ? "Draft: on" : "Draft: off");
+      draftBtn.onclick = () => { ghCreateDraft.draft = !ghCreateDraft.draft; keepFocus(renderGithub); };
+      row.append(draftBtn);
+      box.append(row);
+    }
+    const buttons = el("div", "rev-commit-buttons");
+    const submit = el("button", "chip primary", ghCreating ? "Opening…" : (kind === "prs" ? "Open pull request" : "Open issue"));
+    submit.disabled = ghCreating;
+    submit.onclick = () => {
+      if (!ghCreateDraft.title.trim()) {
+        notice(kind === "prs" ? "A pull request needs a title" : "An issue needs a title", true);
+        title.focus();
+        return;
+      }
+      ghCreating = true;
+      keepFocus(renderGithub);
+      if (kind === "prs") {
+        send({ cmd: "ghPRCreate", path: ghDir, ghTitle: ghCreateDraft.title, ghBody: ghCreateDraft.body, ghBase: ghCreateDraft.base, ghDraft: ghCreateDraft.draft });
+      } else {
+        send({ cmd: "ghIssueCreate", path: ghDir, ghTitle: ghCreateDraft.title, ghBody: ghCreateDraft.body });
+      }
+    };
+    const cancel = el("button", "chip", "Cancel");
+    cancel.onclick = () => { ghCreateOpen = false; keepFocus(renderGithub); };
+    buttons.append(submit, cancel);
+    box.append(buttons);
+    return box;
+  }
+
+  /** ghDetailView is one pull request or issue: its body, its checks when it
+   *  is a pull request gh has already read the checks of, its comments, and a
+   *  box to add one. */
+  function ghDetailView() {
+    const wrap = el("div", "gh-detail");
+    const back = el("button", "chip", "← Back");
+    back.onclick = () => { ghSelected = null; keepFocus(renderGithub); };
+    wrap.append(back);
+
+    const sel = ghSelected;
+    if (!sel.item) {
+      wrap.append(el("div", "dir-empty", sel.error || "Reading…"));
+      return wrap;
+    }
+    const item = sel.item;
+    const head = el("div", "gh-detail-head");
+    head.append(el("h3", null, "#" + item.number + " " + item.title));
+    const meta = el("div", "wt-meta");
+    meta.append(el("span", "wt-flag", (item.state || "").toLowerCase()));
+    if (sel.kind === "prs" && item.isDraft) meta.append(el("span", "wt-flag", "draft"));
+    if (sel.kind === "prs" && item.headRefName) meta.append(el("span", null, item.headRefName + " → " + item.baseRefName));
+    if (item.author && item.author.login) meta.append(el("span", null, item.author.login));
+    head.append(meta);
+    if (item.url) {
+      const link = el("a", "chip", "Open on GitHub");
+      link.href = item.url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      head.append(link);
+    }
+    wrap.append(head);
+
+    if (item.body) wrap.append(el("div", "gh-body", item.body));
+
+    if (sel.kind === "prs" && ghChecksData && ghChecksData.pr && ghChecksData.pr.number === item.number) {
+      wrap.append(ghChecksSummaryLine(ghChecksData.summary));
+    }
+
+    const comments = item.comments || [];
+    const commentsBox = section(comments.length === 1 ? "1 comment" : comments.length + " comments");
+    comments.forEach((cm) => {
+      const c = el("div", "gh-comment");
+      c.append(el("div", "gh-comment-meta", ((cm.author && cm.author.login) || "") + " · " + remoteAgo(cm.createdAt)));
+      c.append(el("div", "gh-comment-body", cm.body));
+      commentsBox.append(c);
+    });
+    wrap.append(commentsBox);
+
+    const key = sel.kind + ":" + item.number;
+    const commentRow = el("div", "rev-commit");
+    const box = el("textarea");
+    box.placeholder = "Write a comment (Ctrl+Enter to post)";
+    box.setAttribute("aria-label", "Comment");
+    box.value = ghCommentDrafts.get(key) || "";
+    box.oninput = () => ghCommentDrafts.set(key, box.value);
+    const doComment = () => {
+      const text = box.value.trim();
+      if (!text) return;
+      send({ cmd: sel.kind === "prs" ? "ghPRComment" : "ghIssueComment", path: ghDir, ghNumber: item.number, ghBody: text });
+      ghCommentDrafts.delete(key);
+      box.value = "";
+    };
+    box.onkeydown = (ev) => {
+      if (ev.key !== "Enter" || !(ev.ctrlKey || ev.metaKey)) return;
+      ev.preventDefault();
+      doComment();
+    };
+    const post = el("button", "chip primary", "Comment");
+    post.onclick = doComment;
+    commentRow.append(box, post);
+    wrap.append(commentRow);
+    return wrap;
+  }
+
+  /** ghChecksView is the Checks tab: the open pull request's own checks, when
+   *  there is one, and the branch's recent Actions runs regardless -- a
+   *  checkout with no pull request yet still has CI worth showing. */
+  function ghChecksView() {
+    const wrap = el("div", "gh-checks");
+    const data = ghChecksData;
+    if (!data) { wrap.append(el("div", "dir-empty", "Reading…")); return wrap; }
+    if (data.error) wrap.append(el("p", "remote-error", data.error));
+    wrap.append(el("div", "wt-meta", "branch " + (data.branch || "—")));
+
+    if (data.pr) {
+      const prSec = section("Pull request #" + data.pr.number);
+      const open = el("button", "gh-open", data.pr.title);
+      open.onclick = () => ghOpenItem("prs", data.pr.number);
+      prSec.append(open);
+      prSec.append(ghChecksSummaryLine(data.summary));
+      (data.checks || []).forEach((c) => prSec.append(ghCheckRow(c)));
+      wrap.append(prSec);
+    } else {
+      wrap.append(el("p", "fan-hint", "This branch has no open pull request yet. The runs below are for the branch itself."));
+    }
+
+    const runsSec = section("Recent runs");
+    const runs = data.runs || [];
+    if (!runs.length) runsSec.append(el("div", "dir-empty", "No workflow runs found for this branch."));
+    runs.forEach((r) => {
+      const row = el("div", "wt-row");
+      const main = el("div", "wt-main");
+      const title = el("div", "wt-title");
+      const link = el("a", "gh-open", r.displayTitle || r.workflowName);
+      link.href = r.url;
+      link.target = "_blank";
+      link.rel = "noopener";
+      title.append(link);
+      title.append(el("span", "wt-flag gh-" + ghClass(r.conclusion || r.status), (r.conclusion || r.status || "").replace(/_/g, " ")));
+      main.append(title);
+      main.append(el("div", "wt-meta", r.workflowName + " · " + remoteAgo(r.updatedAt)));
+      row.append(main);
+      runsSec.append(row);
+    });
+    wrap.append(runsSec);
+    return wrap;
+  }
+
+  function ghCheckRow(c) {
+    const row = el("div", "wt-row");
+    const main = el("div", "wt-main");
+    const title = el("div", "wt-title");
+    if (c.link) {
+      const link = el("a", "gh-open", c.name);
+      link.href = c.link;
+      link.target = "_blank";
+      link.rel = "noopener";
+      title.append(link);
+    } else {
+      title.append(el("span", "wt-label", c.name));
+    }
+    title.append(el("span", "wt-flag gh-" + ghClass(c.bucket), (c.state || "").toLowerCase()));
+    main.append(title);
+    if (c.workflow) main.append(el("div", "wt-meta", c.workflow));
+    row.append(main);
+    return row;
+  }
+
+  function ghChecksSummaryLine(summary) {
+    const s = summary || { pending: 0, passing: 0, failing: 0, overall: "none" };
+    const text = s.overall === "none" ? "No checks reported"
+      : [s.passing ? s.passing + " passing" : "", s.failing ? s.failing + " failing" : "", s.pending ? s.pending + " pending" : ""]
+        .filter(Boolean).join(", ");
+    return el("div", "gh-summary gh-" + ghClass(s.overall), text);
+  }
+
   // ---------------------------------------------------------------- agents
 
   let agents = null;
@@ -6022,6 +7447,11 @@
       return;
     }
 
+    // So a helper's row can name the pane it belongs to -- the list stays
+    // sorted by what needs a person first, which is the point of it, rather
+    // than regrouped under its parent and losing that order.
+    const byId = new Map(items.map((x) => [x.paneId, x]));
+
     const wrap = section(items.length + (items.length === 1 ? " pane" : " panes"));
     items.forEach((a) => {
       const row = el("div", "agent-row" + (a.active ? " active" : ""));
@@ -6066,6 +7496,21 @@
       }
       if (a.kind === "shell") meta.append(el("span", null, "shell"));
       if (a.detail) meta.append(el("span", null, a.detail));
+      // A helper's own pane, when it is still open, so it reads as part of
+      // the job it was spawned for rather than an unrelated row -- the list
+      // stays sorted by what needs a person first, so this is what says
+      // which of them share a manager.
+      if (a.parent) {
+        const parent = byId.get(a.parent);
+        meta.append(el("span", "agent-parent", "↳ helper of " + (parent ? (parent.tab || parent.name) : "another agent")));
+      }
+      // What a waiting pane's permission prompt or question wants, in the
+      // same words the prompt itself would show -- so a list of several
+      // waiting at once says which is worth a look first, without opening
+      // any of them.
+      if (a.status === "waiting" && a.waiting) {
+        meta.append(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));
+      }
       main.append(meta);
       row.append(main);
 
@@ -6105,11 +7550,18 @@
   /** The rows on screen, in the order the arrows walk them. */
   let pickRows = [];
 
-  function chooseAgent(title, onPick) {
+  function chooseAgent(title, onPick, opts) {
+    opts = opts || {};
     // address is the address being typed for one agent, while it is: which
     // agent, what has been typed, why the last try was refused, and whether
-    // one is out to be saved.
-    picker = { title, onPick, query: "", index: 0, open: new Set(), setDefault: false, scope: "", address: null };
+    // one is out to be saved. A caller that only wants to set the default --
+    // the Projects dialog's own shortcut to it -- starts with the box
+    // already ticked, since picking an agent here is the only thing it asked
+    // for; ordinarily nobody has said anything yet.
+    picker = {
+      title, onPick, query: "", index: 0, open: new Set(),
+      setDefault: !!opts.setDefault, scope: opts.scope || "", address: null,
+    };
     // A fresh picker starts on its first row, not on the row the last one
     // left picked out, which renderAgentPicker would otherwise carry over.
     pickRows = [];
@@ -6760,11 +8212,17 @@
 
   const SETTINGS_SECTIONS = [
     { id: "general", label: "General", words: "desktop notifications updates releases check hints tips" },
-    { id: "terminal", label: "Terminal", words: "font size family typeface scrollback lines cursor blink block bar underline preview screen reader accessibility" },
+    { id: "appearance", label: "Appearance",
+      words: "theme dark light system follow colour color accent swatch " +
+        "font size family typeface scrollback lines cursor blink block bar underline preview screen reader accessibility" },
+    { id: "behaviour", label: "Behaviour",
+      words: "fan out fanout tab worktree new agents auto review approve approval default defaults" },
+    { id: "keybindings", label: "Keybindings", words: "keyboard shortcuts shortcut remap rebind bindings keys chord conflict" },
     { id: "agents", label: "Agents", words: "default agent model project claude status line usage limits spend" },
     { id: "keys", label: "API keys", words: "api keys key token secret" },
     { id: "remote", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet push notify notification notifications waiting anonymous identifying" },
-    { id: "plan", label: "Account & plan", words: "account plan free enterprise self-hosted relay sso company companies licence license support paid" },
+    { id: "github", label: "GitHub", words: "github gh pull request issue pr ci actions checks workflow sign in install auth login" },
+    { id: "plan", label: "Account & plan", words: "account plan free enterprise self-hosted relay sso company companies licence license support paid sponsor sponsors sponsorship donate" },
   ];
   /** The section on show, kept from one opening to the next. */
   let settingsSection = "general";
@@ -6774,6 +8232,13 @@
    *  it can be put right rather than typed again. */
   let fontDraft = null;
   let fontError = "";
+
+  /** The action whose binding is being recorded -- the next keydown becomes
+   *  its chord instead of running whatever it already does -- or "" while
+   *  nothing is. keybindError is what to say about the last attempt, id and
+   *  message together so it is only ever shown beside the row it is about. */
+  let keybindEditing = "";
+  let keybindError = null;
 
   /** The site's section on Enterprise, where what it costs and when it
    *  comes will be said once it is settled. v0.2.9 linked #private-relays,
@@ -6787,6 +8252,10 @@
     ["set-legal-terms", "Terms", "https://flockdeck.ai/terms.html"],
     ["set-legal-licences", "Licences", "https://flockdeck.ai/licences.html"],
   ];
+
+  /** Where somebody who wants to give something back can: the GitHub Sponsors
+   *  account .github/FUNDING.yml names, which a test keeps this level with. */
+  const SPONSOR_URL = "https://github.com/sponsors/jmwri";
 
   /** A few monospaced fonts to suggest; any other installed one can be typed. */
   const FONT_SUGGESTIONS = ["Cascadia Mono", "Cascadia Code", "JetBrains Mono", "Fira Code", "Consolas",
@@ -6812,7 +8281,7 @@
     if (dialog !== "settings") return;
     // Of remote access's section, only the push settings are preferences.
     if (settingsSection === "remote") keepFocus(drawPushSettings);
-    else if (settingsSection !== "keys") keepFocus(renderSettings);
+    else if (settingsSection !== "keys" && settingsSection !== "github") keepFocus(renderSettings);
   }
 
   function buildSettingsShell() {
@@ -6907,13 +8376,17 @@
     if (moved) {
       fontDraft = null;
       fontError = "";
+      keybindEditing = "";
+      keybindError = null;
       // What a section lists is asked for as it is shown, as its own dialog
       // does on opening.
       if (id === "keys") { apiKeys = null; keyEditing = null; send({ cmd: "keys" }); }
       else if (id === "remote") {
         remoteRoster = null; remotePairing = null; remoteOutcome = null; remoteBusy = "";
         send({ cmd: "remoteDevices" });
-      } else if (id === "agents") send({ cmd: "refreshAgents" });
+      } else if (id === "plan") send({ cmd: "remoteDevices" });
+      else if (id === "agents") send({ cmd: "refreshAgents" });
+      else if (id === "github") { ghStatus = null; send({ cmd: "ghStatus", path: ghDir }); }
     }
     renderSettings();
     const pane = $("settings-pane");
@@ -6939,10 +8412,17 @@
 
   const SETTINGS_DRAW = {
     general: settingsGeneral,
-    terminal: settingsTerminal,
+    appearance: settingsAppearance,
+    behaviour: settingsBehaviour,
+    keybindings: settingsKeybindings,
     agents: settingsAgents,
     keys: (pane) => { settingsHead(pane, "API keys"); settingsHost(pane); renderKeys(); },
     remote: (pane) => { settingsHead(pane, "Remote access"); settingsPush(pane); settingsHost(pane); renderRemote(); },
+    github: (pane) => {
+      settingsHead(pane, "GitHub", "Create and review pull requests and issues, and see CI status, without leaving Flockdeck.");
+      settingsHost(pane);
+      renderGhSettings();
+    },
     plan: settingsPlan,
   };
 
@@ -7075,19 +8555,31 @@
       "A notification when an agent stops to wait on you while this window is behind another." + notificationsNote(),
       switchControl("set-notifications", !prefs.notificationsOff, (on) => setOff("notificationsOff", !on))));
 
-    // Not offered in a window reached through the relay: see remoteWindow.
+    // Neither is offered in a window reached through the relay: see
+    // remoteWindow. Checking is the desk's to do, as restarting onto what it
+    // finds is.
     const u = !remoteWindow && state && state.update;
-    let install = null;
-    if (u) {
-      install = el("button", "chip primary", "Install " + u.version + "…");
-      install.id = "set-install";
-      install.style.marginTop = "8px";
-      install.onclick = openUpdate;
+    let extra = null;
+    if (!remoteWindow) {
+      extra = el("div", "update-actions");
+      // The switch above only ever governed looking in the background; a
+      // person pressing a button marked "Check for updates now" is asking
+      // once, this moment, not turning that back on.
+      const check = el("button", "chip", "Check for updates now");
+      check.id = "set-check-update";
+      check.onclick = () => send({ cmd: "checkForUpdate" });
+      extra.append(check);
+      if (u) {
+        const install = el("button", "chip primary", "Install " + u.version + "…");
+        install.id = "set-install";
+        install.onclick = openUpdate;
+        extra.append(install);
+      }
     }
     pane.append(settingRow("Check for updates",
       "Looks for new releases in the background and downloads them, to go in when you choose to restart. " +
       "FLOCKDECK_UPDATE=off in the environment stops it whatever this says.",
-      switchControl("set-updates", !prefs.updatesOff, (on) => setOff("updatesOff", !on)), install));
+      switchControl("set-updates", !prefs.updatesOff, (on) => setOff("updatesOff", !on)), extra));
 
     const dismissed = (prefs.dismissedTips || []).length;
     const tips = el("button", "chip", "Show them again");
@@ -7106,9 +8598,118 @@
       tips));
   }
 
-  function settingsTerminal(pane) {
-    settingsHead(pane, "Terminal", "How every pane's terminal looks. Changes apply at once, to every pane.");
+  /** The theme choices offered: value, label. "" is Dark, the palette this
+   *  window has always drawn in and still draws in until one of the others is
+   *  chosen. */
+  const THEMES = [["", "Dark"], ["light", "Light"], ["system", "Follow system"]];
 
+  /** The fixed accent swatches: value, what a screen reader calls it. Not a
+   *  free colour picker -- a colour picked by hand could go illegible against
+   *  either palette, and these are chosen to keep contrast on both. Shown in
+   *  the colour app.css gives them for the dark palette, which is close
+   *  enough to place them by; the page itself redraws in whichever palette is
+   *  actually on show. */
+  const ACCENTS = [
+    ["", "Blue (default)", "#4c9aff"],
+    ["purple", "Purple", "#b48cf0"],
+    ["green", "Green", "#4fd17a"],
+    ["orange", "Orange", "#f0a552"],
+    ["pink", "Pink", "#f28fc0"],
+    ["teal", "Teal", "#4fd0c6"],
+  ];
+
+  /** applyTheme puts the chosen palette and accent on the document, which is
+   *  what app.css's [data-theme] and [data-accent] rules key off. It runs
+   *  before the first pane is drawn, and again whenever the preference
+   *  changes from here or from another window. */
+  function applyTheme() {
+    const root = document.documentElement;
+    if (prefs.theme === "light") root.dataset.theme = "light";
+    else if (prefs.theme === "system") delete root.dataset.theme;
+    else root.dataset.theme = "dark";
+    if (prefs.accentColor) root.dataset.accent = prefs.accentColor;
+    else delete root.dataset.accent;
+  }
+
+  function settingsAppearance(pane) {
+    settingsHead(pane, "Appearance", "How the window looks: its palette, its accent, and every pane's terminal.");
+
+    const seg = el("div", "set-theme");
+    seg.id = "set-theme";
+    seg.setAttribute("role", "radiogroup");
+    seg.setAttribute("aria-label", "Theme");
+    THEMES.forEach(([value, label], i) => {
+      const on = (prefs.theme || "") === value;
+      const b = el("button", "seg" + (on ? " on" : ""), label);
+      b.id = "set-theme-" + (value || "dark");
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", String(on));
+      b.tabIndex = on ? 0 : -1;
+      b.onclick = () => chooseTheme(value);
+      b.onkeydown = (ev) => {
+        const by = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[ev.key];
+        if (!by) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        const next = THEMES[(i + by + THEMES.length) % THEMES.length][0];
+        chooseTheme(next);
+        $("set-theme-" + (next || "dark")).focus();
+      };
+      seg.append(b);
+    });
+    pane.append(settingRow("Theme",
+      "Follow system matches this computer's own light or dark setting, and changes with it.", seg));
+
+    const sw = el("div", "swatches");
+    sw.id = "set-accent";
+    sw.setAttribute("role", "radiogroup");
+    sw.setAttribute("aria-label", "Accent colour");
+    ACCENTS.forEach(([value, label, colour], i) => {
+      const on = (prefs.accentColor || "") === value;
+      const b = el("button", "swatch" + (on ? " on" : ""));
+      b.id = "set-accent-" + (value || "blue");
+      b.style.background = colour;
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", String(on));
+      b.setAttribute("aria-label", label);
+      b.tabIndex = on ? 0 : -1;
+      b.onclick = () => chooseAccent(value);
+      b.onkeydown = (ev) => {
+        const by = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[ev.key];
+        if (!by) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        const next = ACCENTS[(i + by + ACCENTS.length) % ACCENTS.length][0];
+        chooseAccent(next);
+        $("set-accent-" + (next || "blue")).focus();
+      };
+      sw.append(b);
+    });
+    pane.append(settingRow("Accent colour", "A small fixed set, kept legible against either palette.", sw));
+
+    pane.append(el("div", "set-sub", "Terminal"));
+    appendTerminalSettings(pane);
+  }
+
+  function chooseTheme(value) {
+    prefs.theme = value;
+    sentPref("theme");
+    applyTheme();
+    send({ cmd: "theme", text: value || "dark" });
+    notice("Theme: " + (THEMES.find(([v]) => v === value) || ["", "Dark"])[1], false);
+    settingsChanged();
+  }
+
+  function chooseAccent(value) {
+    prefs.accentColor = value;
+    sentPref("accentColor");
+    applyTheme();
+    send({ cmd: "accentColor", text: value });
+    notice("Accent: " + (ACCENTS.find(([v]) => v === value) || ACCENTS[0])[1], false);
+    settingsChanged();
+  }
+
+  function appendTerminalSettings(pane) {
     const step = el("div", "stepper");
     step.setAttribute("role", "group");
     const down = el("button", "step-btn");
@@ -7213,6 +8814,204 @@
     pv.append(prompt(), document.createTextNode("go test ./...\nok   example.com/project   4.102s\n"), prompt(),
       el("span", "pv-cursor " + shape + (cursorBlinks() ? " blink" : "")));
     pane.append(pv);
+  }
+
+  function settingsBehaviour(pane) {
+    settingsHead(pane, "Behaviour", "Defaults new panes and new fan-outs start from. Each can still be changed for one pane or one run.");
+
+    const fanOut = prefs.fanOut || {};
+    const sameTab = el("input");
+    sameTab.type = "checkbox";
+    sameTab.id = "set-fanout-sametab";
+    sameTab.checked = !!fanOut.sameTab;
+    sameTab.onchange = () => {
+      prefs.fanOut = Object.assign({}, prefs.fanOut, { sameTab: sameTab.checked });
+      send({ cmd: "fanOutSameTab", kind: sameTab.checked ? "on" : "off" });
+      notice(sameTab.checked ? "Fanned-out agents will start beside the pane that planned them"
+        : "Fanned-out agents will start in a new tab of their own", false);
+      settingsChanged();
+    };
+    const sameTabLabel = el("label", "fan-opt");
+    sameTabLabel.append(sameTab, document.createTextNode(" Put fanned-out agents in this tab, beside the agent that planned them"));
+    pane.append(settingRow("Fan out",
+      "Off, a fan-out's agents land in a new tab of their own. This is only the default the dialog opens on; " +
+      "either way it can still be changed for one run.", sameTabLabel));
+
+    pane.append(el("div", "set-sub", "Auto-review"));
+    pane.append(settingRow("Start new panes with auto-review on",
+      "A pane's own auto-review switch still starts off, whatever this says, unless this is turned on: only a " +
+      "confidently read-only command is ever let through without asking, and it is never asked to say “deny.” " +
+      "A pane opened by hand starts here; one fanned out from another agent starts however plan 3's inheritance " +
+      "lands, once that exists.",
+      switchControl("set-auto-review-default", !!prefs.autoReviewDefault, (on) => setAutoReviewDefault(on))));
+  }
+
+  function setAutoReviewDefault(on) {
+    prefs.autoReviewDefault = on;
+    sentPref("autoReviewDefault");
+    send({ cmd: "autoReviewDefault", kind: on ? "on" : "off" });
+    notice(on ? "New panes start with auto-review on" : "New panes start with auto-review off", false);
+    settingsChanged();
+  }
+
+  // ------------------------------------------------------------ keybindings
+
+  /** riskyBareKey reports whether a chord with no Ctrl and no Alt would still
+   *  reach the focused agent's terminal instead of this window -- true for a
+   *  bare letter, digit or punctuation key, and for Shift alone with one of
+   *  them, which only types the shifted character. A bare function key, or
+   *  Shift with one, is not: F1 and Shift+F6 are built-in bindings today, and
+   *  no terminal program claims a function key. */
+  function riskyBareKey(key, ctrl, alt) {
+    if (ctrl || alt) return false;
+    if (/^F([1-9]|1[0-9])$/.test(key)) return false;
+    if (key === "Esc" || key === "Tab") return false;
+    return true;
+  }
+
+  /** chordFromKeydown turns a keydown into the chord it would be written as,
+   *  or null for one recording has nothing to do with -- a modifier pressed
+   *  alone, waiting for the key that goes with it. */
+  function chordFromKeydown(e) {
+    if (["Control", "Shift", "Alt", "Meta", "OS"].includes(e.key)) return null;
+    let key = e.key;
+    let shift = e.shiftKey;
+    // Ctrl+= and Ctrl++ are the same gesture on most layouts; matching
+    // actionFor's own normalisation keeps a recorded chord able to fire.
+    if (key === "+") { key = "="; shift = false; }
+    const named = { ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓", " ": "Space", Escape: "Esc" };
+    if (named[key]) key = named[key];
+    else if (key.length === 1) key = key.toUpperCase();
+    const parts = [];
+    if (e.ctrlKey) parts.push("Ctrl");
+    if (shift) parts.push("Shift");
+    if (e.altKey) parts.push("Alt");
+    parts.push(key);
+    return parts.join("+");
+  }
+
+  /** startKeybindCapture puts one action's row into "Press a key…", where the
+   *  next keydown this window sees becomes its chord instead of running
+   *  whatever it already does; see the keydown listener's own check of
+   *  keybindEditing. */
+  function startKeybindCapture(id) {
+    keybindEditing = id;
+    keybindError = null;
+    // keepFocus, inside settingsChanged, finds this same button again by its
+    // id once the redraw has it reading "Press a key…" and keeps it focused.
+    settingsChanged();
+  }
+
+  function cancelKeybindCapture() {
+    if (!keybindEditing) return;
+    keybindEditing = "";
+    settingsChanged();
+  }
+
+  /** finishKeybindCapture is what a recorded keydown, Backspace/Delete (which
+   *  clears the binding) or a conflict local to this window comes to: the
+   *  capture ends, and a chord that got this far is sent to be kept. A local
+   *  conflict — this window's own key table already gives it to another
+   *  action — is caught before the round trip a server refusal would cost,
+   *  though the server is still asked to check again, since another window
+   *  could have remapped the very thing in between. */
+  function finishKeybindCapture(id, chord) {
+    keybindEditing = "";
+    if (chord) {
+      const other = bindings.get(signatureOf(chord));
+      if (other && other !== id) {
+        const k = keyTable.find((x) => x.id === other);
+        keybindError = { id, message: chord + " is already " + (k ? k.label : other) };
+        settingsChanged();
+        return;
+      }
+    }
+    keybindError = null;
+    send({ cmd: "setKeybinding", id, text: chord });
+    settingsChanged();
+  }
+
+  /** keybindCaptureKey is every keydown this window sees while keybindEditing
+   *  names an action, in place of the ordinary dispatch below: nothing else
+   *  should run while a chord is being recorded, least of all the very
+   *  binding being replaced. Tab is not handled here at all -- see the
+   *  listener's own check, which cancels the capture and lets Tab go on
+   *  moving the keyboard inside the dialog as it always does. */
+  function keybindCaptureKey(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === "Escape") { cancelKeybindCapture(); return; }
+    if (e.key === "Backspace" || e.key === "Delete") { finishKeybindCapture(keybindEditing, ""); return; }
+    const chord = chordFromKeydown(e);
+    if (chord === null) return; // a modifier alone; keep waiting for the key that goes with it
+    const key = chord.includes("+") ? chord.slice(chord.lastIndexOf("+") + 1) : chord;
+    if (riskyBareKey(key, e.ctrlKey, e.altKey)) {
+      keybindError = { id: keybindEditing, message: chord + " would still reach the agent's terminal; add Ctrl or Alt, or use a function key." };
+      keybindEditing = "";
+      settingsChanged();
+      return;
+    }
+    finishKeybindCapture(keybindEditing, chord);
+  }
+
+  function settingsKeybindings(pane) {
+    settingsHead(pane, "Keybindings",
+      "Shortcuts for this window's own chrome — panes, tabs, agents, the rest. Your terminal tool keeps its own " +
+      "shortcuts separately, for what you type inside a pane; this does not touch those.");
+
+    const resetAll = el("button", "chip", "Reset every shortcut to its default");
+    resetAll.id = "set-keybind-reset-all";
+    resetAll.disabled = !keyTable.some((k) => k.overridden);
+    resetAll.onclick = () => {
+      if (!window.confirm("Put every shortcut in this window back to its default?")) return;
+      send({ cmd: "resetKeybindings" });
+    };
+    pane.append(settingRow("Every shortcut", "Undoes every remapping made here, for every action at once.", resetAll));
+
+    let section = "";
+    keyTable.forEach((k) => {
+      if (k.section !== section) {
+        section = k.section;
+        pane.append(el("div", "set-sub", section));
+      }
+      pane.append(keybindRow(k));
+    });
+  }
+
+  /** keybindRow draws one action: its label, its binding — a button that
+   *  starts recording a new one when pressed — and a reset that only does
+   *  anything once it has been remapped. selectTab's Alt+1 … Alt+9 is a range,
+   *  not a chord, and is shown plainly rather than offered to edit; see
+   *  keybindings.SetBinding, which refuses it for the same reason. */
+  function keybindRow(k) {
+    const row = el("div", "keybind-row");
+    row.append(el("div", "keybind-label", k.label));
+    const controls = el("div", "keybind-controls");
+    const range = k.keys && k.keys.includes("…");
+    if (range) {
+      controls.append(el("span", "keybind-chord empty", k.keys));
+    } else {
+      const recording = keybindEditing === k.id;
+      const btn = el("button", "keybind-chord" + (k.keys ? "" : " empty") + (k.overridden ? " changed" : "") + (recording ? " recording" : ""),
+        recording ? "Press a key…" : (k.keys || "No binding"));
+      btn.id = "set-keybind-" + k.id;
+      btn.setAttribute("aria-label", k.label + (k.keys ? ", " + k.keys : ", no binding") + " — press to change");
+      btn.onclick = () => startKeybindCapture(k.id);
+      controls.append(btn);
+      const reset = el("button", "keybind-reset", "Reset");
+      reset.id = "set-keybind-reset-" + k.id;
+      reset.setAttribute("aria-label", "Reset " + k.label + " to its default");
+      reset.disabled = !k.overridden;
+      reset.onclick = () => send({ cmd: "resetKeybinding", id: k.id });
+      controls.append(reset);
+    }
+    row.append(controls);
+    if (keybindError && keybindError.id === k.id) {
+      const err = el("div", "keybind-error", keybindError.message);
+      err.setAttribute("role", "alert");
+      row.append(err);
+    }
+    return row;
   }
 
   function settingsAgents(pane) {
@@ -7401,8 +9200,18 @@
       c.append(head, el("p", "plan-text", text));
       return c;
     };
-    pane.append(card("Free", "Current plan", false,
-      "Every part of the desktop app, and remote access to your panes through the shared relay."));
+    // A relay that asks for a subscription reports the account's plan, and it
+    // is shown here as the relay says it. Nothing in the app depends on it.
+    const relayPlan = remoteRoster && remoteRoster.plan;
+    pane.append(card("Free", "Current plan", false, relayPlan
+      ? "Every part of the desktop app, for good. Remote access through the relay has a plan of its own."
+      : "Every part of the desktop app, and remote access to your panes through the shared relay."));
+    if (relayPlan) {
+      const remote = card("Remote access", relayPlan.name || relayPlan.plan, false, remotePlanText(relayPlan));
+      remote.id = "set-remote-plan";
+      remote.append(el("p", "plan-text", "It is paid for from Devices on a paired phone or browser."));
+      pane.append(remote);
+    }
     const soon = card("Enterprise", "Coming soon", true, "For companies: " + ENTERPRISE_WHAT + ".");
     const link = el("a", "plan-link");
     link.id = "set-plan-link";
@@ -7412,6 +9221,7 @@
     link.append(document.createTextNode("Read about Enterprise"), iconEl("ext", 13));
     soon.append(link);
     pane.append(soon);
+    pane.append(sponsorLine());
     // Whose it is and under what licence, and the pages that say what the
     // shared relay keeps and on what terms: quiet, at the foot of the section
     // about the account, where somebody looking for them looks. They open in
@@ -7427,6 +9237,24 @@
       legal.append(document.createTextNode(" · "), a);
     });
     pane.append(legal);
+  }
+
+  /** sponsorLine is the one place the app mentions sponsorship: a line under
+   *  the plans, drawn only when this section is, that links to GitHub Sponsors
+   *  and does nothing else. It is not a plan, so it is kept apart from the
+   *  cards; it counts nothing, asks nothing and never appears on its own, and
+   *  sponsoring changes nothing in the app, which the line says. */
+  function sponsorLine() {
+    const line = el("p", "plan-sponsor");
+    line.id = "set-sponsor";
+    const a = el("a");
+    a.id = "set-sponsor-link";
+    a.setAttribute("href", SPONSOR_URL);
+    a.target = "_blank";
+    a.rel = "noreferrer noopener";
+    a.append(document.createTextNode("Sponsor Flockdeck"), iconEl("ext", 12));
+    line.append(a, document.createTextNode(" on GitHub, if it is useful to you. Sponsoring is a thank-you, and buys nothing."));
+    return line;
   }
 
   // --------------------------------------------------------------- fan out
@@ -7674,6 +9502,8 @@
     const sp = el("label", "fan-opt");
     const spBox = el("input");
     spBox.type = "checkbox";
+    // Settings › Behaviour's own default, until this run's own choice changes it.
+    spBox.checked = !!(prefs.fanOut && prefs.fanOut.sameTab);
     sp.append(spBox, document.createTextNode("Put them in this tab, beside the agent that planned them"));
     sp.title = "Off, the agents share a new tab of their own";
     opts.append(sp);
@@ -7919,14 +9749,51 @@
   // ----------------------------------------------------------------- hints
 
   /* One line under the tab bar, at most, and only for something the interface
-   * cannot say for itself — a gesture with nothing on screen to suggest it.
-   * Each is dismissed for good, and remembered on the Go side: a hint that
-   * comes back after being sent away is worse than one never shown.
+   * cannot say for itself. Each is dismissed for good, and remembered on the
+   * Go side: a hint that comes back after being sent away is worse than one
+   * never shown.
    *
    * The bindings are not written out here either. A hint names the action and
    * the key is filled in from the same table as everything else.
+   *
+   * Two tiers. PRIORITY_HINTS explains something already on screen that needs
+   * it — an amber dot, a pane that has died, work nobody has looked at yet —
+   * and the first one that matches wins outright: a dot nobody can read
+   * outranks anything else this bar could be saying. TIP_HINTS is the rest: a
+   * pool of features worth knowing about that most people never stumble on,
+   * several of which usually apply at once. Rather than whichever sits first
+   * in the list winning forever, tipIndex below turns them over, so a
+   * workspace left open a while surfaces more of the pool than the one entry
+   * closest to the top — and since `when` still gates every entry, what turns
+   * up still depends on what is actually true of the workspace right now: an
+   * idle pane and a busy one are not offered the same tips.
    */
-  const HINTS = [
+  const PRIORITY_HINTS = [
+    {
+      id: "waiting",
+      text: "An amber dot means that agent is waiting on you — a permission prompt, or a question.",
+      page: "status",
+      // Only with an amber dot on screen to point at. The waiting count is
+      // every project's, and an agent waiting in one not shown had this
+      // explaining a dot that was nowhere to be seen.
+      when: (s) => currentPanes(s).some((v) => v.status === "waiting"),
+    },
+    {
+      id: "exited",
+      text: "A pane whose agent has stopped shows Restart over its terminal rather than a dead screen — it starts the same agent again in the same place, and picks the conversation back up.",
+      page: "panes",
+      when: (s) => currentPanes(s).some((v) => v.status === "exited"),
+    },
+    {
+      id: "dirty-pane",
+      action: "changes",
+      text: "reviews what has changed in this checkout — a coloured diff, then commit and push — before whichever agent wrote it gets any further ahead of you.",
+      page: "changes",
+      when: (s) => currentPanes(s).some((v) => (v.dirty || 0) + (v.untracked || 0) > 0),
+    },
+  ];
+
+  const TIP_HINTS = [
     {
       id: "palette",
       action: "palette",
@@ -7941,13 +9808,24 @@
       when: (s) => paneCount(s) > 1,
     },
     {
-      id: "waiting",
-      text: "An amber dot means that agent is waiting on you — a permission prompt, or a question.",
-      page: "status",
-      // Only with an amber dot on screen to point at. The waiting count is
-      // every project's, and an agent waiting in one not shown had this
-      // explaining a dot that was nowhere to be seen.
-      when: (s) => Object.values(s.panes || {}).some((v) => v.status === "waiting"),
+      id: "shell-pane",
+      text: "Split right (shell), in the command palette, opens an ordinary terminal beside your agent, in the same folder — for the git status or npm run you want to run yourself while it works.",
+      page: "panes",
+      when: () => true,
+    },
+    {
+      id: "broadcast",
+      action: "promptAll",
+      text: "opens the prompt bar — write an instruction once and send it to several agents together. Turn on Broadcast to reach every pane in the tab, or add panes to the set by hand with their ⇉ button.",
+      page: "broadcast",
+      when: (s) => paneCount(s) > 1,
+    },
+    {
+      id: "fanout",
+      action: "fanout",
+      text: "turns a plan an agent just wrote into one agent per task, up to twelve at once — each can get its own git worktree, and nothing starts until you say so.",
+      page: "fanout",
+      when: () => true,
     },
     {
       id: "worktrees",
@@ -7956,15 +9834,155 @@
       page: "worktrees",
       when: (s) => paneCount(s) > 2,
     },
+    {
+      id: "history",
+      action: "history",
+      text: "lists every past conversation in this project — Claude Code's own transcripts included — and resumes any of them into a new tab, picked up exactly where it stopped.",
+      page: "history",
+      when: () => true,
+    },
+    {
+      id: "zoom",
+      action: "zoomPane",
+      text: "gives the focused pane the whole tab. The others keep running, just off screen, until you press it again.",
+      page: "panes",
+      when: (s) => paneCount(s) > 1,
+    },
+    {
+      id: "tidy-panes",
+      text: "Tile these panes evenly and Merge every tab into this one, both in the command palette, straighten a lopsided split and fold a scattered workspace back into a single tab.",
+      page: "rearranging",
+      when: (s) => paneCount(s) > 2,
+    },
+    {
+      id: "find-in-terminal",
+      action: "findInTerminal",
+      text: "searches the focused terminal's own scrollback — the error message that went by twenty tool calls ago is still in there.",
+      page: "panes",
+      when: () => true,
+    },
+    {
+      id: "api-keys",
+      text: "API keys…, in the command palette, stores a key for an API agent once, kept on this machine only — no more pasting it into every terminal it opens.",
+      page: "agents",
+      when: () => true,
+    },
+    {
+      id: "remote-access",
+      text: "Remote access…, in the command palette, pairs a phone or another desktop through a relay, so a waiting agent can be glanced at, or answered, away from this machine.",
+      page: "remote",
+      when: () => true,
+    },
+    {
+      id: "detach",
+      text: "Detach, in the command palette, closes the window but leaves every agent running — flockdeck from a terminal brings the window back to exactly where you left it.",
+      page: "persistence",
+      when: () => true,
+    },
+    {
+      id: "split-project",
+      text: "Split into project: …, in the command palette, puts an agent from another open project into this tab, so two repositories can sit side by side.",
+      page: "projects",
+      when: (s) => (s.projects || []).length > 1,
+    },
+    {
+      id: "pane-header-git",
+      text: "A pane's header keeps showing its branch and how many files are uncommitted even while it sits idle, so you can see whose work is worth a look without opening anything.",
+      page: "worktrees",
+      when: (s) => {
+        const p = currentPanes(s);
+        return p.length > 0 && p.every((v) => v.status === "idle");
+      },
+    },
+    {
+      id: "working-tool",
+      text: "While a pane's dot pulses green, its header names the tool it is using right now — Read, Bash, Edit — so you can tell what it is actually doing, not only that it is busy.",
+      page: "status",
+      when: (s) => currentPanes(s).some((v) => v.status === "working"),
+    },
   ];
 
+  function currentPanes(s) { return Object.values((s && s.panes) || {}); }
   function dismissedHint(id) { return (prefs.dismissedTips || []).includes(id); }
   function paneCount(s) { return Object.keys((s && s.panes) || {}).length; }
+
+  /** tipIndex turns TIP_HINTS from "whichever matches first, forever" into a
+   *  rotation: scheduleTipRotate moves it on every so often, so a workspace
+   *  left open surfaces more of the pool than the one entry nearest the top
+   *  of it. Real time, not a state change, is what advances it — a tip
+   *  nobody read is still worth trying again later, on a screen nothing else
+   *  has changed on. */
+  let tipIndex = 0;
+  let tipRotateTimer = null;
+  const TIP_ROTATE_MS = 45000;
+
+  function scheduleTipRotate() {
+    clearTimeout(tipRotateTimer);
+    tipRotateTimer = setTimeout(() => {
+      tipIndex++;
+      renderHints();
+      scheduleTipRotate();
+    }, TIP_ROTATE_MS);
+  }
+
+  /** pickHint is what renderHints shows: whichever PRIORITY_HINTS entry
+   *  matches, since something on screen needs explaining right now; failing
+   *  that, whichever TIP_HINTS entry the rotation currently lands on, among
+   *  those that both match the state and have not been sent away for good. */
+  function pickHint(s) {
+    const urgent = PRIORITY_HINTS.find((h) => !dismissedHint(h.id) && h.when(s));
+    if (urgent) return urgent;
+    const pool = TIP_HINTS.filter((h) => !dismissedHint(h.id) && h.when(s));
+    return pool.length ? pool[tipIndex % pool.length] : null;
+  }
+
+  /** renderRecall shows the banner for a version withdrawn since it was
+   *  installed -- a distinct, rarer signal than the ordinary update chip
+   *  (renderUpdate), which only ever says something newer exists. Keyed on
+   *  the version and reason together, the same shape renderUpdate uses, so
+   *  it is not rebuilt on every snapshot. Not offered in a window reached
+   *  through the relay, the same as the update chip and its settings row:
+   *  installing restarts the desk, which nothing done from a phone or
+   *  another machine should trigger by surprise. */
+  let recallShown = null;
+  function renderRecall() {
+    const bar = $("recall-banner");
+    if (!bar) return;
+    const r = !remoteWindow && state && state.recall;
+    const u = state && state.update;
+    // Keyed on the update too: recall itself does not change the moment a
+    // fix is downloaded, but the banner's own button has to swap from
+    // checking to installing right then, not on whatever redraw follows.
+    const key = r ? r.version + "|" + r.reason + "|" + (u ? u.version : "") : "";
+    if (key === recallShown) return;
+    recallShown = key;
+    bar.textContent = "";
+    if (!r) { bar.hidden = true; return; }
+
+    const line = el("div", "recall-text");
+    line.append(el("b", null, "v" + r.version + " has been recalled: "), document.createTextNode(r.reason));
+    bar.append(line);
+
+    // state.update, once it names the version recall.upgrade points to (or
+    // anything newer), is the same "ready to install" signal the ordinary
+    // chip already watches for -- openUpdate needs nothing recall-specific
+    // to know what to do with it.
+    if (u) {
+      const install = el("button", "chip primary", "Install " + u.version + "…");
+      install.onclick = openUpdate;
+      bar.append(install);
+    } else {
+      const check = el("button", "chip", "Check for updates");
+      check.onclick = () => send({ cmd: "checkForUpdate" });
+      bar.append(check);
+    }
+    bar.hidden = false;
+  }
 
   function renderHints() {
     const bar = $("hints");
     if (!bar) return;
-    const hint = state ? HINTS.find((h) => !dismissedHint(h.id) && h.when(state)) : null;
+    const hint = state ? pickHint(state) : null;
     if (!hint) {
       bar.hidden = true;
       bar.textContent = "";
@@ -8331,6 +10349,16 @@
       if (!(e.target.classList && e.target.classList.contains("xterm-helper-textarea"))) e.stopPropagation();
       return;
     }
+    // Recording a new binding for Settings › Keybindings takes over the
+    // keyboard entirely -- what is being replaced, most of all, must not run
+    // while its own row is waiting to hear what replaces it. Tab is the one
+    // key left to fall through: cancelling the capture and letting it go on
+    // moving the keyboard inside the dialog, as it always does, reads better
+    // than recording "Tab" by surprise on the way to the next field.
+    if (keybindEditing) {
+      if (e.key !== "Tab") { keybindCaptureKey(e); return; }
+      cancelKeybindCapture();
+    }
     if (e.key === "Tab" && trapTab(e)) return;
     // Nothing behind the disconnected panel can be used, and the shortcuts
     // went on running under it: the palette opened out of sight and took what
@@ -8471,6 +10499,8 @@
   $("rail-toggle").onclick = () => { if (railMenuOpen()) closeRailMenu(true); else openRailMenu(); };
   describe($("rail-toggle"), "Projects, tools and settings");
   $("rail-scrim").onclick = () => closeRailMenu(true);
+  $("rail-collapse").onclick = () => runAction("toggleRail");
+  initRailResize();
   // Widened past the point where the rail folds, an open menu would go on
   // holding the keyboard with nothing on screen to say so.
   try {
@@ -8499,10 +10529,10 @@
   }, { passive: false });
   $("btn-broadcast").onclick = () => send({ cmd: "toggleBroadcast" });
   $("btn-worktrees").onclick = () => openWorktrees();
+  $("btn-github").onclick = () => openGithub();
   $("btn-history").onclick = openHistory;
   $("btn-changes").onclick = () => openChanges();
   $("summary").onclick = openAgents;
-  $("project-btn").onclick = openProjects;
   // Bound through a closure rather than passed straight in: the click event
   // would otherwise arrive as the page to open.
   $("btn-help").onclick = () => openHelp();
@@ -8578,5 +10608,6 @@
 
   window.addEventListener("beforeunload", () => send({ cmd: "save" }));
 
+  scheduleTipRotate();
   connectControl();
 })();

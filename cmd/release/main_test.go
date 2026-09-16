@@ -205,6 +205,69 @@ func TestClearOldArchivesTakesOnlyItsOwn(t *testing.T) {
 	}
 }
 
+// selectPlatforms is what -platforms parses into the subset a CI runner's
+// build job packages: an empty spec builds everything, as a developer's own
+// machine still does, and a spec names the exact entries of platforms, in
+// order, or is refused rather than silently building nothing asked for.
+func TestSelectPlatformsParsesTheFlag(t *testing.T) {
+	all, err := selectPlatforms("")
+	if err != nil || len(all) != len(platforms) {
+		t.Fatalf("empty spec: %v, %v, want every platform", all, err)
+	}
+
+	got, err := selectPlatforms("linux/amd64,linux/arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []struct{ OS, Arch string }{{"linux", "amd64"}, {"linux", "arm64"}}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("linux/amd64,linux/arm64 = %v, want %v", got, want)
+	}
+
+	for _, bad := range []string{"solaris/amd64", "linux", "linux/amd64,not-a-pair", ""} {
+		if bad == "" {
+			continue // "" alone is the default, covered above
+		}
+		if _, err := selectPlatforms(bad); err == nil {
+			t.Errorf("%q: no error, want one naming what is wrong", bad)
+		}
+	}
+}
+
+// A release built across several machines (one -platforms subset each)
+// leaves each one's own partial checksums.txt behind; -sums (runSums)
+// replaces it with one covering every archive actually sitting in -out,
+// which is what sign then checks the release against.
+func TestSumsChecksumsWhateverIsInOut(t *testing.T) {
+	out := t.TempDir()
+	files := map[string]string{
+		"flockdeck_v1.0.0_linux_amd64.tar.gz": "linux build",
+		"flockdeck_v1.0.0_windows_amd64.zip":  "windows build",
+		"checksums.txt":                       "stale, from one machine's own partial build",
+		"latest.json":                         `{"version":"v0.9.0"}`,
+	}
+	for n, body := range files {
+		if err := os.WriteFile(filepath.Join(out, n), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := runSums(out); err != nil {
+		t.Fatal(err)
+	}
+	sums, err := os.ReadFile(filepath.Join(out, "checksums.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, archive := range []string{"flockdeck_v1.0.0_linux_amd64.tar.gz", "flockdeck_v1.0.0_windows_amd64.zip"} {
+		if !strings.Contains(string(sums), archive) {
+			t.Errorf("checksums.txt = %q, want it to list %s", sums, archive)
+		}
+	}
+	if strings.Contains(string(sums), "latest.json") {
+		t.Errorf("checksums.txt = %q, should not list latest.json, which -sign writes rather than an archive", sums)
+	}
+}
+
 func checkArchive(t *testing.T, kind string, got map[string]entry, programs ...string) {
 	t.Helper()
 	for _, p := range programs {

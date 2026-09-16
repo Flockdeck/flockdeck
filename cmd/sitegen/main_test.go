@@ -267,7 +267,7 @@ func TestEveryPageHasTheFooter(t *testing.T) {
 			"© 2026 Jim Wright",
 			"The desktop app is free and open source under the MIT licence.",
 			`href="privacy.html"`, `href="terms.html"`, `href="licences.html"`,
-			`#install"`, `#remote"`, `#faq"`,
+			`#install"`, `#remote"`, `#faq"`, `#sponsor"`,
 			`href="` + defaultRepo + `/releases"`,
 			`href="` + defaultRepo + `"`,
 			`href="` + defaultRepo + `/blob/main/LICENSE"`,

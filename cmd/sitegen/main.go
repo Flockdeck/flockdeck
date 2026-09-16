@@ -118,6 +118,11 @@ const (
 	// section's download buttons link to: scripts/publish-downloads.sh puts
 	// the latest release's archives under /latest/ there.
 	downloadsURL = "https://dl.flockdeck.ai"
+
+	// sponsorURL is where the #sponsor section sends somebody who wants to
+	// give something back: the GitHub Sponsors account .github/FUNDING.yml
+	// names, which a test keeps this and the app's own link level with.
+	sponsorURL = "https://github.com/sponsors/jmwri"
 )
 
 func main() {
@@ -245,6 +250,10 @@ type site struct {
 	URL string
 	// Downloads is where the release archives are published.
 	Downloads string
+	// Sponsor is where a visitor can sponsor Flockdeck, and Sponsors are
+	// those who asked to be named for it, from assets/sponsors.txt.
+	Sponsor  string
+	Sponsors []sponsor
 }
 
 // pages are the site's pages: the file each is written to, the template that
@@ -257,9 +266,13 @@ var pages = []struct {
 	Social                 string
 }{
 	{Path: "", Template: "index.html.tmpl",
-		Title:       "Flockdeck | Run all your coding agents at once",
-		Description: "Flockdeck runs Claude Code, Codex, Gemini and other coding agents side by side, and shows you which one needs your input. For Windows, macOS and Linux.",
-		Social:      "Run all your coding agents side by side and see which one needs you."},
+		Title:       "Flockdeck | Coding agents on hardware you control",
+		Description: "Flockdeck runs Claude Code, Codex, Gemini or your own model on hardware you already own, self-hosted or on your desk, and reaches your phone with no port opened. Free and open source, for Windows, macOS and Linux.",
+		Social:      "Run your coding agents on hardware you control, and reach them from your phone."},
+	{Path: "trust.html", Template: "doc.html.tmpl", Source: "trust.md",
+		Title:       "Trust & privacy | Flockdeck",
+		Description: "What Flockdeck collects (almost nothing, structurally, not as a paid mode), what isn't end-to-end encrypted yet, and how that compares to the rest of the market.",
+		Social:      "Nothing to opt out of: what Flockdeck collects, what it doesn't, and how that compares."},
 	{Path: "privacy.html", Template: "doc.html.tmpl", Source: "privacy.md",
 		Title:       "Privacy policy | Flockdeck",
 		Description: "What personal data the Flockdeck desktop app, the Flockdeck relay and this website involve, who else is involved, and your rights over it."},
@@ -321,7 +334,12 @@ func run(out, repo, module, url string, rel release) error {
 	// "@latest" to the module path, so a slash given at the end of any of them
 	// would print a doubled one into an install line, or a go install line go
 	// does not accept.
-	s := site{Repo: strings.TrimRight(repo, "/"), Module: strings.TrimRight(module, "/"), URL: strings.TrimRight(url, "/"), Downloads: downloadsURL}
+	s := site{Repo: strings.TrimRight(repo, "/"), Module: strings.TrimRight(module, "/"), URL: strings.TrimRight(url, "/"), Downloads: downloadsURL, Sponsor: sponsorURL}
+	sponsors, err := loadSponsors()
+	if err != nil {
+		return err
+	}
+	s.Sponsors = sponsors
 
 	// Every file but the pages is gathered first: the pages link the assets by
 	// their fingerprinted names, which are known only once the assets are.

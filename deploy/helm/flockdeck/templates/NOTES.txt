@@ -1,0 +1,74 @@
+Flockdeck is starting as {{ include "flockdeck.fullname" . }} in {{ .Release.Namespace }}.
+
+Reaching the web UI
+--------------------
+Self-hosted service mode's server binds 127.0.0.1 only, inside the pod, on a
+port chosen at random each start, with a fresh per-run token as its only
+auth -- flockdeck's own container still has no fixed port or bind-address
+setting for a Service to point at directly.
+
+{{- if .Values.service.enabled }}
+
+This chart's flockdeck-portproxy sidecar fixes that: it listens on
+{{ .Values.sidecar.port }} and forwards to whatever port flockdeck actually
+bound this run, so the Service this release created routes there:
+
+  http://{{ include "flockdeck.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}/?t=<token>
+
+from inside the cluster (or behind your own Ingress/gateway pointed at that
+Service). The sidecar forwards flockdeck's own auth challenge unchanged, so
+<token> is still required -- get it the same way as below.
+{{- else }}
+
+service.enabled is false, so no Service was created for this release; see
+values.yaml's sidecar.*/service.* if you want one.
+{{- end }}
+
+Whichever way in you use, get the token from the instance record:
+
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "flockdeck.fullname" . }} -- \
+    sh -c 'cat "$HOME/.config/flockdeck/instance.json"'
+
+which also names the exact port flockdeck itself bound this run, for
+port-forwarding straight to it without the Service:
+
+  kubectl port-forward -n {{ .Release.Namespace }} deploy/{{ include "flockdeck.fullname" . }} <port>:<port>
+
+then open http://localhost:<port>/?t=<token> in a browser. That port and the
+token both change on every restart of flockdeck itself; the Service's own
+address above does not.
+
+For a real, lasting way in -- from a phone, or a browser off this cluster,
+with no port-forward and no inbound access to the cluster at all -- enrol
+this instance with a relay instead, once, the same way you would run any
+other one-off admin command against a pod:
+
+  kubectl exec -n {{ .Release.Namespace }} -it deploy/{{ include "flockdeck.fullname" . }} -- \
+    flockdeck remote enable{{ if .Values.remote.url }} -relay {{ .Values.remote.url }}{{ end }}
+
+{{- if or .Values.remote.join .Values.remote.existingSecret }}
+FLOCKDECK_REMOTE_JOIN is already set from values, so plain `flockdeck remote
+enable` above picks it up without repeating it on the command line.
+{{- end }}
+
+Then pair a device:
+
+  kubectl exec -n {{ .Release.Namespace }} -it deploy/{{ include "flockdeck.fullname" . }} -- \
+    flockdeck remote pair
+
+{{- if not .Values.persistence.state.enabled }}
+
+Persistence
+-----------
+persistence.state.enabled is false: the saved layout, recent-projects list
+and agent settings live in an emptyDir and do not survive this pod being
+replaced. Set persistence.state.enabled: true (the default) to keep them
+across restarts and image upgrades.
+{{- end }}
+{{- if not .Values.persistence.workspace.enabled }}
+
+persistence.workspace is off: flockdeck opens {{ include "flockdeck.workspacePath" . }}
+with nothing in it. Set persistence.workspace.enabled and populate the
+volume (extraInitContainers, or your own existingClaim already holding a
+checkout) to open a real project.
+{{- end }}

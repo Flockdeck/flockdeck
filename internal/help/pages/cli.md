@@ -85,9 +85,10 @@ Reach this machine's agents from another device, through a relay.
 | `flockdeck remote revoke <id or name>` | Unpair a device |
 | `flockdeck remote rename <name>` | Rename this machine; with `-device <id or name>`, a paired device instead |
 | `flockdeck remote disable` | Remove this machine from the relay; `-force` if it cannot be reached |
+| `flockdeck remote move <relay>` | Enrol with another relay, then leave this one once it answers; takes `-invite`, `-join`, `-name`, and `-yes` to skip the question. Every paired device has to pair again |
 
-A running instance is told when `enable` or `disable` changes anything, and
-connects or disconnects on the spot. [Remote access](#remote) has the rest.
+A running instance is told when `enable`, `disable` or `move` changes
+anything, and connects, disconnects or switches relay on the spot. [Remote access](#remote) has the rest.
 
 ## chat
 
@@ -155,7 +156,6 @@ The subcommand still works; it is the background updating that goes.
 
 | Variable | Effect |
 | --- | --- |
-| `FLOCKDECK_BROWSER` | Force which browser provides the window |
 | `FLOCKDECK_UPDATE` | `off` stops updating in the background: no checks, and nothing already downloaded is put in place |
 | `FLOCKDECK_RELAY` | Which relay `flockdeck remote enable` uses when `-relay` is not given |
 | `FLOCKDECK_API` | Where Flockdeck listens for its panes — set for you |

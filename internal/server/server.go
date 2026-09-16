@@ -173,12 +173,24 @@ type Server struct {
 	// lets go of what tied it to the way it was started: on Windows, the console
 	// a -no-window run was launched from, whose closing would otherwise end it.
 	OnDetach func()
+	// OnCheckForUpdates is called when the interface asks to check for a
+	// newer release right now, rather than waiting for however much is left
+	// of the background watcher's next round. Unlike that watcher, which is
+	// silent unless something changes, this is a person waiting on an answer:
+	// what it returns is told to the window that asked, whatever it found.
+	OnCheckForUpdates func() (message string, isErr bool)
 
 	// update is the release waiting to be applied, if one has been downloaded.
 	// It is read on every snapshot and written by whatever is watching for
 	// releases, so it is held as a pointer that is swapped rather than a
 	// struct that is edited.
 	update atomic.Pointer[UpdateView]
+
+	// recall says the version this instance is running has been pulled, if
+	// the background watcher has found it on the site's recall list. See
+	// RecallView: it is a distinct signal from update, which only ever says
+	// something newer exists, never that what is already running is known-bad.
+	recall atomic.Pointer[RecallView]
 
 	// paneLookup, usageRefresh, pingInterval and pingTimeout are the package
 	// variables of the same names, and saveInterval is layoutSaveInterval, read
@@ -211,6 +223,10 @@ type Server struct {
 	// push is what the paired devices are told of waits. See push.go.
 	push pushState
 
+	// gh is the GitHub panel's own state: whether an install or a login is
+	// under way right now, and how to cancel it. See ghcli.go.
+	gh ghState
+
 	// convos is the phone chat view's live streams, one per pane that has
 	// been opened by at least one client. See conversation.go.
 	convos conversationHub
@@ -241,6 +257,30 @@ func (s *Server) SetUpdate(u *UpdateView) {
 
 // Update returns the staged release, or nil when there is none.
 func (s *Server) Update() *UpdateView { return s.update.Load() }
+
+// RecallView says the version this instance is running has been recalled: a
+// known problem, found after it was published, not just "something newer
+// exists" -- which is all UpdateView ever says. Upgrade, when the release
+// notice names one, is the version to move to; otherwise the ordinary update
+// path is the way out once a fix is published.
+type RecallView struct {
+	Version string `json:"version"`
+	Reason  string `json:"reason"`
+	Upgrade string `json:"upgrade,omitempty"`
+}
+
+// SetRecall records that the running version has been recalled, or clears it
+// (nil) once the watcher finds it no longer listed -- moved off the version
+// by an update, most likely -- and has the windows told, the same way
+// SetUpdate does.
+func (s *Server) SetRecall(r *RecallView) {
+	s.recall.Store(r)
+	s.Wake()
+}
+
+// Recall returns the running version's recall notice, or nil when it has
+// none.
+func (s *Server) Recall() *RecallView { return s.recall.Load() }
 
 // New starts a server for the workspace on a free loopback port.
 func New(ws *workspace.Workspace) (*Server, error) {
@@ -456,6 +496,31 @@ func (s *Server) Addr() string { return s.ln.Addr().String() }
 
 // Token returns the per-run token.
 func (s *Server) Token() string { return s.token }
+
+// RestoreOpenProjects brings back, in the background, the projects that were
+// open in a previous run besides the one this run was started on (see
+// workspace.RestoreSession, which batches every pane of every one of them
+// into one shared start rather than starting each project's in turn).
+// reportErr, if not nil, is given whatever that could not read.
+//
+// It runs on the workspace's own goroutine, queued the moment the server
+// exists, so it is safe alongside everything else the server does with the
+// workspace from here on — but it does not hold up the caller: New has
+// already returned, and the window is on its way up behind this call rather
+// than behind its result. A dozen background projects, each with panes of
+// its own to start, used to be restored before the window did anything at
+// all; now the browser is already cold-starting while they come back, and a
+// window that connects before they are done simply sees their tabs appear a
+// moment later, the way a change made once the window is up always does.
+func (s *Server) RestoreOpenProjects(reportErr func(error)) {
+	s.do(func() {
+		s.ws.RestoreSession()
+		if err := s.ws.RestoreErrors(); err != nil && reportErr != nil {
+			reportErr(err)
+		}
+		s.Wake()
+	})
+}
 
 // Wake tells the server that workspace state changed and clients should be
 // updated. It is safe to call from any goroutine and never blocks.

@@ -172,7 +172,7 @@ func TestSignWritesWhatTheUpdaterAccepts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the updater refuses the manifest: %v", err)
 	}
-	if m.Version != "v9.9.9" || m.NotesURL != "https://github.com/jmwri/flockdeck/releases/tag/v9.9.9" ||
+	if m.Version != "v9.9.9" || m.NotesURL != "https://github.com/"+selfupdate.Repo+"/releases/tag/v9.9.9" ||
 		m.Notes != "## What changed\n\n- things" || !m.Date.Equal(time.Date(2026, 9, 12, 9, 30, 0, 0, time.UTC)) {
 		t.Errorf("manifest.json = %+v", m)
 	}

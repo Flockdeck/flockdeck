@@ -42,6 +42,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -54,7 +55,7 @@ import (
 )
 
 // Repo is the repository releases are read from, as owner/name.
-const Repo = "jmwri/flockdeck"
+const Repo = "Flockdeck/flockdeck"
 
 // binaryName is what the binary is called inside a release archive.
 var binaryName = func() string {
@@ -96,6 +97,10 @@ type Release struct {
 	Draft   bool    `json:"draft"`
 	Pre     bool    `json:"prerelease"`
 	Assets  []Asset `json:"assets"`
+	// Published is when the release went out, for a picker to show. GitHub's
+	// API gives it on every release List and Fetch's GitHub path read; one
+	// read from the site carries its manifest's Date instead.
+	Published time.Time `json:"published_at,omitzero"`
 
 	// A release read from the site (latestFromSite) has these as well, and
 	// one read from GitHub's API has none of them: fetchSum finds the
@@ -250,6 +255,90 @@ func latestFromGitHub(ctx context.Context) (*Release, error) {
 	// the two says it is one.
 	if rel.Pre || prerelease(rel.Version) {
 		return nil, fmt.Errorf("GitHub names %s, a pre-release, which is never the latest", rel.Version)
+	}
+	return &rel, nil
+}
+
+// List returns up to limit of the most recently published releases, newest
+// first, for a picker that lets someone choose a version to install rather
+// than only ever move to the latest one. It always asks GitHub's API
+// (/repos/<repo>/releases, not /releases/latest) rather than the site: unlike
+// Latest, which every running copy asks every updateInterval, this is read
+// only when somebody opens the picker, so it does not compete with the
+// site-first strategy that exists to spare GitHub's sixty-an-hour
+// unauthenticated limit for that routine background check.
+//
+// Drafts are never returned, and neither are pre-releases, matching how
+// Latest already treats them: this is a list of what somebody could roll
+// back or forward to among shipped releases, not a way to find a candidate
+// build.
+func List(ctx context.Context, limit int) ([]*Release, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	resp, err := get(ctx, fmt.Sprintf("%s/repos/%s/releases?per_page=%d", githubAPIURL, Repo, limit))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var rels []*Release
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&rels); err != nil {
+		return nil, fmt.Errorf("read releases: %w", err)
+	}
+	out := rels[:0]
+	for _, r := range rels {
+		if r.Draft || r.Pre || prerelease(r.Version) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// Fetch returns the named release, structured the same way Latest is but
+// naming a specific version rather than deferring to whichever the site or
+// GitHub currently call "latest." It tries the site first, reading
+// <version>/manifest.json(.sig) directly rather than going through
+// latest.json -- the site's per-version files are written once and kept
+// forever, so this works for any version still hosted, published or
+// withdrawn alike -- and falls back to GitHub's
+// /repos/<repo>/releases/tags/<version> the same way Latest falls back to
+// /releases/latest.
+//
+// This is what lets Stage/Apply install a version other than the newest
+// published one: reinstalling the version currently running, or rolling back
+// to one that worked. Fetch itself does not decide whether moving to that
+// version is a good idea -- unlike Latest, it does not refuse a pre-release,
+// since asking for one by name is deliberate -- so a caller that means to
+// only ever move forward keeps gating what Fetch returns with Newer, exactly
+// as Latest's callers already do.
+func Fetch(ctx context.Context, version string) (*Release, error) {
+	rel, err := releaseFromSite(ctx, version)
+	if err == nil {
+		return rel, nil
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	fellBack("could not read "+version+" from "+siteHost(), err)
+	return fetchFromGitHub(ctx, version)
+}
+
+// fetchFromGitHub asks GitHub's API for the release tagged version.
+func fetchFromGitHub(ctx context.Context, version string) (*Release, error) {
+	resp, err := get(ctx, githubAPIURL+"/repos/"+Repo+"/releases/tags/"+url.PathEscape(version))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var rel Release
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&rel); err != nil {
+		return nil, fmt.Errorf("read release: %w", err)
+	}
+	if rel.Version != version {
+		return nil, fmt.Errorf("GitHub's release tagged %s reports version %s", version, rel.Version)
 	}
 	return &rel, nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // recentOutputBytes is how much of a pane's output the task extractor reads.
@@ -991,9 +992,27 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		Branch:  branchOf(cwd),
 		initial: o.Task,
 		Task:    o.Task,
+		// A child inherits the pane it was started from trusting auto-review
+		// or not. Trust the boss has already extended to one pane -- by
+		// turning auto-review on for it -- carries to the fan-out or the
+		// helper it starts, rather than needing to be found and flipped on a
+		// dozen new panes one at a time. See Pane.AutoReview.
+		AutoReview: parent != nil && parent.AutoReview,
 	}
 	if o.SpawnedByAgent && parent != nil {
 		p.Parent = parentPaneID
+	}
+	// A pane started with no parent pane behind it at all -- opened by hand,
+	// or a fan-out with no boss pane to speak of -- starts AutoReview from
+	// the installation's own default rather than off unconditionally. This
+	// is parent == nil, not p.Parent == "": a window-driven fan-out row has
+	// a real parent (the pane whose plan it came from) and inherits that
+	// pane's live AutoReview above, even though p.Parent itself is left
+	// empty for it (see the assignment above and Pane.Parent) -- checking
+	// the field here instead of the pointer would silently overwrite that
+	// inheritance with the installation default for every such row.
+	if parent == nil {
+		p.AutoReview = store.LoadPrefs().AutoReviewDefault
 	}
 	if p.IsAgent() {
 		p.Agent, p.Model = agentID, model
@@ -1026,6 +1045,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		// added one at a time, each of which would otherwise halve the last.
 		t.Tree = layout.Grid(append(t.Tree.Panes(), p.ID))
 		t.Zoom = false
+		t.Delegated = true
 		placed = true
 	}
 	if !placed && o.Split && parent != nil {
@@ -1051,11 +1071,12 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 			}
 		}
 		t := &Tab{
-			ID:    uuid.NewString(),
-			Root:  root,
-			Title: title,
-			Tree:  layout.NewLeaf(p.ID),
-			Focus: p.ID,
+			ID:        uuid.NewString(),
+			Root:      root,
+			Title:     title,
+			Tree:      layout.NewLeaf(p.ID),
+			Focus:     p.ID,
+			Delegated: true,
 		}
 		w.Tabs = append(w.Tabs, t)
 	}
@@ -1136,6 +1157,10 @@ func (w *Workspace) StartAgent(root, agentID, model, cwd, task string) (string, 
 		Task:    task,
 		Agent:   agentID,
 		Model:   model,
+		// Never given a Parent (see the doc comment above), so it starts
+		// AutoReview from the installation's own default like any other pane
+		// the user started themselves.
+		AutoReview: store.LoadPrefs().AutoReviewDefault,
 	}
 	w.mu.Lock()
 	w.panes[p.ID] = p

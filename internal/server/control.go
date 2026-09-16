@@ -237,6 +237,12 @@ type stateMsg struct {
 	// restart, or nil when there is nothing to apply. It rides on the snapshot
 	// so the badge appears without the page having to ask.
 	Update *UpdateView `json:"update,omitempty"`
+	// Recall says the version this instance is running has been pulled since
+	// it was installed, a known problem rather than just an update being
+	// available, so the window can show something distinct from the update
+	// chip Update rides in on. Nil where nothing has recalled it, or nothing
+	// has checked yet.
+	Recall *RecallView `json:"recall,omitempty"`
 	// Remote is the tunnel to the relay, or nil when this machine is not
 	// enrolled for remote access — in which case the window shows nothing
 	// about it at all.
@@ -278,6 +284,21 @@ type projectView struct {
 	// window asks for again when this summary moves, follows a split or a
 	// closed idle pane as well as a change of status.
 	Panes int `json:"panes"`
+	// Members lists every repo inside this project, root and display label.
+	// A project nobody has grouped still carries one entry, itself, so the
+	// switcher always has a member list to show rather than a special case
+	// for a project of one.
+	Members []repoView `json:"members"`
+	// Archived says this project is archived (see workspace.Project); an
+	// open project may still be one, since archiving it does not close it.
+	Archived bool `json:"archived,omitempty"`
+}
+
+// repoView is one repo inside a project, as the switcher's expandable
+// member list shows it.
+type repoView struct {
+	Root string `json:"root"`
+	Name string `json:"name"`
 }
 
 type tabView struct {
@@ -290,6 +311,11 @@ type tabView struct {
 	// Named says the title was chosen by hand, which is when the rename
 	// dialog offers to go back to the automatic one.
 	Named bool `json:"named,omitempty"`
+	// Delegated says a fan-out placed its own children into this tab (see
+	// workspace.Tab.Delegated), which is what tells the window a settled
+	// multi-pane tab is delegated work safe to roll up into a summary card,
+	// rather than an ordinary split a person happens to have left idle.
+	Delegated bool `json:"delegated,omitempty"`
 }
 
 type nodeView struct {
@@ -311,8 +337,14 @@ type paneView struct {
 	// a tab holding agents from two projects says which is which; leaving it
 	// out for the ordinary pane keeps the header uncluttered.
 	Project string `json:"project,omitempty"`
-	Status  string `json:"status"`
-	Detail  string `json:"detail"`
+	// Parent is the pane whose agent started this one with its own `flockdeck
+	// spawn` (workspace.Pane.Parent), sent only while that pane is still
+	// open -- the same rule agentView.Parent already follows. It is what
+	// lets a window group this pane's waiting or settled state under the
+	// job it belongs to, rather than showing it as an unrelated pane.
+	Parent string `json:"parent,omitempty"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
 	// StatusSince is when the current status began, RFC 3339 -- how the phone's
 	// chat view times "Working for 3m" without polling: it ticks the gap to now
 	// locally rather than asking again every second. Left out for a pane with
@@ -344,6 +376,13 @@ type paneView struct {
 	// when nobody reached through the relay has it open. See
 	// remoteviewers.go.
 	RemoteViewers []string `json:"remoteViewers,omitempty"`
+	// RemoteInsecure says one of those windows -- a terminal reached through
+	// the relay, specifically -- is not end-to-end encrypted: a browser that
+	// predates the feature, or one this host's own handshake could not
+	// complete. Left out, the zero value, when every remote terminal on this
+	// pane is encrypted, or none is open at all. See remoteviewers.go and
+	// internal/e2e.
+	RemoteInsecure bool `json:"remoteInsecure,omitempty"`
 	// Last is this pane's agent's latest reply, trimmed for the phone's
 	// inbox row -- left out for a shell, and for an agent pane whose
 	// adapter has not seen a reply yet. See preview.go.
@@ -420,8 +459,8 @@ type command struct {
 	Edge  string `json:"edge"`
 	Trust bool   `json:"trust"`
 	Split bool   `json:"split"`
-	// Size is the terminal font size for fontSize, and a number of lines for
-	// scrollback.
+	// Size is the terminal font size for fontSize, a number of lines for
+	// scrollback, and a width in pixels for railWidth.
 	Size int `json:"size"`
 	// Agent and Model are what the picker chose, carried on newTab, splitPane
 	// and spawn. Both empty means "whatever this project runs by default",
@@ -444,7 +483,8 @@ type command struct {
 	RouteOverrides []routeOverride `json:"routeOverrides"`
 	// Relay, Name, Join and Invite are what the remote access dialog turns
 	// remote access on with, each the flag of the same name to `flockdeck
-	// remote enable`, and each may be empty. Name is also the new name
+	// remote enable`, and each may be empty. remoteMove takes the same, the
+	// relay then being the one to move to. Name is also the new name
 	// remoteRename gives this machine (Kind "host") or the device ID names.
 	Relay  string `json:"relay"`
 	Name   string `json:"name"`
@@ -487,6 +527,30 @@ type command struct {
 	// stop, having its PreToolUse calls put to auto-review approvals. See
 	// Workspace.SetPaneAutoReview.
 	AutoReview bool `json:"autoReview"`
+	// GHNumber, GHTitle, GHBody, GHBase and GHDraft are the GitHub panel's
+	// own, for opening and commenting on pull requests and issues through
+	// gh: a PR or issue number, a new item's title and body, the branch to
+	// merge into, and whether to open it as a draft. GHState filters a
+	// listing ("open", "closed", "merged" for pull requests, "all"); empty
+	// means gh's own default, open. See internal/server/ghcli.go.
+	GHNumber int    `json:"ghNumber"`
+	GHTitle  string `json:"ghTitle"`
+	GHBody   string `json:"ghBody"`
+	GHBase   string `json:"ghBase"`
+	GHDraft  bool   `json:"ghDraft"`
+	GHState  string `json:"ghState"`
+	// Archived is archiveProject's own: whether the named project should be
+	// kept, or no longer kept, out of the picker's ordinary lists. See
+	// store.SetProjectArchived.
+	Archived bool `json:"archived"`
+	// Roots is shared by two commands: groupProjects' own use is the open
+	// projects, named by any of their own roots, to merge into one (see
+	// Workspace.NewGroupFrom); reorderProjects' own use is every project in
+	// a list the picker draws, in the order it should be shown in from now
+	// on (see store.ReorderProjects). Which one a given command means is
+	// decided by cmd.Type, the same as every other field this struct reuses
+	// across commands.
+	Roots []string `json:"roots"`
 }
 
 // ---------------------------------------------------------------------------
@@ -517,6 +581,7 @@ func (s *Server) snapshot() stateMsg {
 		Agents:                s.catalog(),
 		Panes:                 map[string]paneView{},
 		Update:                s.Update(),
+		Recall:                s.Recall(),
 		Remote:                s.remoteSnapshot(),
 		CanStartAgent:         true,
 		CanSearchConversation: true,
@@ -533,9 +598,15 @@ func (s *Server) snapshot() stateMsg {
 	names := make(map[string]string, len(projects))
 	for _, p := range projects {
 		names[p.Root] = p.Name
+		members := make([]repoView, 0, len(p.Members))
+		for _, m := range p.Members {
+			members = append(members, repoView{Root: m.Root, Name: m.Name})
+		}
 		msg.Projects = append(msg.Projects, projectView{
 			Root: p.Root, Name: p.Name, Active: p.Active,
 			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working, Panes: p.Panes,
+			Members:  members,
+			Archived: p.Archived,
 		})
 	}
 
@@ -566,6 +637,7 @@ func (s *Server) snapshot() stateMsg {
 			Zoom:      t.Zoom,
 			Attention: ws.TabNeedsAttention(t),
 			Named:     t.Named,
+			Delegated: t.Delegated,
 			Root:      root,
 		})
 		// Cleaning the tab's directory once rather than once per pane: it is
@@ -591,6 +663,7 @@ func (s *Server) snapshot() stateMsg {
 				AutoApproved: p.AutoApproved,
 			}
 			pv.RemoteViewers = s.remoteViewersFor(p.ID)
+			pv.RemoteInsecure = remoteTermViewers.insecure(p.ID)
 			if st == session.StatusWaiting && p.Sess != nil {
 				pv.Ask, pv.Permission = waitingViews(detail, p.Sess.ToolInput())
 			}
@@ -606,6 +679,12 @@ func (s *Server) snapshot() stateMsg {
 			if paneRoot := ws.RootOf(p.ID); paneRoot != "" && paneRoot != t.Root &&
 				!samePath(filepath.Clean(paneRoot), tabRoot) {
 				pv.Project = projectLabel(names, paneRoot)
+			}
+			// Left out once the parent has closed, the same rule
+			// agentView.Parent already follows, so a window never groups a
+			// pane under a job that no longer exists.
+			if p.Parent != "" && ws.Pane(p.Parent) != nil {
+				pv.Parent = p.Parent
 			}
 			if p.Err != nil {
 				pv.Err = p.Err.Error()
@@ -1139,13 +1218,16 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.listWorktrees(c)
 		return
 	case "worktreeAdd":
-		s.addWorktree(c, cmd.Text, cmd.Base, cmd.Path)
+		// Root names which repo the worktree is made in, for a project
+		// spanning more than one; empty means the active project's own, as
+		// it always has for a project of one.
+		s.addWorktree(c, cmd.Root, cmd.Text, cmd.Base, cmd.Path)
 		return
 	case "worktreeRemove":
-		s.removeWorktree(c, cmd.Path, cmd.Force)
+		s.removeWorktree(c, cmd.Root, cmd.Path, cmd.Force)
 		return
 	case "worktreePrune":
-		s.pruneWorktrees(c)
+		s.pruneWorktrees(c, cmd.Root)
 		return
 	case "browse":
 		s.browse(c, cmd.Path)
@@ -1222,6 +1304,48 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "gitFetch":
 		s.runRemote(c, "fetch", cmd.Path)
 		return
+	case "ghStatus":
+		s.ghStatus(c, cmd.Path)
+		return
+	case "ghInstall":
+		s.ghInstall(c)
+		return
+	case "ghLogin":
+		s.ghLogin(c)
+		return
+	case "ghLoginCancel":
+		s.ghLoginCancel(c)
+		return
+	case "ghLogout":
+		s.ghLogout(c, cmd.Path)
+		return
+	case "ghPRs":
+		s.ghPRs(c, cmd.Path, cmd.GHState)
+		return
+	case "ghPR":
+		s.ghPR(c, cmd.Path, cmd.GHNumber)
+		return
+	case "ghPRCreate":
+		s.ghPRCreate(c, cmd.Path, cmd.GHTitle, cmd.GHBody, cmd.GHBase, cmd.GHDraft)
+		return
+	case "ghPRComment":
+		s.ghPRComment(c, cmd.Path, cmd.GHNumber, cmd.GHBody)
+		return
+	case "ghIssues":
+		s.ghIssues(c, cmd.Path, cmd.GHState)
+		return
+	case "ghIssue":
+		s.ghIssue(c, cmd.Path, cmd.GHNumber)
+		return
+	case "ghIssueCreate":
+		s.ghIssueCreate(c, cmd.Path, cmd.GHTitle, cmd.GHBody)
+		return
+	case "ghIssueComment":
+		s.ghIssueComment(c, cmd.Path, cmd.GHNumber, cmd.GHBody)
+		return
+	case "ghChecks":
+		s.ghChecks(c, cmd.Path)
+		return
 	case "conversations":
 		s.listConversations(c, cmd.Path)
 		return
@@ -1268,6 +1392,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "remoteDisable":
 		s.remoteDisable(c, cmd.Force)
 		return
+	case "remoteMove":
+		s.remoteMove(c, cmd)
+		return
 	case "remoteReconnect":
 		s.remoteReconnect(c)
 		return
@@ -1299,6 +1426,17 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		}
 		s.setUpdates(c, cmd.Kind == "off")
 		return
+	case "checkForUpdate":
+		// Reaching GitHub, and downloading a release that turns out to be
+		// newer, both take a while -- long past what a handler is meant to
+		// hold the connection's read loop up for -- so this runs on its own,
+		// as restarting onto an update already does below.
+		if c.remote {
+			c.notify("checking for updates is set on the machine flockdeck runs on, not from a window reached through the relay", true)
+			return
+		}
+		go s.checkForUpdates(c)
+		return
 	case "presence":
 		s.setDeskUsed(c, cmd.Kind == "used")
 		return
@@ -1329,6 +1467,33 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "fontFamily":
 		s.setFontFamily(c, cmd.Text)
 		return
+	case "railExpanded":
+		s.setRailExpanded(c, cmd.Kind == "on")
+		return
+	case "railWidth":
+		s.setRailWidth(c, cmd.Size)
+		return
+	case "theme":
+		s.setTheme(c, cmd.Text)
+		return
+	case "accentColor":
+		s.setAccentColor(c, cmd.Text)
+		return
+	case "fanOutSameTab":
+		s.setFanOutSameTab(c, cmd.Kind == "on")
+		return
+	case "autoReviewDefault":
+		s.setAutoReviewDefault(c, cmd.Kind == "on")
+		return
+	case "setKeybinding":
+		s.setKeybinding(c, cmd.ID, cmd.Text)
+		return
+	case "resetKeybinding":
+		s.resetKeybinding(c, cmd.ID)
+		return
+	case "resetKeybindings":
+		s.resetKeybindings(c)
+		return
 	case "forgetRecent":
 		// On the workspace goroutine, where opening or switching to a project
 		// rewrites the same list (TouchRecent). Each is a read and a rewrite
@@ -1338,6 +1503,79 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// The list is about to be sent again with the project still on
 			// it; without this the entry just refuses to go away.
 			c.notify("could not forget "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+		}
+		s.recents(c)
+		return
+	case "renameProject":
+		// On the workspace goroutine, guarded against opening or touching a
+		// project the same way forgetRecent's own write is: both rewrite the
+		// same file, and side by side one could put back what the other had
+		// just changed.
+		if err, ok := ask(s, func() error { return store.SetProjectName(cmd.Root, cmd.Text) }); ok {
+			if err != nil {
+				c.notify("could not rename "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+			} else {
+				// The open project's own name, part of the main snapshot
+				// rather than the recent list, has to be told to look again
+				// too -- ReloadAgents is why the picker's other settings do
+				// the same after a save.
+				s.ws.ReloadProjectMeta()
+				s.wakeAsked()
+			}
+		}
+		s.recents(c)
+		return
+	case "archiveProject":
+		if err, ok := ask(s, func() error { return store.SetProjectArchived(cmd.Root, cmd.Archived) }); ok {
+			if err != nil {
+				verb := "archive"
+				if !cmd.Archived {
+					verb = "unarchive"
+				}
+				c.notify("could not "+verb+" "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+			} else {
+				s.ws.ReloadProjectMeta()
+				s.wakeAsked()
+			}
+		}
+		s.recents(c)
+		return
+	case "reorderProjects":
+		if err, ok := ask(s, func() error { return store.ReorderProjects(cmd.Roots) }); ok {
+			if err != nil {
+				c.notify("could not reorder projects: "+err.Error(), true)
+			} else {
+				s.ws.ReloadProjectMeta()
+				s.wakeAsked()
+			}
+		}
+		s.recents(c)
+		return
+	case "removeProject":
+		// Closing it, if it is open, and forgetting it happen as one step on
+		// the workspace goroutine, the same way renameProject's write does --
+		// a window drawing the picker mid-remove must not see it closed with
+		// the recent list still holding it, or forgotten while it is still
+		// open and showing in the switcher.
+		//
+		// The last open project can't be closed (CloseProject itself simply
+		// declines), and must not be silently forgotten out from under
+		// itself either: the picker would show nothing open at all.
+		err, ok := ask(s, func() error {
+			if _, open := s.ws.OpenRootFor(cmd.Root); open && len(s.ws.Projects()) <= 1 {
+				return fmt.Errorf("%s can't be removed: close another project first, or it would leave nothing open", filepath.Base(cmd.Root))
+			}
+			if err := s.ws.CloseProject(cmd.Root); err != nil {
+				return err
+			}
+			return store.ForgetRecent(cmd.Root)
+		})
+		if ok {
+			if err != nil {
+				c.notify("could not remove "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+			} else {
+				s.wakeAsked()
+			}
 		}
 		s.recents(c)
 		return
@@ -1413,8 +1651,39 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 		case "selectProject":
 			ws.SelectProject(cmd.Root)
+		case "selectRepo":
+			// Picking one entry out of a project's own expanded member list,
+			// or a worktree-panel row that names a repo directly: unlike
+			// selectProject, this lands on the repo named rather than the
+			// one the project was last left on.
+			ws.SelectRepo(cmd.Root)
 		case "closeProject":
 			if err := ws.CloseProject(cmd.Root); err != nil {
+				c.notify(err.Error(), true)
+			}
+		case "addRepoToGroup":
+			// Root names the project -- any of its members does -- and Path
+			// the folder to add, the same shape as openProject.
+			path := unquotePath(cmd.Path)
+			if !filepath.IsAbs(path) {
+				c.notify("a repo has to be named by its full path", true)
+				return
+			}
+			if err := ws.AddRepoToGroup(cmd.Root, path); err != nil {
+				c.notify(err.Error(), true)
+				return
+			}
+			c.notify("added "+filepath.Base(path)+" to the project", false)
+		case "removeRepoFromGroup":
+			if err := ws.RemoveRepoFromGroup(cmd.Root); err != nil {
+				c.notify(err.Error(), true)
+			}
+		case "renameGroup":
+			if err := ws.RenameGroup(cmd.Root, cmd.Text); err != nil {
+				c.notify(err.Error(), true)
+			}
+		case "groupProjects":
+			if _, err := ws.NewGroupFrom(cmd.Roots, cmd.Text); err != nil {
 				c.notify(err.Error(), true)
 			}
 		case "splitPane":

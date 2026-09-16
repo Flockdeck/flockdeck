@@ -2,9 +2,11 @@ package remote
 
 import (
 	"context"
+	"crypto/ecdh"
 	"errors"
 	"net"
 	"sync"
+	"time"
 )
 
 // ErrNotEnabled is what anything that needs an enrolment is told when there is
@@ -41,6 +43,24 @@ type Manager struct {
 	// after it -- a rename or a `flockdeck remote` finishing while the
 	// instance shuts down -- from starting a tunnel nothing would serve.
 	closed bool
+
+	// e2eMu guards this machine's end-to-end identity and what it has
+	// learned of the account's devices' keys (e2ekey.go), separately from mu
+	// above so that a slow relay call for either never holds up Status,
+	// Client or Reload's own bookkeeping.
+	e2eMu          sync.Mutex
+	e2ePriv        *ecdh.PrivateKey
+	e2eRosterCache map[string]string
+	e2eRosterAt    time.Time
+	e2eRegErr      error
+	e2eRegAt       time.Time
+
+	// e2eCancel and e2eWG are Reload's background EnsureE2EKey call: cancel
+	// aborts whichever relay round trip is in flight, and the group is what
+	// Close waits on, so nothing is still touching this machine's identity
+	// file, or the account's relay, once Close has returned.
+	e2eCancel context.CancelFunc
+	e2eWG     sync.WaitGroup
 }
 
 // NewManager makes a manager with nothing running. serve answers each tunnel's
@@ -71,6 +91,31 @@ func (m *Manager) Reload() error {
 	cfg, err := m.load()
 	if err != nil {
 		return err
+	}
+	if cfg != nil {
+		// Best-effort, and never blocks bringing the tunnel up: a relay that
+		// cannot be reached right now for this leaves terminals unencrypted
+		// until the next Reload -- an app restart, or the dialog's "try
+		// again" -- succeeds, rather than holding remote access itself up on
+		// a key nothing needs to serve a request through the tunnel.
+		//
+		// Tracked rather than left to run loose: Close cancels it and waits
+		// for it, so quitting -- or a test's cleanup removing this
+		// machine's state directory -- never races this writing the identity
+		// file or reaching the relay after Close has returned.
+		ctx, cancel := context.WithTimeout(context.Background(), e2eRegisterTimeout)
+		m.mu.Lock()
+		if m.e2eCancel != nil {
+			m.e2eCancel() // superseded by this reload's own attempt
+		}
+		m.e2eCancel = cancel
+		m.mu.Unlock()
+		m.e2eWG.Add(1)
+		go func() {
+			defer m.e2eWG.Done()
+			defer cancel()
+			_ = m.EnsureE2EKey(ctx)
+		}()
 	}
 
 	m.mu.Lock()
@@ -188,6 +233,23 @@ func (m *Manager) Enable(ctx context.Context, req EnableRequest) (replaced bool,
 	return replaced, m.Reload()
 }
 
+// Move enrols this machine with another relay and leaves the one it is on,
+// once the new one answers: what `flockdeck remote move` does, for the window.
+// The tunnel is moved across as soon as the new enrolment is saved, before
+// the old relay is told, so the window shows it connecting to the new relay
+// rather than cut off by the old. untold is why the old relay could not be
+// told, when the move went ahead regardless.
+func (m *Manager) Move(ctx context.Context, req EnableRequest) (untold error, err error) {
+	m.enrolling.Lock()
+	defer m.enrolling.Unlock()
+	var rerr error
+	_, untold, err = Move(ctx, m.version, req, func() { rerr = m.Reload() })
+	if err != nil {
+		return nil, err
+	}
+	return untold, rerr
+}
+
 // Disable takes this machine off its relay and closes the tunnel: what
 // `flockdeck remote disable` does, for the window. untold is why the relay
 // could not be told, when force had the enrolment forgotten regardless.
@@ -219,7 +281,10 @@ func (m *Manager) Disable(ctx context.Context, force bool) (untold error, err er
 	return untold, rerr
 }
 
-// Close closes the tunnel, and every remote window with it.
+// Close closes the tunnel, and every remote window with it. It also cancels
+// and waits for Reload's background EnsureE2EKey call, if one is in flight,
+// so that nothing this instance started is still running once Close has
+// returned.
 func (m *Manager) Close() {
 	m.reloading.Lock()
 	defer m.reloading.Unlock()
@@ -227,8 +292,13 @@ func (m *Manager) Close() {
 	m.mu.Lock()
 	c := m.conn
 	m.conn = nil
+	cancelE2E := m.e2eCancel
 	m.mu.Unlock()
 	if c != nil {
 		c.Stop()
 	}
+	if cancelE2E != nil {
+		cancelE2E()
+	}
+	m.e2eWG.Wait()
 }

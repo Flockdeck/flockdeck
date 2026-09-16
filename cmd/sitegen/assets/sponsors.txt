@@ -1,0 +1,12 @@
+# The sponsors the site names in its #sponsor section, one to a line, in the
+# order they are shown: the name as they asked for it, then, if they gave one,
+# the https:// address it links to.
+#
+#   Ada Lovelace
+#   Example Ltd https://example.com
+#
+# Only sponsors who asked to be named go here, and a name comes off when they
+# ask. A line is a name and a link, never a logo or a slogan: sponsoring buys
+# no features, support, priority or advertising. Blank lines and lines
+# starting with # are skipped, and `go run ./cmd/sitegen` refuses a line it
+# cannot read, saying which.

@@ -217,6 +217,39 @@ func List(dir string) ([]Worktree, error) {
 // BranchExists reports whether a local branch is already present.
 func BranchExists(dir, branch string) bool { return branchExists(dir, branch) }
 
+// IsWorktree reports whether path is inside a linked worktree of a
+// repository -- one `git worktree add` made beside the main checkout -- as
+// opposed to the main checkout itself or a plain directory with no repository
+// at all.
+//
+// It is how a startup sweep for a stale worktree-owning process tells a
+// helper left running in a fan-out's worktree from one merely left running in
+// the project itself: only the former is this run's to reap, since only a
+// worktree is ever removed out from under a process still sitting in it.
+//
+// path need not be a worktree's own root; a fan-out started from a subfolder
+// puts its children below one, and Root finds the worktree they are under
+// exactly as it finds the main checkout that contains a subfolder of that.
+func IsWorktree(path string) (bool, error) {
+	root, err := Root(path)
+	if err != nil {
+		if strings.Contains(err.Error(), "or any of the parent directories") {
+			return false, nil
+		}
+		return false, err
+	}
+	wts, err := List(root)
+	if err != nil {
+		return false, err
+	}
+	for _, wt := range wts {
+		if samePath(wt.Path, root) {
+			return !wt.Main, nil
+		}
+	}
+	return false, nil
+}
+
 // branchExists reports whether a local branch is already present.
 func branchExists(dir, branch string) bool {
 	_, err := run(dir, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)

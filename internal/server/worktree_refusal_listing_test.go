@@ -32,7 +32,7 @@ func TestARefusedWorktreeChangeStillEndsOnAListing(t *testing.T) {
 	srv.listWorktrees(c)
 	<-held
 	// No branch named: refused before git is asked anything.
-	srv.addWorktree(c, "  ", "", "")
+	srv.addWorktree(c, "", "  ", "", "")
 	close(release)
 
 	deadline := time.After(5 * time.Second)

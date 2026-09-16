@@ -12,6 +12,88 @@ import (
 	"testing"
 )
 
+// `flockdeck update -version=v1.4.0` is the rollback entry point: it takes a
+// release name and, with -yes, skips the confirmation that otherwise stands
+// between it and installing something other than the latest.
+func TestUpdateFlagSetParsesVersionAndYes(t *testing.T) {
+	var f updateFlags
+	if err := parseUpdate(updateFlagSet(&f), []string{"-version=v1.4.0", "-yes"}); err != nil {
+		t.Fatalf("parseUpdate: %v", err)
+	}
+	if f.version != "v1.4.0" || !f.yes {
+		t.Errorf("version = %q, yes = %v; want v1.4.0, true", f.version, f.yes)
+	}
+
+	var g updateFlags
+	if err := parseUpdate(updateFlagSet(&g), nil); err != nil || g.version != "" || g.yes {
+		t.Errorf("with neither flag given: version = %q, yes = %v, err = %v; want unset", g.version, g.yes, err)
+	}
+}
+
+// rollbackVerb says what is actually about to happen -- moving forward,
+// back, or reinstalling the very version already running -- so `flockdeck
+// update -version=` never claims to "roll back" an upgrade or "install" a
+// version already in place.
+func TestRollbackVerb(t *testing.T) {
+	cases := []struct{ candidate, running, want string }{
+		{"v1.5.0", "v1.4.0", "Installing"},
+		{"v1.4.0", "v1.5.0", "Rolling back to"},
+		{"v1.4.0", "v1.4.0", "Reinstalling"},
+	}
+	for _, c := range cases {
+		if got := rollbackVerb(c.candidate, c.running); got != c.want {
+			t.Errorf("rollbackVerb(%q, %q) = %q, want %q", c.candidate, c.running, got, c.want)
+		}
+	}
+}
+
+// Installing a version other than the latest is deliberate, so it is never
+// done without asking -- and piped input never counts as an answer: a script
+// has to pass -yes instead, the same way a pipe is never mistaken for
+// somebody at a keyboard confirming a downgrade they did not mean.
+func TestConfirmRollback(t *testing.T) {
+	if _, err := confirmRollback(&bytes.Buffer{}, strings.NewReader(""), false, "v1.4.0", "v1.5.0"); err == nil {
+		t.Error("confirmRollback with no terminal succeeded without -yes")
+	}
+
+	cases := []struct {
+		typed string
+		want  bool
+	}{
+		{"y\n", true},
+		{"yes\n", true},
+		{"Y\n", true},
+		{"\n", false},
+		{"n\n", false},
+		{"", false}, // EOF with nothing typed
+	}
+	for _, c := range cases {
+		var out bytes.Buffer
+		ok, err := confirmRollback(&out, strings.NewReader(c.typed), true, "v1.4.0", "v1.5.0")
+		if err != nil {
+			t.Fatalf("confirmRollback(%q): %v", c.typed, err)
+		}
+		if ok != c.want {
+			t.Errorf("confirmRollback(%q) = %v, want %v", c.typed, ok, c.want)
+		}
+		if !strings.Contains(out.String(), "v1.4.0") || !strings.Contains(out.String(), "v1.5.0") {
+			t.Errorf("prompt %q does not name both versions", out.String())
+		}
+	}
+}
+
+// withVersion sets the package's own stamp for the life of a test, and puts
+// it back after: checkForUpdatesNow's first question is whether this build
+// was made from a release at all, and "dev" -- what every test binary is
+// stamped, having gone through none of cmd/release -- answers no before
+// either of the two tests below can ask anything else.
+func withVersion(t *testing.T, v string) {
+	t.Helper()
+	old := version
+	version = v
+	t.Cleanup(func() { version = old })
+}
+
 // stageForTest leaves a staged update of the given version in a directory of
 // its own, beside a program to be replaced, and returns both.
 func stageForTest(t *testing.T, staged string) (dir, exe string) {
@@ -177,6 +259,29 @@ func TestApplyStagedRespectsUpdatesOff(t *testing.T) {
 	applyStaged(&bytes.Buffer{}, dir, exe, "v1.4.0")
 	if got, _ := os.ReadFile(exe); string(got) != "running" {
 		t.Errorf("program = %q with updates turned off, want it left alone", got)
+	}
+}
+
+// The manual "Check for updates" action in the settings is the same question
+// `flockdeck update -check` asks, asked from the window instead. A build
+// nothing published was ever compared with has nothing to check.
+func TestCheckForUpdatesNowRefusesABuildThatIsNotARelease(t *testing.T) {
+	withVersion(t, "dev")
+	msg, isErr := checkForUpdatesNow(nil)
+	if !isErr || !strings.Contains(msg, "not made from a release") {
+		t.Errorf("checkForUpdatesNow() = %q, isErr %v, want it refused as not a release", msg, isErr)
+	}
+}
+
+// FLOCKDECK_UPDATE=off is for a machine that is never to touch updates,
+// packaged by somebody who runs their own updater; a button in a window is
+// still asking, so it has to be refused the same as the background watcher.
+func TestCheckForUpdatesNowRespectsTheEnvironment(t *testing.T) {
+	withVersion(t, "v1.4.0")
+	t.Setenv(updateEnv, "off")
+	msg, isErr := checkForUpdatesNow(nil)
+	if !isErr || !strings.Contains(msg, updateEnv+"=off") {
+		t.Errorf("checkForUpdatesNow() = %q, isErr %v, want it refused by the environment", msg, isErr)
 	}
 }
 

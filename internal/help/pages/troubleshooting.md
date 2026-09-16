@@ -126,12 +126,11 @@ to keep that window.
 
 ## The window looks like a browser tab
 
-The interface is a local web page shown in a chromeless application window,
-provided by whichever Chromium-based browser is found first — Chrome, Edge,
-Brave, Chromium or Vivaldi. If none is installed it opens
-as an ordinary tab instead, which works but looks less like an application.
-`FLOCKDECK_BROWSER` forces a particular one, by name or path; if that one
-cannot be found, the window does not open at all.
+The interface is a local web page shown in a native window, built with Wails,
+which embeds the platform's own webview (WebView2 on Windows, WebKit on
+macOS, WebKitGTK on Linux) directly inside the binary. If the platform has no
+working webview it opens as an ordinary tab in your default browser instead,
+which works but looks less like an application.
 
 ## Nothing is exposed to the network
 

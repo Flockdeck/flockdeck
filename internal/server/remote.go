@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/e2e"
 	"github.com/jmwri/flockdeck/internal/remote"
 )
 
@@ -32,15 +33,25 @@ import (
 // RemoteAccess is what the server needs of remote access: to say how the
 // tunnel is, to reach the relay on the window's behalf, to be told to reread
 // the enrolment, and to turn it on and off, rename this machine and try the
-// relay again from the dialog as `flockdeck remote` does from a terminal.
+// relay again from the dialog as `flockdeck remote` does from a terminal, and
+// to move this machine to another relay.
 type RemoteAccess interface {
 	Status() (remote.Status, bool)
 	Client() (*remote.Client, error)
 	Reload() error
 	Enable(ctx context.Context, req remote.EnableRequest) (replaced bool, err error)
 	Disable(ctx context.Context, force bool) (untold error, err error)
+	Move(ctx context.Context, req remote.EnableRequest) (untold error, err error)
 	Rename(ctx context.Context, name string) error
 	Reconnect() error
+
+	// E2ECapable and E2ERespond are this machine's side of end-to-end
+	// encrypting one terminal socket (internal/e2e); see handlePTY's use of
+	// both. E2ECapable answers false, never an error, for anything that
+	// stops it finding out -- which handlePTY takes the same way as "no", by
+	// serving the terminal unencrypted rather than refusing it.
+	E2ECapable(ctx context.Context, deviceID string) bool
+	E2ERespond(ctx context.Context, deviceID string, hello []byte) (*e2e.Session, []byte, error)
 }
 
 type remoteHolder struct{ RemoteAccess }
@@ -236,6 +247,9 @@ type remoteDevicesMsg struct {
 	// can say which entry revoking would end the session in front of you.
 	Current string `json:"current,omitempty"`
 	Error   string `json:"error,omitempty"`
+	// Plan is the account's plan, when the relay reports one. The window
+	// shows it, and nothing here acts on it.
+	Plan *remote.Plan `json:"plan,omitempty"`
 }
 
 type remotePairMsg struct {
@@ -281,6 +295,7 @@ func (s *Server) remoteDevices(c *controlClient) {
 		if roster.Hosts != nil {
 			msg.Hosts = roster.Hosts
 		}
+		msg.Plan = roster.Plan
 		c.sendJSON(msg)
 	}()
 }
@@ -481,6 +496,24 @@ func refusedThroughRelay(c *controlClient, action string) bool {
 	c.sendJSON(remoteOutcomeMsg{Type: "remoteOutcome", Action: action, Error: deskOnlyRemote})
 	c.notify(deskOnlyRemote, true)
 	return true
+}
+
+// remoteMove moves this machine to another relay from the dialog: `flockdeck
+// remote move` without a terminal. The window has already said that every
+// device will pair again, and asked, before this is sent.
+func (s *Server) remoteMove(c *controlClient, cmd command) {
+	req := remote.EnableRequest{Relay: cmd.Relay, Name: cmd.Name, Join: cmd.Join, Invite: cmd.Invite}
+	s.remoteCall(c, "move", "moving to another relay", func(ctx context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
+		untold, err := ra.Move(ctx, req)
+		switch {
+		case err != nil:
+			msg.Error = err.Error()
+			return
+		case untold != nil:
+			msg.Warning = "The old relay could not be told, so it will go on listing this machine, offline, until a device paired there removes it: " + untold.Error()
+		}
+		c.notify("this machine has moved to the new relay; pair each device again", false)
+	})
 }
 
 // remoteReconnect is the dialog's "try again": the relay is tried now rather

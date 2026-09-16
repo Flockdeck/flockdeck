@@ -440,6 +440,56 @@ assert.ok(!h.$("remote-enable").disabled, "the form can be sent again");
 `)
 }
 
+// A machine is moved to another relay from the dialog as well as a terminal:
+// the form is folded away until asked for, says before its button that every
+// device will pair again, asks again before sending, keeps what was typed
+// across a refusal, and folds away once the move has gone ahead.
+func TestRemoteAccessCanMoveToAnotherRelay(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const remote = { state: "connected", relay: "https://remote.flockdeck.ai", hostId: "h1", viewers: 0,
+  since: "2030-01-01T00:00:00Z" };
+h.recv(fixture({ remote }));
+h.click(h.$("btn-remote"));
+h.recv({ type: "remoteDevices", enabled: true,
+  devices: [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" }],
+  hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
+
+assert.ok(!h.$("remote-move-relay"), "the move form is shown before it is asked for");
+h.click(h.$("remote-move"));
+assert.ok(h.$("remote-move-relay"), "asking to move does not show the form");
+assert.ok(h.$("overlay-body").textContent.includes("have to pair again"), "what moving costs is not said before the button");
+
+h.click(h.$("remote-move-go"));
+assert.ok(h.$("overlay-body").textContent.includes("Name the relay"), "a move with no relay is not told why it went nowhere");
+
+h.$("remote-move-relay").value = "relay.company.example";
+h.$("remote-move-invite").value = "fdi_abc";
+const before = h.commands().length;
+h.win._confirm = false;
+h.click(h.$("remote-move-go"));
+assert.strictEqual(h.commands().length, before, "the machine was moved without asking");
+assert.ok(/pair again/.test(h.win._confirmed), "the question does not say every device pairs again: " + h.win._confirmed);
+assert.ok(/only machine/.test(h.win._confirmed), "the question does not say the account on the old relay goes: " + h.win._confirmed);
+h.win._confirm = true;
+h.click(h.$("remote-move-go"));
+assert.deepStrictEqual(h.commands().pop(),
+  { cmd: "remoteMove", relay: "relay.company.example", invite: "fdi_abc", join: "" });
+assert.ok(h.$("remote-move-go").disabled, "the button waits for the answer rather than asking twice");
+
+h.recv({ type: "remoteOutcome", action: "move", error: "the relay said: this relay needs an invite code" });
+assert.ok(h.$("overlay-body").textContent.includes("needs an invite code"), "the refusal is not shown");
+assert.strictEqual(h.$("remote-move-relay").value, "relay.company.example", "what was typed is lost with the answer");
+assert.ok(!h.$("remote-move-go").disabled, "the form cannot be sent again");
+
+h.recv({ type: "remoteOutcome", action: "move", warning: "The old relay could not be told, so it will go on listing this machine" });
+// The harness keeps every id it has seen, so the button, drawn afresh, is
+// what says whether the form is still open.
+assert.strictEqual(h.$("remote-move").textContent, "Move to another relay…", "a move that went ahead leaves its form open");
+assert.ok(h.$("overlay-body").textContent.includes("old relay could not be told"), "an old relay left untold is not said");
+`)
+}
+
 // runFrontEnd boots app.js against the harness and runs body against it. The
 // body is ordinary node: assert is in scope, and h is the booted front end.
 func runFrontEnd(t *testing.T, body string) string {
@@ -777,6 +827,29 @@ assert.strictEqual(h.doc.title, "flockdeck");
 	t.Log(strings.TrimSpace(out))
 }
 
+// The mark at the top of the rail is the application's own icon, drawn twice
+// more: once for the taskbar (the favicon links) and once here, inline in the
+// page, so that whoever is waiting on you shows even to somebody who never
+// looks at the taskbar because the window already has the keyboard.
+func TestTheRailMarkFollowsStatus(t *testing.T) {
+	out := runFrontEnd(t, `
+h.hello();
+const mark = h.$("rail-mark");
+assert.ok(mark.getAttribute("src").includes("icon.svg"), "starts on the mark the page shipped with: " + mark.getAttribute("src"));
+
+h.recv(fixture({ waiting: 1, working: 0, panes: { p1: pane("p1", { status: "waiting" }) } }));
+assert.ok(mark.getAttribute("src").includes("icon-waiting.svg"), "an agent waiting on you: " + mark.getAttribute("src"));
+
+h.recv(fixture({ waiting: 0, working: 1, panes: { p1: pane("p1", { status: "working" }) } }));
+assert.ok(mark.getAttribute("src").includes("icon.svg") && !mark.getAttribute("src").includes("icon-waiting"),
+  "an agent working: " + mark.getAttribute("src"));
+
+h.recv(fixture({ waiting: 0, working: 0 }));
+assert.ok(mark.getAttribute("src").includes("icon-idle.svg"), "nothing under way: " + mark.getAttribute("src"));
+`)
+	t.Log(strings.TrimSpace(out))
+}
+
 // The tally in the top bar was a live region, so every agent that started or
 // stopped working had the counts read out, and none of it said which agent.
 // What a screen reader is told now is the news that needs a person, by name:
@@ -864,49 +937,6 @@ assert.ok(third.querySelector("span.pane-branch").textContent.includes("renamed"
   "got: " + third.querySelector("span.pane-branch").textContent);
 `)
 	t.Log(strings.TrimSpace(out))
-}
-
-// A title attribute is taken over as the tooltip the first time an element is
-// hovered, so writing one onto a button that already has a description
-// replaces it — and every description here carries the key that runs the
-// action, which is the one thing the key table exists to keep from drifting.
-func TestTheProjectChipKeepsItsBinding(t *testing.T) {
-	runFrontEnd(t, `
-const keys = h.hello();
-const projects = [
-  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 1 },
-  { root: "C:/other", name: "other", active: false, tabs: 1, waiting: 1, working: 0 },
-];
-h.recv(fixture({ projects: projects }));
-
-const btn = h.$("project-btn");
-const k = keys.find((x) => x.id === "projects");
-assert.ok(k && k.keys, "the action table gives this a binding");
-assert.strictEqual(h.$("project-name").textContent, "repo");
-assert.ok(btn.classList.contains("attention"), "the other project is blocked and the chip does not say so");
-
-const says = () => btn.dataset.tip || "";
-assert.ok(says().includes(k.label), "the chip does not say what it does: " + says());
-assert.ok(says().includes(k.keys), "the chip does not say which key opens it: " + says());
-assert.ok(says().includes("C:/repo"), "the chip does not name the project: " + says());
-
-// Hovering is what adopts a title, so it is what would lose the binding.
-h.dispatch(btn, new h.Ev("pointerover", { pointerType: "mouse" }));
-assert.ok(says().includes(k.keys), "hovering took the binding off the chip: " + says());
-assert.ok(!btn.hasAttribute("title"), "a title here would be adopted and replace the description");
-
-// And another push does not put it back.
-h.recv(fixture({ projects: projects }));
-assert.ok(says().includes(k.keys), "a push took the binding off the chip: " + says());
-
-// Switching project follows.
-projects[0].active = false;
-projects[1].active = true;
-h.recv(fixture({ projects: projects }));
-assert.strictEqual(h.$("project-name").textContent, "other");
-assert.ok(says().includes("C:/other"), "the chip did not follow the project: " + says());
-assert.ok(!btn.classList.contains("attention"), "the blocked project is the one on screen now");
-`)
 }
 
 // The palette is the one place every action can be reached from, so it is long
@@ -1494,8 +1524,8 @@ assert.ok(btns.slice(1).every((b) => b.tabIndex === -1),
 assert.ok(btns.slice(1).every((b) => b.parentElement.querySelector(".close").tabIndex === -1),
   "every close button is a stop too");
 
-// Tab from the project chip reaches the strip once and leaves it once.
-h.$("project-btn").focus();
+// Tab from the button before the strip reaches it once and leaves it once.
+h.$("rail-toggle").focus();
 h.key({ key: "Tab" });
 assert.ok(h.doc.activeElement === btns[0], "Tab did not reach the current tab");
 h.key({ key: "Tab" });
@@ -1713,7 +1743,7 @@ assert.ok(bars.every((b) => b.getAttribute("aria-label")), "the rows have no nam
 const stops = (bar) => bar.children.filter((b) => b.tabIndex !== -1).length;
 assert.deepStrictEqual(bars.map(stops), [1, 1, 1, 1, 1, 1],
   "each row of buttons is more than one stop on the way through the window");
-assert.strictEqual(bars[0].children.length, 5, "five things to do with a pane");
+assert.strictEqual(bars[0].children.length, 6, "six things to do with a pane");
 
 // The arrows walk the row and take the stop with them.
 const buttons = bars[0].children;
@@ -1723,7 +1753,7 @@ assert.ok(h.doc.activeElement === buttons[1], "the right arrow did not move alon
 assert.strictEqual(buttons[1].tabIndex, 0, "the stop did not move with the focus");
 assert.strictEqual(buttons[0].tabIndex, -1);
 h.key({ key: "End" });
-assert.ok(h.doc.activeElement === buttons[4], "End did not go to the last button");
+assert.ok(h.doc.activeElement === buttons[5], "End did not go to the last button");
 h.key({ key: "ArrowRight" });
 assert.ok(h.doc.activeElement === buttons[0], "the row does not wrap");
 
@@ -1733,13 +1763,13 @@ h.doc.body.focus();
 h.key({ key: "Tab" });
 h.key({ key: "Tab" });
 assert.strictEqual(stops(bars[0]), 1, "the row grew a second stop");
-assert.strictEqual(buttons[4].tabIndex, 0, "the stop did not stay where it was left");
+assert.strictEqual(buttons[5].tabIndex, 0, "the stop did not stay where it was left");
 
 // And they still do what they say.
-buttons[4].focus();
+buttons[5].focus();
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "closePane", id: "p0" });
-buttons[3].focus();
+buttons[4].focus();
 h.key({ key: " " });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "toggleZoom", id: "p0" });
 `)
@@ -1796,7 +1826,7 @@ assert.strictEqual(h.$("wt-base").value, "main", "an old base outlived the dialo
 // The folder browser keeps a path being typed, and gives way once the browser
 // has actually been sent somewhere.
 h.key({ key: "Escape" });
-h.click(h.$("project-btn"));
+h.click(h.$("rail-open"));
 h.recv({ type: "browse", path: "C:/repos", parent: "C:/", entries: [
   { name: "one", path: "C:/repos/one", isRepo: true }], places: [] });
 h.recv({ type: "recents", items: [{ root: "C:/old", name: "old", exists: true, open: false }] });
@@ -1871,7 +1901,7 @@ const state = (statuses) => {
     kids.push(leaf("m" + i, "q" + i));
   });
   return fixture({
-    tabs: [{ id: "t9", title: "fan out", focus: "q0", root: split("h", kids) }],
+    tabs: [{ id: "t9", title: "fan out", focus: "q0", delegated: true, root: split("h", kids) }],
     panes: panes, waiting: statuses.filter((s) => s === "waiting").length,
   });
 };
@@ -1886,8 +1916,9 @@ assert.strictEqual(h.notifications.length, 1,
   "one notification for the lot, not " + h.notifications.length + " that overwrite each other");
 const all = h.notifications[0];
 assert.strictEqual(all.title, "3 agents need you", "got: " + all.title);
-["task 0", "task 1", "task 2"].forEach((n) =>
-  assert.ok(all.body.includes(n), "the notification does not name " + n + ": " + all.body));
+// They are one job (see jobOf), so the body reads as one sentence about the
+// fan-out rather than each task named on its own.
+assert.strictEqual(all.body, "fan out: 3 want your input", "got: " + all.body);
 
 // Clicking it goes to the agent that asked, not merely to the window.
 all.onclick();
@@ -1909,6 +1940,31 @@ h.doc._hasFocus = true;
 h.recv(state(["working", "working", "working"]));
 h.recv(state(["waiting", "waiting", "waiting"]));
 assert.strictEqual(h.notifications.length, 2, "the window is in front and was interrupted anyway");
+`)
+}
+
+// A settled tab only rolls up into a summary card, and only groups its
+// prompts into one notification, when the server says a fan-out actually
+// filled it (tab.delegated) -- never merely because it happens to hold two
+// or more idle agent panes. A person is free to build exactly that shape by
+// hand with an ordinary split, and it must go on showing its real terminals
+// and naming each agent on its own, the way it always has.
+func TestAnOrdinaryMultiPaneTabIsNeverMistakenForAFanOut(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }] }));
+assert.strictEqual(h.terms.length, 2, "an ordinary two-agent split was rolled up into a summary card");
+assert.ok(!h.$("workspace").querySelector(".summary-card"), "a card was drawn for a tab no fan-out filled");
+
+h.doc._hasFocus = false;
+h.recv(fixture({ tabs: [{ id: "t1", title: "one", focus: "p1", zoom: false, attention: false,
+  root: split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1", { name: "one", status: "waiting" }), p2: pane("p2", { name: "two", status: "waiting" }) },
+  waiting: 2 }));
+assert.strictEqual(h.notifications.length, 1, "two agents stopping together sent more than one notification");
+assert.strictEqual(h.notifications[0].title, "2 agents need you", "got: " + h.notifications[0].title);
+assert.ok(!/^one: /.test(h.notifications[0].body), "an ordinary split's prompts were grouped under the tab's own name: " + h.notifications[0].body);
 `)
 }
 
@@ -2108,7 +2164,7 @@ h.recv(fixture({ projects: [
   { root: "C:/other", name: "other", active: false, tabs: 1, waiting: 2, working: 0 },
 ] }));
 
-h.click(h.$("project-btn"));
+h.click(h.$("rail-open"));
 h.recv({ type: "recents", items: [
   { root: "C:/old", name: "old", exists: true, open: false },
   { root: "C:/gone", name: "gone", exists: false, open: false },
@@ -2142,7 +2198,7 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "selectProject", root: "C:/oth
 assert.ok(h.$("overlay").hidden, "the dialog stayed open after switching project");
 
 // A recent project whose folder has gone is not a button that does nothing.
-h.click(h.$("project-btn"));
+h.click(h.$("rail-open"));
 h.recv({ type: "recents", items: [
   { root: "C:/old", name: "old", exists: true, open: false },
   { root: "C:/gone", name: "gone", exists: false, open: false },
@@ -2172,6 +2228,110 @@ const open = h.$("overlay-body").querySelectorAll("div.dir-row")[0].querySelecto
 assert.strictEqual(open.textContent, "Open");
 h.click(open);
 assert.deepStrictEqual(h.commands().pop(), { cmd: "openProject", path: "C:/repos/one" });
+`)
+}
+
+// The multi-repo grouping commands (groupProjects, addRepoToGroup,
+// removeRepoFromGroup, renameGroup) existed on the server with nothing in
+// the dialog reaching them. This covers all four, end to end through the
+// picker rather than the control socket directly.
+func TestGroupingProjectsFromTheDialog(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/api", name: "api", active: true, tabs: 1, waiting: 0, working: 0, members: [{ root: "C:/api", name: "api" }] },
+  { root: "C:/ui", name: "ui", active: false, tabs: 1, waiting: 0, working: 0, members: [{ root: "C:/ui", name: "ui" }] },
+] }));
+h.click(h.$("rail-open"));
+h.recv({ type: "recents", items: [] });
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [] });
+
+// "Group open projects…" turns every open row into a checkbox, and the
+// confirm button counts what is ticked and refuses fewer than two.
+const start = Array.from(h.$("overlay-body").querySelectorAll("button")).find((b) => b.textContent === "Group open projects\u2026");
+assert.ok(start, "no way into grouping mode from the dialog");
+h.click(start);
+const picks = () => h.$("overlay-body").querySelectorAll("input[type=checkbox]");
+assert.strictEqual(picks().length, 2, "one checkbox per open project");
+let confirm = Array.from(h.$("overlay-body").querySelectorAll("button")).find((b) => b.textContent.startsWith("Group"));
+assert.ok(confirm.disabled, "grouping fewer than two is refused");
+// Each tick redraws the dialog, since the count shown has to follow it, so
+// the boxes are found afresh rather than kept from before the redraw.
+picks()[0].checked = true;
+h.dispatch(picks()[0], new h.Ev("change", { target: picks()[0] }));
+picks()[1].checked = true;
+h.dispatch(picks()[1], new h.Ev("change", { target: picks()[1] }));
+confirm = Array.from(h.$("overlay-body").querySelectorAll("button")).find((b) => b.textContent === "Group 2 selected");
+assert.ok(confirm, "the confirm button did not count both picks");
+h.win._prompt = "platform";
+h.click(confirm);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "groupProjects", roots: ["C:/api", "C:/ui"], text: "platform" });
+
+// The server's own answer to that: one merged project, two members.
+h.recv(fixture({ projects: [
+  { root: "C:/api", name: "platform", active: true, tabs: 2, waiting: 0, working: 0,
+    members: [{ root: "C:/api", name: "api" }, { root: "C:/ui", name: "ui" }] },
+] }));
+h.click(h.$("rail-open"));
+h.recv({ type: "recents", items: [] });
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [] });
+const goes = h.$("overlay-body").querySelectorAll("button.proj-go");
+assert.strictEqual(goes.length, 1, "two open roots read as one project now");
+assert.ok(goes[0].textContent.includes("platform"), "the group's own name did not reach the row");
+assert.ok(goes[0].textContent.includes("2 repos"), "a grouped project's row still claimed a single path: " + goes[0].textContent);
+
+// Renaming an open project reaches the live group by any of its members,
+// not the store's per-root name a closed project uses.
+h.win._prompt = "renamed";
+h.click(h.$("overlay-body").querySelector('[aria-label="Rename this project"]'));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "renameGroup", root: "C:/api", text: "renamed" });
+
+// A project just grouped by hand opens already showing its members, so the
+// action reads as having done something rather than needing a second click
+// to see what it did.
+let members = h.$("overlay-body").querySelectorAll(".proj-member-row");
+assert.strictEqual(members.length, 2, "both members should be listed once grouped");
+assert.ok(members[0].textContent.includes("api") && members[1].textContent.includes("ui"), "got: " + h.$("overlay-body").querySelector(".proj-members").textContent);
+
+// The same toggle folds it away and back again.
+const expand = h.$("overlay-body").querySelector("button.proj-expand");
+assert.ok(expand, "a grouped project offers no way to hide its members");
+h.click(expand);
+assert.ok(!h.$("overlay-body").querySelector(".proj-members"), "the toggle did not fold the member list away");
+h.click(h.$("overlay-body").querySelector("button.proj-expand"));
+members = h.$("overlay-body").querySelectorAll(".proj-member-row");
+assert.strictEqual(members.length, 2, "the toggle did not bring the members back");
+
+// Picking a member reaches it directly, rather than wherever the group was
+// last left.
+h.click(members[0].querySelector("button.proj-member-go"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectRepo", root: "C:/api" });
+assert.ok(h.$("overlay").hidden, "picking a member left the dialog open");
+
+// Splitting one back out. Reopening the dialog does not forget that this
+// project was left expanded, so its members are already there to act on.
+h.click(h.$("rail-open"));
+h.recv({ type: "recents", items: [] });
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [] });
+h.click(h.$("overlay-body").querySelectorAll(".proj-member-row")[1].querySelector("button.icon-btn"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "removeRepoFromGroup", root: "C:/ui" });
+
+// "Add repo…" hands the existing folder browser over to addRepoToGroup
+// instead of openProject, and back to the project list rather than closing
+// the whole dialog once one is picked.
+const addRepo = Array.from(h.$("overlay-body").querySelectorAll("button")).find((b) => b.textContent === "Add repo\u2026");
+assert.ok(addRepo, "no way to add a repo to an open project");
+h.click(addRepo);
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [
+  { name: "billing", path: "C:/repos/billing", isRepo: true },
+] });
+assert.ok(h.$("overlay-body").textContent.includes("Add a repo to platform"), "the browser did not say which project it was adding to");
+const addBtn = h.$("overlay-body").querySelectorAll("div.dir-row")[0].querySelector("button.chip");
+assert.strictEqual(addBtn.textContent, "Add", "the per-row button still said Open while adding a repo");
+h.click(addBtn);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "addRepoToGroup", root: "C:/api", path: "C:/repos/billing" });
+assert.ok(!h.$("overlay").hidden, "adding a repo closed the whole dialog rather than returning to the project list");
+assert.ok(h.$("overlay-body").querySelector("button.proj-go"), "adding a repo left the browser up instead of the project list");
 `)
 }
 
@@ -2595,6 +2755,41 @@ assert.ok(!h.$("overlay-body").textContent.includes("a.go"), "the review was dra
 `)
 }
 
+// state.recall said a running version had been withdrawn since it was
+// installed, with nothing in the window ever showing it -- the server
+// computed the warning and nobody saw it.
+func TestTheRecallBannerWarnsOfAWithdrawnVersion(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+assert.ok(h.$("recall-banner").hidden, "a banner with nothing recalled");
+
+h.recv(fixture({ recall: { version: "9.9.8", reason: "corrupts settings on first launch", upgrade: "9.9.9" } }));
+assert.ok(!h.$("recall-banner").hidden, "the recall was never shown");
+assert.ok(h.$("recall-banner").textContent.includes("9.9.8"), "got: " + h.$("recall-banner").textContent);
+assert.ok(h.$("recall-banner").textContent.includes("corrupts settings on first launch"), "got: " + h.$("recall-banner").textContent);
+
+// No update downloaded yet: the banner offers to look for one.
+let btn = h.$("recall-banner").querySelector("button");
+assert.strictEqual(btn.textContent, "Check for updates");
+h.click(btn);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "checkForUpdate" });
+
+// One arrives: the same banner now offers to install it, through the
+// ordinary update dialog rather than a recall-specific one.
+h.recv(fixture({ recall: { version: "9.9.8", reason: "corrupts settings on first launch", upgrade: "9.9.9" },
+  update: { version: "9.9.9", notes: "Fixes the settings corruption." } }));
+btn = h.$("recall-banner").querySelector("button.primary");
+assert.strictEqual(btn.textContent, "Install 9.9.9…");
+h.click(btn);
+assert.strictEqual(h.$("overlay-title").textContent, "Update to 9.9.9");
+
+// The watcher clearing it (moved off the version, most likely) hides it
+// again.
+h.recv(fixture({ update: { version: "9.9.9", notes: "Fixes the settings corruption." } }));
+assert.ok(h.$("recall-banner").hidden, "the banner outlived its own recall");
+`)
+}
+
 // The release notes and a file's diff each scroll inside a box of their own,
 // and neither box could be focused, so what was past its bottom edge was out
 // of reach from the keyboard. Each is a named stop on Tab's way round its
@@ -2610,7 +2805,7 @@ const stops = () => {
 };
 
 h.click(h.$("btn-update"));
-const notes = h.$("overlay-body").querySelector("pre.update-notes");
+const notes = h.$("overlay-body").querySelector("div.update-notes");
 assert.strictEqual(notes.getAttribute("tabindex"), "0", "the release notes cannot be focused, so they cannot be scrolled from the keyboard");
 assert.strictEqual(notes.getAttribute("role"), "region");
 assert.strictEqual(notes.getAttribute("aria-label"), "Release notes");
@@ -2642,6 +2837,46 @@ assert.strictEqual(diff.getAttribute("tabindex"), "0", "drawing the rest took th
 
 h.click(rows[1]);
 assert.strictEqual(diff.getAttribute("aria-label"), "Diff of a/two.go", "the diff is still named after the file before");
+`)
+}
+
+// Curated release notes are Markdown-ish prose — a title, headings, bullet
+// lists, **bold** — and used to show up in the update dialog as literal
+// text, "##" and "-" characters included, because the box rendered them as a
+// flat preformatted block. renderNotes turns the shapes docs/releases/*.md
+// actually uses into real elements instead.
+func TestReleaseNotesRenderAsMarkdown(t *testing.T) {
+	runFrontEnd(t, `
+const NL = String.fromCharCode(10);
+const notesText = [
+  "# Flockdeck v9.9.9",
+  "",
+  "## Faster fan-out",
+  "",
+  "Starting several agents at once now takes **half the time** it used to.",
+  "",
+  "- Say so in Settings › Agents › Routing.",
+  "- Reload the phone view to see it there too.",
+].join(NL);
+h.hello();
+h.recv(fixture({ update: { version: "9.9.9", notes: notesText } }));
+h.click(h.$("btn-update"));
+const box = h.$("overlay-body").querySelector("div.update-notes");
+assert.ok(box, "the notes box is no longer a div");
+assert.ok(!box.textContent.includes("##"), "a heading marker leaked into the rendered text");
+assert.ok(!box.textContent.includes("- Say so"), "a bullet marker leaked into the rendered text");
+
+const headings = box.querySelectorAll("h3, h4").map((n) => n.textContent);
+assert.deepStrictEqual(headings, ["Flockdeck v9.9.9", "Faster fan-out"], "the title and the theme did not become headings");
+
+const items = box.querySelectorAll("li").map((n) => n.textContent);
+assert.deepStrictEqual(items, [
+  "Say so in Settings › Agents › Routing.",
+  "Reload the phone view to see it there too.",
+], "the bullets did not become a list");
+
+const bold = box.querySelector("strong");
+assert.strictEqual(bold && bold.textContent, "half the time", "**bold** did not render as emphasis");
 `)
 }
 
@@ -2968,10 +3203,10 @@ assert.ok(h.terms[0].focused, "the keyboard went with the cover instead of back 
 
 // Only where the cover had it: elsewhere, the keyboard stays where it is.
 h.recv(exited);
-h.$("project-btn").focus();
+h.$("rail-toggle").focus();
 h.terms[0].focused = false;
 h.recv(fixture());
-assert.ok(!h.terms[0].focused && h.doc.activeElement === h.$("project-btn"), "the cover going took the keyboard from the top bar");
+assert.ok(!h.terms[0].focused && h.doc.activeElement === h.$("rail-toggle"), "the cover going took the keyboard from the top bar");
 `)
 }
 
@@ -3008,7 +3243,7 @@ h.recv(fixture());
 h.recv(fixture({ panes: { p1: pane("p1", { status: "exited" }), p2: pane("p2") } }));
 const restart = h.terms[0].host.parentElement.querySelector("div.pane-error").querySelectorAll("button")
   .find((b) => b.textContent === "Restart");
-h.$("project-btn").focus();
+h.$("rail-toggle").focus();
 h.terms[0].focused = false;
 // The tab on screen, clicked again, hands the keyboard back to its pane.
 h.click(h.$("tab-t1"));
@@ -3017,7 +3252,7 @@ assert.ok(!h.terms[0].focused, "the covered terminal took the keyboard");
 
 // With the process back, the terminal is where it goes again.
 h.recv(fixture());
-h.$("project-btn").focus();
+h.$("rail-toggle").focus();
 h.click(h.$("tab-t1"));
 assert.ok(h.terms[0].focused, "the terminal no longer takes the keyboard once its cover has gone");
 `)
@@ -4243,6 +4478,7 @@ func TestANarrowScreenFoldsTheRailIntoAMenu(t *testing.T) {
 		`#rail\s*\{[^}]*position:\s*fixed[^}]*transform:\s*translateX\(-100%\);\s*visibility:\s*hidden`,
 		`body\.rail-open #rail\s*\{[^}]*transform:\s*none;\s*visibility:\s*visible`,
 		`#rail-toggle\s*\{\s*display:\s*flex`,
+		`body\.rail-open #rail-toggle \.rail-badge\s*\{\s*display:\s*none`,
 		`#topbar\s*\{[^}]*flex-wrap:\s*wrap`,
 		`#topbar > #tabbar\s*\{[^}]*flex:\s*1 1 100%`,
 		`\.rail-btn \.rail-label\s*\{[^}]*position:\s*static`,
@@ -4254,7 +4490,7 @@ func TestANarrowScreenFoldsTheRailIntoAMenu(t *testing.T) {
 	coarse := mediaBlock(t, css, `\(pointer:\s*coarse\)`)
 	for _, want := range []string{
 		`\.rail-btn\s*\{\s*width:\s*44px;\s*height:\s*44px`,
-		`\.bar-btn, \.project, #summary, \.commands, \.update, \.tab\s*\{\s*min-height:\s*44px`,
+		`\.bar-btn, #summary, \.commands, \.update, \.tab\s*\{\s*min-height:\s*44px`,
 		`\.bar-btn, \.commands\s*\{\s*min-width:\s*44px`,
 		`\.tab \.close\s*\{\s*width:\s*44px;\s*height:\s*44px`,
 	} {
@@ -4359,9 +4595,6 @@ assert.ok((aw.dataset.tip || "").includes("C:/code/agent-wrapper"), "the tooltip
 const badged = (t) => t.querySelector(".rail-badge").classList.contains("waiting");
 assert.ok(badged(fm) && !badged(aw) && !badged(fr), "only the project with an agent waiting carries the badge");
 assert.ok(fm.getAttribute("aria-label").includes("2 agents are waiting on you"), "the badge is not in the tile's name");
-assert.strictEqual(h.$("project-name").textContent, "agent-wrapper");
-assert.strictEqual(h.$("project-branch").textContent, "main", "the top bar does not give the project's branch");
-assert.ok(!h.$("project-branch").hidden);
 
 h.click(fr);
 assert.deepStrictEqual(h.commands().pop(), { cmd: "selectProject", root: "C:/code/flockdeck-relay" });
@@ -4381,6 +4614,48 @@ assert.ok(fr.classList.contains("current") && !aw.classList.contains("current"),
 assert.ok(!badged(fm), "the badge stayed after the agent was answered");
 h.recv(fixture({ projects: [projects[0]] }));
 assert.strictEqual(tiles().length, 1, "a closed project kept its tile");
+`)
+}
+
+// On a narrow window the rail is out of sight until its toggle is pressed, so
+// its tiles' own badges - the rail's usual way of saying an agent is waiting
+// in a project that is not on screen - are out of sight with it. The toggle
+// carries the same amber dot itself, so the one thing the rail is most for is
+// not lost to a narrow window. An agent waiting in the project already open
+// does not count: its tab already shows that without opening anything.
+func TestTheRailToggleBadgesWhenAnotherProjectWaits(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const badge = () => h.$("rail-toggle").querySelector(".rail-badge");
+const tip = () => h.$("rail-toggle").dataset.tip || "";
+
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 1, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 0, working: 0 },
+] }));
+assert.ok(!badge().classList.contains("waiting"), "the project on screen's own waiting agent lit the toggle");
+assert.ok(!/waiting/.test(tip()), "the tooltip mentioned waiting with nothing waiting elsewhere: " + tip());
+
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 1, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 1, working: 0 },
+] }));
+assert.ok(badge().classList.contains("waiting"), "an agent waiting in another project did not light the toggle");
+assert.ok(/waiting on you in api/.test(tip()), "the toggle does not say where: " + tip());
+
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 1, working: 0 },
+  { root: "C:/web", name: "web", active: false, tabs: 1, waiting: 2, working: 0 },
+] }));
+assert.ok(/waiting on you in api, web/.test(tip()), "two other projects waiting are not both named: " + tip());
+
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
+  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 0, working: 0 },
+] }));
+assert.ok(!badge().classList.contains("waiting"), "the badge stayed after every other project was answered");
+assert.ok(!/waiting/.test(tip()), "the tooltip kept saying an agent was waiting");
 `)
 }
 
@@ -4407,7 +4682,7 @@ func TestTheRailKeepsTheControlsAndTheirKeys(t *testing.T) {
 	runFrontEnd(t, `
 const keys = h.hello();
 h.recv(fixture());
-for (const id of ["project-btn", "new-tab", "new-tab-pick", "summary", "btn-broadcast", "btn-changes",
+for (const id of ["new-tab", "new-tab-pick", "summary", "btn-broadcast", "btn-changes",
   "btn-history", "btn-worktrees", "btn-update", "btn-remote", "btn-help", "btn-settings", "btn-palette", "rail-open"]) {
   assert.ok(h.$(id), id + " is gone");
 }
@@ -4455,6 +4730,72 @@ assert.ok(h.doc.activeElement === h.$("browse-path"), "Open a project did not pu
 `)
 }
 
+// The rail starts as icons alone, the shape it has always had. Widened, it
+// is a panel of icons and names instead, at whatever width a drag or the
+// keyboard last left it, and both survive a restart with the other
+// preferences — kept on the Go side, since the browser forgets local storage
+// on the fresh port every run binds.
+func TestTheRailCanBeWidenedAndResized(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const rail = h.$("rail"), collapse = h.$("rail-collapse"), resize = h.$("rail-resize");
+assert.strictEqual(h.doc.body.classList.contains("rail-expanded"), false, "the rail starts widened");
+assert.strictEqual(collapse.getAttribute("aria-pressed"), "false");
+assert.strictEqual(rail.style.width, "", "a collapsed rail carries a width of its own");
+
+h.click(collapse);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "railExpanded", kind: "on" });
+assert.ok(h.doc.body.classList.contains("rail-expanded"), "clicking the collapse button did not widen the rail");
+assert.strictEqual(collapse.getAttribute("aria-pressed"), "true");
+assert.strictEqual(rail.style.width, "220px", "a rail nobody has resized is not the default width");
+
+// Ctrl+B, from the key table rather than written out here, folds it back.
+h.press("toggleRail");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "railExpanded", kind: "off" });
+assert.ok(!h.doc.body.classList.contains("rail-expanded"), "the binding did not fold the rail back");
+assert.strictEqual(rail.style.width, "", "folded, the rail kept the width it had been widened to");
+
+h.press("toggleRail");
+h.commands();
+
+// The keyboard steps the width once the handle has it, and stops short of
+// what the Go side would refuse.
+assert.strictEqual(resize.getAttribute("role"), "separator");
+assert.strictEqual(resize.getAttribute("aria-orientation"), "vertical");
+resize.focus();
+h.key({ key: "ArrowRight" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "railWidth", size: 236 });
+assert.strictEqual(rail.style.width, "236px");
+assert.strictEqual(resize.getAttribute("aria-valuenow"), "236");
+for (let i = 0; i < 30; i++) h.key({ key: "ArrowRight" });
+assert.strictEqual(rail.style.width, "480px", "the keyboard widened the rail past its maximum");
+for (let i = 0; i < 40; i++) h.key({ key: "ArrowLeft" });
+assert.strictEqual(rail.style.width, "180px", "the keyboard narrowed the rail past its minimum");
+
+// Dragging redraws the rail as the pointer moves, and tells the Go side only
+// once, when the drag is let go — as a split's own divider already does.
+h.dispatch(resize, new h.Ev("pointerdown", { button: 0, pointerId: 1, clientX: 300 }));
+assert.ok(resize.classList.contains("dragging"), "the handle did not mark itself as being dragged");
+assert.ok(h.doc.body.classList.contains("rail-resizing"), "the body did not say a drag was under way");
+const before = h.commands().length;
+h.dispatch(resize, new h.Ev("pointermove", { pointerId: 1, clientX: 340 }));
+assert.strictEqual(rail.style.width, "220px", "the rail did not follow the pointer");
+assert.strictEqual(h.commands().length, before, "a move in the middle of the drag told the Go side already");
+h.dispatch(resize, new h.Ev("pointerup", { pointerId: 1, clientX: 340 }));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "railWidth", size: 220 });
+assert.ok(!resize.classList.contains("dragging"), "letting go left the handle marked as dragged");
+assert.ok(!h.doc.body.classList.contains("rail-resizing"), "letting go left the body saying a drag was under way");
+
+// What arrives with the preferences is clamped the same way a drag is, and a
+// choice made in another window is followed here too.
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], railExpanded: true, railWidth: 5000 } });
+assert.strictEqual(rail.style.width, "480px", "a width from the preferences was not clamped to the maximum");
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], railExpanded: false, railWidth: 480 } });
+assert.ok(!h.doc.body.classList.contains("rail-expanded"), "folding the rail from another window was not followed");
+`)
+}
+
 // Settings opens from the rail, from the palette and with its key - Ctrl+,,
 // which nothing else answers to - and each way shows the one dialog: the
 // sections on the left, walked with the arrows and narrowed by typing, and the
@@ -4485,6 +4826,50 @@ for (const [id, text, page] of [
 `)
 }
 
+// Sponsoring is one quiet line under the plans, and nowhere else in the app:
+// a link to GitHub Sponsors that opens in the browser and does nothing more.
+// It is not a plan, so it is kept out of the cards; it counts nothing, asks
+// nothing, and says that sponsoring buys nothing.
+func TestTheSponsorLineOnlyLinks(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const url = "https://github.com/sponsors/jmwri";
+const links = () => h.doc.querySelectorAll("a").filter((a) => a.getAttribute("href") === url);
+assert.strictEqual(links().length, 0, "the app offers sponsoring before Settings › Account & plan is opened");
+
+h.click(h.$("btn-settings"));
+assert.ok(!h.$("set-sponsor"), "the sponsor line is drawn in a section other than Account & plan");
+const find = h.$("settings-find");
+find.value = "sponsor";
+find.oninput();
+assert.deepStrictEqual(h.$("settings-tabs").children.map((b) => b.textContent), ["Account & plan"],
+  "Find a setting does not lead to the sponsor line");
+find.value = "";
+find.oninput();
+h.click(h.$("settings-tab-plan"));
+
+const line = h.$("set-sponsor"), a = h.$("set-sponsor-link");
+assert.ok(line && h.$("settings-pane").contains(line), "Account & plan has no sponsor line");
+assert.ok(!line.closest(".plan-card"), "the sponsor line is drawn as part of a plan");
+assert.strictEqual(links().length, 1, "sponsoring is offered more than once");
+assert.ok(a && line.contains(a) && a.tagName === "A", "the sponsor line is not a link");
+assert.strictEqual(a.textContent, "Sponsor Flockdeck");
+assert.strictEqual(a.target, "_blank", "the sponsor link would open in place of the app");
+assert.ok(/noopener/.test(a.rel), "the sponsor page could reach back into the app: " + a.rel);
+assert.ok(!line.querySelector("button"), "the sponsor line has a button");
+assert.ok(!/\d/.test(line.textContent), "the sponsor line counts something: " + line.textContent);
+assert.ok(line.textContent.includes("buys nothing"), "the sponsor line does not say sponsoring buys nothing: " + line.textContent);
+const sent = h.commands().length;
+h.click(a);
+assert.strictEqual(h.commands().length, sent, "following the sponsor link told the app something");
+
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden && links().every((l) => h.$("overlay").contains(l)),
+  "the sponsor line stayed on screen when the settings closed");
+`)
+}
+
 func TestTheSettingsOpenEveryWay(t *testing.T) {
 	runFrontEnd(t, `
 const keys = h.hello();
@@ -4497,7 +4882,7 @@ const sections = () => h.$("settings-tabs").children.map((b) => b.textContent);
 
 h.click(h.$("btn-settings"));
 assert.ok(shown(), "the rail's Settings button did not open the settings");
-assert.deepStrictEqual(sections(), ["General", "Terminal", "Agents", "API keys", "Remote access", "Account & plan"]);
+assert.deepStrictEqual(sections(), ["General", "Appearance", "Behaviour", "Keybindings", "Agents", "API keys", "Remote access", "GitHub", "Account & plan"]);
 assert.strictEqual(h.$("settings-tab-general").getAttribute("aria-selected"), "true");
 assert.ok(h.doc.activeElement === h.$("settings-tab-general"), "the keyboard is not on the sections");
 assert.ok((h.$("btn-settings").dataset.tip || "").includes(k.keys), "the Settings button does not give its key");
@@ -4507,8 +4892,8 @@ assert.ok(h.$("overlay").hidden, "Escape left the settings open");
 h.press("settings");
 assert.ok(shown(), k.keys + " did not open the settings");
 h.key({ key: "ArrowDown" });
-assert.strictEqual(h.$("settings-tab-terminal").getAttribute("aria-selected"), "true", "the arrows do not walk the sections");
-assert.ok(h.doc.activeElement === h.$("settings-tab-terminal"), "the keyboard did not follow the arrows");
+assert.strictEqual(h.$("settings-tab-appearance").getAttribute("aria-selected"), "true", "the arrows do not walk the sections");
+assert.ok(h.doc.activeElement === h.$("settings-tab-appearance"), "the keyboard did not follow the arrows");
 assert.ok(h.$("settings-pane").contains(h.$("set-font-size")), "the section reached is not the one shown");
 h.key({ key: "Escape" });
 
@@ -4520,7 +4905,7 @@ const row = h.$("palette-list").children.find((r) => r.querySelector(".pal-label
 assert.ok(row, "the palette has no Settings");
 h.click(row);
 assert.ok(shown(), "the palette's Settings did not open the settings");
-assert.strictEqual(h.$("settings-tab-terminal").getAttribute("aria-selected"), "true", "the settings did not open where they were left");
+assert.strictEqual(h.$("settings-tab-appearance").getAttribute("aria-selected"), "true", "the settings did not open where they were left");
 
 const find = h.$("settings-find");
 find.value = "relay";
@@ -4601,7 +4986,7 @@ assert.strictEqual(h.$("settings-tab-remote").getAttribute("aria-selected"), "tr
 // however it is changed. A key is never shown, and the plan invents no price.
 func TestEachSettingReachesItsSetting(t *testing.T) {
 	runFrontEnd(t, relayPromise+`
-h.hello({ fontSize: 13, scrollback: 10000, dismissedTips: ["palette"] });
+const keys = h.hello({ fontSize: 13, scrollback: 10000, dismissedTips: ["palette"] });
 h.recv(fixture({ update: { version: "9.9.9" } }));
 h.click(h.$("btn-settings"));
 const pane = h.$("settings-pane");
@@ -4621,12 +5006,26 @@ const labels = h.$("palette-list").children.map((r) => r.querySelector(".pal-lab
 assert.ok(labels.includes("Turn update checks on"), "the palette does not know the settings turned update checks off");
 h.key({ key: "Escape" });
 assert.ok(h.$("set-install"), "the update already downloaded is not offered");
+h.click(h.$("set-check-update"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "checkForUpdate" });
 h.click(h.$("set-tips"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "resetTips" });
 assert.ok(h.$("set-tips").disabled, "the hints can still be brought back with none sent away");
 
-// Terminal.
-h.click(h.$("settings-tab-terminal"));
+// Appearance: theme and accent.
+h.click(h.$("settings-tab-appearance"));
+assert.ok(on("set-theme-dark"), "dark is not shown as the theme by default");
+h.click(h.$("set-theme-light"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "theme", text: "light" });
+assert.ok(on("set-theme-light") && !on("set-theme-dark"), "the theme choice did not follow the click");
+assert.strictEqual(h.doc.documentElement.dataset.theme, "light", "the document did not take the theme");
+h.click(h.$("set-accent-purple"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "accentColor", text: "purple" });
+assert.strictEqual(h.doc.documentElement.dataset.accent, "purple", "the document did not take the accent");
+h.click(h.$("set-theme-dark"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "theme", text: "dark" });
+
+// Appearance: terminal.
 h.click(h.$("set-font-up"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 14 });
 assert.strictEqual(h.$("set-font-size").textContent, "14 px");
@@ -4657,6 +5056,33 @@ assert.ok(h.doc.activeElement === h.$("set-cursor-underline"), "the arrows did n
 h.click(h.$("set-cursor-blink"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorBlink", kind: "off" });
 assert.strictEqual(h.terms[0].options.cursorBlink, false, "the terminals' cursors still blink");
+
+// Behaviour.
+h.click(h.$("settings-tab-behaviour"));
+assert.strictEqual(h.$("set-fanout-sametab").checked, false, "fan out's own tab is offered as the default");
+h.$("set-fanout-sametab").checked = true;
+h.dispatch(h.$("set-fanout-sametab"), new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fanOutSameTab", kind: "on" });
+h.click(h.$("set-auto-review-default"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "autoReviewDefault", kind: "on" });
+assert.ok(on("set-auto-review-default"), "the switch did not turn on at once");
+
+// Keybindings.
+h.click(h.$("settings-tab-keybindings"));
+const closePane = h.$("set-keybind-closePane");
+assert.ok(closePane, "closePane has no row in the keybindings settings");
+assert.ok(h.$("set-keybind-reset-closePane").disabled, "an untouched binding offers to reset itself");
+assert.ok(h.$("set-keybind-reset-all").disabled, "nothing has been remapped, and reset-all is offered anyway");
+h.click(closePane);
+h.key({ key: "w", ctrlKey: true, altKey: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "setKeybinding", id: "closePane", text: "Ctrl+Alt+W" });
+h.recv({ type: "keyTable",
+  keys: keys.map((k) => k.id === "closePane" ? Object.assign({}, k, { keys: "Ctrl+Alt+W", overridden: true }) : k) });
+assert.strictEqual(h.$("set-keybind-closePane").textContent, "Ctrl+Alt+W", "the row did not take the new binding");
+assert.ok(!h.$("set-keybind-reset-closePane").disabled, "a remapped binding still offers no reset");
+assert.ok(!h.$("set-keybind-reset-all").disabled, "a remap did not enable resetting every shortcut");
+h.click(h.$("set-keybind-reset-closePane"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "resetKeybinding", id: "closePane" });
 
 // Agents.
 h.click(h.$("settings-tab-agents"));
@@ -5580,7 +6006,7 @@ assert.ok(h.terms.every((t) => t.disposed || t.options.screenReaderMode === fals
 
 // The settings have a switch for it.
 h.press("settings");
-h.click(h.$("settings-tab-terminal"));
+h.click(h.$("settings-tab-appearance"));
 assert.ok(h.$("set-screen-reader"), "the terminal settings have no switch for screen reader support");
 h.click(h.$("set-screen-reader"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "screenReader", kind: "on" });
@@ -5678,9 +6104,9 @@ assert.strictEqual(cover().getAttribute("role"), "alert", "the cover appears wit
 assert.ok(h.doc.activeElement === restart(), "the keyboard stayed in the terminal under the cover");
 
 // Once: a push that changes nothing about the exit does not take it back.
-h.$("project-btn").focus();
+h.$("rail-toggle").focus();
 h.recv(exited("p1"));
-assert.ok(h.doc.activeElement === h.$("project-btn"), "another push took the keyboard back to Restart");
+assert.ok(h.doc.activeElement === h.$("rail-toggle"), "another push took the keyboard back to Restart");
 
 // Not out of the palette.
 h.recv(fixture());
@@ -5692,9 +6118,9 @@ h.key({ key: "Escape" });
 
 // Nor for a pane in another tab.
 h.recv(fixture());
-h.$("project-btn").focus();
+h.$("rail-toggle").focus();
 h.recv(exited("p2"));
-assert.ok(h.doc.activeElement === h.$("project-btn"), "a pane in another tab took the keyboard as it exited");
+assert.ok(h.doc.activeElement === h.$("rail-toggle"), "a pane in another tab took the keyboard as it exited");
 `)
 }
 
@@ -6295,25 +6721,6 @@ assert.strictEqual(h.notifications.length, 1, "a count that did not rise raised 
 `)
 }
 
-// The project button turns amber when an agent in another project is waiting,
-// and nothing said which project or why: its tooltip named the current folder
-// alone.
-func TestTheProjectButtonSaysWhereAnAgentIsWaiting(t *testing.T) {
-	runFrontEnd(t, `
-h.hello();
-h.recv(fixture({ projects: [
-  { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
-  { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 1, working: 0 },
-] }));
-const btn = h.$("project-btn");
-assert.ok(btn.classList.contains("attention"));
-assert.ok(/waiting on you in api/.test(btn.dataset.tip), "the amber does not say where the agent is: " + btn.dataset.tip);
-
-h.recv(fixture());
-assert.ok(!/waiting/.test(h.$("project-btn").dataset.tip), "the tooltip kept saying an agent was waiting");
-`)
-}
-
 // The hint explaining the amber dot came up whenever anything was waiting,
 // and the waiting count is every project's: an agent waiting in a project not
 // on screen had the hint explaining a dot that was nowhere to be seen.
@@ -6703,7 +7110,7 @@ const forgets = () => h.$("overlay-body").querySelectorAll("button.proj-forget")
 assert.strictEqual(forgets().length, 3, "each recent project has its ×");
 forgets()[1].focus();
 h.click(forgets()[1]);
-assert.deepStrictEqual(h.commands().pop(), { cmd: "forgetRecent", root: "C:/old/beta" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "removeProject", root: "C:/old/beta" });
 h.recv(recent(["alpha", "gamma"]));
 assert.ok(h.doc.activeElement === forgets()[1], "the keyboard did not go to the project that took the forgotten one's place");
 
@@ -7689,7 +8096,7 @@ function boot(opts) {
         return Promise.resolve({ ok: false, status: 404 });
       }
     },
-    confirm: () => (win._confirm === undefined ? true : win._confirm),
+    confirm: (q) => { win._confirmed = q; return win._confirm === undefined ? true : win._confirm; },
     prompt: () => win._prompt,
     close: () => { win._closed = true; },
     focus: () => {},

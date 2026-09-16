@@ -1,13 +1,19 @@
 # Flockdeck
 
-A desktop application for running several coding agents at once.
+A desktop application that runs your coding agents on hardware you control,
+and reaches you wherever you are.
 
-Each agent runs in a real pseudo-terminal, so it behaves exactly as it does in
-a normal terminal — permission prompts, slash commands, plan mode, colours,
-mouse. Around them the app adds what you need to run six at a time: tabs, split
-panes, per-agent status, layout persistence, git worktrees and broadcast input.
-Each agent is told which pane it is and who else is working, so being one of
-several is something it can act on.
+Start it on a spare machine, a home server or a cheap VPS with `-no-window`
+and it needs no browser there either — pair it with `flockdeck remote pair`
+and a QR code, no port opened, no password, and it's a desktop in every way
+that matters from your phone or laptop. Or run it on your own desk: either
+way, Claude Code, Codex, Gemini and the rest run in a real pseudo-terminal, so
+each behaves exactly as it does in a normal terminal — permission prompts,
+slash commands, plan mode, colours, mouse. Around them the app adds what you
+need to run six at a time: tabs, split panes, per-agent status, layout
+persistence, git worktrees and broadcast input. Each agent is told which pane
+it is and who else is working, so being one of several is something it can
+act on.
 
 The agent and the model are chosen per pane. Claude Code is the default;
 beside it Flockdeck runs Codex, Gemini, Aider, opencode or Cursor's agent, and
@@ -37,19 +43,27 @@ keys` keeps it.
 
 ## What it gives you
 
-- **Several agents at once**, each in a real terminal, in tabs and split panes.
+- **Run it on a server instead of a desk** — `-no-window` needs no browser on
+  that machine either, so a spare box, a home server or a cheap VPS works as
+  well as a laptop; pair it and it's a desktop in every way that matters.
+- **Reach them from another device** — pair a laptop, tablet or phone through
+  a relay, with no port opened on this machine.
 - **Any agent, any model, per pane** — a CLI you already have, or a model API
   spoken to directly by the binary itself, picked per pane and remembered per
   project.
-- **Rearrange what is already running** — drag a pane to another edge, another
-  tab or a tab of its own, or merge two tabs into one, without restarting the
-  agent in any of them.
-- **Each agent knows where it is** — its own conversation, its own checkout, and,
-  for Claude Code and the API agents, a briefing at session start on which pane
-  it is and who else is working.
+- **The right model for each task** — routing rules, off until you turn them
+  on, pre-set a fan-out's rows to a smaller model for mechanical work and a
+  stronger one for hard work, shown for you to change before anything starts.
+- **Several agents at once**, each in a real terminal, in tabs and split panes.
 - **One glance tells you who needs you** — per-pane status driven by the agent's
   own lifecycle where it reports one, tab and project markers, and a desktop
   notification when an agent blocks while you are looking elsewhere.
+- **Each agent knows where it is** — its own conversation, its own checkout, and,
+  for Claude Code and the API agents, a briefing at session start on which pane
+  it is and who else is working.
+- **Rearrange what is already running** — drag a pane to another edge, another
+  tab or a tab of its own, or merge two tabs into one, without restarting the
+  agent in any of them.
 - **What each agent has spent, and how near its limit it is** — an estimate of
   the conversation's cost, or its tokens, in the header of each API agent pane,
   and in a Claude Code pane's once its status line is read (by default, where
@@ -62,16 +76,8 @@ keys` keeps it.
 - **Everything comes back**: layouts, the set of projects you had open, and
   each pane's conversation.
 - **Agents can outlive the window** — detach, close it, reattach later.
-- **Run it on a server instead of a desk** — `-no-window` needs no browser on
-  that machine either, so a spare box, a home server or a cheap VPS works as
-  well as a laptop; pair it and it's a desktop in every way that matters.
-- **Reach them from another device** — pair a laptop, tablet or phone through
-  a relay, with no port opened on this machine.
 - **One agent's plan becomes several agents doing the work**, each in its own
   git worktree.
-- **The right model for each task** — routing rules, off until you turn them
-  on, pre-set a fan-out's rows to a smaller model for mechanical work and a
-  stronger one for hard work, shown for you to change before anything starts.
 - **Review, commit and push** what an agent did without leaving the app.
 
 ## Why
@@ -284,26 +290,25 @@ nothing is left running by accident.
 ### How the window works
 
 The interface is a local web app that the binary serves on the loopback
-interface and displays in a **chromeless application window** — no tabs, no
-address bar. It looks and behaves like a native window while keeping the
-program a single dependency-free binary.
-
-That window is provided by a Chromium-based browser in app mode: Chrome, Edge,
-Brave, Chromium or Vivaldi, whichever is found first. On Windows this is always
-satisfied because Edge ships with the OS. If none is installed the page opens
-as an ordinary tab in your default browser instead, which works but looks less
-like an application. `FLOCKDECK_BROWSER` forces a specific one.
+interface and displays in a native window — no tabs, no address bar — built
+with [Wails](https://wails.io), which embeds the platform's own webview
+(WebView2 on Windows, WebKit on macOS, WebKitGTK on Linux) directly inside
+`flockdeck.exe`. The window is genuinely Flockdeck's own process, so the
+taskbar, alt-tab switcher and window manager key its identity, icon and
+pinning to Flockdeck rather than to a browser. If the platform has no working
+webview the page opens as an ordinary tab in your default browser instead,
+which works but looks less like an application.
 
 Nothing is exposed to the network: the server binds to `127.0.0.1` on a random
 port and every request — page, assets and both WebSockets — must carry a token
-generated fresh for each run. The browser is never started with that token, or
-the one-time link that stands in for it, on its command line — another
-account on the same machine can often read one process's command line from
-another's — so the link is written to a file only your account can read
-instead, and the browser is pointed at that file. [Remote access](#remote-access), below, opens no port either: it
-is a connection this machine makes outward, not one it accepts, and what
-arrives through it is let in because the relay has already checked the device,
-not by the token.
+generated fresh for each run. The window is loaded directly inside the
+process from a one-time link that stands in for that token (see
+`server.WindowURL`), so — unlike the browser this used to spawn — neither the
+token nor the link ever touches a command line or a file on disk for another
+account on the machine to read. [Remote access](#remote-access), below, opens
+no port either: it is a connection this machine makes outward, not one it
+accepts, and what arrives through it is let in because the relay has already
+checked the device, not by the token.
 
 ### Self-hosted: running headless, on a server you own
 
@@ -333,6 +338,35 @@ The only things that stay at "the desk" are a handful of actions a paired
 device is refused for its own safety — quitting or updating Flockdeck,
 turning remote access off, minting a join code, setting an API key — done
 instead from that machine's own terminal, over SSH.
+
+#### Docker and Kubernetes
+
+The same headless run also comes as a container image, `Dockerfile` at the
+repository root, built on Alpine rather than a from-scratch base so a pane's
+shell and agent CLI have somewhere to run — see the Dockerfile's own comments
+for why, and for every `FLOCKDECK_*` variable it reads (also `flockdeck -h`).
+The one thing to know going in: the server inside binds `127.0.0.1` only, on
+a port chosen at random each start, exactly as it does outside a container —
+so `docker run -p` publishes nothing, and reaching it is `docker exec`,
+`--network host`, or `flockdeck remote enable` as above, over an outward
+connection instead of an inbound port. The Dockerfile's own `EXPOSE` comment
+has the detail.
+
+```sh
+docker build -t flockdeck .
+docker run -d --name flockdeck -v flockdeck-state:/home/flockdeck -v "$PWD:/workspace" flockdeck
+docker exec -it flockdeck flockdeck    # prints the URL of the instance already running
+```
+
+For a team already running Kubernetes, `deploy/helm/flockdeck/` is a Helm
+chart built on the same image — one pod (there is no replica count: a saved
+layout and an instance record belong to one process), a `PersistentVolumeClaim`
+for that state, and pod hardening (non-root, read-only root filesystem, no
+Linux capabilities). It deliberately ships no `Service` or `Ingress`: for the
+same loopback-and-random-port reason above, neither could route to anything
+real. `deploy/helm/flockdeck/README.md` has the install guide and what to use
+instead (`kubectl exec` plus `kubectl port-forward`, or `remote enable` for
+real off-cluster access).
 
 ## Keyboard shortcuts
 
@@ -413,6 +447,7 @@ which the command palette and the in-app help are also drawn from; run
 | Keys | Action |
 | --- | --- |
 | `Ctrl+,` | Settings |
+| `Ctrl+B` | Expand or collapse the rail |
 | `Ctrl+=` | Increase font size |
 | `Ctrl+-` | Decrease font size |
 | `Ctrl+0` | Reset font size |
@@ -1041,12 +1076,17 @@ flockdeck remote revoke <id>      # unpair one, by its id or its name
 flockdeck remote rename <name>    # what every paired device calls this machine
 flockdeck remote rename -device <id> <name>   # what a paired device is called
 flockdeck remote disable          # remove this machine from the relay
+flockdeck remote move <relay>     # move to another relay; every device pairs again
 ```
 
 `remote pair -desktop` prints a code that `remote enable -join <code>` on
 another machine uses to join the same account, so one paired device reaches
 both. `enable -invite <code>` is for a relay that asks for an invitation, and
 `disable -force` forgets the enrolment here when the relay cannot be told.
+`remote move` (or **Move to another relay…** in the dialog) is for a company
+taking its machines onto a relay of its own: it enrols with the new relay
+first and leaves the old one only once the new one answers, and every paired
+device then pairs again, since a pairing belongs to the relay it was made on.
 
 Flockdeck dials *out* to the relay — `https://remote.flockdeck.ai` unless
 `flockdeck remote enable -relay <url>` or `FLOCKDECK_RELAY` names another — and holds one WebSocket open
@@ -1189,9 +1229,14 @@ page. A machine wiped before remote access was turned off on it can no longer
 take itself off the relay, so that page removes it too.
 
 What the relay can see is stated plainly: traffic is TLS between the browser
-and the relay and between the relay and this machine, and the relay decrypts
-it to route it. It is **trusted**, not end-to-end encrypted. It never sees the
-local server's token or any API key — a request is let in here because it came
+and the relay and between the relay and this machine. Terminal traffic — what
+you type and what comes back — is also **end-to-end encrypted** on top of
+that: the relay carries it but cannot read it, even one you run yourself.
+That defeats an honestly-run relay; it does not yet defend against a relay
+that has been actively compromised and tampered with to swap the keys it
+hands out at pairing, which needs an out-of-band check not built yet. It
+never sees the local server's token or any API key — a request is let in
+here because it came
 through the tunnel, which only the relay can put one on, and the relay has
 already checked the device is paired with the account. The endpoints only
 another launch of the binary uses (`-quit`, opening a project from the command
@@ -1384,6 +1429,14 @@ files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
   copy downloaded in a browser, from dl.flockdeck.ai or GitHub, can be stopped
   by Gatekeeper or SmartScreen the first time it runs; the in-app help's
   troubleshooting page says how to let it through.
+
+## Sponsoring
+
+Flockdeck is free and open source, and sponsoring it is a way to say thank
+you: through [GitHub Sponsors](https://github.com/sponsors/jmwri), or the
+Sponsor button at the top of this repository. It buys no features, support or
+priority, and the app is the same for everyone. Sponsors who ask to be named
+are listed, by name and a link, on [the website](https://flockdeck.ai/#sponsor).
 
 ## Licence
 

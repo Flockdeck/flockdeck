@@ -34,8 +34,26 @@ import (
 	"github.com/jmwri/flockdeck/internal/server"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/webui"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
+
+// appName and appDescription identify Flockdeck to Wails: the window's
+// title, its taskbar/about-box identity, and (together with webui.Icon) what
+// makes the window genuinely Flockdeck's own rather than a browser's -- see
+// internal/appwindow.
+const (
+	appName        = "Flockdeck"
+	appDescription = "Runs your coding agents on hardware you control."
+)
+
+// windowConfig is the appwindow.Config every window this program opens is
+// created with, whichever of the two places that happens (showWindow, for
+// this instance's own window, and attach, for a second launch's window onto
+// an instance already running).
+func windowConfig() appwindow.Config {
+	return appwindow.Config{Name: appName, Description: appDescription, Icon: webui.Icon()}
+}
 
 // version is overridden at build time with -ldflags "-X main.version=...".
 var version = "dev"
@@ -148,7 +166,7 @@ func main() {
 	var c cliFlags
 	fs := flockdeckFlagSet(&c)
 	_ = fs.Parse(os.Args[1:]) // ExitOnError: a bad flag has already ended us
-	fs.Visit(func(f *flag.Flag) { c.dirGiven = c.dirGiven || f.Name == "C" })
+	c.dirGiven = dirWasGiven(fs, os.Getenv(dirEnv))
 
 	if c.version {
 		// The platform is part of the answer: it is what a bug report needs
@@ -238,27 +256,88 @@ type cliFlags struct {
 	version bool
 }
 
+// Environment variables behind the top-level flags, for a systemd unit, a
+// container ENTRYPOINT or a Helm env: block that would rather set these once
+// in a manifest than assemble an argv. Each seeds its flag's default before
+// flag.Parse runs (the pattern internal/chat/flags.go already uses and
+// already tests: "a flag beats the environment"), so a flag actually given on
+// the command line still wins. None of these carries a secret, so pattern 1
+// (seed-then-parse) is safe here -- flag.PrintDefaults would otherwise print
+// it for -h and for any bad flag.
+//
+// FLOCKDECK_AGENT is deliberately not reused for -agent: it is already the
+// name a pane's own process reads to know which agent it is
+// (internal/chat/flags.go's paneEnv("AGENT")), read unconditionally from the
+// process environment regardless of who set it. Seeding -agent's default from
+// FLOCKDECK_AGENT would also be read by every pane's `flockdeck chat`
+// invocation, corrupting per-pane agent identity with whatever the service
+// was launched with -- so the default-agent-for-new-panes setting here gets
+// its own name instead.
+const (
+	dirEnv        = "FLOCKDECK_DIR"
+	startAgentEnv = "FLOCKDECK_START_AGENT"
+	freshEnv      = "FLOCKDECK_FRESH"
+	shellFirstEnv = "FLOCKDECK_SHELL_FIRST"
+	noWindowEnv   = "FLOCKDECK_NO_WINDOW"
+	detachEnv     = "FLOCKDECK_DETACH"
+	soloEnv       = "FLOCKDECK_SOLO"
+)
+
+// envBool reports whether name is set in the environment to a value that
+// means yes -- "1" or "true", either case -- which is the shape a systemd
+// unit's Environment= or a container manifest's env: block most often writes
+// a boolean in. Anything else, including unset, false, or 0, is no.
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true":
+		return true
+	}
+	return false
+}
+
 // flockdeckFlagSet defines the top-level command line. It is built here rather
 // than inline in main so that a test can walk the same set the program uses
 // and check the help documents it.
 func flockdeckFlagSet(c *cliFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("flockdeck", flag.ExitOnError)
-	fs.StringVar(&c.dir, "C", ".", "`directory` to open the workspace on")
-	fs.StringVar(&c.agent, "agent", "", "`id` of the agent new panes start as for this run; flockdeck agents lists them")
-	fs.BoolVar(&c.fresh, "new", false, "ignore any saved layout and start with a single pane")
-	fs.BoolVar(&c.shell, "shell", false, "open the first pane as a shell instead of an agent")
-	fs.BoolVar(&c.noWindow, "no-window", false, "do not open a window or need a browser here; print the URL and keep serving")
-	fs.BoolVar(&c.detach, "detach", false, "keep running without a window; reattach later by running it again")
+	fs.StringVar(&c.dir, "C", envOr(dirEnv, "."), "`directory` to open the workspace on\n(default: $"+dirEnv+" if set, else the working directory)")
+	fs.StringVar(&c.agent, "agent", os.Getenv(startAgentEnv), "`id` of the agent new panes start as for this run; flockdeck agents lists them\n(default: $"+startAgentEnv+" if set)")
+	fs.BoolVar(&c.fresh, "new", envBool(freshEnv), "ignore any saved layout and start with a single pane\n(default: $"+freshEnv+" if set to 1 or true)")
+	fs.BoolVar(&c.shell, "shell", envBool(shellFirstEnv), "open the first pane as a shell instead of an agent\n(default: $"+shellFirstEnv+" if set to 1 or true)")
+	fs.BoolVar(&c.noWindow, "no-window", envBool(noWindowEnv), "do not open a window or need a browser here; print the URL and keep serving\n(default: $"+noWindowEnv+" if set to 1 or true)")
+	fs.BoolVar(&c.detach, "detach", envBool(detachEnv), "keep running without a window; reattach later by running it again\n(default: $"+detachEnv+" if set to 1 or true)")
 	fs.BoolVar(&c.quit, "quit", false, "stop a running instance and its agents")
-	fs.BoolVar(&c.solo, "solo", false, "always start a new instance instead of attaching to a running one")
+	fs.BoolVar(&c.solo, "solo", envBool(soloEnv), "always start a new instance instead of attaching to a running one\n(default: $"+soloEnv+" if set to 1 or true)")
 	fs.BoolVar(&c.version, "version", false, "print the version and exit")
 	fs.Usage = func() { usage(fs) }
 	return fs
 }
 
+// envOr is name's value in the environment, or fallback when it is unset or
+// empty.
+func envOr(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// dirWasGiven reports whether the workspace directory was named, rather than
+// left at -C's default, so launchRoot can tell "open this directory" from
+// "nothing named, fall back to cwd/landing logic". fs.Visit alone only sees a
+// flag actually typed on the command line, not one that merely got its
+// default seeded from envDir (FLOCKDECK_DIR) -- so envDir alone, with no -C,
+// has to count as given too, or a systemd unit that sets FLOCKDECK_DIR and
+// passes no -C would have it silently ignored.
+func dirWasGiven(fs *flag.FlagSet, envDir string) bool {
+	visited := false
+	fs.Visit(func(f *flag.Flag) { visited = visited || f.Name == "C" })
+	return visited || envDir != ""
+}
+
 func usage(fs *flag.FlagSet) {
 	out := fs.Output()
-	fmt.Fprintf(out, "flockdeck — run several coding agents at once, in tabs and split panes.\n\n")
+	fmt.Fprintf(out, "flockdeck — runs your coding agents on hardware you control.\n\n")
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
@@ -277,6 +356,8 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        pair a device, and see or change what is paired\n")
 	fmt.Fprintf(out, "  remote rename [-device <id or name>] <name>\n")
 	fmt.Fprintf(out, "        rename this machine, or a paired device, as every device lists it\n")
+	fmt.Fprintf(out, "  remote move [-invite <code>] [-join <code>] [-name <name>] [-yes] <relay>\n")
+	fmt.Fprintf(out, "        move this machine to another relay; every device then pairs again\n")
 	fmt.Fprintf(out, "  update [-check]\n")
 	fmt.Fprintf(out, "        fetch the latest release and put it in place\n")
 	fmt.Fprintf(out, "  help [<subcommand>]\n")
@@ -284,9 +365,6 @@ func usage(fs *flag.FlagSet) {
 	// These are settings with no flag, so this is the only place a person
 	// reading the usage would learn that they exist.
 	fmt.Fprintf(out, "\nEnvironment:\n")
-	fmt.Fprintf(out, "  %s=<name or program>\n", appwindow.BrowserEnv)
-	fmt.Fprintf(out, "        the browser that provides the window, instead of the first one found:\n")
-	fmt.Fprintf(out, "        chrome, edge, brave, chromium or vivaldi, or the path to one\n")
 	fmt.Fprintf(out, "  %s=off\n", updateEnv)
 	fmt.Fprintf(out, "        do not look for new releases in the background; update still works\n")
 	fmt.Fprintf(out, "  %s=<url>\n", remote.RelayEnv)
@@ -294,6 +372,14 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  FLOCKDECK_API_KEY=<key>\n")
 	fmt.Fprintf(out, "        the key any API agent uses when neither its own variables nor a key\n")
 	fmt.Fprintf(out, "        stored with `flockdeck keys set` hold one\n")
+	// The rest mirror flags above, for a systemd unit or container manifest
+	// that would rather set these once in the environment than build an argv;
+	// a flag given on the command line still wins over any of them.
+	fmt.Fprintf(out, "  %s=<directory>, %s=<id>, %s=<url>\n", dirEnv, startAgentEnv, remote.RelayEnv)
+	fmt.Fprintf(out, "  %s / %s / %s / %s / %s=1\n", freshEnv, shellFirstEnv, noWindowEnv, detachEnv, soloEnv)
+	fmt.Fprintf(out, "        the environment equivalents of -C, -agent, -relay, -new, -shell,\n")
+	fmt.Fprintf(out, "        -no-window, -detach and -solo, for a systemd unit or container manifest;\n")
+	fmt.Fprintf(out, "        a flag given on the command line always wins\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")
 	fmt.Fprintf(out, "Press F1 in the window for the help: the shortcuts, and how the rest of it works.\n")
 }
@@ -607,21 +693,12 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 		fmt.Println(" ", url)
 		return nil
 	}
-	profile, err := store.BrowserProfileDir()
-	if err != nil {
-		return err
-	}
-	// The browser is started at a one-time link rather than at the address
-	// with the token in it, which would stay on its command line for anybody
-	// on the machine to read (see server.WindowURL). Only an instance from an
-	// earlier build, which gives out no links, is opened the old way.
-	//
-	// appwindow.Open goes further still and keeps that link itself off the
-	// browser's command line, in a local redirect file where it can (see
-	// R3.7.2); its own backstop timer removes that file once the link has
-	// had time to be used or to run out, since this launch has no window of
-	// its own onto the running instance to say precisely when either happens
-	// -- unlike showWindow's own use of Open, which does.
+	// The window is pointed at a one-time link rather than at the address
+	// with the token in it (see server.WindowURL). Only an instance from an
+	// earlier build, which gives out no links, is opened the old way. Unlike
+	// the browser this package used to spawn, the link never touches a
+	// command line or a file on disk -- Wails loads it directly inside this
+	// process -- so there is nothing here for a redirect file to protect.
 	asked := time.Now()
 	link, err := server.RequestWindowURL(base, inst.Token)
 	if errors.Is(err, server.ErrNoWindowLinks) {
@@ -634,15 +711,21 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 		return fmt.Errorf("the flockdeck already running would not give a window a way in (%s); open this URL manually:\n  %s",
 			redactToken(err.Error(), inst.Token), url)
 	}
-	if _, err := appwindow.Open(link, profile); err != nil {
+	win, err := appwindow.Open(windowConfig(), link)
+	if err != nil {
 		// The instance carries on without us, so its address stays good.
-		if errors.Is(err, appwindow.ErrNoBrowser) {
-			return fmt.Errorf("%w — set %s to one, or open this URL manually:\n  %s",
-				err, appwindow.BrowserEnv, url)
+		if openErr := appwindow.OpenDefault(link); openErr == nil {
+			fmt.Println("Could not open Flockdeck's own window (" + err.Error() + "); opened in your default browser instead.")
+			return nil
 		}
 		return fmt.Errorf("%w — open this URL manually:\n  %s", err, url)
 	}
-	return nil
+	// This launch's only job from here is to keep the window's process
+	// alive for as long as the window is open -- the same role the browser
+	// this package used to spawn played on its own, as a separate process.
+	// The instance it is a window onto runs on regardless of when this
+	// returns.
+	return win.Run()
 }
 
 // joinRunning reports the instance a launch should join, if there is one.
@@ -834,6 +917,15 @@ func run(opts options) error {
 			// when joining: the project goes to the running instance and
 			// its address is printed, rather than a window being opened by
 			// the one flag that asked for none.
+			//
+			// Released explicitly, ahead of the deferred call above: unlike
+			// the instance this launch is joining, attach's own window (see
+			// its doc) is not done starting up once it opens -- it is Wails'
+			// window-owning process, and blocks running it for as long as
+			// the window stays open. Holding the start lock that long would
+			// stop every other launch from starting or attaching until the
+			// user closed this window.
+			releaseStart()
 			return attach(inst, base, root, opts.noWindow || opts.detach)
 		}
 	}
@@ -861,6 +953,14 @@ func run(opts options) error {
 	// Build the initial workspace before the server exists. Once it is
 	// running, every access to the workspace has to go through its owner
 	// goroutine, so setting up here keeps startup free of that constraint.
+	//
+	// Only the project this run was started on is restored here. The other
+	// projects open last time are brought back once the server exists (see
+	// RestoreOpenProjects below), on its own goroutine, so a session left
+	// with a dozen background projects does not hold up this one's window
+	// behind every one of their panes starting: only this project's own do,
+	// and those already start together rather than one at a time — see
+	// restoreProject's batching in package workspace.
 	restored := false
 	if !opts.fresh {
 		// A layout that fails to restore should never stop the app starting,
@@ -868,10 +968,8 @@ func run(opts options) error {
 		// windows hear of the file only once a save has moved it aside.
 		var restoreErr error
 		restored, restoreErr = ws.Restore()
-		// Bring back the other projects that were open last time, too.
-		ws.RestoreSession()
-		if err := errors.Join(restoreErr, ws.RestoreErrors()); err != nil {
-			fmt.Fprintln(os.Stderr, "flockdeck:", err)
+		if restoreErr != nil {
+			fmt.Fprintln(os.Stderr, "flockdeck:", restoreErr)
 		}
 	}
 	if !restored {
@@ -890,6 +988,14 @@ func run(opts options) error {
 	defer srv.Close()
 	ws.SetWake(srv.Wake)
 	ws.SetConversationHook(srv.ConversationHookEvent)
+
+	// Bring back the other projects that were open last time, too — see the
+	// comment above the project this run was started on being restored.
+	if !opts.fresh {
+		srv.RestoreOpenProjects(func(err error) {
+			fmt.Fprintln(os.Stderr, "flockdeck:", err)
+		})
+	}
 
 	// Remote access, for a machine enrolled with a relay. It is started from
 	// whatever the enrolment says now and told to look again whenever
@@ -936,6 +1042,7 @@ func run(opts options) error {
 		restarting.Store(true)
 		stop()
 	}
+	srv.OnCheckForUpdates = func() (string, bool) { return checkForUpdatesNow(srv) }
 
 	// Record where this instance is listening so a later launch can attach.
 	// Only now, with the callbacks that answer for it in place: the server has
@@ -977,7 +1084,6 @@ func run(opts options) error {
 	if err != nil {
 		return err
 	}
-	defer win.Close()
 
 	// Start-up is over, and with it everything worth printing to a terminal
 	// this was run from: -detach's address and how to stop it, the notes on
@@ -991,7 +1097,30 @@ func run(opts options) error {
 		releaseConsole()
 	}
 
-	<-quit
+	if win != nil {
+		// win.Run starts Wails' native event loop and blocks until the
+		// window closes -- which is either the user closing it by hand, or
+		// win.Close being called here because something else (a signal, the
+		// UI's own Quit command, srv.OnLastClientGone) has already asked to
+		// stop, over on the quit channel every other trigger closes. Either
+		// way, Run returning is this run's "the window is done" -- the same
+		// moment <-quit alone used to mark, back when the window was a
+		// separate browser process whose own end had nothing to do with
+		// this one's event loop.
+		go func() {
+			<-quit
+			win.Close()
+		}()
+		if err := win.Run(); err != nil {
+			shutdownFailed("the window ended", err)
+		}
+		// Run can return because the user closed the window, which nothing
+		// above has told quit about yet -- stop is idempotent (sync.Once),
+		// so this is a no-op on every other path, where it already has.
+		stop()
+	} else {
+		<-quit
+	}
 
 	// The tunnel is a way in like the local port, so it is closed with it,
 	// before anything is saved.
@@ -1039,58 +1168,27 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 		return nil, nil
 	}
 
-	profile, err := store.BrowserProfileDir()
+	// The window is pointed at a one-time link, not at URL: the address, with
+	// the token in it, is only ever printed, for the user to open by hand
+	// (see server.WindowURL). Unlike the browser this package used to spawn,
+	// Wails loads the link directly inside this process rather than on a
+	// separate process's command line, so there is no redirect file here for
+	// anything to protect or clean up.
+	url := srv.WindowURL()
+	win, err := appwindow.Open(windowConfig(), url)
 	if err != nil {
-		return nil, err
-	}
-	// The window's browser is started at a one-time link, not at URL: the
-	// address stays on its command line all day, for anybody on the machine
-	// to read (see server.WindowURL). URL, with the token in it, is only ever
-	// printed, for the user to open by hand.
-	//
-	// appwindow.Open itself keeps that link off the browser's own command
-	// line in turn, writing it into a local redirect file where it can (see
-	// R3.7.2); win.RedirectFile names that file, when there is one, so it can
-	// be removed the moment link stops working rather than left to that
-	// package's own backstop timer -- this server can say precisely when
-	// that is, which nothing reached over /window (attach's own launch of a
-	// window, elsewhere) can.
-	url, link := srv.NewWindowLink()
-	win, err := appwindow.Open(url, profile)
-	if err != nil {
-		// Unlike attaching, this server is ours and stops with us, so the
-		// address it was serving will not answer by the time anyone reads
-		// this. Name the ways to get a window instead.
-		if errors.Is(err, appwindow.ErrNoBrowser) {
-			return nil, fmt.Errorf("%w — set %s to one, or run `flockdeck -no-window` and open the URL it prints",
-				err, appwindow.BrowserEnv)
+		// Better an ordinary tab than no interface at all, as when the
+		// platform has no working webview -- WebView2 missing on Windows,
+		// WebKitGTK missing on Linux. The address is printed either way: a
+		// desktop that could not show Flockdeck's own window may well not
+		// show a browser tab either.
+		if openErr := appwindow.OpenDefault(srv.WindowURL()); openErr == nil {
+			fmt.Println("Could not open Flockdeck's own window (" + err.Error() + "); opened in your default browser instead.")
+		} else {
+			showStartupError(noteWindowFailed(err))
 		}
-		return nil, fmt.Errorf("open the window: %w — or run `flockdeck -no-window` and open the URL it prints", err)
-	}
-	if file := win.RedirectFile(); file != "" && !srv.SetLinkFile(link, file) {
-		// Redeemed or run out already, in the moment between the file being
-		// written and this being asked: nothing else is going to remove it.
-		_ = os.Remove(file)
-	}
-
-	if win.AppMode {
-		go watchWindow(win.Wait, srv.Detached, stop, func(err error) {
-			note := noteWindowFailed(err)
-			// Better an ordinary tab than no interface at all, as when no
-			// app-mode browser is found. Whether or not one opens, the address
-			// is printed: a desktop that could not show the window may well
-			// not show a tab either.
-			if appwindow.OpenDefault(srv.WindowURL()) == nil {
-				fmt.Println("Trying your default browser instead.")
-			}
-			printServing(opts, recorded, srv.URL())
-			// Last, since on Windows it waits for the box to be dismissed.
-			showStartupError(note)
-		})
-	} else {
-		// A tab in the user's own browser cannot be watched, so fall back
-		// to shutting down when the page disconnects.
-		fmt.Println("Opened in your browser:", srv.URL())
+		printServing(opts, recorded, srv.URL())
+		return nil, nil
 	}
 
 	// Whichever way the UI is shown, losing every connected window for more
@@ -1134,38 +1232,16 @@ func printServing(opts options, recorded bool, url string) {
 	}
 }
 
-// watchWindow waits for an app-mode window's browser to end, and stops the
-// application when that is the user closing the window -- unless they asked
-// to leave the agents running, or it handed the window to a browser already
-// running, which leaves only the connection to tell when it closes.
-//
-// A browser that failed as it started is neither: there never was a window
-// to close. It used to stop the application all the same, at once and without
-// a word -- on Linux with no display, say, where nothing else would have said
-// why. failed is told instead, and the application carries on without a
-// window, stopping as a run without one does.
-func watchWindow(wait func() error, detached func() bool, stop func(), failed func(error)) {
-	err := wait()
-	var start *appwindow.StartError
-	switch {
-	case errors.Is(err, appwindow.ErrHandedOff):
-	case errors.As(err, &start):
-		failed(err)
-	case !detached():
-		stop()
-	}
-}
-
-// windowFailedNote is what a run says when its window's browser failed as it
-// started.
+// windowFailedNote is what a run says when Flockdeck's own window could not
+// be opened at all -- including in the default browser, which showWindow
+// tries first: the platform has no working webview and no browser either.
 func windowFailedNote(err error) string {
 	return fmt.Sprintf("flockdeck: the window did not open: %v\n"+
-		"Set %s to another browser, or run `flockdeck -no-window` and open the address it prints yourself.",
-		err, appwindow.BrowserEnv)
+		"Run `flockdeck -no-window` and open the address it prints instead.", err)
 }
 
-// noteWindowFailed says that the window's browser failed as it started, and
-// returns what it said.
+// noteWindowFailed says that the window could not be opened, and returns what
+// it said.
 //
 // It can say so as much as five seconds after start-up, when the Windows
 // release has let its terminal go, or never had one: started from a shortcut,

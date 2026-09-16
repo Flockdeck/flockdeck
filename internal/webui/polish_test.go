@@ -340,7 +340,7 @@ const two = (w) => fixture({ projects: [
   { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
   { root: "C:/other", name: "other", active: false, tabs: 1, waiting: w, working: 0 }] });
 h.recv(two(0));
-h.click(h.$("project-btn"));
+h.click(h.$("rail-open"));
 const go = () => h.$("overlay-body").querySelectorAll("button.proj-go")[1];
 go().focus();
 h.recv(two(1));
@@ -542,7 +542,7 @@ h.key({ key: "Enter" });
 assert.ok(h.$("set-tips").disabled, "Show them again is still offered with nothing to show");
 settled("Show them again");
 
-h.click(h.$("settings-tab-terminal"));
+h.click(h.$("settings-tab-appearance"));
 h.$("set-font-up").focus();
 h.key({ key: "Enter" });
 assert.ok(h.$("set-font-up").disabled, "Larger is still offered at the largest size");

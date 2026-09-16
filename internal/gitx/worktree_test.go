@@ -377,6 +377,52 @@ func TestWorktreeLifecycle(t *testing.T) {
 	}
 }
 
+// TestIsWorktreeTellsALinkedWorktreeFromTheMainCheckout covers what a startup
+// sweep for a stale worktree-owning process asks before it ends anything: a
+// process still sitting in the project's own checkout is not its to reap,
+// only one in a linked worktree, which is the only kind ever removed out from
+// under whatever is still running in it.
+func TestIsWorktreeTellsALinkedWorktreeFromTheMainCheckout(t *testing.T) {
+	t.Parallel()
+	repo := newRepo(t)
+
+	if is, err := IsWorktree(repo); err != nil || is {
+		t.Errorf("IsWorktree(main checkout) = %v, %v; want false, nil", is, err)
+	}
+
+	sub := filepath.Join(repo, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if is, err := IsWorktree(sub); err != nil || is {
+		t.Errorf("IsWorktree(subfolder of the main checkout) = %v, %v; want false, nil", is, err)
+	}
+
+	wtPath := filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-feature")
+	t.Cleanup(func() { os.RemoveAll(wtPath) })
+	if err := AddFrom(repo, wtPath, "feature-x", ""); err != nil {
+		t.Fatalf("add worktree: %v", err)
+	}
+	if is, err := IsWorktree(wtPath); err != nil || !is {
+		t.Errorf("IsWorktree(linked worktree) = %v, %v; want true, nil", is, err)
+	}
+
+	// A fan-out started from a subfolder works below the worktree's own root;
+	// see sameFolderIn in internal/server/fanout.go. IsWorktree is asked about
+	// exactly that folder, and has to find the worktree it is under.
+	wtSub := filepath.Join(wtPath, "sub")
+	if err := os.Mkdir(wtSub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if is, err := IsWorktree(wtSub); err != nil || !is {
+		t.Errorf("IsWorktree(subfolder of a linked worktree) = %v, %v; want true, nil", is, err)
+	}
+
+	if is, err := IsWorktree(t.TempDir()); err != nil || is {
+		t.Errorf("IsWorktree(no repository at all) = %v, %v; want false, nil", is, err)
+	}
+}
+
 // TestWorktreeArgumentsAreNotReadAsOptions covers the path and the starting
 // point, both of which arrive from the window and neither of which git tells
 // apart from one of its own flags.

@@ -292,6 +292,32 @@ The shared relay at `https://remote.flockdeck.ai` has a
 about this machine and your devices, how long it keeps it and how to have it
 deleted, and [terms](https://flockdeck.ai/terms.html) for using it.
 
+## The trial, and the subscription
+
+Remote access through the shared relay at `https://remote.flockdeck.ai` is a
+subscription, after a free trial for every account that starts when its first
+machine is enrolled. The desktop app itself is free, every part of it,
+whatever the plan: only reaching it through the shared relay is paid for.
+
+The plan is the relay's to keep, and Flockdeck only shows what the relay says.
+[[action:remote]] shows the account's plan and, during the trial, how many days
+are left, and so does **Account & plan** in the settings. A paired phone or
+browser shows the same on its **Devices** page, which is where you subscribe.
+
+When a trial ends, or a subscription lapses, the relay stops carrying remote
+windows to this machine, and the dialog says so in the relay's own words.
+Nothing else changes: the window on your desk works exactly as before, and a
+paired device can still sign in and open **Devices** to subscribe. Flockdeck
+asks the relay again every few minutes, and at once from **Try again**, so
+remote access comes back by itself once the account is paid for.
+
+Nothing is deleted straight away. The account, its machines and its paired
+devices are kept for 90 days after a trial or subscription ends, and deleted
+after that; subscribing before then puts everything back as it was.
+
+A relay other than the shared one may have no plans at all, and then none of
+this applies: nothing is shown, and nothing stops.
+
 ## Enterprise (coming soon)
 
 For companies: a licence to run the relay on your own infrastructure, with SSO
@@ -311,6 +337,27 @@ If a second Flockdeck on this machine connects to the relay as the same
 machine, the first one steps aside and says so rather than fighting it for the
 connection.
 
+## Moving to another relay
+
+A company that runs its own relay moves its machines onto it from the shared
+one, or from an old relay of its own. **Move to another relay…**, under
+**This machine** in the dialog, asks for the new relay's address and, if it
+asks for them, an invitation or join code; `flockdeck remote move <relay>` does
+the same from a terminal, with `-invite`, `-join` and `-name`.
+
+This machine is enrolled with the new relay first, and taken off the old one
+only once the new one answers, so a relay that is mistyped, down or refusing
+leaves everything as it was. **Every paired device has to pair again**
+afterwards, with the new relay: a device's pairing is kept by the relay it was
+made on, and no other relay can use it. The dialog and the command both say so,
+and ask, before anything is done; a script passes `-yes`. If this is the only
+machine on its account on the old relay, the account and its devices there go
+with it. An old relay that cannot be reached does not stop the move: it goes
+on listing this machine, offline, until a device paired there removes it.
+
+Machines set up from scratch point at a company's relay with `-relay`, or with
+`FLOCKDECK_RELAY` set on managed machines, and need no move.
+
 ## Unpairing, and turning it off
 
 The dialog lists every paired device with an **Unpair** button; unpairing ends
@@ -328,6 +375,7 @@ From a terminal:
 | `flockdeck remote revoke <id or name>` | Unpairs one |
 | `flockdeck remote rename <name>` | Renames this machine; `-device <id or name>` renames a device |
 | `flockdeck remote disable` | Removes this machine from the relay |
+| `flockdeck remote move <relay>` | Moves this machine to another relay; every device then pairs again |
 
 A machine that was wiped or lost before remote access was turned off on it
 cannot take itself off. Remove it from the **Devices** page of a paired device

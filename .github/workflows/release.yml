@@ -37,6 +37,127 @@ jobs:
       # carrying the key its signatures are checked with.
       release: true
 
+  # The tag is worked out once, here, rather than separately in build and
+  # release: the two would otherwise have to agree by construction alone, and
+  # the tag reaches every later step through an output rather than being
+  # written into a script, which a hand-run release would otherwise paste into
+  # as free text, run as shell with a token that can write to the repository.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Work out the version
+        id: version
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # The tag is stamped into the binaries and is what the updater compares
+      # against. One it cannot read would ship a release that never updates
+      # and that no later release can replace, so it is refused before
+      # anything is built.
+      - name: Check the tag is a version
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::$TAG is not a version the updater can read; tag v1.2.3, or v1.2.3-rc.1 for a candidate"
+            exit 1
+          fi
+
+      # A release with nothing said about it in docs/releases is exactly the
+      # gap the release-notes convention exists to close, and it has slipped
+      # through before (v0.3.26 shipped with none). Held here, alongside the
+      # version check, rather than left to whoever remembers.
+      - uses: actions/checkout@v7
+        if: ${{ !contains(steps.version.outputs.tag, '-rc.') }}
+        with:
+          ref: ${{ steps.version.outputs.tag }}
+          sparse-checkout: docs/releases
+          persist-credentials: false
+      - name: Check release notes exist for this version
+        if: ${{ !contains(steps.version.outputs.tag, '-rc.') }}
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if [ ! -f "docs/releases/$TAG.md" ]; then
+            echo "::error::docs/releases/$TAG.md is missing; every release needs a notes file, written before the tag is pushed"
+            exit 1
+          fi
+
+  # Windows still cross-compiles both its archs from any machine: its window
+  # (internal/appwindow) reaches WebView2 through raw syscalls, no cgo. Linux
+  # and macOS draw their window with GTK4/WebKitGTK and Cocoa, both cgo, so
+  # every other target builds natively instead, one matrix entry per
+  # platform. There is no cross toolchain for darwin from a non-Mac host,
+  # which is why this is a matrix of native builds rather than one runner
+  # cross-compiling everything, as it used to before the window moved onto
+  # Wails.
+  #
+  # linux/arm64 tried cross-compiling from the same ubuntu-latest runner as
+  # linux/amd64 first, with the arm64 GTK4/WebKitGTK dev packages and a
+  # cross compiler installed alongside the native ones. That does not work:
+  # libwebkitgtk-6.0-dev and its arm64 copy Conflict with each other in apt,
+  # so the two could never be installed together to link against. It builds
+  # on ubuntu-24.04-arm instead -- a real arm64 machine, free for this
+  # public repository the same way every other Linux runner here is -- the
+  # same way every other platform in this matrix builds on its own kind.
+  build:
+    needs: [test, version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platforms: linux/amd64
+          - os: ubuntu-24.04-arm
+            platforms: linux/arm64
+          - os: windows-latest
+            platforms: windows/amd64,windows/arm64
+          - os: macos-latest
+            platforms: darwin/amd64,darwin/arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          persist-credentials: false
+
+      # The release is built from nothing cached. The build cache is shared
+      # with the test runs on main, which execute every test, dependencies'
+      # included, and a release restored from it would be built from what
+      # they left there, and then signed.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # Wails' Linux backend, native on whichever architecture this job's
+      # own runner is.
+      - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
+      # Explicit shell: this job now also runs on windows-latest, where a
+      # run: step with none named defaults to PowerShell -- "$TAG" there
+      # reads no such thing (PowerShell's own is $env:TAG) and expands to
+      # nothing, which is how v0.3.26-rc.8 shipped flockdeck__windows_amd64.zip,
+      # its version silently dropped from the name.
+      - name: Build and package
+        shell: bash
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: go run ./cmd/release -version "$TAG" -out dist -platforms ${{ matrix.platforms }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+
   # One release is published at a time. Two at once -- a fix to an older line
   # cut beside a new release -- would each read the latest release before
   # either had moved it, on GitHub and on the site, and whichever finished
@@ -53,7 +174,7 @@ jobs:
   # take the signing key. Named here, the secrets below are the environment's
   # copies, and a run that is not on a v* tag is refused before it starts.
   release:
-    needs: test
+    needs: [test, build, version]
     runs-on: ubuntu-latest
     environment: release
     concurrency:
@@ -82,37 +203,22 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # The tag reaches every script through the environment rather than being
-      # written into it. A hand-run release takes it as free text, and pasted
-      # into a script it would run as shell with a token that can write to the
-      # repository.
-      - name: Work out the version
-        id: version
-        env:
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
-        run: echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      # Every platform's build job uploaded its own archives; merged here into
+      # one directory, the way a single cross-compiling runner used to leave
+      # them, so everything below -- checksums, signing, publishing -- still
+      # works on one dist directory holding every platform.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
 
-      # The tag is stamped into the binaries and is what the updater compares
-      # against. One it cannot read would ship a release that never updates
-      # and that no later release can replace, so it is refused before
-      # anything is built.
-      - name: Check the tag is a version
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
-            echo "::error::$TAG is not a version the updater can read; tag v1.2.3, or v1.2.3-rc.1 for a candidate"
-            exit 1
-          fi
-
-      # Every platform is cross-compiled from this one runner, which works
-      # because the application builds with cgo disabled. The same command is
-      # what `make package` runs locally, so a developer can produce the exact
-      # artifacts a release will have before tagging anything.
-      - name: Build and package
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-        run: go run ./cmd/release -version "$TAG" -out dist
+      # Each build job wrote its own checksums.txt, covering only the
+      # platforms it built -- of no use merged, and sign refuses a
+      # checksums.txt missing a platform. This recomputes it from every
+      # archive now sitting in dist together.
+      - name: Checksum the merged release
+        run: go run ./cmd/release -sums -out dist
 
       - name: List what was built
         run: ls -l dist && cat dist/checksums.txt
@@ -136,7 +242,7 @@ jobs:
       - name: Sign
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
+          TAG: ${{ needs.version.outputs.tag }}
           FLOCKDECK_SIGNING_KEY: ${{ secrets.FLOCKDECK_SIGNING_KEY }}
         run: |
           if gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md" 2> "$RUNNER_TEMP/gh.err"; then
@@ -173,7 +279,7 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
           pre=""
           case "$TAG" in *-*) pre="--prerelease" ;; esac
@@ -236,7 +342,7 @@ jobs:
       # (svc/flockdeck-site/release.tf in terrawost).
       - name: Check the download site's secrets
         env:
-          TAG: ${{ steps.version.outputs.tag }}
+          TAG: ${{ needs.version.outputs.tag }}
           DO_SPACES_KEY: ${{ secrets.DO_SPACES_KEY }}
           DO_SPACES_SECRET: ${{ secrets.DO_SPACES_SECRET }}
           DO_SPACES_BUCKET: ${{ secrets.DO_SPACES_BUCKET }}
@@ -265,7 +371,7 @@ jobs:
       # commit is here to read it from.
       - name: Publish to dl.flockdeck.ai
         env:
-          TAG: ${{ steps.version.outputs.tag }}
+          TAG: ${{ needs.version.outputs.tag }}
           DO_SPACES_KEY: ${{ secrets.DO_SPACES_KEY }}
           DO_SPACES_SECRET: ${{ secrets.DO_SPACES_SECRET }}
           DO_SPACES_BUCKET: ${{ secrets.DO_SPACES_BUCKET }}

@@ -4,7 +4,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Flockdeck",
-  "description": "A desktop app that runs Claude Code, Codex, Gemini and other coding agents side by side, and shows which one needs your input.",
+  "description": "A desktop app that runs Claude Code, Codex, Gemini and other coding agents on hardware you control, self-hosted or on your desk, and reaches your phone or laptop with no port opened.",
   "url": {{ .URL }},
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Windows, macOS, Linux",
@@ -20,10 +20,12 @@
 <main class="wrap" id="main">
 
 <section class="hero">
-  <p class="kicker"><span aria-hidden="true" class="dot waiting">▲</span> Built for multi-agent coding</p>
-  <h1>Run all your coding agents <em>at once</em>.</h1>
-  <p class="lede">Flockdeck runs Claude Code, Codex, Gemini and more side by side
-     in one desktop app, and shows you the moment an agent needs your input.</p>
+  <p class="kicker"><span aria-hidden="true" class="dot waiting">▲</span> Built to keep working after you've gone</p>
+  <h1>Start it on a box that never sleeps. <em>Steer it from wherever you are.</em></h1>
+  <p class="lede">Flockdeck runs Claude Code, Codex, Gemini or your own model on
+     hardware you already own — a spare machine, a NAS, a cheap VPS — and
+     reaches your phone with no port opened and no password. Free and open
+     source, self-hosted or not.</p>
   <p class="cta">
     <a class="button" href="#install">Install Flockdeck</a>
     <a class="button ghost" href="{{ .Repo }}">Source on GitHub</a>
@@ -114,14 +116,37 @@
 
 <section class="band" id="what">
   <p class="eyebrow">Features</p>
-  <h2>Built for running agents in parallel.</h2>
+  <h2>What makes it worth switching to.</h2>
   <div class="grid">
+    <div class="card">
+      <span class="g">self-hosted · remote</span>
+      <h3>Runs on hardware you control</h3>
+      <p>Free to run headless on a spare machine, a home server or a VPS —
+         <code>-no-window</code> needs no browser there either — and pair it
+         from your phone or laptop with a QR code. No port opened, no
+         password.</p>
+    </div>
     <div class="card">
       <span class="g">agents · models</span>
       <h3>Any agent, any model</h3>
       <p>Claude Code, Codex, Gemini, Aider, opencode and Cursor Agent. Or talk to
          a model API directly, including local Ollama and any OpenAI-compatible
          endpoint. Pick one per pane, and set a default for each project.</p>
+    </div>
+    <div class="card">
+      <span class="g">routing</span>
+      <h3>The right model for each task</h3>
+      <p>Turn on routing for a project and fan out pre-sets tasks to a model
+         that suits them: a smaller one to run the tests, a stronger one for a
+         refactor. You see every choice before anything starts, and can change
+         it.</p>
+    </div>
+    <div class="card">
+      <span class="g">all agents</span>
+      <h3>Every agent, every project</h3>
+      <p>One list of every agent in every open project, each with its status,
+         and a jump to any of them — the calm overview that's the actual point,
+         not a pitch about running dozens at once.</p>
     </div>
     <div class="card">
       <span class="g"><span aria-hidden="true">▲</span> waiting</span>
@@ -141,14 +166,6 @@
       <h3>Turn a plan into a team</h3>
       <p>Flockdeck reads the task list an agent wrote, lets you edit it, then
          starts one agent per task, each on its own branch.</p>
-    </div>
-    <div class="card">
-      <span class="g">routing</span>
-      <h3>The right model for each task</h3>
-      <p>Turn on routing for a project and fan out pre-sets tasks to a model
-         that suits them: a smaller one to run the tests, a stronger one for a
-         refactor. You see every choice before anything starts, and can change
-         it.</p>
     </div>
     <div class="card">
       <span class="g">spend · limits</span>
@@ -184,12 +201,6 @@
       <h3>Say it once</h3>
       <p>Write one prompt and send it to every agent in the tab, or to just the
          panes you pick.</p>
-    </div>
-    <div class="card">
-      <span class="g">all agents</span>
-      <h3>Every agent, every project</h3>
-      <p>One list of every agent in every open project, each with its status,
-         and a jump to any of them.</p>
     </div>
   </div>
 </section>
@@ -283,9 +294,11 @@
     <div class="card">
       <span class="g">private</span>
       <h3>Only your desktops</h3>
-      <p>Your devices reach your desktops and nobody else's. Connections are
-         encrypted with TLS over the internet. The relay decrypts traffic to
-         route it, so remote access is not end-to-end encrypted.</p>
+      <p>Your devices reach your desktops and nobody else's. Terminal traffic
+         is end-to-end encrypted on top of the TLS connection; a pane's spend
+         and usage state still reaches the relay decrypted. See
+         <a href="trust.html">trust &amp; privacy</a> for what is, and what
+         isn't, said plainly.</p>
     </div>
     <div class="card">
       <span class="g">no desk needed</span>
@@ -312,9 +325,10 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
        and under licence, and nothing about price or date, which are not
        settled. Nobody can run a relay today, individuals are not offered one,
        and the relay is not open source, so nothing here may suggest
-       otherwise. Nor may anything here promise what the shared relay
-       will cost, which is not settled either. The app's own Settings say the
-       same beside it, which is where somebody using it will meet the plan.
+       otherwise. The shared relay's own price is settled now (see the FAQ:
+       £5 a month after its 30-day trial) — it is Enterprise's price and date
+       that remain unsettled, so nothing here may promise what those will be.
+       The app's own Settings say the same beside it, which is where somebody using it will meet the plan.
        v0.2.9's Settings link #private-relays, so that id stays, on the card's
        first line, and lands on the whole card. -->
   <div class="pair plan">
@@ -434,14 +448,22 @@ make package    <span class="c"># archives for all six platforms</span></code></
     <details open>
       <summary>Is Flockdeck free?</summary>
       <p>The desktop app is, for good: it's free and open source under the MIT
-         licence. The shared relay is free to use for now; a paid plan for it
-         is coming.</p>
+         licence, on your own computer or self-hosted on a server you run.
+         Reaching it from your phone through Flockdeck's shared relay is free
+         for a 30-day trial, then £5 a month — there's no permanent free tier
+         for the relay, since somebody has to pay for running it.</p>
+      <p>If you'd like to say thank you, you can
+         <a href="#sponsor">sponsor Flockdeck</a>. It buys nothing: the app is
+         the same for everyone.</p>
     </details>
     <details>
       <summary>Is there a paid version?</summary>
-      <p>Not yet. A plan for the shared relay is coming, and so is
-         <a href="#enterprise">Enterprise</a>, for companies to run the relay
-         on their own infrastructure with SSO and support — see
+      <p>The shared relay is £5 a month after its free trial. Companies
+         that can't have Flockdeck's relay in the loop at all can license the
+         whole stack — relay and remote access included — to run entirely on
+         their own infrastructure, with SSO: see
+         <a href="#enterprise">Enterprise</a>, in progress, with SSO and an
+         audit log already built and under test — see
          <a href="https://docs.flockdeck.ai/self-hosting/overview.html">self-hosting the relay</a>.
          The app stays free and open source.</p>
     </details>
@@ -463,7 +485,9 @@ make package    <span class="c"># archives for all six platforms</span></code></
          agents: they send your conversations to the model provider you
          choose, with your own key. Routing and the cost estimates add no
          connection of their own. The <a href="privacy.html">privacy
-         policy</a> has the details.</p>
+         policy</a> has the details, and <a href="trust.html">trust &amp;
+         privacy</a> has the short version, including how that compares to
+         other coding assistants.</p>
     </details>
     <details>
       <summary>Do I need API keys?</summary>
@@ -533,6 +557,32 @@ make package    <span class="c"># archives for all six platforms</span></code></
          (arm64) machines.</p>
     </details>
   </div>
+</section>
+
+<!-- Sponsoring: a way to give money that buys nothing, which the section says
+     in so many words, since the likeliest trouble is a sponsor expecting
+     priority. The names come from assets/sponsors.txt, and are only those
+     who asked to be named: a name, and a link where they gave one, with no
+     logo, so that a company's line is not an advertisement. -->
+<section class="band" id="sponsor">
+  <p class="eyebrow">Sponsor</p>
+  <h2>Say thank you.</h2>
+  <p>Flockdeck is free and open source. If it's useful to you or your
+     company, you can sponsor it through GitHub Sponsors. Sponsoring buys no
+     features, support or priority: the app is the same for everyone.</p>
+  <p class="cta"><a class="button ghost" href="{{ .Sponsor }}">Sponsor on GitHub</a></p>
+  <h3>Sponsors</h3>
+  {{- if .Sponsors}}
+  <ul class="sponsors">
+    {{- range .Sponsors}}
+    <li>{{if .Link}}<a href="{{.Link}}" rel="sponsored">{{.Name}}</a>{{else}}{{.Name}}{{end}}</li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p>No one is listed yet.</p>
+  {{- end}}
+  <p class="aside">Sponsors are named here only if they ask to be, by name and
+     a link.</p>
 </section>
 
 </main>

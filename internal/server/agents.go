@@ -12,6 +12,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/pricing"
+	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
@@ -37,6 +38,13 @@ type agentView struct {
 	// helper is drawn as an ordinary row rather than orphaned under one that
 	// no longer exists.
 	Parent string `json:"parent,omitempty"`
+	// Waiting is what a waiting pane's permission prompt or question is
+	// asking, in the same words a permission prompt shows -- "Run: rm -rf
+	// build", "Edit main.go", "asking a question" -- so a list of several
+	// panes waiting at once says which is worth a look first, without
+	// opening any of them. Left out for a pane not waiting, and for one
+	// whose ask this cannot describe. See waitingViews.
+	Waiting string `json:"waiting,omitempty"`
 }
 
 type agentsMsg struct {
@@ -112,6 +120,19 @@ func (s *Server) sendAgents(c *controlClient) {
 			}
 			if p.Sess != nil {
 				av.For = humanAgo(time.Since(p.Sess.StatusSince()))
+				// What a waiting pane wants, in the same words a permission
+				// prompt would show: so a list of several waiting at once,
+				// several of them somebody else's helpers, says which are
+				// worth a look first without opening any of them. See
+				// waitingViews, built for the same purpose in the pane's own
+				// push.
+				if st == session.StatusWaiting {
+					if ask, perm := waitingViews(detail, p.Sess.ToolInput()); ask != nil {
+						av.Waiting = "asking a question"
+					} else if perm != nil {
+						av.Waiting = perm.Summary
+					}
+				}
 			}
 			msg.Items = append(msg.Items, av)
 		}
