@@ -147,10 +147,15 @@ is never used expires after ten minutes, and is deleted within ten more.
 ### What passes through
 
 Your devices and your desktop reach the relay over encrypted connections
-(TLS). To route your traffic, the relay decrypts it: your terminal output,
-what you type, and the state of your panes pass through it. That state
-includes what each pane's agent has spent, its usage limits, and which model
-routing chose for it. Remote access is **not end-to-end encrypted.**
+(TLS). Terminal traffic — what you type and what an agent prints back — is
+also **end-to-end encrypted** on top of that: the relay carries it but
+cannot read it. The state of your panes still passes through the relay in
+the clear, so it can be seen there: what each pane's agent has spent, its
+usage limits, and which model routing chose for it. End-to-end encryption
+protects your terminal's contents from an honestly-run relay, including one
+you host yourself, but not yet from a relay that has been actively
+compromised and tampered with to intercept the key exchange at pairing —
+that additional check has not been built yet.
 
 The relay does not record, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through remote access.
