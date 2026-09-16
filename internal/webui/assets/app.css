@@ -167,6 +167,12 @@ body { flex-direction: row; }
   background: transparent; color: var(--fg-dim); font: inherit; cursor: pointer;
 }
 .rail-btn:hover { background: #22262e; color: var(--fg); }
+/* As wide as a monogram's own box, so a tool's icon lines up under a
+ * project's two-letter tile instead of sitting 8px further left -- ragged
+ * once the rail is wide enough to show both in a column -- and so the badge
+ * below, fixed to this same width, clears the label instead of sitting on
+ * top of its first letter. */
+.rail-btn .ico { width: 24px; justify-content: center; }
 .rail-tile .mono { font-size: 12px; font-weight: 700; letter-spacing: .02em; }
 /* The project on screen: a lighter ground, and an edge so that it is told
  * apart from the tile the pointer happens to be over. */
