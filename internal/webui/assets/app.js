@@ -342,6 +342,10 @@
       // also what releases a button left waiting for a reply that the drop
       // took with it.
       refreshDialog();
+      // A manual update check has nothing to ask again for -- it is a single
+      // notice, not a dialog's own state -- so a drop that took it with it is
+      // released here instead, the same idea.
+      if (updateChecking) { updateChecking = false; settingsChanged(); renderRecall(); }
     };
     ws.onmessage = (ev) => {
       if (control !== ws) return;
@@ -421,7 +425,14 @@
         detaching = true;
         window.close();
       }
-      else if (msg.type === "notice") { commitAnswered(msg.error); notice(msg.text, msg.error); }
+      else if (msg.type === "notice") {
+        commitAnswered(msg.error);
+        // A manual update check answers with a notice alone when nothing new
+        // is found; when it did, the state carrying it settles this too, but
+        // resetting it here as well costs nothing and covers both.
+        if (updateChecking) { updateChecking = false; settingsChanged(); renderRecall(); }
+        notice(msg.text, msg.error);
+      }
       else if (msg.type === "ghStatus") {
         ghStatus = msg;
         if (dialog === "github") keepFocus(renderGithub);
@@ -611,6 +622,12 @@
     }
     return nodes;
   }
+
+  /** Whether a manual "Check for updates" is out and has not yet been
+   *  answered -- asked from Settings or from the recall banner, whichever
+   *  was pressed. Both read it to show the same "Checking…" while it is,
+   *  since only one check is ever in flight at a time. */
+  let updateChecking = false;
 
   /** openUpdate explains what installing costs before it is done.
    *
@@ -4193,6 +4210,12 @@
    *  button to be found among the others; it lands there instead. */
   let wtCreated = "";
 
+  /** Whether an add, remove or prune is out and has not yet answered. The
+   *  same answer -- a fresh listing -- settles every one of them, so every
+   *  action button in the dialog waits together while any one is running,
+   *  as Changes' fetch, pull, push and commit do. */
+  let wtBusy = false;
+
   /** The panes the worktree list last counted. How many agents work in each
    *  worktree is counted when the list is read, and Remove refuses while any
    *  do; close those panes and the dialog went on counting them, refusing
@@ -4226,13 +4249,14 @@
     dialog = "worktrees";
     worktrees = null;
     wtDraft = { branch: "", base: "" };
+    wtBusy = false;
     openOverlay("Worktrees", "worktrees");
     $("overlay-body").append(el("div", "dir-empty", "Reading the worktrees…"));
     send({ cmd: "worktrees" });
   }
 
   function renderWorktrees(msg) {
-    if (msg) worktrees = msg;
+    if (msg) { worktrees = msg; wtBusy = false; }
     if (dialog !== "worktrees") return; // closed, or replaced by another
     const m = worktrees || {};
     const body = $("overlay-body");
@@ -4242,6 +4266,16 @@
       body.append(el("p", null, m.error));
       return;
     }
+
+    // Adding, removing and pruning all run git, which is not always quick,
+    // and the same fresh listing settles whichever one is out -- so every
+    // button in the dialog is disabled while any one runs, as Changes' own
+    // fetch, pull, push and commit do, rather than only the one pressed.
+    const running = (btn, saying) => {
+      btn.textContent = saying;
+      for (const b of body.querySelectorAll("button")) b.disabled = true;
+      wtBusy = true;
+    };
 
     // --- existing worktrees ------------------------------------------------
     const list = section("Checkouts");
@@ -4317,7 +4351,7 @@
         const prune = el("button", "chip primary", "Prune");
         prune.id = key + "prune";
         prune.title = "Clear git's record of this worktree. Like Prune below, it clears every worktree whose folder is gone.";
-        prune.onclick = () => send({ cmd: "worktreePrune" });
+        prune.onclick = () => { running(prune, "Pruning…"); send({ cmd: "worktreePrune" }); };
         actions.append(prune);
       } else {
         const agent = el("button", "chip primary", "Agent");
@@ -4356,6 +4390,7 @@
           }
           if (unsafe && !window.confirm(
             wt.label + " has uncommitted changes.\n\nRemove it and discard them?")) return;
+          running(rm, "Removing…");
           send({ cmd: "worktreeRemove", path: wt.path, force: !!unsafe });
         };
         actions.append(rm);
@@ -4396,7 +4431,14 @@
     });
 
     const go = el("button", "chip primary", "Create");
+    // Its wording changes while it works, which identify() cannot follow by
+    // text alone.
+    go.id = "wt-create";
     const submit = () => {
+      // Enter in either field reaches this directly, past the button
+      // running() just disabled, the way Ctrl+Enter reaches Changes' own
+      // commit past its buttons.
+      if (wtBusy) return;
       // Enter in the base field, filled in last, with no branch named did
       // nothing and said nothing - and the branch is what the worktree is for.
       if (!branch.value.trim()) {
@@ -4405,6 +4447,7 @@
         return;
       }
       wtCreated = branch.value.trim();
+      running(go, "Creating…");
       send({ cmd: "worktreeAdd", text: branch.value.trim(), base: base.value.trim() });
       branch.value = "";
       wtDraft.branch = "";
@@ -4426,8 +4469,11 @@
       const chips = el("div", "places");
       free.slice(0, 14).forEach((b) => {
         const btn = el("button", "chip", b.name);
+        // Its wording changes while it works, which identify() cannot follow
+        // by text alone.
+        btn.id = "wt-checkout-" + encodeURIComponent(b.name);
         btn.title = "Create a worktree checking out " + b.name;
-        btn.onclick = () => send({ cmd: "worktreeAdd", text: b.name });
+        btn.onclick = () => { wtCreated = b.name; running(btn, "Creating…"); send({ cmd: "worktreeAdd", text: b.name }); };
         chips.append(btn);
       });
       // One stop, walked with the arrows, like the rows above it: up to
@@ -4449,10 +4495,14 @@
     // --- maintenance -------------------------------------------------------
     const tools = el("div", "wt-tools");
     const refresh = el("button", "chip", "Refresh");
-    refresh.onclick = () => send({ cmd: "worktrees" });
+    // Its wording changes while it works, which identify() cannot follow by
+    // text alone.
+    refresh.id = "wt-refresh";
+    refresh.onclick = () => { running(refresh, "Reading…"); send({ cmd: "worktrees" }); };
     const prune = el("button", "chip", "Prune");
+    prune.id = "wt-prune-all";
     prune.title = "Drop records for worktrees whose folders are gone";
-    prune.onclick = () => send({ cmd: "worktreePrune" });
+    prune.onclick = () => { running(prune, "Pruning…"); send({ cmd: "worktreePrune" }); };
     tools.append(refresh, prune, rootLabel(m.root || ""));
     body.append(tools);
 
@@ -8565,9 +8615,10 @@
       // The switch above only ever governed looking in the background; a
       // person pressing a button marked "Check for updates now" is asking
       // once, this moment, not turning that back on.
-      const check = el("button", "chip", "Check for updates now");
+      const check = el("button", "chip", updateChecking ? "Checking…" : "Check for updates now");
       check.id = "set-check-update";
-      check.onclick = () => send({ cmd: "checkForUpdate" });
+      check.disabled = updateChecking;
+      check.onclick = () => { updateChecking = true; settingsChanged(); renderRecall(); send({ cmd: "checkForUpdate" }); };
       extra.append(check);
       if (u) {
         const install = el("button", "chip primary", "Install " + u.version + "…");
@@ -9953,7 +10004,7 @@
     // Keyed on the update too: recall itself does not change the moment a
     // fix is downloaded, but the banner's own button has to swap from
     // checking to installing right then, not on whatever redraw follows.
-    const key = r ? r.version + "|" + r.reason + "|" + (u ? u.version : "") : "";
+    const key = r ? r.version + "|" + r.reason + "|" + (u ? u.version : "") + "|" + updateChecking : "";
     if (key === recallShown) return;
     recallShown = key;
     bar.textContent = "";
@@ -9972,8 +10023,10 @@
       install.onclick = openUpdate;
       bar.append(install);
     } else {
-      const check = el("button", "chip", "Check for updates");
-      check.onclick = () => send({ cmd: "checkForUpdate" });
+      const check = el("button", "chip", updateChecking ? "Checking…" : "Check for updates");
+      check.id = "recall-check-update";
+      check.disabled = updateChecking;
+      check.onclick = () => { updateChecking = true; renderRecall(); settingsChanged(); send({ cmd: "checkForUpdate" }); };
       bar.append(check);
     }
     bar.hidden = false;

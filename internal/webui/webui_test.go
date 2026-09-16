@@ -2790,6 +2790,57 @@ assert.ok(h.$("recall-banner").hidden, "the banner outlived its own recall");
 `)
 }
 
+// Checking for an update reaches GitHub, which is not instant, and neither
+// button that asks for one said so while it waited -- a press that had
+// registered looked exactly like one that had not.
+func TestCheckingForAnUpdateSaysItIsRunning(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ recall: { version: "9.9.8", reason: "corrupts settings on first launch", upgrade: "9.9.9" } }));
+h.click(h.$("btn-settings"));
+
+h.click(h.$("set-check-update"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "checkForUpdate" });
+assert.strictEqual(h.$("set-check-update").textContent, "Checking…", "the settings button did not say it was working");
+assert.ok(h.$("set-check-update").disabled, "the settings button still invites a press");
+// The recall banner's own button, elsewhere on screen, says the same thing:
+// only one check is ever out at a time.
+assert.strictEqual(h.$("recall-check-update").textContent, "Checking…", "the recall banner did not follow along");
+
+// A second press while the first is in flight asks nothing more.
+const sent = h.commands().length;
+h.click(h.$("set-check-update"));
+assert.strictEqual(h.commands().length, sent, "a second check was sent while the first was in flight");
+
+// Nothing new was found: the server's only word on that is a notice, and it
+// releases both buttons.
+h.recv({ type: "notice", text: "flockdeck is up to date", error: false });
+assert.strictEqual(h.$("set-check-update").textContent, "Check for updates now", "the settings button was left saying it was working");
+assert.ok(!h.$("set-check-update").disabled, "the settings button was left disabled");
+assert.strictEqual(h.$("recall-check-update").textContent, "Check for updates", "the recall banner was left saying it was working");
+`)
+}
+
+// A connection dropped while a manual update check was out took its answer
+// with it, and nothing was ever going to ask again on the button's behalf --
+// there is no dialog to reopen, unlike Changes or the worktrees panel.
+// Reconnecting is what releases it instead.
+func TestACheckForUpdateDroppedWithTheConnectionIsReleased(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-settings"));
+h.click(h.$("set-check-update"));
+assert.ok(h.$("set-check-update").disabled, "the button did not say it was working");
+
+h.controls()[0].close();
+h.click(h.$("retry"));
+h.controls().pop().onopen();
+assert.ok(!h.$("set-check-update").disabled, "reconnecting did not release the button");
+assert.strictEqual(h.$("set-check-update").textContent, "Check for updates now");
+`)
+}
+
 // The release notes and a file's diff each scroll inside a box of their own,
 // and neither box could be focused, so what was past its bottom edge was out
 // of reach from the keyboard. Each is a named stop on Tab's way round its
@@ -6583,6 +6634,55 @@ const before = h.commands().length;
 gone.querySelector("button").focus();
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().slice(before), [{ cmd: "worktreePrune" }], "Enter on the row's Prune did not prune");
+`)
+}
+
+// Adding, removing and pruning a worktree all run git, and none of them said
+// so while they were out, so a press that had registered looked exactly like
+// one that had not -- the same gap Changes' own fetch, pull, push and commit
+// close.
+func TestAWorktreeOperationSaysItIsRunning(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+const list = (items) => ({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items });
+const main = { label: "main", path: "C:/repo", main: true };
+const spare = { label: "spare", path: "C:/spare", dirty: 0, untracked: 0 };
+h.recv(list([main, spare]));
+
+h.$("wt-branch").value = "fix-auth";
+h.$("wt-branch").oninput();
+const create = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Create")[0];
+h.click(create);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeAdd", text: "fix-auth", base: "main" });
+assert.strictEqual(create.textContent, "Creating\u2026", "the button did not say it was working");
+const remove = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Remove")[0];
+assert.ok(remove.disabled, "the other buttons still invite a press");
+
+// A second press while the first is in flight creates nothing more.
+const sent = h.commands().length;
+h.click(create);
+assert.strictEqual(h.commands().length, sent, "a second create was sent while the first was in flight");
+
+// It always ends by sending the listing back, which puts the buttons right.
+h.recv(list([main, spare]));
+const removeAgain = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Remove")[0];
+assert.ok(!removeAgain.disabled, "the buttons were left disabled");
+
+// Remove and Prune say so too, and do not go twice.
+h.click(removeAgain);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeRemove", path: "C:/spare", force: false });
+assert.strictEqual(removeAgain.textContent, "Removing\u2026");
+const twice = h.commands().length;
+h.click(removeAgain);
+assert.strictEqual(h.commands().length, twice, "the remove was sent twice");
+
+h.recv(list([main, spare]));
+const prune = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Prune")[0];
+h.click(prune);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreePrune" });
+assert.strictEqual(prune.textContent, "Pruning\u2026");
 `)
 }
 
