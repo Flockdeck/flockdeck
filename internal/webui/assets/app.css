@@ -1031,9 +1031,28 @@ textarea:focus-visible {
 /* A helper's row names the pane it was spawned from, and a waiting row says
  * what it is waiting on you for -- both meta items like the branch and the
  * running tool beside them, coloured to match how the rest of the app
- * already marks "this needs you" and "this is somebody else's own pane". */
-.agent-parent { font-style: italic; }
+ * already marks "this needs you" and "this is somebody else's own pane".
+ * Where the parent is still open the name is a real button -- reset to look
+ * like the meta text beside it, an underline on hover and focus its only
+ * tell -- rather than the plain span a closed parent still falls back to. */
+.agent-parent {
+  font-style: italic; background: none; border: 0; padding: 0; margin: 0;
+  color: inherit; font-size: inherit; font-family: inherit;
+}
+.agent-parent.link { cursor: pointer; }
+.agent-parent.link:hover, .agent-parent.link:focus-visible { text-decoration: underline; color: var(--fg); }
 .agent-waiting { color: var(--waiting); }
+
+/* Grouped by project instead of by urgency: the same rows, each project's
+ * under its own heading and a helper nested under the parent that spawned
+ * it. The guide line is the same treatment a folder tree elsewhere in the
+ * app would use, kept faint so it reads as structure, not another row. */
+.agent-view-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.chip.agent-view-tab.sel { background: #262a32; color: var(--fg); font-weight: 600; border-color: var(--line-strong); }
+.agent-tree .agent-row { padding: 8px 0; }
+.agent-children {
+  margin-left: 19px; padding-left: 15px; border-left: 1px solid var(--line);
+}
 
 /* ------------------------------------------------------------ summary card */
 
