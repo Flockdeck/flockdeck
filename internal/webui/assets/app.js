@@ -387,6 +387,7 @@
       // A Clear pressed goes with the key it cleared; the keyboard goes to
       // that row's own button rather than out of the dialog.
       else if (msg.type === "keys") keepFocus(() => renderKeys(msg), () => keySetButton(keyActed));
+      else if (msg.type === "versions") renderVersions(msg);
       else if (msg.type === "agentAddress") addressAnswered(msg);
       // An unpaired device's row goes with its Unpair button, and the
       // keyboard with it: to Pair a device, rather than out of the dialog.
@@ -4159,6 +4160,7 @@
     else if (dialog === "agentPicker") send({ cmd: "refreshAgents" });
     else if (dialog === "history") send({ cmd: "conversations" });
     else if (dialog === "keys") send({ cmd: "keys" });
+    else if (dialog === "versions") send({ cmd: "listVersions" });
     else if (dialog === "remote") send({ cmd: "remoteDevices" });
     else if (dialog === "settings" && settingsSection === "keys") send({ cmd: "keys" });
     else if (dialog === "settings" && settingsSection === "remote") send({ cmd: "remoteDevices" });
@@ -8200,6 +8202,71 @@
     return form;
   }
 
+  // -------------------------------------------------------------- versions
+
+  /** What the version picker last heard from listVersions, or null while it
+   *  is still loading, or has not been opened this session. Dropped whenever
+   *  the dialog is opened again, the same way apiKeys and worktrees are. */
+  let versions = null;
+
+  /** openVersions shows recent published releases to install one of,
+   *  forward or back, instead of only ever moving to the latest. */
+  function openVersions() {
+    dialog = "versions";
+    versions = null;
+    openOverlay("Install a specific version", "cli"); // where updating is explained
+    $("overlay-body").textContent = "";
+    $("overlay-body").append(el("div", "dir-empty", "Loading…"));
+    send({ cmd: "listVersions" });
+  }
+
+  /** renderVersions draws the picker from what listVersions answered. */
+  function renderVersions(msg) {
+    if (msg) versions = msg;
+    if (dialog !== "versions") return;
+    const body = $("overlay-body");
+    body.textContent = "";
+    body.append(el("div", "fan-hint",
+      "Downloads and checks a release against its signed checksum, the same as an ordinary update. " +
+      "Restarting to put it in place is a separate step, asked for the same way."));
+    if (!versions) { body.append(el("div", "dir-empty", "Loading…")); return; }
+    if (versions.error) { body.append(el("div", "dir-empty", versions.error)); return; }
+    const items = versions.items || [];
+    if (!items.length) { body.append(el("div", "dir-empty", "No recent releases could be listed.")); return; }
+
+    const wrap = section(items.length === 1 ? "1 release" : items.length + " releases");
+    items.forEach((v) => {
+      const row = el("div", "wt-row");
+      row.dataset.key = "version:" + v.version;
+      const main = el("div", "wt-main");
+
+      const title = el("div", "wt-title");
+      title.append(el("span", "wt-label", v.version));
+      if (v.relation === "current") title.append(el("span", "wt-flag", "running now"));
+      main.append(title);
+
+      const bits = [];
+      if (v.published) bits.push(new Date(v.published).toLocaleDateString());
+      if (v.notes) bits.push(v.notes.split("\n")[0]);
+      if (bits.length) main.append(el("div", "wt-meta", bits.join(" — ")));
+      row.append(main);
+
+      const actions = el("div", "wt-actions");
+      const label = v.relation === "newer" ? "Update to…" : v.relation === "older" ? "Roll back to…" : "Reinstall";
+      const install = el("button", "chip", label);
+      install.id = "version-install-" + encodeURIComponent(v.version);
+      install.onclick = () => {
+        install.disabled = true;
+        install.textContent = "Downloading…";
+        send({ cmd: "installVersion", text: v.version });
+      };
+      actions.append(install);
+      row.append(actions);
+      wrap.append(row);
+    });
+    body.append(wrap);
+  }
+
   // --------------------------------------------------------------- settings
 
   /* One dialog for the settings that were scattered across the palette, the
@@ -8580,6 +8647,15 @@
       "Looks for new releases in the background and downloads them, to go in when you choose to restart. " +
       "FLOCKDECK_UPDATE=off in the environment stops it whatever this says.",
       switchControl("set-updates", !prefs.updatesOff, (on) => setOff("updatesOff", !on)), extra));
+
+    if (!remoteWindow) {
+      const rollback = el("button", "chip", "Install a specific version…");
+      rollback.id = "set-versions";
+      rollback.onclick = openVersions;
+      pane.append(settingRow("Roll back or reinstall",
+        "Pick a previous release to install over this one, forward or back, or reinstall the version you're running now.",
+        rollback));
+    }
 
     const dismissed = (prefs.dismissedTips || []).length;
     const tips = el("button", "chip", "Show them again");

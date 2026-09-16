@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jmwri/flockdeck/internal/selfupdate"
 )
 
 // `flockdeck update -version=v1.4.0` is the rollback entry point: it takes a
@@ -107,6 +110,28 @@ func stageForTest(t *testing.T, staged string) (dir, exe string) {
 		}
 	}
 	rec, err := json.Marshal(map[string]string{"version": staged, "binary": binary})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pending.json"), rec, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir, exe
+}
+
+// stageChosenForTest is stageForTest for a release staged by naming it --
+// the interface's version picker -- rather than reached as the latest.
+func stageChosenForTest(t *testing.T, staged string) (dir, exe string) {
+	t.Helper()
+	dir, install := t.TempDir(), t.TempDir()
+	exe = filepath.Join(install, "flockdeck")
+	binary := filepath.Join(dir, "staged")
+	for path, body := range map[string]string{exe: "running", binary: "staged"} {
+		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec, err := json.Marshal(map[string]any{"version": staged, "binary": binary, "chosen": true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,5 +336,89 @@ func TestApplyStagedOnlyMovesForward(t *testing.T) {
 			t.Errorf("running %s with v1.5.0 staged: replaced = %v, want %v (%q)",
 				c.running, replaced, c.replaced, out.String())
 		}
+	}
+}
+
+// A release chosen by name -- the interface's version picker, or the CLI's
+// own -version staged by a run before this one -- is applied at the next
+// restart regardless of direction: rolling back to an older version is the
+// whole point, and applyStaged's ordinary "only moves forward" guard
+// (TestApplyStagedOnlyMovesForward) is for what the background watcher staged
+// on its own, not for somebody's deliberate choice.
+func TestApplyStagedAppliesAChosenReleaseRegardlessOfDirection(t *testing.T) {
+	running := []string{"v1.4.0", "v1.5.0", "v1.6.0"} // older, same, newer than v1.5.0
+	for _, r := range running {
+		dir, exe := stageChosenForTest(t, "v1.5.0")
+		var out bytes.Buffer
+		applyStaged(&out, dir, exe, r)
+		got, err := os.ReadFile(exe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != "staged" {
+			t.Errorf("running %s with a Chosen v1.5.0 staged: not applied (%q)", r, out.String())
+		}
+	}
+}
+
+// stagedUpdate offers a Chosen release exactly as staged, whichever way it
+// compares to what is running -- unlike an ordinary staged release, which is
+// only offered when it would move the running version forward.
+func TestStagedUpdateHonoursChosen(t *testing.T) {
+	dir, _ := stageChosenForTest(t, "v1.2.0")
+	p, ok := stagedUpdate(dir, "v1.5.0") // v1.2.0 is older than what's running
+	if !ok || p.Version != "v1.2.0" {
+		t.Errorf("stagedUpdate = %+v, %v; want the Chosen release offered although it is older", p, ok)
+	}
+
+	dir2, _ := stageForTest(t, "v1.2.0") // the same, staged the ordinary way
+	if _, ok := stagedUpdate(dir2, "v1.5.0"); ok {
+		t.Error("stagedUpdate offered an ordinary (non-Chosen) staged release that is older than what's running")
+	}
+}
+
+// chosenStillOffered is checkRound's guard against second-guessing a
+// deliberate choice: nothing pending, or something staged the ordinary way,
+// leaves the rest of checkRound to decide; a Chosen release is reported as
+// ready and nothing else runs.
+func TestChosenStillOffered(t *testing.T) {
+	if _, handled := chosenStillOffered(nil); handled {
+		t.Error("chosenStillOffered(nil) = handled, want checkRound to decide")
+	}
+	if _, handled := chosenStillOffered(&selfupdate.Pending{Version: "v1.5.0"}); handled {
+		t.Error("chosenStillOffered on an ordinary staged release = handled, want checkRound to decide")
+	}
+	msg, handled := chosenStillOffered(&selfupdate.Pending{Version: "v1.2.0", Chosen: true})
+	if !handled || !strings.Contains(msg, "v1.2.0") {
+		t.Errorf("chosenStillOffered on a Chosen release = %q, %v; want it reported ready", msg, handled)
+	}
+}
+
+// relationOf is the picker's own comparison, in words rather than a boolean,
+// so the front end can offer "Reinstall", "Update to…" or "Roll back to…"
+// without ordering versions itself.
+func TestRelationOf(t *testing.T) {
+	cases := []struct{ candidate, running, want string }{
+		{"v1.5.0", "v1.4.0", "newer"},
+		{"v1.4.0", "v1.5.0", "older"},
+		{"v1.4.0", "v1.4.0", "current"},
+	}
+	for _, c := range cases {
+		if got := relationOf(c.candidate, c.running); got != c.want {
+			t.Errorf("relationOf(%q, %q) = %q, want %q", c.candidate, c.running, got, c.want)
+		}
+	}
+}
+
+// publishedString is a release's publish date for the wire: RFC 3339, or ""
+// where nothing is known -- releases.json's own entries are not required to
+// carry one, unlike a release read from GitHub's API or the site's manifest.
+func TestPublishedString(t *testing.T) {
+	if got := publishedString(time.Time{}); got != "" {
+		t.Errorf("publishedString(zero) = %q, want empty", got)
+	}
+	at := time.Date(2026, 9, 12, 13, 0, 0, 0, time.UTC)
+	if got := publishedString(at); got != "2026-09-12T13:00:00Z" {
+		t.Errorf("publishedString = %q, want RFC 3339", got)
 	}
 }
