@@ -35,6 +35,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/review"
+	"github.com/jmwri/flockdeck/internal/route"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -2194,6 +2195,13 @@ func (w *Workspace) SendPromptTo(focus, text string, submit bool) {
 
 func (w *Workspace) sendPrompt(targets []*Pane, text string, submit bool) {
 	for _, p := range targets {
+		// A submitted prompt is offered to routing before it is typed: see
+		// routeFirstTurn. A draft still being typed (submit false, for a
+		// broadcast preview) is never routed, since nothing has been sent
+		// yet for a rule to decide about.
+		if submit && w.routeFirstTurn(p, text) {
+			continue
+		}
 		go func(s *session.Session) {
 			typed, pasted := promptInput(text, s.BracketedPaste())
 			if err := s.WriteString(typed); err == nil && submit {
@@ -2209,6 +2217,84 @@ func (w *Workspace) sendPrompt(targets []*Pane, text string, submit bool) {
 			}
 		}(p.Sess)
 	}
+}
+
+// routeFirstTurn is the point in a pane's life route.KindTurn exists for: the
+// moment its very first prompt is about to be sent, which is also the first
+// moment anything is known about what the pane is for. newPane resolved its
+// agent and model from nothing but the project's defaults, the same way a
+// fan-out row or a spawned helper would have before their own task was
+// known; this is where a pane opened by hand, or from the picker, catches up
+// to them -- routed, if routing has anything to say, before the prompt ever
+// reaches its agent.
+//
+// It only ever fires once. Eligibility is checked the same way startPane
+// checks whether to resume -- against the stored transcript, not anything
+// kept in memory -- so a restart, a restore, or this very function having
+// already run once for this pane can never be mistaken for a first turn
+// twice: once a transcript exists, routing has missed its moment and text is
+// typed into the running conversation exactly as it always was.
+//
+// It only ever routes in "auto" mode, for the reason routeSpawnChoice's own
+// comment already gives: a prompt about to be typed into a live terminal has
+// no dialog left to show a suggestion in before it runs, only a choice
+// already made and about to be acted on.
+//
+// Turn routing never crosses agents. route.Decide already refuses that for
+// every Kind but KindFanout and KindSpawn -- a live pane's process belongs
+// to the agent it was opened as, and reassigning that is a bigger decision
+// than a model choice -- so no OtherAgent is offered here to make the point
+// twice.
+//
+// It reports whether the prompt was routed. When it was, restarting the pane
+// closed the process the prompt was about to be typed into and started a new
+// one on the routed model with text as its opening argument -- exactly how
+// StartAgent gives a freshly spawned pane its task -- so the caller must not
+// also type it.
+func (w *Workspace) routeFirstTurn(p *Pane, text string) bool {
+	if !p.IsAgent() || !p.Alive() {
+		return false
+	}
+	c := w.agents()
+	spec, ok := c.Find(p.Agent)
+	if !ok {
+		return false
+	}
+	if w.transcriptExists(spec, w.conversationOf(p)) {
+		return false
+	}
+	policy, _ := c.RoutingFor(p.Root)
+	if policy.Mode != agent.RoutingAuto {
+		return false
+	}
+	d := route.New(policy).Decide(route.Input{Kind: route.KindTurn, Task: text, Agent: spec, Current: p.Model})
+	if !d.Routed {
+		return false
+	}
+
+	w.mu.Lock()
+	from := p.Model
+	p.Model = d.Model
+	// d.Rule is empty for a cost-strategy fallback that matched no named
+	// rule (route.SourceFallback): Routed/RoutedFrom exist to name a rule in
+	// the header, the same limit routeSpawnChoice's own caller already
+	// leaves a spawned helper under, so a fallback pane runs the cheaper
+	// model without wearing the badge.
+	if d.Rule != "" {
+		p.Routed, p.RoutedFrom, p.RoutedFromAgent = d.Rule, from, ""
+	}
+	p.initial, p.Task = text, text
+	w.mu.Unlock()
+
+	if p.Sess != nil {
+		_ = p.Sess.Close()
+		w.mu.Lock()
+		p.Sess = nil
+		w.mu.Unlock()
+	}
+	w.startPane(p, false)
+	w.wake()
+	return true
 }
 
 // pasteSettle is how long SendPrompt leaves between a pasted prompt and the
