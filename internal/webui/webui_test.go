@@ -2231,6 +2231,110 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "openProject", path: "C:/repos
 `)
 }
 
+// The multi-repo grouping commands (groupProjects, addRepoToGroup,
+// removeRepoFromGroup, renameGroup) existed on the server with nothing in
+// the dialog reaching them. This covers all four, end to end through the
+// picker rather than the control socket directly.
+func TestGroupingProjectsFromTheDialog(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/api", name: "api", active: true, tabs: 1, waiting: 0, working: 0, members: [{ root: "C:/api", name: "api" }] },
+  { root: "C:/ui", name: "ui", active: false, tabs: 1, waiting: 0, working: 0, members: [{ root: "C:/ui", name: "ui" }] },
+] }));
+h.click(h.$("rail-open"));
+h.recv({ type: "recents", items: [] });
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [] });
+
+// "Group open projects…" turns every open row into a checkbox, and the
+// confirm button counts what is ticked and refuses fewer than two.
+const start = Array.from(h.$("overlay-body").querySelectorAll("button")).find((b) => b.textContent === "Group open projects\u2026");
+assert.ok(start, "no way into grouping mode from the dialog");
+h.click(start);
+const picks = () => h.$("overlay-body").querySelectorAll("input[type=checkbox]");
+assert.strictEqual(picks().length, 2, "one checkbox per open project");
+let confirm = Array.from(h.$("overlay-body").querySelectorAll("button")).find((b) => b.textContent.startsWith("Group"));
+assert.ok(confirm.disabled, "grouping fewer than two is refused");
+// Each tick redraws the dialog, since the count shown has to follow it, so
+// the boxes are found afresh rather than kept from before the redraw.
+picks()[0].checked = true;
+h.dispatch(picks()[0], new h.Ev("change", { target: picks()[0] }));
+picks()[1].checked = true;
+h.dispatch(picks()[1], new h.Ev("change", { target: picks()[1] }));
+confirm = Array.from(h.$("overlay-body").querySelectorAll("button")).find((b) => b.textContent === "Group 2 selected");
+assert.ok(confirm, "the confirm button did not count both picks");
+h.win._prompt = "platform";
+h.click(confirm);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "groupProjects", roots: ["C:/api", "C:/ui"], text: "platform" });
+
+// The server's own answer to that: one merged project, two members.
+h.recv(fixture({ projects: [
+  { root: "C:/api", name: "platform", active: true, tabs: 2, waiting: 0, working: 0,
+    members: [{ root: "C:/api", name: "api" }, { root: "C:/ui", name: "ui" }] },
+] }));
+h.click(h.$("rail-open"));
+h.recv({ type: "recents", items: [] });
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [] });
+const goes = h.$("overlay-body").querySelectorAll("button.proj-go");
+assert.strictEqual(goes.length, 1, "two open roots read as one project now");
+assert.ok(goes[0].textContent.includes("platform"), "the group's own name did not reach the row");
+assert.ok(goes[0].textContent.includes("2 repos"), "a grouped project's row still claimed a single path: " + goes[0].textContent);
+
+// Renaming an open project reaches the live group by any of its members,
+// not the store's per-root name a closed project uses.
+h.win._prompt = "renamed";
+h.click(h.$("overlay-body").querySelector('[aria-label="Rename this project"]'));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "renameGroup", root: "C:/api", text: "renamed" });
+
+// A project just grouped by hand opens already showing its members, so the
+// action reads as having done something rather than needing a second click
+// to see what it did.
+let members = h.$("overlay-body").querySelectorAll(".proj-member-row");
+assert.strictEqual(members.length, 2, "both members should be listed once grouped");
+assert.ok(members[0].textContent.includes("api") && members[1].textContent.includes("ui"), "got: " + h.$("overlay-body").querySelector(".proj-members").textContent);
+
+// The same toggle folds it away and back again.
+const expand = h.$("overlay-body").querySelector("button.proj-expand");
+assert.ok(expand, "a grouped project offers no way to hide its members");
+h.click(expand);
+assert.ok(!h.$("overlay-body").querySelector(".proj-members"), "the toggle did not fold the member list away");
+h.click(h.$("overlay-body").querySelector("button.proj-expand"));
+members = h.$("overlay-body").querySelectorAll(".proj-member-row");
+assert.strictEqual(members.length, 2, "the toggle did not bring the members back");
+
+// Picking a member reaches it directly, rather than wherever the group was
+// last left.
+h.click(members[0].querySelector("button.proj-member-go"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "selectRepo", root: "C:/api" });
+assert.ok(h.$("overlay").hidden, "picking a member left the dialog open");
+
+// Splitting one back out. Reopening the dialog does not forget that this
+// project was left expanded, so its members are already there to act on.
+h.click(h.$("rail-open"));
+h.recv({ type: "recents", items: [] });
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [] });
+h.click(h.$("overlay-body").querySelectorAll(".proj-member-row")[1].querySelector("button.icon-btn"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "removeRepoFromGroup", root: "C:/ui" });
+
+// "Add repo…" hands the existing folder browser over to addRepoToGroup
+// instead of openProject, and back to the project list rather than closing
+// the whole dialog once one is picked.
+const addRepo = Array.from(h.$("overlay-body").querySelectorAll("button")).find((b) => b.textContent === "Add repo\u2026");
+assert.ok(addRepo, "no way to add a repo to an open project");
+h.click(addRepo);
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [
+  { name: "billing", path: "C:/repos/billing", isRepo: true },
+] });
+assert.ok(h.$("overlay-body").textContent.includes("Add a repo to platform"), "the browser did not say which project it was adding to");
+const addBtn = h.$("overlay-body").querySelectorAll("div.dir-row")[0].querySelector("button.chip");
+assert.strictEqual(addBtn.textContent, "Add", "the per-row button still said Open while adding a repo");
+h.click(addBtn);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "addRepoToGroup", root: "C:/api", path: "C:/repos/billing" });
+assert.ok(!h.$("overlay").hidden, "adding a repo closed the whole dialog rather than returning to the project list");
+assert.ok(h.$("overlay-body").querySelector("button.proj-go"), "adding a repo left the browser up instead of the project list");
+`)
+}
+
 // A tab of six agents may now be running six different things, and the header
 // is the only place that says which. It reads like the branch beside it because
 // it answers the same sort of question, and a shell is running neither an agent

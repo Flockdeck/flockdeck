@@ -4479,6 +4479,26 @@
    *  not the first thing seen on opening Projects. */
   let archivedOpen = false;
 
+  /** Which open projects' member lists are expanded, by root -- a project
+   *  grouped a moment ago should stay expanded through the redraw its own
+   *  grouping causes, not snap shut. */
+  const expandedGroups = new Set();
+
+  /** Set to a project's root while "Add repo…" has taken over the folder
+   *  browser to add into that project rather than open a project of its own;
+   *  null the rest of the time. */
+  let addingRepoTo = null;
+
+  /** Set to a project's own name while addingRepoTo is, so the browser's
+   *  heading can say which project without looking it up again mid-browse. */
+  let addingRepoToName = "";
+
+  /** The roots ticked in "Group open projects…" mode, and whether that
+   *  mode is on at all -- a plain array survives JSON-free comparisons and
+   *  is small enough that indexOf is plenty. */
+  let grouping = false;
+  let groupingPicked = [];
+
   /** The projects dialog's Open section is drawn from the state, and was
    *  drawn only when a recents or folder listing arrived: closing a project
    *  from it - which answers with a state push and nothing else - left the
@@ -4488,7 +4508,8 @@
   let projectsKey = "";
   function followProjects(s) {
     const key = (s.projects || [])
-      .map((p) => [p.root, p.name, p.active, p.tabs, p.waiting, p.working, p.archived].join(":"))
+      .map((p) => [p.root, p.name, p.active, p.tabs, p.waiting, p.working, p.archived,
+        (p.members || []).map((m) => m.root).join(",")].join(":"))
       .join("|");
     if (key === projectsKey) return;
     projectsKey = key;
@@ -4514,6 +4535,9 @@
     browseDraft = null;
     recentsAll = false;
     archivedOpen = false;
+    addingRepoTo = null;
+    grouping = false;
+    groupingPicked = [];
     openOverlay("Projects", "projects");
     send({ cmd: "recents" });
     send({ cmd: "browse", path: browseState ? browseState.path : (state ? state.root : "") });
@@ -4529,7 +4553,55 @@
     // Open projects: switch between them, or close one.
     const open = (state && state.projects) || [];
     const openSection = section("Open");
+
+    if (open.length > 1) {
+      const bar = el("div", "proj-group-bar");
+      if (!grouping) {
+        const start = el("button", "chip", "Group open projects…");
+        describe(start, "Pick two or more of the projects below to treat as one, with agents in each able to see the others.");
+        start.onclick = () => { grouping = true; groupingPicked = []; renderProjects(); };
+        bar.append(start);
+      } else {
+        const count = groupingPicked.length;
+        const confirm = el("button", "chip primary", count ? "Group " + count + " selected" : "Group…");
+        confirm.disabled = count < 2;
+        confirm.onclick = () => {
+          const name = window.prompt("Name this project.", "");
+          if (name === null) return;
+          send({ cmd: "groupProjects", roots: groupingPicked.slice(), text: String(name).trim() });
+          groupingPicked.forEach((r) => expandedGroups.add(r));
+          grouping = false;
+          groupingPicked = [];
+        };
+        const cancel = el("button", "chip", "Cancel");
+        cancel.onclick = () => { grouping = false; groupingPicked = []; renderProjects(); };
+        bar.append(confirm, cancel);
+      }
+      openSection.append(bar);
+    }
+
     open.forEach((p) => {
+      if (grouping) {
+        const row = el("div", "proj-row" + (p.active ? " active" : ""));
+        row.dataset.key = "open:" + p.root;
+        const pick = el("input");
+        pick.type = "checkbox";
+        pick.id = "group-pick-" + encodeURIComponent(p.root);
+        pick.checked = groupingPicked.includes(p.root);
+        pick.onchange = () => {
+          groupingPicked = pick.checked ? [...groupingPicked, p.root] : groupingPicked.filter((r) => r !== p.root);
+          renderProjects();
+        };
+        const label = el("label", "proj-go proj-group-pick");
+        label.htmlFor = pick.id;
+        const main = el("span", "proj-main");
+        main.append(el("span", "proj-name", p.name));
+        main.append(describe(el("span", "proj-path", p.root), p.root));
+        label.append(pick, main);
+        row.append(label);
+        openSection.append(row);
+        return;
+      }
       const row = el("div", "proj-row" + (p.active ? " active" : "") + (p.archived ? " archived" : ""));
       row.dataset.key = "open:" + p.root;
       // The row's own action — switch to this project — is a real button
@@ -4541,8 +4613,13 @@
       go.id = "open-" + encodeURIComponent(p.root);
       const main = el("span", "proj-main");
       main.append(el("span", "proj-name", p.name));
-      // Cut from the end with an ellipsis, and paths differ at the end.
-      main.append(describe(el("span", "proj-path", p.root), p.root));
+      // A grouped project spans more than one folder, so its own root is no
+      // longer the whole story -- how many repos it has stands in for it,
+      // and the member list below names each one.
+      const members = p.members || [];
+      main.append(describe(el("span", "proj-path", members.length > 1
+        ? members.length + " repos"
+        : p.root), members.length > 1 ? members.map((m) => m.root).join("\n") : p.root));
       go.append(main);
 
       const badge = el("span", "proj-badge");
@@ -4564,6 +4641,17 @@
       go.append(badge);
       go.onclick = () => { send({ cmd: "selectProject", root: p.root }); closeOverlay(); };
       row.append(go);
+
+      if (members.length > 1) {
+        const expand = el("button", "icon-btn proj-expand", expandedGroups.has(p.root) ? "▾" : "▸");
+        describe(expand, expandedGroups.has(p.root) ? "Hide this project's repos" : "Show this project's repos");
+        expand.setAttribute("aria-expanded", expandedGroups.has(p.root) ? "true" : "false");
+        expand.onclick = () => {
+          if (expandedGroups.has(p.root)) expandedGroups.delete(p.root); else expandedGroups.add(p.root);
+          renderProjects();
+        };
+        row.append(expand);
+      }
 
       // Splitting into the project already on screen is just an ordinary
       // split, so the button is offered on the others.
@@ -4607,6 +4695,24 @@
         };
         row.append(close);
       }
+
+      if (members.length > 1 && expandedGroups.has(p.root)) {
+        const memberList = el("div", "proj-members");
+        members.forEach((m) => {
+          const mrow = el("div", "proj-member-row");
+          const mgo = el("button", "proj-member-go");
+          mgo.append(describe(el("span", "proj-member-name", m.name), m.root));
+          mgo.onclick = () => { send({ cmd: "selectRepo", root: m.root }); closeOverlay(); };
+          mrow.append(mgo);
+          const remove = el("button", "icon-btn", "×");
+          describe(remove, "Remove " + m.name + " from this project. It stays open on its own, and nothing on disk is touched.");
+          remove.onclick = () => send({ cmd: "removeRepoFromGroup", root: m.root });
+          mrow.append(remove);
+          memberList.append(mrow);
+        });
+        row.append(memberList);
+      }
+
       openSection.append(row);
     });
     body.append(openSection);
@@ -4701,8 +4807,26 @@
 
     const rename = el("button", "icon-btn", "\u270e");
     describe(rename, "Rename this project");
-    rename.onclick = () => renameProject(root, name);
+    // An open project's name is the live group's own -- reachable by any of
+    // its members' roots -- so that renaming a grouped project through any
+    // one of its rows lands on the one name the switcher shows for all of
+    // them. A closed project (Recent, Archived) has no live group to rename,
+    // only the name the store remembers for it.
+    rename.onclick = () => renameProject(root, name, moveCtx === null);
     actions.append(rename);
+
+    if (moveCtx === null) {
+      const addRepo = el("button", "chip", "Add repo\u2026");
+      describe(addRepo, "Add another repository to this project, so agents in each can see the others.");
+      addRepo.onclick = () => {
+        addingRepoTo = root;
+        addingRepoToName = name;
+        browseDraft = null;
+        send({ cmd: "browse", path: state ? state.root : "" });
+        renderProjects();
+      };
+      actions.append(addRepo);
+    }
 
     if (moveCtx) {
       const up = el("button", "icon-btn", "\u25b2");
@@ -4732,12 +4856,12 @@
    *  left empty goes too, the same way an emptied tab name does: it clears
    *  the name chosen by hand and goes back to the one derived from its
    *  directory. */
-  function renameProject(root, current) {
+  function renameProject(root, current, isOpen) {
     const name = window.prompt("Rename this project. Leave it empty to use its folder name.", current);
     if (name === null || name === undefined) return;
     const next = String(name).trim();
     if (next === current) return;
-    send({ cmd: "renameProject", root, text: next });
+    send({ cmd: isOpen ? "renameGroup" : "renameProject", root, text: next });
   }
 
   /** moveProject swaps a project with its neighbour in a list kept in an
@@ -4828,9 +4952,34 @@
 
   /** renderBrowser is the directory picker. A browser cannot hand us a real
    *  path, so navigation is served by the Go side. */
+  /** openOrAddPath sends whichever command the folder browser is currently
+   *  for -- opening target as a project of its own, or adding it to
+   *  addingRepoTo -- and settles the dialog the way that command's own
+   *  result is seen: an ordinary open closes the whole dialog, but adding a
+   *  repo returns to the project list so the group it just joined is there
+   *  to see. */
+  function openOrAddPath(target) {
+    if (!target) return;
+    if (addingRepoTo) {
+      send({ cmd: "addRepoToGroup", root: addingRepoTo, path: target });
+      expandedGroups.add(addingRepoTo);
+      addingRepoTo = null;
+      renderProjects();
+    } else {
+      send({ cmd: "openProject", path: target });
+      closeOverlay();
+    }
+  }
+
   function renderBrowser() {
-    const wrap = section("Open a folder");
+    const wrap = section(addingRepoTo ? "Add a repo to " + addingRepoToName : "Open a folder");
     const b = browseState;
+
+    if (addingRepoTo) {
+      const cancel = el("button", "chip", "Cancel");
+      cancel.onclick = () => { addingRepoTo = null; renderProjects(); };
+      wrap.append(cancel);
+    }
 
     const bar = el("div", "browse-bar");
     const up = el("button", "chip", "\u2191 Up");
@@ -4850,11 +4999,8 @@
       ev.preventDefault();
       send({ cmd: "browse", path: path.value });
     };
-    const openHere = el("button", "chip primary", "Open this folder");
-    openHere.onclick = () => {
-      const target = path.value || (b && b.path);
-      if (target) { send({ cmd: "openProject", path: target }); closeOverlay(); }
-    };
+    const openHere = el("button", "chip primary", addingRepoTo ? "Add this folder" : "Open this folder");
+    openHere.onclick = () => openOrAddPath(path.value || (b && b.path));
     bar.append(up, path, openHere);
     wrap.append(bar);
 
@@ -4895,8 +5041,8 @@
         into.onclick = () => send({ cmd: "browse", path: e.path });
         into.dataset.label = e.name.toLowerCase();
         row.append(into);
-        const openBtn = el("button", "chip", "Open");
-        openBtn.onclick = () => { send({ cmd: "openProject", path: e.path }); closeOverlay(); };
+        const openBtn = el("button", "chip", addingRepoTo ? "Add" : "Open");
+        openBtn.onclick = () => openOrAddPath(e.path);
         row.append(openBtn);
         list.append(row);
       });
