@@ -25,6 +25,9 @@
     changes: '<path d="M4 2.5h5.2L12 5.3v8.2H4z"></path><path d="M6 7h4M8 5v4M6 11h4"></path>',
     history: '<circle cx="8" cy="8" r="5.5"></circle><path d="M8 5v3.2l2.2 1.4"></path>',
     worktrees: '<circle cx="5" cy="3.5" r="1.5"></circle><circle cx="5" cy="12.5" r="1.5"></circle><circle cx="11" cy="5" r="1.5"></circle><path d="M5 5v6M11 6.5c0 2.8-6 2.2-6 4.5"></path>',
+    // One pane fanning out into three, the shape a plan turns into once it is
+    // read as a list and started as agents.
+    fanout: '<circle cx="3.5" cy="8" r="1.5"></circle><circle cx="12.5" cy="3.5" r="1.5"></circle><circle cx="12.5" cy="8" r="1.5"></circle><circle cx="12.5" cy="12.5" r="1.5"></circle><path d="M5 8h1.5M6.5 8 11 3.5M6.5 8h4.5M6.5 8 11 12.5"></path>',
     github: '<circle cx="5" cy="3.2" r="1.4"></circle><circle cx="5" cy="12.8" r="1.4"></circle><circle cx="11.5" cy="8" r="1.4"></circle><path d="M5 4.6v6.8"></path><path d="M5 6.6c0 3.4 2.6 1.4 6.5 1.4"></path>',
     // Two branches meeting in one, the shape a pull request itself is drawn as
     // on github.com -- not the octocat, which is a filled mark and reads as a
@@ -377,6 +380,7 @@
       }
       else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects, "button.dir-into"); }
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
+      else if (msg.type === "fanoutHistory") keepFocus(() => renderFanoutHistory(msg));
       // A commit that worked answers with a tree with nothing to commit, and
       // the message box and its buttons go with the keyboard in them: to
       // Push, which is what comes next, or Refresh where there is no remote.
@@ -1415,15 +1419,23 @@
    *  same reason: a settled fan-out collapses to a summary in its place,
    *  and each pane's own outcome -- its status, whether it failed, its
    *  latest reply -- has to redraw the card when any of them changes, even
-   *  though the tree beneath it does not. */
+   *  though the tree beneath it does not. chip is its own field rather than
+   *  folded into card: both a working tab and a settled one with its card
+   *  dismissed draw the grid with card false, but only the second also
+   *  draws the "Show summary" chip over it (see buildShowSummaryChip), and
+   *  without a field of its own that difference never changed the shape, so
+   *  dismissing the card left the chip missing until something else
+   *  rebuilt the tab. */
   function shapeOf(tab, s, info) {
     const card = info.settled && !cardHidden.has(tab.id);
+    const chip = info.settled && cardHidden.has(tab.id);
     return JSON.stringify({
       tree: structureOf(tab.root),
       zoom: tab.zoom,
       focus: tab.zoom ? tab.focus : "",
       card,
-      outcomes: card ? info.ids.map((id) => outcomeKey(s.panes[id])).join("|") : "",
+      chip,
+      outcomes: card || chip ? info.ids.map((id) => outcomeKey(s.panes[id])).join("|") : "",
     });
   }
 
@@ -1493,6 +1505,10 @@
           page.append(buildSummaryCard(tab, s, info.ids));
         } else {
           page.append(buildNode(tab.root, tab));
+          // The card was put back to the grid by hand (see cardHidden) and
+          // the job is still sitting there settled, so the way back to it
+          // is offered again rather than left with no way back at all.
+          if (info.settled && cardHidden.has(tab.id)) page.append(buildShowSummaryChip(tab));
         }
         tabPages.set(tab.id, page);
         tabShapes.set(tab.id, shape);
@@ -1615,6 +1631,21 @@
     });
     card.append(list);
     return card;
+  }
+
+  /** buildShowSummaryChip is the way back to a settled fan-out's card once
+   *  its own "Back to grid" button has put it away: a small chip floated
+   *  over the grid, for as long as the tab stays settled -- tabSettleInfo
+   *  clears cardHidden the moment it starts working again, at which point
+   *  there is no longer a card to show and this stops being drawn with it. */
+  function buildShowSummaryChip(tab) {
+    const b = el("button", "chip show-summary", "Show summary");
+    describe(b, "Bring back the finished job's summary card.");
+    b.onclick = () => {
+      cardHidden.delete(tab.id);
+      if (state) applyState(state);
+    };
+    return b;
   }
 
   /** The divider being dragged, if one is. A state push carries the weights the
@@ -4158,6 +4189,7 @@
     else if (dialog === "agents") send({ cmd: "agents" });
     else if (dialog === "agentPicker") send({ cmd: "refreshAgents" });
     else if (dialog === "history") send({ cmd: "conversations" });
+    else if (dialog === "fanoutHistory") send({ cmd: "fanoutHistory", root: state ? state.root : "" });
     else if (dialog === "keys") send({ cmd: "keys" });
     else if (dialog === "remote") send({ cmd: "remoteDevices" });
     else if (dialog === "settings" && settingsSection === "keys") send({ cmd: "keys" });
@@ -5845,6 +5877,7 @@
     toggleBroadcastMember: () => { const id = focusedPaneId(); if (id) send({ cmd: "toggleBroadcastMember", id }); },
     promptAll: () => openPrompt(),
     fanout: () => openFanout(),
+    fanoutHistory: () => openFanoutHistory(),
     agents: () => openAgents(),
     apiKeys: () => openKeys(),
 
@@ -5925,6 +5958,7 @@
     label("changes", $("btn-changes"));
     label("history", $("btn-history"));
     label("worktrees", $("btn-worktrees"));
+    label("fanoutHistory", $("btn-fanout-history"));
     label("help", $("btn-help"));
     label("settings", $("btn-settings"));
     label("palette", $("btn-palette"), "every action there is, searchable");
@@ -6385,6 +6419,78 @@
     const refresh = el("button", "chip", "Refresh");
     refresh.onclick = () => send({ cmd: "conversations" });
     tools.append(refresh, rootLabel(m.cwd || ""));
+    body.append(tools);
+  }
+
+  // ----------------------------------------------------------- fan-out history
+
+  let fanoutHistory = null;
+
+  /** openFanoutHistory opens the dialog and asks the Go side for this
+   *  project's past fan-out jobs -- kept there in memory only (see
+   *  Workspace.FanoutHistory), so a restart of flockdeck starts with none,
+   *  the same as a settled tab's own card. */
+  function openFanoutHistory() {
+    dialog = "fanoutHistory";
+    fanoutHistory = null;
+    openOverlay("Fan-out history", "fanout");
+    $("overlay-body").textContent = "";
+    $("overlay-body").append(el("div", "dir-empty", "Reading past jobs…"));
+    send({ cmd: "fanoutHistory", root: state ? state.root : "" });
+  }
+
+  /** outcomeLabel is outcomeOf's own label, for a kind the Go side has
+   *  already settled on rather than one read live off a pane. */
+  function outcomeLabel(kind) { return kind === "needs" ? "needs input" : kind; }
+
+  /** renderFanoutHistory lists a project's past fan-out jobs, most recent
+   *  first, each drawn the same one-line-per-pane way buildSummaryCard draws
+   *  a job still on screen -- the same row markup, reused rather than built
+   *  twice, since a closed job's row differs only in having no pane left to
+   *  zoom into. */
+  function renderFanoutHistory(msg) {
+    if (msg) fanoutHistory = msg;
+    if (dialog !== "fanoutHistory") return; // see openWorktrees
+    const m = fanoutHistory || {};
+    const body = $("overlay-body");
+    body.textContent = "";
+
+    if (!m.items || !m.items.length) {
+      body.append(el("div", "dir-empty", "No fan-out jobs finished in this project yet."));
+      return;
+    }
+
+    const wrap = section("Past jobs");
+    m.items.forEach((job) => {
+      const card = el("div", "fanout-history-job");
+      const head = el("div", "summary-card-head");
+      head.append(el("div", "summary-card-title", job.title || "This job"));
+      head.append(el("div", "summary-card-sub", job.panes.length + (job.panes.length === 1 ? " agent" : " agents") + " — " + job.ago));
+      card.append(head);
+
+      const list = el("div", "summary-card-list");
+      job.panes.forEach((p) => {
+        const row = el("div", "summary-card-row");
+        const main = el("div", "summary-card-main");
+        const title = el("div", "summary-card-name");
+        title.append(el("span", null, p.name || ""));
+        if (p.branch) title.append(el("span", "summary-card-branch", "⎇ " + p.branch));
+        main.append(title);
+        if (p.task) main.append(el("div", "summary-card-line", p.task));
+        if (p.detail) main.append(el("div", "summary-card-line", p.detail));
+        row.append(main);
+        row.append(el("span", "summary-card-outcome " + p.kind, outcomeLabel(p.kind)));
+        list.append(row);
+      });
+      card.append(list);
+      wrap.append(card);
+    });
+    body.append(wrap);
+
+    const tools = el("div", "wt-tools");
+    const refresh = el("button", "chip", "Refresh");
+    refresh.onclick = () => send({ cmd: "fanoutHistory", root: state ? state.root : "" });
+    tools.append(refresh);
     body.append(tools);
   }
 
@@ -10529,6 +10635,7 @@
   }, { passive: false });
   $("btn-broadcast").onclick = () => send({ cmd: "toggleBroadcast" });
   $("btn-worktrees").onclick = () => openWorktrees();
+  $("btn-fanout-history").onclick = () => openFanoutHistory();
   $("btn-github").onclick = () => openGithub();
   $("btn-history").onclick = openHistory;
   $("btn-changes").onclick = () => openChanges();
