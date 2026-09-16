@@ -81,6 +81,25 @@ drag one onto the `+` in the tab bar for a tab of its own, or drag a divider.
 Every child is a normal pane. Watch it, type into it, and review and commit
 its work from [Changes](#changes).
 
+## When it settles
+
+Once nothing in it is left working or starting, a gathered tab collapses to a
+summary: one line per agent, its branch, and how it stopped — done, needing
+your input, or failed, each with the detail that goes with it. A line opens
+its own pane the same way zooming into any other does; **Back to grid** takes
+the whole tab back to its terminals. Dismissing it this way is not permanent:
+a **Show summary** chip stays over the grid for as long as the tab stays
+settled, and brings the card straight back. Starting the tab working again —
+restarting a pane, say — clears the chip along with the dismissal, the same
+way it always has.
+
+Closing a settled job, tab and all or one pane at a time, does not throw its
+outcome away. [[action:fanoutHistory]] lists a project's past fan-out jobs
+for as long as the window stays open — what was fanned out, when, and each
+pane's own outcome, read the same way the card itself reads them. It is kept
+in memory only: closing flockdeck clears it, the same as everything else a
+fan-out is not asked to write to disk.
+
 ## How many at once
 
 A fan-out will start at most **12** agents. Each one is a real agent in a real

@@ -420,6 +420,7 @@ which the command palette and the in-app help are also drawn from; run
 | Command palette | Add this pane to broadcast, or take it out |
 | `Ctrl+Shift+P` | Prompt all panes |
 | `Ctrl+Shift+X` | Fan out — turn this pane's plan into agents |
+| Command palette | Fan-out history — past jobs in this project |
 | `Ctrl+Shift+A` | All agents across projects |
 | Command palette | API keys… |
 

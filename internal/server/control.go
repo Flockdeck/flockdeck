@@ -1374,6 +1374,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "recents":
 		s.recents(c)
 		return
+	case "fanoutHistory":
+		s.fanoutHistory(c, cmd.Root)
+		return
 	case "remoteDevices":
 		s.remoteDevices(c)
 		return
@@ -1590,6 +1593,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		case "newTab":
 			s.newTabFor(cmd)
 		case "closeTab":
+			// The whole job is about to go, panes and all, so its history is
+			// captured first -- see captureFanoutHistory -- while every pane
+			// it needs is still there to read.
+			if t := ws.Tab(cmd.ID); t != nil {
+				s.captureFanoutHistory(t)
+			}
 			ws.CloseTab(cmd.ID)
 		case "selectTab":
 			// A tab bar drawn before another window closed the tab: the click
@@ -1693,7 +1702,18 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 			s.splitPaneFor(cmd)
 		case "closePane":
-			if !ws.ClosePaneByID(paneIDFor(ws, cmd.ID)) {
+			id := paneIDFor(ws, cmd.ID)
+			// A settled job closed pane by pane rather than by its tab is
+			// captured on the first of those closes, while every pane is
+			// still there to read -- see captureFanoutHistory, which marks
+			// the tab so the rest of its panes closing one after another
+			// does not capture it again.
+			if tid := ws.TabIDOf(id); tid != "" {
+				if t := ws.Tab(tid); t != nil {
+					s.captureFanoutHistory(t)
+				}
+			}
+			if !ws.ClosePaneByID(id) {
 				c.notify(paneGone, true)
 				return
 			}
