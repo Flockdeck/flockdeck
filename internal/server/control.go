@@ -1697,6 +1697,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				c.notify(paneGone, true)
 				return
 			}
+		case "closeFinishedPanes":
+			panes, tabs := ws.CloseFinishedPanes()
+			c.notify(closedFinishedNotice(panes, tabs), false)
 		case "focusPane":
 			ws.FocusPane(cmd.ID)
 		case "restartPane":
@@ -1917,6 +1920,24 @@ const paneGone = "that pane is no longer open"
 // tabGone is paneGone for a tab, renamed or switched to from a tab bar or a
 // dialog drawn before another window closed it.
 const tabGone = "that tab is no longer open"
+
+// closedFinishedNotice says what closeFinishedPanes did. It runs with no
+// confirmation at all, so closing nothing has to say so as plainly as closing
+// several does -- otherwise either looks like the click did nothing.
+//
+// plural (history.go) is safe to reach for here even though it reads "1
+// unit" for a zero count: panes is never zero below the guard above it, and
+// tabs is only ever passed while positive.
+func closedFinishedNotice(panes, tabs int) string {
+	if panes == 0 {
+		return "no finished panes to close"
+	}
+	msg := fmt.Sprintf("closed %s", plural(panes, "finished pane"))
+	if tabs > 0 {
+		msg += fmt.Sprintf(" and %s", plural(tabs, "empty tab"))
+	}
+	return msg
+}
 
 // focusFor moves focus onto the pane a command names and reports whether the
 // command should go ahead.

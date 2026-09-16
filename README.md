@@ -421,6 +421,7 @@ which the command palette and the in-app help are also drawn from; run
 | `Ctrl+Shift+P` | Prompt all panes |
 | `Ctrl+Shift+X` | Fan out — turn this pane's plan into agents |
 | `Ctrl+Shift+A` | All agents across projects |
+| Command palette | Close finished panes — every idle or exited pane, in every open project |
 | Command palette | API keys… |
 
 ### Git

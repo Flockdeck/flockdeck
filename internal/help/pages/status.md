@@ -40,6 +40,12 @@ tells you what the agent is actually doing rather than only that it is busy.
   for **a helper another agent started** for itself (see [[key:fanout]]).
 - [[key:agents]] lists every pane in every open project with its status, and
   jumps to any of them.
+- [[action:closeFinishedPanes]] clears out every pane that has gone idle or
+  exited, in every open project, in one go — the tidying-up equivalent of
+  closing finished browser tabs. It asks nothing first, on purpose: a pane
+  still waiting on you or still working is never touched, and one whose last
+  turn failed is left alone too, since a failure is worth a look before it
+  disappears.
 
 ## Where it comes from
 
