@@ -1320,6 +1320,7 @@
     followWorktrees(s);
     followChanges(s);
     renderUpdate(s);
+    renderRecall();
     renderRemoteChip(s);
     updatePaneChrome(s);
     if (!$("promptbar").hidden) labelPrompt(s);
@@ -9933,6 +9934,49 @@
     if (urgent) return urgent;
     const pool = TIP_HINTS.filter((h) => !dismissedHint(h.id) && h.when(s));
     return pool.length ? pool[tipIndex % pool.length] : null;
+  }
+
+  /** renderRecall shows the banner for a version withdrawn since it was
+   *  installed -- a distinct, rarer signal than the ordinary update chip
+   *  (renderUpdate), which only ever says something newer exists. Keyed on
+   *  the version and reason together, the same shape renderUpdate uses, so
+   *  it is not rebuilt on every snapshot. Not offered in a window reached
+   *  through the relay, the same as the update chip and its settings row:
+   *  installing restarts the desk, which nothing done from a phone or
+   *  another machine should trigger by surprise. */
+  let recallShown = null;
+  function renderRecall() {
+    const bar = $("recall-banner");
+    if (!bar) return;
+    const r = !remoteWindow && state && state.recall;
+    const u = state && state.update;
+    // Keyed on the update too: recall itself does not change the moment a
+    // fix is downloaded, but the banner's own button has to swap from
+    // checking to installing right then, not on whatever redraw follows.
+    const key = r ? r.version + "|" + r.reason + "|" + (u ? u.version : "") : "";
+    if (key === recallShown) return;
+    recallShown = key;
+    bar.textContent = "";
+    if (!r) { bar.hidden = true; return; }
+
+    const line = el("div", "recall-text");
+    line.append(el("b", null, "v" + r.version + " has been recalled: "), document.createTextNode(r.reason));
+    bar.append(line);
+
+    // state.update, once it names the version recall.upgrade points to (or
+    // anything newer), is the same "ready to install" signal the ordinary
+    // chip already watches for -- openUpdate needs nothing recall-specific
+    // to know what to do with it.
+    if (u) {
+      const install = el("button", "chip primary", "Install " + u.version + "…");
+      install.onclick = openUpdate;
+      bar.append(install);
+    } else {
+      const check = el("button", "chip", "Check for updates");
+      check.onclick = () => send({ cmd: "checkForUpdate" });
+      bar.append(check);
+    }
+    bar.hidden = false;
   }
 
   function renderHints() {

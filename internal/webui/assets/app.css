@@ -1429,6 +1429,19 @@ kbd {
   border-radius: 4px; padding: 1px 6px; font: 11px/1.6 ui-monospace, Consolas, monospace; white-space: nowrap;
 }
 
+/* --------------------------------------------------------- recall banner */
+
+/* A known problem with the version actually running, not just "something
+ * newer exists" -- amber, and never displaced by a rotating hint. */
+#recall-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; background: color-mix(in srgb, var(--waiting) 14%, var(--bg-raised));
+  border-bottom: 1px solid var(--waiting); flex: 0 0 auto;
+}
+#recall-banner[hidden] { display: none; }
+.recall-text { flex: 1 1 auto; }
+.recall-text b { color: var(--waiting); }
+
 /* ------------------------------------------------------------------- hints */
 
 /* One line under the tab bar, dismissed for good when it has been read. */

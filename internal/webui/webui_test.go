@@ -2755,6 +2755,41 @@ assert.ok(!h.$("overlay-body").textContent.includes("a.go"), "the review was dra
 `)
 }
 
+// state.recall said a running version had been withdrawn since it was
+// installed, with nothing in the window ever showing it -- the server
+// computed the warning and nobody saw it.
+func TestTheRecallBannerWarnsOfAWithdrawnVersion(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+assert.ok(h.$("recall-banner").hidden, "a banner with nothing recalled");
+
+h.recv(fixture({ recall: { version: "9.9.8", reason: "corrupts settings on first launch", upgrade: "9.9.9" } }));
+assert.ok(!h.$("recall-banner").hidden, "the recall was never shown");
+assert.ok(h.$("recall-banner").textContent.includes("9.9.8"), "got: " + h.$("recall-banner").textContent);
+assert.ok(h.$("recall-banner").textContent.includes("corrupts settings on first launch"), "got: " + h.$("recall-banner").textContent);
+
+// No update downloaded yet: the banner offers to look for one.
+let btn = h.$("recall-banner").querySelector("button");
+assert.strictEqual(btn.textContent, "Check for updates");
+h.click(btn);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "checkForUpdate" });
+
+// One arrives: the same banner now offers to install it, through the
+// ordinary update dialog rather than a recall-specific one.
+h.recv(fixture({ recall: { version: "9.9.8", reason: "corrupts settings on first launch", upgrade: "9.9.9" },
+  update: { version: "9.9.9", notes: "Fixes the settings corruption." } }));
+btn = h.$("recall-banner").querySelector("button.primary");
+assert.strictEqual(btn.textContent, "Install 9.9.9…");
+h.click(btn);
+assert.strictEqual(h.$("overlay-title").textContent, "Update to 9.9.9");
+
+// The watcher clearing it (moved off the version, most likely) hides it
+// again.
+h.recv(fixture({ update: { version: "9.9.9", notes: "Fixes the settings corruption." } }));
+assert.ok(h.$("recall-banner").hidden, "the banner outlived its own recall");
+`)
+}
+
 // The release notes and a file's diff each scroll inside a box of their own,
 // and neither box could be focused, so what was past its bottom edge was out
 // of reach from the keyboard. Each is a named stop on Tab's way round its
