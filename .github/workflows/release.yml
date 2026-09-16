@@ -66,6 +66,26 @@ jobs:
             exit 1
           fi
 
+      # A release with nothing said about it in docs/releases is exactly the
+      # gap the release-notes convention exists to close, and it has slipped
+      # through before (v0.3.26 shipped with none). Held here, alongside the
+      # version check, rather than left to whoever remembers.
+      - uses: actions/checkout@v7
+        if: ${{ !contains(steps.version.outputs.tag, '-rc.') }}
+        with:
+          ref: ${{ steps.version.outputs.tag }}
+          sparse-checkout: docs/releases
+          persist-credentials: false
+      - name: Check release notes exist for this version
+        if: ${{ !contains(steps.version.outputs.tag, '-rc.') }}
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if [ ! -f "docs/releases/$TAG.md" ]; then
+            echo "::error::docs/releases/$TAG.md is missing; every release needs a notes file, written before the tag is pushed"
+            exit 1
+          fi
+
   # Windows still cross-compiles both its archs from any machine: its window
   # (internal/appwindow) reaches WebView2 through raw syscalls, no cgo. Linux
   # and macOS draw their window with GTK4/WebKitGTK and Cocoa, both cgo, so
