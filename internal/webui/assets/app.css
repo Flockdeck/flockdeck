@@ -832,6 +832,11 @@ textarea:focus-visible {
   font: 12px ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 .remote-link:focus { outline: none; border-color: var(--accent); }
+.remote-fingerprint {
+  margin: 4px 0 0; padding: 4px 8px; width: fit-content;
+  background: var(--bg-inset); border-radius: var(--radius);
+  font: 13px ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .03em;
+}
 .update-notes {
   max-height: 220px; overflow: auto;
   background: var(--bg-dim, #14171d); border: 1px solid var(--line, #2a2f3a);
