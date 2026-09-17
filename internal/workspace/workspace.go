@@ -2268,6 +2268,71 @@ func (w *Workspace) ClosePaneByID(id string) bool {
 	return true
 }
 
+// CloseFinishedPanes closes every pane, across every open project, that
+// counts as finished, and reports how many panes and how many tabs it
+// actually closed.
+//
+// It goes across every project rather than just the active one, the same
+// reach as the "All agents" overview: a dev clearing out finished work reaches
+// for this between projects, not once per project, and doing it here for only
+// the project on screen would leave the same idle agents behind in every
+// other open project until each was visited in turn.
+//
+// A pane is finished, safely enough to close with no confirmation at all, when
+// its agent has settled and is not waiting on anything -- StatusIdle -- or
+// its process is simply gone -- StatusExited, true of a shell as much as an
+// agent. A shell merely sitting quiet at its own prompt is not included: it
+// carries StatusIdle too, on the same output-quiet reading Status describes,
+// but sitting at a prompt is what an open shell is for, not something
+// finished. And a pane whose last turn ended in an error is deliberately left
+// out of either case, matching outcomeOf's "failed" outcome in the web UI: a
+// failure is worth a person seeing before it disappears, so it waits for a
+// person to close it by hand.
+//
+// Closing goes through ClosePaneByID, so a tab left with no panes closes
+// itself the same way it always has; tabs closed is only ever the side effect
+// of that, counted by comparing the tabs open before and after.
+func (w *Workspace) CloseFinishedPanes() (panesClosed, tabsClosed int) {
+	before := make(map[string]bool, len(w.Tabs))
+	for _, t := range w.Tabs {
+		before[t.ID] = true
+	}
+	var ids []string
+	for _, t := range w.Tabs {
+		for _, id := range t.Tree.Panes() {
+			if w.paneFinished(id) {
+				ids = append(ids, id)
+			}
+		}
+	}
+	for _, id := range ids {
+		if w.ClosePaneByID(id) {
+			panesClosed++
+		}
+	}
+	for _, t := range w.Tabs {
+		delete(before, t.ID)
+	}
+	return panesClosed, len(before)
+}
+
+// paneFinished reports whether a pane counts as finished for
+// CloseFinishedPanes. See that doc comment for what finished means and why.
+func (w *Workspace) paneFinished(id string) bool {
+	p := w.Pane(id)
+	if p == nil || p.Err != nil {
+		return false
+	}
+	switch st, _ := p.Status(); st {
+	case session.StatusExited:
+		return true
+	case session.StatusIdle:
+		return p.IsAgent()
+	default:
+		return false
+	}
+}
+
 // RestartPane relaunches the focused pane's process. An agent pane resumes the
 // same conversation wherever its agent can.
 func (w *Workspace) RestartPane() {

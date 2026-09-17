@@ -5846,6 +5846,7 @@
     promptAll: () => openPrompt(),
     fanout: () => openFanout(),
     agents: () => openAgents(),
+    closeFinishedPanes: () => send({ cmd: "closeFinishedPanes" }),
     apiKeys: () => openKeys(),
 
     worktrees: () => openWorktrees(),
@@ -7530,6 +7531,10 @@
     const refresh = el("button", "chip", "Refresh");
     refresh.onclick = () => send({ cmd: "agents" });
     tools.append(refresh);
+    const closeFinished = describe(el("button", "chip", "Close finished panes"),
+      "Close every idle or exited pane here, in every open project, with no confirmation. A pane still waiting or working, or whose last turn failed, is left alone.");
+    closeFinished.onclick = () => runAction("closeFinishedPanes");
+    tools.append(closeFinished);
     body.append(tools);
   }
 
