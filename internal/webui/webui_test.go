@@ -5154,7 +5154,7 @@ h.click(h.$("btn-settings"));
 h.click(h.$("settings-tab-plan"));
 const legal = h.$("set-legal");
 assert.ok(legal && h.$("settings-pane").contains(legal), "the plan does not say whose Flockdeck is");
-assert.ok(legal.textContent.startsWith("Flockdeck · © 2026 Jim Wright · MIT licence"), "the copyright line reads " + legal.textContent);
+assert.ok(legal.textContent.startsWith("Flockdeck · © 2026 Jim Wright · PolyForm Noncommercial licence"), "the copyright line reads " + legal.textContent);
 for (const [id, text, page] of [
   ["set-legal-privacy", "Privacy policy", "privacy.html"],
   ["set-legal-terms", "Terms", "terms.html"],

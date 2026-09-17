@@ -8,7 +8,7 @@
   "url": {{ .URL }},
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Windows, macOS, Linux",
-  "license": "https://opensource.org/licenses/MIT",
+  "license": "https://polyformproject.org/licenses/noncommercial/1.0.0",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
 </script>
@@ -24,13 +24,13 @@
   <h1>Start it on a box that never sleeps. <em>Steer it from wherever you are.</em></h1>
   <p class="lede">Flockdeck runs Claude Code, Codex, Gemini or your own model on
      hardware you already own — a spare machine, a NAS, a cheap VPS — and
-     reaches your phone with no port opened and no password. Free and open
-     source, self-hosted or not.</p>
+     reaches your phone with no port opened and no password. Free and
+     source-available, self-hosted or not.</p>
   <p class="cta">
     <a class="button" href="#install">Install Flockdeck</a>
     <a class="button ghost" href="{{ .Repo }}">Source on GitHub</a>
   </p>
-  <p class="cta-note">Free and open source · Windows, macOS and Linux</p>
+  <p class="cta-note">Free and source-available · Windows, macOS and Linux</p>
   <ul class="works" aria-label="Works with">
     <li class="works-label" aria-hidden="true">Works with</li>
     <li>Claude Code</li>
@@ -447,11 +447,12 @@ make package    <span class="c"># archives for all six platforms</span></code></
   <div class="faq">
     <details open>
       <summary>Is Flockdeck free?</summary>
-      <p>The desktop app is, for good: it's free and open source under the MIT
-         licence, on your own computer or self-hosted on a server you run.
-         Reaching it from your phone through Flockdeck's shared relay is free
-         for a 30-day trial, then £5 a month — there's no permanent free tier
-         for the relay, since somebody has to pay for running it.</p>
+      <p>The desktop app is, for good: it's free, with its source available
+         for noncommercial use, on your own computer or self-hosted on a
+         server you run. Reaching it from your phone through Flockdeck's
+         shared relay is free for a 30-day trial, then £5 a month — there's no
+         permanent free tier for the relay, since somebody has to pay for
+         running it.</p>
       <p>If you'd like to say thank you, you can
          <a href="#sponsor">sponsor Flockdeck</a>. It buys nothing: the app is
          the same for everyone.</p>
@@ -465,7 +466,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
          <a href="#enterprise">Enterprise</a>, in progress, with SSO and an
          audit log already built and under test — see
          <a href="https://docs.flockdeck.ai/self-hosting/overview.html">self-hosting the relay</a>.
-         The app stays free and open source.</p>
+         The app stays free, with its source available.</p>
     </details>
     <details>
       <summary>Which agents does it work with?</summary>
@@ -567,9 +568,9 @@ make package    <span class="c"># archives for all six platforms</span></code></
 <section class="band" id="sponsor">
   <p class="eyebrow">Sponsor</p>
   <h2>Say thank you.</h2>
-  <p>Flockdeck is free and open source. If it's useful to you or your
-     company, you can sponsor it through GitHub Sponsors. Sponsoring buys no
-     features, support or priority: the app is the same for everyone.</p>
+  <p>Flockdeck is free, with its source available. If it's useful to you or
+     your company, you can sponsor it through GitHub Sponsors. Sponsoring buys
+     no features, support or priority: the app is the same for everyone.</p>
   <p class="cta"><a class="button ghost" href="{{ .Sponsor }}">Sponsor on GitHub</a></p>
   <h3>Sponsors</h3>
   {{- if .Sponsors}}

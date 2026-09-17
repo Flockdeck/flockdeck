@@ -41,8 +41,8 @@ on a paid or team plan.
 
 Flockdeck has nothing to opt into, because it collects nothing to begin with
 — on the free tier, same as any other. That isn't a promise about a future
-release; it's what the app already does, and the desktop app is open source,
-so you can read the source and check.
+release; it's what the app already does, and the desktop app's source is
+available, so you can read it and check.
 
 ## What is, and isn't, end-to-end encrypted, said plainly
 
@@ -56,11 +56,13 @@ The state of your panes still isn't: what each pane's agent has spent, its
 usage limits, and which model routing chose for it reach the relay decrypted,
 over TLS, so it can route them. It doesn't record, store or log any of it.
 
-This defeats an honestly-run relay. It doesn't yet defend against a relay
-that's been actively compromised and tampered with to swap the keys it hands
-out at pairing — that needs an out-of-band check that hasn't been built yet.
-If your organisation's rules don't allow a third party in that position at
-all, run the relay yourself: see [self-hosting the
+This defeats an honestly-run relay. Against one that's been actively
+compromised and tampered with to swap the keys it hands out at pairing, that
+alone isn't enough — a swap like that needs an out-of-band check, and Remote
+access now has one: pairing shows a fingerprint on both the device and the
+desktop, and comparing them by eye is what catches a relay that has swapped
+keys. If your organisation's rules don't allow a third party in that position
+at all, run the relay yourself: see [self-hosting the
 relay](https://docs.flockdeck.ai/self-hosting/overview.html), or the coming
 [Enterprise](./#enterprise) licence.
 
@@ -80,7 +82,8 @@ sale records to be kept, then deleted.
 - [Terms of service](terms.html)
 - [Licences](licences.html) — every third-party component, with its licence
   in full.
-- The desktop app is open source under the MIT licence:
-  [github.com/jmwri/flockdeck](https://github.com/jmwri/flockdeck).
+- The desktop app's source is available for noncommercial use under the
+  PolyForm Noncommercial licence:
+  [github.com/Flockdeck/flockdeck](https://github.com/Flockdeck/flockdeck).
 
 Questions, or a security report: **privacy@flockdeck.ai**.

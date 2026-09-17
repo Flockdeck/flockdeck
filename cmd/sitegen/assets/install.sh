@@ -43,7 +43,7 @@
 
 set -eu
 
-REPO="jmwri/flockdeck"
+REPO="Flockdeck/flockdeck"
 
 # Where releases are found: dl.flockdeck.ai first, then GitHub. The tests
 # point these at servers of their own.

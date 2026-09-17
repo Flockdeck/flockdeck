@@ -10,9 +10,9 @@ type: application
 # tweak, a new value) does not force an application release.
 version: 0.1.0
 # The Flockdeck release this chart deploys when image.tag is not set. The
-# image is ghcr.io/jmwri/flockdeck:<appVersion>, the v-prefixed tag
+# image is ghcr.io/flockdeck/flockdeck:<appVersion>, the v-prefixed tag
 # release.yml publishes.
 appVersion: "v0.1.0"
 home: https://flockdeck.ai
 sources:
-  - https://github.com/jmwri/flockdeck
+  - https://github.com/Flockdeck/flockdeck

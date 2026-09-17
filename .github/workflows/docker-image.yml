@@ -38,7 +38,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     permissions:
-      # Push to ghcr.io/jmwri/flockdeck with the workflow's own token --
+      # Push to ghcr.io/flockdeck/flockdeck with the workflow's own token --
       # public, under the current jmwri owner, per
       # flockdeck-planning/12-installation-simplification.md -- so no
       # separate registry credential is needed.
@@ -92,7 +92,7 @@ jobs:
       - name: Build tag list
         id: tags
         env:
-          IMAGE: ghcr.io/jmwri/flockdeck
+          IMAGE: ghcr.io/flockdeck/flockdeck
           TAG: ${{ steps.version.outputs.tag }}
           FLOATING: ${{ steps.version.outputs.floating }}
         run: |
@@ -125,7 +125,7 @@ jobs:
       - name: SBOM
         uses: anchore/sbom-action@v0
         with:
-          image: ghcr.io/jmwri/flockdeck@${{ steps.build.outputs.digest }}
+          image: ghcr.io/flockdeck/flockdeck@${{ steps.build.outputs.digest }}
           format: spdx-json
           output-file: sbom.spdx.json
 
@@ -135,7 +135,7 @@ jobs:
       - name: Scan for vulnerabilities
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: ghcr.io/jmwri/flockdeck@${{ steps.build.outputs.digest }}
+          image-ref: ghcr.io/flockdeck/flockdeck@${{ steps.build.outputs.digest }}
           format: table
           severity: HIGH,CRITICAL
           exit-code: "1"
@@ -148,10 +148,10 @@ jobs:
       # pulls (by digest, or resolved from a tag at pull time) is what
       # `cosign verify` checks against.
       - name: Sign the image
-        run: cosign sign --yes "ghcr.io/jmwri/flockdeck@${{ steps.build.outputs.digest }}"
+        run: cosign sign --yes "ghcr.io/flockdeck/flockdeck@${{ steps.build.outputs.digest }}"
 
       - name: Attest the SBOM
-        run: cosign attest --yes --predicate sbom.spdx.json --type spdxjson "ghcr.io/jmwri/flockdeck@${{ steps.build.outputs.digest }}"
+        run: cosign attest --yes --predicate sbom.spdx.json --type spdxjson "ghcr.io/flockdeck/flockdeck@${{ steps.build.outputs.digest }}"
 
       - name: Summary
         env:
@@ -159,9 +159,9 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           {
-            echo "### ghcr.io/jmwri/flockdeck:$TAG"
+            echo "### ghcr.io/flockdeck/flockdeck:$TAG"
             echo
             echo "digest: \`$DIGEST\`"
             echo
-            echo "verify: \`cosign verify ghcr.io/jmwri/flockdeck@$DIGEST --certificate-identity-regexp '.*' --certificate-oidc-issuer https://token.actions.githubusercontent.com\`"
+            echo "verify: \`cosign verify ghcr.io/flockdeck/flockdeck@$DIGEST --certificate-identity-regexp '.*' --certificate-oidc-issuer https://token.actions.githubusercontent.com\`"
           } >> "$GITHUB_STEP_SUMMARY"

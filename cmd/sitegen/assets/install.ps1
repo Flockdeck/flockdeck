@@ -53,7 +53,7 @@ function Install-Flockdeck {
     [Net.ServicePointManager]::SecurityProtocol =
         [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-    $repo = 'jmwri/flockdeck'
+    $repo = 'Flockdeck/flockdeck'
     # Where releases are found: dl.flockdeck.ai first, then GitHub. The tests
     # point these at servers of their own.
     $dl = 'https://dl.flockdeck.ai'

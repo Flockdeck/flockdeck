@@ -10,8 +10,8 @@ import (
 // What the shared relay, and remote access through it, will cost is not
 // settled, so neither the help nor the README may promise that it stays free:
 // the remote access page, the settings page and the README each did. That the
-// app stays free and open source is the MIT licence's promise, and may be
-// made.
+// app stays free, with its source available, is the PolyForm Noncommercial
+// licence's promise, and may be made.
 func TestNothingPromisesTheSharedRelayStaysFree(t *testing.T) {
 	pages, err := Pages()
 	if err != nil {

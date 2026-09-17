@@ -9724,7 +9724,7 @@
     // shared relay keeps and on what terms: quiet, at the foot of the section
     // about the account, where somebody looking for them looks. They open in
     // the browser, as the link above does.
-    const legal = el("p", "plan-legal", "Flockdeck · © 2026 Jim Wright · MIT licence");
+    const legal = el("p", "plan-legal", "Flockdeck · © 2026 Jim Wright · PolyForm Noncommercial licence");
     legal.id = "set-legal";
     LEGAL_LINKS.forEach(([id, text, href]) => {
       const a = el("a", "", text);
