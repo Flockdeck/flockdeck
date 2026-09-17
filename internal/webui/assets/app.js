@@ -1883,7 +1883,7 @@
     let idx = s.tabs.findIndex((t) => t.id === s.activeTab);
     if (idx < 0) idx = 0;
     const tab = s.tabs[idx];
-    for (const [id, page] of tabPages) page.hidden = !tab || id !== tab.id;
+    for (const [id, page] of tabPages) page.classList.toggle("tab-page-off", !tab || id !== tab.id);
     // A terminal cannot measure itself while hidden, so refit on reveal.
     if (!tab) {
       shownTab = ""; shownFocus = "";
