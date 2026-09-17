@@ -3384,16 +3384,22 @@ func TestOnlyThePanesOnScreenDrawWithWebGL(t *testing.T) {
 h.hello();
 h.recv(fixture());
 const live = (i) => h.webgls.filter((g) => g.term === h.terms[i] && !g.disposed).length;
+// Giving a pane a context is real GPU work, so it is asked for rather than
+// done outright: see TestATabSwitchBuildsWebGLOnePaneAtATime for that.
+h.settleWebgl();
 assert.strictEqual(live(0), 1, "the pane on screen draws without WebGL");
 assert.strictEqual(live(1), 0, "a pane in a tab out of sight holds a WebGL renderer");
 
 h.recv(fixture({ activeTab: "t2" }));
 assert.strictEqual(live(0), 0, "a pane that went out of sight kept its WebGL renderer");
+h.settleWebgl();
 assert.strictEqual(live(1), 1, "a pane that came on screen draws without WebGL");
 h.recv(fixture({ activeTab: "t2" }));
+h.settleWebgl();
 assert.strictEqual(h.webgls.length, 2, "a push that changed nothing made another renderer");
 
 h.recv(fixture());
+h.settleWebgl();
 assert.strictEqual(live(0), 1, "a pane back on screen did not get WebGL again");
 
 // A renderer whose context the browser takes away is given up, and the pane
@@ -3402,7 +3408,68 @@ h.webgls.find((g) => g.term === h.terms[0] && !g.disposed)._lost();
 assert.strictEqual(live(0), 0, "a renderer that lost its context was kept");
 h.recv(fixture({ activeTab: "t2" }));
 h.recv(fixture());
+h.settleWebgl();
 assert.strictEqual(live(0), 1, "a pane whose renderer lost its context never got another");
+`)
+}
+
+// Creating a WebGL context is real work for the GPU driver, shader
+// compilation included, and every pane of a tab paid for one synchronously
+// on every switch: with several panes fanned out, that made the switch
+// itself - which page is on screen, the one thing about a switch that has
+// to be instant - wait on the driver. So a pane's context is asked for
+// here, but built one at a time, starting with whichever pane will be
+// focused, well after the switch itself has already gone to screen; and a
+// pane that leaves the queue again before its turn comes is never built.
+func TestATabSwitchBuildsWebGLOnePaneAtATime(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const fan = {};
+for (let i = 0; i < 4; i++) fan["f" + i] = pane("f" + i, { name: "task " + i });
+const withFanOut = (active) => fixture({
+  activeTab: active,
+  tabs: [
+    { id: "t1", title: "one", focus: "p1", zoom: false, attention: false, root: leaf("n1", "p1") },
+    { id: "t2", title: "fan out", focus: "f2", zoom: false, attention: false,
+      root: split("h", [leaf("n0", "f0"), leaf("n1x", "f1"), leaf("n2x", "f2"), leaf("n3x", "f3")]) },
+  ],
+  panes: Object.assign({ p1: pane("p1") }, fan),
+});
+// h.terms[0] is p1's, the tab shown first; h.terms[1..4] are f0..f3's, in
+// the order the fan-out's split lists them.
+h.recv(withFanOut("t1"));
+assert.strictEqual(h.terms.length, 5, "one terminal per pane");
+const live = (i) => h.webgls.filter((g) => g.term === h.terms[i] && !g.disposed).length;
+h.settleWebgl();
+assert.strictEqual(live(0), 1, "the one pane on screen never drew with WebGL");
+
+h.recv(withFanOut("t2"));
+// The push that switched tabs is what shows the fan-out on screen; nothing
+// about that waited for a single WebGL context to be built.
+assert.strictEqual(live(0), 0, "the pane that left screen kept its WebGL renderer");
+for (let i = 1; i <= 4; i++) assert.strictEqual(live(i), 0, "pane " + i + " already drew with WebGL when the switch itself had only just gone to screen");
+
+// The first frame only lets the switch's own paint happen; the pane about
+// to be focused (f2, h.terms[3]) is the first one actually built.
+h.raf();
+for (let i = 1; i <= 4; i++) assert.strictEqual(live(i), 0, "pane " + i + " was built before the tab had even had a frame to paint");
+h.raf();
+assert.strictEqual(live(3), 1, "the pane about to be focused was not the first one built");
+assert.ok([1, 2, 4].some((i) => live(i) === 0), "every pane of the fan-out was built together rather than staggered");
+
+// Given the frames it asks for, every pane on screen ends up with one.
+h.settleWebgl();
+for (let i = 1; i <= 4; i++) assert.strictEqual(live(i), 1, "pane " + i + " never got a WebGL context");
+
+// Switching away and back before a pane's turn comes never builds it: the
+// fan-out is left, entered and left again with no frame run in between, so
+// none of its panes' queued contexts should ever be built.
+h.recv(withFanOut("t1"));
+h.recv(withFanOut("t2"));
+h.recv(withFanOut("t1"));
+h.settleWebgl();
+for (let i = 1; i <= 4; i++) assert.strictEqual(live(i), 0, "pane " + i + " was built after it left screen before its turn came");
+assert.strictEqual(live(0), 1, "the pane actually left on screen did not get WebGL again");
 `)
 }
 
@@ -8081,6 +8148,12 @@ function boot(opts) {
     setTimeout: (fn, ms, ...args) => unref(setTimeout(fn, ms, ...args)),
     setInterval: (fn, ms, ...args) => unref(setInterval(fn, ms, ...args)),
     clearTimeout, clearInterval, queueMicrotask,
+    // Not a real clock: a callback is held until a case asks for the next
+    // frame with h.raf(), so staggering WebGL contexts across several frames
+    // is exact to test rather than a race against real timers.
+    _raf: [],
+    requestAnimationFrame: (fn) => { win._raf.push(fn); return win._raf.length; },
+    cancelAnimationFrame: () => {},
     localStorage: {
       getItem: (k) => (store.has(k) ? store.get(k) : null),
       setItem: (k, v) => store.set(k, String(v)),
@@ -8141,6 +8214,13 @@ function boot(opts) {
     },
     keyTable() { return JSON.parse(fs.readFileSync(path.join(ASSETS, "keys.json"), "utf8")); },
     sleep(ms) { return new Promise((done) => setTimeout(done, ms)); },
+    /** raf runs the callbacks queued by requestAnimationFrame so far, as one
+     *  frame: a callback that asks for another frame is queued for the next
+     *  one, not run again by this call. See webglQueue in app.js. */
+    raf() { win._raf.splice(0).forEach((fn) => fn()); },
+    /** settleWebgl runs frames until nothing is waiting on one, which is as
+     *  far as webglQueue ever goes on its own once given the time. */
+    settleWebgl() { while (win._raf.length) h.raf(); },
     /** css is the style sheet, for the few things that are only expressible
      *  there and still have to hold. */
     css() { return fs.readFileSync(path.join(ASSETS, "app.css"), "utf8"); },

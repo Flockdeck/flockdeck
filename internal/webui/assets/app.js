@@ -1811,7 +1811,7 @@
     }
     const ids = new Set();
     collectPanes(tab.root, ids);
-    for (const [id, p] of panes) drawWithWebgl(p, ids.has(id));
+    for (const [id, p] of panes) drawWithWebgl(p, ids.has(id), id === tab.focus);
     // Only when the tab has just come on screen. A status push arrives several
     // times a second while agents work, and measuring every visible terminal
     // on each one made the browser lay the window out again for nothing: a
@@ -2996,10 +2996,18 @@
    *  one, in every tab, and Chromium keeps about sixteen WebGL contexts before
    *  it takes the oldest away: with a dozen agents across the tabs, panes on
    *  screen lost theirs to panes nobody could see. Without one a terminal
-   *  draws in the DOM, which is what a hidden pane needs anyway. */
-  function drawWithWebgl(p, on) {
-    if (on === !!p.webgl) return;
+   *  draws on canvas, which is what a hidden pane needs anyway - and what an
+   *  on-screen one gets to start with, since creating the context is real
+   *  GPU-driver work (shader compilation included) and a tab with several
+   *  panes doing that all at once, synchronously, on every switch is what
+   *  made switching tabs feel slow under load. So turning one off is done
+   *  right away - it hands the context back for whichever pane needs it
+   *  next - but turning one on is only asked for here; see webglQueue for
+   *  where the work actually happens. */
+  function drawWithWebgl(p, on, priority) {
+    if (on === !!p.webgl) { dequeueWebgl(p); return; }
     if (!on) {
+      dequeueWebgl(p);
       const g = p.webgl;
       p.webgl = null;
       try { g.dispose(); } catch { /* already gone with its context */ }
@@ -3008,6 +3016,51 @@
     // A browser without WebGL says so once; asking again on every push
     // would build and throw away a renderer each time.
     if (p.noWebgl || typeof WebglAddon === "undefined") return;
+    queueWebgl(p, priority);
+  }
+
+  /** webglQueue holds panes waiting for a WebGL context, one created at a
+   *  time rather than all together, so switching to a tab with several panes
+   *  isn't held up waiting on the GPU driver for every one of them - the
+   *  canvas renderer underneath already has the terminal on screen, so
+   *  nothing is missing while a pane waits its turn. Scheduled two frames
+   *  out: the first lets the browser paint the tab that just came on screen,
+   *  and only once that has happened is it worth spending a frame's budget
+   *  compiling shaders instead. */
+  let webglQueue = [];
+  let webglPumpScheduled = false;
+
+  function queueWebgl(p, priority) {
+    const i = webglQueue.indexOf(p);
+    if (i >= 0) {
+      if (priority && i > 0) { webglQueue.splice(i, 1); webglQueue.unshift(p); }
+      return;
+    }
+    if (priority) webglQueue.unshift(p); else webglQueue.push(p);
+    if (!webglPumpScheduled) {
+      webglPumpScheduled = true;
+      requestAnimationFrame(() => requestAnimationFrame(pumpWebglQueue));
+    }
+  }
+
+  function dequeueWebgl(p) {
+    const i = webglQueue.indexOf(p);
+    if (i >= 0) webglQueue.splice(i, 1);
+  }
+
+  function pumpWebglQueue() {
+    const p = webglQueue.shift();
+    // The pane may have gone back off screen, or gained its context some
+    // other way, while it sat in the queue; nothing to do then.
+    if (p && !p.webgl && !p.noWebgl && p.host.isConnected) createWebglContext(p);
+    if (webglQueue.length) {
+      requestAnimationFrame(pumpWebglQueue);
+    } else {
+      webglPumpScheduled = false;
+    }
+  }
+
+  function createWebglContext(p) {
     try {
       const g = new WebglAddon.WebglAddon();
       // A context the browser takes back is given up, and the pane asks for
