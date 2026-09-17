@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -24,6 +25,7 @@ import (
 //	/<version>/checksums.txt(.sig)          and their SHA-256s, signed
 //	/latest/<archive without the version>   for the site's download buttons
 //	/recalled.json(.sig)                    versions withdrawn after release, signed; see Recall
+//	/releases.json(.sig)                    recent published releases, signed; see List
 //
 // Everything under /<version>/ is written once, when the release is published,
 // and never changes, so it is cached for a year. latest.json is the one file
@@ -107,6 +109,10 @@ const (
 	pointerName  = "latest.json"
 	sigExt       = ".sig"
 )
+
+// releaseIndexName is releases.json, the site's signed list of recent
+// published releases; see List.
+const releaseIndexName = "releases.json"
 
 // CheckPointer reads latest.json and returns the version it names, refusing
 // anything that does not name one.
@@ -284,6 +290,98 @@ func releaseFromManifest(m *Manifest) *Release {
 	}
 	rel.mirror = mirror
 	return rel
+}
+
+// IndexedRelease is one release in releases.json: as much about it as a
+// picker needs to let somebody choose a version to install, not the whole of
+// its signed manifest -- which is read separately, by Fetch, only for the
+// one version somebody actually chooses.
+type IndexedRelease struct {
+	Version  string    `json:"version"`
+	Date     time.Time `json:"date"`
+	NotesURL string    `json:"notes_url,omitempty"`
+	Notes    string    `json:"notes,omitempty"`
+}
+
+// ReleaseIndex is releases.json as the site holds it: the most recent
+// published releases, signed the same way checksums.txt and recalled.json
+// are. It exists only so List can offer a picker something to choose from
+// without asking GitHub for it; nothing is ever installed on the strength of
+// an entry here alone; see List.
+type ReleaseIndex struct {
+	Versions []IndexedRelease `json:"versions"`
+}
+
+// CheckReleaseIndex reads releases.json once its signature, the content of
+// releases.json.sig, has passed VerifyAny -- the same way CheckRecalled
+// reads recalled.json.
+func CheckReleaseIndex(keys []ed25519.PublicKey, data, sig []byte) (*ReleaseIndex, error) {
+	if err := VerifyAny(keys, data, sig); err != nil {
+		return nil, signatureError{releaseIndexName, siteHost(), err}
+	}
+	var idx ReleaseIndex
+	if err := json.Unmarshal(data, &idx); err != nil {
+		return nil, fmt.Errorf("%s is not a release index: %w", releaseIndexName, err)
+	}
+	for _, v := range idx.Versions {
+		if !Parseable(v.Version) {
+			return nil, fmt.Errorf("%s names %q, which is not a version", releaseIndexName, v.Version)
+		}
+	}
+	return &idx, nil
+}
+
+// releaseIndexFromSite reads releases.json from the site, trusted only once
+// its signature has checked against the compiled-in key, and returns what it
+// names as Releases, newest first, drafts and pre-releases left out the same
+// way List promises to leave them out however it read them.
+//
+// There is no GitHub mirror of releases.json to fall back to -- List itself
+// is what falls back to GitHub's own listing when this fails for any reason,
+// the site being unreachable among them.
+func releaseIndexFromSite(ctx context.Context, limit int) ([]*Release, error) {
+	keys := TrustedKeys()
+	if len(keys) == 0 {
+		return nil, errNoKey
+	}
+	data, err := fetchSmall(ctx, siteURL+"/"+releaseIndexName, 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	sig, err := fetchSmall(ctx, siteURL+"/"+releaseIndexName+sigExt, 1<<10)
+	if err != nil {
+		return nil, err
+	}
+	idx, err := CheckReleaseIndex(keys, data, sig)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Release, 0, len(idx.Versions))
+	for _, v := range idx.Versions {
+		if prerelease(v.Version) {
+			continue
+		}
+		out = append(out, &Release{Version: v.Version, Notes: v.Notes, URL: v.NotesURL, Published: v.Date})
+	}
+	sortReleasesNewestFirst(out)
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// sortReleasesNewestFirst orders releases the way List promises to return
+// them. releases.json is expected to already be written newest first, but
+// nothing here depends on that.
+func sortReleasesNewestFirst(rels []*Release) {
+	sort.Slice(rels, func(i, j int) bool {
+		vi, oki := parseVersion(rels[i].Version)
+		vj, okj := parseVersion(rels[j].Version)
+		if !oki || !okj {
+			return false
+		}
+		return compare(vi, vj) > 0
+	})
 }
 
 // recalledName is the site's signed list of published releases withdrawn

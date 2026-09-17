@@ -237,6 +237,33 @@ func TestStageUnpacksTheBinaryAndRecordsIt(t *testing.T) {
 	if !ok || loaded.Version != "v9.9.9" {
 		t.Errorf("Load = %+v, %v; want the staged update", loaded, ok)
 	}
+	if loaded.Chosen {
+		t.Error("Stage marked the record Chosen; only StageChosen does")
+	}
+}
+
+// StageChosen is Stage for a release picked by name -- the interface's
+// version picker -- and marks the record Chosen, both in what it returns and
+// in what a later Load reads back, so a caller deciding whether to leave it
+// alone or apply it does not have to stage it over again to find out.
+func TestStageChosenMarksTheRecord(t *testing.T) {
+	const body = "the new program"
+	name, archive := buildArchive(t, body)
+	h := sha256.Sum256(archive)
+	srv := releaseServer(t, name, archive, hex.EncodeToString(h[:]))
+
+	dir := t.TempDir()
+	p, err := StageChosen(context.Background(), fetchRelease(t, srv.URL+"/release"), dir)
+	if err != nil {
+		t.Fatalf("StageChosen: %v", err)
+	}
+	if !p.Chosen {
+		t.Error("StageChosen did not mark the record Chosen")
+	}
+	loaded, ok := Load(dir)
+	if !ok || !loaded.Chosen {
+		t.Errorf("Load = %+v, %v; want a Chosen record", loaded, ok)
+	}
 }
 
 // Two downloads can be under way at once -- `flockdeck update` while the

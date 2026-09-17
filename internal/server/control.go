@@ -1437,6 +1437,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		}
 		go s.checkForUpdates(c)
 		return
+	case "listVersions":
+		s.listVersions(c)
+		return
+	case "installVersion":
+		s.installVersion(c, cmd.Text)
+		return
 	case "presence":
 		s.setDeskUsed(c, cmd.Kind == "used")
 		return

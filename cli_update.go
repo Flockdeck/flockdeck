@@ -251,6 +251,96 @@ func rollbackVerb(candidate, running string) string {
 	}
 }
 
+// listVersionsNow answers the interface's version picker: recent published
+// releases, newest first, each marked against the version running now
+// (relationOf) the same way rollbackVerb reads for the CLI's own message, so
+// the picker can offer "Reinstall", "Update to" or "Roll back to" without
+// comparing versions itself.
+func listVersionsNow(ctx context.Context) ([]server.VersionView, error) {
+	if !selfupdate.Parseable(version) {
+		return nil, errors.New("this build was not made from a release, so there is no released version to compare against")
+	}
+	rels, err := selfupdate.List(ctx, 15)
+	if err != nil {
+		return nil, explainUnreachable(err, "list recent releases")
+	}
+	items := make([]server.VersionView, 0, len(rels))
+	for _, rel := range rels {
+		items = append(items, server.VersionView{
+			Version:   rel.Version,
+			Notes:     rel.Notes,
+			URL:       rel.URL,
+			Published: publishedString(rel.Published),
+			Relation:  relationOf(rel.Version, version),
+		})
+	}
+	return items, nil
+}
+
+// publishedString is a release's publish date for the wire, RFC 3339, or ""
+// where it is not known -- a release read from GitHub's API carries one, and
+// one read from the site's manifest, but releases.json's own entries may not.
+func publishedString(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+// relationOf is rollbackVerb's comparison, named for the picker: how
+// candidate compares to running, as a word the front end can key its own
+// wording off rather than comparing versions itself.
+func relationOf(candidate, running string) string {
+	switch {
+	case selfupdate.Newer(candidate, running):
+		return "newer"
+	case selfupdate.Newer(running, candidate):
+		return "older"
+	default:
+		return "current"
+	}
+}
+
+// installVersionNow implements the interface's version picker: download and
+// check a chosen release the same way runRollback does on the command line,
+// but stage it (StageChosen) for a restart to apply rather than putting it in
+// place immediately. Apply is never done under a running session (see the
+// selfupdate package comment), and this runs inside the very process whose
+// panes hold the live agents -- unlike runRollback, a separate `flockdeck
+// update -version=X` process that can put the download in place itself and
+// leave the running instance to pick it up at its own next start.
+//
+// Skipping the Newer guard on purpose is the whole point, exactly as it is
+// for runRollback; there is no confirmation prompt to skip here, because the
+// interface's own dialog (openUpdate, reused once this stages and offers the
+// version through SetUpdate) already asks before a restart discards
+// anything.
+func installVersionNow(ctx context.Context, srv *server.Server, target string) (string, bool) {
+	if !selfupdate.Parseable(version) {
+		return "this build was not made from a release, so there is no released version to install over it", true
+	}
+	rel, err := selfupdate.Fetch(ctx, target)
+	if err != nil {
+		return explainUnreachable(err, "look for "+target).Error(), true
+	}
+	if rel.Draft {
+		return target + " is a draft release, not a published one", true
+	}
+	dir, err := updatesDir()
+	if err != nil {
+		return err.Error(), true
+	}
+	staged, err := selfupdate.StageChosen(ctx, rel, dir)
+	if err != nil {
+		if errors.Is(err, selfupdate.ErrNoAsset) {
+			return err.Error() + " — nothing was built for this platform", true
+		}
+		return explainUnreachable(err, "download the release").Error(), true
+	}
+	srv.SetUpdate(&server.UpdateView{Version: staged.Version, Notes: staged.Notes, URL: staged.URL})
+	return rollbackVerb(staged.Version, version) + " " + staged.Version + ". Restart flockdeck when you are ready to install it.", false
+}
+
 // confirmRollback asks before installing a version other than the latest,
 // since skipping the Newer guard on purpose is the one thing here that must
 // never happen without somebody meaning it.
@@ -412,7 +502,10 @@ func applyStaged(out io.Writer, dir, exe, current string) {
 }
 
 // stagedUpdate returns the update waiting in dir, if it would move the running
-// version forward.
+// version forward -- or, staged by naming it rather than reached as "the
+// latest" (Pending.Chosen), whatever it is: somebody who picked v1.2.0 to
+// roll back to asked for exactly that version, not "the latest release that
+// is still newer than what I'm running."
 //
 // A staged release is only an update to the build that staged it, and the
 // program may since have been replaced by something else: a newer release
@@ -424,7 +517,7 @@ func applyStaged(out io.Writer, dir, exe, current string) {
 // build that staged it may yet be run again and still wants it.
 func stagedUpdate(dir, current string) (*selfupdate.Pending, bool) {
 	p, ok := selfupdate.Load(dir)
-	if !ok || !selfupdate.Newer(p.Version, current) {
+	if !ok || (!p.Chosen && !selfupdate.Newer(p.Version, current)) {
 		return nil, false
 	}
 	return p, true
@@ -557,6 +650,22 @@ func watchForUpdates(ctx context.Context, srv *server.Server) {
 	}
 }
 
+// chosenStillOffered is checkRound's first decision: a release staged by
+// naming it -- the interface's version picker (StageChosen), or a `flockdeck
+// update -version=X` from a run before this one -- is somebody's own
+// decision, made once, and is never second-guessed by the rest of checkRound,
+// whose "is it still newer than what's running, or than the latest" logic is
+// for what this watcher staged on its own. handled is true when pending is
+// such a release, in which case message is what to report and the round does
+// nothing further: no discard, no fetch, until it is applied or replaced by
+// hand.
+func chosenStillOffered(pending *selfupdate.Pending) (message string, handled bool) {
+	if pending == nil || !pending.Chosen {
+		return "", false
+	}
+	return "Version " + pending.Version + " is already downloaded and ready to install.", true
+}
+
 // checkRound is one round of looking for a newer release: it is the body of
 // watchForUpdates' loop, and also what the interface's manual "Check for
 // updates" action runs, so that a person who clicks it and the watcher that
@@ -591,9 +700,16 @@ func checkRound(ctx context.Context, dir string, srv *server.Server) (message st
 	if err != nil {
 		return explainUnreachable(err, "look for a newer release").Error(), true
 	}
-	staged := ""
+	var pending *selfupdate.Pending
 	if p, ok := stagedUpdate(dir, version); ok {
-		staged = p.Version
+		pending = p
+	}
+	if msg, handled := chosenStillOffered(pending); handled {
+		return msg, false
+	}
+	staged := ""
+	if pending != nil {
+		staged = pending.Version
 	}
 	// A draft has not been published yet, and comparing against it as though
 	// it were the latest release would offer something nobody can download.

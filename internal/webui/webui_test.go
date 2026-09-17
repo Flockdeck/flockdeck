@@ -2703,6 +2703,69 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "keys" });
 `)
 }
 
+// The version picker, reached from Settings › General, lists what
+// listVersions answers and installs whichever row is chosen -- forward,
+// back, or a reinstall of the version already running, each button worded
+// for what it would actually do.
+func TestTheVersionPickerListsAndInstallsAChoice(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-settings"));
+h.click(h.$("set-versions"));
+assert.ok(!h.$("overlay").hidden, "the version picker did not open");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "listVersions" });
+assert.ok(h.$("overlay-body").textContent.includes("Loading"), "the picker does not say it is loading");
+
+h.recv({ type: "versions", items: [
+  { version: "v1.6.0", relation: "newer", published: "2026-09-10T00:00:00Z", notes: "adds things" },
+  { version: "v1.5.0", relation: "current" },
+  { version: "v1.4.0", relation: "older", notes: "an older release" },
+] });
+const body = h.$("overlay-body");
+assert.ok(body.textContent.includes("v1.6.0"), "the newer release is not listed");
+assert.ok(body.textContent.includes("running now"), "the running version is not marked");
+assert.strictEqual(h.$("version-install-v1.6.0").textContent, "Update to…");
+assert.strictEqual(h.$("version-install-v1.5.0").textContent, "Reinstall");
+
+const install = h.$("version-install-v1.4.0");
+assert.strictEqual(install.textContent, "Roll back to…", "the older release's button does not say roll back");
+h.click(install);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "installVersion", text: "v1.4.0" });
+assert.ok(install.disabled, "the button clicked does not show it is working");
+assert.strictEqual(install.textContent, "Downloading…");
+`)
+}
+
+// A dialog closed while its answer is still on the way must not come back on
+// its own -- see TestAClosedDialogStaysClosedWhenItsAnswerArrives for the
+// worktree and keys dialogs' own version of this.
+func TestTheVersionPickerStaysClosedWhenItsAnswerArrives(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-settings"));
+h.click(h.$("set-versions"));
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "Escape did not close the picker");
+h.recv({ type: "versions", items: [{ version: "v1.4.0", relation: "current" }] });
+assert.ok(h.$("overlay").hidden, "the answer reopened the picker after it was closed");
+`)
+}
+
+// An error listing recent releases -- the site and GitHub both out of reach,
+// say -- is shown in the picker rather than left loading forever.
+func TestTheVersionPickerShowsAFailureToList(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-settings"));
+h.click(h.$("set-versions"));
+h.recv({ type: "versions", error: "could not reach dl.flockdeck.ai or GitHub" });
+assert.ok(h.$("overlay-body").textContent.includes("could not reach"), "the picker does not say what went wrong");
+`)
+}
+
 // A dialog is opened by asking for it, not by its answer arriving. The answer
 // also comes back after a push, a commit or a worktree being removed, which
 // take seconds, and a dialog closed in the meantime used to come back over the
