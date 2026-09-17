@@ -7436,6 +7436,14 @@
 
   let agents = null;
 
+  /** agentsView is which of the overview's two shapes is drawn: "urgency",
+   *  the flat list sorted by what needs a person first, or "project", the
+   *  same panes grouped by project and nested under their parent. It resets
+   *  to "urgency" each time the dialog is opened fresh, so the view nobody
+   *  asked for a second look at does not linger from the last time it was
+   *  open. */
+  let agentsView = "urgency";
+
   /** The overview is where you look to see which agent needs you, and it was
    *  a picture taken when it opened: an agent that stopped to wait while it
    *  was up went on being listed as working. It is asked for again whenever a
@@ -7477,6 +7485,7 @@
    *  me" once several are open. */
   function openAgents() {
     dialog = "agents";
+    agentsView = "urgency";
     openOverlay("Agents", "status");
     $("overlay-body").textContent = "";
     $("overlay-body").append(el("div", "dir-empty", "Loading…"));
@@ -7503,79 +7512,15 @@
     // than regrouped under its parent and losing that order.
     const byId = new Map(items.map((x) => [x.paneId, x]));
 
-    const wrap = section(items.length + (items.length === 1 ? " pane" : " panes"));
-    items.forEach((a) => {
-      const row = el("div", "agent-row" + (a.active ? " active" : ""));
-      // By the pane, because the list is drawn again as the agents change
-      // what they are doing, and a row found again by its wording would lose
-      // the keyboard the moment its status did.
-      row.id = "agent-" + a.paneId;
-      const main = el("div", "agent-main");
+    body.append(agentViewTabs());
 
-      const title = el("div", "agent-title");
-      // The dot is the only thing carrying status here, and it has no text
-      // at all, so it needs both the copy and a name of its own.
-      // The row writes the status out in words further along, so the disc is
-      // decoration here — unlike in a pane header, where it is all there is.
-      const dot = el("span", "dot " + a.status);
-      dot.setAttribute("aria-hidden", "true");
-      title.append(describe(dot, TIPS[a.status] || a.status));
-      // Cut short with an ellipsis, like the tab it names; the bubble has it all.
-      title.append(describe(el("span", "agent-tab", a.tab || a.name), a.tab || a.name));
-      title.append(el("span", "agent-project", a.project));
-      main.append(title);
-
-      const meta = el("div", "agent-meta");
-      if (a.branch) {
-        const n = el("span", null, "⎇ " + a.branch);
-        n.setAttribute("role", "img");
-        n.setAttribute("aria-label", "On branch " + a.branch);
-        meta.append(describe(n, TIPS.branch));
-      }
-      if (a.dirty) {
-        const n = el("span", null, "●" + a.dirty + " uncommitted");
-        n.setAttribute("role", "img");
-        n.setAttribute("aria-label", a.dirty + (a.dirty === 1 ? " file" : " files") + " changed but not committed");
-        meta.append(describe(n, TIPS.changed));
-      }
-      // The same badge the pane header carries. With a dozen panes across
-      // three projects, "waiting" means a different thing from Claude than
-      // from a local model, and this is the list you scan to decide which to
-      // go to first.
-      if (a.agent) {
-        meta.append(describe(el("span", null, a.model ? a.agent + " · " + a.model : a.agent), TIPS.agent));
-      }
-      if (a.kind === "shell") meta.append(el("span", null, "shell"));
-      if (a.detail) meta.append(el("span", null, a.detail));
-      // A helper's own pane, when it is still open, so it reads as part of
-      // the job it was spawned for rather than an unrelated row -- the list
-      // stays sorted by what needs a person first, so this is what says
-      // which of them share a manager.
-      if (a.parent) {
-        const parent = byId.get(a.parent);
-        meta.append(el("span", "agent-parent", "↳ helper of " + (parent ? (parent.tab || parent.name) : "another agent")));
-      }
-      // What a waiting pane's permission prompt or question wants, in the
-      // same words the prompt itself would show -- so a list of several
-      // waiting at once says which is worth a look first, without opening
-      // any of them.
-      if (a.status === "waiting" && a.waiting) {
-        meta.append(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));
-      }
-      main.append(meta);
-      row.append(main);
-
-      const status = el("span", "agent-status " + a.status, a.status);
-      row.append(status);
-      if (a.for) row.append(el("span", "agent-for", howLong(a.for)));
-
-      rowAction(row, () => {
-        send({ cmd: "revealPane", root: a.root, node: a.tabId, id: a.paneId });
-        closeOverlay();
-      }, false, a.tab || a.name);
-      wrap.append(row);
-    });
-    body.append(wrap);
+    if (agentsView === "project") {
+      body.append(agentsByProject(items, byId));
+    } else {
+      const wrap = section(items.length + (items.length === 1 ? " pane" : " panes"));
+      items.forEach((a) => wrap.append(agentRow(a, byId)));
+      body.append(wrap);
+    }
 
     const tools = el("div", "wt-tools");
     const refresh = el("button", "chip", "Refresh");
@@ -7586,6 +7531,167 @@
     closeFinished.onclick = () => runAction("closeFinishedPanes");
     tools.append(closeFinished);
     body.append(tools);
+  }
+
+  /** agentViewTabs switches the overview between its two shapes: the flat
+   *  list urgency sorts across every project, and the same panes grouped by
+   *  project and nested under their parent. Neither replaces the other --
+   *  see the note on renderAgents' flat mode for why the sort it keeps
+   *  matters -- this is only another way to look at the same items. */
+  function agentViewTabs() {
+    const tabs = el("div", "agent-view-tabs");
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", "How to arrange the panes");
+    [["urgency", "By urgency"], ["project", "By project"]].forEach(([id, label]) => {
+      const on = agentsView === id;
+      const b = el("button", "chip agent-view-tab" + (on ? " sel" : ""), label);
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", String(on));
+      b.onclick = () => {
+        if (agentsView === id) return;
+        agentsView = id;
+        keepFocus(() => renderAgents());
+      };
+      tabs.append(b);
+    });
+    return tabs;
+  }
+
+  /** agentsByProject is the overview's tree mode: every pane grouped by the
+   *  project it runs in, a helper nested under the parent that spawned it
+   *  (workspace.Pane.Parent), each row built the same way the flat list's
+   *  is -- the same status, the same actions, the same link to its own
+   *  parent -- so the two modes never say different things about one pane. */
+  function agentsByProject(items, byId) {
+    const wrap = el("div", "agent-tree");
+    const byProject = new Map();
+    items.forEach((a) => {
+      if (!byProject.has(a.project)) byProject.set(a.project, []);
+      byProject.get(a.project).push(a);
+    });
+    [...byProject.keys()].sort((x, y) => x.localeCompare(y)).forEach((proj) => {
+      const list = byProject.get(proj);
+      const sec = section(proj + " · " + list.length + (list.length === 1 ? " pane" : " panes"));
+      // A helper is nested under its parent only within its own project --
+      // parent and helper always share one, since `flockdeck spawn` starts
+      // the helper where it was run -- so grouping by project first and
+      // building each project's tree on its own items is enough.
+      const ids = new Set(list.map((a) => a.paneId));
+      const children = new Map();
+      const roots = [];
+      list.forEach((a) => {
+        if (a.parent && ids.has(a.parent)) {
+          if (!children.has(a.parent)) children.set(a.parent, []);
+          children.get(a.parent).push(a);
+        } else {
+          roots.push(a);
+        }
+      });
+      const appendNode = (a, into) => {
+        into.append(agentRow(a, byId));
+        const kids = children.get(a.paneId);
+        if (!kids || !kids.length) return;
+        const nest = el("div", "agent-children");
+        kids.forEach((k) => appendNode(k, nest));
+        into.append(nest);
+      };
+      roots.forEach((a) => appendNode(a, sec));
+      wrap.append(sec);
+    });
+    return wrap;
+  }
+
+  /** agentRow builds one pane's row exactly as both views draw it: the flat
+   *  list in its own order, and the tree nested under its parent. */
+  function agentRow(a, byId) {
+    const row = el("div", "agent-row" + (a.active ? " active" : ""));
+    // By the pane, because the list is drawn again as the agents change
+    // what they are doing, and a row found again by its wording would lose
+    // the keyboard the moment its status did.
+    row.id = "agent-" + a.paneId;
+    const main = el("div", "agent-main");
+
+    const title = el("div", "agent-title");
+    // The dot is the only thing carrying status here, and it has no text
+    // at all, so it needs both the copy and a name of its own.
+    // The row writes the status out in words further along, so the disc is
+    // decoration here — unlike in a pane header, where it is all there is.
+    const dot = el("span", "dot " + a.status);
+    dot.setAttribute("aria-hidden", "true");
+    title.append(describe(dot, TIPS[a.status] || a.status));
+    // Cut short with an ellipsis, like the tab it names; the bubble has it all.
+    title.append(describe(el("span", "agent-tab", a.tab || a.name), a.tab || a.name));
+    title.append(el("span", "agent-project", a.project));
+    main.append(title);
+
+    const meta = el("div", "agent-meta");
+    if (a.branch) {
+      const n = el("span", null, "⎇ " + a.branch);
+      n.setAttribute("role", "img");
+      n.setAttribute("aria-label", "On branch " + a.branch);
+      meta.append(describe(n, TIPS.branch));
+    }
+    if (a.dirty) {
+      const n = el("span", null, "●" + a.dirty + " uncommitted");
+      n.setAttribute("role", "img");
+      n.setAttribute("aria-label", a.dirty + (a.dirty === 1 ? " file" : " files") + " changed but not committed");
+      meta.append(describe(n, TIPS.changed));
+    }
+    // The same badge the pane header carries. With a dozen panes across
+    // three projects, "waiting" means a different thing from Claude than
+    // from a local model, and this is the list you scan to decide which to
+    // go to first.
+    if (a.agent) {
+      meta.append(describe(el("span", null, a.model ? a.agent + " · " + a.model : a.agent), TIPS.agent));
+    }
+    if (a.kind === "shell") meta.append(el("span", null, "shell"));
+    if (a.detail) meta.append(el("span", null, a.detail));
+    // A helper's own pane, when it is still open, so it reads as part of
+    // the job it was spawned for rather than an unrelated row -- the list
+    // stays sorted by what needs a person first, so this is what says
+    // which of them share a manager. Where the parent is still open, its
+    // name is a link to it, sent through the same revealPane the row's own
+    // click already uses, just aimed at the parent instead.
+    if (a.parent) {
+      const parent = byId.get(a.parent);
+      if (parent) {
+        const go = (ev) => {
+          ev.stopPropagation();
+          send({ cmd: "revealPane", root: parent.root, node: parent.tabId, id: parent.paneId });
+          closeOverlay();
+        };
+        const link = el("button", "agent-parent link", "↳ helper of " + (parent.tab || parent.name));
+        link.type = "button";
+        link.onclick = go;
+        link.onkeydown = (ev) => {
+          if (ev.key !== "Enter" && ev.key !== " ") return;
+          ev.preventDefault();
+          go(ev);
+        };
+        meta.append(describe(link, "Go to " + (parent.tab || parent.name)));
+      } else {
+        meta.append(el("span", "agent-parent", "↳ helper of another agent"));
+      }
+    }
+    // What a waiting pane's permission prompt or question wants, in the
+    // same words the prompt itself would show -- so a list of several
+    // waiting at once says which is worth a look first, without opening
+    // any of them.
+    if (a.status === "waiting" && a.waiting) {
+      meta.append(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));
+    }
+    main.append(meta);
+    row.append(main);
+
+    const status = el("span", "agent-status " + a.status, a.status);
+    row.append(status);
+    if (a.for) row.append(el("span", "agent-for", howLong(a.for)));
+
+    rowAction(row, () => {
+      send({ cmd: "revealPane", root: a.root, node: a.tabId, id: a.paneId });
+      closeOverlay();
+    }, false, a.tab || a.name);
+    return row;
   }
 
   // ---------------------------------------------------------- agent picker

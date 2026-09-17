@@ -7590,6 +7590,118 @@ assert.ok(h.doc.activeElement === branch, "the keyboard was not put where the br
 `)
 }
 
+// A helper's row already named the pane that spawned it, in plain text with
+// nothing to click. Going to that pane meant closing the overview, hunting
+// for it by eye, or waiting for it to need you too.
+func TestAHelperLinksToItsParentPane(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "planner", name: "planner", status: "working" },
+  { paneId: "p2", tabId: "t1", root: "C:/repo", project: "repo", tab: "helper", name: "helper", status: "working", parent: "p1" },
+] });
+const rows = h.$("overlay-body").querySelectorAll("div.agent-row");
+assert.strictEqual(rows.length, 2);
+const link = rows[1].querySelector("button.agent-parent");
+assert.ok(link, "the helper's row does not link to its parent");
+assert.strictEqual(link.textContent, "\u21B3 helper of planner");
+
+h.click(link);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "revealPane", root: "C:/repo", node: "t1", id: "p1" },
+  "the link did not reveal the parent, not the helper's own pane");
+assert.strictEqual(h.commands().filter((c) => c.cmd === "revealPane").length, 1,
+  "clicking the parent link also revealed the helper's own pane");
+assert.ok(h.$("overlay").hidden, "revealing the parent did not close the overview");
+
+// Reached from the keyboard, not only the mouse, and without also firing
+// the row's own reveal underneath it.
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "planner", name: "planner", status: "working" },
+  { paneId: "p2", tabId: "t1", root: "C:/repo", project: "repo", tab: "helper", name: "helper", status: "working", parent: "p1" },
+] });
+const before = h.commands().length;
+const link2 = h.$("overlay-body").querySelectorAll("div.agent-row")[1].querySelector("button.agent-parent");
+link2.focus();
+h.key({ key: "Enter" });
+assert.strictEqual(h.commands().length - before, 1, "Enter on the link fired more than one reveal");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "revealPane", root: "C:/repo", node: "t1", id: "p1" });
+
+// A parent that has since closed leaves nothing to reveal, so the row falls
+// back to plain text rather than a link to nowhere.
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p3", tabId: "t1", root: "C:/repo", project: "repo", tab: "orphan", name: "orphan", status: "idle", parent: "gone" },
+] });
+const orphan = h.$("overlay-body").querySelector("div.agent-row");
+assert.ok(!orphan.querySelector("button.agent-parent"), "a closed parent was linked to anyway");
+assert.ok(orphan.textContent.includes("helper of another agent"), "the orphaned helper lost its own wording");
+`)
+}
+
+// The overview is a flat list sorted by what needs a person first on
+// purpose -- see the comment above renderAgents' byId map -- so the tree is
+// offered beside it rather than instead of it.
+func TestAgentsCanBeSeenAsATreeByProject(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "planner", name: "planner", status: "waiting" },
+  { paneId: "p2", tabId: "t1", root: "C:/repo", project: "repo", tab: "helper one", name: "helper one", status: "working", parent: "p1" },
+  { paneId: "p3", tabId: "t1", root: "C:/repo", project: "repo", tab: "helper two", name: "helper two", status: "idle", parent: "p1" },
+  { paneId: "p4", tabId: "t2", root: "C:/other", project: "other", tab: "solo", name: "solo", status: "idle" },
+] });
+
+// By urgency, the default, is the flat list the server already sorted --
+// no tree, no project headings.
+assert.ok(!h.$("overlay-body").querySelector("div.agent-tree"), "the flat list drew a tree anyway");
+let tabs = h.$("overlay-body").querySelectorAll("button.agent-view-tab");
+assert.strictEqual(tabs.length, 2);
+assert.strictEqual(tabs[0].textContent, "By urgency");
+assert.strictEqual(tabs[0].getAttribute("aria-selected"), "true");
+assert.strictEqual(tabs[1].getAttribute("aria-selected"), "false");
+
+h.click(tabs[1]);
+
+// Grouped by project, each under its own heading, alphabetically.
+const sections = h.$("overlay-body").querySelectorAll(".proj-section");
+const headings = sections.map((s) => s.querySelector("h3").textContent);
+assert.deepStrictEqual(headings, ["other \u00b7 1 pane", "repo \u00b7 3 panes"]);
+
+const tree = h.$("overlay-body").querySelector("div.agent-tree");
+assert.ok(tree, "By project did not draw a tree");
+assert.strictEqual(tree.querySelectorAll("div.agent-row").length, 4, "By project lost a pane");
+
+// The two helpers are nested under their parent's row, not beside it, and
+// each still carries its own status the way the flat list's rows do.
+const nested = tree.querySelectorAll(".agent-children").flatMap((n) => n.querySelectorAll("div.agent-row"));
+assert.strictEqual(nested.length, 2, "the helpers were not nested under their parent");
+assert.ok(nested.every((r) => r.textContent.includes("helper")), "a nested row belongs to someone else");
+assert.ok(nested.some((r) => r.querySelector("span.agent-status.working")), "a nested row lost its own status");
+assert.ok(nested.some((r) => r.querySelector("span.agent-status.idle")));
+
+// Switching back leaves the flat list exactly as the server sorted it.
+tabs = h.$("overlay-body").querySelectorAll("button.agent-view-tab");
+h.click(tabs[0]);
+assert.ok(!h.$("overlay-body").querySelector("div.agent-tree"), "the tree stayed after switching back");
+const rows = h.$("overlay-body").querySelectorAll("div.agent-row");
+assert.strictEqual(rows[0].id, "agent-p1", "the waiting agent no longer leads the flat list");
+
+// A fresh open of the dialog starts on urgency again, not wherever the last
+// visit left off.
+h.key({ key: "Escape" });
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "planner", name: "planner", status: "idle" },
+] });
+assert.ok(!h.$("overlay-body").querySelector("div.agent-tree"), "the dialog remembered project view across a reopen");
+`)
+}
+
 // frontEndHarness is the DOM app.js is run against: enough of one to build
 // the interface, dispatch events through it and answer the questions it asks,
 // and nothing beyond that. It is written to a temporary directory beside the
