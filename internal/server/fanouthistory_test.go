@@ -2,6 +2,8 @@ package server
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/session"
@@ -168,12 +170,33 @@ func TestClosingASettledFanOutTabRecordsItsHistory(t *testing.T) {
 // TestAFanOutStillWorkingIsNotRecorded covers a tab closed mid-run: nothing
 // finished, so there is no job to remember, and history stays empty.
 func TestAFanOutStillWorkingIsNotRecorded(t *testing.T) {
-	srv, ws := fanoutServer(t)
+	srv, ws := newTestServer(t)
+
+	// revealAgents' "go", given a task it does not recognise as a command,
+	// errors out and exits almost at once -- fine for every other test here,
+	// which only needs the pane to settle, but Session.SetStatus refuses to
+	// move a session already marked StatusExited (see its own guard), so
+	// settlePane's forced StatusWorking below only sticks if it wins a race
+	// against that exit. It usually did, but not reliably enough on every
+	// runner -- flaky on macOS CI. This agent blocks instead, so the pane
+	// really is still running when settlePane says so, and there is nothing
+	// left to race.
+	hang := filepath.Join(t.TempDir(), "hang.go")
+	if err := os.WriteFile(hang, []byte("package main\n\nimport \"time\"\n\nfunc main() { time.Sleep(time.Hour) }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeAgents(t, `{"version": 1, "agents": [{"id": "gocli", "name": "Go", "exe": "go",
+		"args": [{"value": "run"}, {"value": "{{prompt}}"}]}]}`)
+	ws.ReloadAgents()
+
 	root := ws.ActiveRoot()
 	conn := dialControl(t, srv)
 	nextState(t, conn, nil)
 
-	runFanout(t, srv, fanoutRequest{Tasks: []string{"first-task", "second-task"}, Agent: "gocli"})
+	// The first task is the file that blocks; the second is still not a
+	// command "go run" understands, so it errors out and settles quickly --
+	// exactly what the pane meant to read as idle needs.
+	runFanout(t, srv, fanoutRequest{Tasks: []string{hang, "second-task"}, Agent: "gocli"})
 	got := wherePlaced(t, srv, ws)
 	tabID := got.tab
 	panes := panesOf(t, srv, ws, tabID)
