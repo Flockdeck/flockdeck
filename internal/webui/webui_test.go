@@ -1364,7 +1364,8 @@ h.recv(fixture({ activeTab: "t2",
   panes: panesIn }));
 const pages = h.doc.querySelectorAll("div.tab-page");
 assert.strictEqual(pages.length, 2, "a page per tab");
-assert.ok(pages[0].hidden && !pages[1].hidden, "the wrong page is on screen");
+assert.ok(pages[0].classList.contains("tab-page-off") && !pages[1].classList.contains("tab-page-off"),
+  "the wrong page is on screen");
 assert.strictEqual(pages[1].querySelectorAll("div.pane").length, 4, "the fanned-out tab is not drawn");
 
 // And this tab's own shape still redraws it, and hands back the keyboard.
@@ -1384,6 +1385,32 @@ assert.ok(!h.doc.querySelector("div.empty"), "the placeholder was left behind un
 assert.strictEqual(h.doc.querySelectorAll("div.tab-page").length, 1);
 `)
 	t.Log(strings.TrimSpace(out))
+}
+
+// A tab not on screen is taken out with a class, not the hidden attribute:
+// [hidden] drops it out of layout entirely, and every terminal in it loses
+// its character-size measurement along with it, paid for again the moment it
+// is shown -- a cost real enough to profile, not just to guess at. The class
+// is what app.css hides it by instead, keeping the layout (and with it the
+// measurement) intact underneath.
+func TestATabNotOnScreenKeepsItsLayout(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const one = { id: "t1", title: "one", focus: "p1", root: leaf("n1", "p1") };
+const two = { id: "t2", title: "two", focus: "p2", root: leaf("n2", "p2") };
+h.recv(fixture({ activeTab: "t1", tabs: [one, two], panes: { p1: pane("p1"), p2: pane("p2") } }));
+
+const pages = h.doc.querySelectorAll("div.tab-page");
+assert.strictEqual(pages.length, 2);
+assert.ok(!pages[0].hidden && !pages[1].hidden,
+  "a tab page still uses the hidden attribute, which drops its layout");
+assert.ok(!pages[0].classList.contains("tab-page-off") && pages[1].classList.contains("tab-page-off"),
+  "the tab not on screen does not carry the class that hides it");
+
+h.recv(fixture({ activeTab: "t2", tabs: [one, two], panes: { p1: pane("p1"), p2: pane("p2") } }));
+assert.ok(pages[0].classList.contains("tab-page-off") && !pages[1].classList.contains("tab-page-off"),
+  "switching tabs did not move the class to the one now off screen");
+`)
 }
 
 // Reading what an agent changed, and finding the agent that is blocked, are

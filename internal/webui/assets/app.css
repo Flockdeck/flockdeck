@@ -479,7 +479,28 @@ textarea:focus-visible {
 #workspace { flex: 1 1 auto; position: relative; overflow: hidden; }
 
 .tab-page { position: absolute; inset: 0; display: flex; }
-.tab-page[hidden] { display: none; }
+/* Not display:none: that drops the tab out of layout entirely, and every
+ * terminal in it loses its character-size measurement along with it -- paid
+ * for again, synchronously, the moment the tab is shown.
+ *
+ * visibility:hidden alone keeps the layout (so the measurement survives) but
+ * -- measured, not guessed -- left every hidden tab's terminal rendering
+ * (cursor blink, the WebGL and canvas paint loops) in the background the
+ * whole time it sat off screen, worse the more tabs were open. content-
+ * visibility:hidden keeps the layout AND stops that background rendering,
+ * which is the fix -- but only Chromium (this app's own window) supports it;
+ * Safari and WebKitGTK, which do not, would leave every tab shown at once,
+ * all stacked on the one underneath, so visibility:hidden stays as the
+ * fallback for them. The two do not combine cleanly on the browser that
+ * supports both -- doing so reintroduced the background rendering measuring
+ * was meant to catch -- so a browser that understands content-visibility
+ * hides by that alone, and only a browser that does not falls back to
+ * visibility. Either way the subtree is out of tab order and off screen
+ * readers on its own, the same as [hidden] did. */
+.tab-page.tab-page-off { visibility: hidden; pointer-events: none; }
+@supports (content-visibility: hidden) {
+  .tab-page.tab-page-off { visibility: visible; content-visibility: hidden; }
+}
 
 .split { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; }
 .split.h { flex-direction: row; }
