@@ -110,7 +110,11 @@ var iconICO []byte
 var touchIcon []byte
 
 const (
-	defaultRepo   = "https://github.com/jmwri/flockdeck"
+	defaultRepo = "https://github.com/Flockdeck/flockdeck"
+	// defaultModule stays on the old owner: it must match go.mod's own module
+	// line exactly, which this repository has not renamed (unlike
+	// flockdeck-remote), so `go install` from the site would resolve nothing
+	// under a path that only the GitHub repository itself has moved to.
 	defaultModule = "github.com/jmwri/flockdeck"
 	defaultURL    = "https://flockdeck.ai"
 
@@ -281,7 +285,7 @@ var pages = []struct {
 		Description: "The terms for using the shared Flockdeck relay at remote.flockdeck.ai, and this website."},
 	{Path: "licences.html", Template: "licences.html.tmpl",
 		Title:       "Licences | Flockdeck",
-		Description: "The Flockdeck desktop app's MIT licence, and every third-party component in the desktop app, the phone client and the relay, each with its licence in full."},
+		Description: "The Flockdeck desktop app's licence, and every third-party component in the desktop app, the phone client and the relay, each with its licence in full."},
 }
 
 // page is what a page's template is given: where the site came from, and
@@ -758,8 +762,9 @@ func loadLicences() (*licences, error) {
 	}
 	l := &licences{Own: string(own)}
 	// Each notices file's own licence is the section of the page that says
-	// what it is: the desktop app's is the MIT licence at the top, and the
-	// phone client's and the relay's are proprietary, as their sections say.
+	// what it is: the desktop app's is the PolyForm Noncommercial licence at
+	// the top, and the phone client's and the relay's are proprietary, as
+	// their sections say.
 	for _, n := range []struct {
 		file, licence string
 		into          *template.HTML
@@ -810,8 +815,8 @@ func noticesMD(licence string) goldmark.Markdown {
 // links to its own repository's LICENSE go to licence instead, the section of
 // the page that says what that licence is: the file on its own sits beside
 // that LICENSE, and on the page it does not. Only the desktop app's is the
-// MIT licence at the top, so the phone client's and the relay's, which are
-// proprietary, must not be sent there.
+// PolyForm Noncommercial licence at the top, so the phone client's and the
+// relay's, which are proprietary, must not be sent there.
 type noticesShape struct{ licence string }
 
 func (s noticesShape) Transform(doc *ast.Document, _ text.Reader, _ parser.Context) {

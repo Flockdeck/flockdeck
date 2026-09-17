@@ -1434,17 +1434,20 @@ files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
 
 ## Sponsoring
 
-Flockdeck is free and open source, and sponsoring it is a way to say thank
-you: through [GitHub Sponsors](https://github.com/sponsors/jmwri), or the
-Sponsor button at the top of this repository. It buys no features, support or
-priority, and the app is the same for everyone. Sponsors who ask to be named
-are listed, by name and a link, on [the website](https://flockdeck.ai/#sponsor).
+Flockdeck is free, with its source available, and sponsoring it is a way to
+say thank you: through [GitHub Sponsors](https://github.com/sponsors/jmwri),
+or the Sponsor button at the top of this repository. It buys no features,
+support or priority, and the app is the same for everyone. Sponsors who ask
+to be named are listed, by name and a link, on [the
+website](https://flockdeck.ai/#sponsor).
 
 ## Licence
 
-The desktop app in this repository is MIT — see [LICENSE](LICENSE). The relay,
-the phone and web client, and the website are separate, closed-source
-projects, © 2026 Jim Wright, all rights reserved.
+The desktop app in this repository is released under the [PolyForm
+Noncommercial licence](LICENSE): free to use, copy and change for any
+noncommercial purpose, source included. The relay, the phone and web client,
+and the website are separate, closed-source projects, © 2026 Jim Wright, all
+rights reserved.
 
 The front end is compiled into the binary and the Go dependencies are linked
 into it, so a release carries other people's code as well as this project's.

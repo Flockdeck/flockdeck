@@ -265,7 +265,7 @@ func TestEveryPageHasTheFooter(t *testing.T) {
 		foot := page[at:]
 		for _, want := range []string{
 			"© 2026 Jim Wright",
-			"The desktop app is free and open source under the MIT licence.",
+			"The desktop app is free, with its source available for noncommercial use.",
 			`href="privacy.html"`, `href="terms.html"`, `href="licences.html"`,
 			`#install"`, `#remote"`, `#faq"`, `#sponsor"`,
 			`href="` + defaultRepo + `/releases"`,
@@ -460,14 +460,14 @@ func TestEveryComponentHasItsLicenceText(t *testing.T) {
 	}
 }
 
-// Only the desktop app is open source. The phone client and the relay are a
-// proprietary service, so the licences page says so of each and sends
-// neither's own licence to the desktop app's MIT licence, and no page offers
-// their source or a relay of your own. Enterprise is announced, but only as
-// coming, for companies, under licence: "run the relay on your own
-// infrastructure" is that announcement, which is why these phrases stop short
-// of "your own" alone.
-func TestOnlyTheDesktopAppIsOpenSource(t *testing.T) {
+// Only the desktop app's source is available. The phone client and the relay
+// are a proprietary service, so the licences page says so of each and sends
+// neither's own licence to the desktop app's PolyForm Noncommercial licence,
+// and no page offers their source or a relay of your own. Enterprise is
+// announced, but only as coming, for companies, under licence: "run the relay
+// on your own infrastructure" is that announcement, which is why these
+// phrases stop short of "your own" alone.
+func TestOnlyTheDesktopAppsSourceIsAvailable(t *testing.T) {
 	_, pages := generate(t)
 	page := pages["licences.html"]
 	section := func(id, next string) string {
@@ -477,8 +477,8 @@ func TestOnlyTheDesktopAppIsOpenSource(t *testing.T) {
 		}
 		return page[from:to]
 	}
-	if s := section("flockdeck", "desktop"); !strings.Contains(s, "desktop app") || !strings.Contains(s, "MIT licence") {
-		t.Error("the licences page does not say the MIT licence is the desktop app's")
+	if s := section("flockdeck", "desktop"); !strings.Contains(s, "desktop app") || !strings.Contains(s, "PolyForm Noncommercial licence") {
+		t.Error("the licences page does not say the PolyForm Noncommercial licence is the desktop app's")
 	}
 	if !strings.Contains(section("desktop", "phone"), `href="#flockdeck"`) {
 		t.Error("the desktop app's notices do not lead to its licence")
@@ -497,7 +497,7 @@ func TestOnlyTheDesktopAppIsOpenSource(t *testing.T) {
 	}
 	for name, p := range pages {
 		for _, claim := range []string{
-			`href="https://github.com/jmwri/flockdeck-relay`, `href="https://github.com/jmwri/flockdeck-remote`,
+			`href="https://github.com/Flockdeck/flockdeck-relay`, `href="https://github.com/Flockdeck/flockdeck-remote`,
 			"run your own", "relay is open source", "relay of your own",
 		} {
 			if strings.Contains(p, claim) {
@@ -550,7 +550,8 @@ func TestEnterpriseIsAnnouncedForCompanies(t *testing.T) {
 // What the shared relay, and remote access through it, will cost is not
 // settled, so no page may promise that it stays free: the FAQ, the Enterprise
 // card, the Settings screenshot's alt text and the terms each did. That the
-// app stays free and open source is the MIT licence's promise, and is kept.
+// app stays free, with its source available, is the PolyForm Noncommercial
+// licence's promise, and is kept.
 func TestNoPagePromisesTheSharedRelayStaysFree(t *testing.T) {
 	_, pages := generate(t)
 	for name, p := range pages {
@@ -558,8 +559,8 @@ func TestNoPagePromisesTheSharedRelayStaysFree(t *testing.T) {
 			t.Errorf("%s promises what the shared relay will cost: %q", name, s)
 		}
 	}
-	if !strings.Contains(pages["index.html"], "The app stays free and open source.") {
-		t.Error("the FAQ no longer says the app stays free and open source")
+	if !strings.Contains(pages["index.html"], "The app stays free, with its source available.") {
+		t.Error("the FAQ no longer says the app stays free and its source available")
 	}
 }
 

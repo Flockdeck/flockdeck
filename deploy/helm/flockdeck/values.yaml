@@ -20,13 +20,13 @@
 # one workspace. Point every device at the one instance this chart runs.
 
 image:
-  repository: ghcr.io/jmwri/flockdeck
+  repository: ghcr.io/flockdeck/flockdeck
   # Empty for the chart's appVersion. Pin a release rather than following one.
   tag: ""
   pullPolicy: IfNotPresent
 
 # Names of pull secrets that already exist in the namespace. flockdeck is
-# public on GHCR (ghcr.io/jmwri/flockdeck), so this is empty unless your
+# public on GHCR (ghcr.io/flockdeck/flockdeck), so this is empty unless your
 # cluster's own egress policy needs a mirror with its own credentials.
 imagePullSecrets: []
 

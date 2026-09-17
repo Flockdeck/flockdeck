@@ -13,7 +13,7 @@
 // it never writes into it.
 //
 // Usage, from a checkout of this repository, beside a checkout of
-// github.com/jmwri/flockdeck-docs:
+// github.com/Flockdeck/flockdeck-docs:
 //
 //	go run ./cmd/docgen -out ../flockdeck-docs
 package main
@@ -41,7 +41,7 @@ var assets embed.FS
 
 const (
 	defaultURL  = "https://docs.flockdeck.ai"
-	defaultRepo = "https://github.com/jmwri/flockdeck-docs"
+	defaultRepo = "https://github.com/Flockdeck/flockdeck-docs"
 )
 
 // selfHostOrder is the sequence the self-hosting pages are written in, for

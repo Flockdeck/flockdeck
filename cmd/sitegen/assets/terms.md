@@ -8,12 +8,13 @@ United Kingdom ("we"). By turning on remote access with the shared relay, you
 agree to them. If you subscribe, [The subscription](#the-subscription) applies
 to you as well.
 
-**The Flockdeck desktop app is separate.** The desktop app is free and open
-source under the [MIT
-licence](https://github.com/jmwri/flockdeck/blob/main/LICENSE). That licence,
-not these terms, governs how you use, copy and change the desktop app. The
-relay and the web client it serves are not open source: they are a service,
-provided to you under these terms.
+**The Flockdeck desktop app is separate.** The desktop app is free, with its
+source available for any noncommercial purpose, under the [PolyForm
+Noncommercial licence](https://github.com/Flockdeck/flockdeck/blob/main/LICENSE).
+That licence, not these terms, governs how you use, copy and change the
+desktop app. The relay and the web client it serves are not covered by that
+licence, or open source at all: they are a service, provided to you under
+these terms.
 
 ## The shared relay
 
