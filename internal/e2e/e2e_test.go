@@ -7,8 +7,11 @@ package e2e_test
 
 import (
 	"bytes"
+	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
+	"regexp"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/e2e"
@@ -265,5 +268,104 @@ func TestDecodePublicKeyRefusesNonsense(t *testing.T) {
 	junk[0] = 4 // the uncompressed-point tag, so the length check alone does not reject it
 	if _, err := e2e.DecodePublicKey(base64.RawURLEncoding.EncodeToString(junk)); err == nil {
 		t.Error("65 random bytes decoded as a public key")
+	}
+}
+
+// The two static keys a real handshake produced these vectors from: the
+// same keys, and the same expected code, flockdeck-relay's own e2e_test.go
+// and flockdeck-remote's e2e.js check their own fingerprints against. A
+// mismatch here means this copy has drifted from the reference
+// implementation, not that either is wrong on its own.
+const (
+	vecDeviceStaticPub = "0433d812e1276886a0d442f3b338620ed578a661f1f355c4d8206fdedca0743dadbf861f2d5cba92ba85bdf778ef8d829dd8c575a2647a92efb944fbd000c414ae"
+	vecHostStaticPub   = "04a0e057bf1fc9ca714f0e25546cad4007c1044598b975e09c0727c629a3d746e1b74d0840b24dbedbe78b06fd6b42a6b62e93b9d6ce0b22901f262a1ea9854789"
+	vecFingerprint     = "99506 91610 13506 43956 60391 19129"
+)
+
+func vecKey(t *testing.T, h string) *ecdh.PublicKey {
+	t.Helper()
+	raw, err := hex.DecodeString(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err := ecdh.P256().NewPublicKey(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pub
+}
+
+// Fingerprint reproduces the exact code flockdeck-relay's own e2e_test.go
+// and flockdeck-remote's e2e.js compute from the same two keys -- proof
+// this copy has not drifted from either.
+func TestFingerprintMatchesTheReferenceVectorByteForByte(t *testing.T) {
+	got := e2e.Fingerprint(vecKey(t, vecDeviceStaticPub), vecKey(t, vecHostStaticPub))
+	if got != vecFingerprint {
+		t.Errorf("Fingerprint() = %q, want %q", got, vecFingerprint)
+	}
+}
+
+// Six groups of five digits, space-separated -- what a person is asked to
+// read off one screen and compare against another, not any other encoding
+// of the same bytes.
+func TestFingerprintFormat(t *testing.T) {
+	got := e2e.Fingerprint(vecKey(t, vecDeviceStaticPub), vecKey(t, vecHostStaticPub))
+	if !regexp.MustCompile(`^\d{5}( \d{5}){5}$`).MatchString(got) {
+		t.Errorf("Fingerprint() = %q, not six 5-digit groups", got)
+	}
+}
+
+// Fingerprint depends on nothing but the two static keys: two independent
+// handshakes between the same pair produce different sessions but the same
+// fingerprint, which is what lets a person verify it once rather than
+// before every terminal they open.
+func TestFingerprintDoesNotDependOnTheHandshakeOrSession(t *testing.T) {
+	devicePriv, _ := e2e.GenerateStaticKey()
+	hostPriv, _ := e2e.GenerateStaticKey()
+	want := e2e.Fingerprint(devicePriv.PublicKey(), hostPriv.PublicKey())
+
+	for i := 0; i < 3; i++ {
+		dh, hello, err := e2e.StartDeviceHandshake(devicePriv, hostPriv.PublicKey())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := e2e.RespondHostHandshake(hostPriv, devicePriv.PublicKey(), hello); err != nil {
+			t.Fatal(err)
+		}
+		_ = dh
+		if got := e2e.Fingerprint(devicePriv.PublicKey(), hostPriv.PublicKey()); got != want {
+			t.Fatalf("run %d: Fingerprint() = %q, want %q", i, got, want)
+		}
+	}
+}
+
+// A relay that swapped either static key -- the device's or the host's --
+// leaves the two sides holding different keys for one of them, and that
+// shows up as a different fingerprint: this is the check that catches it.
+func TestFingerprintChangesWhenEitherKeyChanges(t *testing.T) {
+	devicePriv, _ := e2e.GenerateStaticKey()
+	hostPriv, _ := e2e.GenerateStaticKey()
+	impostorPriv, _ := e2e.GenerateStaticKey()
+	base := e2e.Fingerprint(devicePriv.PublicKey(), hostPriv.PublicKey())
+
+	if got := e2e.Fingerprint(impostorPriv.PublicKey(), hostPriv.PublicKey()); got == base {
+		t.Error("a substituted device key produced the same fingerprint")
+	}
+	if got := e2e.Fingerprint(devicePriv.PublicKey(), impostorPriv.PublicKey()); got == base {
+		t.Error("a substituted host key produced the same fingerprint")
+	}
+}
+
+// devicePub and hostPub are not interchangeable: swapping them is a
+// different pair of arguments, and Fingerprint has no way to tell that
+// apart from a genuinely different host, so it must not agree by accident.
+// Both sides always call it the same way round (device first, host
+// second), which is what makes this safe rather than a source of the very
+// mismatches this feature exists to catch.
+func TestFingerprintIsNotSymmetricInItsArguments(t *testing.T) {
+	device := vecKey(t, vecDeviceStaticPub)
+	host := vecKey(t, vecHostStaticPub)
+	if e2e.Fingerprint(device, host) == e2e.Fingerprint(host, device) {
+		t.Error("swapping devicePub and hostPub produced the same fingerprint")
 	}
 }

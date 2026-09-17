@@ -1968,6 +1968,105 @@ assert.ok(!/^one: /.test(h.notifications[0].body), "an ordinary split's prompts 
 `)
 }
 
+// Dismissing a settled fan-out's summary card with "Back to grid" used to be
+// permanent: cardHidden suppressed the card until the tab started working
+// again, and nothing offered a way back to it before then. A chip floated
+// over the grid brings it back, for as long as the tab stays settled.
+func TestADismissedSummaryCardCanBeShownAgain(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const settled = () => fixture({
+  activeTab: "t9",
+  tabs: [{ id: "t9", title: "fan out", focus: "q0", delegated: true,
+    root: split("h", [leaf("m0", "q0"), leaf("m1", "q1")]) }],
+  panes: { q0: pane("q0", { name: "task 0", branch: "task-0" }),
+           q1: pane("q1", { name: "task 1", branch: "task-1", status: "waiting" }) },
+  waiting: 1,
+});
+h.recv(settled());
+assert.ok(h.$("workspace").querySelector(".summary-card"), "the settled fan-out did not collapse to a card");
+assert.ok(!h.$("workspace").querySelector(".show-summary"), "the chip is showing over the card itself");
+
+// Dismissed: the grid comes back, with the chip floated over it.
+const back = [...h.$("workspace").querySelectorAll("button")].filter((b) => b.textContent === "Back to grid")[0];
+assert.ok(back, "no way to dismiss the card in the first place");
+h.click(back);
+h.recv(settled());
+assert.ok(!h.$("workspace").querySelector(".summary-card"), "the card is still showing after it was dismissed");
+const chip = h.$("workspace").querySelector(".show-summary");
+assert.ok(chip, "nothing offers a way back to the dismissed card");
+assert.strictEqual(chip.textContent, "Show summary");
+
+// Pressing it brings the card back.
+h.click(chip);
+h.recv(settled());
+assert.ok(h.$("workspace").querySelector(".summary-card"), "the chip did not bring the card back");
+assert.ok(!h.$("workspace").querySelector(".show-summary"), "the chip is still showing once the card is back");
+
+// The tab starting work again clears the dismissal, the same as it always
+// has, so the chip does not survive to show a card that is gone.
+h.recv(settled());
+const back2 = [...h.$("workspace").querySelectorAll("button")].filter((b) => b.textContent === "Back to grid")[0];
+h.click(back2);
+h.recv(fixture({
+  activeTab: "t9",
+  tabs: [{ id: "t9", title: "fan out", focus: "q0", delegated: true,
+    root: split("h", [leaf("m0", "q0"), leaf("m1", "q1")]) }],
+  panes: { q0: pane("q0", { name: "task 0", status: "working" }), q1: pane("q1", { name: "task 1" }) },
+  working: 1,
+}));
+assert.ok(!h.$("workspace").querySelector(".show-summary"), "the chip survived the tab going back to work");
+`)
+}
+
+// The history panel draws a closed job the same one-line-per-pane way the
+// live summary card does, from whatever the Go side has kept for this
+// project in memory.
+func TestFanOutHistoryListsPastJobs(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-fanout-history"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutHistory", root: "C:/repo" });
+assert.ok(h.$("overlay-body").textContent.includes("Reading past jobs"));
+
+h.recv({ type: "fanoutHistory", root: "C:/repo", items: [] });
+assert.ok(h.$("overlay-body").textContent.includes("No fan-out jobs finished in this project yet"));
+
+h.recv({
+  type: "fanoutHistory", root: "C:/repo",
+  items: [{
+    id: "j1", title: "Fan out", at: "2024-01-01T00:00:00Z", ago: "3 hours ago",
+    panes: [
+      { name: "task 0", branch: "task-0", task: "first task", kind: "done", detail: "wrapped it up" },
+      { name: "task 1", branch: "task-1", task: "second task", kind: "needs", detail: "Wants a question." },
+    ],
+  }],
+});
+const body = h.$("overlay-body");
+assert.ok(body.textContent.includes("Fan out"), "the job's title is missing");
+assert.ok(body.textContent.includes("3 hours ago"), "when the job finished is missing");
+assert.ok(body.textContent.includes("2 agents"), "the pane count is missing");
+
+const rows = [...body.querySelectorAll(".summary-card-row")];
+assert.strictEqual(rows.length, 2, "want one row per pane");
+assert.ok(rows[0].textContent.includes("task 0") && rows[0].textContent.includes("task-0"));
+assert.ok(rows[0].textContent.includes("first task"), "the task that was fanned out is missing");
+assert.ok(rows[0].textContent.includes("wrapped it up"), "the agent's last reply is missing");
+assert.strictEqual(rows[0].querySelector(".summary-card-outcome").textContent, "done");
+assert.ok(rows[0].querySelector(".summary-card-outcome").classList.contains("done"));
+assert.strictEqual(rows[1].querySelector(".summary-card-outcome").textContent, "needs input");
+assert.ok(rows[1].querySelector(".summary-card-outcome").classList.contains("needs"));
+assert.ok(rows[1].textContent.includes("Wants a question."));
+
+// Refresh asks again, for this project.
+const refresh = [...body.querySelectorAll("button")].filter((b) => b.textContent === "Refresh")[0];
+assert.ok(refresh, "no way to ask again");
+h.click(refresh);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutHistory", root: "C:/repo" });
+`)
+}
+
 // The Go side caps a diff at 400KB, which bounds the bytes and not the lines.
 // A generated file of short lines reaches that in a couple of hundred thousand
 // of them, and an element per line is drawn while the window does nothing else.
@@ -2703,6 +2802,69 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "keys" });
 `)
 }
 
+// The version picker, reached from Settings › General, lists what
+// listVersions answers and installs whichever row is chosen -- forward,
+// back, or a reinstall of the version already running, each button worded
+// for what it would actually do.
+func TestTheVersionPickerListsAndInstallsAChoice(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-settings"));
+h.click(h.$("set-versions"));
+assert.ok(!h.$("overlay").hidden, "the version picker did not open");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "listVersions" });
+assert.ok(h.$("overlay-body").textContent.includes("Loading"), "the picker does not say it is loading");
+
+h.recv({ type: "versions", items: [
+  { version: "v1.6.0", relation: "newer", published: "2026-09-10T00:00:00Z", notes: "adds things" },
+  { version: "v1.5.0", relation: "current" },
+  { version: "v1.4.0", relation: "older", notes: "an older release" },
+] });
+const body = h.$("overlay-body");
+assert.ok(body.textContent.includes("v1.6.0"), "the newer release is not listed");
+assert.ok(body.textContent.includes("running now"), "the running version is not marked");
+assert.strictEqual(h.$("version-install-v1.6.0").textContent, "Update to…");
+assert.strictEqual(h.$("version-install-v1.5.0").textContent, "Reinstall");
+
+const install = h.$("version-install-v1.4.0");
+assert.strictEqual(install.textContent, "Roll back to…", "the older release's button does not say roll back");
+h.click(install);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "installVersion", text: "v1.4.0" });
+assert.ok(install.disabled, "the button clicked does not show it is working");
+assert.strictEqual(install.textContent, "Downloading…");
+`)
+}
+
+// A dialog closed while its answer is still on the way must not come back on
+// its own -- see TestAClosedDialogStaysClosedWhenItsAnswerArrives for the
+// worktree and keys dialogs' own version of this.
+func TestTheVersionPickerStaysClosedWhenItsAnswerArrives(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-settings"));
+h.click(h.$("set-versions"));
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "Escape did not close the picker");
+h.recv({ type: "versions", items: [{ version: "v1.4.0", relation: "current" }] });
+assert.ok(h.$("overlay").hidden, "the answer reopened the picker after it was closed");
+`)
+}
+
+// An error listing recent releases -- the site and GitHub both out of reach,
+// say -- is shown in the picker rather than left loading forever.
+func TestTheVersionPickerShowsAFailureToList(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-settings"));
+h.click(h.$("set-versions"));
+h.recv({ type: "versions", error: "could not reach dl.flockdeck.ai or GitHub" });
+assert.ok(h.$("overlay-body").textContent.includes("could not reach"), "the picker does not say what went wrong");
+`)
+}
+
 // A dialog is opened by asking for it, not by its answer arriving. The answer
 // also comes back after a push, a commit or a worktree being removed, which
 // take seconds, and a dialog closed in the meantime used to come back over the
@@ -2787,6 +2949,57 @@ assert.strictEqual(h.$("overlay-title").textContent, "Update to 9.9.9");
 // again.
 h.recv(fixture({ update: { version: "9.9.9", notes: "Fixes the settings corruption." } }));
 assert.ok(h.$("recall-banner").hidden, "the banner outlived its own recall");
+`)
+}
+
+// Checking for an update reaches GitHub, which is not instant, and neither
+// button that asks for one said so while it waited -- a press that had
+// registered looked exactly like one that had not.
+func TestCheckingForAnUpdateSaysItIsRunning(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ recall: { version: "9.9.8", reason: "corrupts settings on first launch", upgrade: "9.9.9" } }));
+h.click(h.$("btn-settings"));
+
+h.click(h.$("set-check-update"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "checkForUpdate" });
+assert.strictEqual(h.$("set-check-update").textContent, "Checking…", "the settings button did not say it was working");
+assert.ok(h.$("set-check-update").disabled, "the settings button still invites a press");
+// The recall banner's own button, elsewhere on screen, says the same thing:
+// only one check is ever out at a time.
+assert.strictEqual(h.$("recall-check-update").textContent, "Checking…", "the recall banner did not follow along");
+
+// A second press while the first is in flight asks nothing more.
+const sent = h.commands().length;
+h.click(h.$("set-check-update"));
+assert.strictEqual(h.commands().length, sent, "a second check was sent while the first was in flight");
+
+// Nothing new was found: the server's only word on that is a notice, and it
+// releases both buttons.
+h.recv({ type: "notice", text: "flockdeck is up to date", error: false });
+assert.strictEqual(h.$("set-check-update").textContent, "Check for updates now", "the settings button was left saying it was working");
+assert.ok(!h.$("set-check-update").disabled, "the settings button was left disabled");
+assert.strictEqual(h.$("recall-check-update").textContent, "Check for updates", "the recall banner was left saying it was working");
+`)
+}
+
+// A connection dropped while a manual update check was out took its answer
+// with it, and nothing was ever going to ask again on the button's behalf --
+// there is no dialog to reopen, unlike Changes or the worktrees panel.
+// Reconnecting is what releases it instead.
+func TestACheckForUpdateDroppedWithTheConnectionIsReleased(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-settings"));
+h.click(h.$("set-check-update"));
+assert.ok(h.$("set-check-update").disabled, "the button did not say it was working");
+
+h.controls()[0].close();
+h.click(h.$("retry"));
+h.controls().pop().onopen();
+assert.ok(!h.$("set-check-update").disabled, "reconnecting did not release the button");
+assert.strictEqual(h.$("set-check-update").textContent, "Check for updates now");
 `)
 }
 
@@ -6653,6 +6866,55 @@ assert.deepStrictEqual(h.commands().slice(before), [{ cmd: "worktreePrune" }], "
 `)
 }
 
+// Adding, removing and pruning a worktree all run git, and none of them said
+// so while they were out, so a press that had registered looked exactly like
+// one that had not -- the same gap Changes' own fetch, pull, push and commit
+// close.
+func TestAWorktreeOperationSaysItIsRunning(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-worktrees"));
+const list = (items) => ({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items });
+const main = { label: "main", path: "C:/repo", main: true };
+const spare = { label: "spare", path: "C:/spare", dirty: 0, untracked: 0 };
+h.recv(list([main, spare]));
+
+h.$("wt-branch").value = "fix-auth";
+h.$("wt-branch").oninput();
+const create = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Create")[0];
+h.click(create);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeAdd", text: "fix-auth", base: "main" });
+assert.strictEqual(create.textContent, "Creating\u2026", "the button did not say it was working");
+const remove = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Remove")[0];
+assert.ok(remove.disabled, "the other buttons still invite a press");
+
+// A second press while the first is in flight creates nothing more.
+const sent = h.commands().length;
+h.click(create);
+assert.strictEqual(h.commands().length, sent, "a second create was sent while the first was in flight");
+
+// It always ends by sending the listing back, which puts the buttons right.
+h.recv(list([main, spare]));
+const removeAgain = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Remove")[0];
+assert.ok(!removeAgain.disabled, "the buttons were left disabled");
+
+// Remove and Prune say so too, and do not go twice.
+h.click(removeAgain);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeRemove", path: "C:/spare", force: false });
+assert.strictEqual(removeAgain.textContent, "Removing\u2026");
+const twice = h.commands().length;
+h.click(removeAgain);
+assert.strictEqual(h.commands().length, twice, "the remove was sent twice");
+
+h.recv(list([main, spare]));
+const prune = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Prune")[0];
+h.click(prune);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreePrune" });
+assert.strictEqual(prune.textContent, "Pruning\u2026");
+`)
+}
+
 // A redraw finds the control the keyboard was on by what it is and what it
 // says, and by wording alone one row's Clear is the next row's. Clearing one
 // stored API key, which does not ask, left the keyboard on the next agent's
@@ -7554,6 +7816,118 @@ h.key({ key: "Enter" });
 assert.ok(!h.commands().some((c) => c.cmd === "worktreeAdd"), "a worktree was asked for with no branch");
 assert.ok(/branch/i.test(h.$("notice").textContent) && !h.$("notice").hidden, "nothing said the branch was missing");
 assert.ok(h.doc.activeElement === branch, "the keyboard was not put where the branch goes");
+`)
+}
+
+// A helper's row already named the pane that spawned it, in plain text with
+// nothing to click. Going to that pane meant closing the overview, hunting
+// for it by eye, or waiting for it to need you too.
+func TestAHelperLinksToItsParentPane(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "planner", name: "planner", status: "working" },
+  { paneId: "p2", tabId: "t1", root: "C:/repo", project: "repo", tab: "helper", name: "helper", status: "working", parent: "p1" },
+] });
+const rows = h.$("overlay-body").querySelectorAll("div.agent-row");
+assert.strictEqual(rows.length, 2);
+const link = rows[1].querySelector("button.agent-parent");
+assert.ok(link, "the helper's row does not link to its parent");
+assert.strictEqual(link.textContent, "\u21B3 helper of planner");
+
+h.click(link);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "revealPane", root: "C:/repo", node: "t1", id: "p1" },
+  "the link did not reveal the parent, not the helper's own pane");
+assert.strictEqual(h.commands().filter((c) => c.cmd === "revealPane").length, 1,
+  "clicking the parent link also revealed the helper's own pane");
+assert.ok(h.$("overlay").hidden, "revealing the parent did not close the overview");
+
+// Reached from the keyboard, not only the mouse, and without also firing
+// the row's own reveal underneath it.
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "planner", name: "planner", status: "working" },
+  { paneId: "p2", tabId: "t1", root: "C:/repo", project: "repo", tab: "helper", name: "helper", status: "working", parent: "p1" },
+] });
+const before = h.commands().length;
+const link2 = h.$("overlay-body").querySelectorAll("div.agent-row")[1].querySelector("button.agent-parent");
+link2.focus();
+h.key({ key: "Enter" });
+assert.strictEqual(h.commands().length - before, 1, "Enter on the link fired more than one reveal");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "revealPane", root: "C:/repo", node: "t1", id: "p1" });
+
+// A parent that has since closed leaves nothing to reveal, so the row falls
+// back to plain text rather than a link to nowhere.
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p3", tabId: "t1", root: "C:/repo", project: "repo", tab: "orphan", name: "orphan", status: "idle", parent: "gone" },
+] });
+const orphan = h.$("overlay-body").querySelector("div.agent-row");
+assert.ok(!orphan.querySelector("button.agent-parent"), "a closed parent was linked to anyway");
+assert.ok(orphan.textContent.includes("helper of another agent"), "the orphaned helper lost its own wording");
+`)
+}
+
+// The overview is a flat list sorted by what needs a person first on
+// purpose -- see the comment above renderAgents' byId map -- so the tree is
+// offered beside it rather than instead of it.
+func TestAgentsCanBeSeenAsATreeByProject(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "planner", name: "planner", status: "waiting" },
+  { paneId: "p2", tabId: "t1", root: "C:/repo", project: "repo", tab: "helper one", name: "helper one", status: "working", parent: "p1" },
+  { paneId: "p3", tabId: "t1", root: "C:/repo", project: "repo", tab: "helper two", name: "helper two", status: "idle", parent: "p1" },
+  { paneId: "p4", tabId: "t2", root: "C:/other", project: "other", tab: "solo", name: "solo", status: "idle" },
+] });
+
+// By urgency, the default, is the flat list the server already sorted --
+// no tree, no project headings.
+assert.ok(!h.$("overlay-body").querySelector("div.agent-tree"), "the flat list drew a tree anyway");
+let tabs = h.$("overlay-body").querySelectorAll("button.agent-view-tab");
+assert.strictEqual(tabs.length, 2);
+assert.strictEqual(tabs[0].textContent, "By urgency");
+assert.strictEqual(tabs[0].getAttribute("aria-selected"), "true");
+assert.strictEqual(tabs[1].getAttribute("aria-selected"), "false");
+
+h.click(tabs[1]);
+
+// Grouped by project, each under its own heading, alphabetically.
+const sections = h.$("overlay-body").querySelectorAll(".proj-section");
+const headings = sections.map((s) => s.querySelector("h3").textContent);
+assert.deepStrictEqual(headings, ["other \u00b7 1 pane", "repo \u00b7 3 panes"]);
+
+const tree = h.$("overlay-body").querySelector("div.agent-tree");
+assert.ok(tree, "By project did not draw a tree");
+assert.strictEqual(tree.querySelectorAll("div.agent-row").length, 4, "By project lost a pane");
+
+// The two helpers are nested under their parent's row, not beside it, and
+// each still carries its own status the way the flat list's rows do.
+const nested = tree.querySelectorAll(".agent-children").flatMap((n) => n.querySelectorAll("div.agent-row"));
+assert.strictEqual(nested.length, 2, "the helpers were not nested under their parent");
+assert.ok(nested.every((r) => r.textContent.includes("helper")), "a nested row belongs to someone else");
+assert.ok(nested.some((r) => r.querySelector("span.agent-status.working")), "a nested row lost its own status");
+assert.ok(nested.some((r) => r.querySelector("span.agent-status.idle")));
+
+// Switching back leaves the flat list exactly as the server sorted it.
+tabs = h.$("overlay-body").querySelectorAll("button.agent-view-tab");
+h.click(tabs[0]);
+assert.ok(!h.$("overlay-body").querySelector("div.agent-tree"), "the tree stayed after switching back");
+const rows = h.$("overlay-body").querySelectorAll("div.agent-row");
+assert.strictEqual(rows[0].id, "agent-p1", "the waiting agent no longer leads the flat list");
+
+// A fresh open of the dialog starts on urgency again, not wherever the last
+// visit left off.
+h.key({ key: "Escape" });
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "planner", name: "planner", status: "idle" },
+] });
+assert.ok(!h.$("overlay-body").querySelector("div.agent-tree"), "the dialog remembered project view across a reopen");
 `)
 }
 

@@ -179,6 +179,14 @@ type Server struct {
 	// silent unless something changes, this is a person waiting on an answer:
 	// what it returns is told to the window that asked, whatever it found.
 	OnCheckForUpdates func() (message string, isErr bool)
+	// OnListVersions is called when the version picker opens, for recent
+	// published releases to choose from rather than only ever the latest.
+	OnListVersions func(ctx context.Context) ([]VersionView, error)
+	// OnInstallVersion is called when the picker's choice is made: download,
+	// check and stage the named release, forward or back, the way
+	// OnCheckForUpdates stages the latest. What it returns is told to the
+	// window that asked, the same way OnCheckForUpdates's answer is.
+	OnInstallVersion func(ctx context.Context, version string) (message string, isErr bool)
 
 	// update is the release waiting to be applied, if one has been downloaded.
 	// It is read on every snapshot and written by whatever is watching for

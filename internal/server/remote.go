@@ -239,10 +239,10 @@ func (s *Server) remoteSnapshot() *remoteView {
 // ---------------------------------------------------------------------------
 
 type remoteDevicesMsg struct {
-	Type    string          `json:"type"`
-	Enabled bool            `json:"enabled"`
-	Devices []remote.Device `json:"devices"`
-	Hosts   []remote.Host   `json:"hosts"`
+	Type    string             `json:"type"`
+	Enabled bool               `json:"enabled"`
+	Devices []remoteDeviceView `json:"devices"`
+	Hosts   []remote.Host      `json:"hosts"`
 	// Current is the device this window is on, when it is one — so the list
 	// can say which entry revoking would end the session in front of you.
 	Current string `json:"current,omitempty"`
@@ -250,6 +250,39 @@ type remoteDevicesMsg struct {
 	// Plan is the account's plan, when the relay reports one. The window
 	// shows it, and nothing here acts on it.
 	Plan *remote.Plan `json:"plan,omitempty"`
+}
+
+// remoteDeviceView is a paired device as the dialog draws it: everything the
+// relay says about it, plus the out-of-band fingerprint (internal/e2e) it
+// shares with this machine, so the window can show it beside Rename and
+// Unpair for someone to compare against what flockdeck-remote's own Devices
+// page shows that browser. Empty exactly when a terminal with this device
+// would be unencrypted anyway -- this machine or the device has no
+// registered key yet -- since there is then no session to have been
+// tampered with, and nothing to verify.
+type remoteDeviceView struct {
+	remote.Device
+	Fingerprint string `json:"fingerprint,omitempty"`
+}
+
+// remoteFingerprint is remoteDeviceView.Fingerprint for one device, given
+// this machine's own registered public key (selfKey, from the roster's own
+// entry for it, Hosts[].Self) -- "" for either key missing, or not a key
+// internal/e2e can make sense of, which a live terminal would refuse just
+// as quietly (see RespondHostHandshake).
+func remoteFingerprint(deviceKey, selfKey string) string {
+	if deviceKey == "" || selfKey == "" {
+		return ""
+	}
+	devicePub, err := e2e.DecodePublicKey(deviceKey)
+	if err != nil {
+		return ""
+	}
+	hostPub, err := e2e.DecodePublicKey(selfKey)
+	if err != nil {
+		return ""
+	}
+	return e2e.Fingerprint(devicePub, hostPub)
 }
 
 type remotePairMsg struct {
@@ -269,7 +302,7 @@ func (s *Server) remoteDevices(c *controlClient) {
 	go func() {
 		defer s.surviveFor(c, "listing paired devices")
 		msg := remoteDevicesMsg{
-			Type: "remoteDevices", Devices: []remote.Device{}, Hosts: []remote.Host{},
+			Type: "remoteDevices", Devices: []remoteDeviceView{}, Hosts: []remote.Host{},
 			Current: c.device,
 		}
 		cl, err := s.remoteClient()
@@ -289,8 +322,18 @@ func (s *Server) remoteDevices(c *controlClient) {
 			c.sendJSON(msg)
 			return
 		}
+		var selfKey string
+		for _, h := range roster.Hosts {
+			if h.Self {
+				selfKey = h.PublicKey
+				break
+			}
+		}
 		if roster.Devices != nil {
-			msg.Devices = roster.Devices
+			msg.Devices = make([]remoteDeviceView, len(roster.Devices))
+			for i, d := range roster.Devices {
+				msg.Devices[i] = remoteDeviceView{Device: d, Fingerprint: remoteFingerprint(d.PublicKey, selfKey)}
+			}
 		}
 		if roster.Hosts != nil {
 			msg.Hosts = roster.Hosts

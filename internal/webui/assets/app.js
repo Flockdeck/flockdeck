@@ -25,6 +25,9 @@
     changes: '<path d="M4 2.5h5.2L12 5.3v8.2H4z"></path><path d="M6 7h4M8 5v4M6 11h4"></path>',
     history: '<circle cx="8" cy="8" r="5.5"></circle><path d="M8 5v3.2l2.2 1.4"></path>',
     worktrees: '<circle cx="5" cy="3.5" r="1.5"></circle><circle cx="5" cy="12.5" r="1.5"></circle><circle cx="11" cy="5" r="1.5"></circle><path d="M5 5v6M11 6.5c0 2.8-6 2.2-6 4.5"></path>',
+    // One pane fanning out into three, the shape a plan turns into once it is
+    // read as a list and started as agents.
+    fanout: '<circle cx="3.5" cy="8" r="1.5"></circle><circle cx="12.5" cy="3.5" r="1.5"></circle><circle cx="12.5" cy="8" r="1.5"></circle><circle cx="12.5" cy="12.5" r="1.5"></circle><path d="M5 8h1.5M6.5 8 11 3.5M6.5 8h4.5M6.5 8 11 12.5"></path>',
     github: '<circle cx="5" cy="3.2" r="1.4"></circle><circle cx="5" cy="12.8" r="1.4"></circle><circle cx="11.5" cy="8" r="1.4"></circle><path d="M5 4.6v6.8"></path><path d="M5 6.6c0 3.4 2.6 1.4 6.5 1.4"></path>',
     // Two branches meeting in one, the shape a pull request itself is drawn as
     // on github.com -- not the octocat, which is a filled mark and reads as a
@@ -342,6 +345,10 @@
       // also what releases a button left waiting for a reply that the drop
       // took with it.
       refreshDialog();
+      // A manual update check has nothing to ask again for -- it is a single
+      // notice, not a dialog's own state -- so a drop that took it with it is
+      // released here instead, the same idea.
+      if (updateChecking) { updateChecking = false; settingsChanged(); renderRecall(); }
     };
     ws.onmessage = (ev) => {
       if (control !== ws) return;
@@ -377,6 +384,7 @@
       }
       else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects, "button.dir-into"); }
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
+      else if (msg.type === "fanoutHistory") keepFocus(() => renderFanoutHistory(msg));
       // A commit that worked answers with a tree with nothing to commit, and
       // the message box and its buttons go with the keyboard in them: to
       // Push, which is what comes next, or Refresh where there is no remote.
@@ -387,6 +395,7 @@
       // A Clear pressed goes with the key it cleared; the keyboard goes to
       // that row's own button rather than out of the dialog.
       else if (msg.type === "keys") keepFocus(() => renderKeys(msg), () => keySetButton(keyActed));
+      else if (msg.type === "versions") renderVersions(msg);
       else if (msg.type === "agentAddress") addressAnswered(msg);
       // An unpaired device's row goes with its Unpair button, and the
       // keyboard with it: to Pair a device, rather than out of the dialog.
@@ -421,7 +430,14 @@
         detaching = true;
         window.close();
       }
-      else if (msg.type === "notice") { commitAnswered(msg.error); notice(msg.text, msg.error); }
+      else if (msg.type === "notice") {
+        commitAnswered(msg.error);
+        // A manual update check answers with a notice alone when nothing new
+        // is found; when it did, the state carrying it settles this too, but
+        // resetting it here as well costs nothing and covers both.
+        if (updateChecking) { updateChecking = false; settingsChanged(); renderRecall(); }
+        notice(msg.text, msg.error);
+      }
       else if (msg.type === "ghStatus") {
         ghStatus = msg;
         if (dialog === "github") keepFocus(renderGithub);
@@ -612,6 +628,12 @@
     return nodes;
   }
 
+  /** Whether a manual "Check for updates" is out and has not yet been
+   *  answered -- asked from Settings or from the recall banner, whichever
+   *  was pressed. Both read it to show the same "Checking…" while it is,
+   *  since only one check is ever in flight at a time. */
+  let updateChecking = false;
+
   /** openUpdate explains what installing costs before it is done.
    *
    *  What it costs is the running agents: the layout comes back, but a pane is
@@ -666,6 +688,12 @@
   let remoteRoster = null;
   let remotePairing = null;
   let remoteChipKey = null;
+  /** Which paired devices' out-of-band fingerprint (internal/e2e) is shown
+   *  open right now, by device id -- kept here, not on the row, for the
+   *  same reason renaming and cascading state on the Devices page is: a
+   *  dialog drawn again for another reason must not close what someone
+   *  opened to compare against that device's own screen. */
+  const remoteFingerprintOpen = new Set();
 
   /** How often the roster is asked for again while a pairing link is on
    *  screen, waiting on a scan: nothing else here asks again on its own, so
@@ -928,6 +956,15 @@
     const devices = roster.devices || [];
     const dev = section(devices.length === 1 ? "1 paired device" : devices.length + " paired devices");
     if (!devices.length && !roster.error) dev.append(el("div", "dir-empty", "Nothing is paired yet."));
+    // A relay that swapped this machine's or a device's registered key the
+    // moment it was handed out would make the handshake think it had, undetected
+    // (internal/e2e's own doc says so); comparing each device's code against
+    // what it shows on its own Devices page is the one check that catches it.
+    if (devices.some((d) => d.fingerprint)) {
+      dev.append(el("p", "fan-hint",
+        "Tap Verify and compare the code with what a device shows on its own Devices page. " +
+        "If they differ, unpair it: the relay may have handed it the wrong key."));
+    }
     devices.forEach((d) => {
       const item = el("div", "wt-row");
       item.dataset.key = "device:" + d.id;
@@ -938,8 +975,22 @@
       if (mine) title.append(el("span", "wt-flag", "this device"));
       main.append(title);
       main.append(el("div", "wt-meta", "paired " + remoteAgo(d.created) + " · last seen " + remoteAgo(d.lastSeen)));
+      const open = remoteFingerprintOpen.has(d.id);
+      if (d.fingerprint && open) {
+        main.append(el("p", "remote-fingerprint", d.fingerprint));
+      }
       item.append(main);
       const actions = el("div", "wt-actions");
+      if (d.fingerprint) {
+        const verify = el("button", "chip", open ? "Hide code" : "Verify");
+        verify.setAttribute("aria-expanded", open ? "true" : "false");
+        verify.setAttribute("aria-label", (open ? "Hide the code for " : "Verify the code for ") + (d.name || "this device"));
+        verify.onclick = () => {
+          if (open) remoteFingerprintOpen.delete(d.id); else remoteFingerprintOpen.add(d.id);
+          keepFocus(renderRemote);
+        };
+        actions.append(verify);
+      }
       const rename = el("button", "chip", "Rename");
       rename.onclick = () => remoteRename("device", d.id, d.name || "");
       const drop = el("button", "chip danger", "Unpair");
@@ -1415,15 +1466,23 @@
    *  same reason: a settled fan-out collapses to a summary in its place,
    *  and each pane's own outcome -- its status, whether it failed, its
    *  latest reply -- has to redraw the card when any of them changes, even
-   *  though the tree beneath it does not. */
+   *  though the tree beneath it does not. chip is its own field rather than
+   *  folded into card: both a working tab and a settled one with its card
+   *  dismissed draw the grid with card false, but only the second also
+   *  draws the "Show summary" chip over it (see buildShowSummaryChip), and
+   *  without a field of its own that difference never changed the shape, so
+   *  dismissing the card left the chip missing until something else
+   *  rebuilt the tab. */
   function shapeOf(tab, s, info) {
     const card = info.settled && !cardHidden.has(tab.id);
+    const chip = info.settled && cardHidden.has(tab.id);
     return JSON.stringify({
       tree: structureOf(tab.root),
       zoom: tab.zoom,
       focus: tab.zoom ? tab.focus : "",
       card,
-      outcomes: card ? info.ids.map((id) => outcomeKey(s.panes[id])).join("|") : "",
+      chip,
+      outcomes: card || chip ? info.ids.map((id) => outcomeKey(s.panes[id])).join("|") : "",
     });
   }
 
@@ -1493,6 +1552,10 @@
           page.append(buildSummaryCard(tab, s, info.ids));
         } else {
           page.append(buildNode(tab.root, tab));
+          // The card was put back to the grid by hand (see cardHidden) and
+          // the job is still sitting there settled, so the way back to it
+          // is offered again rather than left with no way back at all.
+          if (info.settled && cardHidden.has(tab.id)) page.append(buildShowSummaryChip(tab));
         }
         tabPages.set(tab.id, page);
         tabShapes.set(tab.id, shape);
@@ -1615,6 +1678,21 @@
     });
     card.append(list);
     return card;
+  }
+
+  /** buildShowSummaryChip is the way back to a settled fan-out's card once
+   *  its own "Back to grid" button has put it away: a small chip floated
+   *  over the grid, for as long as the tab stays settled -- tabSettleInfo
+   *  clears cardHidden the moment it starts working again, at which point
+   *  there is no longer a card to show and this stops being drawn with it. */
+  function buildShowSummaryChip(tab) {
+    const b = el("button", "chip show-summary", "Show summary");
+    describe(b, "Bring back the finished job's summary card.");
+    b.onclick = () => {
+      cardHidden.delete(tab.id);
+      if (state) applyState(state);
+    };
+    return b;
   }
 
   /** The divider being dragged, if one is. A state push carries the weights the
@@ -4211,7 +4289,9 @@
     else if (dialog === "agents") send({ cmd: "agents" });
     else if (dialog === "agentPicker") send({ cmd: "refreshAgents" });
     else if (dialog === "history") send({ cmd: "conversations" });
+    else if (dialog === "fanoutHistory") send({ cmd: "fanoutHistory", root: state ? state.root : "" });
     else if (dialog === "keys") send({ cmd: "keys" });
+    else if (dialog === "versions") send({ cmd: "listVersions" });
     else if (dialog === "remote") send({ cmd: "remoteDevices" });
     else if (dialog === "settings" && settingsSection === "keys") send({ cmd: "keys" });
     else if (dialog === "settings" && settingsSection === "remote") send({ cmd: "remoteDevices" });
@@ -4246,6 +4326,12 @@
    *  button to be found among the others; it lands there instead. */
   let wtCreated = "";
 
+  /** Whether an add, remove or prune is out and has not yet answered. The
+   *  same answer -- a fresh listing -- settles every one of them, so every
+   *  action button in the dialog waits together while any one is running,
+   *  as Changes' fetch, pull, push and commit do. */
+  let wtBusy = false;
+
   /** The panes the worktree list last counted. How many agents work in each
    *  worktree is counted when the list is read, and Remove refuses while any
    *  do; close those panes and the dialog went on counting them, refusing
@@ -4279,13 +4365,14 @@
     dialog = "worktrees";
     worktrees = null;
     wtDraft = { branch: "", base: "" };
+    wtBusy = false;
     openOverlay("Worktrees", "worktrees");
     $("overlay-body").append(el("div", "dir-empty", "Reading the worktrees…"));
     send({ cmd: "worktrees" });
   }
 
   function renderWorktrees(msg) {
-    if (msg) worktrees = msg;
+    if (msg) { worktrees = msg; wtBusy = false; }
     if (dialog !== "worktrees") return; // closed, or replaced by another
     const m = worktrees || {};
     const body = $("overlay-body");
@@ -4295,6 +4382,16 @@
       body.append(el("p", null, m.error));
       return;
     }
+
+    // Adding, removing and pruning all run git, which is not always quick,
+    // and the same fresh listing settles whichever one is out -- so every
+    // button in the dialog is disabled while any one runs, as Changes' own
+    // fetch, pull, push and commit do, rather than only the one pressed.
+    const running = (btn, saying) => {
+      btn.textContent = saying;
+      for (const b of body.querySelectorAll("button")) b.disabled = true;
+      wtBusy = true;
+    };
 
     // --- existing worktrees ------------------------------------------------
     const list = section("Checkouts");
@@ -4370,7 +4467,7 @@
         const prune = el("button", "chip primary", "Prune");
         prune.id = key + "prune";
         prune.title = "Clear git's record of this worktree. Like Prune below, it clears every worktree whose folder is gone.";
-        prune.onclick = () => send({ cmd: "worktreePrune" });
+        prune.onclick = () => { running(prune, "Pruning…"); send({ cmd: "worktreePrune" }); };
         actions.append(prune);
       } else {
         const agent = el("button", "chip primary", "Agent");
@@ -4409,6 +4506,7 @@
           }
           if (unsafe && !window.confirm(
             wt.label + " has uncommitted changes.\n\nRemove it and discard them?")) return;
+          running(rm, "Removing…");
           send({ cmd: "worktreeRemove", path: wt.path, force: !!unsafe });
         };
         actions.append(rm);
@@ -4449,7 +4547,14 @@
     });
 
     const go = el("button", "chip primary", "Create");
+    // Its wording changes while it works, which identify() cannot follow by
+    // text alone.
+    go.id = "wt-create";
     const submit = () => {
+      // Enter in either field reaches this directly, past the button
+      // running() just disabled, the way Ctrl+Enter reaches Changes' own
+      // commit past its buttons.
+      if (wtBusy) return;
       // Enter in the base field, filled in last, with no branch named did
       // nothing and said nothing - and the branch is what the worktree is for.
       if (!branch.value.trim()) {
@@ -4458,6 +4563,7 @@
         return;
       }
       wtCreated = branch.value.trim();
+      running(go, "Creating…");
       send({ cmd: "worktreeAdd", text: branch.value.trim(), base: base.value.trim() });
       branch.value = "";
       wtDraft.branch = "";
@@ -4479,8 +4585,11 @@
       const chips = el("div", "places");
       free.slice(0, 14).forEach((b) => {
         const btn = el("button", "chip", b.name);
+        // Its wording changes while it works, which identify() cannot follow
+        // by text alone.
+        btn.id = "wt-checkout-" + encodeURIComponent(b.name);
         btn.title = "Create a worktree checking out " + b.name;
-        btn.onclick = () => send({ cmd: "worktreeAdd", text: b.name });
+        btn.onclick = () => { wtCreated = b.name; running(btn, "Creating…"); send({ cmd: "worktreeAdd", text: b.name }); };
         chips.append(btn);
       });
       // One stop, walked with the arrows, like the rows above it: up to
@@ -4502,10 +4611,14 @@
     // --- maintenance -------------------------------------------------------
     const tools = el("div", "wt-tools");
     const refresh = el("button", "chip", "Refresh");
-    refresh.onclick = () => send({ cmd: "worktrees" });
+    // Its wording changes while it works, which identify() cannot follow by
+    // text alone.
+    refresh.id = "wt-refresh";
+    refresh.onclick = () => { running(refresh, "Reading…"); send({ cmd: "worktrees" }); };
     const prune = el("button", "chip", "Prune");
+    prune.id = "wt-prune-all";
     prune.title = "Drop records for worktrees whose folders are gone";
-    prune.onclick = () => send({ cmd: "worktreePrune" });
+    prune.onclick = () => { running(prune, "Pruning…"); send({ cmd: "worktreePrune" }); };
     tools.append(refresh, prune, rootLabel(m.root || ""));
     body.append(tools);
 
@@ -5898,7 +6011,9 @@
     toggleBroadcastMember: () => { const id = focusedPaneId(); if (id) send({ cmd: "toggleBroadcastMember", id }); },
     promptAll: () => openPrompt(),
     fanout: () => openFanout(),
+    fanoutHistory: () => openFanoutHistory(),
     agents: () => openAgents(),
+    closeFinishedPanes: () => send({ cmd: "closeFinishedPanes" }),
     apiKeys: () => openKeys(),
 
     worktrees: () => openWorktrees(),
@@ -5978,6 +6093,7 @@
     label("changes", $("btn-changes"));
     label("history", $("btn-history"));
     label("worktrees", $("btn-worktrees"));
+    label("fanoutHistory", $("btn-fanout-history"));
     label("help", $("btn-help"));
     label("settings", $("btn-settings"));
     label("palette", $("btn-palette"), "every action there is, searchable");
@@ -6438,6 +6554,78 @@
     const refresh = el("button", "chip", "Refresh");
     refresh.onclick = () => send({ cmd: "conversations" });
     tools.append(refresh, rootLabel(m.cwd || ""));
+    body.append(tools);
+  }
+
+  // ----------------------------------------------------------- fan-out history
+
+  let fanoutHistory = null;
+
+  /** openFanoutHistory opens the dialog and asks the Go side for this
+   *  project's past fan-out jobs -- kept there in memory only (see
+   *  Workspace.FanoutHistory), so a restart of flockdeck starts with none,
+   *  the same as a settled tab's own card. */
+  function openFanoutHistory() {
+    dialog = "fanoutHistory";
+    fanoutHistory = null;
+    openOverlay("Fan-out history", "fanout");
+    $("overlay-body").textContent = "";
+    $("overlay-body").append(el("div", "dir-empty", "Reading past jobs…"));
+    send({ cmd: "fanoutHistory", root: state ? state.root : "" });
+  }
+
+  /** outcomeLabel is outcomeOf's own label, for a kind the Go side has
+   *  already settled on rather than one read live off a pane. */
+  function outcomeLabel(kind) { return kind === "needs" ? "needs input" : kind; }
+
+  /** renderFanoutHistory lists a project's past fan-out jobs, most recent
+   *  first, each drawn the same one-line-per-pane way buildSummaryCard draws
+   *  a job still on screen -- the same row markup, reused rather than built
+   *  twice, since a closed job's row differs only in having no pane left to
+   *  zoom into. */
+  function renderFanoutHistory(msg) {
+    if (msg) fanoutHistory = msg;
+    if (dialog !== "fanoutHistory") return; // see openWorktrees
+    const m = fanoutHistory || {};
+    const body = $("overlay-body");
+    body.textContent = "";
+
+    if (!m.items || !m.items.length) {
+      body.append(el("div", "dir-empty", "No fan-out jobs finished in this project yet."));
+      return;
+    }
+
+    const wrap = section("Past jobs");
+    m.items.forEach((job) => {
+      const card = el("div", "fanout-history-job");
+      const head = el("div", "summary-card-head");
+      head.append(el("div", "summary-card-title", job.title || "This job"));
+      head.append(el("div", "summary-card-sub", job.panes.length + (job.panes.length === 1 ? " agent" : " agents") + " — " + job.ago));
+      card.append(head);
+
+      const list = el("div", "summary-card-list");
+      job.panes.forEach((p) => {
+        const row = el("div", "summary-card-row");
+        const main = el("div", "summary-card-main");
+        const title = el("div", "summary-card-name");
+        title.append(el("span", null, p.name || ""));
+        if (p.branch) title.append(el("span", "summary-card-branch", "⎇ " + p.branch));
+        main.append(title);
+        if (p.task) main.append(el("div", "summary-card-line", p.task));
+        if (p.detail) main.append(el("div", "summary-card-line", p.detail));
+        row.append(main);
+        row.append(el("span", "summary-card-outcome " + p.kind, outcomeLabel(p.kind)));
+        list.append(row);
+      });
+      card.append(list);
+      wrap.append(card);
+    });
+    body.append(wrap);
+
+    const tools = el("div", "wt-tools");
+    const refresh = el("button", "chip", "Refresh");
+    refresh.onclick = () => send({ cmd: "fanoutHistory", root: state ? state.root : "" });
+    tools.append(refresh);
     body.append(tools);
   }
 
@@ -7438,6 +7626,14 @@
 
   let agents = null;
 
+  /** agentsView is which of the overview's two shapes is drawn: "urgency",
+   *  the flat list sorted by what needs a person first, or "project", the
+   *  same panes grouped by project and nested under their parent. It resets
+   *  to "urgency" each time the dialog is opened fresh, so the view nobody
+   *  asked for a second look at does not linger from the last time it was
+   *  open. */
+  let agentsView = "urgency";
+
   /** The overview is where you look to see which agent needs you, and it was
    *  a picture taken when it opened: an agent that stopped to wait while it
    *  was up went on being listed as working. It is asked for again whenever a
@@ -7479,6 +7675,7 @@
    *  me" once several are open. */
   function openAgents() {
     dialog = "agents";
+    agentsView = "urgency";
     openOverlay("Agents", "status");
     $("overlay-body").textContent = "";
     $("overlay-body").append(el("div", "dir-empty", "Loading…"));
@@ -7505,85 +7702,186 @@
     // than regrouped under its parent and losing that order.
     const byId = new Map(items.map((x) => [x.paneId, x]));
 
-    const wrap = section(items.length + (items.length === 1 ? " pane" : " panes"));
-    items.forEach((a) => {
-      const row = el("div", "agent-row" + (a.active ? " active" : ""));
-      // By the pane, because the list is drawn again as the agents change
-      // what they are doing, and a row found again by its wording would lose
-      // the keyboard the moment its status did.
-      row.id = "agent-" + a.paneId;
-      const main = el("div", "agent-main");
+    body.append(agentViewTabs());
 
-      const title = el("div", "agent-title");
-      // The dot is the only thing carrying status here, and it has no text
-      // at all, so it needs both the copy and a name of its own.
-      // The row writes the status out in words further along, so the disc is
-      // decoration here — unlike in a pane header, where it is all there is.
-      const dot = el("span", "dot " + a.status);
-      dot.setAttribute("aria-hidden", "true");
-      title.append(describe(dot, TIPS[a.status] || a.status));
-      // Cut short with an ellipsis, like the tab it names; the bubble has it all.
-      title.append(describe(el("span", "agent-tab", a.tab || a.name), a.tab || a.name));
-      title.append(el("span", "agent-project", a.project));
-      main.append(title);
-
-      const meta = el("div", "agent-meta");
-      if (a.branch) {
-        const n = el("span", null, "⎇ " + a.branch);
-        n.setAttribute("role", "img");
-        n.setAttribute("aria-label", "On branch " + a.branch);
-        meta.append(describe(n, TIPS.branch));
-      }
-      if (a.dirty) {
-        const n = el("span", null, "●" + a.dirty + " uncommitted");
-        n.setAttribute("role", "img");
-        n.setAttribute("aria-label", a.dirty + (a.dirty === 1 ? " file" : " files") + " changed but not committed");
-        meta.append(describe(n, TIPS.changed));
-      }
-      // The same badge the pane header carries. With a dozen panes across
-      // three projects, "waiting" means a different thing from Claude than
-      // from a local model, and this is the list you scan to decide which to
-      // go to first.
-      if (a.agent) {
-        meta.append(describe(el("span", null, a.model ? a.agent + " · " + a.model : a.agent), TIPS.agent));
-      }
-      if (a.kind === "shell") meta.append(el("span", null, "shell"));
-      if (a.detail) meta.append(el("span", null, a.detail));
-      // A helper's own pane, when it is still open, so it reads as part of
-      // the job it was spawned for rather than an unrelated row -- the list
-      // stays sorted by what needs a person first, so this is what says
-      // which of them share a manager.
-      if (a.parent) {
-        const parent = byId.get(a.parent);
-        meta.append(el("span", "agent-parent", "↳ helper of " + (parent ? (parent.tab || parent.name) : "another agent")));
-      }
-      // What a waiting pane's permission prompt or question wants, in the
-      // same words the prompt itself would show -- so a list of several
-      // waiting at once says which is worth a look first, without opening
-      // any of them.
-      if (a.status === "waiting" && a.waiting) {
-        meta.append(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));
-      }
-      main.append(meta);
-      row.append(main);
-
-      const status = el("span", "agent-status " + a.status, a.status);
-      row.append(status);
-      if (a.for) row.append(el("span", "agent-for", howLong(a.for)));
-
-      rowAction(row, () => {
-        send({ cmd: "revealPane", root: a.root, node: a.tabId, id: a.paneId });
-        closeOverlay();
-      }, false, a.tab || a.name);
-      wrap.append(row);
-    });
-    body.append(wrap);
+    if (agentsView === "project") {
+      body.append(agentsByProject(items, byId));
+    } else {
+      const wrap = section(items.length + (items.length === 1 ? " pane" : " panes"));
+      items.forEach((a) => wrap.append(agentRow(a, byId)));
+      body.append(wrap);
+    }
 
     const tools = el("div", "wt-tools");
     const refresh = el("button", "chip", "Refresh");
     refresh.onclick = () => send({ cmd: "agents" });
     tools.append(refresh);
+    const closeFinished = describe(el("button", "chip", "Close finished panes"),
+      "Close every idle or exited pane here, in every open project, with no confirmation. A pane still waiting or working, or whose last turn failed, is left alone.");
+    closeFinished.onclick = () => runAction("closeFinishedPanes");
+    tools.append(closeFinished);
     body.append(tools);
+  }
+
+  /** agentViewTabs switches the overview between its two shapes: the flat
+   *  list urgency sorts across every project, and the same panes grouped by
+   *  project and nested under their parent. Neither replaces the other --
+   *  see the note on renderAgents' flat mode for why the sort it keeps
+   *  matters -- this is only another way to look at the same items. */
+  function agentViewTabs() {
+    const tabs = el("div", "agent-view-tabs");
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", "How to arrange the panes");
+    [["urgency", "By urgency"], ["project", "By project"]].forEach(([id, label]) => {
+      const on = agentsView === id;
+      const b = el("button", "chip agent-view-tab" + (on ? " sel" : ""), label);
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", String(on));
+      b.onclick = () => {
+        if (agentsView === id) return;
+        agentsView = id;
+        keepFocus(() => renderAgents());
+      };
+      tabs.append(b);
+    });
+    return tabs;
+  }
+
+  /** agentsByProject is the overview's tree mode: every pane grouped by the
+   *  project it runs in, a helper nested under the parent that spawned it
+   *  (workspace.Pane.Parent), each row built the same way the flat list's
+   *  is -- the same status, the same actions, the same link to its own
+   *  parent -- so the two modes never say different things about one pane. */
+  function agentsByProject(items, byId) {
+    const wrap = el("div", "agent-tree");
+    const byProject = new Map();
+    items.forEach((a) => {
+      if (!byProject.has(a.project)) byProject.set(a.project, []);
+      byProject.get(a.project).push(a);
+    });
+    [...byProject.keys()].sort((x, y) => x.localeCompare(y)).forEach((proj) => {
+      const list = byProject.get(proj);
+      const sec = section(proj + " · " + list.length + (list.length === 1 ? " pane" : " panes"));
+      // A helper is nested under its parent only within its own project --
+      // parent and helper always share one, since `flockdeck spawn` starts
+      // the helper where it was run -- so grouping by project first and
+      // building each project's tree on its own items is enough.
+      const ids = new Set(list.map((a) => a.paneId));
+      const children = new Map();
+      const roots = [];
+      list.forEach((a) => {
+        if (a.parent && ids.has(a.parent)) {
+          if (!children.has(a.parent)) children.set(a.parent, []);
+          children.get(a.parent).push(a);
+        } else {
+          roots.push(a);
+        }
+      });
+      const appendNode = (a, into) => {
+        into.append(agentRow(a, byId));
+        const kids = children.get(a.paneId);
+        if (!kids || !kids.length) return;
+        const nest = el("div", "agent-children");
+        kids.forEach((k) => appendNode(k, nest));
+        into.append(nest);
+      };
+      roots.forEach((a) => appendNode(a, sec));
+      wrap.append(sec);
+    });
+    return wrap;
+  }
+
+  /** agentRow builds one pane's row exactly as both views draw it: the flat
+   *  list in its own order, and the tree nested under its parent. */
+  function agentRow(a, byId) {
+    const row = el("div", "agent-row" + (a.active ? " active" : ""));
+    // By the pane, because the list is drawn again as the agents change
+    // what they are doing, and a row found again by its wording would lose
+    // the keyboard the moment its status did.
+    row.id = "agent-" + a.paneId;
+    const main = el("div", "agent-main");
+
+    const title = el("div", "agent-title");
+    // The dot is the only thing carrying status here, and it has no text
+    // at all, so it needs both the copy and a name of its own.
+    // The row writes the status out in words further along, so the disc is
+    // decoration here — unlike in a pane header, where it is all there is.
+    const dot = el("span", "dot " + a.status);
+    dot.setAttribute("aria-hidden", "true");
+    title.append(describe(dot, TIPS[a.status] || a.status));
+    // Cut short with an ellipsis, like the tab it names; the bubble has it all.
+    title.append(describe(el("span", "agent-tab", a.tab || a.name), a.tab || a.name));
+    title.append(el("span", "agent-project", a.project));
+    main.append(title);
+
+    const meta = el("div", "agent-meta");
+    if (a.branch) {
+      const n = el("span", null, "⎇ " + a.branch);
+      n.setAttribute("role", "img");
+      n.setAttribute("aria-label", "On branch " + a.branch);
+      meta.append(describe(n, TIPS.branch));
+    }
+    if (a.dirty) {
+      const n = el("span", null, "●" + a.dirty + " uncommitted");
+      n.setAttribute("role", "img");
+      n.setAttribute("aria-label", a.dirty + (a.dirty === 1 ? " file" : " files") + " changed but not committed");
+      meta.append(describe(n, TIPS.changed));
+    }
+    // The same badge the pane header carries. With a dozen panes across
+    // three projects, "waiting" means a different thing from Claude than
+    // from a local model, and this is the list you scan to decide which to
+    // go to first.
+    if (a.agent) {
+      meta.append(describe(el("span", null, a.model ? a.agent + " · " + a.model : a.agent), TIPS.agent));
+    }
+    if (a.kind === "shell") meta.append(el("span", null, "shell"));
+    if (a.detail) meta.append(el("span", null, a.detail));
+    // A helper's own pane, when it is still open, so it reads as part of
+    // the job it was spawned for rather than an unrelated row -- the list
+    // stays sorted by what needs a person first, so this is what says
+    // which of them share a manager. Where the parent is still open, its
+    // name is a link to it, sent through the same revealPane the row's own
+    // click already uses, just aimed at the parent instead.
+    if (a.parent) {
+      const parent = byId.get(a.parent);
+      if (parent) {
+        const go = (ev) => {
+          ev.stopPropagation();
+          send({ cmd: "revealPane", root: parent.root, node: parent.tabId, id: parent.paneId });
+          closeOverlay();
+        };
+        const link = el("button", "agent-parent link", "↳ helper of " + (parent.tab || parent.name));
+        link.type = "button";
+        link.onclick = go;
+        link.onkeydown = (ev) => {
+          if (ev.key !== "Enter" && ev.key !== " ") return;
+          ev.preventDefault();
+          go(ev);
+        };
+        meta.append(describe(link, "Go to " + (parent.tab || parent.name)));
+      } else {
+        meta.append(el("span", "agent-parent", "↳ helper of another agent"));
+      }
+    }
+    // What a waiting pane's permission prompt or question wants, in the
+    // same words the prompt itself would show -- so a list of several
+    // waiting at once says which is worth a look first, without opening
+    // any of them.
+    if (a.status === "waiting" && a.waiting) {
+      meta.append(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));
+    }
+    main.append(meta);
+    row.append(main);
+
+    const status = el("span", "agent-status " + a.status, a.status);
+    row.append(status);
+    if (a.for) row.append(el("span", "agent-for", howLong(a.for)));
+
+    rowAction(row, () => {
+      send({ cmd: "revealPane", root: a.root, node: a.tabId, id: a.paneId });
+      closeOverlay();
+    }, false, a.tab || a.name);
+    return row;
   }
 
   // ---------------------------------------------------------- agent picker
@@ -8253,6 +8551,71 @@
     return form;
   }
 
+  // -------------------------------------------------------------- versions
+
+  /** What the version picker last heard from listVersions, or null while it
+   *  is still loading, or has not been opened this session. Dropped whenever
+   *  the dialog is opened again, the same way apiKeys and worktrees are. */
+  let versions = null;
+
+  /** openVersions shows recent published releases to install one of,
+   *  forward or back, instead of only ever moving to the latest. */
+  function openVersions() {
+    dialog = "versions";
+    versions = null;
+    openOverlay("Install a specific version", "cli"); // where updating is explained
+    $("overlay-body").textContent = "";
+    $("overlay-body").append(el("div", "dir-empty", "Loading…"));
+    send({ cmd: "listVersions" });
+  }
+
+  /** renderVersions draws the picker from what listVersions answered. */
+  function renderVersions(msg) {
+    if (msg) versions = msg;
+    if (dialog !== "versions") return;
+    const body = $("overlay-body");
+    body.textContent = "";
+    body.append(el("div", "fan-hint",
+      "Downloads and checks a release against its signed checksum, the same as an ordinary update. " +
+      "Restarting to put it in place is a separate step, asked for the same way."));
+    if (!versions) { body.append(el("div", "dir-empty", "Loading…")); return; }
+    if (versions.error) { body.append(el("div", "dir-empty", versions.error)); return; }
+    const items = versions.items || [];
+    if (!items.length) { body.append(el("div", "dir-empty", "No recent releases could be listed.")); return; }
+
+    const wrap = section(items.length === 1 ? "1 release" : items.length + " releases");
+    items.forEach((v) => {
+      const row = el("div", "wt-row");
+      row.dataset.key = "version:" + v.version;
+      const main = el("div", "wt-main");
+
+      const title = el("div", "wt-title");
+      title.append(el("span", "wt-label", v.version));
+      if (v.relation === "current") title.append(el("span", "wt-flag", "running now"));
+      main.append(title);
+
+      const bits = [];
+      if (v.published) bits.push(new Date(v.published).toLocaleDateString());
+      if (v.notes) bits.push(v.notes.split("\n")[0]);
+      if (bits.length) main.append(el("div", "wt-meta", bits.join(" — ")));
+      row.append(main);
+
+      const actions = el("div", "wt-actions");
+      const label = v.relation === "newer" ? "Update to…" : v.relation === "older" ? "Roll back to…" : "Reinstall";
+      const install = el("button", "chip", label);
+      install.id = "version-install-" + encodeURIComponent(v.version);
+      install.onclick = () => {
+        install.disabled = true;
+        install.textContent = "Downloading…";
+        send({ cmd: "installVersion", text: v.version });
+      };
+      actions.append(install);
+      row.append(actions);
+      wrap.append(row);
+    });
+    body.append(wrap);
+  }
+
   // --------------------------------------------------------------- settings
 
   /* One dialog for the settings that were scattered across the palette, the
@@ -8618,9 +8981,10 @@
       // The switch above only ever governed looking in the background; a
       // person pressing a button marked "Check for updates now" is asking
       // once, this moment, not turning that back on.
-      const check = el("button", "chip", "Check for updates now");
+      const check = el("button", "chip", updateChecking ? "Checking…" : "Check for updates now");
       check.id = "set-check-update";
-      check.onclick = () => send({ cmd: "checkForUpdate" });
+      check.disabled = updateChecking;
+      check.onclick = () => { updateChecking = true; settingsChanged(); renderRecall(); send({ cmd: "checkForUpdate" }); };
       extra.append(check);
       if (u) {
         const install = el("button", "chip primary", "Install " + u.version + "…");
@@ -8633,6 +8997,15 @@
       "Looks for new releases in the background and downloads them, to go in when you choose to restart. " +
       "FLOCKDECK_UPDATE=off in the environment stops it whatever this says.",
       switchControl("set-updates", !prefs.updatesOff, (on) => setOff("updatesOff", !on)), extra));
+
+    if (!remoteWindow) {
+      const rollback = el("button", "chip", "Install a specific version…");
+      rollback.id = "set-versions";
+      rollback.onclick = openVersions;
+      pane.append(settingRow("Roll back or reinstall",
+        "Pick a previous release to install over this one, forward or back, or reinstall the version you're running now.",
+        rollback));
+    }
 
     const dismissed = (prefs.dismissedTips || []).length;
     const tips = el("button", "chip", "Show them again");
@@ -10006,7 +10379,7 @@
     // Keyed on the update too: recall itself does not change the moment a
     // fix is downloaded, but the banner's own button has to swap from
     // checking to installing right then, not on whatever redraw follows.
-    const key = r ? r.version + "|" + r.reason + "|" + (u ? u.version : "") : "";
+    const key = r ? r.version + "|" + r.reason + "|" + (u ? u.version : "") + "|" + updateChecking : "";
     if (key === recallShown) return;
     recallShown = key;
     bar.textContent = "";
@@ -10025,8 +10398,10 @@
       install.onclick = openUpdate;
       bar.append(install);
     } else {
-      const check = el("button", "chip", "Check for updates");
-      check.onclick = () => send({ cmd: "checkForUpdate" });
+      const check = el("button", "chip", updateChecking ? "Checking…" : "Check for updates");
+      check.id = "recall-check-update";
+      check.disabled = updateChecking;
+      check.onclick = () => { updateChecking = true; renderRecall(); settingsChanged(); send({ cmd: "checkForUpdate" }); };
       bar.append(check);
     }
     bar.hidden = false;
@@ -10582,6 +10957,7 @@
   }, { passive: false });
   $("btn-broadcast").onclick = () => send({ cmd: "toggleBroadcast" });
   $("btn-worktrees").onclick = () => openWorktrees();
+  $("btn-fanout-history").onclick = () => openFanoutHistory();
   $("btn-github").onclick = () => openGithub();
   $("btn-history").onclick = openHistory;
   $("btn-changes").onclick = () => openChanges();

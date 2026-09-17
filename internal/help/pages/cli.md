@@ -115,6 +115,7 @@ beside it is the same program built with one.
 | --- | --- |
 | `flockdeck update` | Fetches the latest release and puts it in place |
 | `flockdeck update -check` | Says whether there is one, and stops |
+| `flockdeck update -version=v1.4.0` | Installs that release instead, forward or back |
 
 When a new version has been downloaded, an **Update** button appears at the
 right of the top bar. It offers **Restart now**, which saves and reopens your
@@ -122,6 +123,21 @@ layout but stops the running agents, or **Later**, which installs it when
 Flockdeck next quits. A window reached through the relay is not shown the
 button, and cannot turn the check for updates on or off: both are done at the
 desk.
+
+`-version` installs a specific release rather than always the latest,
+checked the same way and asking first unless `-yes` is given: it is how to
+undo a bad update yourself, right now, without waiting for a fix to be
+published. **Settings › General › Install a specific version…** offers the
+same choice from a list of recent releases, without typing a version number:
+picking one downloads and checks it, then offers it through the same
+**Update** button, so restarting onto it goes through the same confirmation
+an ordinary update does. Neither is offered to a window reached through the
+relay, for the same reason the ordinary update button is not.
+
+A release withdrawn after it shipped, because something was found wrong with
+it, is a recall. If the version you already installed was later recalled, a
+banner above the hints bar says so and why, with a way to move to the fix
+once one is published.
 
 Releases are published at `dl.flockdeck.ai` as one archive per platform, with
 a `checksums.txt` beside them, signed with the release key that is built into

@@ -1374,6 +1374,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "recents":
 		s.recents(c)
 		return
+	case "fanoutHistory":
+		s.fanoutHistory(c, cmd.Root)
+		return
 	case "remoteDevices":
 		s.remoteDevices(c)
 		return
@@ -1436,6 +1439,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			return
 		}
 		go s.checkForUpdates(c)
+		return
+	case "listVersions":
+		s.listVersions(c)
+		return
+	case "installVersion":
+		s.installVersion(c, cmd.Text)
 		return
 	case "presence":
 		s.setDeskUsed(c, cmd.Kind == "used")
@@ -1590,6 +1599,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		case "newTab":
 			s.newTabFor(cmd)
 		case "closeTab":
+			// The whole job is about to go, panes and all, so its history is
+			// captured first -- see captureFanoutHistory -- while every pane
+			// it needs is still there to read.
+			if t := ws.Tab(cmd.ID); t != nil {
+				s.captureFanoutHistory(t)
+			}
 			ws.CloseTab(cmd.ID)
 		case "selectTab":
 			// A tab bar drawn before another window closed the tab: the click
@@ -1693,10 +1708,24 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 			s.splitPaneFor(cmd)
 		case "closePane":
-			if !ws.ClosePaneByID(paneIDFor(ws, cmd.ID)) {
+			id := paneIDFor(ws, cmd.ID)
+			// A settled job closed pane by pane rather than by its tab is
+			// captured on the first of those closes, while every pane is
+			// still there to read -- see captureFanoutHistory, which marks
+			// the tab so the rest of its panes closing one after another
+			// does not capture it again.
+			if tid := ws.TabIDOf(id); tid != "" {
+				if t := ws.Tab(tid); t != nil {
+					s.captureFanoutHistory(t)
+				}
+			}
+			if !ws.ClosePaneByID(id) {
 				c.notify(paneGone, true)
 				return
 			}
+		case "closeFinishedPanes":
+			panes, tabs := ws.CloseFinishedPanes()
+			c.notify(closedFinishedNotice(panes, tabs), false)
 		case "focusPane":
 			ws.FocusPane(cmd.ID)
 		case "restartPane":
@@ -1917,6 +1946,24 @@ const paneGone = "that pane is no longer open"
 // tabGone is paneGone for a tab, renamed or switched to from a tab bar or a
 // dialog drawn before another window closed it.
 const tabGone = "that tab is no longer open"
+
+// closedFinishedNotice says what closeFinishedPanes did. It runs with no
+// confirmation at all, so closing nothing has to say so as plainly as closing
+// several does -- otherwise either looks like the click did nothing.
+//
+// plural (history.go) is safe to reach for here even though it reads "1
+// unit" for a zero count: panes is never zero below the guard above it, and
+// tabs is only ever passed while positive.
+func closedFinishedNotice(panes, tabs int) string {
+	if panes == 0 {
+		return "no finished panes to close"
+	}
+	msg := fmt.Sprintf("closed %s", plural(panes, "finished pane"))
+	if tabs > 0 {
+		msg += fmt.Sprintf(" and %s", plural(tabs, "empty tab"))
+	}
+	return msg
+}
 
 // focusFor moves focus onto the pane a command names and reports whether the
 // command should go ahead.

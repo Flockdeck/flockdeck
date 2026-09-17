@@ -6,7 +6,20 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
+
+// noSiteIndex points siteURL at a place with nothing published, so List's
+// site-first read of releases.json fails and falls back to GitHub -- what
+// every List test written before releases.json existed already exercised,
+// and what this keeps exercising without reaching the real site.
+func noSiteIndex(t *testing.T) {
+	t.Helper()
+	site := newPlace(t)
+	old := siteURL
+	siteURL = site.srv.URL
+	t.Cleanup(func() { siteURL = old })
+}
 
 // Fetch is what lets a rollback name a specific version rather than always
 // "latest": it reads that version's manifest from the site directly, without
@@ -81,7 +94,12 @@ func TestFetchOfAVersionThatDoesNotExist(t *testing.T) {
 // List is the picker's source: recent releases, with drafts and pre-releases
 // left out the same way Latest already treats them, since this names
 // versions somebody could reinstall, not candidate builds.
+//
+// Nothing is published at releases.json here, so this exercises List's
+// fallback to GitHub; TestListReadsTheSignedIndexFromTheSiteFirst covers the
+// site path.
 func TestListFiltersDraftsAndPrereleases(t *testing.T) {
+	noSiteIndex(t)
 	pl := newPlace(t)
 	oldAPI := githubAPIURL
 	githubAPIURL = pl.srv.URL
@@ -115,6 +133,7 @@ func TestListFiltersDraftsAndPrereleases(t *testing.T) {
 // The limit given is what GitHub is asked for, and a limit of zero or less
 // still asks for something rather than nothing.
 func TestListAsksGitHubForNReleases(t *testing.T) {
+	noSiteIndex(t)
 	pl := newPlace(t)
 	oldAPI := githubAPIURL
 	githubAPIURL = pl.srv.URL
@@ -136,6 +155,101 @@ func TestListAsksGitHubForNReleases(t *testing.T) {
 	}
 	if got := reqs[1].URL.Query().Get("per_page"); got == "0" || got == "" {
 		t.Errorf("List(ctx, 0) asked per_page=%s, want some positive default", got)
+	}
+}
+
+// releases.json, signed the same way checksums.txt already is, is List's
+// first source: when it is published, GitHub is never asked at all.
+func TestListReadsTheSignedIndexFromTheSiteFirst(t *testing.T) {
+	r := published(t, "the new program")
+	idx := ReleaseIndex{Versions: []IndexedRelease{
+		{Version: "v9.9.9", Date: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC), NotesURL: "https://example.com/v9.9.9"},
+		{Version: "v9.9.8", Date: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), Notes: "notes for v9.9.8"},
+		// A pre-release on the list is left out, the same as Latest and the
+		// GitHub-sourced List already leave one out.
+		{Version: "v9.9.7-rc.1", Date: time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)},
+	}}
+	data, err := json.Marshal(idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.dl.set("/releases.json", data)
+	r.dl.set("/releases.json.sig", Sign(r.key, data))
+
+	rels, err := List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	var got []string
+	for _, rel := range rels {
+		got = append(got, rel.Version)
+	}
+	if want := "v9.9.9,v9.9.8"; strings.Join(got, ",") != want {
+		t.Errorf("List = %v, want %s (newest first, pre-release left out)", got, want)
+	}
+	if !rels[0].Published.Equal(idx.Versions[0].Date) {
+		t.Errorf("List's first entry is published %v, want %v", rels[0].Published, idx.Versions[0].Date)
+	}
+	if r.gh.asked("/repos/") {
+		t.Error("List asked GitHub although releases.json answered")
+	}
+}
+
+// A limit given to List is honoured against the site's own index too, not
+// only against GitHub's.
+func TestListLimitsTheSignedIndex(t *testing.T) {
+	r := published(t, "the new program")
+	idx := ReleaseIndex{Versions: []IndexedRelease{
+		{Version: "v9.9.9"}, {Version: "v9.9.8"}, {Version: "v9.9.7"},
+	}}
+	data, err := json.Marshal(idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.dl.set("/releases.json", data)
+	r.dl.set("/releases.json.sig", Sign(r.key, data))
+
+	rels, err := List(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(rels) != 2 {
+		t.Fatalf("List(ctx, 2) returned %d releases, want 2", len(rels))
+	}
+}
+
+// A releases.json that does not carry a signature from a trusted key is
+// refused exactly as a tampered manifest or recalled.json is, and List falls
+// back to GitHub rather than trust it.
+func TestListFallsBackWhenTheSignedIndexDoesNotCheck(t *testing.T) {
+	r := published(t, "the new program")
+	log := logged(t)
+	data, err := json.Marshal(ReleaseIndex{Versions: []IndexedRelease{{Version: "v9.9.8"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.dl.set("/releases.json", data)
+	_, other, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.dl.set("/releases.json.sig", Sign(other, data))
+
+	api, err := json.Marshal([]map[string]any{{"tag_name": "v9.9.9", "body": "nine"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.gh.set("/repos/"+Repo+"/releases", api)
+
+	rels, err := List(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(rels) != 1 || rels[0].Version != "v9.9.9" {
+		t.Errorf("List = %v, want GitHub's v9.9.9", rels)
+	}
+	if l := log(); !strings.Contains(l, "warning:") || !strings.Contains(l, "releases.json") {
+		t.Errorf("logged %q, want a warning naming releases.json", l)
 	}
 }
 

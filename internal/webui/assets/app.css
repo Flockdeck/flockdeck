@@ -167,6 +167,12 @@ body { flex-direction: row; }
   background: transparent; color: var(--fg-dim); font: inherit; cursor: pointer;
 }
 .rail-btn:hover { background: #22262e; color: var(--fg); }
+/* As wide as a monogram's own box, so a tool's icon lines up under a
+ * project's two-letter tile instead of sitting 8px further left -- ragged
+ * once the rail is wide enough to show both in a column -- and so the badge
+ * below, fixed to this same width, clears the label instead of sitting on
+ * top of its first letter. */
+.rail-btn .ico { width: 24px; justify-content: center; }
 .rail-tile .mono { font-size: 12px; font-weight: 700; letter-spacing: .02em; }
 /* The project on screen: a lighter ground, and an edge so that it is told
  * apart from the tile the pointer happens to be over. */
@@ -826,6 +832,11 @@ textarea:focus-visible {
   font: 12px ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 .remote-link:focus { outline: none; border-color: var(--accent); }
+.remote-fingerprint {
+  margin: 4px 0 0; padding: 4px 8px; width: fit-content;
+  background: var(--bg-inset); border-radius: var(--radius);
+  font: 13px ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .03em;
+}
 .update-notes {
   max-height: 220px; overflow: auto;
   background: var(--bg-dim, #14171d); border: 1px solid var(--line, #2a2f3a);
@@ -1031,9 +1042,28 @@ textarea:focus-visible {
 /* A helper's row names the pane it was spawned from, and a waiting row says
  * what it is waiting on you for -- both meta items like the branch and the
  * running tool beside them, coloured to match how the rest of the app
- * already marks "this needs you" and "this is somebody else's own pane". */
-.agent-parent { font-style: italic; }
+ * already marks "this needs you" and "this is somebody else's own pane".
+ * Where the parent is still open the name is a real button -- reset to look
+ * like the meta text beside it, an underline on hover and focus its only
+ * tell -- rather than the plain span a closed parent still falls back to. */
+.agent-parent {
+  font-style: italic; background: none; border: 0; padding: 0; margin: 0;
+  color: inherit; font-size: inherit; font-family: inherit;
+}
+.agent-parent.link { cursor: pointer; }
+.agent-parent.link:hover, .agent-parent.link:focus-visible { text-decoration: underline; color: var(--fg); }
 .agent-waiting { color: var(--waiting); }
+
+/* Grouped by project instead of by urgency: the same rows, each project's
+ * under its own heading and a helper nested under the parent that spawned
+ * it. The guide line is the same treatment a folder tree elsewhere in the
+ * app would use, kept faint so it reads as structure, not another row. */
+.agent-view-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.chip.agent-view-tab.sel { background: #262a32; color: var(--fg); font-weight: 600; border-color: var(--line-strong); }
+.agent-tree .agent-row { padding: 8px 0; }
+.agent-children {
+  margin-left: 19px; padding-left: 15px; border-left: 1px solid var(--line);
+}
 
 /* ------------------------------------------------------------ summary card */
 
@@ -1064,6 +1094,22 @@ textarea:focus-visible {
 .summary-card-outcome.done { color: var(--fg-dim); }
 .summary-card-outcome.needs { color: var(--waiting); font-weight: 600; }
 .summary-card-outcome.failed { color: var(--exited); font-weight: 600; }
+
+/* Floated over the grid a settled fan-out's card was put back to by hand
+ * (see buildShowSummaryChip): the way back to it once "Back to grid" has
+ * been pressed, clear of the top-right pane's own header beneath it. A
+ * plain chip is transparent, which read poorly over a terminal's own dark
+ * background -- the same reason .to-latest gives itself one. */
+.show-summary { position: absolute; top: 8px; right: 8px; z-index: 4; background: var(--bg-raised); }
+
+/* The fan-out history panel is a list of past jobs, each drawn with the
+ * summary-card rules above -- reused rather than duplicated, since a closed
+ * job's row differs from a live one only in having nothing left to zoom
+ * into. This is only the spacing between one job and the next. */
+.fanout-history-job { margin-bottom: 18px; }
+.fanout-history-job:last-child { margin-bottom: 0; }
+.fanout-history-job .summary-card-row { cursor: default; }
+.fanout-history-job .summary-card-row:hover { background: none; }
 
 /* ------------------------------------------------------------------ review */
 

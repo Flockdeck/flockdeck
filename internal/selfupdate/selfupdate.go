@@ -119,6 +119,14 @@ type Pending struct {
 	Notes   string    `json:"notes,omitempty"`
 	URL     string    `json:"url,omitempty"`
 	Staged  time.Time `json:"staged"`
+	// Chosen says this release was staged by naming it, rather than reached
+	// as "the latest": the CLI's `update -version=X`, or the interface's
+	// version picker (StageChosen). A caller deciding whether what is staged
+	// is still safe to apply, or to leave alone rather than replace with
+	// whatever is newest, treats a chosen release as somebody's own decision
+	// and never second-guesses it against Newer the way an ordinary staged
+	// update is -- see cli_update.go's stagedUpdate and checkRound.
+	Chosen bool `json:"chosen,omitempty"`
 }
 
 // client bounds the whole of a request, because an update is never urgent: a
@@ -261,12 +269,16 @@ func latestFromGitHub(ctx context.Context) (*Release, error) {
 
 // List returns up to limit of the most recently published releases, newest
 // first, for a picker that lets someone choose a version to install rather
-// than only ever move to the latest one. It always asks GitHub's API
-// (/repos/<repo>/releases, not /releases/latest) rather than the site: unlike
-// Latest, which every running copy asks every updateInterval, this is read
-// only when somebody opens the picker, so it does not compete with the
-// site-first strategy that exists to spare GitHub's sixty-an-hour
-// unauthenticated limit for that routine background check.
+// than only ever move to the latest one. It reads releases.json from the
+// site first, trusted only once its signature checks -- the same way every
+// other read here does -- and falls back to GitHub's API
+// (/repos/<repo>/releases, not /releases/latest), the reason logged, when
+// that cannot be used: releases.json unpublished, unreachable, or refused.
+//
+// Unlike Latest, which every running copy asks every updateInterval, this is
+// read only when somebody opens the picker, so asking GitHub on the fallback
+// path costs nothing towards the sixty-an-hour unauthenticated limit that
+// the site-first strategy elsewhere exists to spare.
 //
 // Drafts are never returned, and neither are pre-releases, matching how
 // Latest already treats them: this is a list of what somebody could roll
@@ -276,6 +288,20 @@ func List(ctx context.Context, limit int) ([]*Release, error) {
 	if limit <= 0 {
 		limit = 10
 	}
+	rels, err := releaseIndexFromSite(ctx, limit)
+	if err == nil {
+		return rels, nil
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	fellBack("could not list recent releases from "+siteHost(), err)
+	return listFromGitHub(ctx, limit)
+}
+
+// listFromGitHub is List's fallback, and its only source before releases.json
+// existed: GitHub's own listing of recent releases.
+func listFromGitHub(ctx context.Context, limit int) ([]*Release, error) {
 	resp, err := get(ctx, fmt.Sprintf("%s/repos/%s/releases?per_page=%d", githubAPIURL, Repo, limit))
 	if err != nil {
 		return nil, err
@@ -387,6 +413,27 @@ func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 	}
 	fellBack("could not download "+rel.Version+" from "+siteHost(), err)
 	return stage(ctx, rel.mirror, dir)
+}
+
+// StageChosen is Stage for a release chosen by name rather than reached as
+// "the latest" -- the interface's version picker, which cannot Apply what it
+// stages straight away the way the CLI's own `update -version=X` does, since
+// Apply is never done under a running session (see the package comment):
+// this runs inside the very process whose panes hold the live agents.
+// What it stages is marked Pending.Chosen, so applying it at the next
+// restart, and deciding whether to leave it alone in the meantime, never
+// second-guesses the choice against Newer (see stagedUpdate and checkRound
+// in cli_update.go).
+func StageChosen(ctx context.Context, rel *Release, dir string) (*Pending, error) {
+	p, err := Stage(ctx, rel, dir)
+	if err != nil {
+		return nil, err
+	}
+	p.Chosen = true
+	if err := save(dir, p); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // stage is Stage from the one place rel says.

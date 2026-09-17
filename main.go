@@ -1043,6 +1043,8 @@ func run(opts options) error {
 		stop()
 	}
 	srv.OnCheckForUpdates = func() (string, bool) { return checkForUpdatesNow(srv) }
+	srv.OnListVersions = listVersionsNow
+	srv.OnInstallVersion = func(ctx context.Context, v string) (string, bool) { return installVersionNow(ctx, srv, v) }
 
 	// Record where this instance is listening so a later launch can attach.
 	// Only now, with the callbacks that answer for it in place: the server has
