@@ -1113,6 +1113,8 @@ textarea:focus-visible {
 
 /* ------------------------------------------------------------------ review */
 
+.rev-repo-picker { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+
 .rev-head {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding-bottom: 10px; border-bottom: 1px solid var(--line); margin-bottom: 10px;

@@ -28,11 +28,14 @@
     // One pane fanning out into three, the shape a plan turns into once it is
     // read as a list and started as agents.
     fanout: '<circle cx="3.5" cy="8" r="1.5"></circle><circle cx="12.5" cy="3.5" r="1.5"></circle><circle cx="12.5" cy="8" r="1.5"></circle><circle cx="12.5" cy="12.5" r="1.5"></circle><path d="M5 8h1.5M6.5 8 11 3.5M6.5 8h4.5M6.5 8 11 12.5"></path>',
-    github: '<circle cx="5" cy="3.2" r="1.4"></circle><circle cx="5" cy="12.8" r="1.4"></circle><circle cx="11.5" cy="8" r="1.4"></circle><path d="M5 4.6v6.8"></path><path d="M5 6.6c0 3.4 2.6 1.4 6.5 1.4"></path>',
     // Two branches meeting in one, the shape a pull request itself is drawn as
     // on github.com -- not the octocat, which is a filled mark and reads as a
     // smudge stroked at 16px the way every other glyph here is drawn.
     github: '<circle cx="4.5" cy="4" r="1.5"></circle><circle cx="4.5" cy="12" r="1.5"></circle><circle cx="11.5" cy="4" r="1.5"></circle><path d="M4.5 5.5v5M11.5 5.5v1.7a2.8 2.8 0 0 1-2.8 2.8H8"></path>',
+    // Every agent across every project, so two figures rather than the one
+    // a pane's own header already draws.
+    agents: '<circle cx="6" cy="5.5" r="2"></circle><path d="M2.5 13c0-2.5 1.6-4 3.5-4s3.5 1.5 3.5 4"></path><circle cx="11.4" cy="6" r="1.6"></circle><path d="M9.7 8.3c1.7-.3 3.5.7 3.9 2.9"></path>',
+    key: '<circle cx="5.2" cy="8" r="2.7"></circle><path d="M7.7 8h6M10.8 8v2.2M12.9 8v1.6"></path>',
     remote: '<rect x="4.8" y="2" width="6.4" height="12" rx="1.6"></rect><path d="M7.3 11.6h1.4"></path>',
     help: '<circle cx="8" cy="8" r="6"></circle><path d="M6.3 6.4a1.8 1.8 0 1 1 2.5 1.6c-.5.2-.8.6-.8 1.1v.3"></path><path d="M8 11.3v.2"></path>',
     settings: '<path d="M2.5 4.5h6.5M12.5 4.5h1M2.5 11.5h1.5M7.5 11.5h6"></path><circle cx="10.7" cy="4.5" r="1.6"></circle><circle cx="5.7" cy="11.5" r="1.6"></circle>',
@@ -4182,9 +4185,17 @@
     $("overlay-body").textContent = "";
     $("overlay-panel").classList.remove("wide", "settings-panel");
 
+    const oldGoto = $("overlay-goto");
+    if (oldGoto) oldGoto.remove();
     const old = $("overlay-help");
     if (old) old.remove();
     if (page) {
+      const goto = el("button", "chip", "Go to…");
+      goto.id = "overlay-goto";
+      describe(goto, "Switch to another dialog -- Projects, Agents, Settings and the rest -- without closing this one first.");
+      goto.onclick = () => openPalette(PAGE_ACTIONS);
+      $("overlay-head").insertBefore(goto, $("overlay-close"));
+
       const b = el("button", "icon-btn", "?");
       b.id = "overlay-help";
       describe(b, "What this is, and how it works");
@@ -5320,6 +5331,12 @@
    *  few seconds, so one that is never answered does not hold the field. */
   const pendingPrefs = new Map();
   const PREF_ECHO_MS = 3000;
+  /** Tips dismissed here since the last hello, whether or not a push has come
+   *  back with them yet — see keepPending. */
+  const pendingDismissed = new Set();
+  /** Set the moment "Show them again" clears dismissedTips here, until a push
+   *  confirms the list is actually empty — the same race, the other way. */
+  let pendingReset = false;
   function sentPref(field) {
     const sent = pendingPrefs.get(field) || [];
     sent.push({ value: prefs[field], at: Date.now() });
@@ -5337,6 +5354,19 @@
       const at = live.map((s) => s.value).lastIndexOf(incoming[field]);
       if (at >= 0 && at < live.length - 1) { incoming[field] = prefs[field]; pendingPrefs.set(field, live.slice(at + 1)); }
       else pendingPrefs.delete(field);
+    }
+    // dismissedTips does not fit the loop above: it is an array, and two
+    // separately-parsed arrays are never the same value to compare against,
+    // even carrying the same ids. A tip dismissed here, arriving in a push
+    // that left for the server before the dismissal did, is folded back in
+    // by hand instead — and dropped once a push finally does carry it.
+    if (pendingReset) {
+      if ((incoming.dismissedTips || []).length === 0) pendingReset = false;
+      else incoming.dismissedTips = [];
+    } else if (pendingDismissed.size) {
+      const have = new Set(incoming.dismissedTips || []);
+      for (const id of pendingDismissed) { if (have.has(id)) pendingDismissed.delete(id); else have.add(id); }
+      incoming.dismissedTips = [...have];
     }
     return incoming;
   }
@@ -6049,6 +6079,8 @@
     // The hello is what the server holds, after a drop that may have taken
     // changes sent from here with it, so nothing sent before it is waited on.
     pendingPrefs.clear();
+    pendingDismissed.clear();
+    pendingReset = false;
     prefs = msg.prefs || prefs;
     applyPrefs();
     applyTheme();
@@ -6089,11 +6121,13 @@
     label("newAgentTab", $("new-tab"), "or drop a pane here to give it a tab of its own");
     label("newAgentTabChoose", $("new-tab-pick"));
     label("agents", $("summary"));
+    label("agents", $("btn-agents"));
     label("toggleBroadcast", $("btn-broadcast"), "on while it is lit");
     label("changes", $("btn-changes"));
     label("history", $("btn-history"));
     label("worktrees", $("btn-worktrees"));
     label("fanoutHistory", $("btn-fanout-history"));
+    label("apiKeys", $("btn-apikeys"));
     label("help", $("btn-help"));
     label("settings", $("btn-settings"));
     label("palette", $("btn-palette"), "every action there is, searchable");
@@ -6188,6 +6222,17 @@
   /** The rows on screen, so moving the highlight can move the highlight
    *  rather than building the list again. */
   let palRows = [];
+  /** Set while the palette is showing only the actions in PAGE_ACTIONS --
+   *  opened as "Go to…" from inside a dialog, rather than as the palette
+   *  proper -- and cleared the moment it is asked for everything again. */
+  let palOnly = null;
+
+  /** Every action that puts a whole dialog on screen, rather than doing
+   *  something and staying put. "Go to…", in a dialog's own header, is the
+   *  palette narrowed to just these -- one dialog reaches any other without
+   *  a trip back out to the rail or the shortcut that opened this one. */
+  const PAGE_ACTIONS = ["projects", "agents", "worktrees", "changes", "history",
+    "fanoutHistory", "settings", "remote", "apiKeys", "help"];
 
   function paletteCommands() {
     const s = state || {};
@@ -6212,7 +6257,7 @@
     const now = (id, keys) => [keys, value[id] && "now " + value[id]].filter(Boolean).join(" · ");
     const cmds = keyTable
       .filter((k) => !k.noPalette && ACTIONS[k.id])
-      .map((k) => ({ label: k.label, hint: now(k.id, k.keys), also: also(k.id), run: () => runAction(k.id) }));
+      .map((k) => ({ id: k.id, label: k.label, hint: now(k.id, k.keys), also: also(k.id), run: () => runAction(k.id) }));
     // The picker's own entries belong in the action table with everything
     // else, and are offered here only for as long as the table has not caught
     // up — so choosing an agent is reachable from the palette either way, and
@@ -6334,11 +6379,17 @@
     return named.concat(spelled);
   }
 
-  function openPalette() {
+  /** onlyPages, given, narrows the palette to PAGE_ACTIONS (or whatever list
+   *  is passed) instead of every action there is -- how a dialog's own "Go
+   *  to…" reaches the palette, so it reads as switching pages rather than
+   *  running a command. */
+  function openPalette(onlyPages) {
     palReturn = document.activeElement;
+    palOnly = onlyPages || null;
     $("palette").hidden = false;
     const input = $("palette-input");
     input.value = "";
+    input.placeholder = palOnly ? "Go to…" : "Type a command…";
     palIndex = 0;
     renderPalette();
     input.focus();
@@ -6352,7 +6403,7 @@
   }
   function renderPalette() {
     const q = $("palette-input").value.trim().toLowerCase();
-    const all = paletteCommands();
+    const all = palOnly ? paletteCommands().filter((c) => palOnly.includes(c.id)) : paletteCommands();
     palItems = q ? paletteMatches(all, q) : recentFirst(all);
     if (palIndex >= palItems.length) palIndex = Math.max(0, palItems.length - 1);
 
@@ -6754,6 +6805,25 @@
     body.textContent = "";
 
     if (m.error) { body.append(el("p", null, m.error)); return; }
+
+    // --- which repo, in a project spanning more than one --------------------
+    // A grouped project reviews one repo's working tree at a time -- git has
+    // no notion of a commit spanning several of them -- so a project with
+    // more than one offers the rest here rather than only through the one
+    // that happened to be on screen when Changes was opened.
+    const group = (state && state.projects || []).find((p) => p.root === m.cwd || (p.members || []).some((mem) => mem.root === m.cwd));
+    if (group && group.members && group.members.length > 1) {
+      const picker = el("div", "rev-repo-picker");
+      group.members.forEach((mem) => {
+        const here = mem.root === m.cwd;
+        const btn = el("button", "chip" + (here ? " primary" : ""), mem.name);
+        describe(btn, mem.root);
+        btn.disabled = here;
+        btn.onclick = () => openChanges(mem.root);
+        picker.append(btn);
+      });
+      body.append(picker);
+    }
 
     // --- branch and remote state ------------------------------------------
     const head = el("div", "rev-head");
@@ -9013,6 +9083,8 @@
     tips.disabled = !dismissed;
     tips.onclick = () => {
       prefs.dismissedTips = [];
+      pendingDismissed.clear();
+      pendingReset = true;
       send({ cmd: "resetTips" });
       notice("The tips will show again where they apply", false);
       renderHints();
@@ -10436,6 +10508,7 @@
     describe(close, "Dismiss this hint for good");
     close.onclick = () => {
       prefs.dismissedTips = (prefs.dismissedTips || []).concat(hint.id);
+      pendingDismissed.add(hint.id);
       send({ cmd: "dismissTip", id: hint.id });
       renderHints();
       // The button pressed went with the hint, and the keyboard with it, onto
@@ -10955,10 +11028,12 @@
     e.preventDefault();
     strip.scrollLeft += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
   }, { passive: false });
+  $("btn-agents").onclick = () => openAgents();
   $("btn-broadcast").onclick = () => send({ cmd: "toggleBroadcast" });
   $("btn-worktrees").onclick = () => openWorktrees();
   $("btn-fanout-history").onclick = () => openFanoutHistory();
   $("btn-github").onclick = () => openGithub();
+  $("btn-apikeys").onclick = () => openKeys();
   $("btn-history").onclick = openHistory;
   $("btn-changes").onclick = () => openChanges();
   $("summary").onclick = openAgents;

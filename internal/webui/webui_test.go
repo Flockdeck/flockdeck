@@ -2917,6 +2917,41 @@ assert.ok(!h.$("overlay-body").textContent.includes("a.go"), "the review was dra
 `)
 }
 
+// Changes reviewed one repo's working tree with no way to reach another's,
+// even though a grouped project's whole point is agents in several repos at
+// once -- reviewing the second one meant closing the dialog, switching
+// projects, and opening it again.
+func TestChangesOffersEveryRepoInAGroupedProject(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/api", name: "platform", active: true, tabs: 2, waiting: 0, working: 0,
+    members: [{ root: "C:/api", name: "api" }, { root: "C:/ui", name: "ui" }] },
+] }));
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/api", branch: "main", hasRemote: false, files: [] });
+
+const chip = (name) => Array.from(h.$("overlay-body").querySelector(".rev-repo-picker").querySelectorAll("button"))
+  .find((b) => b.textContent === name);
+assert.ok(chip("api") && chip("ui"), "not every member of the project is offered");
+assert.ok(chip("api").disabled, "the repo already shown is not marked current");
+assert.ok(!chip("ui").disabled, "the other repo cannot be switched to");
+
+h.click(chip("ui"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "changes", path: "C:/ui" });
+h.recv({ type: "changes", cwd: "C:/ui", branch: "main", hasRemote: false, files: [] });
+assert.ok(chip("ui").disabled && !chip("api").disabled, "switching did not move which repo reads as current");
+
+// A project with only the one repo offers nothing to switch to.
+h.recv(fixture({ projects: [
+  { root: "C:/repo", name: "repo", active: true, tabs: 1, waiting: 0, working: 0,
+    members: [{ root: "C:/repo", name: "repo" }] },
+] }));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false, files: [] });
+assert.ok(!h.$("overlay-body").querySelector(".rev-repo-picker"), "a single-repo project offers a picker anyway");
+`)
+}
+
 // state.recall said a running version had been withdrawn since it was
 // installed, with nothing in the window ever showing it -- the server
 // computed the warning and nobody saw it.
@@ -4962,14 +4997,15 @@ func TestTheRailKeepsTheControlsAndTheirKeys(t *testing.T) {
 	runFrontEnd(t, `
 const keys = h.hello();
 h.recv(fixture());
-for (const id of ["new-tab", "new-tab-pick", "summary", "btn-broadcast", "btn-changes",
-  "btn-history", "btn-worktrees", "btn-update", "btn-remote", "btn-help", "btn-settings", "btn-palette", "rail-open"]) {
+for (const id of ["new-tab", "new-tab-pick", "summary", "btn-agents", "btn-broadcast", "btn-changes",
+  "btn-history", "btn-worktrees", "btn-apikeys", "btn-update", "btn-remote", "btn-help", "btn-settings",
+  "btn-palette", "rail-open"]) {
   assert.ok(h.$(id), id + " is gone");
 }
 const rail = h.$("rail");
-const tools = { "btn-broadcast": "toggleBroadcast", "btn-changes": "changes", "btn-history": "history",
-  "btn-worktrees": "worktrees", "btn-help": "help", "btn-settings": "settings", "rail-open": "projects",
-  "btn-palette": "palette" };
+const tools = { "btn-agents": "agents", "btn-broadcast": "toggleBroadcast", "btn-changes": "changes",
+  "btn-history": "history", "btn-worktrees": "worktrees", "btn-apikeys": "apiKeys", "btn-help": "help",
+  "btn-settings": "settings", "rail-open": "projects", "btn-palette": "palette" };
 for (const [id, action] of Object.entries(tools)) {
   const k = keys.find((x) => x.id === action);
   const b = h.$(id);
@@ -6010,6 +6046,37 @@ assert.ok(h.$("overlay-help"), "the API key dialog has no ?");
 h.click(h.$("overlay-help"));
 await h.sleep(30);
 assert.strictEqual(h.$("help-content").dataset.slug, "agents");
+`)
+}
+
+// Every dialog's own header offers "Go to…" beside its ?, and that is the
+// palette narrowed to the actions that open a dialog: it lists Settings
+// without listing something like a pane split, and choosing one from there
+// switches straight to it, no trip back out to the rail.
+func TestGoToSwitchesDialogsFromThePalette(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("worktrees");
+assert.ok(h.$("overlay-goto"), "the worktrees dialog has no Go to…");
+h.click(h.$("overlay-goto"));
+assert.strictEqual(h.$("palette").hidden, false, "Go to… did not open the palette");
+assert.strictEqual(h.$("palette-input").placeholder, "Go to…");
+
+const labels = h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
+assert.ok(labels.includes("Settings"), "Go to… does not offer Settings");
+assert.ok(!labels.some((l) => l.startsWith("Split right")), "Go to… offers more than the dialogs");
+
+const row = h.$("palette-list").children.find((r) => r.querySelector(".pal-label").textContent === "Settings");
+assert.ok(row, "Go to… has no Settings");
+h.click(row);
+assert.strictEqual(h.$("overlay-title").textContent, "Settings", "Go to… did not switch dialogs");
+
+// Opened as the palette proper, by contrast, it offers everything again.
+h.press("worktrees");
+h.press("palette");
+const everything = h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
+assert.ok(everything.some((l) => l.startsWith("Split right")), "the ordinary palette lost commands");
 `)
 }
 
@@ -7553,6 +7620,61 @@ close().focus();
 h.click(close());
 assert.deepStrictEqual(h.commands().filter((c) => c.cmd === "dismissTip").pop(), { cmd: "dismissTip", id: "palette" });
 assert.ok(h.terms[0].focused, "dismissing the hint left the keyboard on nothing");
+`)
+}
+
+// A hint just dismissed flickered back for a moment whenever a "prefs" push
+// that had left the server before the dismissal did arrived after it: that
+// push's own dismissedTips did not have the tip in it yet, and overwrote the
+// one just added here, until the server's real answer followed and hid it
+// again. keepPending folds a dismissal not yet confirmed back into every push
+// until one finally does carry it, the same protection every other
+// preference already had.
+func TestDismissingAHintSurvivesAStalePrefsPush(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+assert.strictEqual(h.$("hints").dataset.hint, "palette", "the fixture's usual first hint is not showing");
+h.click(h.$("hints").querySelector("button.icon-btn"));
+assert.notStrictEqual(h.$("hints").dataset.hint, "palette", "dismissing did not move off the hint at once");
+
+// A push that left the server before the dismissal did: it still says
+// dismissedTips is empty, and a hint dismissed only a moment ago flickered
+// back until the server's real answer followed and hid it again.
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [] } });
+assert.notStrictEqual(h.$("hints").dataset.hint, "palette", "a stale push brought the dismissed hint back");
+
+// The server's own answer, once it arrives, is trusted as it is.
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: ["palette"] } });
+assert.notStrictEqual(h.$("hints").dataset.hint, "palette", "the confirmed push did not keep the hint dismissed");
+
+// Once the true answer has come back, an empty list is no longer taken for
+// the same stale echo -- another window resetting the tips is believed.
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [] } });
+assert.strictEqual(h.$("hints").dataset.hint, "palette", "an empty list from elsewhere was not believed after confirmation");
+`)
+}
+
+// "Show them again" has the same race the other way: a push that left before
+// the reset did still carries the old dismissedTips, and put the tips away
+// again for a moment until the server's own empty list caught up.
+func TestResetTipsSurvivesAStalePrefsPush(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ dismissedTips: ["palette"] });
+h.recv(fixture());
+assert.notStrictEqual(h.$("hints").dataset.hint, "palette", "the dismissed hint is showing before the reset");
+h.click(h.$("btn-settings"));
+h.click(h.$("set-tips"));
+assert.strictEqual(h.$("hints").dataset.hint, "palette", "resetting the tips did not bring it back at once");
+
+// A push that left the server before the reset did: it still carries the
+// old dismissedTips, and put the tip away again for a moment until the
+// server's own empty list caught up.
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: ["palette"] } });
+assert.strictEqual(h.$("hints").dataset.hint, "palette", "a stale push dismissed the hint again after resetting");
+
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [] } });
+assert.strictEqual(h.$("hints").dataset.hint, "palette", "the confirmed empty list did not keep the hint showing");
 `)
 }
 
