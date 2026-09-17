@@ -1968,6 +1968,105 @@ assert.ok(!/^one: /.test(h.notifications[0].body), "an ordinary split's prompts 
 `)
 }
 
+// Dismissing a settled fan-out's summary card with "Back to grid" used to be
+// permanent: cardHidden suppressed the card until the tab started working
+// again, and nothing offered a way back to it before then. A chip floated
+// over the grid brings it back, for as long as the tab stays settled.
+func TestADismissedSummaryCardCanBeShownAgain(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const settled = () => fixture({
+  activeTab: "t9",
+  tabs: [{ id: "t9", title: "fan out", focus: "q0", delegated: true,
+    root: split("h", [leaf("m0", "q0"), leaf("m1", "q1")]) }],
+  panes: { q0: pane("q0", { name: "task 0", branch: "task-0" }),
+           q1: pane("q1", { name: "task 1", branch: "task-1", status: "waiting" }) },
+  waiting: 1,
+});
+h.recv(settled());
+assert.ok(h.$("workspace").querySelector(".summary-card"), "the settled fan-out did not collapse to a card");
+assert.ok(!h.$("workspace").querySelector(".show-summary"), "the chip is showing over the card itself");
+
+// Dismissed: the grid comes back, with the chip floated over it.
+const back = [...h.$("workspace").querySelectorAll("button")].filter((b) => b.textContent === "Back to grid")[0];
+assert.ok(back, "no way to dismiss the card in the first place");
+h.click(back);
+h.recv(settled());
+assert.ok(!h.$("workspace").querySelector(".summary-card"), "the card is still showing after it was dismissed");
+const chip = h.$("workspace").querySelector(".show-summary");
+assert.ok(chip, "nothing offers a way back to the dismissed card");
+assert.strictEqual(chip.textContent, "Show summary");
+
+// Pressing it brings the card back.
+h.click(chip);
+h.recv(settled());
+assert.ok(h.$("workspace").querySelector(".summary-card"), "the chip did not bring the card back");
+assert.ok(!h.$("workspace").querySelector(".show-summary"), "the chip is still showing once the card is back");
+
+// The tab starting work again clears the dismissal, the same as it always
+// has, so the chip does not survive to show a card that is gone.
+h.recv(settled());
+const back2 = [...h.$("workspace").querySelectorAll("button")].filter((b) => b.textContent === "Back to grid")[0];
+h.click(back2);
+h.recv(fixture({
+  activeTab: "t9",
+  tabs: [{ id: "t9", title: "fan out", focus: "q0", delegated: true,
+    root: split("h", [leaf("m0", "q0"), leaf("m1", "q1")]) }],
+  panes: { q0: pane("q0", { name: "task 0", status: "working" }), q1: pane("q1", { name: "task 1" }) },
+  working: 1,
+}));
+assert.ok(!h.$("workspace").querySelector(".show-summary"), "the chip survived the tab going back to work");
+`)
+}
+
+// The history panel draws a closed job the same one-line-per-pane way the
+// live summary card does, from whatever the Go side has kept for this
+// project in memory.
+func TestFanOutHistoryListsPastJobs(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-fanout-history"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutHistory", root: "C:/repo" });
+assert.ok(h.$("overlay-body").textContent.includes("Reading past jobs"));
+
+h.recv({ type: "fanoutHistory", root: "C:/repo", items: [] });
+assert.ok(h.$("overlay-body").textContent.includes("No fan-out jobs finished in this project yet"));
+
+h.recv({
+  type: "fanoutHistory", root: "C:/repo",
+  items: [{
+    id: "j1", title: "Fan out", at: "2024-01-01T00:00:00Z", ago: "3 hours ago",
+    panes: [
+      { name: "task 0", branch: "task-0", task: "first task", kind: "done", detail: "wrapped it up" },
+      { name: "task 1", branch: "task-1", task: "second task", kind: "needs", detail: "Wants a question." },
+    ],
+  }],
+});
+const body = h.$("overlay-body");
+assert.ok(body.textContent.includes("Fan out"), "the job's title is missing");
+assert.ok(body.textContent.includes("3 hours ago"), "when the job finished is missing");
+assert.ok(body.textContent.includes("2 agents"), "the pane count is missing");
+
+const rows = [...body.querySelectorAll(".summary-card-row")];
+assert.strictEqual(rows.length, 2, "want one row per pane");
+assert.ok(rows[0].textContent.includes("task 0") && rows[0].textContent.includes("task-0"));
+assert.ok(rows[0].textContent.includes("first task"), "the task that was fanned out is missing");
+assert.ok(rows[0].textContent.includes("wrapped it up"), "the agent's last reply is missing");
+assert.strictEqual(rows[0].querySelector(".summary-card-outcome").textContent, "done");
+assert.ok(rows[0].querySelector(".summary-card-outcome").classList.contains("done"));
+assert.strictEqual(rows[1].querySelector(".summary-card-outcome").textContent, "needs input");
+assert.ok(rows[1].querySelector(".summary-card-outcome").classList.contains("needs"));
+assert.ok(rows[1].textContent.includes("Wants a question."));
+
+// Refresh asks again, for this project.
+const refresh = [...body.querySelectorAll("button")].filter((b) => b.textContent === "Refresh")[0];
+assert.ok(refresh, "no way to ask again");
+h.click(refresh);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutHistory", root: "C:/repo" });
+`)
+}
+
 // The Go side caps a diff at 400KB, which bounds the bytes and not the lines.
 // A generated file of short lines reaches that in a couple of hundred thousand
 // of them, and an element per line is drawn while the window does nothing else.

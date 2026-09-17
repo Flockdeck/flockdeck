@@ -80,6 +80,7 @@ var Keys = []Key{
 	{ID: "toggleBroadcastMember", Label: "Add this pane to broadcast, or take it out", Section: "Agents", Page: "broadcast"},
 	{ID: "promptAll", Keys: "Ctrl+Shift+P", Label: "Prompt all panes", Section: "Agents", Page: "broadcast"},
 	{ID: "fanout", Keys: "Ctrl+Shift+X", Label: "Fan out — turn this pane's plan into agents", Section: "Agents", Page: "fanout"},
+	{ID: "fanoutHistory", Label: "Fan-out history — past jobs in this project", Section: "Agents", Page: "fanout"},
 	{ID: "agents", Keys: "Ctrl+Shift+A", Label: "All agents across projects", Section: "Agents", Page: "status"},
 	{ID: "closeFinishedPanes", Label: "Close finished panes — every idle or exited pane, in every open project", Section: "Agents", Page: "status"},
 	{ID: "apiKeys", Label: "API keys…", Section: "Agents", Page: "agents"},

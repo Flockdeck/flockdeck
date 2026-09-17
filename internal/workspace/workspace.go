@@ -336,6 +336,10 @@ type Workspace struct {
 	// lastKeyMove is the keyboard move just made, so that the opposite arrow
 	// can undo it.
 	lastKeyMove keyMove
+	// fanoutHistory is each project's past fan-out jobs, most recent first,
+	// kept only for the run: a restart starts with none, the same as
+	// Tab.Delegated itself. See AddFanoutHistory and FanoutHistory.
+	fanoutHistory map[string][]FanoutJob
 
 	selfExe     string
 	spawnCmd    string
