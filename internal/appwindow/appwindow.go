@@ -1,5 +1,15 @@
+//go:build cgo
+
 // Package appwindow opens Flockdeck's user interface in its own native
 // window.
+//
+// Built only with cgo available: Wails' Linux backend (WebKitGTK) needs it,
+// and a build without it -- the self-hosted Docker image, deliberately
+// CGO_ENABLED=0 for a small static binary -- gets appwindow_nocgo.go
+// instead, whose Open always fails. That is already the ordinary path for a
+// headless instance: -no-window and -detach never call Open at all (see
+// showWindow in main.go), so nothing here is reached in the one build this
+// actually excludes it from.
 //
 // It used to do that by spawning an installed Chromium-based browser as a
 // separate process in "--app" mode: a chromeless window with no tabs, address
