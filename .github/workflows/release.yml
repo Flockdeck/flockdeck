@@ -152,6 +152,44 @@ jobs:
           TAG: ${{ needs.version.outputs.tag }}
         run: go run ./cmd/release -version "$TAG" -out dist -platforms ${{ matrix.platforms }}
 
+      # A real Windows installer, beside the zip: NSIS's own UI, a Start
+      # menu and desktop shortcut, and an uninstaller registered with
+      # Windows, none of which unzipping to a folder by hand gives anyone.
+      # build/windows/nsis/project.nsi is Wails' own generated template --
+      # the Makefile's `installer` target does the same thing by hand for a
+      # developer's own machine; see its own comment for where the template
+      # and the icon it uses come from. One installer covers both
+      # architectures: NSIS itself picks the binary that matches the
+      # machine it runs on at install time (project.nsi's own ARCH
+      # handling), so this never needs to know which arch it will land on.
+      #
+      # windows-latest carries NSIS (makensis) already
+      # (actions/runner-images' own Windows software list); wails3 is
+      # installed here pinned to go.mod's own wails version, since a CLI
+      # mismatched with the library version it scaffolds for is exactly
+      # the kind of thing that breaks quietly.
+      - name: Build the Windows installer
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          version="${TAG#v}"
+          version="${version%%-*}"
+          root="$(pwd -W)"
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.22
+          go build -trimpath -ldflags "-s -w -X main.version=$TAG -H=windowsgui" \
+            -o build/windows/nsis/flockdeck-amd64.exe .
+          GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$TAG -H=windowsgui" \
+            -o build/windows/nsis/flockdeck-arm64.exe .
+          wails3 generate webview2bootstrapper -dir build/windows/nsis
+          makensis \
+            -DARG_WAILS_AMD64_BINARY="$root/build/windows/nsis/flockdeck-amd64.exe" \
+            -DARG_WAILS_ARM64_BINARY="$root/build/windows/nsis/flockdeck-arm64.exe" \
+            -DINFO_PRODUCTVERSION="$version" \
+            build/windows/nsis/project.nsi
+          mv bin/flockdeck-amd64_arm64-installer.exe "dist/flockdeck_${TAG}_windows-installer.exe"
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.os }}
