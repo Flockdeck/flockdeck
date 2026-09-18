@@ -81,6 +81,8 @@ var Keys = []Key{
 	{ID: "promptAll", Keys: "Ctrl+Shift+P", Label: "Prompt all panes", Section: "Agents", Page: "broadcast"},
 	{ID: "fanout", Keys: "Ctrl+Shift+X", Label: "Fan out — turn this pane's plan into agents", Section: "Agents", Page: "fanout"},
 	{ID: "fanoutHistory", Label: "Fan-out history — past jobs in this project", Section: "Agents", Page: "fanout"},
+	{ID: "newTodo", Label: "New todo — save this pane's plan as a checklist", Section: "Agents", Page: "todo"},
+	{ID: "todos", Label: "Todos — this project's saved checklists", Section: "Agents", Page: "todo"},
 	{ID: "agents", Keys: "Ctrl+Shift+A", Label: "All agents across projects", Section: "Agents", Page: "status"},
 	{ID: "closeFinishedPanes", Label: "Close finished panes — every idle or exited pane, in every open project", Section: "Agents", Page: "status"},
 	{ID: "apiKeys", Label: "API keys…", Section: "Agents", Page: "agents"},

@@ -340,6 +340,10 @@ type Workspace struct {
 	// kept only for the run: a restart starts with none, the same as
 	// Tab.Delegated itself. See AddFanoutHistory and FanoutHistory.
 	fanoutHistory map[string][]FanoutJob
+	// todos is every saved todo checklist, across every project, read once
+	// at startup from todos.json and written back on every mutation. Unlike
+	// fanoutHistory this is meant to outlive the run; see todos.go.
+	todos []store.Todo
 
 	selfExe     string
 	spawnCmd    string
@@ -441,6 +445,7 @@ func New(opts Options) (*Workspace, error) {
 	}
 	w.savedGroups = loadSavedGroups()
 	w.ensureGroup(root)
+	w.todos = loadSavedTodos()
 	w.SetWake(opts.OnWake)
 	_ = store.TouchRecent(root)
 

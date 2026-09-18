@@ -28,6 +28,9 @@
     // One pane fanning out into three, the shape a plan turns into once it is
     // read as a list and started as agents.
     fanout: '<circle cx="3.5" cy="8" r="1.5"></circle><circle cx="12.5" cy="3.5" r="1.5"></circle><circle cx="12.5" cy="8" r="1.5"></circle><circle cx="12.5" cy="12.5" r="1.5"></circle><path d="M5 8h1.5M6.5 8 11 3.5M6.5 8h4.5M6.5 8 11 12.5"></path>',
+    // A checked box over two list lines: a checklist kept rather than run
+    // through once, which is the whole difference from fan-out's icon above.
+    todo: '<rect x="2.3" y="2.8" width="3.4" height="3.4" rx="0.6"></rect><path d="M3 4.5 3.7 5.2 5.1 3.6"></path><path d="M7.4 4.5h6.3M2.3 10.3h3.4M7.4 11.8h6.3M2.3 11.8h3.4"></path>',
     // Two branches meeting in one, the shape a pull request itself is drawn as
     // on github.com -- not the octocat, which is a filled mark and reads as a
     // smudge stroked at 16px the way every other glyph here is drawn.
@@ -105,6 +108,7 @@
     // otherwise.
     broadcast:   "Sends what you write in the prompt bar to every pane in the broadcast set, so one instruction reaches them all. Typing in a terminal still reaches only that terminal.",
     fanOut:      "Turns the plan this agent proposed into a set of agents that carry it out, one pane each.",
+    newTodo:     "Saves the plan this agent proposed as a checklist, so its steps can be started one at a time, later.",
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
     zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back. Double-clicking the pane's header does the same.",
     close:       "Closes this pane and stops the process running in it.",
@@ -388,6 +392,19 @@
       else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects, "button.dir-into"); }
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
       else if (msg.type === "fanoutHistory") keepFocus(() => renderFanoutHistory(msg));
+      else if (msg.type === "todoPlanPreview") renderTodoPlan(msg);
+      else if (msg.type === "todos") keepFocus(() => renderTodos(msg));
+      else if (msg.type === "todoSaved") { notice("Saved “" + ((msg.todo && msg.todo.title) || "todo") + "”.", false); openTodos(); }
+      else if (msg.type === "todoUpdated") updateTodoInPlace(msg.todo);
+      // Unused by the desktop except for a todo's own step-start (see
+      // todoStepRow): startAgent's other callers are reached through the
+      // relay, which handles this reply itself. See ValidateStartAgent's own
+      // doc comment for why a window at the desk never needed this before.
+      else if (msg.type === "agentStarted" && pendingStepStart && msg.id === pendingStepStart.reqID) {
+        pendingStepStart = null;
+        send({ cmd: "revealPane", id: msg.paneId });
+        if (dialog === "todos") send({ cmd: "todos", root: state ? state.root : "" });
+      }
       // A commit that worked answers with a tree with nothing to commit, and
       // the message box and its buttons go with the keyboard in them: to
       // Push, which is what comes next, or Refresh where there is no remote.
@@ -2851,6 +2868,7 @@
     });
     actions.append(
       btn("⑂", TIPS.fanOut, () => openFanout(id)),
+      btn("☑", TIPS.newTodo, () => openNewTodo(id)),
       castBtn,
       reviewBtn,
       btn("⟳", TIPS.restart, () => send({ cmd: "restartPane", id })),
@@ -4353,6 +4371,7 @@
     else if (dialog === "agentPicker") send({ cmd: "refreshAgents" });
     else if (dialog === "history") send({ cmd: "conversations" });
     else if (dialog === "fanoutHistory") send({ cmd: "fanoutHistory", root: state ? state.root : "" });
+    else if (dialog === "todos") send({ cmd: "todos", root: state ? state.root : "" });
     else if (dialog === "keys") send({ cmd: "keys" });
     else if (dialog === "versions") send({ cmd: "listVersions" });
     else if (dialog === "remote") send({ cmd: "remoteDevices" });
@@ -6094,6 +6113,8 @@
     promptAll: () => openPrompt(),
     fanout: () => openFanout(),
     fanoutHistory: () => openFanoutHistory(),
+    newTodo: () => openNewTodo(),
+    todos: () => openTodos(),
     agents: () => openAgents(),
     closeFinishedPanes: () => send({ cmd: "closeFinishedPanes" }),
     apiKeys: () => openKeys(),
@@ -6179,6 +6200,7 @@
     label("history", $("btn-history"));
     label("worktrees", $("btn-worktrees"));
     label("fanoutHistory", $("btn-fanout-history"));
+    label("todos", $("btn-todos"));
     label("apiKeys", $("btn-apikeys"));
     label("help", $("btn-help"));
     label("settings", $("btn-settings"));
@@ -10296,6 +10318,300 @@
     box.focus();
   }
 
+  // -------------------------------------------------------------------- todo
+
+  /* A todo is a saved checklist: a plan read out of a pane the same way
+   * fan-out reads one, but saved rather than started, and come back to over
+   * days -- its steps started one at a time, on demand, with the checklist
+   * itself remembering which have been and how they went. See
+   * internal/help/pages/todo.md for how the two are meant to differ.
+   *
+   * Two dialogs, mirroring fan-out's own pair: "todoPlan" reads a pane's
+   * plan into an editable list and saves it (openNewTodo/renderTodoPlan,
+   * built beside openFanout/renderFanout above), and "todos" lists what has
+   * already been saved for the project and starts their steps
+   * (openTodos/renderTodos, beside openFanoutHistory/renderFanoutHistory).
+   */
+
+  /** The last "todos" message for whichever project is showing. */
+  let todos = null;
+  /** A plan being reviewed before it is saved: the pane it was read from and
+   *  its extracted steps. null outside the "todoPlan" dialog. See fanout's
+   *  own `fanout` for the equivalent guard. */
+  let todoPlan = null;
+  /** The pane a plan-review dialog asked about, the same guard fanoutAsked
+   *  is for renderFanout. */
+  let todoAsked = "";
+  /** What has been typed into the plan-review dialog's title field, kept
+   *  across a redraw the same way wtDraft is for the worktree form. */
+  let todoTitleDraft = "";
+  /** Whether each saved todo's steps should be started in a worktree of
+   *  their own, by todo id -- a per-todo choice made in its card, not
+   *  persisted, the same as a fan-out's own worktree box is only ever asked
+   *  again the next time the dialog opens. */
+  const todoWorktreeChoice = new Map();
+  /** The todo and request id a todoStepStart is out for, so the matching
+   *  agentStarted -- otherwise unused on the desktop, see startAgent --
+   *  knows to reveal the pane it started and refresh the checklist to show
+   *  the new attempt. */
+  let pendingStepStart = null;
+
+  /** openNewTodo opens the plan-review dialog on paneID's plan, or the
+   *  focused pane's when none is given -- the same shape openFanout takes. */
+  function openNewTodo(paneID) {
+    dialog = "todoPlan";
+    todoPlan = null;
+    todoTitleDraft = "";
+    openOverlay("New todo", "todo");
+    $("overlay-body").textContent = "";
+    $("overlay-body").append(el("div", "dir-empty", "Reading this pane's output…"));
+    todoAsked = paneID || focusedPaneId();
+    send({ cmd: "todoPlanPreview", id: todoAsked, root: state ? state.root : "" });
+  }
+
+  function renderTodoPlan(msg) {
+    if (msg) {
+      if (dialog !== "todoPlan" || todoPlan || (todoAsked && msg.paneId !== todoAsked)) return;
+      todoPlan = msg;
+    }
+    if (dialog !== "todoPlan") return;
+    const m = todoPlan || {};
+    const body = $("overlay-body");
+    body.textContent = "";
+
+    const found = m.tasks && m.tasks.length;
+    const hint = el("div", "fan-hint");
+    hint.append(document.createTextNode(
+      found
+        ? (m.fromReply ? "Found these in what this agent last said. " : "Found these in the pane's output. ") +
+          "Edit the list — one step per line — then save it as a todo."
+        : "No plan was found in this pane. Type one step per line, or ask an agent to draft one first, the same as before fanning one out."));
+    body.append(hint);
+
+    const titleRow = el("div", "fan-agent");
+    titleRow.append(el("span", null, "Title"));
+    const titleBox = el("input");
+    titleBox.type = "text";
+    titleBox.placeholder = "Untitled todo";
+    titleBox.value = todoTitleDraft;
+    titleBox.oninput = () => { todoTitleDraft = titleBox.value; };
+    titleRow.append(titleBox);
+    body.append(titleRow);
+
+    const box = el("textarea", "fan-tasks");
+    box.value = (m.tasks || []).join("\n");
+    box.placeholder = "One step per line, for example:\nAdd a health endpoint\nWrite tests for the parser\n\nCtrl+Enter saves it.";
+    body.append(box);
+
+    const go = el("div", "fan-go");
+    const count = el("span", "fan-count");
+    const stepLines = () => box.value.split("\n").map((l) => l.trim()).filter(Boolean);
+    const save = el("button", "chip primary", "Save as todo");
+    const updateCount = () => {
+      const n = stepLines().length;
+      count.textContent = n === 1 ? "1 step" : n + " steps";
+      save.disabled = n === 0;
+    };
+    save.onclick = () => {
+      const steps = stepLines();
+      if (!steps.length) return;
+      send({ cmd: "todoSave", root: m.root || (state ? state.root : ""), title: todoTitleDraft, tasks: steps });
+    };
+    box.oninput = updateCount;
+    box.onkeydown = (ev) => {
+      if (ev.key !== "Enter" || !(ev.ctrlKey || ev.metaKey)) return;
+      ev.preventDefault();
+      save.onclick();
+    };
+    go.append(save, count);
+    body.append(go);
+    updateCount();
+
+    const tools = el("div", "wt-tools");
+    tools.append(rootLabel(m.root || ""));
+    body.append(tools);
+    box.focus();
+  }
+
+  /** openTodos opens the checklist dialog and asks for this project's saved
+   *  todos, the same shape openFanoutHistory takes for past jobs. */
+  function openTodos() {
+    dialog = "todos";
+    todos = null;
+    openOverlay("Todos", "todo");
+    $("overlay-body").textContent = "";
+    $("overlay-body").append(el("div", "dir-empty", "Reading saved todos…"));
+    send({ cmd: "todos", root: state ? state.root : "" });
+  }
+
+  /** updateTodoInPlace applies a todoUpdated message (an echo back from a
+   *  mutation like setTodoStepDone) to the open checklist without the flash
+   *  of asking the server for the whole list again -- see openTodos. */
+  function updateTodoInPlace(t) {
+    if (!t || !todos || !todos.items) return;
+    const i = todos.items.findIndex((x) => x.id === t.id);
+    if (i < 0) return;
+    todos = { ...todos, items: todos.items.map((x, j) => (j === i ? t : x)) };
+    if (dialog === "todos") renderTodos();
+  }
+
+  /** saveTodoSteps sends a todo's full step list back with the ids it
+   *  already has, so Workspace.SaveTodo updates it in place -- keeping each
+   *  step's Done flag and attempt history -- rather than minting a fresh
+   *  todo, which is what an id-free save (see renderTodoPlan) means instead.
+   *  Used by a step's own text edit and by dragging one to reorder it. */
+  function saveTodoSteps(t, steps) {
+    send({
+      cmd: "todoSave", todoId: t.id, root: t.root || (state ? state.root : ""),
+      title: t.title, spec: t.spec,
+      stepIds: steps.map((s) => s.id), tasks: steps.map((s) => s.text),
+    });
+  }
+
+  /** reorderTodoStep moves fromId to sit just before beforeId (or last, for
+   *  ""), the same shape a tab drag settles on before sending moveTab. */
+  function reorderTodoStep(t, fromId, beforeId) {
+    const steps = (t.steps || []).slice();
+    const from = steps.findIndex((s) => s.id === fromId);
+    if (from < 0 || fromId === beforeId) return;
+    const [moved] = steps.splice(from, 1);
+    const to = beforeId ? steps.findIndex((s) => s.id === beforeId) : -1;
+    steps.splice(to < 0 ? steps.length : to, 0, moved);
+    saveTodoSteps(t, steps);
+  }
+
+  /** renderTodos lists every todo saved for the project, each drawn as a
+   *  card modelled on renderFanoutHistory's own job cards. */
+  function renderTodos(msg) {
+    if (msg) todos = msg;
+    if (dialog !== "todos") return;
+    const m = todos || {};
+    const body = $("overlay-body");
+    body.textContent = "";
+
+    const tools = el("div", "wt-tools");
+    const add = el("button", "chip primary", "+ New todo");
+    describe(add, "Reads the focused pane's plan into a new todo. Ask an agent to plan something first, the same as before fanning it out.");
+    add.onclick = () => openNewTodo();
+    tools.append(add, rootLabel(m.root || (state ? state.root : "")));
+    body.append(tools);
+
+    if (!m.items || !m.items.length) {
+      body.append(el("div", "dir-empty", "No todos saved for this project yet."));
+      return;
+    }
+    const wrap = section("Saved todos");
+    m.items.forEach((t) => wrap.append(todoCard(t)));
+    body.append(wrap);
+  }
+
+  /** todoCard draws one saved todo: its title, how many of its steps are
+   *  done, a worktree choice for the steps it starts from here, a Delete
+   *  button and every step's own row. */
+  function todoCard(t) {
+    const card = el("div", "fanout-history-job");
+    const head = el("div", "summary-card-head");
+    head.append(el("div", "summary-card-title", t.title || "Untitled todo"));
+    const doneCount = (t.steps || []).filter((s) => s.done).length;
+    head.append(el("div", "summary-card-sub", doneCount + " of " + (t.steps || []).length + " done"));
+    const del = el("button", "chip", "Delete");
+    del.onclick = () => {
+      if (!window.confirm("Delete this todo? Its checklist and history are gone for good.")) return;
+      send({ cmd: "todoDelete", todoId: t.id });
+      if (todos) todos = { ...todos, items: (todos.items || []).filter((x) => x.id !== t.id) };
+      renderTodos();
+    };
+    head.append(del);
+    card.append(head);
+
+    const wt = el("label", "fan-opt");
+    const wtBox = el("input");
+    wtBox.type = "checkbox";
+    wtBox.checked = !!todoWorktreeChoice.get(t.id);
+    wtBox.onchange = () => todoWorktreeChoice.set(t.id, wtBox.checked);
+    wt.append(wtBox, document.createTextNode("Start each step below in a git worktree of its own"));
+    card.append(wt);
+
+    const list = el("div", "summary-card-list");
+    (t.steps || []).forEach((s) => list.append(todoStepRow(t, s)));
+    card.append(list);
+    return card;
+  }
+
+  /** todoStepRow draws one step of a todo: a checkbox for its Done flag, its
+   *  text (editable in place -- committed on blur or Enter, via
+   *  saveTodoSteps), a summary of its attempts and a Start button that kicks
+   *  off a fresh agent for it, exactly as [[action:newAgentTab]] would for a
+   *  task typed by hand. The row itself is draggable, the same way a tab is
+   *  (see makeTabDraggable), to reorder the checklist -- see
+   *  reorderTodoStep. */
+  function todoStepRow(t, s) {
+    const row = el("div", "summary-card-row todo-step-row");
+    row.draggable = true;
+    row.addEventListener("dragstart", (ev) => {
+      if (ev.target.closest("input")) { ev.preventDefault(); return; }
+      ev.dataTransfer.effectAllowed = "move";
+      ev.dataTransfer.setData("text/plain", s.id);
+      row.classList.add("dragging");
+    });
+    row.addEventListener("dragend", () => row.classList.remove("dragging"));
+    row.addEventListener("dragover", (ev) => {
+      if (!Array.from(ev.dataTransfer.types || []).includes("text/plain")) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = "move";
+      row.classList.add("drop-target");
+    });
+    row.addEventListener("dragleave", () => row.classList.remove("drop-target"));
+    row.addEventListener("drop", (ev) => {
+      ev.preventDefault();
+      row.classList.remove("drop-target");
+      const fromId = ev.dataTransfer.getData("text/plain");
+      if (fromId) reorderTodoStep(t, fromId, s.id);
+    });
+
+    const main = el("div", "summary-card-main");
+
+    const line = el("div", "fan-opt");
+    const box = el("input");
+    box.type = "checkbox";
+    box.checked = !!s.done;
+    box.setAttribute("aria-label", "Done");
+    box.onchange = () => send({ cmd: "todoStepDone", todoId: t.id, stepId: s.id, done: box.checked });
+    line.append(box);
+
+    const text = el("input", "todo-step-text");
+    text.type = "text";
+    text.value = s.text;
+    text.setAttribute("aria-label", "Step text");
+    const commit = () => {
+      const v = text.value.trim();
+      if (!v || v === s.text) { text.value = s.text; return; }
+      saveTodoSteps(t, (t.steps || []).map((st) => (st.id === s.id ? { ...st, text: v } : st)));
+    };
+    text.onblur = commit;
+    text.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); text.blur(); } };
+    line.append(text);
+    main.append(line);
+
+    if (s.attempts && s.attempts.length) {
+      const last = s.attempts[s.attempts.length - 1];
+      const state_ = last.outcome ? outcomeLabel(last.outcome) : "starting…";
+      main.append(el("div", "summary-card-line",
+        (s.attempts.length === 1 ? "1 attempt — " : s.attempts.length + " attempts — last ") + state_));
+    }
+    row.append(main);
+
+    const start = el("button", "chip", "Start");
+    describe(start, "Starts a fresh agent for this one step, with its text as the task.");
+    start.onclick = () => {
+      const reqID = "todo-" + Math.random().toString(36).slice(2);
+      pendingStepStart = { reqID, todoId: t.id };
+      send({ cmd: "todoStepStart", id: reqID, todoId: t.id, stepId: s.id, worktree: !!todoWorktreeChoice.get(t.id) });
+    };
+    row.append(start);
+    return row;
+  }
+
   // ----------------------------------------------------------------- hints
 
   /* One line under the tab bar, at most, and only for something the interface
@@ -11134,6 +11450,7 @@
   $("btn-broadcast").onclick = () => send({ cmd: "toggleBroadcast" });
   $("btn-worktrees").onclick = () => openWorktrees();
   $("btn-fanout-history").onclick = () => openFanoutHistory();
+  $("btn-todos").onclick = () => openTodos();
   $("btn-github").onclick = () => openGithub();
   $("btn-apikeys").onclick = () => openKeys();
   $("btn-history").onclick = openHistory;

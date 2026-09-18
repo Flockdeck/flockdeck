@@ -1132,6 +1132,19 @@ textarea:focus-visible {
 .fanout-history-job .summary-card-row { cursor: default; }
 .fanout-history-job .summary-card-row:hover { background: none; }
 
+/* A todo's step row is a fanout-history-job row that is also draggable, to
+ * reorder the checklist -- see reorderTodoStep. */
+.todo-step-row { cursor: grab; }
+.todo-step-row .fan-opt { cursor: default; }
+.todo-step-row.dragging { opacity: 0.4; }
+.todo-step-row.drop-target { background: #22262e; box-shadow: inset 0 -2px 0 var(--accent); }
+.todo-step-text {
+  flex: 1 1 auto; min-width: 0; background: transparent; border: 1px solid transparent;
+  color: inherit; font: inherit; padding: 2px 4px; border-radius: 4px;
+}
+.todo-step-text:hover, .todo-step-text:focus { border-color: var(--line); }
+.todo-step-text:focus { outline: none; border-color: var(--accent); }
+
 /* ------------------------------------------------------------------ review */
 
 .rev-repo-picker { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
