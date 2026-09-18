@@ -166,9 +166,18 @@ jobs:
             } > review.md
           fi
 
+      # `if:` can't reference the secrets context directly (GitHub rejects
+      # the workflow with "Unrecognized named-value: 'secrets'") -- only
+      # run/env/with and container-credential fields can. This step reads
+      # the secret in its own run step, where secrets *is* allowed, and
+      # hands the result to the next step's `if:` as a plain output instead.
+      - name: Check for GitHub App credentials
+        id: has-app-creds
+        run: echo "set=${{ secrets.review-app-id != '' }}" >> "$GITHUB_OUTPUT"
+
       - name: Mint a GitHub App installation token
         id: app-token
-        if: ${{ secrets.review-app-id != '' && steps.review.outputs.skip != 'true' }}
+        if: ${{ steps.has-app-creds.outputs.set == 'true' && steps.review.outputs.skip != 'true' }}
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.review-app-id }}
