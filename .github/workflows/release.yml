@@ -163,26 +163,26 @@ jobs:
       # machine it runs on at install time (project.nsi's own ARCH
       # handling), so this never needs to know which arch it will land on.
       #
-      # windows-latest carries NSIS (makensis) already
-      # (actions/runner-images' own Windows software list), installed to
-      # Program Files (x86) and added to the machine's own PATH -- but Git
-      # Bash's PATH here doesn't inherit that, so it is added explicitly
-      # rather than assumed. wails3 is installed here pinned to go.mod's
-      # own wails version, since a CLI mismatched with the library version
-      # it scaffolds for is exactly the kind of thing that breaks quietly.
+      # windows-latest no longer carries NSIS (makensis) -- true of the
+      # Windows Server 2022 image this was first written against, per
+      # actions/runner-images' own software list, but windows-latest has
+      # since moved to a Windows Server 2025 image (win25-vs2026) that
+      # doesn't ship it at all (confirmed against a real run: a `find`
+      # across Program Files found nothing). Installed explicitly with
+      # Chocolatey instead of assumed, since this has already broken once
+      # from an assumption an image's software list would hold. wails3 is
+      # installed here pinned to go.mod's own wails version, since a CLI
+      # mismatched with the library version it scaffolds for is exactly
+      # the kind of thing that breaks quietly.
       - name: Build the Windows installer
         if: runner.os == 'Windows'
         shell: bash
         env:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
+          choco install nsis -y --no-progress
           export PATH="$PATH:/c/Program Files (x86)/NSIS"
-          if ! command -v makensis >/dev/null; then
-            echo "::error::makensis not found on PATH; searching the runner for it..."
-            echo "ImageOS=$ImageOS ImageVersion=$ImageVersion"
-            find "/c/Program Files" "/c/Program Files (x86)" -iname "makensis*" 2>/dev/null
-            exit 1
-          fi
+          command -v makensis >/dev/null || { echo "::error::makensis still not found after installing NSIS"; exit 1; }
           version="${TAG#v}"
           version="${version%%-*}"
           root="$(pwd -W)"
