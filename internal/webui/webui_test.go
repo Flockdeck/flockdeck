@@ -7705,6 +7705,39 @@ assert.strictEqual(h.$("hints").dataset.hint, "palette", "the confirmed empty li
 `)
 }
 
+// A pane's status flips idle/working on every tool call a busy agent makes,
+// and "working-tool" -- like several other tips -- gates on it. Once it is
+// the only tip left undismissed, that flipping used to show it and take it
+// away again on the very next state push: a hint popping up and immediately
+// disappearing, over and over, for as long as the pane kept working.
+func TestAStatusGatedTipDoesNotFlickerWithTheStatusItGatesOn(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ dismissedTips: ["palette", "drag-panes", "shell-pane", "broadcast", "fanout",
+  "worktrees", "history", "zoom", "tidy-panes", "find-in-terminal", "api-keys",
+  "remote-access", "detach", "split-project", "pane-header-git"] });
+h.recv(fixture());
+assert.ok(h.$("hints").hidden, "something is shown before any pane has worked at all");
+
+h.recv(fixture({ panes: { p1: pane("p1", { status: "working" }), p2: pane("p2") } }));
+assert.strictEqual(h.$("hints").dataset.hint, "working-tool", "showing the only tip left, from nothing, was held up");
+
+// The tool call finishes: back to idle, on the very next push, is exactly
+// the flip that used to hide the tip again at once.
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle" }), p2: pane("p2") } }));
+assert.strictEqual(h.$("hints").dataset.hint, "working-tool", "the tip vanished the instant its status went away");
+
+// And a flip straight back to working, before that settles, must not have
+// shown anything else in between either -- the bar never budged.
+h.recv(fixture({ panes: { p1: pane("p1", { status: "working" }), p2: pane("p2") } }));
+assert.strictEqual(h.$("hints").dataset.hint, "working-tool", "flipping back before it settled still touched the bar");
+
+// Idle for good, and long enough to settle, does eventually clear it.
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle" }), p2: pane("p2") } }));
+await h.sleep(1300);
+assert.ok(h.$("hints").hidden, "a status gone for good never cleared the tip");
+`)
+}
+
 // The find bar searches the pane it was opened for. Closing that pane left
 // the bar open, still naming it, while Enter and F3 quietly did nothing.
 func TestTheFindBarGoesWithThePaneItSearches(t *testing.T) {
