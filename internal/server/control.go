@@ -1023,9 +1023,26 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	// window has gone is decided by counting them, and a page being reloaded
 	// while the workspace is busy -- opening a project, say -- would otherwise
 	// look like nobody there at all. It is sent no state until its hello.
+	//
+	// connWG.Add happens in this same critical section, guarded by the same
+	// check: sync.WaitGroup's own rules make Add(positive) a race with a Wait
+	// that could be observing zero concurrently, and Close closes s.closed
+	// before it ever calls Wait (see Close) -- so taking s.mu here, seeing
+	// s.closed open, and adding before releasing it is what guarantees Close
+	// never calls Wait while a connection that has passed this point, but not
+	// yet reached its own Add, is still on its way in.
 	s.mu.Lock()
+	select {
+	case <-s.closed:
+		s.mu.Unlock()
+		_ = conn.CloseNow()
+		return
+	default:
+	}
+	s.connWG.Add(1)
 	s.clients[c] = false
 	s.mu.Unlock()
+	defer s.connWG.Done()
 	// The git summaries are only kept current while somebody is looking, so
 	// this window's arrival is what makes them current again.
 	s.RefreshGitNow()
@@ -1035,14 +1052,20 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	// http.Shutdown does not touch a hijacked connection, so a closing server
 	// would otherwise leave this one open with its two goroutines parked on it
 	// for ever. Tie the connection's lifetime to the server's.
+	s.connWG.Add(1)
 	go func() {
+		defer s.connWG.Done()
 		select {
 		case <-s.closed:
 			cancel()
 		case <-ctx.Done():
 		}
 	}()
-	go c.writeLoop(ctx)
+	s.connWG.Add(1)
+	go func() {
+		defer s.connWG.Done()
+		c.writeLoop(ctx)
+	}()
 	// Pinged as a terminal socket is (see keepalive). A window that went away
 	// without closing -- a laptop shut, a phone gone out of signal while the
 	// relay holds its end -- is otherwise found out only when a write to it
@@ -1054,7 +1077,11 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	// go out through writeLoop, so no frame of its is ever long enough on the
 	// way for a ping to have to wait behind it, and it is pinged on every
 	// interval, as a terminal socket was before gauges.
-	go keepalive(ctx, cancel, conn, new(writeGauge), s.pingInterval, s.pingTimeout)
+	s.connWG.Add(1)
+	go func() {
+		defer s.connWG.Done()
+		keepalive(ctx, cancel, conn, new(writeGauge), s.pingInterval, s.pingTimeout)
+	}()
 
 	// The key table and the preferences come first: the palette and the
 	// first-run hints are drawn from them, and both are wanted before the
