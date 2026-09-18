@@ -185,19 +185,18 @@ jobs:
           command -v makensis >/dev/null || { echo "::error::makensis still not found after installing NSIS"; exit 1; }
           version="${TAG#v}"
           version="${version%%-*}"
-          root="$(pwd -W)"
+          # Backslashes, not pwd -W's forward slashes: confirmed against a
+          # real run that NSIS's File instruction -- which globs, unlike
+          # most of the rest of an .nsi script -- silently matches nothing
+          # for an otherwise-correct forward-slash path.
+          root="$(pwd -W | tr '/' '\\')"
           go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.22
-          pwd
           go build -trimpath -ldflags "-s -w -X main.version=$TAG -H=windowsgui" -o build/windows/nsis/flockdeck-amd64.exe .
-          echo "amd64 build exit: $?"
           GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$TAG -H=windowsgui" -o build/windows/nsis/flockdeck-arm64.exe .
-          echo "arm64 build exit: $?"
-          ls -la build/windows/nsis/
           wails3 generate webview2bootstrapper -dir build/windows/nsis
-          ls -la build/windows/nsis/
           makensis \
-            -DARG_WAILS_AMD64_BINARY="$root/build/windows/nsis/flockdeck-amd64.exe" \
-            -DARG_WAILS_ARM64_BINARY="$root/build/windows/nsis/flockdeck-arm64.exe" \
+            -DARG_WAILS_AMD64_BINARY="$root\build\windows\nsis\flockdeck-amd64.exe" \
+            -DARG_WAILS_ARM64_BINARY="$root\build\windows\nsis\flockdeck-arm64.exe" \
             -DINFO_PRODUCTVERSION="$version" \
             build/windows/nsis/project.nsi
           mv bin/flockdeck-amd64_arm64-installer.exe "dist/flockdeck_${TAG}_windows-installer.exe"
