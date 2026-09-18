@@ -133,7 +133,7 @@ jobs:
       # ships (base image + the flockdeck binary's own dependencies), rather
       # than publishing a tag and finding out from a scanner later.
       - name: Scan for vulnerabilities
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/flockdeck/flockdeck@${{ steps.build.outputs.digest }}
           format: table
