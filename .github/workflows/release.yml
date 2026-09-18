@@ -177,7 +177,12 @@ jobs:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           export PATH="$PATH:/c/Program Files (x86)/NSIS"
-          command -v makensis >/dev/null || { echo "::error::makensis not found; NSIS may have moved on this runner image"; exit 1; }
+          if ! command -v makensis >/dev/null; then
+            echo "::error::makensis not found on PATH; searching the runner for it..."
+            echo "ImageOS=$ImageOS ImageVersion=$ImageVersion"
+            find "/c/Program Files" "/c/Program Files (x86)" -iname "makensis*" 2>/dev/null
+            exit 1
+          fi
           version="${TAG#v}"
           version="${version%%-*}"
           root="$(pwd -W)"
