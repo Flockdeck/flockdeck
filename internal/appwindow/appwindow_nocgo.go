@@ -1,11 +1,18 @@
-//go:build !cgo
+//go:build !cgo && !windows
 
-// Package appwindow, built without cgo: Wails' Linux backend needs it to
-// compile at all, and the self-hosted Docker image is deliberately
-// CGO_ENABLED=0 for a small static binary with no GTK runtime in the
-// container. Open always fails here, but nothing in the one build this
-// applies to calls it: -no-window and -detach, the only ways that image
-// runs Flockdeck, skip Open entirely (see showWindow in main.go).
+// Package appwindow, built without cgo and not on Windows: Wails' Linux
+// backend needs cgo to compile at all (its macOS one does too, though a
+// no-cgo macOS build is not one this project actually produces), and the
+// self-hosted Docker image is deliberately CGO_ENABLED=0 for a small static
+// binary with no GTK runtime in the container. Windows is excluded from
+// this build regardless of cgo -- its backend reaches WebView2 through raw
+// syscalls and needs none, and every real Windows release already builds
+// with CGO_ENABLED=0 the same way this image does, so folding it in here
+// too silently gave every Windows release this file's always-failing Open
+// instead of a real window (see appwindow.go's own comment on that). Open
+// always fails here, but nothing in the one build this now actually applies
+// to calls it: -no-window and -detach, the only ways that image runs
+// Flockdeck, skip Open entirely (see showWindow in main.go).
 package appwindow
 
 import "errors"
