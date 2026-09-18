@@ -285,6 +285,10 @@ main() {
 	tar -xzf "$tmp/$archive" -C "$tmp" flockdeck || die "could not unpack $archive"
 
 	mkdir -p "$dir" || die "could not create $dir"
+	# Explicit, not left to the caller's umask: a permissive umask would
+	# otherwise leave this group- or world-writable, and it holds a binary
+	# that updates and runs itself with this user's own privileges.
+	chmod 755 "$dir" || die "could not set permissions on $dir"
 	# Written beside the destination and renamed over it: a copy that is
 	# running keeps its old file, and nothing ever runs half a binary.
 	cp "$tmp/flockdeck" "$dir/.flockdeck.new" &&
