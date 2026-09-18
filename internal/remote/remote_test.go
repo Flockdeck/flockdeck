@@ -651,7 +651,7 @@ func TestTunnelStopsWhenTheRelaySaysSo(t *testing.T) {
 		{name: "refused before the upgrade", refuse: http.StatusUnauthorized, want: StateRevoked, says: revokedSays},
 		{name: "forbidden before the upgrade", refuse: http.StatusForbidden, want: StateRevoked, says: revokedSays},
 		{name: "closed as revoked", closeWith: CloseRevoked, want: StateRevoked, says: revokedSays},
-		{name: "closed as replaced", closeWith: CloseReplaced, want: StateReplaced, says: "restart this one"},
+		{name: "closed as replaced", closeWith: CloseReplaced, want: StateReplaced, says: "Try again"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			quick(t)
