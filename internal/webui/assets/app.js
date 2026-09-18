@@ -3291,8 +3291,25 @@
    *  Ctrl+C copies when something is selected and is ^C otherwise, Ctrl+Shift+C
    *  copies, and Ctrl+V and Ctrl+Shift+V are left to the browser, which pastes
    *  through xterm's own paste handling. A Mac copies and pastes with Cmd, and
-   *  its Ctrl keys stay the program's. */
+   *  its Ctrl keys stay the program's.
+   *
+   *  Shift+Enter is the other key answered here, on every platform: typed
+   *  straight through, it is one write of a bare \r, and \r is Enter to
+   *  whatever is reading it -- there is no separate code a plain terminal
+   *  can send for "Enter, but held with Shift" the way a browser field can
+   *  tell it apart with an event property. Sent through paste() instead,
+   *  the same bracketed markers a real paste gets (promptInput, server
+   *  side, sends a whole prompt the same way) tell a program that has
+   *  turned bracketed paste on -- Claude Code has -- that this \r is not
+   *  the one that submits. A program that never asked for that mode gets
+   *  back exactly the bare \r a plain Enter already sent, since paste()
+   *  only adds the markers when the mode is actually on. */
   function terminalKey(term, ev) {
+    if (ev.type === "keydown" && ev.key === "Enter" && ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+      ev.preventDefault();
+      term.paste("\n");
+      return false;
+    }
     if (onMac || ev.type !== "keydown" || !ev.ctrlKey || ev.altKey || ev.metaKey) return true;
     let k = (ev.key || "").toLowerCase();
     // A layout without Latin letters says which letter by the key's place.

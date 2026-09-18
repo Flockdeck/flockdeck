@@ -3406,6 +3406,46 @@ assert.strictEqual(m.terms[0]._keys(termKey({ key: "v", code: "KeyV", ctrlKey: t
 `)
 }
 
+// A plain Enter typed straight into a terminal is one \r, and \r is Enter to
+// whatever is reading it -- a shell, or an agent's own CLI -- with no way for
+// a bare byte stream to tell "Enter" and "Enter, but Shift was held" apart.
+// Sending Shift+Enter through paste() instead carries it inside the same
+// bracketed-paste markers a real paste gets, which is what tells a program
+// that has turned bracketed paste on (Claude Code has) that this \r is not
+// the one that submits -- rather than it reaching the program indistinguishable
+// from a plain Enter and submitting early.
+func TestShiftEnterInATerminalIsSentAsAPaste(t *testing.T) {
+	runFrontEnd(t, termKey+`
+h.hello();
+h.recv(fixture());
+const t = h.terms[0];
+const keys = t._keys;
+
+assert.strictEqual(keys(termKey({ key: "Enter" })), true, "a plain Enter no longer reaches the program as a plain Enter");
+assert.deepStrictEqual(t.pasted, [], "a plain Enter was sent as though it were Shift+Enter");
+
+let e = termKey({ key: "Enter", shiftKey: true });
+assert.strictEqual(keys(e), false, "Shift+Enter was left for xterm's own Enter handling too, sending a bare \\r");
+assert.ok(e.defaultPrevented, "Shift+Enter's bare \\r reached the program as well as the paste");
+assert.deepStrictEqual(t.pasted, ["\n"], "Shift+Enter did not reach the program as a paste");
+
+// Held with another modifier, it is that binding's, not this one's.
+t.pasted = [];
+assert.strictEqual(keys(termKey({ key: "Enter", shiftKey: true, ctrlKey: true })), true, "Ctrl+Shift+Enter was taken as this Shift+Enter");
+assert.strictEqual(keys(termKey({ key: "Enter", shiftKey: true, altKey: true })), true, "Alt+Shift+Enter was taken as this Shift+Enter");
+assert.strictEqual(keys(termKey({ key: "Enter", shiftKey: true, metaKey: true })), true, "Meta+Shift+Enter was taken as this Shift+Enter");
+assert.deepStrictEqual(t.pasted, [], "a held modifier still went through as a paste");
+
+// Unlike Ctrl+C and Ctrl+V, this is not a Mac exception: a terminal has no
+// separate code for Shift+Enter on any platform.
+const m = boot({ platform: "MacIntel" });
+m.hello();
+m.recv(fixture());
+assert.strictEqual(m.terms[0]._keys(termKey({ key: "Enter", shiftKey: true })), false, "Shift+Enter on a Mac reached the program as a plain Enter");
+assert.deepStrictEqual(m.terms[0].pasted, ["\n"], "Shift+Enter on a Mac did not reach the program as a paste");
+`)
+}
+
 // A paste is sent between the markers of bracketed paste, so that the program
 // knows it is text rather than keys, and the markers were sent as they were
 // found in the text: a copied ESC[201~ ended the paste early, and whatever
