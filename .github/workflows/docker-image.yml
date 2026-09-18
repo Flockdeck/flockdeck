@@ -125,6 +125,20 @@ jobs:
       # on top of build-push-action's own (BuildKit-generated) one above --
       # Syft reads the actual image rather than the build context, which
       # catches anything BuildKit's own attestor misses in a base image layer.
+      #
+      # This step also tries to attach the SBOM file to the GitHub release
+      # for this tag (upload-release-assets, its default). That often loses
+      # a race against release.yml, a separate workflow the same tag push
+      # triggers independently: if this step runs before release.yml has
+      # actually published the release, there's nothing yet to attach to,
+      # and the action skips that part without erroring. Confirmed on
+      # v0.3.36 -- this step ran a little over a minute before the release
+      # was published, so nothing was attached, silently. Left as is: the
+      # image is still signed and the SBOM still attested via cosign below,
+      # independent of any GitHub release, which is the mechanism that
+      # actually matters. A missing SBOM file on the release page is a
+      # convenience gap, not a security one -- not worth making this
+      # workflow wait on release.yml's publish for.
       - name: SBOM
         uses: anchore/sbom-action@v0
         with:
