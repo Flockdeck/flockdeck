@@ -187,11 +187,14 @@ jobs:
           version="${version%%-*}"
           root="$(pwd -W)"
           go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.22
-          go build -trimpath -ldflags "-s -w -X main.version=$TAG -H=windowsgui" \
-            -o build/windows/nsis/flockdeck-amd64.exe .
-          GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$TAG -H=windowsgui" \
-            -o build/windows/nsis/flockdeck-arm64.exe .
+          pwd
+          go build -trimpath -ldflags "-s -w -X main.version=$TAG -H=windowsgui" -o build/windows/nsis/flockdeck-amd64.exe .
+          echo "amd64 build exit: $?"
+          GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$TAG -H=windowsgui" -o build/windows/nsis/flockdeck-arm64.exe .
+          echo "arm64 build exit: $?"
+          ls -la build/windows/nsis/
           wails3 generate webview2bootstrapper -dir build/windows/nsis
+          ls -la build/windows/nsis/
           makensis \
             -DARG_WAILS_AMD64_BINARY="$root/build/windows/nsis/flockdeck-amd64.exe" \
             -DARG_WAILS_ARM64_BINARY="$root/build/windows/nsis/flockdeck-arm64.exe" \
