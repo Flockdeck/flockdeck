@@ -1,15 +1,26 @@
-//go:build cgo
+//go:build cgo || windows
 
 // Package appwindow opens Flockdeck's user interface in its own native
 // window.
 //
-// Built only with cgo available: Wails' Linux backend (WebKitGTK) needs it,
-// and a build without it -- the self-hosted Docker image, deliberately
-// CGO_ENABLED=0 for a small static binary -- gets appwindow_nocgo.go
-// instead, whose Open always fails. That is already the ordinary path for a
-// headless instance: -no-window and -detach never call Open at all (see
-// showWindow in main.go), so nothing here is reached in the one build this
-// actually excludes it from.
+// Built with cgo available, or on Windows regardless of it: Wails' Linux
+// backend (WebKitGTK) and its macOS one (Cocoa) both need cgo, but its
+// Windows backend reaches WebView2 through raw syscalls and needs none --
+// cmd/release already builds every Windows release with CGO_ENABLED=0, since
+// nothing else there does either, and building this package only under
+// "cgo" (rather than "cgo || windows") silently gave every Windows release
+// appwindow_nocgo.go's stub instead, whose Open always fails, from the
+// release that first split the two apart onward (see that split's own
+// history for which one). Windows fell back to opening a browser tab and
+// telling the user their window "cannot open a native window (built for a
+// headless server)" -- true of nothing an ordinary desktop install of
+// Windows is. A build without cgo and not on Windows -- the self-hosted
+// Docker image, deliberately CGO_ENABLED=0 for a small static binary --
+// gets appwindow_nocgo.go instead, whose Open always fails there too, but
+// correctly: that is already the ordinary path for a headless instance,
+// where -no-window and -detach never call Open at all (see showWindow in
+// main.go), so nothing here is reached in the one build this actually
+// excludes it from.
 //
 // It used to do that by spawning an installed Chromium-based browser as a
 // separate process in "--app" mode: a chromeless window with no tabs, address
