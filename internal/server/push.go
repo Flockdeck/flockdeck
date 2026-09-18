@@ -11,7 +11,6 @@ import (
 
 	osidle "github.com/jmwri/flockdeck/internal/idle"
 	"github.com/jmwri/flockdeck/internal/remote"
-	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
 )
 
@@ -286,7 +285,7 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 			if p == nil || p.Sess == nil {
 				continue
 			}
-			if status, _ := p.Status(); status != session.StatusWaiting {
+			if status, _ := p.Status(); !status.NeedsAttention() {
 				continue
 			}
 			waitingNow[id] = true

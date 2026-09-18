@@ -119,6 +119,15 @@ func (s *Server) fanoutOutcome(p *workspace.Pane) (kind, detail string) {
 			}
 		}
 	}
+	// Refused outright rather than asked: nothing here is waiting on an
+	// answer, but it did not finish either, so it reads as failed rather
+	// than done -- see outcomeOf's own StatusBlocked case.
+	if st == session.StatusBlocked {
+		kind, detail = "failed", "A tool call was denied."
+		if statusDetail != "" {
+			detail = "A tool call was denied: " + statusDetail + "."
+		}
+	}
 	if p.Err != nil {
 		kind, detail = "failed", p.Err.Error()
 	}

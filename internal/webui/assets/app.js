@@ -88,6 +88,7 @@
    *  than being retyped, and drifting, at each call site. */
   const TIPS = {
     waiting:     "Waiting on you - the agent asked a question, or is holding for a permission.",
+    blocked:     "Blocked - a tool call was refused outright and the turn ended there. Nobody is being asked anything, but it needs a look.",
     working:     "Working - the agent is producing output and does not need you yet.",
     idle:        "Idle - the agent finished its turn and is waiting for a new prompt.",
     starting:    "Starting - the process is launching and has not reported in yet.",
@@ -1629,6 +1630,12 @@
       const label = kindLabel(v);
       return { kind: "needs", label: "needs input", text: label ? "Wants " + label + "." : (v.detail || "") };
     }
+    // Refused outright rather than asked: nothing here is waiting on an
+    // answer, but it did not finish either, so it reads as failed rather
+    // than done.
+    if (v.status === "blocked") {
+      return { kind: "failed", label: "blocked", text: v.detail ? "A tool call was denied: " + v.detail + "." : "A tool call was denied." };
+    }
     if (v.err) return { kind: "failed", label: "failed", text: v.err };
     return { kind: "done", label: "done", text: (v.last && v.last.text) || "" };
   }
@@ -2235,10 +2242,10 @@
   const announced = new Map();
 
   /** announceStatus tells a screen reader, by name, about an agent that has
-   *  started waiting on you or whose process has exited: the two changes
-   *  that need a person. Working and idle are not news. Never on the first
-   *  sighting of a pane, since arriving at a workspace where agents already
-   *  wait is not the moment they stopped. */
+   *  started waiting on you, hit a blocked tool call, or whose process has
+   *  exited: the changes that need a person. Working and idle are not news.
+   *  Never on the first sighting of a pane, since arriving at a workspace
+   *  where agents already wait is not the moment they stopped. */
   function announceStatus(s) {
     const said = [];
     for (const [id, v] of Object.entries(s.panes || {})) {
@@ -2247,6 +2254,7 @@
       if (before === undefined || before === v.status) continue;
       const name = v.name || "An agent";
       if (v.status === "waiting") said.push(name + " is waiting on you");
+      else if (v.status === "blocked") said.push(name + " hit a blocked tool call");
       else if (v.status === "exited") said.push(name + " has exited");
     }
     for (const id of [...announced.keys()]) {
@@ -5955,8 +5963,11 @@
       lastStatus.set(id, v.status);
       // Never on the first sighting of a pane: arriving at a workspace where
       // three agents are already waiting is not news that they just stopped.
-      if (v.status !== "waiting" || before === "waiting" || before === undefined) continue;
-      fresh.push({ id, name: v.name, branch: v.branch });
+      // A blocked pane needs the same notice as a waiting one -- see
+      // StatusBlocked -- so it counts as a transition into either.
+      if ((v.status !== "waiting" && v.status !== "blocked") ||
+        before === "waiting" || before === "blocked" || before === undefined) continue;
+      fresh.push({ id, name: v.name, branch: v.branch, blocked: v.status === "blocked" });
     }
     for (const id of [...lastStatus.keys()]) {
       if (!s.panes || !s.panes[id]) lastStatus.delete(id);
@@ -5975,7 +5986,8 @@
       const one = fresh.length === 1;
       const label = one && kindLabel(s.panes[fresh[0].id]);
       const oneBody = (fresh[0].branch ? fresh[0].branch + " — " : "") +
-        (label ? (label === "a question" ? "is asking a question" : "wants " + label) : "waiting for input");
+        (one && fresh[0].blocked ? "a tool call was blocked" :
+          label ? (label === "a question" ? "is asking a question" : "wants " + label) : "waiting for input");
       showNotification(
         one ? fresh[0].name + " needs you" : fresh.length + " agents need you",
         one ? oneBody : groupedWaitingBody(fresh, s),
@@ -8007,12 +8019,14 @@
         meta.append(el("span", "agent-parent", "↳ helper of another agent"));
       }
     }
-    // What a waiting pane's permission prompt or question wants, in the
-    // same words the prompt itself would show -- so a list of several
-    // waiting at once says which is worth a look first, without opening
-    // any of them.
+    // What a waiting pane's permission prompt or question wants, in the same
+    // words the prompt itself would show, or what a blocked pane's denied
+    // tool call was -- so a list of several needing a look at once says
+    // which is worth a look first, without opening any of them.
     if (a.status === "waiting" && a.waiting) {
       meta.append(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));
+    } else if (a.status === "blocked" && a.waiting) {
+      meta.append(describe(el("span", "agent-waiting", a.waiting), "Why this pane stopped without finishing"));
     }
     main.append(meta);
     row.append(main);
@@ -10637,12 +10651,12 @@
   const PRIORITY_HINTS = [
     {
       id: "waiting",
-      text: "An amber dot means that agent is waiting on you — a permission prompt, or a question.",
+      text: "An amber dot means that agent needs you — a permission prompt, a question, or a tool call it was refused outright and stopped over.",
       page: "status",
       // Only with an amber dot on screen to point at. The waiting count is
       // every project's, and an agent waiting in one not shown had this
       // explaining a dot that was nowhere to be seen.
-      when: (s) => currentPanes(s).some((v) => v.status === "waiting"),
+      when: (s) => currentPanes(s).some((v) => v.status === "waiting" || v.status === "blocked"),
     },
     {
       id: "exited",

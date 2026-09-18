@@ -160,6 +160,12 @@ type Session struct {
 	// middle of a tool call -- Claude's permission prompt -- which is the one
 	// wait no hook reports the end of. See Write.
 	toolQuestion bool
+	// blockedTool is the tool a PermissionDenied event most recently named,
+	// kept until a successful PostToolUse, a fresh UserPromptSubmit or
+	// SessionStart says the pane got past it or started over -- whichever
+	// comes first clears it. Empty means the pane's current turn has hit no
+	// denial nothing has since undone. See ResolveBlocked.
+	blockedTool string
 	// patterns are what to read out of an agent's output in place of the
 	// lifecycle it does not report. They are taken off the Spec at launch
 	// because the status machinery below runs on every chunk a pane prints and
@@ -899,6 +905,40 @@ func (s *Session) WriteString(text string) error {
 // lifecycle hook. detail is an optional short label such as the running tool.
 func (s *Session) SetStatus(st Status, detail string) {
 	s.SetStatusFull(st, detail, "")
+}
+
+// ResolveBlocked folds a Claude pane's own idea of "blocked" into the status
+// StatusForEvent already mapped a lifecycle event to: event and tool are the
+// same ones just given it, st and detail its result. Call it before
+// SetStatusFull with what it returns.
+//
+// A PermissionDenied marks the pane's current turn as having hit a tool call
+// refused outright, with nothing since to say it recovered; a successful
+// PostToolUse, or a fresh UserPromptSubmit or SessionStart, clears the mark --
+// the agent got past it, or is starting over. A Stop or StopFailure landing
+// on a turn still marked is not the clean end every other one is: it is
+// reported as StatusBlocked instead of whatever StatusForEvent said (always
+// StatusIdle in practice), naming the denied tool the way a waiting pane
+// names the one it is asking about. An interruption is left alone -- the
+// user is already there, having just caused it.
+func (s *Session) ResolveBlocked(event, tool string, st Status, detail string) (Status, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch event {
+	case "PermissionDenied":
+		if tool == "" {
+			tool = "a tool"
+		}
+		s.blockedTool = tool
+	case "PostToolUse", "UserPromptSubmit", "SessionStart":
+		s.blockedTool = ""
+	}
+	if st != StatusIdle || s.blockedTool == "" || (event != "Stop" && event != "StopFailure") {
+		return st, detail
+	}
+	blocked := s.blockedTool
+	s.blockedTool = ""
+	return StatusBlocked, blocked
 }
 
 // SetStatusFull is SetStatus, additionally recording a lifecycle event's own
