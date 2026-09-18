@@ -1380,7 +1380,7 @@
     if (!$("promptbar").hidden) labelPrompt(s);
     prunePanes(s);
     notifyAttention(s);
-    renderHints();
+    renderHintsFromState();
     // The first state is the moment there is finally something real to look
     // at, rather than the rail and an empty top bar: see dismissSplash.
     dismissSplash();
@@ -10514,17 +10514,67 @@
     bar.hidden = false;
   }
 
+  /** renderHints applies pickHint's current answer to the bar at once. Every
+   *  caller but one wants exactly that: a prefs push confirming a dismissal
+   *  or a reset, the tip rotation timer moving on deliberately, and the
+   *  dismiss and "show them again" actions below, whose whole point is to
+   *  take effect the moment they're pressed. */
   function renderHints() {
     const bar = $("hints");
     if (!bar) return;
     const hint = state ? pickHint(state) : null;
+    if ((bar.dataset.hint || null) === (hint ? hint.id : null)) return;
+    applyHint(bar, hint);
+  }
+
+  /** renderHintsFromState is what render() itself calls: pickHint here also
+   *  depends on things like a pane's status, which flips on every tool call
+   *  a busy agent makes, and TIP_HINTS is filtered afresh on each call, so
+   *  the same tipIndex can land on a different entry as pool membership
+   *  shifts. Applying every flip the moment it happened was a hint popping
+   *  up and immediately disappearing again, once whichever hint used to
+   *  occupy the slot stopped doing so (dismissed, or no longer the
+   *  rotation's pick) and let a status-gated one take it instead.
+   *
+   *  Only swapping which TIP_HINTS entry fills an already-occupied slot, or
+   *  clearing one for nothing, waits this out -- HINT_SETTLE_MS of state
+   *  pushes has to keep agreeing before it takes effect, and reverting to
+   *  whatever is already on screen within that window cancels the change
+   *  outright, rather than briefly showing it and taking it away again.
+   *  Showing where nothing was is never held up -- there is no flicker to
+   *  cause by going straight from nothing to something -- and neither is a
+   *  PRIORITY_HINTS entry, which explains something already on screen (an
+   *  amber dot, an exited pane) that needs saying the moment it is true. */
+  const HINT_SETTLE_MS = 1200;
+  let hintSettleTimer = null;
+  let hintSettleId; // undefined until a change is first pending
+  function renderHintsFromState() {
+    const bar = $("hints");
+    if (!bar) return;
+    const hint = state ? pickHint(state) : null;
+    const id = hint ? hint.id : null;
+    const shownId = bar.dataset.hint || null;
+    if (id === shownId) { clearTimeout(hintSettleTimer); hintSettleId = undefined; return; }
+    const urgent = hint && PRIORITY_HINTS.some((h) => h.id === hint.id);
+    if (urgent || shownId === null) {
+      clearTimeout(hintSettleTimer);
+      hintSettleId = undefined;
+      applyHint(bar, hint);
+      return;
+    }
+    if (id === hintSettleId) return; // already waiting to see if this holds
+    hintSettleId = id;
+    clearTimeout(hintSettleTimer);
+    hintSettleTimer = setTimeout(() => applyHint(bar, hint), HINT_SETTLE_MS);
+  }
+
+  function applyHint(bar, hint) {
     if (!hint) {
       bar.hidden = true;
       bar.textContent = "";
       bar.dataset.hint = "";
       return;
     }
-    if (bar.dataset.hint === hint.id) return;
     bar.dataset.hint = hint.id;
     bar.textContent = "";
 
