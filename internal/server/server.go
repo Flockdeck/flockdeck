@@ -133,6 +133,15 @@ type Server struct {
 	// loopDone is closed when the workspace goroutine returns. See Stopped.
 	loopDone chan struct{}
 
+	// connWG counts every goroutine a control connection owns: its own read
+	// loop plus writeLoop, keepalive and the cancel-on-close watcher it
+	// starts (see handleControl). http.Shutdown does not touch a hijacked
+	// connection, so without this Close could return, and a test's cleanup
+	// could go on to the next test, while one of these was still mid-command
+	// -- reading a package variable (usageOf, commitReviewed and the like)
+	// the next test is about to reassign.
+	connWG sync.WaitGroup
+
 	// prefs is what the interface remembers about this person rather than
 	// about a workspace. It is read and written only on the workspace
 	// goroutine, which is what keeps it free of a lock of its own.
@@ -964,13 +973,38 @@ func gzipped(key string, load func() ([]byte, error)) ([]byte, bool) {
 	return buf.Bytes(), true
 }
 
-// Close shuts the server down.
+// Close shuts the server down. It does not return until every control
+// connection's own goroutines have too -- see connWG -- so that nothing is
+// left reading a package variable a caller (a test, above all) is about to
+// reassign the moment Close returns.
 func (s *Server) Close() error {
+	// Closing s.closed under s.mu, the same lock handleControl's own
+	// registration takes to check it before adding to connWG, is what makes
+	// Wait below safe: sync.WaitGroup forbids a positive Add racing a Wait
+	// that could see zero, and every connection that could still add after
+	// this point instead sees s.closed and never does.
+	s.mu.Lock()
 	s.once.Do(func() { close(s.closed) })
+	s.mu.Unlock()
 	s.clearLinkFiles()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	return s.http.Shutdown(ctx)
+	err := s.http.Shutdown(ctx)
+	connsDone := make(chan struct{})
+	go func() {
+		s.connWG.Wait()
+		close(connsDone)
+	}()
+	select {
+	case <-connsDone:
+	case <-time.After(5 * time.Second):
+		// A connection that will not close within this is a bug of its own,
+		// but it is a hang worth reporting rather than one worth causing:
+		// Close still returns, as it always has, rather than blocking a real
+		// shutdown forever over one stuck goroutine.
+		fmt.Fprintln(os.Stderr, "flockdeck: a control connection was still running 5s after Close")
+	}
+	return err
 }
 
 // BaseURL is the address without the token, for the health and control
