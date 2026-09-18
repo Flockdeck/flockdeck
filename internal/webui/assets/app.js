@@ -2504,6 +2504,29 @@
   // endDrag. Reset at the start of every drag.
   let dragHandled = false;
 
+  // A native drag that leaves the window -- dropped on the desktop, another
+  // application, or simply abandoned when something (an OS focus steal, a
+  // permission dialog, alt-tab) interrupts it outside the page -- can end
+  // without ever delivering dragend or drop back to us, which is exactly
+  // what the event-based recovery in wireDragSafetyNet cannot catch: it has
+  // nothing to listen for. dragover, in contrast, keeps firing throughout any
+  // drag that is still alive and still over this document, so it doubles as
+  // a heartbeat. If DRAG_WATCHDOG_MS passes with no heartbeat and no proper
+  // end, the drag is almost certainly gone and dragging is stuck true, which
+  // would otherwise wedge the tab strip's highlight (renderTabs skips its
+  // rebuild for the rest of this page's life -- see the guard below). Forcing
+  // it clear is a fallback alongside the event-based path, not a replacement
+  // for it: a clean drag still ends the instant its dragend/drop fires.
+  const DRAG_WATCHDOG_MS = 8000;
+  let dragWatchdog = null;
+
+  function armDragWatchdog() {
+    clearTimeout(dragWatchdog);
+    dragWatchdog = setTimeout(() => {
+      if (dragging) endDrag({ forced: true });
+    }, DRAG_WATCHDOG_MS);
+  }
+
   function beginDrag(kind, id, ev, node) {
     dragging = { kind, id };
     dragHandled = false;
@@ -2513,14 +2536,17 @@
       // Some data must be set for a drag to start at all in some browsers.
       ev.dataTransfer.setData("text/plain", kind + ":" + id);
     }
+    armDragWatchdog();
   }
 
-  function endDrag() {
+  function endDrag(opts) {
+    const forced = !!(opts && opts.forced);
     const wasTab = dragging && dragging.kind === "tab";
     const draggedTabId = wasTab ? dragging.id : null;
     const handled = dragHandled;
     dragging = null;
     dragHandled = false;
+    clearTimeout(dragWatchdog);
     document.querySelectorAll(".dragging").forEach((n) => n.classList.remove("dragging"));
     clearDropMarks();
     // The strip was left alone while a tab was being dragged; catch it up now
@@ -2533,8 +2559,10 @@
     // Once it does, the click this would otherwise have been never fires at
     // all. A drag that neither reordered, merged nor moved anything is that
     // swallowed click, so it is answered as one: by selecting the tab it
-    // began on, exactly as the click would have.
-    if (draggedTabId && !handled && state && state.activeTab !== draggedTabId) {
+    // began on, exactly as the click would have. A watchdog-forced end is not
+    // that click -- eight seconds of silence is an abandoned drag, not a
+    // click's worth of jitter -- so it skips this and only tidies up.
+    if (!forced && draggedTabId && !handled && state && state.activeTab !== draggedTabId) {
       send({ cmd: "selectTab", id: draggedTabId });
     }
   }
@@ -2691,6 +2719,13 @@
   function wireDragSafetyNet() {
     document.addEventListener("dragend", endDrag);
     document.addEventListener("drop", endDrag);
+    // dragover is the heartbeat armDragWatchdog waits on: it fires
+    // continuously for as long as a real drag is still alive over this
+    // document, so re-arming here on every one means the watchdog only ever
+    // fires after DRAG_WATCHDOG_MS of the drag having genuinely gone quiet
+    // (left the window, or died with the OS never telling us), never during
+    // an ordinary drag that is just taking its time.
+    document.addEventListener("dragover", () => { if (dragging) armDragWatchdog(); });
     // A file dragged in from outside is none of the above, and the browser's
     // own answer to one being dropped on a page that does not claim it is to
     // open the file in the page's place. In this window that took the whole
