@@ -7,11 +7,12 @@ name: docker-image
 # problem here (a registry outage, a failed scan) cannot hold up or fail the
 # binary release release.yml already reliably produces.
 #
-# Unverified: written against the Dockerfile and the versioning scheme in
-# flockdeck-planning/12-installation-simplification.md, but never run --
-# there was no way to execute a GitHub Actions workflow, or reach a Docker
-# daemon at all, in the environment this was written in. Treat a first real
-# run of this workflow as the actual test of it.
+# Written against the Dockerfile and the versioning scheme in
+# flockdeck-planning/12-installation-simplification.md. Its first real runs
+# (v0.3.31, v0.3.32) found what reading it couldn't: a trivy-action pin that
+# didn't resolve (fixed in #14/#16), the appwindow/wails cgo build (fixed in
+# #19), and the SBOM step needing contents: write to attach to the release,
+# fixed below.
 on:
   push:
     tags:
@@ -23,7 +24,7 @@ on:
         required: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   # Held to the same tests a binary release is, for the same reason
