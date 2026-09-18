@@ -164,16 +164,20 @@ jobs:
       # handling), so this never needs to know which arch it will land on.
       #
       # windows-latest carries NSIS (makensis) already
-      # (actions/runner-images' own Windows software list); wails3 is
-      # installed here pinned to go.mod's own wails version, since a CLI
-      # mismatched with the library version it scaffolds for is exactly
-      # the kind of thing that breaks quietly.
+      # (actions/runner-images' own Windows software list), installed to
+      # Program Files (x86) and added to the machine's own PATH -- but Git
+      # Bash's PATH here doesn't inherit that, so it is added explicitly
+      # rather than assumed. wails3 is installed here pinned to go.mod's
+      # own wails version, since a CLI mismatched with the library version
+      # it scaffolds for is exactly the kind of thing that breaks quietly.
       - name: Build the Windows installer
         if: runner.os == 'Windows'
         shell: bash
         env:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
+          export PATH="$PATH:/c/Program Files (x86)/NSIS"
+          command -v makensis >/dev/null || { echo "::error::makensis not found; NSIS may have moved on this runner image"; exit 1; }
           version="${TAG#v}"
           version="${version%%-*}"
           root="$(pwd -W)"
