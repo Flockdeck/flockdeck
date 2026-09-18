@@ -16,6 +16,15 @@
 # for now rather than guessing at a mechanism. See
 # .github/CONTRIBUTOR_WORKFLOW_SETUP.md for the full manual checklist,
 # including the GitHub App and secrets this workflow expects.
+#
+# The approval gate and the post itself are two jobs, not one, because
+# GitHub rejects `environment:` on a job that also calls a reusable
+# workflow with `uses:` ("Invalid workflow file ... Unexpected value
+# 'uses'"): a job may hold required-reviewers protection, or call out to
+# another workflow, but never both at once. gate holds the environment (and
+# so the approval requirement, once the environment exists) and does
+# nothing else; post only runs once gate has, via `needs`, and is a plain
+# reusable-workflow call with no environment of its own.
 name: PR review - post
 
 on:
@@ -28,9 +37,15 @@ permissions:
   pull-requests: write
 
 jobs:
-  post:
+  gate:
     if: github.event.workflow_run.conclusion == 'success'
     environment: pr-review-external
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "approved to post a review"
+
+  post:
+    needs: gate
     uses: Flockdeck/flockdeck/.github/workflows/reusable-pr-review-post.yml@main
     with:
       artifact-run-id: ${{ github.event.workflow_run.id }}
