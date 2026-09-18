@@ -9,10 +9,12 @@ name: docker-image
 #
 # Written against the Dockerfile and the versioning scheme in
 # flockdeck-planning/12-installation-simplification.md. Its first real runs
-# (v0.3.31, v0.3.32) found what reading it couldn't: a trivy-action pin that
-# didn't resolve (fixed in #14/#16), the appwindow/wails cgo build (fixed in
-# #19), and the SBOM step needing contents: write to attach to the release,
-# fixed below.
+# (v0.3.31, v0.3.32, v0.3.33) found what reading it couldn't: a trivy-action
+# pin that didn't resolve (fixed in #14/#16), the appwindow/wails cgo build
+# (fixed in #19), and the SBOM step needing write access to attach to the
+# release -- the repo's default workflow token is read-only on purpose, so
+# that step alone carries its own scoped token (FLOCKDECK_RELEASE_CONTENTS_TOKEN)
+# instead of this block asking for more than the rest of the workflow needs.
 on:
   push:
     tags:
@@ -24,7 +26,7 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # Held to the same tests a binary release is, for the same reason
@@ -129,6 +131,12 @@ jobs:
           image: ghcr.io/flockdeck/flockdeck@${{ steps.build.outputs.digest }}
           format: spdx-json
           output-file: sbom.spdx.json
+          # The repo's default workflow token is read-only, and stays that
+          # way -- this is the one step that needs to attach a file to the
+          # release, so it alone gets a token scoped for it, rather than
+          # raising the ambient GITHUB_TOKEN's permissions for every
+          # workflow in the repo.
+          github-token: ${{ secrets.FLOCKDECK_RELEASE_CONTENTS_TOKEN }}
 
       # Fails the run on a high/critical CVE in a layer this image actually
       # ships (base image + the flockdeck binary's own dependencies), rather
