@@ -221,6 +221,12 @@ func installArchiveWithProgram(name string, program []byte) []byte {
 	tw := tar.NewWriter(gz)
 	tw.WriteHeader(&tar.Header{Name: "flockdeck", Mode: 0o755, Size: int64(len(body)), Format: tar.FormatPAX})
 	tw.Write(body)
+	// install.sh unpacks this alongside the binary on Linux, for the desktop
+	// entry it writes; a real archive's is cmd/release's copy of
+	// build/appicon.png, but nothing here reads these bytes as an image.
+	icon := []byte("not really a png, just something for install.sh to find")
+	tw.WriteHeader(&tar.Header{Name: "flockdeck.png", Mode: 0o644, Size: int64(len(icon)), Format: tar.FormatPAX})
+	tw.Write(icon)
 	tw.Close()
 	gz.Close()
 	return buf.Bytes()
@@ -612,6 +618,62 @@ func TestInstallShQuotesThePathItSaysToStart(t *testing.T) {
 	}
 	if want := `start it with: "` + filepath.Join(bin, "flockdeck") + `"`; !strings.Contains(string(out), want) {
 		t.Errorf("want %q in what the script said:\n%s", want, out)
+	}
+}
+
+// On Linux, install.sh unpacks the icon its archive carries alongside the
+// binary and gives it, and a .desktop file, to $HOME/.local/share (or
+// XDG_DATA_HOME), so Flockdeck shows up in an app menu without anyone
+// needing to know it can also be started from a shell. macOS gets neither
+// yet, since its own archive carries no icon to give one -- the same run of
+// this script on a macOS test runner has to confirm exactly that, not just
+// skip checking it.
+func TestInstallShAddsALinuxDesktopEntry(t *testing.T) {
+	sh := installShRunner(t)
+	dir, _ := generate(t)
+	shipped, err := os.ReadFile(filepath.Join(dir, "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newReleases(t)
+	script := pointAt(t, string(shipped), r, shAddresses)
+	home := t.TempDir()
+	path := filepath.Join(home, "install.sh")
+	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(home, "bin")
+	cmd := exec.Command(sh, path)
+	cmd.Env = append(installEnv(r, nil), "HOME="+home, "FLOCKDECK_INSTALL_DIR="+bin)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+
+	entry := filepath.Join(home, ".local", "share", "applications", "flockdeck.desktop")
+	icon := filepath.Join(home, ".local", "share", "icons", "flockdeck.png")
+	if runtime.GOOS != "linux" {
+		for _, p := range []string{entry, icon} {
+			if _, err := os.Stat(p); err == nil {
+				t.Errorf("%s exists on %s, which install.sh's archive carries no icon for yet", p, runtime.GOOS)
+			}
+		}
+		return
+	}
+
+	if !strings.Contains(string(out), "added an app-menu entry") {
+		t.Errorf("the script did not say it added an app-menu entry:\n%s", out)
+	}
+	body, err := os.ReadFile(entry)
+	if err != nil {
+		t.Fatalf("no desktop entry at %s: %v\n%s", entry, err, out)
+	}
+	want := "Exec=" + filepath.Join(bin, "flockdeck")
+	if !strings.Contains(string(body), "Name=Flockdeck") || !strings.Contains(string(body), want) {
+		t.Errorf("%s = %q, want it to name Flockdeck and %q", entry, body, want)
+	}
+	if _, err := os.Stat(icon); err != nil {
+		t.Errorf("no icon at %s: %v", icon, err)
 	}
 }
 
