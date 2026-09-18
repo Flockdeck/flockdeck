@@ -5,6 +5,9 @@ list out of the pane's output and offers to start an agent for each item.
 
 Press [[key:fanout]], or use the `⑂` button in the pane header.
 
+For a plan you want to work through over days rather than start all at once,
+see [Todo](#todo) instead.
+
 For a Claude Code pane the list is read out of the agent's own transcript — the
 markdown it actually produced, rather than the wrapped and redrawn version of
 it on screen. Any other pane, the built-in chat client and shells among them,

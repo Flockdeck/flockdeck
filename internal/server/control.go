@@ -551,6 +551,19 @@ type command struct {
 	// decided by cmd.Type, the same as every other field this struct reuses
 	// across commands.
 	Roots []string `json:"roots"`
+	// TodoID and StepID name a todo and one of its steps for the todo
+	// checklist feature's own commands; Title and Spec are a todo's own.
+	// StepIDs is positional against Tasks, reused here for a todo's step
+	// text the same way it already carries a fan-out's edited task list: an
+	// empty entry is a step with no id yet, minted by Workspace.SaveTodo.
+	// Done is todoStepDone's own: the checkbox state to set. See
+	// internal/server/todo.go.
+	TodoID  string   `json:"todoId,omitempty"`
+	StepID  string   `json:"stepId,omitempty"`
+	Title   string   `json:"title,omitempty"`
+	Spec    string   `json:"spec,omitempty"`
+	StepIDs []string `json:"stepIds,omitempty"`
+	Done    bool     `json:"done,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1404,6 +1417,24 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "fanoutHistory":
 		s.fanoutHistory(c, cmd.Root)
 		return
+	case "todoPlanPreview":
+		s.previewTodoPlan(c, cmd.ID, cmd.Root)
+		return
+	case "todos":
+		s.listTodos(c, cmd.Root)
+		return
+	case "todoSave":
+		s.saveTodo(c, cmd)
+		return
+	case "todoDelete":
+		s.deleteTodo(c, cmd.TodoID)
+		return
+	case "todoStepDone":
+		s.setTodoStepDone(c, cmd.TodoID, cmd.StepID, cmd.Done)
+		return
+	case "todoStepStart":
+		s.startTodoStep(c, cmd)
+		return
 	case "remoteDevices":
 		s.remoteDevices(c)
 		return
@@ -1631,6 +1662,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// it needs is still there to read.
 			if t := ws.Tab(cmd.ID); t != nil {
 				s.captureFanoutHistory(t)
+				// A todo step's pane closing along with the rest of its tab
+				// is read the same way one closed on its own is; see
+				// captureTodoStepOutcome.
+				for _, id := range t.Tree.Panes() {
+					s.captureTodoStepOutcome(id)
+				}
 			}
 			ws.CloseTab(cmd.ID)
 		case "selectTab":
@@ -1746,6 +1783,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 					s.captureFanoutHistory(t)
 				}
 			}
+			s.captureTodoStepOutcome(id)
 			if !ws.ClosePaneByID(id) {
 				c.notify(paneGone, true)
 				return
