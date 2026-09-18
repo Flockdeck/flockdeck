@@ -147,7 +147,7 @@ date. If you keep using the relay after a change, you accept the new terms.
 ## Who we are
 
 Flockdeck is made and run by Jim Wright, a sole trader in the United Kingdom.
-Postal address: [to be added before subscriptions launch]. Email
+Postal address: 39 Tilling Close, ME15 6RW. Email
 **privacy@flockdeck.ai**. Paddle is the seller of the subscription, and its
 details are on its checkout and receipts.
 
