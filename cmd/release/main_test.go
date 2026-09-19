@@ -231,11 +231,11 @@ func TestLinuxPackagesCarryTheBinaryDesktopFileAndIcon(t *testing.T) {
 
 	deb := readDebDataTarGz(t, filepath.Join(out, "flockdeck_v1.2.3_linux_amd64.deb"))
 	wantDeb := map[string]entry{
-		"./usr/bin/flockdeck":                                     {regular: true, body: "the program"},
-		"./usr/share/applications/flockdeck.desktop":              {regular: true, body: string(desktop)},
-		"./usr/share/icons/hicolor/512x512/apps/flockdeck.png":    {regular: true, body: string(icon)},
-		"./usr/share/doc/flockdeck/LICENSE":                       {regular: true},
-		"./usr/share/doc/flockdeck/THIRD-PARTY-NOTICES.md":        {regular: true},
+		"./usr/bin/flockdeck":                                  {regular: true, body: "the program"},
+		"./usr/share/applications/flockdeck.desktop":           {regular: true, body: string(desktop)},
+		"./usr/share/icons/hicolor/512x512/apps/flockdeck.png": {regular: true, body: string(icon)},
+		"./usr/share/doc/flockdeck/LICENSE":                    {regular: true},
+		"./usr/share/doc/flockdeck/THIRD-PARTY-NOTICES.md":     {regular: true},
 	}
 	for name, want := range wantDeb {
 		got, ok := deb[name]
