@@ -13,6 +13,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/session"
 )
 
@@ -128,8 +129,17 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		// which matters here as much as it does to authorisation, since it
 		// is also the identity a public key is looked up against.
 		device := r.Header.Get("Flockdeck-Remote-Device")
-		if ra := s.remoteAccess(); ra != nil && ra.E2ECapable(ctx, device) {
-			sess, err := s.e2eHandshake(ctx, ra, conn, device)
+		// Flockdeck-Remote-Origin says which of that device's two keys this
+		// socket calls for -- relay-set, exactly as Flockdeck-Remote-Device
+		// is, and "desk" for the one case there is: a browser reached this
+		// pane through this host's own full interface rather than the usual
+		// way. See remote.KeyOrigin's own doc.
+		origin := remote.KeyOriginUsual
+		if r.Header.Get("Flockdeck-Remote-Origin") == "desk" {
+			origin = remote.KeyOriginDesk
+		}
+		if ra := s.remoteAccess(); ra != nil && ra.E2ECapable(ctx, device, origin) {
+			sess, err := s.e2eHandshake(ctx, ra, conn, device, origin)
 			if err != nil {
 				// Both sides are supposed to have a key on file, so a
 				// handshake that still fails is treated as a fault, not a

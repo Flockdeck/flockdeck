@@ -158,15 +158,54 @@ func (m *Manager) hostE2EIdentity() (*ecdh.PrivateKey, error) {
 	return priv, nil
 }
 
-// e2eRoster is the account's devices, by id, to the end-to-end public key
-// each has registered -- "" for one that has not. It is fetched from the
-// relay through Client().Devices, cached for e2eRosterTTL.
-func (m *Manager) e2eRoster(ctx context.Context) (map[string]string, error) {
+// E2EPublicKey is this machine's own long-term end-to-end public key,
+// base64url (internal/e2e.EncodePublicKey) -- what a window reached through
+// the relay's own full interface needs as the "host" side of
+// StartDeviceHandshake, the same way /api/v1/me's Hosts[].PublicKey already
+// gives it to flockdeck-remote. "" where there is none yet to give -- the
+// disk is unavailable, say -- which is the same as any other machine this
+// package treats as end-to-end incapable: a terminal served unencrypted,
+// not a fault.
+func (m *Manager) E2EPublicKey() string {
+	priv, err := m.hostE2EIdentity()
+	if err != nil {
+		return ""
+	}
+	return e2e.EncodePublicKey(priv.PublicKey())
+}
+
+// KeyOrigin says which of a device's two end-to-end keys (see client.go's
+// own doc on Device.DeskPublicKey) a terminal's handshake answers with: the
+// one it registered from its usual origin, or the one it registered from
+// this host's own full interface. pty.go decides which, from the relay's
+// own Flockdeck-Remote-Origin header on the socket -- never anything a
+// browser could set for itself, the same trust this package already gives
+// Flockdeck-Remote-Device.
+type KeyOrigin int
+
+const (
+	KeyOriginUsual KeyOrigin = iota
+	KeyOriginDesk
+)
+
+// key is deviceID's key for this origin, out of the roster e2eRoster reads.
+func (o KeyOrigin) key(d Device) string {
+	if o == KeyOriginDesk {
+		return d.DeskPublicKey
+	}
+	return d.PublicKey
+}
+
+// e2eRoster is the account's devices, by id, exactly as the relay reports
+// them -- both end-to-end keys included, one for each origin a device might
+// open a terminal from. It is fetched from the relay through Client().Devices,
+// cached for e2eRosterTTL.
+func (m *Manager) e2eRoster(ctx context.Context) (map[string]Device, error) {
 	m.e2eMu.Lock()
 	if m.e2eRosterCache != nil && time.Since(m.e2eRosterAt) < e2eRosterTTL {
-		keys := m.e2eRosterCache
+		devices := m.e2eRosterCache
 		m.e2eMu.Unlock()
-		return keys, nil
+		return devices, nil
 	}
 	m.e2eMu.Unlock()
 
@@ -178,34 +217,35 @@ func (m *Manager) e2eRoster(ctx context.Context) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	keys := make(map[string]string, len(roster.Devices))
+	devices := make(map[string]Device, len(roster.Devices))
 	for _, d := range roster.Devices {
-		keys[d.ID] = d.PublicKey
+		devices[d.ID] = d
 	}
 	m.e2eMu.Lock()
-	m.e2eRosterCache, m.e2eRosterAt = keys, time.Now()
+	m.e2eRosterCache, m.e2eRosterAt = devices, time.Now()
 	m.e2eMu.Unlock()
-	return keys, nil
+	return devices, nil
 }
 
-// E2ECapable reports whether a terminal opened for deviceID right now could
-// be end-to-end encrypted: this machine has a long-term key, and the relay's
-// roster says deviceID has registered one too. It answers false, never an
-// error, for anything that stops it finding out -- the relay unreachable, no
-// such device, an unenrolled machine -- since every one of those is a plain
-// "serve this terminal unencrypted", not a fault to report.
-func (m *Manager) E2ECapable(ctx context.Context, deviceID string) bool {
+// E2ECapable reports whether a terminal opened for deviceID right now, from
+// origin, could be end-to-end encrypted: this machine has a long-term key,
+// and the relay's roster says deviceID has registered origin's key too. It
+// answers false, never an error, for anything that stops it finding out --
+// the relay unreachable, no such device, an unenrolled machine -- since
+// every one of those is a plain "serve this terminal unencrypted", not a
+// fault to report.
+func (m *Manager) E2ECapable(ctx context.Context, deviceID string, origin KeyOrigin) bool {
 	if deviceID == "" {
 		return false
 	}
 	if _, err := m.hostE2EIdentity(); err != nil {
 		return false
 	}
-	keys, err := m.e2eRoster(ctx)
+	devices, err := m.e2eRoster(ctx)
 	if err != nil {
 		return false
 	}
-	return keys[deviceID] != ""
+	return origin.key(devices[deviceID]) != ""
 }
 
 // E2ERespond runs this host's whole side of a fresh terminal handshake
@@ -213,20 +253,21 @@ func (m *Manager) E2ECapable(ctx context.Context, deviceID string) bool {
 // public key, the terminal socket's first frame. It returns the session and
 // the response to send back as the socket's second frame.
 //
-// Callers are expected to have checked E2ECapable first, so that hello is
-// only ever read from a socket both sides are expected to encrypt; called
-// otherwise, a missing key on either side comes back as ErrNoE2EKey rather
-// than attempting a handshake that cannot complete.
-func (m *Manager) E2ERespond(ctx context.Context, deviceID string, hello []byte) (*e2e.Session, []byte, error) {
+// Callers are expected to have checked E2ECapable first, with the same
+// origin, so that hello is only ever read from a socket both sides are
+// expected to encrypt; called otherwise, a missing key on either side comes
+// back as ErrNoE2EKey rather than attempting a handshake that cannot
+// complete.
+func (m *Manager) E2ERespond(ctx context.Context, deviceID string, origin KeyOrigin, hello []byte) (*e2e.Session, []byte, error) {
 	hostPriv, err := m.hostE2EIdentity()
 	if err != nil {
 		return nil, nil, err
 	}
-	keys, err := m.e2eRoster(ctx)
+	devices, err := m.e2eRoster(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	enc := keys[deviceID]
+	enc := origin.key(devices[deviceID])
 	if enc == "" {
 		return nil, nil, ErrNoE2EKey
 	}

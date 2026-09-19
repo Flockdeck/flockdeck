@@ -151,13 +151,13 @@ func TestE2ECapableFalseWithoutADeviceKey(t *testing.T) {
 	relay := newE2EFakeRelay(t, Device{ID: "d1", Name: "old phone"})
 	m := testManager(relay.URL)
 
-	if m.E2ECapable(context.Background(), "d1") {
+	if m.E2ECapable(context.Background(), "d1", KeyOriginUsual) {
 		t.Error("E2ECapable said yes for a device with no registered key")
 	}
-	if m.E2ECapable(context.Background(), "unknown") {
+	if m.E2ECapable(context.Background(), "unknown", KeyOriginUsual) {
 		t.Error("E2ECapable said yes for a device that does not exist")
 	}
-	if _, _, err := m.E2ERespond(context.Background(), "d1", []byte("not a real hello")); err != ErrNoE2EKey {
+	if _, _, err := m.E2ERespond(context.Background(), "d1", KeyOriginUsual, []byte("not a real hello")); err != ErrNoE2EKey {
 		t.Errorf("E2ERespond = %v, want ErrNoE2EKey", err)
 	}
 }
@@ -183,7 +183,7 @@ func TestE2ERespondCompletesAHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !m.E2ECapable(context.Background(), "d1") {
+	if !m.E2ECapable(context.Background(), "d1", KeyOriginUsual) {
 		t.Fatal("E2ECapable said no for a device with a registered key")
 	}
 
@@ -191,7 +191,7 @@ func TestE2ERespondCompletesAHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hostSession, response, err := m.E2ERespond(context.Background(), "d1", hello)
+	hostSession, response, err := m.E2ERespond(context.Background(), "d1", KeyOriginUsual, hello)
 	if err != nil {
 		t.Fatalf("E2ERespond: %v", err)
 	}
@@ -207,6 +207,77 @@ func TestE2ERespondCompletesAHandshake(t *testing.T) {
 	}
 }
 
+// A device's two keys are answered with independently: registering one says
+// nothing about the other, in either direction, and a handshake against the
+// wrong origin's key fails exactly as a device with no key at all does
+// rather than completing with the wrong one.
+func TestE2EOriginPicksTheRightKey(t *testing.T) {
+	isolate(t)
+	usualPriv, err := e2e.GenerateStaticKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deskPriv, err := e2e.GenerateStaticKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relay := newE2EFakeRelay(t, Device{
+		ID: "d1", Name: "phone",
+		PublicKey:     e2e.EncodePublicKey(usualPriv.PublicKey()),
+		DeskPublicKey: e2e.EncodePublicKey(deskPriv.PublicKey()),
+	})
+	m := testManager(relay.URL)
+	if err := m.EnsureE2EKey(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	hostPriv, err := m.hostE2EIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !m.E2ECapable(context.Background(), "d1", KeyOriginUsual) {
+		t.Error("E2ECapable said no for the usual origin with its own key registered")
+	}
+	if !m.E2ECapable(context.Background(), "d1", KeyOriginDesk) {
+		t.Error("E2ECapable said no for the desk origin with its own key registered")
+	}
+
+	// A handshake against the desk origin completes only against the
+	// device's desk key -- the device's own StartDeviceHandshake, run with
+	// its desk private key, agreeing with what E2ERespond(..., KeyOriginDesk,
+	// ...) derives.
+	dh, hello, err := e2e.StartDeviceHandshake(deskPriv, hostPriv.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostSession, response, err := m.E2ERespond(context.Background(), "d1", KeyOriginDesk, hello)
+	if err != nil {
+		t.Fatalf("E2ERespond(KeyOriginDesk): %v", err)
+	}
+	deviceSession, err := dh.Finish(response)
+	if err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+	sealed := deviceSession.Seal([]byte("echo hi"))
+	if got, err := hostSession.Open(sealed); err != nil || string(got) != "echo hi" {
+		t.Fatalf("host opening what the device sealed = %q, %v", got, err)
+	}
+
+	// Only one of them registered, the other origin is exactly the "no key
+	// on file" case, not answered with the one that does exist.
+	onlyUsual := newE2EFakeRelay(t, Device{ID: "d2", PublicKey: e2e.EncodePublicKey(usualPriv.PublicKey())})
+	m2 := testManager(onlyUsual.URL)
+	if !m2.E2ECapable(context.Background(), "d2", KeyOriginUsual) {
+		t.Error("E2ECapable said no for the origin that does have a key")
+	}
+	if m2.E2ECapable(context.Background(), "d2", KeyOriginDesk) {
+		t.Error("E2ECapable said yes for the origin with no key of its own")
+	}
+	if _, _, err := m2.E2ERespond(context.Background(), "d2", KeyOriginDesk, []byte("not a real hello")); err != ErrNoE2EKey {
+		t.Errorf("E2ERespond(KeyOriginDesk) with no desk key = %v, want ErrNoE2EKey", err)
+	}
+}
+
 // The roster is cached rather than fetched on every call, so opening several
 // panes in quick succession costs the relay one call, not one per pane.
 func TestE2ERosterIsCached(t *testing.T) {
@@ -219,7 +290,7 @@ func TestE2ERosterIsCached(t *testing.T) {
 	t.Cleanup(func() { e2eRosterTTL = old })
 
 	for i := 0; i < 5; i++ {
-		if !m.E2ECapable(context.Background(), "d1") {
+		if !m.E2ECapable(context.Background(), "d1", KeyOriginUsual) {
 			t.Fatal("E2ECapable said no")
 		}
 	}

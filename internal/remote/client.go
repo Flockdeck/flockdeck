@@ -152,6 +152,12 @@ type Device struct {
 	// client that predates end-to-end encryption never will: a terminal
 	// opened by one of those is served unencrypted rather than refused.
 	PublicKey string `json:"publicKey,omitempty"`
+	// DeskPublicKey is this device's key for a terminal reached through this
+	// host's own full interface instead (https://<hostId>.<deskDomain>/): a
+	// second key, registered separately, because that origin's IndexedDB has
+	// never seen PublicKey's own. Empty until the browser has registered one
+	// with POST <desk origin>/.flockdeck-e2e-key.
+	DeskPublicKey string `json:"deskPublicKey,omitempty"`
 }
 
 // Host is a desktop enrolled in the account; Self marks this one. URL is

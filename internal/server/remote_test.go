@@ -56,13 +56,18 @@ type fakeRemote struct {
 // handshake: no test in this file drives a real handshake through a fake
 // remote, so E2ECapable simply reports what the test set up and E2ERespond
 // is never expected to be called when it did not.
-func (f *fakeRemote) E2ECapable(_ context.Context, deviceID string) bool {
+func (f *fakeRemote) E2ECapable(_ context.Context, deviceID string, _ remote.KeyOrigin) bool {
 	return f.e2eCapable[deviceID]
 }
 
-func (f *fakeRemote) E2ERespond(_ context.Context, _ string, _ []byte) (*e2e.Session, []byte, error) {
+func (f *fakeRemote) E2ERespond(_ context.Context, _ string, _ remote.KeyOrigin, _ []byte) (*e2e.Session, []byte, error) {
 	return nil, nil, remote.ErrNoE2EKey
 }
+
+// E2EPublicKey stands in for this host's own end-to-end public key: no test
+// in this file reads it for its value, so an empty string -- the same as a
+// host with no identity yet -- is enough.
+func (f *fakeRemote) E2EPublicKey() string { return "" }
 
 func (f *fakeRemote) Move(_ context.Context, req remote.EnableRequest) (error, error) {
 	f.moved = append(f.moved, req)
