@@ -7565,6 +7565,40 @@ assert.ok(!remote().getAttribute("aria-label"), "the glyph's name stayed after e
 `)
 }
 
+// A pane's own name is a bare directory, the same for every pane working in
+// it, and a tab's title is cut to a couple of words to fit the strip -- so
+// neither says which of several fanned-out siblings a header belongs to.
+// Task is the opening prompt underneath both, sent whole, and its bubble
+// answers for the header as well as the name label, since most of the row
+// carries no tip of its own.
+func TestThePaneHeaderShowsItsFullTask(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1", { name: "repo" }) } }));
+const header = h.doc.querySelector("div.pane-header");
+const label = header.querySelector("span.pane-name");
+assert.strictEqual(label.dataset.tip, "repo", "a task-less pane's bubble should say only its name");
+assert.ok(!header.dataset.tip || header.dataset.tip === "repo",
+  "a task-less pane's header should say no more than the name label does");
+
+const task = "Investigate why the checkout pane keeps losing its focus after a restart.";
+h.recv(fixture({ panes: { p1: pane("p1", { name: "repo", task }) } }));
+assert.ok(label.dataset.tip.includes(task), "the name's bubble does not carry the full task: " + label.dataset.tip);
+assert.ok(header.dataset.tip.includes(task), "the header's own bubble does not carry the full task: " + header.dataset.tip);
+
+// Bounded, so an agent given an enormous task cannot fill the screen with it.
+const huge = "word ".repeat(400);
+h.recv(fixture({ panes: { p1: pane("p1", { name: "repo", task: huge } ) } }));
+assert.ok(label.dataset.tip.length < huge.length, "an enormous task should be cut short in the bubble");
+assert.ok(label.dataset.tip.endsWith("…"), "a cut-short task should say so: " + label.dataset.tip);
+
+// And it goes with the task once the pane no longer has one -- a restart
+// with a fresh conversation, say.
+h.recv(fixture({ panes: { p1: pane("p1", { name: "repo" }) } }));
+assert.strictEqual(label.dataset.tip, "repo", "the old task's bubble stayed after it was cleared");
+`)
+}
+
 // Flockdeck cannot learn the name another Claude session would address a
 // pane by on its own -- only the agent running inside it can, typically by
 // calling its own ListAgents tool, and it hands that back with `flockdeck

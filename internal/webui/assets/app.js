@@ -3754,6 +3754,16 @@
     ptySend(p, JSON.stringify({ resize: { cols, rows } }), true);
   }
 
+  /** taskTip bounds a pane's task to something a bubble can hold. The field
+   *  itself can run to several thousand characters (see maxTaskBytes on the
+   *  server), and this is a hover aid for telling panes apart, not a reader
+   *  for the whole of it. */
+  function taskTip(task) {
+    const limit = 500;
+    const t = task.trim();
+    return t.length > limit ? t.slice(0, limit).trimEnd() + "…" : t;
+  }
+
   /* A status push carries the whole workspace and arrives every time any agent
    * changes what it is doing or prints another line of detail, so with several
    * running they are close to continuous. Almost none of a pane's header moves
@@ -3795,12 +3805,23 @@
         p.dot.setAttribute("aria-label", TIPS[v.status] || v.status);
         describe(p.dot, TIPS[v.status] || v.status);
       }
-      // The name is cut short with an ellipsis in a narrow pane, and names
-      // taken from an agent's task are long; the bubble has the whole of it.
-      if (was.name !== v.name) {
+      // The name is cut short with an ellipsis in a narrow pane, and is only
+      // ever a bare directory (see workspace.newPane) -- the same for every
+      // pane working in it, so it says nothing about which of several
+      // fanned-out siblings a header belongs to. Task is the opening prompt
+      // underneath it, and the one place it is ever shown whole rather than
+      // cut to fit a tab's strip (see renderTabs) or this label itself. The
+      // bubble is put on the header as well as the label, so it answers for
+      // a blank stretch of the row as much as for the name -- a badge with a
+      // tip of its own still wins there, since tipFind takes the nearest.
+      const task = v.task || "";
+      if (was.name !== v.name || was.task !== task) {
         was.name = v.name;
+        was.task = task;
         p.name.textContent = v.name;
-        describe(p.name, v.name);
+        const full = task ? v.name + " — " + taskTip(task) : v.name;
+        describe(p.name, full);
+        describe(p.header, full);
         p.wrap.setAttribute("aria-label", v.name);
       }
 
