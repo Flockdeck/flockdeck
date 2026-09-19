@@ -512,6 +512,7 @@ func runFrontEnd(t *testing.T, body string) string {
 		}
 	}
 	write("app.js", readAsset(t, "app.js"))
+	write("e2e.js", readAsset(t, "e2e.js"))
 	write("index.html", readAsset(t, "index.html"))
 	write("app.css", readAsset(t, "app.css"))
 	write("harness.js", frontEndHarness)
@@ -8356,6 +8357,7 @@ const frontEndHarness = `"use strict";
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
+const crypto = require("crypto").webcrypto;
 
 const ASSETS = process.env.FLOCKDECK_ASSETS || ".";
 
@@ -8895,6 +8897,77 @@ function tabTo(doc, back) {
     : all[(at + (back ? -1 : 1) + all.length) % all.length]);
 }
 
+// ---------------------------------------------------------------- indexedDB
+
+/** A single-database stand-in for IndexedDB: just enough of it for e2e.js's
+ *  getIdentity -- open, one object store, get/put by key -- to run in node.
+ *  Real IndexedDB fires every callback asynchronously, which this keeps (via
+ *  setImmediate); a case awaiting FlockdeckE2E's own promises already waits
+ *  through that. Reset on every boot() (idbReset), the same as sockets and
+ *  terms: a real browser's storage survives a page's own reconnects, but not
+ *  a case that boots the front end again wanting a device with no identity
+ *  yet. */
+let idbDatabases = new Map();
+function idbReset() { idbDatabases = new Map(); }
+
+class FakeIDBRequest {
+  constructor() { this.onsuccess = null; this.onerror = null; this.onupgradeneeded = null; this.result = undefined; this.error = null; }
+}
+
+class FakeIDBObjectStore {
+  constructor(map) { this.map = map; }
+  get(key) {
+    const req = new FakeIDBRequest();
+    setImmediate(() => { req.result = this.map.get(key); if (req.onsuccess) req.onsuccess({ target: req }); });
+    return req;
+  }
+  put(value, key) {
+    const req = new FakeIDBRequest();
+    this.map.set(key, value);
+    setImmediate(() => { req.result = key; if (req.onsuccess) req.onsuccess({ target: req }); });
+    return req;
+  }
+}
+
+class FakeIDBTransaction {
+  constructor(store) {
+    this.store = store;
+    this.oncomplete = null;
+    this.onerror = null;
+    setImmediate(() => { if (this.oncomplete) this.oncomplete({ target: this }); });
+  }
+  objectStore() { return this.store; }
+}
+
+class FakeIDBDatabase {
+  constructor(stores) { this.stores = stores; }
+  createObjectStore(name) {
+    const map = new Map();
+    this.stores.set(name, map);
+    return new FakeIDBObjectStore(map);
+  }
+  transaction(name) {
+    let map = this.stores.get(name);
+    if (!map) { map = new Map(); this.stores.set(name, map); }
+    return new FakeIDBTransaction(new FakeIDBObjectStore(map));
+  }
+}
+
+const fakeIndexedDB = {
+  open(name) {
+    const req = new FakeIDBRequest();
+    setImmediate(() => {
+      let entry = idbDatabases.get(name);
+      const isNew = !entry;
+      if (!entry) { entry = { stores: new Map() }; idbDatabases.set(name, entry); }
+      req.result = new FakeIDBDatabase(entry.stores);
+      if (isNew && req.onupgradeneeded) req.onupgradeneeded({ target: req, oldVersion: 0 });
+      setImmediate(() => { if (req.onsuccess) req.onsuccess({ target: req }); });
+    });
+    return req;
+  },
+};
+
 // -------------------------------------------------------------------- boot
 
 function unref(t) { t.unref(); return t; }
@@ -8907,10 +8980,12 @@ function boot(opts) {
   notifications.length = 0; webgls.length = 0;
   FakeNotification.permission = "granted";
   FakeNotification.asked = 0;
+  idbReset();
   const doc = new Doc();
   parseInto(fs.readFileSync(path.join(ASSETS, "index.html"), "utf8"), doc);
 
   const store = new Map();
+  const e2eKeyPosts = [];
   const win = {
     innerWidth: 1400, innerHeight: 900,
     document: doc,
@@ -8927,6 +9002,11 @@ function boot(opts) {
     Notification: FakeNotification,
     CSS: { escape: (s) => String(s).replace(/([^\w-])/g, "\\$1") },
     TextEncoder, TextDecoder, console,
+    // e2e.js's own identity and handshake: real WebCrypto (node's own, which
+    // implements the same SubtleCrypto a browser does) against the fake
+    // IndexedDB above, and the base64 globals a browser gives a page for
+    // free that a vm context, its own fresh realm, does not.
+    crypto, indexedDB: fakeIndexedDB, atob, btoa,
     // The page's own timers - a notice taking itself away twelve seconds on,
     // a reconnect - are not what a case waits for, and holding the process
     // open they made every case last as long as the longest of them after its
@@ -8945,8 +9025,17 @@ function boot(opts) {
       setItem: (k, v) => store.set(k, String(v)),
       removeItem: (k) => store.delete(k),
     },
-    // Only /help.json is ever fetched, and it is on disk beside the assets.
-    fetch: (url) => {
+    // Only /help.json is fetched by GET, on disk beside the assets;
+    // FlockdeckE2E.ensureRegistered's POST to /.flockdeck-e2e-key is the one
+    // other fetch app.js makes, answered here rather than off disk, and
+    // recorded to e2eKeyPosts for a case to read (h.e2eKeyPosts()).
+    fetch: (url, init) => {
+      if (String(url) === "/.flockdeck-e2e-key" && init && init.method === "POST") {
+        let body = null;
+        try { body = JSON.parse(init.body); } catch { /* recorded as null */ }
+        e2eKeyPosts.push(body);
+        return Promise.resolve({ ok: true, status: 204 });
+      }
       const name = String(url).replace(/^.*\//, "");
       try {
         const body = fs.readFileSync(path.join(ASSETS, name), "utf8");
@@ -8977,6 +9066,12 @@ function boot(opts) {
   doc.defaultView = win;
 
   const ctx = vm.createContext(win);
+  // e2e.js first, as index.html's own script order has it: app.js reads
+  // window.FlockdeckE2E at the top of its own module body (applyHello,
+  // connectPTY), the same as it already expects window.Terminal and the
+  // rest of the vendor scripts to be there first.
+  const e2eSrc = fs.readFileSync(path.join(ASSETS, "e2e.js"), "utf8");
+  vm.runInContext(e2eSrc, ctx, { filename: "e2e.js" });
   const src = fs.readFileSync(path.join(ASSETS, "app.js"), "utf8");
   vm.runInContext(src, ctx, { filename: "app.js" });
 
@@ -8984,6 +9079,11 @@ function boot(opts) {
     doc, win, sockets, terms, observers, searchers, notifications, webgls,
     control: sockets.find((s) => s.url.includes("/ws/control")),
     $: (id) => doc.getElementById(id),
+    /** e2eKeyPosts is every body FlockdeckE2E.ensureRegistered has POSTed to
+     *  /.flockdeck-e2e-key, in order -- what a case reads to check a window
+     *  registered (or did not) once it knew it was reached through the
+     *  relay. */
+    e2eKeyPosts() { return e2eKeyPosts.slice(); },
     /** controls lists every control socket the page has opened, in order. */
     controls() { return sockets.filter((s) => s.url.includes("/ws/control")); },
     recv(msg) {

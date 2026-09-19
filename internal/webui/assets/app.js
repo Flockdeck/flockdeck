@@ -281,6 +281,16 @@
    *  setting API keys or an API agent's address. The server refuses each of
    *  them from here anyway. */
   let remoteWindow = false;
+  /** hostE2EPublicKey is this desktop's own long-term end-to-end public key
+   *  (internal/e2e, base64url), as the hello says -- unset for a local
+   *  window, which needs nothing to encrypt against itself, and for a
+   *  remote one before this desktop has made an identity of its own yet
+   *  (help.go's own doc on helloMsg.E2EPublicKey). Every pane's terminal
+   *  socket reads this once, in connectPTY, the same way flockdeck-remote's
+   *  PaneTerminal reads its own hostPublicKey: set, a socket is never served
+   *  unencrypted, only closed and retried if the handshake it demands does
+   *  not complete (see beginHandshake). */
+  let hostE2EPublicKey = null;
   /** RELAY_DISCONNECTED is what the disconnected panel says in a window
    *  reached through the relay. Its own words - the process has stopped,
    *  start it again - are advice for somebody at the machine; from a phone or
@@ -3373,21 +3383,214 @@
    *  keystrokes that follow would say so too; this is for the glance, and the
    *  scroll, that comes before them. */
   function sendFocus(p) {
-    if (p.ws && p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify({ focus: true }));
+    ptySend(p, JSON.stringify({ focus: true }), true);
   }
   /** INPUT_FRAME is the most input one frame carries. The server takes a
    *  frame of up to 4 MiB from a terminal and drops the connection over a
    *  bigger one, so a paste of more than that was lost without a word. */
   const INPUT_FRAME = 1 << 20;
   function sendBytes(p, bytes) {
-    if (!p.ws || p.ws.readyState !== WebSocket.OPEN) return;
-    if (bytes.length <= INPUT_FRAME) { p.ws.send(bytes); return; }
-    for (let at = 0; at < bytes.length; at += INPUT_FRAME) p.ws.send(bytes.subarray(at, at + INPUT_FRAME));
+    if (bytes.length <= INPUT_FRAME) { ptySend(p, bytes, false); return; }
+    for (let at = 0; at < bytes.length; at += INPUT_FRAME) ptySend(p, bytes.subarray(at, at + INPUT_FRAME), false);
+  }
+
+  /** FRAME_BINARY and FRAME_TEXT are the one-byte tag every sealed plaintext
+   *  starts with once a pane's socket is end-to-end encrypted: which of this
+   *  file's own two kinds of message it carries, pty bytes or a JSON header
+   *  or control notice -- the WebSocket text/binary distinction those would
+   *  otherwise be told apart by, lost once every sealed frame has to cross
+   *  the wire as opaque binary (AES-GCM ciphertext is not valid UTF-8, so it
+   *  could never be sent as a WebSocket text frame regardless of what it
+   *  started as). Not part of e2e.js's own wire format, which seals
+   *  arbitrary bytes and has no notion of this itself; the exact values
+   *  match the desktop's own e2eTagBinary/e2eTagText (internal/server/e2e.go),
+   *  which every sealed frame this file makes or reads must agree with byte
+   *  for byte to interoperate at all. */
+  const FRAME_BINARY = 0;
+  const FRAME_TEXT = 1;
+
+  /** How long the desktop's handshake response may go unanswered before
+   *  closeForFailedHandshake gives up on it -- matching the desktop's own
+   *  e2eHandshakeTimeout (internal/server/e2e.go), which bounds the same
+   *  wait the other way around. */
+  const HANDSHAKE_MS = 10000;
+
+  /** ptySend is every outgoing message on a pane's terminal socket -- a
+   *  resize or focus notice (JSON, isText true) as well as a keystroke or a
+   *  paste (bytes, isText false) -- routed transparently through end-to-end
+   *  encryption once hostE2EPublicKey says this desktop has a key on file
+   *  (queueSealed), held until a handshake in progress succeeds (nothing is
+   *  ever sent plain once one has been started -- see beginHandshake), and
+   *  sent exactly as it always was where none is expected at all
+   *  (hostE2EPublicKey unset): today's plain terminal, byte for byte
+   *  unchanged. */
+  function ptySend(p, payload, isText) {
+    const ws = p.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!hostE2EPublicKey) { ws.send(payload); return; }
+    if (p.session) { queueSealed(p, ws, payload, isText); return; }
+    // Held for a handshake still in progress, or one that already failed and
+    // is closing this socket -- either way never sent plain; connectPTY's
+    // own reset of p.pending on the next attempt drops whatever is left.
+    p.pending.push({ payload, isText });
+  }
+
+  /** queueSealed tags payload with which of ptySend's own two kinds of
+   *  message it is (FRAME_TEXT/FRAME_BINARY), seals it and sends it, chained
+   *  onto p.sendQueue so that frames reach the socket in exactly the order
+   *  seal assigned their counters, whatever order the promises that sealed
+   *  them happen to settle in -- WebCrypto is asynchronous, and nothing
+   *  about the order its promises settle in guarantees the order frames were
+   *  queued in, which the session's strictly-increasing counter demands. */
+  function queueSealed(p, ws, payload, isText) {
+    const bytes = isText ? new TextEncoder().encode(payload) : (payload instanceof Uint8Array ? payload : new Uint8Array(payload));
+    const tagged = new Uint8Array(bytes.length + 1);
+    tagged[0] = isText ? FRAME_TEXT : FRAME_BINARY;
+    tagged.set(bytes, 1);
+    const session = p.session;
+    p.sendQueue = p.sendQueue.then(() => session.seal(tagged)).then((frame) => {
+      if (p.ws === ws && ws.readyState === WebSocket.OPEN) ws.send(frame);
+    }).catch((err) => console.error("e2e: could not seal an outgoing frame", err));
+  }
+
+  /** beginHandshake is this window's side of e2e.js's handshake, run before
+   *  anything else on a fresh terminal socket once hostE2EPublicKey says
+   *  this desktop has a key on file: it sends the hello (raw, unencrypted --
+   *  there is no session yet to encrypt it with) and waits for the
+   *  desktop's response, which connectPTY's own onmessage routes to
+   *  finishHandshake instead of treating as terminal data.
+   *
+   *  Once hostE2EPublicKey is set, a pane's socket is never served
+   *  unencrypted: a handshake that cannot even start (no identity of this
+   *  window's own -- FlockdeckE2E.getIdentity, an old browser or one whose
+   *  storage a private context has disabled) or does not finish in time
+   *  (HANDSHAKE_MS) closes the connection (closeForFailedHandshake) rather
+   *  than falling back to plaintext, which is what a relay corrupting or
+   *  withholding the handshake to force a downgrade would be trying to
+   *  cause -- the one case e2e.js's own threat model does not otherwise
+   *  cover, and the desktop's own side of this (internal/server/e2e.go)
+   *  refuses the same way. */
+  async function beginHandshake(p, ws) {
+    let started;
+    try {
+      const identity = await FlockdeckE2E.getIdentity();
+      if (!identity) {
+        closeForFailedHandshake(p, ws, "this window has no identity of its own to encrypt with");
+        return;
+      }
+      started = await FlockdeckE2E.startTerminalHandshake(identity, hostE2EPublicKey);
+    } catch (err) {
+      console.error("e2e: could not start a handshake", err);
+      closeForFailedHandshake(p, ws, "could not start a handshake");
+      return;
+    }
+    if (p.ws !== ws) return; // reconnected while awaited above
+    p.handshake = started.handshake;
+    ws.send(started.hello);
+    p.handshakeTimer = setTimeout(() => {
+      if (p.ws === ws && !p.session) closeForFailedHandshake(p, ws, "the desktop never answered the handshake");
+    }, HANDSHAKE_MS);
+  }
+
+  /** finishHandshake completes beginHandshake with the desktop's response --
+   *  its ephemeral public key, raw, exactly as the hello was. */
+  async function finishHandshake(p, ws, response) {
+    clearTimeout(p.handshakeTimer);
+    if (!p.handshake) return;
+    const handshake = p.handshake;
+    p.handshake = null;
+    let session;
+    try {
+      session = await handshake.finish(response);
+    } catch (err) {
+      console.error("e2e: the desktop's handshake response did not check out", err);
+      closeForFailedHandshake(p, ws, "the desktop's handshake response did not check out");
+      return;
+    }
+    if (p.ws !== ws) return;
+    p.session = session;
+    flushPending(p, ws);
+  }
+
+  /** closeForFailedHandshake ends a socket whose handshake was expected to
+   *  succeed -- hostE2EPublicKey said this desktop has a key on file -- but
+   *  did not, for any reason: see beginHandshake's own doc for why this
+   *  closes the connection (onclose's ordinary retry-with-backoff then
+   *  dials it again, from a fresh handshake) rather than ever serving it
+   *  unencrypted. */
+  function closeForFailedHandshake(p, ws, reason) {
+    clearTimeout(p.handshakeTimer);
+    p.handshake = null;
+    console.error("e2e: " + reason + " -- closing rather than falling back to an unencrypted terminal");
+    try { ws.close(); } catch { /* already closing */ }
+  }
+
+  /** flushPending sends on, sealed, whatever ptySend held while the
+   *  handshake now finished was under way -- in order, so a keystroke typed
+   *  while it ran still lands before whatever follows it. Only ever reached
+   *  once a session exists (finishHandshake): nothing is ever sent plain
+   *  from a socket a handshake has been started on. */
+  function flushPending(p, ws) {
+    const queued = p.pending.splice(0);
+    for (const { payload, isText } of queued) queueSealed(p, ws, payload, isText);
+  }
+
+  /** handlePtyHeader is a run of the pane's output opening -- where the
+   *  bytes that follow begin, and whether they carry on from what this
+   *  terminal shows or it has to start again -- read exactly the same
+   *  whether it arrived as the socket's own text frame or, decrypted
+   *  already, as the FRAME_TEXT half of a sealed one. */
+  function handlePtyHeader(p, text) {
+    let h;
+    try { h = JSON.parse(text); } catch { return; }
+    // Reset in the stream's own order, as RIS written to it. reset() acts at
+    // once while write() only queues, so bytes of the old run still queued -
+    // a slow window dropped and reconnected, or a restart on the same
+    // socket - were drawn after it, on the fresh screen.
+    if (!h.resumed) p.term.write("\x1bc");
+    p.stream = { epoch: h.epoch, offset: h.offset, fresh: !h.resumed };
+    // The bytes up to h.end are history, printed before this window
+    // connected, and the terminal answers the questions in them - what it
+    // is, where its cursor is, what colour it is - as though they had just
+    // been asked. Until it has drawn the last of them, its answers are kept
+    // from the program (see isTerminalReply). A server that does not say
+    // where the replay ends leaves them all to go through.
+    p.replayGen = (p.replayGen || 0) + 1;
+    p.replayEnd = h.end > h.offset ? h.end : 0;
+    p.replaying = p.replayEnd > 0;
+  }
+
+  /** handlePtyBinary is one frame of pty output -- decrypted already, where
+   *  a session applies, or exactly as the socket gave it where none does --
+   *  drawn into the emulator and folded into the replay bookkeeping. bytes
+   *  is a Uint8Array; nothing here keeps it beyond this call. */
+  function handlePtyBinary(p, bytes) {
+    if (p.stream) { p.stream.offset += bytes.byteLength; p.stream.fresh = false; }
+    if (p.replayEnd && p.stream && p.stream.offset >= p.replayEnd) {
+      // The last of the replay. Once the terminal has drawn it, answers are
+      // the program's again - unless another run has begun since.
+      p.replayEnd = 0;
+      const gen = p.replayGen;
+      p.term.write(bytes, () => { if (p.replayGen === gen) p.replaying = false; });
+      return;
+    }
+    p.term.write(bytes);
   }
 
   function connectPTY(p) {
     if (p.ws) { try { p.ws.close(); } catch {} }
     clearTimeout(p.retryTimer);
+
+    // A fresh socket is a fresh session: the last one's keys, if it had any,
+    // are good for that socket alone (e2e.js's own doc). Anything still
+    // queued for it is stale -- held for a handshake, or waiting to be
+    // sealed, on a socket that is no longer this one.
+    clearTimeout(p.handshakeTimer);
+    p.handshake = null;
+    p.session = null;
+    p.pending = [];
+    p.sendQueue = Promise.resolve();
+    p.recvQueue = Promise.resolve();
 
     // A reconnect says how much of the pane's output this terminal already
     // holds, so it is sent only what it missed and keeps its scrollback and
@@ -3409,43 +3612,53 @@
       // tell, so the terminal that has the keyboard says again that it is the
       // one in use.
       if (document.hasFocus() && p.host.contains(document.activeElement)) sendFocus(p);
+      // The handshake, where one is expected, is the very first thing this
+      // socket sends -- ahead of the resize and focus notice just queued
+      // above, which ptySend holds until the handshake finishes one way or
+      // the other.
+      if (hostE2EPublicKey) beginHandshake(p, ws);
     };
     ws.onmessage = (ev) => {
-      // Text opens a run of the pane's output: where the bytes that follow
-      // begin, and whether they carry on from what this terminal shows or it
-      // has to start again -- the first time, after a restart, or when what it
-      // missed is more than the server still holds.
-      if (typeof ev.data === "string") {
-        let h;
-        try { h = JSON.parse(ev.data); } catch { return; }
-        // Reset in the stream's own order, as RIS written to it. reset()
-        // acts at once while write() only queues, so bytes of the old run
-        // still queued - a slow window dropped and reconnected, or a restart
-        // on the same socket - were drawn after it, on the fresh screen.
-        if (!h.resumed) p.term.write("\x1bc");
-        p.stream = { epoch: h.epoch, offset: h.offset, fresh: !h.resumed };
-        // The bytes up to h.end are history, printed before this window
-        // connected, and the terminal answers the questions in them - what
-        // it is, where its cursor is, what colour it is - as though they had
-        // just been asked. Until it has drawn the last of them, its answers
-        // are kept from the program (see isTerminalReply). A server that does
-        // not say where the replay ends leaves them all to go through.
-        p.replayGen = (p.replayGen || 0) + 1;
-        p.replayEnd = h.end > h.offset ? h.end : 0;
-        p.replaying = p.replayEnd > 0;
+      if (hostE2EPublicKey) {
+        // A desktop with a key on file gets nothing but this scheme from
+        // here: the one handshake response, then only sealed frames, ever
+        // again, on this socket. Anything else -- including a plain frame,
+        // which is what a relay stripping or corrupting the handshake to
+        // force a downgrade would have to substitute -- ends the connection
+        // rather than being read as though it were legitimate (see
+        // closeForFailedHandshake, matching this desktop's own
+        // internal/server/e2e.go, which refuses the same way).
+        if (p.session) {
+          if (typeof ev.data === "string") {
+            closeForFailedHandshake(p, ws, "a non-binary frame arrived on an encrypted terminal socket");
+            return;
+          }
+          const frame = new Uint8Array(ev.data);
+          const session = p.session;
+          p.recvQueue = p.recvQueue.then(() => session.open(frame)).then((plain) => {
+            if (p.ws !== ws || !plain.length) return;
+            if (plain[0] === FRAME_TEXT) handlePtyHeader(p, new TextDecoder().decode(plain.subarray(1)));
+            else handlePtyBinary(p, plain.subarray(1));
+          }).catch((err) => {
+            // Tampered with, reordered, dropped, or a bug on either end --
+            // there is no way to tell which, and no way to carry on reading
+            // a stream whose next frame might be any of those.
+            console.error("e2e: a frame from the desktop did not check out", err);
+            try { ws.close(); } catch { /* already closing */ }
+          });
+          return;
+        }
+        if (p.handshake && typeof ev.data !== "string") {
+          finishHandshake(p, ws, new Uint8Array(ev.data));
+          return;
+        }
+        closeForFailedHandshake(p, ws, "an unexpected frame arrived before the handshake finished");
         return;
       }
-      if (p.stream) { p.stream.offset += ev.data.byteLength; p.stream.fresh = false; }
-      const bytes = new Uint8Array(ev.data);
-      if (p.replayEnd && p.stream && p.stream.offset >= p.replayEnd) {
-        // The last of the replay. Once the terminal has drawn it, answers
-        // are the program's again - unless another run has begun since.
-        p.replayEnd = 0;
-        const gen = p.replayGen;
-        p.term.write(bytes, () => { if (p.replayGen === gen) p.replaying = false; });
-        return;
-      }
-      p.term.write(bytes);
+      // No key on file for this desktop at all -- today's plain terminal,
+      // byte for byte unchanged.
+      if (typeof ev.data === "string") { handlePtyHeader(p, ev.data); return; }
+      handlePtyBinary(p, new Uint8Array(ev.data));
     };
     ws.onclose = (ev) => {
       ev = ev || {};
@@ -3538,9 +3751,7 @@
     const { cols, rows } = p.term;
     if (!cols || !rows || (cols === p.cols && rows === p.rows)) return;
     p.cols = cols; p.rows = rows;
-    if (p.ws && p.ws.readyState === WebSocket.OPEN) {
-      p.ws.send(JSON.stringify({ resize: { cols, rows } }));
-    }
+    ptySend(p, JSON.stringify({ resize: { cols, rows } }), true);
   }
 
   /* A status push carries the whole workspace and arrives every time any agent
@@ -6326,6 +6537,15 @@
   function applyHello(msg) {
     applyKeyTable(msg.keys || []);
     remoteWindow = !!msg.remote;
+    hostE2EPublicKey = msg.e2ePublicKey || null;
+    // A window reached through the relay registers its own end-to-end key
+    // with it (FlockdeckE2E.ensureRegistered, POST /.flockdeck-e2e-key)
+    // before it is needed: the terminal sockets connectPTY opens next read
+    // hostE2EPublicKey and, once set, are never served unencrypted, so the
+    // relay must already have this window's half of the handshake by then.
+    // A window on the desktop itself has no relay to register with, and
+    // hostE2EPublicKey is never set for one anyway (help.go's sendHello).
+    if (remoteWindow && window.FlockdeckE2E) FlockdeckE2E.ensureRegistered();
     // The hello is what the server holds, after a drop that may have taken
     // changes sent from here with it, so nothing sent before it is waited on.
     pendingPrefs.clear();
