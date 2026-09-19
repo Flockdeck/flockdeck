@@ -3545,6 +3545,51 @@ assert.strictEqual(new TextDecoder().decode(ws.sent.pop()), "ls\r", "a keystroke
 `)
 }
 
+// The one close pty.go gives for a reason retrying can never fix -- its
+// end-to-end handshake failing, which by design never falls back to
+// plaintext for whoever is in the middle to strip -- covers the terminal
+// with why, instead of reconnecting forever with the pane left blank and no
+// word of what is wrong.
+func TestAPtyRefusedForEndToEndFailureIsNotRetried(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const before = h.sockets.length;
+const ws = h.sockets.find((s) => s.url.includes("/ws/pty?id=p1"));
+ws.onopen();
+ws.onclose({ code: 1008, reason: "end-to-end handshake failed" });
+await h.sleep(50);
+assert.strictEqual(h.sockets.length, before, "a refused handshake reconnected anyway");
+const box = h.terms[0].host.parentElement.querySelector("div.pane-error");
+assert.ok(box, "nothing said the connection was refused");
+assert.match(box.textContent, /end-to-end handshake failed/);
+
+// Pressing Try again does what its name says, and only then.
+const retry = [...box.querySelectorAll("button")].find((b) => b.textContent === "Try again");
+assert.ok(retry, "no way to try again was offered");
+h.click(retry);
+assert.strictEqual(h.sockets.length, before + 1, "Try again did not open a fresh socket");
+assert.equal(h.terms[0].host.parentElement.querySelector("div.pane-error"), null, "the cover stayed up after trying again");
+`)
+}
+
+// An ordinary drop -- no special code, the tunnel itself blinking or the
+// session behind the pane restarting -- is retried exactly as it always
+// was, unaffected by the refusal above being left uncovered instead.
+func TestAnOrdinaryPtyDropIsStillRetried(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const before = h.sockets.length;
+const ws = h.sockets.find((s) => s.url.includes("/ws/pty?id=p1"));
+ws.onopen();
+ws.onclose({});
+await h.sleep(400);
+assert.strictEqual(h.sockets.length, before + 1, "an ordinary drop was not reconnected");
+assert.equal(h.terms[0].host.parentElement.querySelector("div.pane-error"), null, "an ordinary drop covered the terminal");
+`)
+}
+
 // Restart on an exited pane's cover had the keyboard, and when the cover went
 // with the process back, the keyboard went with it - onto nothing, so what was
 // typed next reached no pane until something was clicked.
