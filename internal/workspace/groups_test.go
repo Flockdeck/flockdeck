@@ -102,6 +102,41 @@ func TestAddRepoToGroupJoinsWithoutANewSwitcherEntry(t *testing.T) {
 	}
 }
 
+// TestAddRepoToGroupAcceptsADirectoryWithNoGitRepository checks that a
+// member need not be a git repository at all: AddRepoToGroup only checks
+// that the path is a directory (see openProjectInto), and ProjectRepos --
+// what the worktrees panel fans its listing out across -- lists a plain
+// folder alongside a repo exactly the same way.
+func TestAddRepoToGroupAcceptsADirectoryWithNoGitRepository(t *testing.T) {
+	isolateConfig(t)
+	ws, first, second := twoProjects(t)
+	primary, err := ws.NewGroupFrom([]string{first, second}, "platform")
+	if err != nil {
+		t.Fatalf("group: %v", err)
+	}
+
+	// Deliberately not a git repository: no .git anywhere in it, and nothing
+	// about AddRepoToGroup or the group it joins requires one.
+	docs := t.TempDir()
+	if err := ws.AddRepoToGroup(primary, docs); err != nil {
+		t.Fatalf("add a plain directory to the group: %v", err)
+	}
+
+	repos := ws.ProjectRepos(primary)
+	if len(repos) != 3 {
+		t.Fatalf("ProjectRepos = %d, want 3", len(repos))
+	}
+	found := false
+	for _, r := range repos {
+		if sameDir(r.Root, docs) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("ProjectRepos %+v does not list the plain directory %q", repos, docs)
+	}
+}
+
 // TestRemoveRepoFromGroupSplitsItOutWithoutClosingIt checks ungrouping: the
 // repo stays open, with its tabs intact, but reads as its own project again.
 func TestRemoveRepoFromGroupSplitsItOutWithoutClosingIt(t *testing.T) {

@@ -158,6 +158,19 @@ type Pane struct {
 	// without a prompt, so a person who turned it on has something to see for
 	// it. It is not persisted either.
 	AutoApproved int
+	// PeerName is the name another Claude session would use to address this
+	// pane -- SendMessage's "to", the way ListAgents shows it -- reported by
+	// the agent running inside it via `flockdeck peer-name <name>`, typically
+	// once it has learned its own name by calling ListAgents itself. Flockdeck
+	// cannot discover this on its own: it is assigned by infrastructure
+	// outside this application entirely, so it starts empty and stays that way
+	// until a pane's own agent chooses to report it -- see
+	// hooks.PeerNameRequest and SetPanePeerName.
+	//
+	// Not persisted, like Muted: a restarted pane is a new process, which
+	// that infrastructure may address under a different name entirely, and a
+	// stale one shown as current would be worse than none.
+	PeerName string
 }
 
 // Alive reports whether the pane has a running process.
@@ -480,8 +493,18 @@ func New(opts Options) (*Workspace, error) {
 		return nil, err
 	}
 	srv.SetReviewHandler(w.reviewTool)
+	srv.SetPeerNameHandler(w.peerNameReported)
 	w.hookSrv = srv
 	return w, nil
+}
+
+// peerNameReported applies a pane's own report of its peer name -- see
+// hooks.SetPeerNameHandler, which this is installed as.
+func (w *Workspace) peerNameReported(req hooks.PeerNameRequest) error {
+	if !w.SetPanePeerName(req.Pane, strings.TrimSpace(req.Name)) {
+		return fmt.Errorf("no pane %q is open here", req.Pane)
+	}
+	return nil
 }
 
 // HookServer is the loopback API panes call back on, so the server can install
@@ -2451,6 +2474,30 @@ func (w *Workspace) SetPaneAutoReview(id string, on bool) bool {
 	changed := p != nil && p.AutoReview != on
 	if changed {
 		p.AutoReview = on
+	}
+	w.mu.Unlock()
+	if p == nil {
+		return false
+	}
+	if changed {
+		w.wake()
+	}
+	return true
+}
+
+// SetPanePeerName records the name another Claude session would use to
+// address this pane -- see Pane.PeerName. It reports whether the pane was
+// found, which is false for one already closed, and is what
+// hooks.SetPeerNameHandler's installed function is refused by.
+//
+// It writes under w.mu, the same as SetPaneAutoReview: the hook server calls
+// this directly from its own goroutine, not the one that owns the workspace.
+func (w *Workspace) SetPanePeerName(id, name string) bool {
+	w.mu.Lock()
+	p := w.panes[id]
+	changed := p != nil && p.PeerName != name
+	if changed {
+		p.PeerName = name
 	}
 	w.mu.Unlock()
 	if p == nil {

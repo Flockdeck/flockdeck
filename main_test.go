@@ -131,6 +131,7 @@ func TestHelpArgs(t *testing.T) {
 		{[]string{"update"}, []string{"update", "-h"}, false},
 		{[]string{"remote", "pair"}, []string{"remote", "-h"}, false},
 		{[]string{"spawn"}, []string{"spawn", "-h"}, false},
+		{[]string{"peer-name"}, []string{"peer-name", "-h"}, false},
 		{[]string{"hook"}, nil, true}, // hidden, so not something the usage offers
 		{[]string{"statusline"}, nil, true},
 		{[]string{"nonsense"}, nil, true},
@@ -187,6 +188,50 @@ func TestExplainSpawn(t *testing.T) {
 	refused := errors.New("spawn: worktree fix-auth already exists")
 	if got := explainSpawn(refused); got != refused {
 		t.Errorf("a refusal became %q", got)
+	}
+}
+
+// `peer-name -h` is a request for the usage it has just been given, not a
+// failure.
+func TestPeerNameHelpSucceeds(t *testing.T) {
+	if err := runPeerName([]string{"-h"}); err != nil {
+		t.Errorf("runPeerName(-h) = %v, want nil", err)
+	}
+}
+
+// A flag the set has already complained about must not be reported twice.
+func TestPeerNameBadFlagIsReportedOnce(t *testing.T) {
+	err := runPeerName([]string{"-nosuchflag"})
+	if !errors.Is(err, errReported) {
+		t.Errorf("runPeerName(-nosuchflag) = %v, want errReported", err)
+	}
+}
+
+// Outside a pane there is no address to report through, and the message has
+// to say that rather than blaming the name.
+func TestPeerNameOutsideAPaneExplainsItself(t *testing.T) {
+	t.Setenv("FLOCKDECK_API", "")
+	t.Setenv("FLOCKDECK_TOKEN", "")
+	t.Setenv("PERCH_API", "")
+	t.Setenv("PERCH_TOKEN", "")
+
+	err := runPeerName([]string{"flockdeck-8d"})
+	if err == nil || !strings.Contains(err.Error(), "pane") {
+		t.Errorf("err = %v, want it to mention panes", err)
+	}
+}
+
+// A name is the one thing this command exists to carry, so nothing is sent
+// without one, and typing none is answered with the usage rather than a
+// request that names nothing.
+func TestPeerNameRequiresAName(t *testing.T) {
+	t.Setenv("FLOCKDECK_API", "http://127.0.0.1:1")
+	t.Setenv("FLOCKDECK_TOKEN", "secret")
+
+	for _, args := range [][]string{{}, {"   "}} {
+		if err := runPeerName(args); !errors.Is(err, errReported) {
+			t.Errorf("runPeerName(%q) = %v, want errReported", args, err)
+		}
 	}
 }
 

@@ -199,6 +199,32 @@ func TestEveryActionIsNamedOnItsOwnPage(t *testing.T) {
 	}
 }
 
+// Grouping several directories into one project shipped with no help page at
+// all -- discoverable only by finding the buttons. It belongs on the Projects
+// page, since that is the page the dialog's own "?" opens, and it has to say
+// a member does not need a git repository, which is the one thing about it
+// that is not obvious from the button labels alone.
+func TestProjectsPageDocumentsGrouping(t *testing.T) {
+	pages, err := Pages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projects *Page
+	for i := range pages {
+		if pages[i].Slug == "projects" {
+			projects = &pages[i]
+		}
+	}
+	if projects == nil {
+		t.Fatal("no projects page")
+	}
+	for _, want := range []string{"Group open projects", "Add directory", "does not need a git repository"} {
+		if !strings.Contains(projects.Text, want) {
+			t.Errorf("the projects page does not mention %q", want)
+		}
+	}
+}
+
 // The help is shown inside the application window, so a link out of it has to
 // open somewhere else rather than replace the interface.
 func TestExternalLinksOpenElsewhere(t *testing.T) {

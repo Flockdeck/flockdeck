@@ -221,6 +221,43 @@ func TestChangesOutsideARepository(t *testing.T) {
 	}
 }
 
+// TestReviewOfANonGitMemberInAGroupedProject checks a project that groups a
+// real git repository with a real plain folder: the folder's own working
+// tree still says plainly that there is nothing to review, rather than the
+// panel failing outright, and the git member goes on reviewing exactly as
+// it always has.
+func TestReviewOfANonGitMemberInAGroupedProject(t *testing.T) {
+	srv, ws, repo := newRepoServer(t)
+	plain := t.TempDir()
+	if err := ws.AddRepoToGroup(repo, plain); err != nil {
+		t.Fatalf("add repo: %v", err)
+	}
+
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	// A fresh decode target for each read: json.Unmarshal leaves a field
+	// untouched when the message omits it (Error is "omitempty"), so reusing
+	// one across reads would let the first response's error survive into the
+	// second's empty one.
+	var forPlain changesMsg
+	sendCmd(t, conn, command{Cmd: "changes", Path: plain})
+	readUntil(t, conn, "changes", &forPlain)
+	if forPlain.Error == "" || !strings.Contains(forPlain.Error, "not a git repository") {
+		t.Fatalf("error = %q, want a plain explanation that %s is not a git repository", forPlain.Error, plain)
+	}
+
+	var forRepo changesMsg
+	sendCmd(t, conn, command{Cmd: "changes", Path: repo})
+	readUntil(t, conn, "changes", &forRepo)
+	if forRepo.Error != "" {
+		t.Fatalf("changes: %s", forRepo.Error)
+	}
+	if forRepo.Branch != "main" {
+		t.Errorf("branch = %q, want main: the git member reviews as it always has", forRepo.Branch)
+	}
+}
+
 // TestAgentsListsEveryPane covers the cross-project overview.
 func TestAgentsListsEveryPane(t *testing.T) {
 	srv, _ := newTestServer(t)

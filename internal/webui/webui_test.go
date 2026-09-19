@@ -2404,7 +2404,7 @@ h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [
 const goes = h.$("overlay-body").querySelectorAll("button.proj-go");
 assert.strictEqual(goes.length, 1, "two open roots read as one project now");
 assert.ok(goes[0].textContent.includes("platform"), "the group's own name did not reach the row");
-assert.ok(goes[0].textContent.includes("2 repos"), "a grouped project's row still claimed a single path: " + goes[0].textContent);
+assert.ok(goes[0].textContent.includes("2 directories"), "a grouped project's row still claimed a single path: " + goes[0].textContent);
 
 // Renaming an open project reaches the live group by any of its members,
 // not the store's per-root name a closed project uses.
@@ -2442,22 +2442,69 @@ h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [
 h.click(h.$("overlay-body").querySelectorAll(".proj-member-row")[1].querySelector("button.icon-btn"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "removeRepoFromGroup", root: "C:/ui" });
 
-// "Add repo…" hands the existing folder browser over to addRepoToGroup
-// instead of openProject, and back to the project list rather than closing
-// the whole dialog once one is picked.
-const addRepo = Array.from(h.$("overlay-body").querySelectorAll("button")).find((b) => b.textContent === "Add repo\u2026");
-assert.ok(addRepo, "no way to add a repo to an open project");
+// "Add directory…" hands the existing folder browser over to
+// addRepoToGroup instead of openProject, and back to the project list
+// rather than closing the whole dialog once one is picked.
+const addRepo = Array.from(h.$("overlay-body").querySelectorAll("button")).find((b) => b.textContent === "Add directory\u2026");
+assert.ok(addRepo, "no way to add a directory to an open project");
 h.click(addRepo);
 h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [
   { name: "billing", path: "C:/repos/billing", isRepo: true },
 ] });
-assert.ok(h.$("overlay-body").textContent.includes("Add a repo to platform"), "the browser did not say which project it was adding to");
+assert.ok(h.$("overlay-body").textContent.includes("Add a directory to platform"), "the browser did not say which project it was adding to");
 const addBtn = h.$("overlay-body").querySelectorAll("div.dir-row")[0].querySelector("button.chip");
-assert.strictEqual(addBtn.textContent, "Add", "the per-row button still said Open while adding a repo");
+assert.strictEqual(addBtn.textContent, "Add", "the per-row button still said Open while adding a directory");
 h.click(addBtn);
 assert.deepStrictEqual(h.commands().pop(), { cmd: "addRepoToGroup", root: "C:/api", path: "C:/repos/billing" });
 assert.ok(!h.$("overlay").hidden, "adding a repo closed the whole dialog rather than returning to the project list");
 assert.ok(h.$("overlay-body").querySelector("button.proj-go"), "adding a repo left the browser up instead of the project list");
+`)
+}
+
+// A new tab has always opened wherever the implicit default was, which was
+// never a question for a project of one repo -- but a project spanning more
+// than one had no way at all to land a fresh tab in a member that was not
+// the active one, short of switching to it first. Each member row in its
+// own project's expanded list offers Agent and Shell directly, the same two
+// actions the Worktrees panel already offers per checkout.
+func TestNewTabFromAProjectsMemberRow(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/api", name: "platform", active: true, tabs: 2, waiting: 0, working: 0,
+    members: [{ root: "C:/api", name: "api" }, { root: "C:/ui", name: "ui" }] },
+] }));
+h.click(h.$("rail-open"));
+h.recv({ type: "recents", items: [] });
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [] });
+h.click(h.$("overlay-body").querySelector("button.proj-expand"));
+const rows = h.$("overlay-body").querySelectorAll(".proj-member-row");
+assert.strictEqual(rows.length, 2, "both members should be listed");
+
+const uiRow = Array.from(rows).find((r) => r.textContent.includes("ui"));
+const agentBtn = Array.from(uiRow.querySelectorAll("button")).find((b) => b.textContent === "Agent");
+assert.ok(agentBtn, "the member row offers no way to open an agent tab there");
+h.click(agentBtn);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "newTab", kind: "agent", path: "C:/ui" });
+assert.ok(h.$("overlay").hidden, "opening a tab from the member row left the dialog open");
+
+// Reopening does not forget the project was left expanded.
+h.click(h.$("rail-open"));
+h.recv({ type: "recents", items: [] });
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [] });
+const rows2 = h.$("overlay-body").querySelectorAll(".proj-member-row");
+const uiRow2 = Array.from(rows2).find((r) => r.textContent.includes("ui"));
+const shellBtn = Array.from(uiRow2.querySelectorAll("button")).find((b) => b.textContent === "Shell");
+h.click(shellBtn);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "newTab", kind: "shell", path: "C:/ui" });
+
+// A project of one repo has no member list at all, so nothing here applies
+// to it -- the common case stays exactly as it was.
+h.recv(fixture());
+h.click(h.$("rail-open"));
+h.recv({ type: "recents", items: [] });
+h.recv({ type: "browse", path: "C:/repos", parent: "C:/", places: [], entries: [] });
+assert.ok(!h.$("overlay-body").querySelector(".proj-member-row"), "a project of one repo should show no member rows");
 `)
 }
 
@@ -6942,6 +6989,78 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "newTab", kind: "agent", path:
 `)
 }
 
+// Creating a worktree in a project spanning more than one repo used to
+// silently always land in whichever repo happened to be active, with no
+// way to ask for another -- the repo picker beside the form is the same
+// question Changes' own picker already answers for review, and the
+// branches on offer follow whichever member is picked rather than mixing
+// every member's branches into one list.
+func TestWorktreeCreateOffersARepoPickerForAMultiRepoProject(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/api", name: "platform", active: true, tabs: 2, waiting: 0, working: 0,
+    members: [{ root: "C:/api", name: "api" }, { root: "C:/ui", name: "ui" }] },
+] }));
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/api", defaultBase: "main",
+  items: [{ label: "main", path: "C:/api", main: true, repo: "api", repoRoot: "C:/api" }],
+  branches: [
+    { name: "main", checkedIn: "main", repo: "api", repoRoot: "C:/api" },
+    { name: "feature-x", repo: "ui", repoRoot: "C:/ui" },
+  ] });
+
+// Defaults to the active repo, and only that repo's free branches show.
+const chips = () => Array.from(h.$("overlay-body").querySelector(".rev-repo-picker").querySelectorAll("button"));
+assert.deepStrictEqual(chips().map((b) => b.textContent), ["api", "ui"], "the picker did not list both members");
+assert.ok(!h.$("overlay-body").textContent.includes("feature-x"), "a branch of the other repo showed before it was picked");
+
+// Picking the other member switches which repo's free branches are on offer.
+h.click(chips().find((b) => b.textContent === "ui"));
+assert.ok(h.$("overlay-body").textContent.includes("feature-x"), "picking ui did not bring in its own branches");
+
+const branch = h.$("wt-branch");
+branch.value = "fix-auth";
+branch.focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeAdd", text: "fix-auth", base: "main", root: "C:/ui" },
+  "the new worktree did not target the repo picked");
+`)
+}
+
+// A project spanning more than one repo lists every member's worktrees
+// together, so each row has to say which repo it belongs to -- the same
+// information the create form's own picker uses, shown here as a plain tag
+// beside the worktree's own label. Left out for a project of one, which is
+// every project this list showed before one could span more than one repo.
+func TestWorktreeRowsShowWhichRepoTheyBelongToInAMultiRepoProject(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ projects: [
+  { root: "C:/api", name: "platform", active: true, tabs: 2, waiting: 0, working: 0,
+    members: [{ root: "C:/api", name: "api" }, { root: "C:/ui", name: "ui" }] },
+] }));
+h.click(h.$("btn-worktrees"));
+h.recv({ type: "worktrees", root: "C:/api", defaultBase: "main",
+  items: [
+    { label: "main", path: "C:/api", main: true, repo: "api", repoRoot: "C:/api" },
+    { label: "main", path: "C:/ui", main: true, repo: "ui", repoRoot: "C:/ui" },
+  ], branches: [] });
+const rows = h.$("overlay-body").querySelectorAll("div.wt-row");
+assert.strictEqual(rows.length, 2, "both members' checkouts should be listed");
+assert.ok(rows[0].textContent.includes("api"), "the first row did not say which repo it belongs to");
+assert.ok(rows[1].textContent.includes("ui"), "the second row did not say which repo it belongs to");
+
+// A project of one repo shows no such tag at all -- no other flag either,
+// here, so any ".wt-flag" found could only be a spurious repo tag.
+h.recv(fixture());
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main",
+  items: [{ label: "solo", path: "C:/repo" }], branches: [] });
+const soloRow = h.$("overlay-body").querySelector("div.wt-row");
+assert.ok(!soloRow.querySelector(".wt-flag"), "a project of one repo showed a repo tag on its own checkout");
+`)
+}
+
 // A redraw finds the control the keyboard was on by what it is, and by
 // wording alone one row's Remove is the next row's. Removing a clean worktree,
 // which does not ask, left the keyboard on the next one's Remove, and a second
@@ -7397,6 +7516,32 @@ assert.ok(label.includes("Jim's iPhone") && label.includes("Sam's iPad"),
 h.recv(fixture({ panes: { p1: pane("p1") } }));
 assert.strictEqual(remote().textContent, "", "the glyph stayed after every phone closed the pane");
 assert.ok(!remote().getAttribute("aria-label"), "the glyph's name stayed after every phone closed the pane");
+`)
+}
+
+// Flockdeck cannot learn the name another Claude session would address a
+// pane by on its own -- only the agent running inside it can, typically by
+// calling its own ListAgents tool, and it hands that back with `flockdeck
+// peer-name`. The header shows nothing until that happens, which is most
+// panes, most of the time, and the badge names it in its bubble once it
+// does.
+func TestThePaneHeaderShowsAReportedPeerName(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1") } }));
+const wrap = h.terms[0].host.parentElement.parentElement;
+const peer = () => wrap.querySelector(".pane-peer");
+assert.strictEqual(peer().textContent, "", "the badge showed before any name was reported");
+
+h.recv(fixture({ panes: { p1: pane("p1", { peerName: "flockdeck-8d" }) } }));
+assert.ok(peer().textContent.includes("flockdeck-8d"), "the badge does not show the reported name: " + peer().textContent);
+assert.ok((peer().dataset.tip || "").includes("flockdeck-8d"),
+  "the badge's bubble does not name it: " + peer().dataset.tip);
+
+// Nothing else exposes this once it is reported: it is not offered as
+// though Flockdeck itself could vouch for it.
+h.recv(fixture({ panes: { p1: pane("p1") } }));
+assert.strictEqual(peer().textContent, "", "the badge stayed after the pane no longer reported one");
 `)
 }
 

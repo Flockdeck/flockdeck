@@ -50,6 +50,15 @@ type branchView struct {
 	Upstream  string `json:"upstream"`
 	Current   bool   `json:"current"`
 	CheckedIn string `json:"checkedIn"`
+	// Repo and RepoRoot are which member repo of the project this branch
+	// belongs to, the same as worktreeView's own -- left out for a project
+	// nobody has grouped. Without these a project spanning more than one
+	// repo offered "Branches without a worktree" and a base-branch suggestion
+	// as one merged list, with no way to tell a branch of one repo from a
+	// same-named branch of another, or to know which repo checking one out
+	// would even run git in.
+	Repo     string `json:"repo,omitempty"`
+	RepoRoot string `json:"repoRoot,omitempty"`
 }
 
 type worktreesMsg struct {
@@ -217,7 +226,11 @@ func collectGroupWorktrees(repos []workspace.RepoSummary) worktreesMsg {
 			it.RepoRoot = repos[i].Root
 			out.Items = append(out.Items, it)
 		}
-		out.Branches = append(out.Branches, r.Branches...)
+		for _, b := range r.Branches {
+			b.Repo = repos[i].Name
+			b.RepoRoot = repos[i].Root
+			out.Branches = append(out.Branches, b)
+		}
 		if r.Error != "" {
 			errs = append(errs, repos[i].Name+": "+r.Error)
 		}

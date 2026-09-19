@@ -283,6 +283,89 @@ func TestSpawnReturnsPaneID(t *testing.T) {
 	}
 }
 
+// TestPeerNameRoundTrip is the happy path: the pane and the name it reported
+// reach the installed handler exactly as sent.
+func TestPeerNameRoundTrip(t *testing.T) {
+	srv, _ := newServer(t)
+	var got PeerNameRequest
+	srv.SetPeerNameHandler(func(req PeerNameRequest) error {
+		got = req
+		return nil
+	})
+
+	if err := PeerName(srv.BaseURL(), srv.Token(), "pane-1", "flockdeck-8d"); err != nil {
+		t.Fatalf("peer name: %v", err)
+	}
+	if got.Pane != "pane-1" || got.Name != "flockdeck-8d" {
+		t.Errorf("handler saw %+v, want the request as sent", got)
+	}
+}
+
+// TestPeerNameReportsRefusal checks that a handler's reason for refusing --
+// an unknown pane, most likely -- reaches the caller.
+func TestPeerNameReportsRefusal(t *testing.T) {
+	srv, _ := newServer(t)
+	srv.SetPeerNameHandler(func(PeerNameRequest) error {
+		return errors.New("no such pane")
+	})
+
+	err := PeerName(srv.BaseURL(), srv.Token(), "pane-1", "flockdeck-8d")
+	if err == nil || !strings.Contains(err.Error(), "no such pane") {
+		t.Fatalf("err = %v, want the handler's reason", err)
+	}
+}
+
+// TestPeerNameWithoutHandlerExplainsItself checks the refusal that carries no
+// body of its own still prints as something a reader can act on.
+func TestPeerNameWithoutHandlerExplainsItself(t *testing.T) {
+	srv, _ := newServer(t)
+
+	err := PeerName(srv.BaseURL(), srv.Token(), "pane-1", "flockdeck-8d")
+	if err == nil || strings.TrimSpace(err.Error()) == "" {
+		t.Fatalf("err = %v, want a message", err)
+	}
+}
+
+// TestPeerNameRejectsBadToken keeps this endpoint as closed to other local
+// processes as every other one is.
+func TestPeerNameRejectsBadToken(t *testing.T) {
+	srv, _ := newServer(t)
+	called := make(chan struct{}, 1)
+	srv.SetPeerNameHandler(func(PeerNameRequest) error {
+		called <- struct{}{}
+		return nil
+	})
+
+	if err := PeerName(srv.BaseURL(), "not-the-token", "pane-1", "flockdeck-8d"); err == nil {
+		t.Fatal("a report with the wrong token was accepted")
+	}
+	select {
+	case <-called:
+		t.Fatal("the peer-name handler ran for an unauthenticated request")
+	default:
+	}
+}
+
+// TestPeerNameRequiresAName checks the server refuses an empty name rather
+// than handing the handler nothing worth keeping.
+func TestPeerNameRequiresAName(t *testing.T) {
+	srv, _ := newServer(t)
+	called := make(chan struct{}, 1)
+	srv.SetPeerNameHandler(func(PeerNameRequest) error {
+		called <- struct{}{}
+		return nil
+	})
+
+	if err := PeerName(srv.BaseURL(), srv.Token(), "pane-1", "   "); err == nil {
+		t.Fatal("a blank name was accepted")
+	}
+	select {
+	case <-called:
+		t.Fatal("the peer-name handler ran for a blank name")
+	default:
+	}
+}
+
 // TestAnInterruptedToolIsReportedAsSuch covers Esc pressed while a tool runs:
 // the tool fails, Claude Code goes back to its prompt, and no Stop follows. A
 // tool that failed on its own is part of a turn that goes on.
