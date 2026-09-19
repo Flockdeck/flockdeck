@@ -402,17 +402,23 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
       <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_windows_arm64.zip"><span aria-hidden="true">↓</span> Windows (Arm)</a></li>
     </ul>
   </div>
-  <p class="aside">Each archive holds the program itself: unpack it and run it.
-     Its checksum is in that release's <code>checksums.txt</code>, and every
-     release is also on <a href="{{ .Repo }}/releases">GitHub</a>. The
-     binaries are not signed, so macOS and Windows may refuse to open a copy
-     downloaded in a browser. On macOS, run
-     <code>xattr -d com.apple.quarantine</code> on it, or allow it under
-     System Settings → Privacy &amp; Security; on Windows, choose More info →
+  <p class="aside">Each archive holds the program itself. On Linux and Windows
+     that is the one binary: unpack it and run it. On macOS it's a real,
+     double-clickable Flockdeck.app -- move it into Applications and open it
+     from there, the Dock or Spotlight. Its checksum is in that release's
+     <code>checksums.txt</code>, and every release is also on
+     <a href="{{ .Repo }}/releases">GitHub</a>. Flockdeck is ad-hoc signed but
+     not notarized by Apple (notarization needs a paid developer account), so
+     opening a copy downloaded in a browser still shows a one-time "Apple
+     could not verify this app" prompt the first time -- allow it under
+     System Settings → Privacy &amp; Security → Open Anyway, or run
+     <code>xattr -d com.apple.quarantine</code> on it. Windows may show a
+     similar SmartScreen prompt for a browser download; choose More info →
      Run anyway. The installers above leave no download mark, so they meet
      neither.</p>
   <p>The installer checks its download against the checksum written into the
-     installer itself, and installs it to <code>~/.local/bin</code>. On
+     installer itself, and installs it to <code>~/.local/bin</code> --
+     <code>~/Applications</code> on macOS, as a real Flockdeck.app. On
      Windows it goes to <code>%LOCALAPPDATA%\Programs\flockdeck</code> and
      adds a Start menu shortcut. With that in and checked, it moves you on to
      the latest release, if this page is older than that, by asking the copy
