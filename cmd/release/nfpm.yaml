@@ -1,0 +1,77 @@
+# nfpm's own spec for Flockdeck's .deb and .rpm, parsed and built in-process
+# by packagePlatform in main.go (github.com/goreleaser/nfpm/v2), the same way
+# writeTarGz and writeZip build the plain archives -- one spec, no dpkg-deb or
+# rpmbuild required on the machine that builds a release.
+#
+# ${NFPM_ARCH} and ${NFPM_VERSION} are filled in per platform/build by the Go
+# code that parses this file; every other path here is relative to the
+# repository root, which is where cmd/release already requires being run from
+# (see checkExtras in main.go).
+name: "flockdeck"
+arch: "${NFPM_ARCH}"
+platform: "linux"
+version: "${NFPM_VERSION}"
+section: "utils"
+priority: "optional"
+maintainer: "Flockdeck <privacy@flockdeck.ai>"
+vendor: "Flockdeck"
+homepage: "https://flockdeck.ai"
+# Not an OSI/SPDX identifier -- there isn't one for this licence -- but this
+# is the name PolyForm itself gives it, and matches LICENSE's own heading.
+license: "PolyForm Noncommercial 1.0.0"
+description: |
+  Run coding agents side by side, each in its own pane.
+  .
+  Flockdeck is a terminal multiplexer purpose-built for running several
+  coding agents (Claude Code and others) at once, each isolated in its own
+  pane, so their work never collides.
+rpm:
+  group: "Applications/Development"
+contents:
+  # The binary itself: built for this arch just before this spec is parsed,
+  # so its path is the one thing here that has to come from the environment
+  # rather than being a fixed repository path.
+  - src: "${NFPM_BINARY}"
+    dst: /usr/bin/flockdeck
+    file_info:
+      mode: 0755
+    expand: true
+  # Same 512x512 PNG the window itself uses (see linuxIconSource in main.go),
+  # placed where the hicolor icon theme looks for one -- unlike install.sh,
+  # which points a desktop entry straight at a path under the user's own
+  # $XDG_DATA_HOME because it has no icon theme directory to install into.
+  - src: build/appicon.png
+    dst: /usr/share/icons/hicolor/512x512/apps/flockdeck.png
+    file_info:
+      mode: 0644
+  - src: build/linux/flockdeck.desktop
+    dst: /usr/share/applications/flockdeck.desktop
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/doc/flockdeck/LICENSE
+    file_info:
+      mode: 0644
+  - src: THIRD-PARTY-NOTICES.md
+    dst: /usr/share/doc/flockdeck/THIRD-PARTY-NOTICES.md
+    file_info:
+      mode: 0644
+scripts:
+  postinstall: build/linux/postinstall.sh
+  postremove: build/linux/postremove.sh
+# The runtime libraries the cgo build links against (internal/appwindow's
+# Linux backend draws its window with GTK4/WebKitGTK): a bare tar.gz leaves
+# finding these to the reader, but a real package can just ask for them by
+# name, and each distro family names them differently, confirmed against a
+# clean ubuntu:24.04 and fedora:41 container (docker run --rm <image> ...;
+# apt-cache depends / rpm -qa after installing the -dev packages CI builds
+# against).
+overrides:
+  deb:
+    depends:
+      - libgtk-4-1
+      - libwebkitgtk-6.0-4
+  rpm:
+    depends:
+      - gtk4
+      - webkitgtk6.0

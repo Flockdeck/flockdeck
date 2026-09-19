@@ -18,8 +18,10 @@ package main
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -32,6 +34,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/goreleaser/nfpm/v2"
+	_ "github.com/goreleaser/nfpm/v2/deb"
+	_ "github.com/goreleaser/nfpm/v2/rpm"
 	"github.com/jmwri/flockdeck/internal/selfupdate"
 )
 
@@ -108,6 +113,18 @@ const linuxIconSource = "build/appicon.png"
 // linuxIconName is where linuxIconSource lands inside a Linux archive.
 const linuxIconName = "flockdeck.png"
 
+// nfpmSpec is nfpm's own config for Flockdeck's .deb and .rpm: one spec
+// builds both, parsed and built in-process by buildLinuxPackages below, the
+// same way writeTarGz and writeZip build the plain archives. See its own
+// comments for why the metadata lives there instead of here.
+//
+//go:embed nfpm.yaml
+var nfpmSpec []byte
+
+// linuxPackageFormats are the packaging formats nfpm builds for Linux,
+// alongside the tar.gz every platform gets.
+var linuxPackageFormats = []string{"deb", "rpm"}
+
 func main() {
 	var (
 		version  = flag.String("version", "dev", "version to stamp into the binaries and the file names")
@@ -165,17 +182,19 @@ func run(version, out, platformSpec string) error {
 	sums := map[string]string{}
 
 	for _, p := range picked {
-		name, err := packagePlatform(version, out, p.OS, p.Arch)
+		names, err := packagePlatform(version, out, p.OS, p.Arch)
 		if err != nil {
 			return err
 		}
 
-		sum, err := sha256File(filepath.Join(out, name))
-		if err != nil {
-			return err
+		for _, name := range names {
+			sum, err := sha256File(filepath.Join(out, name))
+			if err != nil {
+				return err
+			}
+			sums[name] = sum
+			fmt.Printf("%s  %s\n", sum[:12], name)
 		}
-		sums[name] = sum
-		fmt.Printf("%s  %s\n", sum[:12], name)
 	}
 
 	return writeSums(filepath.Join(out, "checksums.txt"), sums)
@@ -205,15 +224,16 @@ func runSums(out string) error {
 	return writeSums(filepath.Join(out, "checksums.txt"), sums)
 }
 
-// packagePlatform builds one platform and writes its archive to out, and
-// returns the archive's name. Windows gets the console twin (chatBinary)
-// beside the program; Linux gets an icon beside it too, for install.sh to
-// give the desktop entry it writes (see its own comment for why macOS and
-// Windows don't get one from here yet).
-func packagePlatform(version, out, goos, goarch string) (string, error) {
+// packagePlatform builds one platform and writes its archive(s) to out, and
+// returns their names. Windows gets the console twin (chatBinary) beside the
+// program; Linux gets an icon beside it too, for install.sh to give the
+// desktop entry it writes (see its own comment for why macOS and Windows
+// don't get one from here yet), and is also packaged as a .deb and a .rpm,
+// beside its tar.gz, by buildLinuxPackages.
+func packagePlatform(version, out, goos, goarch string) ([]string, error) {
 	built := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", binary, goos, goarch, ext(goos)))
 	if err := build(version, goos, goarch, built); err != nil {
-		return "", fmt.Errorf("build %s/%s: %w", goos, goarch, err)
+		return nil, fmt.Errorf("build %s/%s: %w", goos, goarch, err)
 	}
 	// files are built for this archive alone and removed once it is written;
 	// keep is shipped beside them but is a repository asset used by every
@@ -232,22 +252,22 @@ func packagePlatform(version, out, goos, goarch string) (string, error) {
 	if goos == "windows" {
 		program, err := os.ReadFile(built)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		data, ok := selfupdate.ConsoleTwin(program)
 		if !ok {
-			return "", fmt.Errorf("%s/%s: the build is not a GUI-subsystem program to make %s from", goos, goarch, chatBinary)
+			return nil, fmt.Errorf("%s/%s: the build is not a GUI-subsystem program to make %s from", goos, goarch, chatBinary)
 		}
 		twin := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", chatBinary, goos, goarch, ext(goos)))
 		if err := os.WriteFile(twin, data, 0o755); err != nil {
-			return "", err
+			return nil, err
 		}
 		files = append(files, archived{twin, chatBinary + ext(goos)})
 	}
 
 	if goos == "linux" {
 		if _, err := os.Stat(linuxIconSource); err != nil {
-			return "", fmt.Errorf("%s/%s: %s carries the icon install.sh gives the Linux desktop entry, and cannot be missing: %w", goos, goarch, linuxIconSource, err)
+			return nil, fmt.Errorf("%s/%s: %s carries the icon install.sh gives the Linux desktop entry, and cannot be missing: %w", goos, goarch, linuxIconSource, err)
 		}
 		keep = append(keep, archived{linuxIconSource, linuxIconName})
 	}
@@ -262,7 +282,21 @@ func packagePlatform(version, out, goos, goarch string) (string, error) {
 		err = writeTarGz(archive, files, keep)
 	}
 	if err != nil {
-		return "", fmt.Errorf("package %s: %w", name, err)
+		return nil, fmt.Errorf("package %s: %w", name, err)
+	}
+	names := []string{name}
+
+	// A real .deb and .rpm, beside the tar.gz: apt/dnf resolve the GTK4 and
+	// WebKitGTK runtime libraries in the archive's stead, and both show
+	// Flockdeck in an app menu without install.sh's own best-effort dance
+	// (see nfpm.yaml's own comments). Built from the binary still sitting at
+	// built, before the loop below removes it.
+	if goos == "linux" {
+		pkgs, err := buildLinuxPackages(version, out, goarch, built)
+		if err != nil {
+			return nil, fmt.Errorf("package %s/%s as .deb/.rpm: %w", goos, goarch, err)
+		}
+		names = append(names, pkgs...)
 	}
 
 	// The loose binaries have been folded into the archive and would only
@@ -271,10 +305,58 @@ func packagePlatform(version, out, goos, goarch string) (string, error) {
 	// scratch build product, and packaging another platform still needs it.
 	for _, f := range files {
 		if err := os.Remove(f.path); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
-	return name, nil
+	return names, nil
+}
+
+// buildLinuxPackages builds a .deb and a .rpm from nfpm.yaml, both named and
+// placed in out the way the tar.gz beside them is, and returns their names.
+// It runs in-process (github.com/goreleaser/nfpm/v2) rather than shelling
+// out to dpkg-deb or rpmbuild, so a release still needs no packaging tools
+// installed on the machine that builds it -- only a matching cgo toolchain
+// to build the binary itself, the same as every other Linux package here.
+func buildLinuxPackages(version, out, goarch, builtBinary string) ([]string, error) {
+	vars := map[string]string{
+		"NFPM_ARCH":    goarch,
+		"NFPM_VERSION": strings.TrimPrefix(version, "v"),
+		"NFPM_BINARY":  builtBinary,
+	}
+	cfg, err := nfpm.ParseWithEnvMapping(bytes.NewReader(nfpmSpec), func(k string) string { return vars[k] })
+	if err != nil {
+		return nil, fmt.Errorf("parse nfpm.yaml: %w", err)
+	}
+
+	var names []string
+	for _, format := range linuxPackageFormats {
+		info, err := cfg.Get(format)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", format, err)
+		}
+		if err := nfpm.Validate(info); err != nil {
+			return nil, fmt.Errorf("%s: %w", format, err)
+		}
+		packager, err := nfpm.Get(format)
+		if err != nil {
+			return nil, err
+		}
+
+		name := fmt.Sprintf("%s_%s_linux_%s.%s", binary, version, goarch, format)
+		f, err := os.Create(filepath.Join(out, name))
+		if err != nil {
+			return nil, err
+		}
+		err = packager.Package(info, f)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return nil, fmt.Errorf("build %s: %w", name, err)
+		}
+		names = append(names, name)
+	}
+	return names, nil
 }
 
 // clearOldArchives removes what an earlier run wrote to out. Archives of
