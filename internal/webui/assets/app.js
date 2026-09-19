@@ -2990,7 +2990,7 @@
     // see drawWithWebgl.
 
     p = { id, wrap, header, dot, name, project, branch, agent, peerName, remote, git, detail, usage, spend, limit, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, search, dropZone,
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
           shown: {} };
@@ -3402,7 +3402,7 @@
     p.ws = ws;
 
     ws.onopen = () => {
-      p.retries = 0;
+      p.connectedAt = Date.now();
       p.cols = p.rows = 0; // force the size to be re-reported
       scheduleFit(p);
       // A socket that reconnects is a new window as far as the server can
@@ -3447,16 +3447,79 @@
       }
       p.term.write(bytes);
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
+      ev = ev || {};
       if (p.ws !== ws) return;
       p.ws = null;
       // The server closes this stream whenever the session behind the pane
       // goes away - which includes restarting it. Reconnect so a restarted
       // pane comes back to life instead of sitting there dead.
       if (!panes.has(p.id)) return;
+      // PTY_REFUSED is the one close the server gives for a reason retrying
+      // never fixes -- pty.go's end-to-end handshake failing, which it never
+      // falls back from rather than silently downgrading to plaintext for
+      // whoever is in the middle to strip. Shown once, in the terminal
+      // itself, rather than reconnected forever with nothing on screen to
+      // say why.
+      if (ev.code === PTY_REFUSED) {
+        showPtyRefused(p, ev.reason);
+        return;
+      }
+      hidePtyRefused(p);
+      // A connection that held a good while and then dropped is a new
+      // problem, not the next failure of one already failing -- the same
+      // idea internal/remote/connector.go's own stableAfter backs off by, on
+      // the desktop's own end of the tunnel this pty is reached through.
+      // Without it, a socket that opens and is refused at once (PTY_REFUSED
+      // aside, in case the server ever closes some other way just as fast)
+      // never builds up a wait at all: onopen already ran, so the next
+      // failure looks like the first one again, forever.
+      if (p.connectedAt && Date.now() - p.connectedAt >= PTY_RETRY_STABLE_MS) p.retries = 0;
       const delay = Math.min(250 * Math.pow(2, p.retries++), 3000);
       p.retryTimer = setTimeout(() => { if (panes.has(p.id)) connectPTY(p); }, delay);
     };
+  }
+
+  // PTY_REFUSED is websocket.StatusPolicyViolation (internal/server/pty.go):
+  // 1008 in the standard close-code space, which the code is defined in
+  // rather than in this library's own numbering.
+  const PTY_REFUSED = 1008;
+  // PTY_RETRY_STABLE_MS is how long a pty socket has to have stayed open for
+  // the next drop to reset the retry backoff -- see connectPTY's onclose.
+  const PTY_RETRY_STABLE_MS = 1000;
+
+  /** showPtyRefused covers the terminal with why its socket will not be
+   *  retried, the same way renderPaneOverlay covers one whose process has
+   *  exited -- but tracked apart from it (p.wsOverlay, not p.overlay): the
+   *  process behind the pane is not the problem here and may be running
+   *  fine, so a state push saying so must not be read as clearing this. */
+  function showPtyRefused(p, reason) {
+    const text = reason || "the connection was refused";
+    if (p.wsOverlay) {
+      if (p.wsOverlayText.textContent !== text) p.wsOverlayText.textContent = text;
+      return;
+    }
+    const box = el("div", "pane-error");
+    box.setAttribute("role", "alert");
+    p.wsOverlayText = el("div", null, text);
+    box.append(p.wsOverlayText);
+    const retry = el("button", "chip primary", "Try again");
+    retry.onclick = () => { hidePtyRefused(p); p.retries = 0; connectPTY(p); };
+    box.append(retry);
+    p.body.append(box);
+    p.wsOverlay = box;
+  }
+
+  /** hidePtyRefused takes the cover down, once a fresh attempt is under way
+   *  (connectPTY's own onclose, and Try again above) or the socket dropped
+   *  for an ordinary reason after all. A pane closed for good needs no call
+   *  of its own: prunePanes removes the whole pane, this cover included. */
+  function hidePtyRefused(p) {
+    if (!p.wsOverlay) return;
+    const held = p.wsOverlay.contains(document.activeElement);
+    p.wsOverlay.remove();
+    p.wsOverlay = p.wsOverlayText = null;
+    if (held) p.term.focus();
   }
 
   function scheduleFit(p) {
