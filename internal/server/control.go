@@ -373,6 +373,14 @@ type paneView struct {
 	// Empty until reported, which is every pane that never runs `flockdeck
 	// peer-name`.
 	PeerName string `json:"peerName,omitempty"`
+	// Task is the opening prompt the pane was started with (see Pane.Task),
+	// in full. Both Name (the pane's own directory) and a tab's title (see
+	// tabView.Title) are cut short -- Name to a bare folder that says nothing
+	// about what the pane is doing, and a title to a couple of words that fit
+	// the strip -- so this is the one place a pane's own task is ever sent
+	// whole. Left out for a shell, and for an agent pane started with no
+	// opening prompt at all.
+	Task string `json:"task,omitempty"`
 	// RemoteViewers is the device name of every window reached through the
 	// relay that has this pane open right now, in its chat view or its
 	// terminal -- so a window at the desk can show that a phone, its own
@@ -680,6 +688,7 @@ func (s *Server) snapshot() stateMsg {
 				AutoReview:   p.AutoReview,
 				AutoApproved: p.AutoApproved,
 				PeerName:     p.PeerName,
+				Task:         p.Task,
 			}
 			pv.RemoteViewers = s.remoteViewersFor(p.ID)
 			pv.RemoteInsecure = remoteTermViewers.insecure(p.ID)
