@@ -50,7 +50,7 @@ type Manager struct {
 	// Client or Reload's own bookkeeping.
 	e2eMu          sync.Mutex
 	e2ePriv        *ecdh.PrivateKey
-	e2eRosterCache map[string]string
+	e2eRosterCache map[string]Device
 	e2eRosterAt    time.Time
 	e2eRegErr      error
 	e2eRegAt       time.Time

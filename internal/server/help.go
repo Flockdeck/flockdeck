@@ -28,6 +28,13 @@ type helloMsg struct {
 	// remote access off or on, set an API key. The snapshot cannot say it,
 	// being one message broadcast to every window alike.
 	Remote bool `json:"remote,omitempty"`
+	// E2EPublicKey is this machine's own end-to-end public key (internal/e2e),
+	// base64url, given only to a window reached through the relay: the "host"
+	// side of the StartDeviceHandshake it runs for each terminal socket it
+	// opens here. Left out for a local window, which needs nothing to
+	// encrypt against itself, and for a remote one before this machine has
+	// made an identity of its own yet.
+	E2EPublicKey string `json:"e2ePublicKey,omitempty"`
 }
 
 // keyView is one action as a window is told of it: help.Key, with whether
@@ -44,7 +51,13 @@ type keyView struct {
 // sendHello gives a freshly connected window the key table and the prefs. It
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
-	data, err := json.Marshal(helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: s.prefs, Remote: c.remote})
+	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: s.prefs, Remote: c.remote}
+	if c.remote {
+		if ra := s.remoteAccess(); ra != nil {
+			msg.E2EPublicKey = ra.E2EPublicKey()
+		}
+	}
+	data, err := json.Marshal(msg)
 	if err != nil {
 		return
 	}

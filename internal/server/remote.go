@@ -49,9 +49,16 @@ type RemoteAccess interface {
 	// encrypting one terminal socket (internal/e2e); see handlePTY's use of
 	// both. E2ECapable answers false, never an error, for anything that
 	// stops it finding out -- which handlePTY takes the same way as "no", by
-	// serving the terminal unencrypted rather than refusing it.
-	E2ECapable(ctx context.Context, deviceID string) bool
-	E2ERespond(ctx context.Context, deviceID string, hello []byte) (*e2e.Session, []byte, error)
+	// serving the terminal unencrypted rather than refusing it. origin says
+	// which of a device's two keys (remote.KeyOrigin's own doc) the socket
+	// this terminal is reached through calls for.
+	E2ECapable(ctx context.Context, deviceID string, origin remote.KeyOrigin) bool
+	E2ERespond(ctx context.Context, deviceID string, origin remote.KeyOrigin, hello []byte) (*e2e.Session, []byte, error)
+	// E2EPublicKey is this machine's own end-to-end public key, for a window
+	// reached through the full interface to answer a terminal's handshake
+	// with as the "host" side -- see sendHello's own use of it, and
+	// remote.Manager.E2EPublicKey's doc. "" where there is none yet.
+	E2EPublicKey() string
 }
 
 type remoteHolder struct{ RemoteAccess }

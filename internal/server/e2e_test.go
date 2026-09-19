@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,19 +22,38 @@ import (
 // fakeRemote's usual stand-in. It lets a test play the browser's side of a
 // handshake against handlePTY's real host-side code, without a relay or a
 // real device anywhere in the picture.
+//
+// It does not itself tell a device's two keys apart -- that is
+// internal/remote's own job, covered directly by e2ekey_test.go's
+// TestE2EOriginPicksTheRightKey -- but it records the origin handlePTY
+// called it with, in gotOrigin, so a test here can check handlePTY read
+// Flockdeck-Remote-Origin correctly without needing two real keys of its
+// own (see TestPTYPassesTheOriginHeaderThrough).
 type e2eFakeRemote struct {
 	fakeRemote
 	// capable is the set of device ids E2ECapable answers true for.
 	capable   map[string]bool
 	hostPriv  *ecdh.PrivateKey
 	devicePub map[string]*ecdh.PublicKey
+
+	mu         sync.Mutex
+	gotOrigins []remote.KeyOrigin
 }
 
-func (f *e2eFakeRemote) E2ECapable(_ context.Context, deviceID string) bool {
+func (f *e2eFakeRemote) E2ECapable(_ context.Context, deviceID string, origin remote.KeyOrigin) bool {
+	f.mu.Lock()
+	f.gotOrigins = append(f.gotOrigins, origin)
+	f.mu.Unlock()
 	return f.capable[deviceID]
 }
 
-func (f *e2eFakeRemote) E2ERespond(_ context.Context, deviceID string, hello []byte) (*e2e.Session, []byte, error) {
+func (f *e2eFakeRemote) lastOrigin() remote.KeyOrigin {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gotOrigins[len(f.gotOrigins)-1]
+}
+
+func (f *e2eFakeRemote) E2ERespond(_ context.Context, deviceID string, _ remote.KeyOrigin, hello []byte) (*e2e.Session, []byte, error) {
 	pub := f.devicePub[deviceID]
 	if pub == nil {
 		return nil, nil, remote.ErrNoE2EKey
@@ -172,6 +192,61 @@ func TestPTYEndToEndEncryptsWhenBothSidesHaveAKey(t *testing.T) {
 	waitFor(t, func() bool {
 		return !remoteTermViewers.insecure(paneID)
 	})
+}
+
+// A pane's own terminal socket can be reached the usual way and through this
+// host's own full interface within the same run, and each has to answer with
+// the right one of a device's two keys (store's own doc on
+// Device.DeskPublicKey, in flockdeck-relay). handlePTY tells them apart by
+// Flockdeck-Remote-Origin -- relay-set, never something a browser sends
+// itself -- which this checks reaches E2ECapable as KeyOriginUsual when
+// absent and KeyOriginDesk when set to "desk", without needing a real
+// handshake to complete either way.
+func TestPTYPassesTheOriginHeaderThrough(t *testing.T) {
+	srv, ws := newTestServer(t)
+	paneID, ok := ask(srv, func() string { return ws.CurrentTab().Focus })
+	if !ok || paneID == "" {
+		t.Fatal("could not find the test pane")
+	}
+	fake := &e2eFakeRemote{capable: map[string]bool{}}
+	srv.SetRemote(fake)
+	ts := remoteServer(t, srv)
+
+	dial := func(origin string) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		h := http.Header{}
+		h.Set("Origin", ts.URL)
+		h.Set("Flockdeck-Remote-Device", "d1")
+		if origin != "" {
+			h.Set("Flockdeck-Remote-Origin", origin)
+		}
+		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/pty?id="+paneID,
+			&websocket.DialOptions{HTTPHeader: h})
+		if err != nil {
+			t.Fatalf("dial pty through the tunnel: %v", err)
+		}
+		conn.CloseNow()
+	}
+
+	dial("")
+	if got := fake.lastOrigin(); got != remote.KeyOriginUsual {
+		t.Errorf("with no Flockdeck-Remote-Origin, E2ECapable was asked about origin %v, want KeyOriginUsual", got)
+	}
+
+	dial("desk")
+	if got := fake.lastOrigin(); got != remote.KeyOriginDesk {
+		t.Errorf("with Flockdeck-Remote-Origin: desk, E2ECapable was asked about origin %v, want KeyOriginDesk", got)
+	}
+
+	// Anything else the header could hold -- there is no third origin today,
+	// but nothing should crash or default to KeyOriginDesk by accident --
+	// is the same as absent.
+	dial("something-else")
+	if got := fake.lastOrigin(); got != remote.KeyOriginUsual {
+		t.Errorf("with an unrecognised Flockdeck-Remote-Origin, E2ECapable was asked about origin %v, want KeyOriginUsual", got)
+	}
 }
 
 // TestPTYRefusesAHandshakeThatFailsRatherThanFallingBack covers the

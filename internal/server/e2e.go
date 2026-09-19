@@ -9,6 +9,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/jmwri/flockdeck/internal/e2e"
+	"github.com/jmwri/flockdeck/internal/remote"
 )
 
 // End-to-end encrypting a terminal reached through the relay (see
@@ -60,7 +61,7 @@ var e2eHandshakeTimeout = 10 * time.Second
 // closes the socket rather than falling back to plaintext, since a relay
 // stripping a genuine hello to force that fallback is exactly the downgrade
 // this is guarding against.
-func (s *Server) e2eHandshake(ctx context.Context, ra RemoteAccess, conn *websocket.Conn, device string) (*e2e.Session, error) {
+func (s *Server) e2eHandshake(ctx context.Context, ra RemoteAccess, conn *websocket.Conn, device string, origin remote.KeyOrigin) (*e2e.Session, error) {
 	hctx, cancel := context.WithTimeout(ctx, e2eHandshakeTimeout)
 	defer cancel()
 	typ, hello, err := conn.Read(hctx)
@@ -70,7 +71,7 @@ func (s *Server) e2eHandshake(ctx context.Context, ra RemoteAccess, conn *websoc
 	if typ != websocket.MessageBinary {
 		return nil, errors.New("the handshake hello arrived as a text frame, not binary")
 	}
-	sess, response, err := ra.E2ERespond(ctx, device, hello)
+	sess, response, err := ra.E2ERespond(ctx, device, origin, hello)
 	if err != nil {
 		return nil, fmt.Errorf("respond to the handshake: %w", err)
 	}
