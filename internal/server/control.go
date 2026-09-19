@@ -368,6 +368,11 @@ type paneView struct {
 	// far. See Pane.AutoReview and Pane.AutoApproved.
 	AutoReview   bool `json:"autoReview,omitempty"`
 	AutoApproved int  `json:"autoApproved,omitempty"`
+	// PeerName is the name another Claude session would use to address this
+	// pane, reported by the agent running inside it -- see Pane.PeerName.
+	// Empty until reported, which is every pane that never runs `flockdeck
+	// peer-name`.
+	PeerName string `json:"peerName,omitempty"`
 	// RemoteViewers is the device name of every window reached through the
 	// relay that has this pane open right now, in its chat view or its
 	// terminal -- so a window at the desk can show that a phone, its own
@@ -674,6 +679,7 @@ func (s *Server) snapshot() stateMsg {
 				Muted:        p.Muted,
 				AutoReview:   p.AutoReview,
 				AutoApproved: p.AutoApproved,
+				PeerName:     p.PeerName,
 			}
 			pv.RemoteViewers = s.remoteViewersFor(p.ID)
 			pv.RemoteInsecure = remoteTermViewers.insecure(p.ID)

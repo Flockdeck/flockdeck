@@ -657,6 +657,11 @@ textarea:focus-visible {
 /* The routing arrow keeps its place when the label is cut, and its space,
  * which a flex item would otherwise drop from the start of its text. */
 .pane-agent .agent-route { flex: none; white-space: pre; }
+/* Shown only once this pane's own agent has reported the name another
+ * Claude session would address it by (`flockdeck peer-name`) -- rare, so it
+ * reads the same quiet way the branch and agent badges do rather than
+ * calling attention to itself. */
+.pane-peer { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Shown only while a phone has this pane open, in its chat view or its
  * terminal -- quiet on purpose, a glyph and nothing else, so it says "someone
  * else may be here" without competing with the branch and agent for the eye.

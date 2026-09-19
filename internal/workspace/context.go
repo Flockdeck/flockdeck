@@ -455,6 +455,20 @@ func (c PaneContext) render(viaPrompt bool) string {
 	if c.Task != "" && !viaPrompt {
 		fmt.Fprintf(&b, "- You were started with this task: %s\n", oneLine(c.Task, ownTaskLimit))
 	}
+	if c.CanSpawn {
+		// CanSpawn really means "the hook server this needs is running" --
+		// spawning is just the first thing that needed it.
+		flockdeck := shellWord(c.SpawnCommand)
+		if flockdeck == "" {
+			flockdeck = "flockdeck"
+		}
+		fmt.Fprintf(&b, "- If you have cross-session messaging tools (such as ListAgents or "+
+			"SendMessage), the address another session would use to reach you is unrelated to "+
+			"this pane's name above, and Flockdeck has no way to know it on its own -- it is "+
+			"assigned by infrastructure outside this application entirely. Check it yourself "+
+			"where it matters, and if you want it shown in this pane's own header, run `%s "+
+			"peer-name <name>`.\n", flockdeck)
+	}
 	b.WriteString("- Your conversation belongs to this pane alone. It is resumed when the pane is " +
 		"restored, so what you say here outlives the window.\n")
 

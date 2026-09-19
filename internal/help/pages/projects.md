@@ -47,6 +47,31 @@ own that closes it.
 The browser is served by the Go side rather than by the page, because a web
 page cannot be handed a real directory path.
 
+## Grouping several directories into one project
+
+A project can be more than one directory — sibling repositories, or a repo
+alongside a plain folder of docs or notes — treated as one: they share a
+name and a tile in the rail, the switcher shows one entry instead of several
+unrelated-looking ones, and an agent in one can see what the others are
+doing.
+
+**Group open projects…**, in the command palette, ticks two or more of the
+projects already open and merges them into one, named however you like.
+**Add directory…**, offered on an existing project's own row, adds another
+into it without leaving the dialog — the same browser used to open a
+project, which flags git repositories but does not require one: a plain
+folder joins just as readily.
+
+A grouped project's row expands (▸ / ▾) to show every member. Each one
+offers **go to it** directly rather than wherever the project was last left,
+an **Agent** or **Shell** button to open a tab there without switching
+first, and **×** to split it back out into a project of its own — which
+does not close it, and touches nothing on disk.
+
+A member does not need a git repository. One that has none simply has
+nothing to show in [[key:changes]] or [[key:worktrees]] — every other part
+of the project works the same either way.
+
 ## Managing the list
 
 Every project, open or not, carries a small row of its own controls:

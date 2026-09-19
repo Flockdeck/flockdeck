@@ -756,6 +756,28 @@ func TestSpawnExamplesNameACommandThatExists(t *testing.T) {
 	}
 }
 
+// TestPeerNameMentionIsGatedOnTheHookServer checks the briefing only tells an
+// agent about `flockdeck peer-name` where the hook server it needs is
+// actually running -- the same CanSpawn flag the spawn examples are gated
+// on, since it is really "the hook server is running" and spawning is just
+// the first thing that needed it -- and names the command that will
+// actually run, quoted the same way the spawn examples are.
+func TestPeerNameMentionIsGatedOnTheHookServer(t *testing.T) {
+	exe := filepath.Join("C:", "Program Files", "flockdeck", "flockdeck.exe")
+	withHooks := PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: exe}.Render()
+	if !strings.Contains(withHooks, `"`+exe+`" peer-name <name>`) {
+		t.Errorf("the briefing does not mention peer-name, quoted for a path with a space:\n%s", withHooks)
+	}
+	if !strings.Contains(withHooks, "ListAgents") {
+		t.Errorf("the briefing does not say how an agent would learn its own peer name:\n%s", withHooks)
+	}
+
+	withoutHooks := PaneContext{PaneName: "one", CanSpawn: false}.Render()
+	if strings.Contains(withoutHooks, "peer-name") {
+		t.Errorf("a pane with no hook server was told to report a peer name it could not:\n%s", withoutHooks)
+	}
+}
+
 // TestTheSpawnCommandIsResolvedOnce checks the workspace hands the context a
 // command at all, since the text is only as good as what reaches it.
 func TestTheSpawnCommandIsResolvedOnce(t *testing.T) {

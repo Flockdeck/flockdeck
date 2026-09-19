@@ -241,11 +241,12 @@ type Server struct {
 	token string
 	on    func(Event)
 
-	mu        sync.RWMutex
-	onSpawn   func(SpawnRequest) (SpawnResult, error)
-	onContext func(sessionID string) string
-	onUsage   func(spend.Report)
-	onReview  func(sessionID string, ev Event) (allow bool, reason string)
+	mu         sync.RWMutex
+	onSpawn    func(SpawnRequest) (SpawnResult, error)
+	onContext  func(sessionID string) string
+	onUsage    func(spend.Report)
+	onReview   func(sessionID string, ev Event) (allow bool, reason string)
+	onPeerName func(PeerNameRequest) error
 }
 
 // SessionStart is the lifecycle event a pane's agent fires as it starts,
@@ -305,6 +306,7 @@ func Serve(on func(Event)) (*Server, error) {
 	mux.HandleFunc("/hook", s.handle)
 	mux.HandleFunc("/spawn", s.handleSpawn)
 	mux.HandleFunc("/usage", s.handleUsage)
+	mux.HandleFunc("/peer-name", s.handlePeerName)
 	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() { _ = s.srv.Serve(ln) }()
@@ -641,4 +643,112 @@ func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 		return none, fmt.Errorf("the application accepted the request but named no pane")
 	}
 	return out, nil
+}
+
+// PeerNameRequest is a pane reporting the name another Claude session would
+// use to address it -- SendMessage's "to", the way ListAgents shows it.
+//
+// Flockdeck cannot learn this on its own: it is assigned by infrastructure
+// entirely outside this application, and known only to whichever agent asks
+// it directly (typically by calling its own ListAgents tool). `flockdeck
+// peer-name <name>` is how a pane hands that answer back, posting here with
+// the address and token its environment was given, the same way
+// SpawnRequest is.
+type PeerNameRequest struct {
+	Pane  string `json:"pane"`
+	Name  string `json:"name"`
+	Token string `json:"token"`
+}
+
+// SetPeerNameHandler installs the function that records a pane's own report
+// of its peer name. It returns an error explaining why the report could not
+// be kept -- an unknown pane, most likely, one closed between starting the
+// command and it answering.
+func (s *Server) SetPeerNameHandler(fn func(PeerNameRequest) error) {
+	s.mu.Lock()
+	s.onPeerName = fn
+	s.mu.Unlock()
+}
+
+func (s *Server) handlePeerName(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req PeerNameRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(s.token)) != 1 {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		http.Error(w, "a name is required", http.StatusBadRequest)
+		return
+	}
+
+	s.mu.RLock()
+	fn := s.onPeerName
+	s.mu.RUnlock()
+	if fn == nil {
+		http.Error(w, "reporting a peer name is not available", http.StatusServiceUnavailable)
+		return
+	}
+	if err := fn(req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// peerNameTimeout is how long `flockdeck peer-name` waits for the
+// application to answer. Recording a report touches nothing slow, so this is
+// far shorter than spawnTimeout: a pane that gets no answer within it is one
+// the application is not keeping up with at all.
+var peerNameTimeout = 5 * time.Second
+
+// peerNameFailure says what a peer-name report that got no answer means, the
+// same shape as spawnFailure but worded for this command: there is no helper
+// pane to go looking for, only a report that did not land.
+func peerNameFailure(err error, api string) error {
+	var op *net.OpError
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("Flockdeck did not answer within %s; it may be busy, so try again shortly", peerNameTimeout)
+	case errors.As(err, &op) && (op.Op == "dial" || op.Op == "read"):
+		return fmt.Errorf("Flockdeck is not answering at %s; it may have been closed since this pane started", api)
+	}
+	return err
+}
+
+// PeerName is the client half, used by the `peer-name` subcommand inside a
+// pane.
+func PeerName(api, token, pane, name string) error {
+	body, err := json.Marshal(PeerNameRequest{Pane: pane, Name: name, Token: token})
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), peerNameTimeout)
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, api+"/peer-name", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return peerNameFailure(err, api)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if text := strings.TrimSpace(string(msg)); text != "" {
+			return fmt.Errorf("%s", text)
+		}
+		return fmt.Errorf("the application refused: %s", resp.Status)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return nil
 }

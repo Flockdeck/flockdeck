@@ -2836,6 +2836,10 @@
     const project = el("span", "pane-project");
     const branch = el("span", "pane-branch");
     const agent = el("span", "pane-agent");
+    // Shown once this pane's own agent has reported the name another Claude
+    // session would use to address it -- Flockdeck cannot learn this on its
+    // own. See renderPanePeerName and `flockdeck peer-name`.
+    const peerName = el("span", "pane-peer");
     // Shown while a phone -- this one's own, or a colleague's -- has this
     // pane open in its chat view or its terminal, so text appearing here
     // unbidden has an explanation instead of looking like the program on its
@@ -2884,7 +2888,7 @@
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
     );
     makeToolbar(actions, "What to do with this pane");
-    header.append(dot, project, name, branch, agent, remote, git, detail, spend, limit, usage, cast, actions);
+    header.append(dot, project, name, branch, agent, peerName, remote, git, detail, spend, limit, usage, cast, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -2985,7 +2989,7 @@
     // The WebGL renderer is loaded when the pane comes on screen, not here:
     // see drawWithWebgl.
 
-    p = { id, wrap, header, dot, name, project, branch, agent, remote, git, detail, usage, spend, limit, cast, body, host, term, fit, ws: null,
+    p = { id, wrap, header, dot, name, project, branch, agent, peerName, remote, git, detail, usage, spend, limit, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
@@ -3540,6 +3544,9 @@
       const badge = agent + "|" + (v.routed || "") + "|" + (v.routedFrom || "") + "|" + (v.route || "");
       if (was.agent !== badge) { was.agent = badge; renderPaneAgent(p, v); }
 
+      const peerName = v.peerName || "";
+      if (was.peerName !== peerName) { was.peerName = peerName; renderPanePeerName(p, v); }
+
       const remoteViewers = (v.remoteViewers || []).join("\u0000");
       if (was.remote !== remoteViewers) { was.remote = remoteViewers; renderPaneRemote(p, v); }
 
@@ -3687,6 +3694,20 @@
       : "";
     // Cut short like the branch, and named in its bubble for the same reason.
     describe(p.agent, p.agent.textContent + " — " + TIPS.agent + routed);
+  }
+
+  /** renderPanePeerName shows the name another Claude session would use to
+   *  address this pane, once its own agent has reported one with `flockdeck
+   *  peer-name`. Flockdeck has no way to learn this on its own -- it is
+   *  assigned by infrastructure entirely outside the application -- so
+   *  nothing shows here until an agent chooses to report it, which is most
+   *  panes, most of the time. */
+  function renderPanePeerName(p, v) {
+    p.peerName.textContent = "";
+    if (!v.peerName) { delete p.peerName.dataset.tip; return; }
+    p.peerName.append(glyph("⇄"), document.createTextNode(" " + v.peerName));
+    describe(p.peerName, v.peerName + " — the name another Claude session would use to message " +
+      "this pane, as its own agent reported it. Flockdeck cannot learn or verify this on its own.");
   }
 
   /** renderPaneRemote shows a small phone glyph while a window reached
@@ -4402,14 +4423,30 @@
     focusTerminal();
   }
 
+  /** groupMembersOf returns every member of root's own project, only when it
+   *  spans more than one -- the shared lookup behind every "which repo?"
+   *  picker (Changes' own, and the Worktrees create form's), so the two
+   *  cannot drift apart on what counts as "more than one" or how a member
+   *  is found. */
+  function groupMembersOf(root) {
+    const group = (state && state.projects || []).find(
+      (p) => p.root === root || (p.members || []).some((mem) => mem.root === root));
+    return group && group.members && group.members.length > 1 ? group.members : null;
+  }
+
   // ------------------------------------------------------------- worktrees
 
   let worktrees = null;
   /** What has been typed into the new-worktree form. The dialog is drawn whole
    *  from each reply, so without this a branch name half-typed when a worktree
    *  was removed, or Refresh was pressed, went with the redraw. It is kept for
-   *  as long as the dialog is open and no longer. */
-  let wtDraft = { branch: "", base: "" };
+   *  as long as the dialog is open and no longer.
+   *
+   *  Root is which member repo a project spanning more than one is about to
+   *  create the worktree in, chosen from the picker beside the form; empty
+   *  means none has been picked yet, which renderWorktrees fills in with the
+   *  active repo the first time there is something to pick from. */
+  let wtDraft = { branch: "", base: "", root: "" };
   /** The branch just asked for with the form, until the list comes back with
    *  it. Starting an agent in a new worktree is what nearly everybody does
    *  next, and the keyboard was left on Create with the new row's Agent
@@ -4454,7 +4491,7 @@
   function openWorktrees() {
     dialog = "worktrees";
     worktrees = null;
-    wtDraft = { branch: "", base: "" };
+    wtDraft = { branch: "", base: "", root: "" };
     wtBusy = false;
     openOverlay("Worktrees", "worktrees");
     $("overlay-body").append(el("div", "dir-empty", "Reading the worktrees…"));
@@ -4491,6 +4528,11 @@
       const main = el("div", "wt-main");
       const titleLine = el("div", "wt-title");
       titleLine.append(el("span", "wt-label", wt.label));
+      // Which member repo this row belongs to, in a project spanning more
+      // than one -- left out by the server for a project of one, which is
+      // every project this list showed before one could, so the row reads
+      // exactly as it always has.
+      if (wt.repo) titleLine.append(describe(el("span", "wt-flag", wt.repo), wt.repoRoot));
       if (wt.main) titleLine.append(el("span", "wt-flag", "main"));
       if (wt.locked) titleLine.append(el("span", "wt-flag", "locked"));
       if (wt.detached) titleLine.append(el("span", "wt-flag", "detached"));
@@ -4613,6 +4655,41 @@
 
     // --- create a new one --------------------------------------------------
     const create = section("New worktree");
+
+    // Which repo, in a project spanning more than one: git has no notion of
+    // a worktree that isn't rooted in exactly one repository, so a project
+    // with more than one member has to say which one a new worktree belongs
+    // to -- the same question Changes' own picker answers for which one is
+    // being reviewed. Left out for a project of one, which is every project
+    // this form ever targeted before one could span more than one repo, so
+    // it still reads exactly as it always has.
+    const members = groupMembersOf(m.root);
+    if (members) {
+      // Default to the active repo the first time there is a choice to make,
+      // and whenever the one picked drops out of the list -- a member
+      // removed from the project while the dialog was open, say.
+      if (!members.some((mem) => mem.root === wtDraft.root)) wtDraft.root = m.root;
+      const picker = el("div", "rev-repo-picker");
+      members.forEach((mem) => {
+        const here = mem.root === wtDraft.root;
+        const btn = el("button", "chip" + (here ? " primary" : ""), mem.name);
+        describe(btn, mem.root);
+        btn.disabled = here;
+        btn.onclick = () => { wtDraft.root = mem.root; renderWorktrees(); };
+        picker.append(btn);
+      });
+      create.append(picker);
+    } else {
+      wtDraft.root = "";
+    }
+    // The branches on offer below and in the base-branch suggestions are
+    // this repo's own -- a project spanning more than one no longer merges
+    // every member's branches into one list with no way to tell whose is
+    // whose, or which repo checking one out would run git in. Untagged
+    // (every branch, for a project of one) always matches.
+    const target = wtDraft.root || m.root;
+    const branchesHere = (m.branches || []).filter((b) => !b.repoRoot || b.repoRoot === target);
+
     const form = el("div", "wt-form");
 
     const branch = el("input");
@@ -4630,7 +4707,7 @@
 
     const bases = el("datalist");
     bases.id = "wt-bases";
-    (m.branches || []).forEach((b) => {
+    branchesHere.forEach((b) => {
       const o = document.createElement("option");
       o.value = b.name;
       bases.append(o);
@@ -4654,7 +4731,13 @@
       }
       wtCreated = branch.value.trim();
       running(go, "Creating…");
-      send({ cmd: "worktreeAdd", text: branch.value.trim(), base: base.value.trim() });
+      // Root is left out entirely, rather than sent empty, for a project of
+      // one -- the ordinary case, and every one there was before a project
+      // could span more than one repo, so the message it sends is exactly
+      // the message it always sent.
+      const add = { cmd: "worktreeAdd", text: branch.value.trim(), base: base.value.trim() };
+      if (wtDraft.root) add.root = wtDraft.root;
+      send(add);
       branch.value = "";
       wtDraft.branch = "";
     };
@@ -4669,7 +4752,7 @@
     body.append(create);
 
     // --- existing branches without a worktree ------------------------------
-    const free = (m.branches || []).filter((b) => !b.checkedIn);
+    const free = branchesHere.filter((b) => !b.checkedIn);
     if (free.length) {
       const bs = section("Branches without a worktree");
       const chips = el("div", "places");
@@ -4679,7 +4762,13 @@
         // by text alone.
         btn.id = "wt-checkout-" + encodeURIComponent(b.name);
         btn.title = "Create a worktree checking out " + b.name;
-        btn.onclick = () => { wtCreated = b.name; running(btn, "Creating…"); send({ cmd: "worktreeAdd", text: b.name }); };
+        btn.onclick = () => {
+          wtCreated = b.name;
+          running(btn, "Creating…");
+          const add = { cmd: "worktreeAdd", text: b.name };
+          if (wtDraft.root) add.root = wtDraft.root;
+          send(add);
+        };
         chips.append(btn);
       });
       // One stop, walked with the arrows, like the rows above it: up to
@@ -4741,9 +4830,9 @@
    *  grouping causes, not snap shut. */
   const expandedGroups = new Set();
 
-  /** Set to a project's root while "Add repo…" has taken over the folder
-   *  browser to add into that project rather than open a project of its own;
-   *  null the rest of the time. */
+  /** Set to a project's root while "Add directory…" has taken over the
+   *  folder browser to add into that project rather than open a project of
+   *  its own; null the rest of the time. */
   let addingRepoTo = null;
 
   /** Set to a project's own name while addingRepoTo is, so the browser's
@@ -4870,12 +4959,13 @@
       go.id = "open-" + encodeURIComponent(p.root);
       const main = el("span", "proj-main");
       main.append(el("span", "proj-name", p.name));
-      // A grouped project spans more than one folder, so its own root is no
-      // longer the whole story -- how many repos it has stands in for it,
-      // and the member list below names each one.
+      // A grouped project spans more than one directory, so its own root is
+      // no longer the whole story -- how many it has stands in for it, and
+      // the member list below names each one. "Directory" rather than
+      // "repo": a member need not have a git repository in it.
       const members = p.members || [];
       main.append(describe(el("span", "proj-path", members.length > 1
-        ? members.length + " repos"
+        ? members.length + " directories"
         : p.root), members.length > 1 ? members.map((m) => m.root).join("\n") : p.root));
       go.append(main);
 
@@ -4901,7 +4991,7 @@
 
       if (members.length > 1) {
         const expand = el("button", "icon-btn proj-expand", expandedGroups.has(p.root) ? "▾" : "▸");
-        describe(expand, expandedGroups.has(p.root) ? "Hide this project's repos" : "Show this project's repos");
+        describe(expand, expandedGroups.has(p.root) ? "Hide this project's directories" : "Show this project's directories");
         expand.setAttribute("aria-expanded", expandedGroups.has(p.root) ? "true" : "false");
         expand.onclick = () => {
           if (expandedGroups.has(p.root)) expandedGroups.delete(p.root); else expandedGroups.add(p.root);
@@ -4961,6 +5051,18 @@
           mgo.append(describe(el("span", "proj-member-name", m.name), m.root));
           mgo.onclick = () => { send({ cmd: "selectRepo", root: m.root }); closeOverlay(); };
           mrow.append(mgo);
+          // A new tab has always opened in whatever the implicit default
+          // is, which is fine for a project of one repo but leaves no way to
+          // land one in a member that is not the active repo -- these are
+          // the same two actions the Worktrees panel offers per checkout,
+          // for the same reason.
+          const agent = el("button", "chip", "Agent");
+          describe(agent, "Open an agent tab in " + m.name);
+          agent.onclick = () => { send({ cmd: "newTab", kind: "agent", path: m.root }); closeOverlay(); };
+          const shell = el("button", "chip", "Shell");
+          describe(shell, "Open a shell tab in " + m.name);
+          shell.onclick = () => { send({ cmd: "newTab", kind: "shell", path: m.root }); closeOverlay(); };
+          mrow.append(agent, shell);
           const remove = el("button", "icon-btn", "×");
           describe(remove, "Remove " + m.name + " from this project. It stays open on its own, and nothing on disk is touched.");
           remove.onclick = () => send({ cmd: "removeRepoFromGroup", root: m.root });
@@ -5073,8 +5175,8 @@
     actions.append(rename);
 
     if (moveCtx === null) {
-      const addRepo = el("button", "chip", "Add repo\u2026");
-      describe(addRepo, "Add another repository to this project, so agents in each can see the others.");
+      const addRepo = el("button", "chip", "Add directory\u2026");
+      describe(addRepo, "Add another directory to this project, so agents in each can see the others.");
       addRepo.onclick = () => {
         addingRepoTo = root;
         addingRepoToName = name;
@@ -5229,7 +5331,7 @@
   }
 
   function renderBrowser() {
-    const wrap = section(addingRepoTo ? "Add a repo to " + addingRepoToName : "Open a folder");
+    const wrap = section(addingRepoTo ? "Add a directory to " + addingRepoToName : "Open a folder");
     const b = browseState;
 
     if (addingRepoTo) {
@@ -6897,10 +6999,10 @@
     // no notion of a commit spanning several of them -- so a project with
     // more than one offers the rest here rather than only through the one
     // that happened to be on screen when Changes was opened.
-    const group = (state && state.projects || []).find((p) => p.root === m.cwd || (p.members || []).some((mem) => mem.root === m.cwd));
-    if (group && group.members && group.members.length > 1) {
+    const members = groupMembersOf(m.cwd);
+    if (members) {
       const picker = el("div", "rev-repo-picker");
-      group.members.forEach((mem) => {
+      members.forEach((mem) => {
         const here = mem.root === m.cwd;
         const btn = el("button", "chip" + (here ? " primary" : ""), mem.name);
         describe(btn, mem.root);

@@ -53,6 +53,26 @@ The address and token come from the environment the pane was started with —
 can use it, and running it anywhere else says so rather than failing
 obscurely. That is what lets an agent hand work to helpers of its own.
 
+## peer-name
+
+Run from inside a pane, this reports the name another Claude session would
+use to address it — a cross-session messaging tool's own "to", or the "This
+session is …" line a tool like `ListAgents` answers with:
+
+```sh
+flockdeck peer-name <name>
+```
+
+Flockdeck cannot learn this on its own: it is assigned by infrastructure
+outside the application entirely, and known only to whichever agent asks for
+it, typically by calling its own `ListAgents` tool. Reporting it here is what
+puts it in the pane's header (see [Panes and tabs](#panes)), so another
+session's "go look at pane X" is something the user can actually act on
+without asking the pane to describe itself first.
+
+Like `spawn`, this only works inside a pane, using the address and token its
+environment was given.
+
 ## keys
 
 An API agent — one Flockdeck talks to directly rather than through a CLI of its
@@ -176,7 +196,7 @@ The subcommand still works; it is the background updating that goes.
 | `FLOCKDECK_RELAY` | Which relay `flockdeck remote enable` uses when `-relay` is not given |
 | `FLOCKDECK_API` | Where Flockdeck listens for its panes — set for you |
 | `FLOCKDECK_TOKEN` | The secret that goes with it — set for you |
-| `FLOCKDECK_PANE` | The pane's id — set for you, read by `spawn` |
+| `FLOCKDECK_PANE` | The pane's id — set for you, read by `spawn` and `peer-name` |
 | `FLOCKDECK_PANE_NAME` | The pane's name, for a shell prompt to use |
 | `FLOCKDECK_PROJECT` | The project the pane belongs to |
 | `FLOCKDECK_AGENT` | Which agent the pane is running |
@@ -188,7 +208,7 @@ which has no lifecycle hooks of its own — has to go on.
 
 `FLOCKDECK_API`, `FLOCKDECK_TOKEN`, `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME` and
 `FLOCKDECK_PROJECT` were called `PERCH_*` before the program was renamed. Panes
-still carry both spellings of those five and `spawn` still reads both, so a
+still carry both spellings of those five and `spawn` and `peer-name` still read both, so a
 prompt or a script written against the old names keeps working; they will go
 in a later release. `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL` and `FLOCKDECK_LAUNCH`
 are newer and have only the one name.

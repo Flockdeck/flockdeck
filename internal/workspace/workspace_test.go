@@ -959,3 +959,26 @@ func TestResumeAsksTheAgentsOwnReader(t *testing.T) {
 		t.Error("an API pane with a conversation recorded was not offered a resume")
 	}
 }
+
+// TestSetPanePeerNameRecordsWhatWasReported checks the setter behind
+// `flockdeck peer-name`: a pane's own report of the name another Claude
+// session would address it by lands on the right pane, and a report for one
+// that is not open is refused rather than silently accepted.
+func TestSetPanePeerNameRecordsWhatWasReported(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "work")
+	id := ws.CurrentTab().Focus
+
+	if !ws.SetPanePeerName(id, "flockdeck-8d") {
+		t.Fatal("could not set the peer name")
+	}
+	if got := ws.Pane(id).PeerName; got != "flockdeck-8d" {
+		t.Errorf("peer name = %q, want flockdeck-8d", got)
+	}
+
+	if ws.SetPanePeerName("no-such-pane", "flockdeck-x") {
+		t.Error("a report for an unknown pane was accepted")
+	}
+}

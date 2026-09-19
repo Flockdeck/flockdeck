@@ -111,6 +111,19 @@ func main() {
 		}
 		return
 	}
+	// `peer-name` is how an agent hands Flockdeck the name another Claude
+	// session would address it by, once it has learned that name itself --
+	// typically by calling its own ListAgents tool. Flockdeck has no way to
+	// learn this on its own; see hooks.PeerNameRequest.
+	if len(os.Args) > 1 && os.Args[1] == "peer-name" {
+		if err := runPeerName(os.Args[2:]); err != nil {
+			if !errors.Is(err, errReported) {
+				fmt.Fprintln(os.Stderr, "flockdeck peer-name:", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
 	// `agents` prints the catalog. It is a subcommand rather than a flag
 	// because it answers a question instead of changing how a run starts, and
 	// because it is the only place to find out what an -agent name may be.
@@ -242,7 +255,7 @@ func helpArgs(rest []string) (args []string, top bool) {
 	switch {
 	case len(rest) == 0:
 		return nil, true
-	case map[string]bool{"spawn": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true}[rest[0]]:
+	case map[string]bool{"spawn": true, "peer-name": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true}[rest[0]]:
 		return []string{rest[0], "-h"}, false
 	}
 	return nil, true
@@ -344,6 +357,8 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  spawn [--worktree <branch>] [--split] [--shell] [--agent <id>] [--model <model>] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
+	fmt.Fprintf(out, "  peer-name <name>\n")
+	fmt.Fprintf(out, "        report the name another Claude session would address this pane by; run from inside a pane\n")
 	fmt.Fprintf(out, "  agents\n")
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "  chat [flags]\n")
@@ -1715,6 +1730,56 @@ func takesValue(fs *flag.FlagSet, name string) bool {
 	}
 	b, ok := f.Value.(interface{ IsBoolFlag() bool })
 	return !ok || !b.IsBoolFlag()
+}
+
+// runPeerName implements the `peer-name` subcommand, which reports the name
+// another Claude session would use to address this pane -- SendMessage's
+// "to", the way ListAgents shows it -- so Flockdeck can show it in the pane
+// header.
+//
+// It exists because Flockdeck has no way to learn this on its own: that name
+// is assigned by infrastructure entirely outside this application, and known
+// only to whichever agent asks for it directly, typically by calling its own
+// ListAgents tool. See hooks.PeerNameRequest.
+func runPeerName(args []string) error {
+	fs := flag.NewFlagSet("peer-name", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "Usage: flockdeck peer-name <name>\n\n"+
+			"Reports the name another Claude session would use to address this pane\n"+
+			"(SendMessage's \"to\", as ListAgents shows it), so Flockdeck can show it in\n"+
+			"the pane header. Flockdeck cannot learn this on its own -- find it out\n"+
+			"first by calling your own ListAgents tool.\n")
+	}
+	if err := fs.Parse(args); err != nil {
+		// -h is the usage having just been given, not a failure to report on
+		// top of it; anything else has already printed itself.
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return errReported
+	}
+	if fs.NArg() != 1 || strings.TrimSpace(fs.Arg(0)) == "" {
+		fs.Usage()
+		return errReported
+	}
+	name := strings.TrimSpace(fs.Arg(0))
+
+	api := paneEnv("API")
+	token := paneEnv("TOKEN")
+	pane := paneEnv("PANE")
+	if api == "" || token == "" {
+		// Worded the same as runSpawn's own: somebody who typed this in a
+		// terminal of their own was told only where it works, and an agent in
+		// a pane whose environment had lost them had nothing to go on at all.
+		return fmt.Errorf("this only works inside a flockdeck pane, which is started with FLOCKDECK_API and FLOCKDECK_TOKEN set, " +
+			"and they are not set here; from any other terminal, run `flockdeck` to open the window and start the agent there")
+	}
+	if err := hooks.PeerName(api, token, pane, name); err != nil {
+		return err
+	}
+	fmt.Println("reported peer name", name)
+	return nil
 }
 
 // printAgents writes the catalog: the agents Flockdeck can run, the models each
