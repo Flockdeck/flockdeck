@@ -366,6 +366,99 @@ func TestStatusForEvent(t *testing.T) {
 	}
 }
 
+// apply runs event through StatusForEvent and ResolveBlocked together, the
+// way workspace.handleHook does, and reports the status a pane would end up
+// showing.
+func apply(s *Session, event, tool string) Status {
+	st, detail, ok := StatusForEvent(event, tool, "")
+	if !ok {
+		return s.status
+	}
+	st, detail = s.ResolveBlocked(event, tool, st, detail)
+	s.SetStatusFull(st, detail, "")
+	return st
+}
+
+// TestATurnThatEndsRightAfterADenialIsBlocked covers the gap a permission or
+// safety classifier's own refusal left: Claude Code reports it with
+// PermissionDenied, StatusForEvent maps that to StatusWorking same as any
+// tool call in progress ("the turn goes on"), and an unconditional Stop right
+// after it used to report the same StatusIdle a fully clean turn does --
+// leaving a pane that hit a hard denial and simply explained it looking no
+// different from one that finished normally.
+func TestATurnThatEndsRightAfterADenialIsBlocked(t *testing.T) {
+	s := claudePane()
+	apply(s, "PreToolUse", "Bash")
+	if st := apply(s, "PermissionDenied", "Bash"); st != StatusWorking {
+		t.Fatalf("status = %v right after the denial, want working -- the turn goes on", st)
+	}
+	if st := apply(s, "Stop", ""); st != StatusBlocked {
+		t.Fatalf("status = %v after the turn ended there, want blocked", st)
+	}
+	if st, detail := s.Status(); st != StatusBlocked || detail != "Bash" {
+		t.Fatalf("status = %v %q, want blocked naming the denied tool, Bash", st, detail)
+	}
+	// Reported once: the mark is spent by the Stop that used it, so a second
+	// Stop with nothing new since reports idle like any other.
+	apply(s, "UserPromptSubmit", "")
+	if st := apply(s, "Stop", ""); st != StatusIdle {
+		t.Errorf("status = %v after a later, clean turn, want idle", st)
+	}
+}
+
+// TestADenialFollowedBySuccessIsNotBlocked covers the ordinary case: a tool
+// call denied, the agent tries something else that works, and the turn ends
+// cleanly. That is not stuck, and must not be flagged as though it were.
+func TestADenialFollowedBySuccessIsNotBlocked(t *testing.T) {
+	s := claudePane()
+	apply(s, "PreToolUse", "Bash")
+	apply(s, "PermissionDenied", "Bash")
+	apply(s, "PreToolUse", "Edit")
+	apply(s, "PostToolUse", "")
+	if st := apply(s, "Stop", ""); st != StatusIdle {
+		t.Errorf("status = %v after a denial the agent recovered from, want idle", st)
+	}
+}
+
+// TestADenialClearedByAFreshPromptIsNotBlocked covers a denial left over from
+// an earlier turn: a new prompt starts the pane over, and a Stop from that
+// turn alone must not be blamed on the one before it.
+func TestADenialClearedByAFreshPromptIsNotBlocked(t *testing.T) {
+	s := claudePane()
+	apply(s, "PreToolUse", "Bash")
+	apply(s, "PermissionDenied", "Bash")
+	apply(s, "UserPromptSubmit", "")
+	if st := apply(s, "Stop", ""); st != StatusIdle {
+		t.Errorf("status = %v after a fresh prompt cleared the earlier denial, want idle", st)
+	}
+}
+
+// TestAnOrdinaryToolFailureIsNotBlocked covers the scoping decision behind
+// StatusBlocked: PostToolUseFailure is an ordinary failed command (a failing
+// test, say), which an agent explaining and stopping over is routine, not a
+// bug -- unlike PermissionDenied, a refusal before the tool ever ran. Only
+// the latter is treated as blocked.
+func TestAnOrdinaryToolFailureIsNotBlocked(t *testing.T) {
+	s := claudePane()
+	apply(s, "PreToolUse", "Bash")
+	apply(s, "PostToolUseFailure", "Bash")
+	if st := apply(s, "Stop", ""); st != StatusIdle {
+		t.Errorf("status = %v after an ordinary tool failure, want idle, not blocked", st)
+	}
+}
+
+// TestAnInterruptionAfterADenialIsNotBlocked covers Interrupted: the user
+// stopped the tool themselves, so they are already there, and it is not
+// reported as though nobody were.
+func TestAnInterruptionAfterADenialIsNotBlocked(t *testing.T) {
+	s := claudePane()
+	apply(s, "PreToolUse", "Bash")
+	apply(s, "PermissionDenied", "Bash")
+	if st := apply(s, "Interrupted", "Bash"); st != StatusIdle {
+		t.Errorf("status = %v after the user's own interruption, want idle, not blocked", st)
+	}
+}
+
 // TestEnvStripsInheritedSessionMarkers guards the fix that stops panes from
 // believing they are nested child sessions.
 func TestEnvStripsInheritedSessionMarkers(t *testing.T) {

@@ -610,7 +610,11 @@ textarea:focus-visible {
  * agents are waiting. color-mix keeps the palette the one source of the
  * colour; where it is not understood the header is simply not tinted, which is
  * where this started. */
-.pane[data-status="waiting"] .pane-header {
+/* StatusBlocked (a pane stuck after a tool call was refused outright, with no
+ * prompt open to answer) shares waiting's tint: it needs the same look-here
+ * urgency, even though nothing here is actually asking a question. */
+.pane[data-status="waiting"] .pane-header,
+.pane[data-status="blocked"] .pane-header {
   background: color-mix(in srgb, var(--waiting) 20%, var(--bg-raised));
   color: var(--fg);
 }
@@ -626,6 +630,7 @@ textarea:focus-visible {
  * green already did. On the header's children rather than the header, whose
  * own ground is mixed from --exited. */
 .pane[data-status="waiting"] .pane-header > *,
+.pane[data-status="blocked"] .pane-header > *,
 .pane[data-status="exited"] .pane-header > * {
   --fg-dim: #a2aab7;
   --accent: #67a9ff;
@@ -636,6 +641,7 @@ textarea:focus-visible {
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--idle); }
 .dot.working { background: var(--working); animation: pulse 1.6s ease-in-out infinite; }
 .dot.waiting { background: var(--waiting); box-shadow: 0 0 0 3px rgba(227,160,8,.22); }
+.dot.blocked { background: var(--waiting); box-shadow: 0 0 0 3px rgba(227,160,8,.22); }
 .dot.idle    { background: var(--idle); }
 .dot.exited  { background: var(--exited); }
 .dot.starting { background: var(--idle); opacity: .5; }
@@ -1053,6 +1059,7 @@ textarea:focus-visible {
 .agent-for { color: var(--fg-dim); font-size: 11px; white-space: nowrap; }
 .agent-status { font-size: 11px; white-space: nowrap; }
 .agent-status.waiting { color: var(--waiting); font-weight: 600; }
+.agent-status.blocked { color: var(--waiting); font-weight: 600; }
 .agent-status.working { color: var(--working); }
 /* --idle is tuned for the 8px status dot, where 3.6:1 against the panel is
  * enough. As 11px text - and this is the word that tells you what the agent is

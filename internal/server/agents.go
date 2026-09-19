@@ -126,12 +126,18 @@ func (s *Server) sendAgents(c *controlClient) {
 				// worth a look first without opening any of them. See
 				// waitingViews, built for the same purpose in the pane's own
 				// push.
-				if st == session.StatusWaiting {
+				switch st {
+				case session.StatusWaiting:
 					if ask, perm := waitingViews(detail, p.Sess.ToolInput()); ask != nil {
 						av.Waiting = "asking a question"
 					} else if perm != nil {
 						av.Waiting = perm.Summary
 					}
+				case session.StatusBlocked:
+					// Nothing is open to answer -- the tool call named in detail
+					// was refused outright and the turn ended there -- but the
+					// same list is where somebody would look for it.
+					av.Waiting = "blocked: " + detail
 				}
 			}
 			msg.Items = append(msg.Items, av)

@@ -573,6 +573,10 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	if st == session.StatusExited {
 		return
 	}
+	// A Stop that lands right after a tool call was refused outright -- a
+	// permission or safety classifier's own denial, not a prompt -- is not
+	// the clean end every other Stop is: see ResolveBlocked.
+	st, detail = sess.ResolveBlocked(ev.Event, ev.Tool, st, detail)
 	sess.SetStatusFull(st, detail, ev.ToolInput)
 }
 
@@ -699,10 +703,10 @@ func (w *Workspace) Projects() []Project {
 			if pane.Sess == nil {
 				continue
 			}
-			switch st, _ := pane.Sess.Status(); st {
-			case session.StatusWaiting:
+			switch st, _ := pane.Sess.Status(); {
+			case st.NeedsAttention():
 				out[i].Waiting++
-			case session.StatusWorking:
+			case st == session.StatusWorking:
 				out[i].Working++
 			}
 		}
@@ -2735,8 +2739,9 @@ func promptInput(text string, bracketed bool) (string, bool) {
 
 // ---------------------------------------------------------------- attention
 
-// AttentionCount returns how many panes across every open project are waiting
-// on the user, and how many are actively working.
+// AttentionCount returns how many panes across every open project need the
+// user -- waiting on them, or stuck the same way with no prompt open to say
+// so -- and how many are actively working.
 func (w *Workspace) AttentionCount() (waiting, working int) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
@@ -2744,10 +2749,10 @@ func (w *Workspace) AttentionCount() (waiting, working int) {
 		if p.Sess == nil {
 			continue
 		}
-		switch st, _ := p.Sess.Status(); st {
-		case session.StatusWaiting:
+		switch st, _ := p.Sess.Status(); {
+		case st.NeedsAttention():
 			waiting++
-		case session.StatusWorking:
+		case st == session.StatusWorking:
 			working++
 		}
 	}
@@ -2975,11 +2980,12 @@ func (w *Workspace) applyGit(key string, st gitx.Status, late bool) {
 	}
 }
 
-// TabNeedsAttention reports whether any pane in a tab is waiting on the user.
+// TabNeedsAttention reports whether any pane in a tab needs the user: waiting
+// on them, or stuck the same way with no prompt open to say so.
 func (w *Workspace) TabNeedsAttention(t *Tab) bool {
 	for _, id := range t.Tree.Panes() {
 		if p := w.Pane(id); p != nil {
-			if st, _ := p.Status(); st == session.StatusWaiting {
+			if st, _ := p.Status(); st.NeedsAttention() {
 				return true
 			}
 		}

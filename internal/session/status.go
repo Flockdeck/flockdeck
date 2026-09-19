@@ -20,6 +20,13 @@ const (
 	// idle nudge -- sent about a minute after a turn ends, to say a pane has
 	// simply gone quiet -- is not this: nobody is blocked on anything.
 	StatusWaiting
+	// StatusBlocked means a tool call was refused outright -- a permission or
+	// safety classifier's own denial, not an interactive prompt -- and the
+	// turn then ended with nothing since to say it recovered: no successful
+	// tool call, no fresh prompt. Nobody is being asked anything, so there is
+	// no prompt to answer, but it is stuck the same way StatusWaiting is, and
+	// is worth surfacing the same way. See Session.resolveBlocked.
+	StatusBlocked
 	// StatusIdle means the agent finished its turn and is waiting for a new
 	// prompt.
 	StatusIdle
@@ -36,6 +43,8 @@ func (s Status) String() string {
 		return "working"
 	case StatusWaiting:
 		return "waiting"
+	case StatusBlocked:
+		return "blocked"
 	case StatusIdle:
 		return "idle"
 	case StatusExited:
@@ -55,6 +64,8 @@ func (s Status) Symbol() string {
 		return "●"
 	case StatusWaiting:
 		return "▲"
+	case StatusBlocked:
+		return "!"
 	case StatusIdle:
 		return "○"
 	case StatusExited:
@@ -64,5 +75,6 @@ func (s Status) Symbol() string {
 	}
 }
 
-// NeedsAttention reports whether the session is blocked waiting on the user.
-func (s Status) NeedsAttention() bool { return s == StatusWaiting }
+// NeedsAttention reports whether the session is blocked waiting on the user,
+// or stuck for the same reason without an open prompt to say so.
+func (s Status) NeedsAttention() bool { return s == StatusWaiting || s == StatusBlocked }
