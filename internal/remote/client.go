@@ -117,11 +117,16 @@ func RevokedReason(err error) string {
 
 // RegisterRequest enrols a machine. Join puts it in the account a host-kind
 // pairing code belongs to rather than a new one; Invite is what a relay that
-// does not take registrations from just anyone asks for.
+// does not take registrations from just anyone asks for; VerificationCode is
+// what a relay that requires a verified email asks for instead, or alongside
+// it -- see VerifyEmail. Ignored, like Invite, on a relay that does not
+// require one, and on a Join, which needs no verification of its own: the
+// account it joins was already verified when its first machine registered.
 type RegisterRequest struct {
-	Name   string `json:"name"`
-	Join   string `json:"join,omitempty"`
-	Invite string `json:"invite,omitempty"`
+	Name             string `json:"name"`
+	Join             string `json:"join,omitempty"`
+	Invite           string `json:"invite,omitempty"`
+	VerificationCode string `json:"verificationCode,omitempty"`
 }
 
 // Registration is what the relay hands back for a new host.

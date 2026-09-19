@@ -227,11 +227,29 @@ type fakeRelay struct {
 
 	sessions chan *smux.Session
 	calls    []string
+
+	// requireVerify makes this fake behave like a relay with
+	// RequireVerifiedRegistration on: /api/v1/register/start hands back
+	// verifyCode rather than answering 404, and /api/v1/hosts refuses a
+	// VerificationCode that is not verifyCode, once verified is true.
+	requireVerify bool
+	verifyCode    string
+	verified      bool
+	// goneAfterStart makes /api/v1/register/status answer 404 to any code at
+	// all, as if the registration Start just handed back had already
+	// vanished -- expired, or somehow spent -- the moment anyone asks.
+	goneAfterStart bool
+}
+
+func (f *fakeRelay) setVerified(v bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.verified = v
 }
 
 func newFakeRelay(t *testing.T) *fakeRelay {
 	t.Helper()
-	f := &fakeRelay{token: "fdh_test", sessions: make(chan *smux.Session, 8)}
+	f := &fakeRelay{token: "fdh_test", verifyCode: "fdv_test", sessions: make(chan *smux.Session, 8)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/host/connect", f.connect)
 	mux.HandleFunc("/", f.api)
@@ -291,14 +309,39 @@ func (f *fakeRelay) count() int {
 func (f *fakeRelay) api(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.calls = append(f.calls, r.Method+" "+r.URL.Path)
+	requireVerify, verifyCode, verified, gone := f.requireVerify, f.verifyCode, f.verified, f.goneAfterStart
 	f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Path == "/api/v1/register/start" && r.Method == http.MethodPost {
+		if !requireVerify {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":"this relay does not require a verified email to register; register directly with `+"`flockdeck remote enable`"+`"}`)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"code":"`+verifyCode+`","verifyUrl":"`+f.URL+`/auth/verify#`+verifyCode+`","expiresAt":"2030-01-01T00:30:00Z"}`)
+		return
+	}
+	if r.URL.Path == "/api/v1/register/status" && r.Method == http.MethodGet {
+		if gone || r.Header.Get("Authorization") != "Bearer "+verifyCode {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":"that registration was not found, or has already finished; start again"}`)
+			return
+		}
+		_, _ = io.WriteString(w, fmt.Sprintf(`{"verified":%v,"expiresAt":"2030-01-01T00:30:00Z"}`, verified))
+		return
+	}
 	if r.URL.Path == "/api/v1/hosts" && r.Method == http.MethodPost {
 		var req RegisterRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req.Name == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = io.WriteString(w, `{"error":"a name is required"}`)
+			return
+		}
+		if requireVerify && req.Join == "" && (req.VerificationCode != verifyCode || !verified) {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, `{"error":"that email has not been verified yet; open the link the relay emailed you, then try again"}`)
 			return
 		}
 		w.WriteHeader(http.StatusCreated)

@@ -9,9 +9,11 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/appwindow"
 	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/server"
 )
@@ -364,13 +366,47 @@ func remoteRenameFlagSet(f *remoteRenameFlags) *flag.FlagSet {
 	return fs
 }
 
+// verifyEventPrinter is remote.EnableRequest.OnVerify for the command line:
+// it prints the URL once, tries to open it in the default browser, and says
+// how that went, then leaves the terminal quiet until it is verified or the
+// wait ends -- Enable's own error, printed by whoever calls it, says why if
+// it ends badly, so there is nothing more to add here on VerifyEvent.Err.
+func verifyEventPrinter(out io.Writer) func(remote.VerifyEvent) {
+	return func(ev remote.VerifyEvent) {
+		switch {
+		case ev.URL != "":
+			fmt.Fprintln(out, fitted("This relay needs a verified email before it will register a new machine."))
+			if err := appwindow.OpenDefault(ev.URL); err == nil {
+				fmt.Fprintln(out, "Opened in your default browser. If nothing opened, or you'd rather use\nanother device, open this link there instead:")
+			} else {
+				fmt.Fprintln(out, "Open this link in a browser -- on this machine, your phone, or anywhere else:")
+			}
+			fmt.Fprintf(out, "\n  %s\n\n", ev.URL)
+			fmt.Fprintln(out, "Waiting for it to be verified... (Ctrl+C cancels; nothing is created until then)")
+		case ev.Done:
+			fmt.Fprintln(out, "Verified.")
+		case ev.Line != "":
+			fmt.Fprintln(out, ev.Line)
+		}
+	}
+}
+
 func remoteEnable(args []string, rio remoteIO) error {
 	var f remoteEnableFlags
 	if err := parseRemote(remoteEnableFlagSet(&f), args); err != nil {
 		return err
 	}
-	cfg, replaced, err := remote.Enable(context.Background(), version, remote.EnableRequest{
+	// A relay that requires a verified email can have this waiting on one
+	// for as long as the registration it started stays open (thirty minutes,
+	// by flockdeck-relay's own default) -- long enough that Ctrl+C ought to
+	// cancel cleanly rather than be the only way out. Nothing is created
+	// until the email is verified, so there is nothing to clean up either
+	// way.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	cfg, replaced, err := remote.Enable(ctx, version, remote.EnableRequest{
 		Relay: f.relay, Name: f.name, Join: f.join, Invite: f.invite,
+		OnVerify: verifyEventPrinter(rio.out),
 	})
 	if err != nil {
 		return enableAdvice(f, err)
@@ -1097,8 +1133,10 @@ func remoteMoveCmd(args []string, rio remoteIO) error {
 		}
 	}
 
-	moved, untold, err := remote.Move(context.Background(), version,
-		remote.EnableRequest{Relay: want, Name: f.name, Join: f.join, Invite: f.invite},
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	moved, untold, err := remote.Move(ctx, version,
+		remote.EnableRequest{Relay: want, Name: f.name, Join: f.join, Invite: f.invite, OnVerify: verifyEventPrinter(rio.out)},
 		// The running instance moves its tunnel across before the old relay
 		// is told, rather than seeing it cut by the old relay first.
 		func() { reportReload(rio, "flockdeck will connect to the new relay when it next starts") })

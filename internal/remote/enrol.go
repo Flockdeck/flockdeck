@@ -21,6 +21,16 @@ type EnableRequest struct {
 	Name   string
 	Join   string
 	Invite string
+	// OnVerify is sent VerifyEmail's events, on a relay that requires a
+	// verified email before a new account may be created. A relay that does
+	// not require one, and Join, which needs no verification of its own,
+	// never send it anything. Left nil on a relay that does require one,
+	// Enable and Move fail fast with ErrNeedsInteractiveVerify rather than
+	// wait with nobody able to show the URL to open. The command line always
+	// gives one; a caller with no way yet to show a URL and wait -- today,
+	// the window's own Remote access… dialog -- leaves it nil and gets that
+	// error instead.
+	OnVerify func(VerifyEvent)
 }
 
 // AlreadyEnabledError refuses to enrol over an enrolment the relay may still
@@ -79,8 +89,18 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 	}
 
 	name := enrolName(req.Name, "")
+	// Joining an already-registered account needs no verification of its
+	// own: that account was already verified when its first machine
+	// registered (see magiclink.go's own comment on this, relay-side).
+	code := ""
+	if strings.TrimSpace(req.Join) == "" {
+		if code, err = VerifyEmail(ctx, relay, version, req.OnVerify); err != nil {
+			return nil, false, err
+		}
+	}
 	reg, err := Register(ctx, relay, version, RegisterRequest{
 		Name: name, Join: strings.TrimSpace(req.Join), Invite: strings.TrimSpace(req.Invite),
+		VerificationCode: code,
 	})
 	if err != nil {
 		return nil, false, err
@@ -204,8 +224,15 @@ func Move(ctx context.Context, version string, req EnableRequest, switched func(
 	}
 
 	name := enrolName(req.Name, old.Name)
+	code := ""
+	if strings.TrimSpace(req.Join) == "" {
+		if code, err = VerifyEmail(ctx, relay, version, req.OnVerify); err != nil {
+			return nil, nil, err
+		}
+	}
 	reg, err := Register(ctx, relay, version, RegisterRequest{
 		Name: name, Join: strings.TrimSpace(req.Join), Invite: strings.TrimSpace(req.Invite),
+		VerificationCode: code,
 	})
 	if err != nil {
 		return nil, nil, err

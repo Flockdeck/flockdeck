@@ -35,6 +35,21 @@ type fakeRelayAPI struct {
 	// noRename answers one as a relay from before renaming does.
 	renames  []string
 	noRename bool
+
+	// requireVerify makes this fake behave like a relay with
+	// RequireVerifiedRegistration on, the way internal/remote's own
+	// fakeRelay does: /api/v1/register/start hands back verifyCode rather
+	// than answering 404, and /api/v1/hosts refuses a VerificationCode that
+	// is not verifyCode, once verified is true.
+	requireVerify bool
+	verifyCode    string
+	verified      bool
+}
+
+func (f *fakeRelayAPI) setVerified(v bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.verified = v
 }
 
 func (f *fakeRelayAPI) renamed(call string) bool {
@@ -50,7 +65,7 @@ func (f *fakeRelayAPI) renamed(call string) bool {
 
 func newFakeRelayAPI(t *testing.T) *fakeRelayAPI {
 	t.Helper()
-	f := &fakeRelayAPI{}
+	f := &fakeRelayAPI{verifyCode: "fdv_test"}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.Close)
 	return f
@@ -62,6 +77,7 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 	revoked := f.revoked
 	devices := f.devices
 	selfName, noRename := f.selfName, f.noRename
+	requireVerify, verifyCode, verified := f.requireVerify, f.verifyCode, f.verified
 	f.mu.Unlock()
 	if devices == "" {
 		devices = `[{"id":"d1","name":"phone","created":"2030-01-01T00:00:00Z","lastSeen":"2030-01-01T00:00:00Z"}]`
@@ -75,9 +91,38 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "ok\n")
 		return
 	}
+	if r.Method == http.MethodPost && r.URL.Path == "/api/v1/register/start" {
+		// remote.Enable and remote.Move both try this before registering a
+		// new machine. A plain 404 -- what every relay this fake stands in
+		// for answers unless a test turns requireVerify on -- is what tells
+		// them to register directly, exactly as they already do against a
+		// relay from before this existed.
+		if !requireVerify {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":"this relay does not require a verified email to register; register directly with `+"`flockdeck remote enable`"+`"}`)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"code":"`+verifyCode+`","verifyUrl":"`+f.URL+`/auth/verify#`+verifyCode+`","expiresAt":"2030-01-01T00:30:00Z"}`)
+		return
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/api/v1/register/status" {
+		if r.Header.Get("Authorization") != "Bearer "+verifyCode {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":"that registration was not found, or has already finished; start again"}`)
+			return
+		}
+		_, _ = io.WriteString(w, fmt.Sprintf(`{"verified":%v,"expiresAt":"2030-01-01T00:30:00Z"}`, verified))
+		return
+	}
 	if r.Method == http.MethodPost && r.URL.Path == "/api/v1/hosts" {
 		var req remote.RegisterRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		if requireVerify && req.Join == "" && (req.VerificationCode != verifyCode || !verified) {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, `{"error":"that email has not been verified yet; open the link the relay emailed you, then try again"}`)
+			return
+		}
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"hostId": "h-" + req.Name, "accountId": "a1", "token": "fdh_" + req.Name,
@@ -1082,6 +1127,42 @@ func TestRemoteEnableByJoiningSaysSo(t *testing.T) {
 	}
 	if out, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil || strings.Contains(out, "Joined") {
 		t.Errorf("enable without a join code = %q, %v; want no word of joining", out, err)
+	}
+}
+
+// A relay that requires a verified email has enable print the URL to open,
+// and wait: the same "open a browser, or print something, and wait" shape
+// `gh auth login` already uses. It succeeds once something -- standing in
+// for a person clicking the emailed link -- marks the registration verified,
+// and joining an account it already has needs none of this at all.
+func TestRemoteEnableWaitsForAVerifiedEmail(t *testing.T) {
+	isolateKeys(t)
+	f := newFakeRelayAPI(t)
+	f.requireVerify = true
+
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		f.setVerified(true)
+	}()
+	out, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk")
+	if err != nil {
+		t.Fatalf("enable on a relay that requires a verified email: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "needs a verified email") || !strings.Contains(out, f.URL+"/auth/verify#"+f.verifyCode) || !strings.Contains(out, "Waiting for it to be verified") || !strings.Contains(out, "Verified.") {
+		t.Errorf("enable while waiting on a verified email printed:\n%s", out)
+	}
+	cfg, err := remote.Load()
+	if err != nil || cfg == nil || cfg.HostID != "h-desk" {
+		t.Fatalf("enable saved %+v, %v", cfg, err)
+	}
+
+	// Joining an account it already has needs no verification of its own.
+	if _, _, err := runRemoteCmd(t, "disable"); err != nil {
+		t.Fatal(err)
+	}
+	f.setVerified(false)
+	if out, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "laptop", "-join", "fdp_code"); err != nil || strings.Contains(out, "verified") {
+		t.Errorf("joining on a relay that requires a verified email = %q, %v; want no word of verifying", out, err)
 	}
 }
 
