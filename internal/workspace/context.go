@@ -538,7 +538,13 @@ func (c PaneContext) render(viaPrompt bool) string {
 			"Each one is a fresh agent with an empty conversation: it inherits nothing from " +
 			"yours — not this context, not the task you were given, not what you have " +
 			"learned so far — so the task you give it has to stand on its own. Do this when " +
-			"the user asks for parallel work, not on your own initiative.\n")
+			"the user asks for parallel work, not on your own initiative.\n\n" +
+			"Once a helper's work is done, `" + flockdeck + " close <pane-id>` closes its pane " +
+			"— the id `spawn` printed back when it started — the same effect Ctrl+Shift+W has " +
+			"on it. It refuses a pane still working unless you add `--force`, and refuses to " +
+			"close this one through this command at all; end your own turn instead. `" +
+			flockdeck + " close --finished` closes every idle or exited pane across every open " +
+			"project instead of naming one, the same as the \"Close finished panes\" command.\n")
 
 		writeCommandLine(&b, flockdeck)
 	}
@@ -687,12 +693,12 @@ func writeCommandLine(b *strings.Builder, flockdeck string) {
 		"| --- | --- |\n" +
 		"| `FLOCKDECK_API` | where Flockdeck listens for its panes |\n" +
 		"| `FLOCKDECK_TOKEN` | the secret that goes with it, which never leaves this pane |\n" +
-		"| `FLOCKDECK_PANE` | this pane's id, which `spawn` sends so a helper is placed relative to you |\n" +
+		"| `FLOCKDECK_PANE` | this pane's id, which `spawn` sends so a helper is placed relative to you, and which `close` refuses to close for the same pane it came from |\n" +
 		"| `FLOCKDECK_PANE_NAME` | this pane's name |\n" +
 		"| `FLOCKDECK_PROJECT` | the project directory this pane belongs to |\n" +
 		"| `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL` | the agent and model this pane runs, where it runs one |\n\n" +
-		"`spawn` reads the first three, which is why it works from inside a pane and nowhere " +
-		"else. The first five are also set under the older `PERCH_*` names, for " +
+		"`spawn` and `close` read the first three, which is why they work from inside a pane " +
+		"and nowhere else. The first five are also set under the older `PERCH_*` names, for " +
 		"anything written before the application was renamed.\n")
 }
 

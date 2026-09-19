@@ -247,6 +247,7 @@ type Server struct {
 	onUsage    func(spend.Report)
 	onReview   func(sessionID string, ev Event) (allow bool, reason string)
 	onPeerName func(PeerNameRequest) error
+	onClose    func(CloseRequest) (CloseResult, error)
 }
 
 // SessionStart is the lifecycle event a pane's agent fires as it starts,
@@ -307,6 +308,7 @@ func Serve(on func(Event)) (*Server, error) {
 	mux.HandleFunc("/spawn", s.handleSpawn)
 	mux.HandleFunc("/usage", s.handleUsage)
 	mux.HandleFunc("/peer-name", s.handlePeerName)
+	mux.HandleFunc("/close", s.handleClose)
 	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() { _ = s.srv.Serve(ln) }()
@@ -751,4 +753,141 @@ func PeerName(api, token, pane, name string) error {
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
+}
+
+// CloseRequest is a pane asking the application to close another pane --
+// what `flockdeck close` posts, the same pattern as SpawnRequest and
+// PeerNameRequest before it.
+//
+// This is the other half of what makes a lead agent able to hand work to
+// helpers: Spawn starts one, and this is how the lead cleans one up again once
+// it is done, without a person having to find it and press Ctrl+Shift+W
+// themselves. Pane is the caller's own id -- FLOCKDECK_PANE, exactly as
+// SpawnRequest's Parent is -- carried so the application can refuse a pane
+// asking to close itself; see handleClose.
+//
+// A single pane is named in Target. Finished asks for a different thing
+// entirely -- close every idle or exited pane across every open project, the
+// same as the "Close finished panes" command -- and Target is left empty for
+// it.
+type CloseRequest struct {
+	Pane     string `json:"pane"`
+	Target   string `json:"target,omitempty"`
+	Finished bool   `json:"finished,omitempty"`
+	// Force closes Target even while it is still working. Without it, closing
+	// a pane that is not idle or exited is refused -- the same "finished"
+	// rule CloseFinishedPanes applies to every pane -- so that a confused or
+	// misbehaving agent naming the wrong id cannot silently cut off work still
+	// under way; see hooks.SetCloseHandler's installed function. Meaningless
+	// alongside Finished, which never closes a busy pane no matter what Force
+	// says.
+	Force bool `json:"force,omitempty"`
+	Token string `json:"token"`
+}
+
+// CloseResult is what the application answers a close with. Closed is set for
+// a single-pane close; Panes and Tabs are set for Finished, the same counts
+// CloseFinishedPanes itself returns.
+type CloseResult struct {
+	Closed bool `json:"closed,omitempty"`
+	Panes  int  `json:"panes,omitempty"`
+	Tabs   int  `json:"tabs,omitempty"`
+}
+
+// SetCloseHandler installs the function that closes a pane, or every finished
+// one, on a request from another pane. It returns an error explaining why the
+// request could not be carried out -- an unknown pane, one still working with
+// no -force, or one asking to close itself.
+func (s *Server) SetCloseHandler(fn func(CloseRequest) (CloseResult, error)) {
+	s.mu.Lock()
+	s.onClose = fn
+	s.mu.Unlock()
+}
+
+func (s *Server) handleClose(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req CloseRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(req.Token), []byte(s.token)) != 1 {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if !req.Finished && strings.TrimSpace(req.Target) == "" {
+		http.Error(w, "a pane to close is required, or -finished for every finished one", http.StatusBadRequest)
+		return
+	}
+
+	s.mu.RLock()
+	fn := s.onClose
+	s.mu.RUnlock()
+	if fn == nil {
+		http.Error(w, "closing a pane is not available", http.StatusServiceUnavailable)
+		return
+	}
+	res, err := fn(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+// closeTimeout is how long `flockdeck close` waits for the application to
+// answer. Longer than peerNameTimeout: -finished can tear down every idle or
+// exited pane across every open project, not touch one record in memory.
+var closeTimeout = 15 * time.Second
+
+// closeFailure says what a close that got no answer means, the same shape as
+// spawnFailure and peerNameFailure but worded for this command.
+func closeFailure(err error, api string) error {
+	var op *net.OpError
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("Flockdeck did not answer within %s; it may be busy, so try again shortly", closeTimeout)
+	case errors.As(err, &op) && (op.Op == "dial" || op.Op == "read"):
+		return fmt.Errorf("Flockdeck is not answering at %s; it may have been closed since this pane started", api)
+	}
+	return err
+}
+
+// Close is the client half, used by the `close` subcommand inside a pane.
+func Close(api, token, pane string, req CloseRequest) (CloseResult, error) {
+	req.Token = token
+	req.Pane = pane
+	var none CloseResult
+	body, err := json.Marshal(req)
+	if err != nil {
+		return none, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), closeTimeout)
+	defer cancel()
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, api+"/close", bytes.NewReader(body))
+	if err != nil {
+		return none, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return none, closeFailure(err, api)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if text := strings.TrimSpace(string(msg)); text != "" {
+			return none, fmt.Errorf("%s", text)
+		}
+		return none, fmt.Errorf("the application refused: %s", resp.Status)
+	}
+	var out CloseResult
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return none, fmt.Errorf("unreadable answer from the application: %w", err)
+	}
+	return out, nil
 }
