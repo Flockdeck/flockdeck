@@ -781,7 +781,7 @@ type CloseRequest struct {
 	// under way; see hooks.SetCloseHandler's installed function. Meaningless
 	// alongside Finished, which never closes a busy pane no matter what Force
 	// says.
-	Force bool `json:"force,omitempty"`
+	Force bool   `json:"force,omitempty"`
 	Token string `json:"token"`
 }
 
