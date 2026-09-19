@@ -98,6 +98,16 @@ const binary = "flockdeck"
 // throughout, and every installation would rewrite it at its first start.
 const chatBinary = "flockdeck-chat"
 
+// linuxIconSource is the icon install.sh installs for the desktop entry it
+// writes on Linux (see its own comment for why that isn't done here yet on
+// macOS and Windows too): the same 512x512 PNG appwindow gives the window
+// itself, so the icon a user sees in an app menu is the one they see on the
+// window's own titlebar/taskbar entry.
+const linuxIconSource = "build/appicon.png"
+
+// linuxIconName is where linuxIconSource lands inside a Linux archive.
+const linuxIconName = "flockdeck.png"
+
 func main() {
 	var (
 		version  = flag.String("version", "dev", "version to stamp into the binaries and the file names")
@@ -197,13 +207,20 @@ func runSums(out string) error {
 
 // packagePlatform builds one platform and writes its archive to out, and
 // returns the archive's name. Windows gets the console twin (chatBinary)
-// beside the program.
+// beside the program; Linux gets an icon beside it too, for install.sh to
+// give the desktop entry it writes (see its own comment for why macOS and
+// Windows don't get one from here yet).
 func packagePlatform(version, out, goos, goarch string) (string, error) {
 	built := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", binary, goos, goarch, ext(goos)))
 	if err := build(version, goos, goarch, built); err != nil {
 		return "", fmt.Errorf("build %s/%s: %w", goos, goarch, err)
 	}
+	// files are built for this archive alone and removed once it is written;
+	// keep is shipped beside them but is a repository asset used by every
+	// platform's archive it applies to, and must survive this function
+	// returning so the next platform can still package it too.
 	files := []archived{{built, binary + ext(goos)}}
+	var keep []archived
 
 	// The twin doubles the Windows download (4.7 MB to 9.4 MB for a build
 	// measured here: zip compresses the two near-identical programs apart),
@@ -228,14 +245,21 @@ func packagePlatform(version, out, goos, goarch string) (string, error) {
 		files = append(files, archived{twin, chatBinary + ext(goos)})
 	}
 
+	if goos == "linux" {
+		if _, err := os.Stat(linuxIconSource); err != nil {
+			return "", fmt.Errorf("%s/%s: %s carries the icon install.sh gives the Linux desktop entry, and cannot be missing: %w", goos, goarch, linuxIconSource, err)
+		}
+		keep = append(keep, archived{linuxIconSource, linuxIconName})
+	}
+
 	name := fmt.Sprintf("%s_%s_%s_%s%s", binary, version, goos, goarch, archiveExt(goos))
 	archive := filepath.Join(out, name)
 
 	var err error
 	if goos == "windows" {
-		err = writeZip(archive, files)
+		err = writeZip(archive, files, keep)
 	} else {
-		err = writeTarGz(archive, files)
+		err = writeTarGz(archive, files, keep)
 	}
 	if err != nil {
 		return "", fmt.Errorf("package %s: %w", name, err)
@@ -243,6 +267,8 @@ func packagePlatform(version, out, goos, goarch string) (string, error) {
 
 	// The loose binaries have been folded into the archive and would only
 	// confuse a release page that is meant to offer one file per platform.
+	// keep is never one of these: it is the repository's own asset, not a
+	// scratch build product, and packaging another platform still needs it.
 	for _, f := range files {
 		if err := os.Remove(f.path); err != nil {
 			return "", err
@@ -354,7 +380,7 @@ func checkExtras() error {
 // archived is a program built for an archive, and the name it has there.
 type archived struct{ path, name string }
 
-func writeZip(archive string, programs []archived) error {
+func writeZip(archive string, programs, keep []archived) error {
 	f, err := os.Create(archive)
 	if err != nil {
 		return err
@@ -364,6 +390,11 @@ func writeZip(archive string, programs []archived) error {
 	zw := zip.NewWriter(f)
 	for _, p := range programs {
 		if err := zipOne(zw, p.path, p.name, 0o755); err != nil {
+			return err
+		}
+	}
+	for _, k := range keep {
+		if err := zipOne(zw, k.path, k.name, 0o644); err != nil {
 			return err
 		}
 	}
@@ -395,7 +426,7 @@ func zipOne(zw *zip.Writer, path, name string, mode os.FileMode) error {
 	return err
 }
 
-func writeTarGz(archive string, programs []archived) error {
+func writeTarGz(archive string, programs, keep []archived) error {
 	f, err := os.Create(archive)
 	if err != nil {
 		return err
@@ -407,6 +438,11 @@ func writeTarGz(archive string, programs []archived) error {
 
 	for _, p := range programs {
 		if err := tarOne(tw, p.path, p.name, 0o755); err != nil {
+			return err
+		}
+	}
+	for _, k := range keep {
+		if err := tarOne(tw, k.path, k.name, 0o644); err != nil {
 			return err
 		}
 	}

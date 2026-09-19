@@ -282,7 +282,14 @@ main() {
 	got=$(sha256 "$tmp/$archive")
 	[ "$got" = "$want" ] || die "$archive does not match its published checksum; nothing was installed"
 
-	tar -xzf "$tmp/$archive" -C "$tmp" flockdeck || die "could not unpack $archive"
+	# The archive carries an icon on Linux too, for the desktop entry below;
+	# macOS and Windows don't have one to unpack yet (see that section's own
+	# comment for why).
+	if [ "$os" = linux ]; then
+		tar -xzf "$tmp/$archive" -C "$tmp" flockdeck flockdeck.png || die "could not unpack $archive"
+	else
+		tar -xzf "$tmp/$archive" -C "$tmp" flockdeck || die "could not unpack $archive"
+	fi
 
 	mkdir -p "$dir" || die "could not create $dir"
 	# Explicit, not left to the caller's umask: a permissive umask would
@@ -298,6 +305,47 @@ main() {
 	say "installed $version to $dir/flockdeck"
 	if [ -n "${FLOCKDECK_VERSION:-}" ]; then
 		say "to stay on $version, set FLOCKDECK_UPDATE=off where Flockdeck runs; otherwise it updates itself to the latest"
+	fi
+
+	# A desktop entry, so Flockdeck shows up in an app menu / launcher /
+	# search the way any other installed application does, rather than only
+	# being reachable by typing its name at a shell -- the whole reason
+	# someone would otherwise think a terminal was required to run it at
+	# all. macOS and Windows don't get one from here yet: macOS has no
+	# app-bundle equivalent to hand this to until one exists (a bare
+	# double-clickable binary isn't Dock/Spotlight-visible either way), and
+	# Windows already gets a Start menu shortcut further down in
+	# install.ps1. Best-effort: a machine with no $HOME/.local/share (or one
+	# this user cannot write) still has a perfectly working install at
+	# $dir/flockdeck, so nothing here is worth failing the install over.
+	if [ "$os" = linux ]; then
+		data_home=$(trim_slashes "${XDG_DATA_HOME:-$HOME/.local/share}")
+		icon="$data_home/icons/flockdeck.png"
+		entry="$data_home/applications/flockdeck.desktop"
+		if mkdir -p "$data_home/icons" "$data_home/applications" 2>/dev/null &&
+			cp "$tmp/flockdeck.png" "$icon" 2>/dev/null; then
+			# Exec's argument quoting rules are the reserved-character set
+			# shell_word already handles a superset of (it also quotes a few
+			# characters, such as ~, that Exec does not require quoted, which
+			# is harmless): both are double-quoted with \, $, ` and " escaped
+			# inside, and never single-quoted.
+			if {
+				printf '[Desktop Entry]\n'
+				printf 'Type=Application\n'
+				printf 'Name=Flockdeck\n'
+				printf 'Comment=Run coding agents side by side, each in its own pane\n'
+				printf 'Exec=%s\n' "$(shell_word "$dir/flockdeck")"
+				printf 'Icon=%s\n' "$icon"
+				printf 'Terminal=false\n'
+				printf 'Categories=Development;Utility;\n'
+			} >"$entry" 2>/dev/null; then
+				say "added an app-menu entry (Flockdeck)"
+			else
+				say "could not write an app-menu entry at $entry; flockdeck still runs fine from $dir/flockdeck"
+			fi
+		else
+			say "could not install an app-menu icon under $data_home; flockdeck still runs fine from $dir/flockdeck"
+		fi
 	fi
 
 	# With the pinned release above installed and checked, move it to

@@ -38,17 +38,47 @@ func TestArchivesHoldWhatTheUpdaterAndTheLicencesNeed(t *testing.T) {
 	}
 
 	tgz := filepath.Join(dir, "flockdeck.tar.gz")
-	if err := writeTarGz(tgz, []archived{{built, "flockdeck"}}); err != nil {
+	if err := writeTarGz(tgz, []archived{{built, "flockdeck"}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	checkArchive(t, "tar.gz", readTarGz(t, tgz), "flockdeck")
 
 	// The Windows archive carries the console twin an API agent's pane runs.
 	zp := filepath.Join(dir, "flockdeck.zip")
-	if err := writeZip(zp, []archived{{built, "flockdeck.exe"}, {built, "flockdeck-chat.exe"}}); err != nil {
+	if err := writeZip(zp, []archived{{built, "flockdeck.exe"}, {built, "flockdeck-chat.exe"}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	checkArchive(t, "zip", readZip(t, zp), "flockdeck.exe", "flockdeck-chat.exe")
+}
+
+// keep is shipped beside an archive's programs, at 0o644 like the licence
+// extras rather than 0o755 like a program, and is not removed the way a
+// scratch build product is: it is the repository's own asset (see
+// packagePlatform's own comment on why files and keep are kept apart).
+func TestKeepIsShippedButNotRemovable(t *testing.T) {
+	t.Chdir(filepath.Join("..", "..")) // where the extras are found
+	dir := t.TempDir()
+	built := filepath.Join(dir, "built")
+	if err := os.WriteFile(built, []byte("the program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	icon := filepath.Join(dir, "icon.png")
+	if err := os.WriteFile(icon, []byte("not really a png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tgz := filepath.Join(dir, "flockdeck.tar.gz")
+	if err := writeTarGz(tgz, []archived{{built, "flockdeck"}}, []archived{{icon, "flockdeck.png"}}); err != nil {
+		t.Fatal(err)
+	}
+	got := readTarGz(t, tgz)
+	entry, ok := got["flockdeck.png"]
+	if !ok || entry.body != "not really a png" || entry.mode&0o111 != 0 {
+		t.Errorf("tar.gz: flockdeck.png = %+v, %v; want the icon's bytes at 0o644", entry, ok)
+	}
+	if _, err := os.Stat(icon); err != nil {
+		t.Errorf("the icon was removed from %s, but it is a repository asset, not a build product: %v", dir, err)
+	}
 }
 
 // A pane is a console, and Windows gives one only to a console program, so
@@ -115,6 +145,43 @@ func TestWindowsArchiveCarriesAConsoleTwin(t *testing.T) {
 	// The loose programs went into the archive and are gone.
 	if entries, _ := os.ReadDir(out); len(entries) != 1 {
 		t.Errorf("beside the archive: %v, want nothing else", entries)
+	}
+}
+
+// The Linux archive carries the icon install.sh gives the desktop entry it
+// writes, and packaging it leaves the repository's own copy alone: only
+// linux/amd64 packages natively cross-compile CGO_ENABLED=1 for (see
+// packagePlatform's own doc comment), so this only runs where the host
+// actually is linux/amd64, the same way test.yml's own build jobs are split
+// one per platform rather than cross-compiled from a single runner.
+func TestLinuxArchiveCarriesAnIcon(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the program")
+	}
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("packaging linux/amd64 needs a matching machine's own cgo toolchain (GTK4/WebKitGTK)")
+	}
+	t.Chdir(filepath.Join("..", ".."))
+	out := t.TempDir()
+	name, err := packagePlatform("v9.9.9", out, "linux", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want, err := os.ReadFile(linuxIconSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := readTarGz(t, filepath.Join(out, name))
+	entry, ok := got[linuxIconName]
+	if !ok || entry.body != string(want) {
+		t.Errorf("the archive's %s does not match %s", linuxIconName, linuxIconSource)
+	}
+	if entry.mode&0o111 != 0 {
+		t.Errorf("%s is mode %v, an icon does not need to be executable", linuxIconName, entry.mode)
+	}
+	if _, err := os.Stat(linuxIconSource); err != nil {
+		t.Errorf("%s was removed by packaging, but it is a repository asset: %v", linuxIconSource, err)
 	}
 }
 
