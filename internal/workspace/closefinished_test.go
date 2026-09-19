@@ -149,6 +149,39 @@ func TestCloseFinishedPanesClosesIdleAgentsAndExitedPanes(t *testing.T) {
 	}
 }
 
+// TestPaneFinishedMatchesCloseFinishedPanes covers the exported wrapper
+// `flockdeck close` uses to decide whether a single named pane needs -force:
+// it has to agree with CloseFinishedPanes' own reading of the same pane, or
+// the two would disagree about what "finished" means for the very same pane.
+func TestPaneFinishedMatchesCloseFinishedPanes(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+
+	idle := agentPaneIn(t, ws, root, "idle")
+	idle.Sess.SetStatus(session.StatusIdle, "")
+
+	working := agentPaneIn(t, ws, root, "working")
+	working.Sess.SetStatus(session.StatusWorking, "")
+
+	failed := agentPaneIn(t, ws, root, "failed")
+	failed.Sess.SetStatus(session.StatusIdle, "")
+	failed.Err = errors.New("boom")
+
+	if !ws.PaneFinished(idle.ID) {
+		t.Error("an idle agent pane should count as finished")
+	}
+	if ws.PaneFinished(working.ID) {
+		t.Error("a working pane should not count as finished")
+	}
+	if ws.PaneFinished(failed.ID) {
+		t.Error("a pane whose last turn failed should not count as finished")
+	}
+	if ws.PaneFinished("no-such-pane") {
+		t.Error("an unknown pane should not count as finished")
+	}
+}
+
 // TestCloseFinishedPanesActsAcrossEveryOpenProject covers the scope decision:
 // it reaches every open project, not only the one on screen, the same reach
 // as the "All agents" overview -- a dev clearing out finished work does it

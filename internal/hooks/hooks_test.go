@@ -366,6 +366,137 @@ func TestPeerNameRequiresAName(t *testing.T) {
 	}
 }
 
+// TestCloseRoundTrip is the happy path: the caller's pane, the target and the
+// force flag reach the installed handler exactly as sent, and its result
+// comes back.
+func TestCloseRoundTrip(t *testing.T) {
+	srv, _ := newServer(t)
+	var got CloseRequest
+	srv.SetCloseHandler(func(req CloseRequest) (CloseResult, error) {
+		got = req
+		return CloseResult{Closed: true}, nil
+	})
+
+	res, err := Close(srv.BaseURL(), srv.Token(), "pane-1", CloseRequest{Target: "pane-2", Force: true})
+	if err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if !res.Closed {
+		t.Error("Closed = false, want true")
+	}
+	if got.Pane != "pane-1" || got.Target != "pane-2" || !got.Force {
+		t.Errorf("handler saw %+v, want the request as sent", got)
+	}
+}
+
+// TestCloseFinishedRoundTrip covers -finished: no target is required, and the
+// counts the handler answers with come back.
+func TestCloseFinishedRoundTrip(t *testing.T) {
+	srv, _ := newServer(t)
+	var got CloseRequest
+	srv.SetCloseHandler(func(req CloseRequest) (CloseResult, error) {
+		got = req
+		return CloseResult{Panes: 3, Tabs: 1}, nil
+	})
+
+	res, err := Close(srv.BaseURL(), srv.Token(), "pane-1", CloseRequest{Finished: true})
+	if err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if res.Panes != 3 || res.Tabs != 1 {
+		t.Errorf("res = %+v, want Panes=3 Tabs=1", res)
+	}
+	if !got.Finished || got.Target != "" {
+		t.Errorf("handler saw %+v, want Finished with no target", got)
+	}
+}
+
+// TestCloseReportsRefusal checks that a handler's reason for refusing -- a
+// pane still working, most likely -- reaches the caller.
+func TestCloseReportsRefusal(t *testing.T) {
+	srv, _ := newServer(t)
+	srv.SetCloseHandler(func(CloseRequest) (CloseResult, error) {
+		return CloseResult{}, errors.New("pane is still working")
+	})
+
+	_, err := Close(srv.BaseURL(), srv.Token(), "pane-1", CloseRequest{Target: "pane-2"})
+	if err == nil || !strings.Contains(err.Error(), "pane is still working") {
+		t.Fatalf("err = %v, want the handler's reason", err)
+	}
+}
+
+// TestCloseWithoutHandlerExplainsItself checks the refusal that carries no
+// body of its own still prints as something a reader can act on.
+func TestCloseWithoutHandlerExplainsItself(t *testing.T) {
+	srv, _ := newServer(t)
+
+	_, err := Close(srv.BaseURL(), srv.Token(), "pane-1", CloseRequest{Target: "pane-2"})
+	if err == nil || strings.TrimSpace(err.Error()) == "" {
+		t.Fatalf("err = %v, want a message", err)
+	}
+}
+
+// TestCloseRejectsBadToken keeps this endpoint as closed to other local
+// processes as every other one is.
+func TestCloseRejectsBadToken(t *testing.T) {
+	srv, _ := newServer(t)
+	called := make(chan struct{}, 1)
+	srv.SetCloseHandler(func(CloseRequest) (CloseResult, error) {
+		called <- struct{}{}
+		return CloseResult{Closed: true}, nil
+	})
+
+	if _, err := Close(srv.BaseURL(), "not-the-token", "pane-1", CloseRequest{Target: "pane-2"}); err == nil {
+		t.Fatal("a close with the wrong token was accepted")
+	}
+	select {
+	case <-called:
+		t.Fatal("the close handler ran for an unauthenticated request")
+	default:
+	}
+}
+
+// TestCloseRequiresATargetOrFinished checks the server refuses a request that
+// names neither a pane nor -finished, rather than handing the handler
+// nothing worth acting on.
+func TestCloseRequiresATargetOrFinished(t *testing.T) {
+	srv, _ := newServer(t)
+	called := make(chan struct{}, 1)
+	srv.SetCloseHandler(func(CloseRequest) (CloseResult, error) {
+		called <- struct{}{}
+		return CloseResult{}, nil
+	})
+
+	if _, err := Close(srv.BaseURL(), srv.Token(), "pane-1", CloseRequest{}); err == nil {
+		t.Fatal("a request naming neither a pane nor -finished was accepted")
+	}
+	select {
+	case <-called:
+		t.Fatal("the close handler ran for a request naming nothing to close")
+	default:
+	}
+}
+
+// TestCloseSaysWhatAFailureMeans mirrors TestSpawnSaysWhatAFailureMeans: a
+// close that got no answer in time is explained as the instance being busy.
+func TestCloseSaysWhatAFailureMeans(t *testing.T) {
+	srv, _ := newServer(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	srv.SetCloseHandler(func(CloseRequest) (CloseResult, error) {
+		<-release
+		return CloseResult{Closed: true}, nil
+	})
+	old := closeTimeout
+	closeTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { closeTimeout = old })
+
+	_, err := Close(srv.BaseURL(), srv.Token(), "pane-1", CloseRequest{Target: "pane-2"})
+	if err == nil || !strings.Contains(err.Error(), "may be busy") {
+		t.Errorf("a close that timed out said %v; it should say it may be busy", err)
+	}
+}
+
 // TestAnInterruptedToolIsReportedAsSuch covers Esc pressed while a tool runs:
 // the tool fails, Claude Code goes back to its prompt, and no Stop follows. A
 // tool that failed on its own is part of a turn that goes on.
