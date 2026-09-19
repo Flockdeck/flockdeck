@@ -50,6 +50,31 @@ type releases struct {
 
 var archiveName = regexp.MustCompile(`^flockdeck_(v[^_]+)_([a-z]+)_([a-z0-9]+)\.(tar\.gz|zip)$`)
 
+// darwinBundleExe is where install.sh puts the program inside Flockdeck.app,
+// relative to the directory the bundle itself is installed into.
+const darwinBundleExe = "Flockdeck.app/Contents/MacOS/flockdeck"
+
+// installedExe is where install.sh puts the program under bin, the
+// directory it was told (or defaulted) to install into: install.sh's own
+// detect_os decides this at run time from the real machine's uname, so the
+// tests that run it, all on runtime.GOOS since installShRunner skips
+// Windows, need the same split to know where to look afterward.
+func installedExe(bin string) string {
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(bin, filepath.FromSlash(darwinBundleExe))
+	}
+	return filepath.Join(bin, "flockdeck")
+}
+
+// defaultInstallDir is where install.sh installs without FLOCKDECK_INSTALL_DIR
+// set, given HOME.
+func defaultInstallDir(home string) string {
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Applications")
+	}
+	return filepath.Join(home, ".local", "bin")
+}
+
 // testRelease is the release the tests generate the site for: v9.9.9, which
 // the site and GitHub both have, with the checksums of its archives as they
 // serve them.
@@ -198,9 +223,10 @@ func installArchive(name string) []byte {
 // executable there; every other test only ever reads the file back.
 func installArchiveWithProgram(name string, program []byte) []byte {
 	var buf bytes.Buffer
+	m := archiveName.FindStringSubmatch(name)
 	body := program
 	if body == nil {
-		body = []byte("flockdeck " + archiveName.FindStringSubmatch(name)[1])
+		body = []byte("flockdeck " + m[1])
 	}
 	if strings.HasSuffix(name, ".zip") {
 		zw := zip.NewWriter(&buf)
@@ -217,16 +243,35 @@ func installArchiveWithProgram(name string, program []byte) []byte {
 		zw.Close()
 		return buf.Bytes()
 	}
+
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	tw.WriteHeader(&tar.Header{Name: "flockdeck", Mode: 0o755, Size: int64(len(body)), Format: tar.FormatPAX})
-	tw.Write(body)
-	// install.sh unpacks this alongside the binary on Linux, for the desktop
-	// entry it writes; a real archive's is cmd/release's copy of
-	// build/appicon.png, but nothing here reads these bytes as an image.
-	icon := []byte("not really a png, just something for install.sh to find")
-	tw.WriteHeader(&tar.Header{Name: "flockdeck.png", Mode: 0o644, Size: int64(len(icon)), Format: tar.FormatPAX})
-	tw.Write(icon)
+	if m[2] == "darwin" {
+		// A real macOS archive carries a whole Flockdeck.app rather than a
+		// bare binary (cmd/release's own buildDarwinBundle); install.sh
+		// unpacks it the same way, naming the bundle directory instead of a
+		// single file.
+		for _, dir := range []string{"Flockdeck.app/", "Flockdeck.app/Contents/", "Flockdeck.app/Contents/MacOS/", "Flockdeck.app/Contents/Resources/"} {
+			tw.WriteHeader(&tar.Header{Name: dir, Typeflag: tar.TypeDir, Mode: 0o755, Format: tar.FormatPAX})
+		}
+		tw.WriteHeader(&tar.Header{Name: darwinBundleExe, Mode: 0o755, Size: int64(len(body)), Format: tar.FormatPAX})
+		tw.Write(body)
+		icon := []byte("not really an icns, just something for install.sh to find")
+		tw.WriteHeader(&tar.Header{Name: "Flockdeck.app/Contents/Resources/AppIcon.icns", Mode: 0o644, Size: int64(len(icon)), Format: tar.FormatPAX})
+		tw.Write(icon)
+		plist := []byte("not really a plist, just something for install.sh to find")
+		tw.WriteHeader(&tar.Header{Name: "Flockdeck.app/Contents/Info.plist", Mode: 0o644, Size: int64(len(plist)), Format: tar.FormatPAX})
+		tw.Write(plist)
+	} else {
+		tw.WriteHeader(&tar.Header{Name: "flockdeck", Mode: 0o755, Size: int64(len(body)), Format: tar.FormatPAX})
+		tw.Write(body)
+		// install.sh unpacks this alongside the binary on Linux, for the
+		// desktop entry it writes; a real archive's is cmd/release's copy of
+		// build/appicon.png, but nothing here reads these bytes as an image.
+		icon := []byte("not really a png, just something for install.sh to find")
+		tw.WriteHeader(&tar.Header{Name: "flockdeck.png", Mode: 0o644, Size: int64(len(icon)), Format: tar.FormatPAX})
+		tw.Write(icon)
+	}
 	tw.Close()
 	gz.Close()
 	return buf.Bytes()
@@ -374,7 +419,7 @@ func TestInstallShDownloadsFromTheSite(t *testing.T) {
 			cmd := exec.Command(sh, path)
 			cmd.Env = append(installEnv(r, c.env), "HOME="+home, "FLOCKDECK_INSTALL_DIR="+bin)
 			out, err := cmd.CombinedOutput()
-			c.check(t, r, filepath.Join(bin, "flockdeck"), out, err)
+			c.check(t, r, installedExe(bin), out, err)
 		})
 	}
 }
@@ -447,11 +492,12 @@ func TestInstallShTakesADirectoryWithASlashOnTheEnd(t *testing.T) {
 			cmd := exec.Command(sh, path)
 			cmd.Env = append(installEnv(r, nil), "HOME="+homeVar,
 				"PATH="+onPath+string(os.PathListSeparator)+os.Getenv("PATH"))
-			want := filepath.Join(home, ".local", "bin", "flockdeck")
+			bin := defaultInstallDir(home)
 			if installDir != "" {
 				cmd.Env = append(cmd.Env, "FLOCKDECK_INSTALL_DIR="+installDir)
-				want = filepath.Join(home, "bin", "flockdeck")
+				bin = filepath.Join(home, "bin")
 			}
+			want := installedExe(bin)
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("install: %v\n%s", err, out)
@@ -459,7 +505,14 @@ func TestInstallShTakesADirectoryWithASlashOnTheEnd(t *testing.T) {
 			if _, err := os.Stat(want); err != nil {
 				t.Errorf("nothing installed at %s: %v\n%s", want, err, out)
 			}
-			if !strings.Contains(string(out), "start it with: flockdeck\n") ||
+			// macOS never prints a PATH-based "start it with": a
+			// double-clickable Flockdeck.app is opened from Launchpad,
+			// Spotlight or Finder instead.
+			wantSaid := "start it with: flockdeck\n"
+			if runtime.GOOS == "darwin" {
+				wantSaid = "open it from Launchpad, Spotlight or Finder"
+			}
+			if !strings.Contains(string(out), wantSaid) ||
 				strings.Contains(string(out), "not on your PATH") || strings.Contains(string(out), "not this one") {
 				t.Errorf("HOME=%s, FLOCKDECK_INSTALL_DIR=%s, and %s on PATH said:\n%s", homeVar, installDir, onPath, out)
 			}
@@ -568,7 +621,7 @@ func TestInstallShGivesUpOnTheSiteInSeconds(t *testing.T) {
 			start := time.Now()
 			out, err := cmd.CombinedOutput()
 			took := time.Since(start)
-			got, _ := os.ReadFile(filepath.Join(bin, "flockdeck"))
+			got, _ := os.ReadFile(installedExe(bin))
 			if err != nil || string(got) != "flockdeck v9.9.9" {
 				t.Fatalf("after %v the script exited %v and installed %q\n%s", took.Round(time.Second), err, got, out)
 			}
@@ -587,6 +640,9 @@ func TestInstallShGivesUpOnTheSiteInSeconds(t *testing.T) {
 // into two words when pasted.
 func TestInstallShQuotesThePathItSaysToStart(t *testing.T) {
 	sh := installShRunner(t)
+	if runtime.GOOS == "darwin" {
+		t.Skip("macOS opens Flockdeck.app from Launchpad, Spotlight or Finder; it never prints a PATH-shadowed start command")
+	}
 	dir, _ := generate(t)
 	shipped, err := os.ReadFile(filepath.Join(dir, "install.sh"))
 	if err != nil {
@@ -624,10 +680,11 @@ func TestInstallShQuotesThePathItSaysToStart(t *testing.T) {
 // On Linux, install.sh unpacks the icon its archive carries alongside the
 // binary and gives it, and a .desktop file, to $HOME/.local/share (or
 // XDG_DATA_HOME), so Flockdeck shows up in an app menu without anyone
-// needing to know it can also be started from a shell. macOS gets neither
-// yet, since its own archive carries no icon to give one -- the same run of
-// this script on a macOS test runner has to confirm exactly that, not just
-// skip checking it.
+// needing to know it can also be started from a shell. macOS gets neither of
+// those from here: Flockdeck.app already gets the same Dock/Spotlight/
+// Launchpad visibility on its own, with no XDG-style entry to write -- the
+// same run of this script on a macOS test runner has to confirm exactly
+// that nothing was written here, not just skip checking it.
 func TestInstallShAddsALinuxDesktopEntry(t *testing.T) {
 	sh := installShRunner(t)
 	dir, _ := generate(t)
@@ -655,7 +712,7 @@ func TestInstallShAddsALinuxDesktopEntry(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		for _, p := range []string{entry, icon} {
 			if _, err := os.Stat(p); err == nil {
-				t.Errorf("%s exists on %s, which install.sh's archive carries no icon for yet", p, runtime.GOOS)
+				t.Errorf("%s exists on %s, which install.sh never writes an XDG-style desktop entry or icon for", p, runtime.GOOS)
 			}
 		}
 		return
