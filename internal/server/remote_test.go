@@ -128,7 +128,13 @@ func TestTheDialogTurnsRemoteAccessOnAndOff(t *testing.T) {
 	if out.Action != "enable" || out.Error != "the join code is not valid" {
 		t.Errorf("a refused enrolment was answered %+v", out)
 	}
-	if len(fake.enabled) != 1 || fake.enabled[0] != (remote.EnableRequest{Relay: "relay.example", Name: "desk", Join: "fdj_x"}) {
+	// OnVerify is a func, and never set from the dialog (see remote.go's own
+	// comment on EnableRequest.OnVerify: the window has no way yet to show a
+	// URL and wait, so it is left nil throughout), so it is left out of this
+	// comparison rather than compared, which a func value cannot be.
+	if want := (remote.EnableRequest{Relay: "relay.example", Name: "desk", Join: "fdj_x"}); len(fake.enabled) != 1 ||
+		fake.enabled[0].Relay != want.Relay || fake.enabled[0].Name != want.Name ||
+		fake.enabled[0].Join != want.Join || fake.enabled[0].Invite != want.Invite || fake.enabled[0].OnVerify != nil {
 		t.Errorf("remote access was asked to enrol with %+v", fake.enabled)
 	}
 
@@ -173,7 +179,12 @@ func TestTheDialogMovesToAnotherRelay(t *testing.T) {
 	if out.Action != "move" || out.Error != "this relay needs an invite code" {
 		t.Errorf("a refused move was answered %+v", out)
 	}
-	if len(fake.moved) != 1 || fake.moved[0] != (remote.EnableRequest{Relay: "relay.company.example", Invite: "fdi_x"}) {
+	// OnVerify left out of the comparison for the same reason enable's test
+	// above does: a func value cannot be compared with !=, and the dialog
+	// never sets it.
+	if want := (remote.EnableRequest{Relay: "relay.company.example", Invite: "fdi_x"}); len(fake.moved) != 1 ||
+		fake.moved[0].Relay != want.Relay || fake.moved[0].Name != want.Name ||
+		fake.moved[0].Join != want.Join || fake.moved[0].Invite != want.Invite || fake.moved[0].OnVerify != nil {
 		t.Errorf("remote access was asked to move with %+v", fake.moved)
 	}
 
