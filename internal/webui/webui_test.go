@@ -9134,6 +9134,19 @@ function boot(opts) {
     },
     keyTable() { return JSON.parse(fs.readFileSync(path.join(ASSETS, "keys.json"), "utf8")); },
     sleep(ms) { return new Promise((done) => setTimeout(done, ms)); },
+    /** waitFor polls cond every few ms until it is truthy, or rejects once
+     *  timeoutMs has passed without it -- for a case that needs to wait on
+     *  real async work (WebCrypto, the fake IndexedDB's own setImmediate
+     *  hops) with no event of its own to await, where a fixed h.sleep is a
+     *  race against however fast the machine running it happens to be. */
+    async waitFor(cond, timeoutMs) {
+      const deadline = Date.now() + (timeoutMs || 1000);
+      for (;;) {
+        if (cond()) return;
+        if (Date.now() >= deadline) throw new Error("harness: waitFor timed out");
+        await h.sleep(5);
+      }
+    },
     /** raf runs the callbacks queued by requestAnimationFrame so far, as one
      *  frame: a callback that asks for another frame is queued for the next
      *  one, not run again by this call. See webglQueue in app.js. */

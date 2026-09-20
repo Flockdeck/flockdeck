@@ -33,7 +33,7 @@ func remoteHello(e2ePublicKey string) string {
 func TestARemoteWindowRegistersItsEndToEndKey(t *testing.T) {
 	runFrontEnd(t, `
 `+remoteHello("")+`
-await h.sleep(20);
+await h.waitFor(() => h.e2eKeyPosts().length > 0, 1000);
 
 const posts = h.e2eKeyPosts();
 assert.strictEqual(posts.length, 1, "the window did not register its own key");

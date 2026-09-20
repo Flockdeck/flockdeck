@@ -1506,6 +1506,12 @@ func TestMoveChangesNothingUnlessTheNewRelayAnswers(t *testing.T) {
 			_, _ = io.WriteString(w, `{"hostId":"h9","accountId":"a9","token":"fdh_half"}`)
 			return
 		}
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/register/start" {
+			// Does not require a verified email: it does not know that route
+			// at all, same as any relay from before it existed.
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		// As a proxy in front of it might: registration let through, and
 		// nothing else.
 		w.WriteHeader(http.StatusBadGateway)
