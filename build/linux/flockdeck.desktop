@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Flockdeck
+Comment=Run coding agents side by side, each in its own pane
+Exec=flockdeck
+Icon=flockdeck
+Terminal=false
+Categories=Development;Utility;

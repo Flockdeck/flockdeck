@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/blakesmith/ar"
 	"github.com/jmwri/flockdeck/internal/selfupdate"
 )
 
@@ -92,12 +93,15 @@ func TestWindowsArchiveCarriesAConsoleTwin(t *testing.T) {
 	}
 	t.Chdir(filepath.Join("..", ".."))
 	out := t.TempDir()
-	name, err := packagePlatform("v9.9.9", out, "windows", "amd64")
+	names, err := packagePlatform("v9.9.9", out, "windows", "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(names) != 1 {
+		t.Fatalf("packagePlatform windows/amd64 = %v, want exactly one archive", names)
+	}
 
-	zr, err := zip.OpenReader(filepath.Join(out, name))
+	zr, err := zip.OpenReader(filepath.Join(out, names[0]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,9 +168,13 @@ func TestLinuxArchiveCarriesAnIcon(t *testing.T) {
 	}
 	t.Chdir(filepath.Join("..", ".."))
 	out := t.TempDir()
-	name, err := packagePlatform("v9.9.9", out, "linux", "amd64")
+	names, err := packagePlatform("v9.9.9", out, "linux", "amd64")
 	if err != nil {
 		t.Fatal(err)
+	}
+	name := names[0]
+	if !strings.HasSuffix(name, ".tar.gz") {
+		t.Fatalf("packagePlatform linux/amd64 = %v, want the tar.gz first", names)
 	}
 
 	want, err := os.ReadFile(linuxIconSource)
@@ -186,6 +194,126 @@ func TestLinuxArchiveCarriesAnIcon(t *testing.T) {
 	}
 }
 
+// buildLinuxPackages needs no cgo toolchain -- it packages whatever binary it
+// is given, built or not -- so unlike packagePlatform's own Linux test this
+// runs on every platform's own build of this test suite, the way CI already
+// does for the rest of cmd/release.
+func TestLinuxPackagesCarryTheBinaryDesktopFileAndIcon(t *testing.T) {
+	t.Chdir(filepath.Join("..", ".."))
+	out := t.TempDir()
+	built := filepath.Join(t.TempDir(), "built")
+	if err := os.WriteFile(built, []byte("the program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	names, err := buildLinuxPackages("v1.2.3", out, "amd64", built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantNames := map[string]bool{"flockdeck_v1.2.3_linux_amd64.deb": true, "flockdeck_v1.2.3_linux_amd64.rpm": true}
+	for _, n := range names {
+		if !wantNames[n] {
+			t.Errorf("buildLinuxPackages made %s, not one of %v", n, wantNames)
+		}
+		delete(wantNames, n)
+	}
+	for n := range wantNames {
+		t.Errorf("buildLinuxPackages did not make %s", n)
+	}
+
+	icon, err := os.ReadFile(linuxIconSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	desktop, err := os.ReadFile("build/linux/flockdeck.desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deb := readDebDataTarGz(t, filepath.Join(out, "flockdeck_v1.2.3_linux_amd64.deb"))
+	wantDeb := map[string]entry{
+		"./usr/bin/flockdeck":                                  {regular: true, body: "the program"},
+		"./usr/share/applications/flockdeck.desktop":           {regular: true, body: string(desktop)},
+		"./usr/share/icons/hicolor/512x512/apps/flockdeck.png": {regular: true, body: string(icon)},
+		"./usr/share/doc/flockdeck/LICENSE":                    {regular: true},
+		"./usr/share/doc/flockdeck/THIRD-PARTY-NOTICES.md":     {regular: true},
+	}
+	for name, want := range wantDeb {
+		got, ok := deb[name]
+		switch {
+		case !ok:
+			t.Errorf(".deb: no %s in %v", name, deb)
+		case want.body != "" && got.body != want.body:
+			t.Errorf(".deb: %s = %q, want %q", name, got.body, want.body)
+		}
+	}
+	if bin, ok := deb["./usr/bin/flockdeck"]; ok && bin.mode&0o111 == 0 {
+		t.Errorf(".deb: /usr/bin/flockdeck is mode %v, which will not run", bin.mode)
+	}
+
+	// A full RPM payload is cpio inside a custom header format the standard
+	// library has no reader for; the magic number at least confirms nfpm
+	// wrote a real RPM and not, say, an error message. Actual installability
+	// is checked by hand in a container -- see the release worktree's own
+	// notes -- since that is what an RPM's format is for in the first place.
+	rpm, err := os.ReadFile(filepath.Join(out, "flockdeck_v1.2.3_linux_amd64.rpm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rpm) < 4 || rpm[0] != 0xed || rpm[1] != 0xab || rpm[2] != 0xee || rpm[3] != 0xdb {
+		t.Errorf(".rpm does not start with the RPM lead magic bytes: %x", rpm[:min(4, len(rpm))])
+	}
+}
+
+// readDebDataTarGz unpacks a .deb (an ar archive of debian-binary,
+// control.tar.gz and data.tar.gz) and reads back data.tar.gz, the part that
+// actually lands on the filesystem an install unpacks it onto.
+func readDebDataTarGz(t *testing.T, path string) map[string]entry {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	rd := ar.NewReader(f)
+	for {
+		h, err := rd.Next()
+		if err == io.EOF {
+			t.Fatalf("%s has no data.tar.gz", path)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.TrimSpace(h.Name) == "data.tar.gz" {
+			var buf bytes.Buffer
+			if _, err := io.Copy(&buf, rd); err != nil {
+				t.Fatal(err)
+			}
+			gz, err := gzip.NewReader(&buf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tr := tar.NewReader(gz)
+			out := map[string]entry{}
+			for {
+				th, err := tr.Next()
+				if err == io.EOF {
+					return out
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				body, err := io.ReadAll(tr)
+				if err != nil {
+					t.Fatal(err)
+				}
+				out[th.Name] = entry{th.Typeflag == tar.TypeReg, os.FileMode(th.Mode).Perm(), string(body)}
+			}
+		}
+	}
+}
+
 // The macOS archive carries a real, ad-hoc-signed Flockdeck.app rather than a
 // bare binary: without one there is no Info.plist for the OS to read a name
 // or icon from, so a downloaded binary is neither Dock/Spotlight/Launchpad-
@@ -202,10 +330,14 @@ func TestDarwinArchiveIsASignedAppBundle(t *testing.T) {
 	}
 	t.Chdir(filepath.Join("..", ".."))
 	out := t.TempDir()
-	name, err := packagePlatform("v9.9.9", out, "darwin", "amd64")
+	names, err := packagePlatform("v9.9.9", out, "darwin", "amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(names) != 1 {
+		t.Fatalf("packagePlatform darwin/amd64 = %v, want exactly one archive", names)
+	}
+	name := names[0]
 
 	got := readTarGz(t, filepath.Join(out, name))
 	bin, ok := got["Flockdeck.app/Contents/MacOS/flockdeck"]
