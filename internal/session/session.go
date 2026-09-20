@@ -666,6 +666,16 @@ func (s *Session) AltScreen() bool {
 	return false
 }
 
+// Subscribers counts how many viewers are subscribed to this session's
+// output right now -- a fresh websocket attaching counts itself, so a caller
+// wanting to know whether anyone else was already watching checks for more
+// than one.
+func (s *Session) Subscribers() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.subs)
+}
+
 // BracketedPaste reports whether the pane's program has asked for bracketed
 // paste (mode 2004) and not switched it back off: whether text it is sent
 // between ESC[200~ and ESC[201~ is taken as one paste, line breaks and all,

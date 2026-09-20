@@ -457,7 +457,7 @@ var repaintResize = func(s *Server, id string, cols, rows int) {
 var repaintGap = 100 * time.Millisecond
 
 // armRepaint readies a repaint for a stream that has just started afresh on a
-// full-screen program.
+// full-screen program, and is the only one watching it.
 //
 // A window attaching to a pane that shows vim, htop or an agent's own
 // full-screen view is sent the replay with the terminal modes put back -- and
@@ -467,6 +467,17 @@ var repaintGap = 100 * time.Millisecond
 // so once this window's size is known the pane is made a row shorter and put
 // back. A stream that resumes keeps the screen it had and needs none, and nor
 // does a program on the ordinary screen, whose replay is simply its output.
+//
+// The resize this reaches for is the pane's, not this window's alone -- there
+// is one pty behind however many windows are attached to it -- so it is
+// skipped once somebody else is already watching. A second window opening
+// onto a pane already in use (a phone reached through the relay, say, beside
+// the desk's own) would otherwise drop the desk's own perfectly good screen a
+// row and put it back for a window it never asked anything for, for the sake
+// of a replay only the new window was ever going to see. That window is left
+// with the same garbled replay this function exists to clear, until the
+// program's own next redraw -- the ordinary cost of arriving late to a pane
+// somebody else already has open, same as looking over their shoulder would.
 //
 // It happens once, from whichever comes second: this, or the window's first
 // size being applied (applyResizes) -- or, for a window that has not said what
@@ -479,7 +490,7 @@ var repaintGap = 100 * time.Millisecond
 // before it is over is not repainted for: the pane would drop a row and come
 // back in every other window watching it, for a window nobody is looking at.
 func (s *Server) armRepaint(ctx context.Context, repaint *atomic.Bool, id string, viewer int64, sess *session.Session, fresh bool) {
-	repaint.Store(fresh && altScreen(sess))
+	repaint.Store(fresh && altScreen(sess) && sess.Subscribers() <= 1)
 	if viewers.sized(id, viewer) && repaint.CompareAndSwap(true, false) {
 		go s.do(func() { s.repaintPane(id) })
 		return
