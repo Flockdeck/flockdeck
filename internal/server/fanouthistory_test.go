@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,26 @@ import (
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
+
+// hangingAgents is revealAgents' agent, but pointed at a `go run` of a
+// program that blocks for an hour instead of one that settles on its own.
+// SetStatus refuses to move a session already marked StatusExited (see its
+// own guard), so a settlePane call after the fact only sticks if it wins a
+// race against the real agent's own exit -- fine when the forced status is
+// itself "the pane is gone" (an error also settles that way), but not when
+// it is one only the test can produce, like StatusWaiting: racing a real
+// process to overwrite that flaked on macOS CI, most often settling both
+// panes as done rather than one done and one needing input. An agent that
+// never exits on its own leaves nothing to race.
+func hangingAgents(t *testing.T) string {
+	t.Helper()
+	hang := filepath.Join(t.TempDir(), "hang.go")
+	if err := os.WriteFile(hang, []byte("package main\n\nimport \"time\"\n\nfunc main() { time.Sleep(time.Hour) }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf(`{"version": 1, "agents": [{"id": "gocli", "name": "Go", "exe": "go",
+		"args": [{"value": "run"}, {"value": %q}]}]}`, hang)
+}
 
 // TestWaitingLabelMatchesTheLiveCardsKindLabel covers the Go side of the
 // webui's kindLabel: the same phrasing outcomeOf builds for a pane's
@@ -115,7 +136,12 @@ func settlePane(t *testing.T, srv *Server, ws *workspace.Workspace, id string, s
 // fan-out's tab is closed whole, with every pane still in it, the way the
 // tab strip's own close button does it.
 func TestClosingASettledFanOutTabRecordsItsHistory(t *testing.T) {
-	srv, ws := fanoutServer(t)
+	srv, ws := newTestServer(t)
+	// Both panes below get a status this test cares about -- one done, one
+	// needing input -- so both need an agent that never settles on its own;
+	// see hangingAgents.
+	writeAgents(t, hangingAgents(t))
+	ws.ReloadAgents()
 	root := ws.ActiveRoot()
 	conn := dialControl(t, srv)
 	nextState(t, conn, nil)
