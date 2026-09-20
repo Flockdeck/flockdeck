@@ -124,6 +124,19 @@ func main() {
 		}
 		return
 	}
+	// `close` is how an agent asks Flockdeck to close a different pane, or
+	// every finished one, without a person having to find it and press
+	// Ctrl+Shift+W themselves. It is run from inside a pane, which is where
+	// the address and token come from, the same as `spawn`.
+	if len(os.Args) > 1 && os.Args[1] == "close" {
+		if err := runClose(os.Args[2:]); err != nil {
+			if !errors.Is(err, errReported) {
+				fmt.Fprintln(os.Stderr, "flockdeck close:", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
 	// `agents` prints the catalog. It is a subcommand rather than a flag
 	// because it answers a question instead of changing how a run starts, and
 	// because it is the only place to find out what an -agent name may be.
@@ -255,7 +268,7 @@ func helpArgs(rest []string) (args []string, top bool) {
 	switch {
 	case len(rest) == 0:
 		return nil, true
-	case map[string]bool{"spawn": true, "peer-name": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true}[rest[0]]:
+	case map[string]bool{"spawn": true, "peer-name": true, "close": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true}[rest[0]]:
 		return []string{rest[0], "-h"}, false
 	}
 	return nil, true
@@ -359,6 +372,8 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "  peer-name <name>\n")
 	fmt.Fprintf(out, "        report the name another Claude session would address this pane by; run from inside a pane\n")
+	fmt.Fprintf(out, "  close [-force] <pane-id> | close -finished\n")
+	fmt.Fprintf(out, "        close another pane, or every finished one; run from inside a pane\n")
 	fmt.Fprintf(out, "  agents\n")
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "  chat [flags]\n")
@@ -1779,6 +1794,104 @@ func runPeerName(args []string) error {
 		return err
 	}
 	fmt.Println("reported peer name", name)
+	return nil
+}
+
+// closeFlags are the flags of `flockdeck close` and where their values land.
+type closeFlags struct {
+	force    bool
+	finished bool
+}
+
+// closeFlagSet defines the command line of `flockdeck close`.
+func closeFlagSet(f *closeFlags) *flag.FlagSet {
+	fs := flag.NewFlagSet("close", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.BoolVar(&f.force, "force", false, "close the pane even while it is still working")
+	fs.BoolVar(&f.finished, "finished", false, "close every idle or exited pane instead of naming one")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: flockdeck close [-force] <pane-id>\n"+
+			"       flockdeck close -finished\n\n"+
+			"Closes another pane -- the same as Ctrl+Shift+W on it. Refuses a pane\n"+
+			"that is still working unless -force is given. -finished closes every\n"+
+			"idle or exited pane across every open project instead of naming one,\n"+
+			"the same as the \"Close finished panes\" command.\n\nFlags:\n")
+		fs.PrintDefaults()
+	}
+	return fs
+}
+
+// parseClose turns the arguments of `flockdeck close` into the request to
+// send. It is separate from sending it so the parsing can be tested without
+// an instance to close a pane in.
+func parseClose(args []string) (hooks.CloseRequest, error) {
+	var f closeFlags
+	fs := closeFlagSet(&f)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return hooks.CloseRequest{}, errHelpAsked
+		}
+		return hooks.CloseRequest{}, errReported
+	}
+	if f.finished {
+		if fs.NArg() != 0 || f.force {
+			fs.Usage()
+			return hooks.CloseRequest{}, errReported
+		}
+		return hooks.CloseRequest{Finished: true}, nil
+	}
+	if fs.NArg() != 1 || strings.TrimSpace(fs.Arg(0)) == "" {
+		fs.Usage()
+		return hooks.CloseRequest{}, errReported
+	}
+	return hooks.CloseRequest{Target: strings.TrimSpace(fs.Arg(0)), Force: f.force}, nil
+}
+
+// closedFinishedMessage says what a `close -finished` did, the same wording
+// the "Close finished panes" command's own notice uses.
+func closedFinishedMessage(panes, tabs int) string {
+	if panes == 0 {
+		return "no finished panes to close"
+	}
+	msg := fmt.Sprintf("closed %d %s", panes, plural(panes, "finished pane", "finished panes"))
+	if tabs > 0 {
+		msg += fmt.Sprintf(" and %d %s", tabs, plural(tabs, "empty tab", "empty tabs"))
+	}
+	return msg
+}
+
+// runClose implements the `close` subcommand, which asks Flockdeck to close a
+// different pane -- or every finished one -- from inside a pane of its own.
+//
+// It exists so a coordinating agent can clean up a helper whose work is done
+// without a person having to find it and press Ctrl+Shift+W themselves. The
+// address and token come from the environment its pane was started with, so
+// only processes running inside a pane can use it, the same as `spawn`.
+func runClose(args []string) error {
+	req, err := parseClose(args)
+	if errors.Is(err, errHelpAsked) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	api := paneEnv("API")
+	token := paneEnv("TOKEN")
+	pane := paneEnv("PANE")
+	if api == "" || token == "" {
+		return fmt.Errorf("this only works inside a flockdeck pane, which is started with FLOCKDECK_API and FLOCKDECK_TOKEN set, " +
+			"and they are not set here; from any other terminal, run `flockdeck` to open the window and start the agent there")
+	}
+
+	res, err := hooks.Close(api, token, pane, req)
+	if err != nil {
+		return err
+	}
+	if req.Finished {
+		fmt.Println(closedFinishedMessage(res.Panes, res.Tabs))
+		return nil
+	}
+	fmt.Println("closed pane", req.Target)
 	return nil
 }
 

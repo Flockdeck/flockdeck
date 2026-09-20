@@ -235,6 +235,107 @@ func TestPeerNameRequiresAName(t *testing.T) {
 	}
 }
 
+// `close -h` is a request for the usage it has just been given, not a
+// failure.
+func TestCloseHelpSucceeds(t *testing.T) {
+	if err := runClose([]string{"-h"}); err != nil {
+		t.Errorf("runClose(-h) = %v, want nil", err)
+	}
+}
+
+// A flag the set has already complained about must not be reported twice.
+func TestCloseBadFlagIsReportedOnce(t *testing.T) {
+	err := runClose([]string{"-nosuchflag"})
+	if !errors.Is(err, errReported) {
+		t.Errorf("runClose(-nosuchflag) = %v, want errReported", err)
+	}
+}
+
+// Outside a pane there is no address to close through, and the message has
+// to say that rather than blaming the pane id.
+func TestCloseOutsideAPaneExplainsItself(t *testing.T) {
+	for _, name := range []string{"FLOCKDECK_API", "FLOCKDECK_TOKEN", "PERCH_API", "PERCH_TOKEN"} {
+		t.Setenv(name, "")
+	}
+
+	err := runClose([]string{"pane-2"})
+	if err == nil || !strings.Contains(err.Error(), "pane") {
+		t.Errorf("err = %v, want it to mention panes", err)
+	}
+}
+
+// A pane id is the one thing a single close exists to carry, so nothing is
+// sent without one, and typing none is answered with the usage rather than a
+// request that names nothing.
+func TestCloseRequiresAPaneID(t *testing.T) {
+	t.Setenv("FLOCKDECK_API", "http://127.0.0.1:1")
+	t.Setenv("FLOCKDECK_TOKEN", "secret")
+
+	for _, args := range [][]string{{}, {"   "}} {
+		if err := runClose(args); !errors.Is(err, errReported) {
+			t.Errorf("runClose(%q) = %v, want errReported", args, err)
+		}
+	}
+}
+
+// parseClose is what turns the command line into the request, so its flags
+// and its target have to be tested without an instance to close a pane in.
+func TestParseClose(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want hooks.CloseRequest
+	}{
+		{"a plain pane id", []string{"pane-2"}, hooks.CloseRequest{Target: "pane-2"}},
+		{"force", []string{"-force", "pane-2"}, hooks.CloseRequest{Target: "pane-2", Force: true}},
+		{"finished", []string{"-finished"}, hooks.CloseRequest{Finished: true}},
+	}
+	for _, c := range cases {
+		got, err := parseClose(c.args)
+		if err != nil {
+			t.Errorf("%s: parseClose(%q) = %v", c.name, c.args, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("%s: parseClose(%q) = %+v, want %+v", c.name, c.args, got, c.want)
+		}
+	}
+}
+
+// -finished closes every finished pane, so naming one on top of it, or
+// pairing it with -force, is a contradiction rather than something to send.
+func TestParseCloseFinishedRejectsAPaneIDOrForce(t *testing.T) {
+	for _, args := range [][]string{
+		{"-finished", "pane-2"},
+		{"-finished", "-force"},
+	} {
+		if _, err := parseClose(args); !errors.Is(err, errReported) {
+			t.Errorf("parseClose(%q) = %v, want errReported", args, err)
+		}
+	}
+}
+
+// closedFinishedMessage is what the user reads after `close -finished`, so it
+// has to say plainly that nothing happened when nothing did -- otherwise
+// closing several looks the same as closing none.
+func TestClosedFinishedMessage(t *testing.T) {
+	cases := []struct {
+		panes, tabs int
+		want        string
+	}{
+		{0, 0, "no finished panes to close"},
+		{1, 0, "closed 1 finished pane"},
+		{3, 0, "closed 3 finished panes"},
+		{2, 1, "closed 2 finished panes and 1 empty tab"},
+		{1, 2, "closed 1 finished pane and 2 empty tabs"},
+	}
+	for _, c := range cases {
+		if got := closedFinishedMessage(c.panes, c.tabs); got != c.want {
+			t.Errorf("closedFinishedMessage(%d, %d) = %q, want %q", c.panes, c.tabs, got, c.want)
+		}
+	}
+}
+
 // An agent pane is where spawn is meant to run, so from there the missing
 // piece is the task, and nothing is sent without one.
 func TestSpawnRequiresATask(t *testing.T) {
@@ -403,6 +504,7 @@ func cliFlagNames() map[string]bool {
 	for _, fs := range []*flag.FlagSet{
 		flockdeckFlagSet(&cliFlags{}),
 		spawnFlagSet(&spawnFlags{}),
+		closeFlagSet(&closeFlags{}),
 		updateFlagSet(&updateFlags{}),
 		remoteEnableFlagSet(&remoteEnableFlags{}),
 		remotePairFlagSet(&remotePairFlags{}),

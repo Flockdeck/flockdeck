@@ -9,13 +9,25 @@
 # repo's Settings > Environments with required reviewers configured, so a
 # human approves before this runs for a first-time or forked-repo
 # contributor (plan b.4). Until that environment exists, GitHub runs this
-# job ungated. Established internal contributors can be exempted from the
-# gate by scoping the environment's required-reviewers rule accordingly, or
-# by adding an `if:` here once there's a reliable way to identify them (e.g.
-# `github.event.workflow_run.actor.login` against a known list) — deferred
-# for now rather than guessing at a mechanism. See
-# .github/CONTRIBUTOR_WORKFLOW_SETUP.md for the full manual checklist,
-# including the GitHub App and secrets this workflow expects.
+# job ungated. See .github/CONTRIBUTOR_WORKFLOW_SETUP.md for the full manual
+# checklist, including the GitHub App and secrets this workflow expects.
+#
+# check-permission decides whether that gate applies at all: it asks the
+# GitHub API whether the actor who triggered pr-review.yml
+# (github.event.workflow_run.actor.login — the PR's own author, since
+# pr-review.yml runs on plain `pull_request`, never `pull_request_target`)
+# has write or admin access to this repo, and gate's own `if:` skips the
+# job entirely when they do. An `if:` can't call the API itself, hence the
+# separate job — checking a live permission this way, rather than a
+# hardcoded username list, is what the environment gate's own setup step
+# above used to defer this on.
+#
+# Skipping gate this way, rather than trying to exempt trusted actors in
+# the environment's own protection rule, is deliberate: required-reviewers
+# protection has no actor-based exemption in the environment settings UI
+# and applies to anyone who isn't a required reviewer, so the only lever is
+# whether the job runs at all. Environment protection is only ever engaged
+# for a job that actually runs.
 #
 # The approval gate and the post itself are two jobs, not one, because
 # GitHub rejects `environment:` on a job that also calls a reusable
@@ -25,6 +37,17 @@
 # so the approval requirement, once the environment exists) and does
 # nothing else; post only runs once gate has, via `needs`, and is a plain
 # reusable-workflow call with no environment of its own.
+#
+# post cannot simply inherit gate's default success()-based condition,
+# though: GitHub skips a job whose `needs` includes a job that was itself
+# skipped, which -- now that gate is deliberately skipped for a trusted
+# actor -- would silently stop post from ever running for exactly the
+# contributors this change means to stop blocking. post's own `if:` below
+# spells out both ways it is allowed to run (gate approved it, or gate was
+# skipped because check-permission found a trusted actor) instead of
+# relying on the implicit condition, and keeps checking
+# workflow_run.conclusion itself so a skip for the *other* reason -- the
+# untrusted job didn't succeed -- still stops post as before.
 name: PR review - post
 
 on:
@@ -37,15 +60,54 @@ permissions:
   pull-requests: write
 
 jobs:
-  gate:
+  check-permission:
     if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      trusted: ${{ steps.check.outputs.trusted }}
+    steps:
+      - name: Check the PR author's repo permission
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const actor = context.payload.workflow_run.actor.login;
+            // A failed call (a transient API error, a since-deleted
+            // account) must not read as trusted -- that would skip gate
+            // below and let an unreviewed actor's post run ungated, the
+            // opposite of what this whole check is for. Left false, gate
+            // still runs and asks for approval exactly as it did before
+            // this check existed.
+            let trusted = false;
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: actor,
+              });
+              // write or admin is an established contributor, trusted with
+              // the same secrets this repo's own maintainers already have;
+              // maintain and below (read/triage/none -- what a first-time
+              // or forked-repo contributor gets on a public repo) go
+              // through the gate below.
+              trusted = data.permission === "admin" || data.permission === "write";
+              core.info(`${actor}'s permission on this repo is ${data.permission} (trusted: ${trusted})`);
+            } catch (err) {
+              core.warning(`could not check ${actor}'s permission on this repo, treating as untrusted: ${err.message}`);
+            }
+            core.setOutput("trusted", trusted);
+
+  gate:
+    needs: check-permission
+    if: github.event.workflow_run.conclusion == 'success' && needs.check-permission.outputs.trusted != 'true'
     environment: pr-review-external
     runs-on: ubuntu-latest
     steps:
       - run: echo "approved to post a review"
 
   post:
-    needs: gate
+    needs: [check-permission, gate]
+    if: always() && github.event.workflow_run.conclusion == 'success' && (needs.gate.result == 'success' || (needs.gate.result == 'skipped' && needs.check-permission.outputs.trusted == 'true'))
     uses: Flockdeck/flockdeck/.github/workflows/reusable-pr-review-post.yml@main
     with:
       artifact-run-id: ${{ github.event.workflow_run.id }}

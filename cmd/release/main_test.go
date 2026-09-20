@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"debug/pe"
+	"encoding/xml"
 	"io"
 	"os"
 	"os/exec"
@@ -308,6 +309,116 @@ func readDebDataTarGz(t *testing.T, path string) map[string]entry {
 					t.Fatal(err)
 				}
 				out[th.Name] = entry{th.Typeflag == tar.TypeReg, os.FileMode(th.Mode).Perm(), string(body)}
+			}
+		}
+	}
+}
+
+// The macOS archive carries a real, ad-hoc-signed Flockdeck.app rather than a
+// bare binary: without one there is no Info.plist for the OS to read a name
+// or icon from, so a downloaded binary is neither Dock/Spotlight/Launchpad-
+// visible nor double-clickable as anything but a loose Unix executable.
+// Building one needs sips, iconutil and codesign, all part of macOS itself,
+// so this only runs where the host actually is a Mac, the same way
+// TestLinuxArchiveCarriesAnIcon is native-only.
+func TestDarwinArchiveIsASignedAppBundle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the program")
+	}
+	if runtime.GOOS != "darwin" {
+		t.Skip("packaging darwin needs a Mac's own sips, iconutil and codesign")
+	}
+	t.Chdir(filepath.Join("..", ".."))
+	out := t.TempDir()
+	names, err := packagePlatform("v9.9.9", out, "darwin", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 {
+		t.Fatalf("packagePlatform darwin/amd64 = %v, want exactly one archive", names)
+	}
+	name := names[0]
+
+	got := readTarGz(t, filepath.Join(out, name))
+	bin, ok := got["Flockdeck.app/Contents/MacOS/flockdeck"]
+	if !ok || !bin.regular || bin.mode&0o111 == 0 {
+		t.Errorf("Flockdeck.app/Contents/MacOS/flockdeck = %+v, %v; want an executable regular file", bin, ok)
+	}
+	if icon, ok := got["Flockdeck.app/Contents/Resources/AppIcon.icns"]; !ok || icon.body == "" {
+		t.Errorf("Flockdeck.app/Contents/Resources/AppIcon.icns = %+v, %v; want a non-empty file", icon, ok)
+	}
+	plist, ok := got["Flockdeck.app/Contents/Info.plist"]
+	if !ok {
+		t.Fatal("the bundle has no Info.plist")
+	}
+	for _, want := range []string{
+		"<key>CFBundleIdentifier</key>",
+		"<string>" + darwinBundleID + "</string>",
+		"<key>CFBundleExecutable</key>",
+		"<string>flockdeck</string>",
+		"<key>NSHighResolutionCapable</key>",
+	} {
+		if !strings.Contains(plist.body, want) {
+			t.Errorf("Info.plist is missing %q:\n%s", want, plist.body)
+		}
+	}
+	if strings.Contains(plist.body, "LSUIElement") {
+		t.Error("Info.plist sets LSUIElement, which would hide Flockdeck's Dock icon -- it is a normal windowed app")
+	}
+	// The bundle already carries the binary; a loose copy at the archive's
+	// root, as every other platform gets, would only double it for nothing
+	// to unpack.
+	if _, ok := got["flockdeck"]; ok {
+		t.Error("the archive has a loose flockdeck at its root as well as the bundle's own copy")
+	}
+
+	// codesign checks the seal over Info.plist and the binary together,
+	// which reading the archive's entries back individually above does not:
+	// a bundle assembled with the right files but signed before one of them
+	// was written, say, would still pass every check above and fail this
+	// one.
+	dest := t.TempDir()
+	if out, err := exec.Command("tar", "-xzf", filepath.Join(out, name), "-C", dest).CombinedOutput(); err != nil {
+		t.Fatalf("tar -xzf: %v\n%s", err, out)
+	}
+	bundle := filepath.Join(dest, "Flockdeck.app")
+	if out, err := exec.Command("codesign", "--verify", "--deep", "--strict", bundle).CombinedOutput(); err != nil {
+		t.Errorf("codesign --verify %s: %v\n%s", bundle, err, out)
+	}
+
+	if entries, _ := os.ReadDir(out); len(entries) != 1 {
+		t.Errorf("beside the archive: %v, want nothing else", entries)
+	}
+}
+
+// darwinInfoPlist is pure string-building, so its output is checked as XML
+// on every platform this runs on, not only a Mac: a stray unescaped
+// character in the version or a mismatched tag would otherwise only be
+// caught by a Mac's own plist reader, in CI or on a user's machine, long
+// after this was written.
+func TestDarwinInfoPlistIsWellFormedXML(t *testing.T) {
+	for _, version := range []string{"v1.2.3", "v1.2.3-rc.1", "dev"} {
+		plist := darwinInfoPlist(version)
+		var doc struct {
+			XMLName xml.Name `xml:"plist"`
+			Dict    struct {
+				Key    []string `xml:"key"`
+				String []string `xml:"string"`
+			} `xml:"dict"`
+		}
+		if err := xml.Unmarshal([]byte(plist), &doc); err != nil {
+			t.Fatalf("darwinInfoPlist(%q) is not well-formed XML: %v\n%s", version, err, plist)
+		}
+		want := map[string]bool{
+			"CFBundleIdentifier": false, "CFBundleName": false, "CFBundleExecutable": false,
+			"CFBundleIconFile": false, "NSHighResolutionCapable": false,
+		}
+		for _, k := range doc.Dict.Key {
+			want[k] = true
+		}
+		for k, found := range want {
+			if !found {
+				t.Errorf("darwinInfoPlist(%q) is missing <key>%s</key>", version, k)
 			}
 		}
 	}

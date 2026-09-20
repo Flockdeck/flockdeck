@@ -5,10 +5,13 @@
 #
 # It downloads the release archive for this machine from dl.flockdeck.ai, or
 # from GitHub, which carries every release too, when that cannot be reached;
-# checks it against the SHA-256 written into this script below; and puts the
-# one binary in ~/.local/bin. That is a directory the user owns, which matters
-# later: the application updates itself in place, and it should never need a
-# password to do it.
+# checks it against the SHA-256 written into this script below; and installs
+# it into a directory the user owns, which matters later: the application
+# updates itself in place, and it should never need a password to do it. On
+# Linux that is the one binary, in ~/.local/bin. On macOS it is a real,
+# double-clickable Flockdeck.app, in ~/Applications -- Dock/Spotlight/
+# Launchpad-visible the way any other installed application is, not only
+# reachable by typing its name at a shell.
 #
 # With that pinned release checked and installed, if a newer one has been
 # published since this script's own site was generated -- dl.flockdeck.ai's
@@ -30,7 +33,9 @@
 #                          exactly as installed: set this to stay off the
 #                          latest. FLOCKDECK_UPDATE=off where Flockdeck runs
 #                          also keeps it from updating itself later.
-#   FLOCKDECK_INSTALL_DIR  where the binary goes; ~/.local/bin by default
+#   FLOCKDECK_INSTALL_DIR  where the binary (Linux) or Flockdeck.app (macOS)
+#                          goes; ~/.local/bin on Linux, ~/Applications on
+#                          macOS, by default
 #   FLOCKDECK_DOWNLOAD     a mirror to fetch the release files from instead,
 #                          laid out as <mirror>/<version>/<file>. Also skips
 #                          moving to the latest, which a mirror may not carry.
@@ -231,6 +236,9 @@ main() {
 	# the default ~//.local/bin, which did the same.
 	if [ -n "${FLOCKDECK_INSTALL_DIR:-}" ]; then
 		dir=$(trim_slashes "$FLOCKDECK_INSTALL_DIR")
+	elif [ "$os" = darwin ]; then
+		dir="$(trim_slashes "$HOME")"
+		dir="${dir%/}/Applications"
 	else
 		dir="$(trim_slashes "$HOME")"
 		dir="${dir%/}/.local/bin"
@@ -282,27 +290,50 @@ main() {
 	got=$(sha256 "$tmp/$archive")
 	[ "$got" = "$want" ] || die "$archive does not match its published checksum; nothing was installed"
 
-	# The archive carries an icon on Linux too, for the desktop entry below;
-	# macOS and Windows don't have one to unpack yet (see that section's own
-	# comment for why).
+	# The archive carries an icon on Linux too, for the desktop entry below.
+	# macOS carries its own icon already, inside Flockdeck.app itself.
 	if [ "$os" = linux ]; then
 		tar -xzf "$tmp/$archive" -C "$tmp" flockdeck flockdeck.png || die "could not unpack $archive"
 	else
-		tar -xzf "$tmp/$archive" -C "$tmp" flockdeck || die "could not unpack $archive"
+		# darwin: the only other os detect_os can name.
+		tar -xzf "$tmp/$archive" -C "$tmp" Flockdeck.app || die "could not unpack $archive"
 	fi
 
 	mkdir -p "$dir" || die "could not create $dir"
 	# Explicit, not left to the caller's umask: a permissive umask would
-	# otherwise leave this group- or world-writable, and it holds a binary
+	# otherwise leave this group- or world-writable, and it holds a program
 	# that updates and runs itself with this user's own privileges.
 	chmod 755 "$dir" || die "could not set permissions on $dir"
-	# Written beside the destination and renamed over it: a copy that is
-	# running keeps its old file, and nothing ever runs half a binary.
-	cp "$tmp/flockdeck" "$dir/.flockdeck.new" &&
-		chmod 755 "$dir/.flockdeck.new" &&
-		mv -f "$dir/.flockdeck.new" "$dir/flockdeck" ||
-		{ rm -f "$dir/.flockdeck.new"; die "could not write $dir/flockdeck"; }
-	say "installed $version to $dir/flockdeck"
+	if [ "$os" = darwin ]; then
+		# A directory can't be renamed over another the way replace() in
+		# internal/selfupdate swaps a single file (rename(2) refuses a
+		# non-empty destination), so this is not the same "write beside and
+		# rename over it, so nothing ever runs half a program" swap the
+		# binary gets below -- there is a brief window with no
+		# $dir/Flockdeck.app at all. Staged in $dir first and only then
+		# swapped in, rather than copied straight over a running copy's own
+		# files: a copy already running keeps using its old, now-unlinked
+		# files until it quits, same as an update ever after.
+		bundle="$dir/Flockdeck.app"
+		staged="$dir/.Flockdeck.app.new"
+		rm -rf "$staged" &&
+			cp -Rp "$tmp/Flockdeck.app" "$staged" &&
+			chmod 755 "$staged/Contents/MacOS/flockdeck" &&
+			rm -rf "$bundle" &&
+			mv -f "$staged" "$bundle" ||
+			{ rm -rf "$staged"; die "could not write $bundle"; }
+		exe="$bundle/Contents/MacOS/flockdeck"
+		say "installed $version to $bundle"
+	else
+		# Written beside the destination and renamed over it: a copy that is
+		# running keeps its old file, and nothing ever runs half a binary.
+		cp "$tmp/flockdeck" "$dir/.flockdeck.new" &&
+			chmod 755 "$dir/.flockdeck.new" &&
+			mv -f "$dir/.flockdeck.new" "$dir/flockdeck" ||
+			{ rm -f "$dir/.flockdeck.new"; die "could not write $dir/flockdeck"; }
+		exe="$dir/flockdeck"
+		say "installed $version to $exe"
+	fi
 	if [ -n "${FLOCKDECK_VERSION:-}" ]; then
 		say "to stay on $version, set FLOCKDECK_UPDATE=off where Flockdeck runs; otherwise it updates itself to the latest"
 	fi
@@ -311,10 +342,9 @@ main() {
 	# search the way any other installed application does, rather than only
 	# being reachable by typing its name at a shell -- the whole reason
 	# someone would otherwise think a terminal was required to run it at
-	# all. macOS and Windows don't get one from here yet: macOS has no
-	# app-bundle equivalent to hand this to until one exists (a bare
-	# double-clickable binary isn't Dock/Spotlight-visible either way), and
-	# Windows already gets a Start menu shortcut further down in
+	# all. Linux is the only OS that needs one written here: macOS gets the
+	# same Dock/Spotlight/Launchpad visibility for free from Flockdeck.app
+	# itself, and Windows already gets a Start menu shortcut further down in
 	# install.ps1. Best-effort: a machine with no $HOME/.local/share (or one
 	# this user cannot write) still has a perfectly working install at
 	# $dir/flockdeck, so nothing here is worth failing the install over.
@@ -357,38 +387,46 @@ main() {
 	if [ -z "${FLOCKDECK_VERSION:-}" ] && [ -z "${FLOCKDECK_DOWNLOAD:-}" ] && [ "${FLOCKDECK_UPDATE:-}" != off ]; then
 		latest=$(latest_release) || latest=
 		if [ -n "$latest" ] && release_gt "$latest" "$version"; then
-			if ! "$dir/flockdeck" update; then
+			if ! "$exe" update; then
 				say "could not move to $latest automatically; flockdeck is installed at $version and will offer the update when it runs"
 			fi
 		fi
 	fi
 
-	# A copy found first on PATH -- a go install, say -- is the one that runs,
-	# so it is not the one to be told to start.
-	# What PATH names is compared without the slashes on its end, as $dir is:
-	# /opt/bin/ on it is where /opt/bin is, and the shell finds the copy there
-	# as /opt/bin//flockdeck.
-	found=$(command -v flockdeck 2>/dev/null || true)
-	shadowed=
-	if [ -n "$found" ] && [ "$(trim_slashes "${found%/*}")" != "$dir" ]; then
-		shadowed=1
-	fi
-	if on_path "$dir"; then
-		if [ -n "$shadowed" ]; then
-			# Quoted when it has to be: a directory with a space in it
-			# pasted as two words.
-			say "start it with: $(shell_word "$dir/flockdeck")"
-		else
-			say "start it with: flockdeck"
-		fi
+	if [ "$os" = darwin ]; then
+		# A real .app, not a shell command: open it the way any other
+		# installed Mac application is opened, no terminal needed -- the
+		# whole point of shipping one instead of a bare binary.
+		say "open it from Launchpad, Spotlight or Finder (Applications > Flockdeck)"
 	else
-		say "$dir is not on your PATH; add this line to your shell's profile:"
-		# Escaped for the double quotes it is printed in, so a directory with
-		# a quote, a dollar or a backslash in its name still pastes as itself.
-		printf '    export PATH="%s:$PATH"\n' "$(printf '%s' "$dir" | sed 's/[\\"$`]/\\&/g')"
-	fi
-	if [ -n "$shadowed" ]; then
-		say "note: the flockdeck your shell finds first is $found, not this one"
+		# A copy found first on PATH -- a go install, say -- is the one that
+		# runs, so it is not the one to be told to start.
+		# What PATH names is compared without the slashes on its end, as
+		# $dir is: /opt/bin/ on it is where /opt/bin is, and the shell finds
+		# the copy there as /opt/bin//flockdeck.
+		found=$(command -v flockdeck 2>/dev/null || true)
+		shadowed=
+		if [ -n "$found" ] && [ "$(trim_slashes "${found%/*}")" != "$dir" ]; then
+			shadowed=1
+		fi
+		if on_path "$dir"; then
+			if [ -n "$shadowed" ]; then
+				# Quoted when it has to be: a directory with a space in it
+				# pasted as two words.
+				say "start it with: $(shell_word "$exe")"
+			else
+				say "start it with: flockdeck"
+			fi
+		else
+			say "$dir is not on your PATH; add this line to your shell's profile:"
+			# Escaped for the double quotes it is printed in, so a directory
+			# with a quote, a dollar or a backslash in its name still pastes
+			# as itself.
+			printf '    export PATH="%s:$PATH"\n' "$(printf '%s' "$dir" | sed 's/[\\"$`]/\\&/g')"
+		fi
+		if [ -n "$shadowed" ]; then
+			say "note: the flockdeck your shell finds first is $found, not this one"
+		fi
 	fi
 	# Starting it again while an older copy runs joins that copy instead.
 	say "if Flockdeck is already running, quit it before starting this version"

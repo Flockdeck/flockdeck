@@ -73,6 +73,28 @@ without asking the pane to describe itself first.
 Like `spawn`, this only works inside a pane, using the address and token its
 environment was given.
 
+## close
+
+Run from inside a pane, this closes another pane — the same effect
+Ctrl+Shift+W has on the one you're focused on:
+
+```sh
+flockdeck close [--force] <pane-id>
+flockdeck close --finished
+```
+
+`<pane-id>` is the id `spawn` printed back when it started the pane you now
+want gone. A pane still working is left alone unless `--force` is given, so
+naming the wrong id cannot cut off work in progress; a pane cannot close
+itself this way — end its own turn instead. `--finished` closes every idle or
+exited pane across every open project instead of naming one, the same as the
+"Close finished panes" command, and takes no pane id.
+
+Like `spawn` and `peer-name`, this only works inside a pane, using the address
+and token its environment was given. It is what lets a coordinating agent
+clean up a helper whose work is done without a person finding it and pressing
+Ctrl+Shift+W themselves.
+
 ## keys
 
 An API agent — one Flockdeck talks to directly rather than through a CLI of its
@@ -196,7 +218,7 @@ The subcommand still works; it is the background updating that goes.
 | `FLOCKDECK_RELAY` | Which relay `flockdeck remote enable` uses when `-relay` is not given |
 | `FLOCKDECK_API` | Where Flockdeck listens for its panes — set for you |
 | `FLOCKDECK_TOKEN` | The secret that goes with it — set for you |
-| `FLOCKDECK_PANE` | The pane's id — set for you, read by `spawn` and `peer-name` |
+| `FLOCKDECK_PANE` | The pane's id — set for you, read by `spawn`, `peer-name` and `close` |
 | `FLOCKDECK_PANE_NAME` | The pane's name, for a shell prompt to use |
 | `FLOCKDECK_PROJECT` | The project the pane belongs to |
 | `FLOCKDECK_AGENT` | Which agent the pane is running |
@@ -208,7 +230,7 @@ which has no lifecycle hooks of its own — has to go on.
 
 `FLOCKDECK_API`, `FLOCKDECK_TOKEN`, `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME` and
 `FLOCKDECK_PROJECT` were called `PERCH_*` before the program was renamed. Panes
-still carry both spellings of those five and `spawn` and `peer-name` still read both, so a
-prompt or a script written against the old names keeps working; they will go
-in a later release. `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL` and `FLOCKDECK_LAUNCH`
-are newer and have only the one name.
+still carry both spellings of those five and `spawn`, `peer-name` and `close`
+still read both, so a prompt or a script written against the old names keeps
+working; they will go in a later release. `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL`
+and `FLOCKDECK_LAUNCH` are newer and have only the one name.

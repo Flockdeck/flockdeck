@@ -27,10 +27,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,10 +106,10 @@ const binary = "flockdeck"
 const chatBinary = "flockdeck-chat"
 
 // linuxIconSource is the icon install.sh installs for the desktop entry it
-// writes on Linux (see its own comment for why that isn't done here yet on
-// macOS and Windows too): the same 512x512 PNG appwindow gives the window
-// itself, so the icon a user sees in an app menu is the one they see on the
-// window's own titlebar/taskbar entry.
+// writes on Linux, and that buildDarwinBundle turns into Contents/Resources/
+// AppIcon.icns for the macOS one: the same 512x512 PNG appwindow gives the
+// window itself, so the icon a user sees in an app menu or the Dock is the
+// one they see on the window's own titlebar/taskbar entry.
 const linuxIconSource = "build/appicon.png"
 
 // linuxIconName is where linuxIconSource lands inside a Linux archive.
@@ -124,6 +126,15 @@ var nfpmSpec []byte
 // linuxPackageFormats are the packaging formats nfpm builds for Linux,
 // alongside the tar.gz every platform gets.
 var linuxPackageFormats = []string{"deb", "rpm"}
+
+// darwinBundleName is the .app every macOS archive carries, and what
+// install.sh copies into ~/Applications.
+const darwinBundleName = "Flockdeck.app"
+
+// darwinBundleID is Flockdeck's CFBundleIdentifier: the reverse-DNS form of
+// the domain it ships from (flockdeck.ai), which is the convention macOS
+// expects and what Launch Services keys this app's identity off.
+const darwinBundleID = "ai.flockdeck.app"
 
 func main() {
 	var (
@@ -227,9 +238,10 @@ func runSums(out string) error {
 // packagePlatform builds one platform and writes its archive(s) to out, and
 // returns their names. Windows gets the console twin (chatBinary) beside the
 // program; Linux gets an icon beside it too, for install.sh to give the
-// desktop entry it writes (see its own comment for why macOS and Windows
-// don't get one from here yet), and is also packaged as a .deb and a .rpm,
-// beside its tar.gz, by buildLinuxPackages.
+// desktop entry it writes, and is also packaged as a .deb and a .rpm, beside
+// its tar.gz, by buildLinuxPackages; macOS gets a real, ad-hoc-signed
+// Flockdeck.app instead of the bare binary every other platform ships,
+// carrying its own copy of the icon (see buildDarwinBundle).
 func packagePlatform(version, out, goos, goarch string) ([]string, error) {
 	built := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", binary, goos, goarch, ext(goos)))
 	if err := build(version, goos, goarch, built); err != nil {
@@ -241,6 +253,7 @@ func packagePlatform(version, out, goos, goarch string) ([]string, error) {
 	// returning so the next platform can still package it too.
 	files := []archived{{built, binary + ext(goos)}}
 	var keep []archived
+	var trees []archivedTree
 
 	// The twin doubles the Windows download (4.7 MB to 9.4 MB for a build
 	// measured here: zip compresses the two near-identical programs apart),
@@ -272,14 +285,32 @@ func packagePlatform(version, out, goos, goarch string) ([]string, error) {
 		keep = append(keep, archived{linuxIconSource, linuxIconName})
 	}
 
+	if goos == "darwin" {
+		bundle, err := buildDarwinBundle(built, version)
+		if err != nil {
+			return nil, fmt.Errorf("%s/%s: %w", goos, goarch, err)
+		}
+		defer os.RemoveAll(filepath.Dir(bundle))
+		trees = append(trees, archivedTree{bundle, darwinBundleName})
+	}
+
 	name := fmt.Sprintf("%s_%s_%s_%s%s", binary, version, goos, goarch, archiveExt(goos))
 	archive := filepath.Join(out, name)
 
+	// The bundle already carries the binary at Contents/MacOS/flockdeck; a
+	// second, loose copy at the archive's root, as every other platform
+	// gets, would only double it with the same bytes, and nothing would
+	// unpack it there.
+	root := files
+	if goos == "darwin" {
+		root = nil
+	}
+
 	var err error
 	if goos == "windows" {
-		err = writeZip(archive, files, keep)
+		err = writeZip(archive, root, keep)
 	} else {
-		err = writeTarGz(archive, files, keep)
+		err = writeTarGz(archive, root, keep, trees...)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("package %s: %w", name, err)
@@ -357,6 +388,163 @@ func buildLinuxPackages(version, out, goarch, builtBinary string) ([]string, err
 		names = append(names, name)
 	}
 	return names, nil
+}
+
+// buildDarwinBundle assembles Flockdeck.app around built, the binary
+// packagePlatform already compiled for this goarch, in a scratch directory
+// of its own, ad-hoc code-signs it, and returns the bundle's path. The
+// caller removes the scratch directory (the bundle's parent) once it has
+// been archived.
+//
+// The bundle is what gives macOS a real application: without one, the OS has
+// no Info.plist to read a name or icon from, so a downloaded binary is
+// neither Dock/Spotlight/Launchpad-visible nor double-clickable as anything
+// but a loose Unix executable, which is exactly the "do I have to use a
+// terminal?" confusion this exists to fix.
+func buildDarwinBundle(built, version string) (string, error) {
+	scratch, err := os.MkdirTemp("", "flockdeck-bundle-*")
+	if err != nil {
+		return "", err
+	}
+	bundle := filepath.Join(scratch, darwinBundleName)
+	macosDir := filepath.Join(bundle, "Contents", "MacOS")
+	resourcesDir := filepath.Join(bundle, "Contents", "Resources")
+	if err := os.MkdirAll(macosDir, 0o755); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(resourcesDir, 0o755); err != nil {
+		return "", err
+	}
+
+	program, err := os.ReadFile(built)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(macosDir, binary), program, 0o755); err != nil {
+		return "", err
+	}
+
+	if _, err := os.Stat(linuxIconSource); err != nil {
+		return "", fmt.Errorf("%s carries the icon Contents/Resources/AppIcon.icns is made from, and cannot be missing: %w", linuxIconSource, err)
+	}
+	if err := buildIcns(linuxIconSource, filepath.Join(resourcesDir, "AppIcon.icns")); err != nil {
+		return "", fmt.Errorf("AppIcon.icns: %w", err)
+	}
+
+	plist := darwinInfoPlist(version)
+	if err := os.WriteFile(filepath.Join(bundle, "Contents", "Info.plist"), []byte(plist), 0o644); err != nil {
+		return "", err
+	}
+
+	if err := codesignAdHoc(bundle); err != nil {
+		return "", fmt.Errorf("codesign: %w", err)
+	}
+	return bundle, nil
+}
+
+// darwinIconSizes is every size a .iconset holds, named as iconutil requires.
+// The source PNG (linuxIconSource) is 512x512, so the 1024x1024 variant
+// iconutil also accepts ("icon_512x512@2x.png") is left out rather than
+// upscaled to it: a blurrier icon at that size would be worse than the next
+// one down, which macOS already scales for a Retina display fine.
+var darwinIconSizes = []struct {
+	name string
+	px   int
+}{
+	{"icon_16x16.png", 16},
+	{"icon_16x16@2x.png", 32},
+	{"icon_32x32.png", 32},
+	{"icon_32x32@2x.png", 64},
+	{"icon_128x128.png", 128},
+	{"icon_128x128@2x.png", 256},
+	{"icon_256x256.png", 256},
+	{"icon_256x256@2x.png", 512},
+	{"icon_512x512.png", 512},
+}
+
+// buildIcns makes dst, an .icns, from src, the repository's 512x512 source
+// icon, by resizing it with sips into every size a .iconset holds and
+// handing that to iconutil -- the same two tools Xcode's own build uses for
+// an app icon, and both part of macOS itself; neither needs the Xcode
+// Command Line Tools installed.
+func buildIcns(src, dst string) error {
+	scratch, err := os.MkdirTemp("", "flockdeck-iconset-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(scratch)
+
+	iconset := filepath.Join(scratch, "AppIcon.iconset")
+	if err := os.MkdirAll(iconset, 0o755); err != nil {
+		return err
+	}
+	for _, s := range darwinIconSizes {
+		out := filepath.Join(iconset, s.name)
+		cmd := exec.Command("sips", "-z", strconv.Itoa(s.px), strconv.Itoa(s.px), src, "--out", out)
+		cmd.Stdout = os.Stderr
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("sips %s: %w", s.name, err)
+		}
+	}
+
+	cmd := exec.Command("iconutil", "-c", "icns", iconset, "-o", dst)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// codesignAdHoc signs bundle with an ad-hoc identity: --sign - is codesign's
+// own syntax for one, needing no Apple Developer account or certificate.
+// Gatekeeper still shows a first-run "Apple could not verify this app" prompt
+// for a bundle signed this way rather than notarized, but it is one the user
+// can get past themselves, from System Settings > Privacy & Security > Open
+// Anyway. A fully unsigned .app is refused outright instead ("is damaged and
+// can't be opened"), with no prompt and nothing the user can do about it --
+// the gap this exists to close. --deep signs everything under Contents,
+// which here is only the one executable and the icon, so it does not need
+// signing on its own first.
+func codesignAdHoc(bundle string) error {
+	cmd := exec.Command("codesign", "--force", "--deep", "--sign", "-", bundle)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// darwinInfoPlist is Contents/Info.plist. LSUIElement is deliberately absent:
+// Flockdeck is a normal windowed app (one main window; see
+// internal/appwindow), not a menu-bar-only accessory, and Wails' own default
+// activation policy already gives it a Dock icon and an app-switcher entry --
+// this only has to not turn that off. NSHighResolutionCapable is set so the
+// window is not upscaled blurry on a Retina display, as every other modern
+// Mac app is.
+func darwinInfoPlist(version string) string {
+	v := strings.TrimPrefix(version, "v")
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>` + darwinBundleID + `</string>
+	<key>CFBundleName</key>
+	<string>Flockdeck</string>
+	<key>CFBundleDisplayName</key>
+	<string>Flockdeck</string>
+	<key>CFBundleExecutable</key>
+	<string>` + binary + `</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>` + v + `</string>
+	<key>CFBundleVersion</key>
+	<string>` + v + `</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>
+`
 }
 
 // clearOldArchives removes what an earlier run wrote to out. Archives of
@@ -462,6 +650,12 @@ func checkExtras() error {
 // archived is a program built for an archive, and the name it has there.
 type archived struct{ path, name string }
 
+// archivedTree is a directory copied into a tar.gz archive with its own
+// structure intact, under prefix -- the macOS .app bundle, which is a
+// directory rather than the single file archived describes. Only
+// writeTarGz takes these; the Windows archive never carries a directory.
+type archivedTree struct{ root, prefix string }
+
 func writeZip(archive string, programs, keep []archived) error {
 	f, err := os.Create(archive)
 	if err != nil {
@@ -508,7 +702,7 @@ func zipOne(zw *zip.Writer, path, name string, mode os.FileMode) error {
 	return err
 }
 
-func writeTarGz(archive string, programs, keep []archived) error {
+func writeTarGz(archive string, programs, keep []archived, trees ...archivedTree) error {
 	f, err := os.Create(archive)
 	if err != nil {
 		return err
@@ -528,6 +722,11 @@ func writeTarGz(archive string, programs, keep []archived) error {
 			return err
 		}
 	}
+	for _, t := range trees {
+		if err := tarTree(tw, t.root, t.prefix); err != nil {
+			return err
+		}
+	}
 	for _, e := range extras {
 		if err := tarOne(tw, e, filepath.Base(e), 0o644); err != nil {
 			return err
@@ -541,6 +740,44 @@ func writeTarGz(archive string, programs, keep []archived) error {
 		return err
 	}
 	return f.Close()
+}
+
+// tarTree walks root and writes every entry under it into tw, named as
+// prefix would have it inside the archive (such as
+// "Flockdeck.app/Contents/MacOS/flockdeck"). A file already executable on
+// disk -- the bundle's own binary, made that way by buildDarwinBundle -- is
+// archived executable; everything else, Info.plist and the icon, is not.
+func tarTree(tw *tar.Writer, root, prefix string) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		name := prefix
+		if rel != "." {
+			name = prefix + "/" + filepath.ToSlash(rel)
+		}
+		if d.IsDir() {
+			return tw.WriteHeader(&tar.Header{
+				Name:     name + "/",
+				Typeflag: tar.TypeDir,
+				Mode:     0o755,
+				Format:   tar.FormatPAX,
+			})
+		}
+		fi, err := d.Info()
+		if err != nil {
+			return err
+		}
+		mode := int64(0o644)
+		if fi.Mode()&0o111 != 0 {
+			mode = 0o755
+		}
+		return tarOne(tw, path, name, mode)
+	})
 }
 
 func tarOne(tw *tar.Writer, path, name string, mode int64) error {

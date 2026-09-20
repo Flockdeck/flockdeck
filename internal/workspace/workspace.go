@@ -2352,6 +2352,13 @@ func (w *Workspace) CloseFinishedPanes() (panesClosed, tabsClosed int) {
 	return panesClosed, len(before)
 }
 
+// PaneFinished reports whether the pane named id is idle or exited -- safe to
+// close with no confirmation, the same test CloseFinishedPanes applies to
+// every pane it considers. It is exported for `flockdeck close`, which uses it
+// to refuse closing a pane still doing something unless asked to anyway; see
+// hooks.CloseRequest.Force.
+func (w *Workspace) PaneFinished(id string) bool { return w.paneFinished(id) }
+
 // paneFinished reports whether a pane counts as finished for
 // CloseFinishedPanes. See that doc comment for what finished means and why.
 func (w *Workspace) paneFinished(id string) bool {

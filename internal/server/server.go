@@ -364,6 +364,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	s.installSpawnHandler()
 	s.installContextHandler()
 	s.installUsageHandler()
+	s.installCloseHandler()
 
 	return s, nil
 }
