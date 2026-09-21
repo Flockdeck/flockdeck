@@ -53,6 +53,22 @@ func (f *e2eFakeRemote) lastOrigin() remote.KeyOrigin {
 	return f.gotOrigins[len(f.gotOrigins)-1]
 }
 
+// waitForOrigin waits for handlePTY's goroutine to have called E2ECapable
+// for the nth time -- dialing only waits for the WebSocket handshake, which
+// websocket.Accept completes before handlePTY goes on to read
+// Flockdeck-Remote-Origin and call E2ECapable, so a caller that checked
+// lastOrigin as soon as dial returned was racing that goroutine rather than
+// reading what it had done (see TestPTYPassesTheOriginHeaderThrough).
+func (f *e2eFakeRemote) waitForOrigin(t *testing.T, n int) remote.KeyOrigin {
+	t.Helper()
+	waitFor(t, func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return len(f.gotOrigins) >= n
+	})
+	return f.lastOrigin()
+}
+
 func (f *e2eFakeRemote) E2ERespond(_ context.Context, deviceID string, _ remote.KeyOrigin, hello []byte) (*e2e.Session, []byte, error) {
 	pub := f.devicePub[deviceID]
 	if pub == nil {
@@ -231,12 +247,12 @@ func TestPTYPassesTheOriginHeaderThrough(t *testing.T) {
 	}
 
 	dial("")
-	if got := fake.lastOrigin(); got != remote.KeyOriginUsual {
+	if got := fake.waitForOrigin(t, 1); got != remote.KeyOriginUsual {
 		t.Errorf("with no Flockdeck-Remote-Origin, E2ECapable was asked about origin %v, want KeyOriginUsual", got)
 	}
 
 	dial("desk")
-	if got := fake.lastOrigin(); got != remote.KeyOriginDesk {
+	if got := fake.waitForOrigin(t, 2); got != remote.KeyOriginDesk {
 		t.Errorf("with Flockdeck-Remote-Origin: desk, E2ECapable was asked about origin %v, want KeyOriginDesk", got)
 	}
 
@@ -244,7 +260,7 @@ func TestPTYPassesTheOriginHeaderThrough(t *testing.T) {
 	// but nothing should crash or default to KeyOriginDesk by accident --
 	// is the same as absent.
 	dial("something-else")
-	if got := fake.lastOrigin(); got != remote.KeyOriginUsual {
+	if got := fake.waitForOrigin(t, 3); got != remote.KeyOriginUsual {
 		t.Errorf("with an unrecognised Flockdeck-Remote-Origin, E2ECapable was asked about origin %v, want KeyOriginUsual", got)
 	}
 }

@@ -88,7 +88,11 @@ h.recv(fixture());
 const ws = h.sockets.find((s) => s.url.includes("/ws/pty?id=p1"));
 assert.strictEqual(ws.sent.length, 0, "something was sent before the socket opened");
 ws.onopen();
-await h.sleep(30);
+// beginHandshake awaits FlockdeckE2E.getIdentity() and
+// startTerminalHandshake -- real WebCrypto work -- before sending the hello,
+// so a fixed sleep here is a race against however fast the machine running
+// it happens to be; h.waitFor exists for exactly this (see its own doc).
+await h.waitFor(() => ws.sent.length > 0, 1000);
 
 assert.strictEqual(ws.sent.length, 1, "the handshake hello was not this socket's first message");
 const hello = ws.sent[0];
@@ -97,7 +101,10 @@ const identity = await E2E.getIdentity();
 const { session: hostSession, response } = await E2E.respondHostHandshake(
   hostPair.privateKey, hostPair.publicKey, identity.publicKey, hello);
 ws.onmessage({ data: response.buffer });
-await h.sleep(30);
+// finishHandshake runs unawaited from ws.onmessage and itself awaits
+// handshake.finish (WebCrypto) before flushing what was queued -- the same
+// race as above.
+await h.waitFor(() => ws.sent.length > 1, 1000);
 
 // The resize and focus notice connectPTY queued while the handshake was
 // under way went out sealed, once it finished -- never plain.
@@ -110,8 +117,11 @@ for (const frame of ws.sent.slice(1)) {
 // session -- and only by it, not as JSON or plain bytes. Every frame since
 // the hello shares hostSession's one strictly-increasing counter, resize
 // and focus included, so they are opened in order rather than picked out.
+const sentBeforeKeystroke = ws.sent.length;
 h.terms[0]._data("echo hi\r");
-await h.sleep(30);
+// Sealing the keystroke is WebCrypto work queued on the socket's send path
+// too -- wait for it to land rather than a fixed sleep.
+await h.waitFor(() => ws.sent.length > sentBeforeKeystroke, 1000);
 const deviceFrames = ws.sent.slice(1);
 for (const frame of deviceFrames) {
   assert.ok(!String.fromCharCode(...new Uint8Array(frame).slice(0, 20)).includes("echo"),
@@ -137,9 +147,13 @@ const header = await seal(1, new TextEncoder().encode(JSON.stringify({ epoch: 1,
 ws.onmessage({ data: header.buffer });
 const out = await seal(0, new TextEncoder().encode("hello from the desktop"));
 ws.onmessage({ data: out.buffer });
-await h.sleep(30);
+// Each incoming frame is opened on p.recvQueue -- a promise chain around
+// session.open, also WebCrypto -- before it reaches the terminal, so this
+// waits for the draw rather than sleeping a fixed amount and hoping.
+const drew = (t) => t.written.some((w) => new TextDecoder().decode(w) === "hello from the desktop");
+await h.waitFor(() => h.terms.some(drew), 1000);
 
-const term = h.terms.find((t) => t.written.some((w) => new TextDecoder().decode(w) === "hello from the desktop"));
+const term = h.terms.find(drew);
 assert.ok(term, "the desktop's sealed output was not drawn");
 `)
 }
