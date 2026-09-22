@@ -14,11 +14,11 @@ func TestSubscribersCountsWhoIsWatching(t *testing.T) {
 	if n := s.Subscribers(); n != 0 {
 		t.Fatalf("Subscribers() = %d, want 0 before anyone has attached", n)
 	}
-	id1, _, _ := s.Subscribe()
+	id1, _, _, _ := s.Subscribe()
 	if n := s.Subscribers(); n != 1 {
 		t.Fatalf("Subscribers() = %d, want 1 with one viewer attached", n)
 	}
-	id2, _, _ := s.Subscribe()
+	id2, _, _, _ := s.Subscribe()
 	if n := s.Subscribers(); n != 2 {
 		t.Fatalf("Subscribers() = %d, want 2 with two viewers attached", n)
 	}

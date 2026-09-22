@@ -130,7 +130,7 @@ func TestAWindowThatHasGoneIsNotRepaintedFor(t *testing.T) {
 	here, leaveHere := context.WithCancel(context.Background())
 	defer leaveHere()
 	var hereRepaint atomic.Bool
-	srv.armRepaint(here, &hereRepaint, paneID, nextViewer.Add(1), sess, true)
+	srv.armRepaint(here, &hereRepaint, paneID, nextViewer.Add(1), sess, 1, true)
 	if len(waits) != 1 {
 		t.Fatalf("%d waits for an unsized window's size, want 1", len(waits))
 	}
@@ -141,7 +141,7 @@ func TestAWindowThatHasGoneIsNotRepaintedFor(t *testing.T) {
 
 	gone, leave := context.WithCancel(context.Background())
 	var goneRepaint atomic.Bool
-	srv.armRepaint(gone, &goneRepaint, paneID, nextViewer.Add(1), sess, true)
+	srv.armRepaint(gone, &goneRepaint, paneID, nextViewer.Add(1), sess, 1, true)
 	if len(waits) != 2 {
 		t.Fatalf("%d waits for an unsized window's size, want 2", len(waits))
 	}

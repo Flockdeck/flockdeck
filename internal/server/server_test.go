@@ -132,6 +132,7 @@ func newTestServer(t *testing.T) (*Server, *workspace.Workspace) {
 		}
 	})
 	ws.SetWake(srv.Wake)
+	ws.SetPaneClosedHook(srv.PaneClosed)
 	return srv, ws
 }
 

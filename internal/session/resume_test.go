@@ -17,7 +17,7 @@ func TestResumeCarriesOnFromTheViewersPlace(t *testing.T) {
 	s := resumable(64)
 	s.publish([]byte("first line\n"))
 
-	id, replay, start, resumed, _ := s.SubscribeFrom(s.Epoch(), -1)
+	id, replay, start, resumed, _, _ := s.SubscribeFrom(s.Epoch(), -1)
 	s.Unsubscribe(id)
 	if resumed || start != 0 || string(replay) != "first line\n" {
 		t.Fatalf("a viewer holding nothing got %q from %d, resumed %v", replay, start, resumed)
@@ -25,14 +25,14 @@ func TestResumeCarriesOnFromTheViewersPlace(t *testing.T) {
 	held := start + int64(len(replay))
 
 	s.publish([]byte("second\n"))
-	id, replay, start, resumed, _ = s.SubscribeFrom(s.Epoch(), held)
+	id, replay, start, resumed, _, _ = s.SubscribeFrom(s.Epoch(), held)
 	s.Unsubscribe(id)
 	if !resumed || start != held || string(replay) != "second\n" {
 		t.Fatalf("resuming from %d got %q from %d, resumed %v; want only what followed", held, replay, start, resumed)
 	}
 
 	// Nothing new at all is still a resume, with nothing to send.
-	id, replay, _, resumed, _ = s.SubscribeFrom(s.Epoch(), held+int64(len("second\n")))
+	id, replay, _, resumed, _, _ = s.SubscribeFrom(s.Epoch(), held+int64(len("second\n")))
 	s.Unsubscribe(id)
 	if !resumed || len(replay) != 0 {
 		t.Fatalf("resuming at the end got %q, resumed %v", replay, resumed)
@@ -50,7 +50,7 @@ func TestResumeCountsWhatIsPutBack(t *testing.T) {
 	s.publish([]byte("\x1b[?2004h"))
 	s.publish([]byte("enough output to push the switch\nout of the buffer\n"))
 
-	id, replay, start, resumed, _ := s.SubscribeFrom(s.Epoch(), -1)
+	id, replay, start, resumed, _, _ := s.SubscribeFrom(s.Epoch(), -1)
 	s.Unsubscribe(id)
 	if resumed || !strings.HasPrefix(string(replay), "\x1b[?2004h") {
 		t.Fatalf("a fresh replay %q does not put bracketed paste back first", replay)
@@ -60,7 +60,7 @@ func TestResumeCountsWhatIsPutBack(t *testing.T) {
 	}
 
 	s.publish([]byte("more\n"))
-	id, replay, _, resumed, _ = s.SubscribeFrom(s.Epoch(), s.written-int64(len("more\n")))
+	id, replay, _, resumed, _, _ = s.SubscribeFrom(s.Epoch(), s.written-int64(len("more\n")))
 	s.Unsubscribe(id)
 	if !resumed || string(replay) != "more\n" {
 		t.Fatalf("a resume was sent %q, want only what followed and nothing put back", replay)
@@ -83,7 +83,7 @@ func TestResumeStartsAgainWhenItCannot(t *testing.T) {
 		{"past the end", s.Epoch(), 1 << 20},
 		{"another run", s.Epoch() + 1, s.written},
 	} {
-		id, replay, start, resumed, _ := s.SubscribeFrom(tc.epoch, tc.place)
+		id, replay, start, resumed, _, _ := s.SubscribeFrom(tc.epoch, tc.place)
 		s.Unsubscribe(id)
 		if resumed {
 			t.Errorf("%s: resumed, want a fresh start", tc.name)

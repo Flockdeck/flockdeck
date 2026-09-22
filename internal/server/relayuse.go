@@ -45,3 +45,31 @@ func (u *paneUse) since(pane string, t time.Time) bool {
 	}
 	return true
 }
+
+// forget removes any record of pane, called once the pane itself has closed:
+// since is only ever asked about panes still open, iterated during a relay
+// push, a closed pane's entry would otherwise sit in at for the life of the
+// process. A pane never touched from the relay has nothing to remove, which
+// is not an error.
+func (u *paneUse) forget(pane string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	delete(u.at, pane)
+}
+
+// has reports whether relayUse currently holds a record for pane, for tests
+// to confirm a closed pane's entry does not linger.
+func (u *paneUse) has(pane string) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	_, ok := u.at[pane]
+	return ok
+}
+
+// PaneClosed removes any relay-use record for a pane once it has closed. It
+// is installed as the workspace's pane-closed hook (see
+// Workspace.SetPaneClosedHook) so relayUse never outlives the pane it
+// describes.
+func (s *Server) PaneClosed(paneID string) {
+	relayUse.forget(paneID)
+}

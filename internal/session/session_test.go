@@ -73,7 +73,7 @@ func collect(t *testing.T, out <-chan []byte, seed []byte, want string, d time.D
 // session must come back on a subscription.
 func TestSessionEchoesInput(t *testing.T) {
 	s := startShell(t)
-	id, replay, out := s.Subscribe()
+	id, replay, out, _ := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 
 	if err := s.WriteString("echo flockdeck_marker_ok\r"); err != nil {
@@ -153,7 +153,7 @@ func TestOnChangeIsInstalledBeforeTheReaderStarts(t *testing.T) {
 func TestSubscribeReplaysHistory(t *testing.T) {
 	s := startShell(t)
 
-	first, replay, out := s.Subscribe()
+	first, replay, out, _ := s.Subscribe()
 	if err := s.WriteString("echo replay_marker_ok\r"); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestSubscribeReplaysHistory(t *testing.T) {
 	s.Unsubscribe(first)
 
 	// A brand new viewer, as if the page had been reloaded.
-	second, replay2, _ := s.Subscribe()
+	second, replay2, _, _ := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(second) })
 	if !strings.Contains(string(replay2), "replay_marker_ok") {
 		t.Errorf("replay buffer did not carry earlier output; got %q", tail(string(replay2), 200))
@@ -199,7 +199,7 @@ func TestSessionConcurrentAccess(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				id, _, out := s.Subscribe()
+				id, _, out, _ := s.Subscribe()
 				select {
 				case <-out:
 				case <-time.After(10 * time.Millisecond):
@@ -295,7 +295,7 @@ func TestSlowViewerIsDroppedNotBlocking(t *testing.T) {
 	f := newFakePTY()
 	t.Cleanup(func() { _ = f.Close() })
 	s := fakeSession(f)
-	id, _, out := s.Subscribe()
+	id, _, out, _ := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 
 	// Never read from out. Produce far more chunks than the queue holds.
@@ -489,7 +489,7 @@ func TestEnvStripsInheritedSessionMarkers(t *testing.T) {
 // pins that the hold is bounded and the pane really does reach "exited".
 func TestExitDeliversFinalOutputThenCloses(t *testing.T) {
 	s := startShell(t)
-	id, replay, out := s.Subscribe()
+	id, replay, out, _ := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 
 	if err := s.WriteString("echo farewell_marker_ok\rexit\r"); err != nil {
@@ -509,7 +509,7 @@ func TestExitDeliversFinalOutputThenCloses(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	_, _, after := s.Subscribe()
+	_, _, after, _ := s.Subscribe()
 	if _, open := <-after; open {
 		t.Error("a viewer arriving after the exit should get a closed stream")
 	}
@@ -892,7 +892,7 @@ func BenchmarkPublish(b *testing.B) {
 	s := shellPane()
 	s.idleAfter = time.Minute
 	s.OnChange = func() {}
-	id, _, out := s.Subscribe()
+	id, _, out, _ := s.Subscribe()
 	defer s.Unsubscribe(id)
 	go func() {
 		for range out {
@@ -1049,7 +1049,7 @@ func TestConcurrentResizesLeaveThePaneTheSizeItReports(t *testing.T) {
 func TestReplayAndViewersDoNotShareTheReadBuffer(t *testing.T) {
 	f := newFakePTY()
 	s := fakeSession(f)
-	id, _, out := s.Subscribe()
+	id, _, out, _ := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 
 	go s.pumpOutput()
@@ -1069,7 +1069,7 @@ func TestReplayAndViewersDoNotShareTheReadBuffer(t *testing.T) {
 		t.Errorf("viewer saw %q; the second read overwrote the first", got)
 	}
 
-	_, replay, _ := s.Subscribe()
+	_, replay, _, _ := s.Subscribe()
 	if want := "first chunk\nsecond chunk\n"; string(replay) != want {
 		t.Errorf("replay = %q, want %q", replay, want)
 	}
@@ -1088,7 +1088,7 @@ func BenchmarkPumpOutput(b *testing.B) {
 			f := newFakePTY()
 			s := fakeSession(f)
 			for i := 0; i < viewers; i++ {
-				_, _, out := s.Subscribe()
+				_, _, out, _ := s.Subscribe()
 				go func() {
 					for range out {
 					}
@@ -1533,7 +1533,7 @@ func TestClosingAPaneRacesEverythingElse(t *testing.T) {
 		spawn(func(i int) { s.Resize(60+i%40, 20+i%10) })
 		spawn(func(int) { _ = s.WriteString("keystroke") })
 		spawn(func(int) {
-			id, _, out := s.Subscribe()
+			id, _, out, _ := s.Subscribe()
 			select {
 			case <-out:
 			default:
@@ -1582,7 +1582,7 @@ func TestARealPaneReportsBusyThenIdle(t *testing.T) {
 	// Whatever the shell prints coming up settles first.
 	waitForStatus(t, s, StatusIdle, 60*time.Second)
 
-	id, replay, out := s.Subscribe()
+	id, replay, out, _ := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 	if err := s.WriteString("echo busy_marker_ok\r"); err != nil {
 		t.Fatalf("write: %v", err)
@@ -1612,7 +1612,7 @@ func TestARealPaneReportsBusyThenIdle(t *testing.T) {
 func TestAStalledViewerIsBoundedInBytes(t *testing.T) {
 	s := shellPane()
 	s.idleAfter = time.Minute
-	id, _, out := s.Subscribe()
+	id, _, out, _ := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 
 	// Chunks the size of a whole read, never taken.
@@ -1655,7 +1655,7 @@ func TestAStalledViewerIsBoundedInBytes(t *testing.T) {
 func TestAViewerKeepingUpIsNotDropped(t *testing.T) {
 	s := shellPane()
 	s.idleAfter = time.Minute
-	id, _, out := s.Subscribe()
+	id, _, out, _ := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 
 	chunk := make([]byte, 32<<10)

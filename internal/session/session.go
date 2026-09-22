@@ -580,11 +580,13 @@ func (s *Session) changed() {
 // Subscribe registers a viewer. It returns the output produced so far, so the
 // viewer can rebuild its screen, and a channel of subsequent output. The
 // channel is closed when the process exits or the viewer falls too far behind.
+// subscribers is how many viewers are subscribed once this one is added,
+// counted under the same lock that adds it -- see SubscribeFrom.
 //
 // Unsubscribe must be called with the returned id when the viewer goes away.
-func (s *Session) Subscribe() (id int, replay []byte, out <-chan []byte) {
-	id, replay, _, _, out = s.SubscribeFrom(0, -1)
-	return id, replay, out
+func (s *Session) Subscribe() (id int, replay []byte, out <-chan []byte, subscribers int) {
+	id, replay, _, _, out, subscribers = s.SubscribeFrom(0, -1)
+	return id, replay, out, subscribers
 }
 
 // SubscribeFrom is Subscribe for a viewer that already holds the start of this
@@ -594,7 +596,15 @@ func (s *Session) Subscribe() (id int, replay []byte, out <-chan []byte) {
 // replay is the usual one, for a terminal started afresh. The viewer counts
 // the bytes of replay and of everything after it on from start, and that count
 // is the off it gives when it next subscribes.
-func (s *Session) SubscribeFrom(epoch, off int64) (id int, replay []byte, start int64, resumed bool, out <-chan []byte) {
+//
+// subscribers is counted in the same critical section that adds this viewer
+// to s.subs, rather than left for a caller to ask Subscribers() separately
+// afterward: two viewers attaching at once would otherwise both register
+// before either asked, and both would be told the other was already there.
+// A caller deciding, from this count, whether it is the only one watching --
+// armRepaint, in internal/server -- needs the answer to be the one true as of
+// the moment it was added, not as of some later, unsynchronised look.
+func (s *Session) SubscribeFrom(epoch, off int64) (id int, replay []byte, start int64, resumed bool, out <-chan []byte, subscribers int) {
 	ch := make(chan []byte, subscriberQueue)
 
 	s.mu.Lock()
@@ -621,12 +631,12 @@ func (s *Session) SubscribeFrom(epoch, off int64) (id int, replay []byte, start 
 	}
 	if s.status == StatusExited {
 		close(ch)
-		return -1, replay, start, resumed, ch
+		return -1, replay, start, resumed, ch, len(s.subs)
 	}
 	s.nextSub++
 	id = s.nextSub
 	s.subs[id] = &subscriber{ch: ch}
-	return id, replay, start, resumed, ch
+	return id, replay, start, resumed, ch, len(s.subs)
 }
 
 // Epoch names this run of the pane's process. A restarted pane is a new

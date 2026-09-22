@@ -333,7 +333,7 @@ func TestReplayStartsAtALineBoundary(t *testing.T) {
 	s.publish([]byte("\x1b[38;5;42mgreen\x1b[m\n"))
 	s.publish([]byte("plain tail\n"))
 
-	id, replay, _ := s.Subscribe()
+	id, replay, _, _ := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 
 	if strings.Contains(string(replay), "42m") {
@@ -348,7 +348,7 @@ func TestReplayStartsAtALineBoundary(t *testing.T) {
 	// pane ever said.
 	fresh := &Session{history: newRing(4096), subs: map[int]*subscriber{}, idleAfter: time.Minute}
 	fresh.publish([]byte("the first line\nthe second\n"))
-	id2, replay2, _ := fresh.Subscribe()
+	id2, replay2, _, _ := fresh.Subscribe()
 	t.Cleanup(func() { fresh.Unsubscribe(id2) })
 	if !strings.Contains(string(replay2), "the first line") {
 		t.Errorf("replay dropped the start of a buffer that never wrapped: %q", replay2)
@@ -365,7 +365,7 @@ func TestReplayPutsBackModesItNoLongerHolds(t *testing.T) {
 		return &Session{history: newRing(64), subs: map[int]*subscriber{}, idleAfter: time.Minute}
 	}
 	replay := func(s *Session) string {
-		id, replay, _ := s.Subscribe()
+		id, replay, _, _ := s.Subscribe()
 		s.Unsubscribe(id)
 		return string(replay)
 	}
