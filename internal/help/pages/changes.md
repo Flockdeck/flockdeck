@@ -7,6 +7,9 @@ something, then look at what it did.
 
 The panel always shows the whole repository the pane is in, even when the pane
 was started in a folder inside it, and a commit takes every file in its list.
+In a project [grouping more than one directory](#projects), a picker at the
+top chooses which repo the panel reviews — [Git worktrees](#worktrees) has
+the same choice for creating a worktree.
 
 ## What it shows
 

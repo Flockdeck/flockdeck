@@ -76,6 +76,16 @@ remote access**. The same can be done from a terminal:
 | `flockdeck remote enable` | Enrols this machine with the relay |
 | `flockdeck remote pair` | A one-time link and QR code for a device |
 
+A relay set up with `-require-verified-registration` (see
+[Configuration](https://docs.flockdeck.ai/self-hosting/configuration.html))
+won't create an account this way until the email doing so is verified.
+`flockdeck remote enable` and `flockdeck remote move` handle that themselves:
+each opens the verification link in a browser, or prints it if none opens,
+and waits for it to be clicked — Ctrl+C cancels, and nothing is created until
+then. The dialog does not yet support this: opened against a relay that
+requires it, it fails at once and says to run the command from a terminal
+instead.
+
 The relay is `https://remote.flockdeck.ai` unless `-relay` or `FLOCKDECK_RELAY`
 names another. A second desktop joins the same account with a code from
 `flockdeck remote pair -desktop` on the first, given to the second — in the
