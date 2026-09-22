@@ -409,6 +409,12 @@ type Workspace struct {
 	// the same way onWake is, and nil until the server installs itself.
 	onConversation atomic.Pointer[func(string)]
 
+	// onPaneClosed is called with a pane's id once destroyPane has torn it
+	// down, so server-side state indexed by a pane's id does not outlive the
+	// pane itself -- relayUse being the case this exists for. Swapped the
+	// same way onWake is, and nil until the server installs itself.
+	onPaneClosed atomic.Pointer[func(string)]
+
 	// recentTouches queues projects switched to for touchRecent's background
 	// writer, and recentOnce starts that writer the first time it is needed.
 	// See touchRecent.
@@ -525,6 +531,17 @@ func (w *Workspace) wakeConversation(paneID string) {
 		return
 	}
 	if fn := w.onConversation.Load(); fn != nil && *fn != nil {
+		(*fn)(paneID)
+	}
+}
+
+// SetPaneClosedHook installs the callback told a pane's id once it has been
+// torn down, for the same reason SetWake exists: the server needs the
+// workspace built before it can register itself.
+func (w *Workspace) SetPaneClosedHook(fn func(paneID string)) { w.onPaneClosed.Store(&fn) }
+
+func (w *Workspace) notePaneClosed(paneID string) {
+	if fn := w.onPaneClosed.Load(); fn != nil && *fn != nil {
 		(*fn)(paneID)
 	}
 }
@@ -2150,6 +2167,7 @@ func (w *Workspace) destroyPane(id string) {
 	forgetWorktreeProcess(id)
 	// The generated settings file is only meaningful while the pane lives.
 	_ = os.Remove(filepath.Join(w.settingsDir, id+".settings.json"))
+	w.notePaneClosed(id)
 }
 
 // rememberTab notes which tab the project on screen is being left on, so that

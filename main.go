@@ -1018,6 +1018,7 @@ func run(opts options) error {
 	defer srv.Close()
 	ws.SetWake(srv.Wake)
 	ws.SetConversationHook(srv.ConversationHookEvent)
+	ws.SetPaneClosedHook(srv.PaneClosed)
 
 	// Bring back the other projects that were open last time, too — see the
 	// comment above the project this run was started on being restored.
