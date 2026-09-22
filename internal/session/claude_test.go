@@ -566,7 +566,7 @@ func TestNoLifecycleEventCanMarkALivePaneExited(t *testing.T) {
 		if err := s.WriteString("are you there?"); err != nil {
 			t.Errorf("%s left the pane refusing input: %v", ev, err)
 		}
-		if id, _, out := s.Subscribe(); id < 0 {
+		if id, _, out, _ := s.Subscribe(); id < 0 {
 			t.Errorf("%s left new viewers with a closed stream", ev)
 		} else {
 			s.Unsubscribe(id)

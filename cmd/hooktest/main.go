@@ -116,7 +116,7 @@ func main() {
 // dumpTail prints the end of the pane's output, which is how a stalled turn is
 // told apart from a permission prompt.
 func dumpTail(p *workspace.Pane) {
-	_, replay, _ := p.Sess.Subscribe()
+	_, replay, _, _ := p.Sess.Subscribe()
 	text := string(replay)
 	if len(text) > 4000 {
 		text = text[len(text)-4000:]

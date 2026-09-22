@@ -198,15 +198,16 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	for {
 		if sess != nil {
 			var (
-				subID  int
-				replay []byte
-				out    <-chan []byte
+				subID       int
+				replay      []byte
+				out         <-chan []byte
+				subscribers int
 			)
 			fresh := true
 			if resume {
 				var start int64
 				var resumed bool
-				subID, replay, start, resumed, out = sess.SubscribeFrom(epoch, from)
+				subID, replay, start, resumed, out, subscribers = sess.SubscribeFrom(epoch, from)
 				fresh = !resumed
 				// Only the run the window was watching can be carried on from.
 				// One that replaces it after a restart starts from nothing.
@@ -219,9 +220,9 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			} else {
-				subID, replay, out = sess.Subscribe()
+				subID, replay, out, subscribers = sess.Subscribe()
 			}
-			s.armRepaint(ctx, &repaint, id, viewer, sess, fresh)
+			s.armRepaint(ctx, &repaint, id, viewer, sess, subscribers, fresh)
 			ended := streamOutput(ctx, tc, replay, out, liveFrame(r), &writes)
 			if subID >= 0 {
 				sess.Unsubscribe(subID)
@@ -479,6 +480,16 @@ var repaintGap = 100 * time.Millisecond
 // program's own next redraw -- the ordinary cost of arriving late to a pane
 // somebody else already has open, same as looking over their shoulder would.
 //
+// subscribers is how many viewers the session already counted this one among
+// when its caller subscribed (Subscribe or SubscribeFrom), not a separate
+// Session.Subscribers() look taken here: two windows attaching to the same
+// fresh pane at once each subscribe first and decide second, so a count read
+// back later, on its own lock, can already see both of them and have each
+// conclude the other will be the one repainted for. Passed in already
+// counted under the subscribe call's own lock, whichever attached first
+// still sees itself alone and repaints; the second sees two and skips, same
+// as it would have arriving any less simultaneously.
+//
 // It happens once, from whichever comes second: this, or the window's first
 // size being applied (applyResizes) -- or, for a window that has not said what
 // size it is by unsizedRepaintWait, then, at the size the pane already is.
@@ -489,8 +500,8 @@ var repaintGap = 100 * time.Millisecond
 // That wait belongs to the connection, whose ctx this is. A window that goes
 // before it is over is not repainted for: the pane would drop a row and come
 // back in every other window watching it, for a window nobody is looking at.
-func (s *Server) armRepaint(ctx context.Context, repaint *atomic.Bool, id string, viewer int64, sess *session.Session, fresh bool) {
-	repaint.Store(fresh && altScreen(sess) && sess.Subscribers() <= 1)
+func (s *Server) armRepaint(ctx context.Context, repaint *atomic.Bool, id string, viewer int64, sess *session.Session, subscribers int, fresh bool) {
+	repaint.Store(fresh && altScreen(sess) && subscribers <= 1)
 	if viewers.sized(id, viewer) && repaint.CompareAndSwap(true, false) {
 		go s.do(func() { s.repaintPane(id) })
 		return

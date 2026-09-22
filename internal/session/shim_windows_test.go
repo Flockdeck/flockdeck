@@ -149,7 +149,7 @@ func agentSays(t *testing.T, shim, task, mark string) string {
 		t.Fatalf("start: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	id, replay, out := s.Subscribe()
+	id, replay, out, _ := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 	got, _ := collect(t, out, replay, ":END", 30*time.Second)
 	text := stripANSI([]byte(got))
@@ -214,7 +214,7 @@ func printedArgsIn(t *testing.T, dir string, args ...string) []string {
 		t.Fatalf("start: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	id, replay, out := s.Subscribe()
+	id, replay, out, _ := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 	got, _ := collect(t, out, replay, ":END", 30*time.Second)
 	text := stripANSI([]byte(got))
@@ -305,7 +305,7 @@ func TestATaskReachesAnAgentBehindABatchShim(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	id, replay, out := s.Subscribe()
+	id, replay, out, _ := s.Subscribe()
 	t.Cleanup(func() { s.Unsubscribe(id) })
 	got, _ := collect(t, out, replay, ":END", 30*time.Second)
 	text := stripANSI([]byte(got))
