@@ -172,6 +172,38 @@ func TestPreviewNeverOpenedPaneHoldsNoFullHistory(t *testing.T) {
 	}
 }
 
+// TestClosingAPaneForgetsPreview covers the inbox preview's other half of the
+// pane-closed contract, alongside TestClosingAPaneForgetsRelayUse: a pane's
+// entry in previewCache.last used to have no deletion path tied to the pane
+// closing at all (drop was only ever called when a pane's stream went
+// unsupported after a session-id change), so a pane that got a reply and was
+// then closed left its preview sitting in previewCache.last for the life of
+// the process. See (*Server).PaneClosed.
+func TestClosingAPaneForgetsPreview(t *testing.T) {
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	root := ws.ActiveRoot()
+
+	writeClaudeJSONL(t, claudeTranscriptPath(home, root, paneID),
+		`{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"text","text":"hi there"}]}}`,
+	)
+	srv.ConversationHookEvent(paneID)
+
+	if _, ok := srv.preview.get(paneID); !ok {
+		t.Fatal("no preview after a reply -- test setup didn't populate previewCache")
+	}
+
+	if ok, _ := ask(srv, func() bool { return ws.ClosePaneByID(paneID) }); !ok {
+		t.Fatal("closing the pane was refused")
+	}
+
+	if _, ok := srv.preview.get(paneID); ok {
+		t.Error("previewCache still holds an entry for a closed pane")
+	}
+}
+
 // TestPreviewTextStripsMarkdownAndCaps covers previewText directly: common
 // markdown syntax removed, whitespace collapsed, and a long reply capped
 // rather than sent whole -- an inbox row is a line or two, not the chat view.
