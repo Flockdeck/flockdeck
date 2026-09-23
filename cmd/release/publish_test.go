@@ -64,6 +64,15 @@ case $src in
 esac
 `
 
+// otherFormats are the files a release ships beside the archives, named as
+// they are after flockdeck_<version>_: the Windows installer and the .deb and
+// .rpm of each Linux architecture.
+var otherFormats = []string{
+	"windows-installer.exe",
+	"linux_amd64.deb", "linux_arm64.deb",
+	"linux_amd64.rpm", "linux_arm64.rpm",
+}
+
 // publishing is one run of the publish script against a bucket that is a
 // directory and a site that serves it.
 type publishing struct {
@@ -90,6 +99,17 @@ func newPublishing(t *testing.T, version string) *publishing {
 		}
 	}
 	p := &publishing{t: t, dist: fakeRelease(t, version), store: t.TempDir()}
+	// A release also ships the Windows installer and the Linux packages, none
+	// of them an archive of a platform; checksums.txt is written again to
+	// list them, as cmd/release does for everything in the release.
+	for _, suffix := range otherFormats {
+		if err := os.WriteFile(filepath.Join(p.dist, "flockdeck_"+version+"_"+suffix), []byte("the "+suffix+" of "+version), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := runSums(p.dist); err != nil {
+		t.Fatal(err)
+	}
 	p.logPath = filepath.Join(t.TempDir(), "log")
 
 	_, key, err := ed25519.GenerateKey(nil)
@@ -257,6 +277,16 @@ func TestPublishScriptOrder(t *testing.T) {
 		}
 		archives++
 	}
+	// The installer and the packages are under /latest/ too, without the
+	// version, for the site's download buttons.
+	for _, suffix := range otherFormats {
+		a, err := os.ReadFile(filepath.Join(p.store, "latest", "flockdeck_"+suffix))
+		b, _ := os.ReadFile(filepath.Join(p.dist, "flockdeck_v9.9.9_"+suffix))
+		if err != nil || !bytes.Equal(a, b) {
+			t.Errorf("latest/flockdeck_%s is not flockdeck_v9.9.9_%s (%v)", suffix, suffix, err)
+		}
+		archives++
+	}
 	for _, k := range keys {
 		h := how[k]
 		bucket, endpoint, acl, typ, cache, meta, id := h[0], h[1], h[2], h[3], h[4], h[5], h[6]
@@ -266,7 +296,7 @@ func TestPublishScriptOrder(t *testing.T) {
 		if acl != "public-read" {
 			t.Errorf("%s was uploaded %q, want public-read", k, acl)
 		}
-		wantType := map[string]string{".zip": "application/zip", ".gz": "application/gzip", ".json": "application/json", ".txt": "text/plain; charset=utf-8", ".sig": "text/plain; charset=utf-8"}[filepath.Ext(k)]
+		wantType := map[string]string{".zip": "application/zip", ".gz": "application/gzip", ".json": "application/json", ".exe": "application/vnd.microsoft.portable-executable", ".deb": "application/vnd.debian.binary-package", ".rpm": "application/x-rpm", ".txt": "text/plain; charset=utf-8", ".sig": "text/plain; charset=utf-8"}[filepath.Ext(k)]
 		if typ != wantType {
 			t.Errorf("%s is %q, want %q", k, typ, wantType)
 		}
@@ -297,7 +327,7 @@ func TestPublishScriptLeavesLatestAloneForAPreRelease(t *testing.T) {
 			t.Errorf("a pre-release uploaded %s", k)
 		}
 	}
-	if len(keys) != len(platforms)+4 {
+	if len(keys) != len(platforms)+len(otherFormats)+4 {
 		t.Errorf("uploaded %v, want the archives, the signed checksums and the signed manifest", keys)
 	}
 	if !strings.Contains(out, "pre-release") {

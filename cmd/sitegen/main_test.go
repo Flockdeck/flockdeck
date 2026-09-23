@@ -289,6 +289,14 @@ var latestArchives = map[string]string{
 	"flockdeck_darwin_amd64.tar.gz": "macOS (Intel)",
 	"flockdeck_linux_amd64.tar.gz":  "Linux (x64)",
 	"flockdeck_linux_arm64.tar.gz":  "Linux (Arm)",
+
+	// The formats beside the archives: the Windows installer, one file for
+	// both architectures, and the Linux packages.
+	"flockdeck_windows-installer.exe": "Windows installer (x64 and Arm)",
+	"flockdeck_linux_amd64.deb":       "Linux .deb (x64)",
+	"flockdeck_linux_arm64.deb":       "Linux .deb (Arm)",
+	"flockdeck_linux_amd64.rpm":       "Linux .rpm (x64)",
+	"flockdeck_linux_arm64.rpm":       "Linux .rpm (Arm)",
 }
 
 var (
@@ -351,6 +359,56 @@ func TestDownloadButtonsNameTheLatestArchives(t *testing.T) {
 	for name := range latestArchives {
 		if !seen[name] {
 			t.Errorf("the install section has no download button for %s", name)
+		}
+	}
+}
+
+// The install section offers every format a release ships, under the right
+// system, and says only what is true of each: the Windows installer is not
+// Authenticode-signed and asks for administrator approval, the packages come
+// from apt or dnf, and none of them is checked as it runs, so the checksum
+// in the release's signed checksums.txt is where to look. Nor does it still
+// call the install scripts "installers", which would now name two things.
+func TestInstallSectionOffersEveryFormat(t *testing.T) {
+	_, page := home(t)
+	start := strings.Index(page, `id="install"`)
+	end := strings.Index(page, `id="faq"`)
+	if start < 0 || end < start {
+		t.Fatal("the page has no install section before its FAQ")
+	}
+	install := page[start:end]
+
+	windows := install[strings.Index(install, `id="os-windows"`):]
+	windows = windows[:strings.Index(windows, `</ul>`)]
+	if !strings.Contains(windows, `latest/flockdeck_windows-installer.exe"`) {
+		t.Error("the Windows downloads do not offer the installer")
+	}
+	unix := install[strings.Index(install, `id="os-unix"`):strings.Index(install, `id="os-windows"`)]
+	for _, name := range []string{"linux_amd64.deb", "linux_arm64.deb", "linux_amd64.rpm", "linux_arm64.rpm"} {
+		if !strings.Contains(unix, `latest/flockdeck_`+name+`"`) {
+			t.Errorf("the macOS and Linux downloads do not offer %s", name)
+		}
+	}
+
+	text := html.UnescapeString(anyTag.ReplaceAllString(install, ""))
+	text = strings.Join(strings.Fields(text), " ")
+	for _, want := range []string{
+		"It is not code-signed",
+		"asks for administrator approval",
+		"Program Files",
+		"sudo apt install ./flockdeck_<version>_linux_amd64.deb",
+		"sudo dnf install ./flockdeck_<version>_linux_amd64.rpm",
+		"GTK 4 and WebKitGTK",
+		"each one's checksum is in that release's checksums.txt, which the checksums.txt.sig beside it signs",
+		"The install scripts above leave no download mark",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the install section does not say %q", want)
+		}
+	}
+	for _, stale := range []string{"The installers above", "The installer checks", "the installer downloaded"} {
+		if strings.Contains(text, stale) {
+			t.Errorf("the install section still says %q, which now reads as the Windows installer", stale)
 		}
 	}
 }

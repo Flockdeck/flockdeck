@@ -373,11 +373,14 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   <!-- Both commands are in the markup. With scripting on, the tabs show the one
        for the visitor's own system; with it off, both are simply listed.
 
-       Under each installer are its system's archives, as plain links to the
+       Under each install command are its system's archives, as plain links to the
        names scripts/publish-downloads.sh gives the latest release's files, for
-       somebody who would rather not pipe a script into a shell. The installer
+       somebody who would rather not pipe a script into a shell. The script
        stays first: it checks the download, puts it on the PATH, and leaves no
-       download mark for Gatekeeper or SmartScreen to stop. -->
+       download mark for Gatekeeper or SmartScreen to stop. Beside the
+       archives are the release's other formats, under the same version-less
+       names: the Windows installer (one file for x64 and Arm) and Linux's
+       .deb and .rpm. -->
   <div class="os-tabs" role="tablist" aria-label="Your operating system" hidden>
     <button type="button" role="tab" id="os-tab-unix" aria-controls="os-unix" data-os="unix">macOS &amp; Linux</button>
     <button type="button" role="tab" id="os-tab-windows" aria-controls="os-windows" data-os="windows">Windows</button>
@@ -391,6 +394,10 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
       <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_darwin_amd64.tar.gz"><span aria-hidden="true">↓</span> macOS (Intel)</a></li>
       <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_linux_amd64.tar.gz"><span aria-hidden="true">↓</span> Linux (x64)</a></li>
       <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_linux_arm64.tar.gz"><span aria-hidden="true">↓</span> Linux (Arm)</a></li>
+      <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_linux_amd64.deb"><span aria-hidden="true">↓</span> Linux .deb (x64)</a></li>
+      <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_linux_arm64.deb"><span aria-hidden="true">↓</span> Linux .deb (Arm)</a></li>
+      <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_linux_amd64.rpm"><span aria-hidden="true">↓</span> Linux .rpm (x64)</a></li>
+      <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_linux_arm64.rpm"><span aria-hidden="true">↓</span> Linux .rpm (Arm)</a></li>
     </ul>
   </div>
   <div class="os" id="os-windows" data-os="windows">
@@ -398,6 +405,7 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
     <pre><code>irm {{ .URL }}/install.ps1 | iex</code></pre>
     <p>Or download it:</p>
     <ul class="downloads" aria-label="Downloads for Windows">
+      <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_windows-installer.exe"><span aria-hidden="true">↓</span> Windows installer (x64 and Arm)</a></li>
       <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_windows_amd64.zip"><span aria-hidden="true">↓</span> Windows (x64)</a></li>
       <li><a class="button ghost dl" href="{{ .Downloads }}/latest/flockdeck_windows_arm64.zip"><span aria-hidden="true">↓</span> Windows (Arm)</a></li>
     </ul>
@@ -414,16 +422,34 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
      System Settings → Privacy &amp; Security → Open Anyway, or run
      <code>xattr -d com.apple.quarantine</code> on it. Windows may show a
      similar SmartScreen prompt for a browser download; choose More info →
-     Run anyway. The installers above leave no download mark, so they meet
-     neither.</p>
-  <p>The installer checks its download against the checksum written into the
-     installer itself, and installs it to <code>~/.local/bin</code> --
+     Run anyway. The install scripts above leave no download mark, so they
+     meet neither.</p>
+  <p class="aside">Windows also has a graphical installer, one file for x64 and
+     Arm. It asks for administrator approval, installs Flockdeck for every user
+     under Program Files, adds Start menu and desktop shortcuts and an entry
+     under Installed apps to remove it by, and fetches the WebView2 runtime if
+     the machine lacks it. It is not code-signed, so a browser download may
+     bring up the SmartScreen prompt described above, and Windows may name the
+     publisher as unknown. On Linux, the <code>.deb</code> (Debian, Ubuntu) and
+     <code>.rpm</code> (Fedora, RHEL, openSUSE) install
+     <code>/usr/bin/flockdeck</code> and an app-menu entry, and ask
+     <code>apt</code> or <code>dnf</code> for the GTK 4 and WebKitGTK
+     libraries it needs, for example
+     <code>sudo apt install ./flockdeck_&lt;version&gt;_linux_amd64.deb</code>
+     or <code>sudo dnf install ./flockdeck_&lt;version&gt;_linux_amd64.rpm</code>
+     (Arm machines take the <code>arm64</code> files). Neither the installer
+     nor the packages are checked for you when they run: each one's checksum is
+     in that release's <code>checksums.txt</code>, which the
+     <code>checksums.txt.sig</code> beside it signs, so check it there before
+     you run one.</p>
+  <p>The install script checks its download against the checksum written into the
+     script itself, and installs it to <code>~/.local/bin</code> --
      <code>~/Applications</code> on macOS, as a real Flockdeck.app. On
      Windows it goes to <code>%LOCALAPPDATA%\Programs\flockdeck</code> and
      adds a Start menu shortcut. With that in and checked, it moves you on to
      the latest release, if this page is older than that, by asking the copy
      it just installed to update itself — checked by its release signature,
-     not by anything the installer downloaded. No admin rights needed, now or
+     not by anything the script downloaded. No admin rights needed, now or
      when Flockdeck updates itself. To pick a release or a directory, set
      <code>FLOCKDECK_VERSION</code> or <code>FLOCKDECK_INSTALL_DIR</code>
      first; each script lists its settings at the top. A release picked this
@@ -540,7 +566,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
          accepts a release from dl.flockdeck.ai only when the release key has
          signed it, and asks before it restarts. If you
          don't restart, the new version goes in the next time you quit. The
-         installers above do this once too, right after installing, so a
+         install scripts above do this once too, right after installing, so a
          fresh install lands on the latest release even if this page was
          generated for an older one. To turn updates off, set
          <code>FLOCKDECK_UPDATE=off</code>.</p>
