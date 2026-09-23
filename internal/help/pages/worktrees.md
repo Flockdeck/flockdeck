@@ -15,6 +15,8 @@ For every worktree:
 - whether it is the main worktree, or locked
 - **folder gone**, when its folder was deleted outside the application and
   only git's record of it is left
+- in a project [grouping more than one directory](#projects), which repo the
+  worktree belongs to
 
 ## What you can do
 
@@ -30,7 +32,11 @@ For every worktree:
 <kbd>Enter</kbd> in the branch box does the same. It is created next to the
 repository; giving an existing branch name checks that branch out
 instead of creating one. Branches that have no worktree are listed underneath
-as one-click buttons.
+as one-click buttons. In a project [grouping more than one directory](#projects),
+the form also offers a choice of which repo to create the worktree in —
+defaulting to whichever is active — since a worktree always belongs to
+exactly one repository; [Review, commit and push](#changes) has the same
+choice for reviewing one.
 
 **Prune** drops git's records of worktrees whose folders were deleted outside
 the application. A worktree like that is listed as **folder gone**, with a
