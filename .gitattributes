@@ -1,0 +1,7 @@
+# Files a Linux package installs or runs are read by Linux tools that treat a
+# carriage return as part of the file: a #!/bin/sh\r script does not run, and
+# desktop-file-validate rejects a desktop entry. A Windows checkout with
+# core.autocrlf would otherwise build a .deb or .rpm that fails to install.
+*.sh text eol=lf
+build/linux/* text eol=lf
+cmd/release/nfpm.yaml text eol=lf
