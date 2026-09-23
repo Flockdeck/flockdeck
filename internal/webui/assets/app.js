@@ -10168,6 +10168,25 @@
       "A rule may name another agent's model, not only a smaller or stronger model of this one — a local model " +
       "through an OpenAI-compatible endpoint, say. That pane runs a different program, with its own login, tools " +
       "and transcript. Off until you turn it on, " + (own ? "for this project." : "for every project."), crossLabel));
+    // Asking Jev is the one setting here that sends anything off this machine,
+    // so it says so, in plain words, beside the switch.
+    const jev = el("input");
+    jev.type = "checkbox";
+    jev.id = "set-route-jev";
+    jev.checked = !!r.jev;
+    jev.onchange = () => {
+      const req = { cmd: "setRouting", target: "jev", text: jev.checked ? "true" : "false" };
+      if (!own) req.kind = "all";
+      send(req);
+    };
+    const jevLabel = el("label", "fan-opt");
+    jevLabel.append(jev, document.createTextNode(" Send unmatched fan-out tasks to TypeSafe to rate"));
+    pane.append(settingRow("Ask Jev to rate unmatched work",
+      "With Minimise cost, a fan-out row no rule matched can be rated by TypeSafe's Jev model, so hard work is not " +
+      "sent to the cheapest model blindly. This sends the text of that row (its first 2,000 characters) to TypeSafe, " +
+      "a third party, and nothing else: no files, no repository, no history. It needs TYPESAFE_API_KEY set" +
+      (r.jevKey ? "" : " (it is not set, so nothing is sent)") + " and does nothing under Cost-first, quality-aware. " +
+      "Off until you turn it on, " + (own ? "for this project." : "for every project."), jevLabel));
     if (r.note) {
       const note = el("p", "set-lede", r.note);
       note.id = "set-route-note";
@@ -10194,6 +10213,24 @@
     pane.append(settingRow("Rules",
       (r.builtIn ? "The built-in rules. " : "") + "The first to match a task decides. They are edited in agents.json" +
       (r.config ? ", at " + r.config : "") + ".", list));
+
+    if ((r.fallback || []).length) {
+      // What the fallback chose, with Jev's rating and without it, read back
+      // from the log: nothing here changes a setting.
+      const fb = el("div", "route-rules");
+      fb.id = "set-route-fallback";
+      r.fallback.forEach((g) => {
+        const row = el("div", "route-rule");
+        const total = (g.kept || 0) + (g.overridden || 0);
+        const pct = total ? Math.round((100 * (g.overridden || 0)) / total) : 0;
+        row.append(el("span", "route-rule-name", g.name),
+          el("span", "route-rule-stat", "overridden " + pct + "% of the time (" + (g.overridden || 0) + " of " + total + ")"));
+        fb.append(row);
+      });
+      pane.append(settingRow("Unmatched work",
+        "How often what Minimise cost chose for work no rule matched was changed before it started, with Jev's " +
+        "rating and without it. It is shown for you to compare; nothing changes on its own.", fb));
+    }
 
     const clear = el("button", "chip", "Clear routing history");
     clear.id = "set-route-clear-log";
@@ -10456,7 +10493,7 @@
         taskLines().forEach((t) => {
           const r = activeRoute(t);
           if (!r) return;
-          overridden.push({ rule: r.rule, agent: r.agent || pickParts(runSel.value)[0], routed: r.model, chosen: pickParts(runSel.value)[1] });
+          overridden.push({ task: t, rule: r.rule, agent: r.agent || pickParts(runSel.value)[0], routed: r.model, chosen: pickParts(runSel.value)[1] });
           overrides.set(t, "");
         });
         renderRows();
@@ -10678,7 +10715,7 @@
         // run".
         const was = activeRoute(task);
         if (was) {
-          overridden.push({ rule: was.rule, agent: was.agent || pickParts(runSel.value)[0], routed: was.model,
+          overridden.push({ task, rule: was.rule, agent: was.agent || pickParts(runSel.value)[0], routed: was.model,
             chosen: pickParts(sel.value)[1] || pickParts(runSel.value)[1] });
         }
         if (sel.value || was) overrides.set(task, sel.value);

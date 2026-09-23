@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/pricing"
 	"github.com/jmwri/flockdeck/internal/route"
+	"github.com/jmwri/flockdeck/internal/routejev"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/workspace"
@@ -53,6 +55,10 @@ type routesMsg struct {
 // routeOverride is a routed choice the user changed in the dialog before
 // starting it. It is sent only so the routing log can count it.
 type routeOverride struct {
+	// Task is the row's text, sent so that a fallback choice -- which has no
+	// rule to name it -- can be matched to what routing said of it. It is
+	// used to look that up in memory and is never written to the log.
+	Task   string `json:"task"`
 	Rule   string `json:"rule"`
 	Agent  string `json:"agent"`
 	Routed string `json:"routed"`
@@ -67,7 +73,11 @@ type routeOverride struct {
 // is on rather than to the tasks.
 func routeRows(c *agent.Catalog, root, agentID, model string, tasks []string) (routes []*routeView, mode, note string) {
 	policy, _ := c.RoutingFor(root)
-	r := route.New(policy)
+	// Jev is asked here and for a fan-out's rows only: they are what the user
+	// sees and can change before anything starts, and what the routing log
+	// scores. routejev.For is nil unless the policy turned Jev on and a key is
+	// set, and then WithClassifier changes nothing.
+	r := route.New(policy).WithClassifier(routejev.For(policy))
 	if !r.On() {
 		return nil, "", ""
 	}
@@ -80,6 +90,15 @@ func routeRows(c *agent.Catalog, root, agentID, model string, tasks []string) (r
 	if policy.CrossAgent {
 		other = otherAgentFor(c, root)
 	}
+	inputs := make([]route.Input, 0, len(tasks))
+	for _, task := range tasks {
+		if task = strings.TrimSpace(task); task != "" {
+			inputs = append(inputs, route.Input{Kind: route.KindFanout, Task: task, Agent: spec, Current: model, OtherAgent: other})
+		}
+	}
+	// Every row that would ask Jev asks it now, together, so the rows wait
+	// for one answer and not one each; Decide then finds the answers.
+	r.Prewarm(inputs)
 	routed := make([]*routeView, len(tasks))
 	any := false
 	for i, task := range tasks {
@@ -92,6 +111,9 @@ func routeRows(c *agent.Catalog, root, agentID, model string, tasks []string) (r
 			continue
 		}
 		any = true
+		if d.Source == route.SourceFallback {
+			rememberFallback(task, agentID, d)
+		}
 		reason := d.Reason
 		if d.Agent == "" {
 			reason += priceNote(spec, model, d.Model)
@@ -325,13 +347,75 @@ func logRoutes(entries []route.LogEntry) {
 	}
 }
 
+// fallbacks is what routing chose for the rows of a fan-out dialog that no rule
+// decided, kept for a moment in memory so the fan-out's log entries can say
+// whether Jev shaped them. A fallback has no rule name for the dialog to send
+// back, so the row's text finds it -- by hash, so the text is not kept -- and
+// nothing here outlives the process or is ever written down.
+var fallbacks = struct {
+	sync.Mutex
+	seen map[[sha256.Size]byte]fallbackNote
+}{seen: map[[sha256.Size]byte]fallbackNote{}}
+
+type fallbackNote struct {
+	agent, model string
+	jev          *route.JevNote
+	at           time.Time
+}
+
+const (
+	fallbackTTL = time.Hour
+	fallbackCap = 512
+)
+
+func rememberFallback(task, agentID string, d route.Decision) {
+	key := sha256.Sum256([]byte(strings.TrimSpace(task)))
+	now := time.Now()
+	fallbacks.Lock()
+	defer fallbacks.Unlock()
+	if len(fallbacks.seen) >= fallbackCap {
+		for k, v := range fallbacks.seen {
+			if now.Sub(v.at) >= fallbackTTL {
+				delete(fallbacks.seen, k)
+			}
+		}
+		if len(fallbacks.seen) >= fallbackCap {
+			clear(fallbacks.seen)
+		}
+	}
+	fallbacks.seen[key] = fallbackNote{agent: agentID, model: d.Model, jev: d.Jev, at: now}
+}
+
+// fallbackFor is what routing chose for a task, when it was a fallback onto
+// model for agentID -- so that a row the user moved elsewhere, or handed to
+// a rule, is not counted as the fallback's.
+func fallbackFor(task, agentID, model string) (fallbackNote, bool) {
+	key := sha256.Sum256([]byte(strings.TrimSpace(task)))
+	fallbacks.Lock()
+	defer fallbacks.Unlock()
+	n, ok := fallbacks.seen[key]
+	if !ok || time.Since(n.at) >= fallbackTTL || (agentID != "" && n.agent != agentID) || n.model != model {
+		return fallbackNote{}, false
+	}
+	return n, true
+}
+
 // fanoutRouteLog is the log's account of a fan-out: each routed row that
-// started, and each routed choice the user changed before starting.
+// started, and each routed choice the user changed before starting. A row a
+// rule chose is named by the rule the dialog sent back; one that started on a
+// cost strategy's fallback is found by its text (see fallbacks) and logged
+// with the source "fallback", carrying Jev's classification where Jev shaped
+// it.
 func fanoutRouteLog(req fanoutRequest, project string, started map[*fanoutJob]string) []route.LogEntry {
 	now := time.Now()
 	var out []route.LogEntry
 	for j, pane := range started {
 		if j.routed == "" {
+			if n, ok := fallbackFor(j.task, j.agent, j.model); ok {
+				out = append(out, route.LogEntry{At: now, Kind: route.KindFanout, Project: project, Pane: pane,
+					Agent: j.agent, Source: route.SourceFallback, Baseline: req.Model, Routed: j.model,
+					Outcome: route.OutcomeKept, Jev: n.jev})
+			}
 			continue
 		}
 		e := route.LogEntry{At: now, Kind: route.KindFanout, Project: project, Pane: pane,
@@ -346,6 +430,15 @@ func fanoutRouteLog(req fanoutRequest, project string, started map[*fanoutJob]st
 		e := route.LogEntry{At: now, Kind: route.KindFanout, Project: project,
 			Agent: o.Agent, Source: route.SourceRule, Rule: o.Rule,
 			Baseline: req.Model, Routed: o.Routed, Outcome: route.OutcomeOverridden + o.Chosen}
+		if o.Rule == "" {
+			// A fallback's choice, changed: with no record of one, it was
+			// logged as a rule decision with no rule, which nothing counts.
+			n, ok := fallbackFor(o.Task, o.Agent, o.Routed)
+			if !ok {
+				continue
+			}
+			e.Source, e.Jev = route.SourceFallback, n.jev
+		}
 		if o.Agent != req.Agent {
 			e.BaselineAgent = req.Agent
 		}
@@ -397,6 +490,13 @@ type routingView struct {
 	// another agent, not only another model. It is read from the same
 	// policy Every or Project names, never mixed between the two.
 	CrossAgent bool `json:"crossAgent,omitempty"`
+	// Jev is the policy's switch for asking Jev to rate work no rule matched,
+	// and JevKey whether TYPESAFE_API_KEY is set, since it does nothing
+	// without one. Fallback is the log's account of the fallback's decisions,
+	// with and without Jev, for comparison.
+	Jev      bool           `json:"jev,omitempty"`
+	JevKey   bool           `json:"jevKey,omitempty"`
+	Fallback []fallbackView `json:"fallback,omitempty"`
 	// Config is where agents.json is, since the rules are edited there.
 	Config string `json:"config,omitempty"`
 }
@@ -405,6 +505,14 @@ type routingChoice struct {
 	Mode     string `json:"mode"`
 	Floor    string `json:"floor"`
 	Strategy string `json:"strategy"`
+}
+
+// fallbackView is one group of the fallback's decisions as Settings lists it,
+// with how often what was chosen was kept or overridden.
+type fallbackView struct {
+	Name       string `json:"name"`
+	Kept       int    `json:"kept"`
+	Overridden int    `json:"overridden"`
 }
 
 // ruleView is one rule as Settings lists it, in words, with the log's own
@@ -425,11 +533,16 @@ func routingOf(c *agent.Catalog, root string) *routingView {
 	}
 	v.BuiltIn = policy.Rules == nil
 	v.CrossAgent = policy.CrossAgent
+	v.Jev = policy.Jev
+	v.JevKey = routejev.Enabled()
 	stats := map[string]route.RuleStat{}
 	if dir, err := routingLogDir(); err == nil {
 		if entries, err := route.ReadLog(dir); err == nil {
 			for _, s := range route.Stats(entries) {
 				stats[s.Rule] = s
+			}
+			for _, s := range route.FallbackStats(entries) {
+				v.Fallback = append(v.Fallback, fallbackView{Name: s.Rule, Kept: s.Kept, Overridden: s.Overridden})
 			}
 		}
 	}
@@ -579,6 +692,12 @@ func routingNotice(where, field, value string) string {
 			value = agent.TierSmall
 		}
 		return "routing will choose nothing below " + value + " for " + where
+	}
+	if field == "jev" {
+		if value == "true" {
+			return "routing may now send the text of a fan-out row no rule matched to TypeSafe, for " + where + " -- it also needs TYPESAFE_API_KEY, and only applies to Minimise cost"
+		}
+		return "routing no longer sends anything to TypeSafe for " + where
 	}
 	if field == "strategy" {
 		if value == agent.StrategyCost {

@@ -65,6 +65,14 @@ type RoutingPolicy struct {
 	// a spawned helper -- never a chat turn or a pane already running -- and
 	// only to an agent the caller reports as usable right now.
 	CrossAgent bool `json:"crossAgent,omitempty"`
+	// Jev lets Strategy == StrategyCost ask TypeSafe's Jev model how
+	// demanding a fan-out row is, when no rule matched it, so that the
+	// fallback can choose a tier to suit it rather than always the floor.
+	// It is off unless set, because turning it on sends the text of the task
+	// to a third party: it is the user's deliberate choice, made here and
+	// nowhere else, and it also needs TYPESAFE_API_KEY. It changes nothing
+	// under StrategyBalanced, where nothing unmatched is routed at all.
+	Jev bool `json:"jev,omitempty"`
 	// Rules are tried in order and the first that matches decides. Absent
 	// means the built-in rules; an empty list means none at all.
 	Rules []RoutingRule `json:"rules,omitempty"`
@@ -282,7 +290,7 @@ func SetRouting(dir, project, field, value string) error {
 		if value != "" && value != StrategyBalanced && value != StrategyCost {
 			return fmt.Errorf("%q is not a routing strategy; the strategies are balanced and cost", value)
 		}
-	case "crossAgent":
+	case "crossAgent", "jev":
 		if value != "" && value != "true" && value != "false" {
 			return fmt.Errorf("%q is not true or false", value)
 		}
@@ -342,7 +350,8 @@ func SetRouting(dir, project, field, value string) error {
 // setRoutingField sets one key of a policy as written, leaving the rest of it
 // byte for byte. An empty floor is taken out, since it means small anyway;
 // "crossAgent" set to "false", and "strategy" set to "balanced", are taken
-// out the same way, since that is what their absence already means.
+// out the same way, since that is what their absence already means; "jev"
+// set to "false" likewise.
 func setRoutingField(raw json.RawMessage, field, value string) (json.RawMessage, error) {
 	obj := map[string]json.RawMessage{}
 	if t := bytes.TrimSpace(raw); len(t) > 0 && !bytes.Equal(t, []byte("null")) {
@@ -350,11 +359,11 @@ func setRoutingField(raw json.RawMessage, field, value string) (json.RawMessage,
 			return nil, fmt.Errorf(`"routing" in %s is not an object, so it was not changed`, ConfigName)
 		}
 	}
-	if value == "" || (field == "crossAgent" && value == "false") || (field == "strategy" && value == StrategyBalanced) {
+	if value == "" || ((field == "crossAgent" || field == "jev") && value == "false") || (field == "strategy" && value == StrategyBalanced) {
 		delete(obj, field)
 	} else {
 		var toWrite any = value
-		if field == "crossAgent" {
+		if field == "crossAgent" || field == "jev" {
 			toWrite = value == "true"
 		}
 		v, err := marshalUnescaped(toWrite)

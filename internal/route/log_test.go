@@ -3,6 +3,7 @@ package route
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -136,5 +137,52 @@ func TestAFullLogWithoutAFinalNewlineKeepsBothDecisions(t *testing.T) {
 	}
 	if n := len(got); n < 2 || got[n-2].Rule != "old" || got[n-1].Rule != "new" {
 		t.Errorf("the log ends %+v; want the old decision and then the new", got[max(0, len(got)-2):])
+	}
+}
+
+// A line written before Jev existed has no jev field and parses as it always
+// did; one with it round-trips; and only the latter counts as Jev-assisted.
+func TestTheLogTakesOldLinesAndCarriesJevFields(t *testing.T) {
+	dir := t.TempDir()
+	old := `{"at":"2026-01-02T03:04:05Z","kind":"fanout","agent":"claude","source":"rule","rule":"hard work","baseline":"sonnet","routed":"opus","outcome":"kept"}` + "\n" +
+		`{"at":"2026-01-02T03:04:06Z","kind":"fanout","agent":"claude","source":"fallback","baseline":"opus","routed":"haiku","outcome":"kept"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, LogName), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	note := &JevNote{Score: 2.1, Confidence: 0.8, Mechanical: 0.1, MultiFile: 0.3, Tier: "mid", Model: "jev-1.13.0"}
+	if err := AppendLog(dir,
+		LogEntry{At: time.Now(), Kind: KindFanout, Agent: "claude", Source: SourceFallback, Baseline: "opus", Routed: "sonnet", Outcome: OutcomeKept, Jev: note},
+		LogEntry{At: time.Now(), Kind: KindFanout, Agent: "claude", Source: SourceFallback, Baseline: "opus", Routed: "sonnet", Outcome: OutcomeOverridden + "opus", Jev: note},
+		LogEntry{At: time.Now(), Kind: KindFanout, Agent: "claude", Source: SourceFallback, Baseline: "opus", Routed: "haiku", Outcome: OutcomeOverridden + "sonnet"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadLog(dir)
+	if err != nil || len(got) != 5 {
+		t.Fatalf("read back %d entries, %v", len(got), err)
+	}
+	if got[0].Jev != nil || got[1].Jev != nil || got[0].Rule != "hard work" || got[1].Routed != "haiku" {
+		t.Errorf("old lines read as %+v, %+v", got[0], got[1])
+	}
+	if !reflect.DeepEqual(got[2].Jev, note) {
+		t.Errorf("the note read back as %+v", got[2].Jev)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, LogName))
+	if strings.Contains(string(data), `"jev":null`) {
+		t.Errorf("a line with no classification says so with null:\n%s", data)
+	}
+
+	stats := FallbackStats(got)
+	if len(stats) != 2 || stats[0].Rule != FallbackPlain || stats[0].Kept != 1 || stats[0].Overridden != 1 ||
+		stats[1].Rule != FallbackJev || stats[1].Kept != 1 || stats[1].Overridden != 1 {
+		t.Errorf("FallbackStats = %+v", stats)
+	}
+	// Rules are still counted by Stats alone, and a log with no fallback
+	// decisions has no groups.
+	if rs := Stats(got); len(rs) != 1 || rs[0].Rule != "hard work" {
+		t.Errorf("Stats = %+v", rs)
+	}
+	if FallbackStats([]LogEntry{{Source: SourceRule, Rule: "x", Outcome: OutcomeKept}}) != nil {
+		t.Error("a group with no decisions was listed")
 	}
 }
