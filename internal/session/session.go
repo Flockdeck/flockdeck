@@ -107,6 +107,11 @@ type Config struct {
 	// straight away, so assigning the field once Start has returned is a
 	// write racing the reader's read of it.
 	OnChange func()
+	// Assist, when set, lets Jev break the tie the output-reading fallback
+	// cannot -- quiet: finished, or stopped on a question -- for an agent pane
+	// whose Spec reports no lifecycle. Nil, and every pane of an agent that does
+	// report one, and every shell, never asks. See StatusAssist.
+	Assist *StatusAssist
 }
 
 // Session is a single pane: a process attached to a PTY.
@@ -182,6 +187,12 @@ type Session struct {
 	sawInput   bool
 	startedAt  time.Time
 	cols, rows int
+	// assist is Config.Assist, kept only for a pane that may use it: an agent
+	// whose status is read out of its output.
+	assist *StatusAssist
+	// assistDone is called when an ask has run its course, whatever came of it.
+	// Only a test sets it, so it can wait for the outcome instead of guessing.
+	assistDone func()
 	// idleAfter is quietBeforeIdle, held per session so a test can shorten it.
 	idleAfter time.Duration
 	// settling records that a goroutine is already waiting to call this pane
@@ -293,6 +304,7 @@ func Start(cfg Config) (*Session, error) {
 		cols:        cfg.Cols,
 		rows:        cfg.Rows,
 		patterns:    foldPatterns(cfg.Spec.Patterns),
+		assist:      assistFor(cfg),
 		idleAfter:   quietBeforeIdle,
 		answerQuiet: answeredQuiet,
 		history:     newRing(replayBytes),
@@ -508,10 +520,27 @@ func (s *Session) settleIdle() {
 		s.status = StatusIdle
 		s.statusSince = time.Now()
 		s.settling = false
+		written, since := s.written, s.statusSince
 		s.mu.Unlock()
 		s.changed()
+		// Idle by the quiet timer alone is the guess Jev can second-guess: it
+		// is asked off to the side, and what it says is applied only if the pane
+		// is still as it is now.
+		if s.assist != nil {
+			go s.assistIdle(written, since)
+		}
 		return
 	}
+}
+
+// assistFor is the assistant a pane may use: only an agent's, and only one that
+// reports no lifecycle, since a pane whose hooks report is read from them and
+// never from what it prints.
+func assistFor(cfg Config) *StatusAssist {
+	if cfg.Kind != KindAgent || cfg.Spec.Caps.Hooks {
+		return nil
+	}
+	return cfg.Assist
 }
 
 // wait reaps the process and records its exit status.
@@ -538,6 +567,7 @@ func (s *Session) wait() {
 		delete(s.subs, id)
 	}
 	s.mu.Unlock()
+	s.assist.Forget(s.ID)
 
 	// The process is gone and no further output can reach a viewer, so let the
 	// pseudo-terminal go. A pane whose process ends on its own is left on
