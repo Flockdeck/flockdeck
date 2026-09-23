@@ -273,3 +273,51 @@ func TestSetRoutingCrossAgent(t *testing.T) {
 		t.Errorf("crossAgent = %v after being set to false, want it gone", dig(m, "routing", "crossAgent"))
 	}
 }
+
+// jev round-trips as a real JSON boolean, is off unless written, is taken out
+// again by "false", is scoped to a project by the same copy-the-policy rule as
+// every other setting, and refuses anything else.
+func TestSetRoutingJev(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, `{"version": 1, "routing": {"mode": "suggest", "strategy": "cost", "rules": []}}`)
+	if p, _ := LoadFrom(dir).RoutingFor(""); p.Jev {
+		t.Fatal("Jev is on in a file that never said so")
+	}
+	if err := SetRouting(dir, "", "jev", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if dig(readBack(t, dir), "routing", "jev") != true {
+		t.Errorf("jev = %v, want true", readBack(t, dir)["routing"])
+	}
+	p, _ := LoadFrom(dir).RoutingFor("")
+	if !p.Jev || p.Strategy != StrategyCost || p.Rules == nil || p.Mode != RoutingSuggest {
+		t.Errorf("the policy read back is %+v: setting jev lost the rest", p)
+	}
+	// A project given its own policy starts from a copy that keeps jev.
+	if err := SetRouting(dir, "/work/a", "floor", "mid"); err != nil {
+		t.Fatal(err)
+	}
+	if p, own := LoadFrom(dir).RoutingFor("/work/a"); !own || !p.Jev || p.Floor != TierMid {
+		t.Errorf("the project's policy is %+v", p)
+	}
+	// ... and can turn it off for itself alone.
+	if err := SetRouting(dir, "/work/a", "jev", "false"); err != nil {
+		t.Fatal(err)
+	}
+	c := LoadFrom(dir)
+	if p, _ := c.RoutingFor("/work/a"); p.Jev {
+		t.Error("the project's own policy still has Jev on")
+	}
+	if p, _ := c.RoutingFor(""); !p.Jev {
+		t.Error("turning it off for one project turned it off for every project")
+	}
+	if err := SetRouting(dir, "", "jev", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if dig(readBack(t, dir), "routing", "jev") != nil {
+		t.Error("jev is kept after being set to false")
+	}
+	if err := SetRouting(dir, "", "jev", "maybe"); err == nil {
+		t.Error("jev accepted maybe")
+	}
+}
