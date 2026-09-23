@@ -78,6 +78,11 @@ type Decision struct {
 	// Reason is one line a person reads: why the model was chosen, or why a
 	// rule that matched changed nothing.
 	Reason string
+	// Jev is the classification a fallback was shaped by, and nil for every
+	// decision that was not: a rule's, and a fallback made without Jev --
+	// which includes every one where Jev could not be asked or its answer was
+	// not acted on, deliberately indistinguishable from a plain fallback.
+	Jev *JevNote
 }
 
 // BuiltinRules are the rules a policy that names none of its own applies.
@@ -121,6 +126,9 @@ type Router struct {
 	floor      int
 	crossAgent bool
 	rules      []rule
+	// jev and classifier are Jev-assisted fallback: see jev.go.
+	jev        bool
+	classifier Classifier
 }
 
 type rule struct {
@@ -132,7 +140,7 @@ type rule struct {
 // does not compile, a tier that is not one -- is left out; the catalog has
 // already named it in its notice when agents.json was read.
 func New(p agent.RoutingPolicy) *Router {
-	r := &Router{mode: p.Mode, strategy: p.Strategy, floor: max(agent.TierRank(p.Floor), 1), crossAgent: p.CrossAgent}
+	r := &Router{mode: p.Mode, strategy: p.Strategy, floor: max(agent.TierRank(p.Floor), 1), crossAgent: p.CrossAgent, jev: p.Jev}
 	if p.Floor != "" && agent.TierRank(p.Floor) == 0 {
 		// A floor nobody can read is taken at its most cautious.
 		r.floor = agent.TierRank(agent.TierTop)
@@ -206,7 +214,31 @@ func (r *Router) fallback(in Input) Decision {
 		// smallest there is, so it is never routed from.
 		return Decision{Source: SourceFallback, Reason: modelName(in.Agent, in.Current) + " is a model of no known size, so routing leaves it alone"}
 	}
-	m, ok := pick(in.Agent, r.floor, in.Current)
+	// want is the tier asked for: the floor, as it always was, or where Jev
+	// answered, what it asked for, but never above the work's own model (or the
+	// floor, if that is higher). Jev moves the choice between those two and no
+	// further, so cost-minimisation still never spends more than the work
+	// would have without routing, and never goes below the floor.
+	want := r.floor
+	var note *JevNote
+	var jd Difficulty
+	asked := 0
+	if r.wantsJev(in) {
+		if d, err := r.classifier.Classify(in.Task); err == nil {
+			if rank, ok := tierFor(d); ok {
+				asked, jd = rank, d
+				want = min(max(rank, r.floor), max(cur, r.floor))
+				note = &JevNote{Score: d.Score, Confidence: d.Confidence, Mechanical: d.Mechanical,
+					MultiFile: d.MultiFile, Tier: tierName(rank), Model: d.Model}
+			}
+		}
+	}
+	m, ok := pick(in.Agent, want, in.Current)
+	for !ok && want > r.floor {
+		// The agent has no model in the tier asked for: the next one down.
+		want--
+		m, ok = pick(in.Agent, want, in.Current)
+	}
 	if !ok {
 		return Decision{Source: SourceFallback, Reason: in.Agent.Name + " has no " + tierName(r.floor) + " model, so cost-minimisation leaves the work alone"}
 	}
@@ -217,10 +249,11 @@ func (r *Router) fallback(in Input) Decision {
 	case in.NoDowngrade && t < cur:
 		return Decision{Source: SourceFallback, Reason: "no rule matched, and this work may not be moved to a smaller model"}
 	}
-	return Decision{
-		Model: m.ID, Tier: m.Tier, Routed: true, Up: t > cur, Source: SourceFallback,
-		Reason: fmt.Sprintf("no rule matched; cost-minimisation routes unclassified work to the cheapest available tier anyway → %s", m.Tier),
+	reason := fmt.Sprintf("no rule matched; cost-minimisation routes unclassified work to the cheapest available tier anyway → %s", m.Tier)
+	if note != nil {
+		reason = jevReason(jd, asked, t)
 	}
+	return Decision{Model: m.ID, Tier: m.Tier, Routed: true, Up: t > cur, Source: SourceFallback, Reason: reason, Jev: note}
 }
 
 func (ru rule) matches(in Input, words int, files []string, crossOK bool) bool {
