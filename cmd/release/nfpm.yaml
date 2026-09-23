@@ -48,6 +48,15 @@ contents:
     dst: /usr/share/applications/flockdeck.desktop
     file_info:
       mode: 0644
+  # The package owns its own doc directory, so removing the package takes the
+  # directory too: nfpm lists only files in an .rpm, and without this
+  # `rpm -e` left an empty /usr/share/doc/flockdeck behind. Only this one --
+  # the icon and applications directories belong to the desktop, are shared
+  # with every other application, and must stay.
+  - dst: /usr/share/doc/flockdeck
+    type: dir
+    file_info:
+      mode: 0755
   - src: LICENSE
     dst: /usr/share/doc/flockdeck/LICENSE
     file_info:

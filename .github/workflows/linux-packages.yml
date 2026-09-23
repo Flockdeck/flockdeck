@@ -1,0 +1,118 @@
+name: linux-packages
+
+# Installs the real .deb and .rpm a release ships, each in a clean container of
+# the distro family it is for, and checks they install, run and remove
+# cleanly. cmd/release's own tests read the packages' contents; only a package
+# manager can say whether they install: that the dependency names exist in
+# that distro, that the maintainer scripts run, that the binary links, that
+# `remove` takes everything it put.
+#
+# Run on the changes that can break it, rather than on every push: it builds
+# the real binary, which needs GTK4/WebKitGTK, and pulls those in again in
+# each container.
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "cmd/release/**"
+      - "build/linux/**"
+      - "build/appicon.png"
+      - "LICENSE"
+      - "THIRD-PARTY-NOTICES.md"
+      - "go.mod"
+      - "go.sum"
+      - "internal/appwindow/**"
+      - ".github/scripts/linux-package-smoke.sh"
+      - ".github/workflows/linux-packages.yml"
+  pull_request:
+    paths:
+      - "cmd/release/**"
+      - "build/linux/**"
+      - "build/appicon.png"
+      - "LICENSE"
+      - "THIRD-PARTY-NOTICES.md"
+      - "go.mod"
+      - "go.sum"
+      - "internal/appwindow/**"
+      - ".github/scripts/linux-package-smoke.sh"
+      - ".github/workflows/linux-packages.yml"
+
+permissions:
+  contents: read
+
+env:
+  # Not a real release: the version only has to come back from -version.
+  VERSION: v0.0.0-smoke
+
+jobs:
+  # The packages are built once per architecture, on a runner of that
+  # architecture, as release.yml builds them, and then installed by the jobs
+  # below in containers of their own.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Build the packages
+        run: go run ./cmd/release -version "$VERSION" -out dist -platforms linux/${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.arch }}
+          path: dist/*_linux_${{ matrix.arch }}.*
+          if-no-files-found: error
+
+  # One job per package, so that a failure in one cannot hide one in another.
+  # Each runs the same script in the bare image of a distro the package is
+  # for, the two nfpm.yaml names dependencies for: Ubuntu 24.04 (libgtk-4-1,
+  # libwebkitgtk-6.0-4) and Fedora (gtk4, webkitgtk6.0).
+  install:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: amd64, format: deb, image: "ubuntu:24.04"}
+          - {arch: amd64, format: rpm, image: "fedora:41"}
+          - {arch: arm64, format: deb, image: "ubuntu:24.04"}
+          - {arch: arm64, format: rpm, image: "fedora:41"}
+    name: install ${{ matrix.format }} (${{ matrix.image }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages-${{ matrix.arch }}
+          path: dist
+
+      - name: Install, check and remove ${{ matrix.format }} in ${{ matrix.image }}
+        run: |
+          docker run --rm \
+            -v "$PWD/dist:/pkg:ro" \
+            -v "$PWD/.github/scripts/linux-package-smoke.sh:/smoke.sh:ro" \
+            -w /pkg \
+            ${{ matrix.image }} \
+            sh /smoke.sh ${{ matrix.format }} "flockdeck_${VERSION}_linux_${{ matrix.arch }}.${{ matrix.format }}" "$VERSION"
