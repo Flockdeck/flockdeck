@@ -435,6 +435,30 @@ func TestEveryPageStartsWithASkipLink(t *testing.T) {
 	}
 }
 
+// Two optional features send terminal output and task text to TypeSafe. The
+// policy has to say so, and say what the opt-in needs, so a test fails if the
+// disclosure is edited away or the old "entirely on your computer" comes back.
+func TestThePrivacyPolicyDisclosesTypeSafe(t *testing.T) {
+	_, pages := generate(t)
+	policy := strings.Join(strings.Fields(pages["privacy.html"]), " ")
+	for _, want := range []string{
+		"TypeSafe AI", "api.typesafe.ai", "TYPESAFE_API_KEY", "off by default",
+		"the last 30 lines", "2,000 bytes", "not from a window reached through the relay",
+		"does not remove secrets", "TypeSafe&rsquo;s own terms and privacy policy",
+		"or turn on one of the two optional TypeSafe features",
+	} {
+		if !strings.Contains(policy, want) && !strings.Contains(policy, strings.ReplaceAll(want, "&rsquo;", "'")) {
+			t.Errorf("privacy.html does not say %q", want)
+		}
+	}
+	if strings.Contains(policy, "entirely on your computer") {
+		t.Error("privacy.html still says the app runs entirely on your computer")
+	}
+	if !strings.Contains(pages["trust.html"], "TypeSafe AI") {
+		t.Error("trust.html does not mention the optional TypeSafe features")
+	}
+}
+
 // The site sets no cookies, so it needs no banner: the privacy policy's
 // section on cookies is its cookie notice, and has to be there to be linked
 // to.

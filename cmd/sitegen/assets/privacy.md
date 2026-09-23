@@ -1,6 +1,6 @@
 # Privacy policy
 
-*Last updated: 13 September 2026*
+*Last updated: 23 September 2026*
 
 Flockdeck is made by Jim Wright, an individual based in the United Kingdom.
 This policy explains what personal data is involved when you use the
@@ -15,8 +15,9 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
 
 - **The desktop app runs on your computer.** It has no accounts, no analytics,
   no telemetry and no crash reporting. Your code, your terminals and your API
-  keys stay on your machine, unless you use a built-in API agent or remote
-  access, as described below.
+  keys stay on your machine, unless you use a built-in API agent, remote
+  access, or turn on one of the two optional TypeSafe features, as described
+  below.
 - **The relay is optional.** It is used only if you turn on remote access. It
   keeps what it needs to connect your devices to your desktops: names, random
   identifiers, timestamps, each paired browser's user-agent string, and your
@@ -34,7 +35,7 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
 
 ## The desktop app
 
-The app runs entirely on your computer. It keeps its settings, layouts,
+The app runs on your computer. It keeps its settings, layouts,
 conversations with built-in API agents, any API keys you give it, and a
 record of which models routing chose for a fan-out's tasks (the rules' names
 and the models, never the tasks) in Flockdeck's configuration folder on your
@@ -98,6 +99,28 @@ The app makes these network connections of its own.
   folder's path, and your operating system's name. What the provider does
   with it is governed by your agreement
   with them.
+- **TypeSafe AI** (api.typesafe.ai), only if you turn on one of two optional
+  features. Both are off by default, and each needs an explicit setting in
+  Flockdeck **and** a `TYPESAFE_API_KEY` that you have set yourself in the
+  environment Flockdeck starts in; with either missing, nothing is sent.
+  - *Status detection* (Settings, Behaviour). When an agent that reports no
+    status of its own goes quiet, the last 30 lines of that pane's terminal
+    output, at most 2,000 bytes and with escape sequences removed, are sent so
+    that TypeSafe can help tell whether the agent has finished or is waiting
+    for you. This setting can be turned on only on the computer Flockdeck runs
+    on, not from a window reached through the relay.
+  - *Routing* (Settings, Agents, "Ask Jev to rate unmatched work"). When
+    routing is set to minimise cost and a fan-out task matches no rule, the
+    task's text, cut at 2,000 characters, is sent so that TypeSafe can rate how
+    demanding it is.
+
+  Nothing else is sent: for status, not the rest of the scrollback, the
+  pane's name or its folder; for routing, no files, repository or
+  conversation. Flockdeck does not remove secrets from what it sends, so a password or key that is on
+  screen, or in a task's text, is sent with it. Leave these settings off for
+  work like that. What TypeSafe does with what it receives is governed by
+  TypeSafe's own terms and privacy policy, which you can find at
+  [typesafe.ai](https://typesafe.ai).
 
 Flockdeck also starts programs you choose, such as Claude Code, Codex or
 Gemini CLI, and opens its window in a browser already installed on your
@@ -357,6 +380,10 @@ for Edge on Windows. It receives the notification encrypted, the device's
 push address, and when it was sent, and it cannot read the notification. You
 chose that service when you chose your browser, and it works under its own
 terms.
+
+If you turn on one of the optional TypeSafe features, what it sends goes to
+TypeSafe AI, as [The desktop app](#the-desktop-app) describes. It works under
+its own terms.
 
 The billing service is hosted by DigitalOcean too, in the same region as the
 relay. Paddle sells the subscription as the merchant of record and is a
