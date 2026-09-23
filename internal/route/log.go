@@ -50,6 +50,11 @@ type LogEntry struct {
 	// Outcome is what became of the choice: "kept", or "overridden:<model>"
 	// when the user chose another before it started.
 	Outcome string `json:"outcome"`
+	// Jev is the classification a fallback decision was shaped by, and is
+	// absent from every other line -- a rule's, a plain fallback, and every
+	// line written before Jev existed -- so those parse exactly as they did.
+	// It records what the classifier said, never the task it said it about.
+	Jev *JevNote `json:"jev,omitempty"`
 }
 
 // Outcomes a decision can have.
@@ -185,7 +190,8 @@ func (s RuleStat) OverrideRate() float64 {
 // line. It only reports; nothing here changes a rule or a policy. A decision
 // StrategyCost's fallback made (Source SourceFallback, Rule "") is not a
 // named rule, so it is left out: there is nothing in agents.json to edit for
-// it. Rules are returned in the order they are first seen, oldest first.
+// it. FallbackStats reports those. Rules are returned in the order they are
+// first seen, oldest first.
 func Stats(entries []LogEntry) []RuleStat {
 	at := map[string]int{}
 	var out []RuleStat
@@ -214,6 +220,44 @@ func Stats(entries []LogEntry) []RuleStat {
 func StatsByOverrideRate(entries []LogEntry) []RuleStat {
 	out := Stats(entries)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].OverrideRate() > out[j].OverrideRate() })
+	return out
+}
+
+// The two groups FallbackStats splits a cost strategy's fallback decisions
+// into.
+const (
+	FallbackPlain = "fallback"
+	FallbackJev   = "fallback (Jev-assisted)"
+)
+
+// FallbackStats is Stats for the decisions no rule made: what the log has of
+// StrategyCost's fallback, split into the ones Jev's classification shaped and
+// the ones it did not, each with how often it was kept or overridden. That is
+// the comparison that says whether trusting Jev's rating chooses better than
+// the floor alone does. Like Stats it only reports; a group the log has no
+// decision for is left out, and nothing here changes a policy.
+func FallbackStats(entries []LogEntry) []RuleStat {
+	stats := map[string]*RuleStat{FallbackPlain: {Rule: FallbackPlain}, FallbackJev: {Rule: FallbackJev}}
+	for _, e := range entries {
+		if e.Source != SourceFallback {
+			continue
+		}
+		st := stats[FallbackPlain]
+		if e.Jev != nil {
+			st = stats[FallbackJev]
+		}
+		if strings.HasPrefix(e.Outcome, OutcomeOverridden) {
+			st.Overridden++
+		} else {
+			st.Kept++
+		}
+	}
+	var out []RuleStat
+	for _, name := range []string{FallbackPlain, FallbackJev} {
+		if stats[name].Total() > 0 {
+			out = append(out, *stats[name])
+		}
+	}
 	return out
 }
 
