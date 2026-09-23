@@ -248,6 +248,32 @@ decides first and **Never go below** still holds; the strategy only changes
 what happens when nothing matches. The row's tooltip says "no rule matched" for
 a suggestion made this way, so it is never mistaken for a rule's own reason.
 
+**Ask Jev to rate unmatched work** refines **Minimise cost**, and nothing
+else. Without it, a task no rule matches goes to the cheapest model whatever the
+task is. With it, Flockdeck asks [TypeSafe](https://typesafe.ai)'s Jev model
+how demanding the task is, on a scale from a trivial mechanical edit to
+open-ended design work, and routes it to a tier that suits: small, mid or top.
+Jev can only choose between **Never go below** and the model the row would
+have run on anyway, so it never makes a row cost more than it would have without
+routing, never picks a model **Never go below** or a "never downgrade"
+constraint forbids, and never moves a row to another agent. Only a fan-out row
+no rule matched is ever asked about; a helper started with `flockdeck spawn` and a
+conversation's first prompt are not. If Jev is unsure, contradicts itself,
+is slow, is refused or is down, the row is routed exactly as it would be without
+it. The row's tooltip says what Jev rated it when it did decide.
+
+It is **off** by default and needs both this setting, for every project or for
+one, and `TYPESAFE_API_KEY` in the environment Flockdeck starts in.
+**Turning it on sends the text of each such row to TypeSafe, a third party.**
+What is sent is that text alone, cut at 2,000 characters with `[truncated]` at
+the end, beside three fixed questions about it: no files, no repository, no
+conversation, no path of your machine's that the text does not itself contain.
+Nothing is removed from the text first, so a task that contains a secret sends
+it; leave the setting off for work like that. Calls give up after 2 seconds,
+run at most 20 a minute, are remembered for an hour so an edited fan-out does
+not ask again, and pause for 30 seconds after a failure. Without the key the
+setting does nothing and nothing is sent.
+
 The policy is kept in `agents.json` — and only there, never in a file inside a
 repository, so a repository you clone cannot change what your key spends:
 
@@ -257,6 +283,7 @@ repository, so a repository you clone cannot change what your key spends:
     "mode": "suggest",
     "floor": "",
     "strategy": "",
+    "jev": false,
     "rules": [
       { "name": "run the tests", "tier": "small",
         "when": { "task": "^(re-?)?run (the |all )?(unit |integration )?tests?\\b" } },
@@ -275,7 +302,8 @@ repository, so a repository you clone cannot change what your key spends:
 Rules are tried in order and the **first that matches decides**; a task no rule
 matches is left alone under `"strategy": "balanced"` (the default, same as
 leaving `strategy` out), or routed to the cheapest model the floor allows
-under `"strategy": "cost"`. Every condition in `when` must hold: `task` is a
+under `"strategy": "cost"` — or, with `"jev": true` too, to the tier Jev rates
+it as needing, as above. Every condition in `when` must hold: `task` is a
 regular expression matched without regard to case; `minWords` and `maxWords`
 bound the task's length; `files` are globs matched against the paths the task
 names (`**` is any number of directories, and a glob with no `/` matches a
@@ -290,17 +318,22 @@ Saving a default from a Flockdeck that has no routing — 0.2.10 or older —
 writes a project's entry back without its `routing`, so a project's policy is
 lost that way.
 
-**Routing makes no request.** It decides from these rules alone and
-makes no request of any kind. The one exception: with **Let a rule send work
-to another agent** on, before moving a row to an agent with an address of its
-own, it opens a connection to that address, and closes it at once without
-sending anything, to check something is listening. The routed mark on a pane travels only as the
+**Routing makes no request** unless you turn one of two things on. It decides
+from these rules alone. With **Let a rule send work to another agent** on,
+before moving a row to an agent with an address of its own, it opens a
+connection to that address, and closes it at once without sending anything, to
+check something is listening. With **Ask Jev to rate unmatched work** on, and a
+key set, it sends a fan-out row's text to TypeSafe as described above. The routed mark on a pane travels only as the
 rest of the pane's state does, to your own paired devices when remote access
 is on. What it chose, and whether you kept it, is kept
 in `routing.jsonl` in the state directory, for your own numbers: the rule's
-name and the models, never the task. Settings lists each rule beside how often
+name and the models, never the task. A row decided with no rule is logged too,
+with what Jev rated it if it did. Settings lists each rule beside how often
 the log shows it overridden, once it has decided at least once — the evidence
-for deciding which rules are worth hand-editing. Settings has **Clear routing
+for deciding which rules are worth hand-editing. Below the rules,
+**Unmatched work** shows how often what Minimise cost chose was overridden with
+Jev's rating and without it, so you can see whether trusting it has been
+worth it; nothing changes on its own. Settings has **Clear routing
 history**, and to turn all of it off, set every project to **Off**. A file that does not parse is a notice in the
 interface and nothing worse — the built-in agents carry on, because a typo in a
 settings file is not a reason to be unable to start work.

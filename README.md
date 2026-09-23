@@ -696,11 +696,18 @@ own, answering. A moved pane records the agent it would otherwise have run
 on. In *Automatic* mode, a helper spawned without `--agent` or `--model` is
 routed too.
 
-Routing makes no request of any kind, except that, with cross-agent routing
-on, it opens a TCP connection to such an agent's address, and closes it at once
-without sending anything, before moving work there. What it chose, and whether
-the choice was kept, goes in `routing.jsonl` in the state directory: rule
-names and model ids, never the task.
+Routing makes no request of any kind, except in two cases you turn on. With
+cross-agent routing on, it opens a TCP connection to such an agent's address,
+and closes it at once without sending anything, before moving work there. With
+`"strategy": "cost"` and `"jev": true` (Settings › Agents › Routing, **Ask Jev
+to rate unmatched work**) and `TYPESAFE_API_KEY` set, a fan-out row that no rule
+matched has its text sent to TypeSafe's Jev model, which rates how demanding it
+is so that the cheapest-model fallback can pick a tier to suit; that is off by
+default, sends that text alone (cut at 2,000 characters, unredacted), and only
+ever moves the choice between the floor and the model the row would have had
+anyway. What it chose, and whether the choice was kept, goes in `routing.jsonl`
+in the state directory: rule names, model ids and, where Jev rated the row, its
+rating, never the task.
 
 ### Rearranging what is already running
 
