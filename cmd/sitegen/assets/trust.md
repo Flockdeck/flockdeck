@@ -1,6 +1,6 @@
 # Trust & privacy
 
-*Last updated: 15 September 2026*
+*Last updated: 23 September 2026*
 
 This is the plain-language version of Flockdeck's privacy story: what's
 collected, what isn't, and how that compares to what else is on the market.
@@ -25,6 +25,11 @@ no "privacy mode," because there's nothing to turn off:
   neither the relay nor its push service can read it.
 - **This website** sets no cookies, runs no analytics and loads nothing from
   anyone else.
+- **Two optional features send content to a third party, TypeSafe AI**, and
+  only if you turn them on: they are off by default, need a `TYPESAFE_API_KEY`
+  you supply yourself, and are described in full in the [privacy
+  policy](privacy.html#the-desktop-app). Everything above holds while they are
+  off.
 - **Nobody's data is sold**, and nothing is used to train a model, anyone
   else's or Flockdeck's own — there is no model here to train.
 
@@ -39,10 +44,10 @@ Business and Enterprise plans are exempt automatically. Several other coding
 assistants offer a "zero data retention" mode you can turn on, sometimes only
 on a paid or team plan.
 
-Flockdeck has nothing to opt into, because it collects nothing to begin with
-— on the free tier, same as any other. That isn't a promise about a future
-release; it's what the app already does, and the desktop app's source is
-available, so you can read it and check.
+Flockdeck itself collects nothing to begin with — on the free tier, same as
+any other — so there is no default to opt out of. That isn't a promise about
+a future release; it's what the app already does, and the desktop app's source
+is available, so you can read it and check.
 
 ## What is, and isn't, end-to-end encrypted, said plainly
 
