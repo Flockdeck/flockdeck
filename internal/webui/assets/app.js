@@ -9836,6 +9836,26 @@
       "A pane opened by hand starts here; one fanned out from another agent starts however plan 3's inheritance " +
       "lands, once that exists.",
       switchControl("set-auto-review-default", !!prefs.autoReviewDefault, (on) => setAutoReviewDefault(on))));
+
+    pane.append(el("div", "set-sub", "Status detection"));
+    pane.append(settingRow("Let TypeSafe's Jev help read pane status",
+      "Off by default. On, and with TYPESAFE_API_KEY set in the environment flockdeck runs in, the last " +
+      "30 lines (at most 2,000 characters) of a pane's terminal output are SENT TO TYPESAFE, a third party, " +
+      "whenever an agent that reports no status of its own goes quiet and flockdeck cannot tell finished " +
+      "from stopped on a question. Nothing else is sent: not the scrollback, the pane's name, or its folder. " +
+      "Secrets on screen are not removed. Panes of agents that report their own status, and shell panes, " +
+      "are never sent. It can only turn a quiet pane into waiting or blocked, never the other way. " +
+      "This can only be turned on on the machine itself, not from a window reached through the relay.",
+      switchControl("set-jev-status", !!prefs.jevStatus, (on) => setJevStatus(on))));
+  }
+
+  function setJevStatus(on) {
+    prefs.jevStatus = on;
+    sentPref("jevStatus");
+    send({ cmd: "jevStatus", kind: on ? "on" : "off" });
+    notice(on ? "Recent terminal output may now be sent to TypeSafe to help read pane status"
+      : "Terminal output is no longer sent to TypeSafe", false);
+    settingsChanged();
   }
 
   function setAutoReviewDefault(on) {

@@ -274,6 +274,11 @@ type RepoSummary struct {
 
 // Workspace is the whole application state.
 type Workspace struct {
+	// statusAssist is the one Jev assistant every pane shares, so its rate
+	// limits hold across the workspace. It asks nothing unless the user has
+	// turned on Prefs.JevStatus and TYPESAFE_API_KEY is set.
+	statusAssist *session.StatusAssist
+
 	// Tabs holds every tab across every open project, in creation order.
 	Tabs []*Tab
 
@@ -461,6 +466,7 @@ func New(opts Options) (*Workspace, error) {
 		selfExe:      selfExe,
 		settingsDir:  settingsDir,
 		reviewer:     review.Decide,
+		statusAssist: &session.StatusAssist{Enabled: func() bool { return store.LoadPrefs().JevStatus }},
 	}
 	w.savedGroups = loadSavedGroups()
 	w.ensureGroup(root)
@@ -1698,6 +1704,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		Rows: rows,
 		// Installed by Start, before the reader that calls it is running.
 		OnChange: w.wake,
+		Assist:   w.statusAssist,
 	})
 	if err != nil {
 		// This is shown in the pane in place of a terminal, so it has to name

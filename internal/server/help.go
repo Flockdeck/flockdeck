@@ -373,6 +373,13 @@ func (s *Server) setAutoReviewDefault(c *controlClient, on bool) {
 	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.AutoReviewDefault, on) })
 }
 
+// setJevStatus records whether the last lines of a pane's output may be sent
+// to TypeSafe's Jev to help read the status of panes that report none. See
+// Prefs.JevStatus: the default is off, and only an explicit "on" turns it on.
+func (s *Server) setJevStatus(c *controlClient, on bool) {
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.JevStatus, on) })
+}
+
 // setStatusLine records when a Claude pane's status line is routed through
 // Flockdeck. It takes effect for a pane when it next starts, which is when
 // its settings are written; a mode the panes do not know is refused.

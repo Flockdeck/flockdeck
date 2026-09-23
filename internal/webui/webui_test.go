@@ -5543,6 +5543,18 @@ h.click(h.$("set-auto-review-default"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "autoReviewDefault", kind: "on" });
 assert.ok(on("set-auto-review-default"), "the switch did not turn on at once");
 
+// Status detection: sending terminal output to TypeSafe is off until asked for,
+// and the setting says plainly what it sends.
+assert.ok(!on("set-jev-status"), "sending terminal output to TypeSafe starts on");
+const jevRow = h.$("settings-pane").textContent;
+assert.ok(/SENT TO TYPESAFE/.test(jevRow) && /Off by default/.test(jevRow) && /TYPESAFE_API_KEY/.test(jevRow),
+  "the setting does not say that terminal output is sent to TypeSafe, that it is off by default, and what turns it on: " + jevRow);
+h.click(h.$("set-jev-status"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "jevStatus", kind: "on" });
+assert.ok(on("set-jev-status"), "the switch did not turn on at once");
+h.click(h.$("set-jev-status"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "jevStatus", kind: "off" });
+
 // Keybindings.
 h.click(h.$("settings-tab-keybindings"));
 const closePane = h.$("set-keybind-closePane");
