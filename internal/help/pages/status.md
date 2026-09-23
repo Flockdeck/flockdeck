@@ -98,3 +98,34 @@ keep a finished pane amber.
 That is a guess where the other is a fact, and it is worth knowing which you
 are looking at: [Agents and models](#agents) says which agents report and which are
 read. Where both exist, a reported event always wins.
+
+### Letting Jev break the tie
+
+The one thing the terminal cannot tell is a pane that has gone quiet: finished,
+or stopped on a question. Flockdeck can ask TypeSafe's Jev model, a small
+model that answers a fixed multiple-choice question rather than writing
+anything. **This sends terminal output to a third party, TypeSafe**, which
+nothing else in Flockdeck does with what your panes print, so it is **off by
+default** and needs both of these:
+
+1. **Settings › Behaviour › Status detection** turned on. It can only be turned
+   on from the machine itself, not from a window reached through the relay;
+   turning it off works from anywhere.
+2. `TYPESAFE_API_KEY` set in the environment Flockdeck starts in.
+
+With either missing, nothing is ever sent, and no error is shown.
+
+What is sent, when a pane of an agent that reports nothing has been quiet for
+a few seconds and its status is still a guess: the **last 30 lines of its
+output, at most 2,000 characters, with the escape sequences taken out** — one
+request holding that text and the two questions asked of it. Not the
+scrollback, not the pane's name or folder. Secrets that happen to be on screen
+in those lines are **not** removed. Shell panes, and agents that report their
+own status, are never sent.
+
+What it can change: a quiet pane called idle becomes waiting, or blocked, only
+when Jev answers with high confidence. It never turns waiting or blocked into
+anything else, and if it errors, is slow, is rate limited, or is unsure, the
+pane shows what it would have shown without it. Asks are limited to one per
+pane every 15 seconds, twelve per pane an hour and ten a minute in all, and
+the same output is never asked about twice.

@@ -25,7 +25,10 @@ the keys change, so whichever you use, the others show it.
   hand, or a fresh row of a fan-out run from the window — starts with
   auto-review on. A pane's own switch still starts off unless this is on, and
   either way can be turned on or off for that one pane; auto-review only ever
-  lets through a confidently read-only command, and never says "deny".
+  lets through a confidently read-only command, and never says "deny". And
+  **Status detection**: whether TypeSafe's Jev model may help read the status
+  of a pane whose agent reports none. **Off by default**, and it sends
+  terminal output to a third party — see [Knowing who needs you](#status).
 - **Keybindings** — every shortcut this window's own chrome offers, grouped as
   [Keyboard shortcuts](#shortcuts) groups them, each with a button that
   records the next key you press as its new binding; **Reset** puts one back,
@@ -117,6 +120,8 @@ word. On a narrow screen the sections go across the top.
   Kept in `prefs.json`.
 - **Fan out's own default, and auto-review's own default** — **Behaviour** in
   the settings. Kept in `prefs.json`.
+- **Status detection with Jev** — **Behaviour** in the settings. Kept in
+  `prefs.json`; off unless you turn it on, and only from the machine itself.
 
 ## In the state directory
 
@@ -182,6 +187,9 @@ elsewhere — and start Flockdeck again.
   already downloaded is put in place. That is what keeps an older version you
   installed on purpose from updating itself to the latest.
 - `FLOCKDECK_RELAY` — which relay `flockdeck remote enable` uses.
+- `TYPESAFE_API_KEY` — a key for TypeSafe's Jev, used only when **Status
+  detection** under **Behaviour** is turned on; see
+  [Knowing who needs you](#status). Without it nothing is ever sent.
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GEMINI_API_KEY` (or
   `GOOGLE_API_KEY`) — keys for the API agents talking to those vendors' own
   addresses, used before anything in `keys.json`. An agent given another
