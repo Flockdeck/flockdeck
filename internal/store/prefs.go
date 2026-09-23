@@ -80,6 +80,13 @@ type Prefs struct {
 	// still asks about everything until this, or the pane's own switch, says
 	// otherwise. See workspace.Pane.AutoReview.
 	AutoReviewDefault bool `json:"autoReviewDefault,omitempty"`
+	// JevStatus lets TypeSafe's Jev model help read the status of a pane whose
+	// agent reports none, by being sent the last lines of that pane's terminal
+	// output -- the one place terminal content leaves the user's machines other
+	// than to the agent's own provider. Off by default, and does nothing
+	// without a TYPESAFE_API_KEY in the environment as well. See
+	// session.StatusAssist.
+	JevStatus bool `json:"jevStatus,omitempty"`
 
 	// extra is every top-level key the file held that this build does not
 	// know, as it was written. A newer build's setting would otherwise go at

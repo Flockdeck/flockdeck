@@ -1567,6 +1567,20 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "autoReviewDefault":
 		s.setAutoReviewDefault(c, cmd.Kind == "on")
 		return
+	case "jevStatus":
+		// Sending terminal output to a third party is the desk's to allow, and
+		// never something a window reached through the relay can switch on:
+		// the relay is meant to be blind to terminal content, and this would
+		// have the machine start sending it elsewhere. Switching it off is
+		// always allowed. The window has already moved its switch, so a
+		// refusal sends it the preferences as they stand, which moves it back.
+		if c.remote && cmd.Kind == "on" {
+			c.notify("sending terminal output to TypeSafe can only be turned on on the machine flockdeck runs on, not from a window reached through the relay", true)
+			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: s.prefs}) })
+			return
+		}
+		s.setJevStatus(c, cmd.Kind == "on")
+		return
 	case "setKeybinding":
 		s.setKeybinding(c, cmd.ID, cmd.Text)
 		return
