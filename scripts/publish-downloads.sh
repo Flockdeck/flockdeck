@@ -160,6 +160,9 @@ content_type() {
 	case "$1" in
 		*.zip) echo application/zip ;;
 		*.tar.gz) echo application/gzip ;;
+		*.exe) echo application/vnd.microsoft.portable-executable ;;
+		*.deb) echo application/vnd.debian.binary-package ;;
+		*.rpm) echo application/x-rpm ;;
 		*.json) echo application/json ;;
 		*) echo 'text/plain; charset=utf-8' ;;
 	esac
