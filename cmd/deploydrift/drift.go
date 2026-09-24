@@ -59,6 +59,9 @@ const (
 // ignoredPath reports whether a change to path cannot change what is built or
 // deployed. What is ignored, and why:
 //   - .github/: CI and repo configuration; it is never in an image or a module.
+//   - repository configuration that no build reads into an image or module:
+//     .gitattributes, .editorconfig, .gitignore and CODEOWNERS,
+//     wherever they sit. A line-ending renormalisation is such a commit.
 //   - test files (_test.go, *.test.*, *.spec.*, testdata/, tests/, __tests__/):
 //     they are compiled or run only by CI.
 //   - for service repos only, markdown at the repo root or under docs/: notes
@@ -69,6 +72,9 @@ const (
 // docs/) is treated as shipping, including anything unrecognised.
 func ignoredPath(p profile, path string) bool {
 	if strings.HasPrefix(path, ".github/") {
+		return true
+	}
+	if isRepoConfigFile(path) {
 		return true
 	}
 	if isTestFile(path) {
@@ -83,6 +89,14 @@ func ignoredPath(p profile, path string) bool {
 		if path == "README.md" {
 			return true
 		}
+	}
+	return false
+}
+
+func isRepoConfigFile(path string) bool {
+	switch path[strings.LastIndex(path, "/")+1:] {
+	case ".gitattributes", ".editorconfig", ".gitignore", "CODEOWNERS":
+		return true
 	}
 	return false
 }
