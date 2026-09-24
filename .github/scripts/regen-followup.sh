@@ -96,16 +96,17 @@ git_net_t() {
 }
 
 # generate writes the site into TARGET_DIR, as the release's own generator
-# writes it.
+# writes it. The generator is the tag's code, and is run without the
+# installation token in its environment: only git and gh, below, have it.
 generate() {
 	case $TARGET in
 		site)
 			[ -f "${CHECKSUMS:-}" ] || fail "no checksums.txt at '${CHECKSUMS:-}'"
 			[ -f "$CHECKSUMS.sig" ] || fail "no checksums.txt.sig beside $CHECKSUMS"
-			(cd "$SRC_DIR" && go run ./cmd/sitegen -release "$TAG" -checksums "$CHECKSUMS" -out "$TARGET_DIR")
+			(cd "$SRC_DIR" && env -u GH_TOKEN -u GITHUB_TOKEN go run ./cmd/sitegen -release "$TAG" -checksums "$CHECKSUMS" -out "$TARGET_DIR")
 			;;
 		docs)
-			(cd "$SRC_DIR" && go run ./cmd/docgen -out "$TARGET_DIR")
+			(cd "$SRC_DIR" && env -u GH_TOKEN -u GITHUB_TOKEN go run ./cmd/docgen -out "$TARGET_DIR")
 			;;
 	esac
 }

@@ -90,6 +90,47 @@ workflow that prints them would have the key):
 The same key in all three: one app, one key, held in three places. To rotate,
 generate a new key, replace all three, delete the old key.
 
+### The private `flockdeck-site` cannot have that environment
+
+Checked 2026-09-24: the Flockdeck org is on the **Free** plan, `flockdeck-site`
+is private, and it has **no environments** (`GET /repos/Flockdeck/flockdeck-site/environments`
+returns none), as it has no branch protection or rulesets (those calls return
+"Upgrade to GitHub Pro or make this repository public"). GitHub offers
+environments, and so deployment-branch restrictions and environment secrets,
+in private repositories only on paid plans. I did not create one to probe it,
+and it is worth trying the step above before relying on it: if "New
+environment" is refused, or an environment is accepted but does not restrict
+the branch, this is the situation:
+
+- The secrets can only be **repository secrets** there. A repository secret is
+  readable by a workflow on **any branch** of the repository, so anyone with
+  write access to `flockdeck-site` can push a branch whose workflow prints
+  them.
+- The exposure is then not the site alone. One key mints tokens for every
+  repository the app is installed on, so write access to the site would also
+  give Contents and Pull requests write on `flockdeck-docs`, which is public,
+  and holds docs.flockdeck.ai.
+
+Ways to close it, best first:
+
+1. **Make `flockdeck-site` public.** It is a static marketing site and privacy
+   policy that is already served to the world; its source is generator output.
+   That gives it environments, branch protection, a required check and
+   GitHub's own auto-merge, and the script's wait-for-CI fallback stops being
+   needed.
+2. **A second app for the site only**: Contents: Read and write, installed on
+   `flockdeck-site` alone, with its own `RELEASE_BOT_APP_ID` and
+   `RELEASE_BOT_APP_PRIVATE_KEY` as **repository** secrets in `flockdeck-site`.
+   A leak then costs the site's tags, not the docs. The regeneration PRs and
+   merges to the site still need the first app's token, held in flockdeck's
+   `release` environment as above (that is the environment that has the
+   protection), so the site's copy is only for `autotag.yml`.
+3. Accept it, on the ground that write access to `flockdeck-site` is already
+   trusted with what that repository deploys.
+
+Until one of these is chosen, do not add the key to `flockdeck-site`'s
+secrets; the docs side and the followups job are unaffected.
+
 Until they are set the `followups` job's "Mint the release bot's token" step
 fails and says so; nothing else is affected (see the failure modes below).
 
@@ -154,7 +195,9 @@ modified.
 ## If a release was not followed up
 
 The followups job cannot fail or undo the release, so a missing follow-up
-does not show as a red run: look for the `followups` job in the release run
+does not show as a red run. Its last step opens (or, on a repeat failure,
+comments on) one issue in this repository titled `Release follow-ups failed
+for vX.Y.Z`. Otherwise look for the `followups` job in the release run
 (a failed step is annotated), or check that `Flockdeck/flockdeck-site` and
 `flockdeck-docs` have an `auto/regen-<tag>` pull request. Re-run the job from
 the run's page: it is idempotent, and does nothing where nothing differs. Or

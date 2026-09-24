@@ -473,6 +473,9 @@ jobs:
     # else. What changes the other two repositories is the app's token, below.
     permissions:
       contents: read
+      # Only for the last step, which says in an issue that the follow-ups
+      # failed, since a red step here is not a red run.
+      issues: write
     steps:
       # The tag's own checkout is what the generators are run from, as the
       # release they describe was built. The script that drives them is this
@@ -501,6 +504,10 @@ jobs:
       - name: Check this is the latest release
         id: latest
         env:
+          # gh finds the repository from a git checkout, and this job's
+          # workspace root is not one (each checkout is in a folder of its
+          # own), so it is named.
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
         run: |
@@ -537,6 +544,7 @@ jobs:
         id: bot
         if: ${{ steps.token.outputs.token != '' }}
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ steps.token.outputs.token }}
           SLUG: ${{ steps.token.outputs.app-slug }}
         run: |
@@ -544,8 +552,10 @@ jobs:
           echo "name=${SLUG}[bot]" >> "$GITHUB_OUTPUT"
           echo "email=${id}+${SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
 
-      # The token is given to nothing that runs the tag's code but git's push
-      # and gh, through the environment; it is not left in either checkout's
+      # The app's token reaches only git's push and gh, through the
+      # environment of the script's own steps below; the script runs the
+      # generators, which are the tag's code, with GH_TOKEN and GITHUB_TOKEN
+      # taken out of theirs, and it is not left in either checkout's
       # .git/config.
       - uses: actions/checkout@v7
         if: ${{ steps.token.outputs.token != '' }}
@@ -567,6 +577,7 @@ jobs:
       - name: Fetch the release's checksums
         if: ${{ steps.token.outputs.token != '' }}
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
         run: gh release download "$TAG" -p checksums.txt -p checksums.txt.sig -D "$RUNNER_TEMP/checksums"
@@ -606,3 +617,24 @@ jobs:
           BOT_NAME: ${{ steps.bot.outputs.name }}
           BOT_EMAIL: ${{ steps.bot.outputs.email }}
         run: sh workflow/.github/scripts/regen-followup.sh
+
+      # The job cannot turn the run red, so a failure would otherwise be
+      # found only by somebody opening it. It is said in one issue per
+      # release instead, opened, or commented on when a re-run fails again.
+      - name: Say so in an issue if any of it failed
+        if: ${{ failure() }}
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Release follow-ups failed for $TAG"
+          body="The site and docs were not (all) brought up to $TAG: see the followups job of $RUN_URL. The release itself is published. Fix the cause and re-run the job, or make the pull requests by hand (.github/RELEASE_AUTOMATION_SETUP.md)."
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Failed again: $RUN_URL"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
