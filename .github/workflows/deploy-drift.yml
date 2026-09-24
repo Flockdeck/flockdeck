@@ -1,0 +1,78 @@
+name: deploy drift
+
+# Merging to main deploys nothing for flockdeck-relay, -billing, -site and
+# -docs: a v* tag builds the image, Flux pins it, the cluster rolls it out.
+# flockdeck-remote is embedded in the relay, so it reaches users only through a
+# remote tag, a relay go.mod bump and a relay tag. Merged work was being read
+# as shipped (the live site served old install scripts, and the docs kept a
+# false claim, for days). This runs daily, and on demand, and keeps one issue
+# in step with what is merged but not tagged. The logic, and its tests, are in
+# cmd/deploydrift.
+#
+# NEEDS MANUAL SETUP: the DEPLOY_DRIFT_TOKEN secret on this repo. The relay,
+# billing, site and remote repos are private, which GITHUB_TOKEN cannot read.
+#   - a fine-grained personal access token (or a token from a GitHub App
+#     installed on the same repos), resource owner Flockdeck
+#   - repositories: flockdeck, flockdeck-relay, flockdeck-billing,
+#     flockdeck-site, flockdeck-docs, flockdeck-remote
+#   - permissions: Contents: Read-only (Metadata: Read-only comes with it).
+#     Nothing else: it never writes anywhere.
+# Without it the run fails with a message saying so; it never passes quietly.
+# The issue itself is written with this repo's own GITHUB_TOKEN (issues: write,
+# below), which cannot reach any other repo.
+#
+# Only schedule and workflow_dispatch trigger this, never anything a pull
+# request or a fork can start, so the secret is never in reach of untrusted
+# code. Nothing the API returns is written into a shell command: the program
+# reads it, and only values it validated (tags, hex SHAs) reach the issue.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      threshold_hours:
+        description: "flag a repo once its oldest untagged shipping commit is older than this many hours (default: the DEPLOY_DRIFT_THRESHOLD_HOURS repository variable, else 24)"
+        required: false
+
+permissions:
+  contents: read
+  issues: write
+
+# One run at a time: two overlapping runs could each see no issue and open two.
+concurrency:
+  group: deploy-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    # A fork has neither the secret nor the issue to keep.
+    if: github.repository == 'Flockdeck/flockdeck'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check the read token is set
+        env:
+          DEPLOY_DRIFT_TOKEN: ${{ secrets.DEPLOY_DRIFT_TOKEN }}
+        run: |
+          if [ -z "$DEPLOY_DRIFT_TOKEN" ]; then
+            echo "::error title=DEPLOY_DRIFT_TOKEN is not set::Deploy drift cannot be checked. Add a Flockdeck/flockdeck repository secret named DEPLOY_DRIFT_TOKEN: a fine-grained token, owner Flockdeck, repositories flockdeck, flockdeck-relay, flockdeck-billing, flockdeck-site, flockdeck-docs and flockdeck-remote, permission Contents: read-only."
+            exit 1
+          fi
+
+      # The threshold arrives through the environment, not spliced into the
+      # script, and the program refuses anything that is not a number.
+      - name: Check for drift
+        env:
+          DEPLOY_DRIFT_TOKEN: ${{ secrets.DEPLOY_DRIFT_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          THRESHOLD_HOURS: ${{ inputs.threshold_hours || vars.DEPLOY_DRIFT_THRESHOLD_HOURS || '24' }}
+        run: go run ./cmd/deploydrift -threshold-hours "$THRESHOLD_HOURS"
