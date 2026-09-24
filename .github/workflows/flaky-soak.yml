@@ -148,40 +148,28 @@ jobs:
           Write-Output "go test exited $LASTEXITCODE after $([int]((Get-Date) - $start).TotalSeconds)s"
           exit 0
 
-      - name: Work out what failed
-        id: parse
+      # What the tests printed is worked out by the report job, which reads
+      # every OS's raw stream the same way, here or in another repo's soak:
+      # this job only runs the tests and hands the output over. Kept for 14
+      # days, so a failure's whole stream can be read after the fact.
+      - name: Keep what they printed
+        if: always()
         shell: bash
-        env:
-          MATRIX_OS: ${{ matrix.os }}
         run: |
           d="$RUNNER_TEMP/soak"
-          [ -f "$d/stream.jsonl" ] || : > "$d/stream.jsonl"
-          exit_code=$(cat "$d/exit" 2>/dev/null || echo 1)
-          go -C .github/flakysoak run . parse -os "$MATRIX_OS" -count "$SOAK_COUNT" -exit "$exit_code" \
-            -in "$d/stream.jsonl" -stderr "$d/stderr.log" -out "$d/result.json" | tee -a "$GITHUB_STEP_SUMMARY"
-          if grep -q '"test":' "$d/result.json"; then
-            echo "failed=true" >> "$GITHUB_OUTPUT"
-            gzip -f "$d/stream.jsonl"
-          fi
+          [ -f "$d/stream.jsonl" ] && gzip -f "$d/stream.jsonl"
+          exit 0
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: soak-result-${{ matrix.os }}
-          path: ${{ runner.temp }}/soak/result.json
-          if-no-files-found: ignore
-          retention-days: 30
-
-      # The whole stream, for whoever needs more than the excerpt: only kept
-      # when something failed, as a passing one is tens of megabytes.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: steps.parse.outputs.failed == 'true'
-        with:
-          name: soak-stream-${{ matrix.os }}
+          name: soak-raw-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/soak/stream.jsonl.gz
             ${{ runner.temp }}/soak/stderr.log
-          retention-days: 30
+            ${{ runner.temp }}/soak/exit
+          if-no-files-found: ignore
+          retention-days: 14
 
   report:
     name: report
@@ -196,4 +184,5 @@ jobs:
     with:
       tool-ref: ${{ github.sha }}
       expect: ubuntu-latest,macos-latest,windows-latest
+      count: ${{ inputs.count || '5' }}
       dry-run: ${{ inputs.dry-run || false }}
