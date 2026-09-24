@@ -70,66 +70,70 @@ Two secrets, with these exact names. They are read by
 | `RELEASE_BOT_APP_ID`           | the App ID                     |
 | `RELEASE_BOT_APP_PRIVATE_KEY`  | the private key (the .pem)     |
 
-Set **as environment secrets, in an environment named `release`, in each of
-three repositories**, not as repository or organization secrets (any workflow
-on any branch could read those, and anyone who can push a branch with a
-workflow that prints them would have the key):
+Set them in three places, and not all the same way. An environment secret can
+be restricted to one branch or tag; a repository secret is readable by a
+workflow on any branch, so anyone who can push a branch with a workflow that
+prints it would have the key.
 
-1. **`Flockdeck/flockdeck`**: the `release` environment already exists and
-   only a `v*` tag may deploy to it, which is what release.yml's `release` job
-   relies on. Add the two secrets to it. The `followups` job runs in the same
-   environment and gets exactly the same protection: a run that is not on a
-   `v*` tag is refused before it starts.
-2. **`Flockdeck/flockdeck-site`** and 3. **`Flockdeck/flockdeck-docs`**:
-   Settings > Environments > New environment > `release`. Deployment
-   branches and tags: **Selected branches and tags** > add `main`. Add the two
-   secrets to it. `autotag.yml` runs on main only (a `workflow_run` of CI on
-   main, a schedule, or a manual dispatch), so it is allowed, and a workflow on
-   any other branch is not.
+1. **`Flockdeck/flockdeck`: environment secrets, in `release`.** The
+   environment already exists and only a `v*` tag may deploy to it, which is
+   what release.yml's `release` job relies on. Add the two secrets to it. The
+   `followups` job runs in the same environment and gets exactly the same
+   protection: a run that is not on a `v*` tag is refused before it starts.
+   This job mints the token for **both** `flockdeck-site` and `flockdeck-docs`
+   itself (regeneration, pull requests, merges), so nothing about that
+   depends on how the other two repositories hold secrets.
+2. **`Flockdeck/flockdeck-docs`: environment secrets, in a new `release`
+   environment.** Settings > Environments > New environment > `release`.
+   Deployment branches and tags: **Selected branches and tags** > add `main`.
+   Add the two secrets to it. `autotag.yml` runs on main only (a
+   `workflow_run` of CI on main, a schedule, or a manual dispatch), so it is
+   allowed, and a workflow on any other branch is not. The repository is
+   public, so this works on the Free plan.
+3. **`Flockdeck/flockdeck-site`: plain repository secrets** (Settings >
+   Secrets and variables > Actions > Repository secrets). There is no
+   environment here, see below, so its `autotag.yml` has no `environment:`
+   line where docs' has one; the two files differ on that one line on purpose.
+   These copies are only for the site's own auto-tag; the regeneration pull
+   requests do not use them.
 
 The same key in all three: one app, one key, held in three places. To rotate,
 generate a new key, replace all three, delete the old key.
 
-### The private `flockdeck-site` cannot have that environment
+### `flockdeck-site` is private, so it holds a plain repository secret
 
-Checked 2026-09-24: the Flockdeck org is on the **Free** plan, `flockdeck-site`
-is private, and it has **no environments** (`GET /repos/Flockdeck/flockdeck-site/environments`
-returns none), as it has no branch protection or rulesets (those calls return
-"Upgrade to GitHub Pro or make this repository public"). GitHub offers
-environments, and so deployment-branch restrictions and environment secrets,
-in private repositories only on paid plans. I did not create one to probe it,
-and it is worth trying the step above before relying on it: if "New
-environment" is refused, or an environment is accepted but does not restrict
-the branch, this is the situation:
+Decided, and accepted for now: `flockdeck-site` stays private, and its copy of
+the two secrets is a plain repository secret. The Flockdeck org is on the
+**Free** plan, and on it a private repository has no environments (so no
+deployment-branch restriction and no environment secrets) and no branch
+protection or rulesets. `flockdeck-site` has none of these, as its API calls
+answer "Upgrade to GitHub Pro or make this repository public". A workflow that
+named a `release` environment there would fail, or run with no secrets, which
+is why the site's `autotag.yml` has no `environment:` line.
 
-- The secrets can only be **repository secrets** there. A repository secret is
-  readable by a workflow on **any branch** of the repository, so anyone with
-  write access to `flockdeck-site` can push a branch whose workflow prints
-  them.
-- The exposure is then not the site alone. One key mints tokens for every
-  repository the app is installed on, so write access to the site would also
-  give Contents and Pull requests write on `flockdeck-docs`, which is public,
-  and holds docs.flockdeck.ai.
+**The exposure.** A repository secret is readable by a workflow on any branch,
+so anyone with write access to `flockdeck-site` can push a branch whose
+workflow prints the key. The key is the release bot's: it mints tokens for
+every repository the app is installed on, so that access would also give
+Contents and Pull requests write on **`flockdeck-docs`**, which is public and
+holds docs.flockdeck.ai. Today the owner is the only person with write access
+to `flockdeck-site`, which is what makes this acceptable. **Revisit it before
+anyone else is given write access there.**
 
-Ways to close it, best first:
+**How to close it**, when that changes:
 
-1. **Make `flockdeck-site` public.** It is a static marketing site and privacy
-   policy that is already served to the world; its source is generator output.
-   That gives it environments, branch protection, a required check and
-   GitHub's own auto-merge, and the script's wait-for-CI fallback stops being
-   needed.
-2. **A second app for the site only**: Contents: Read and write, installed on
+1. **A second app for the site only**: Contents: Read and write, installed on
    `flockdeck-site` alone, with its own `RELEASE_BOT_APP_ID` and
-   `RELEASE_BOT_APP_PRIVATE_KEY` as **repository** secrets in `flockdeck-site`.
-   A leak then costs the site's tags, not the docs. The regeneration PRs and
-   merges to the site still need the first app's token, held in flockdeck's
-   `release` environment as above (that is the environment that has the
-   protection), so the site's copy is only for `autotag.yml`.
-3. Accept it, on the ground that write access to `flockdeck-site` is already
-   trusted with what that repository deploys.
-
-Until one of these is chosen, do not add the key to `flockdeck-site`'s
-secrets; the docs side and the followups job are unaffected.
+   `RELEASE_BOT_APP_PRIVATE_KEY` as the site's repository secrets. A leak then
+   costs the site's tags, not the docs. The regeneration pull requests still
+   use the first app's token, from flockdeck's `release` environment, so this
+   changes only the site's copy, which is for its `autotag.yml`.
+2. **Make `flockdeck-site` public.** It is a static marketing site and privacy
+   policy already served to the world, and its source is generator output.
+   That gives it environments, branch protection, a required check and
+   GitHub's own auto-merge (and the script's wait-for-CI fallback stops being
+   needed). Then move its secrets into a `release` environment restricted to
+   `main`, as docs has, and put the `environment: release` line back.
 
 Until they are set the `followups` job's "Mint the release bot's token" step
 fails and says so; nothing else is affected (see the failure modes below).
