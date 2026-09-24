@@ -1,0 +1,6 @@
+{"ImportPath":"github.com/jmwri/flockdeck/internal/server [github.com/jmwri/flockdeck/internal/server.test]","Action":"build-output","Output":"# github.com/jmwri/flockdeck/internal/server [github.com/jmwri/flockdeck/internal/server.test]\n"}
+{"ImportPath":"github.com/jmwri/flockdeck/internal/server [github.com/jmwri/flockdeck/internal/server.test]","Action":"build-output","Output":"internal\\server\\doc.go:3:13: cannot use \"not an int\" (untyped string constant) as int value in variable declaration\n"}
+{"ImportPath":"github.com/jmwri/flockdeck/internal/server [github.com/jmwri/flockdeck/internal/server.test]","Action":"build-fail"}
+{"Time":"2026-09-24T02:47:03.0670601+01:00","Action":"start","Package":"github.com/jmwri/flockdeck/internal/server"}
+{"Time":"2026-09-24T02:47:03.0670601+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Output":"FAIL\tgithub.com/jmwri/flockdeck/internal/server [build failed]\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:03.0670601+01:00","Action":"fail","Package":"github.com/jmwri/flockdeck/internal/server","Elapsed":0,"FailedBuild":"github.com/jmwri/flockdeck/internal/server [github.com/jmwri/flockdeck/internal/server.test]"}

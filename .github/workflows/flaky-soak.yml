@@ -1,0 +1,197 @@
+name: flaky-soak
+
+# A nightly hunt for flaky tests. The regular test job runs each test once per
+# change, so a test that fails one run in twenty is found only when it happens
+# to fail on someone's pull request or on a release build, which is the worst
+# time to meet it. This runs the packages that are made of goroutines, timers,
+# processes and sockets many times over, under the race detector, with their
+# tests in a different order each run, on every OS a release is built for.
+#
+# What failed, on which OS, and in how many of the runs, is worked out by
+# .github/flakysoak from `go test -json`, and kept in one "Flaky tests" issue
+# by reusable-flaky-report.yml. A night that fails nothing does nothing; a
+# night that fails something new comments on the issue once.
+#
+# This is separate from test.yml on purpose: that is what a change is held to
+# and is not slowed by anything here. A soak run never fails the run itself,
+# since a flake is the expected thing to find; the issue is where it shows.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: "packages to soak, space-separated"
+        type: string
+        default: "./internal/server ./internal/session ./internal/workspace ./internal/webui ./internal/hooks ./internal/remote"
+      count:
+        description: "go test -count: how many times each test runs"
+        type: string
+        default: "5"
+      dry-run:
+        description: "report in the job summary and touch no issue"
+        type: boolean
+        default: false
+  # The tool's own tests, when it or this workflow change. The soak does not run.
+  pull_request:
+    paths:
+      - .github/flakysoak/**
+      - .github/workflows/flaky-soak.yml
+      - .github/workflows/reusable-flaky-report.yml
+
+permissions:
+  contents: read
+
+# One soak at a time: two would each be reading and rewriting the same issue.
+concurrency:
+  group: flaky-soak
+  cancel-in-progress: false
+
+jobs:
+  tool:
+    name: flakysoak tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .github/flakysoak/go.mod
+          cache: false
+      - name: Format, vet and test
+        working-directory: .github/flakysoak
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+          go vet ./...
+          go test -count=1 ./...
+
+  soak:
+    name: soak (${{ matrix.os }})
+    needs: tool
+    if: github.event_name != 'pull_request' && (github.event_name != 'schedule' || github.repository == 'Flockdeck/flockdeck')
+    strategy:
+      # Every OS runs to the end whatever another finds.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # The server's tests alone take a minute and a half on Linux and four on
+    # Windows, and several times that under the race detector, and each runs
+    # -count times. -timeout below is under this, so that a run that hangs
+    # still leaves a stream to read.
+    timeout-minutes: 240
+    env:
+      # Inputs reach the shell only as environment variables, and are checked
+      # before they are used.
+      SOAK_PACKAGES: ${{ inputs.packages || './internal/server ./internal/session ./internal/workspace ./internal/webui ./internal/hooks ./internal/remote' }}
+      SOAK_COUNT: ${{ inputs.count || '5' }}
+      CGO_ENABLED: "1"
+    steps:
+      # As in test.yml: nothing here needs the token, so it is not left in
+      # .git/config for a test to read.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Wails' Linux backend is cgo against GTK4 and WebKitGTK; go test
+      # compiles it whether or not a window opens (see test.yml).
+      - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Check the inputs
+        shell: bash
+        run: |
+          [[ "$SOAK_COUNT" =~ ^[1-9][0-9]?$ ]] || { echo "::error::count must be a number from 1 to 99"; exit 1; }
+          [[ "$SOAK_PACKAGES" =~ ^(\./[A-Za-z0-9_./-]+|\.\.\.)( (\./[A-Za-z0-9_./-]+|\.\.\.))*$ ]] || { echo "::error::packages must be space-separated ./paths"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/soak"
+
+      # The tests run as test.yml runs them on each OS: bash on Linux and
+      # macOS, and on Windows PowerShell 7 with cmd doing the redirection
+      # (moving them to Git's bash once changed what they ran in). The stream
+      # is kept apart from stderr so that it stays parseable. The step never
+      # fails: what the tests did is worked out from what they printed.
+      - name: Soak
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          read -ra pkgs <<< "$SOAK_PACKAGES"
+          start=$SECONDS
+          go test -race -shuffle=on -count="$SOAK_COUNT" -timeout 200m -json "${pkgs[@]}" > "$RUNNER_TEMP/soak/stream.jsonl" 2> "$RUNNER_TEMP/soak/stderr.log"
+          echo "$?" > "$RUNNER_TEMP/soak/exit"
+          echo "go test exited $(cat "$RUNNER_TEMP/soak/exit") after $((SECONDS - start))s"
+          exit 0
+
+      - name: Soak
+        if: runner.os == 'Windows'
+        run: |
+          $dir = "$env:RUNNER_TEMP\soak"
+          $start = Get-Date
+          cmd /c "go test -race -shuffle=on -count=$env:SOAK_COUNT -timeout 200m -json $env:SOAK_PACKAGES > `"$dir\stream.jsonl`" 2> `"$dir\stderr.log`""
+          Set-Content -Path "$dir\exit" -Value $LASTEXITCODE
+          Write-Output "go test exited $LASTEXITCODE after $([int]((Get-Date) - $start).TotalSeconds)s"
+          exit 0
+
+      - name: Work out what failed
+        id: parse
+        shell: bash
+        env:
+          MATRIX_OS: ${{ matrix.os }}
+        run: |
+          d="$RUNNER_TEMP/soak"
+          [ -f "$d/stream.jsonl" ] || : > "$d/stream.jsonl"
+          exit_code=$(cat "$d/exit" 2>/dev/null || echo 1)
+          go -C .github/flakysoak run . parse -os "$MATRIX_OS" -count "$SOAK_COUNT" -exit "$exit_code" \
+            -in "$d/stream.jsonl" -stderr "$d/stderr.log" -out "$d/result.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          if grep -q '"test":' "$d/result.json"; then
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            gzip -f "$d/stream.jsonl"
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: soak-result-${{ matrix.os }}
+          path: ${{ runner.temp }}/soak/result.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # The whole stream, for whoever needs more than the excerpt: only kept
+      # when something failed, as a passing one is tens of megabytes.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.parse.outputs.failed == 'true'
+        with:
+          name: soak-stream-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/soak/stream.jsonl.gz
+            ${{ runner.temp }}/soak/stderr.log
+          retention-days: 30
+
+  report:
+    name: report
+    needs: soak
+    # Even when a soak job never got as far as a result: the report knows
+    # which OS is missing, and does not call such a night clean.
+    if: ${{ !cancelled() && needs.soak.result != 'skipped' }}
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/reusable-flaky-report.yml
+    with:
+      tool-ref: ${{ github.sha }}
+      expect: ubuntu-latest,macos-latest,windows-latest
+      dry-run: ${{ inputs.dry-run || false }}
