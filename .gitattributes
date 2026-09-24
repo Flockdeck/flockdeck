@@ -1,3 +1,39 @@
+# Every text file is LF in every checkout, on every OS, whatever core.autocrlf
+# says. Without this a Windows checkout holds CRLF: gofmt -l then reports files
+# that are formatted, a regeneration check reports every generated file as
+# changed, and a shell script or package maintainer script that Linux reads
+# fails on its carriage returns. Files git decides are binary are left alone
+# by text=auto; the list below says so outright for the kinds this project
+# has, so that one that git mistakes for text is never rewritten.
+#
+# A fixture whose bytes must stay exactly as committed (raw CRLF on purpose)
+# is marked with its own `path -text` line below; none is needed today.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.tar binary
+*.xz binary
+*.pdf binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.syso binary
+
 # Files a Linux package installs or runs are read by Linux tools that treat a
 # carriage return as part of the file: a #!/bin/sh\r script does not run, and
 # desktop-file-validate rejects a desktop entry. A Windows checkout with
