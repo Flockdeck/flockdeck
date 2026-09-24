@@ -196,6 +196,9 @@ func TestCleanNightsCloseTheIssueAndAReturnReopensIt(t *testing.T) {
 	if back.Action != "reopen" || !strings.Contains(back.Comment, "it is back") {
 		t.Fatalf("action=%q comment=%q", back.Action, back.Comment)
 	}
+	if again, _ := ParseState(back.Body); len(again.Resolved) != 0 || len(again.Entries) != 1 {
+		t.Fatalf("a returned test is still listed as cleared: %+v", again)
+	}
 }
 
 func TestAnIncompleteNightIsNeitherCleanNorFailing(t *testing.T) {

@@ -136,6 +136,7 @@ func Decide(in Input) Outcome {
 
 	if anyFailure {
 		news := merge(&st, in.Results, in.Night)
+		dropReturned(&st)
 		st.CleanNights = 0
 		out := Outcome{Title: IssueTitle, Body: render(st, in, missing), Comment: newComment(news, in.Night)}
 		switch {
@@ -351,4 +352,21 @@ func render(st State, in Input, missing []string) string {
 		}
 	}
 	return body + state
+}
+
+// dropReturned forgets, from the cleared list, tests that are failing again.
+func dropReturned(st *State) {
+	kept := st.Resolved[:0]
+	for _, r := range st.Resolved {
+		back := false
+		for _, e := range st.Entries {
+			if e.Package == r.Package && e.Test == r.Test {
+				back = true
+			}
+		}
+		if !back {
+			kept = append(kept, r)
+		}
+	}
+	st.Resolved = kept
 }
