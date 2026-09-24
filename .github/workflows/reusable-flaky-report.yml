@@ -1,0 +1,177 @@
+# Reusable workflow: turn a flaky-test soak's output into the one "Flaky tests"
+# tracking issue.
+#
+# The soak itself (flaky-soak.yml here, a workflow of the caller's in another
+# repo) runs the tests where it needs to -- its own services, its own private
+# modules -- as `go test -race -shuffle=on -count=N -json`, and uploads one
+# artifact per OS named soak-raw-<os>, holding stream.jsonl.gz (stdout),
+# stderr.log and exit (go test's exit status). This half reads those with the
+# .github/flakysoak tool and keeps the issue: opened on the first failure,
+# edited each night something fails, commented on only when a test or OS
+# appears that was not there before, closed after a few clean nights in a
+# row, reopened if a flake returns.
+#
+# It holds no secret and checks out no code from the calling repo. The one
+# thing it needs beyond the artifacts is the flakysoak tool, which it checks
+# out from this repo at `tool-ref`: a caller in another repo passes the same
+# full commit SHA it pins this workflow to, so the tool that reads a night's
+# results cannot change under it.
+name: Flaky soak - report (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      tool-ref:
+        description: "commit of Flockdeck/flockdeck to take the flakysoak tool from (a full SHA, pinned by the caller)"
+        type: string
+        required: true
+      expect:
+        description: "comma-separated OS labels that ought to have uploaded a result; a night missing one is not counted clean"
+        type: string
+        required: true
+      count:
+        description: "the -count the soak ran with, for the job summary only"
+        type: string
+        default: "0"
+      close-after:
+        description: "clean nights in a row that close the issue"
+        type: number
+        default: 3
+      dry-run:
+        description: "show what would be done in the job summary, and touch no issue"
+        type: boolean
+        default: false
+
+# The caller's job must grant issues: write (to change the issue) and
+# actions: read (to read the soak's artifacts) for this to work.
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Update the tracking issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      # to read the soak's own artifacts back
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TOOL_REF: ${{ inputs.tool-ref }}
+      EXPECT: ${{ inputs.expect }}
+      CLOSE_AFTER: ${{ inputs.close-after }}
+      SOAK_COUNT: ${{ inputs.count }}
+      DRY_RUN: ${{ inputs.dry-run }}
+    steps:
+      - name: Check the inputs
+        run: |
+          [[ "$TOOL_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::tool-ref must be a full commit SHA"; exit 1; }
+          [[ "$EXPECT" =~ ^[A-Za-z0-9._,-]+$ ]] || { echo "::error::expect must be a comma-separated list of OS labels"; exit 1; }
+          [[ "$CLOSE_AFTER" =~ ^[1-9][0-9]?$ ]] || { echo "::error::close-after must be a number from 1 to 99"; exit 1; }
+          [[ "$SOAK_COUNT" =~ ^[0-9]{1,3}$ ]] || { echo "::error::count must be a number"; exit 1; }
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Flockdeck/flockdeck
+          ref: ${{ inputs.tool-ref }}
+          sparse-checkout: .github/flakysoak
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .github/flakysoak/go.mod
+          cache: false
+
+
+      # Each expected OS's artifact is fetched by name into a directory of its
+      # own, so that where its files land does not depend on how many
+      # artifacts there happen to be (one is extracted straight into the
+      # target directory, several into a directory each). One that is not
+      # there is left unread, and the OS is missing from the night.
+      - name: Read what each OS printed
+        run: |
+          go -C .github/flakysoak build -o "$RUNNER_TEMP/flakysoak" .
+          mkdir -p "$RUNNER_TEMP/results"
+          IFS=, read -ra oses <<< "$EXPECT"
+          for os in "${oses[@]}"; do
+            d="$RUNNER_TEMP/raw/$os"
+            mkdir -p "$d"
+            gh run download "$GITHUB_RUN_ID" --name "soak-raw-$os" --dir "$d" || { echo "::warning::no soak-raw-$os artifact was uploaded"; continue; }
+            # The exit file may come from PowerShell: CRLF, maybe a BOM.
+            code=$(tr -dc 0-9 < "$d/exit" 2>/dev/null || true); code=${code:-1}
+            [[ "$code" =~ ^[0-9]{1,3}$ ]] || code=1
+            : > "$RUNNER_TEMP/stream.jsonl"
+            [ -f "$d/stream.jsonl.gz" ] && gunzip -c "$d/stream.jsonl.gz" > "$RUNNER_TEMP/stream.jsonl"
+            mkdir -p "$RUNNER_TEMP/results/$os"
+            "$RUNNER_TEMP/flakysoak" parse -os "$os" -count "$SOAK_COUNT" -exit "$code" \
+              -in "$RUNNER_TEMP/stream.jsonl" -stderr "$d/stderr.log" -out "$RUNNER_TEMP/results/$os/result.json" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      # The issue is found by its exact title among the issues carrying its
+      # label, which only people who can triage can add; nothing a test
+      # printed is used to find it.
+      - name: Find the tracking issue
+        run: |
+          gh issue list --label flaky-tests --state all --limit 30 --json number,title,state,body > "$RUNNER_TEMP/issues.json"
+          jq '[.[] | select(.title == "Flaky tests")] | sort_by(.number) | last // empty' "$RUNNER_TEMP/issues.json" > "$RUNNER_TEMP/issue.json"
+          if [ -s "$RUNNER_TEMP/issue.json" ]; then
+            echo "ISSUE_NUMBER=$(jq -r .number "$RUNNER_TEMP/issue.json")" >> "$GITHUB_ENV"
+            echo "ISSUE_OPEN=$([ "$(jq -r .state "$RUNNER_TEMP/issue.json")" = OPEN ] && echo true || echo false)" >> "$GITHUB_ENV"
+            jq -r .body "$RUNNER_TEMP/issue.json" > "$RUNNER_TEMP/prev-body.md"
+            echo "EXISTS=true" >> "$GITHUB_ENV"
+          else
+            echo "EXISTS=false" >> "$GITHUB_ENV"
+            echo "ISSUE_OPEN=false" >> "$GITHUB_ENV"
+            : > "$RUNNER_TEMP/prev-body.md"
+          fi
+
+      - name: Work out what the night means
+        run: |
+          mkdir -p "$RUNNER_TEMP/outcome"
+          args=(-results "$RUNNER_TEMP/results" -expect "$EXPECT" -prev-body "$RUNNER_TEMP/prev-body.md"
+                -run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+                -date "$(date -u +%F)" -close-after "$CLOSE_AFTER" -out "$RUNNER_TEMP/outcome")
+          [ "$EXISTS" = true ] && args+=(-exists)
+          [ "$ISSUE_OPEN" = true ] && args+=(-open)
+          go -C .github/flakysoak run . report "${args[@]}"
+
+      - name: Show it
+        run: |
+          {
+            echo "## Flaky soak: $(jq -r .action "$RUNNER_TEMP/outcome/outcome.json")$([ "$DRY_RUN" = true ] && echo " (dry run, no issue touched)")"
+            echo
+            cat "$RUNNER_TEMP/outcome/body.md"
+            if [ -s "$RUNNER_TEMP/outcome/comment.md" ]; then
+              echo
+              echo "### Comment"
+              cat "$RUNNER_TEMP/outcome/comment.md"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply it to the issue
+        if: inputs.dry-run != true
+        run: |
+          out="$RUNNER_TEMP/outcome"
+          action=$(jq -r .action "$out/outcome.json")
+          comment() { [ -s "$out/comment.md" ] && gh issue comment "$ISSUE_NUMBER" --body-file "$out/comment.md"; return 0; }
+          case "$action" in
+            create)
+              gh label create flaky-tests --color fbca04 --description "A test that fails only sometimes, found by the nightly soak" 2>/dev/null || true
+              gh issue create --title "Flaky tests" --label flaky-tests --body-file "$out/body.md" ;;
+            update)
+              gh issue edit "$ISSUE_NUMBER" --body-file "$out/body.md"
+              comment ;;
+            reopen)
+              gh issue edit "$ISSUE_NUMBER" --body-file "$out/body.md"
+              gh issue reopen "$ISSUE_NUMBER"
+              comment ;;
+            close)
+              gh issue edit "$ISSUE_NUMBER" --body-file "$out/body.md"
+              comment
+              gh issue close "$ISSUE_NUMBER" --reason completed ;;
+            none) echo "Nothing to do." ;;
+            *) echo "::error::unknown action $action"; exit 1 ;;
+          esac

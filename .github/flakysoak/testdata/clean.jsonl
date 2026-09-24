@@ -1,0 +1,65 @@
+{"Time":"2026-09-24T02:47:01.8482352+01:00","Action":"start","Package":"github.com/jmwri/flockdeck/internal/server"}
+{"Time":"2026-09-24T02:47:02.0801472+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Output":"-test.shuffle 1790214422080147200\n"}
+{"Time":"2026-09-24T02:47:02.0801472+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky"}
+{"Time":"2026-09-24T02:47:02.0801472+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky","Output":"=== RUN   TestSubtestsOneFlaky\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-0"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-0","Output":"=== RUN   TestSubtestsOneFlaky/case-0\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-0","Output":"--- PASS: TestSubtestsOneFlaky/case-0 (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-0","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-1"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-1","Output":"=== RUN   TestSubtestsOneFlaky/case-1\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-1","Output":"--- PASS: TestSubtestsOneFlaky/case-1 (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-1","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky","Output":"--- PASS: TestSubtestsOneFlaky (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSometimesFails"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSometimesFails","Output":"=== RUN   TestSometimesFails\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSometimesFails","Output":"--- PASS: TestSometimesFails (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSometimesFails","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestAlwaysFine"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestAlwaysFine","Output":"=== RUN   TestAlwaysFine\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestAlwaysFine","Output":"--- PASS: TestAlwaysFine (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestAlwaysFine","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky","Output":"=== RUN   TestSubtestsOneFlaky\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-0"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-0","Output":"=== RUN   TestSubtestsOneFlaky/case-0\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0806624+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-0","Output":"--- PASS: TestSubtestsOneFlaky/case-0 (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-0","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-1"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-1","Output":"=== RUN   TestSubtestsOneFlaky/case-1\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-1","Output":"--- PASS: TestSubtestsOneFlaky/case-1 (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-1","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky","Output":"--- PASS: TestSubtestsOneFlaky (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSometimesFails"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSometimesFails","Output":"=== RUN   TestSometimesFails\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSometimesFails","Output":"--- PASS: TestSometimesFails (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSometimesFails","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestAlwaysFine"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestAlwaysFine","Output":"=== RUN   TestAlwaysFine\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestAlwaysFine","Output":"--- PASS: TestAlwaysFine (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestAlwaysFine","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky","Output":"=== RUN   TestSubtestsOneFlaky\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-0"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-0","Output":"=== RUN   TestSubtestsOneFlaky/case-0\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-0","Output":"--- PASS: TestSubtestsOneFlaky/case-0 (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-0","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-1"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-1","Output":"=== RUN   TestSubtestsOneFlaky/case-1\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-1","Output":"--- PASS: TestSubtestsOneFlaky/case-1 (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky/case-1","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky","Output":"--- PASS: TestSubtestsOneFlaky (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSubtestsOneFlaky","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSometimesFails"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSometimesFails","Output":"=== RUN   TestSometimesFails\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSometimesFails","Output":"--- PASS: TestSometimesFails (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestSometimesFails","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"run","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestAlwaysFine"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestAlwaysFine","Output":"=== RUN   TestAlwaysFine\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestAlwaysFine","Output":"--- PASS: TestAlwaysFine (0.00s)\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Test":"TestAlwaysFine","Elapsed":0}
+{"Time":"2026-09-24T02:47:02.0811954+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Output":"PASS\n","OutputType":"frame"}
+{"Time":"2026-09-24T02:47:02.0820928+01:00","Action":"output","Package":"github.com/jmwri/flockdeck/internal/server","Output":"ok  \tgithub.com/jmwri/flockdeck/internal/server\t0.234s\n"}
+{"Time":"2026-09-24T02:47:02.0820928+01:00","Action":"pass","Package":"github.com/jmwri/flockdeck/internal/server","Elapsed":0.234}
