@@ -43,8 +43,10 @@ permissions:
   contents: read
 
 # One soak at a time: two would each be reading and rewriting the same issue.
+# A pull request's own run (the tool's tests) is kept out of that queue, where
+# it would cancel a soak waiting for its turn.
 concurrency:
-  group: flaky-soak
+  group: ${{ github.event_name == 'pull_request' && format('flaky-soak-pr-{0}', github.ref) || 'flaky-soak' }}
   cancel-in-progress: false
 
 jobs:
