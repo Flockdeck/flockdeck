@@ -432,3 +432,177 @@ jobs:
             exit 1
           fi
           sh "$RUNNER_TEMP/publish-downloads.sh" "$TAG" dist
+
+  # Once a release is published, the two sites that are generated from this
+  # repository are regenerated for it and, if that changes anything, put into
+  # a pull request each, on flockdeck-site and flockdeck-docs, which merges
+  # itself when their CI passes. Their own workflows then tag what merged,
+  # which is what deploys it: merging deploys nothing. See
+  # .github/RELEASE_AUTOMATION_SETUP.md.
+  #
+  # It is a job here, not a workflow of its own run when this one completes,
+  # for the reason the release job is one: the secrets it needs are the release
+  # environment's, which only a run on a v* tag may read, and a run started by
+  # another workflow's completion is on main.
+  #
+  # It cannot fail or undo the release, and is arranged so. It needs the
+  # release job, so none of it runs unless the release is published, and
+  # continue-on-error makes whatever goes wrong in it, a token that could not
+  # be made included, a red step and not a red run. Nothing above waits for
+  # it. A release that was published but not followed up is put right by
+  # running release-followups-dry-run.yml to see what would change, and then
+  # making the pull requests by hand, as before.
+  #
+  # Only a release is followed up. A candidate (v1.4.0-rc.1) is not the latest
+  # release, and neither is one older than the latest, which would otherwise
+  # pin the install scripts and the docs back to an older release than the one
+  # everyone is being offered.
+  followups:
+    needs: [version, release]
+    if: ${{ !contains(needs.version.outputs.tag, '-') }}
+    runs-on: ubuntu-latest
+    environment: release
+    continue-on-error: true
+    timeout-minutes: 60
+    # One at a time, and none cancelled: two releases close together would
+    # otherwise each be pushing to the branches, and merging, at once.
+    concurrency:
+      group: release-followups
+      cancel-in-progress: false
+    # GITHUB_TOKEN can read this repository and its releases, and nothing
+    # else. What changes the other two repositories is the app's token, below.
+    permissions:
+      contents: read
+    steps:
+      # The tag's own checkout is what the generators are run from, as the
+      # release they describe was built. The script that drives them is this
+      # workflow's own commit's, not the tag's, for the reason the publish
+      # script is: a release run by hand for an older tag has a checkout that
+      # predates the script.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          path: src
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          path: workflow
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: src/go.mod
+          cache: false
+
+      # Only the release that is GitHub's latest is followed up. The release
+      # job has published this one by now, and made it the latest unless a
+      # newer one is.
+      - name: Check this is the latest release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          latest=$(gh release view --json tagName --jq .tagName)
+          if [ "$latest" = "$TAG" ]; then
+            echo "follow=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "follow=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$TAG is not GitHub's latest release ($latest is), so the site and docs are left as they are"
+          fi
+
+      # The app's installation token: contents and pull requests, on the two
+      # repositories and no others, for an hour. It is not GITHUB_TOKEN, and
+      # that is the point: what GITHUB_TOKEN makes, a pull request or a tag,
+      # starts no workflow, so the required check would never report and the
+      # tag would build no image. Checks is read-only, for waiting on the
+      # check of a repository that has no branch protection to wait on it.
+      - name: Mint the release bot's token
+        id: token
+        if: ${{ steps.latest.outputs.follow == 'true' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            flockdeck-site
+            flockdeck-docs
+          permission-contents: write
+          permission-pull-requests: write
+          permission-checks: read
+
+      - name: Who the commits are by
+        id: bot
+        if: ${{ steps.token.outputs.token != '' }}
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          SLUG: ${{ steps.token.outputs.app-slug }}
+        run: |
+          id=$(gh api "/users/$SLUG%5Bbot%5D" --jq .id)
+          echo "name=${SLUG}[bot]" >> "$GITHUB_OUTPUT"
+          echo "email=${id}+${SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_OUTPUT"
+
+      # The token is given to nothing that runs the tag's code but git's push
+      # and gh, through the environment; it is not left in either checkout's
+      # .git/config.
+      - uses: actions/checkout@v7
+        if: ${{ steps.token.outputs.token != '' }}
+        with:
+          repository: ${{ github.repository_owner }}/flockdeck-site
+          token: ${{ steps.token.outputs.token }}
+          path: site
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        if: ${{ steps.token.outputs.token != '' }}
+        with:
+          repository: ${{ github.repository_owner }}/flockdeck-docs
+          token: ${{ steps.token.outputs.token }}
+          path: docs
+          persist-credentials: false
+
+      # sitegen checks checksums.txt against its signature, so where the file
+      # comes from is not what is trusted.
+      - name: Fetch the release's checksums
+        if: ${{ steps.token.outputs.token != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: gh release download "$TAG" -p checksums.txt -p checksums.txt.sig -D "$RUNNER_TEMP/checksums"
+
+      # AUTO_MERGE_REGEN is a repository variable, on when unset: set to
+      # false, the pull requests are opened and left.
+      - name: Regenerate flockdeck-site
+        id: site
+        if: ${{ steps.token.outputs.token != '' }}
+        env:
+          MODE: apply
+          TAG: ${{ needs.version.outputs.tag }}
+          TARGET: site
+          TARGET_DIR: site
+          TARGET_REPO: ${{ github.repository_owner }}/flockdeck-site
+          SRC_DIR: src
+          CHECKSUMS: ${{ runner.temp }}/checksums/checksums.txt
+          AUTO_MERGE: ${{ vars.AUTO_MERGE_REGEN }}
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          BOT_NAME: ${{ steps.bot.outputs.name }}
+          BOT_EMAIL: ${{ steps.bot.outputs.email }}
+        run: sh workflow/.github/scripts/regen-followup.sh
+
+      # Whatever became of the site, the docs are still done.
+      - name: Regenerate flockdeck-docs
+        id: docs
+        if: ${{ !cancelled() && steps.token.outputs.token != '' }}
+        env:
+          MODE: apply
+          TAG: ${{ needs.version.outputs.tag }}
+          TARGET: docs
+          TARGET_DIR: docs
+          TARGET_REPO: ${{ github.repository_owner }}/flockdeck-docs
+          SRC_DIR: src
+          AUTO_MERGE: ${{ vars.AUTO_MERGE_REGEN }}
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          BOT_NAME: ${{ steps.bot.outputs.name }}
+          BOT_EMAIL: ${{ steps.bot.outputs.email }}
+        run: sh workflow/.github/scripts/regen-followup.sh

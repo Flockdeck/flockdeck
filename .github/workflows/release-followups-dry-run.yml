@@ -1,0 +1,64 @@
+name: release-followups-dry-run
+
+# What release.yml's followups job would do for a release, without doing it:
+# regenerates flockdeck-docs for an existing tag and says whether that differs
+# from what is on its main. Nothing is pushed and no pull request is opened,
+# and it needs no secret: flockdeck-docs is public, and this run's own token
+# can read it.
+#
+# The expected answer for a release whose site and docs were brought up to it,
+# by hand or by the followups job, is "nothing to do". Started for an older
+# tag it says there is a difference, which is how to see that the check can
+# tell.
+#
+# flockdeck-site is private, and reading it takes the release bot's token,
+# which is the release environment's and that a run started here, from main,
+# may not read. Its dry run is done by hand, with the same script:
+#
+#   MODE=dry-run TAG=v0.3.40 TARGET=site TARGET_DIR=../flockdeck-site \
+#     SRC_DIR=. CHECKSUMS=checksums.txt sh .github/scripts/regen-followup.sh
+#
+# in a checkout of the tag, with a checkout of flockdeck-site beside it and the
+# release's checksums.txt and checksums.txt.sig (gh release download <tag>).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "release to regenerate for (must already exist), such as v0.3.40"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          path: src
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          path: workflow
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository_owner }}/flockdeck-docs
+          path: docs
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: src/go.mod
+          cache: false
+
+      - name: Regenerate flockdeck-docs and compare
+        env:
+          MODE: dry-run
+          TAG: ${{ inputs.tag }}
+          TARGET: docs
+          TARGET_DIR: docs
+          SRC_DIR: src
+        run: sh workflow/.github/scripts/regen-followup.sh
