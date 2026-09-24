@@ -23,6 +23,23 @@ func TestIgnoredPath(t *testing.T) {
 		{serviceProfile, "README.md", true},
 		{serviceProfile, "docs/notes.md", true},
 		{serviceProfile, "docs/deep/notes.md", true},
+		{serviceProfile, ".gitattributes", true},
+		{serviceProfile, ".editorconfig", true},
+		{serviceProfile, ".gitignore", true},
+		{serviceProfile, ".dockerignore", true},
+		{serviceProfile, "CODEOWNERS", true},
+		{serviceProfile, ".github/CODEOWNERS", true},
+		{serviceProfile, "docs/CODEOWNERS", true},
+		{serviceProfile, "web/.gitignore", true},
+		{contentProfile, ".gitattributes", true},
+		{contentProfile, ".editorconfig", true},
+		{contentProfile, ".gitignore", true},
+		{contentProfile, ".dockerignore", true},
+		{contentProfile, "CODEOWNERS", true},
+		// Only the exact names: look-alikes ship.
+		{serviceProfile, ".gitattributes.tmpl", false},
+		{serviceProfile, "deploy/CODEOWNERS.yaml", false},
+		{serviceProfile, "gitignore", false},
 		// These ship, or might: kept conservative.
 		{serviceProfile, "docs/openapi.yaml", false},
 		{serviceProfile, "internal/store/store.go", false},
@@ -59,6 +76,13 @@ func TestShips(t *testing.T) {
 	}
 	if !ships(serviceProfile, f("a_test.go", "internal/x.go")) {
 		t.Error("one shipping file among ignorable ones should ship")
+	}
+	if ships(serviceProfile, f(".gitattributes")) || ships(contentProfile, f(".gitattributes", ".editorconfig")) {
+		t.Error("a commit of only repo config should not ship")
+	}
+	// Renaming a shipping file onto a config name still removed it.
+	if !ships(serviceProfile, []commitFile{{Filename: ".gitignore", PreviousFilename: "internal/x.go"}}) {
+		t.Error("a rename away from a shipping path should ship")
 	}
 	if ships(serviceProfile, nil) {
 		t.Error("a commit touching nothing ships nothing")
