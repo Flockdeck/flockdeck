@@ -131,8 +131,10 @@ jobs:
         run: |
           read -ra pkgs <<< "$SOAK_PACKAGES"
           start=$SECONDS
-          go test -race -shuffle=on -count="$SOAK_COUNT" -timeout 200m -json "${pkgs[@]}" > "$RUNNER_TEMP/soak/stream.jsonl" 2> "$RUNNER_TEMP/soak/stderr.log"
-          echo "$?" > "$RUNNER_TEMP/soak/exit"
+          # Bash here runs with -e; a failing go test is the expected result.
+          code=0
+          go test -race -shuffle=on -count="$SOAK_COUNT" -timeout 200m -json "${pkgs[@]}" > "$RUNNER_TEMP/soak/stream.jsonl" 2> "$RUNNER_TEMP/soak/stderr.log" || code=$?
+          echo "$code" > "$RUNNER_TEMP/soak/exit"
           echo "go test exited $(cat "$RUNNER_TEMP/soak/exit") after $((SECONDS - start))s"
           exit 0
 
