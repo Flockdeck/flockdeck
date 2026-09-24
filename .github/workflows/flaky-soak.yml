@@ -180,6 +180,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      actions: read
     uses: ./.github/workflows/reusable-flaky-report.yml
     with:
       tool-ref: ${{ github.sha }}
