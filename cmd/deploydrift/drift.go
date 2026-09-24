@@ -60,7 +60,7 @@ const (
 // deployed. What is ignored, and why:
 //   - .github/: CI and repo configuration; it is never in an image or a module.
 //   - repository configuration that no build reads into an image or module:
-//     .gitattributes, .editorconfig, .gitignore, .dockerignore and CODEOWNERS,
+//     .gitattributes, .editorconfig, .gitignore and CODEOWNERS,
 //     wherever they sit. A line-ending renormalisation is such a commit.
 //   - test files (_test.go, *.test.*, *.spec.*, testdata/, tests/, __tests__/):
 //     they are compiled or run only by CI.
@@ -95,7 +95,7 @@ func ignoredPath(p profile, path string) bool {
 
 func isRepoConfigFile(path string) bool {
 	switch path[strings.LastIndex(path, "/")+1:] {
-	case ".gitattributes", ".editorconfig", ".gitignore", ".dockerignore", "CODEOWNERS":
+	case ".gitattributes", ".editorconfig", ".gitignore", "CODEOWNERS":
 		return true
 	}
 	return false

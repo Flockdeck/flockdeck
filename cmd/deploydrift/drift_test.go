@@ -26,7 +26,7 @@ func TestIgnoredPath(t *testing.T) {
 		{serviceProfile, ".gitattributes", true},
 		{serviceProfile, ".editorconfig", true},
 		{serviceProfile, ".gitignore", true},
-		{serviceProfile, ".dockerignore", true},
+		{serviceProfile, ".dockerignore", false},
 		{serviceProfile, "CODEOWNERS", true},
 		{serviceProfile, ".github/CODEOWNERS", true},
 		{serviceProfile, "docs/CODEOWNERS", true},
@@ -34,7 +34,7 @@ func TestIgnoredPath(t *testing.T) {
 		{contentProfile, ".gitattributes", true},
 		{contentProfile, ".editorconfig", true},
 		{contentProfile, ".gitignore", true},
-		{contentProfile, ".dockerignore", true},
+		{contentProfile, ".dockerignore", false},
 		{contentProfile, "CODEOWNERS", true},
 		// Only the exact names: look-alikes ship.
 		{serviceProfile, ".gitattributes.tmpl", false},
