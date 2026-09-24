@@ -250,7 +250,9 @@ func short(pkg, test string) string {
 	if test == PackageFailed {
 		return strings.Join(parts, "/") + " " + test
 	}
-	return strings.Join(parts, "/") + "." + test
+	// A subtest is named by whatever t.Run was given; a backtick would end the
+	// code span every caller puts this in.
+	return strings.Join(parts, "/") + "." + strings.NewReplacer("`", "'", "\n", " ").Replace(test)
 }
 
 // cell makes log text safe for a markdown table cell: nothing in it can start
@@ -262,6 +264,14 @@ func cell(s string) string {
 	}
 	s = html.EscapeString(s)
 	return strings.NewReplacer("|", "&#124;", "@", "&#64;", "`", "&#96;", "[", "&#91;", "]", "&#93;", "\\", "&#92;", "://", "&#58;//").Replace(s)
+}
+
+// codeName is a test name inside a code span in a table cell. A subtest's
+// name is whatever its t.Run was given, so a backtick would end the span and a
+// pipe the cell.
+func codeName(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	return "`" + strings.NewReplacer("`", "'", "|", `\|`).Replace(s) + "`"
 }
 
 // fence wraps text in a code fence longer than any run of backticks in it.
@@ -316,8 +326,8 @@ func render(st State, in Input, missing []string) string {
 				if s.Failed == s.Runs && s.Runs > 1 {
 					always = " (every run: broken rather than flaky?)"
 				}
-				fmt.Fprintf(&b, "| `%s` | %s | %d of %d%s | %d | [%s](%s) | %s |\n",
-					short(e.Package, e.Test), o, s.Failed, s.Runs, always, s.Nights, s.FirstSeen, s.FirstRunURL, cell(oneLine(e.Excerpt)))
+				fmt.Fprintf(&b, "| %s | %s | %d of %d%s | %d | [%s](%s) | %s |\n",
+					codeName(short(e.Package, e.Test)), o, s.Failed, s.Runs, always, s.Nights, s.FirstSeen, s.FirstRunURL, cell(oneLine(e.Excerpt)))
 			}
 		}
 		b.WriteString("\nA failure that depends on test order can be reproduced with the shuffle seed shown below: `go test -race -shuffle=<seed> -count=N <package>`.\n\n")

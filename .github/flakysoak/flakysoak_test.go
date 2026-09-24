@@ -282,3 +282,72 @@ func TestAnExitWithoutAFailureIsReportedAsOne(t *testing.T) {
 		t.Error("a zero exit was reported as a failure")
 	}
 }
+
+// timeout.jsonl is a real `go test -json -timeout 3s` stream in which TestOther
+// fails and then TestHang hangs past the timeout. go test names no failure for
+// the hung test, and the package failing is explained by TestOther alone unless
+// the cut-off test is found.
+func TestATimeoutIsReportedEvenWhenAnotherTestInThePackageFailed(t *testing.T) {
+	res := parseFixture(t, "timeout.jsonl", "ubuntu-latest", 1)
+	got := byTest(res)
+	if len(got) != 2 {
+		t.Fatalf("want TestOther and TestHang, got %+v", res.Failures)
+	}
+	if f := got["TestOther"]; f.Failed != 1 || !strings.Contains(f.Excerpt, "other failed") {
+		t.Errorf("TestOther = %+v", f)
+	}
+	f, ok := got["TestHang"]
+	if !ok {
+		t.Fatalf("the hung test was dropped: %+v", res.Failures)
+	}
+	if f.Failed != 1 || f.Runs != 1 || !strings.Contains(f.Excerpt, "test timed out") {
+		t.Errorf("TestHang = %+v, want 1 of 1 with the timeout message", f)
+	}
+}
+
+func TestATimeoutThatLeavesNoOtherFailureIsStillOneFailure(t *testing.T) {
+	in := `{"Action":"run","Package":"p","Test":"TestHang"}
+{"Action":"output","Package":"p","Test":"TestHang","Output":"panic: test timed out after 3s\n"}
+{"Action":"fail","Package":"p"}`
+	res, _ := Parse(strings.NewReader(in), "x", 1)
+	if len(res.Failures) != 1 || res.Failures[0].Test != "TestHang" {
+		t.Errorf("failures = %+v", res.Failures)
+	}
+}
+
+// Only the test that was running is blamed: a parent of a running subtest,
+// and a test parked by t.Parallel, were merely in flight.
+func TestOnlyTheRunningLeafIsBlamedForATimeout(t *testing.T) {
+	in := `{"Action":"run","Package":"p","Test":"TestParent"}
+{"Action":"run","Package":"p","Test":"TestParent/hang"}
+{"Action":"run","Package":"p","Test":"TestParked"}
+{"Action":"output","Package":"p","Test":"TestParked","Output":"=== PAUSE TestParked\n"}
+{"Action":"output","Package":"p","Test":"TestParent/hang","Output":"panic: test timed out after 3s\n"}
+{"Action":"fail","Package":"p"}`
+	res, _ := Parse(strings.NewReader(in), "x", 1)
+	if len(res.Failures) != 1 || res.Failures[0].Test != "TestParent/hang" {
+		t.Errorf("failures = %+v", res.Failures)
+	}
+}
+
+// A subtest's name is whatever t.Run was given.
+func TestATestNameCannotEscapeItsCell(t *testing.T) {
+	name := "TestX/a`b|c"
+	f := Failure{Package: pkg, Test: name, Failed: 1, Runs: 2, Excerpt: "x_test.go:1: boom"}
+	o := Decide(Input{Results: []Result{{OS: "ubuntu-latest", Failures: []Failure{f}}}, Expect: []string{"ubuntu-latest"}, Night: night("2026-09-25"), CloseAfter: 3})
+	row := ""
+	for _, l := range strings.Split(o.Body, "\n") {
+		if strings.HasPrefix(l, "| `internal/server.TestX/a") {
+			row = l
+		}
+	}
+	if row == "" {
+		t.Fatalf("no table row in:\n%s", o.Body)
+	}
+	if n := strings.Count(strings.ReplaceAll(row, `\|`, ""), "|"); n != 7 {
+		t.Errorf("row has %d cell separators, want 7: %s", n, row)
+	}
+	if strings.Count(row, "`") != 2 {
+		t.Errorf("the name's backtick ended its code span: %s", row)
+	}
+}

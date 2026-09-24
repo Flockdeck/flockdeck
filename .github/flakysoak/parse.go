@@ -57,6 +57,9 @@ type counts struct {
 	runs, failed int
 	buf          []string
 	excerpt      string
+	// open is true from a test's run event to its pass, fail or skip: a test
+	// still open when its package fails was cut off (a timeout, a crash).
+	open, paused bool
 }
 
 var shuffleRe = regexp.MustCompile(`^-test\.shuffle (\d+)`)
@@ -116,16 +119,28 @@ func Parse(r io.Reader, osName string, count int) (Result, error) {
 		switch ev.Action {
 		case "run":
 			c.buf = c.buf[:0]
+			c.open, c.paused = true, false
 		case "output":
-			c.buf = append(c.buf, clean(ev.Output))
+			out := clean(ev.Output)
+			switch {
+			case strings.HasPrefix(out, "=== PAUSE"):
+				c.paused = true
+			case strings.HasPrefix(out, "=== CONT"):
+				c.paused = false
+			}
+			c.buf = append(c.buf, out)
 			if len(c.buf) > 400 {
 				c.buf = c.buf[len(c.buf)-200:]
 			}
 		case "pass":
 			c.runs++
+			c.open = false
+		case "skip":
+			c.open = false
 		case "fail":
 			c.runs++
 			c.failed++
+			c.open = false
 			if c.excerpt == "" {
 				c.excerpt = excerpt(c.buf)
 			}
@@ -150,12 +165,37 @@ func Parse(r io.Reader, osName string, count int) (Result, error) {
 		}
 		return false
 	}
+	// go test names no failure for a test that a timeout or crash cut off:
+	// it has a run event and nothing after. Such a test is a failure of its
+	// own, even when other tests in the package failed in the ordinary way,
+	// or the package failure would be blamed on them alone.
+	cutOff := func(k string) bool {
+		c := tests[k]
+		if !c.open || c.paused || !pkgFail[packageOf(k)] {
+			return false
+		}
+		for other, oc := range tests {
+			if oc.open && strings.HasPrefix(other, k+"/") {
+				return false // the subtest is the one that was running
+			}
+		}
+		return true
+	}
+	pkgExplained := map[string]bool{}
 	pkgHasTestFailure := map[string]bool{}
 	for _, k := range order {
 		c := tests[k]
 		pkg, name, _ := strings.Cut(k, "\x00")
 		if c.runs > 0 {
 			res.Tests++
+		}
+		if cutOff(k) {
+			pkgExplained[pkg] = true
+			res.Failures = append(res.Failures, Failure{
+				Package: pkg, Test: name, Failed: c.failed + 1, Runs: c.runs + 1,
+				Seed: seeds[pkg], Excerpt: excerpt(c.buf),
+			})
+			continue
 		}
 		if c.failed == 0 {
 			continue
@@ -171,7 +211,7 @@ func Parse(r io.Reader, osName string, count int) (Result, error) {
 	}
 	var pkgs []string
 	for p := range pkgFail {
-		if !pkgHasTestFailure[p] {
+		if !pkgHasTestFailure[p] && !pkgExplained[p] {
 			pkgs = append(pkgs, p)
 		}
 	}
@@ -239,4 +279,9 @@ func addExitFailure(res *Result, exit int, stderr string) {
 		ex = fmt.Sprintf("go test exited with status %d and printed no failure", exit)
 	}
 	res.Failures = append(res.Failures, Failure{Package: "go test", Test: PackageFailed, Failed: 1, Runs: 1, Excerpt: ex})
+}
+
+func packageOf(key string) string {
+	pkg, _, _ := strings.Cut(key, "\x00")
+	return pkg
 }
