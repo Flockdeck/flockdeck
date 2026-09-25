@@ -60,13 +60,29 @@ func TestJevKeyIsNotAnAgentsKey(t *testing.T) {
 	if _, err := ClearJevKey(); err != nil || !Has("openai") {
 		t.Errorf("clearing the TypeSafe key took another: %v", err)
 	}
-	// And no Spec, whatever its id, resolves to it.
+	// And no Spec resolves to it: neither one named for it nor one given the
+	// reserved id itself in agents.json.
 	if err := SetJevKey(fakeJev); err != nil {
 		t.Fatal(err)
 	}
 	st := StatusAll([]agent.Spec{apiSpec("typesafe", "TYPESAFE_API_KEY")})
 	if len(st) != 1 || st[0].Set && st[0].Source == SourceStore {
 		t.Errorf("an agent named typesafe resolved the key: %+v", st)
+	}
+	for _, id := range []string{JevID, " " + JevID, "@other"} {
+		spec := apiSpec(id, "FLOCKDECK_TEST_NO_SUCH_KEY")
+		if k := Resolve(spec); k.Set() || k.Secret() != "" {
+			t.Errorf("a spec with id %q resolved a stored key: %v", id, k)
+		}
+		if env := Env(spec); len(env) != 0 {
+			t.Errorf("a spec with id %q was handed a key in its environment", id)
+		}
+		if Has(id) {
+			t.Errorf("Has(%q) is true", id)
+		}
+	}
+	if !HasJevKey() || JevKey() != fakeJev {
+		t.Error("the TypeSafe key is no longer read by JevKey")
 	}
 }
 

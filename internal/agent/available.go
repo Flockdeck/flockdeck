@@ -190,6 +190,11 @@ func keyIsSet(s Spec) bool {
 	if err := json.Unmarshal(data, &keys); err != nil {
 		return false
 	}
+	// An id starting "@" is reserved by creds for keys that are not an
+	// agent's (the TypeSafe key), so no agent has a key there.
+	if strings.HasPrefix(strings.TrimSpace(s.ID), "@") {
+		return false
+	}
 	return strings.TrimSpace(keys[s.ID]) != ""
 }
 

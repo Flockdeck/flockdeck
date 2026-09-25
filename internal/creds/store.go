@@ -86,6 +86,18 @@ func load() (map[string]string, error) {
 // needing a key. Saying so through an error here would only give a dozen
 // callers a way to print one.
 func stored(agentID string) string {
+	// A reserved id is not an agent's, so no Spec, whatever id it is given in
+	// agents.json, can resolve what is kept under one: the TypeSafe key is read
+	// only by JevKey.
+	if reserved(agentID) {
+		return ""
+	}
+	return storedRaw(agentID)
+}
+
+// storedRaw is stored without the reserved-id refusal, for the functions in
+// this package that own a reserved id.
+func storedRaw(agentID string) string {
 	if agentID == "" {
 		return ""
 	}

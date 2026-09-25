@@ -18,7 +18,7 @@ func reserved(id string) bool { return strings.HasPrefix(strings.TrimSpace(id), 
 // the store, a store that cannot be read is no key. It is the one function
 // that returns the value, for the client that sends it to api.typesafe.ai;
 // nothing else is handed it.
-func JevKey() string { return stored(JevID) }
+func JevKey() string { return storedRaw(JevID) }
 
 // HasJevKey reports whether a key is set in Settings, without returning it.
 func HasJevKey() bool { return JevKey() != "" }

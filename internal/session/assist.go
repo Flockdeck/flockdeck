@@ -22,7 +22,7 @@ import (
 // PRIVACY. Asking sends the tail of the pane's terminal output to a third
 // party, TypeSafe, which nothing else in Flockdeck does with terminal content.
 // So it is off unless BOTH the user has turned the setting on (Enabled) and
-// TYPESAFE_API_KEY is set, and what is sent is only the last assistTailLines
+// a TypeSafe key is set (Settings or TYPESAFE_API_KEY), and what is sent is only the last assistTailLines
 // lines, at most assistTailBytes, with escape sequences taken out: never the
 // scrollback, the pane's name, or its working directory. No redaction of
 // secrets that may be on screen is done -- there is no general helper for it
