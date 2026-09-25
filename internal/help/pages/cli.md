@@ -85,9 +85,10 @@ flockdeck close --finished
 
 `<pane-id>` is the id `spawn` printed back when it started the pane you now
 want gone. A pane still working is left alone unless `--force` is given, so
-naming the wrong id cannot cut off work in progress; a pane cannot close
+naming the wrong id cannot cut off work in progress (an idle agent with a
+background command or subagent still running counts as in progress); a pane cannot close
 itself this way — end its own turn instead. `--finished` closes every idle or
-exited pane across every open project instead of naming one, the same as the
+exited pane (leaving alone an agent with background work still running) across every open project instead of naming one, the same as the
 "Close finished panes" command, and takes no pane id.
 
 Like `spawn` and `peer-name`, this only works inside a pane, using the address
