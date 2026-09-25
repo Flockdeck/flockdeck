@@ -27,9 +27,15 @@ tells you what the agent is actually doing rather than only that it is busy.
 - **The top bar** counts the agents waiting and working in this project. Click
   the count for the same list [[key:agents]] opens.
 - **The rail** down the left of the window has a tile for each open project,
-  and the tile of a project with an agent waiting on you carries an amber
-  badge — so one that starts waiting in a project you are *not* looking at is
-  seen from the one you are.
+  and the tile says what that project's agents are doing, most urgent first: an
+  amber badge where an agent is waiting on you, a pulsing green one where
+  agents are working and none is waiting, and nothing where every pane is
+  idle, exited or not yet heard from, or there are no panes. So one that
+  starts waiting in a project you are *not* looking at is seen from the one
+  you are. Widen the rail and the count is written beside the name — `▲ 2`
+  for two waiting, `● 3` for three working — and the tile's tooltip and
+  screen-reader name say it in words. A window reached through the relay
+  shows the same.
 - **A desktop notification** is raised when an agent blocks while the window is
   not in front. It is not raised when you are already looking at the window —
   the tab marker is enough, and a toast would be noise.
