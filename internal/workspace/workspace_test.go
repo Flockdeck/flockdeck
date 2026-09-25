@@ -89,6 +89,45 @@ func TestProjectCountsFollowTheAgentsProject(t *testing.T) {
 	}
 }
 
+// TestProjectCountsSummariseEachStatus covers what the rail's tile is drawn
+// from: a project's needs-you panes (waiting or blocked) and its working ones
+// are counted apart, and idle, starting and exited panes are counted in Panes
+// but in neither, so a project of nothing but those has nothing to badge.
+func TestProjectCountsSummariseEachStatus(t *testing.T) {
+	isolateConfig(t)
+	ws, first, _ := twoProjects(t)
+	// Pin the project's own first pane too: its status is whatever its
+	// process last reported, which is not what is being counted here.
+	if fp := ws.FocusedPane(); fp == nil || fp.Sess == nil {
+		t.Fatal("the first pane never started")
+	} else {
+		fp.Sess.SetStatus(session.StatusWorking, "")
+	}
+	for _, st := range []session.Status{
+		session.StatusWorking, session.StatusWorking, session.StatusBlocked,
+		session.StatusIdle, session.StatusExited, session.StatusStarting,
+	} {
+		ws.SplitPane(layout.Horizontal, session.KindShell)
+		fp := ws.FocusedPane()
+		if fp == nil || fp.Sess == nil {
+			t.Fatal("the split pane never started")
+		}
+		fp.Sess.SetStatus(st, "")
+	}
+	for _, p := range ws.Projects() {
+		switch {
+		case sameDir(p.Root, first):
+			// The project's first pane, untouched here, is working too.
+			if p.Waiting != 1 || p.Working != 3 {
+				t.Errorf("first project: waiting %d working %d, want 1 and 3", p.Waiting, p.Working)
+			}
+			if p.Panes < 7 {
+				t.Errorf("first project counts %d panes, want the idle, exited and starting ones too", p.Panes)
+			}
+		}
+	}
+}
+
 // TestNewTabTakesTheProjectOfItsDirectory covers opening a checkout that is
 // itself an open project in a new tab: the tab is drawn on the active
 // project's tab bar, but the agent is working in the other project and has to

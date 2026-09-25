@@ -194,6 +194,16 @@ body { flex-direction: row; }
 }
 .rail-badge.waiting, .rail-badge.trouble { display: block; background: var(--waiting); }
 .rail-badge.on { display: block; background: var(--working); }
+/* On a project, green is an agent there at work and nobody waiting: the pane
+ * header's own pulse, so the two read as one thing. Amber is bigger and rings
+ * itself, as the pane's waiting dot does, so the two differ by more than hue. */
+.rail-badge.working { display: block; background: var(--working); animation: pulse 1.6s ease-in-out infinite; }
+#rail-projects .rail-badge.waiting { width: 10px; height: 10px; right: 2px; top: 2px; }
+/* The count beside a project's name, in the shape that goes with its colour:
+ * only where the row is wide enough to hold it. */
+.rail-count { display: none; margin-left: auto; flex: 0 0 auto; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--fg-dim); }
+.rail-count.waiting { color: var(--waiting); }
+.rail-count.working { color: var(--working); }
 .rail-badge.pending { display: block; background: var(--idle); }
 
 /* Only a narrow screen, where the rail is folded away, has these two. */
@@ -236,6 +246,7 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
   }
   body.rail-expanded .rail-tile .mono { width: 24px; flex: 0 0 auto; text-align: center; }
   body.rail-expanded .rail-badge { left: 30px; right: auto; top: 6px; }
+  body.rail-expanded .rail-count:not(:empty) { display: inline; }
 
   /* The handle that drags the rail's width, styled like a split's own
    * divider: a hairline that widens to a grab strip, lit on hover, in focus
@@ -1786,6 +1797,7 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
    * enough to spell itself out; the toggle button's badge is not a tile and
    * keeps the default corner position. */
   #rail .rail-badge { left: 30px; right: auto; top: 6px; }
+  #rail .rail-count:not(:empty) { display: inline; }
 
   #topbar { flex-wrap: wrap; height: auto; padding: 4px 8px; row-gap: 4px; column-gap: 6px; }
   #topbar > #tabbar { order: 10; flex: 1 1 100%; }

@@ -2326,13 +2326,39 @@
   let railStop = null;
   let railStopChosen = false;
 
+  /** projectActivity sums up a project's panes as the one thing its tile
+   *  says: the most urgent state any of them is in. An agent waiting on you
+   *  outranks one that is working, which outranks nothing at all - idle,
+   *  starting and exited panes, and a project with no panes, say nothing, as
+   *  they add nothing to look at. The counts are the workspace's own (a
+   *  blocked pane counts as waiting there, as in the top bar), so this is the
+   *  same rule in the window on the desktop and in one reached through the
+   *  relay. */
+  function projectActivity(p) {
+    const waiting = Math.max(0, p.waiting | 0), working = Math.max(0, p.working | 0);
+    if (waiting > 0) return { state: "waiting", n: waiting, waiting, working };
+    if (working > 0) return { state: "working", n: working, waiting, working };
+    return { state: "", n: 0, waiting, working };
+  }
+
+  /** activityWords says a project's activity aloud, for its accessible name
+   *  and tooltip: what the badge's colour and shape say to an eye. */
+  function activityWords(a) {
+    const parts = [];
+    if (a.waiting) parts.push((a.waiting === 1 ? "an agent is" : a.waiting + " agents are") + " waiting on you");
+    if (a.working) parts.push((a.working === 1 ? "an agent is" : a.working + " agents are") + " working");
+    return parts.join(", ");
+  }
+
   /** renderRail draws a tile for each open project: its monogram, which one
-   *  is on screen, and an amber badge where an agent is waiting on you. That
-   *  last is what the rail is for - a project with somebody blocked in it is
-   *  seen from any other without opening anything. */
+   *  is on screen, and a badge for what its agents are doing - amber where
+   *  one is waiting on you, green where one is working. The first is what
+   *  the rail is for - a project with somebody blocked in it is seen from
+   *  any other without opening anything - and the second says which of the
+   *  others is still busy. */
   function renderRail(s) {
     const projects = s.projects || [];
-    const key = JSON.stringify(projects.map((p) => [p.root, p.name, !!p.active, p.waiting || 0]));
+    const key = JSON.stringify(projects.map((p) => [p.root, p.name, !!p.active, p.waiting || 0, p.working || 0]));
     if (key === railShown) return;
     railShown = key;
     const box = $("rail-projects");
@@ -2345,13 +2371,20 @@
       t.btn.classList.toggle("current", !!p.active);
       if (p.active) t.btn.setAttribute("aria-current", "true");
       else t.btn.removeAttribute("aria-current");
-      t.badge.classList.toggle("waiting", (p.waiting || 0) > 0);
+      const act = projectActivity(p);
+      t.badge.classList.toggle("waiting", act.state === "waiting");
+      t.badge.classList.toggle("working", act.state === "working");
+      // Colour is not the only thing that says it: on a row wide enough to
+      // spell itself out the count is written beside the name, ahead of a
+      // shape that differs too - the triangle the tab marks a waiting agent
+      // with, or a dot.
+      t.count.textContent = act.state === "waiting" ? "▲ " + act.n : act.state ? "● " + act.n : "";
+      t.count.className = "rail-count" + (act.state ? " " + act.state : "");
       // Two letters say which project to somebody who already knows; the
       // name and the folder say it to everybody else, and two checkouts of
       // one repository have the same name and only the folder differs.
-      const waiting = p.waiting
-        ? ", " + (p.waiting === 1 ? "an agent is" : p.waiting + " agents are") + " waiting on you" : "";
-      const says = p.name + " — " + p.root + waiting;
+      const words = activityWords(act);
+      const says = p.name + " — " + p.root + (words ? ", " + words : "");
       t.btn.setAttribute("aria-label", says);
       describe(t.btn, p.active ? says + ". The project on screen." : says);
       if (box.children[i] !== t.btn) box.insertBefore(t.btn, box.children[i] || null);
@@ -2402,7 +2435,9 @@
     const badge = el("span", "rail-badge");
     badge.setAttribute("aria-hidden", "true");
     const name = el("span", "rail-label");
-    btn.append(mono, badge, name);
+    const count = el("span", "rail-count");
+    count.setAttribute("aria-hidden", "true");
+    btn.append(mono, badge, name, count);
     btn.onclick = () => {
       closeRailMenu(false);
       const p = ((state && state.projects) || []).find((x) => x.root === root);
@@ -2410,7 +2445,7 @@
       if (p && p.active) focusTerminal();
       else send({ cmd: "selectProject", root });
     };
-    return { btn, mono, badge, name };
+    return { btn, mono, badge, name, count };
   }
 
   /** monograms gives each name two letters, and no two the same: the first

@@ -12,8 +12,10 @@ left and right arrow keys once it has the keyboard — to whatever width suits
 you. Both are kept, and are what a new window opens onto.
 
 Several projects stay open at once and **switching does not stop anything** —
-the other project's agents keep working, and its tile carries an amber badge if
-one of them starts waiting on you while you are elsewhere.
+the other project's agents keep working. Its tile carries a pulsing green badge
+while they do, and an amber one if any of them starts waiting on you while you
+are elsewhere; amber wins when both are true. With the rail widened, the count
+of waiting (`▲`) or working (`●`) agents is written beside the project's name.
 
 Each project keeps its own tabs, its own layout, its own restored
 conversations, and its own default agent and model — so the repository you

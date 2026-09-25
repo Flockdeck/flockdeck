@@ -5092,6 +5092,72 @@ assert.strictEqual(tiles().length, 1, "a closed project kept its tile");
 `)
 }
 
+// A project's tile summarises what its agents are doing, most urgent first:
+// amber where one is waiting on you (a blocked one included, which the
+// workspace already counts as waiting), green where one is working and none
+// waits, nothing for idle, starting and exited panes or a project with no
+// panes at all. Colour is never all of it: the accessible name and tooltip
+// say it in words, and the count beside the name has a shape of its own. The
+// same rule holds in a window reached through the relay, and follows each
+// push.
+func TestTheRailTileSummarisesTheProjectsActivity(t *testing.T) {
+	for _, hello := range []string{"h.hello();", remoteHello("")} {
+		runFrontEnd(t, hello+`
+const mk = (name, waiting, working, extra) => Object.assign(
+  { root: "C:/code/" + name, name, active: false, tabs: 1, waiting, working, panes: waiting + working }, extra);
+const projects = [
+  mk("alpha", 0, 3, { active: true }),
+  mk("bravo", 2, 1),
+  mk("charlie", 0, 0, { panes: 2 }),
+  mk("delta", 0, 0, { panes: 0, tabs: 0 }),
+  mk("echo", 1, 0),
+];
+h.recv(fixture({ root: "C:/code/alpha", projects }));
+const tiles = () => [...h.$("rail-projects").children];
+const state = (t) => ["waiting", "working"].filter((c) => t.querySelector(".rail-badge").classList.contains(c));
+const [al, br, ch, de, ec] = tiles();
+assert.deepStrictEqual(state(al), ["working"], "a project with only working agents");
+assert.deepStrictEqual(state(br), ["waiting"], "waiting must win over working");
+assert.deepStrictEqual(state(ch), [], "a project whose panes are all idle carries a badge");
+assert.deepStrictEqual(state(de), [], "a project with no panes carries a badge");
+assert.deepStrictEqual(state(ec), ["waiting"]);
+
+const count = (t) => t.querySelector(".rail-count");
+assert.strictEqual(count(al).textContent, "\u25CF 3");
+assert.strictEqual(count(br).textContent, "\u25B2 2", "the count beside a waiting project is its waiting agents, not all of them");
+assert.strictEqual(count(ch).textContent, "");
+assert.strictEqual(count(al).getAttribute("aria-hidden"), "true", "the count would be read twice");
+
+assert.ok(al.getAttribute("aria-label").includes("3 agents are working"), al.getAttribute("aria-label"));
+assert.ok(!/waiting/.test(al.getAttribute("aria-label")));
+assert.ok(br.getAttribute("aria-label").includes("2 agents are waiting on you, an agent is working"), br.getAttribute("aria-label"));
+assert.ok((br.dataset.tip || "").includes("2 agents are waiting on you"), "the tooltip does not say it");
+assert.ok(ec.getAttribute("aria-label").includes("an agent is waiting on you"));
+assert.ok(!/working|waiting/.test(ch.getAttribute("aria-label")), "an idle project's name mentions activity");
+
+// Live: the tiles are kept, and only their summary moves.
+h.recv(fixture({ root: "C:/code/alpha", projects: [
+  mk("alpha", 1, 0, { active: true }), mk("bravo", 0, 0), mk("charlie", 0, 4), mk("delta", 0, 0, { panes: 0, tabs: 0 }), mk("echo", 0, 0),
+] }));
+assert.ok(tiles()[0] === al && tiles()[4] === ec, "a push rebuilt the tiles");
+assert.deepStrictEqual(state(al), ["waiting"]);
+assert.deepStrictEqual(state(br), [], "the badge stayed after the agents finished");
+assert.deepStrictEqual(state(ch), ["working"]);
+assert.deepStrictEqual(state(ec), []);
+assert.strictEqual(count(ec).textContent, "");
+assert.ok(!/working|waiting/.test(ec.getAttribute("aria-label")));
+
+// Many projects: every tile is drawn and each keeps its own summary.
+const many = Array.from({ length: 40 }, (_, i) => mk("proj" + i, i % 7 === 0 ? 1 : 0, i % 5 === 0 ? 2 : 0, { active: i === 0 }));
+h.recv(fixture({ root: "C:/code/proj0", projects: many }));
+assert.strictEqual(tiles().length, 40);
+assert.deepStrictEqual(state(tiles()[7]), ["waiting"]);
+assert.deepStrictEqual(state(tiles()[5]), ["working"]);
+assert.deepStrictEqual(state(tiles()[3]), []);
+`)
+	}
+}
+
 // On a narrow window the rail is out of sight until its toggle is pressed, so
 // its tiles' own badges - the rail's usual way of saying an agent is waiting
 // in a project that is not on screen - are out of sight with it. The toggle
