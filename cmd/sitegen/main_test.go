@@ -1215,3 +1215,26 @@ func TestEveryPageHasItsIcons(t *testing.T) {
 		t.Errorf("apple-touch-icon.png as written: %v", err)
 	}
 }
+
+// dl.flockdeck.ai keeps access logs. The policy has to say what they hold, for
+// how long and what they are not used for, and must not go back to saying the
+// server keeps none.
+func TestThePrivacyPolicyDisclosesDownloadAccessLogs(t *testing.T) {
+	_, pages := generate(t)
+	policy := strings.Join(strings.Fields(pages["privacy.html"]), " ")
+	for _, want := range []string{
+		"Downloads and update checks", "latest.json", "standard access logs",
+		"Entries are kept for 30 days", "user agent", "analytics, marketing or profiling",
+		"except where the law requires it",
+	} {
+		if !strings.Contains(policy, want) {
+			t.Errorf("privacy.html does not say %q", want)
+		}
+	}
+	if strings.Contains(policy, "keeps no access logs. You can turn") {
+		t.Error("privacy.html still says dl.flockdeck.ai keeps no access logs")
+	}
+	if !strings.Contains(pages["trust.html"], "access logs") {
+		t.Error("trust.html does not mention the download access logs")
+	}
+}

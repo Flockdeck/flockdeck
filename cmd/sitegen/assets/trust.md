@@ -1,6 +1,6 @@
 # Trust & privacy
 
-*Last updated: 23 September 2026*
+*Last updated: 25 September 2026*
 
 This is the plain-language version of Flockdeck's privacy story: what's
 collected, what isn't, and how that compares to what else is on the market.
@@ -30,6 +30,14 @@ no "privacy mode," because there's nothing to turn off:
   you supply yourself, and are described in full in the [privacy
   policy](privacy.html#the-desktop-app). Everything above holds while they are
   off.
+- **Downloads keep short-lived access logs.** The app, the installer scripts
+  and the update check are served from dl.flockdeck.ai, which keeps standard
+  access logs (IP address, path, time, response code and user agent) for 30
+  days, stored privately and used only for security, abuse and fixing
+  problems: not for analytics, marketing or profiling, and not shared except
+  as the law requires. The desktop app itself still collects nothing, and
+  none of your code or terminal content is part of a download. See the
+  [privacy policy](privacy.html#downloads-and-update-checks).
 - **Nobody's data is sold**, and nothing is used to train a model, anyone
   else's or Flockdeck's own — there is no model here to train.
 
@@ -44,7 +52,7 @@ Business and Enterprise plans are exempt automatically. Several other coding
 assistants offer a "zero data retention" mode you can turn on, sometimes only
 on a paid or team plan.
 
-Flockdeck itself collects nothing to begin with — on the free tier, same as
+The Flockdeck app itself collects nothing to begin with — on the free tier, same as
 any other — so there is no default to opt out of. That isn't a promise about
 a future release; it's what the app already does, and the desktop app's source
 is available, so you can read it and check.
