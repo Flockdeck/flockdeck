@@ -29,13 +29,13 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/creds"
 	"github.com/jmwri/flockdeck/internal/jev"
 	"github.com/jmwri/flockdeck/internal/route"
 )
@@ -258,9 +258,13 @@ func read(res *jev.Result) (route.Difficulty, error) {
 		Mechanical: m.Probability, MultiFile: f.Probability, Model: res.Model}, nil
 }
 
-// Enabled reports whether Jev could be asked at all: the key is set. The
+// Enabled reports whether Jev could be asked at all: a key is set, in Settings or the environment. The
 // policy's own switch is the other half, and For checks both.
-func Enabled() bool { return strings.TrimSpace(os.Getenv(jev.KeyEnv)) != "" }
+func Enabled() bool { return jev.Key(StoredKey) != "" }
+
+// StoredKey is where the key set in Settings comes from. It is a variable
+// only so a test can put a fake there.
+var StoredKey jev.KeyFunc = creds.JevKey
 
 var (
 	sharedMu sync.Mutex
@@ -286,7 +290,7 @@ func For(p agent.RoutingPolicy) route.Classifier {
 	if !p.Jev || p.Strategy != agent.StrategyCost {
 		return nil
 	}
-	c, err := jev.NewClientFromEnv()
+	c, err := jev.NewClient(StoredKey)
 	if err != nil {
 		return nil
 	}

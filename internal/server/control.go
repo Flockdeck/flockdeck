@@ -1581,6 +1581,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		}
 		s.setJevStatus(c, cmd.Kind == "on")
 		return
+	case "jevKey":
+		s.jevKey(c, cmd.Kind, cmd.Text)
+		return
 	case "setKeybinding":
 		s.setKeybinding(c, cmd.ID, cmd.Text)
 		return

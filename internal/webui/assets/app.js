@@ -281,6 +281,10 @@
    *  setting API keys or an API agent's address. The server refuses each of
    *  them from here anyway. */
   let remoteWindow = false;
+  /** What the machine last said about the TypeSafe key: {set, env}, never the
+   *  key. Null until asked; a window reached through the relay never asks. */
+  let jevKeyInfo = null;
+  let jevKeyAsked = false;
   /** hostE2EPublicKey is this desktop's own long-term end-to-end public key
    *  (internal/e2e, base64url), as the hello says -- unset for a local
    *  window, which needs nothing to encrypt against itself, and for a
@@ -425,6 +429,7 @@
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
       // A Clear pressed goes with the key it cleared; the keyboard goes to
       // that row's own button rather than out of the dialog.
+      else if (msg.type === "jevKey") { jevKeyInfo = { set: !!msg.set, env: !!msg.env }; settingsChanged(); }
       else if (msg.type === "keys") keepFocus(() => renderKeys(msg), () => keySetButton(keyActed));
       else if (msg.type === "versions") renderVersions(msg);
       else if (msg.type === "agentAddress") addressAnswered(msg);
@@ -9838,8 +9843,9 @@
       switchControl("set-auto-review-default", !!prefs.autoReviewDefault, (on) => setAutoReviewDefault(on))));
 
     pane.append(el("div", "set-sub", "Status detection"));
+    pane.append(jevKeyRow());
     pane.append(settingRow("Let TypeSafe's Jev help read pane status",
-      "Off by default. On, and with TYPESAFE_API_KEY set in the environment flockdeck runs in, the last " +
+      "Off by default. On, and with a TypeSafe API key set (above, or TYPESAFE_API_KEY in the environment flockdeck runs in), the last " +
       "30 lines (at most 2,000 characters) of a pane's terminal output are SENT TO TYPESAFE, a third party, " +
       "whenever an agent that reports no status of its own goes quiet and flockdeck cannot tell finished " +
       "from stopped on a question. Nothing else is sent: not the scrollback, the pane's name, or its folder. " +
@@ -9847,6 +9853,58 @@
       "are never sent. It can only turn a quiet pane into waiting or blocked, never the other way. " +
       "This can only be turned on on the machine itself, not from a window reached through the relay.",
       switchControl("set-jev-status", !!prefs.jevStatus, (on) => setJevStatus(on))));
+  }
+
+  /** jevKeyRow is where the TypeSafe API key is set, replaced and cleared. The
+   *  field is masked and starts empty every time: the window is never told the
+   *  key, only whether one is set, so there is nothing to show back. Setting a
+   *  key sends nothing anywhere; the two switches that use it are separate and
+   *  stay off until turned on. Not offered in a window reached through the
+   *  relay, which would send the key through it. */
+  function jevKeyRow() {
+    const box = el("div", "wt-form");
+    box.id = "set-jev-key";
+    const info = jevKeyInfo;
+    let state = "Checking…";
+    if (remoteWindow) state = "Set on the machine flockdeck runs on, not from here.";
+    else if (info) {
+      state = info.set ? "Set." : info.env ? "Not set here; TYPESAFE_API_KEY from the environment is used." : "Not set.";
+      if (info.set && info.env) state = "Set. It is used in place of TYPESAFE_API_KEY from the environment.";
+    }
+    if (!remoteWindow) {
+      if (!jevKeyAsked) { jevKeyAsked = true; send({ cmd: "jevKey", kind: "get" }); }
+      const field = el("input");
+      field.id = "set-jev-key-field";
+      field.type = "password";
+      field.placeholder = info && info.set ? "Paste a new key to replace it" : "Paste your TypeSafe API key";
+      field.autocomplete = "off";
+      field.spellcheck = false;
+      field.setAttribute("aria-label", "TypeSafe API key");
+      const save = () => {
+        const value = field.value.trim();
+        field.value = "";
+        if (value) send({ cmd: "jevKey", kind: "set", text: value });
+      };
+      field.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); save(); } };
+      const ok = el("button", "chip primary", info && info.set ? "Replace" : "Save");
+      ok.id = "set-jev-key-save";
+      ok.onclick = save;
+      box.append(field, ok);
+      if (info && info.set) {
+        const clear = el("button", "chip danger", "Clear");
+        clear.id = "set-jev-key-clear";
+        clear.onclick = () => { field.value = ""; send({ cmd: "jevKey", kind: "clear" }); };
+        box.append(clear);
+      }
+    }
+    const status = el("div", "set-desc", "Key status: " + state);
+    status.id = "set-jev-key-status";
+    return settingRow("TypeSafe API key",
+      "Used only for the two Jev settings below and under Routing. Saving a key sends nothing: they stay off until " +
+      "you turn one on, and what they send is described there, including that it goes to TypeSafe, a third party. " +
+      "The key is kept on this machine in flockdeck's key store, is only ever sent to api.typesafe.ai, and is never " +
+      "shown again. If none is set here, TYPESAFE_API_KEY from the environment is used. It can only be set on the machine itself.",
+      box, status);
   }
 
   function setJevStatus(on) {
@@ -10184,7 +10242,7 @@
     pane.append(settingRow("Ask Jev to rate unmatched work",
       "With Minimise cost, a fan-out row no rule matched can be rated by TypeSafe's Jev model, so hard work is not " +
       "sent to the cheapest model blindly. This sends the text of that row (its first 2,000 characters) to TypeSafe, " +
-      "a third party, and nothing else: no files, no repository, no history. It needs TYPESAFE_API_KEY set" +
+      "a third party, and nothing else: no files, no repository, no history. It needs a TypeSafe API key (set in Settings › Behaviour, or TYPESAFE_API_KEY in the environment)" +
       (r.jevKey ? "" : " (it is not set, so nothing is sent)") + " and does nothing under Cost-first, quality-aware. " +
       "Off until you turn it on, " + (own ? "for this project." : "for every project."), jevLabel));
     if (r.note) {

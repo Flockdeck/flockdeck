@@ -325,6 +325,35 @@ func TestAnAnswerOffTheRubricIsNoAnswer(t *testing.T) {
 	}
 }
 
+func init() {
+	// No test here reads the real keys.json of whoever runs them.
+	StoredKey = func() string { return "" }
+}
+
+// The key set in Settings is enough for the policy's classifier, and is asked
+// for again on each use, so one cleared later is not remembered.
+func TestForUsesTheSettingsKey(t *testing.T) {
+	t.Setenv(jev.KeyEnv, "")
+	Reset()
+	defer Reset()
+	key := "FAKE-settings-key"
+	StoredKey = func() string { return key }
+	defer func() { StoredKey = func() string { return "" } }()
+	on := agent.RoutingPolicy{Mode: agent.RoutingAuto, Strategy: agent.StrategyCost, Jev: true}
+	if !Enabled() || For(on) == nil {
+		t.Error("a key set in Settings is not used")
+	}
+	off := on
+	off.Jev = false
+	if For(off) != nil {
+		t.Error("a key alone started a classifier: the setting is what turns it on")
+	}
+	key = ""
+	if Enabled() || For(on) != nil {
+		t.Error("a key cleared in Settings is still used")
+	}
+}
+
 // For is nil, so the router never sees a classifier, unless the policy turned
 // Jev on and the key is set.
 func TestForNeedsBothTheSettingAndTheKey(t *testing.T) {

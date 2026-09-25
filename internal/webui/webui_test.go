@@ -5555,6 +5555,27 @@ assert.ok(on("set-jev-status"), "the switch did not turn on at once");
 h.click(h.$("set-jev-status"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "jevStatus", kind: "off" });
 
+// The TypeSafe key: masked, never shown back, and saving it turns nothing on.
+assert.ok(h.commands().some((c) => c.cmd === "jevKey" && c.kind === "get"), "the key's state was not asked for");
+assert.strictEqual(h.$("set-jev-key-field").type, "password", "the key field is not masked");
+assert.ok(/Key status: (Checking|Not set)/.test(h.$("set-jev-key-status").textContent), h.$("set-jev-key-status").textContent);
+assert.ok(!h.$("set-jev-key-clear"), "a key that is not set offers to be cleared");
+const keyRow = h.$("set-jev-key").parentElement.parentElement.textContent;
+assert.ok(/Saving a key sends nothing/.test(keyRow) && /third party/.test(keyRow) && /TYPESAFE_API_KEY/.test(keyRow), "the key's row does not say what it does: " + keyRow);
+h.$("set-jev-key-field").value = "  FAKE-key-for-tests  ";
+h.click(h.$("set-jev-key-save"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "jevKey", kind: "set", text: "FAKE-key-for-tests" });
+assert.strictEqual(h.$("set-jev-key-field").value, "", "the typed key was left in the field");
+assert.ok(!on("set-jev-status"), "saving a key turned on sending terminal output");
+h.recv({ type: "jevKey", set: true, env: false });
+assert.ok(/Key status: Set/.test(h.$("set-jev-key-status").textContent), "the state is not shown");
+assert.ok(!h.$("settings-pane").textContent.includes("FAKE-key"), "the key is shown back");
+assert.ok(!h.$("set-jev-key-field").value, "the field was filled from what the machine said");
+h.click(h.$("set-jev-key-clear"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "jevKey", kind: "clear" });
+h.recv({ type: "jevKey", set: false, env: true });
+assert.ok(/TYPESAFE_API_KEY from the environment is used/.test(h.$("set-jev-key-status").textContent), h.$("set-jev-key-status").textContent);
+
 // Keybindings.
 h.click(h.$("settings-tab-keybindings"));
 const closePane = h.$("set-keybind-closePane");

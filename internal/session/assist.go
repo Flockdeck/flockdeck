@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jmwri/flockdeck/internal/creds"
 	"github.com/jmwri/flockdeck/internal/jev"
 )
 
@@ -40,7 +41,7 @@ type StatusAssist struct {
 	// on every decision rather than once, so turning it off stops the next
 	// ask and not the next launch.
 	Enabled func() bool
-	// NewClient is where a client comes from; nil is jev.NewClientFromEnv. It is
+	// NewClient is where a client comes from; nil is jev.NewClient with the key from Settings. It is
 	// asked each time so a key exported after Flockdeck started is found, and a
 	// test points it at a fake server.
 	NewClient func() (*jev.Client, error)
@@ -181,7 +182,7 @@ func (a *StatusAssist) Assess(ctx context.Context, paneID, tail string) (Status,
 	}
 	newClient := a.NewClient
 	if newClient == nil {
-		newClient = jev.NewClientFromEnv
+		newClient = func() (*jev.Client, error) { return jev.NewClient(creds.JevKey) }
 	}
 	// Without a key there is nothing to do and nothing to say: it is the
 	// ordinary state of a machine that has not opted into TypeSafe.

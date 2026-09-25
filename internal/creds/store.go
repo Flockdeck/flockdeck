@@ -114,7 +114,7 @@ func Names() ([]string, error) {
 	}
 	out := make([]string, 0, len(keys))
 	for id, v := range keys {
-		if strings.TrimSpace(v) != "" {
+		if strings.TrimSpace(v) != "" && !reserved(id) {
 			out = append(out, id)
 		}
 	}
@@ -133,6 +133,9 @@ func Set(agentID, key string) error {
 	if agentID == "" {
 		return errors.New("which agent the key is for is missing")
 	}
+	if reserved(agentID) {
+		return errors.New("that is not an agent")
+	}
 	if key == "" {
 		return errors.New("the key is empty")
 	}
@@ -148,6 +151,9 @@ func Set(agentID, key string) error {
 
 // Clear removes an agent's key and reports whether there was one to remove.
 func Clear(agentID string) (bool, error) {
+	if reserved(agentID) {
+		return false, nil
+	}
 	storeMu.Lock()
 	defer storeMu.Unlock()
 	keys, err := load()
