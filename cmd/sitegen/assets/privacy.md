@@ -1,6 +1,6 @@
 # Privacy policy
 
-*Last updated: 23 September 2026*
+*Last updated: 25 September 2026*
 
 Flockdeck is made by Jim Wright, an individual based in the United Kingdom.
 This policy explains what personal data is involved when you use the
@@ -31,6 +31,10 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
   records under its own policy.
 - **This website** sets no cookies, runs no analytics, and loads nothing from
   anyone else.
+- **Downloads keep short-lived access logs.** The app, the installer scripts
+  and the update check are served from dl.flockdeck.ai, which keeps standard
+  access logs for 30 days, for security and to fix problems. They are not used
+  for analytics; see [Downloads and update checks](#downloads-and-update-checks).
 - **Nobody's data is sold,** and nothing is used for advertising.
 
 ## The desktop app
@@ -84,8 +88,9 @@ The app makes these network connections of its own.
   it reaches sees your IP address, as it would for any download; see
   [GitHub's privacy
   statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement).
-  dl.flockdeck.ai keeps no access logs. You can turn update checks off in
-  Settings or with `FLOCKDECK_UPDATE=off`.
+  dl.flockdeck.ai keeps access logs, as [Downloads and update
+  checks](#downloads-and-update-checks) describes. You can turn update checks
+  off in Settings or with `FLOCKDECK_UPDATE=off`.
 - **The relay**, only after you turn on remote access. See below.
 - **Your git remotes**, when you push, pull or fetch from the review panel.
   These are the remotes your repository already has.
@@ -339,6 +344,29 @@ above. Downloads from dl.flockdeck.ai
 may get its content delivery network's security cookie, as
 [Who else is involved](#who-else-is-involved) describes.
 
+## Downloads and update checks
+
+The app, the installer scripts and the update check (`latest.json`) are all
+served from dl.flockdeck.ai. It is a DigitalOcean Space behind DigitalOcean's
+content delivery network, and it keeps standard access logs. Each entry
+records the address the request came from (its IP address), the path
+requested, the time, the response code and the user agent.
+
+- **How long.** Entries are kept for 30 days, and then deleted.
+- **Where.** They are stored privately, and are not published.
+- **What for.** Only to investigate security problems and abuse, and to find
+  and fix problems with downloads. They are not used for analytics, marketing
+  or profiling, and we do not analyse them to see how the app is used.
+- **Who sees them.** Nobody else. They are not shared, except where the law
+  requires it.
+
+The basis is our legitimate interest in running a secure and reliable
+service. The content delivery network handles each request on its way, as
+[Who else is involved](#who-else-is-involved) describes. Flockdeck itself
+still has no analytics: the app sends nothing to dl.flockdeck.ai beyond the
+request for a file or for `latest.json`, and none of your code or terminal
+content is ever part of it.
+
 ## Sponsoring
 
 If you sponsor Flockdeck, you do it through GitHub Sponsors, which handles
@@ -359,8 +387,8 @@ Sponsoring buys no features, support or priority.
   notices and recovery. The basis is performance of a contract.
 - **To keep tax records:** the record of each payment and refund, for as long
   as the law requires. The basis is legal obligation.
-- **To keep the relay secure and working:** rate limiting, logs and access
-  logs. The basis is our legitimate interest in running a secure and reliable
+- **To keep the relay and the downloads secure and working:** rate limiting,
+  logs and access logs, including dl.flockdeck.ai's. The basis is our legitimate interest in running a secure and reliable
   service.
 
 ## Who else is involved
@@ -368,7 +396,10 @@ Sponsoring buys no features, support or priority.
 The relay and this website are hosted by DigitalOcean, in its London region.
 DigitalOcean provides the servers, the database and DNS, and serves releases
 and update downloads from dl.flockdeck.ai through its content delivery
-network, which answers from locations around the world. That network is
+network, which answers from locations around the world. DigitalOcean also
+keeps dl.flockdeck.ai's access logs for us, as [Downloads and update
+checks](#downloads-and-update-checks) describes, and the network sees each
+request's address as it passes. That network is
 Cloudflare's, and Cloudflare sets a short-lived security cookie, `__cf_bm`,
 on downloads from dl.flockdeck.ai to tell people from bots. It is strictly
 necessary, it is set by Cloudflare rather than by Flockdeck, and the app's
