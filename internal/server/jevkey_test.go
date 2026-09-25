@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -16,8 +18,19 @@ import (
 	"github.com/jmwri/flockdeck/internal/store"
 )
 
-// fakeJevKey is obviously not a key.
-const fakeJevKey = "FAKE-jev-key-for-tests-0000"
+// fakeJevKey is obviously not a key, and is a fresh random marker each run, so
+// that no part of it -- the whole or its tail -- can turn up in a temp path or
+// any other field by chance. (A fixed "...0000" tail once matched the digits in
+// macOS's /var/folders/.../T/ path, and the test called a state message a leak.)
+var fakeJevKey = "FAKE-jev-" + randomMarker()
+
+func randomMarker() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}
 
 // readAllUntil reads every message up to and including one of type typ, and
 // returns them raw, so a test can look for text that must not be in any.
@@ -65,7 +78,7 @@ func TestJevKeyIsSetAndClearedAtTheDesk(t *testing.T) {
 		t.Fatalf("after setting: %s", last)
 	}
 	for _, m := range raw {
-		if strings.Contains(m, fakeJevKey) || strings.Contains(m, "0000") {
+		if strings.Contains(m, fakeJevKey) || strings.Contains(m, fakeJevKey[len(fakeJevKey)-12:]) {
 			t.Errorf("a message to the window carries the key: %s", m)
 		}
 	}
