@@ -276,7 +276,7 @@ type RepoSummary struct {
 type Workspace struct {
 	// statusAssist is the one Jev assistant every pane shares, so its rate
 	// limits hold across the workspace. It asks nothing unless the user has
-	// turned on Prefs.JevStatus and TYPESAFE_API_KEY is set.
+	// turned on Prefs.JevStatus and a TypeSafe key is set (Settings or TYPESAFE_API_KEY).
 	statusAssist *session.StatusAssist
 
 	// Tabs holds every tab across every open project, in creation order.

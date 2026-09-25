@@ -86,6 +86,18 @@ func load() (map[string]string, error) {
 // needing a key. Saying so through an error here would only give a dozen
 // callers a way to print one.
 func stored(agentID string) string {
+	// A reserved id is not an agent's, so no Spec, whatever id it is given in
+	// agents.json, can resolve what is kept under one: the TypeSafe key is read
+	// only by JevKey.
+	if reserved(agentID) {
+		return ""
+	}
+	return storedRaw(agentID)
+}
+
+// storedRaw is stored without the reserved-id refusal, for the functions in
+// this package that own a reserved id.
+func storedRaw(agentID string) string {
 	if agentID == "" {
 		return ""
 	}
@@ -114,7 +126,7 @@ func Names() ([]string, error) {
 	}
 	out := make([]string, 0, len(keys))
 	for id, v := range keys {
-		if strings.TrimSpace(v) != "" {
+		if strings.TrimSpace(v) != "" && !reserved(id) {
 			out = append(out, id)
 		}
 	}
@@ -133,6 +145,9 @@ func Set(agentID, key string) error {
 	if agentID == "" {
 		return errors.New("which agent the key is for is missing")
 	}
+	if reserved(agentID) {
+		return errors.New("that is not an agent")
+	}
 	if key == "" {
 		return errors.New("the key is empty")
 	}
@@ -148,6 +163,9 @@ func Set(agentID, key string) error {
 
 // Clear removes an agent's key and reports whether there was one to remove.
 func Clear(agentID string) (bool, error) {
+	if reserved(agentID) {
+		return false, nil
+	}
 	storeMu.Lock()
 	defer storeMu.Unlock()
 	keys, err := load()

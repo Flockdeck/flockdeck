@@ -84,7 +84,7 @@ type Prefs struct {
 	// agent reports none, by being sent the last lines of that pane's terminal
 	// output -- the one place terminal content leaves the user's machines other
 	// than to the agent's own provider. Off by default, and does nothing
-	// without a TYPESAFE_API_KEY in the environment as well. See
+	// without a TypeSafe key (Settings or TYPESAFE_API_KEY) as well. See
 	// session.StatusAssist.
 	JevStatus bool `json:"jevStatus,omitempty"`
 

@@ -533,3 +533,43 @@ func TestAPIErrorText(t *testing.T) {
 		t.Errorf("529 reads %q", got)
 	}
 }
+
+// The key set in Settings wins over the environment's; without one the
+// environment's is used exactly as before; and no other variable is ever a
+// fallback. The provider is asked on each use.
+func TestKeyPrecedence(t *testing.T) {
+	t.Setenv("FLOCKDECK_API_KEY", "another-vendors-key")
+	t.Setenv("ANTHROPIC_API_KEY", "another-vendors-key")
+	stored := ""
+	provider := func() string { return stored }
+
+	t.Setenv(KeyEnv, "")
+	if _, err := NewClient(provider); !errors.Is(err, ErrNoKey) {
+		t.Errorf("no key anywhere: %v", err)
+	}
+	if _, err := NewClient(nil); !errors.Is(err, ErrNoKey) {
+		t.Errorf("nil provider: %v", err)
+	}
+	t.Setenv(KeyEnv, "env-key")
+	if c, err := NewClient(provider); err != nil || c.Key != "env-key" {
+		t.Errorf("environment only: %+v, %v", c, err)
+	}
+	stored = "  settings-key\n"
+	if c, err := NewClient(provider); err != nil || c.Key != "settings-key" {
+		t.Errorf("both set: %+v, %v", c, err)
+	}
+	// Cleared later: the next use falls back.
+	stored = " "
+	if c, err := NewClient(provider); err != nil || c.Key != "env-key" {
+		t.Errorf("settings key cleared: %+v, %v", c, err)
+	}
+	// A key in Settings alone is enough, with the environment's unset.
+	t.Setenv(KeyEnv, "")
+	stored = "settings-key"
+	if c, err := NewClient(provider); err != nil || c.Key != "settings-key" {
+		t.Errorf("settings only: %+v, %v", c, err)
+	}
+	if !strings.Contains(ErrNoKey.Error(), "Settings") {
+		t.Errorf("ErrNoKey does not say where to set it: %v", ErrNoKey)
+	}
+}

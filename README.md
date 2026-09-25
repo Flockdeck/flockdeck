@@ -700,7 +700,7 @@ Routing makes no request of any kind, except in two cases you turn on. With
 cross-agent routing on, it opens a TCP connection to such an agent's address,
 and closes it at once without sending anything, before moving work there. With
 `"strategy": "cost"` and `"jev": true` (Settings › Agents › Routing, **Ask Jev
-to rate unmatched work**) and `TYPESAFE_API_KEY` set, a fan-out row that no rule
+to rate unmatched work**) and a TypeSafe API key set (Settings › Behaviour, or `TYPESAFE_API_KEY`), a fan-out row that no rule
 matched has its text sent to TypeSafe's Jev model, which rates how demanding it
 is so that the cheapest-model fallback can pick a tier to suit; that is off by
 default, sends that text alone (cut at 2,000 characters, unredacted), and only

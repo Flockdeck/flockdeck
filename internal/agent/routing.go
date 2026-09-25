@@ -70,7 +70,7 @@ type RoutingPolicy struct {
 	// fallback can choose a tier to suit it rather than always the floor.
 	// It is off unless set, because turning it on sends the text of the task
 	// to a third party: it is the user's deliberate choice, made here and
-	// nowhere else, and it also needs TYPESAFE_API_KEY. It changes nothing
+	// nowhere else, and it also needs a TypeSafe API key (Settings or TYPESAFE_API_KEY). It changes nothing
 	// under StrategyBalanced, where nothing unmatched is routed at all.
 	Jev bool `json:"jev,omitempty"`
 	// Rules are tried in order and the first that matches decides. Absent

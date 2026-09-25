@@ -71,7 +71,7 @@ const (
 // NewClientFromEnv and Ask say for an unset or blank one, before any HTTP call,
 // so that a missing key is never seen as a 401 from somewhere in the middle of
 // a request that could never have worked.
-var ErrNoKey = errors.New("no TypeSafe API key: set " + KeyEnv)
+var ErrNoKey = errors.New("no TypeSafe API key: set one in Settings, or set " + KeyEnv)
 
 // The sentinels below are what an APIError unwraps to, so a caller who cares
 // which refusal it was asks errors.Is and one who does not treats the error
@@ -151,7 +151,7 @@ type Client struct {
 	APIBase string
 	// Key is the TypeSafe API key. Never logged and never put in an error
 	// message: it goes in the Authorization header and nowhere else. Read from
-	// KeyEnv by NewClientFromEnv, and committed nowhere.
+	// Settings or KeyEnv by NewClient, and committed nowhere.
 	Key string
 	// Model is what to ask; DefaultModel when empty.
 	Model string
@@ -162,17 +162,38 @@ type Client struct {
 	HTTP *http.Client
 }
 
-// NewClientFromEnv is a client with the key in KeyEnv, or ErrNoKey when there
-// is none. A caller that wants Jev only when it is set -- these are features
+// KeyFunc is where a client's key comes from: the key set in Settings, or ""
+// when there is none. It is asked on each use, so a key set later is found.
+type KeyFunc func() string
+
+// Key is the key to send: the one from Settings (stored) when there is one,
+// else KeyEnv from the environment, else "". No other variable is ever
+// consulted -- FLOCKDECK_API_KEY and the vendors' keys belong to other
+// services and are never sent here. stored may be nil.
+func Key(stored KeyFunc) string {
+	if stored != nil {
+		if k := strings.TrimSpace(stored()); k != "" {
+			return k
+		}
+	}
+	return strings.TrimSpace(os.Getenv(KeyEnv))
+}
+
+// NewClient is a client with the key Key finds, or ErrNoKey when there is
+// none. A caller that wants Jev only when it is set -- these are features
 // that should quietly not happen without a key, not break -- checks for that
-// error and carries on without.
-func NewClientFromEnv() (*Client, error) {
-	key := strings.TrimSpace(os.Getenv(KeyEnv))
+// error and carries on without. A key alone is never a reason to send
+// anything: the callers check their own switches first.
+func NewClient(stored KeyFunc) (*Client, error) {
+	key := Key(stored)
 	if key == "" {
 		return nil, ErrNoKey
 	}
 	return &Client{Key: key}, nil
 }
+
+// NewClientFromEnv is NewClient with no Settings key: the environment only.
+func NewClientFromEnv() (*Client, error) { return NewClient(nil) }
 
 // Usage is what a call cost, in tokens, as TypeSafe counts them.
 type Usage struct {

@@ -26,8 +26,8 @@ no "privacy mode," because there's nothing to turn off:
 - **This website** sets no cookies, runs no analytics and loads nothing from
   anyone else.
 - **Two optional features send content to a third party, TypeSafe AI**, and
-  only if you turn them on: they are off by default, need a `TYPESAFE_API_KEY`
-  you supply yourself, and are described in full in the [privacy
+  only if you turn them on: they are off by default, need a TypeSafe API key
+  you supply yourself (in Settings, or as `TYPESAFE_API_KEY`), and are described in full in the [privacy
   policy](privacy.html#the-desktop-app). Everything above holds while they are
   off.
 - **Nobody's data is sold**, and nothing is used to train a model, anyone

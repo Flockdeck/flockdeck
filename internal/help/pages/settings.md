@@ -29,6 +29,11 @@ the keys change, so whichever you use, the others show it.
   **Status detection**: whether TypeSafe's Jev model may help read the status
   of a pane whose agent reports none. **Off by default**, and it sends
   terminal output to a third party — see [Knowing who needs you](#status).
+  Above it, **TypeSafe API key** is where you paste, replace or clear the key
+  that feature and **Ask Jev to rate unmatched work** need. The field is
+  masked and never shows the key back, only whether one is set. Saving a key
+  sends nothing: both features stay off until you turn them on. At the desk
+  only.
 - **Keybindings** — every shortcut this window's own chrome offers, grouped as
   [Keyboard shortcuts](#shortcuts) groups them, each with a button that
   records the next key you press as its new binding; **Reset** puts one back,
@@ -122,6 +127,9 @@ word. On a narrow screen the sections go across the top.
   the settings. Kept in `prefs.json`.
 - **Status detection with Jev** — **Behaviour** in the settings. Kept in
   `prefs.json`; off unless you turn it on, and only from the machine itself.
+- **TypeSafe API key** — **Behaviour** in the settings. Kept in `keys.json`
+  with your agents' keys, never in `prefs.json`; set and cleared at the desk
+  only, never shown back, and only ever sent to `api.typesafe.ai`.
 
 ## In the state directory
 
@@ -135,8 +143,9 @@ set).
   and `routing`, for one under `projects`. [Agents and models](#agents)
   describes it. It is read again each time the picker opens, so editing it
   needs no restart.
-- `keys.json` — API keys set through Flockdeck. A key exported in the
-  environment is used first.
+- `keys.json` — API keys set through Flockdeck, and the TypeSafe key. A key
+  exported in the environment is used first, except for the TypeSafe key, where
+  the one set in Settings is.
 - `remote.json` — this machine's enrolment with the relay.
   `flockdeck remote disable` removes it.
 - `routing.jsonl` — what routing chose for each routed fan-out row, and
@@ -188,8 +197,11 @@ elsewhere — and start Flockdeck again.
   installed on purpose from updating itself to the latest.
 - `FLOCKDECK_RELAY` — which relay `flockdeck remote enable` uses.
 - `TYPESAFE_API_KEY` — a key for TypeSafe's Jev, used only when **Status
-  detection** under **Behaviour** is turned on; see
-  [Knowing who needs you](#status). Without it nothing is ever sent.
+  detection** under **Behaviour**, or **Ask Jev to rate unmatched work**, is
+  turned on; see [Knowing who needs you](#status). A key set in **Settings ›
+  Behaviour › TypeSafe API key** is used first; this is the fallback when none
+  is set there. No other variable is ever tried. Without a key nothing is ever
+  sent.
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GEMINI_API_KEY` (or
   `GOOGLE_API_KEY`) — keys for the API agents talking to those vendors' own
   addresses, used before anything in `keys.json`. An agent given another

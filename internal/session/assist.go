@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jmwri/flockdeck/internal/creds"
 	"github.com/jmwri/flockdeck/internal/jev"
 )
 
@@ -21,7 +22,7 @@ import (
 // PRIVACY. Asking sends the tail of the pane's terminal output to a third
 // party, TypeSafe, which nothing else in Flockdeck does with terminal content.
 // So it is off unless BOTH the user has turned the setting on (Enabled) and
-// TYPESAFE_API_KEY is set, and what is sent is only the last assistTailLines
+// a TypeSafe key is set (Settings or TYPESAFE_API_KEY), and what is sent is only the last assistTailLines
 // lines, at most assistTailBytes, with escape sequences taken out: never the
 // scrollback, the pane's name, or its working directory. No redaction of
 // secrets that may be on screen is done -- there is no general helper for it
@@ -40,7 +41,7 @@ type StatusAssist struct {
 	// on every decision rather than once, so turning it off stops the next
 	// ask and not the next launch.
 	Enabled func() bool
-	// NewClient is where a client comes from; nil is jev.NewClientFromEnv. It is
+	// NewClient is where a client comes from; nil is jev.NewClient with the key from Settings. It is
 	// asked each time so a key exported after Flockdeck started is found, and a
 	// test points it at a fake server.
 	NewClient func() (*jev.Client, error)
@@ -181,7 +182,7 @@ func (a *StatusAssist) Assess(ctx context.Context, paneID, tail string) (Status,
 	}
 	newClient := a.NewClient
 	if newClient == nil {
-		newClient = jev.NewClientFromEnv
+		newClient = func() (*jev.Client, error) { return jev.NewClient(creds.JevKey) }
 	}
 	// Without a key there is nothing to do and nothing to say: it is the
 	// ordinary state of a machine that has not opted into TypeSafe.

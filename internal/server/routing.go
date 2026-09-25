@@ -491,7 +491,7 @@ type routingView struct {
 	// policy Every or Project names, never mixed between the two.
 	CrossAgent bool `json:"crossAgent,omitempty"`
 	// Jev is the policy's switch for asking Jev to rate work no rule matched,
-	// and JevKey whether TYPESAFE_API_KEY is set, since it does nothing
+	// and JevKey whether a TypeSafe key is set (Settings or TYPESAFE_API_KEY), since it does nothing
 	// without one. Fallback is the log's account of the fallback's decisions,
 	// with and without Jev, for comparison.
 	Jev      bool           `json:"jev,omitempty"`
@@ -695,7 +695,7 @@ func routingNotice(where, field, value string) string {
 	}
 	if field == "jev" {
 		if value == "true" {
-			return "routing may now send the text of a fan-out row no rule matched to TypeSafe, for " + where + " -- it also needs TYPESAFE_API_KEY, and only applies to Minimise cost"
+			return "routing may now send the text of a fan-out row no rule matched to TypeSafe, for " + where + " -- it also needs a TypeSafe API key (Settings › Behaviour, or TYPESAFE_API_KEY), and only applies to Minimise cost"
 		}
 		return "routing no longer sends anything to TypeSafe for " + where
 	}

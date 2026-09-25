@@ -75,3 +75,18 @@ assert.ok(!h.$("agent-address"), "a window reached through the relay was given a
 assert.ok(!h.commands().some((c) => c.cmd === "setAgentAddress"), "a window reached through the relay sent an address");
 `)
 }
+
+// A window reached through the relay is not given the TypeSafe key's field,
+// and never asks the machine about the key: a key typed there would pass
+// through the relay, which the server refuses in any case.
+func TestARemoteWindowIsNotOfferedTheTypeSafeKey(t *testing.T) {
+	runFrontEnd(t, `
+h.recv({ type: "hello", keys: h.keyTable(), prefs: { helpSeen: true, dismissedTips: [] }, remote: true });
+h.recv(fixture());
+h.click(h.$("btn-settings"));
+h.click(h.$("settings-tab-behaviour"));
+assert.ok(!h.$("set-jev-key-field") && !h.$("set-jev-key-save"), "a window reached through the relay is given a field for the TypeSafe key");
+assert.ok(h.$("set-jev-key-status").textContent.includes("not from here"), h.$("set-jev-key-status").textContent);
+assert.ok(!h.commands().some((c) => c.cmd === "jevKey"), "a window reached through the relay asked about the TypeSafe key");
+`)
+}

@@ -111,7 +111,11 @@ default** and needs both of these:
 1. **Settings › Behaviour › Status detection** turned on. It can only be turned
    on from the machine itself, not from a window reached through the relay;
    turning it off works from anywhere.
-2. `TYPESAFE_API_KEY` set in the environment Flockdeck starts in.
+2. A TypeSafe API key: either the one you paste into **Settings › Behaviour ›
+   TypeSafe API key** (kept on this machine with your other keys, never shown
+   back, only ever sent to `api.typesafe.ai`, and only set from the machine
+   itself), or `TYPESAFE_API_KEY` in the environment Flockdeck starts in. The
+   one in Settings is used first. Saving a key does not turn anything on.
 
 With either missing, nothing is ever sent, and no error is shown.
 

@@ -101,8 +101,11 @@ The app makes these network connections of its own.
   with them.
 - **TypeSafe AI** (api.typesafe.ai), only if you turn on one of two optional
   features. Both are off by default, and each needs an explicit setting in
-  Flockdeck **and** a `TYPESAFE_API_KEY` that you have set yourself in the
-  environment Flockdeck starts in; with either missing, nothing is sent.
+  Flockdeck **and** a TypeSafe API key that you have set yourself, either in
+  Flockdeck's Settings or as `TYPESAFE_API_KEY` in the environment Flockdeck
+  starts in; with either missing, nothing is sent. A key entered in Settings is
+  kept in Flockdeck's key store on your machine and is sent only to
+  api.typesafe.ai.
   - *Status detection* (Settings, Behaviour). When an agent that reports no
     status of its own goes quiet, the last 30 lines of that pane's terminal
     output, at most 2,000 bytes and with escape sequences removed, are sent so
