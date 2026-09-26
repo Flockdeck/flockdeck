@@ -53,10 +53,16 @@ tells you what the agent is actually doing rather than only that it is busy.
   turn failed is left alone too, since a failure is worth a look before it
   disappears. An idle agent that still has background work going — a command
   it started with `run_in_background`, or a background subagent — is not
-  finished either, since closing it would kill that work. Flockdeck learns of
-  a background command from the agent's hooks and cannot see it end on its
-  own, so it counts until the agent stops it, the conversation is cleared, or
-  the pane is closed by hand (or with `flockdeck close --force`).
+  finished either, since closing it would kill that work. Its header says
+  `◔ 1 in background` while it has any, and so does its row in
+  [[key:agents]]. Flockdeck learns the work has ended when Claude Code tells
+  the agent so, or says at the end of a turn what is still running. A Claude
+  Code too old to say either keeps it counted until the agent stops it, the
+  conversation is cleared, or the pane is closed by hand (or with
+  `flockdeck close --force`).
+- A background subagent calling tools after its agent's turn has ended leaves
+  the pane grey, with that count, rather than flashing green for each call.
+  A question or permission prompt it puts to you still turns it amber.
 
 ## Where it comes from
 

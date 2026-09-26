@@ -279,3 +279,41 @@ func TestBackgroundWorkIsForgottenOnAFreshConversation(t *testing.T) {
 		t.Fatal("a cleared conversation still has background work")
 	}
 }
+
+// TestAnAgentWhoseBackgroundCommandEndedByItselfIsFinished covers a
+// run_in_background command that simply finishes, which Claude Code fires no
+// hook of its own for. What it does do is submit a <task-notification> as a
+// prompt, so the agent can read the result, and say at the end of the turn
+// that follows what is still in flight; either is enough for the pane to be
+// finished again, where it used to stay open until the conversation was
+// cleared.
+func TestAnAgentWhoseBackgroundCommandEndedByItselfIsFinished(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+
+	for _, c := range []struct {
+		name string
+		end  []hooks.Event
+	}{
+		{"the notification", []hooks.Event{
+			{Event: "UserPromptSubmit", Background: hooks.BackgroundEnd, BackgroundID: "task:b1"},
+			{Event: "Stop"}}},
+		{"the next Stop's list", []hooks.Event{
+			{Event: "UserPromptSubmit"},
+			{Event: "Stop", BackgroundTasks: inFlight()}}},
+	} {
+		p := agentPaneIn(t, ws, root, c.name)
+		deliver(ws, p,
+			hooks.Event{Event: "UserPromptSubmit"},
+			hooks.Event{Event: "PostToolUse", Tool: "Bash", Background: hooks.BackgroundStart, BackgroundID: "shell:b1"},
+			hooks.Event{Event: "Stop", BackgroundTasks: inFlight("shell:b1")})
+		if ws.PaneFinished(p.ID) {
+			t.Fatalf("%s: PaneFinished is true with the command still running", c.name)
+		}
+		deliver(ws, p, c.end...)
+		if !ws.PaneFinished(p.ID) {
+			t.Errorf("%s: PaneFinished is false once the command had ended (background tasks = %d)", c.name, p.Sess.BackgroundTasks())
+		}
+	}
+}

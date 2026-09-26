@@ -617,6 +617,11 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	} else if ev.Event == "SessionStart" && (ev.Source == "clear" || ev.Source == "startup") {
 		sess.NoteBackground(ev.Event, "", "")
 	}
+	// A turn's end says what is still in flight, which is the whole of it:
+	// what was counted one start and end at a time gives way to it.
+	if ev.BackgroundTasks != nil {
+		sess.SetBackground(*ev.BackgroundTasks)
+	}
 
 	// Every event goes to the session, including those that change no status
 	// of their own: a SessionStart clears a denial, a SubagentStop can end
@@ -629,6 +634,7 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		NotificationType: ev.NotificationType,
 		Source:           ev.Source,
 		ToolInput:        ev.ToolInput,
+		Agent:            ev.AgentID,
 	})
 }
 

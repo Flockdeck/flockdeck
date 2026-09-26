@@ -7743,6 +7743,45 @@ assert.strictEqual(peer().textContent, "", "the badge stayed after the pane no l
 `)
 }
 
+// An agent's turn can end with a background command or subagent still
+// running, and the pane then reads idle like one that is done -- which is
+// also why closing finished panes leaves it open. The header and the list of
+// agents say so while the work runs, name it in their bubbles, and show
+// nothing at all otherwise, which is most panes, most of the time.
+func TestAnIdleAgentWithBackgroundWorkSaysSo(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle" }) } }));
+const wrap = h.terms[0].host.parentElement.parentElement;
+const bg = () => wrap.querySelector(".pane-bg");
+assert.strictEqual(bg().textContent, "", "the header showed background work before any was reported");
+
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", background: 2 }) } }));
+assert.ok(bg().textContent.includes("2 in background"), "the header does not count the background work: " + bg().textContent);
+assert.ok(/2 background tasks still running/.test(bg().dataset.tip || ""), "its bubble does not say what is running: " + bg().dataset.tip);
+assert.ok(/not finished/.test(bg().dataset.tip || ""), "its bubble does not say the pane is not finished: " + bg().dataset.tip);
+
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", background: 1 }) } }));
+assert.ok(/^1 background task still/.test(bg().dataset.tip || ""), "one task is not worded as one: " + bg().dataset.tip);
+
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle" }) } }));
+assert.strictEqual(bg().textContent, "", "the header still showed background work once it ended");
+assert.strictEqual(bg().dataset.tip, undefined, "the bubble outlived the background work");
+
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "one", name: "a", status: "idle", background: 3 },
+  { paneId: "p2", tabId: "t1", root: "C:/repo", project: "repo", tab: "one", name: "b", status: "idle" },
+] });
+const rows = h.$("overlay-body").querySelectorAll("div.agent-row");
+const mark = (row) => row.querySelector(".agent-bg");
+assert.ok(mark(rows[0]) && mark(rows[0]).textContent.includes("3 in background"),
+  "the agents list does not count an idle agent's background work");
+assert.ok(/3 background tasks/.test(mark(rows[0]).dataset.tip || ""), "the list's mark has no bubble");
+assert.ok(!mark(rows[1]), "an agent with no background work was marked as having some");
+`)
+}
+
 // A pane's header counts its checkout's changes, and nothing went from the
 // counts to the changes: the review was a trip to the top bar.
 func TestAPanesChangeCountsOpenItsReview(t *testing.T) {

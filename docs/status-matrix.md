@@ -47,7 +47,7 @@ A status is decided in one of two ways:
 
 1. **Lifecycle events (authoritative).** Claude Code runs `flockdeck hook --event X` for each subscribed event. `hooks.Emit` posts the event to the loopback server. `workspace.handleHook` then applies it in this order:
    1. Launch and session filter.
-   2. `NoteBackground`.
+   2. `NoteBackground`, and `SetBackground` for a Stop that lists what is still in flight (see section G).
    3. `session.StatusForEvent`.
    4. `Session.ResolveBlocked`.
    5. `Session.SetStatusFull`.
@@ -85,7 +85,7 @@ A status is decided in one of two ways:
 | A15 | `StopFailure` (the turn ended on an API error) | idle, or blocked after a denial | 〃 | ✓ | S, H |
 | A16 | `SessionStart` (any source) | no status change: it also fires mid-turn on a compaction | no status; the source drives background bookkeeping, and any source but `compact` clears a denial mark (C18) | ✓ | S |
 | A17 | `SessionEnd` | no status change: `/clear` fires it and carries on, and a real exit is seen by the PTY reader | ignored | ✓ | S, and existing `TestNoLifecycleEventCanMarkALivePaneExited` |
-| A18 | `SubagentStart` / `SubagentStop` | no status change of their own; they count background work | `NoteBackground`; a SubagentStop also ends what a background subagent left showing after the turn (B21) | ✓ | S |
+| A18 | `SubagentStart` / `SubagentStop` | no status change of their own; they count background work | `NoteBackground`; a SubagentStop also ends what a background subagent from an older Claude Code left showing after the turn (B21) | ✓ | S |
 | A19 | Any other event, or an event not subscribed to (`PreCompact`, …) | no change | default case | ✓ | S |
 
 The events in A5–A8, A15 and A18 are only subscribed to on Claude Code 2.1.269 or later (`laterHookEvents`). On an older Claude Code they never arrive: a refused or failed turn stays `working` until the next prompt, and background subagents are not counted.
@@ -114,8 +114,8 @@ The events in A5–A8, A15 and A18 are only subscribed to on Claude Code 2.1.269
 | B18 | A repeated nudge for the same wait | no change report, and the wait clock is not restarted | `SetStatusFull` dedupe | ✓ | S `TestStatusMatrixWaitClock` |
 | B19 | Manual `/compact` typed at an idle prompt | should be working while it compacts | nothing is subscribed that fires (`PreCompact` is not subscribed), so the pane shows **idle** while compacting | ~ open question, low impact | none |
 | B20 | Foreground subagent (Task): its tool calls fire hooks under the pane's session | working until the parent turn's Stop, then idle, with nothing left counted | Pre/Post events plus SubagentStart/Stop bookkeeping | ✓ | S, W |
-| B21 | **Background subagent** that is still working after the parent turn's Stop | idle, with BackgroundTasks > 0; idle, with 0, once its SubagentStop arrives | The subagent's own tool calls after the Stop are counted. The pane shows working while one runs, and goes back to what the Stop left (idle, or blocked) once none is left. A SubagentStop does the same for anything still counted. Before this, the pane stayed working with nothing running. | ✓ | S `B21`, W `B21` |
-| B22 | Background shell (`run_in_background` Bash) | idle once the turn ends, with BackgroundTasks = 1 until KillShell or `/clear` (Claude Code fires nothing when it simply ends) | `backgroundOf` | ✓ | S, W, existing `closefinished_test.go` |
+| B21 | **Background subagent** that is still working after the parent turn's Stop | **steadily** idle (or blocked, if the turn ended on a denial), with BackgroundTasks > 0, through every one of its tool calls; waiting while it asks the user something, and back to idle once that same subagent's call goes on; BackgroundTasks back to 0 once it ends | A subagent's tool events carry `agent_id` (Claude Code 2.1.283). Once the turn is closed, `ApplyEvent` shows none of them: the pane stays on what the Stop left and reports no change. A subagent's question or permission prompt is still shown, naming the tool it kept back. Only the asking subagent's next Post event ends the wait. The subagent is counted from SubagentStart until SubagentStop, its `<task-notification>` or a Stop that no longer lists it (section G). A Claude Code that sends no `agent_id` falls back to the stray-PreToolUse counting below: working while each call runs, then back to the Stop's status. | ✓ | S `B21`, `TestStatusMatrixBackgroundSubagentIsSteady`, W `B21` |
+| B22 | Background shell (`run_in_background` Bash) | idle once the turn ends, with BackgroundTasks = 1 **until the command ends**, however it ends | Counted from its PostToolUse (`backgroundTaskId`). Ended by KillShell/TaskStop, by the `<task-notification>` UserPromptSubmit Claude Code sends when it ends, or by a Stop whose `background_tasks` no longer lists it. `/clear` forgets it. See section G. | ✓ | H `TestEmitReportsBackgroundWork`, `TestEmitReportsWhatAStopSaysIsStillRunning`, W `B22`, `closefinished_test.go` |
 | B23 | Flockdeck chat client turns | same as B1, B2, B4 and B5: working, waiting(tool) at a question, working again whether allowed or refused, idle at the end (also after an interrupt, and after an API key is found) | `reporter` sends events synchronously, in order, from one goroutine | ✓ | G `TestStatusMatrixChatTurns`, existing `declinedstatus_test.go` |
 
 ## C. Ordering, races and lost events
@@ -159,7 +159,8 @@ The hypothesis was: "a PostToolUse or PreToolUse for the turn's last tool call c
 **The fix** is in `internal/session/turn.go` (`Session.ApplyEvent`) and follows the direction below. `handleHook` hands every event to `ApplyEvent`, which keeps a per-session turn state. The state is unknown until the first prompt or turn end. It is open from UserPromptSubmit, and closed from Stop, StopFailure, an interrupt, `idle_prompt` or a `/clear`. While the turn is closed:
 
 - A Post event (PostToolUse, PostToolUseFailure, PermissionDenied or Interrupted) is dropped if no PreToolUse has been counted since (C1).
-- A PreToolUse is applied as before, because it may be a background subagent's, and it is counted. Each Post event that follows uncounts one. At zero, the pane returns to what the turn's end left it showing: blocked if a denial is still marked, otherwise idle (B21, and C2 when the late Pre's own Post also arrives).
+- A subagent's tool event (one carrying `agent_id`) changes nothing, except that a question or permission prompt is shown and that subagent's next Post event ends it (B21).
+- A PreToolUse naming no subagent is applied as before, because it may be a background subagent's from a Claude Code that does not name it, and it is counted. Each Post event that follows uncounts one. At zero, the pane returns to what the turn's end left it showing: blocked if a denial is still marked, otherwise idle (B21, and C2 when the late Pre's own Post also arrives).
 - A SubagentStop returns a working pane with anything still counted to the same place (B21).
 - A real ask (a permission prompt, a question or an elicitation) is still applied, because a background subagent can ask (C5).
 
@@ -213,4 +214,28 @@ The original recommendation, for reference:
 | F5 | `pushDue` (phone push) | pushes waiting and blocked after the delay; never working, idle, starting or exited | ✓ | V `TestStatusMatrixWhatIsPushed` |
 | F6 | `sendAgents` sort (All agents list) | needs-you first: `blocked` ranks with `waiting` in the rank map | ✓ | none |
 | F7 | Web UI `projectActivity`, `tabSettleInfo`, `announceStatus`, `notifyAttention`, `outcomeOf` (in `app.js`) | they mirror F1 and F3; `tabSettleInfo` treats everything except working and starting as settled | ✓ | existing webui Go+node tests (`TestTheRailMarkFollowsStatus`, `TestTheRailTileSummarisesTheProjectsActivity`, `TestFanOutHistoryListsPastJobs`, …) |
-| F8 | Background tasks in the UI | `BackgroundTasks` is used only by `PaneFinished`. It is not sent to the UI or the phone, so "idle with a background subagent" looks like plain idle. | ~ design gap | none |
+| F8 | Background tasks in the UI | `BackgroundTasks` is sent as `background` in each pane's view (header and phone) and in the agents list, left out at zero and for an exited pane. The web UI shows "◔ N in background" in the pane header and on the agent's row in the agents list. The tooltip says the pane is idle but not finished. | ✓ | V `TestBackgroundWorkReachesTheWindow`, webui `TestAnIdleAgentWithBackgroundWorkSaysSo`, `TestTheBackgroundWorkCountCanBeRead` |
+
+## G. Background work: how an end is learned
+
+`Session.background` counts the work an agent has left running after its turn: background shells, background subagents, and anything else Claude Code runs in the background (monitors, workflows). `PaneFinished` needs it at zero before "Close finished panes" or `flockdeck close` will close an idle agent (F2).
+
+The signals below were checked against real hook payloads from Claude Code 2.1.283. A throwaway session with a hook that logged its stdin for every event ran a background shell and a background subagent, with each ending both mid-turn and after the turn. The schema strings in the executable were read as well.
+
+| Row | Signal | What Claude Code sends | Used as | ✓? | Test |
+|---|---|---|---|---|---|
+| G1 | Start of a background shell | `PostToolUse` Bash with `tool_input.run_in_background: true` and `tool_response.backgroundTaskId: "b8qs3bzx9"` | start `shell:<id>` | ✓ | H |
+| G2 | Start and end of a subagent | `SubagentStart` and `SubagentStop` with `agent_id` | start and end `agent:<id>` | ✓ | H |
+| G3 | **A background task ending on its own** (a shell exits, or a background subagent finishes) | No hook of its own: `TaskCompleted` is for task-list items, not background tasks. Instead Claude Code submits a `<task-notification>` to the model as a prompt, and that fires **`UserPromptSubmit`** with `prompt` = `<task-notification>\n<task-id>b8qs3bzx9</task-id>…<status>completed</status>…`. It does so both after the turn, where it starts a new turn, and mid-turn, where the notification is folded into the running turn but UserPromptSubmit still fires. | end, by task id, whichever kind it was (`task:<id>`) | ✓ | H, W `B22`, `closefinished_test.go` |
+| G4 | **What is still in flight at the end of a turn** | `Stop` carries `background_tasks: [{id, type, status, …}]`, where type is `shell`, `subagent`, `monitor`, `workflow` and so on. The executable documents it as "In-flight background work… Empty array when nothing is in flight". An older Claude Code omits the field. | replaces the count outright (`SetBackground`); an absent field changes nothing | ✓ | H `TestEmitReportsWhatAStopSaysIsStillRunning`, W `B22` |
+| G5 | Killed by the model | `PostToolUse` KillShell/TaskStop with the id | end `shell:<id>` | ✓ | H |
+| G6 | New conversation | `SessionStart` `clear` or `startup` | forget everything | ✓ | W `B14` |
+
+`SubagentStop` also carries `background_tasks`, but that list still shows the stopping subagent as running, so only Stop's list is trusted.
+
+**Residual limitations:**
+
+- The notification (G3) is handed to the model and is not a hook of its own. A task that ends while Claude Code is holding its queue, for example during a permission prompt, is not seen until the notification goes through. The next Stop's list (G4) is the backstop.
+- A task stopped from Claude Code's own task list (`/tasks`) while the agent is idle, if that sends no notification, stays counted until the next turn ends.
+- A Claude Code older than the `background_tasks` field and the notification prompt falls back to the old behaviour: a shell that ends by itself stays counted until `/clear`, which keeps the pane open rather than closing it by mistake.
+- A Stop delivered late (C13), after a notification that followed it, can count a task that has already ended again, until the next Stop.
