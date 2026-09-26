@@ -414,13 +414,16 @@ type paneView struct {
 	RoutedFromAgent string `json:"routedFromAgent,omitempty"`
 	Route           string `json:"route,omitempty"`
 	Err             string `json:"err,omitempty"`
-	Broadcast       bool   `json:"broadcast"`
-	Cols            int    `json:"cols"`
-	Rows            int    `json:"rows"`
-	Dirty           int    `json:"dirty"`
-	Untracked       int    `json:"untracked"`
-	Ahead           int    `json:"ahead"`
-	Behind          int    `json:"behind"`
+	// Failed marks a pane whose process exited with an error or was killed,
+	// against one that exited cleanly; Err carries the exit code.
+	Failed    bool `json:"failed,omitempty"`
+	Broadcast bool `json:"broadcast"`
+	Cols      int  `json:"cols"`
+	Rows      int  `json:"rows"`
+	Dirty     int  `json:"dirty"`
+	Untracked int  `json:"untracked"`
+	Ahead     int  `json:"ahead"`
+	Behind    int  `json:"behind"`
 	// GitTimedOut says the last read of the pane's checkout gave up before git
 	// answered, so the four counts above are the ones read before that and may
 	// no longer be true. The header says so instead of showing them.
@@ -716,6 +719,12 @@ func (s *Server) snapshot() stateMsg {
 			}
 			if p.Err != nil {
 				pv.Err = p.Err.Error()
+			}
+			// An exit with an error is told apart from a clean one, as a
+			// pane whose last turn ended in one is (outcomeOf's "failed").
+			if why, failed := p.Failed(); failed {
+				pv.Failed = true
+				pv.Err = "The process ended: " + why + "."
 			}
 			if p.Sess != nil {
 				pv.Cols, pv.Rows = p.Sess.Size()

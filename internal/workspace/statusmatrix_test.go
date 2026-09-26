@@ -1,8 +1,10 @@
 package workspace
 
 import (
+	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -256,5 +258,60 @@ func TestStatusMatrixDerivedCounts(t *testing.T) {
 				t.Errorf("PaneFinished = %v, want %v", got, c.finished)
 			}
 		})
+	}
+}
+
+// exitPane makes the pane's shell exit with code and waits for it to be
+// reaped.
+func exitPane(t *testing.T, p *Pane, code int) {
+	t.Helper()
+	if err := p.Sess.WriteString(fmt.Sprintf("exit %d\r", code)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for !p.Sess.Exited() {
+		if time.Now().After(deadline) {
+			t.Fatal("the process never exited")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestStatusMatrixExitWithAnError is row E2 through the workspace: a pane
+// whose process exits non-zero is failed, with the code in the detail, and
+// "Close finished panes" leaves it for a person, as it does a pane whose last
+// turn ended in an error; a clean exit is finished and is closed.
+func TestStatusMatrixExitWithAnError(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+
+	bad := agentPaneIn(t, ws, root, "bad-exit")
+	good := agentPaneIn(t, ws, root, "good-exit")
+	exitPane(t, bad, 3)
+	exitPane(t, good, 0)
+
+	why, failed := bad.Failed()
+	if !failed || why != "exit code 3" {
+		t.Errorf("Failed = %q, %v; want \"exit code 3\", true", why, failed)
+	}
+	if st, detail := bad.Status(); st != session.StatusExited || detail != "exit code 3" {
+		t.Errorf("status = %v, %q; want exited, \"exit code 3\"", st, detail)
+	}
+	if _, failed := good.Failed(); failed {
+		t.Error("a clean exit reads as failed")
+	}
+	if ws.PaneFinished(bad.ID) {
+		t.Error("a failed pane counts as finished; it is left for a person")
+	}
+	if !ws.PaneFinished(good.ID) {
+		t.Error("a cleanly exited pane is not finished")
+	}
+	ws.CloseFinishedPanes()
+	if ws.Pane(bad.ID) == nil {
+		t.Error("Close finished panes closed a failed pane")
+	}
+	if ws.Pane(good.ID) != nil {
+		t.Error("Close finished panes left a cleanly exited pane")
 	}
 }

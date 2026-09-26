@@ -629,20 +629,20 @@ textarea:focus-visible {
   background: color-mix(in srgb, var(--waiting) 20%, var(--bg-raised));
   color: var(--fg);
 }
-.pane[data-status="exited"] .pane-header {
+.pane[data-status="failed"] .pane-header {
   background: color-mix(in srgb, var(--exited) 18%, var(--bg-raised));
   color: var(--fg);
 }
 /* The small text in the header was coloured for the plain header, and on these
  * two grounds it fell short of the 4.5:1 text needs: the dim 11px details came
  * to 3.72:1 on amber, the blue detail 4.04:1, the red behind count 3.53:1. The
- * same colours a little lighter reach it on both (waiting / exited): dim
+ * same colours a little lighter reach it on both (waiting / failed): dim
  * 4.92 / 5.65, blue 4.77 / 5.48, red 4.87 / 5.60, orange 4.87 / 5.60. Amber and
  * green already did. On the header's children rather than the header, whose
  * own ground is mixed from --exited. */
 .pane[data-status="waiting"] .pane-header > *,
 .pane[data-status="blocked"] .pane-header > *,
-.pane[data-status="exited"] .pane-header > * {
+.pane[data-status="failed"] .pane-header > * {
   --fg-dim: #a2aab7;
   --accent: #67a9ff;
   --exited: #f68a84;
@@ -654,7 +654,8 @@ textarea:focus-visible {
 .dot.waiting { background: var(--waiting); box-shadow: 0 0 0 3px rgba(227,160,8,.22); }
 .dot.blocked { background: var(--waiting); box-shadow: 0 0 0 3px rgba(227,160,8,.22); }
 .dot.idle    { background: var(--idle); }
-.dot.exited  { background: var(--exited); }
+.dot.exited  { background: var(--idle); opacity: .5; }
+.dot.failed  { background: var(--exited); }
 .dot.starting { background: var(--idle); opacity: .5; }
 @keyframes pulse { 50% { opacity: .35; } }
 
@@ -1081,8 +1082,8 @@ textarea:focus-visible {
  * enough. As 11px text - and this is the word that tells you what the agent is
  * actually doing - it is under the 4.5:1 needed to read it, so the dim text
  * colour is used instead. */
-.agent-status.idle, .agent-status.starting { color: var(--fg-dim); }
-.agent-status.exited { color: var(--exited); }
+.agent-status.idle, .agent-status.starting, .agent-status.exited { color: var(--fg-dim); }
+.agent-status.failed { color: var(--exited); }
 /* A helper's row names the pane it was spawned from, and a waiting row says
  * what it is waiting on you for -- both meta items like the branch and the
  * running tool beside them, coloured to match how the rest of the app

@@ -140,6 +140,9 @@ func (s *Server) fanoutOutcome(p *workspace.Pane) (kind, detail string) {
 	if p.Err != nil {
 		kind, detail = "failed", p.Err.Error()
 	}
+	if why, failed := p.Failed(); failed {
+		kind, detail = "failed", "The process ended: "+why+"."
+	}
 	return kind, detail
 }
 
