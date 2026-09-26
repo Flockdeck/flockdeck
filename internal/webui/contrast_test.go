@@ -40,6 +40,35 @@ func TestTextOnATintedPaneHeaderCanBeRead(t *testing.T) {
 	}
 }
 
+// The count of an agent's background work is small text in the pane's header
+// and in the list of agents. It has to be drawn in the dim colour the header
+// test above already holds to 4.5:1 on a tinted header, and that colour has to
+// reach 4.5:1 on the plain header and the list, and on a list row under the
+// pointer, in both palettes.
+func TestTheBackgroundWorkCountCanBeRead(t *testing.T) {
+	css := stripComments(readAsset(t, "app.css"))
+	for _, sel := range []string{".pane-bg", ".agent-bg"} {
+		if !regexp.MustCompile(`(?:^|[;\s])color:\s*var\(--fg-dim\)`).MatchString(ruleBody(css, sel)) {
+			t.Errorf("%s is not drawn in var(--fg-dim), the colour the tinted-header test covers", sel)
+		}
+	}
+	hover := regexp.MustCompile(`background:\s*(#[0-9a-fA-F]{6})`).FindStringSubmatch(ruleBody(css, ".agent-row:hover"))
+	if hover == nil {
+		t.Fatal("app.css gives .agent-row:hover no six-digit background")
+	}
+	dark := cssColours(ruleBody(css, ":root"))
+	light := cssColours(ruleBody(css, `:root[data-theme="light"]`))
+	for _, c := range []struct{ palette, text, ground, where string }{
+		{"dark", dark["--fg-dim"], dark["--bg-raised"], "a header and the list"},
+		{"dark", dark["--fg-dim"], hover[1], "a list row under the pointer"},
+		{"light", light["--fg-dim"], light["--bg-raised"], "a header and the list"},
+	} {
+		if r := contrast(t, c.text, c.ground); r < 4.5 {
+			t.Errorf("in the %s palette the count (%s) is %.2f:1 on %s (%s), short of 4.5:1", c.palette, c.text, r, c.where, c.ground)
+		}
+	}
+}
+
 // A text field's edge is what shows where it is, and at #3a414d on the near
 // black inside it (#0f1114) it came to 1.84:1, against the 3:1 anything that is
 // not text needs. The selected row of the palette drew its hint at 4.47:1, just
