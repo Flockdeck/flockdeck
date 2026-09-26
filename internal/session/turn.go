@@ -57,6 +57,16 @@ const (
 // A real ask -- a permission prompt, a question, an elicitation -- is applied
 // whenever it comes: a background subagent can ask after the turn ended.
 func (s *Session) ApplyEvent(ev Event) {
+	// A compaction the user asked for is work no turn brackets, and an
+	// untyped Notification on an idle pane is a Claude Code that predates
+	// idle_prompt's type: see the two methods.
+	if st, detail, ok := s.CompactionStatus(ev.Name, ev.Source); ok {
+		s.SetStatusFull(st, detail, "")
+		return
+	}
+	if s.IsStaleNudge(ev.Name, ev.Tool, ev.NotificationType) {
+		return
+	}
 	st, detail, ok := StatusForEvent(ev.Name, ev.Tool, ev.NotificationType)
 	s.mu.Lock()
 	mapped := ok

@@ -93,7 +93,15 @@ var hookEvents = []string{
 // SubagentStart and SubagentStop are with them for the background work they
 // bracket: see Session.NoteBackground. An older Claude Code without them
 // simply never counts a subagent, and only a background shell is seen.
-var laterHookEvents = []string{"PermissionRequest", "PostToolUseFailure", "StopFailure", "PermissionDenied", "SubagentStart", "SubagentStop"}
+//
+// PreCompact and PostCompact are with them for the manual /compact they
+// bracket, which fires no turn events: see Session.CompactionStatus. Claude
+// Code 2.1.283, read from its executable, has both, with the trigger
+// ("manual" or "auto") in the payload. Which release introduced PostCompact
+// was not established, so they wait for the version that is known to skip an
+// event it does not know; and a Claude Code that has PreCompact alone still
+// ends the compaction at the SessionStart it fires when it is done.
+var laterHookEvents = []string{"PermissionRequest", "PostToolUseFailure", "StopFailure", "PermissionDenied", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact"}
 
 // laterHooksSince is the first Claude Code known to have laterHookEvents.
 var laterHooksSince = [3]int{2, 1, 269}

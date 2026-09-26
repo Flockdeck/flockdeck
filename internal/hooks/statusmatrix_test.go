@@ -143,3 +143,21 @@ func TestStatusMatrixAHookThatGaveUpLandsAfterTheNextOne(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// TestStatusMatrixCompactionTriggerIsReported is row B19's transport half: a
+// PreCompact or PostCompact carries what set it off as its source.
+func TestStatusMatrixCompactionTriggerIsReported(t *testing.T) {
+	for _, c := range []struct{ event, stdin, want string }{
+		{"PreCompact", `{"trigger":"manual"}`, "manual"},
+		{"PostCompact", `{"trigger":"auto"}`, "auto"},
+		{"SessionStart", `{"source":"compact"}`, "compact"},
+	} {
+		srv, r := newServer(t)
+		if _, err := Emit(strings.NewReader(c.stdin), srv.Endpoint(), srv.Token(), "pane-c", c.event); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		if got := r.next(t); got.Event != c.event || got.Source != c.want {
+			t.Errorf("%s reported %q source %q, want source %q", c.event, got.Event, got.Source, c.want)
+		}
+	}
+}

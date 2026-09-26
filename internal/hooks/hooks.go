@@ -46,7 +46,8 @@ type Event struct {
 	// lets a tab name itself after the work rather than the directory.
 	Prompt string `json:"prompt,omitempty"`
 	// Source is how a SessionStart came about: "startup", "resume", "clear",
-	// "compact" or "fork".
+	// "compact" or "fork". For a PreCompact or PostCompact it is what set the
+	// compaction off: "manual" or "auto".
 	Source string `json:"source,omitempty"`
 	// Conversation is the agent's own id for the conversation, where it says.
 	// It is SessionID until the user runs /clear: Claude Code then carries on
@@ -112,6 +113,9 @@ type claudePayload struct {
 	// Claude Code has spelled the SessionStart source both ways; read either.
 	Source string `json:"source"`
 	How    string `json:"how"`
+	// Trigger says what set a PreCompact or PostCompact off: "manual" (the
+	// user's /compact) or "auto".
+	Trigger string `json:"trigger"`
 	// NotificationType says what a Notification is about.
 	NotificationType string `json:"notification_type"`
 	// IsInterrupt says a PostToolUseFailure is the user stopping the tool.
@@ -543,6 +547,9 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (Response, 
 			p.Source = cp.Source
 			if p.Source == "" {
 				p.Source = cp.How
+			}
+			if p.Source == "" {
+				p.Source = cp.Trigger
 			}
 			if event == "Notification" && finishedNotifications[cp.NotificationType] {
 				return Response{}, nil

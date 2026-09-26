@@ -642,6 +642,11 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		Source:           ev.Source,
 		ToolInput:        ev.ToolInput,
 	})
+	// A compaction the user asked for is work no turn brackets: PreCompact
+	// shows working, and if its end never reports, the pane settles once quiet.
+	if ev.Event == "PreCompact" && ev.Source == "manual" {
+		sess.SettleWhenQuiet()
+	}
 }
 
 // reviewTool answers a PreToolUse hook's request for a permission decision --
