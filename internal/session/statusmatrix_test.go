@@ -34,25 +34,14 @@ type hookEv struct {
 	source string
 }
 
-// feed applies events the way workspace.handleHook does -- StatusForEvent,
-// then ResolveBlocked, then SetStatusFull -- and returns the status and
+// feed applies events the way workspace.handleHook does -- through
+// ApplyEvent, which runs StatusForEvent, ResolveBlocked and SetStatusFull
+// against the turn the event belongs to -- and returns the status and
 // detail the pane ends up showing. The background bookkeeping handleHook also
 // does is the workspace's to test.
 func feed(s *Session, evs ...hookEv) (Status, string) {
 	for _, e := range evs {
-		if st, detail, ok := s.CompactionStatus(e.event, e.source); ok {
-			s.SetStatusFull(st, detail, "")
-			continue
-		}
-		if s.IsStaleNudge(e.event, e.tool, e.ntype) {
-			continue
-		}
-		st, detail, ok := StatusForEvent(e.event, e.tool, e.ntype)
-		if !ok {
-			continue
-		}
-		st, detail = s.ResolveBlocked(e.event, e.tool, st, detail)
-		s.SetStatusFull(st, detail, e.input)
+		s.ApplyEvent(Event{Name: e.event, Tool: e.tool, NotificationType: e.ntype, Source: e.source, ToolInput: e.input})
 	}
 	return s.Status()
 }
@@ -186,8 +175,7 @@ func TestStatusMatrixTurns(t *testing.T) {
 		{row: "B9", name: "a denial from a turn before is not this turn's",
 			events: []hookEv{prompt, denied("Bash"), stop, prompt, stop}, want: StatusIdle},
 		{row: "C18", name: "a fresh conversation forgets a denial",
-			events: []hookEv{prompt, denied("Bash"), {event: "SessionStart"}, stop}, want: StatusIdle,
-			bug: "ResolveBlocked says SessionStart clears the denial mark, but StatusForEvent does not map SessionStart and handleHook returns before ResolveBlocked, so the mark survives a /clear"},
+			events: []hookEv{prompt, denied("Bash"), {event: "SessionStart"}, stop}, want: StatusIdle},
 		{row: "B9", name: "an ordinary tool failure is not blocked",
 			events: []hookEv{prompt, pre("Bash"), postFail("Bash"), stop}, want: StatusIdle},
 		{row: "B10", name: "a turn ending on an API error is idle",
@@ -199,8 +187,7 @@ func TestStatusMatrixTurns(t *testing.T) {
 		{row: "B11", name: "the user stopping a tool after a denial is idle, not blocked",
 			events: []hookEv{prompt, pre("Bash"), denied("Bash"), interrupted("Bash")}, want: StatusIdle},
 		{row: "B12", name: "Esc while the model is streaming: idle once Claude Code's idle nudge arrives",
-			events: []hookEv{prompt, idleNudge}, want: StatusIdle,
-			bug: "Esc during model output fires no Stop and no PostToolUseFailure, and the idle_prompt nudge that follows is ignored, so the pane stays working"},
+			events: []hookEv{prompt, idleNudge}, want: StatusIdle},
 		{row: "B13", name: "a compaction mid-turn leaves the pane working",
 			events: []hookEv{prompt, pre("Bash"), post("Bash"), sessionStart("compact")}, want: StatusWorking},
 		{row: "B14", name: "/clear at the prompt leaves the pane idle",
@@ -232,30 +219,24 @@ func TestStatusMatrixTurns(t *testing.T) {
 		{row: "B20", name: "a foreground subagent's turn ends idle",
 			events: []hookEv{prompt, pre("Task"), pre("Read"), post("Read"), {event: "SubagentStop"}, post("Task"), stop}, want: StatusIdle},
 		{row: "B21", name: "a background subagent finishing after the turn leaves the pane idle",
-			events: []hookEv{prompt, pre("Task"), post("Task"), stop, pre("Read"), post("Read"), {event: "SubagentStop"}}, want: StatusIdle,
-			bug: "a background subagent's own tool calls arrive after the turn's Stop and mark the pane working, and its SubagentStop changes no status, so the pane stays working"},
+			events: []hookEv{prompt, pre("Task"), post("Task"), stop, pre("Read"), post("Read"), {event: "SubagentStop"}}, want: StatusIdle},
 		{row: "B22", name: "a background shell leaves the pane idle once the turn ends",
 			events: []hookEv{prompt, pre("Bash"), post("Bash"), stop}, want: StatusIdle},
 
 		{row: "C1", name: "the last tool's PostToolUse delivered after the turn's Stop",
-			events: []hookEv{prompt, pre("Bash"), stop, post("Bash")}, want: StatusIdle,
-			bug: "events are applied in arrival order with no notion of a turn, so a PostToolUse that lost the race with its Stop marks the idle pane working, and nothing marks it idle again"},
+			events: []hookEv{prompt, pre("Bash"), stop, post("Bash")}, want: StatusIdle},
 		{row: "C1", name: "a late PostToolUseFailure after the Stop",
-			events: []hookEv{prompt, pre("Bash"), stop, postFail("Bash")}, want: StatusIdle,
-			bug: "as C1: a stale failure marks the idle pane working"},
+			events: []hookEv{prompt, pre("Bash"), stop, postFail("Bash")}, want: StatusIdle},
 		{row: "C2", name: "a late PreToolUse after the Stop, then the idle nudge",
-			events: []hookEv{prompt, stop, pre("Bash"), idleNudge}, want: StatusIdle,
-			bug: "a PreToolUse delivered after its Stop marks the pane working; it cannot be told from a background subagent's, but the idle_prompt nudge that follows is ignored, so nothing recovers it"},
+			events: []hookEv{prompt, stop, pre("Bash"), idleNudge}, want: StatusIdle},
 		{row: "C3", name: "a duplicate Stop is still idle",
 			events: []hookEv{prompt, stop, stop}, want: StatusIdle},
 		{row: "C4", name: "a duplicate Stop keeps a blocked pane blocked",
-			events: []hookEv{prompt, pre("Bash"), denied("Bash"), stop, stop}, want: StatusBlocked, wantDetail: "Bash",
-			bug: "ResolveBlocked spends the denial on the first Stop, so a repeated Stop with nothing new in between turns blocked into idle"},
+			events: []hookEv{prompt, pre("Bash"), denied("Bash"), stop, stop}, want: StatusBlocked, wantDetail: "Bash"},
 		{row: "C5", name: "a permission nudge after the Stop turns the pane amber (accepted: a background subagent can ask)",
 			events: []hookEv{prompt, pre("Bash"), post("Bash"), stop, permAsk}, want: StatusWaiting},
 		{row: "C14", name: "a lost Stop, then the idle nudge",
-			events: []hookEv{prompt, pre("Bash"), post("Bash"), idleNudge}, want: StatusIdle,
-			bug: "with hooks reporting, a working pane has no fallback: a Stop that never arrives leaves it working forever, and the idle_prompt nudge that would say otherwise is ignored"},
+			events: []hookEv{prompt, pre("Bash"), post("Bash"), idleNudge}, want: StatusIdle},
 		{row: "C15", name: "a lost UserPromptSubmit: the first tool marks the pane working",
 			events: []hookEv{stop, pre("Read")}, want: StatusWorking, wantDetail: "Read"},
 	}
@@ -398,7 +379,6 @@ func TestStatusMatrixKeyboard(t *testing.T) {
 		}
 	})
 	t.Run("B7/Esc on a permission prompt, then silence, is idle", func(t *testing.T) {
-		knownBug(t, "B7", "Esc is Claude Code's own way of refusing a permission prompt, but only Enter is read as an answer, so the pane stays amber at an empty prompt")
 		s := setup(t)
 		feed(s, prompt, pre("Bash"), permRequest(""))
 		press(t, s, "\x1b")

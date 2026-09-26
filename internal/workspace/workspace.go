@@ -618,33 +618,23 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		sess.NoteBackground(ev.Event, "", "")
 	}
 
-	// A compaction the user asked for is work no turn brackets, and an
-	// untyped Notification on an idle pane is a Claude Code that predates
-	// idle_prompt's type: see the two methods.
-	if st, detail, ok := sess.CompactionStatus(ev.Event, ev.Source); ok {
-		sess.SetStatusFull(st, detail, "")
-		if st == session.StatusWorking {
-			sess.SettleWhenQuiet()
-		}
-		return
+	// Every event goes to the session, including those that change no status
+	// of their own: a SessionStart clears a denial, a SubagentStop can end
+	// what a background subagent left showing, and the idle nudge ends a
+	// turn whose Stop never came. See ApplyEvent, and ResolveBlocked for the
+	// Stop that lands right after a tool call was refused outright.
+	sess.ApplyEvent(session.Event{
+		Name:             ev.Event,
+		Tool:             ev.Tool,
+		NotificationType: ev.NotificationType,
+		Source:           ev.Source,
+		ToolInput:        ev.ToolInput,
+	})
+	// A compaction the user asked for is work no turn brackets: PreCompact
+	// shows working, and if its end never reports, the pane settles once quiet.
+	if ev.Event == "PreCompact" && ev.Source == "manual" {
+		sess.SettleWhenQuiet()
 	}
-	if sess.IsStaleNudge(ev.Event, ev.Tool, ev.NotificationType) {
-		return
-	}
-	st, detail, ok := session.StatusForEvent(ev.Event, ev.Tool, ev.NotificationType)
-	if !ok {
-		return
-	}
-	// SessionEnd means the conversation ended, but the process may still be
-	// drawing its exit screen; let the PTY reader observe the real exit.
-	if st == session.StatusExited {
-		return
-	}
-	// A Stop that lands right after a tool call was refused outright -- a
-	// permission or safety classifier's own denial, not a prompt -- is not
-	// the clean end every other Stop is: see ResolveBlocked.
-	st, detail = sess.ResolveBlocked(ev.Event, ev.Tool, st, detail)
-	sess.SetStatusFull(st, detail, ev.ToolInput)
 }
 
 // reviewTool answers a PreToolUse hook's request for a permission decision --
