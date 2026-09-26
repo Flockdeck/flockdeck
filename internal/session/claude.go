@@ -89,7 +89,11 @@ var hookEvents = []string{
 // ignored") instead of refusing the file. How an older one treats a name it
 // does not know was not established, and a settings file it refused would take
 // every hook of the pane with it.
-var laterHookEvents = []string{"PermissionRequest", "PostToolUseFailure", "StopFailure", "PermissionDenied"}
+//
+// SubagentStart and SubagentStop are with them for the background work they
+// bracket: see Session.NoteBackground. An older Claude Code without them
+// simply never counts a subagent, and only a background shell is seen.
+var laterHookEvents = []string{"PermissionRequest", "PostToolUseFailure", "StopFailure", "PermissionDenied", "SubagentStart", "SubagentStop"}
 
 // laterHooksSince is the first Claude Code known to have laterHookEvents.
 var laterHooksSince = [3]int{2, 1, 269}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
 )
@@ -205,5 +206,76 @@ func TestCloseFinishedPanesActsAcrossEveryOpenProject(t *testing.T) {
 	}
 	if ws.ActiveRoot() != first {
 		t.Error("closing a pane in another project switched the active project")
+	}
+}
+
+// TestCloseFinishedPanesLeavesAnIdleAgentWithBackgroundWorkAlone covers an
+// agent whose turn has ended while a background command or subagent is still
+// running: it reads idle, but closing it would kill that work. Once the work
+// has ended it is finished like any other, and an exited pane is closed
+// whatever it was running.
+func TestCloseFinishedPanesLeavesAnIdleAgentWithBackgroundWorkAlone(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+
+	busy := agentPaneIn(t, ws, root, "busy")
+	for _, ev := range []hooks.Event{
+		{Event: "PostToolUse", Tool: "Bash", Background: hooks.BackgroundStart, BackgroundID: "shell:b1"},
+		{Event: "SubagentStart", Background: hooks.BackgroundStart, BackgroundID: "agent:a1"},
+		{Event: "Stop"},
+	} {
+		ev.SessionID, ev.Launch = busy.ID, busy.launch
+		ws.handleHook(ev)
+	}
+	if st, _ := busy.Sess.Status(); st != session.StatusIdle {
+		t.Fatalf("status = %v, want idle", st)
+	}
+	if ws.PaneFinished(busy.ID) {
+		t.Fatal("PaneFinished is true with background work running")
+	}
+	if panes, _ := ws.CloseFinishedPanes(); panes != 0 || ws.Pane(busy.ID) == nil {
+		t.Fatalf("CloseFinishedPanes closed a pane with background work (closed %d)", panes)
+	}
+
+	// One of two ending is not enough.
+	ws.handleHook(hooks.Event{SessionID: busy.ID, Launch: busy.launch, Event: "SubagentStop", Background: hooks.BackgroundEnd, BackgroundID: "agent:a1"})
+	if ws.PaneFinished(busy.ID) {
+		t.Fatal("PaneFinished is true with a background command still running")
+	}
+	ws.handleHook(hooks.Event{SessionID: busy.ID, Launch: busy.launch, Event: "PostToolUse", Tool: "KillShell", Background: hooks.BackgroundEnd, BackgroundID: "shell:b1"})
+	ws.handleHook(hooks.Event{SessionID: busy.ID, Launch: busy.launch, Event: "Stop"})
+	if !ws.PaneFinished(busy.ID) {
+		t.Fatal("PaneFinished is false once the background work ended")
+	}
+
+	// An exited pane goes whatever it left running.
+	gone := agentPaneIn(t, ws, root, "gone")
+	gone.Sess.NoteBackground("PostToolUse", hooks.BackgroundStart, "shell:x")
+	gone.Sess.SetStatus(session.StatusExited, "")
+	if !ws.PaneFinished(gone.ID) {
+		t.Error("an exited pane with background work was not finished")
+	}
+
+	if panes, _ := ws.CloseFinishedPanes(); panes != 2 {
+		t.Errorf("panes closed = %d, want 2", panes)
+	}
+}
+
+// TestBackgroundWorkIsForgottenOnAFreshConversation covers /clear: work the
+// last conversation started is not something the new one is waiting on.
+func TestBackgroundWorkIsForgottenOnAFreshConversation(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := agentPaneIn(t, ws, root, "cleared")
+	p.Sess.NoteBackground("PostToolUse", hooks.BackgroundStart, "shell:b1")
+	ws.handleHook(hooks.Event{SessionID: p.ID, Launch: p.launch, Event: "SessionStart", Source: "compact"})
+	if p.Sess.BackgroundTasks() != 1 {
+		t.Fatal("a compaction forgot background work")
+	}
+	ws.handleHook(hooks.Event{SessionID: p.ID, Launch: p.launch, Event: "SessionStart", Source: "clear"})
+	if p.Sess.BackgroundTasks() != 0 {
+		t.Fatal("a cleared conversation still has background work")
 	}
 }

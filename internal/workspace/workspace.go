@@ -610,6 +610,14 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		w.nameTabAfterPrompt(p.ID, ev.Prompt)
 	}
 
+	// Only SessionStart of a source that begins a fresh conversation forgets
+	// background work; a compaction or resume goes on with the same one.
+	if ev.Background != "" {
+		sess.NoteBackground(ev.Event, ev.Background, ev.BackgroundID)
+	} else if ev.Event == "SessionStart" && (ev.Source == "clear" || ev.Source == "startup") {
+		sess.NoteBackground(ev.Event, "", "")
+	}
+
 	st, detail, ok := session.StatusForEvent(ev.Event, ev.Tool, ev.NotificationType)
 	if !ok {
 		return
@@ -2350,6 +2358,11 @@ func (w *Workspace) ClosePaneByID(id string) bool {
 // failure is worth a person seeing before it disappears, so it waits for a
 // person to close it by hand.
 //
+// An agent is also not finished while it has background work going: it goes
+// idle when its turn ends whatever it left running -- a run_in_background
+// command, a background subagent -- and closing the pane would kill it. See
+// session.Session.NoteBackground for what is known of that work.
+//
 // Closing goes through ClosePaneByID, so a tab left with no panes closes
 // itself the same way it always has; tabs closed is only ever the side effect
 // of that, counted by comparing the tabs open before and after.
@@ -2395,7 +2408,7 @@ func (w *Workspace) paneFinished(id string) bool {
 	case session.StatusExited:
 		return true
 	case session.StatusIdle:
-		return p.IsAgent()
+		return p.IsAgent() && p.Sess.BackgroundTasks() == 0
 	default:
 		return false
 	}

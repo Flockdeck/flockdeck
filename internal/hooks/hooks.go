@@ -75,7 +75,20 @@ type Event struct {
 	// rest); see session.StatusForEvent. Empty for every other event, and for a
 	// Notification from a Claude Code too old to say.
 	NotificationType string `json:"notificationType,omitempty"`
+	// Background says the event starts ("start") or ends ("end") a piece of
+	// background work the agent keeps going after its turn is over -- a
+	// run_in_background Bash command or a subagent -- and BackgroundID names it
+	// so the end finds its start. Empty for every other event. See
+	// backgroundOf for which events say so.
+	Background   string `json:"background,omitempty"`
+	BackgroundID string `json:"backgroundId,omitempty"`
 }
+
+// Background work a lifecycle event can report; see Event.Background.
+const (
+	BackgroundStart = "start"
+	BackgroundEnd   = "end"
+)
 
 // LaunchEnv is the variable a pane's process is started with naming that
 // start, which the hook reads back and sends as Event.Launch. Claude Code
@@ -109,6 +122,72 @@ type claudePayload struct {
 	// because which fields it has depends on the tool, and this only ever
 	// wants a few of them (see buildToolInput).
 	ToolInput json.RawMessage `json:"tool_input"`
+	// ToolResponse is what the tool answered on a PostToolUse; a background
+	// Bash command names the shell it started there.
+	ToolResponse json.RawMessage `json:"tool_response"`
+	ToolUseID    string          `json:"tool_use_id"`
+	// AgentID names the subagent a SubagentStart or SubagentStop is about.
+	AgentID string `json:"agent_id"`
+}
+
+// backgroundWire is the few fields of a tool_input or tool_response that say
+// something about background work, whichever tool's it is.
+type backgroundWire struct {
+	RunInBackground bool   `json:"run_in_background"`
+	ShellID         string `json:"shell_id"`
+	BashID          string `json:"bash_id"`
+	TaskID          string `json:"task_id"`
+	BackgroundTask  string `json:"backgroundTaskId"`
+}
+
+func (b backgroundWire) id() string {
+	for _, s := range []string{b.BackgroundTask, b.ShellID, b.BashID, b.TaskID} {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// backgroundOf reads whether a hook payload starts or ends background work.
+//
+// A background Bash command is known from its PostToolUse (after the tool has
+// really run, so a refused call is never counted) and is ended by the model
+// killing it. Claude Code fires no hook when one simply finishes, so it stays
+// counted until the conversation is cleared -- a pane is then kept rather than
+// closed by mistake, which is the safe way to be wrong. A subagent, background
+// or not, is bracketed by SubagentStart and SubagentStop, which is what covers
+// background Task/Agent calls without reading their input a second time.
+func backgroundOf(event string, cp claudePayload) (op, id string) {
+	switch event {
+	case "SubagentStart":
+		return BackgroundStart, "agent:" + cp.AgentID
+	case "SubagentStop":
+		return BackgroundEnd, "agent:" + cp.AgentID
+	case "PostToolUse":
+	default:
+		return "", ""
+	}
+	var in, out backgroundWire
+	_ = json.Unmarshal(cp.ToolInput, &in)
+	_ = json.Unmarshal(cp.ToolResponse, &out)
+	switch cp.ToolName {
+	case "Bash":
+		if !in.RunInBackground {
+			return "", ""
+		}
+		id = out.id()
+		if id == "" {
+			id = cp.ToolUseID
+		}
+		return BackgroundStart, "shell:" + id
+	case "KillShell", "TaskStop":
+		if id = in.id(); id == "" {
+			return "", ""
+		}
+		return BackgroundEnd, "shell:" + id
+	}
+	return "", ""
 }
 
 // toolEditWire and toolInputWire are the parts of a PreToolUse call's
@@ -469,6 +548,7 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (Response, 
 				return Response{}, nil
 			}
 			p.NotificationType = cp.NotificationType
+			p.Background, p.BackgroundID = backgroundOf(event, cp)
 			if event == "PostToolUseFailure" && cp.IsInterrupt {
 				p.Event.Event = Interrupted
 			}

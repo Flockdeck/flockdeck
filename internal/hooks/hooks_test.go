@@ -864,3 +864,31 @@ func TestClipKeepsRunesWhole(t *testing.T) {
 		}
 	}
 }
+
+// TestEmitReportsBackgroundWork covers the events that start or end work an
+// agent keeps going after its turn is over, and that an ordinary tool call
+// says nothing of the kind.
+func TestEmitReportsBackgroundWork(t *testing.T) {
+	cases := []struct {
+		name, event, stdin, op, id string
+	}{
+		{"background bash", "PostToolUse", `{"tool_name":"Bash","tool_input":{"command":"sleep 9","run_in_background":true},"tool_response":{"shell_id":"b1"}}`, BackgroundStart, "shell:b1"},
+		{"foreground bash", "PostToolUse", `{"tool_name":"Bash","tool_input":{"command":"ls"}}`, "", ""},
+		{"kill shell", "PostToolUse", `{"tool_name":"KillShell","tool_input":{"shell_id":"b1"}}`, BackgroundEnd, "shell:b1"},
+		{"subagent start", "SubagentStart", `{"agent_id":"a7"}`, BackgroundStart, "agent:a7"},
+		{"subagent stop", "SubagentStop", `{"agent_id":"a7"}`, BackgroundEnd, "agent:a7"},
+		{"other event", "Stop", `{}`, "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv, r := newServer(t)
+			if _, err := Emit(strings.NewReader(c.stdin), srv.Endpoint(), srv.Token(), "pane-bg", c.event); err != nil {
+				t.Fatalf("emit: %v", err)
+			}
+			got := r.next(t)
+			if got.Background != c.op || got.BackgroundID != c.id {
+				t.Errorf("background = (%q, %q), want (%q, %q)", got.Background, got.BackgroundID, c.op, c.id)
+			}
+		})
+	}
+}

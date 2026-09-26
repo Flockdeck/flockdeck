@@ -171,6 +171,12 @@ type Session struct {
 	// comes first clears it. Empty means the pane's current turn has hit no
 	// denial nothing has since undone. See ResolveBlocked.
 	blockedTool string
+	// background is the background work the agent has started and not seen
+	// end -- a run_in_background Bash command, a subagent -- by the id the
+	// hooks gave it. An agent goes idle when its turn ends whatever it left
+	// running, so this is what tells an idle pane that is done from one that
+	// is not. See NoteBackground.
+	background map[string]struct{}
 	// patterns are what to read out of an agent's output in place of the
 	// lifecycle it does not report. They are taken off the Spec at launch
 	// because the status machinery below runs on every chunk a pane prints and
@@ -989,6 +995,39 @@ func (s *Session) ResolveBlocked(event, tool string, st Status, detail string) (
 	blocked := s.blockedTool
 	s.blockedTool = ""
 	return StatusBlocked, blocked
+}
+
+// NoteBackground records a piece of background work starting (op "start") or
+// ending (op "end") under id, as hooks.Event reports it. A SessionStart from a
+// new or cleared conversation forgets all of it: work started in one
+// conversation is not waited on by the next. An empty op or id changes nothing.
+func (s *Session) NoteBackground(event, op, id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if event == "SessionStart" {
+		s.background = nil
+		return
+	}
+	if id == "" {
+		return
+	}
+	switch op {
+	case "start":
+		if s.background == nil {
+			s.background = map[string]struct{}{}
+		}
+		s.background[id] = struct{}{}
+	case "end":
+		delete(s.background, id)
+	}
+}
+
+// BackgroundTasks is how many pieces of background work the agent has left
+// running, as far as its hooks have said.
+func (s *Session) BackgroundTasks() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.background)
 }
 
 // SetStatusFull is SetStatus, additionally recording a lifecycle event's own

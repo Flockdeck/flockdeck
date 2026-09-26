@@ -51,7 +51,12 @@ tells you what the agent is actually doing rather than only that it is busy.
   closing finished browser tabs. It asks nothing first, on purpose: a pane
   still waiting on you or still working is never touched, and one whose last
   turn failed is left alone too, since a failure is worth a look before it
-  disappears.
+  disappears. An idle agent that still has background work going — a command
+  it started with `run_in_background`, or a background subagent — is not
+  finished either, since closing it would kill that work. Flockdeck learns of
+  a background command from the agent's hooks and cannot see it end on its
+  own, so it counts until the agent stops it, the conversation is cleared, or
+  the pane is closed by hand (or with `flockdeck close --force`).
 
 ## Where it comes from
 
