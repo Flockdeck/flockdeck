@@ -30,6 +30,8 @@ func knownBug(t *testing.T, row, why string) {
 // tool input it carries.
 type hookEv struct {
 	event, tool, ntype, input string
+	// source is a SessionStart's source, or a compaction's trigger.
+	source string
 }
 
 // feed applies events the way workspace.handleHook does -- StatusForEvent,
@@ -38,6 +40,13 @@ type hookEv struct {
 // does is the workspace's to test.
 func feed(s *Session, evs ...hookEv) (Status, string) {
 	for _, e := range evs {
+		if st, detail, ok := s.CompactionStatus(e.event, e.source); ok {
+			s.SetStatusFull(st, detail, "")
+			continue
+		}
+		if s.IsStaleNudge(e.event, e.tool, e.ntype) {
+			continue
+		}
 		st, detail, ok := StatusForEvent(e.event, e.tool, e.ntype)
 		if !ok {
 			continue
@@ -66,7 +75,7 @@ func denied(tool string) hookEv      { return hookEv{event: "PermissionDenied", 
 
 // sessionStart is a SessionStart of any source: which one it was matters to
 // the workspace's background bookkeeping, and to the status not at all.
-func sessionStart(string) hookEv { return hookEv{event: "SessionStart"} }
+func sessionStart(source string) hookEv { return hookEv{event: "SessionStart", source: source} }
 
 // TestStatusMatrixEventMapping is section A of the matrix: what each lifecycle
 // event, on its own, says about a pane.
@@ -202,8 +211,22 @@ func TestStatusMatrixTurns(t *testing.T) {
 			events: []hookEv{prompt, pre("AskUserQuestion"), idleNudge}, want: StatusWaiting, wantDetail: "AskUserQuestion"},
 		{row: "B16", name: "the idle nudge does not clear blocked",
 			events: []hookEv{prompt, denied("Bash"), stop, idleNudge}, want: StatusBlocked, wantDetail: "Bash"},
-		{row: "B17", name: "an older Claude Code's untyped idle nudge turns the pane amber (accepted)",
-			events: []hookEv{prompt, stop, {event: "Notification"}}, want: StatusWaiting},
+		{row: "B17", name: "an older Claude Code's untyped idle nudge after a turn leaves the pane idle",
+			events: []hookEv{prompt, stop, {event: "Notification"}}, want: StatusIdle},
+		{row: "B17", name: "an untyped Notification in the middle of a turn is still a real ask",
+			events: []hookEv{prompt, pre("Bash"), {event: "Notification"}}, want: StatusWaiting, wantDetail: "Bash"},
+		{row: "B17", name: "an untyped Notification with a tool named (the chat client) is still a real ask",
+			events: []hookEv{prompt, stop, {event: "Notification", tool: "Bash"}}, want: StatusWaiting, wantDetail: "Bash"},
+		{row: "B19", name: "a manual /compact at an idle prompt shows working",
+			events: []hookEv{prompt, stop, {event: "PreCompact", source: "manual"}}, want: StatusWorking, wantDetail: "/compact"},
+		{row: "B19", name: "a manual /compact ends idle at its PostCompact",
+			events: []hookEv{prompt, stop, {event: "PreCompact", source: "manual"}, {event: "PostCompact", source: "manual"}}, want: StatusIdle},
+		{row: "B19", name: "a manual /compact ends idle at its SessionStart when there is no PostCompact",
+			events: []hookEv{prompt, stop, {event: "PreCompact", source: "manual"}, sessionStart("compact")}, want: StatusIdle},
+		{row: "B19", name: "an automatic compaction mid-turn stays working through PostCompact",
+			events: []hookEv{prompt, pre("Bash"), post("Bash"), {event: "PreCompact", source: "auto"}, {event: "PostCompact", source: "auto"}, sessionStart("compact")}, want: StatusWorking},
+		{row: "B19", name: "a compaction whose end never came does not idle a later auto-compaction",
+			events: []hookEv{prompt, stop, {event: "PreCompact", source: "manual"}, prompt, pre("Bash"), sessionStart("compact")}, want: StatusWorking, wantDetail: "Bash"},
 		{row: "B20", name: "a foreground subagent keeps the pane working until the turn ends",
 			events: []hookEv{prompt, pre("Task"), pre("Read"), post("Read"), {event: "SubagentStop"}}, want: StatusWorking},
 		{row: "B20", name: "a foreground subagent's turn ends idle",
@@ -397,6 +420,56 @@ func TestStatusMatrixKeyboard(t *testing.T) {
 		press(t, s, "fix it\r")
 		if st, _ := s.Status(); st != StatusIdle {
 			t.Errorf("status = %v, want idle until UserPromptSubmit says otherwise", st)
+		}
+	})
+	spin := func(s *Session) {
+		for end := time.Now().Add(60 * time.Millisecond); time.Now().Before(end); time.Sleep(2 * time.Millisecond) {
+			s.publish([]byte("\r* Thinking\n"))
+		}
+	}
+	t.Run("C15/a lost UserPromptSubmit: Enter, then a spinner, is working until quiet", func(t *testing.T) {
+		s := setup(t)
+		feed(s, prompt, stop)
+		press(t, s, "explain this\r")
+		spin(s)
+		if st, _ := s.Status(); st != StatusWorking {
+			t.Fatalf("status = %v while the turn draws, want working", st)
+		}
+		if st := settle(s); st != StatusIdle {
+			t.Errorf("status = %v once it fell quiet, want idle", st)
+		}
+	})
+	t.Run("C15/a lost UserPromptSubmit: the Stop still ends the guessed turn", func(t *testing.T) {
+		s := setup(t)
+		feed(s, prompt, stop)
+		press(t, s, "explain this\r")
+		spin(s)
+		if st, _ := feed(s, stop); st != StatusIdle {
+			t.Errorf("status = %v after the Stop, want idle", st)
+		}
+		time.Sleep(120 * time.Millisecond)
+		if st, _ := s.Status(); st != StatusIdle {
+			t.Errorf("status = %v after the guess's timer, want idle", st)
+		}
+	})
+	t.Run("C15/Enter that draws once and stops is not a turn", func(t *testing.T) {
+		s := setup(t)
+		feed(s, prompt, stop)
+		press(t, s, "/help\r")
+		s.publish([]byte("help text\n"))
+		time.Sleep(120 * time.Millisecond)
+		if st, _ := s.Status(); st != StatusIdle {
+			t.Errorf("status = %v, want idle", st)
+		}
+	})
+	t.Run("C15/a prompt whose UserPromptSubmit arrives is not disturbed by the guess", func(t *testing.T) {
+		s := setup(t)
+		feed(s, prompt, stop)
+		press(t, s, "explain this\r")
+		feed(s, prompt)
+		spin(s)
+		if st, _ := feed(s, stop); st != StatusIdle {
+			t.Errorf("status = %v after the Stop, want idle", st)
 		}
 	})
 }

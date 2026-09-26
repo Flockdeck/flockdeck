@@ -618,6 +618,19 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		sess.NoteBackground(ev.Event, "", "")
 	}
 
+	// A compaction the user asked for is work no turn brackets, and an
+	// untyped Notification on an idle pane is a Claude Code that predates
+	// idle_prompt's type: see the two methods.
+	if st, detail, ok := sess.CompactionStatus(ev.Event, ev.Source); ok {
+		sess.SetStatusFull(st, detail, "")
+		if st == session.StatusWorking {
+			sess.SettleWhenQuiet()
+		}
+		return
+	}
+	if sess.IsStaleNudge(ev.Event, ev.Tool, ev.NotificationType) {
+		return
+	}
 	st, detail, ok := session.StatusForEvent(ev.Event, ev.Tool, ev.NotificationType)
 	if !ok {
 		return
