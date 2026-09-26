@@ -173,10 +173,16 @@ type Session struct {
 	toolQuestion bool
 	// blockedTool is the tool a PermissionDenied event most recently named,
 	// kept until a successful PostToolUse, a fresh UserPromptSubmit or
-	// SessionStart says the pane got past it or started over -- whichever
-	// comes first clears it. Empty means the pane's current turn has hit no
-	// denial nothing has since undone. See ResolveBlocked.
+	// SessionStart, or the user interrupting, says the pane got past it or
+	// started over -- whichever comes first clears it. The Stop that reports
+	// it does not: a second Stop with nothing new in between ends the same
+	// blocked turn. Empty means the pane's current turn has hit no denial
+	// nothing has since undone. See ResolveBlocked.
 	blockedTool string
+	// turn and strayTools are where the pane is in a turn, as far as its
+	// hooks have said: see ApplyEvent.
+	turn       turnState
+	strayTools int
 	// background is the background work the agent has started and not seen
 	// end -- a run_in_background Bash command, a subagent -- by the id the
 	// hooks gave it. An agent goes idle when its turn ends whatever it left
@@ -794,9 +800,12 @@ func (s *Session) Write(p []byte) (int, error) {
 	// the tool has finished, however long it runs -- so the pane stayed amber,
 	// and in the count of agents needing you, through the whole of the command
 	// it had just been allowed to run. Enter is what settles it; the arrow keys
-	// only move between the choices.
+	// only move between the choices. Esc is Claude Code's other answer -- "No,
+	// and tell Claude what to do differently (esc)" -- and is told from the
+	// arrow keys by arriving on its own: every key that starts with the same
+	// byte sends more after it.
 	answered := typed && s.status == StatusWaiting &&
-		(!s.hooksSeen || (s.toolQuestion && bytes.IndexByte(p, '\r') >= 0))
+		(!s.hooksSeen || (s.toolQuestion && (bytes.IndexByte(p, '\r') >= 0 || string(p) == "\x1b")))
 	if answered {
 		s.status = StatusWorking
 		s.statusSince = time.Now()
@@ -978,7 +987,9 @@ func (s *Session) SetStatus(st Status, detail string) {
 // ResolveBlocked folds a Claude pane's own idea of "blocked" into the status
 // StatusForEvent already mapped a lifecycle event to: event and tool are the
 // same ones just given it, st and detail its result. Call it before
-// SetStatusFull with what it returns.
+// SetStatusFull with what it returns. ApplyEvent does all three, along with
+// what it takes to keep events from a finished turn from undoing its end;
+// this is its blocked half on its own.
 //
 // A PermissionDenied marks the pane's current turn as having hit a tool call
 // refused outright, with nothing since to say it recovered; a successful
@@ -987,26 +998,30 @@ func (s *Session) SetStatus(st Status, detail string) {
 // on a turn still marked is not the clean end every other one is: it is
 // reported as StatusBlocked instead of whatever StatusForEvent said (always
 // StatusIdle in practice), naming the denied tool the way a waiting pane
-// names the one it is asking about. An interruption is left alone -- the
+// names the one it is asking about. The mark outlives that Stop, so a
+// repeated Stop with nothing new in between is still blocked rather than
+// quietly idle. An interruption is not blocked, and clears the mark -- the
 // user is already there, having just caused it.
 func (s *Session) ResolveBlocked(event, tool string, st Status, detail string) (Status, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.resolveBlockedLocked(event, tool, st, detail)
+}
+
+func (s *Session) resolveBlockedLocked(event, tool string, st Status, detail string) (Status, string) {
 	switch event {
 	case "PermissionDenied":
 		if tool == "" {
 			tool = "a tool"
 		}
 		s.blockedTool = tool
-	case "PostToolUse", "UserPromptSubmit", "SessionStart":
+	case "PostToolUse", "UserPromptSubmit", "SessionStart", "Interrupted":
 		s.blockedTool = ""
 	}
 	if st != StatusIdle || s.blockedTool == "" || (event != "Stop" && event != "StopFailure") {
 		return st, detail
 	}
-	blocked := s.blockedTool
-	s.blockedTool = ""
-	return StatusBlocked, blocked
+	return StatusBlocked, s.blockedTool
 }
 
 // NoteBackground records a piece of background work starting (op "start") or
@@ -1048,6 +1063,17 @@ func (s *Session) BackgroundTasks() int {
 // detail is, and read back by ToolInput.
 func (s *Session) SetStatusFull(st Status, detail, toolInput string) {
 	s.mu.Lock()
+	changed := s.setStatusLocked(st, detail, toolInput)
+	s.mu.Unlock()
+	if changed {
+		s.changed()
+	}
+}
+
+// setStatusLocked is SetStatusFull under a lock the caller holds, saying
+// whether anything changed; the caller reports that, with s.changed, once it
+// has let the lock go.
+func (s *Session) setStatusLocked(st Status, detail, toolInput string) bool {
 	// Counted before anything is decided: an event that changes nothing is
 	// still the agent reporting, which is what settleAnswered waits to hear.
 	s.hookSeq++
@@ -1077,8 +1103,7 @@ func (s *Session) SetStatusFull(st Status, detail, toolInput string) {
 	// Claude repeats itself -- the same nudge about the same unanswered
 	// question, a tool it has already said it is running.
 	if s.status == StatusExited || (s.hooksSeen && s.status == st && s.detail == detail && s.toolInput == toolInput) {
-		s.mu.Unlock()
-		return
+		return false
 	}
 	if s.status != st {
 		s.statusSince = time.Now()
@@ -1088,8 +1113,7 @@ func (s *Session) SetStatusFull(st Status, detail, toolInput string) {
 	s.toolInput = toolInput
 	s.toolQuestion = question
 	s.hooksSeen = true
-	s.mu.Unlock()
-	s.changed()
+	return true
 }
 
 // Status returns the current status and its detail label.
