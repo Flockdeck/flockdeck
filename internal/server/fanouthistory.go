@@ -128,6 +128,15 @@ func (s *Server) fanoutOutcome(p *workspace.Pane) (kind, detail string) {
 			detail = "A tool call was denied: " + statusDetail + "."
 		}
 	}
+	// Closed before it finished: a fan-out's history only ever reads a
+	// settled pane, but a todo step's attempt is read on any close (see
+	// captureTodoStepOutcome), and "done" there ticks the step.
+	switch st {
+	case session.StatusWorking:
+		kind, detail = "failed", "Closed while the agent was still working."
+	case session.StatusStarting:
+		kind, detail = "failed", "Closed before the agent had started."
+	}
 	if p.Err != nil {
 		kind, detail = "failed", p.Err.Error()
 	}

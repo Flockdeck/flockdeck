@@ -145,7 +145,7 @@ func (s *Server) sendAgents(c *controlClient) {
 	}
 
 	// Whatever needs a person comes first; that is the point of the list.
-	rank := map[string]int{"waiting": 0, "working": 1, "idle": 2, "starting": 3, "exited": 4}
+	rank := map[string]int{"waiting": 0, "blocked": 0, "working": 1, "idle": 2, "starting": 3, "exited": 4}
 	sort.SliceStable(msg.Items, func(i, j int) bool {
 		ri, rj := rank[msg.Items[i].Status], rank[msg.Items[j].Status]
 		if ri != rj {

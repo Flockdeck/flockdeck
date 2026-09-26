@@ -41,10 +41,8 @@ func TestStatusMatrixOutcomeOfEachStatus(t *testing.T) {
 		{row: "F3", status: session.StatusWaiting, detail: "AskUserQuestion", wantKind: "needs", wantDetail: "AskUserQuestion"},
 		{row: "F3", status: session.StatusBlocked, detail: "Bash", wantKind: "failed", wantDetail: "A tool call was denied: Bash."},
 		{row: "F3", status: session.StatusBlocked, wantKind: "failed", wantDetail: "A tool call was denied."},
-		{row: "F4", status: session.StatusWorking, notDone: true,
-			bug: "a pane closed mid-turn reads as done, so closing a todo step's pane while its agent is still working records the attempt as done and ticks the step"},
-		{row: "F4", status: session.StatusStarting, notDone: true,
-			bug: "as F4: a pane closed before its agent did anything reads as done and ticks its todo step"},
+		{row: "F4", status: session.StatusWorking, notDone: true},
+		{row: "F4", status: session.StatusStarting, notDone: true},
 	}
 	for _, c := range cases {
 		t.Run(c.row+"/"+c.status.String()+"/"+c.detail, func(t *testing.T) {
