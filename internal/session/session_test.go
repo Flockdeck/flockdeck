@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1861,5 +1862,65 @@ func TestAPaneWhoseFolderIsGoneSaysSo(t *testing.T) {
 	// directory after it.
 	if !strings.Contains(err.Error(), "not there") || strings.Contains(err.Error(), "cmd.exe") {
 		t.Errorf("error = %q, want it to say the folder is not there", err)
+	}
+}
+
+// waitExited waits for the session's process to be reaped.
+func waitExited(t *testing.T, s *Session) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for !s.Exited() {
+		if time.Now().After(deadline) {
+			t.Fatal("session never reported the process as exited")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestExitWithAnErrorIsToldFromACleanExit is row E2: a process that exits
+// non-zero reads as failed, with its exit code as the detail, while a clean
+// exit reads as exited with nothing to say.
+func TestExitWithAnErrorIsToldFromACleanExit(t *testing.T) {
+	failed := startShell(t)
+	if err := failed.WriteString("exit 3\r"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	waitExited(t, failed)
+	if got := failed.ExitFailure(); got != "exit code 3" {
+		t.Errorf("ExitFailure = %q, want %q", got, "exit code 3")
+	}
+	if st, detail := failed.Status(); st != StatusExited || detail != "exit code 3" {
+		t.Errorf("status = %v, %q; want exited, \"exit code 3\"", st, detail)
+	}
+
+	clean := startShell(t)
+	if err := clean.WriteString("exit 0\r"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	waitExited(t, clean)
+	if got := clean.ExitFailure(); got != "" {
+		t.Errorf("a clean exit reads as a failure: %q", got)
+	}
+	if _, detail := clean.Status(); detail != "" {
+		t.Errorf("a clean exit carries the detail %q", detail)
+	}
+}
+
+// TestClosingAPaneIsNotAFailure: the death Close asks for is not one to flag.
+func TestClosingAPaneIsNotAFailure(t *testing.T) {
+	s := startShell(t)
+	_ = s.Close()
+	waitExited(t, s)
+	if got := s.ExitFailure(); got != "" {
+		t.Errorf("a pane closed on purpose reads as failed: %q", got)
+	}
+}
+
+func TestExitFailureWording(t *testing.T) {
+	if got := exitFailure(nil); got != "" {
+		t.Errorf("nil error = %q", got)
+	}
+	if got := exitFailure(errors.New("boom")); !strings.Contains(got, "boom") {
+		t.Errorf("a non-exit error = %q, want it to carry the error", got)
 	}
 }

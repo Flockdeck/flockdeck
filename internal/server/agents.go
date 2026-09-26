@@ -28,9 +28,11 @@ type agentView struct {
 	Kind    string `json:"kind"`
 	Status  string `json:"status"`
 	Detail  string `json:"detail"`
-	For     string `json:"for"`
-	Dirty   int    `json:"dirty"`
-	Active  bool   `json:"active"`
+	// Failed marks an exited pane whose process ended in error or was killed.
+	Failed bool   `json:"failed,omitempty"`
+	For    string `json:"for"`
+	Dirty  int    `json:"dirty"`
+	Active bool   `json:"active"`
 	// Parent is the pane whose agent started this one with its own `flockdeck
 	// spawn` (workspace.Pane.Parent), sent only while that pane is still
 	// open. The phone's list groups a helper under its parent's row while
@@ -115,6 +117,7 @@ func (s *Server) sendAgents(c *controlClient) {
 				Dirty:   p.Git.Dirty + p.Git.Untracked,
 				Active:  p.ID == focused,
 			}
+			_, av.Failed = p.Failed()
 			if p.Parent != "" && s.ws.Pane(p.Parent) != nil {
 				av.Parent = p.Parent
 			}

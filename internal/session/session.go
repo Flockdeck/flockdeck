@@ -150,7 +150,13 @@ type Session struct {
 	bellAt      time.Time
 	statusSince time.Time
 	exitErr     error
-	closed      bool
+	// exitFailure says why the process's end was not a clean one: "exit code
+	// 2", "was killed". Empty for a clean exit and for one Close asked for.
+	exitFailure string
+	// closing is set the moment Close starts ending the process, so the
+	// death that follows is read as asked for rather than as a failure.
+	closing bool
+	closed  bool
 	// hooksSeen records that lifecycle hooks have reported for this session,
 	// which makes them authoritative over the terminal bell and over anything
 	// else read out of the output.
@@ -566,7 +572,13 @@ func (s *Session) wait() {
 
 	s.mu.Lock()
 	s.exitErr = err
+	if !s.closing {
+		s.exitFailure = exitFailure(err)
+	}
 	s.status = StatusExited
+	// What an exited pane says for itself: nothing for a clean exit, the
+	// code (or the kill) for a failed one.
+	s.detail = s.exitFailure
 	s.statusSince = time.Now()
 	for id, v := range s.subs {
 		close(v.ch)
@@ -1120,6 +1132,32 @@ func (s *Session) SetName(n string) {
 	s.changed()
 }
 
+// exitFailure describes a process's end when it was not a clean exit, and is
+// empty when it was.
+func exitFailure(err error) string {
+	if err == nil {
+		return ""
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		if code := ee.ExitCode(); code > 0 {
+			return fmt.Sprintf("exit code %d", code)
+		}
+		return "was killed"
+	}
+	return "exited with an error: " + err.Error()
+}
+
+// ExitFailure says why the process exited abnormally -- "exit code 2", "was
+// killed" -- or "" while it runs, after a clean exit, and after a Close, which
+// is a death somebody asked for. It is what separates a failed pane from an
+// exited one.
+func (s *Session) ExitFailure() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.exitFailure
+}
+
 // ExitErr returns the process exit error once the session has exited.
 func (s *Session) ExitErr() error {
 	s.mu.RLock()
@@ -1195,6 +1233,9 @@ func (s *Session) Size() (cols, rows int) {
 // a worktree, a temporary checkout -- failed as "being used by another
 // process" in four runs out of ten.
 func (s *Session) Close() error {
+	s.mu.Lock()
+	s.closing = true
+	s.mu.Unlock()
 	if s.cmd != nil && s.cmd.Process != nil {
 		s.endTree()
 	}

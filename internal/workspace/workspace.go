@@ -193,6 +193,18 @@ func (p *Pane) Status() (session.Status, string) {
 	return p.Sess.Status()
 }
 
+// Failed reports whether the pane's process went away badly -- it exited with
+// a non-zero code or was killed -- and says how ("exit code 2"). A clean exit,
+// a process still running and one Close ended are not failures. A pane that
+// never started carries Err instead, and reads as failed the same way.
+func (p *Pane) Failed() (string, bool) {
+	if p.Sess == nil {
+		return "", false
+	}
+	why := p.Sess.ExitFailure()
+	return why, why != ""
+}
+
 // Tab is one tab: a pane tree, which pane has focus, and the project it
 // belongs to.
 type Tab struct {
@@ -2356,7 +2368,8 @@ func (w *Workspace) ClosePaneByID(id string) bool {
 // finished. And a pane whose last turn ended in an error is deliberately left
 // out of either case, matching outcomeOf's "failed" outcome in the web UI: a
 // failure is worth a person seeing before it disappears, so it waits for a
-// person to close it by hand.
+// person to close it by hand. So is one whose process exited with a non-zero
+// code or was killed (Pane.Failed): only a clean exit counts as finished.
 //
 // An agent is also not finished while it has background work going: it goes
 // idle when its turn ends whatever it left running -- a run_in_background
@@ -2406,7 +2419,10 @@ func (w *Workspace) paneFinished(id string) bool {
 	}
 	switch st, _ := p.Status(); st {
 	case session.StatusExited:
-		return true
+		// A process that failed is left for a person, like a turn that
+		// ended in an error; a clean exit is finished.
+		_, failed := p.Failed()
+		return !failed
 	case session.StatusIdle:
 		return p.IsAgent() && p.Sess.BackgroundTasks() == 0
 	default:

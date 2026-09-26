@@ -1018,3 +1018,29 @@ h.recv(state("working"));
 assert.ok(h.notifications[1].closed, "the notification outlived the wait it was about");
 `)
 }
+
+// A process that exits with an error is not a clean exit: it is drawn failed,
+// in the red the header, dot and overview carry, with the exit code on the
+// cover; a clean exit keeps the plain exited look.
+func TestAFailedExitIsToldFromACleanOne(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const push = (p1) => h.recv(fixture({ panes: { p1: pane("p1", p1), p2: pane("p2") } }));
+const wrap = () => h.$("workspace").querySelector(".pane");
+const dot = () => wrap().querySelector(".dot");
+const cover = () => h.$("workspace").querySelector(".pane-error");
+
+push({ status: "exited" });
+assert.strictEqual(wrap().dataset.status, "exited");
+assert.ok(dot().className.includes("exited") && !dot().className.includes("failed"), dot().className);
+assert.ok(cover().textContent.includes("The process exited."), cover().textContent);
+
+push({ status: "exited", failed: true, err: "The process ended: exit code 3." });
+assert.strictEqual(wrap().dataset.status, "failed");
+assert.ok(dot().className.includes("failed"), dot().className);
+assert.ok(cover().textContent.includes("exit code 3"), cover().textContent);
+
+push({ status: "exited" });
+assert.strictEqual(wrap().dataset.status, "exited", "the failed look stuck to a pane that exited cleanly");
+`)
+}

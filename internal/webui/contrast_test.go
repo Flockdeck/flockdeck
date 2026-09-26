@@ -17,7 +17,7 @@ import (
 func TestTextOnATintedPaneHeaderCanBeRead(t *testing.T) {
 	css := stripComments(readAsset(t, "app.css"))
 	root := cssColours(ruleBody(css, ":root"))
-	for _, status := range []string{"waiting", "exited"} {
+	for _, status := range []string{"waiting", "failed"} {
 		header := `.pane[data-status="` + status + `"] .pane-header`
 		body := ruleBody(css, header)
 		if body == "" {

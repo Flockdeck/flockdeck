@@ -37,7 +37,7 @@ Test file abbreviations:
 | `waiting` | The agent is blocked on the user: a permission prompt, a question, or an elicitation. | **yes** |
 | `blocked` | The turn ended right after a tool call was refused outright, and nothing since has recovered it. | **yes** |
 | `idle` | The turn is over and the agent is at its prompt. | no |
-| `exited` | The process is gone. A pane that failed to start (`Pane.Sess == nil`) also reads as exited. | no |
+| `exited` | The process is gone. A pane that failed to start (`Pane.Sess == nil`) also reads as exited. When it exited with an error or was killed, the UI draws it as failed (see E2). | no |
 
 There is no `failed` status. The web UI derives "failed" itself, from `blocked` or from a start error (`Pane.Err`); see section F.
 
@@ -183,7 +183,7 @@ The hypothesis was: "a PostToolUse or PreToolUse for the turn's last tool call c
 | Row | Situation | Expected | ✓? | Test |
 |---|---|---|---|---|
 | E1 | Process spawned | starting | ✓ | S D1 |
-| E2 | Process exits (clean or with an error) | exited; writing to the pane says so. **Neither the UI nor the protocol distinguishes an exit with an error (`ExitErr`) from a clean one.** | ✓ / ~ design gap | existing `TestExitDeliversFinalOutputThenCloses`, `TestWriteToAnExitedPaneSaysSo` |
+| E2 | Process exits (clean or with an error) | a clean exit shows exited (writing to the pane says so) and is closed by "Close finished panes". A non-zero exit or a kill (not one `Close` asked for) shows **failed** with the exit code as the detail (`Session.ExitFailure`, `Pane.Failed`; sent as `failed` plus `err` on the pane and agent views, drawn `data-status="failed"` in red) and is left for a person, like a pane whose last turn ended in an error. A pane that failed to start already carries `Err`. Phone push reports waiting agents only, not exits. | ✓ | S `TestExitWithAnErrorIsToldFromACleanExit`, W `TestStatusMatrixExitWithAnError`, V `TestStatusMatrixExitWithAnError`, webui `TestAFailedExitIsToldFromACleanOne`, existing `TestExitDeliversFinalOutputThenCloses`, `TestWriteToAnExitedPaneSaysSo` |
 | E3 | Failed to start (`Pane.Err`, `Sess == nil`) | reads as exited plus `err`; the web UI overlay shows the error and outcomeOf says "failed" | ✓ | existing `polish_test.go`, `TestFanoutOutcomeMatchesOutcomeOfsThreeKinds` |
 | E4 | Restart | new launch id, starting again, and hooks from the old process are dropped (C6) | ✓ | existing `TestALateHookFromBeforeARestartIsDropped` |
 

@@ -93,6 +93,7 @@
     idle:        "Idle - the agent finished its turn and is waiting for a new prompt.",
     starting:    "Starting - the process is launching and has not reported in yet.",
     exited:      "Exited - the process in this pane has stopped.",
+    failed:      "Failed - the process in this pane exited with an error or was killed. It is left open for you to read.",
     ahead:       "Commits made here that the upstream branch does not have. Push to send them.",
     behind:      "Commits on the upstream branch that this checkout does not have. Pull to catch up.",
     // The dirty count: tracked files the agent has edited but not committed.
@@ -1630,6 +1631,13 @@
     return split;
   }
 
+  /** shownStatus is the status a pane is drawn in: its own, except that a
+   *  process that exited with an error or was killed reads as failed rather
+   *  than as the clean exit it shares a status with. */
+  function shownStatus(v) {
+    return v.failed && v.status === "exited" ? "failed" : v.status;
+  }
+
   /** outcomeOf reads a settled pane's line for the summary card: done, needs
    *  input or failed (the three the plan this implements asks for), and the
    *  one line of detail that goes with it -- what a waiting pane wants, in
@@ -1704,9 +1712,9 @@
     views.forEach(({ id, v }) => {
       const out = outcomes.get(id);
       const row = el("div", "summary-card-row");
-      const dot = el("span", "dot " + (out.kind === "failed" ? "exited" : v.status));
+      const dot = el("span", "dot " + (out.kind === "failed" ? "failed" : v.status));
       dot.setAttribute("aria-hidden", "true");
-      row.append(describe(dot, TIPS[v.status] || v.status));
+      row.append(describe(dot, TIPS[out.kind === "failed" ? "failed" : v.status] || v.status));
       const main = el("div", "summary-card-main");
       const title = el("div", "summary-card-name");
       title.append(el("span", null, v.name || ""));
@@ -2265,11 +2273,13 @@
     const said = [];
     for (const [id, v] of Object.entries(s.panes || {})) {
       const before = announced.get(id);
-      announced.set(id, v.status);
-      if (before === undefined || before === v.status) continue;
+      const shown = shownStatus(v);
+      announced.set(id, shown);
+      if (before === undefined || before === shown) continue;
       const name = v.name || "An agent";
       if (v.status === "waiting") said.push(name + " is waiting on you");
       else if (v.status === "blocked") said.push(name + " hit a blocked tool call");
+      else if (shown === "failed") said.push(name + " has failed" + (v.err ? ": " + v.err : ""));
       else if (v.status === "exited") said.push(name + " has exited");
     }
     for (const id of [...announced.keys()]) {
@@ -3832,18 +3842,19 @@
       if (!v) continue;
       const was = p.shown;
 
-      if (was.status !== v.status) {
-        was.status = v.status;
+      const shown = shownStatus(v);
+      if (was.status !== shown) {
+        was.status = shown;
         // On the pane as well as on its dot: a tab of six agents is six small
         // discs, and the one that has stopped and is waiting on you should not
         // have to be found by reading each header in turn.
-        p.wrap.dataset.status = v.status;
-        p.dot.className = "dot " + v.status;
+        p.wrap.dataset.status = shown;
+        p.dot.className = "dot " + shown;
         // The dot is nothing but a coloured circle, so it has to say the whole
         // sentence itself; the bare status word left the colour unexplained.
         p.dot.setAttribute("role", "img");
-        p.dot.setAttribute("aria-label", TIPS[v.status] || v.status);
-        describe(p.dot, TIPS[v.status] || v.status);
+        p.dot.setAttribute("aria-label", TIPS[shown] || shown);
+        describe(p.dot, TIPS[shown] || shown);
       }
       // The name is cut short with an ellipsis in a narrow pane, and is only
       // ever a bare directory (see workspace.newPane) -- the same for every
@@ -8408,9 +8419,10 @@
     // at all, so it needs both the copy and a name of its own.
     // The row writes the status out in words further along, so the disc is
     // decoration here — unlike in a pane header, where it is all there is.
-    const dot = el("span", "dot " + a.status);
+    const shown = shownStatus(a);
+    const dot = el("span", "dot " + shown);
     dot.setAttribute("aria-hidden", "true");
-    title.append(describe(dot, TIPS[a.status] || a.status));
+    title.append(describe(dot, TIPS[shown] || shown));
     // Cut short with an ellipsis, like the tab it names; the bubble has it all.
     title.append(describe(el("span", "agent-tab", a.tab || a.name), a.tab || a.name));
     title.append(el("span", "agent-project", a.project));
@@ -8477,7 +8489,7 @@
     main.append(meta);
     row.append(main);
 
-    const status = el("span", "agent-status " + a.status, a.status);
+    const status = el("span", "agent-status " + shown, shown);
     row.append(status);
     if (a.for) row.append(el("span", "agent-for", howLong(a.for)));
 
@@ -11218,7 +11230,7 @@
       id: "exited",
       text: "A pane whose agent has stopped shows Restart over its terminal rather than a dead screen — it starts the same agent again in the same place, and picks the conversation back up.",
       page: "panes",
-      when: (s) => currentPanes(s).some((v) => v.status === "exited"),
+      when: (s) => currentPanes(s).some((v) => v.status === "exited" || shownStatus(v) === "failed"),
     },
     {
       id: "dirty-pane",
