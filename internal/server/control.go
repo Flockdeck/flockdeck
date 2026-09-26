@@ -368,6 +368,14 @@ type paneView struct {
 	// far. See Pane.AutoReview and Pane.AutoApproved.
 	AutoReview   bool `json:"autoReview,omitempty"`
 	AutoApproved int  `json:"autoApproved,omitempty"`
+	// Background counts the background work this pane's agent has left
+	// running -- a run_in_background command, a background subagent -- as
+	// its hooks have said (session.Session.BackgroundTasks). An agent goes
+	// idle when its turn ends whatever it left running, so this is what
+	// tells "idle, and done" from "idle, with work still going", which is
+	// also what keeps the pane from being closed as finished. Left out at
+	// zero.
+	Background int `json:"background,omitempty"`
 	// PeerName is the name another Claude session would use to address this
 	// pane, reported by the agent running inside it -- see Pane.PeerName.
 	// Empty until reported, which is every pane that never runs `flockdeck
@@ -716,6 +724,11 @@ func (s *Server) snapshot() stateMsg {
 			}
 			if p.Err != nil {
 				pv.Err = p.Err.Error()
+			}
+			// Nothing is left running once the process has gone, whatever was
+			// last counted.
+			if p.Sess != nil && p.IsAgent() && st != session.StatusExited {
+				pv.Background = p.Sess.BackgroundTasks()
 			}
 			if p.Sess != nil {
 				pv.Cols, pv.Rows = p.Sess.Size()

@@ -26,10 +26,10 @@ func knownBug(t *testing.T, row, why string) {
 }
 
 // hookEv is one lifecycle event as workspace.handleHook hands it to a
-// session: the event, the tool it names, a Notification's type, and the
-// tool input it carries.
+// session: the event, the tool it names, a Notification's type, the tool
+// input it carries, and the subagent it came from.
 type hookEv struct {
-	event, tool, ntype, input string
+	event, tool, ntype, input, agent string
 }
 
 // feed applies events the way workspace.handleHook does -- through
@@ -39,7 +39,7 @@ type hookEv struct {
 // does is the workspace's to test.
 func feed(s *Session, evs ...hookEv) (Status, string) {
 	for _, e := range evs {
-		s.ApplyEvent(Event{Name: e.event, Tool: e.tool, NotificationType: e.ntype, ToolInput: e.input})
+		s.ApplyEvent(Event{Name: e.event, Tool: e.tool, NotificationType: e.ntype, ToolInput: e.input, Agent: e.agent})
 	}
 	return s.Status()
 }
@@ -59,6 +59,9 @@ func postFail(tool string) hookEv    { return hookEv{event: "PostToolUseFailure"
 func interrupted(tool string) hookEv { return hookEv{event: "Interrupted", tool: tool} }
 func permRequest(tool string) hookEv { return hookEv{event: "PermissionRequest", tool: tool} }
 func denied(tool string) hookEv      { return hookEv{event: "PermissionDenied", tool: tool} }
+
+// by marks an event as a subagent's own, the way Claude Code's agent_id does.
+func by(agent string, e hookEv) hookEv { e.agent = agent; return e }
 
 // sessionStart is a SessionStart of any source: which one it was matters to
 // the workspace's background bookkeeping, and to the status not at all.
@@ -203,6 +206,25 @@ func TestStatusMatrixTurns(t *testing.T) {
 		{row: "B20", name: "a foreground subagent's turn ends idle",
 			events: []hookEv{prompt, pre("Task"), pre("Read"), post("Read"), {event: "SubagentStop"}, post("Task"), stop}, want: StatusIdle},
 		{row: "B21", name: "a background subagent finishing after the turn leaves the pane idle",
+			events: []hookEv{prompt, pre("Task"), post("Task"), stop, by("a1", pre("Read")), by("a1", post("Read")), by("a1", hookEv{event: "SubagentStop"})}, want: StatusIdle},
+		{row: "B21", name: "a background subagent's tool call after the turn leaves the pane idle",
+			events: []hookEv{prompt, pre("Task"), post("Task"), stop, by("a1", pre("Read"))}, want: StatusIdle},
+		{row: "B21", name: "a background subagent's calls after a denied turn leave it blocked",
+			events: []hookEv{prompt, pre("Bash"), denied("Bash"), stop, by("a1", pre("Read")), by("a1", post("Read"))}, want: StatusBlocked, wantDetail: "Bash"},
+		{row: "B21", name: "a background subagent's question after the turn waits on it",
+			events: []hookEv{prompt, stop, by("a1", pre("AskUserQuestion"))}, want: StatusWaiting, wantDetail: "AskUserQuestion"},
+		{row: "B21", name: "a background subagent's answered question returns the pane to idle",
+			events: []hookEv{prompt, stop, by("a1", pre("AskUserQuestion")), by("a1", post("AskUserQuestion"))}, want: StatusIdle},
+		{row: "B21", name: "a background subagent's permission prompt names its tool",
+			events: []hookEv{prompt, stop, by("a1", pre("Bash")), by("a1", permRequest("")), permAsk}, want: StatusWaiting, wantDetail: "Bash"},
+		{row: "B21", name: "the call it allowed finishing returns the pane to idle",
+			events: []hookEv{prompt, stop, by("a1", pre("Bash")), by("a1", permRequest("")), by("a1", post("Bash"))}, want: StatusIdle},
+		{row: "B21", name: "another subagent's calls do not end one's permission prompt",
+			events: []hookEv{prompt, stop, by("a1", pre("Bash")), by("a1", permRequest("")), by("a2", pre("Read")), by("a2", post("Read"))},
+			want:   StatusWaiting, wantDetail: "Bash"},
+		{row: "B21", name: "a subagent's calls while the turn is going show as the turn's work",
+			events: []hookEv{prompt, pre("Task"), by("a1", pre("Read"))}, want: StatusWorking, wantDetail: "Read"},
+		{row: "B21", name: "an older Claude Code, naming no subagent, still ends idle",
 			events: []hookEv{prompt, pre("Task"), post("Task"), stop, pre("Read"), post("Read"), {event: "SubagentStop"}}, want: StatusIdle},
 		{row: "B22", name: "a background shell leaves the pane idle once the turn ends",
 			events: []hookEv{prompt, pre("Bash"), post("Bash"), stop}, want: StatusIdle},
@@ -276,6 +298,30 @@ func TestStatusMatrixWaitClock(t *testing.T) {
 	feed(s, stop)
 	if changes != before {
 		t.Error("a duplicate Stop was reported as a change")
+	}
+}
+
+// TestStatusMatrixBackgroundSubagentIsSteady is row B21 as it is seen over
+// time: a pane whose only activity is a background subagent shows idle, the
+// status its turn ended on, through every one of that subagent's tool calls,
+// without once reporting a change -- where it used to flash working for each.
+func TestStatusMatrixBackgroundSubagentIsSteady(t *testing.T) {
+	s := claudePane()
+	feed(s, prompt, pre("Task"), post("Task"), stop)
+	changes := 0
+	s.OnChange = func() { changes++ }
+	for _, e := range []hookEv{
+		by("a1", pre("Read")), by("a1", post("Read")),
+		by("a1", pre("Bash")), by("a1", postFail("Bash")),
+		by("a1", pre("Grep")), by("a2", pre("Glob")), by("a1", post("Grep")), by("a2", post("Glob")),
+		by("a1", hookEv{event: "SubagentStop"}),
+	} {
+		if st, detail := feed(s, e); st != StatusIdle || detail != "" {
+			t.Fatalf("after %v: status = %v %q, want idle", e, st, detail)
+		}
+	}
+	if changes != 0 {
+		t.Errorf("a background subagent's calls were reported as %d changes, want 0", changes)
 	}
 }
 

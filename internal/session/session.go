@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -177,6 +178,10 @@ type Session struct {
 	// hooks have said: see ApplyEvent.
 	turn       turnState
 	strayTools int
+	// askingAgent is the subagent whose question or permission prompt a pane
+	// is showing once the turn that started it is over; see ApplyEvent.
+	askingAgent string
+	agentCalls  map[string]agentCall
 	// background is the background work the agent has started and not seen
 	// end -- a run_in_background Bash command, a subagent -- by the id the
 	// hooks gave it. An agent goes idle when its turn ends whatever it left
@@ -1016,25 +1021,71 @@ func (s *Session) resolveBlockedLocked(event, tool string, st Status, detail str
 // ending (op "end") under id, as hooks.Event reports it. A SessionStart from a
 // new or cleared conversation forgets all of it: work started in one
 // conversation is not waited on by the next. An empty op or id changes nothing.
+//
+// An id is a kind and the id Claude Code gave the work, "shell:b1" or
+// "agent:a7". An end ends whatever was counted under the same id of any kind:
+// the <task-notification> Claude Code sends when a task ends does not say
+// which kind it was in a form worth relying on, and so names none ("task:").
 func (s *Session) NoteBackground(event, op, id string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if event == "SessionStart" {
+	before := len(s.background)
+	switch {
+	case event == "SessionStart":
 		s.background = nil
-		return
-	}
-	if id == "" {
-		return
-	}
-	switch op {
-	case "start":
+	case id == "":
+	case op == "start":
 		if s.background == nil {
 			s.background = map[string]struct{}{}
 		}
 		s.background[id] = struct{}{}
-	case "end":
+	case op == "end":
 		delete(s.background, id)
+		bare := backgroundBareID(id)
+		for k := range s.background {
+			if backgroundBareID(k) == bare {
+				delete(s.background, k)
+			}
+		}
 	}
+	changed := len(s.background) != before
+	s.mu.Unlock()
+	if changed {
+		s.changed()
+	}
+}
+
+// SetBackground replaces what is counted as the agent's background work with
+// ids, named the way NoteBackground's are: what Claude Code itself says is
+// still in flight at the end of a turn. It is the whole truth where the
+// starts and ends counted one at a time can miss something -- a command that
+// ended in the middle of a turn, one stopped from Claude Code's own task
+// list -- so it replaces them rather than adding to them.
+func (s *Session) SetBackground(ids []string) {
+	s.mu.Lock()
+	before := len(s.background)
+	s.background = nil
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if s.background == nil {
+			s.background = map[string]struct{}{}
+		}
+		s.background[id] = struct{}{}
+	}
+	changed := len(s.background) != before
+	s.mu.Unlock()
+	if changed {
+		s.changed()
+	}
+}
+
+// backgroundBareID is a background work id without the kind in front of it.
+func backgroundBareID(id string) string {
+	if _, bare, ok := strings.Cut(id, ":"); ok {
+		return bare
+	}
+	return id
 }
 
 // BackgroundTasks is how many pieces of background work the agent has left

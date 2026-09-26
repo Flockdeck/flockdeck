@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -878,6 +879,26 @@ func TestEmitReportsBackgroundWork(t *testing.T) {
 		{"subagent start", "SubagentStart", `{"agent_id":"a7"}`, BackgroundStart, "agent:a7"},
 		{"subagent stop", "SubagentStop", `{"agent_id":"a7"}`, BackgroundEnd, "agent:a7"},
 		{"other event", "Stop", `{}`, "", ""},
+		// Claude Code 2.1.283's own payloads, as a hook logging its stdin
+		// received them: the backgroundTaskId a background command's
+		// PostToolUse names, and the <task-notification> it submits as a
+		// prompt once the command has ended by itself -- whether the turn
+		// was over by then or still going.
+		{"background bash, 2.1.283", "PostToolUse", `{"hook_event_name":"PostToolUse","tool_name":"Bash",` +
+			`"tool_input":{"command":"sleep 8; echo done","description":"Sleep for 8 seconds then print done","run_in_background":true},` +
+			`"tool_response":{"stdout":"","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false,"backgroundTaskId":"b8qs3bzx9"},` +
+			`"tool_use_id":"toolu_01WBq1D23ugTVj1GiYExwQy9","duration_ms":2177}`, BackgroundStart, "shell:b8qs3bzx9"},
+		{"a background command's task notification", "UserPromptSubmit", `{"hook_event_name":"UserPromptSubmit",` +
+			`"prompt":"<task-notification>\n<task-id>b8qs3bzx9</task-id>\n<tool-use-id>toolu_01WBq1D23ugTVj1GiYExwQy9</tool-use-id>\n` +
+			`<output-file>C:\\Temp\\tasks\\b8qs3bzx9.output</output-file>\n<status>completed</status>\n` +
+			`<summary>Background command \"Sleep for 8 seconds then print done\" completed (exit code 0)</summary>\n</task-notification>"}`,
+			BackgroundEnd, "task:b8qs3bzx9"},
+		{"a background subagent's task notification", "UserPromptSubmit", `{"hook_event_name":"UserPromptSubmit",` +
+			`"prompt":"<task-notification>\n<task-id>a24a75d5a81a9c58f</task-id>\n<status>completed</status>\n` +
+			`<summary>Agent \"Run sleep 6 and reply done\" finished</summary>\n<result>Done.</result>\n</task-notification>"}`,
+			BackgroundEnd, "task:a24a75d5a81a9c58f"},
+		{"an ordinary prompt", "UserPromptSubmit", `{"prompt":"fix the <task-id>x</task-id> parser"}`, "", ""},
+		{"a prompt quoting a notification", "UserPromptSubmit", `{"prompt":"why does <task-notification><task-id>x</task-id> show up?"}`, "", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -890,5 +911,68 @@ func TestEmitReportsBackgroundWork(t *testing.T) {
 				t.Errorf("background = (%q, %q), want (%q, %q)", got.Background, got.BackgroundID, c.op, c.id)
 			}
 		})
+	}
+}
+
+// TestEmitReportsWhatAStopSaysIsStillRunning covers a Stop's own list of the
+// background work still in flight, which Claude Code 2.1.283 sends as
+// background_tasks: it is passed on whole, named the way each piece's start
+// was, and an empty list is told apart from a Stop that says nothing.
+func TestEmitReportsWhatAStopSaysIsStillRunning(t *testing.T) {
+	cases := []struct {
+		name, stdin string
+		want        []string // nil: the event says nothing
+	}{
+		// As 2.1.283 sent it at the end of a turn that left a background
+		// subagent and a background command running.
+		{"two running", `{"hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"Started.",` +
+			`"background_tasks":[{"id":"a24a75d5a81a9c58f","type":"subagent","status":"running","description":"Run sleep 6 and reply done","agent_type":"general-purpose"},` +
+			`{"id":"bmxcupw20","type":"shell","status":"running","description":"Background sleep and echo command","command":"sleep 15; echo a"}],"session_crons":[]}`,
+			[]string{"agent:a24a75d5a81a9c58f", "shell:bmxcupw20"}},
+		{"a kind this does not know", `{"background_tasks":[{"id":"m1","type":"monitor","status":"running"}]}`, []string{"monitor:m1"}},
+		{"nothing in flight", `{"hook_event_name":"Stop","background_tasks":[],"session_crons":[]}`, []string{}},
+		{"an older Claude Code", `{"hook_event_name":"Stop","stop_hook_active":false}`, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv, r := newServer(t)
+			if _, err := Emit(strings.NewReader(c.stdin), srv.Endpoint(), srv.Token(), "pane-bg", "Stop"); err != nil {
+				t.Fatalf("emit: %v", err)
+			}
+			got := r.next(t)
+			if c.want == nil {
+				if got.BackgroundTasks != nil {
+					t.Fatalf("background tasks = %v, want none reported", *got.BackgroundTasks)
+				}
+				return
+			}
+			if got.BackgroundTasks == nil {
+				t.Fatalf("background tasks not reported, want %v", c.want)
+			}
+			if !reflect.DeepEqual(*got.BackgroundTasks, c.want) {
+				t.Errorf("background tasks = %v, want %v", *got.BackgroundTasks, c.want)
+			}
+		})
+	}
+}
+
+// TestEmitSaysWhichSubagentAToolCallIsFrom covers agent_id, which Claude Code
+// 2.1.283 puts on the tool hooks a subagent's own calls fire -- what lets a
+// background subagent's calls after the turn be told from the main agent's.
+func TestEmitSaysWhichSubagentAToolCallIsFrom(t *testing.T) {
+	srv, r := newServer(t)
+	sub := `{"hook_event_name":"PreToolUse","agent_id":"a24a75d5a81a9c58f","agent_type":"general-purpose","tool_name":"Bash","tool_input":{"command":"sleep 6"}}`
+	if _, err := Emit(strings.NewReader(sub), srv.Endpoint(), srv.Token(), "pane-bg", "PreToolUse"); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	if got := r.next(t); got.AgentID != "a24a75d5a81a9c58f" {
+		t.Errorf("a subagent's call names agent %q", got.AgentID)
+	}
+	main := `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
+	if _, err := Emit(strings.NewReader(main), srv.Endpoint(), srv.Token(), "pane-bg", "PreToolUse"); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	if got := r.next(t); got.AgentID != "" {
+		t.Errorf("the main agent's call names agent %q", got.AgentID)
 	}
 }

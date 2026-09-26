@@ -45,6 +45,9 @@ type agentView struct {
 	// opening any of them. Left out for a pane not waiting, and for one
 	// whose ask this cannot describe. See waitingViews.
 	Waiting string `json:"waiting,omitempty"`
+	// Background counts the background work the pane's agent has left
+	// running; see paneView.Background. Left out at zero.
+	Background int `json:"background,omitempty"`
 }
 
 type agentsMsg struct {
@@ -119,6 +122,9 @@ func (s *Server) sendAgents(c *controlClient) {
 				av.Parent = p.Parent
 			}
 			if p.Sess != nil {
+				if p.IsAgent() && st != session.StatusExited {
+					av.Background = p.Sess.BackgroundTasks()
+				}
 				av.For = humanAgo(time.Since(p.Sess.StatusSince()))
 				// What a waiting pane wants, in the same words a permission
 				// prompt would show: so a list of several waiting at once,

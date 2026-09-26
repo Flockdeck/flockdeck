@@ -82,6 +82,19 @@ type Event struct {
 	// backgroundOf for which events say so.
 	Background   string `json:"background,omitempty"`
 	BackgroundID string `json:"backgroundId,omitempty"`
+	// BackgroundTasks is every piece of background work Claude Code itself
+	// says is still in flight when its turn ends, each named the way
+	// BackgroundID names it: the whole of it, so the receiving end can take
+	// it in place of what it has counted. Claude Code puts this on a Stop
+	// (background_tasks, "empty array when nothing is in flight"); nil --
+	// left out -- means the event did not say, which an older Claude Code's
+	// Stop never does, and is not the same as an empty list.
+	BackgroundTasks *[]string `json:"backgroundTasks,omitempty"`
+	// AgentID names the subagent a tool event came from -- Claude Code's
+	// agent_id, which it puts on the hooks a subagent's own tool calls fire
+	// and leaves off the main agent's. Empty for the main agent, and for
+	// every event from a Claude Code too old to say.
+	AgentID string `json:"agentId,omitempty"`
 }
 
 // Background work a lifecycle event can report; see Event.Background.
@@ -126,8 +139,70 @@ type claudePayload struct {
 	// Bash command names the shell it started there.
 	ToolResponse json.RawMessage `json:"tool_response"`
 	ToolUseID    string          `json:"tool_use_id"`
-	// AgentID names the subagent a SubagentStart or SubagentStop is about.
+	// AgentID names the subagent a SubagentStart or SubagentStop is about,
+	// and the subagent a tool event came from.
 	AgentID string `json:"agent_id"`
+	// BackgroundTasks is a Stop's own list of the background work still in
+	// flight; nil when the payload has no such field at all.
+	BackgroundTasks *[]backgroundTaskWire `json:"background_tasks"`
+}
+
+// backgroundTaskWire is one entry of a Stop's background_tasks, in Claude
+// Code 2.1.283's own shape: {"id":"bmxcupw20","type":"shell",
+// "status":"running",...} for a run_in_background command, and type
+// "subagent" with the agent's id for a background subagent. Its schema names
+// "monitor" and "workflow" as other types it may report.
+type backgroundTaskWire struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+}
+
+// backgroundKey is what a piece of background work of kind type and id is
+// counted as, the same name its start was reported under: see backgroundOf.
+func backgroundKey(kind, id string) string {
+	switch kind {
+	case "shell":
+		return "shell:" + id
+	case "subagent":
+		return "agent:" + id
+	case "":
+		return "task:" + id
+	}
+	return kind + ":" + id
+}
+
+// taskNotificationID reads the task a <task-notification> is about. Claude
+// Code tells the model a background task has ended -- a run_in_background
+// command finishing or being killed, a background subagent stopping -- by
+// submitting one as a prompt of its own, which fires UserPromptSubmit with it
+// as the prompt, both when it lands after the turn and when it is folded into
+// one still going. As 2.1.283 sends it:
+//
+//	<task-notification>
+//	<task-id>bmxcupw20</task-id>
+//	<tool-use-id>toolu_...</tool-use-id>
+//	<output-file>...</output-file>
+//	<status>completed</status>
+//	<summary>Background command "..." completed (exit code 0)</summary>
+//	</task-notification>
+//
+// Only the task id is read: a notification is sent once the task has stopped,
+// whatever the status says it stopped as.
+func taskNotificationID(prompt string) string {
+	const open, idOpen, idClose = "<task-notification>", "<task-id>", "</task-id>"
+	rest, ok := strings.CutPrefix(strings.TrimSpace(prompt), open)
+	if !ok {
+		return ""
+	}
+	_, rest, ok = strings.Cut(rest, idOpen)
+	if !ok {
+		return ""
+	}
+	id, _, ok := strings.Cut(rest, idClose)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(id)
 }
 
 // backgroundWire is the few fields of a tool_input or tool_response that say
@@ -153,17 +228,25 @@ func (b backgroundWire) id() string {
 //
 // A background Bash command is known from its PostToolUse (after the tool has
 // really run, so a refused call is never counted) and is ended by the model
-// killing it. Claude Code fires no hook when one simply finishes, so it stays
-// counted until the conversation is cleared -- a pane is then kept rather than
-// closed by mistake, which is the safe way to be wrong. A subagent, background
-// or not, is bracketed by SubagentStart and SubagentStop, which is what covers
-// background Task/Agent calls without reading their input a second time.
+// killing it, or by the <task-notification> Claude Code submits once it has
+// ended on its own (see taskNotificationID) -- there is no hook of its own
+// for that. A subagent, background or not, is bracketed by SubagentStart and
+// SubagentStop, which is what covers background Task/Agent calls without
+// reading their input a second time. Whatever these miss, a Stop's own list
+// of what is still in flight puts right: see Event.BackgroundTasks.
 func backgroundOf(event string, cp claudePayload) (op, id string) {
 	switch event {
 	case "SubagentStart":
 		return BackgroundStart, "agent:" + cp.AgentID
 	case "SubagentStop":
 		return BackgroundEnd, "agent:" + cp.AgentID
+	case "UserPromptSubmit":
+		if id = taskNotificationID(cp.Prompt); id == "" {
+			return "", ""
+		}
+		// Which kind of task it was, the notification says only in prose, so
+		// the id is named with no kind and ends whichever it was.
+		return BackgroundEnd, backgroundKey("", id)
 	case "PostToolUse":
 	default:
 		return "", ""
@@ -549,6 +632,16 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (Response, 
 			}
 			p.NotificationType = cp.NotificationType
 			p.Background, p.BackgroundID = backgroundOf(event, cp)
+			p.AgentID = cp.AgentID
+			if (event == "Stop" || event == "StopFailure") && cp.BackgroundTasks != nil {
+				ids := make([]string, 0, len(*cp.BackgroundTasks))
+				for _, t := range *cp.BackgroundTasks {
+					if t.ID != "" {
+						ids = append(ids, backgroundKey(t.Type, t.ID))
+					}
+				}
+				p.BackgroundTasks = &ids
+			}
 			if event == "PostToolUseFailure" && cp.IsInterrupt {
 				p.Event.Event = Interrupted
 			}

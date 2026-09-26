@@ -148,10 +148,43 @@ func TestStatusMatrixTurnsThroughTheWorkspace(t *testing.T) {
 				ev("PreToolUse", "Read"), ev("PostToolUse", "Read"),
 				{Event: "SubagentStop", Background: hooks.BackgroundEnd, BackgroundID: "agent:a1"}},
 			want: session.StatusIdle},
+		{row: "B21", name: "a background subagent's calls after the turn leave the pane idle, counted",
+			events: []hooks.Event{ev("UserPromptSubmit", ""), ev("PreToolUse", "Task"),
+				{Event: "SubagentStart", Background: hooks.BackgroundStart, BackgroundID: "agent:a1", AgentID: "a1"},
+				ev("PostToolUse", "Task"), {Event: "Stop", BackgroundTasks: inFlight("agent:a1")},
+				{Event: "PreToolUse", Tool: "Read", AgentID: "a1"}},
+			want: session.StatusIdle, background: 1},
+		{row: "B21", name: "a background subagent's notification ends it however its SubagentStop went",
+			events: []hooks.Event{ev("UserPromptSubmit", ""), ev("PreToolUse", "Task"),
+				{Event: "SubagentStart", Background: hooks.BackgroundStart, BackgroundID: "agent:a1", AgentID: "a1"},
+				ev("PostToolUse", "Task"), {Event: "Stop", BackgroundTasks: inFlight("agent:a1")},
+				{Event: "UserPromptSubmit", Background: hooks.BackgroundEnd, BackgroundID: "task:a1"}},
+			want: session.StatusWorking},
 		{row: "B22", name: "a background shell leaves the pane idle, counted",
 			events: []hooks.Event{ev("UserPromptSubmit", ""),
 				{Event: "PostToolUse", Tool: "Bash", Background: hooks.BackgroundStart, BackgroundID: "shell:b1"}, ev("Stop", "")},
 			want: session.StatusIdle, background: 1},
+		{row: "B22", name: "a background shell ending by itself after the turn is no longer counted",
+			events: []hooks.Event{ev("UserPromptSubmit", ""),
+				{Event: "PostToolUse", Tool: "Bash", Background: hooks.BackgroundStart, BackgroundID: "shell:b1"},
+				{Event: "Stop", BackgroundTasks: inFlight("shell:b1")},
+				// Claude Code's <task-notification>, submitted as a prompt of its own.
+				{Event: "UserPromptSubmit", Background: hooks.BackgroundEnd, BackgroundID: "task:b1"},
+				{Event: "Stop", BackgroundTasks: inFlight()}},
+			want: session.StatusIdle},
+		{row: "B22", name: "a background shell ending in the middle of the turn is no longer counted",
+			events: []hooks.Event{ev("UserPromptSubmit", ""),
+				{Event: "PostToolUse", Tool: "Bash", Background: hooks.BackgroundStart, BackgroundID: "shell:b1"},
+				ev("PreToolUse", "Bash"), ev("PostToolUse", "Bash"),
+				{Event: "UserPromptSubmit", Background: hooks.BackgroundEnd, BackgroundID: "task:b1"},
+				ev("Stop", "")},
+			want: session.StatusIdle},
+		{row: "B22", name: "a Stop's own list of what is in flight replaces what was counted",
+			events: []hooks.Event{ev("UserPromptSubmit", ""),
+				{Event: "PostToolUse", Tool: "Bash", Background: hooks.BackgroundStart, BackgroundID: "shell:b1"},
+				{Event: "PostToolUse", Tool: "Bash", Background: hooks.BackgroundStart, BackgroundID: "shell:b2"},
+				{Event: "Stop", BackgroundTasks: inFlight("shell:b2", "monitor:m1")}},
+			want: session.StatusIdle, background: 2},
 		{row: "C1", name: "the last tool's PostToolUse delivered after the Stop",
 			events: []hooks.Event{ev("UserPromptSubmit", ""), ev("PreToolUse", "Bash"), ev("Stop", ""), ev("PostToolUse", "Bash")},
 			want:   session.StatusIdle},
@@ -182,6 +215,15 @@ func TestStatusMatrixTurnsThroughTheWorkspace(t *testing.T) {
 			}
 		})
 	}
+}
+
+// inFlight is a Stop's own list of the background work still in flight, as
+// hooks.Event carries it.
+func inFlight(ids ...string) *[]string {
+	if ids == nil {
+		ids = []string{}
+	}
+	return &ids
 }
 
 // TestStatusMatrixAfterExit is row C10 through the workspace: an exited pane

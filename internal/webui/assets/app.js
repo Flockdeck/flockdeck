@@ -2896,6 +2896,11 @@
     // own. See renderPaneRemote.
     const remote = el("span", "pane-remote");
     const detail = el("span", "pane-detail");
+    // Shown while the agent has background work going -- a run_in_background
+    // command, a background subagent -- which it leaves running when its turn
+    // ends. The pane reads idle then, and this is what says it is not done.
+    // See renderPaneBackground.
+    const background = el("span", "pane-bg");
     const git = el("span", "pane-git");
     // The counts say something changed, and nothing went from them to what
     // did: the review was a trip to the top bar, and for the focused pane
@@ -2938,7 +2943,7 @@
       btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
     );
     makeToolbar(actions, "What to do with this pane");
-    header.append(dot, project, name, branch, agent, peerName, remote, git, detail, spend, limit, usage, cast, actions);
+    header.append(dot, project, name, branch, agent, peerName, remote, git, detail, background, spend, limit, usage, cast, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -3039,7 +3044,7 @@
     // The WebGL renderer is loaded when the pane comes on screen, not here:
     // see drawWithWebgl.
 
-    p = { id, wrap, header, dot, name, project, branch, agent, peerName, remote, git, detail, usage, spend, limit, cast, body, host, term, fit, ws: null,
+    p = { id, wrap, header, dot, name, project, branch, agent, peerName, remote, git, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
@@ -3895,6 +3900,9 @@
         else delete p.detail.dataset.tip;
       }
 
+      const background = v.background || 0;
+      if (was.background !== background) { was.background = background; renderPaneBackground(p, background); }
+
       const git = [v.dirty, v.untracked, v.ahead, v.behind, v.gitTimedOut ? "late" : ""].join(" ");
       if (was.git !== git) { was.git = git; renderPaneGit(p, v); }
 
@@ -4029,6 +4037,25 @@
       : "";
     // Cut short like the branch, and named in its bubble for the same reason.
     describe(p.agent, p.agent.textContent + " — " + TIPS.agent + routed);
+  }
+
+  /** backgroundTip says what a count of background work means: an agent
+   *  whose turn has ended reads idle whatever it left running, and this is
+   *  the work that keeps it from being finished. */
+  function backgroundTip(n) {
+    return (n === 1 ? "1 background task" : n + " background tasks") + " still running: a command or subagent " +
+      "this agent started in the background. Its turn can be over while they run, so it reads idle, but it is " +
+      "not finished: closing finished panes leaves it open until they end.";
+  }
+
+  /** renderPaneBackground shows how much background work the pane's agent
+   *  has left running, and nothing at all while it has none -- most panes,
+   *  most of the time. */
+  function renderPaneBackground(p, n) {
+    p.background.textContent = "";
+    if (!n) { delete p.background.dataset.tip; return; }
+    p.background.append(glyph("◔"), document.createTextNode(" " + n + " in background"));
+    describe(p.background, backgroundTip(n));
   }
 
   /** renderPanePeerName shows the name another Claude session would use to
@@ -8469,6 +8496,11 @@
     // words the prompt itself would show, or what a blocked pane's denied
     // tool call was -- so a list of several needing a look at once says
     // which is worth a look first, without opening any of them.
+    if (a.background) {
+      const bg = el("span", "agent-bg");
+      bg.append(glyph("◔"), document.createTextNode(" " + a.background + " in background"));
+      meta.append(describe(bg, backgroundTip(a.background)));
+    }
     if (a.status === "waiting" && a.waiting) {
       meta.append(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));
     } else if (a.status === "blocked" && a.waiting) {
