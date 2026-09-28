@@ -189,6 +189,10 @@ type Session struct {
 	// running, so this is what tells an idle pane that is done from one that
 	// is not. See NoteBackground.
 	background map[string]struct{}
+	// compacting records that a manual /compact is under way, said by its
+	// PreCompact and ended by its PostCompact or the SessionStart that follows
+	// it. See CompactionStatus.
+	compacting bool
 	// patterns are what to read out of an agent's output in place of the
 	// lifecycle it does not report. They are taken off the Spec at launch
 	// because the status machinery below runs on every chunk a pane prints and
@@ -820,11 +824,45 @@ func (s *Session) Write(p []byte) (int, error) {
 			go s.settleAnswered(s.hookSeq)
 		}
 	}
+	// Enter at an idle prompt is, most often, a prompt being submitted, and
+	// its UserPromptSubmit is what says the pane is working. If that event is
+	// lost, a turn that uses no tool sends nothing else until its Stop, and the
+	// pane sat idle through all of it. See guessTurn.
+	guess := typed && !answered && s.hooksSeen && s.status == StatusIdle && s.answerQuiet > 0 &&
+		bytes.IndexByte(p, '\r') >= 0
+	seq := s.hookSeq
 	s.mu.Unlock()
 	if answered {
 		s.changed()
 	}
+	if guess {
+		go s.guessTurn(seq)
+	}
 	return s.pty.Write(p)
+}
+
+// guessTurn takes an idle pane to working when Enter was pressed at it, no hook
+// has spoken since, and it is still drawing well after: the spinner of a turn
+// whose UserPromptSubmit never arrived. Enter that starts nothing -- an empty
+// line, a slash command that answers at once, a dialog -- stops drawing within
+// moments and is not taken for one. A guess is made only for a pane whose hooks
+// have reported, so the hooks stay the word on it: any event ends the guess,
+// and if none comes the pane goes back to idle once it falls quiet, as
+// settleAnswered does. seq is the hook count when Enter was pressed.
+func (s *Session) guessTurn(seq uint64) {
+	time.Sleep(s.answerQuiet / 5)
+	s.mu.Lock()
+	if s.hookSeq != seq || s.status != StatusIdle || time.Since(s.lastOutput) > s.answerQuiet/10 {
+		s.mu.Unlock()
+		return
+	}
+	s.status = StatusWorking
+	s.statusSince = time.Now()
+	s.detail = ""
+	s.answeredTime = s.statusSince
+	s.mu.Unlock()
+	s.changed()
+	s.settleAnswered(seq)
 }
 
 // settleAnswered returns a pane to idle when a tool's question was answered
@@ -859,6 +897,7 @@ func (s *Session) settleAnswered(seq uint64) {
 		s.status = StatusIdle
 		s.statusSince = time.Now()
 		s.detail = ""
+		s.compacting = false
 		s.mu.Unlock()
 		s.changed()
 		return
@@ -1022,6 +1061,72 @@ func (s *Session) resolveBlockedLocked(event, tool string, st Status, detail str
 		return st, detail
 	}
 	return StatusBlocked, s.blockedTool
+}
+
+// CompactionStatus is what a compaction's own events say about the pane, for
+// the caller to apply. ok is false for every event that says nothing.
+//
+// A compaction the user asked for at an idle prompt is the agent working, yet
+// no turn brackets it: no UserPromptSubmit, and no Stop at the end. Its
+// PreCompact (trigger "manual") is the start, so the pane shows working, and
+// its PostCompact -- or, from a Claude Code without that event, the
+// SessionStart of source "compact" that follows -- is the end. An automatic
+// compaction happens in the middle of a turn that is already working and ends
+// in that turn's own Stop, so it says nothing, and neither does the
+// SessionStart it fires: this is only ever an end for a compaction it saw
+// begin. Any other event supersedes it, so a compaction whose end never came
+// cannot turn a later turn's auto-compaction idle.
+func (s *Session) CompactionStatus(event, source string) (Status, string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case event == "PreCompact":
+		if source != "manual" {
+			return StatusIdle, "", false
+		}
+		s.compacting = true
+		return StatusWorking, "/compact", true
+	case event == "PostCompact" || (event == "SessionStart" && source == "compact"):
+		if !s.compacting {
+			return StatusIdle, "", false
+		}
+		s.compacting = false
+		return StatusIdle, "", true
+	case event == "SessionStart":
+	default:
+		s.compacting = false
+	}
+	return StatusIdle, "", false
+}
+
+// IsStaleNudge reports whether a Notification is Claude Code's idle nudge from
+// before it said so: one older than 2.1.269 sends it with no notification_type,
+// which reads the same as a real ask.
+//
+// A real ask comes in the middle of a turn, and a turn is announced by an event
+// that has the pane working (or already waiting) by then, so an untyped
+// Notification landing on a pane the hooks have left idle, with no background
+// work that could be asking on its own, is the nudge. The one that names a
+// tool is Flockdeck's own chat client asking permission, which is never one.
+func (s *Session) IsStaleNudge(event, tool, notificationType string) bool {
+	if event != "Notification" || tool != "" || notificationType != "" {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.hooksSeen && s.status == StatusIdle && len(s.background) == 0
+}
+
+// SettleWhenQuiet returns a working pane to idle if it then hears nothing --
+// no hook, no output -- for answerQuiet: the way out for a status put there
+// by something with no event of its own to end it. See settleAnswered.
+func (s *Session) SettleWhenQuiet() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.hooksSeen && s.answerQuiet > 0 && s.status == StatusWorking {
+		s.answeredTime = time.Now()
+		go s.settleAnswered(s.hookSeq)
+	}
 }
 
 // NoteBackground records a piece of background work starting (op "start") or
