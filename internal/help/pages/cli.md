@@ -16,6 +16,7 @@ switched from inside the window. These are what is left.
 | `flockdeck -solo` | Start a separate instance instead of attaching |
 | `flockdeck -version` | Print the version |
 | `flockdeck agents` | List the agents and models that `-agent` and `spawn` accept, and which are installed here |
+| `flockdeck help` | Print the usage, the same as `-h`; `flockdeck help spawn` (or any subcommand below) prints that subcommand's usage instead |
 
 `-no-window` needs no browser on the machine it runs on either, so it's
 equally at home on a server you own — see **Self-hosted** in
