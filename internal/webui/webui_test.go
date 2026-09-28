@@ -9378,3 +9378,29 @@ function boot(opts) {
 
 module.exports = { boot, fixture, catalog, pane, split, leaf, Ev, Element, TextNode, dispatch };
 `
+
+// #18 settled a status-gated tip for HINT_SETTLE_MS, but a pane whose status
+// flaps more slowly than that (a turn with background work, idle between tool
+// calls) still had the tip shown and hidden over and over: showing from
+// nothing was instant and clearing only waited the settle out. A sticky tip,
+// once up, must stay up through any number of working/idle flips.
+func TestAClearedStatusGatedTipDoesNotComeBackOnSlowFlapping(t *testing.T) {
+	runFrontEnd(t, `
+h.hello({ dismissedTips: ["palette", "drag-panes", "shell-pane", "broadcast", "fanout",
+  "worktrees", "history", "zoom", "tidy-panes", "find-in-terminal", "api-keys",
+  "remote-access", "detach", "split-project", "pane-header-git"] });
+h.recv(fixture());
+const bar = h.$("hints");
+let changes = 0, last = bar.dataset.hint || "";
+const seen = () => { const c = bar.dataset.hint || ""; if (c !== last) { changes++; last = c; } };
+for (let i = 0; i < 3; i++) {
+  h.recv(fixture({ panes: { p1: pane("p1", { status: "working" }), p2: pane("p2") } })); seen();
+  await h.sleep(1400);
+  h.recv(fixture({ panes: { p1: pane("p1", { status: "idle" }), p2: pane("p2") } })); seen();
+  await h.sleep(1400);
+  seen();
+}
+assert.strictEqual(changes, 2, "the tip should be shown once and cleared once, but the bar changed " + changes + " times");
+
+`)
+}
