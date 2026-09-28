@@ -448,13 +448,30 @@ func TestStatusMatrixKeyboard(t *testing.T) {
 			t.Errorf("status = %v, want idle until UserPromptSubmit says otherwise", st)
 		}
 	})
+	// The C15 cases run at a longer answerQuiet than the rest. A guessed turn
+	// is one still drawing a fifth of answerQuiet after Enter -- a chunk within
+	// a tenth of it of that mark -- and at the 40ms the other cases use, that is
+	// a chunk no more than 4ms old at 8ms. The spinner below is a goroutine
+	// sleeping 2ms between draws, and on a loaded machine, above all on Windows,
+	// where a thread that loses the processor waits out a scheduler quantum of
+	// about 16ms, it goes 10-28ms between draws (measured under -race, with
+	// GOMAXPROCS=1 and the CPUs kept busy): a gap that straddles the mark reads
+	// as a pane that stopped drawing, and 75 runs in 200 failed that way. At
+	// 500ms the window is 50ms, comfortably over any such gap, and the spinner
+	// draws for well past it. The production value is 10s, a 1s window, against
+	// a spinner Claude Code redraws several times a second.
+	guessSetup := func(t *testing.T) *Session {
+		s := setup(t)
+		s.answerQuiet = 500 * time.Millisecond
+		return s
+	}
 	spin := func(s *Session) {
-		for end := time.Now().Add(60 * time.Millisecond); time.Now().Before(end); time.Sleep(2 * time.Millisecond) {
+		for end := time.Now().Add(s.answerQuiet / 2); time.Now().Before(end); time.Sleep(2 * time.Millisecond) {
 			s.publish([]byte("\r* Thinking\n"))
 		}
 	}
 	t.Run("C15/a lost UserPromptSubmit: Enter, then a spinner, is working until quiet", func(t *testing.T) {
-		s := setup(t)
+		s := guessSetup(t)
 		feed(s, prompt, stop)
 		press(t, s, "explain this\r")
 		spin(s)
@@ -466,30 +483,30 @@ func TestStatusMatrixKeyboard(t *testing.T) {
 		}
 	})
 	t.Run("C15/a lost UserPromptSubmit: the Stop still ends the guessed turn", func(t *testing.T) {
-		s := setup(t)
+		s := guessSetup(t)
 		feed(s, prompt, stop)
 		press(t, s, "explain this\r")
 		spin(s)
 		if st, _ := feed(s, stop); st != StatusIdle {
 			t.Errorf("status = %v after the Stop, want idle", st)
 		}
-		time.Sleep(120 * time.Millisecond)
+		time.Sleep(s.answerQuiet / 2)
 		if st, _ := s.Status(); st != StatusIdle {
 			t.Errorf("status = %v after the guess's timer, want idle", st)
 		}
 	})
 	t.Run("C15/Enter that draws once and stops is not a turn", func(t *testing.T) {
-		s := setup(t)
+		s := guessSetup(t)
 		feed(s, prompt, stop)
 		press(t, s, "/help\r")
 		s.publish([]byte("help text\n"))
-		time.Sleep(120 * time.Millisecond)
+		time.Sleep(s.answerQuiet / 2)
 		if st, _ := s.Status(); st != StatusIdle {
 			t.Errorf("status = %v, want idle", st)
 		}
 	})
 	t.Run("C15/a prompt whose UserPromptSubmit arrives is not disturbed by the guess", func(t *testing.T) {
-		s := setup(t)
+		s := guessSetup(t)
 		feed(s, prompt, stop)
 		press(t, s, "explain this\r")
 		feed(s, prompt)
