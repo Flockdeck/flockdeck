@@ -540,13 +540,27 @@ type recordingConn struct {
 	failed chan struct{}
 	mu     sync.Mutex
 	first  error
+	// closed is set before the connection is closed from this side. Whatever
+	// reading fails with after that is the closing, not the tunnel failing.
+	closed bool
+}
+
+// Close is how smux ends a session, whether by Close or by the keepalive
+// giving up on a silent relay. The read it interrupts fails with "context
+// canceled" or the like, and taken for the tunnel failing, that read made a
+// silent relay look lost, so the closing is noted before it is done.
+func (r *recordingConn) Close() error {
+	r.mu.Lock()
+	r.closed = true
+	r.mu.Unlock()
+	return r.Conn.Close()
 }
 
 func (r *recordingConn) Read(p []byte) (int, error) {
 	n, err := r.Conn.Read(p)
 	if err != nil {
 		r.mu.Lock()
-		if r.first == nil {
+		if r.first == nil && !r.closed {
 			r.first = err
 			close(r.failed)
 		}

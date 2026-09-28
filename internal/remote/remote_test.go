@@ -1965,3 +1965,31 @@ func TestQRTerminalIsSquare(t *testing.T) {
 		t.Errorf("the top edge is not solid quiet zone: %q", lines[0])
 	}
 }
+
+// smux closes the connection when the keepalive gives up on a silent relay,
+// and the read that closing interrupts fails. That failure is the closing, and
+// must not be taken for the tunnel failing.
+func TestReadFailingAfterOurOwnCloseIsNotTheTunnelFailing(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	rec := &recordingConn{Conn: a, failed: make(chan struct{})}
+	done := make(chan struct{})
+	go func() { _, _ = rec.Read(make([]byte, 1)); close(done) }()
+	_ = rec.Close()
+	<-done
+	select {
+	case <-rec.failed:
+		t.Errorf("a read cut short by our own close was recorded as a failure: %v", rec.err())
+	default:
+	}
+	// A failure before the close still counts.
+	c, d := net.Pipe()
+	rec2 := &recordingConn{Conn: c, failed: make(chan struct{})}
+	d.Close()
+	_, _ = rec2.Read(make([]byte, 1))
+	select {
+	case <-rec2.failed:
+	default:
+		t.Error("a read the peer cut short was not recorded")
+	}
+}
