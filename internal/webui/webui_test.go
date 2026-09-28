@@ -9402,5 +9402,13 @@ for (let i = 0; i < 3; i++) {
 }
 assert.strictEqual(changes, 2, "the tip should be shown once and cleared once, but the bar changed " + changes + " times");
 
+// A prefs push takes renderHints's path, not the state one's, and must respect
+// the cooldown too rather than showing the tip from nothing at once.
+h.recv(fixture({ panes: { p1: pane("p1", { status: "working" }), p2: pane("p2") } }));
+assert.ok(bar.hidden, "the cooling tip came back on a status push");
+h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: ["palette", "drag-panes", "shell-pane", "broadcast", "fanout",
+  "worktrees", "history", "zoom", "tidy-panes", "find-in-terminal", "api-keys",
+  "remote-access", "detach", "split-project", "pane-header-git"] } });
+assert.ok(bar.hidden, "a prefs push showed a tip still cooling down");
 `)
 }
