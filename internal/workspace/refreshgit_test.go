@@ -260,9 +260,19 @@ func TestRefreshGitLeavesACheckoutBeingReadToTheRefreshReadingIt(t *testing.T) {
 	ignore := func(func()) {}
 	first := make(chan struct{})
 	go func() { w.RefreshGit(ignore); close(first) }()
-	for deadline := time.Now().Add(5 * time.Second); stuck.Load() == 0; time.Sleep(time.Millisecond) {
+	// The first refresh reads both checkouts at once, so the slow one being
+	// asked about says nothing of the fast one: its goroutine may not have
+	// run yet, and a checkout still marked busy is left to the refresh
+	// reading it, which would leave the second refresh nothing to ask. Wait
+	// until the fast checkout has been read and let go of.
+	fineBusy := func() bool {
+		w.gitMu.Lock()
+		defer w.gitMu.Unlock()
+		return w.gitBusy[pathKey("/fine")]
+	}
+	for deadline := time.Now().Add(5 * time.Second); stuck.Load() == 0 || fine.Load() == 0 || fineBusy(); time.Sleep(time.Millisecond) {
 		if time.Now().After(deadline) {
-			t.Fatal("the slow checkout was never asked about")
+			t.Fatal("the first refresh never finished with the checkout that answers")
 		}
 	}
 
