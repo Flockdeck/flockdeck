@@ -430,7 +430,20 @@ func (c *Connector) session(ctx context.Context) error {
 		// Nothing but the keepalive closes the session of its own accord, and
 		// it does so when the relay has gone quiet. What reading the tunnel
 		// fails with after that is the closing, not the cause.
-		silent = true
+		//
+		// But a tunnel that failed closes its session as well: serve's Accept
+		// fails, http.Serve closes the listener, and that closes the session.
+		// So when this case wins the select against rec.failed, which is
+		// already closed by then, the failure is looked for again before it
+		// is taken for silence. Taken for silence, a relay that had revoked
+		// this machine, or told it another Flockdeck had taken its place, was
+		// dialled again.
+		select {
+		case <-rec.failed:
+			failed = true
+		default:
+			silent = true
+		}
 	// smux does not close a session whose connection has failed — it only
 	// refuses to do anything more with it, and CloseChan stays open until
 	// the keepalive gives up most of a minute later. The failure itself is

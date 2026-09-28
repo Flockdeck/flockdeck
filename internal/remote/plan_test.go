@@ -20,7 +20,9 @@ func serveNothing(l net.Listener) error { return http.Serve(l, http.NotFoundHand
 func TestALapsedAccountIsToldAndTriedAgainSlowly(t *testing.T) {
 	quick(t)
 	old := lapsedRetry
-	lapsedRetry = 300 * time.Millisecond
+	// Far longer than any stall a loaded machine could put in the sleep below,
+	// so that the slow retry cannot fire in it; RetryNow stands in for it.
+	lapsedRetry = time.Minute
 	t.Cleanup(func() { lapsedRetry = old })
 	f := newFakeRelay(t)
 	f.mu.Lock()
@@ -36,13 +38,14 @@ func TestALapsedAccountIsToldAndTriedAgainSlowly(t *testing.T) {
 	if c.Status().RetryAt.IsZero() {
 		t.Error("the status does not say when the relay is asked again")
 	}
-	time.Sleep(100 * time.Millisecond) // many backoffs' worth, well short of lapsedRetry
+	time.Sleep(100 * time.Millisecond) // many backoffs' worth
 	if n := f.count(); n != 1 {
 		t.Errorf("the relay was asked %d times, want once until the slow retry", n)
 	}
 	f.mu.Lock()
 	f.refuse = 0
 	f.mu.Unlock()
+	c.RetryNow()
 	waitFor(t, "connected once the account is paid for", func() bool { return c.Status().State == StateConnected })
 }
 
