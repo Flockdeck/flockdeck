@@ -1247,3 +1247,29 @@ func TestOpeningPromptOnlyBriefsAnAgentThatCannotBeAsked(t *testing.T) {
 		t.Errorf("an unknown pane's prompt = %q, want the task alone", got)
 	}
 }
+
+// TestOpeningPromptTaskModeNeedsATask covers an agent that exits after
+// answering its opening message (Aider's --message): with a task it is briefed
+// like any other, but a pane opened by hand is launched with no prompt at all
+// rather than one that is all briefing.
+func TestOpeningPromptTaskModeNeedsATask(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "lead")
+	pane := ws.CurrentTab().Focus
+
+	briefed := ws.OpeningPrompt(pane, "fix the parser", agent.ContextTask)
+	if !strings.HasPrefix(briefed, "<flockdeck-context>") || !strings.HasSuffix(strings.TrimSpace(briefed), "fix the parser") {
+		t.Errorf("a task was not briefed:\n%s", briefed)
+	}
+	for _, task := range []string{"", "  \n"} {
+		if got := ws.OpeningPrompt(pane, task, agent.ContextTask); got != task {
+			t.Errorf("no task: prompt = %q, want the task untouched", got)
+		}
+	}
+	// The other mode still sends the block on its own.
+	if got := ws.OpeningPrompt(pane, "", agent.ContextPrompt); !strings.HasPrefix(got, "<flockdeck-context>") {
+		t.Errorf("ContextPrompt with no task was not briefed: %q", got)
+	}
+}

@@ -33,6 +33,12 @@ const (
 	// ContextPrompt puts the briefing in front of the opening prompt, for an
 	// agent with no hooks to answer.
 	ContextPrompt ContextMode = "prompt"
+	// ContextTask is ContextPrompt for an agent that takes its opening task as
+	// a one-shot message and exits after answering it (Aider's --message). The
+	// briefing goes in front of a task and only a task: a pane started with
+	// none is launched bare rather than with a message that is all briefing,
+	// which the agent would answer and then quit.
+	ContextTask ContextMode = "task"
 	// ContextNone leaves the agent unbriefed.
 	ContextNone ContextMode = "none"
 )

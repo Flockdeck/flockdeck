@@ -83,7 +83,13 @@ func TestUnverifiedAgentsClaimNothing(t *testing.T) {
 			if !ok {
 				t.Fatalf("%q is missing from the catalog", id)
 			}
-			if spec.Caps != (Caps{}) {
+			// The one thing they may claim is a briefing in front of the
+			// opening task: it needs nothing from the tool, only the argument
+			// that already carries the task. TestBuiltinCLIAgentsAreBriefed
+			// pins which mode each one has.
+			caps := spec.Caps
+			caps.Context = ""
+			if caps != (Caps{}) {
 				t.Errorf("%q claims %+v; verify it against `%s --help` before claiming anything", id, spec.Caps, spec.Exe)
 			}
 			if len(spec.Patterns.Waiting) > 0 || len(spec.Patterns.Idle) > 0 {
