@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -540,11 +541,21 @@ type recordingConn struct {
 	failed chan struct{}
 	mu     sync.Mutex
 	first  error
+	// closed is set once this end has closed the connection, which smux does
+	// when its keepalive gives up on a silent relay. The read that fails
+	// because of that close is the closing, not a failure of the tunnel, and
+	// recording it made session() take a silent relay for a failed one.
+	closed atomic.Bool
+}
+
+func (r *recordingConn) Close() error {
+	r.closed.Store(true)
+	return r.Conn.Close()
 }
 
 func (r *recordingConn) Read(p []byte) (int, error) {
 	n, err := r.Conn.Read(p)
-	if err != nil {
+	if err != nil && !r.closed.Load() {
 		r.mu.Lock()
 		if r.first == nil {
 			r.first = err

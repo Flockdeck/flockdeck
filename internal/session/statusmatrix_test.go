@@ -453,11 +453,26 @@ func TestStatusMatrixKeyboard(t *testing.T) {
 			s.publish([]byte("\r* Thinking\n"))
 		}
 	}
-	t.Run("C15/a lost UserPromptSubmit: Enter, then a spinner, is working until quiet", func(t *testing.T) {
+	// guessing is a pane set up for the guess itself. guessTurn looks once,
+	// answerQuiet/5 after Enter, and wants output from the last
+	// answerQuiet/10. At the 40ms setup gives that is 8ms and 4ms, which a
+	// spinner goroutine held off the CPU for longer than that -- a loaded
+	// runner, a coarse timer -- misses, and the guess is never made. Ten times
+	// the margin, drawn through for well past the look, costs only time.
+	guessing := func(t *testing.T) (*Session, func()) {
 		s := setup(t)
+		s.answerQuiet = 300 * time.Millisecond
+		return s, func() {
+			for end := time.Now().Add(150 * time.Millisecond); time.Now().Before(end); time.Sleep(time.Millisecond) {
+				s.publish([]byte("\r* Thinking\n"))
+			}
+		}
+	}
+	t.Run("C15/a lost UserPromptSubmit: Enter, then a spinner, is working until quiet", func(t *testing.T) {
+		s, drawing := guessing(t)
 		feed(s, prompt, stop)
 		press(t, s, "explain this\r")
-		spin(s)
+		drawing()
 		if st, _ := s.Status(); st != StatusWorking {
 			t.Fatalf("status = %v while the turn draws, want working", st)
 		}
@@ -466,10 +481,10 @@ func TestStatusMatrixKeyboard(t *testing.T) {
 		}
 	})
 	t.Run("C15/a lost UserPromptSubmit: the Stop still ends the guessed turn", func(t *testing.T) {
-		s := setup(t)
+		s, drawing := guessing(t)
 		feed(s, prompt, stop)
 		press(t, s, "explain this\r")
-		spin(s)
+		drawing()
 		if st, _ := feed(s, stop); st != StatusIdle {
 			t.Errorf("status = %v after the Stop, want idle", st)
 		}
