@@ -11471,7 +11471,18 @@
     if (!bar) return;
     const hint = state ? pickHint(state) : null;
     if ((bar.dataset.hint || null) === (hint ? hint.id : null)) return;
+    if (coolingDown(bar, hint)) return;
+    // Whatever change renderHintsFromState was waiting on is superseded.
+    clearTimeout(hintSettleTimer);
+    hintSettleId = undefined;
     applyHint(bar, hint);
+  }
+
+  /** coolingDown: a tip the settle just took away may not be shown from
+   *  nothing again until its cooldown passes, by whichever path asks. */
+  function coolingDown(bar, hint) {
+    return !!hint && !(bar.dataset.hint || null) && !PRIORITY_HINTS.some((h) => h.id === hint.id) &&
+      Date.now() < (hintCooldown.get(hint.id) || 0);
   }
 
   /** renderHintsFromState is what render() itself calls: pickHint here also
@@ -11494,6 +11505,8 @@
    *  amber dot, an exited pane) that needs saying the moment it is true. */
   const HINT_SETTLE_MS = 1200;
   let hintSettleTimer = null;
+  const TIP_COOLDOWN_MS = 60000;
+  const hintCooldown = new Map(); // tip id -> when it may be shown from nothing again
   let hintSettleId; // undefined until a change is first pending
   function renderHintsFromState() {
     const bar = $("hints");
@@ -11503,6 +11516,11 @@
     const shownId = bar.dataset.hint || null;
     if (id === shownId) { clearTimeout(hintSettleTimer); hintSettleId = undefined; return; }
     const urgent = hint && PRIORITY_HINTS.some((h) => h.id === hint.id);
+    // A tip the settle just took away does not come straight back: with a
+    // status that flaps slower than HINT_SETTLE_MS it was shown instantly
+    // (from nothing) and cleared 1.2s later, forever. It waits out
+    // TIP_COOLDOWN_MS, or the rotation, before it may reappear.
+    if (coolingDown(bar, hint)) return;
     if (urgent || shownId === null) {
       clearTimeout(hintSettleTimer);
       hintSettleId = undefined;
@@ -11512,7 +11530,11 @@
     if (id === hintSettleId) return; // already waiting to see if this holds
     hintSettleId = id;
     clearTimeout(hintSettleTimer);
-    hintSettleTimer = setTimeout(() => applyHint(bar, hint), HINT_SETTLE_MS);
+    hintSettleTimer = setTimeout(() => {
+      const onBar = bar.dataset.hint || null; // not shownId: renderHints may have moved on since
+      if (onBar && !PRIORITY_HINTS.some((h) => h.id === onBar)) hintCooldown.set(onBar, Date.now() + TIP_COOLDOWN_MS);
+      applyHint(bar, hint);
+    }, HINT_SETTLE_MS);
   }
 
   function applyHint(bar, hint) {
