@@ -862,6 +862,8 @@ textarea:focus-visible {
 .wt-flag.gone { color: var(--exited); border-color: var(--exited); }
 .wt-gone { color: var(--fg-dim); }
 .wt-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.repo-choice { display: block; width: 100%; text-align: left; padding: 8px 10px; margin: 0 0 4px; background: transparent; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.repo-choice:hover { background: #1e222a; border-color: var(--line-strong); }
 .chip.danger { border-color: var(--exited); color: var(--exited); }
 
 .remote-status { margin: 0 0 12px; color: var(--fg-dim); }
