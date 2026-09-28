@@ -1292,7 +1292,7 @@ func (c *controlClient) notify(text string, isErr bool) {
 func (s *Server) handleCommand(c *controlClient, cmd command) {
 	switch cmd.Cmd {
 	case "worktrees":
-		s.listWorktrees(c)
+		s.listWorktrees(c, cmd.Root)
 		return
 	case "worktreeAdd":
 		// Root names which repo the worktree is made in, for a project

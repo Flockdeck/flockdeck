@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -47,6 +48,9 @@ type changesMsg struct {
 	// only on a checkout with more of them than a list can usefully hold.
 	Omitted int    `json:"omitted,omitempty"`
 	Error   string `json:"error,omitempty"`
+	// Repos is offered with an Error saying the directory is not a working
+	// tree, when repositories are to be found just inside it: see reposUnder.
+	Repos []repoChoice `json:"repos,omitempty"`
 	// Reason says why this listing was sent, which is what the window's
 	// record of what somebody has looked at goes by: "asked" for one it
 	// asked to be shown -- the panel opening, or Refresh -- "refused" for the
@@ -190,6 +194,7 @@ func collectChangesUpTo(dir string, limit int) changesMsg {
 	root, err := treeRoot(dir)
 	if err != nil {
 		msg.Error = noRepoReason(dir)
+		msg.Repos = reposUnder(dir)
 		return msg
 	}
 	// The panel works in root-relative paths from here on, and echoes this
@@ -244,6 +249,52 @@ func noRepoReason(dir string) string {
 		return dir + " no longer exists"
 	}
 	return dir + " is not a git repository"
+}
+
+// repoChoice is a repository a window can be pointed at instead.
+type repoChoice struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// maxRepoChoices bounds the list a window offers; a directory holding more
+// repositories than this is somebody's whole source tree, and not a list to
+// scroll for one.
+const maxRepoChoices = 50
+
+// reposUnder lists the repositories directly inside dir, for a window whose
+// directory is not a repository itself.
+//
+// A project is often the folder above its repositories, and the git windows
+// answered that with an error and nothing to do about it. A repository is a
+// directory with a .git entry, which is a file in a linked worktree, so
+// those are found too. Hidden directories and node_modules are not looked
+// into, and the list is sorted so it does not move between requests.
+func reposUnder(dir string) []repoChoice {
+	if dir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []repoChoice
+	for _, e := range entries {
+		name := e.Name()
+		if !e.IsDir() || strings.HasPrefix(name, ".") || name == "node_modules" {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if _, err := os.Lstat(filepath.Join(path, ".git")); err != nil {
+			continue
+		}
+		out = append(out, repoChoice{Name: name, Path: path})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	if len(out) > maxRepoChoices {
+		out = out[:maxRepoChoices]
+	}
+	return out
 }
 
 // showDiff sends the diff of one file.

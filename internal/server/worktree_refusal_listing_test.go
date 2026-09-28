@@ -29,7 +29,7 @@ func TestARefusedWorktreeChangeStillEndsOnAListing(t *testing.T) {
 	}
 
 	c := &controlClient{out: make(chan []byte, 8)}
-	srv.listWorktrees(c)
+	srv.listWorktrees(c, "")
 	<-held
 	// No branch named: refused before git is asked anything.
 	srv.addWorktree(c, "", "  ", "", "")

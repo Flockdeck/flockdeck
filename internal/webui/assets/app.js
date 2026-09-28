@@ -4767,7 +4767,7 @@
 
   /** refreshDialog asks again for whatever the open dialog is showing. */
   function refreshDialog() {
-    if (dialog === "worktrees") send({ cmd: "worktrees" });
+    if (dialog === "worktrees") send(wtRequest());
     else if (dialog === "changes") send({ cmd: "changes", path: (changes && changes.cwd) || "" });
     else if (dialog === "agents") send({ cmd: "agents" });
     else if (dialog === "agentPicker") send({ cmd: "refreshAgents" });
@@ -4810,6 +4810,11 @@
   // ------------------------------------------------------------- worktrees
 
   let worktrees = null;
+  /** The repository picked from the list offered when the project is not one
+   *  itself, sent with every request for the listing after that. It lasts
+   *  for as long as the dialog is open. */
+  let wtPicked = "";
+  const wtRequest = () => (wtPicked ? { cmd: "worktrees", root: wtPicked } : { cmd: "worktrees" });
   /** What has been typed into the new-worktree form. The dialog is drawn whole
    *  from each reply, so without this a branch name half-typed when a worktree
    *  was removed, or Refresh was pressed, went with the redraw. It is kept for
@@ -4842,7 +4847,7 @@
     const key = Object.keys(s.panes || {}).sort().join(",");
     if (key === worktreePanes) return;
     worktreePanes = key;
-    if (dialog === "worktrees") send({ cmd: "worktrees" });
+    if (dialog === "worktrees") send(wtRequest());
   }
 
   /** openWorktrees opens the dialog and asks for what goes in it. It opens at
@@ -4861,14 +4866,31 @@
     return path ? describe(n, path) : n;
   }
 
+  /** repoChoices offers the repositories found inside a folder that is not one
+   *  itself, under the error saying so, and calls pick with the one chosen. It
+   *  draws nothing when there are none. */
+  function repoChoices(body, repos, pick) {
+    if (!repos || !repos.length) return;
+    const box = section("Repositories in this folder");
+    for (const r of repos) {
+      const row = el("button", "repo-choice", r.name);
+      row.type = "button";
+      describe(row, r.path);
+      row.onclick = () => pick(r.path);
+      box.append(row);
+    }
+    body.append(box);
+  }
+
   function openWorktrees() {
     dialog = "worktrees";
     worktrees = null;
+    wtPicked = "";
     wtDraft = { branch: "", base: "", root: "" };
     wtBusy = false;
     openOverlay("Worktrees", "worktrees");
     $("overlay-body").append(el("div", "dir-empty", "Reading the worktrees…"));
-    send({ cmd: "worktrees" });
+    send(wtRequest());
   }
 
   function renderWorktrees(msg) {
@@ -4880,6 +4902,12 @@
 
     if (m.error) {
       body.append(el("p", null, m.error));
+      repoChoices(body, m.repos, (path) => {
+        wtPicked = path;
+        body.textContent = "";
+        body.append(el("div", "dir-empty", "Reading the worktrees…"));
+        send({ cmd: "worktrees", root: path });
+      });
       return;
     }
 
@@ -5166,7 +5194,7 @@
     // Its wording changes while it works, which identify() cannot follow by
     // text alone.
     refresh.id = "wt-refresh";
-    refresh.onclick = () => { running(refresh, "Reading…"); send({ cmd: "worktrees" }); };
+    refresh.onclick = () => { running(refresh, "Reading…"); send(wtRequest()); };
     const prune = el("button", "chip", "Prune");
     prune.id = "wt-prune-all";
     prune.title = "Drop records for worktrees whose folders are gone";
@@ -7374,7 +7402,15 @@
     const body = $("overlay-body");
     body.textContent = "";
 
-    if (m.error) { body.append(el("p", null, m.error)); return; }
+    if (m.error) {
+      body.append(el("p", null, m.error));
+      repoChoices(body, m.repos, (path) => {
+        body.textContent = "";
+        body.append(el("div", "dir-empty", "Reading the working tree…"));
+        send({ cmd: "changes", path });
+      });
+      return;
+    }
 
     // --- which repo, in a project spanning more than one --------------------
     // A grouped project reviews one repo's working tree at a time -- git has

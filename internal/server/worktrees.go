@@ -68,6 +68,9 @@ type worktreesMsg struct {
 	Items       []worktreeView `json:"items"`
 	Branches    []branchView   `json:"branches"`
 	Error       string         `json:"error,omitempty"`
+	// Repos is offered with an Error saying the project is not a repository,
+	// when repositories are to be found just inside it: see reposUnder.
+	Repos []repoChoice `json:"repos,omitempty"`
 }
 
 // listWorktrees answers a window's request for the active project's
@@ -76,8 +79,15 @@ type worktreesMsg struct {
 //
 // Git is slow enough that none of this belongs on the goroutine that owns the
 // workspace; only the project's repos and the pane count are read from there.
-func (s *Server) listWorktrees(c *controlClient) {
+//
+// root is the repository the window was pointed at from the list it offers
+// when the project is not one itself, and empty otherwise.
+func (s *Server) listWorktrees(c *controlClient, root string) {
 	asked := worktreeListings.asked(c)
+	if root != "" {
+		s.sendWorktrees(c, []workspace.RepoSummary{{Root: root}}, asked)
+		return
+	}
 	s.sendWorktrees(c, s.projectRepos(s.activeRoot()), asked)
 }
 
@@ -160,6 +170,7 @@ func collectWorktrees(root string) worktreesMsg {
 		msg.Error = wtErr.Error()
 		if !gitx.IsRepo(root) {
 			msg.Error = noRepoReason(root)
+			msg.Repos = reposUnder(root)
 		}
 		return msg
 	}

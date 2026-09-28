@@ -50,10 +50,10 @@ func TestAWorktreeListingDoesNotLandOnTopOfANewerOne(t *testing.T) {
 	}
 
 	c := &controlClient{out: make(chan []byte, 8)}
-	srv.listWorktrees(c)
+	srv.listWorktrees(c, "")
 	<-held
 	ask(srv, func() bool { ws.SelectProject(second); return true })
-	srv.listWorktrees(c)
+	srv.listWorktrees(c, "")
 	if got, ok := listed(c, 5*time.Second); !ok || got != second {
 		t.Fatalf("the second project's listing was %q (arrived: %v); want %q", got, ok, second)
 	}
