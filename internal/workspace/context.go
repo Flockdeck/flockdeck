@@ -280,7 +280,12 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 // It is called on the goroutine that owns the workspace, like every other read
 // of it.
 func (w *Workspace) OpeningPrompt(paneID, task string, mode agent.ContextMode) string {
-	if mode != agent.ContextPrompt {
+	if mode != agent.ContextPrompt && mode != agent.ContextTask {
+		return task
+	}
+	if mode == agent.ContextTask && strings.TrimSpace(task) == "" {
+		// Nothing for the briefing to ride on, and this agent answers its
+		// opening message once and exits: launch it bare.
 		return task
 	}
 	c, ok := w.PaneContext(paneID)

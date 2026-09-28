@@ -12,8 +12,9 @@ import "strings"
 // Only the `claude` entry below was checked against the tool itself on the
 // machine it was written on. The other command-line agents were not installed
 // there and could not be asked for their `--help`, so each of them claims
-// nothing beyond how to start the program: empty Caps -- no hooks, no resume,
-// no transcript, no trust -- and no output patterns. Such an agent still works
+// nothing beyond how to start the program: no hooks, no resume, no transcript,
+// no trust -- and no output patterns. The one thing they do claim is a briefing
+// in front of the opening task, which needs nothing from the tool. Such an agent still works
 // perfectly well; it is a terminal with a program in it, and Flockdeck simply knows
 // less about what is happening inside it. Anyone who has one of them installed
 // should check its flags and fill its capabilities in.
@@ -92,6 +93,7 @@ func codexSpec() Spec {
 			Group("model", "--model", "{{model}}"),
 			Lit("{{prompt}}"),
 		},
+		Caps: Caps{Context: ContextPrompt},
 		Models: []Model{
 			{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
 			{ID: "gpt-6-astra", Name: "GPT-6 Astra", Note: "most capable, and the dearest", Tier: TierTop},
@@ -118,6 +120,7 @@ func geminiSpec() Spec {
 			Group("model", "--model", "{{model}}"),
 			Group("prompt", "-i", "{{prompt}}"),
 		},
+		Caps: Caps{Context: ContextPrompt},
 		// Only the models the CLI's own page names and the Gemini API still
 		// serves as stable. Its page also names Gemini 3 previews, which the
 		// API has since shut down; a model that is not there kills the pane.
@@ -146,6 +149,12 @@ func aiderSpec() Spec {
 			Group("model", "--model", "{{model}}"),
 			Group("prompt", "--message", "{{prompt}}"),
 		},
+		// Briefed only when there is a task to carry the briefing: --message
+		// answers once and exits (checked against aider 0.86.2, whose main()
+		// returns straight after coder.run(with_message=...)), so a
+		// bare-briefing message would start a pane that answers the briefing
+		// and closes.
+		Caps: Caps{Context: ContextTask},
 		Models: []Model{
 			{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
 		},
@@ -165,6 +174,7 @@ func opencodeSpec() Spec {
 			Group("model", "--model", "{{model}}"),
 			Group("prompt", "--prompt", "{{prompt}}"),
 		},
+		Caps:    Caps{Context: ContextPrompt},
 		Install: "https://opencode.ai",
 	}
 }
@@ -177,6 +187,7 @@ func cursorAgentSpec() Spec {
 			Group("model", "--model", "{{model}}"),
 			Lit("{{prompt}}"),
 		},
+		Caps:    Caps{Context: ContextPrompt},
 		Install: "https://cursor.com/cli",
 	}
 }

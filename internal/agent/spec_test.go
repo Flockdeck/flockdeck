@@ -257,3 +257,30 @@ func TestNoDashDashBetweenAnOptionAndItsValue(t *testing.T) {
 		}
 	}
 }
+
+// TestBuiltinCLIAgentsAreBriefed pins how each built-in reaches the briefing.
+// The command-line agents that have no hooks get it in front of their opening
+// task; Aider only when there is a task, because --message answers once and
+// exits.
+func TestBuiltinCLIAgentsAreBriefed(t *testing.T) {
+	want := map[string]ContextMode{
+		"claude":       ContextHook,
+		"codex":        ContextPrompt,
+		"gemini":       ContextPrompt,
+		"aider":        ContextTask,
+		"opencode":     ContextPrompt,
+		"cursor-agent": ContextPrompt,
+		"anthropic":    ContextHook,
+		"openai":       ContextHook,
+		"google":       ContextHook,
+	}
+	got := map[string]ContextMode{}
+	for _, s := range normalizeAll(Builtins()) {
+		got[s.ID] = s.Caps.Context
+	}
+	for id, mode := range want {
+		if got[id] != mode {
+			t.Errorf("%s: Caps.Context = %q, want %q", id, got[id], mode)
+		}
+	}
+}

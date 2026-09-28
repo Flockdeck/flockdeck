@@ -123,9 +123,13 @@ attempted, and the pane starts fresh.
 
 Of the built-in agents, Claude Code and the four API agents report their own
 lifecycle and answer the start-up hook. Codex, Gemini CLI, Aider, opencode and
-Cursor Agent are read from their terminals, and are not briefed. An entry in
-`agents.json` can have the briefing put in front of such an agent's opening
-task instead, with `"caps": {"context": "prompt"}`, and can give it
+Cursor Agent are read from their terminals, but are still briefed: the briefing
+is put in front of their opening task, once, and is not refreshed. Codex,
+Gemini CLI, opencode and Cursor Agent get it even in a pane opened by hand with
+no task; Aider gets it only when there is a task, because `--message` makes it
+answer once and exit, and a message that was all briefing would end the pane.
+An entry in `agents.json` can choose the same for its own agent with
+`"caps": {"context": "prompt"}` (or `"task"` for the Aider behaviour), and can give it
 `"patterns"` — `"waiting"` and `"idle"`, each a list of phrases its output
 shows in that state — so that its status is read from what it prints as well. They are plain text, not expressions, and
 case does not matter; none of the built-ins has any yet.
