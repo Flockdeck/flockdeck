@@ -209,6 +209,13 @@ func waitAgentStarted(t *testing.T, c *controlClient) string {
 // captureFanoutHistory), reused here rather than a second lifecycle hook.
 func TestClosingATodoStepsPaneRecordsItsOutcome(t *testing.T) {
 	srv, ws := fanoutServer(t)
+	// fanoutServer's agent prints an error and exits on its own clock, which
+	// can land after settlePane below: fresh output moves an idle pane back
+	// to working, and the exit marks it failed, so the close would read
+	// "failed" rather than the idle the test set. An agent that never
+	// produces output or exits leaves nothing to race; see hangingAgents.
+	writeAgents(t, hangingAgents(t))
+	ws.ReloadAgents()
 	root := ws.ActiveRoot()
 	conn := dialControl(t, srv)
 	nextState(t, conn, nil)
