@@ -1115,10 +1115,46 @@ func Recents() ([]Project, error) {
 			out = append(out, p)
 		}
 	}
-	if len(out) > maxRecents {
-		out = out[:maxRecents]
+	return capRecents(out), nil
+}
+
+// capRecents keeps the maxRecents projects used most recently, in the order
+// they are given.
+//
+// It is not the first maxRecents in the order the picker shows. A project
+// placed by hand is shown ahead of every other however long ago it was used,
+// so cutting the tail of that order let go of the projects in use instead of
+// the ones nobody had opened in months: with the list full, opening a project
+// dropped the one the user had been in a moment before, and the name they had
+// given it.
+func capRecents(list []Project) []Project {
+	if len(list) <= maxRecents {
+		return list
 	}
-	return out, nil
+	byUse := make([]Project, len(list))
+	copy(byUse, list)
+	sort.SliceStable(byUse, func(i, j int) bool { return byUse[i].LastUsed.After(byUse[j].LastUsed) })
+	cutoff := byUse[maxRecents-1].LastUsed
+	// Every project used after the cutoff stays, and as many of those used at
+	// it as there is room for, first given first.
+	room := maxRecents
+	for _, p := range list {
+		if p.LastUsed.After(cutoff) {
+			room--
+		}
+	}
+	out := make([]Project, 0, maxRecents)
+	for _, p := range list {
+		switch {
+		case p.LastUsed.After(cutoff):
+		case p.LastUsed.Equal(cutoff) && room > 0:
+			room--
+		default:
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // projectLess orders the recent list for display: a project positioned by
@@ -1213,10 +1249,7 @@ func TouchRecents(roots ...string) error {
 			out = append(out, p)
 		}
 	}
-	if len(out) > maxRecents {
-		out = out[:maxRecents]
-	}
-	return writeRecents(out)
+	return writeRecents(capRecents(out))
 }
 
 // containsRoot reports whether roots names the same project as root.
