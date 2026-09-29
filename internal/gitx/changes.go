@@ -559,24 +559,13 @@ func renameSource(dir, path string) string {
 	if err != nil {
 		return ""
 	}
-	records := strings.Split(out, "\x00")
-	for i := 0; i < len(records); i++ {
-		entry := records[i]
-		if len(entry) < 4 || (entry[0] != 'R' && entry[0] != 'C') {
-			continue
-		}
-		// The name it came from follows as its own record.
-		i++
+	for _, rec := range statusRecords(out) {
 		// A copy is a new file; its source is still there with a row of its
 		// own. Paired with it, the copy's diff carried the source's edits too.
-		if entry[0] == 'C' {
-			continue
-		}
-		if i >= len(records) {
-			break
-		}
-		if entry[3:] == path {
-			return records[i]
+		// The rename can be in either column: one in the working tree's, " R",
+		// is a file moved and its new name added with intent to add.
+		if rec.path == path && strings.Contains(rec.code, "R") {
+			return rec.from
 		}
 	}
 	return ""

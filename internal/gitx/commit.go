@@ -238,7 +238,10 @@ func statusRecords(out string) []statusRecord {
 			continue
 		}
 		rec := statusRecord{code: entry[:2], path: entry[3:]}
-		if rec.code[0] == 'R' || rec.code[0] == 'C' {
+		// Either column: a file moved and its new name added with intent to
+		// add (`git add -N`) is paired in the working tree's, " R", and its
+		// old name was otherwise read as an entry of its own.
+		if strings.ContainsAny(rec.code, "RC") {
 			i++ // the name it came from follows as its own record
 			if i < len(records) {
 				rec.from = records[i]
@@ -283,6 +286,11 @@ func toStage(recs []statusRecord) []string {
 	for _, rec := range recs {
 		if rec.code == "??" || rec.code[1] != ' ' {
 			paths = append(paths, rec.path)
+		}
+		// Renamed in the working tree only: the index still holds the old
+		// name, and its deletion is part of what the commit records.
+		if rec.code[1] == 'R' && rec.from != "" {
+			paths = append(paths, rec.from)
 		}
 	}
 	return paths
