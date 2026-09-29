@@ -4792,6 +4792,9 @@
     $("overlay").hidden = true;
     $("overlay-panel").classList.remove("wide", "settings-panel");
     dialog = null;
+    // A shortcut still being recorded went on taking every key the window saw,
+    // with no dialog left to show it.
+    keybindEditing = "";
     remotePairPollStop();
     focusTerminal();
   }
