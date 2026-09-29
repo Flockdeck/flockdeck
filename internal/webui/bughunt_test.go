@@ -146,3 +146,27 @@ const now = h.doc.activeElement;
 assert.ok(now && now.isConnected && now.textContent === "By project", "the keyboard left the tab that was pressed: " + (now && now.tagName));
 `)
 }
+
+// A pull request being opened when the connection dropped never heard back, and
+// nothing released the form: its button read "Opening…" and stayed disabled,
+// and the next pull request shown was taken for the answer to it. The
+// reconnect already releases what a dialog was waiting on.
+func TestAPullRequestLostToADropDoesNotLeaveTheFormWaiting(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-github"));
+h.recv({ type: "ghStatus", cwd: "", installed: true, loggedIn: true, account: "octocat", host: "github.com" });
+h.recv({ type: "ghPRs", cwd: "C:/repo", items: [] });
+const body = () => h.$("overlay-body");
+const button = (text) => [...body().querySelectorAll("button")].find((b) => b.textContent === text);
+h.click(button("New pull request"));
+body().querySelector("input").value = "Add things";
+body().querySelector("input").oninput();
+h.click(button("Open pull request"));
+assert.ok(button("Opening…") && button("Opening…").disabled, "the form did not wait for the reply");
+
+h.controls().pop().onopen(); // the connection went and came back; the reply did not
+assert.ok(button("Open pull request") && !button("Open pull request").disabled, "the form is still waiting for a reply that was lost");
+`)
+}

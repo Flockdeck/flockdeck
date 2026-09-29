@@ -367,6 +367,8 @@
       // the working tree it describes has had time to move on. Asking again is
       // also what releases a button left waiting for a reply that the drop
       // took with it.
+      // A pull request or issue being opened has no answer coming either.
+      if (ghCreating) { ghCreating = false; if (dialog === "github") keepFocus(renderGithub); }
       refreshDialog();
       // A manual update check has nothing to ask again for -- it is a single
       // notice, not a dialog's own state -- so a drop that took it with it is
