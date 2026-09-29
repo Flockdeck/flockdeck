@@ -1,6 +1,6 @@
 # Terms of service
 
-*Last updated: 13 September 2026*
+*Last updated: 29 September 2026*
 
 These terms cover the Flockdeck relay at remote.flockdeck.ai and this website.
 They are an agreement between you and Jim Wright, an individual based in the
@@ -75,13 +75,13 @@ desktop app itself is free, and never needs the relay.
 - **A payment that fails.** Paddle tries again for a while. Remote access
   carries on for up to 14 days after the renewal date while it does; if the
   payment is never made, the subscription ends.
-- **Your right to cancel.** If you are a consumer, you can cancel within 14
-  days of first subscribing and have your payment refunded, less an amount for
-  the days of remote access you have already had, since you asked for it to
-  start straight away. Ask through Manage subscription, or by email.
+- **Your right to cancel.** Anyone can cancel within 14 days of first
+  subscribing and have that first payment refunded in full, without giving a
+  reason. Ask through Manage subscription, or by email. See also the
+  [refund policy](refunds.html).
 - **Refunds otherwise.** Apart from that right, and any other the law gives
-  you, a period that has begun is not refunded; cancelling stops the next
-  renewal.
+  you, a period that has begun is not refunded, and that includes every
+  renewal; cancelling stops the next renewal.
 - **Availability** is best effort, as for the trial: there is no service
   level or promise of uptime.
 - **Notifications** travel through the push service of your browser's maker
