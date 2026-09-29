@@ -585,16 +585,29 @@ func TestStatusMatrixOutputFallback(t *testing.T) {
 			t.Errorf("status = %v, want working until a hook says otherwise", st)
 		}
 	})
-	t.Run("D12/SessionStart alone hands nothing to the hooks", func(t *testing.T) {
+	t.Run("D12/SessionStart hands the pane to its hooks, at idle", func(t *testing.T) {
+		// This used to pin the opposite: a Claude pane that had only sent
+		// SessionStart was still read from its output, so a restored agent
+		// redrawing its screen -- and again for every window fitted to it --
+		// read as working until somebody typed. SessionStart is proof its
+		// hooks report, so they are its word from then on.
 		s := claudePane()
 		s.status = StatusStarting
 		s.idleAfter = 20 * time.Millisecond
-		feed(s, sessionStart("startup"))
-		s.publish([]byte("Welcome to Claude Code\n"))
-		if st, _ := s.Status(); st != StatusWorking {
-			t.Fatalf("status = %v while drawing its first screen, want working", st)
+		if st, _ := feed(s, sessionStart("startup")); st != StatusIdle {
+			t.Fatalf("status = %v after SessionStart, want idle", st)
 		}
-		waitForStatus(t, s, StatusIdle, 5*time.Second)
+		s.publish([]byte("Welcome to Claude Code\n"))
+		if st, _ := s.Status(); st != StatusIdle {
+			t.Fatalf("status = %v while drawing its first screen, want idle", st)
+		}
+		s.publish([]byte("\x07"))
+		if st, _ := s.Status(); st != StatusIdle {
+			t.Errorf("status = %v after a bell, want idle: the hooks outrank the bell", st)
+		}
+		if st, _ := feed(s, prompt); st != StatusWorking {
+			t.Errorf("status = %v after UserPromptSubmit, want working", st)
+		}
 	})
 	t.Run("D11/an exited pane stays exited whatever it prints", func(t *testing.T) {
 		s := shellPane()
@@ -620,5 +633,142 @@ func TestStatusMatrixAttention(t *testing.T) {
 		if st.String() == "unknown" || st.Symbol() == "·" {
 			t.Errorf("%v has no name or glyph of its own", st)
 		}
+	}
+}
+
+// TestStatusMatrixOwnRedraw is the rest of section D: output a pane prints
+// only because Flockdeck started it, resumed it or resized it -- its first
+// screen, a restored agent's redraw, the redraw a window being fitted or
+// attached asks for -- is not work, while output that goes on is.
+func TestStatusMatrixOwnRedraw(t *testing.T) {
+	// pane is a pane of the kind a row is about, with a pseudo-terminal to
+	// resize. startedAgo is how long ago it was started: a pane restored at
+	// startup is inside startupGrace, one somebody switches to later is not.
+	pane := func(kind Kind, st Status, startedAgo time.Duration) *Session {
+		s := shellPane()
+		s.Kind = kind
+		s.status = st
+		s.startedAt = time.Now().Add(-startedAgo)
+		s.idleAfter = 20 * time.Millisecond
+		s.pty = newFakePTY()
+		s.cols, s.rows = 80, 24
+		return s
+	}
+	// echoOver moves the last resize back past resizeEcho, as if that long had
+	// gone by, and startupOver does the same for startupGrace.
+	echoOver := func(s *Session) { s.mu.Lock(); s.resizedAt = s.resizedAt.Add(-resizeEcho); s.mu.Unlock() }
+	startupOver := func(s *Session) { s.mu.Lock(); s.startedAt = s.startedAt.Add(-startupGrace); s.mu.Unlock() }
+	out := func(s *Session) { s.publish([]byte("\x1b[H\x1b[2J> ")) }
+	press := func(t *testing.T, s *Session, keys string) {
+		t.Helper()
+		if err := s.WriteString(keys); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	long := time.Hour
+
+	cases := []struct {
+		row, name string
+		kind      Kind
+		start     Status
+		ago       time.Duration
+		steps     func(s *Session)
+		// want is the status straight after steps; settle, when not starting,
+		// is where the pane must come to rest once quiet. (No pane here comes
+		// to rest at starting; a hook-reported working one does not settle.)
+		want, settle Status
+	}{
+		{row: "D14", name: "a hooked agent restored at startup: redraw, SessionStart resume, redraw again, stays idle",
+			kind: KindAgent, start: StatusStarting,
+			steps: func(s *Session) {
+				out(s)
+				feed(s, sessionStart("resume"))
+				out(s)
+				s.Resize(120, 40)
+				out(s)
+				startupOver(s)
+				out(s) // its status line, redrawn on its own clock
+			},
+			want: StatusIdle, settle: StatusIdle},
+		{row: "D14", name: "a hooked agent started afresh: SessionStart startup leaves it idle, not working",
+			kind: KindAgent, start: StatusStarting,
+			steps: func(s *Session) { feed(s, sessionStart("startup")); out(s) },
+			want:  StatusIdle, settle: StatusIdle},
+		{row: "D14", name: "a hooked agent whose SessionStart is late: its first screen leaves it starting, then idle",
+			kind: KindAgent, start: StatusStarting,
+			steps: func(s *Session) { out(s) },
+			want:  StatusStarting, settle: StatusIdle},
+		{row: "D14", name: "a hooked agent started with its task: SessionStart then its prompt is working",
+			kind: KindAgent, start: StatusStarting,
+			steps: func(s *Session) { feed(s, sessionStart("startup"), prompt); out(s) },
+			want:  StatusWorking},
+		{row: "B13", name: "a compaction's SessionStart on a pane its hooks have working leaves it working",
+			kind: KindAgent, start: StatusStarting,
+			steps: func(s *Session) { feed(s, prompt, pre("Bash"), sessionStart("compact")) },
+			want:  StatusWorking},
+		{row: "D15", name: "a resize-triggered redraw on an idle shell stays idle",
+			kind: KindShell, start: StatusIdle, ago: long,
+			steps: func(s *Session) { s.Resize(100, 30); out(s) },
+			want:  StatusIdle, settle: StatusIdle},
+		{row: "D15", name: "a resize-triggered redraw on an idle no-hook agent stays idle",
+			kind: KindAgent, start: StatusIdle, ago: long,
+			steps: func(s *Session) { s.Resize(100, 30); out(s) },
+			want:  StatusIdle, settle: StatusIdle},
+		{row: "D15", name: "a repaint (a row shorter, then back) on an idle pane stays idle",
+			kind: KindAgent, start: StatusIdle, ago: long,
+			steps: func(s *Session) { s.Resize(80, 23); out(s); s.Resize(80, 24); out(s) },
+			want:  StatusIdle, settle: StatusIdle},
+		{row: "D15", name: "a resize to the size it already is changes nothing, and output after it is read as usual",
+			kind: KindShell, start: StatusIdle, ago: long,
+			steps: func(s *Session) { s.Resize(80, 24); out(s) },
+			want:  StatusWorking, settle: StatusIdle},
+		{row: "D15", name: "output still coming after the redraw window is working",
+			kind: KindShell, start: StatusIdle, ago: long,
+			steps: func(s *Session) { s.Resize(100, 30); out(s); echoOver(s); out(s) },
+			want:  StatusWorking, settle: StatusIdle},
+		{row: "D15", name: "output after typing is working, however soon after a resize",
+			kind: KindShell, start: StatusIdle, ago: long,
+			steps: func(s *Session) { s.Resize(100, 30); press(t, s, "make\r"); out(s) },
+			want:  StatusWorking, settle: StatusIdle},
+		{row: "D15", name: "a shell resized mid-build goes on working",
+			kind: KindShell, start: StatusIdle, ago: long,
+			steps: func(s *Session) { out(s); s.Resize(100, 30); out(s) },
+			want:  StatusWorking, settle: StatusIdle},
+		{row: "D16", name: "a restored shell drawing its prompt is starting, then idle, never working",
+			kind: KindShell, start: StatusStarting,
+			steps: func(s *Session) { out(s); s.Resize(100, 30); out(s) },
+			want:  StatusStarting, settle: StatusIdle},
+		{row: "D16", name: "a shell started on a build that streams past its startup is working",
+			kind: KindShell, start: StatusStarting,
+			steps: func(s *Session) { out(s); startupOver(s); out(s) },
+			want:  StatusWorking, settle: StatusIdle},
+		{row: "D2", name: "a shell streaming a build is working, then idle once quiet",
+			kind: KindShell, start: StatusIdle, ago: long,
+			steps: func(s *Session) { out(s); out(s); out(s) },
+			want:  StatusWorking, settle: StatusIdle},
+		{row: "D2", name: "a no-hook agent streaming an answer is working",
+			kind: KindAgent, start: StatusIdle, ago: long,
+			steps: func(s *Session) { press(t, s, "explain\r"); out(s); out(s) },
+			want:  StatusWorking, settle: StatusIdle},
+	}
+	for _, c := range cases {
+		t.Run(c.row+"/"+c.name, func(t *testing.T) {
+			s := pane(c.kind, c.start, c.ago)
+			c.steps(s)
+			if st, _ := s.Status(); st != c.want {
+				t.Fatalf("status = %v, want %v", st, c.want)
+			}
+			switch {
+			case c.settle == StatusStarting:
+			case c.settle == c.want:
+				// Nothing to wait for; make sure nothing moves it either.
+				time.Sleep(4 * s.idleAfter)
+				if st, _ := s.Status(); st != c.settle {
+					t.Errorf("status = %v once quiet, want %v", st, c.settle)
+				}
+			default:
+				waitForStatus(t, s, c.settle, 5*time.Second)
+			}
+		})
 	}
 }

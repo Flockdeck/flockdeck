@@ -118,6 +118,17 @@ func (s *Session) turnLocked(ev Event, st Status, detail string, ok bool) (Statu
 		if ev.Source == "clear" {
 			s.turn, s.strayTools, s.askingAgent, s.agentCalls = turnClosed, 0, "", nil
 		}
+		// The first one is proof the pane's hooks report, so from here on
+		// they are its word and nothing it prints is read as work. It comes as
+		// the agent starts, resumes or starts over, all of which leave it at
+		// its prompt: a pane with nothing better known is idle. Left to the
+		// output instead, a restored agent redrawing its screen, or redrawing
+		// it again for a window being fitted to it, read as working until
+		// somebody typed a prompt. Once the hooks have spoken it changes
+		// nothing, as it always did.
+		if !s.hooksSeen {
+			return StatusIdle, "", true
+		}
 		return st, detail, ok
 	case "PreToolUse":
 		if closed {
