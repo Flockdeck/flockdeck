@@ -152,6 +152,16 @@ func (t *runCommand) goesFurther(names []string, sub string, rest []string) bool
 			// clones, into whatever directory it is told.
 			case "config", "submodule", "rebase", "bisect", "clone":
 				return true
+			case "difftool":
+				// -x is difftool's --extcmd, and runs the command it names.
+				for _, a := range rest {
+					if a == "--" {
+						break
+					}
+					if short, ok := strings.CutPrefix(a, "-"); ok && !strings.HasPrefix(short, "-") && strings.Contains(short, "x") {
+						return true
+					}
+				}
 			}
 			if t.gitGoesFurther(rest) {
 				return true

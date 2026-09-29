@@ -120,6 +120,9 @@ func TestAStandingPermissionDoesNotCoverWhatGoesFurther(t *testing.T) {
 		{"git fetch --upload-pack=touch .", ""},
 		{"git push --receive-pack=touch origin", ""},
 		{"git difftool --extcmd=touch", ""},
+		{"git difftool -x touch", ""},
+		{"git difftool -yx touch", ""},
+		{"git difftool -xtouch", ""},
 		{"git grep -Otouch needle", ""},
 		{"git grep --open-files-in-pager=touch needle", ""},
 		// git subcommands whose later words say what runs.
