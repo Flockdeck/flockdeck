@@ -243,12 +243,14 @@ func Move(ctx context.Context, version string, req EnableRequest, switched func(
 	// that lets registration through and nothing else is found out here,
 	// while the old relay still has the machine.
 	if _, err := NewClient(next, version).Devices(ctx); err != nil {
-		_ = NewClient(next, version).Unregister(ctx)
+		// Not on ctx alone, for the reason Enable's own cleanup gives: a
+		// relay this slow can leave none of the caller's budget for it.
+		_ = NewClient(next, version).Unregister(context.WithoutCancel(ctx))
 		return nil, nil, fmt.Errorf("%s took this machine but then did not answer for it (%v); nothing has changed, and it is still on %s", relay, err, old.Relay)
 	}
 	if err := next.Save(); err != nil {
 		// Nothing here can speak for the new host, so it is taken back off.
-		_ = NewClient(next, version).Unregister(ctx)
+		_ = NewClient(next, version).Unregister(context.WithoutCancel(ctx))
 		return nil, nil, err
 	}
 	if switched != nil {
