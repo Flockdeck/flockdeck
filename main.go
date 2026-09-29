@@ -226,15 +226,6 @@ func main() {
 		fs.Usage()
 		os.Exit(2)
 	}
-	// An agent the catalog does not have is worth two lines here rather than a
-	// window full of panes that will not start.
-	if err := checkAgent(c.agent, ""); err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck:", err)
-		os.Exit(2)
-	}
-	if w := notInstalledWarning(c.agent); w != "" {
-		fmt.Fprintln(os.Stderr, "flockdeck:", w)
-	}
 	server.Version = version
 
 	if c.quit {
@@ -248,6 +239,20 @@ func main() {
 			fail("Flockdeck could not stop the running instance.", err)
 		}
 		return
+	}
+
+	// -agent says which agent new panes start as, which stopping an instance
+	// has no use for: it is checked only for a run that starts one, so that a
+	// stale FLOCKDECK_START_AGENT in a service's environment cannot stop
+	// `flockdeck -quit` from stopping it.
+	// An agent the catalog does not have is worth two lines here rather than a
+	// window full of panes that will not start.
+	if err := checkAgent(c.agent, ""); err != nil {
+		fmt.Fprintln(os.Stderr, "flockdeck:", err)
+		os.Exit(2)
+	}
+	if w := notInstalledWarning(c.agent); w != "" {
+		fmt.Fprintln(os.Stderr, "flockdeck:", w)
 	}
 
 	if c.detach {
