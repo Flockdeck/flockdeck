@@ -1,0 +1,148 @@
+name: purge downloads
+
+# Purges released versions from dl.flockdeck.ai: every version of every file
+# under each from the bucket, then DigitalOcean's CDN and the Cloudflare zone,
+# then checks every address is gone (scripts/purge-downloads.sh says how and
+# why). It is started by hand and nothing else, and a run is a dry run unless
+# it says otherwise:
+#
+#   gh workflow run purge-downloads.yml --ref main -f versions="v0.2.10 v0.2.11"
+#   gh workflow run purge-downloads.yml --ref main -f versions="v0.2.10 v0.2.11" \
+#     -f dry_run=false -f confirm="purge 2 versions"
+#
+# See "Purging released versions" in .github/RELEASE_AUTOMATION_SETUP.md,
+# which also says what has to be set up once before the first run.
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: "versions to purge, separated by spaces or newlines, such as v0.2.10 v0.2.11"
+        required: true
+        type: string
+      dry_run:
+        description: "only report what would be deleted and purged, and change nothing"
+        type: boolean
+        default: true
+      confirm:
+        description: 'for a live run: exactly "purge N versions", N being how many different versions are named'
+        type: string
+        default: ""
+      cloudflare:
+        description: "purge the Cloudflare zone too (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID); off only if dl.flockdeck.ai is in no zone of ours"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Everything that can be checked without a secret is checked here, before
+  # the purge job waits for a reviewer: that the run is from main, that every
+  # version is one, and that a live run is confirmed with the right count.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse anything but main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != refs/heads/main ]; then
+            echo "::error::a purge runs from main only, not $REF; start it with --ref main"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      # The versions reach the script through the environment and are split
+      # into words by the shell, never pasted into it, and each is refused
+      # unless it is a version.
+      - name: Check the versions and the confirmation
+        env:
+          VERSIONS: ${{ inputs.versions }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -- --check-input
+          [ "$DRY_RUN" = true ] || set -- "$@" --live --confirm "$CONFIRM"
+          set -f
+          # shellcheck disable=SC2086 # one version to a word
+          sh scripts/purge-downloads.sh "$@" -- $VERSIONS
+
+  # The purge-downloads environment holds the credentials, and its required
+  # reviewers approve every run, dry or live, before it starts. Only main may
+  # deploy to it (.github/RELEASE_AUTOMATION_SETUP.md).
+  #
+  # It takes turns with the release job (release.yml), in the same
+  # concurrency group, so a purge never interleaves with a publish, and
+  # neither cancels the other once running.
+  purge:
+    needs: check
+    runs-on: ubuntu-latest
+    environment: purge-downloads
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    timeout-minutes: 90
+    steps:
+      - name: Refuse anything but main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != refs/heads/main ]; then
+            echo "::error::a purge runs from main only, not $REF"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      # The script is run as this workflow's own commit has it, as the
+      # release job runs publish-downloads.sh. The aws CLI and curl are
+      # already on the runner.
+      - name: Purge (a dry run unless dry_run is false)
+        env:
+          VERSIONS: ${{ inputs.versions }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          CONFIRM: ${{ inputs.confirm }}
+          CLOUDFLARE: ${{ inputs.cloudflare }}
+          DO_SPACES_KEY: ${{ secrets.DO_SPACES_KEY }}
+          DO_SPACES_SECRET: ${{ secrets.DO_SPACES_SECRET }}
+          DO_SPACES_BUCKET: ${{ secrets.DO_SPACES_BUCKET }}
+          DO_SPACES_REGION: ${{ secrets.DO_SPACES_REGION }}
+          DO_API_TOKEN: ${{ secrets.DO_API_TOKEN }}
+          DO_CDN_ENDPOINT_ID: ${{ secrets.DO_CDN_ENDPOINT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+        run: |
+          if ! git show "$GITHUB_SHA:scripts/purge-downloads.sh" > "$RUNNER_TEMP/purge-downloads.sh"; then
+            echo "::error::the purge script could not be read from $GITHUB_SHA, the workflow's own commit"
+            exit 1
+          fi
+          set -- --json "$RUNNER_TEMP/purge.json" --markdown "$RUNNER_TEMP/purge.md"
+          [ "$DRY_RUN" = true ] || set -- "$@" --live --confirm "$CONFIRM"
+          [ "$CLOUDFLARE" = true ] || set -- "$@" --no-cloudflare
+          set -f
+          # shellcheck disable=SC2086 # one version to a word
+          sh "$RUNNER_TEMP/purge-downloads.sh" "$@" -- $VERSIONS
+
+      # Exactly what was deleted, or would be, and what is still served if
+      # anything is; the machine-readable summary is kept as an artifact.
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/purge.md" ]; then
+            cat "$RUNNER_TEMP/purge.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The purge stopped before it had a plan: nothing was deleted or purged. The log of the step above says why." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: purge-summary
+          path: ${{ runner.temp }}/purge.json
+          if-no-files-found: ignore
