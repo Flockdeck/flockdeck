@@ -104,6 +104,9 @@ func (h *conversationHub) watched() []string {
 // dropClient forgets a client that has gone, everywhere it was watching, and
 // starts each pane it was the last watcher of back toward light mode.
 func (h *conversationHub) dropClient(c *controlClient) {
+	// Marked before the panes are listed: an open that has not yet added c
+	// as a watcher either finds the mark, or adds c to a pane listed here.
+	c.gone.Store(true)
 	h.mu.Lock()
 	panes := make([]*paneConvo, 0, len(h.panes))
 	for _, pc := range h.panes {
@@ -220,6 +223,11 @@ func (s *Server) conversationOpen(c *controlClient, paneID, after string) {
 		s.syncStreamLocked(pc, r, false)
 		if !pc.supported {
 			c.sendJSON(conversationPageMsg{Type: "conversationPage", ID: paneID, Supported: false})
+			return
+		}
+		// A window that went while this was being answered has already been
+		// forgotten everywhere, and must not be put back as a watcher.
+		if c.gone.Load() {
 			return
 		}
 		pc.watchers[c] = true

@@ -220,3 +220,40 @@ func TestAnAgentsAddressIsChangedOnlyAtTheDesk(t *testing.T) {
 		t.Errorf("an address sent through the relay was written to agents.json: %q", spec.API.BaseURL)
 	}
 }
+
+// TestRemoteAccessIsMovedOnlyAtTheDesk covers the dialog's "Move to another
+// relay…" on a phone. Moving is turning remote access on against another
+// relay, which deskOnlyRemote already says is the desk's to do: it would move
+// everything typed at the desk, and everything the agents print, to a relay
+// chosen from a window that came in through the current one.
+func TestRemoteAccessIsMovedOnlyAtTheDesk(t *testing.T) {
+	srv, _ := newTestServer(t)
+	fake := &fakeRemote{}
+	srv.SetRemote(fake)
+	ts := remoteServer(t, srv)
+	phone, err := dialRemoteControl(ts, ts.URL)
+	if err != nil {
+		t.Fatalf("dial through the tunnel: %v", err)
+	}
+	defer phone.CloseNow()
+
+	type outcome struct{ Type, Action, Error string }
+	sendCmd(t, phone, command{Cmd: "remoteMove", Relay: "https://elsewhere.example"})
+	var out outcome
+	readUntil(t, phone, "remoteOutcome", &out)
+	if out.Error == "" {
+		t.Errorf("remoteMove through the relay was answered %+v, want it refused", out)
+	}
+	if n := len(fake.moved); n != 0 {
+		t.Errorf("a window through the relay moved this machine to another relay (%d moves)", n)
+	}
+
+	// The desk still can.
+	desk := dialControl(t, srv)
+	sendCmd(t, desk, command{Cmd: "remoteMove", Relay: "https://elsewhere.example"})
+	out = outcome{}
+	readUntil(t, desk, "remoteOutcome", &out)
+	if out.Error != "" || len(fake.moved) != 1 {
+		t.Errorf("the desk moving to another relay was answered %+v, with moves %v", out, fake.moved)
+	}
+}
