@@ -117,8 +117,10 @@ func (t *runCommand) Prefix(args json.RawMessage) string {
 	}
 	// An option in the second place names no subcommand, so the two words
 	// cover every one there is: "always" for `git -c` is standing permission
-	// for `git -c core.pager=<anything> log`, which runs <anything>.
-	if len(argv) > 1 && strings.HasPrefix(argv[1], "-") {
+	// for `git -c core.pager=<anything> log`, which runs <anything>. On Windows
+	// an option is spelled with a slash as often: "always" for `schtasks
+	// /create` would cover a task running any program.
+	if len(argv) > 1 && (strings.HasPrefix(argv[1], "-") || runtime.GOOS == "windows" && strings.HasPrefix(argv[1], "/")) {
 		return ""
 	}
 	// The prefix is what the chat loop remembers and matches later calls by,
@@ -149,9 +151,20 @@ func (t *runCommand) goesFurther(names []string, sub string, rest []string) bool
 			// core.fsmonitor at the next status, core.pager, core.sshCommand.
 			// submodule foreach, rebase --exec (or -x) and bisect run run a
 			// command given in their later words, and clone -u runs one as it
-			// clones, into whatever directory it is told.
-			case "config", "submodule", "rebase", "bisect", "clone":
+			// clones, into whatever directory it is told. filter-branch runs the
+			// commands its --tree-filter, --msg-filter and the rest are given.
+			case "config", "submodule", "rebase", "bisect", "clone", "filter-branch":
 				return true
+			case "difftool":
+				// -x is difftool's --extcmd, and runs the command it names.
+				for _, a := range rest {
+					if a == "--" {
+						break
+					}
+					if short, ok := strings.CutPrefix(a, "-"); ok && !strings.HasPrefix(short, "-") && strings.Contains(short, "x") {
+						return true
+					}
+				}
 			}
 			if t.gitGoesFurther(rest) {
 				return true
@@ -160,12 +173,36 @@ func (t *runCommand) goesFurther(names []string, sub string, rest []string) bool
 			if goGoesFurther(rest) {
 				return true
 			}
+			// go env -w sets a variable for every go command after it, and
+			// some name programs they run: CC and CXX at the next build that
+			// uses cgo, GOTOOLCHAIN fetched from GOPROXY. "Always" for `go
+			// env` was agreed to while reading it.
+			if sub == "env" {
+				for _, a := range rest {
+					name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+					if len(name) < len(a) && name == "w" {
+						return true
+					}
+				}
+			}
 		case "npm":
 			// npm exec, and its alias x, run any package's program, as npx
 			// does. npm takes an unambiguous abbreviation of a command, so exe
 			// is exec too; explore runs a command in a package's directory.
 			if sub == "x" || strings.HasPrefix(sub, "exe") || strings.HasPrefix(sub, "explo") {
 				return true
+			}
+			// --script-shell is config any npm command takes, and names the
+			// program every script it runs is run with.
+			for _, a := range rest {
+				if a == "--" {
+					// What follows is the script's, not npm's.
+					break
+				}
+				name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+				if len(name) < len(a) && strings.ReplaceAll(strings.ToLower(name), "_", "-") == "script-shell" {
+					return true
+				}
 			}
 		case "docker":
 			// docker run and exec run a command in a container, which can be
@@ -330,10 +367,12 @@ func (t *runCommand) programNames(word string) []string {
 // programName is the name a program goes by, however its file is spelled:
 // lower case, without the trailing dots and spaces Windows drops, and without
 // the extension Windows adds, so that CMD.EXE, cmd.exe. and cmd are one name.
-// It is batchUnsafe's reading of a file name, for the same reason.
+// It is batchUnsafe's reading of a file name, for the same reason. A batch
+// file's extension goes too: npm and npx are npm.cmd and npx.cmd there, and
+// named that way they were judged as programs nobody had heard of.
 func programName(p string) string {
 	name := strings.ToLower(strings.TrimRight(filepath.Base(p), ". "))
-	for _, ext := range []string{".exe", ".com"} {
+	for _, ext := range []string{".exe", ".com", ".cmd", ".bat"} {
 		name = strings.TrimSuffix(name, ext)
 	}
 	return strings.TrimRight(name, ". ")

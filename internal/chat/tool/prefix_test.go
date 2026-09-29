@@ -120,6 +120,9 @@ func TestAStandingPermissionDoesNotCoverWhatGoesFurther(t *testing.T) {
 		{"git fetch --upload-pack=touch .", ""},
 		{"git push --receive-pack=touch origin", ""},
 		{"git difftool --extcmd=touch", ""},
+		{"git difftool -x touch", ""},
+		{"git difftool -yx touch", ""},
+		{"git difftool -xtouch", ""},
 		{"git grep -Otouch needle", ""},
 		{"git grep --open-files-in-pager=touch needle", ""},
 		// git subcommands whose later words say what runs.
@@ -128,15 +131,20 @@ func TestAStandingPermissionDoesNotCoverWhatGoesFurther(t *testing.T) {
 		{"git rebase -x touch main", ""},
 		{"git bisect run touch", ""},
 		{"git clone -u touch . copy", ""},
+		{"git filter-branch --tree-filter touch HEAD", ""},
 		// go flags that run what they name, even set for later.
 		{"go test -exec=touch ./...", ""},
 		{"go test -toolexec touch ./...", ""},
 		{"go vet --vettool=touch ./...", ""},
 		{"go env -w GOFLAGS=-toolexec=touch", ""},
+		{"go env -w CC=touch", ""},
+		{"go env --w=CC=touch", ""},
 		// npm and docker subcommands that run anything.
 		{"npm exec touch", ""},
 		{"npm x touch", ""},
 		{"npm exe touch", ""},
+		{"npm run build --script-shell=touch", ""},
+		{"npm test --script-shell touch", ""},
 		{"docker run -v /:/host alpine", ""},
 		{"docker exec box sh", ""},
 		{"docker container run alpine", ""},
@@ -149,12 +157,49 @@ func TestAStandingPermissionDoesNotCoverWhatGoesFurther(t *testing.T) {
 		{"git log -- --output", "git log"},
 		{"go test -run TestExec ./...", "go test"},
 		{"go build ./cmd/foo-exec", "go build"},
+		{"go env GOPATH", "go env"},
 		{"npm run build", "npm run"},
 		{"docker ps", "docker ps"},
 		{"docker compose up", "docker compose"},
 	} {
 		if got := tl.Prefix(rawArgs(t, map[string]any{"command": c.command})); got != c.want {
 			t.Errorf("Prefix(%q) = %q, want %q", c.command, got, c.want)
+		}
+	}
+}
+
+// On Windows npm and npx are npm.cmd and npx.cmd, and a command may name them
+// so. Spelled with the extension, they are judged as the programs they are.
+func TestABatchFileSpelledWithItsExtensionIsJudgedByItsName(t *testing.T) {
+	tl := &runCommand{root: newRoot(t)}
+	for _, command := range []string{
+		"npx.cmd rimraf build",
+		"NPX.CMD rimraf build",
+		"npm.cmd exec touch",
+		"npm.cmd run build --script-shell=touch",
+		"npm.bat exec touch",
+	} {
+		if got := tl.Prefix(rawArgs(t, map[string]any{"command": command})); got != "" {
+			t.Errorf("Prefix(%q) = %q, want no standing permission", command, got)
+		}
+	}
+}
+
+// On Windows an option is as often spelled with a slash as with a dash, and
+// one in the second place names no subcommand either: "always" for `schtasks
+// /create` would cover a task that runs any program at all.
+func TestASlashOptionInTheSecondPlaceOffersNoStandingPermissionOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("a slash begins a path here, not an option")
+	}
+	tl := &runCommand{root: newRoot(t)}
+	for _, command := range []string{
+		"schtasks /create /tn x /tr touch /sc once /st 00:00",
+		"msiexec /i package.msi",
+		"findstr /s needle *.go",
+	} {
+		if got := tl.Prefix(rawArgs(t, map[string]any{"command": command})); got != "" {
+			t.Errorf("Prefix(%q) = %q, want no standing permission", command, got)
 		}
 	}
 }
