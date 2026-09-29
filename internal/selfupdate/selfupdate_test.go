@@ -1165,9 +1165,16 @@ func TestGetExplainsARateLimit(t *testing.T) {
 // What `flockdeck update` says it is about to download is this platform's
 // archive, not whichever asset came first.
 func TestDownloadSizeIsThisPlatformsArchive(t *testing.T) {
+	// The archive is a .zip on Windows and a .tar.gz everywhere else, which is
+	// what cmd/release writes and what assetFor matches; this used to name a
+	// .zip on every OS, which only passed where that happened to be right.
+	ext := ".tar.gz"
+	if runtime.GOOS == "windows" {
+		ext = ".zip"
+	}
 	rel := &Release{Assets: []Asset{
 		{Name: "flockdeck_v9.9.9_plan9_mips.tar.gz", Size: 1},
-		{Name: "flockdeck_v9.9.9_" + runtime.GOOS + "_" + runtime.GOARCH + ".zip", Size: 7 << 20},
+		{Name: "flockdeck_v9.9.9_" + runtime.GOOS + "_" + runtime.GOARCH + ext, Size: 7 << 20},
 		{Name: "checksums.txt", Size: 2},
 	}}
 	if got := rel.DownloadSize(); got != 7<<20 {
