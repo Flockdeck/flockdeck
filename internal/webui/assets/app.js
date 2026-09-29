@@ -1226,7 +1226,7 @@
     move.onclick = () => {
       remoteMoveDraft.open = !remoteMoveDraft.open;
       remoteOutcome = null;
-      renderRemote();
+      keepFocus(renderRemote);
       const f = $("remote-move-relay");
       if (f && f.focus) f.focus();
     };
@@ -1310,7 +1310,7 @@
       const to = d.relay.trim();
       if (!to) {
         remoteOutcome = { action: "move", error: "Name the relay to move this machine to." };
-        renderRemote();
+        keepFocus(renderRemote);
         return;
       }
       const hosts = (roster && roster.hosts) || [];
@@ -1327,7 +1327,7 @@
       remoteBusy = "move";
       remoteOutcome = null;
       send({ cmd: "remoteMove", relay: to, invite: d.invite.trim(), join: d.join.trim() });
-      renderRemote();
+      keepFocus(renderRemote);
     };
     const row = el("div", "update-row");
     const btn = el("button", "chip primary", remoteBusy === "move" ? "Moving…" : "Move this machine");

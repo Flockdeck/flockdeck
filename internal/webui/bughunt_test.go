@@ -188,3 +188,27 @@ h.recv(at("p2")); // clicked into the pane outside the set; the prompt is still 
 assert.strictEqual(h.$("prompt-label").textContent, "Prompt", "the label counts the pane clicked into, which the prompt does not go to");
 `)
 }
+
+// The remote dialog's move form was redrawn without keepFocus by a move sent with no relay named, so the control
+// the keyboard was on went with the redraw and typing went to the window.
+func TestTheMoveFormKeepsTheKeyboardWhereItWas(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const remote = { state: "connected", relay: "https://remote.flockdeck.ai", hostId: "h1", viewers: 0,
+  since: "2030-01-01T00:00:00Z" };
+h.recv(fixture({ remote }));
+h.click(h.$("btn-remote"));
+h.recv({ type: "remoteDevices", enabled: true, devices: [],
+  hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
+const held = (id) => h.doc.activeElement && h.doc.activeElement.isConnected && h.doc.activeElement.id === id;
+
+h.$("remote-move").focus();
+h.click(h.$("remote-move"));
+assert.ok(held("remote-move-relay"), "opening the form did not put the keyboard in it");
+
+h.$("remote-move-go").focus();
+h.click(h.$("remote-move-go")); // no relay named: refused with a reason, in place
+assert.ok(held("remote-move-go"), "the keyboard left the button that was pressed");
+
+`)
+}
