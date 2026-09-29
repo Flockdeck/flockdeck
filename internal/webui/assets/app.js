@@ -367,6 +367,8 @@
       // the working tree it describes has had time to move on. Asking again is
       // also what releases a button left waiting for a reply that the drop
       // took with it.
+      // A pull request or issue being opened has no answer coming either.
+      if (ghCreating) { ghCreating = false; if (dialog === "github") keepFocus(renderGithub); }
       refreshDialog();
       // A manual update check has nothing to ask again for -- it is a single
       // notice, not a dialog's own state -- so a drop that took it with it is
@@ -410,7 +412,14 @@
       else if (msg.type === "fanoutHistory") keepFocus(() => renderFanoutHistory(msg));
       else if (msg.type === "todoPlanPreview") renderTodoPlan(msg);
       else if (msg.type === "todos") keepFocus(() => renderTodos(msg));
-      else if (msg.type === "todoSaved") { notice("Saved “" + ((msg.todo && msg.todo.title) || "todo") + "”.", false); openTodos(); }
+      // Every save is answered with this, a step's own edit or a reorder as much
+      // as a new todo from the plan. Only the plan's is finished by going to the
+      // list; the others are drawn in place, and one that comes back after the
+      // dialog was closed, or another opened, is not this window's to show.
+      else if (msg.type === "todoSaved") {
+        if (dialog === "todoPlan") { notice("Saved “" + ((msg.todo && msg.todo.title) || "todo") + "”.", false); openTodos(); }
+        else if (dialog === "todos") updateTodoInPlace(msg.todo);
+      }
       else if (msg.type === "todoUpdated") updateTodoInPlace(msg.todo);
       // Unused by the desktop except for a todo's own step-start (see
       // todoStepRow): startAgent's other callers are reached through the
@@ -473,6 +482,9 @@
         // is found; when it did, the state carrying it settles this too, but
         // resetting it here as well costs nothing and covers both.
         if (updateChecking) { updateChecking = false; settingsChanged(); renderRecall(); }
+        // The picker's answer to a download, good or bad, comes as a notice
+        // alone; without a redraw the row stayed on "Downloading…", disabled.
+        if (versionInstalling) { versionInstalling = false; renderVersions(); }
         notice(msg.text, msg.error);
       }
       else if (msg.type === "ghStatus") {
@@ -653,7 +665,11 @@
       }
       // A paragraph runs until the next blank line, list item or heading;
       // its own line breaks are folded to spaces the way Markdown reads them.
-      const buf = [];
+      // The line that got here is always taken: a heading the pattern above
+      // did not match (its text held U+2028, which "." will not cross) would
+      // otherwise stop this loop at once, and nothing would ever move on.
+      const buf = [line.trim()];
+      i++;
       while (i < lines.length && lines[i].trim() && !/^[-*]\s+/.test(lines[i]) && !/^#{1,6}\s+/.test(lines[i])) {
         buf.push(lines[i].trim());
         i++;
@@ -1210,7 +1226,7 @@
     move.onclick = () => {
       remoteMoveDraft.open = !remoteMoveDraft.open;
       remoteOutcome = null;
-      renderRemote();
+      keepFocus(renderRemote);
       const f = $("remote-move-relay");
       if (f && f.focus) f.focus();
     };
@@ -1294,7 +1310,7 @@
       const to = d.relay.trim();
       if (!to) {
         remoteOutcome = { action: "move", error: "Name the relay to move this machine to." };
-        renderRemote();
+        keepFocus(renderRemote);
         return;
       }
       const hosts = (roster && roster.hosts) || [];
@@ -1311,7 +1327,7 @@
       remoteBusy = "move";
       remoteOutcome = null;
       send({ cmd: "remoteMove", relay: to, invite: d.invite.trim(), join: d.join.trim() });
-      renderRemote();
+      keepFocus(renderRemote);
     };
     const row = el("div", "update-row");
     const btn = el("button", "chip primary", remoteBusy === "move" ? "Moving…" : "Move this machine");
@@ -3743,6 +3759,10 @@
       // never builds up a wait at all: onopen already ran, so the next
       // failure looks like the first one again, forever.
       if (p.connectedAt && Date.now() - p.connectedAt >= PTY_RETRY_STABLE_MS) p.retries = 0;
+      // Spent: the next attempt sets it again when it opens. Left standing, a
+      // retry that is refused without opening would be judged by the old
+      // connection's age and reset the backoff every time.
+      p.connectedAt = 0;
       const delay = Math.min(250 * Math.pow(2, p.retries++), 3000);
       p.retryTimer = setTimeout(() => { if (panes.has(p.id)) connectPTY(p); }, delay);
     };
@@ -4510,21 +4530,30 @@
    *  message about to reach three agents. Kept current while the bar is open,
    *  since the set changes under it - a pane added with ⇉, a member closed. */
   function labelPrompt(s) {
-    const n = s ? countBroadcast(s) : 1;
+    // With the bar up the message is aimed at the pane it was opened on, which
+    // is what the server sends to (see submitPrompt), not the one focused now.
+    const n = s ? countBroadcast(s, !$("promptbar").hidden ? promptPane : "") : 1;
     const text = n > 1 ? `Prompt → ${n} panes` : "Prompt";
     if ($("prompt-label").textContent !== text) $("prompt-label").textContent = text;
   }
 
   function openPrompt() {
     const bar = $("promptbar");
+    // Asked for again while it is up -- from a pane clicked into, or the
+    // palette -- it aims at the pane now focused and takes the keyboard back,
+    // and keeps the sentence being written rather than putting back the one
+    // left at the last close.
+    const wasOpen = !bar.hidden;
     bar.hidden = false;
     const tab = activeTabOf(state);
     promptPane = (tab && tab.focus) || "";
-    promptAt = promptHistory.length;
-    promptDraft = "";
+    if (!wasOpen) {
+      promptAt = promptHistory.length;
+      promptDraft = "";
+    }
     labelPrompt(state);
     const input = $("prompt-input");
-    input.value = promptUnsent;
+    if (!wasOpen) input.value = promptUnsent;
     input.focus();
     fitPrompt();
   }
@@ -4543,12 +4572,12 @@
     $("prompt-input").value = "";
     closePrompt();
   }
-  function countBroadcast(s) {
+  function countBroadcast(s, aimedAt) {
     const t = activeTabOf(s);
     if (!t) return 0;
     const ids = new Set(); collectPanes(t.root, ids);
     let n = 0;
-    ids.forEach((id) => { const v = s.panes[id]; if (v && (v.broadcast || id === t.focus)) n++; });
+    ids.forEach((id) => { const v = s.panes[id]; if (v && (v.broadcast || id === (aimedAt || t.focus))) n++; });
     return n;
   }
 
@@ -4792,6 +4821,9 @@
     $("overlay").hidden = true;
     $("overlay-panel").classList.remove("wide", "settings-panel");
     dialog = null;
+    // A shortcut still being recorded went on taking every key the window saw,
+    // with no dialog left to show it.
+    keybindEditing = "";
     remotePairPollStop();
     focusTerminal();
   }
@@ -8416,6 +8448,9 @@
       const b = el("button", "chip agent-view-tab" + (on ? " sel" : ""), label);
       b.setAttribute("role", "tab");
       b.setAttribute("aria-selected", String(on));
+      // keepFocus finds the tab again by this; its class changes with the
+      // choice, so by class and wording it was never the same button twice.
+      b.id = "agent-view-" + id;
       b.onclick = () => {
         if (agentsView === id) return;
         agentsView = id;
@@ -9256,6 +9291,9 @@
     send({ cmd: "listVersions" });
   }
 
+  /** Whether an install chosen in the picker is out and unanswered. */
+  let versionInstalling = false;
+
   /** renderVersions draws the picker from what listVersions answered. */
   function renderVersions(msg) {
     if (msg) versions = msg;
@@ -9294,6 +9332,7 @@
       install.onclick = () => {
         install.disabled = true;
         install.textContent = "Downloading…";
+        versionInstalling = true;
         send({ cmd: "installVersion", text: v.version });
       };
       actions.append(install);
