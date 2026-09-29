@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // The tests of scripts/purge-downloads.sh run it, and the real aws CLI it
@@ -32,11 +33,15 @@ import (
 // a file deleted from the bucket goes on being served exactly as the real
 // edges would go on serving it for a year. Beside it are stand-ins for
 // DigitalOcean's and Cloudflare's purge APIs, which record every request and
-// purge those caches as the real ones do.
+// purge those caches as the real ones do. They answer the read-only GETs of
+// the script's preflight too, which are logged apart from the purges: a dry
+// run sends those and nothing else.
 
 const (
 	purgeDOToken       = "do-token-SECRET-4f1c"
 	purgeCFToken       = "cf-token-SECRET-9b27"
+	purgeBadDOToken    = "do-token-BAD-SECRET-0001"
+	purgeBadCFToken    = "cf-token-BAD-SECRET-0002"
 	purgeSpacesSecret  = "spaces-secret-SECRET-77d0"
 	purgeCDNEndpointID = "cdn-endpoint-1"
 	purgeZoneID        = "zone-1"
@@ -79,6 +84,12 @@ type purging struct {
 	doStatus int  // answer every DigitalOcean purge with this, when set
 	cfFail   bool // answer every Cloudflare purge 200 with success false
 	sticky   bool // purges are acknowledged and purge nothing
+
+	probes        []string // the read-only preflight GETs, in the order they came
+	doProbeStatus int      // answer the DigitalOcean endpoint GET with this, when set
+	doProbeHang   bool     // never answer the DigitalOcean endpoint GET
+	cfVerifyCode  int      // answer Cloudflare's token verify with this, when set
+	cfZoneCode    int      // answer Cloudflare's zone GET with this, when set
 }
 
 func newPurging(t *testing.T) *purging {
@@ -274,7 +285,77 @@ func (p *purging) currentKeys(prefix string) []string {
 	return keys
 }
 
+// probeDO answers the preflight's GET of the CDN endpoint as DigitalOcean
+// does: 401 for a token it does not accept, 404 for an endpoint it does not
+// know.
+func (p *purging) probeDO(w http.ResponseWriter, r *http.Request) {
+	p.mu.Lock()
+	p.probes = append(p.probes, "do GET "+r.URL.Path)
+	status, hang := p.doProbeStatus, p.doProbeHang
+	p.mu.Unlock()
+	if hang {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+		return
+	}
+	if r.Header.Get("Authorization") != "Bearer "+purgeDOToken {
+		http.Error(w, `{"id":"unauthorized","message":"Unable to authenticate you."}`, http.StatusUnauthorized)
+		return
+	}
+	if r.URL.Path != "/v2/cdn/endpoints/"+purgeCDNEndpointID {
+		http.Error(w, `{"id":"not_found","message":"The resource you requested could not be found."}`, http.StatusNotFound)
+		return
+	}
+	if status != 0 {
+		http.Error(w, `{"id":"stand_in","message":"stand-in answer"}`, status)
+		return
+	}
+	fmt.Fprint(w, `{"endpoint":{"id":"`+purgeCDNEndpointID+`","origin":"bucket.lon1.digitaloceanspaces.com"}}`)
+}
+
+// probeCF answers Cloudflare's token verify and zone GET.
+func (p *purging) probeCF(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	p.mu.Lock()
+	p.probes = append(p.probes, "cf GET "+r.URL.Path)
+	verify, zone := p.cfVerifyCode, p.cfZoneCode
+	p.mu.Unlock()
+	if r.Header.Get("Authorization") != "Bearer "+purgeCFToken {
+		http.Error(w, `{"success":false,"errors":[{"code":1000,"message":"Invalid API Token"}]}`, http.StatusUnauthorized)
+		return
+	}
+	switch r.URL.Path {
+	case "/user/tokens/verify":
+		if verify != 0 {
+			http.Error(w, `{"success":false}`, verify)
+			return
+		}
+		fmt.Fprint(w, `{"success":true,"errors":[],"result":{"id":"tok","status":"active"}}`)
+	case "/zones/" + purgeZoneID:
+		if zone != 0 {
+			http.Error(w, `{"success":false,"errors":[{"code":9109,"message":"stand-in"}]}`, zone)
+			return
+		}
+		fmt.Fprint(w, `{"success":true,"errors":[],"result":{"id":"`+purgeZoneID+`"}}`)
+	default:
+		http.Error(w, `{"success":false,"errors":[{"code":7003,"message":"no such route or zone"}]}`, http.StatusNotFound)
+	}
+}
+
+// probeLog is the preflight GETs sent so far.
+func (p *purging) probeLog() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.probes)
+}
+
 func (p *purging) serveDO(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		p.probeDO(w, r)
+		return
+	}
 	if r.Method != http.MethodDelete || r.URL.Path != "/v2/cdn/endpoints/"+purgeCDNEndpointID+"/cache" {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -308,6 +389,10 @@ func (p *purging) serveDO(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *purging) serveCF(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		p.probeCF(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost || r.URL.Path != "/zones/"+purgeZoneID+"/purge_cache" {
 		http.Error(w, `{"success":false}`, http.StatusNotFound)
@@ -359,7 +444,8 @@ func (p *purging) run(settings map[string]string, args ...string) (string, error
 		"CLOUDFLARE_API_TOKEN": purgeCFToken, "CLOUDFLARE_ZONE_ID": purgeZoneID,
 		"FLOCKDECK_DL_URL": p.cdn.URL, "FLOCKDECK_DO_API_URL": p.doAPI.URL, "FLOCKDECK_CLOUDFLARE_API_URL": p.cfAPI.URL,
 		"FLOCKDECK_DO_PURGE_WAIT": "0", "FLOCKDECK_CHECK_WAIT": "0", "FLOCKDECK_CHECK_TRIES": "2",
-		"PURGE_TEST_ARGV": p.argvLog,
+		"FLOCKDECK_PREFLIGHT_TIMEOUT": "30",
+		"PURGE_TEST_ARGV":             p.argvLog,
 	}
 	for k, v := range settings {
 		env[k] = v
@@ -382,7 +468,7 @@ func (p *purging) run(settings map[string]string, args ...string) (string, error
 	out, err := cmd.CombinedOutput()
 	// No secret is ever printed, nor put on a command line.
 	argv, _ := os.ReadFile(p.argvLog)
-	for _, secret := range []string{purgeDOToken, purgeCFToken, purgeSpacesSecret} {
+	for _, secret := range []string{purgeDOToken, purgeCFToken, purgeSpacesSecret, purgeBadDOToken, purgeBadCFToken} {
 		if bytes.Contains(out, []byte(secret)) {
 			p.t.Errorf("the output holds the secret %s:\n%s", secret, out)
 		}
@@ -433,7 +519,10 @@ func (p *purging) seed(n int) []string {
 
 // A dry run, which is what a run is unless it says --live, reports every
 // file it would delete and changes nothing: not the bucket, not a cache, and
-// no purge is asked for.
+// no purge is asked for. It is not silent towards the CDN's APIs, though: it
+// sends the read-only preflight GETs (one to DigitalOcean, a token check and a
+// zone read to Cloudflare), so that a credential that would fail is found in
+// the dry run, and it sends nothing else.
 func TestPurgeScriptDryRunChangesNothing(t *testing.T) {
 	p := newPurging(t)
 	keys := p.seed(3)
@@ -447,6 +536,13 @@ func TestPurgeScriptDryRunChangesNothing(t *testing.T) {
 	}
 	if do, cf := p.requests(); len(do)+len(cf) > 0 {
 		t.Errorf("a dry run asked for purges: %v %v", do, cf)
+	}
+	wantProbes := []string{"do GET /v2/cdn/endpoints/" + purgeCDNEndpointID, "cf GET /user/tokens/verify", "cf GET /zones/" + purgeZoneID}
+	if got := p.probeLog(); !slices.Equal(got, wantProbes) {
+		t.Errorf("a dry run sent %v to the CDN APIs; want only the read-only preflight %v", got, wantProbes)
+	}
+	if !strings.Contains(out, `"cdn_preflight":"ok"`) || !strings.Contains(out, "CDN credentials preflight: ok") {
+		t.Errorf("the dry run does not report the preflight:\n%s", out)
 	}
 	for _, k := range keys {
 		if !strings.Contains(out, k) {
@@ -664,6 +760,9 @@ func TestPurgeScriptNamesWhatIsMissing(t *testing.T) {
 	if err != nil || !strings.Contains(out, "a live run would also need: DO_API_TOKEN CLOUDFLARE_ZONE_ID") {
 		t.Errorf("a dry run: %v\n%s", err, out)
 	}
+	if !strings.Contains(out, `"cdn_preflight":"not-checked"`) || len(p.probeLog()) > 0 {
+		t.Errorf("a dry run without the CDN settings should say the preflight was not made, and make none: %v\n%s", p.probeLog(), out)
+	}
 	if left := p.versionsUnder("v1.0.1/"); len(left) == 0 {
 		t.Error("the bucket was purged all the same")
 	}
@@ -763,6 +862,11 @@ func TestPurgeScriptLeavesOutPurgesOnlyWhenTold(t *testing.T) {
 	if do, cf := p.requests(); len(do) == 0 || len(cf) > 0 {
 		t.Errorf("--no-cloudflare sent %d requests to DigitalOcean and %d to Cloudflare", len(do), len(cf))
 	}
+	for _, got := range p.probeLog() {
+		if strings.HasPrefix(got, "cf ") {
+			t.Errorf("--no-cloudflare preflighted Cloudflare: %s", got)
+		}
+	}
 
 	p = newPurging(t)
 	p.seed(1)
@@ -776,6 +880,18 @@ func TestPurgeScriptLeavesOutPurgesOnlyWhenTold(t *testing.T) {
 	}
 	if do, cf := p.requests(); len(do)+len(cf) > 0 {
 		t.Errorf("--no-cdn-purge asked for purges")
+	}
+	if got := p.probeLog(); len(got) > 0 {
+		t.Errorf("--no-cdn-purge ran the preflight: %v", got)
+	}
+	if !strings.Contains(out, `"cdn_preflight":"skipped"`) {
+		t.Errorf("--no-cdn-purge does not report the preflight as skipped:\n%s", out)
+	}
+	// Not even a token DigitalOcean would refuse is asked about.
+	p = newPurging(t)
+	p.seed(1)
+	if out, err := p.run(map[string]string{"DO_API_TOKEN": purgeBadDOToken}, "--no-cdn-purge", "v1.0.1"); err != nil || len(p.probeLog()) > 0 {
+		t.Errorf("a dry run with --no-cdn-purge: %v, %v\n%s", err, p.probeLog(), out)
 	}
 }
 
@@ -805,9 +921,182 @@ func TestPurgeScriptWritesSummaries(t *testing.T) {
 		t.Errorf("the JSON summary is %+v", s)
 	}
 	mdText, _ := os.ReadFile(md)
+	if !strings.Contains(string(raw), `"cdn_preflight":"ok"`) || !strings.Contains(string(mdText), "CDN credentials preflight: ok") {
+		t.Errorf("the summaries do not carry the preflight:\n%s\n%s", raw, mdText)
+	}
 	for _, k := range keys {
 		if !strings.Contains(string(mdText), "- "+k) {
 			t.Errorf("the Markdown summary does not name %s:\n%s", k, mdText)
 		}
+	}
+}
+
+// preflightCases are what the CDN credentials can be that must stop a run
+// before anything is deleted, each with what the refusal has to say.
+var preflightRefusals = []struct {
+	name     string
+	settings map[string]string
+	spoil    func(p *purging)
+	want     string
+}{
+	{"DigitalOcean rejects the token (401)", map[string]string{"DO_API_TOKEN": purgeBadDOToken}, nil,
+		"DigitalOcean rejected DO_API_TOKEN (HTTP 401): check the token, its expiry and that it was pasted whole, with no spaces or line break"},
+	{"DigitalOcean does not know the endpoint (404)", map[string]string{"DO_CDN_ENDPOINT_ID": "no-such-endpoint"}, nil,
+		"has no CDN endpoint no-such-endpoint (HTTP 404)"},
+	{"DigitalOcean answers 500", nil, func(p *purging) { p.doProbeStatus = http.StatusInternalServerError },
+		"cannot be relied on (HTTP 500"},
+	{"DigitalOcean answers 429", nil, func(p *purging) { p.doProbeStatus = http.StatusTooManyRequests },
+		"cannot be relied on (HTTP 429"},
+	{"DigitalOcean does not answer", map[string]string{"FLOCKDECK_PREFLIGHT_TIMEOUT": "1"}, func(p *purging) { p.doProbeHang = true },
+		"cannot be relied on (no answer"},
+	{"Cloudflare rejects the token", map[string]string{"CLOUDFLARE_API_TOKEN": purgeBadCFToken}, nil,
+		"Cloudflare rejected CLOUDFLARE_API_TOKEN (HTTP 401)"},
+	{"Cloudflare's token check answers 500", nil, func(p *purging) { p.cfVerifyCode = http.StatusInternalServerError },
+		"Cloudflare's answer to the token check cannot be relied on (HTTP 500"},
+	{"Cloudflare does not know the zone", map[string]string{"CLOUDFLARE_ZONE_ID": "no-such-zone"}, nil,
+		"Cloudflare has no zone no-such-zone (HTTP 404)"},
+	{"Cloudflare's zone read answers 500", nil, func(p *purging) { p.cfZoneCode = http.StatusInternalServerError },
+		"about zone zone-1 cannot be relied on (HTTP 500"},
+}
+
+// A credential the preflight refuses stops a live run before it deletes
+// anything, and a dry run before it reports success: the bucket is unchanged,
+// no delete was sent, no purge was asked for, and it says nothing was deleted.
+// This is what the first pilot lacked: DigitalOcean's 401 came only after a
+// version had been deleted.
+func TestPurgeScriptPreflightRefusesBeforeDeleting(t *testing.T) {
+	for _, c := range preflightRefusals {
+		for _, live := range []bool{false, true} {
+			name := c.name + " in a dry run"
+			args := []string{"v1.0.1"}
+			if live {
+				name = c.name + " in a live run"
+				args = []string{"--live", "--confirm", "purge 1 versions", "v1.0.1"}
+			}
+			t.Run(name, func(t *testing.T) {
+				p := newPurging(t)
+				p.seed(2)
+				if c.spoil != nil {
+					p.mu.Lock()
+					c.spoil(p)
+					p.mu.Unlock()
+				}
+				before := p.versionsUnder("")
+				out, err := p.run(c.settings, args...)
+				if err == nil {
+					t.Fatalf("the run was not refused:\n%s", out)
+				}
+				if !strings.Contains(out, c.want) {
+					t.Errorf("the refusal does not say %q:\n%s", c.want, out)
+				}
+				if !strings.Contains(strings.ToLower(out), "nothing has been deleted") {
+					t.Errorf("the refusal does not say nothing has been deleted:\n%s", out)
+				}
+				if strings.Contains(out, "done:") || strings.Contains(out, `"outcome":"done"`) {
+					t.Errorf("the run says it is done:\n%s", out)
+				}
+				if after := p.versionsUnder(""); !slices.Equal(before, after) {
+					t.Errorf("the bucket changed:\nbefore %v\nafter  %v", before, after)
+				}
+				if do, cf := p.requests(); len(do)+len(cf) > 0 {
+					t.Errorf("purges were asked for: %v %v", do, cf)
+				}
+				argv, _ := os.ReadFile(p.argvLog)
+				if bytes.Contains(argv, []byte("delete-object")) {
+					t.Errorf("a delete was sent:\n%s", argv)
+				}
+				if s := p.status("v1.0.1/checksums.txt"); s != http.StatusOK {
+					t.Errorf("v1.0.1/checksums.txt answers %d", s)
+				}
+				if !live {
+					// The dry run still reports, with the preflight refused.
+					if !strings.Contains(out, `"cdn_preflight":"refused"`) || !strings.Contains(out, `"mode":"dry-run"`) {
+						t.Errorf("the dry run's summary does not say the preflight refused:\n%s", out)
+					}
+				}
+			})
+		}
+	}
+}
+
+// 403 is a valid token that may not read what the preflight reads, which is
+// what a token with the delete scope alone may be: accepted, the run goes on,
+// and the report says the purge right itself was not proven.
+func TestPurgeScriptPreflightAcceptsScopeLimitedTokens(t *testing.T) {
+	cases := map[string]func(p *purging){
+		"DigitalOcean 403": func(p *purging) { p.doProbeStatus = http.StatusForbidden },
+		"Cloudflare 403":   func(p *purging) { p.cfZoneCode = http.StatusForbidden },
+		"both answer 403":  func(p *purging) { p.doProbeStatus, p.cfZoneCode = http.StatusForbidden, http.StatusForbidden },
+	}
+	for name, spoil := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := newPurging(t)
+			keys := p.seed(2)
+			p.mu.Lock()
+			spoil(p)
+			p.mu.Unlock()
+			out, err := p.run(nil, "v1.0.1")
+			if err != nil {
+				t.Fatalf("dry run: %v\n%s", err, out)
+			}
+			if !strings.Contains(out, `"cdn_preflight":"ok-scope-limited"`) || !strings.Contains(out, "could not be proven without a purge") {
+				t.Errorf("the dry run does not report the scope-limited preflight:\n%s", out)
+			}
+			out, err = p.run(nil, "--live", "--confirm", "purge 1 versions", "v1.0.1")
+			if err != nil {
+				t.Fatalf("live run: %v\n%s", err, out)
+			}
+			if !strings.Contains(out, `"cdn_preflight":"ok-scope-limited"`) || !strings.Contains(out, `"outcome":"done"`) {
+				t.Errorf("the live run does not carry on and report it:\n%s", out)
+			}
+			if left := p.versionsUnder("v1.0.1/"); len(left) > 0 {
+				t.Errorf("left in the bucket: %v", left)
+			}
+			for _, k := range keys {
+				if s := p.status(k); s != http.StatusForbidden {
+					t.Errorf("%s answers %d after the purge", k, s)
+				}
+			}
+		})
+	}
+}
+
+// With every credential accepted, a live run goes ahead, and the preflight
+// was asked before the first delete is sent: the order is read from the
+// command lines the shims recorded, each written when its program started.
+func TestPurgeScriptPreflightComesBeforeTheFirstDelete(t *testing.T) {
+	p := newPurging(t)
+	p.seed(2)
+	out, err := p.run(nil, "--live", "--confirm", "purge 1 versions", "v1.0.1")
+	if err != nil {
+		t.Fatalf("purge: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, `"cdn_preflight":"ok"`) {
+		t.Errorf("the live run does not report the preflight:\n%s", out)
+	}
+	raw, _ := os.ReadFile(p.argvLog)
+	lines := strings.Split(string(raw), "\n")
+	find := func(pred func(string) bool) int {
+		for i, l := range lines {
+			if pred(l) {
+				return i
+			}
+		}
+		return -1
+	}
+	doProbe := find(func(l string) bool {
+		return strings.Contains(l, "curl") && strings.HasSuffix(l, "/v2/cdn/endpoints/"+purgeCDNEndpointID)
+	})
+	cfProbe := find(func(l string) bool { return strings.Contains(l, "curl") && strings.HasSuffix(l, "/zones/"+purgeZoneID) })
+	firstDelete := find(func(l string) bool { return strings.Contains(l, "delete-object") })
+	firstPurge := find(func(l string) bool { return strings.Contains(l, "curl") && strings.HasSuffix(l, "/cache") })
+	if doProbe < 0 || cfProbe < 0 || firstDelete < 0 || firstPurge < 0 {
+		t.Fatalf("the log lacks a call it should hold (%d %d %d %d):\n%s", doProbe, cfProbe, firstDelete, firstPurge, raw)
+	}
+	if doProbe > firstDelete || cfProbe > firstDelete {
+		t.Errorf("the preflight (lines %d, %d) came after the first delete (line %d):\n%s", doProbe, cfProbe, firstDelete, raw)
+	}
+	if got := p.probeLog(); len(got) != 3 {
+		t.Errorf("the preflight sent %v; want one GET to DigitalOcean and two to Cloudflare", got)
 	}
 }
