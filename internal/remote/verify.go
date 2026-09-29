@@ -145,7 +145,8 @@ func VerifyEmail(ctx context.Context, relay, version string, onEvent func(Verify
 func beginVerification(ctx context.Context, relay, version string) (*startVerification, error) {
 	c := &Client{Relay: relay, Version: version}
 	var out startVerification
-	err := c.call(ctx, http.MethodPost, "/api/v1/register/start", struct{}{}, &out)
+	var relayNow time.Time
+	err := c.call(ctx, http.MethodPost, "/api/v1/register/start", struct{}{}, &out, relayDate(&relayNow))
 	var api *APIError
 	if errors.As(err, &api) && api.Status == http.StatusNotFound {
 		return nil, nil
@@ -155,6 +156,11 @@ func beginVerification(ctx context.Context, relay, version string) (*startVerifi
 	}
 	if out.Code == "" || out.VerifyURL == "" {
 		return nil, errors.New("the relay started a registration but sent back no code or no verification URL")
+	}
+	// The expiry is by the relay's clock, and is waited for by this
+	// machine's, as a pairing code's is (see Pair).
+	if !relayNow.IsZero() {
+		out.ExpiresAt = byHere(out.ExpiresAt, time.Since(relayNow))
 	}
 	return &out, nil
 }

@@ -3,6 +3,9 @@ package remote
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -188,5 +191,35 @@ func TestJoinSkipsVerificationEntirely(t *testing.T) {
 		if strings.Contains(c, "/register/") {
 			t.Errorf("a join asked the relay to start a verification: %v", calls)
 		}
+	}
+}
+
+// The registration's expiry is by the relay's clock, and this machine's may
+// not agree -- a dual-booted PC's can be an hour out until it next syncs, as
+// Pair's own expiry already allows for. Waited for by this machine's clock
+// as given, a relay half an hour behind had the wait over before it began,
+// and an email that could not be verified from here at all.
+func TestVerifyEmailWaitsByThisMachinesClock(t *testing.T) {
+	quickPoll(t)
+	relayNow := time.Now().Add(-time.Hour).UTC()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Date", relayNow.Format(http.TimeFormat))
+		expires := relayNow.Add(30 * time.Minute).Format(time.RFC3339)
+		switch r.URL.Path {
+		case "/api/v1/register/start":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, `{"code":"fdv_c","verifyUrl":"https://relay.example/auth/verify#fdv_c","expiresAt":"`+expires+`"}`)
+		case "/api/v1/register/status":
+			_, _ = io.WriteString(w, `{"verified":true,"expiresAt":"`+expires+`"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	code, err := VerifyEmail(context.Background(), srv.URL, "v", func(VerifyEvent) {})
+	if err != nil || code != "fdv_c" {
+		t.Fatalf("VerifyEmail against a relay whose clock is an hour behind = %q, %v; want it verified", code, err)
 	}
 }
