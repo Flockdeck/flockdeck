@@ -170,3 +170,21 @@ h.controls().pop().onopen(); // the connection went and came back; the reply did
 assert.ok(button("Open pull request") && !button("Open pull request").disabled, "the form is still waiting for a reply that was lost");
 `)
 }
+
+// The prompt goes to the pane the bar was opened on and to the set (the server
+// takes the pane the bar names), but the count in its label followed whichever
+// pane had the focus, so clicking into a pane outside the set promised a
+// message to two agents that only one would get.
+func TestThePromptLabelCountsTheOnesThePromptWillReach(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const at = (focus) => fixture({ tabs: [{ id: "t1", title: "pair", focus, root:
+    split("h", [leaf("n1", "p1"), leaf("n2", "p2")]) }],
+  panes: { p1: pane("p1", { broadcast: true }), p2: pane("p2") } });
+h.recv(at("p1"));
+h.press("promptAll");
+assert.strictEqual(h.$("prompt-label").textContent, "Prompt");
+h.recv(at("p2")); // clicked into the pane outside the set; the prompt is still p1's
+assert.strictEqual(h.$("prompt-label").textContent, "Prompt", "the label counts the pane clicked into, which the prompt does not go to");
+`)
+}

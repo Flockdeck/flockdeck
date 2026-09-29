@@ -4530,7 +4530,9 @@
    *  message about to reach three agents. Kept current while the bar is open,
    *  since the set changes under it - a pane added with ⇉, a member closed. */
   function labelPrompt(s) {
-    const n = s ? countBroadcast(s) : 1;
+    // With the bar up the message is aimed at the pane it was opened on, which
+    // is what the server sends to (see submitPrompt), not the one focused now.
+    const n = s ? countBroadcast(s, !$("promptbar").hidden ? promptPane : "") : 1;
     const text = n > 1 ? `Prompt → ${n} panes` : "Prompt";
     if ($("prompt-label").textContent !== text) $("prompt-label").textContent = text;
   }
@@ -4570,12 +4572,12 @@
     $("prompt-input").value = "";
     closePrompt();
   }
-  function countBroadcast(s) {
+  function countBroadcast(s, aimedAt) {
     const t = activeTabOf(s);
     if (!t) return 0;
     const ids = new Set(); collectPanes(t.root, ids);
     let n = 0;
-    ids.forEach((id) => { const v = s.panes[id]; if (v && (v.broadcast || id === t.focus)) n++; });
+    ids.forEach((id) => { const v = s.panes[id]; if (v && (v.broadcast || id === (aimedAt || t.focus))) n++; });
     return n;
   }
 
