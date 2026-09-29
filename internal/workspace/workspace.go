@@ -1287,6 +1287,12 @@ func (w *Workspace) focusFirstTabOf(root string) {
 			return
 		}
 	}
+	// A member of a multi-repo project can have no tabs of its own while the
+	// bar shows the other members'. One of those stays active, or the window
+	// would draw a tab that every command aimed at the tab on screen missed.
+	if bar := w.barOf(root); len(bar) > 0 {
+		w.activeTab = bar[0].ID
+	}
 }
 
 // VisibleTabs returns the tabs of the active project, in order -- every tab

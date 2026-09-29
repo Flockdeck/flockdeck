@@ -173,3 +173,22 @@ func TestMergeAllTabsGathersEveryRepoOfOneProject(t *testing.T) {
 		t.Errorf("panes in the gathered tab = %d, want 2", got)
 	}
 }
+
+// TestGoingToARepoWithNoTabsKeepsATabActive checks that picking a member of a
+// multi-repo project that has no tabs of its own, which is what its row's
+// "go to it" does, still leaves a tab of the project's bar active. It looked
+// for a tab of that repo alone, found none and left no tab active, with the
+// bar still showing the other members' tabs and every command aimed at the
+// tab on screen doing nothing.
+func TestGoingToARepoWithNoTabsKeepsATabActive(t *testing.T) {
+	isolateConfig(t)
+	ws, a, b := groupedTabs(t)
+	ws.SelectTab(b.ID)
+	ws.CloseTab(a.ID)
+
+	ws.SelectRepo(a.Root)
+
+	if ws.CurrentTab() == nil {
+		t.Fatalf("no tab is active, with %d tabs in the project's bar", len(ws.VisibleTabs()))
+	}
+}
