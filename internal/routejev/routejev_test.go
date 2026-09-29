@@ -384,3 +384,29 @@ func TestForNeedsBothTheSettingAndTheKey(t *testing.T) {
 		t.Error("the shared classifier, and so its cache and cap, was replaced")
 	}
 }
+
+// A key TypeSafe refused is not asked with again for five minutes, but a key
+// the user has since corrected in Settings is a different key: For picks it up
+// for "the next ask", which the cooldown of the old one must not hold back.
+func TestACorrectedKeyIsNotHeldBackByTheOldOnesCooldown(t *testing.T) {
+	t.Setenv(jev.KeyEnv, "")
+	Reset()
+	defer Reset()
+	s := newServer(t)
+	APIBase = s.URL
+	defer func() { APIBase = "" }()
+	key := "FAKE-wrong-key"
+	StoredKey = func() string { return key }
+	defer func() { StoredKey = func() string { return "" } }()
+	on := agent.RoutingPolicy{Mode: agent.RoutingAuto, Strategy: agent.StrategyCost, Jev: true}
+
+	s.set(func() { s.status = 401 })
+	if _, err := For(on).Classify("a task"); err == nil {
+		t.Fatal("a refused key was answered")
+	}
+	key = "FAKE-right-key"
+	s.set(func() { s.status = 200 })
+	if _, err := For(on).Classify("a task"); err != nil {
+		t.Errorf("the corrected key was not tried: %v", err)
+	}
+}
