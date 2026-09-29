@@ -383,6 +383,13 @@ func WorktreePaths(repoRoot string, branches []string) []string {
 	// tab completion leaves -- had every new worktree suggested inside the
 	// repository, as a directory its own status then listed as untracked.
 	repoRoot = filepath.Clean(repoRoot)
+	// And taken to the top of its checkout: a project opened at a folder
+	// inside a repository asked with that folder, and "beside" it was inside
+	// the repository, where the main checkout's next commit took the new
+	// worktree in as an embedded repository.
+	if top, err := Root(repoRoot); err == nil {
+		repoRoot = top
+	}
 	parent := filepath.Dir(repoRoot)
 
 	registered := map[string]bool{}
