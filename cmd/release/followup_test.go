@@ -451,3 +451,125 @@ func TestFollowupFallsBackToWaitingForChecks(t *testing.T) {
 		})
 	}
 }
+
+// srcWithTag makes a checkout of "this repository" whose HEAD is NOT the
+// commit v0.3.41 points at (a branch tip past the tag, as a merge ref would
+// be), and returns it with the tag's commit and the branch tip. annotated
+// makes the tag an object of its own, whose id is not the commit's.
+func (r *regen) srcWithTag(annotated bool) (dir, tagCommit, tip string) {
+	r.t.Helper()
+	dir = filepath.Join(filepath.Dir(r.target), "src")
+	r.git("", "init", "-q", "-b", "main", dir)
+	r.git(dir, "config", "user.name", "seed")
+	r.git(dir, "config", "user.email", "seed@example.invalid")
+	r.git(dir, "commit", "-q", "--allow-empty", "-m", "the tagged commit")
+	tagCommit = r.git(dir, "rev-parse", "HEAD")
+	if annotated {
+		r.git(dir, "-c", "tag.gpgsign=false", "tag", "-a", "-m", "v0.3.41", "v0.3.41")
+	} else {
+		r.git(dir, "tag", "v0.3.41")
+	}
+	r.git(dir, "commit", "-q", "--allow-empty", "-m", "after the tag")
+	return dir, tagCommit, r.git(dir, "rev-parse", "HEAD")
+}
+
+func (r *regen) stamp() string {
+	b, err := os.ReadFile(filepath.Join(r.target, ".docs-generated-from"))
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// Pages that changed take the stamp with them, in generated.sh's exact
+// format, and it is the commit the tag points at, not SRC_DIR's HEAD and not
+// an annotated tag's own object.
+func TestFollowupDocsWritesTheStamp(t *testing.T) {
+	for _, annotated := range []bool{false, true} {
+		r := newRegen(t)
+		src, tagCommit, tip := r.srcWithTag(annotated)
+		if tagCommit == tip {
+			t.Fatal("the fixture's tag is at the tip")
+		}
+		tagObj := r.git(src, "rev-parse", "refs/tags/v0.3.41")
+		if annotated && tagObj == tagCommit {
+			t.Fatal("the fixture's annotated tag is not an object of its own")
+		}
+		out, err := r.run(map[string]string{"MODE": "dry-run", "TARGET": "docs", "SRC_DIR": src}, changed, "main")
+		if err != nil {
+			t.Fatalf("annotated=%v: %v\n%s", annotated, err, out)
+		}
+		if want := "v0.3.41 " + tagCommit + "\n"; r.stamp() != want {
+			t.Errorf("annotated=%v: stamp is %q, want %q", annotated, r.stamp(), want)
+		}
+		// The dry run reports the stamp among the diff.
+		if !strings.Contains(out, ".docs-generated-from") {
+			t.Errorf("annotated=%v: the dry run's diff does not show the stamp:\n%s", annotated, out)
+		}
+	}
+}
+
+// Applying pushes the stamp in the same commit as the pages.
+func TestFollowupDocsPushesTheStampWithThePages(t *testing.T) {
+	r := newRegen(t)
+	src, tagCommit, _ := r.srcWithTag(true)
+	out, err := r.run(map[string]string{"MODE": "apply", "GH_TOKEN": "fake", "TARGET": "docs", "SRC_DIR": src}, changed, "main")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	got := r.git(r.origin, "show", "auto/regen-v0.3.41:.docs-generated-from")
+	if got != "v0.3.41 "+tagCommit {
+		t.Errorf("pushed stamp %q", got)
+	}
+	if files := r.git(r.origin, "diff", "--name-only", "main", "auto/regen-v0.3.41"); !strings.Contains(files, "install.sh") || !strings.Contains(files, ".docs-generated-from") {
+		t.Errorf("the pull request holds %q", files)
+	}
+}
+
+// Nothing changed, so the old stamp still regenerates the same pages: no
+// stamp, no branch, no pull request, and a stale one is closed as before.
+func TestFollowupDocsNoPageChangeWritesNoStamp(t *testing.T) {
+	r := newRegen(t)
+	src, _, _ := r.srcWithTag(false)
+	r.set("open_pr", "7")
+	out, err := r.run(map[string]string{"MODE": "apply", "GH_TOKEN": "fake", "TARGET": "docs", "SRC_DIR": src}, same, "main")
+	if err != nil || !strings.Contains(out, "nothing to do") {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if r.stamp() != "" {
+		t.Errorf("a stamp was written with no page change: %q", r.stamp())
+	}
+	if b := r.originBranch("auto/regen-v0.3.41"); b != "" {
+		t.Errorf("a branch was pushed: %s", b)
+	}
+	if got := r.ghLog(); strings.Contains(got, "pr create") || !strings.Contains(got, "pr close 7") {
+		t.Errorf("wrong gh calls:\n%s", got)
+	}
+}
+
+// A tag that cannot be resolved is an error, not a stamp of HEAD.
+func TestFollowupDocsRefusesAnUnresolvableTag(t *testing.T) {
+	r := newRegen(t)
+	src, _, _ := r.srcWithTag(false)
+	r.git(src, "tag", "-d", "v0.3.41")
+	out, err := r.run(map[string]string{"MODE": "dry-run", "TARGET": "docs", "SRC_DIR": src}, changed, "main")
+	if err == nil || !strings.Contains(out, "cannot resolve the commit v0.3.41") {
+		t.Fatalf("err=%v\n%s", err, out)
+	}
+	if r.stamp() != "" {
+		t.Errorf("a stamp was written: %q", r.stamp())
+	}
+}
+
+// The site has no stamp.
+func TestFollowupSiteWritesNoStamp(t *testing.T) {
+	r := newRegen(t)
+	src, _, _ := r.srcWithTag(false)
+	out, err := r.run(map[string]string{"MODE": "dry-run", "SRC_DIR": src}, changed, "main")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if r.stamp() != "" || strings.Contains(out, ".docs-generated-from") {
+		t.Errorf("the site got a stamp:\n%s", out)
+	}
+}

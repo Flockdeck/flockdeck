@@ -111,6 +111,42 @@ generate() {
 	esac
 }
 
+# STAMP is the file flockdeck-docs keeps at its root to say what its pages were
+# generated from: "<tag> <commit the tag points at>", one line. Its own guard
+# (tools/docdrift/generated.sh check, the "Generated files match" job)
+# regenerates from the stamped tag and compares, so a pull request that changes
+# pages and not the stamp is red. The format is that script's, byte for byte.
+STAMP=.docs-generated-from
+
+# tag_commit prints the commit TAG points at, which is what generated.sh
+# records and checks, and not necessarily what SRC_DIR has checked out (a
+# branch tip, a merge ref). ^{commit} peels an annotated tag to it; the tag
+# object's own id is not it. A shallow checkout may not have the tag, so it is
+# fetched when it is missing; anything unresolvable is an error, never a guess.
+tag_commit() {
+	ref=refs/tags/$TAG
+	if ! git -C "$SRC_DIR" rev-parse --verify -q "$ref^{commit}" > /dev/null 2>&1; then
+		git -C "$SRC_DIR" fetch -q --depth=1 origin "$ref:$ref" > /dev/null 2>&1 || true
+	fi
+	sha=$(git -C "$SRC_DIR" rev-parse --verify -q "$ref^{commit}" 2> /dev/null) \
+		|| fail "cannot resolve the commit $TAG points at in $SRC_DIR; not writing a stamp that may be wrong"
+	case $sha in
+		*[!0-9a-f]* | '') fail "'$sha' is not a commit id" ;;
+	esac
+	[ "${#sha}" -eq 40 ] || [ "${#sha}" -eq 64 ] || fail "'$sha' is not a full commit id"
+	printf '%s\n' "$sha"
+}
+
+# stamp_docs moves the docs stamp to TAG and stages it. It is only called once
+# the pages have been found to differ: a release that changes no page leaves
+# the old stamp, which regenerates the same pages, so the guard stays green
+# and a stamp-only pull request would be noise.
+stamp_docs() {
+	sha=$(tag_commit) || exit 1
+	printf '%s %s\n' "$TAG" "$sha" > "$TARGET_DIR/$STAMP"
+	git_t add -A
+}
+
 # pr_body says what this is, and why it may merge itself.
 pr_body() {
 	src=$(git -C "$SRC_DIR" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
@@ -259,6 +295,10 @@ main() {
 		fi
 		return 0
 	fi
+
+	# The pages differ, so the stamp moves with them (see stamp_docs); the
+	# dry run reports it too, as it is part of what would be pushed.
+	[ "$TARGET" != docs ] || stamp_docs
 
 	STAT=$(git_t diff --cached --stat | sed 's/^ *//')
 	say "$TARGET differs from what $TAG generates:"
