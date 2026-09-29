@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -349,5 +350,45 @@ func TestE2ERosterIsFetchedAgainForAKeyItDoesNotHave(t *testing.T) {
 	relay.mu.Unlock()
 	if after != before {
 		t.Errorf("a cached key was fetched again: %d calls, want %d", after, before)
+	}
+}
+
+// A roster that cannot be fetched again once the cached one has aged out --
+// the relay slow, or refusing for a moment, while the tunnel carrying the
+// terminal is fine -- does not make a device that had a key a moment ago
+// look like one that never did: that would serve its terminal in plaintext,
+// and type the handshake hello its browser sends first into the pane.
+func TestE2ERosterThatCannotBeFetchedFallsBackToTheCachedKey(t *testing.T) {
+	isolate(t)
+	devicePriv, _ := e2e.GenerateStaticKey()
+	var failing atomic.Bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/host/devices", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if failing.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"error":"try again in a moment"}`)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(Roster{Devices: []Device{{ID: "d1", PublicKey: e2e.EncodePublicKey(devicePriv.PublicKey())}}})
+	})
+	relay := httptest.NewServer(mux)
+	defer relay.Close()
+	m := testManager(relay.URL)
+	old := e2eRosterTTL
+	e2eRosterTTL = time.Millisecond
+	t.Cleanup(func() { e2eRosterTTL = old })
+
+	if !m.E2ECapable(context.Background(), "d1", KeyOriginUsual) {
+		t.Fatal("E2ECapable said no for a device with a registered key")
+	}
+	time.Sleep(5 * time.Millisecond)
+	failing.Store(true)
+	if !m.E2ECapable(context.Background(), "d1", KeyOriginUsual) {
+		t.Error("E2ECapable said no for a device it had a key for, because the relay could not be asked again just now")
+	}
+	// A device the cache never had a key for is still no.
+	if m.E2ECapable(context.Background(), "d2", KeyOriginUsual) {
+		t.Error("E2ECapable said yes for a device it has never had a key for")
 	}
 }

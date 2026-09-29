@@ -220,6 +220,17 @@ func (m *Manager) e2eRoster(ctx context.Context, deviceID string, origin KeyOrig
 	}
 	roster, err := cl.Devices(ctx)
 	if err != nil {
+		// A key this has already seen is better than none: answered "not
+		// capable" for want of asking again, a device with a key is served
+		// in plaintext, and its hello typed into the pane, over a relay that
+		// merely failed to answer this once. A key rotated since only fails
+		// the handshake, which the browser dials again from.
+		m.e2eMu.Lock()
+		cached := m.e2eRosterCache
+		m.e2eMu.Unlock()
+		if origin.key(cached[deviceID]) != "" {
+			return cached, nil
+		}
 		return nil, err
 	}
 	devices := make(map[string]Device, len(roster.Devices))
