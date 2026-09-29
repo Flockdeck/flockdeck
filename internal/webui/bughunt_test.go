@@ -107,3 +107,23 @@ h.press("promptAll");
 assert.strictEqual(h.$("prompt-input").value, "refactor the parser and", "asking again threw away what was typed");
 `)
 }
+
+// A download chosen in the version picker is answered with a notice alone, and
+// nothing redrew the row, so after a failed download its button read
+// "Downloading…" and stayed disabled: a retry meant closing the dialog.
+func TestAFailedVersionDownloadReleasesItsButton(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-settings"));
+h.click(h.$("set-versions"));
+h.recv({ type: "versions", items: [{ version: "v1.6.0", relation: "newer" }, { version: "v1.5.0", relation: "current" }] });
+const install = () => h.$("version-install-v1.6.0");
+h.click(install());
+assert.deepStrictEqual(h.commands().pop(), { cmd: "installVersion", text: "v1.6.0" });
+assert.ok(install().disabled, "the button did not wait for the download");
+h.recv({ type: "notice", text: "the checksum did not match", error: true });
+assert.ok(!install().disabled, "the button stayed disabled after the download failed");
+assert.strictEqual(install().textContent, "Update to…", "the button still reads as downloading");
+`)
+}

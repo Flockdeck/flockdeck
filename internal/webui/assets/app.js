@@ -480,6 +480,9 @@
         // is found; when it did, the state carrying it settles this too, but
         // resetting it here as well costs nothing and covers both.
         if (updateChecking) { updateChecking = false; settingsChanged(); renderRecall(); }
+        // The picker's answer to a download, good or bad, comes as a notice
+        // alone; without a redraw the row stayed on "Downloading…", disabled.
+        if (versionInstalling) { versionInstalling = false; renderVersions(); }
         notice(msg.text, msg.error);
       }
       else if (msg.type === "ghStatus") {
@@ -9278,6 +9281,9 @@
     send({ cmd: "listVersions" });
   }
 
+  /** Whether an install chosen in the picker is out and unanswered. */
+  let versionInstalling = false;
+
   /** renderVersions draws the picker from what listVersions answered. */
   function renderVersions(msg) {
     if (msg) versions = msg;
@@ -9316,6 +9322,7 @@
       install.onclick = () => {
         install.disabled = true;
         install.textContent = "Downloading…";
+        versionInstalling = true;
         send({ cmd: "installVersion", text: v.version });
       };
       actions.append(install);
