@@ -154,3 +154,22 @@ func TestTabsMergeAcrossReposOfOneProject(t *testing.T) {
 		t.Errorf("merged pane's project = %q, want its own repo %q", got, want)
 	}
 }
+
+// TestMergeAllTabsGathersEveryRepoOfOneProject checks that gathering a
+// multi-repo project's tabs into one takes every tab in its bar. It gathered
+// only the tabs of the repo the target tab belonged to, so with one tab per
+// repo it said there was no other tab to merge in.
+func TestMergeAllTabsGathersEveryRepoOfOneProject(t *testing.T) {
+	isolateConfig(t)
+	ws, _, b := groupedTabs(t)
+
+	if err := ws.MergeTabsInProject(b.ID, layout.Horizontal); err != nil {
+		t.Fatalf("merge all tabs: %v", err)
+	}
+	if got := ws.VisibleTabs(); len(got) != 1 {
+		t.Fatalf("tabs left in the bar = %d, want 1", len(got))
+	}
+	if got := b.Tree.Count(); got != 2 {
+		t.Errorf("panes in the gathered tab = %d, want 2", got)
+	}
+}

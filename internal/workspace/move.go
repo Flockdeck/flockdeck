@@ -302,7 +302,7 @@ func (w *Workspace) MergeTabsInProject(targetID string, dir layout.Dir) error {
 	if dest == nil {
 		return fmt.Errorf("that tab is no longer open")
 	}
-	tabs := w.tabsOf(dest.Root)
+	tabs := w.barOf(dest.Root)
 	at := -1
 	for i, t := range tabs {
 		if t == dest {
@@ -424,13 +424,7 @@ func (w *Workspace) unlinkTab(t *Tab) {
 	// for a multi-repo project holds every member's tabs. Looking among the
 	// tab's own repo alone found nothing once its last tab went, and left no
 	// tab active while the bar still had tabs in it.
-	bar := func() []*Tab {
-		if g := w.groupOf(t.Root); g != nil {
-			return w.tabsOfGroup(g)
-		}
-		return w.tabsOf(t.Root)
-	}
-	siblings := bar()
+	siblings := w.barOf(t.Root)
 	pos := 0
 	for i, s := range siblings {
 		if s == t {
@@ -450,7 +444,7 @@ func (w *Workspace) unlinkTab(t *Tab) {
 		return
 	}
 	w.activeTab = ""
-	remaining := bar()
+	remaining := w.barOf(t.Root)
 	if len(remaining) > 0 {
 		if pos >= len(remaining) {
 			pos = len(remaining) - 1
@@ -537,4 +531,13 @@ func (w *Workspace) sameProject(a, b string) bool {
 	}
 	g := w.groupOf(a)
 	return g != nil && g == w.groupOf(b)
+}
+
+// barOf returns the tabs drawn in the same tab bar as root's: every member's,
+// for a multi-repo project.
+func (w *Workspace) barOf(root string) []*Tab {
+	if g := w.groupOf(root); g != nil {
+		return w.tabsOfGroup(g)
+	}
+	return w.tabsOf(root)
 }
