@@ -8441,6 +8441,9 @@
       const b = el("button", "chip agent-view-tab" + (on ? " sel" : ""), label);
       b.setAttribute("role", "tab");
       b.setAttribute("aria-selected", String(on));
+      // keepFocus finds the tab again by this; its class changes with the
+      // choice, so by class and wording it was never the same button twice.
+      b.id = "agent-view-" + id;
       b.onclick = () => {
         if (agentsView === id) return;
         agentsView = id;

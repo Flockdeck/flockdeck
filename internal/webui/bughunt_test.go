@@ -127,3 +127,22 @@ assert.ok(!install().disabled, "the button stayed disabled after the download fa
 assert.strictEqual(install().textContent, "Update to…", "the button still reads as downloading");
 `)
 }
+
+// The overview's view tabs were found again after a redraw by their class and
+// wording, and choosing one changes its class ("sel"), so the tab pressed
+// from the keyboard was never found and the keyboard fell out of the dialog.
+func TestChoosingAnAgentViewKeepsTheKeyboardOnItsTab(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "planner", name: "planner", status: "waiting" },
+] });
+const project = h.$("overlay-body").querySelectorAll("button.agent-view-tab")[1];
+project.focus();
+h.key({ key: "Enter" });
+const now = h.doc.activeElement;
+assert.ok(now && now.isConnected && now.textContent === "By project", "the keyboard left the tab that was pressed: " + (now && now.tagName));
+`)
+}
