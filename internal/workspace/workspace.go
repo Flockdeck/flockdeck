@@ -699,6 +699,15 @@ func (w *Workspace) AutoApprovedOf(p *Pane) int {
 	return p.AutoApproved
 }
 
+// PeerNameOf reports a pane's PeerName. SetPanePeerName sets it from the hook
+// server's goroutines, so it is read under the same lock rather than straight
+// off the pane.
+func (w *Workspace) PeerNameOf(p *Pane) string {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return p.PeerName
+}
+
 // ----------------------------------------------------------------- projects
 
 // Projects returns the open projects with a summary of each. A project
