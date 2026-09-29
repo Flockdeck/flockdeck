@@ -1212,7 +1212,10 @@ func (w *Workspace) worktreeFor(cwd, branch string) (string, error) {
 	// A branch that already has a worktree is reused rather than duplicated.
 	if wts, err := gitx.List(repo); err == nil {
 		for _, wt := range wts {
-			if wt.Branch != branch {
+			// One whose folder is gone is only git's record of a checkout,
+			// and handed back it started the helper in a folder that is not
+			// there. Left to AddFrom, it is refused with how to clear it.
+			if wt.Branch != branch || wt.Prunable {
 				continue
 			}
 			// Reusing a sibling worktree is the point. Handing back the

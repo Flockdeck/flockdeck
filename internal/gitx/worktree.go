@@ -141,12 +141,17 @@ func IsRepo(dir string) bool {
 // where `rev-parse --abbrev-ref HEAD` fails outright in a repository nobody
 // has committed to yet -- which made a fresh repository look detached, and its
 // first push report "cannot push a detached HEAD".
+//
+// The full ref is read and "refs/heads/" taken off, rather than asking for
+// --short, which shortens to the least that is unambiguous: a branch sharing
+// its name with a tag came back as "heads/v1.2", no branch at all, and Push
+// refused it as having no commits.
 func CurrentBranch(dir string) string {
-	out, err := run(dir, "symbolic-ref", "--short", "-q", "HEAD")
+	out, err := run(dir, "symbolic-ref", "-q", "HEAD")
 	if err != nil {
 		return "" // detached, or not a repository
 	}
-	return strings.TrimSpace(out)
+	return strings.TrimPrefix(strings.TrimSpace(out), "refs/heads/")
 }
 
 // List returns every worktree of the repository containing dir.
@@ -378,6 +383,13 @@ func WorktreePaths(repoRoot string, branches []string) []string {
 	// tab completion leaves -- had every new worktree suggested inside the
 	// repository, as a directory its own status then listed as untracked.
 	repoRoot = filepath.Clean(repoRoot)
+	// And taken to the top of its checkout: a project opened at a folder
+	// inside a repository asked with that folder, and "beside" it was inside
+	// the repository, where the main checkout's next commit took the new
+	// worktree in as an embedded repository.
+	if top, err := Root(repoRoot); err == nil {
+		repoRoot = top
+	}
 	parent := filepath.Dir(repoRoot)
 
 	registered := map[string]bool{}
@@ -640,6 +652,7 @@ func Prune(repoDir string) (int, error) {
 // wherever the user had named.
 func AddFrom(repoDir, path, branch, base string) error {
 	args := []string{"worktree", "add"}
+	newBranch := false
 	switch {
 	case branch == "":
 		args = append(args, "--detach", "--", path)
@@ -672,10 +685,20 @@ func AddFrom(repoDir, path, branch, base string) error {
 		if base != "" {
 			args = append(args, base)
 		}
+		newBranch = true
 	}
 	// Under the worktree deadline, as AddNewBranch is: this too writes out a
 	// whole working tree.
 	_, _, err := runCapture(context.Background(), worktreeTimeout, repoDir, args...)
+	if err != nil && newBranch {
+		// As AddNewBranch's: the branch -b made before a checkout that then
+		// failed stayed, at the base first asked for, and trying again with
+		// another base checked it out as it was -- from the wrong place.
+		if uerr := undoNewBranch(repoDir, path, branch); uerr != nil {
+			return fmt.Errorf("%w (%v)", err, uerr)
+		}
+		return err
+	}
 	if err != nil && branch != "" {
 		// A branch still recorded as checked out in a worktree whose directory
 		// has gone cannot be checked out again until that record is cleared,
