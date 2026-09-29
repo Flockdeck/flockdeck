@@ -645,6 +645,7 @@ func Prune(repoDir string) (int, error) {
 // wherever the user had named.
 func AddFrom(repoDir, path, branch, base string) error {
 	args := []string{"worktree", "add"}
+	newBranch := false
 	switch {
 	case branch == "":
 		args = append(args, "--detach", "--", path)
@@ -677,10 +678,20 @@ func AddFrom(repoDir, path, branch, base string) error {
 		if base != "" {
 			args = append(args, base)
 		}
+		newBranch = true
 	}
 	// Under the worktree deadline, as AddNewBranch is: this too writes out a
 	// whole working tree.
 	_, _, err := runCapture(context.Background(), worktreeTimeout, repoDir, args...)
+	if err != nil && newBranch {
+		// As AddNewBranch's: the branch -b made before a checkout that then
+		// failed stayed, at the base first asked for, and trying again with
+		// another base checked it out as it was -- from the wrong place.
+		if uerr := undoNewBranch(repoDir, path, branch); uerr != nil {
+			return fmt.Errorf("%w (%v)", err, uerr)
+		}
+		return err
+	}
 	if err != nil && branch != "" {
 		// A branch still recorded as checked out in a worktree whose directory
 		// has gone cannot be checked out again until that record is cleared,
