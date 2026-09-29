@@ -159,6 +159,8 @@ fi
 if [ -n "$live" ] && [ -z "$confirmed" ]; then
 	die "a live run must be confirmed: --confirm \"purge $count versions\""
 fi
+mode=dry-run
+[ -z "$live" ] || mode=live
 if [ -n "$check_only" ]; then
 	say "$count versions: $(tr '\n' ' ' <"$tmp/versions")"
 	exit 0
@@ -303,7 +305,7 @@ report() { # outcome
 json_list() { awk 'BEGIN { printf "[" } { printf "%s\"%s\"", (NR > 1 ? "," : ""), $0 } END { printf "]" }' "$1"; }
 summary_json() {
 	printf '{"mode":"%s","outcome":"%s","bucket":"%s","public":"%s","versions":[' \
-		"$([ -n "$live" ] && echo live || echo dry-run)" "$1" "$bucket" "$public"
+		"$mode" "$1" "$bucket" "$public"
 	first=1
 	while IFS="$(printf '\t')" read -r n v keys objects markers; do
 		[ -n "$first" ] || printf ','
@@ -529,7 +531,9 @@ else
 			esac
 		done <"$tmp/pending"
 		sed 's/ (HTTP [0-9]*)$//' "$tmp/served" "$tmp/unconfirmed" >"$tmp/pending"
-		[ -s "$tmp/pending" ] && [ "$round" -lt "$check_tries" ] || break
+		if [ ! -s "$tmp/pending" ] || [ "$round" -ge "$check_tries" ]; then
+			break
+		fi
 		say "$(wc -l <"$tmp/pending" | tr -d ' ') addresses not gone yet; asking again"
 		sleep "$check_wait"
 	done
