@@ -58,6 +58,10 @@ func windowConfig() appwindow.Config {
 // version is overridden at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
+// openBrowser opens a URL in the default browser. A variable so tests can
+// replace it: the real one launches the developer's browser.
+var openBrowser = appwindow.OpenDefault
+
 // windowGrace is how long the application waits after the last window closes
 // before shutting down. A page reload briefly drops the connection, and that
 // must not be mistaken for the user quitting.
@@ -744,7 +748,7 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 	win, err := appwindow.Open(windowConfig(), link)
 	if err != nil {
 		// The instance carries on without us, so its address stays good.
-		if openErr := appwindow.OpenDefault(link); openErr == nil {
+		if openErr := openBrowser(link); openErr == nil {
 			fmt.Println("Could not open Flockdeck's own window (" + err.Error() + "); opened in your default browser instead.")
 			return nil
 		}
@@ -1215,7 +1219,7 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 		// WebKitGTK missing on Linux. The address is printed either way: a
 		// desktop that could not show Flockdeck's own window may well not
 		// show a browser tab either.
-		if openErr := appwindow.OpenDefault(srv.WindowURL()); openErr == nil {
+		if openErr := openBrowser(srv.WindowURL()); openErr == nil {
 			fmt.Println("Could not open Flockdeck's own window (" + err.Error() + "); opened in your default browser instead.")
 		} else {
 			showStartupError(noteWindowFailed(err))
