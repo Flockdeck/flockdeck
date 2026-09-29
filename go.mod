@@ -2,6 +2,14 @@ module github.com/jmwri/flockdeck
 
 go 1.27.0
 
+// Every release from v0.3.31 is under the PolyForm Noncommercial License
+// 1.0.0. The releases retracted below were published under the MIT License,
+// before the relicense, so they are withdrawn from the go command's view of
+// this module. (This block is kept apart from the directive by a blank line on
+// purpose: a comment directly above a retract becomes its rationale.)
+
+retract [v0.1.0, v0.3.30] // Published under a different licence (MIT); use v0.3.31 or later.
+
 require (
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/blakesmith/ar v0.0.0-20190502131153-809d4375e1fb
