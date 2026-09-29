@@ -167,3 +167,20 @@ func TestAStandingPermissionDoesNotCoverWhatGoesFurther(t *testing.T) {
 		}
 	}
 }
+
+// On Windows npm and npx are npm.cmd and npx.cmd, and a command may name them
+// so. Spelled with the extension, they are judged as the programs they are.
+func TestABatchFileSpelledWithItsExtensionIsJudgedByItsName(t *testing.T) {
+	tl := &runCommand{root: newRoot(t)}
+	for _, command := range []string{
+		"npx.cmd rimraf build",
+		"NPX.CMD rimraf build",
+		"npm.cmd exec touch",
+		"npm.cmd run build --script-shell=touch",
+		"npm.bat exec touch",
+	} {
+		if got := tl.Prefix(rawArgs(t, map[string]any{"command": command})); got != "" {
+			t.Errorf("Prefix(%q) = %q, want no standing permission", command, got)
+		}
+	}
+}

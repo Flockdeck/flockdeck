@@ -365,10 +365,12 @@ func (t *runCommand) programNames(word string) []string {
 // programName is the name a program goes by, however its file is spelled:
 // lower case, without the trailing dots and spaces Windows drops, and without
 // the extension Windows adds, so that CMD.EXE, cmd.exe. and cmd are one name.
-// It is batchUnsafe's reading of a file name, for the same reason.
+// It is batchUnsafe's reading of a file name, for the same reason. A batch
+// file's extension goes too: npm and npx are npm.cmd and npx.cmd there, and
+// named that way they were judged as programs nobody had heard of.
 func programName(p string) string {
 	name := strings.ToLower(strings.TrimRight(filepath.Base(p), ". "))
-	for _, ext := range []string{".exe", ".com"} {
+	for _, ext := range []string{".exe", ".com", ".cmd", ".bat"} {
 		name = strings.TrimSuffix(name, ext)
 	}
 	return strings.TrimRight(name, ". ")
