@@ -1044,3 +1044,13 @@ push({ status: "exited" });
 assert.strictEqual(wrap().dataset.status, "exited", "the failed look stuck to a pane that exited cleanly");
 `)
 }
+
+// xterm's layers carry z-indexes of their own, and the cover on an exited pane
+// has none. Unless the terminal is a stacking context, its link-layer canvas
+// sits above the cover and takes every click meant for Restart and Close pane.
+func TestTheTerminalCannotSitAboveTheExitedPanesButtons(t *testing.T) {
+	css := stripComments(readAsset(t, "app.css"))
+	if !regexp.MustCompile(`(?:^|[;\s])isolation:\s*isolate\b`).MatchString(ruleBody(css, ".term-host")) {
+		t.Fatal(".term-host is not a stacking context, so xterm's z-indexed layers can cover .pane-error and its buttons")
+	}
+}
