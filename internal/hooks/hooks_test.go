@@ -976,3 +976,32 @@ func TestEmitSaysWhichSubagentAToolCallIsFrom(t *testing.T) {
 		t.Errorf("the main agent's call names agent %q", got.AgentID)
 	}
 }
+
+// A MultiEdit's edits were each capped but never together, so a call with
+// enough of them made an event bigger than the body the server reads, and the
+// server refused it whole: the PreToolUse, and the pane's status change with it.
+func TestEmitCapsTheEditsOfAMultiEditTogether(t *testing.T) {
+	srv, r := newServer(t)
+	var edits []string
+	for i := 0; i < 40; i++ {
+		edits = append(edits, `{"old_string":"`+strings.Repeat("a", 40<<10)+`","new_string":"`+strings.Repeat("b", 40<<10)+`"}`)
+	}
+	stdin := strings.NewReader(`{"session_id":"s","tool_name":"MultiEdit","tool_input":{"file_path":"/repo/x.go","edits":[` + strings.Join(edits, ",") + `]}}`)
+	if _, err := Emit(stdin, srv.Endpoint(), srv.Token(), "pane-multi", "PreToolUse"); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	got := r.next(t)
+	var out struct {
+		FilePath string `json:"filePath"`
+		Edits    []struct{ OldString, NewString string }
+	}
+	if err := json.Unmarshal([]byte(got.ToolInput), &out); err != nil {
+		t.Fatalf("ToolInput is not valid JSON: %v", err)
+	}
+	if out.FilePath != "/repo/x.go" || len(out.Edits) == 0 {
+		t.Errorf("want the file and a first edit kept, got %q and %d edits", out.FilePath, len(out.Edits))
+	}
+	if len(got.ToolInput) > 4*maxToolInputFieldBytes {
+		t.Errorf("ToolInput is %d bytes, want it bounded", len(got.ToolInput))
+	}
+}
