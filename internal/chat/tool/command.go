@@ -149,8 +149,9 @@ func (t *runCommand) goesFurther(names []string, sub string, rest []string) bool
 			// core.fsmonitor at the next status, core.pager, core.sshCommand.
 			// submodule foreach, rebase --exec (or -x) and bisect run run a
 			// command given in their later words, and clone -u runs one as it
-			// clones, into whatever directory it is told.
-			case "config", "submodule", "rebase", "bisect", "clone":
+			// clones, into whatever directory it is told. filter-branch runs the
+			// commands its --tree-filter, --msg-filter and the rest are given.
+			case "config", "submodule", "rebase", "bisect", "clone", "filter-branch":
 				return true
 			case "difftool":
 				// -x is difftool's --extcmd, and runs the command it names.

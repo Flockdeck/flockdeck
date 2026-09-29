@@ -131,6 +131,7 @@ func TestAStandingPermissionDoesNotCoverWhatGoesFurther(t *testing.T) {
 		{"git rebase -x touch main", ""},
 		{"git bisect run touch", ""},
 		{"git clone -u touch . copy", ""},
+		{"git filter-branch --tree-filter touch HEAD", ""},
 		// go flags that run what they name, even set for later.
 		{"go test -exec=touch ./...", ""},
 		{"go test -toolexec touch ./...", ""},
