@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"testing"
+
+	"github.com/jmwri/flockdeck/internal/layout"
 )
 
 // TestClosingARepoLastTabInAGroupFocusesAnotherOfItsTabs checks that a
@@ -82,5 +84,73 @@ func TestCyclingIntoAnotherRepoTabComesBackThere(t *testing.T) {
 			got = cur.Title
 		}
 		t.Errorf("came back on tab %q, want %q, the one the project was left on", got, onSecond.Title)
+	}
+}
+
+// groupedTabs groups two open projects and returns the tab of each, as the
+// one tab bar of the grouped project shows them.
+func groupedTabs(t *testing.T) (ws *Workspace, a, b *Tab) {
+	t.Helper()
+	ws, first, second := twoProjects(t)
+	if _, err := ws.NewGroupFrom([]string{first, second}, "platform"); err != nil {
+		t.Fatalf("group: %v", err)
+	}
+	ws.SelectRepo(first)
+	for _, tab := range ws.VisibleTabs() {
+		switch tab.Root {
+		case first:
+			a = tab
+		case second:
+			b = tab
+		}
+	}
+	if a == nil || b == nil {
+		t.Fatalf("want a tab of each repo in the grouped bar, got %d tabs", len(ws.VisibleTabs()))
+	}
+	return ws, a, b
+}
+
+// TestTabsReorderAcrossReposOfOneProject checks that a multi-repo project's
+// tabs, drawn in one bar, can be dragged into any order in it. Reordering
+// compared the tabs' repos rather than their project, so dropping a tab
+// beside a tab of another member was refused as a move to another project.
+func TestTabsReorderAcrossReposOfOneProject(t *testing.T) {
+	isolateConfig(t)
+	ws, a, b := groupedTabs(t)
+
+	if err := ws.MoveTab(b.ID, a.ID); err != nil {
+		t.Fatalf("move tab before a tab of the other repo: %v", err)
+	}
+	if got := ws.VisibleTabs(); got[0] != b || got[1] != a {
+		t.Errorf("order = %q, %q; want %q first", got[0].Title, got[1].Title, b.Title)
+	}
+	if err := ws.MoveTab(b.ID, ""); err != nil {
+		t.Fatalf("move tab to the end: %v", err)
+	}
+	if got := ws.VisibleTabs(); got[len(got)-1] != b {
+		t.Errorf("moved to the end, but the last tab in the bar is %q", got[len(got)-1].Title)
+	}
+}
+
+// TestTabsMergeAcrossReposOfOneProject checks that two tabs of one
+// multi-repo project can be merged, the way any two tabs in one bar can. The
+// merged tab shows the other repo's agent the way a tab showing a pane
+// split into another project does, and the agent keeps its own repo.
+func TestTabsMergeAcrossReposOfOneProject(t *testing.T) {
+	isolateConfig(t)
+	ws, a, b := groupedTabs(t)
+	moved := a.Tree.Panes()[0]
+
+	if err := ws.MergeTab(a.ID, b.ID, layout.Horizontal); err != nil {
+		t.Fatalf("merge a tab into a tab of the other repo: %v", err)
+	}
+	if ws.Tab(a.ID) != nil {
+		t.Error("the merged tab is still open")
+	}
+	if b.Tree.Find(moved) == nil {
+		t.Fatal("the merged tab's pane is not in the tab it was merged into")
+	}
+	if got, want := ws.RootOf(moved), a.Root; got != want {
+		t.Errorf("merged pane's project = %q, want its own repo %q", got, want)
 	}
 }

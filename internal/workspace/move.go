@@ -256,7 +256,7 @@ func (w *Workspace) mergeTab(id, targetID string, dir layout.Dir, before bool) e
 	if src == dest {
 		return fmt.Errorf("a tab cannot be merged into itself")
 	}
-	if src.Root != dest.Root {
+	if !w.sameProject(src.Root, dest.Root) {
 		return fmt.Errorf("a tab can only be merged into a tab of its own project")
 	}
 
@@ -353,7 +353,7 @@ func (w *Workspace) MoveTab(id, beforeID string) error {
 		if before == nil {
 			return fmt.Errorf("the tab it was dropped before is no longer open")
 		}
-		if before.Root != moving.Root {
+		if !w.sameProject(before.Root, moving.Root) {
 			return fmt.Errorf("a tab can only be reordered within its own project")
 		}
 	}
@@ -378,7 +378,7 @@ func (w *Workspace) MoveTab(id, beforeID string) error {
 	} else {
 		// The end of this project's tabs, not the end of every project's.
 		for i, t := range rest {
-			if t.Root == moving.Root {
+			if w.sameProject(t.Root, moving.Root) {
 				at = i + 1
 			}
 		}
@@ -526,4 +526,15 @@ func computeTab(t *Tab) {
 	if t != nil && t.Tree != nil {
 		t.Tree.Compute(nominalRect)
 	}
+}
+
+// sameProject reports whether tabs of two repos share one tab bar: they are
+// the same repo, or members of one multi-repo project, whose bar shows every
+// member's tabs together.
+func (w *Workspace) sameProject(a, b string) bool {
+	if a == b {
+		return true
+	}
+	g := w.groupOf(a)
+	return g != nil && g == w.groupOf(b)
 }
