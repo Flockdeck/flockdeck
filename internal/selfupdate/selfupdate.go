@@ -370,11 +370,21 @@ func fetchFromGitHub(ctx context.Context, version string) (*Release, error) {
 }
 
 // assetFor picks the archive built for this platform. The name is the contract
-// with cmd/release, which writes flockdeck_<version>_<os>_<arch>.<ext>.
+// with cmd/release, which writes flockdeck_<version>_<os>_<arch>.<ext>, .zip
+// for Windows and .tar.gz for the rest.
+//
+// The extension is part of the match. Linux releases carry a .deb and a .rpm
+// named the same way beside the archive, and they sort ahead of it: matched on
+// the platform alone, the .deb was downloaded, passed its checksum, and failed
+// to unpack as a tar.gz, so no Linux copy could update.
 func (r *Release) assetFor(goos, goarch string) (Asset, bool) {
-	suffix := fmt.Sprintf("_%s_%s.", goos, goarch)
+	ext := ".tar.gz"
+	if goos == "windows" {
+		ext = ".zip"
+	}
+	suffix := fmt.Sprintf("_%s_%s%s", goos, goarch, ext)
 	for _, a := range r.Assets {
-		if strings.Contains(a.Name, suffix) {
+		if strings.HasSuffix(a.Name, suffix) {
 			return a, true
 		}
 	}
