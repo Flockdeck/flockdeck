@@ -410,7 +410,14 @@
       else if (msg.type === "fanoutHistory") keepFocus(() => renderFanoutHistory(msg));
       else if (msg.type === "todoPlanPreview") renderTodoPlan(msg);
       else if (msg.type === "todos") keepFocus(() => renderTodos(msg));
-      else if (msg.type === "todoSaved") { notice("Saved “" + ((msg.todo && msg.todo.title) || "todo") + "”.", false); openTodos(); }
+      // Every save is answered with this, a step's own edit or a reorder as much
+      // as a new todo from the plan. Only the plan's is finished by going to the
+      // list; the others are drawn in place, and one that comes back after the
+      // dialog was closed, or another opened, is not this window's to show.
+      else if (msg.type === "todoSaved") {
+        if (dialog === "todoPlan") { notice("Saved “" + ((msg.todo && msg.todo.title) || "todo") + "”.", false); openTodos(); }
+        else if (dialog === "todos") updateTodoInPlace(msg.todo);
+      }
       else if (msg.type === "todoUpdated") updateTodoInPlace(msg.todo);
       // Unused by the desktop except for a todo's own step-start (see
       // todoStepRow): startAgent's other callers are reached through the

@@ -60,3 +60,36 @@ await h.sleep(300);
 assert.strictEqual(ptySockets().length, 3, "the backed-off retry never came");
 `)
 }
+
+// Every save of a todo is answered with todoSaved, including a step's own
+// text edit and a drag to reorder, and the handler reopened the Todos dialog
+// for each: over whatever the person had moved on to, or over the terminals
+// after the dialog was closed (an edit is saved as its field loses the
+// keyboard, which closing the dialog with the pointer is what does).
+func TestASavedTodoDoesNotReopenTheTodosDialog(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const todo = { id: "t1", title: "Ship it", steps: [{ id: "s1", text: "one", done: false }] };
+h.click(h.$("btn-todos"));
+h.recv({ type: "todos", root: "C:/repo", items: [todo] });
+h.click(h.$("overlay-close"));
+assert.ok(h.$("overlay").hidden, "the dialog did not close");
+h.recv({ type: "todoSaved", todo });
+assert.ok(h.$("overlay").hidden, "a step saved as the dialog closed brought it back");
+
+// Still open, a save is drawn in place rather than reset to the loading line.
+h.click(h.$("btn-todos"));
+h.recv({ type: "todos", root: "C:/repo", items: [todo] });
+const sent = h.commands().length;
+h.recv({ type: "todoSaved", todo: { ...todo, title: "Ship it now" } });
+assert.ok(h.$("overlay-body").textContent.includes("Ship it now"), "the saved todo was not drawn");
+assert.ok(!h.$("overlay-body").textContent.includes("Reading saved todos"), "the dialog was reset to loading");
+assert.strictEqual(h.commands().slice(sent).filter((c) => c.cmd === "todos").length, 0, "the list was asked for again");
+
+// Another dialog is left alone.
+h.click(h.$("btn-settings"));
+h.recv({ type: "todoSaved", todo });
+assert.strictEqual(h.$("overlay-title").textContent.includes("Todos"), false, "a save replaced the dialog on screen");
+`)
+}
