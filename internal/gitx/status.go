@@ -268,10 +268,15 @@ type Branch struct {
 
 // Branches lists local branches, most recently used first, so the worktree
 // picker can offer them without the user typing a name.
+//
+// The name is the ref with "refs/heads/" taken off, not refname:short, which
+// shortens to the least that is unambiguous: a branch sharing its name with a
+// tag came back as "heads/v1.2", and the panel's button for it made a new
+// branch of that name instead of checking the real one out.
 func Branches(dir string) ([]Branch, error) {
 	out, err := run(dir, "for-each-ref",
 		"--sort=-committerdate",
-		"--format=%(refname:short)%09%(upstream:short)%09%(HEAD)%09%(worktreepath)",
+		"--format=%(refname:lstrip=2)%09%(upstream:short)%09%(HEAD)%09%(worktreepath)",
 		"refs/heads/")
 	if err != nil {
 		return nil, err

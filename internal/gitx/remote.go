@@ -25,7 +25,9 @@ func Push(dir string) (string, error) {
 		if remote, err = pushRemote(dir, branch); err != nil {
 			return "", err
 		}
-		args = append(args, "--set-upstream", remote, branch)
+		// The full ref: a tag of the same name makes the short one ambiguous,
+		// and git refuses it as a refspec that "matches more than one".
+		args = append(args, "--set-upstream", remote, "refs/heads/"+branch)
 	}
 	// A commit that records a submodule's new commit, pushed while that
 	// commit is on no remote of the submodule's, points everyone who fetches

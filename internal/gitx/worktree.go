@@ -141,12 +141,17 @@ func IsRepo(dir string) bool {
 // where `rev-parse --abbrev-ref HEAD` fails outright in a repository nobody
 // has committed to yet -- which made a fresh repository look detached, and its
 // first push report "cannot push a detached HEAD".
+//
+// The full ref is read and "refs/heads/" taken off, rather than asking for
+// --short, which shortens to the least that is unambiguous: a branch sharing
+// its name with a tag came back as "heads/v1.2", no branch at all, and Push
+// refused it as having no commits.
 func CurrentBranch(dir string) string {
-	out, err := run(dir, "symbolic-ref", "--short", "-q", "HEAD")
+	out, err := run(dir, "symbolic-ref", "-q", "HEAD")
 	if err != nil {
 		return "" // detached, or not a repository
 	}
-	return strings.TrimSpace(out)
+	return strings.TrimPrefix(strings.TrimSpace(out), "refs/heads/")
 }
 
 // List returns every worktree of the repository containing dir.
