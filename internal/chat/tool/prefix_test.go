@@ -141,6 +141,8 @@ func TestAStandingPermissionDoesNotCoverWhatGoesFurther(t *testing.T) {
 		{"npm exec touch", ""},
 		{"npm x touch", ""},
 		{"npm exe touch", ""},
+		{"npm run build --script-shell=touch", ""},
+		{"npm test --script-shell touch", ""},
 		{"docker run -v /:/host alpine", ""},
 		{"docker exec box sh", ""},
 		{"docker container run alpine", ""},

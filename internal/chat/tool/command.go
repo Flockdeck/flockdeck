@@ -178,6 +178,18 @@ func (t *runCommand) goesFurther(names []string, sub string, rest []string) bool
 			if sub == "x" || strings.HasPrefix(sub, "exe") || strings.HasPrefix(sub, "explo") {
 				return true
 			}
+			// --script-shell is config any npm command takes, and names the
+			// program every script it runs is run with.
+			for _, a := range rest {
+				if a == "--" {
+					// What follows is the script's, not npm's.
+					break
+				}
+				name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+				if len(name) < len(a) && strings.ReplaceAll(strings.ToLower(name), "_", "-") == "script-shell" {
+					return true
+				}
+			}
 		case "docker":
 			// docker run and exec run a command in a container, which can be
 			// handed the host's whole file system with -v; `docker container
