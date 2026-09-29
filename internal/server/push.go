@@ -176,11 +176,18 @@ func (s *Server) deskInUse(now time.Time) bool {
 
 // pushDelay is how long a wait lasts before it is pushed.
 func pushDelay(p store.PushPrefs) time.Duration {
-	d := time.Duration(p.DelaySeconds) * time.Second
-	if d < minPushDelay || d > maxPushDelay {
+	if !pushDelayInBounds(p.DelaySeconds) {
 		return defaultPushDelay
 	}
-	return d
+	return time.Duration(p.DelaySeconds) * time.Second
+}
+
+// pushDelayInBounds reports whether a delay of that many seconds is within
+// the bounds. It compares seconds rather than a duration made from them: a
+// count large enough to overflow one wrapped round to a few seconds, which
+// passed.
+func pushDelayInBounds(seconds int) bool {
+	return seconds >= int(minPushDelay/time.Second) && seconds <= int(maxPushDelay/time.Second)
 }
 
 // waitLoop looks for waits to push, for as long as the server runs.
@@ -398,11 +405,10 @@ func (s *Server) setPushAnonymous(c *controlClient, on bool) {
 // setPushDelay records how long a wait lasts before it is pushed, within the
 // bounds. The default is kept as nothing.
 func (s *Server) setPushDelay(c *controlClient, seconds int) {
-	d := time.Duration(seconds) * time.Second
-	if d < minPushDelay || d > maxPushDelay {
+	if !pushDelayInBounds(seconds) {
 		return
 	}
-	if d == defaultPushDelay {
+	if time.Duration(seconds)*time.Second == defaultPushDelay {
 		seconds = 0
 	}
 	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.Push.DelaySeconds, seconds) })

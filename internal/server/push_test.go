@@ -546,3 +546,24 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// A delay is bounded in seconds, not after it has been turned into a
+// duration: a count of seconds large enough to overflow one came out as a
+// few seconds, inside the bounds, and was kept as the setting.
+func TestAPushDelayThatOverflowsIsRefused(t *testing.T) {
+	srv, _ := newTestServer(t)
+	enrolled(srv)
+	conn := dialControl(t, srv)
+	nextHello(t, conn)
+
+	// 18446744079 seconds is 2^64 ns and a little over five seconds more.
+	sendCmd(t, conn, command{Cmd: "pushDelay", Size: 18446744079})
+	sendCmd(t, conn, command{Cmd: "pushAnonymous", Kind: "on"})
+	got := nextPrefs(t, conn, func(p store.Prefs) bool { return p.Push.Anonymous })
+	if got.Push.DelaySeconds != 0 {
+		t.Errorf("a delay of %d seconds was taken", got.Push.DelaySeconds)
+	}
+	if d := pushDelay(store.PushPrefs{DelaySeconds: 18446744079}); d != defaultPushDelay {
+		t.Errorf("a saved delay of 18446744079 seconds is used as %v, want the default", d)
+	}
+}
