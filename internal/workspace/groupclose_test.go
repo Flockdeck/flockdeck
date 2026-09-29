@@ -43,3 +43,44 @@ func TestClosingARepoLastTabInAGroupFocusesAnotherOfItsTabs(t *testing.T) {
 		t.Errorf("active tab = %q, want the tab beside the one closed, %q", cur.Title, visible[0].Title)
 	}
 }
+
+// TestCyclingIntoAnotherRepoTabComesBackThere checks that a tab reached with
+// the next-tab key in a multi-repo project is where switching away and back
+// lands. The key moved the active tab onto another member repo's tab without
+// making that repo the one worked in, so leaving the project recorded the tab
+// against the wrong repo and coming back put the user on a different tab.
+func TestCyclingIntoAnotherRepoTabComesBackThere(t *testing.T) {
+	isolateConfig(t)
+	ws, first, second := twoProjects(t)
+	third := t.TempDir()
+	if _, err := ws.NewGroupFrom([]string{first, second}, "platform"); err != nil {
+		t.Fatalf("group: %v", err)
+	}
+	if err := ws.OpenProject(third); err != nil {
+		t.Fatalf("open third: %v", err)
+	}
+	ws.SelectRepo(first)
+
+	var onSecond *Tab
+	for i := 0; i < len(ws.VisibleTabs()); i++ {
+		ws.NextTab()
+		if cur := ws.CurrentTab(); cur != nil && cur.Root == second {
+			onSecond = cur
+			break
+		}
+	}
+	if onSecond == nil {
+		t.Fatal("the next-tab key never reached the second repo's tab")
+	}
+
+	ws.SelectProject(third)
+	ws.SelectProject(first)
+
+	if cur := ws.CurrentTab(); cur == nil || cur.ID != onSecond.ID {
+		got := "none"
+		if cur != nil {
+			got = cur.Title
+		}
+		t.Errorf("came back on tab %q, want %q, the one the project was left on", got, onSecond.Title)
+	}
+}

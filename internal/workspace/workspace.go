@@ -2252,7 +2252,9 @@ func (w *Workspace) cycleTab(delta int) {
 			cur = i
 		}
 	}
-	w.activeTab = tabs[((cur+delta)%len(tabs)+len(tabs))%len(tabs)].ID
+	// Through SelectTab, since in a multi-repo project the next tab can belong
+	// to another member repo, which then becomes the one worked in.
+	w.SelectTab(tabs[((cur+delta)%len(tabs)+len(tabs))%len(tabs)].ID)
 }
 
 // -------------------------------------------------------------------- panes
