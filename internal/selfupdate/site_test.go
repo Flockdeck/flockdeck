@@ -926,3 +926,55 @@ func must(b []byte, err error) []byte {
 	}
 	return b
 }
+
+// A release carries more than one file built for a platform: Linux has a .deb
+// and a .rpm beside its tar.gz, and they sort ahead of it in the manifest and
+// in checksums.txt. Only the archive is something Stage can unpack, so it is
+// the one downloaded, whichever order the files are listed in.
+func TestStageTakesThePlatformsArchiveNotAPackageBesideIt(t *testing.T) {
+	r := published(t, "the new program")
+	logged(t)
+
+	base := strings.TrimSuffix(strings.TrimSuffix(r.name, ".zip"), ".tar.gz")
+	pkgs := map[string][]byte{base + ".deb": []byte("!<arch>\ndebian-binary"), base + ".rpm": []byte("\xed\xab\xee\xdb rpm")}
+	sums := ""
+	var files []ManifestFile
+	for _, n := range []string{base + ".deb", base + ".rpm"} {
+		r.dl.set("/v9.9.9/"+n, pkgs[n])
+		r.gh.set(ghDownloads+n, pkgs[n])
+		files = append(files, ManifestFile{Name: n, URL: r.dl.srv.URL + "/v9.9.9/" + n, SHA256: sha(pkgs[n]), Size: int64(len(pkgs[n]))})
+		sums += fmt.Sprintf("%s  %s\n", sha(pkgs[n]), n)
+	}
+	sums += fmt.Sprintf("%s  %s\n", sha(r.archive), r.name)
+	r.dl.set("/v9.9.9/"+sumsName, []byte(sums))
+	r.dl.set("/v9.9.9/"+sumsName+sigExt, Sign(r.key, []byte(sums)))
+	r.gh.set(ghDownloads+sumsName, []byte(sums))
+	r.gh.set(ghDownloads+sumsName+sigExt, Sign(r.key, []byte(sums)))
+	for _, f := range r.manifest.Files {
+		switch f.Name {
+		case sumsName:
+			f.SHA256, f.Size = sha([]byte(sums)), int64(len(sums))
+		case sumsName + sigExt:
+			sig := r.dl.get("/v9.9.9/" + sumsName + sigExt)
+			f.SHA256, f.Size = sha(sig), int64(len(sig))
+		}
+		files = append(files, f)
+	}
+	r.manifest.Files = files
+	r.sign()
+
+	rel, err := Latest(context.Background())
+	if err != nil {
+		t.Fatalf("Latest: %v", err)
+	}
+	if got := rel.DownloadSize(); got != int64(len(r.archive)) {
+		t.Errorf("DownloadSize = %d, want the archive's %d", got, len(r.archive))
+	}
+	p, err := Stage(context.Background(), rel, t.TempDir())
+	if err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	if got := staged(t, p); got != "the new program" {
+		t.Errorf("staged %q", got)
+	}
+}
