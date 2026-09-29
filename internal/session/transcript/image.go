@@ -31,6 +31,13 @@ const (
 	// maxImageDimension is the longest edge an oversized image is downscaled
 	// to.
 	maxImageDimension = 2000
+	// maxImageDecodePixels refuses a png or jpeg with more pixels than this
+	// before it is decoded to be downscaled. Decoding holds the whole picture,
+	// and the file's size says nothing about how big that is: a png of one
+	// flat colour compresses a thousandfold, so one well under
+	// maxImageInputBytes can decode to gigabytes. This is a 6K screen and
+	// more, far beyond anything a model is shown.
+	maxImageDecodePixels = 24 << 20
 )
 
 // prepareImage validates an image block's bytes for sending to the phone,
@@ -60,6 +67,9 @@ func prepareImage(mediaType string, data []byte) (outType string, outData []byte
 		return mediaType, data, width, height, true
 	}
 
+	if width <= 0 || height <= 0 || int64(width)*int64(height) > maxImageDecodePixels {
+		return "", nil, 0, 0, false
+	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return "", nil, 0, 0, false
