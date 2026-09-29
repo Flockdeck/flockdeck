@@ -4532,14 +4532,21 @@
 
   function openPrompt() {
     const bar = $("promptbar");
+    // Asked for again while it is up -- from a pane clicked into, or the
+    // palette -- it aims at the pane now focused and takes the keyboard back,
+    // and keeps the sentence being written rather than putting back the one
+    // left at the last close.
+    const wasOpen = !bar.hidden;
     bar.hidden = false;
     const tab = activeTabOf(state);
     promptPane = (tab && tab.focus) || "";
-    promptAt = promptHistory.length;
-    promptDraft = "";
+    if (!wasOpen) {
+      promptAt = promptHistory.length;
+      promptDraft = "";
+    }
     labelPrompt(state);
     const input = $("prompt-input");
-    input.value = promptUnsent;
+    if (!wasOpen) input.value = promptUnsent;
     input.focus();
     fitPrompt();
   }

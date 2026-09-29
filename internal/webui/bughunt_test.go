@@ -93,3 +93,17 @@ h.recv({ type: "todoSaved", todo });
 assert.strictEqual(h.$("overlay-title").textContent.includes("Todos"), false, "a save replaced the dialog on screen");
 `)
 }
+
+// Asking for the prompt bar while it was already up put back the sentence left
+// at its last close in place of the one being written.
+func TestAskingForThePromptBarAgainKeepsTheSentence(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.press("promptAll");
+h.$("prompt-input").value = "refactor the parser and";
+h.$("btn-settings").focus(); // clicked into a pane: the bar stays up
+h.press("promptAll");
+assert.strictEqual(h.$("prompt-input").value, "refactor the parser and", "asking again threw away what was typed");
+`)
+}
