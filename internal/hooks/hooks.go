@@ -357,11 +357,20 @@ func buildToolInput(raw json.RawMessage) string {
 		Content:     clip(w.Content, maxToolInputFieldBytes),
 		Questions:   w.Questions,
 	}
+	// The edits share one budget: each is capped, but a MultiEdit has as many
+	// as it likes, and the event they ride in is refused whole by the server
+	// once it passes the body it reads. The view built from them cuts its diff
+	// at the same size, so what is left off here was never going to be shown.
+	budget := maxToolInputFieldBytes
 	for _, e := range w.Edits {
-		out.Edits = append(out.Edits, toolEditWire{
-			OldString: clip(e.OldString, maxToolInputFieldBytes),
-			NewString: clip(e.NewString, maxToolInputFieldBytes),
-		})
+		if budget <= 0 {
+			break
+		}
+		oldText := clip(e.OldString, budget)
+		budget -= len(oldText)
+		newText := clip(e.NewString, budget)
+		budget -= len(newText)
+		out.Edits = append(out.Edits, toolEditWire{OldString: oldText, NewString: newText})
 	}
 	if out.Command == "" && out.FilePath == "" && len(out.Questions) == 0 {
 		return ""

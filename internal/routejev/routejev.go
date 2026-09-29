@@ -304,6 +304,9 @@ func For(p agent.RoutingPolicy) route.Classifier {
 		shared.mu.Lock()
 		if sc, ok := shared.asker.(*jev.Client); !ok || sc.Key != c.Key || sc.APIBase != c.APIBase {
 			shared.asker = c
+			// What the old key or address failed with is nothing to hold against
+			// this one: a corrected key was left cooling for five minutes.
+			shared.coolTil = time.Time{}
 		}
 		shared.mu.Unlock()
 	}

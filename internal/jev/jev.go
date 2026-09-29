@@ -32,6 +32,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // API is TypeSafe's own address. A test points Client.APIBase at a fake
@@ -397,7 +398,12 @@ const maxBody = 4 << 20
 func clip(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) > 300 {
-		return s[:300] + "…"
+		// On a character boundary: a cut through one left bytes that are no text.
+		n := 300
+		for n > 0 && !utf8.RuneStart(s[n]) {
+			n--
+		}
+		return s[:n] + "…"
 	}
 	return s
 }
