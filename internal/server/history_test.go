@@ -374,3 +374,25 @@ func writeJSONL(t *testing.T, path string, lines ...string) {
 
 // jsonEscape escapes a path for embedding in a JSON string literal.
 func jsonEscape(p string) string { return strings.ReplaceAll(p, `\`, `\\`) }
+
+// TestAStaleAnswerDoesNotTakeANewRequestsNumber covers a window whose slow
+// request is still out when a later one is answered. Answering forgets the
+// window, and the next request it made was numbered from the start again --
+// the same number as the slow one still out, which was then let through as
+// though it were the newest, while the request actually newest was dropped.
+func TestAStaleAnswerDoesNotTakeANewRequestsNumber(t *testing.T) {
+	n := newNewestAnswer()
+	c := &controlClient{}
+	a := n.asked(c) // a slow listing of one checkout
+	b := n.asked(c) // a quick one of another, answered at once
+	if !n.answer(c, b) {
+		t.Fatal("the newest request was not answered")
+	}
+	fresh := n.asked(c) // Refresh on the second checkout
+	if n.answer(c, a) {
+		t.Error("the stale first request was answered after a newer one was made")
+	}
+	if !n.answer(c, fresh) {
+		t.Error("the newest request was dropped")
+	}
+}

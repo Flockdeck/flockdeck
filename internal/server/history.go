@@ -41,6 +41,11 @@ type conversationsMsg struct {
 type newestAnswer struct {
 	sync.Mutex
 	seq map[*controlClient]uint64
+	// next numbers every request, of every window, so that no number is
+	// ever handed out twice: a window is forgotten once answered, and one
+	// numbered from the start again reused the number of a request of its
+	// own still out, which was then let through as though it were newest.
+	next uint64
 }
 
 func newNewestAnswer() *newestAnswer {
@@ -51,8 +56,9 @@ func newNewestAnswer() *newestAnswer {
 func (n *newestAnswer) asked(c *controlClient) uint64 {
 	n.Lock()
 	defer n.Unlock()
-	n.seq[c]++
-	return n.seq[c]
+	n.next++
+	n.seq[c] = n.next
+	return n.next
 }
 
 // answer reports whether a finished reply is still the one its window is
