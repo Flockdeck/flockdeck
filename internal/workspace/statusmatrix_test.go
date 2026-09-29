@@ -6,8 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // The tests in this file are docs/status-matrix.md's rows as the workspace
@@ -373,4 +376,136 @@ func TestStatusMatrixExitWithAnError(t *testing.T) {
 	if ws.Pane(good.ID) != nil {
 		t.Error("Close finished panes left a cleanly exited pane")
 	}
+}
+
+// TestStatusMatrixRestoreAndNavigate is rows D14-D17 as the workspace sees
+// them: a workspace restored at startup, its agents resuming and every pane
+// drawing its first screen, then projects switched to and their panes fitted
+// to the window, as the browser does on each switch. Nothing in it is doing
+// any work, so no pane may show working, and the top bar's and the rail's
+// counts must say so throughout.
+func TestStatusMatrixRestoreAndNavigate(t *testing.T) {
+	isolateConfig(t)
+	first, second, third := t.TempDir(), t.TempDir(), t.TempDir()
+	for _, root := range []string{second, third} {
+		saved := &store.State{}
+		for i := 0; i < 2; i++ {
+			saved.Tabs = append(saved.Tabs, store.Tab{
+				Title: fmt.Sprint("tab", i),
+				Root:  &store.Node{Pane: &store.Pane{ID: uuid.NewString(), Kind: "shell", Cwd: root, Cols: 80, Rows: 24}},
+			})
+		}
+		if err := store.Save(root, saved); err != nil {
+			t.Fatalf("save %s: %v", root, err)
+		}
+	}
+	if err := store.SaveSession(&store.Session{Open: []string{second, third}}); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+	ws := newTestWorkspace(t, first)
+	if n := ws.RestoreSession(); n != 2 {
+		t.Fatalf("reopened %d extra projects, want 2", n)
+	}
+
+	// panesIn is every pane of a project's tabs. The first tab of each
+	// project stands in for a restored agent: a real one's hooks send
+	// SessionStart as it resumes. The second is left a plain shell.
+	panesIn := func(root string) []*Pane {
+		var out []*Pane
+		for _, tab := range ws.Tabs {
+			if tab.Root != root {
+				continue
+			}
+			for _, id := range tab.Tree.Panes() {
+				if p := ws.Pane(id); p != nil && p.Sess != nil {
+					out = append(out, p)
+				}
+			}
+		}
+		return out
+	}
+	var all, agents []*Pane
+	for _, root := range []string{second, third} {
+		ps := panesIn(root)
+		if len(ps) != 2 {
+			t.Fatalf("project %s restored %d panes, want 2", root, len(ps))
+		}
+		ps[0].Kind = session.KindAgent
+		deliver(ws, ps[0], hooks.Event{Event: "SessionStart", Source: "resume"})
+		all, agents = append(all, ps...), append(agents, ps[0])
+	}
+
+	// noneWorking fails if any pane, the top bar or the rail says working.
+	noneWorking := func(t *testing.T, when string) {
+		t.Helper()
+		for _, p := range all {
+			if st, _ := p.Sess.Status(); st == session.StatusWorking {
+				t.Fatalf("%s: pane %s shows working", when, p.ID)
+			}
+		}
+		if _, working := ws.AttentionCount(); working != 0 {
+			t.Fatalf("%s: AttentionCount says %d working, want 0", when, working)
+		}
+		for _, pr := range ws.Projects() {
+			if pr.Working != 0 {
+				t.Fatalf("%s: project %s says %d working, want 0", when, pr.Name, pr.Working)
+			}
+		}
+	}
+	// watch holds noneWorking for d, sampling, and then until every pane has
+	// come to rest (idle), for at most settle.
+	watch := func(t *testing.T, when string, d, settle time.Duration) {
+		t.Helper()
+		for end := time.Now().Add(d); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+			noneWorking(t, when)
+		}
+		deadline := time.Now().Add(settle)
+		for {
+			noneWorking(t, when)
+			rest := true
+			for _, p := range all {
+				if st, _ := p.Sess.Status(); st != session.StatusIdle {
+					rest = false
+				}
+			}
+			if rest {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: panes never came to rest at idle", when)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
+	t.Run("D16/a freshly restored workspace counts nothing working", func(t *testing.T) {
+		for _, p := range agents {
+			if st, _ := p.Sess.Status(); st != session.StatusIdle {
+				t.Errorf("a restored agent that has sent SessionStart shows %v, want idle", st)
+			}
+		}
+		watch(t, "after restore", time.Second, 10*time.Second)
+	})
+	t.Run("D17/switching to a project and fitting its panes changes no status", func(t *testing.T) {
+		before := map[string]session.Status{}
+		for _, p := range all {
+			before[p.ID], _ = p.Sess.Status()
+		}
+		for i, root := range []string{second, third, second} {
+			ws.SelectProject(root)
+			for _, p := range panesIn(root) {
+				// A different size each time, as a window of a different
+				// shape would measure, so each is a real resize.
+				ws.ResizePaneTerminal(p.ID, 100+i, 30+i)
+			}
+			ws.SelectTab(ws.VisibleTabs()[len(ws.VisibleTabs())-1].ID)
+			noneWorking(t, fmt.Sprint("switch ", i))
+		}
+		watch(t, "after switching", time.Second, 5*time.Second)
+		for _, p := range all {
+			if st, _ := p.Sess.Status(); st != before[p.ID] {
+				t.Errorf("pane %s went from %v to %v on being switched to", p.ID, before[p.ID], st)
+			}
+		}
+	})
 }
