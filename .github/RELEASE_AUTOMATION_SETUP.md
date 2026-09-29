@@ -262,8 +262,9 @@ For each version it:
    still there fails the run;
 3. purges each deleted file from DigitalOcean's CDN by its path, and the
    version by `<version>/*` as well, which is what serves dl.flockdeck.ai;
-4. purges each file from the Cloudflare zone by its exact URL, 30 to a
-   request, unless the run says `cloudflare=false`; and
+4. purges each file from a Cloudflare zone of ours by its exact URL, 30 to a
+   request, only if the run says `cloudflare=true`. It is off by default,
+   because there is no such zone today; and
 5. requests every exact URL at `https://dl.flockdeck.ai` and fails unless each
    answers 403 (the bucket is private, so a missing file is 403, not 404).
 
@@ -308,7 +309,7 @@ secrets either: the signing key has no business in a purge.
 | `DO_SPACES_BUCKET`, `DO_SPACES_REGION` | `flockdeck-downloads`, `lon1` |
 | `DO_API_TOKEN` | A DigitalOcean API token with **custom scopes: `cdn:delete` only**. That is the scope the cache-purge endpoint requires. `cdn:update` does not cover it. Give it an expiry. The DigitalOcean provider cannot create API tokens, so make it by hand (API > Tokens > Generate, Custom scopes), and pass it to Terraform as a sensitive variable. |
 | `DO_CDN_ENDPOINT_ID` | The id of `digitalocean_cdn.downloads`, the endpoint in front of the bucket. It is not secret, but it is read the same way as the rest. |
-| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID` | Only if dl.flockdeck.ai is in a Cloudflare zone of Flockdeck's own. A token limited to **Zone > Cache Purge > Purge** on that zone only, and the zone's id. See the note below: as far as this repository can tell there is no such zone, and then these are left unset and runs say `cloudflare=false`. |
+| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID` | Only if dl.flockdeck.ai is in a Cloudflare zone of Flockdeck's own. A token limited to **Zone > Cache Purge > Purge** on that zone only, and the zone's id. See the note below: as far as this repository can tell there is no such zone, and then these are left unset, which is why the `cloudflare` input is off by default. |
 
 **On Cloudflare.** dl.flockdeck.ai answers `Server: cloudflare` and
 `cf-cache-status`, but flockdeck.ai's nameservers are DigitalOcean's, and
@@ -316,9 +317,9 @@ secrets either: the signing key has no business in a purge.
 DigitalOcean's Spaces CDN is itself served through Cloudflare, so those
 headers come from DigitalOcean's CDN, and DigitalOcean's purge (step 3) is
 what empties it. If that holds, there is no zone to hold a token for.
-Say `cloudflare=false` on each run, and step 5 still checks what anyone is
+So `cloudflare` is off by default, and step 5 still checks what anyone is
 actually served. If a Cloudflare zone of Flockdeck's own is ever put in front
-of it, add the two secrets and leave `cloudflare` on. Cloudflare's docs now
+of it, add the two secrets and turn `cloudflare` on. Cloudflare's docs now
 allow purging by URL and by prefix on every plan, up to 100 URLs a request.
 The script sends 30, the older Free-plan limit, and uses a prefix only for a
 version whose files are already gone from the bucket.

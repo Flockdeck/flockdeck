@@ -1,9 +1,9 @@
 name: purge downloads
 
 # Purges released versions from dl.flockdeck.ai: every version of every file
-# under each from the bucket, then DigitalOcean's CDN and the Cloudflare zone,
-# then checks every address is gone (scripts/purge-downloads.sh says how and
-# why). It is started by hand and nothing else, and a run is a dry run unless
+# under each from the bucket, then DigitalOcean's CDN (and a Cloudflare zone of
+# ours, if one is ever put in front of it: none is today), then checks every
+# address is gone (scripts/purge-downloads.sh says how and why). It is started by hand and nothing else, and a run is a dry run unless
 # it says otherwise:
 #
 #   gh workflow run purge-downloads.yml --ref main -f versions="v0.2.10 v0.2.11"
@@ -28,9 +28,9 @@ on:
         type: string
         default: ""
       cloudflare:
-        description: "purge the Cloudflare zone too (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID); off only if dl.flockdeck.ai is in no zone of ours"
+        description: "also purge a Cloudflare zone of ours (needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ZONE_ID). Leave it off: dl.flockdeck.ai is served by DigitalOcean's CDN, which runs on Cloudflare but is not a zone of ours, and DigitalOcean's purge is what empties it"
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read
