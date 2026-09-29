@@ -224,7 +224,9 @@ withdrawn from the updater: that is `recalled.json` (see
 
 Always from `main`, and always a dry run first. A dry run is the default. It
 reads the bucket and reports every file it would delete and every address it
-would purge, and it changes nothing:
+would purge, and it changes nothing. It also checks the CDN credentials (see
+"The credential preflight" below), so a bad token shows here and not in the
+live run:
 
 ```sh
 gh workflow run purge-downloads.yml --ref main -f versions="v0.2.10 v0.2.11"
@@ -253,7 +255,8 @@ environment variables (`scripts/purge-downloads.sh`, whose header lists them):
 
 ### What it does, and what it does not
 
-For each version it:
+Before anything is deleted, a run (dry or live) checks the CDN credentials, as
+described under "The credential preflight". Then, for each version, it:
 
 1. lists every version of every file under `<version>/`, and every delete
    marker. The bucket is versioned, so a plain delete would only hide the
@@ -284,6 +287,78 @@ It does **not**:
   published under MIT stays MIT for whoever holds a copy. This only stops
   distributing it from here.
 
+### The credential preflight
+
+The purge deletes from the bucket first and purges the CDN second, and the
+delete cannot be undone. So before it deletes anything, in a dry run as well as
+a live one, it asks each CDN API a read-only question, with the token in a
+header file as the purge does (it is never on a command line or in the
+output). The first pilot showed why: DigitalOcean rejected `DO_API_TOKEN` with
+HTTP 401 only *after* a version had been deleted, so the files were gone from
+the bucket and still served from the caches, and the dry run before it had
+passed, since a dry run never talked to DigitalOcean. The preflight would have
+refused that run, and the dry run, before anything was deleted.
+
+| Answer to `GET /v2/cdn/endpoints/<id>` | The run |
+| --- | --- |
+| 200 with an endpoint | goes on (`cdn_preflight`: `ok`) |
+| 401 | **refused**: DigitalOcean does not accept the token |
+| 403 | goes on (`ok-scope-limited`): the token is valid but may not read the endpoint |
+| 404 | **refused**: `DO_CDN_ENDPOINT_ID` is wrong |
+| anything else, a timeout, a 200 that is not an endpoint | **refused** (fail closed), saying what came back |
+
+With a Cloudflare zone, the same is asked of `GET /user/tokens/verify` (the
+token must be active; 401 or 403 refuses) and `GET /zones/<id>` (200 goes on;
+403 goes on as `ok-scope-limited`, since a Cache Purge token cannot read a
+zone; 404 and anything else refuse). `--no-cdn-purge` skips the preflight, and
+`--no-cloudflare` skips Cloudflare's part. A dry run that lacks a CDN setting a
+live run needs says `not-checked`, and checks nothing. The result is in the
+run's output and in its job summary and JSON as `cdn_preflight`: `ok`,
+`ok-scope-limited`, `refused`, `not-checked` or `skipped`.
+
+**A 403 is expected of a token that has only the delete scope.** DigitalOcean's
+API reference says reading an endpoint needs `cdn:read` and purging its cache
+needs `cdn:delete`; it lists no 403, only 401, 404, 429 and 500, and the
+scopes page says that adding a non-read scope also requires the resource's read
+scope, with `cdn:read` among those `cdn:delete` requires. So a token made in
+the control panel with `cdn:delete` should carry `cdn:read` too, and the GET
+should be a 200; a 403 is what a token without it is reported to get, and is
+accepted. Neither has been seen against the real API, since no real credential
+is used to develop this.
+
+**What a preflight cannot prove**, and says so:
+
+- that the DigitalOcean token may *purge* the cache. Only a purge proves
+  `cdn:delete`. A 200 proves `cdn:read` and a 403 proves nothing about it;
+- that the Cloudflare token may purge the zone, or (on a 403) that the zone id
+  is right;
+- that the Spaces key may *delete*. Every run lists the bucket first, which
+  proves list and read; only a delete proves delete.
+
+**First use of a new key or token: pilot one version.** Make the first live run
+with a new Spaces key or API token a single version you are sure of, and read
+the result, before purging the rest. That is the one check that proves the
+delete and purge rights, and it costs one version if they are wrong.
+
+### Troubleshooting
+
+**`DigitalOcean rejected DO_API_TOKEN (HTTP 401)`** (before a delete, in the
+dry run or the live run, saying nothing has been deleted). DigitalOcean does
+not accept the token at all: it has expired or been revoked, or it was pasted
+with a trailing space or a line break, or truncated, or the secret holds the
+wrong value (another token, or the Spaces secret). Make a new token, with an
+expiry, and store it whole in the `purge-downloads` environment secret
+`DO_API_TOKEN`. Then dry-run again. A token missing a scope is not a 401.
+
+**The bucket delete worked and the purge failed** (the run reports `FAILED`
+after deleting, for example a 401 from a run before the preflight existed, or
+a 5xx): the files are gone from the bucket but the caches may still serve
+them. Fix the credential, and run the *same versions* again. A version with
+nothing left in the bucket is not an error: it is purged from DigitalOcean by
+prefix (`<version>/*`), from Cloudflare by prefix if it is enabled, and its
+`checksums.txt` and `manifest.json`, which every release has, are requested
+until they answer 403 or 404. The run succeeds only when they do.
+
 ### One-time setup (the owner)
 
 None of this can be done from this repository or an agent session. It is
@@ -307,7 +382,7 @@ secrets either: the signing key has no business in a purge.
 | --- | --- |
 | `DO_SPACES_KEY`, `DO_SPACES_SECRET` | A **new** Spaces key, `flockdeck-downloads-purge`, with a grant on the bucket `flockdeck-downloads` alone, `readwrite` (read, list, write and delete; Spaces has no delete-only grant). Not the release's key, so it can be revoked on its own when the purge is done. |
 | `DO_SPACES_BUCKET`, `DO_SPACES_REGION` | `flockdeck-downloads`, `lon1` |
-| `DO_API_TOKEN` | A DigitalOcean API token with **custom scopes: `cdn:delete` only**. That is the scope the cache-purge endpoint requires. `cdn:update` does not cover it. Give it an expiry. The DigitalOcean provider cannot create API tokens, so make it by hand (API > Tokens > Generate, Custom scopes), and pass it to Terraform as a sensitive variable. |
+| `DO_API_TOKEN` | A DigitalOcean API token with **custom scopes: `cdn:delete` only**. That is the scope the cache-purge endpoint requires. `cdn:update` does not cover it. (DigitalOcean adds the read scopes `cdn:delete` requires, such as `cdn:read`, so the preflight's GET may well be a 200; a 403 is accepted too. See "The credential preflight".) Give it an expiry. The DigitalOcean provider cannot create API tokens, so make it by hand (API > Tokens > Generate, Custom scopes), and pass it to Terraform as a sensitive variable. |
 | `DO_CDN_ENDPOINT_ID` | The id of `digitalocean_cdn.downloads`, the endpoint in front of the bucket. It is not secret, but it is read the same way as the rest. |
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID` | Only if dl.flockdeck.ai is in a Cloudflare zone of Flockdeck's own. A token limited to **Zone > Cache Purge > Purge** on that zone only, and the zone's id. See the note below: as far as this repository can tell there is no such zone, and then these are left unset, which is why the `cloudflare` input is off by default. |
 

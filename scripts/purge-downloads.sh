@@ -24,7 +24,8 @@
 #
 # A DRY RUN IS THE DEFAULT. It reads the bucket, refuses what it would refuse
 # for real, and reports every file it would delete and every address it would
-# purge, and changes nothing.
+# purge, and changes nothing. It does ask DigitalOcean's (and Cloudflare's) API
+# the read-only questions of the preflight, so a bad token shows in a dry run.
 #
 # What is under a version is uploaded once, by publish-downloads.sh, and
 # served "public, max-age=31536000, immutable": the CDN's edges keep it for a
@@ -54,6 +55,11 @@
 # a version but then failed to purge it leaves nothing in the bucket to say
 # which files the caches hold.
 #
+# Before anything is deleted, in a dry run as in a live one, the CDN
+# credentials are PREFLIGHTED, read-only (see "PREFLIGHT" below): a token
+# DigitalOcean or Cloudflare would refuse must be found out before the
+# irreversible delete, not after it. --no-cdn-purge skips it.
+#
 # Refused before anything is deleted, each saying why:
 #
 #   - anything that is not a version, such as v1.4.0 or v1.4.0-rc.1;
@@ -63,6 +69,7 @@
 #   - no versions at all, or more than --max; the same version twice is one;
 #   - a file under a version whose name could not be purged or checked
 #     exactly, which is anything but letters, digits and ._~+-/
+#   - CDN credentials the preflight does not accept
 #
 # A deletion that fails stops the run from deleting any more versions, but
 # what it did delete is still purged and checked, and the run fails. A purge
@@ -104,6 +111,7 @@
 #   FLOCKDECK_CHECK_WAIT             seconds between checks of the public
 #                                    address; 10
 #   FLOCKDECK_CHECK_TRIES            how many times each is checked; 12
+#   FLOCKDECK_PREFLIGHT_TIMEOUT      seconds the preflight waits for an answer; 30
 
 set -eu
 
@@ -199,6 +207,7 @@ cf_api=${FLOCKDECK_CLOUDFLARE_API_URL:-https://api.cloudflare.com/client/v4}
 do_wait=${FLOCKDECK_DO_PURGE_WAIT:-20}
 check_wait=${FLOCKDECK_CHECK_WAIT:-10}
 check_tries=${FLOCKDECK_CHECK_TRIES:-12}
+preflight_timeout=${FLOCKDECK_PREFLIGHT_TIMEOUT:-30}
 
 export AWS_ACCESS_KEY_ID="$DO_SPACES_KEY"
 export AWS_SECRET_ACCESS_KEY="$DO_SPACES_SECRET"
@@ -251,6 +260,174 @@ refused=$(awk -F'\t' 'NR == FNR { why[$1] = why[$1] ? why[$1] "; " $2 : $2; next
 	$0 in why { printf "%s (%s)  ", $0, why[$0] }' "$tmp/protected" "$tmp/versions")
 [ -z "$refused" ] || die "refusing, and nothing has been purged: $refused"
 
+# PREFLIGHT of the CDN credentials, read-only, before anything is deleted and
+# in a dry run too. The first pilot deleted a version and only then learned
+# that DigitalOcean rejected the token (HTTP 401): the files were gone from
+# the bucket and still served from the caches. A credential that cannot work
+# must be found out before the delete.
+#
+# It asks a GET, with the token in a header file as the purge does, never on a
+# command line. What DigitalOcean's API reference says (read at
+# docs.digitalocean.com/reference/api/reference/cdn-endpoints/ and
+# .../api/scopes/cdn/delete/), and what follows from it:
+#
+#   - GET /v2/cdn/endpoints/{id} needs the scope cdn:read; the purge, DELETE
+#     .../cache, needs cdn:delete. The reference documents 401 "Unable to
+#     authenticate you.", 404, 429 and 500 for both, and no 403.
+#   - The scopes page says that to add a non-read scope you must also add the
+#     read scope of its resource, and lists cdn:read (with spaces:read,
+#     regions:read, sizes:read and actions:read) among the scopes cdn:delete
+#     requires. So a token made with cdn:delete should carry cdn:read too, and
+#     this GET should be a plain 200 for it. That is what the docs say; it
+#     has not been tried, since no real credential is used in developing this.
+#   - A token that is valid but lacks a scope is reported elsewhere as 403
+#     ("You are not authorized to perform this operation"), which the
+#     reference does not list. So 403 is read as a valid token that may not
+#     read the endpoint, and accepted: a token limited to the delete scope
+#     may be exactly that. Only 401 is DigitalOcean not accepting the token.
+#
+# What a preflight cannot prove: that the token may DELETE the cache (only the
+# purge itself proves that; a 403 here leaves it unproven, and even a 200
+# proves only cdn:read), and that the Spaces key may delete (the plan's
+# listing proves list; only a delete proves delete). So the first live run of
+# a new credential should be a one-version pilot.
+#
+# Cloudflare: GET /user/tokens/verify says whether the token is active; GET
+# /zones/{id} whether the zone is readable. A token limited to Cache Purge
+# cannot read a zone, so a 403 there is accepted once the token verified
+# active. It could also be a wrong zone id, which a read-only check may not
+# tell apart; that too is only proven by a purge. (Cloudflare's answers are
+# read as documented, and not checked against the live API.)
+#
+# Anything else, a timeout or an answer that cannot be read included, is
+# refused: fail closed.
+cdn_preflight=skipped
+preflight_note=
+preflight_problem=
+preflight_notes="$tmp/preflight.notes"
+: >"$preflight_notes"
+# probe asks one GET, and leaves the status in $code and the answer in
+# $tmp/answer.
+probe() { # header-file url
+	code=$(curl -sS --connect-timeout 10 --max-time "$preflight_timeout" -o "$tmp/answer" -w '%{http_code}' \
+		-X GET -H @"$1" "$2" 2>"$tmp/curl.err") || code=000
+}
+probe_said() {
+	if [ "$code" = 000 ]; then
+		printf 'no answer: %s' "$(tr '\n' ' ' <"$tmp/curl.err")"
+	else
+		printf 'HTTP %s: %s' "$code" "$(head -c 300 "$tmp/answer" 2>/dev/null | tr '\n' ' ')"
+	fi
+}
+# refuse_preflight and limit_preflight record what a check found.
+refuse_preflight() {
+	cdn_preflight=refused
+	preflight_problem="$preflight_problem$* "
+}
+limit_preflight() {
+	if [ "$cdn_preflight" != refused ]; then
+		cdn_preflight=ok-scope-limited
+	fi
+	printf '%s\n' "$*" >>"$preflight_notes"
+	say "preflight: $*"
+}
+preflight_do() {
+	printf 'Authorization: Bearer %s\n' "$DO_API_TOKEN" >"$tmp/do.header"
+	probe "$tmp/do.header" "$do_api/v2/cdn/endpoints/$DO_CDN_ENDPOINT_ID"
+	rm -f "$tmp/do.header"
+	case $code in
+		200)
+			if grep -q '"endpoint"' "$tmp/answer"; then
+				say "preflight: DigitalOcean accepts DO_API_TOKEN and knows CDN endpoint $DO_CDN_ENDPOINT_ID"
+			else
+				refuse_preflight "DigitalOcean answered 200 for the CDN endpoint, but not with an endpoint ($(probe_said)), so the answer cannot be trusted."
+			fi ;;
+		401)
+			refuse_preflight "DigitalOcean rejected DO_API_TOKEN (HTTP 401): check the token, its expiry and that it was pasted whole, with no spaces or line break." ;;
+		403)
+			limit_preflight "DigitalOcean accepts DO_API_TOKEN, but it may not read the CDN endpoint (HTTP 403), which is expected of a token with the delete scope alone. Whether it may purge the cache (cdn:delete) could not be proven without a purge." ;;
+		404)
+			refuse_preflight "DigitalOcean has no CDN endpoint $DO_CDN_ENDPOINT_ID (HTTP 404): check DO_CDN_ENDPOINT_ID." ;;
+		*)
+			refuse_preflight "DigitalOcean's answer to the credential check cannot be relied on ($(probe_said)); refusing rather than guessing." ;;
+	esac
+}
+preflight_cf() {
+	printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN" >"$tmp/cf.header"
+	verified=
+	probe "$tmp/cf.header" "$cf_api/user/tokens/verify"
+	case $code in
+		200)
+			if grep -Eq '"success"[[:space:]]*:[[:space:]]*true' "$tmp/answer" && grep -Eq '"status"[[:space:]]*:[[:space:]]*"active"' "$tmp/answer"; then
+				verified=1
+				say "preflight: Cloudflare says CLOUDFLARE_API_TOKEN is active"
+			else
+				refuse_preflight "Cloudflare does not say CLOUDFLARE_API_TOKEN is active ($(probe_said))."
+			fi ;;
+		401 | 403)
+			refuse_preflight "Cloudflare rejected CLOUDFLARE_API_TOKEN (HTTP $code): check the token, its expiry and that it was pasted whole, with no spaces or line break." ;;
+		*)
+			refuse_preflight "Cloudflare's answer to the token check cannot be relied on ($(probe_said)); refusing rather than guessing." ;;
+	esac
+	if [ -n "$verified" ]; then
+		probe "$tmp/cf.header" "$cf_api/zones/$CLOUDFLARE_ZONE_ID"
+		case $code in
+			200)
+				if grep -Eq '"success"[[:space:]]*:[[:space:]]*true' "$tmp/answer"; then
+					say "preflight: Cloudflare knows zone $CLOUDFLARE_ZONE_ID"
+				else
+					refuse_preflight "Cloudflare answered 200 for zone $CLOUDFLARE_ZONE_ID, but not with success ($(probe_said))."
+				fi ;;
+			403)
+				limit_preflight "Cloudflare's token is active but may not read zone $CLOUDFLARE_ZONE_ID (HTTP 403), which is expected of a token limited to Cache Purge. That the zone id is right, and that the token may purge it, could not be proven without a purge." ;;
+			404)
+				refuse_preflight "Cloudflare has no zone $CLOUDFLARE_ZONE_ID (HTTP 404): check CLOUDFLARE_ZONE_ID." ;;
+			401)
+				refuse_preflight "Cloudflare rejected CLOUDFLARE_API_TOKEN for zone $CLOUDFLARE_ZONE_ID (HTTP 401)." ;;
+			*)
+				refuse_preflight "Cloudflare's answer about zone $CLOUDFLARE_ZONE_ID cannot be relied on ($(probe_said)); refusing rather than guessing." ;;
+		esac
+	fi
+	rm -f "$tmp/cf.header"
+}
+if [ -n "$no_cdn" ]; then
+	preflight_note="skipped (--no-cdn-purge)"
+else
+	# A live run has named anything missing already; a dry run may lack them.
+	cdn_settings=1
+	need_cdn=" DO_API_TOKEN DO_CDN_ENDPOINT_ID"
+	if [ -z "$no_cf" ]; then
+		need_cdn="$need_cdn CLOUDFLARE_API_TOKEN CLOUDFLARE_ZONE_ID"
+	fi
+	for name in $need_cdn; do
+		if [ -z "$(printenv "$name" || true)" ]; then
+			cdn_settings=
+		fi
+	done
+	if [ -n "$cdn_settings" ]; then
+		cdn_preflight=ok
+		preflight_do
+		if [ -z "$no_cf" ]; then
+			preflight_cf
+		fi
+		case $cdn_preflight in
+			ok) preflight_note="ok: the CDN credentials were accepted" ;;
+			ok-scope-limited) preflight_note="ok-scope-limited: the credentials are valid, but the right to purge could not be proven without a purge: $(tr '\n' ' ' <"$preflight_notes")" ;;
+			*) preflight_note="refused: $preflight_problem" ;;
+		esac
+	else
+		cdn_preflight=not-checked
+		preflight_note="not checked: a dry run without every CDN setting a live run needs"
+		warn "the CDN credentials were not checked: a live run would need${missing:-$need_cdn}"
+	fi
+fi
+if [ "$cdn_preflight" = refused ]; then
+	printf 'purge-downloads: CDN credentials REFUSED: %s\n' "$preflight_problem" >&2
+	if [ -n "$live" ]; then
+		die "nothing has been deleted or purged. Fix the credential, and run again."
+	fi
+fi
+
 # list writes every version of every file under a release, and every delete
 # marker, to $tmp/<name>, one "key<TAB>version id" to a line.
 list() { # version name
@@ -284,6 +461,8 @@ while read -r v; do
 	printf '%s\t%s\t%s\t%s\t%s\n' "$n" "$v" "$keys" "$objects" "$markers" >>"$tmp/plan"
 done <"$tmp/versions"
 
+say "Spaces key: it listed every version under the versions named, so it can list and read. Whether it may DELETE is only proven by a delete: the first live run of a new key should be a one-version pilot."
+
 # status is what happened to each version, one "n<TAB>status" to a line.
 : >"$tmp/status"
 status_of() { awk -F'\t' -v n="$1" '$1 == n { s = $2 } END { print s }' "$tmp/status"; }
@@ -296,6 +475,8 @@ report() { # outcome
 		say "  $v: $st -- $keys files, $objects file versions, $markers delete markers"
 		sed 's/^/purge-downloads:      /' "$tmp/v/$n.keys"
 	done <"$tmp/plan"
+	say "  CDN credentials preflight: $preflight_note"
+	say "  Spaces key: list proven; delete only proven by a delete, so pilot one version with a new key"
 	summary_json "$1" >"$tmp/summary.json"
 	say "summary $(cat "$tmp/summary.json")"
 	[ -z "$json_out" ] || cp "$tmp/summary.json" "$json_out"
@@ -313,8 +494,8 @@ summary_json() {
 		printf '{"version":"%s","status":"%s","files":%s,"file_versions":%s,"delete_markers":%s,"keys":%s}' \
 			"$v" "$(status_of "$n")" "$keys" "$objects" "$markers" "$(json_list "$tmp/v/$n.keys")"
 	done <"$tmp/plan"
-	printf '],"cdn_purge":"%s","still_served":%s,"unconfirmed":%s}\n' "$cdn_state" \
-		"$(json_list "$tmp/served")" "$(json_list "$tmp/unconfirmed")"
+	printf '],"cdn_preflight":"%s","spaces_key":"list proven; delete only proven by a delete","cdn_purge":"%s","still_served":%s,"unconfirmed":%s}\n' \
+		"$cdn_preflight" "$cdn_state" "$(json_list "$tmp/served")" "$(json_list "$tmp/unconfirmed")"
 }
 summary_markdown() {
 	if [ -n "$live" ]; then echo "## Purge of $public: $1"; else echo "## Dry run of a purge of $public: $1"; fi
@@ -326,6 +507,10 @@ summary_markdown() {
 	while IFS="$(printf '\t')" read -r n v keys objects markers; do
 		echo "| $v | $(status_of "$n") | $keys | $objects | $markers |"
 	done <"$tmp/plan"
+	echo
+	echo "CDN credentials preflight: $preflight_note"
+	echo
+	echo "Spaces key: list proven by this run; delete is only proven by a delete, so the first live run of a new key should be a one-version pilot."
 	echo
 	echo "CDN purge: $cdn_state"
 	if [ -s "$tmp/served" ] || [ -s "$tmp/unconfirmed" ]; then
@@ -362,6 +547,9 @@ if [ -z "$live" ]; then
 	[ -z "$no_cf" ] || cdn_state="$cdn_state, at DigitalOcean only (--no-cloudflare)"
 	[ -z "$no_cdn" ] || cdn_state="would be left out (--no-cdn-purge)"
 	report "dry run"
+	if [ "$cdn_preflight" = refused ]; then
+		die "dry run: the CDN credentials were REFUSED, so a live run would refuse too. Nothing has been deleted or purged. Fix the credential, and dry-run again."
+	fi
 	say "dry run: nothing was deleted or purged; to purge these, run again with --live --confirm \"purge $count versions\""
 	exit 0
 fi
