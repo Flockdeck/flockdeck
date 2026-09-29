@@ -229,6 +229,11 @@ func TestWindowsCommandLineForBothShells(t *testing.T) {
 	if got := windowsCommandLine(`C:\Users\O'Neil Jo\f.exe`, args, none, false); !strings.HasPrefix(got, `& 'C:\Users\O''Neil Jo\f.exe' `) {
 		t.Errorf("a quote in the path, PowerShell: %q", got)
 	}
+	// PowerShell takes the typographic single quotes for its own quote as
+	// well, so they are doubled like it: left alone, one ended the string.
+	if got := windowsCommandLine(`C:\Users\O’Neil Jo\f.exe`, args, none, false); !strings.HasPrefix(got, `& 'C:\Users\O’’Neil Jo\f.exe' `) {
+		t.Errorf("a typographic quote in the path, PowerShell: %q", got)
+	}
 }
 
 // The Windows spike, kept: the bridge's command line, for a program under a

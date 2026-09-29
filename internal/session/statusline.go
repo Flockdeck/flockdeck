@@ -226,4 +226,19 @@ func plainForBoth(s string) bool {
 
 func bashQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-func powerShellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+// powerShellQuote quotes s as a PowerShell string taken literally. PowerShell
+// reads the typographic single quotes as its own quote too, so each of them is
+// doubled like the plain one: left alone, one ended the string there.
+func powerShellQuote(s string) string {
+	var b strings.Builder
+	b.WriteByte('\'')
+	for _, r := range s {
+		switch r {
+		case '\'', '‘', '’', '‚', '‛':
+			b.WriteRune(r)
+		}
+		b.WriteRune(r)
+	}
+	b.WriteByte('\'')
+	return b.String()
+}
