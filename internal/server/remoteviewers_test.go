@@ -219,3 +219,43 @@ func TestRemoteViewersReachTheDesksState(t *testing.T) {
 		t.Fatal("the desk was not told the phone left this pane")
 	}
 }
+
+// TestAChatOpenStillResolvingWhenThePhoneGoesIsNotKept covers a phone that
+// opens a pane's chat and is gone before the open has been answered -- a
+// phone locked, or out of signal, while the workspace was busy. The window's
+// connection forgets it everywhere it was watching as it closes, and an open
+// that finished after that put it back as a watcher for good: the desk went
+// on showing that phone looking at the pane, and the pane's stream was never
+// dropped back to light, for as long as the instance ran.
+func TestAChatOpenStillResolvingWhenThePhoneGoesIsNotKept(t *testing.T) {
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	writeClaudeJSONL(t, claudeTranscriptPath(home, ws.ActiveRoot(), paneID),
+		`{"type":"user","uuid":"u1","message":{"role":"user","content":"hello"}}`)
+
+	// The workspace is busy, so the open waits on resolving the pane.
+	release := make(chan struct{})
+	busy := make(chan struct{})
+	srv.do(func() { close(busy); <-release })
+	<-busy
+
+	phone := &controlClient{out: make(chan []byte, 8), remote: true, device: "Jim's iPhone"}
+	srv.conversationOpen(phone, paneID, "")
+	// The phone goes: its connection forgets it, as handleControl does.
+	srv.convos.dropClient(phone)
+	close(release)
+
+	// Whatever the open does now, give it time to finish.
+	select {
+	case <-phone.out:
+	case <-time.After(time.Second):
+	}
+	if _, ok := ask(srv, func() int { return 0 }); !ok {
+		t.Fatal("the workspace did not answer")
+	}
+	if got := srv.remoteViewersFor(paneID); len(got) != 0 {
+		t.Fatalf("remoteViewersFor after the phone went mid-open = %v, want none", got)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -956,6 +957,11 @@ type controlClient struct {
 	// asking for either as fast as it can send frames.
 	startAgentLimit  rateLimiter
 	attachImageLimit rateLimiter
+
+	// gone is set once the window has disconnected and been forgotten by the
+	// conversation hub (see conversationHub.dropClient), so that a chat open
+	// still being answered does not put it back as a watcher afterwards.
+	gone atomic.Bool
 }
 
 // rateLimiter is a sliding-window limit on how often something may happen:
