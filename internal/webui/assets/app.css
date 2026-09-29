@@ -1674,7 +1674,10 @@ kbd {
   padding: 0 5px; border-radius: 3px; color: var(--fg-dim); border: 1px solid var(--line-strong);
 }
 /* Settings › Agents › Routing: the rules, to read. */
-.route-rules { display: flex; flex-direction: column; gap: 4px; max-width: 100%; }
+.route-rules { display: flex; flex-direction: column; gap: 4px; max-width: 100%; min-width: 0; }
+/* A rule list is prose, not a widget: unlike a switch or select it must share
+   the row with .set-text and wrap long "when" patterns, not claim their width. */
+.set-control:has(> .route-rules) { flex: 1 1 auto; min-width: 0; }
 .route-rule { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 12px; }
 .route-rule-name { font-weight: 600; }
 .route-rule-when { color: var(--fg-dim); overflow-wrap: anywhere; }

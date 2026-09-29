@@ -9426,3 +9426,18 @@ h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: ["palette", "dra
 assert.ok(bar.hidden, "a prefs push showed a tip still cooling down");
 `)
 }
+
+// The Rules row in Settings > Agents > Routing puts a block of rule text in
+// .set-control, which otherwise never shrinks: a long "when" pattern then takes
+// the row's whole width and squeezes the description to a word a line. jsdom
+// does no layout, so this pins the rule that lets the control share the row
+// (the wrap itself needs a visual check).
+func TestRoutingRulesControlCanShrink(t *testing.T) {
+	css := readAsset(t, "app.css")
+	if !regexp.MustCompile(`\.set-control:has\(> \.route-rules\)\s*\{[^}]*flex:\s*1 1 auto;[^}]*min-width:\s*0`).MatchString(css) {
+		t.Error("app.css: the control holding .route-rules is not allowed to shrink, so a long rule squeezes the row's description")
+	}
+	if !regexp.MustCompile(`\.route-rule-when\s*\{[^}]*overflow-wrap:\s*anywhere`).MatchString(css) {
+		t.Error("app.css: .route-rule-when cannot wrap a long pattern")
+	}
+}
