@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmwri/flockdeck/internal/appwindow"
 	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/server"
 )
@@ -376,7 +375,7 @@ func verifyEventPrinter(out io.Writer) func(remote.VerifyEvent) {
 		switch {
 		case ev.URL != "":
 			fmt.Fprintln(out, fitted("This relay needs a verified email before it will register a new machine."))
-			if err := appwindow.OpenDefault(ev.URL); err == nil {
+			if err := openBrowser(ev.URL); err == nil {
 				fmt.Fprintln(out, "Opened in your default browser. If nothing opened, or you'd rather use\nanother device, open this link there instead:")
 			} else {
 				fmt.Fprintln(out, "Open this link in a browser -- on this machine, your phone, or anywhere else:")
