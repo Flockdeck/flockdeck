@@ -6164,6 +6164,9 @@
     // alone; only "expanded" asks for a width of its own.
     $("rail").style.width = expanded ? railWidth + "px" : "";
     $("rail-collapse").setAttribute("aria-pressed", String(expanded));
+    // The button's name says what pressing it does now, not what it did last.
+    const railLabel = $("rail-collapse").querySelector(".rail-label");
+    if (railLabel) railLabel.textContent = expanded ? "Narrow the rail" : "Widen the rail";
     $("rail-resize").setAttribute("aria-valuenow", String(railWidth));
   }
 
