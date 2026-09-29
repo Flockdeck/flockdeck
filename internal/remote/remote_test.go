@@ -1537,6 +1537,52 @@ func TestMoveChangesNothingUnlessTheNewRelayAnswers(t *testing.T) {
 	}
 }
 
+// A new relay that takes the machine and then answers for it too slowly to
+// beat the caller's own budget -- the window gives a move one -- is still
+// asked to let it go, as Enable's own cleanup is: with the budget spent,
+// asking on it alone never reached the relay, and left a host there that
+// nothing held the token of, listed offline on every device for good.
+func TestMoveThatRunsOutOfTimeStillTakesTheRegistrationBack(t *testing.T) {
+	isolate(t)
+	old := newFakeRelay(t)
+	cfg := old.config()
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var calls []string
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/register/start":
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/hosts":
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, `{"hostId":"h9","accountId":"a9","token":"fdh_slow"}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/host/devices":
+			// Slower than the caller is prepared to wait.
+			<-r.Context().Done()
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer slow.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if _, _, err := Move(ctx, "v", EnableRequest{Relay: slow.URL}, nil); err == nil || !strings.Contains(err.Error(), "nothing has changed") {
+		t.Fatalf("Move = %v, want it refused with nothing changed", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Contains(calls, "DELETE /api/v1/host") {
+		t.Errorf("the registration was left on the new relay; it saw %q", calls)
+	}
+}
+
 // An old relay that cannot be told does not stop the move, which is done by
 // then; why it was not told comes back for the caller to say.
 func TestMoveOffAGoneRelay(t *testing.T) {

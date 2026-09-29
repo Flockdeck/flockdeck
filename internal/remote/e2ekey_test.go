@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -299,5 +300,95 @@ func TestE2ERosterIsCached(t *testing.T) {
 	relay.mu.Unlock()
 	if calls != 1 {
 		t.Fatalf("GET /api/v1/host/devices was called %d times, want 1", calls)
+	}
+}
+
+// A cached roster that has no key for the device and origin asked about is
+// not taken as the last word: the device may have registered it since, and
+// the one thing a browser with a key does is send its handshake hello first,
+// which a host that wrongly answered "not capable" reads as keystrokes and
+// types into the pane. The commonest case is a phone opening this host's own
+// full interface: it registers its desk key there moments after a terminal
+// through the usual origin has cached a roster without one.
+func TestE2ERosterIsFetchedAgainForAKeyItDoesNotHave(t *testing.T) {
+	isolate(t)
+	usualPriv, _ := e2e.GenerateStaticKey()
+	deskPriv, _ := e2e.GenerateStaticKey()
+	usual := Device{ID: "d1", PublicKey: e2e.EncodePublicKey(usualPriv.PublicKey())}
+	relay := newE2EFakeRelay(t, usual)
+	m := testManager(relay.URL)
+	old := e2eRosterTTL
+	e2eRosterTTL = time.Hour
+	t.Cleanup(func() { e2eRosterTTL = old })
+
+	if !m.E2ECapable(context.Background(), "d1", KeyOriginUsual) {
+		t.Fatal("E2ECapable said no for the usual origin's registered key")
+	}
+	withDesk := usual
+	withDesk.DeskPublicKey = e2e.EncodePublicKey(deskPriv.PublicKey())
+	relay.mu.Lock()
+	relay.devices = []Device{withDesk, {ID: "d2", PublicKey: e2e.EncodePublicKey(deskPriv.PublicKey())}}
+	relay.mu.Unlock()
+
+	if !m.E2ECapable(context.Background(), "d1", KeyOriginDesk) {
+		t.Error("E2ECapable said no for a desk key registered after the roster was cached")
+	}
+	if !m.E2ECapable(context.Background(), "d2", KeyOriginUsual) {
+		t.Error("E2ECapable said no for a device paired after the roster was cached")
+	}
+	// And a key the cache does have is still answered from it.
+	relay.mu.Lock()
+	before := relay.devicesCalls
+	relay.mu.Unlock()
+	for i := 0; i < 3; i++ {
+		if !m.E2ECapable(context.Background(), "d1", KeyOriginUsual) {
+			t.Fatal("E2ECapable said no")
+		}
+	}
+	relay.mu.Lock()
+	after := relay.devicesCalls
+	relay.mu.Unlock()
+	if after != before {
+		t.Errorf("a cached key was fetched again: %d calls, want %d", after, before)
+	}
+}
+
+// A roster that cannot be fetched again once the cached one has aged out --
+// the relay slow, or refusing for a moment, while the tunnel carrying the
+// terminal is fine -- does not make a device that had a key a moment ago
+// look like one that never did: that would serve its terminal in plaintext,
+// and type the handshake hello its browser sends first into the pane.
+func TestE2ERosterThatCannotBeFetchedFallsBackToTheCachedKey(t *testing.T) {
+	isolate(t)
+	devicePriv, _ := e2e.GenerateStaticKey()
+	var failing atomic.Bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/host/devices", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if failing.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"error":"try again in a moment"}`)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(Roster{Devices: []Device{{ID: "d1", PublicKey: e2e.EncodePublicKey(devicePriv.PublicKey())}}})
+	})
+	relay := httptest.NewServer(mux)
+	defer relay.Close()
+	m := testManager(relay.URL)
+	old := e2eRosterTTL
+	e2eRosterTTL = time.Millisecond
+	t.Cleanup(func() { e2eRosterTTL = old })
+
+	if !m.E2ECapable(context.Background(), "d1", KeyOriginUsual) {
+		t.Fatal("E2ECapable said no for a device with a registered key")
+	}
+	time.Sleep(5 * time.Millisecond)
+	failing.Store(true)
+	if !m.E2ECapable(context.Background(), "d1", KeyOriginUsual) {
+		t.Error("E2ECapable said no for a device it had a key for, because the relay could not be asked again just now")
+	}
+	// A device the cache never had a key for is still no.
+	if m.E2ECapable(context.Background(), "d2", KeyOriginUsual) {
+		t.Error("E2ECapable said yes for a device it has never had a key for")
 	}
 }
