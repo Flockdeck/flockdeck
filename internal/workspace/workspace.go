@@ -690,6 +690,15 @@ func (w *Workspace) reviewTool(sessionID string, ev hooks.Event) (allow bool, re
 	return true, d.Reason
 }
 
+// AutoApprovedOf reports a pane's AutoApproved count. reviewTool adds to it
+// from the hook server's goroutines, so it is read under the same lock rather
+// than straight off the pane.
+func (w *Workspace) AutoApprovedOf(p *Pane) int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return p.AutoApproved
+}
+
 // ----------------------------------------------------------------- projects
 
 // Projects returns the open projects with a summary of each. A project
