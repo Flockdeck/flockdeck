@@ -117,8 +117,10 @@ func (t *runCommand) Prefix(args json.RawMessage) string {
 	}
 	// An option in the second place names no subcommand, so the two words
 	// cover every one there is: "always" for `git -c` is standing permission
-	// for `git -c core.pager=<anything> log`, which runs <anything>.
-	if len(argv) > 1 && strings.HasPrefix(argv[1], "-") {
+	// for `git -c core.pager=<anything> log`, which runs <anything>. On Windows
+	// an option is spelled with a slash as often: "always" for `schtasks
+	// /create` would cover a task running any program.
+	if len(argv) > 1 && (strings.HasPrefix(argv[1], "-") || runtime.GOOS == "windows" && strings.HasPrefix(argv[1], "/")) {
 		return ""
 	}
 	// The prefix is what the chat loop remembers and matches later calls by,

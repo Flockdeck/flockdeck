@@ -184,3 +184,22 @@ func TestABatchFileSpelledWithItsExtensionIsJudgedByItsName(t *testing.T) {
 		}
 	}
 }
+
+// On Windows an option is as often spelled with a slash as with a dash, and
+// one in the second place names no subcommand either: "always" for `schtasks
+// /create` would cover a task that runs any program at all.
+func TestASlashOptionInTheSecondPlaceOffersNoStandingPermissionOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("a slash begins a path here, not an option")
+	}
+	tl := &runCommand{root: newRoot(t)}
+	for _, command := range []string{
+		"schtasks /create /tn x /tr touch /sc once /st 00:00",
+		"msiexec /i package.msi",
+		"findstr /s needle *.go",
+	} {
+		if got := tl.Prefix(rawArgs(t, map[string]any{"command": command})); got != "" {
+			t.Errorf("Prefix(%q) = %q, want no standing permission", command, got)
+		}
+	}
+}
