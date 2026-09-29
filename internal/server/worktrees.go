@@ -401,6 +401,11 @@ func (s *Server) removeWorktree(c *controlClient, root, path string, force bool)
 		// with panes in it is not removed, force or no force: force is how the
 		// panel says to throw away uncommitted work, which is the question git
 		// asks, and an agent still running there is not that.
+		//
+		// Counted and removed under the repository's lock, as discardWorktree
+		// does: a `flockdeck spawn --branch` reusing this checkout holds it
+		// until its helper's pane is open, so the count then includes it.
+		defer lockRepo(root)()
 		counts, ok := s.panesPerPath([]string{path})
 		if !ok {
 			c.notify(fmt.Sprintf("could not tell whether an agent is working in %s, so it was not removed", filepath.Base(path)), true)

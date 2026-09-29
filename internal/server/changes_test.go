@@ -805,3 +805,28 @@ func TestUnderPath(t *testing.T) {
 		t.Error("a difference in case made the same directory look unrelated")
 	}
 }
+
+// TestRemovingAWorktreeWaitsForASpawnStartingInIt covers the worktree panel
+// removing a checkout while an agent's `flockdeck spawn --branch` is reusing
+// it. The spawn holds the repository's lock from preparing the checkout until
+// its helper's pane is open, which is what lets a removal that takes the same
+// lock count that pane -- discardWorktree does. The panel's removal took no
+// lock at all, and deleted the checkout under a helper starting in it.
+func TestRemovingAWorktreeWaitsForASpawnStartingInIt(t *testing.T) {
+	srv, _, repo := newRepoServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+
+	wt := filepath.Join(t.TempDir(), "reused")
+	gitCmd(t, repo, "worktree", "add", "-b", "reused", wt)
+
+	// A spawn is starting a helper in it, holding the lock as it does.
+	unlock := lockRepo(repo)
+	sendCmd(t, conn, command{Cmd: "worktreeRemove", Path: wt})
+	time.Sleep(time.Second)
+	if _, err := os.Stat(wt); err != nil {
+		unlock()
+		t.Fatalf("the worktree was removed while a spawn starting in it held the repository's lock: %v", err)
+	}
+	unlock()
+}
