@@ -552,6 +552,9 @@ func refusedThroughRelay(c *controlClient, action string) bool {
 // remote move` without a terminal. The window has already said that every
 // device will pair again, and asked, before this is sent.
 func (s *Server) remoteMove(c *controlClient, cmd command) {
+	if refusedThroughRelay(c, "move") {
+		return
+	}
 	req := remote.EnableRequest{Relay: cmd.Relay, Name: cmd.Name, Join: cmd.Join, Invite: cmd.Invite}
 	s.remoteCall(c, "move", "moving to another relay", func(ctx context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
 		untold, err := ra.Move(ctx, req)
