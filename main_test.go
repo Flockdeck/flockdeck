@@ -1150,3 +1150,25 @@ func TestHookPrintsNothingWhenNotAllowed(t *testing.T) {
 		t.Errorf("hook printed %q, want nothing without a review handler", stdout.String())
 	}
 }
+
+// The usage's line for update is a hand-written copy of update's own flags,
+// and named only -check: -version, which installs a chosen release, and -yes
+// were in `flockdeck update -h` and the help page, and nobody reading
+// `flockdeck -h` learned either existed.
+func TestUsageNamesEveryUpdateFlag(t *testing.T) {
+	var buf bytes.Buffer
+	fs := flockdeckFlagSet(&cliFlags{})
+	fs.SetOutput(&buf)
+	usage(fs)
+	var line string
+	for _, l := range strings.Split(buf.String(), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "update ") {
+			line = l
+		}
+	}
+	updateFlagSet(&updateFlags{}).VisitAll(func(f *flag.Flag) {
+		if !strings.Contains(line, "-"+f.Name) {
+			t.Errorf("the usage's update line %q does not name -%s, which update takes", line, f.Name)
+		}
+	})
+}

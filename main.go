@@ -230,15 +230,6 @@ func main() {
 		fs.Usage()
 		os.Exit(2)
 	}
-	// An agent the catalog does not have is worth two lines here rather than a
-	// window full of panes that will not start.
-	if err := checkAgent(c.agent, ""); err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck:", err)
-		os.Exit(2)
-	}
-	if w := notInstalledWarning(c.agent); w != "" {
-		fmt.Fprintln(os.Stderr, "flockdeck:", w)
-	}
 	server.Version = version
 
 	if c.quit {
@@ -252,6 +243,20 @@ func main() {
 			fail("Flockdeck could not stop the running instance.", err)
 		}
 		return
+	}
+
+	// -agent says which agent new panes start as, which stopping an instance
+	// has no use for: it is checked only for a run that starts one, so that a
+	// stale FLOCKDECK_START_AGENT in a service's environment cannot stop
+	// `flockdeck -quit` from stopping it.
+	// An agent the catalog does not have is worth two lines here rather than a
+	// window full of panes that will not start.
+	if err := checkAgent(c.agent, ""); err != nil {
+		fmt.Fprintln(os.Stderr, "flockdeck:", err)
+		os.Exit(2)
+	}
+	if w := notInstalledWarning(c.agent); w != "" {
+		fmt.Fprintln(os.Stderr, "flockdeck:", w)
 	}
 
 	if c.detach {
@@ -392,8 +397,8 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        rename this machine, or a paired device, as every device lists it\n")
 	fmt.Fprintf(out, "  remote move [-invite <code>] [-join <code>] [-name <name>] [-yes] <relay>\n")
 	fmt.Fprintf(out, "        move this machine to another relay; every device then pairs again\n")
-	fmt.Fprintf(out, "  update [-check]\n")
-	fmt.Fprintf(out, "        fetch the latest release and put it in place\n")
+	fmt.Fprintf(out, "  update [-check] [-version=<release> [-yes]]\n")
+	fmt.Fprintf(out, "        fetch the latest release, or the one named, and put it in place\n")
 	fmt.Fprintf(out, "  help [<subcommand>]\n")
 	fmt.Fprintf(out, "        this usage, or a subcommand's own\n")
 	// These are settings with no flag, so this is the only place a person
