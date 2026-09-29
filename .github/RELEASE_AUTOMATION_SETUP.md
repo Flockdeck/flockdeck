@@ -14,7 +14,9 @@ v0.3.41 tagged in Flockdeck/flockdeck
   release.yml: test, build, release            (as before; nothing changed)
   release.yml: followups  (needs: release, not for -rc tags, environment: release)
       regenerates flockdeck-site  (sitegen -release v0.3.41, signature checked)
-      regenerates flockdeck-docs  (docgen)
+      regenerates flockdeck-docs  (docgen; and, if any page changed, moves
+          .docs-generated-from to "<tag> <commit the tag points at>", which
+          the docs repo's "Generated files match" guard needs)
       if -- and only if -- either differs from its main:
           force-pushes auto/regen-v0.3.41, opens or updates ONE pull request,
           enables auto-merge (variable AUTO_MERGE_REGEN)
