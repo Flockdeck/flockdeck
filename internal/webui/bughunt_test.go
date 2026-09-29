@@ -37,3 +37,26 @@ assert.ok(h.$("overlay-body").textContent.includes("Title"), "the note was not d
 assert.ok(h.$("overlay-body").textContent.includes("item"), "the list after it was not drawn");
 `)
 }
+
+// A terminal socket that had held for a good while and then dropped reset the
+// retry backoff, as it should; but connectedAt stayed on that old open, so
+// every failed retry after it, which never opened, looked like it followed a
+// good connection too and reset the backoff again: an outage was retried
+// every 250ms for as long as it lasted, instead of backing off.
+func TestAPaneKeepsBackingOffWhileItsSocketCannotConnect(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const ptySockets = () => h.sockets.filter((s) => s.url.includes("/ws/pty?id=p1"));
+ptySockets()[0].onopen();
+await h.sleep(1100); // long enough to count as a connection that held
+ptySockets()[0].close();
+await h.sleep(350);
+assert.strictEqual(ptySockets().length, 2, "the first retry did not come after 250ms");
+ptySockets()[1].close(); // refused without ever opening
+await h.sleep(350);
+assert.strictEqual(ptySockets().length, 2, "a second failure retried after 250ms again instead of backing off");
+await h.sleep(300);
+assert.strictEqual(ptySockets().length, 3, "the backed-off retry never came");
+`)
+}

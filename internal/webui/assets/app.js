@@ -3747,6 +3747,10 @@
       // never builds up a wait at all: onopen already ran, so the next
       // failure looks like the first one again, forever.
       if (p.connectedAt && Date.now() - p.connectedAt >= PTY_RETRY_STABLE_MS) p.retries = 0;
+      // Spent: the next attempt sets it again when it opens. Left standing, a
+      // retry that is refused without opening would be judged by the old
+      // connection's age and reset the backoff every time.
+      p.connectedAt = 0;
       const delay = Math.min(250 * Math.pow(2, p.retries++), 3000);
       p.retryTimer = setTimeout(() => { if (panes.has(p.id)) connectPTY(p); }, delay);
     };
