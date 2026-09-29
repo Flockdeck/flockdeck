@@ -377,14 +377,25 @@ func (s *Server) probeAgents(root string) {
 		s.ws.ReloadAgents()
 		// Encoded here too, off the workspace goroutine, like the probing.
 		built := buildCatalog(s.ws.Catalog(), root).encoded()
-		s.do(func() {
-			s.agents, s.agentsRoot, s.agentsAt = built, root, time.Now()
-			s.agentsProbing = false
-		})
+		s.do(func() { s.probeDone(built, root) })
 		// Queued behind the assignment above, so the snapshot this asks for is
 		// built from the answer that has just landed.
 		s.wakeAsked()
 	}()
+}
+
+// probeDone takes the answer a probe worked out. It must be called on the
+// workspace goroutine.
+func (s *Server) probeDone(built agentCatalog, root string) {
+	s.agents, s.agentsRoot, s.agentsAt = built, root, time.Now()
+	s.agentsProbing = false
+	// A refresh asked for while this probe ran came after it had read
+	// agents.json -- a default, an address or a key saved meanwhile -- so
+	// the answer just landed may not have it. It is asked again now.
+	if s.agentsAgain {
+		s.agentsAgain = false
+		s.probeAgents(s.ws.ActiveRoot())
+	}
 }
 
 // refreshAgents asks the machine again out of turn. The picker sends this as
@@ -401,6 +412,10 @@ func (s *Server) refreshAgents() {
 		// is the wait this exists to skip: the agent installed a moment ago,
 		// or the key just saved, would otherwise go on reading as missing.
 		agent.Refresh()
+		if s.agentsProbing {
+			s.agentsAgain = true
+			return
+		}
 		s.probeAgents(s.ws.ActiveRoot())
 	})
 }

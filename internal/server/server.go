@@ -156,6 +156,9 @@ type Server struct {
 	agentsRoot    string
 	agentsAt      time.Time
 	agentsProbing bool
+	// agentsAgain is a refresh asked for while a probe was running, which
+	// probeDone runs once that probe has landed.
+	agentsAgain bool
 
 	// detached, when set, means the application should keep running after its
 	// last window closes so the agents carry on.
