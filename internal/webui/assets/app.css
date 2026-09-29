@@ -237,6 +237,9 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
 
   body.rail-expanded #rail { align-items: stretch; }
   body.rail-expanded #rail-projects { align-items: stretch; }
+  /* Stretch would leave the mark alone at the left edge; line it up with the
+   * icon column of the buttons below (their 10px padding), as the menu does. */
+  body.rail-expanded .rail-mark { align-self: flex-start; margin-left: 10px; }
   body.rail-expanded .rail-btn {
     width: 100%; height: 34px; justify-content: flex-start; padding: 0 10px;
   }

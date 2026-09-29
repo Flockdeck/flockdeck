@@ -5285,18 +5285,22 @@ const rail = h.$("rail"), collapse = h.$("rail-collapse"), resize = h.$("rail-re
 assert.strictEqual(h.doc.body.classList.contains("rail-expanded"), false, "the rail starts widened");
 assert.strictEqual(collapse.getAttribute("aria-pressed"), "false");
 assert.strictEqual(rail.style.width, "", "a collapsed rail carries a width of its own");
+const collapseLabel = () => collapse.querySelector(".rail-label").textContent;
+assert.strictEqual(collapseLabel(), "Widen the rail", "collapsed on load, the button should offer to widen");
 
 h.click(collapse);
 assert.deepStrictEqual(h.commands().pop(), { cmd: "railExpanded", kind: "on" });
 assert.ok(h.doc.body.classList.contains("rail-expanded"), "clicking the collapse button did not widen the rail");
 assert.strictEqual(collapse.getAttribute("aria-pressed"), "true");
 assert.strictEqual(rail.style.width, "220px", "a rail nobody has resized is not the default width");
+assert.strictEqual(collapseLabel(), "Narrow the rail", "widened, the button still offers to widen");
 
 // Ctrl+B, from the key table rather than written out here, folds it back.
 h.press("toggleRail");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "railExpanded", kind: "off" });
 assert.ok(!h.doc.body.classList.contains("rail-expanded"), "the binding did not fold the rail back");
 assert.strictEqual(rail.style.width, "", "folded, the rail kept the width it had been widened to");
+assert.strictEqual(collapseLabel(), "Widen the rail", "folded, the button did not go back to offering to widen");
 
 h.press("toggleRail");
 h.commands();
@@ -5333,9 +5337,19 @@ assert.ok(!h.doc.body.classList.contains("rail-resizing"), "letting go left the 
 // choice made in another window is followed here too.
 h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], railExpanded: true, railWidth: 5000 } });
 assert.strictEqual(rail.style.width, "480px", "a width from the preferences was not clamped to the maximum");
+assert.strictEqual(collapseLabel(), "Narrow the rail", "prefs arriving widened did not relabel the button");
 h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], railExpanded: false, railWidth: 480 } });
 assert.ok(!h.doc.body.classList.contains("rail-expanded"), "folding the rail from another window was not followed");
 `)
+}
+
+// Widened, the rail's align-items:stretch would strand the mark at the left
+// edge; a rule of its own lines it up with the buttons' icon column.
+func TestTheWidenedRailKeepsItsMarkAligned(t *testing.T) {
+	css := readAsset(t, "app.css")
+	if !regexp.MustCompile(`body\.rail-expanded \.rail-mark\s*\{[^}]*align-self:\s*flex-start[^}]*margin-left:\s*10px`).MatchString(css) {
+		t.Error("app.css has no expanded-rail rule aligning .rail-mark with the icon column")
+	}
 }
 
 // Settings opens from the rail, from the palette and with its key - Ctrl+,,
