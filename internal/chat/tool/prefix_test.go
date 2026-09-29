@@ -137,6 +137,8 @@ func TestAStandingPermissionDoesNotCoverWhatGoesFurther(t *testing.T) {
 		{"go test -toolexec touch ./...", ""},
 		{"go vet --vettool=touch ./...", ""},
 		{"go env -w GOFLAGS=-toolexec=touch", ""},
+		{"go env -w CC=touch", ""},
+		{"go env --w=CC=touch", ""},
 		// npm and docker subcommands that run anything.
 		{"npm exec touch", ""},
 		{"npm x touch", ""},
@@ -155,6 +157,7 @@ func TestAStandingPermissionDoesNotCoverWhatGoesFurther(t *testing.T) {
 		{"git log -- --output", "git log"},
 		{"go test -run TestExec ./...", "go test"},
 		{"go build ./cmd/foo-exec", "go build"},
+		{"go env GOPATH", "go env"},
 		{"npm run build", "npm run"},
 		{"docker ps", "docker ps"},
 		{"docker compose up", "docker compose"},

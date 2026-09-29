@@ -171,6 +171,18 @@ func (t *runCommand) goesFurther(names []string, sub string, rest []string) bool
 			if goGoesFurther(rest) {
 				return true
 			}
+			// go env -w sets a variable for every go command after it, and
+			// some name programs they run: CC and CXX at the next build that
+			// uses cgo, GOTOOLCHAIN fetched from GOPROXY. "Always" for `go
+			// env` was agreed to while reading it.
+			if sub == "env" {
+				for _, a := range rest {
+					name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
+					if len(name) < len(a) && name == "w" {
+						return true
+					}
+				}
+			}
 		case "npm":
 			// npm exec, and its alias x, run any package's program, as npx
 			// does. npm takes an unambiguous abbreviation of a command, so exe
