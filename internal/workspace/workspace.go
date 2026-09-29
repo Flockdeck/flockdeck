@@ -690,6 +690,24 @@ func (w *Workspace) reviewTool(sessionID string, ev hooks.Event) (allow bool, re
 	return true, d.Reason
 }
 
+// AutoApprovedOf reports a pane's AutoApproved count. reviewTool adds to it
+// from the hook server's goroutines, so it is read under the same lock rather
+// than straight off the pane.
+func (w *Workspace) AutoApprovedOf(p *Pane) int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return p.AutoApproved
+}
+
+// PeerNameOf reports a pane's PeerName. SetPanePeerName sets it from the hook
+// server's goroutines, so it is read under the same lock rather than straight
+// off the pane.
+func (w *Workspace) PeerNameOf(p *Pane) string {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return p.PeerName
+}
+
 // ----------------------------------------------------------------- projects
 
 // Projects returns the open projects with a summary of each. A project
@@ -1286,6 +1304,12 @@ func (w *Workspace) focusFirstTabOf(root string) {
 			w.activeTab = t.ID
 			return
 		}
+	}
+	// A member of a multi-repo project can have no tabs of its own while the
+	// bar shows the other members'. One of those stays active, or the window
+	// would draw a tab that every command aimed at the tab on screen missed.
+	if bar := w.barOf(root); len(bar) > 0 {
+		w.activeTab = bar[0].ID
 	}
 }
 
@@ -2252,7 +2276,9 @@ func (w *Workspace) cycleTab(delta int) {
 			cur = i
 		}
 	}
-	w.activeTab = tabs[((cur+delta)%len(tabs)+len(tabs))%len(tabs)].ID
+	// Through SelectTab, since in a multi-repo project the next tab can belong
+	// to another member repo, which then becomes the one worked in.
+	w.SelectTab(tabs[((cur+delta)%len(tabs)+len(tabs))%len(tabs)].ID)
 }
 
 // -------------------------------------------------------------------- panes

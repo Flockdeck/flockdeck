@@ -256,7 +256,7 @@ func (w *Workspace) mergeTab(id, targetID string, dir layout.Dir, before bool) e
 	if src == dest {
 		return fmt.Errorf("a tab cannot be merged into itself")
 	}
-	if src.Root != dest.Root {
+	if !w.sameProject(src.Root, dest.Root) {
 		return fmt.Errorf("a tab can only be merged into a tab of its own project")
 	}
 
@@ -302,7 +302,7 @@ func (w *Workspace) MergeTabsInProject(targetID string, dir layout.Dir) error {
 	if dest == nil {
 		return fmt.Errorf("that tab is no longer open")
 	}
-	tabs := w.tabsOf(dest.Root)
+	tabs := w.barOf(dest.Root)
 	at := -1
 	for i, t := range tabs {
 		if t == dest {
@@ -353,7 +353,7 @@ func (w *Workspace) MoveTab(id, beforeID string) error {
 		if before == nil {
 			return fmt.Errorf("the tab it was dropped before is no longer open")
 		}
-		if before.Root != moving.Root {
+		if !w.sameProject(before.Root, moving.Root) {
 			return fmt.Errorf("a tab can only be reordered within its own project")
 		}
 	}
@@ -378,7 +378,7 @@ func (w *Workspace) MoveTab(id, beforeID string) error {
 	} else {
 		// The end of this project's tabs, not the end of every project's.
 		for i, t := range rest {
-			if t.Root == moving.Root {
+			if w.sameProject(t.Root, moving.Root) {
 				at = i + 1
 			}
 		}
@@ -420,7 +420,11 @@ func (w *Workspace) detachPane(paneID string) {
 // unlinkTab drops a tab from the workspace, leaving every session in it alone.
 // It is what CloseTab does minus the killing, for a tab emptied by a move.
 func (w *Workspace) unlinkTab(t *Tab) {
-	siblings := w.tabsOf(t.Root)
+	// The neighbour is looked for in the tab bar the tab was drawn in, which
+	// for a multi-repo project holds every member's tabs. Looking among the
+	// tab's own repo alone found nothing once its last tab went, and left no
+	// tab active while the bar still had tabs in it.
+	siblings := w.barOf(t.Root)
 	pos := 0
 	for i, s := range siblings {
 		if s == t {
@@ -440,12 +444,19 @@ func (w *Workspace) unlinkTab(t *Tab) {
 		return
 	}
 	w.activeTab = ""
-	remaining := w.tabsOf(t.Root)
+	remaining := w.barOf(t.Root)
 	if len(remaining) > 0 {
 		if pos >= len(remaining) {
 			pos = len(remaining) - 1
 		}
-		w.activeTab = remaining[pos].ID
+		next := remaining[pos]
+		w.activeTab = next.ID
+		// A neighbour in another member repo makes that repo the one worked
+		// in, as selecting its tab would.
+		if next.Root != w.activeRoot && w.isOpen(next.Root) {
+			w.activeRoot = next.Root
+			w.noteActiveRoot()
+		}
 	}
 }
 
@@ -509,4 +520,24 @@ func computeTab(t *Tab) {
 	if t != nil && t.Tree != nil {
 		t.Tree.Compute(nominalRect)
 	}
+}
+
+// sameProject reports whether tabs of two repos share one tab bar: they are
+// the same repo, or members of one multi-repo project, whose bar shows every
+// member's tabs together.
+func (w *Workspace) sameProject(a, b string) bool {
+	if a == b {
+		return true
+	}
+	g := w.groupOf(a)
+	return g != nil && g == w.groupOf(b)
+}
+
+// barOf returns the tabs drawn in the same tab bar as root's: every member's,
+// for a multi-repo project.
+func (w *Workspace) barOf(root string) []*Tab {
+	if g := w.groupOf(root); g != nil {
+		return w.tabsOfGroup(g)
+	}
+	return w.tabsOf(root)
 }

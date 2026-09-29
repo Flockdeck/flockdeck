@@ -698,8 +698,8 @@ func (s *Server) snapshot() stateMsg {
 				Broadcast:    ws.InBroadcast(p.ID),
 				Muted:        p.Muted,
 				AutoReview:   p.AutoReview,
-				AutoApproved: p.AutoApproved,
-				PeerName:     p.PeerName,
+				AutoApproved: ws.AutoApprovedOf(p),
+				PeerName:     ws.PeerNameOf(p),
 				Task:         p.Task,
 			}
 			pv.RemoteViewers = s.remoteViewersFor(p.ID)
