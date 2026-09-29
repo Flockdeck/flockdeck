@@ -653,7 +653,11 @@
       }
       // A paragraph runs until the next blank line, list item or heading;
       // its own line breaks are folded to spaces the way Markdown reads them.
-      const buf = [];
+      // The line that got here is always taken: a heading the pattern above
+      // did not match (its text held U+2028, which "." will not cross) would
+      // otherwise stop this loop at once, and nothing would ever move on.
+      const buf = [line.trim()];
+      i++;
       while (i < lines.length && lines[i].trim() && !/^[-*]\s+/.test(lines[i]) && !/^#{1,6}\s+/.test(lines[i])) {
         buf.push(lines[i].trim());
         i++;

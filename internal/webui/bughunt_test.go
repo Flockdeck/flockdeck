@@ -23,3 +23,17 @@ assert.strictEqual(h.commands().slice(before).filter((c) => c.cmd === "setKeybin
   "a key typed after the dialog closed was saved as a shortcut");
 `)
 }
+
+// A release note with a heading line that carries U+2028 (a line separator
+// JavaScript's "." and "$" treat as a line end but split("\n") does not) is
+// neither a heading nor a paragraph as renderNotes read it, and the loop never
+// moved past it: opening the update dialog hung the window.
+func TestReleaseNotesWithALineSeparatorDoNotHangTheUpdateDialog(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ update: { version: "9.9.9", notes: "# Title\u2028more\n\n- item" } }));
+h.click(h.$("btn-update"));
+assert.ok(h.$("overlay-body").textContent.includes("Title"), "the note was not drawn");
+assert.ok(h.$("overlay-body").textContent.includes("item"), "the list after it was not drawn");
+`)
+}
