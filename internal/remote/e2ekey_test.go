@@ -301,3 +301,53 @@ func TestE2ERosterIsCached(t *testing.T) {
 		t.Fatalf("GET /api/v1/host/devices was called %d times, want 1", calls)
 	}
 }
+
+// A cached roster that has no key for the device and origin asked about is
+// not taken as the last word: the device may have registered it since, and
+// the one thing a browser with a key does is send its handshake hello first,
+// which a host that wrongly answered "not capable" reads as keystrokes and
+// types into the pane. The commonest case is a phone opening this host's own
+// full interface: it registers its desk key there moments after a terminal
+// through the usual origin has cached a roster without one.
+func TestE2ERosterIsFetchedAgainForAKeyItDoesNotHave(t *testing.T) {
+	isolate(t)
+	usualPriv, _ := e2e.GenerateStaticKey()
+	deskPriv, _ := e2e.GenerateStaticKey()
+	usual := Device{ID: "d1", PublicKey: e2e.EncodePublicKey(usualPriv.PublicKey())}
+	relay := newE2EFakeRelay(t, usual)
+	m := testManager(relay.URL)
+	old := e2eRosterTTL
+	e2eRosterTTL = time.Hour
+	t.Cleanup(func() { e2eRosterTTL = old })
+
+	if !m.E2ECapable(context.Background(), "d1", KeyOriginUsual) {
+		t.Fatal("E2ECapable said no for the usual origin's registered key")
+	}
+	withDesk := usual
+	withDesk.DeskPublicKey = e2e.EncodePublicKey(deskPriv.PublicKey())
+	relay.mu.Lock()
+	relay.devices = []Device{withDesk, {ID: "d2", PublicKey: e2e.EncodePublicKey(deskPriv.PublicKey())}}
+	relay.mu.Unlock()
+
+	if !m.E2ECapable(context.Background(), "d1", KeyOriginDesk) {
+		t.Error("E2ECapable said no for a desk key registered after the roster was cached")
+	}
+	if !m.E2ECapable(context.Background(), "d2", KeyOriginUsual) {
+		t.Error("E2ECapable said no for a device paired after the roster was cached")
+	}
+	// And a key the cache does have is still answered from it.
+	relay.mu.Lock()
+	before := relay.devicesCalls
+	relay.mu.Unlock()
+	for i := 0; i < 3; i++ {
+		if !m.E2ECapable(context.Background(), "d1", KeyOriginUsual) {
+			t.Fatal("E2ECapable said no")
+		}
+	}
+	relay.mu.Lock()
+	after := relay.devicesCalls
+	relay.mu.Unlock()
+	if after != before {
+		t.Errorf("a cached key was fetched again: %d calls, want %d", after, before)
+	}
+}

@@ -199,10 +199,15 @@ func (o KeyOrigin) key(d Device) string {
 // e2eRoster is the account's devices, by id, exactly as the relay reports
 // them -- both end-to-end keys included, one for each origin a device might
 // open a terminal from. It is fetched from the relay through Client().Devices,
-// cached for e2eRosterTTL.
-func (m *Manager) e2eRoster(ctx context.Context) (map[string]Device, error) {
+// cached for e2eRosterTTL -- but only trusted for a key it has: one without
+// deviceID's key for origin is fetched again, since the device may well have
+// registered it since (a phone opening this host's own full interface does,
+// moments after a terminal the usual way cached a roster without it), and a
+// browser that has a key sends its handshake hello first, which a host that
+// wrongly answered E2ECapable false would type into the pane as keystrokes.
+func (m *Manager) e2eRoster(ctx context.Context, deviceID string, origin KeyOrigin) (map[string]Device, error) {
 	m.e2eMu.Lock()
-	if m.e2eRosterCache != nil && time.Since(m.e2eRosterAt) < e2eRosterTTL {
+	if m.e2eRosterCache != nil && time.Since(m.e2eRosterAt) < e2eRosterTTL && origin.key(m.e2eRosterCache[deviceID]) != "" {
 		devices := m.e2eRosterCache
 		m.e2eMu.Unlock()
 		return devices, nil
@@ -241,7 +246,7 @@ func (m *Manager) E2ECapable(ctx context.Context, deviceID string, origin KeyOri
 	if _, err := m.hostE2EIdentity(); err != nil {
 		return false
 	}
-	devices, err := m.e2eRoster(ctx)
+	devices, err := m.e2eRoster(ctx, deviceID, origin)
 	if err != nil {
 		return false
 	}
@@ -263,7 +268,7 @@ func (m *Manager) E2ERespond(ctx context.Context, deviceID string, origin KeyOri
 	if err != nil {
 		return nil, nil, err
 	}
-	devices, err := m.e2eRoster(ctx)
+	devices, err := m.e2eRoster(ctx, deviceID, origin)
 	if err != nil {
 		return nil, nil, err
 	}
