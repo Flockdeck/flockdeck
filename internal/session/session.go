@@ -74,6 +74,17 @@ const (
 	// bellGrace is how long after a pane starts its bells are treated as part
 	// of starting up rather than a request for attention.
 	bellGrace = 5 * time.Second
+	// startupGrace is how long after a pane starts, with nothing typed into it,
+	// what it prints is taken for it drawing its first screen -- a shell's
+	// prompt, an agent's welcome -- rather than work: it stays starting and
+	// settles at idle once quiet. Output still coming after it is work. It is
+	// the bell's grace, for the same reason. See ownRedraw.
+	startupGrace = bellGrace
+	// resizeEcho is how long after Flockdeck resizes a pane what it prints is
+	// taken for the redraw the resize asked for rather than work. A program
+	// redraws at once; the margin is for a loaded machine, and for ConPTY,
+	// which repaints the console itself after a resize. See ownRedraw.
+	resizeEcho = time.Second
 	// patternBytes is how much recent output an agent's own patterns are read
 	// in. It is small on purpose: the patterns stand for what the agent is
 	// doing now, and a question answered ten minutes ago is still somewhere in
@@ -166,7 +177,11 @@ type Session struct {
 	// installed for an agent whose Spec says it reports a lifecycle, so this can
 	// only ever become true for one of those: for them the guesses below are a
 	// bridge until the first event arrives, and for every other agent they are
-	// the whole story, for as long as it runs.
+	// the whole story, for as long as it runs. A SessionStart, which changes no
+	// status of its own once the hooks have spoken, sets it as the first event:
+	// it is the agent saying its hooks report, and comes before its first
+	// screen is fully drawn (see ApplyEvent). A hooked agent whose hooks never
+	// arrive at all is read from its output for good.
 	hooksSeen bool
 	// toolQuestion records that the pane is waiting on a question put in the
 	// middle of a tool call -- Claude's permission prompt -- which is the one
@@ -214,6 +229,10 @@ type Session struct {
 	sawInput   bool
 	startedAt  time.Time
 	cols, rows int
+	// resizedAt is when the pane was last resized with nothing typed into it
+	// since, which is when its program was last made to redraw by Flockdeck
+	// rather than by anything it was doing: see ownRedraw. Typing clears it.
+	resizedAt time.Time
 	// assist is Config.Assist, kept only for a pane that may use it: an agent
 	// whose status is read out of its output.
 	assist *StatusAssist
@@ -449,8 +468,13 @@ func (s *Session) publish(chunk []byte) {
 	//
 	// Waiting is left alone: it is the one status here worth surfacing, and the
 	// bell and the patterns both know more than the fact that bytes arrived.
+	//
+	// Output that is only the program drawing itself -- its first screen, or
+	// a redraw Flockdeck caused by resizing it -- does not start a working
+	// status: see ownRedraw. It still has the pane settle once it is quiet,
+	// which is how a starting one comes to rest at idle.
 	case !s.hooksSeen && s.status != StatusExited && s.status != StatusWaiting:
-		if s.status != StatusWorking {
+		if s.status != StatusWorking && !s.ownRedraw(s.lastOutput) {
 			s.status = StatusWorking
 			s.statusSince = s.lastOutput
 			notify = true
@@ -534,7 +558,7 @@ func (s *Session) publish(chunk []byte) {
 func (s *Session) settleIdle() {
 	for {
 		s.mu.Lock()
-		if s.hooksSeen || s.status != StatusWorking {
+		if s.hooksSeen || (s.status != StatusWorking && s.status != StatusStarting) {
 			s.settling = false
 			s.mu.Unlock()
 			return
@@ -558,6 +582,26 @@ func (s *Session) settleIdle() {
 		}
 		return
 	}
+}
+
+// ownRedraw reports whether output arriving at now is, as far as can be told,
+// the pane's program drawing itself rather than doing anything: its first
+// screen while it starts up, or a redraw within resizeEcho of Flockdeck
+// resizing it -- which a window being fitted to the pane, a window attaching
+// and being repainted for (internal/server's repaintPane), and a project being
+// switched to all do. Neither is work, and read as work they had every pane of
+// a restored workspace, and every pane of each project looked at, show as
+// working. Typing into the pane ends both: what follows it is an answer.
+//
+// It only keeps output from starting a working status. A pane already working
+// -- a build printing as its window is resized -- goes on working, and one
+// whose output carries on past either window is working from the next chunk.
+// The caller holds mu.
+func (s *Session) ownRedraw(now time.Time) bool {
+	if s.status == StatusStarting && !s.sawInput && now.Sub(s.startedAt) < startupGrace {
+		return true
+	}
+	return !s.resizedAt.IsZero() && now.Sub(s.resizedAt) < resizeEcho
 }
 
 // assistFor is the assistant a pane may use: only an agent's, and only one that
@@ -794,6 +838,8 @@ func (s *Session) Write(p []byte) (int, error) {
 	typed := !terminalReport(p)
 	if typed {
 		s.sawInput = true
+		// What the pane prints next may be its answer: see ownRedraw.
+		s.resizedAt = time.Time{}
 	}
 	// Typing is the answer to whatever the pane was blocked on, and where the
 	// bell is what put it there, typing is the only thing that can take it
@@ -1385,6 +1431,10 @@ func (s *Session) Resize(cols, rows int) {
 		return
 	}
 	s.cols, s.rows = cols, rows
+	// The program redraws for it, and that redraw is Flockdeck's doing, not
+	// work: see ownRedraw. Stamped before the PTY is told, so the redraw
+	// cannot arrive ahead of it.
+	s.resizedAt = time.Now()
 	s.mu.Unlock()
 
 	_ = s.pty.Resize(cols, rows)

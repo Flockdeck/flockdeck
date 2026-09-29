@@ -54,9 +54,9 @@ A status is decided in one of two ways:
 
    Steps 3 to 5 are one call, `Session.ApplyEvent`, which also tracks the turn (see the end of section C). Every event reaches it, including those `StatusForEvent` maps to no status.
 
-   The first event that changes status sets `hooksSeen`. From then on the output-based guesses below are switched off for that pane. The chat client (`internal/chat/lifecycle.go`) posts the same event names through the same `Emit` function.
-2. **Output inference (fallback).** This applies to shells, to agents whose Spec reports no lifecycle, and to a hooked agent before its first status-changing event. It reads the pane's output in `Session.publish`:
-   - Bytes arriving mean `working`.
+   The first event that changes status sets `hooksSeen`, and so does a `SessionStart` (any source but `compact`), which also settles a pane the hooks have not yet spoken for at idle (A16, D12). From then on the output-based guesses below are switched off for that pane. The chat client (`internal/chat/lifecycle.go`) posts the same event names through the same `Emit` function.
+2. **Output inference (fallback).** This applies to shells, to agents whose Spec reports no lifecycle, and to a hooked agent before its first `SessionStart` or status-changing event (for good, if its hooks never arrive). It reads the pane's output in `Session.publish`:
+   - Bytes arriving mean `working`, except output that is only the program drawing itself (`Session.ownRedraw`): its first screen, within `startupGrace` (5 s) of starting with nothing typed, leaves it `starting`; a redraw within `resizeEcho` (1 s) of Flockdeck resizing it, with nothing typed since, leaves it as it was (D14–D17). Output that goes on past either window is `working`, and a pane already working stays so.
    - `quietBeforeIdle` (3 s) of silence means `idle`.
    - An agent's bell after startup means `waiting`.
    - The Spec's patterns can mean `waiting` or `idle`.
@@ -83,7 +83,7 @@ A status is decided in one of two ways:
 | A13 | `Notification` `auth_success`, `elicitation_complete`, `elicitation_response`, `agent_completed`, `computer_use_exit` | not reported at all | dropped in `Emit` (`finishedNotifications`) | ✓ | H |
 | A14 | `Stop` | idle, or blocked (see B9) | `StatusForEvent` + `ResolveBlocked` | ✓ | S, H |
 | A15 | `StopFailure` (the turn ended on an API error) | idle, or blocked after a denial | 〃 | ✓ | S, H |
-| A16 | `SessionStart` (any source) | no status change: it also fires mid-turn on a compaction | no status; the source drives background bookkeeping, and any source but `compact` clears a denial mark (C18) | ✓ | S |
+| A16 | `SessionStart` | `compact`: no status change, it fires mid-turn (B13). Any other source (`startup`, `resume`, `clear`): no change once the hooks have reported; on a pane they have not, idle, and output inference is off from then on (D12) | `StatusForEvent` gives no status; `ApplyEvent` settles a pane with `hooksSeen` unset at idle. The source drives background bookkeeping, and any source but `compact` clears a denial mark (C18) | ✓ | S, S `D12`, `D14` |
 | A17 | `SessionEnd` | no status change: `/clear` fires it and carries on, and a real exit is seen by the PTY reader | ignored | ✓ | S, and existing `TestNoLifecycleEventCanMarkALivePaneExited` |
 | A18 | `SubagentStart` / `SubagentStop` | no status change of their own; they count background work | `NoteBackground`; a SubagentStop also ends what a background subagent from an older Claude Code left showing after the turn (B21) | ✓ | S |
 | A19 | Any other event, or an event not subscribed to (`PreCompact`, …) | no change | default case | ✓ | S |
@@ -108,7 +108,7 @@ The events in A5–A8, A15 and A18 are only subscribed to on Claude Code 2.1.269
 | B12 | The user presses **Esc while the model is streaming text** (no tool running) | idle | Claude Code fires **no Stop** ("Stop does not run on a user interrupt") and no PostToolUseFailure. The `idle_prompt` Notification about 60 s later is the only signal, and `ApplyEvent` turns the working pane idle on it (C14). Before this, it was ignored and the pane stayed working forever. | ✓ | S `B12` |
 | B13 | Auto-compaction mid-turn (`SessionStart` source `compact`) | stays working; background work is kept | SessionStart is ignored for status | ✓ | S, W |
 | B14 | `/clear` at the prompt (SessionEnd, then SessionStart `clear`) | stays idle; background work is forgotten; the conversation id follows | `handleHook` | ✓ | S, W, existing `clear_test.go` |
-| B15 | Resume (`SessionStart` `resume`) | no change; background work is kept | 〃 | ✓ | W |
+| B15 | Resume (`SessionStart` `resume`) | no change on a pane the hooks have reported for; a freshly restarted one (hooks not yet seen) is idle (D12, D14); background work is kept | 〃 | ✓ | W, S `D14` |
 | B16 | The `idle_prompt` nudge arrives after a turn ended | stays idle: never amber, never pushed | ignored | ✓ | S, W, existing `TestIdleReminderIsNeverPushed` |
 | B17 | Claude Code older than 2.1.269 sends an **untyped** idle nudge after a turn ended | idle | an untyped Notification with no tool named, landing on a pane the hooks have left idle with no background work counted, is ignored (`Session.IsStaleNudge`). A real ask comes mid-turn, when the pane is already working or waiting, so it is not affected. `PermissionRequest` cannot be the tell: an older Claude Code does not send it. | ✓ | S, W |
 | B18 | A repeated nudge for the same wait | no change report, and the wait clock is not restarted | `SetStatusFull` dedupe | ✓ | S `TestStatusMatrixWaitClock` |
@@ -180,8 +180,8 @@ The original recommendation, for reference:
 
 | Row | Situation | Expected | ✓? | Test |
 |---|---|---|---|---|
-| D1 | A pane starts | starting | ✓ | S `TestStatusMatrixOutputFallback` |
-| D2 | It prints output, then goes quiet for 3 s | working, then idle | ✓ | S, existing `TestOutputMarksAPaneWorkingUntilItGoesQuiet` |
+| D1 | A pane starts | starting (see D16 for what its first screen does) | ✓ | S `TestStatusMatrixOutputFallback` |
+| D2 | It prints output, then goes quiet for 3 s (a shell running a build; a no-hook agent streaming an answer) | working, then idle | ✓ | S, S `TestStatusMatrixOwnRedraw`, existing `TestOutputMarksAPaneWorkingUntilItGoesQuiet` |
 | D3 | It prints steadily | working; the busy clock is not restarted | ✓ | existing (same test) |
 | D4 | An agent rings the bell after startup (5 s, or once typed into) | waiting; a bell during startup is ignored | ✓ | S, existing `TestBellWhileStartingUpIsNotAttention`, `TestBellReachesAPaneNobodyHasTypedInto` |
 | D5 | A shell rings the bell | never waiting | ✓ | S |
@@ -191,8 +191,12 @@ The original recommendation, for reference:
 | D9 | Once a status-changing hook has arrived | output and bells are ignored, and a hooked `working` never settles on quiet (this is the flip side of C14) | ✓ | S, existing `TestOutputDoesNotOverruleALifecycleHook`, `TestBellIsIgnoredOnceHooksReport` |
 | D10 | Spec patterns (for agents without hooks) | the patterns decide waiting or idle; an answered question is not re-read | ✓ | existing `TestPatternsSharpenTheFallback`, `TestAnAnsweredQuestionIsNotAskedAgain` |
 | D11 | Exited | stays exited whatever else is printed | ✓ | S |
-| D12 | A Claude pane that has only sent SessionStart (no prompt yet) | still read from output: working while it draws, idle once quiet | ✓ | S |
+| D12 | A Claude pane that has only sent SessionStart (no prompt yet) | **idle**, and no longer read from output: SessionStart is proof its hooks report. (This row used to pin "still read from output: working while it draws, idle once quiet", which is what made every restored agent, and every agent in a project switched to, show working: its resume redraw, the redraw for each window fitted to it and its own status-line refreshes all read as work until somebody typed.) A hooked agent whose hooks never arrive at all is still read from its output. | ✓ | S `D12` |
 | D13 | Jev assist for an agent without hooks that went quiet | may re-classify an idle guess as waiting | ✓ | existing `assist_test.go` |
+| D14 | A hooked agent restored at startup: it redraws, sends `SessionStart` `resume` (or `startup`), redraws again for its window, and refreshes its status line | idle throughout, never working. One whose SessionStart is late shows starting while it draws its first screen, then idle once quiet. `SessionStart` then its prompt (an agent started with its task) is working. | ✓ | S `TestStatusMatrixOwnRedraw` |
+| D15 | A pane with no hooks reporting (a shell, a no-hook agent) is resized: a window fitted to it, a window attaching and repainted for (`repaintPane`: a row shorter, then back), a project switched to | a redraw within `resizeEcho` (1 s) of the resize, with nothing typed since, is not work: the pane stays as it was. A resize to the size it already is does nothing at all (`Resize` skips it). Output still coming after the window, or after typing, is working; a pane already working (a build) goes on working. | ✓ | S `TestStatusMatrixOwnRedraw` |
+| D16 | A restored workspace: every pane starts and draws its first screen (a shell's prompt, an agent's welcome) | starting, then idle once quiet, never working: output within `startupGrace` (5 s) with nothing typed does not count. `AttentionCount` and `Projects()` report 0 working throughout. A pane whose output streams on past the grace (a shell started on a build) is working. | ✓ | S `TestStatusMatrixOwnRedraw`, W `TestStatusMatrixRestoreAndNavigate` |
+| D17 | Switching projects or tabs (`SelectProject`, `SelectTab`) and fitting the project's panes to the window | changes no pane's status, and no count | ✓ | W `TestStatusMatrixRestoreAndNavigate` |
 
 ## E. Process lifecycle
 
