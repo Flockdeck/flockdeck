@@ -7611,7 +7611,9 @@
         // The group is said with the first row of it, as it is seen above it.
         if (head && n === 0) row.setAttribute("aria-describedby", head.id);
         const label = el("span", "pal-label", c.name);
-        if (c.name !== c.label) label.title = c.label;
+        // The long label is what the name is for a screen reader, not a bubble
+        // under every row the pointer crosses.
+        if (c.name !== c.label) row.setAttribute("aria-description", c.label);
         row.append(label);
         if (palOnly && c.kind) row.append(el("span", "pal-kind", c.kind));
         // Where there is no key to show, what a short name leaves out -- "every

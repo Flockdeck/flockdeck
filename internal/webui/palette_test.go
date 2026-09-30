@@ -92,7 +92,7 @@ assert.ok(palList().children[at - 1].scrolledTo > 0, "its heading was left out o
 }
 
 // One name per surface: the row is drawn with the short name, the long label
-// stays what is searched, and is on the row as its title.
+// stays what is searched, and is the row's description.
 func TestThePaletteNamesEachSurfaceByItsRailName(t *testing.T) {
 	runFrontEnd(t, palRows+`
 h.hello();
@@ -106,7 +106,7 @@ for (const long of ["All agents across projects", "Review changes, commit and pu
   assert.ok(!labels.includes(long), long + " is still what the row is called");
 }
 const history = palRowsNow().find((r) => r.querySelector(".pal-label").textContent === "History");
-assert.strictEqual(history.querySelector(".pal-label").title, "Resume a past conversation");
+assert.strictEqual(history.getAttribute("aria-description"), "Resume a past conversation");
 
 // And it is still found by what it used to be called.
 for (const [typed, name] of [["resume a past", "History"], ["all agents across", "Agents"], ["review changes", "Changes"],
