@@ -238,7 +238,7 @@ h.recv({ type: "remoteDevices", enabled: true, current: "d2",
 const body = h.$("overlay-body");
 assert.ok(body.textContent.includes("phone"), "the devices are listed");
 assert.ok(body.textContent.includes("this device"), "the device this window is on is marked");
-assert.ok(body.textContent.includes("Coming soon, for companies: run the relay on your own infrastructure, with SSO and support."),
+assert.ok(body.textContent.includes("Coming soon, for companies: Enterprise, a licence to run the relay on your own infrastructure, with SSO and support."),
   "an enrolled machine is not told Enterprise is coming: " + body.textContent);
 assert.ok(!relayPromise(body.textContent), "an enrolled machine is promised what the shared relay will cost: " + relayPromise(body.textContent));
 assert.ok(!/private relay/i.test(body.textContent), "an enrolled machine is still told of private relays");
@@ -798,7 +798,7 @@ const box = h.$("summary");
 assert.strictEqual(box.getAttribute("aria-live"), null, "the summary reads its counts out on every change of them");
 assert.ok(box.textContent.includes("1 waiting"), "got: " + box.textContent);
 assert.ok(box.textContent.includes("1 working"), "got: " + box.textContent);
-assert.strictEqual(h.doc.title, "▲ 1 waiting · flockdeck");
+assert.strictEqual(h.doc.title, "▲ 1 waiting · Flockdeck");
 const first = box.children[0];
 
 // Ten pushes in which the agents keep talking but the tally does not move.
@@ -819,7 +819,7 @@ h.recv(fixture({ waiting: 0, working: 2, panes: {
 assert.ok(h.$("summary").children[0] !== first, "the tally did not follow the count");
 assert.ok(!box.textContent.includes("waiting"), "got: " + box.textContent);
 assert.ok(box.textContent.includes("2 working"), "got: " + box.textContent);
-assert.strictEqual(h.doc.title, "● 2 working · flockdeck");
+assert.strictEqual(h.doc.title, "● 2 working · Flockdeck");
 
 h.recv(fixture({ waiting: 0, working: 0 }));
 assert.strictEqual(box.textContent, "", "an idle workspace shows nothing");
@@ -2025,6 +2025,23 @@ h.recv(state("working"));
 assert.ok(!h.$("workspace").querySelector(".summary-card"), "the card rolled up while a background task was still running");
 h.recv(state("idle"));
 assert.ok(h.$("workspace").querySelector(".summary-card"), "the card did not appear once the background work ended");
+`)
+}
+
+// A pane that was blocked is described as blocked on the settled card's dot,
+// not as having exited or been killed.
+func TestASettledCardDescribesABlockedPaneAsBlocked(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({
+  activeTab: "t9",
+  tabs: [{ id: "t9", title: "fan out", focus: "q0", delegated: true,
+    root: split("h", [leaf("m0", "q0"), leaf("m1", "q1")]) }],
+  panes: { q0: pane("q0", { name: "task 0", branch: "task-0" }),
+           q1: pane("q1", { name: "task 1", branch: "task-1", status: "blocked" }) },
+}));
+const dot = h.$("workspace").querySelectorAll(".dot")[1];
+assert.ok(/^Blocked/.test(dot.dataset.tip || ""), "a blocked pane's dot is not described as blocked: " + dot.dataset.tip);
 `)
 }
 
