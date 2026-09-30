@@ -13,7 +13,7 @@
      repeats these two rules; that is only for the future proofing of it
      being the single source for what --bg and --fg actually are, not because
      this stops applying once it has arrived. -->
-<style>html,body{background:#14161a;color:#d8dee9}</style>
+<style>html,body{background:#0f1418;color:#e6edf1}</style>
 <!-- The window is a Chromium app-mode window, so this is the application icon
      as much as the tab icon: it is what the taskbar and alt-tab show. There is
      no --app-icon, so the OS asks these links for a bitmap at whatever size it
@@ -29,6 +29,9 @@
 <link id="favicon-192" rel="icon" href="assets/icon-192.png" sizes="192x192" type="image/png">
 <link id="favicon-256" rel="icon" href="assets/icon-256.png" sizes="256x256" type="image/png">
 <link rel="apple-touch-icon" href="assets/icon-180.png">
+<!-- The sans every word is set in, asked for before app.css has been read
+     and found to need it. The mono is left to load when something uses it. -->
+<link rel="preload" href="assets/fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/vendor/xterm.css">
 <link rel="stylesheet" href="assets/app.css">
 </head>

@@ -125,13 +125,13 @@ func linkGoneHTML(heading, detail string) string {
   :root { color-scheme: dark; }
   body {
     margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    background: #14161a; color: #d8dee9;
+    background: #0F1418; color: #E6EDF1;
     font: 15px/1.5 "Segoe UI", -apple-system, BlinkMacSystemFont, Ubuntu, "Helvetica Neue", sans-serif;
   }
   main { max-width: 32rem; padding: 2.5rem; }
-  h1 { margin: 0 0 .75rem; font-size: 1.25rem; color: #d8dee9; }
-  p { margin: 0 0 .75rem; color: #8b93a1; }
-  .accent { color: #4c9aff; }
+  h1 { margin: 0 0 .75rem; font-size: 1.25rem; color: #E6EDF1; }
+  p { margin: 0 0 .75rem; color: #93A1A9; }
+  .accent { color: #4FD1DB; }
 </style>
 </head>
 <body>

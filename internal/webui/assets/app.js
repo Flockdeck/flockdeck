@@ -3018,10 +3018,10 @@
       // every other link out of the window does.
       linkHandler: { activate: (ev, uri) => openExternal(uri) },
       theme: {
-        background: "#0f1114",
-        foreground: "#d8dee9",
-        cursor: "#4c9aff",
-        selectionBackground: "#2f4665",
+        background: "#0a0e11",
+        foreground: "#d7dfe4",
+        cursor: "#4fd1db",
+        selectionBackground: "#1f4e53",
       },
     });
     const fit = new FitAddon.FitAddon();
@@ -3789,7 +3789,7 @@
     }
     const box = el("div", "pane-error");
     box.setAttribute("role", "alert");
-    p.wsOverlayText = el("div", null, text);
+    p.wsOverlayText = el("div", "pane-error-text error", text);
     box.append(p.wsOverlayText);
     const retry = el("button", "chip primary", "Try again");
     retry.onclick = () => { hidePtyRefused(p); p.retries = 0; connectPTY(p); };
@@ -4343,15 +4343,17 @@
       // the cover went on showing the first. Only the words change, so the
       // Restart button keeps the keyboard if it has it.
       if (p.overlayText.textContent !== text) p.overlayText.textContent = text;
+      p.overlayText.classList.toggle("error", !!v.err);
       return;
     }
     const box = el("div", "pane-error");
     // It goes up on its own, over a terminal somebody may be reading or
     // typing in, so it is said as it appears.
     box.setAttribute("role", "alert");
-    p.overlayText = el("div", null, text);
+    // An ordinary exit is said in the text colour; only an error is red.
+    p.overlayText = el("div", "pane-error-text" + (v.err ? " error" : ""), text);
     box.append(p.overlayText);
-    const row = el("div");
+    const row = el("div", "pane-error-actions");
     const restart = el("button", "chip primary", "Restart");
     restart.onclick = () => send({ cmd: "restartPane", id: p.id });
     const close = el("button", "chip", "Close pane");
@@ -6348,7 +6350,7 @@
       showMatchCount(null);
       return;
     }
-    const opts = { incremental: !!typing, decorations: { activeMatchColorOverrideColor: "#4c9aff", matchOverviewRuler: "#4c9aff" } };
+    const opts = { incremental: !!typing, decorations: { activeMatchColorOverrideColor: "#4fd1db", matchOverviewRuler: "#4fd1db" } };
     let found = false;
     try {
       found = back ? p.search.findPrevious(q, opts) : p.search.findNext(q, opts);
@@ -9762,15 +9764,25 @@
    *  either palette, and these are chosen to keep contrast on both. Shown in
    *  the colour app.css gives them for the dark palette, which is close
    *  enough to place them by; the page itself redraws in whichever palette is
-   *  actually on show. */
+   *  actually on show. The default is the mark's own cyan and is kept as
+   *  nothing, so it has no [data-accent] rule; the colours here must equal
+   *  the dark [data-accent] values in app.css. */
   const ACCENTS = [
-    ["", "Blue (default)", "#4c9aff"],
-    ["purple", "Purple", "#b48cf0"],
-    ["green", "Green", "#4fd17a"],
+    ["", "Cyan (default)", "#4fd1db"],
+    ["blue", "Blue", "#6cb0ff"],
+    ["purple", "Purple", "#b99af5"],
+    ["green", "Green", "#64c97f"],
     ["orange", "Orange", "#f0a552"],
     ["pink", "Pink", "#f28fc0"],
-    ["teal", "Teal", "#4fd0c6"],
   ];
+
+  /** accentOf is the swatch a kept accent preference stands for. "teal" was a
+   *  swatch of its own while the default was blue; the default is now the
+   *  cyan it was nearest to, so a preference saved as teal is the default.
+   *  Anything else that is not a swatch is the default too. */
+  function accentOf(value) {
+    return value && value !== "teal" && ACCENTS.some(([v]) => v === value) ? value : "";
+  }
 
   /** applyTheme puts the chosen palette and accent on the document, which is
    *  what app.css's [data-theme] and [data-accent] rules key off. It runs
@@ -9781,7 +9793,8 @@
     if (prefs.theme === "light") root.dataset.theme = "light";
     else if (prefs.theme === "system") delete root.dataset.theme;
     else root.dataset.theme = "dark";
-    if (prefs.accentColor) root.dataset.accent = prefs.accentColor;
+    const accent = accentOf(prefs.accentColor);
+    if (accent) root.dataset.accent = accent;
     else delete root.dataset.accent;
   }
 
@@ -9819,9 +9832,9 @@
     sw.setAttribute("role", "radiogroup");
     sw.setAttribute("aria-label", "Accent colour");
     ACCENTS.forEach(([value, label, colour], i) => {
-      const on = (prefs.accentColor || "") === value;
+      const on = accentOf(prefs.accentColor) === value;
       const b = el("button", "swatch" + (on ? " on" : ""));
-      b.id = "set-accent-" + (value || "blue");
+      b.id = "set-accent-" + (value || "cyan");
       b.style.background = colour;
       b.setAttribute("role", "radio");
       b.setAttribute("aria-checked", String(on));
@@ -9835,7 +9848,7 @@
         ev.stopPropagation();
         const next = ACCENTS[(i + by + ACCENTS.length) % ACCENTS.length][0];
         chooseAccent(next);
-        $("set-accent-" + (next || "blue")).focus();
+        $("set-accent-" + (next || "cyan")).focus();
       };
       sw.append(b);
     });
