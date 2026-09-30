@@ -1,0 +1,50 @@
+[
+ {
+  "name": "Worktrees: the keyboard is on its first control once drawn",
+  "ok": true,
+  "detail": "#wt-C%3A%5Ccode-pa%5Cshopfront-agent"
+ },
+ {
+  "name": "Worktrees sheet: Tab stays in the sheet (D1a)",
+  "ok": true,
+  "detail": "8 stops"
+ },
+ {
+  "name": "Escape closes the sheet and the keyboard goes back to the rail button",
+  "ok": true,
+  "detail": "#btn-worktrees"
+ },
+ {
+  "name": "A click on the panes beside a sheet closes it",
+  "ok": true
+ },
+ {
+  "name": "? stacks Help on Settings; Escape comes back; Escape again closes",
+  "ok": true,
+  "detail": "Help -> Settings"
+ },
+ {
+  "name": "...and the keyboard goes back to Settings' rail button",
+  "ok": true,
+  "detail": "#btn-settings"
+ },
+ {
+  "name": "Ctrl+Shift+G opens and closes Worktrees",
+  "ok": true
+ },
+ {
+  "name": "Forced colours: the open surface's rail button is outlined",
+  "ok": true,
+  "detail": "solid"
+ },
+ {
+  "name": "Reduced motion: the sheet's arrival is stilled",
+  "ok": true,
+  "detail": "0.001s"
+ },
+ {
+  "name": "No request left the origin",
+  "ok": true,
+  "detail": ""
+ }
+]

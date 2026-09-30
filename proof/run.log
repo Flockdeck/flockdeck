@@ -1,0 +1,98 @@
+work directory C:\Users\jmwri\AppData\Local\Temp\flockdeck-pa-shots-8Wvg8Z
+live state C:\Users\jmwri\AppData\Roaming\flockdeck - 82 files
+building flockdeck from C:\Users\jmwri\Documents\repos\flockdeck\pa
+staged instance http://127.0.0.1:57964 pid 69628 state in C:\Users\jmwri\AppData\Local\Temp\flockdeck-pa-shots-8Wvg8Z\appdata\flockdeck
+staged panes {"p0":"d813af70-8e7d-4b3e-83ea-c55bff2f96f5","p1":"c6791277-47ab-4abc-a3e8-779c79192efc","p2":"c1dccbe8-8cd6-41f6-ac5f-a963a7e051f3","p3":"b8c54b22-022b-4255-bc51-dd09a5f11e97"}
+header figures ["~$2.14","221k tok","5h 72%"]
+captured dark-wide-deck.png {"present":"dialog-l","size":null,"title":"Settings","rect":[0,0,0,0],"scrim":"rgba(5, 8, 10, 0.62)","marked":[],"active":"body.:Widen the rail\n    \n"}
+captured dark-wide-agents.png {"present":"sheet","size":null,"title":"Agents","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-agents"],"active":"#agent-view-urgency"}
+captured dark-wide-changes.png {"present":"sheet","size":"wide","title":"Changes","rect":[52,40,820,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-changes"],"active":"#rev-refresh"}
+captured dark-wide-history.png {"present":"sheet","size":null,"title":"Conversations","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-history"],"active":"#overlay-panel"}
+captured dark-wide-todos.png {"present":"sheet","size":null,"title":"Todos","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-todos"],"active":"button.chip:+ New todo"}
+captured dark-wide-github.png {"present":"sheet","size":null,"title":"GitHub","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-github"],"active":"button.chip:Open GitHub settings"}
+captured dark-wide-remote.png {"present":"sheet","size":null,"title":"Remote access","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-remote"],"active":"body.:Widen the rail\n    \n"}
+captured dark-wide-worktrees.png {"present":"sheet","size":null,"title":"Worktrees","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-worktrees"],"active":"#wt-C%3A%5Ccode-pa%5Cshopfront-agent"}
+captured dark-wide-projects.png {"present":"sheet","size":null,"title":"Projects","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["rail-open"],"active":"#browse-path"}
+captured dark-wide-settings.png {"present":"dialog-l","size":null,"title":"Settings","rect":[332,173,920,640],"scrim":"rgba(5, 8, 10, 0.62)","marked":["btn-settings"],"active":"#settings-tab-appearance"}
+captured dark-wide-help.png {"present":"dialog-l","size":null,"title":"Help","rect":[292,89,1000,808],"scrim":"rgba(5, 8, 10, 0.62)","marked":["btn-help"],"active":"#help-search"}
+captured dark-wide-fanout.png {"present":"dialog-m","size":null,"title":"Fan out","rect":[432,173,720,640],"scrim":"rgba(5, 8, 10, 0.62)","marked":[],"active":"textarea.fan-tasks:"}
+captured dark-wide-picker.png {"present":"picker","size":null,"title":"New agent tab","rect":[482,118,620,579],"scrim":"rgba(5, 8, 10, 0.62)","marked":[],"active":"#agent-filter"}
+captured dark-wide-rename-tab.png {"present":"dialog-s","size":null,"title":"Rename tab","rect":[572,404,440,177],"scrim":"rgba(5, 8, 10, 0.62)","marked":[],"active":"#tab-name"}
+captured dark-wide-ask-prompt.png {"present":"dialog-s","size":null,"title":"Terminal scrollback","rect":[572,402,440,181],"scrim":"rgba(5, 8, 10, 0.62)","marked":[],"active":"#ask-field"}
+captured dark-wide-ask-confirm.png {"present":"dialog-s","size":null,"title":"Stop every agent in every open project?","rect":[572,437,440,112],"scrim":"rgba(5, 8, 10, 0.62)","marked":[],"active":"#ask-cancel"}
+captured dark-wide-stack-help.png {"present":"dialog-l","size":null,"title":"Help","rect":[292,89,1000,808],"scrim":"rgba(5, 8, 10, 0.62)","marked":["btn-help"],"active":"#help-search"}
+captured dark-wide-stack-changes.png {"present":"sheet","size":"wide","title":"Changes","rect":[52,40,820,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-changes"],"active":"#rev-refresh"}
+captured dark-wide-stack-ghost.png {"present":"picker","size":null,"title":"Default agent for shopfront","rect":[482,118,620,579],"scrim":"rgba(5, 8, 10, 0.62)","marked":["rail-open"],"active":"#agent-filter"}
+captured dark-narrow-deck.png {"present":"sheet","size":null,"title":"Projects","rect":[0,0,0,0],"scrim":"rgba(0, 0, 0, 0)","marked":[],"active":"body.:Widen the rail\n    \n"}
+captured dark-narrow-agents.png {"present":"sheet","size":null,"title":"Agents","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-agents"],"active":"#agent-view-urgency"}
+captured dark-narrow-changes.png {"present":"sheet","size":"wide","title":"Changes","rect":[16,110,768,680],"scrim":"rgba(5, 8, 10, 0.62)","marked":["btn-changes"],"active":"#rev-refresh"}
+captured dark-narrow-history.png {"present":"sheet","size":null,"title":"Conversations","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-history"],"active":"#overlay-panel"}
+captured dark-narrow-todos.png {"present":"sheet","size":null,"title":"Todos","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-todos"],"active":"button.chip:+ New todo"}
+captured dark-narrow-github.png {"present":"sheet","size":null,"title":"GitHub","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-github"],"active":"button.chip:Open GitHub settings"}
+captured dark-narrow-remote.png {"present":"sheet","size":null,"title":"Remote access","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-remote"],"active":"body.:Widen the rail\n    \n"}
+captured dark-narrow-worktrees.png {"present":"sheet","size":null,"title":"Worktrees","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-worktrees"],"active":"#wt-C%3A%5Ccode-pa%5Cshopfront-agent"}
+captured dark-narrow-projects.png {"present":"sheet","size":null,"title":"Projects","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["rail-open"],"active":"#browse-path"}
+captured dark-narrow-settings.png {"present":"dialog-l","size":null,"title":"Settings","rect":[24,130,752,640],"scrim":"rgba(5, 8, 10, 0.62)","marked":["btn-settings"],"active":"#settings-tab-appearance"}
+captured dark-narrow-help.png {"present":"dialog-l","size":null,"title":"Help","rect":[24,81,752,738],"scrim":"rgba(5, 8, 10, 0.62)","marked":["btn-help"],"active":"#help-search"}
+captured dark-narrow-fanout.png {"present":"dialog-m","size":null,"title":"Fan out","rect":[16,130,768,640],"scrim":"rgba(5, 8, 10, 0.62)","marked":[],"active":"textarea.fan-tasks:"}
+captured dark-narrow-picker.png {"present":"picker","size":null,"title":"New agent tab","rect":[90,108,620,579],"scrim":"rgba(5, 8, 10, 0.62)","marked":[],"active":"#agent-filter"}
+captured dark-narrow-rename-tab.png {"present":"dialog-s","size":null,"title":"Rename tab","rect":[180,362,440,177],"scrim":"rgba(5, 8, 10, 0.62)","marked":[],"active":"#tab-name"}
+captured dark-narrow-ask-prompt.png {"present":"dialog-s","size":null,"title":"Terminal scrollback","rect":[180,360,440,181],"scrim":"rgba(5, 8, 10, 0.62)","marked":[],"active":"#ask-field"}
+captured dark-narrow-ask-confirm.png {"present":"dialog-s","size":null,"title":"Stop every agent in every open project?","rect":[180,394,440,112],"scrim":"rgba(5, 8, 10, 0.62)","marked":[],"active":"#ask-cancel"}
+captured dark-narrow-stack-help.png {"present":"dialog-l","size":null,"title":"Help","rect":[24,81,752,738],"scrim":"rgba(5, 8, 10, 0.62)","marked":["btn-help"],"active":"#help-search"}
+captured dark-narrow-stack-changes.png {"present":"sheet","size":"wide","title":"Changes","rect":[16,110,768,680],"scrim":"rgba(5, 8, 10, 0.62)","marked":["btn-changes"],"active":"#rev-refresh"}
+captured dark-narrow-stack-ghost.png {"present":"picker","size":null,"title":"Default agent for shopfront","rect":[90,108,620,579],"scrim":"rgba(5, 8, 10, 0.62)","marked":["rail-open"],"active":"#agent-filter"}
+captured light-wide-deck.png {"present":"dialog-l","size":null,"title":"Settings","rect":[0,0,0,0],"scrim":"rgba(19, 26, 30, 0.38)","marked":[],"active":"body.:Widen the rail\n    \n"}
+captured light-wide-agents.png {"present":"sheet","size":null,"title":"Agents","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-agents"],"active":"#agent-view-urgency"}
+captured light-wide-changes.png {"present":"sheet","size":"wide","title":"Changes","rect":[52,40,820,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-changes"],"active":"#rev-refresh"}
+captured light-wide-history.png {"present":"sheet","size":null,"title":"Conversations","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-history"],"active":"#overlay-panel"}
+captured light-wide-todos.png {"present":"sheet","size":null,"title":"Todos","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-todos"],"active":"button.chip:+ New todo"}
+captured light-wide-github.png {"present":"sheet","size":null,"title":"GitHub","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-github"],"active":"button.chip:Open GitHub settings"}
+captured light-wide-remote.png {"present":"sheet","size":null,"title":"Remote access","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-remote"],"active":"body.:Widen the rail\n    \n"}
+captured light-wide-worktrees.png {"present":"sheet","size":null,"title":"Worktrees","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-worktrees"],"active":"#wt-C%3A%5Ccode-pa%5Cshopfront-agent"}
+captured light-wide-projects.png {"present":"sheet","size":null,"title":"Projects","rect":[52,40,460,945],"scrim":"rgba(0, 0, 0, 0)","marked":["rail-open"],"active":"#browse-path"}
+captured light-wide-settings.png {"present":"dialog-l","size":null,"title":"Settings","rect":[332,173,920,640],"scrim":"rgba(19, 26, 30, 0.38)","marked":["btn-settings"],"active":"#settings-tab-appearance"}
+captured light-wide-help.png {"present":"dialog-l","size":null,"title":"Help","rect":[292,89,1000,808],"scrim":"rgba(19, 26, 30, 0.38)","marked":["btn-help"],"active":"#help-search"}
+captured light-wide-fanout.png {"present":"dialog-m","size":null,"title":"Fan out","rect":[432,173,720,640],"scrim":"rgba(19, 26, 30, 0.38)","marked":[],"active":"textarea.fan-tasks:"}
+captured light-wide-picker.png {"present":"picker","size":null,"title":"New agent tab","rect":[482,118,620,579],"scrim":"rgba(19, 26, 30, 0.38)","marked":[],"active":"#agent-filter"}
+captured light-wide-rename-tab.png {"present":"dialog-s","size":null,"title":"Rename tab","rect":[572,404,440,177],"scrim":"rgba(19, 26, 30, 0.38)","marked":[],"active":"#tab-name"}
+captured light-wide-ask-prompt.png {"present":"dialog-s","size":null,"title":"Terminal scrollback","rect":[572,402,440,181],"scrim":"rgba(19, 26, 30, 0.38)","marked":[],"active":"#ask-field"}
+captured light-wide-ask-confirm.png {"present":"dialog-s","size":null,"title":"Stop every agent in every open project?","rect":[572,437,440,112],"scrim":"rgba(19, 26, 30, 0.38)","marked":[],"active":"#ask-cancel"}
+captured light-wide-stack-help.png {"present":"dialog-l","size":null,"title":"Help","rect":[292,89,1000,808],"scrim":"rgba(19, 26, 30, 0.38)","marked":["btn-help"],"active":"#help-search"}
+captured light-wide-stack-changes.png {"present":"sheet","size":"wide","title":"Changes","rect":[52,40,820,945],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-changes"],"active":"#rev-refresh"}
+captured light-wide-stack-ghost.png {"present":"picker","size":null,"title":"Default agent for shopfront","rect":[482,118,620,579],"scrim":"rgba(19, 26, 30, 0.38)","marked":["rail-open"],"active":"#agent-filter"}
+captured light-narrow-deck.png {"present":"sheet","size":null,"title":"Projects","rect":[0,0,0,0],"scrim":"rgba(0, 0, 0, 0)","marked":[],"active":"body.:Widen the rail\n    \n"}
+captured light-narrow-agents.png {"present":"sheet","size":null,"title":"Agents","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-agents"],"active":"#agent-view-urgency"}
+captured light-narrow-changes.png {"present":"sheet","size":"wide","title":"Changes","rect":[16,110,768,680],"scrim":"rgba(19, 26, 30, 0.38)","marked":["btn-changes"],"active":"#rev-refresh"}
+captured light-narrow-history.png {"present":"sheet","size":null,"title":"Conversations","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-history"],"active":"#overlay-panel"}
+captured light-narrow-todos.png {"present":"sheet","size":null,"title":"Todos","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-todos"],"active":"button.chip:+ New todo"}
+captured light-narrow-github.png {"present":"sheet","size":null,"title":"GitHub","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-github"],"active":"button.chip:Open GitHub settings"}
+captured light-narrow-remote.png {"present":"sheet","size":null,"title":"Remote access","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-remote"],"active":"body.:Widen the rail\n    \n"}
+captured light-narrow-worktrees.png {"present":"sheet","size":null,"title":"Worktrees","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["btn-worktrees"],"active":"#wt-C%3A%5Ccode-pa%5Cshopfront-agent"}
+captured light-narrow-projects.png {"present":"sheet","size":null,"title":"Projects","rect":[52,40,460,860],"scrim":"rgba(0, 0, 0, 0)","marked":["rail-open"],"active":"#browse-path"}
+captured light-narrow-settings.png {"present":"dialog-l","size":null,"title":"Settings","rect":[24,130,752,640],"scrim":"rgba(19, 26, 30, 0.38)","marked":["btn-settings"],"active":"#settings-tab-appearance"}
+captured light-narrow-help.png {"present":"dialog-l","size":null,"title":"Help","rect":[24,81,752,738],"scrim":"rgba(19, 26, 30, 0.38)","marked":["btn-help"],"active":"#help-search"}
+captured light-narrow-fanout.png {"present":"dialog-m","size":null,"title":"Fan out","rect":[16,130,768,640],"scrim":"rgba(19, 26, 30, 0.38)","marked":[],"active":"textarea.fan-tasks:"}
+captured light-narrow-picker.png {"present":"picker","size":null,"title":"New agent tab","rect":[90,108,620,579],"scrim":"rgba(19, 26, 30, 0.38)","marked":[],"active":"#agent-filter"}
+captured light-narrow-rename-tab.png {"present":"dialog-s","size":null,"title":"Rename tab","rect":[180,362,440,177],"scrim":"rgba(19, 26, 30, 0.38)","marked":[],"active":"#tab-name"}
+captured light-narrow-ask-prompt.png {"present":"dialog-s","size":null,"title":"Terminal scrollback","rect":[180,360,440,181],"scrim":"rgba(19, 26, 30, 0.38)","marked":[],"active":"#ask-field"}
+captured light-narrow-ask-confirm.png {"present":"dialog-s","size":null,"title":"Stop every agent in every open project?","rect":[180,394,440,112],"scrim":"rgba(19, 26, 30, 0.38)","marked":[],"active":"#ask-cancel"}
+captured light-narrow-stack-help.png {"present":"dialog-l","size":null,"title":"Help","rect":[24,81,752,738],"scrim":"rgba(19, 26, 30, 0.38)","marked":["btn-help"],"active":"#help-search"}
+captured light-narrow-stack-changes.png {"present":"sheet","size":"wide","title":"Changes","rect":[16,110,768,680],"scrim":"rgba(19, 26, 30, 0.38)","marked":["btn-changes"],"active":"#rev-refresh"}
+captured light-narrow-stack-ghost.png {"present":"picker","size":null,"title":"Default agent for shopfront","rect":[90,108,620,579],"scrim":"rgba(19, 26, 30, 0.38)","marked":["rail-open"],"active":"#agent-filter"}
+PASS Worktrees: the keyboard is on its first control once drawn #wt-C%3A%5Ccode-pa%5Cshopfront-agent
+PASS Worktrees sheet: Tab stays in the sheet (D1a) 8 stops
+PASS Escape closes the sheet and the keyboard goes back to the rail button #btn-worktrees
+PASS A click on the panes beside a sheet closes it 
+PASS ? stacks Help on Settings; Escape comes back; Escape again closes Help -> Settings
+PASS ...and the keyboard goes back to Settings' rail button #btn-settings
+PASS Ctrl+Shift+G opens and closes Worktrees 
+captured forced-wide-agents.png {"present":"sheet","size":null,"title":"Agents","rect":[52,40,460,945],"scrim":"rgba(255, 255, 255, 0)","marked":["btn-agents"],"active":"#agent-view-urgency"}
+PASS Forced colours: the open surface's rail button is outlined solid
+PASS Reduced motion: the sheet's arrival is stilled 0.001s
+captured forced-wide-ask-confirm.png {"present":"dialog-s","size":null,"title":"Stop every agent in every open project?","rect":[572,437,440,112],"scrim":"rgba(255, 255, 255, 0.38)","marked":[],"active":"#ask-cancel"}
+PASS No request left the origin 
+flockdeck exited 1
+nothing of the harness's is running
+live state: added 0 removed 0 changed 1
+  changed C:\Users\jmwri\AppData\Roaming\flockdeck\projects.json 2026-09-30T18:54:14.967Z -> 2026-09-30T19:00:57.481Z
