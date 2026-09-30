@@ -823,6 +823,9 @@ textarea:focus-visible {
    * cursor set above is the only thing saying so. This rule comes later, and
    * setting the default cursor here quietly took it away. */
   user-select: none;
+  /* What gives way in a header depends on how wide the header is, and only
+   * the header knows that: see the container rule after .pane-actions. */
+  container: pane-header / inline-size;
 }
 .pane.focused .pane-header { color: var(--fg); }
 
@@ -984,6 +987,33 @@ textarea:focus-visible {
 .pane-cast { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pane-cast.active { color: var(--cast); font-weight: 600; }
 .pane-actions { margin-left: auto; display: flex; gap: 2px; flex: 0 0 auto; }
+
+/* What gives way first. The branch, the agent and its model, the peer name
+ * and the running tool are long and say as much cut short, so they give way
+ * three times as fast as the pane's own name, which is how a pane is found.
+ *
+ * In a header with room for them - a pane in a two-by-two grid, or wider -
+ * the figures do not give way at all: "221k t..." and "5h 7..." are not
+ * figures any more, and a name cut to make room for them is still a name.
+ * Set in the mono they are wider than they were, and sharing the squeeze
+ * with the names cut every one of them. Below that width there is not room
+ * for the figures and the buttons both, and the rules above still hold: the
+ * figures go first, usage before spend before the limit, each with an
+ * ellipsis to say it was cut, so the buttons are never pushed off the edge.
+ * Where container queries are not understood, that is what every width
+ * gets. */
+/* A header holds a place for everything it may come to say, and most of
+ * those are empty most of the time: no peer, no phone, no tool running, no
+ * broadcast. Each empty one still took the gap either side of it, six pixels
+ * a time and some fifty in all, which is a branch name's worth of room in a
+ * quarter of the window and a button's worth in a narrow pane. One with
+ * nothing in it takes no room; it is back the moment it has something. The
+ * status mark is drawn, not written, so it is empty by nature and is kept. */
+.pane-header > span:empty:not(.dot) { display: none; }
+.pane-branch, .pane-agent, .pane-peer, .pane-detail { flex-shrink: 3; }
+@container pane-header (min-width: 640px) {
+  .pane-usage, .pane-spend, .pane-limit, .pane-git { flex-shrink: 0; }
+}
 .pane-actions button {
   border: 0; background: transparent; color: var(--fg-faint); cursor: pointer;
   border-radius: var(--radius-sm); padding: 2px 6px; min-width: 22px; text-align: center;
