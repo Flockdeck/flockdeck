@@ -1,0 +1,67 @@
+[
+ {
+  "name": "the first row's action has the keyboard on open",
+  "ok": true,
+  "extra": "wt-C%3A%5Ccode-b1%5Cshopfront-agent|Open agent"
+ },
+ {
+  "name": "the chosen row shows its path",
+  "ok": true,
+  "extra": "block"
+ },
+ {
+  "name": "other rows hide Open agent",
+  "ok": true
+ },
+ {
+  "name": "ArrowDown moves to the next row",
+  "ok": true
+ },
+ {
+  "name": "ArrowRight reaches the ⋯",
+  "ok": true,
+  "extra": "wt-C%3A%5Ccode-b1%5Cshopfront-checkout-more|⋯"
+ },
+ {
+  "name": "Enter opens the menu on its first item",
+  "ok": true,
+  "extra": "menu-item|Open agent↵"
+ },
+ {
+  "name": "arrows walk the menu",
+  "ok": true,
+  "extra": "menu-item|Split beside this pa"
+ },
+ {
+  "name": "Escape closes only the menu and returns to ⋯",
+  "ok": true,
+  "extra": "wt-C%3A%5Ccode-b1%5Cshopfront-checkout-more|⋯"
+ },
+ {
+  "name": "Tab stays inside the sheet",
+  "ok": true
+ },
+ {
+  "name": "Escape closes the sheet and focus returns to the rail button",
+  "ok": true,
+  "extra": "btn-worktrees|Worktrees"
+ },
+ {
+  "name": "Review stacks Changes with a back link",
+  "ok": true
+ },
+ {
+  "name": "Escape goes back to Worktrees",
+  "ok": true
+ },
+ {
+  "name": "reduced motion stills the sheet",
+  "ok": true,
+  "extra": "0.001s"
+ },
+ {
+  "name": "no request left the origin",
+  "ok": true,
+  "extra": ""
+ }
+]
