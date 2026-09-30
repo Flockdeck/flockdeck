@@ -24,8 +24,8 @@
   <h1>Start it on a box that never sleeps. <em>Steer it from wherever you are.</em></h1>
   <p class="lede">Flockdeck runs Claude Code, Codex, Gemini or your own model on
      hardware you already own — a spare machine, a NAS, a cheap VPS — and
-     reaches your phone with no port opened and no password. Free and
-     source-available, self-hosted or not.</p>
+     reaches your phone with no port opened and no password. The app is free
+     and source-available; remote access is free for 30 days, then £5 a month.</p>
   <p class="cta">
     <a class="button" href="#install">Install Flockdeck</a>
     <a class="button ghost" href="{{ .Repo }}">Source on GitHub</a>
@@ -123,9 +123,10 @@
       <span class="g">self-hosted · remote</span>
       <h3>Runs on hardware you control</h3>
       <p>Free to run headless on a spare machine, a home server or a VPS —
-         <code>-no-window</code> needs no browser there either — and pair it
-         from your phone or laptop with a QR code. No port opened, no
-         password.</p>
+         <code>-no-window</code> needs no browser there either — and reach it
+         from your phone or laptop through the relay: pair with a QR code, no
+         port opened, no password. Remote access is free for 30 days, then
+         £5 a month.</p>
     </div>
     <div class="card">
       <span class="g">agents · models</span>
@@ -188,8 +189,9 @@
       <span class="g">detach · reattach</span>
       <h3>Pick up where you left off</h3>
       <p>Your layout and open projects come back when you reopen Flockdeck, and
-         so do conversations with agents that can resume them. Detach, and your agents keep running after the window
-         closes. A past Claude Code conversation can be resumed in a new tab.</p>
+         so do conversations with agents that can resume them. Choose Detach
+         instead of quitting, and your agents keep running with the window
+         closed. A past Claude Code conversation can be resumed in a new tab.</p>
     </div>
     <div class="card">
       <span class="g">review · commit · push</span>
@@ -254,7 +256,7 @@
     <div class="relay-link" aria-hidden="true"><span class="arrow">⟷</span><span class="t">TLS</span></div>
     <div class="relay-node hub">
       <span class="g">Flockdeck relay</span>
-      <div class="relay-tally">secure connection</div>
+      <div class="relay-tally">TLS in, TLS out; terminals end-to-end encrypted</div>
       <span class="t">hosted for you</span>
     </div>
     <div class="relay-link" aria-hidden="true"><span class="arrow">⟵</span><span class="t">outbound · TLS</span></div>
@@ -291,11 +293,12 @@
          fold so you're not scrolling past them.</p>
     </div>
     <div class="card">
-      <span class="g">private</span>
+      <span class="g">isolation</span>
       <h3>Only your desktops</h3>
       <p>Your devices reach your desktops and nobody else's. Terminal traffic
-         is end-to-end encrypted on top of the TLS connection; a pane's spend
-         and usage state still reaches the relay decrypted. See
+         is end-to-end encrypted on top of the TLS connection; the rest, such
+         as a pane's state, its conversation view and photos, still reaches the
+         relay decrypted. See
          <a href="trust.html">trust &amp; privacy</a> for what is, and what
          isn't, said plainly.</p>
     </div>
@@ -305,8 +308,9 @@
       <p>Flockdeck doesn't need a desk at all: start it with
          <code>-no-window</code> on a spare machine, a home server or a VPS —
          no browser needed there either — and pair it the same way. Your
-         agents run round the clock on hardware you control, free, in place
-         of a paid coding-agents-in-the-cloud service.</p>
+         agents run round the clock on hardware you control. The app is free;
+         reaching it through the shared relay is £5 a month after a 30-day
+         trial.</p>
     </div>
   </div>
   <figure class="figure phone">
@@ -318,7 +322,7 @@
      or from any terminal, then pair your phone:</p>
   <pre><code>flockdeck remote enable
 flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code></pre>
-  <p class="aside">Remote access needs Flockdeck 0.2 or later and is off until you
+  <p class="aside">Remote access is off until you
      turn it on. Turn it off and your desktop is removed from the relay.</p>
   <!-- Announced, not shipped: it says what is coming, that it is for companies
        and under licence, and nothing about price or date, which are not
@@ -327,19 +331,18 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
        otherwise. The shared relay's own price is settled now (see the FAQ:
        £5 a month after its 30-day trial) — it is Enterprise's price and date
        that remain unsettled, so nothing here may promise what those will be.
-       The app's own Settings say the same beside it, which is where somebody using it will meet the plan.
-       v0.2.9's Settings link #private-relays, so that id stays, on the card's
-       first line, and lands on the whole card. -->
+       The app's Settings link to #enterprise, which is where somebody using
+       it will meet the plan. Older clients linked #private-relays, so that id
+       stays, on the card's first line, and lands on the whole card. -->
   <div class="pair plan">
     <div class="card soon" id="enterprise">
       <span class="g" id="private-relays">coming soon · for companies</span>
       <h3>Enterprise</h3>
       <p>For companies whose rules don't allow a third party to decrypt their
-         developers' terminal traffic: run the relay on your own
-         infrastructure, under licence, with SSO and support. The relay's
-         own configuration already supports this today; see
-         <a href="https://docs.flockdeck.ai/self-hosting/overview.html">self-hosting the relay</a>
-         in the docs.</p>
+         developers' traffic: a licensed, supported relay you run on your own
+         infrastructure, with single sign-on. Coming soon, not yet generally
+         available. The docs describe how the self-hosted relay works:
+         <a href="https://docs.flockdeck.ai/self-hosting/overview.html">self-hosting the relay</a>.</p>
     </div>
     <figure class="figure">
       <img src="{{asset "settings.png"}}" srcset="{{asset "settings-1584.png"}} 1584w, {{asset "settings.png"}} 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The Settings dialog open over a window of running agents, on its Account and plan section, with General, Appearance, Behaviour, Keybindings, Agents, API keys, Remote access and GitHub listed beside it. Free is marked as the current plan, covering every part of the desktop app for good, while remote access through the relay has a plan of its own: below it, Remote access is on its free trial, with 30 days left, paid for from Devices on a paired phone or browser. Enterprise, for companies to run the relay on their own infrastructure with SSO and support, is marked coming soon, with a link to read about Enterprise. Under them, a line invites sponsoring Flockdeck on GitHub, and another links the privacy policy, terms and licences.">
@@ -444,7 +447,9 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
      the latest release, if this page is older than that, by asking the copy
      it just installed to update itself — checked by its release signature,
      not by anything the script downloaded. No admin rights needed, now or
-     when Flockdeck updates itself. To pick a release or a directory, set
+     when Flockdeck updates itself. On macOS the command line is inside the
+     app, at <code>~/Applications/Flockdeck.app/Contents/MacOS/flockdeck</code>;
+     add that folder to your PATH to run <code>flockdeck</code> commands. To pick a release or a directory, set
      <code>FLOCKDECK_VERSION</code> or <code>FLOCKDECK_INSTALL_DIR</code>
      first; each script lists its settings at the top. A release picked this
      way is checked against the <code>checksums.txt</code> downloaded with it,
@@ -459,8 +464,8 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   <pre><code>make build      <span class="c"># a binary for this machine</span>
 make package    <span class="c"># archives for all six platforms</span></code></pre>
   <p>No <code>make</code>, as on many Windows machines? <code>go build .</code>
-     builds the same program. A build made any of these ways never updates
-     itself: update it the same way you installed it.</p>
+     builds the same program. A build you make yourself doesn't update itself
+     unless it was built from a release tag: update it the way you installed it.</p>
   <p>Flockdeck checks for updates, verifies every download and asks before it
      restarts, so an update never interrupts your work.</p>
   <p>Command-line agents use the login they already have, so Claude Code works
@@ -488,12 +493,10 @@ make package    <span class="c"># archives for all six platforms</span></code></
     <details>
       <summary>Is there a paid version?</summary>
       <p>The shared relay is £5 a month after its free trial. Companies
-         that can't have Flockdeck's relay in the loop at all can license the
-         whole stack — relay and remote access included — to run entirely on
-         their own infrastructure, with SSO: see
-         <a href="#enterprise">Enterprise</a>, in progress, with SSO and an
-         audit log already built and under test — see
-         <a href="https://docs.flockdeck.ai/self-hosting/overview.html">self-hosting the relay</a>.
+         that can't have Flockdeck's relay in the loop at all have
+         <a href="#enterprise">Flockdeck Enterprise</a>, coming soon and not
+         yet generally available: a licensed, supported relay they run on their
+         own infrastructure, single sign-on included.
          The app stays free, with its source available.</p>
     </details>
     <details>
@@ -507,12 +510,14 @@ make package    <span class="c"># archives for all six platforms</span></code></
       <summary>Does my code leave my machine?</summary>
       <p>Flockdeck runs on your computer and doesn't collect your code. Your
          agents talk to their own providers, just as they would in a terminal.
-         Flockdeck itself only contacts dl.flockdeck.ai to check for updates,
+         Flockdeck's own connections are dl.flockdeck.ai to check for updates,
          with GitHub as a mirror; the relay, if you turn on remote access;
-         your git remotes, when you push, pull or fetch; and, when you store
-         an API key, that provider, once, to check the key. The exception is the built-in API
+         your git remotes, when you push, pull or fetch, and GitHub through the
+         <code>gh</code> command if you use its features; each model provider
+         you've given a key, to check the key and list its models; and
+         TypeSafe, only if you turn on one of its two optional features. The exception is the built-in API
          agents: they send your conversations to the model provider you
-         choose, with your own key. Routing and the cost estimates add no
+         choose, with your own key. The cost estimates add no
          connection of their own. The <a href="privacy.html">privacy
          policy</a> has the details, and <a href="trust.html">trust &amp;
          privacy</a> has the short version, including how that compares to
@@ -545,18 +550,21 @@ make package    <span class="c"># archives for all six platforms</span></code></
          so you're not scrolling past them, and you can send a photo or
          several straight from the chat. You can search a
          conversation, and start a new agent without going to the desk.
-         Traffic is encrypted with TLS over the internet and routed through the
-         Flockdeck relay, which decrypts it to route it, so remote access is not
-         end-to-end encrypted. You can also turn on notifications, so your
-         phone tells you when an agent needs you and you're away from your
-         desk. Those are the exception: each one is sealed on your desktop for
-         that device alone, so the relay can't read it either.</p>
+         Everything goes over TLS. On top of that, what you type into a
+         terminal and what the agent prints back is end-to-end encrypted
+         between your desktop and your device, so the relay passes it on
+         without being able to read it. The rest is not: the chat view of a
+         conversation, what you search for, photos you attach, and each pane's
+         status, spend and usage all reach the relay decrypted. You can also
+         turn on notifications, so your phone tells you when an agent needs
+         you and you're away from your desk. Those are end-to-end encrypted
+         too: each one is sealed on your desktop for that device alone.</p>
     </details>
     <details>
       <summary>How do updates work?</summary>
       <p>Flockdeck checks dl.flockdeck.ai for new releases, with GitHub as a
          mirror. It verifies every download against its published checksum,
-         accepts a release from dl.flockdeck.ai only when the release key has
+         accepts a release, from either place, only when the release key has
          signed it, and asks before it restarts. If you
          don't restart, the new version goes in the next time you quit. The
          install scripts above do this once too, right after installing, so a
@@ -567,15 +575,20 @@ make package    <span class="c"># archives for all six platforms</span></code></
     <details>
       <summary>How do I uninstall it?</summary>
       <p>If you turned on remote access, run <code>flockdeck remote disable</code>
-         first so the relay forgets this machine. Then quit Flockdeck and delete
-         the binary: <code>~/.local/bin/flockdeck</code>, or on Windows the
+         first so the relay forgets this machine. Then quit Flockdeck and remove it
+         the way you installed it: through Installed apps for the Windows
+         installer, or with <code>apt</code> or <code>dnf</code> for the Linux
+         packages. For a copy the install script made, delete
+         <code>~/Applications/Flockdeck.app</code> on macOS; on Linux,
+         <code>~/.local/bin/flockdeck</code> and the Flockdeck entry and icon
+         under <code>~/.local/share</code>; on Windows the
          <code>%LOCALAPPDATA%\Programs\flockdeck</code> folder and the Flockdeck
          Start menu shortcut, and remove that folder from your user PATH. Your
          settings, layouts and keys are kept apart from it, in
          <code>%AppData%\flockdeck</code>,
          <code>~/Library/Application Support/flockdeck</code> or
          <code>~/.config/flockdeck</code>; delete that too, and on Windows
-         <code>%LOCALAPPDATA%\flockdeck</code>, which holds the window's browser
+         <code>%AppData%\flockdeck.exe</code>, which holds the window's browser
          profile. Worktrees Flockdeck
          made are ordinary git worktrees beside your repositories, and stay
          until you remove them.</p>

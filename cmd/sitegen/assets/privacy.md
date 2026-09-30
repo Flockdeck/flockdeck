@@ -1,6 +1,6 @@
 # Privacy policy
 
-*Last updated: 25 September 2026*
+*Last updated: 30 September 2026*
 
 Flockdeck is made by Jim Wright, an individual based in the United Kingdom.
 This policy explains what personal data is involved when you use the
@@ -20,7 +20,7 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
   below.
 - **The relay is optional.** It is used only if you turn on remote access. It
   keeps what it needs to connect your devices to your desktops: names, random
-  identifiers, timestamps, each paired browser's user-agent string, and your
+  identifiers, timestamps, public encryption keys, and your
   account's plan. It keeps no email address, password, real name or IP
   address.
 - **If you pay for remote access,** a separate billing service keeps the
@@ -184,20 +184,22 @@ cannot read it. The state of your panes still passes through the relay in
 the clear, so it can be seen there: what each pane's agent has spent, its
 usage limits, and which model routing chose for it. End-to-end encryption
 protects your terminal's contents from an honestly-run relay, including one
-you host yourself, but not yet from a relay that has been actively
-compromised and tampered with to intercept the key exchange at pairing —
-that additional check has not been built yet.
+you host yourself. Against a relay that has been tampered with to swap the
+keys it hands out at pairing, it needs one more check from you: pairing shows
+a fingerprint on both the device and the desktop, and comparing them by eye
+catches a swapped key.
 
 The relay does not record, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through remote access.
 Where a pane opens as a conversation rather than a terminal (a Claude Code
-pane, or Flockdeck's own chat client), that conversation passes through the
-relay the same way, and the relay stores none of it. Searching that
-conversation runs on your desktop, against what it has already kept; only
-the query you type and the matches it finds pass through the relay, the same
-way the rest of the conversation does. A photo you attach to a message from
-your phone passes through it too, but is kept only on your desktop, in
-Flockdeck's own folder, never your project, and removed after about a week.
+pane, or Flockdeck's own chat client), the conversation view is **not**
+end-to-end encrypted: its messages, what you search it for and the matches it
+finds, and any photo you attach reach the relay decrypted, over TLS, and the
+relay passes them on without storing them. What you type into the message box
+is the exception: it goes to the agent's terminal, end to end. Searching runs
+on your desktop, against what it has already kept. A photo you attach from
+your phone is kept only on your desktop, in Flockdeck's own folder, never your
+project, and removed after about a week.
 
 Muting a single pane's notifications from a phone is held only in that
 desktop's memory while it keeps running: it is not persisted there or
@@ -280,7 +282,10 @@ away and back doesn't lose it — on your device only, and never sent anywhere
 until you send it. It also remembers, per desktop, when you last had that
 desktop's list of panes open, so it can show what's changed since, and
 whether an agent's helpers are folded or shown — the same way, on your
-device only. None of this is used for tracking, or shared with anyone. The
+device only. It also keeps the messages you have recently sent, so you can send
+one again; which view (chat or terminal) each pane was last in; and, in the
+browser's IndexedDB, this device's private encryption key, which never leaves
+it. None of this is used for tracking, or shared with anyone. The
 billing service sets no cookies; Paddle's checkout and customer portal are on
 Paddle's own site, under Paddle's policy.
 

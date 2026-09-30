@@ -1,6 +1,6 @@
 # Terms of service
 
-*Last updated: 29 September 2026*
+*Last updated: 30 September 2026*
 
 These terms cover the Flockdeck relay at remote.flockdeck.ai and this website.
 They are an agreement between you and Jim Wright, an individual based in the
@@ -27,10 +27,11 @@ desktop app itself is free, and never needs the relay.
   your desktops, for the devices you pair, and for keeping them secure. Anyone
   holding one of your paired devices can reach your desktops through it. If a
   device is lost, remove it.
-- **Terminal traffic is end-to-end encrypted; a pane's state isn't.** The
-  relay carries your keystrokes and their output without being able to read
-  them, but it still decrypts the state of your panes (spend, usage limits,
-  which model routing chose) to route it, as the
+- **Terminal traffic is end-to-end encrypted; the rest isn't.** The relay
+  carries your keystrokes and a terminal's output without being able to read
+  them. It does decrypt, to route them, the state of your panes (status,
+  spend, usage limits, which model routing chose), the conversation view of a
+  pane and what you search in it, and photos you attach, as the
   [privacy policy](privacy.html) explains. Don't send anything through it you
   wouldn't send through a service you trust to that extent.
 - **Fair use.** The relay is shared, and it has limits on how often accounts
