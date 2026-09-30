@@ -3,6 +3,7 @@ package webui
 import (
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -1052,5 +1053,20 @@ func TestTheTerminalCannotSitAboveTheExitedPanesButtons(t *testing.T) {
 	css := stripComments(readAsset(t, "app.css"))
 	if !regexp.MustCompile(`(?:^|[;\s])isolation:\s*isolate\b`).MatchString(ruleBody(css, ".term-host")) {
 		t.Fatal(".term-host is not a stacking context, so xterm's z-indexed layers can cover .pane-error and its buttons")
+	}
+}
+
+// TestTabStripMarksABusyTab pins the working dot on a tab: the strip used to
+// draw only the waiting triangle, so a tab whose agent was working or had
+// background work running looked as quiet as an idle one.
+func TestTabStripMarksABusyTab(t *testing.T) {
+	js := readAsset(t, "app.js")
+	for _, want := range []string{`tab.working`, `setBusy(node, busy)`, `"busy-dot"`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js lacks %q", want)
+		}
+	}
+	if css := readAsset(t, "app.css"); !strings.Contains(css, ".tab .busy-dot") {
+		t.Error("app.css does not style .tab .busy-dot")
 	}
 }

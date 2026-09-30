@@ -450,7 +450,13 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
  * that gives up width. Everything else keeps its size, so the last control
  * is never clipped off the edge. */
 #topbar > * { flex: 0 0 auto; }
-#topbar > .spacer { flex: 1 1 auto; }
+#topbar > /* An agent in this tab is working, or has background work running. */
+.tab .busy-dot {
+  flex: 0 0 auto; margin-left: 6px; width: 8px; height: 8px; font-size: 0;
+  border-radius: 50%; background: var(--working);
+}
+
+.spacer { flex: 1 1 auto; }
 #topbar > #tabbar { flex: 0 1 auto; min-width: 0; }
 #tabbar { display: flex; align-items: center; gap: 8px; }
 
@@ -2293,12 +2299,12 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
  * coloured for a dark panel is all but invisible on a white one. These two
  * come before the block below, which has to stay the last of its kind. */
 @media (forced-colors: active) and (prefers-color-scheme: dark) {
-  .dot, .rail-badge, .tally-dot, .tab .attn {
+  .dot, .rail-badge, .tally-dot, .tab .attn, .tab .busy-dot {
     --working: #4fd1db; --waiting: #e2b341; --idle: #93a1a9; --exited: #f0776a; --ended: #738087;
   }
 }
 @media (forced-colors: active) and (prefers-color-scheme: light) {
-  .dot, .rail-badge, .tally-dot, .tab .attn {
+  .dot, .rail-badge, .tally-dot, .tab .attn, .tab .busy-dot {
     --working: #0b6e77; --waiting: #875a08; --idle: #5c676d; --exited: #b02a1f; --ended: #7a868c;
   }
 }
@@ -2335,7 +2341,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
    * what says which status it is whatever becomes of the colour. A ring
    * would muddle the shape, so there is none. */
   .dot { forced-color-adjust: none; }
-  .rail-badge, .tally-dot, .tab .attn { forced-color-adjust: none; }
+  .rail-badge, .tally-dot, .tab .attn, .tab .busy-dot { forced-color-adjust: none; }
   /* The ring the rail draws round a badge is the rail's ground, which is
    * the system's here. */
   .rail-badge { --bg-inset: Canvas; }
