@@ -29,7 +29,7 @@ settings > GitHub Apps > New GitHub App):
 ## 2. LLM API key
 
 `reusable-pr-review-post.yml`'s "Generate review with Gemini" step now calls
-Gemini 2.5 Flash for real. What's still needed: add `PR_REVIEW_LLM_API_KEY`
+Gemini for real (the model is the `GEMINI_MODEL` env in that step). What's still needed: add `PR_REVIEW_LLM_API_KEY`
 (org- or repo-level, your call) as a Gemini API key from
 https://aistudio.google.com/apikey. Until it's set, the review call fails
 with a 401/403 and the step just logs a warning and skips posting a comment
