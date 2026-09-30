@@ -272,7 +272,7 @@ var pages = []struct {
 }{
 	{Path: "", Template: "index.html.tmpl",
 		Title:       "Flockdeck | Coding agents on hardware you control",
-		Description: "Flockdeck runs Claude Code, Codex, Gemini or your own model on hardware you already own, self-hosted or on your desk, and reaches your phone with no port opened. Free and open source, for Windows, macOS and Linux.",
+		Description: "Flockdeck runs Claude Code, Codex, Gemini or your own model on hardware you already own, self-hosted or on your desk, and reaches your phone with no port opened. Free, with its source available, for Windows, macOS and Linux.",
 		Social:      "Run your coding agents on hardware you control, and reach them from your phone."},
 	{Path: "trust.html", Template: "doc.html.tmpl", Source: "trust.md",
 		Title:       "Trust & privacy | Flockdeck",

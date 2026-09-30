@@ -5,7 +5,7 @@ it, so everything listed here travels inside every release. Each licence below
 requires its copyright notice to be reproduced wherever the software is
 redistributed, and this file is how that is done.
 
-Every dependency is permissive — MIT, ISC or BSD 3-Clause — and the two
+Every dependency is permissive — MIT, ISC or BSD (2- and 3-Clause) — and the two
 typefaces are under the SIL Open Font License 1.1 (see "Typefaces" below). There
 is no copyleft anywhere in the tree, so a binary built from this repository can be
 redistributed under the terms in [LICENSE](LICENSE) together with the notices
@@ -372,7 +372,7 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### golang.org/x/crypto, golang.org/x/sys, rsc.io/qr — BSD 3-Clause
+### The Go standard library and runtime, golang.org/x/crypto, golang.org/x/sys, rsc.io/qr — BSD 3-Clause
 
 Copyright (c) 2009 The Go Authors. All rights reserved.
 

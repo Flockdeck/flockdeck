@@ -89,7 +89,10 @@ needs me right now** — and gives each agent its own branch to work on.
 
 ## Install
 
-Flockdeck itself needs nothing but the binary. What a pane runs is another matter:
+Flockdeck itself needs nothing but the binary on Windows and macOS. On Linux its
+window is drawn by GTK 4 and WebKitGTK, so `libgtk-4` and `libwebkitgtk-6.0` must
+be installed (the `.deb` and `.rpm` depend on them; the archive and the install
+script do not check). What a pane runs is another matter:
 a CLI agent has to be on your `PATH` — [Claude Code](https://claude.com/claude-code)
 for the default — and an API agent needs a key. The picker shows every agent it
 knows about either way, greying out the ones this machine has not got and
@@ -106,10 +109,14 @@ SHA-256 of each of its archives into both scripts. The script downloads the
 archive for the machine from `dl.flockdeck.ai`, or from GitHub when that
 cannot be reached, and checks it against the SHA-256 it carries itself, not
 against a `checksums.txt` fetched from where the archive came from. Then it
-puts it in a directory you own — `~/.local/bin`, or
+puts it in a directory you own — `~/.local/bin` on Linux (with an app-menu entry
+and icon under `~/.local/share`), `~/Applications/Flockdeck.app` on macOS, or
 `%LOCALAPPDATA%\Programs\flockdeck` with a Start menu shortcut on Windows — so
 neither installing nor updating ever asks for admin rights. The scripts are in
-`cmd/sitegen/assets`, beside the page that serves them.
+`cmd/sitegen/assets`, beside the page that serves them. A release also comes as
+a `.deb` and an `.rpm` for Linux and as a Windows installer, which the scripts
+do not install; that installer installs for all users and asks for admin
+rights.
 
 With that pinned release installed, if the site has moved on since — the site
 is only regenerated on a release, but the script you fetched today can be
@@ -144,7 +151,8 @@ curl -fsSL https://flockdeck.ai/install.sh | FLOCKDECK_INSTALL_DIR=~/bin sh
 $env:FLOCKDECK_VERSION = 'v0.2.8'; irm https://flockdeck.ai/install.ps1 | iex
 ```
 
-With Go:
+With Go (1.27 or later; on Windows this leaves a console window behind the app,
+so use `make install` there):
 
 ```sh
 go install github.com/jmwri/flockdeck@latest
@@ -161,12 +169,13 @@ Where there is no `make`, as on many Windows machines, `go build .` builds the
 same program; on Windows add `-ldflags -H=windowsgui`, as the Makefile does,
 so that it opens without a console window behind it.
 
-The whole program builds with `CGO_ENABLED=0`, including the PTY layer and the
-front end, so `windows`, `linux` and `darwin` on both `amd64` and `arm64` all
-cross-compile from any one machine with nothing but the Go toolchain. There is
-one artifact: a single binary with no assets to install beside it. The Windows
-release also carries `flockdeck-chat.exe`, the same program linked for the
-console, which is what an API agent's pane runs there.
+The Windows build needs no C toolchain and cross-compiles from any machine. The
+Linux and macOS window is drawn through cgo (GTK 4 and WebKitGTK, Cocoa), so a
+release build of either needs a matching machine with a C toolchain. The
+Makefile builds with `CGO_ENABLED=0`, which compiles everywhere but leaves a
+Linux or macOS binary without a native window: the page opens in your default
+browser instead. The Windows release also carries `flockdeck-chat.exe`, the same
+program linked for the console, which is what an API agent's pane runs there.
 
 ### Staying up to date
 
@@ -213,6 +222,7 @@ From a terminal:
 ```sh
 flockdeck update          # fetch the latest release and put it in place
 flockdeck update -check   # say whether there is one, and stop
+flockdeck update -version=v0.3.44   # install that release, forward or back; asks first (-yes skips)
 ```
 
 Replacing the binary leaves a running instance alone — it is already loaded —
@@ -227,8 +237,12 @@ exits; the subcommand still works.
 
 Turn remote access off first if it is on (`flockdeck remote disable`), so the
 relay forgets this machine. Then quit Flockdeck and delete it:
-`~/.local/bin/flockdeck`, or on Windows the `%LOCALAPPDATA%\Programs\flockdeck`
-folder, its Start menu shortcut and its entry in your PATH. Settings, layouts
+`~/.local/bin/flockdeck` on Linux, with `flockdeck.desktop` and `flockdeck.png`
+under `~/.local/share/applications` and `~/.local/share/icons`;
+`~/Applications/Flockdeck.app` on macOS; or on Windows the
+`%LOCALAPPDATA%\Programs\flockdeck` folder, its Start menu shortcut and its
+entry in your PATH. A `.deb` or `.rpm` is removed with your package manager, and
+the Windows installer under Apps. Settings, layouts
 and keys are kept apart, in `%AppData%\flockdeck`,
 `~/Library/Application Support/flockdeck` or `~/.config/flockdeck`; delete that
 too, and on Windows `%LOCALAPPDATA%\flockdeck`, which holds the window's
@@ -362,11 +376,12 @@ For a team already running Kubernetes, `deploy/helm/flockdeck/` is a Helm
 chart built on the same image — one pod (there is no replica count: a saved
 layout and an instance record belong to one process), a `PersistentVolumeClaim`
 for that state, and pod hardening (non-root, read-only root filesystem, no
-Linux capabilities). It deliberately ships no `Service` or `Ingress`: for the
-same loopback-and-random-port reason above, neither could route to anything
-real. `deploy/helm/flockdeck/README.md` has the install guide and what to use
-instead (`kubectl exec` plus `kubectl port-forward`, or `remote enable` for
-real off-cluster access).
+Linux capabilities). Because the server binds loopback on a random port, the pod
+also runs a small `flockdeck-portproxy` sidecar that listens on a fixed port and
+forwards to it, which is what the chart's `Service` routes to. It ships no
+`Ingress`. `deploy/helm/flockdeck/README.md` has the install guide, what the
+`Service` does and does not authenticate, and how to reach it (`kubectl exec`
+plus `kubectl port-forward`, or `remote enable` for real off-cluster access).
 
 ## Keyboard shortcuts
 
@@ -544,18 +559,17 @@ logged, never in a snapshot, never in an error message. The interface shows
 
 ### Attention indicators
 
-Each pane header shows a status dot, any tab containing an agent that is
+Each pane header shows a status mark, any tab containing an agent that is
 blocked on you is marked `▲`, and the window title reports the count so a
 waiting agent is visible in the taskbar even when the window is not focused.
 
-The application icon carries the same state. The window is a Chromium app-mode
-window, so the icon in the taskbar is the page's own, and it changes with the
-agents: grey when nothing is running, accent cyan while an agent works, and
-amber the moment one blocks on you. Colour is spent on it for the same reason
+The application icon carries the same state. It is the page's own icon, and it
+changes with the agents: grey when nothing is running, accent cyan while an
+agent works, and amber the moment one blocks on you. Colour is spent on it for the same reason
 it is spent anywhere else here — it is reporting a state the app actually
 knows, not decorating the window.
 
-| Dot | Meaning |
+| Mark | Meaning |
 | --- | --- |
 | filled cyan circle, pulsing | Working — producing output or running a tool |
 | amber triangle | **Waiting on you** — a permission prompt or a question |
@@ -613,9 +627,10 @@ before reading there. Anything that changes a file — `Edit`, `Write`,
 `MultiEdit` — is left to ask every time, on purpose: that is exactly the
 kind of call a person is meant to see before it happens.
 
-It is off for every pane and is not saved across a restart. The control
-socket's `autoReview` command turns it on or off for one pane; there is no
-switch for it in the window or on the phone yet.
+It is off for a pane unless you turn it on, with the ✓ button in the pane's
+header, or for new panes with Settings › Behaviour › Start new panes with
+auto-review on. A pane's own switch is not saved across a restart; the default
+is.
 
 The one key the file can take over is `statusLine`, because Claude Code hands a
 subscription's usage limits to its status line command and nowhere else. Where
@@ -1035,17 +1050,18 @@ of date, until it answers again.
 lists every action except tab switching, and it switches to any open project
 or tab by name. `Ctrl+Shift+F` searches the focused terminal. `Ctrl+=` and
 `Ctrl+-` change the terminal font size for every pane, and Flockdeck remembers
-it. Settings → Terminal sets the size, typeface, scrollback and cursor.
+it. Settings → Appearance sets the size, typeface, scrollback and cursor.
 
 ### Settings
 
 `Ctrl+,`, or **Settings** at the foot of the rail, opens one dialog for
-everything Flockdeck remembers: notifications and updates (General), font,
-scrollback and cursor (Terminal), the default agent and model, routing and
-whether Claude panes read their usage limits (Agents), keys
-(API keys), pairing (Remote access), and your plan (Account & plan). Every
-control changes its setting at once. Below 640px wide the rail folds into a
-menu behind the ☰ button at the left of the top bar, which is how a phone or a
+everything Flockdeck remembers: notifications and updates (General), theme,
+accent, font, scrollback and cursor (Appearance), the defaults for fan-out and
+auto-review (Behaviour), shortcuts (Keybindings), the default agent and model,
+routing and whether Claude panes read their usage limits (Agents), keys
+(API keys), pairing (Remote access), GitHub sign-in (GitHub), and your plan
+(Account & plan). Every control changes its setting at once. Below 640px wide
+the rail folds into a menu behind the menu button at the left of the top bar, which is how a phone or a
 narrow window reaches Settings and the other tools.
 
 ### Help
@@ -1244,13 +1260,18 @@ page. A machine wiped before remote access was turned off on it can no longer
 take itself off the relay, so that page removes it too.
 
 What the relay can see is stated plainly: traffic is TLS between the browser
-and the relay and between the relay and this machine. Terminal traffic — what
-you type and what comes back — is also **end-to-end encrypted** on top of
-that: the relay carries it but cannot read it, even one you run yourself.
-That defeats an honestly-run relay; it does not yet defend against a relay
-that has been actively compromised and tampered with to swap the keys it
-hands out at pairing, which needs an out-of-band check not built yet. It
-never sees the local server's token or any API key — a request is let in
+and the relay and between the relay and this machine. Only the terminal
+socket is also **end-to-end encrypted** on top of that — what you type in a
+terminal and what comes back — so the relay carries it but cannot read it, even
+one you run yourself. A terminal falls back to plaintext (TLS only) when either
+the device or this machine has no registered key. Everything else passes
+through the relay decrypted: the chat view, pane state and latest replies,
+photos, diffs, commit, push and pull-request data, and an API key typed into a
+remote window. The end-to-end encryption defeats an honestly-run relay; against
+one that has been actively compromised and tampered with to swap the keys it
+hands out at pairing, compare by eye the fingerprint the device and this
+machine both show for each other (in the Remote access dialog). The relay
+never sees the local server's token — a request is let in
 here because it came
 through the tunnel, which only the relay can put one on, and the relay has
 already checked the device is paired with the account. The endpoints only
@@ -1388,10 +1409,16 @@ its slug to `order` in `internal/help/help.go`. To change a shortcut, edit
 go test ./internal/help -run TestREADMEShortcuts -update
 ```
 
-Two programs under `cmd/` make what is published rather than the application:
+Programs under `cmd/` make what is published rather than the application:
 
-- `cmd/release` cross-builds every platform and writes the archives and
+- `cmd/release` builds every platform and writes the archives and
   `checksums.txt` a release is made of; `make package` runs it.
+- `cmd/docgen` writes docs.flockdeck.ai, rendering the using-Flockdeck pages
+  from `internal/help`.
+- `cmd/portproxy` is the sidecar the Helm chart runs beside the server, in the
+  same image.
+- `cmd/deploydrift` is a CI check: it reports repositories whose main branch has
+  changes no version tag has picked up yet.
 - `cmd/sitegen` writes the landing page at flockdeck.ai, and the install
   scripts it serves, from `cmd/sitegen/assets`:
   `go run ./cmd/sitegen -out ../flockdeck-site -release v1.2.3 -checksums checksums.txt`,
@@ -1437,8 +1464,9 @@ files in `internal/webui/assets/vendor/` from the `@xterm/xterm`,
   commit is refused when the tree has moved since you looked, but a file
   written to again is noticed by its size and modification time, not its
   content, so an edit that changes neither goes through.
-- The window needs a browser engine present. Every supported platform ships one
-  or has one in practice, but on a bare Linux install with no browser at all
+- The window needs a webview: WebView2 on Windows, WebKit on macOS, and on Linux
+  the `libgtk-4` and `libwebkitgtk-6.0` libraries. Without a working one the
+  page opens in your default browser, and on a machine with no browser either
   there is nothing to display the interface in.
 - Release binaries are not signed. The install scripts are unaffected, but a
   copy downloaded in a browser, from dl.flockdeck.ai or GitHub, can be stopped
@@ -1464,8 +1492,9 @@ rights reserved.
 
 The front end is compiled into the binary and the Go dependencies are linked
 into it, so a release carries other people's code as well as this project's.
-All of it is permissive (MIT, ISC and BSD 3-Clause) with no copyleft anywhere,
-and the notices each of those licences asks for are in
+All of the code is permissive (MIT, ISC, and BSD 2- and 3-Clause), the two
+typefaces are under the SIL Open Font License 1.1, and there is no copyleft
+anywhere; the notices each of those licences asks for are in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), which ships inside every
 release archive beside the binary.
 
