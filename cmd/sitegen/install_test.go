@@ -506,11 +506,11 @@ func TestInstallShTakesADirectoryWithASlashOnTheEnd(t *testing.T) {
 				t.Errorf("nothing installed at %s: %v\n%s", want, err, out)
 			}
 			// macOS never prints a PATH-based "start it with": a
-			// double-clickable Flockdeck.app is opened from Launchpad,
-			// Spotlight or Finder instead.
+			// double-clickable Flockdeck.app is opened from
+			// Spotlight, or from the install folder in Finder, instead.
 			wantSaid := "start it with: flockdeck\n"
 			if runtime.GOOS == "darwin" {
-				wantSaid = "open it from Launchpad, Spotlight or Finder"
+				wantSaid = "open it from Spotlight, or from "
 			}
 			if !strings.Contains(string(out), wantSaid) ||
 				strings.Contains(string(out), "not on your PATH") || strings.Contains(string(out), "not this one") {
