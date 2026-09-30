@@ -10,11 +10,15 @@ Every pane header carries a status dot.
 
 | Dot | Meaning |
 | --- | --- |
-| Green, pulsing | **Working** — producing output or running a tool |
-| Amber | **Waiting on you** — a permission prompt or a question |
-| Grey | **Idle** — it finished its turn and is ready for a new prompt |
-| Faint grey | **Starting** — launched, and not heard from yet |
-| Red | **Exited** — the process is gone |
+| Filled cyan circle, pulsing | **Working** — producing output or running a tool |
+| Amber triangle | **Waiting on you** — a permission prompt or a question |
+| Hollow grey circle | **Idle** — it finished its turn and is ready for a new prompt |
+| Hollow grey circle, pulsing | **Starting** — launched, and not heard from yet |
+| Red filled square | **Failed** — the process ended with an error, or was killed |
+| Hollow square | **Exited** — the process is gone |
+
+Each state has its own shape as well as its colour, so you can tell them apart
+without seeing colour.
 
 A pane whose turn is over but that has background work still running, a
 command or subagent it started, is still **Idle** and its header says how many
@@ -36,7 +40,7 @@ tells you what the agent is actually doing rather than only that it is busy.
   the count for the same list [[key:agents]] opens.
 - **The rail** down the left of the window has a tile for each open project,
   and the tile says what that project's agents are doing, most urgent first: an
-  amber badge where an agent is waiting on you, a pulsing green one where
+  amber badge where an agent is waiting on you, a pulsing cyan one where
   agents are working, or idle with background work still running, and none is
   waiting, and nothing where every pane is
   idle, exited or not yet heard from, or there are no panes. So one that
@@ -70,7 +74,8 @@ tells you what the agent is actually doing rather than only that it is busy.
   conversation is cleared, or the pane is closed by hand (or with
   `flockdeck close --force`).
 - A background subagent calling tools after its agent's turn has ended leaves
-  the pane grey, with that count, rather than flashing green for each call.
+  the pane idle, with that count and the steady working dot, rather than
+  flashing cyan for each call.
   A question or permission prompt it puts to you still turns it amber.
 
 ## Where it comes from
@@ -105,7 +110,7 @@ outside the project, is always left to ask. It is off for every pane, and
 there is no switch for it in the window or on the phone yet.
 
 One answer is not reported by any event: a permission prompt answered from
-the keyboard. Enter turns the pane green, since allowing the tool starts it
+the keyboard. Enter turns the pane cyan, since allowing the tool starts it
 running. Refusing it puts Claude Code back at its prompt without a word, so
 a pane that is then heard from by nothing, neither an event nor anything it
 draws, for ten seconds goes back to grey.

@@ -11374,7 +11374,7 @@
   const PRIORITY_HINTS = [
     {
       id: "waiting",
-      text: "An amber dot means that agent needs you — a permission prompt, a question, or a tool call it was refused outright and stopped over.",
+      text: "An amber triangle means that agent needs you — a permission prompt, a question, or a tool call it was refused outright and stopped over.",
       page: "status",
       // Only with an amber dot on screen to point at. The waiting count is
       // every project's, and an agent waiting in one not shown had this
@@ -11499,7 +11499,7 @@
     },
     {
       id: "working-tool",
-      text: "While a pane's dot pulses green, its header names the tool it is using right now — Read, Bash, Edit — so you can tell what it is actually doing, not only that it is busy.",
+      text: "While a pane's cyan dot is pulsing, its header names the tool it is using right now — Read, Bash, Edit — so you can tell what it is actually doing, not only that it is busy.",
       page: "status",
       when: (s) => currentPanes(s).some((v) => v.status === "working"),
     },
