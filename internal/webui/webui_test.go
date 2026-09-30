@@ -1996,6 +1996,27 @@ assert.ok(!/^one: /.test(h.notifications[0].body), "an ordinary split's prompts 
 `)
 }
 
+// A fan-out is not settled while an agent in it still has background work
+// running: the server's activity for that pane is working though its status
+// is idle, and the roll-up into a summary card waits for the activity, not the
+// status, to settle. The same rule gates the hints that ask whether a pane is
+// working or idle.
+func TestAFanOutIsNotSettledWhileBackgroundWorkRuns(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const tab = { id: "t9", title: "fan out", focus: "q0", delegated: true, root: split("h", [leaf("m0", "q0"), leaf("m1", "q1")]) };
+const state = (activity) => fixture({
+  activeTab: "t9", tabs: [tab],
+  panes: { q0: pane("q0", { name: "task 0", branch: "task-0", status: "idle", activity: "idle" }),
+           q1: pane("q1", { name: "task 1", branch: "task-1", status: "idle", activity, background: activity === "working" ? 1 : 0 }) },
+});
+h.recv(state("working"));
+assert.ok(!h.$("workspace").querySelector(".summary-card"), "the card rolled up while a background task was still running");
+h.recv(state("idle"));
+assert.ok(h.$("workspace").querySelector(".summary-card"), "the card did not appear once the background work ended");
+`)
+}
+
 // Dismissing a settled fan-out's summary card with "Back to grid" used to be
 // permanent: cardHidden suppressed the card until the tab started working
 // again, and nothing offered a way back to it before then. A chip floated

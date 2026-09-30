@@ -1513,7 +1513,7 @@
     const ids = [...idSet];
     const views = ids.map((id) => s.panes && s.panes[id]).filter(Boolean);
     const settled = !!tab.delegated && views.length >= 2 && !views.some((v) => v.kind === "shell" || v.parent) &&
-      views.every((v) => v.status !== "working" && v.status !== "starting");
+      views.every((v) => activityOf(v) !== "working" && activityOf(v) !== "starting");
     if (!settled) cardHidden.delete(tab.id);
     return { settled, ids };
   }
@@ -1652,6 +1652,13 @@
     });
     return split;
   }
+
+  /** activityOf is what the server says a pane is doing (workspace.PaneActivity):
+   *  its status, except that an idle agent with background work still running
+   *  is working. Anything that asks whether a pane is busy or finished asks
+   *  this, not the raw status, so a tab is not settled, and a hint not shown,
+   *  while a background task runs. The status is for what reads the turn. */
+  function activityOf(v) { return v.activity || v.status; }
 
   /** shownStatus is the status a pane is drawn in: its own, except that a
    *  process that exited with an error or was killed reads as failed rather
@@ -11497,14 +11504,14 @@
       page: "worktrees",
       when: (s) => {
         const p = currentPanes(s);
-        return p.length > 0 && p.every((v) => v.status === "idle");
+        return p.length > 0 && p.every((v) => activityOf(v) === "idle");
       },
     },
     {
       id: "working-tool",
       text: "While a pane's cyan dot is pulsing, its header names the tool it is using right now — Read, Bash, Edit — so you can tell what it is actually doing, not only that it is busy.",
       page: "status",
-      when: (s) => currentPanes(s).some((v) => v.status === "working"),
+      when: (s) => currentPanes(s).some((v) => activityOf(v) === "working"),
     },
   ];
 

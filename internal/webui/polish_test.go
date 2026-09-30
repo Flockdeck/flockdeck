@@ -1100,6 +1100,9 @@ func TestMarksFollowTheServersActivity(t *testing.T) {
 		`tally("working", s.working, TIPS.workingCount)`,
 		`busy.setAttribute("aria-label", TIPS.workingCount)`,
 		`workingBackground:`,
+		`activityOf(v) !== "working" && activityOf(v) !== "starting"`,
+		`p.every((v) => activityOf(v) === "idle")`,
+		`currentPanes(s).some((v) => activityOf(v) === "working")`,
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js lacks %q", want)
@@ -1107,7 +1110,7 @@ func TestMarksFollowTheServersActivity(t *testing.T) {
 	}
 	// None of the old recomputations is left: a pane's background count, a
 	// tab's working flag and a project's separate background count.
-	for _, gone := range []string{`(v.background | 0) > 0`, `tab.working`, `p.background | 0`, `a.background) parts.push`} {
+	for _, gone := range []string{`(v.background | 0) > 0`, `tab.working`, `p.background | 0`, `a.background) parts.push`, `v.status !== "working" && v.status !== "starting"`, `v.status === "working"),`} {
 		if strings.Contains(js, gone) {
 			t.Errorf("app.js still works out activity itself: %q", gone)
 		}
