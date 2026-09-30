@@ -53,3 +53,47 @@ func TestATabIsWorkingWhileAnAgentInItIsBusyOrHasBackgroundWork(t *testing.T) {
 		t.Error("the tab is still marked working once the background work ended")
 	}
 }
+
+// TestAProjectCountsIdleAgentsWithBackgroundWorkApart covers the rail's mark:
+// Projects counted only agents whose status is working, so a project whose
+// only agent sat idle over a running background command read as quiet. The
+// count is kept apart from Working, which the tallies use unchanged.
+func TestAProjectCountsIdleAgentsWithBackgroundWorkApart(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "one")
+	p := ws.FocusedPane()
+	if p == nil || p.Sess == nil {
+		t.Fatalf("the pane did not start: %v", p.Err)
+	}
+	send := func(name string) {
+		ws.handleHook(hooks.Event{SessionID: p.ID, Event: name, Launch: p.launch})
+	}
+	counts := func() (working, background int) {
+		for _, pr := range ws.Projects() {
+			if pr.Active {
+				return pr.Working, pr.Background
+			}
+		}
+		t.Fatal("no active project")
+		return 0, 0
+	}
+
+	send("UserPromptSubmit")
+	send("Stop")
+	if w, b := counts(); w != 0 || b != 0 {
+		t.Errorf("idle, nothing running: working=%d background=%d, want 0 0", w, b)
+	}
+	p.Sess.NoteBackground("PostToolUse", hooks.BackgroundStart, "shell:b1")
+	if w, b := counts(); w != 0 || b != 1 {
+		t.Errorf("idle over background work: working=%d background=%d, want 0 1", w, b)
+	}
+	if st, _ := p.Sess.Status(); st != session.StatusIdle {
+		t.Errorf("status = %v, want idle: the status inference must not change", st)
+	}
+	send("UserPromptSubmit")
+	if w, b := counts(); w != 1 || b != 0 {
+		t.Errorf("working with background work: working=%d background=%d, want 1 0 (counted once)", w, b)
+	}
+}

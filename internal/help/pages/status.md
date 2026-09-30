@@ -16,6 +16,11 @@ Every pane header carries a status dot.
 | Faint grey | **Starting** — launched, and not heard from yet |
 | Red | **Exited** — the process is gone |
 
+A pane whose turn is over but that has background work still running, a
+command or subagent it started, is still **Idle** and its header says how many
+are "in background". Its dot is the working dot all the same, and its tooltip
+says it is working in the background.
+
 While a tool is running the pane header names it, so `Read`, `Bash` or `Edit`
 tells you what the agent is actually doing rather than only that it is busy.
 
@@ -32,7 +37,8 @@ tells you what the agent is actually doing rather than only that it is busy.
 - **The rail** down the left of the window has a tile for each open project,
   and the tile says what that project's agents are doing, most urgent first: an
   amber badge where an agent is waiting on you, a pulsing green one where
-  agents are working and none is waiting, and nothing where every pane is
+  agents are working, or idle with background work still running, and none is
+  waiting, and nothing where every pane is
   idle, exited or not yet heard from, or there are no panes. So one that
   starts waiting in a project you are *not* looking at is seen from the one
   you are. Widen the rail and the count is written beside the name — `▲ 2`

@@ -281,6 +281,11 @@ type projectView struct {
 	Tabs    int    `json:"tabs"`
 	Waiting int    `json:"waiting"`
 	Working int    `json:"working"`
+	// Background counts the agents idle between turns with background work
+	// still running. It is not part of Working, which the top bar and the
+	// counts beside the rail's names use as they always have; the rail's mark
+	// reads it, so a project with only background work shows as working.
+	Background int `json:"background,omitempty"`
 	// Panes counts every pane in the project, so the agents list, which the
 	// window asks for again when this summary moves, follows a split or a
 	// closed idle pane as well as a change of status.
@@ -645,7 +650,7 @@ func (s *Server) snapshot() stateMsg {
 		}
 		msg.Projects = append(msg.Projects, projectView{
 			Root: p.Root, Name: p.Name, Active: p.Active,
-			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working, Panes: p.Panes,
+			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working, Background: p.Background, Panes: p.Panes,
 			Members:  members,
 			Archived: p.Archived,
 		})
