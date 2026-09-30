@@ -491,7 +491,8 @@ assert.ok(built < 9 * 40, "every keystroke built the whole list again: " + built
 assert.ok(rows()[0] === first, "a row whose line was not touched was built again");
 assert.strictEqual(rows()[0].querySelector("select").value, "codex\no3", "the choice on an untouched row was lost");
 assert.strictEqual(rows().length, 12);
-assert.ok(rows()[11].textContent.includes("task number 11 and more"), "the line typed into does not show what was typed");
+// Each task is a field of its own now, so what it shows is its value.
+assert.strictEqual(rows()[11].querySelector("input.fan-row-task").value, "task number 11 and more", "the line typed into does not show what was typed");
 assert.deepStrictEqual(rows().map((r) => r.querySelector(".fan-row-n").textContent),
   ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]);
 
@@ -499,7 +500,7 @@ assert.deepStrictEqual(rows().map((r) => r.querySelector(".fan-row-n").textConte
 box.value = box.value.split(String.fromCharCode(10)).slice(1).join(String.fromCharCode(10));
 box.oninput();
 assert.strictEqual(rows().length, 11);
-assert.strictEqual(rows()[0].querySelector(".fan-row-task").textContent, "task number 1");
+assert.strictEqual(rows()[0].querySelector("input.fan-row-task").value, "task number 1");
 assert.strictEqual(rows()[0].querySelector(".fan-row-n").textContent, "1");
 body.querySelector("button.primary").onclick();
 const sent = h.commands().pop();

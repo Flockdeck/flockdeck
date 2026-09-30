@@ -47,6 +47,10 @@ type fanoutPreviewMsg struct {
 	Routing   string       `json:"routing,omitempty"`
 	Routes    []*routeView `json:"routes,omitempty"`
 	RouteNote string       `json:"routeNote,omitempty"`
+	// Question reports that no plan was offered because the pane ends in a
+	// question put to the person, such as a permission prompt, so the dialog
+	// can say that rather than that nothing was found.
+	Question bool `json:"question,omitempty"`
 }
 
 // fanoutAgentView is one agent the dialog can offer, for the whole run or for
@@ -106,6 +110,14 @@ func (s *Server) fanoutCatalog(specs []agent.Spec) []fanoutAgentView {
 // preview between the workspace's answer and the probing that follows it.
 var planTasks = func(src workspace.PlanSource) ([]string, bool) { return src.Tasks() }
 
+// readPlan is what the preview offers from a pane: its tasks, whether they
+// came from the agent's own words, and -- where there are none -- whether that
+// is because the pane ends in a question for the person rather than a plan.
+func readPlan(src workspace.PlanSource) (tasks []string, fromReply, question bool) {
+	tasks, fromReply = planTasks(src)
+	return tasks, fromReply, len(tasks) == 0 && src.EndsInQuestion()
+}
+
 // previewFanout reads a pane's recent output and proposes tasks from it.
 func (s *Server) previewFanout(c *controlClient, paneID string) {
 	type info struct {
@@ -151,7 +163,7 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 		// Reading the transcript touches the disk and asking about the agents
 		// searches PATH, which is why both happen here rather than on the
 		// goroutine that owns the workspace.
-		tasks, fromReply := planTasks(in.src)
+		tasks, fromReply, question := readPlan(in.src)
 		agents, def := s.fanoutCatalog(in.specs), in.def
 		msg := fanoutPreviewMsg{
 			Type:      "fanoutPreview",
@@ -159,6 +171,7 @@ func (s *Server) previewFanout(c *controlClient, paneID string) {
 			Cwd:       in.cwd,
 			Tasks:     tasks,
 			FromReply: fromReply,
+			Question:  question,
 			IsRepo:    isRepoDir(in.cwd) || gitRoot(in.cwd) != "",
 			Trusted:   session.IsTrusted(in.cwd),
 			Project:   filepath.Base(in.cwd),

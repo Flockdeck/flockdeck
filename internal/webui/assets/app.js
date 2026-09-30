@@ -11570,6 +11570,35 @@
     return i < 0 ? ["", ""] : [value.slice(0, i), value.slice(i + 1)];
   }
 
+  /** pickName is one agentSelect value as a line of text says it: the
+   *  model's own name, or the agent's where it names no model of its own. */
+  function pickName(agents, value) {
+    const [id, model] = pickParts(value);
+    const a = (agents || []).find((x) => x.id === id);
+    if (!a) return model || id;
+    const want = model || a.default || "";
+    const mo = (a.models || []).find((x) => (x.id || "") === want);
+    return (mo && (mo.name || mo.id)) || want || a.name || id;
+  }
+
+  /** routeShort is routeSummary as the few words the model line has room
+   *  for: "Routing: 1 down, 1 up". The sentence is its tooltip. */
+  function routeShort(down, up) {
+    const parts = [];
+    if (down) parts.push(down + " down");
+    if (up) parts.push(up + " up");
+    return parts.length ? "Routing: " + parts.join(", ") : "";
+  }
+
+  /* The dialog, top to bottom: the model for every task (and what routing
+   * chose); the tasks, one editable row each, with a model per row where
+   * there is a choice; where they run; and the footer that counts them and
+   * starts them.
+   *
+   * The plan is shown once. The rows are what is edited; "Edit as text"
+   * swaps them for the textarea they are drawn from, for pasting or rewriting
+   * a list at once. That textarea stays the one source of truth: the rows
+   * write their text back into it, and it is what Start reads. */
   function renderFanout(msg) {
     if (msg) {
       // Only the answer to what the open dialog asked, and only the first:
@@ -11582,15 +11611,6 @@
     const body = $("overlay-body");
     body.textContent = "";
 
-    const hint = el("div", "fan-hint");
-    const found = m.tasks && m.tasks.length;
-    hint.append(document.createTextNode(
-      found
-        ? (m.fromReply ? "Found these in what this agent last said. " : "Found these in the pane's output. ") +
-          "Edit the list — one task per line — then start an agent for each."
-        : "No plan was found in this pane. Type one task per line."));
-    body.append(hint);
-
     // The agent controls are drawn only where there is a decision to make. A
     // Flockdeck that knows one agent with one model has nothing to ask, and a
     // dialog that asks it anyway has grown for nobody.
@@ -11598,13 +11618,41 @@
     const picks = catalog.reduce((n, a) => n + Math.max(1, (a.models || []).length), 0);
     const choosable = catalog.length > 0 && picks > 1;
 
+    // Where the plan came from, in the head: the project, and the agent in
+    // the pane that planned it.
+    const pv = state && state.panes && state.panes[m.paneId];
+    const planner = pv && pv.agent ? ((catalog.find((a) => a.id === pv.agent) || {}).name || pv.agent) : "";
+    const from = [m.project, planner].filter(Boolean).join(" · ");
+    $("overlay-scope").textContent = from ? "from " + from : "";
+    $("overlay-scope").hidden = !from;
+
+    const found = m.tasks && m.tasks.length;
+    if (m.question) {
+      // The pane ends in a question put to the person -- a permission
+      // prompt -- whose numbered choices are not a plan (the server reads
+      // none from it). Saying so beats an empty list that seems to have
+      // missed one.
+      const warn = el("div", "fan-note warn");
+      warn.append(el("b", null, "This looks like a question the agent is asking you, not a plan."),
+        el("span", null, " Answer it in the pane, then fan out again, or type the tasks below."));
+      body.append(warn);
+    } else if (!found) {
+      const none = el("div", "fan-note");
+      none.append(el("b", null, "No plan was found in this pane."),
+        el("span", null, " Type the tasks below, one to a row, or paste a list with Edit as text."));
+      body.append(none);
+    }
+
     let runSel = null;
+    let top = null;
     if (choosable) {
       const chosen = catalog.find((a) => a.id === m.agent) || catalog[0];
       runSel = agentSelect(catalog, chosen.id + "\n" + (m.model || chosen.default || ""));
-      const line = el("div", "fan-agent");
-      line.append(el("span", null, "Run every task with"), runSel);
-      body.append(line);
+      runSel.classList.add("fo-sel");
+      runSel.setAttribute("aria-label", "Model for every task");
+      top = el("div", "fan-agent fo-model");
+      top.append(el("span", "fo-model-label", "Model for every task"), runSel);
+      body.append(top);
     }
 
     // What routing chose for each row, keyed by the task's text like the
@@ -11621,6 +11669,14 @@
     if (routing) takeRoutes(m.tasks, m.routes);
     /** The routed choices changed before starting, for the routing log. */
     const overridden = [];
+    // Which agent each line gets, where it is not the one chosen for the run.
+    //
+    // Keyed by the text of the task rather than by its position, because the
+    // list is being edited: deleting the second line moves every line below
+    // it up, and an override held by position would be left sitting on
+    // somebody else's task. A row edited in place takes its choice with it;
+    // a line rewritten in the textarea is a different task, and loses it.
+    const overrides = new Map();
     let routeText = null;
     let routeClear = null;
     if (routing) {
@@ -11628,8 +11684,9 @@
       routeText = el("span", "fan-route-text");
       // After the run's select in the tab order, since it is about that
       // select: it puts every routed row back on the model chosen there.
-      routeClear = el("button", "chip", "Use the run's model for every task");
+      routeClear = el("button", "fan-quiet", "Undo routing");
       routeClear.id = "fan-route-clear";
+      describe(routeClear, "Use the run's model for every task");
       routeClear.onclick = () => {
         const had = document.activeElement === routeClear;
         taskLines().forEach((t) => {
@@ -11646,24 +11703,36 @@
         if (had && routeClear.hidden) runSel.focus();
       };
       line.append(routeText, routeClear);
-      body.append(line);
+      top.append(line);
     }
 
-    const box = el("textarea", "fan-tasks");
+    const head = el("div", "fan-sec");
+    const num = el("span", "fan-sec-num");
+    if (found) describe(num, m.fromReply ? "Read from what the agent last said" : "Read from the pane's output");
+    const asText = el("button", "fan-quiet", "Edit as text");
+    asText.setAttribute("aria-pressed", "false");
+    head.append(el("h3", null, "Tasks"), num, el("span", "ov-spacer"), asText);
+    body.append(head);
+
+    const rows = el("div", "fan-rows");
+    body.append(rows);
+    // The row after the last, to type the next task into.
+    const add = el("div", "fan-add");
+    const addN = el("span", "fan-add-n");
+    const addIn = el("input", "fan-add-task");
+    addIn.type = "text";
+    addIn.value = "";
+    addIn.placeholder = "Add a task…";
+    addIn.setAttribute("aria-label", "Add a task");
+    add.append(addN, addIn);
+    body.append(add);
+
+    const box = el("textarea", "fan-tasks fo-text");
     box.value = (m.tasks || []).join("\n");
     box.placeholder = "One task per line, for example:\nAdd a health endpoint\nWrite tests for the parser\n\nCtrl+Enter starts them.";
+    box.setAttribute("aria-label", "Tasks, one per line");
+    box.hidden = true;
     body.append(box);
-
-    // Which agent each line gets, where it is not the one chosen for the run.
-    //
-    // Keyed by the text of the task rather than by its position, because the
-    // box above is being edited: deleting the second line moves every line
-    // below it up, and an override held by position would be left sitting on
-    // somebody else's task. Editing a line that had been assigned does lose the
-    // assignment, which is the honest answer — it is a different task now.
-    const overrides = new Map();
-    const rows = el("div", "fan-rows");
-    if (choosable) body.append(rows);
 
     /** The route a row starts on, where routing chose one and nobody has
      *  chosen for the row since. */
@@ -11678,74 +11747,128 @@
       return r ? (r.agent || pickParts(runSel.value)[0]) + "\n" + r.model : "";
     };
 
+    const where = el("div", "fan-sec");
+    where.append(el("h3", null, "Where they run"));
+    body.append(where);
     const opts = el("div", "fan-opts");
-    const wt = el("label", "fan-opt");
-    const wtBox = el("input");
-    wtBox.type = "checkbox";
-    wtBox.checked = !!m.isRepo;
-    wtBox.disabled = !m.isRepo;
-    wt.append(wtBox, document.createTextNode(
-      m.isRepo ? "Give each agent its own git worktree" : "Not a git repository — agents share this directory"));
+
+    let worktrees = !!m.isRepo;
+    const wt = el("label", "fan-opt fo-opt");
+    const wtSw = el("button", "switch" + (worktrees ? " on" : ""));
+    wtSw.type = "button";
+    wtSw.setAttribute("role", "switch");
+    wtSw.setAttribute("aria-checked", String(worktrees));
+    wtSw.append(el("span", "knob"));
+    wtSw.disabled = !m.isRepo;
+    const wtText = m.isRepo ? "Each in its own git worktree" : "Not a git repository — agents share this directory";
+    wtSw.setAttribute("aria-label", wtText);
+    wtSw.onclick = () => {
+      worktrees = !worktrees;
+      wtSw.classList.toggle("on", worktrees);
+      wtSw.setAttribute("aria-checked", String(worktrees));
+      updateTrust();
+    };
+    wt.append(wtSw, el("span", null, wtText));
     opts.append(wt);
 
     // The children always end up in one tab, gridded; the only question is
-    // whether that tab is this one or a new one.
-    const sp = el("label", "fan-opt");
-    const spBox = el("input");
-    spBox.type = "checkbox";
-    // Settings › General's own default, until this run's own choice changes it.
-    spBox.checked = !!(prefs.fanOut && prefs.fanOut.sameTab);
-    sp.append(spBox, document.createTextNode("Put them in this tab, beside the agent that planned them"));
-    sp.title = "Off, the agents share a new tab of their own";
-    opts.append(sp);
+    // whether that tab is this one or a new one. Settings › General's own
+    // default, until this run's own choice changes it.
+    let split = !!(prefs.fanOut && prefs.fanOut.sameTab);
+    const place = el("div", "segmented fan-place");
+    place.setAttribute("role", "radiogroup");
+    place.setAttribute("aria-label", "Which tab they go in");
+    const places = [
+      [false, "New tab", "The agents share a new tab of their own"],
+      [true, "Beside the planner", "In this tab, beside the agent that planned them"],
+    ];
+    const placeBtns = places.map(([value, label, tip]) => {
+      const b = describe(el("button", "seg", label), tip);
+      b.type = "button";
+      b.setAttribute("role", "radio");
+      b.onclick = () => choosePlace(value);
+      // A group of radio buttons is one stop, and the arrows choose within it.
+      b.onkeydown = (ev) => {
+        if (startKey(ev)) return;
+        if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(ev.key)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        choosePlace(!value);
+        placeBtns[value ? 0 : 1].focus();
+      };
+      place.append(b);
+      return b;
+    });
+    const choosePlace = (value) => {
+      split = value;
+      placeBtns.forEach((b, i) => {
+        const on = places[i][0] === value;
+        b.classList.toggle("on", on);
+        b.setAttribute("aria-checked", String(on));
+        b.tabIndex = on ? 0 : -1;
+      });
+    };
+    choosePlace(split);
+    opts.append(place);
 
     // Each worktree is a directory Claude has not seen, so it would stop and
     // ask whether the folder is trusted before doing any work. Offer to carry
-    // over the answer already given for this project — never silently.
-    const tr = el("label", "fan-opt");
+    // over the answer already given for this project -- never silently, and
+    // only for the worktrees it is about.
+    const who = m.project || "this project";
+    const tr = el("label", "fan-opt fo-opt fo-trust");
     const trBox = el("input");
     trBox.type = "checkbox";
     trBox.checked = !!m.trusted;
-    trBox.disabled = !m.trusted;
-    tr.append(trBox, document.createTextNode(
-      m.trusted
-        ? "Trust the new worktrees, as " + (m.project || "this project") + " already is"
-        : "This project is not trusted in Claude Code, so each agent will ask"));
+    tr.append(trBox, el("span", null, "Trust the new worktrees"), el("span", "fan-opt-note",
+      m.trusted ? "· as " + who + " already is" : "· " + who + " is not trusted in Claude Code, so each agent will ask once"));
     tr.title = m.trusted
       ? "Without this, every new worktree stops on Claude Code's folder-trust question"
       : "";
+    const updateTrust = () => { trBox.disabled = !m.trusted || !worktrees || wtSw.disabled; };
+    updateTrust();
     opts.append(tr);
     body.append(opts);
 
-    const go = el("div", "fan-go");
-    const count = el("span", "fan-count");
+    const foot = el("div", "ov-foot");
+    const count = el("span", "ov-meta fan-count fo-count");
+    const cancel = el("button", "chip", "Cancel");
+    cancel.onclick = () => dismissOverlay();
+    const start = el("button", "chip primary fan-start", "Start agents");
+    start.setAttribute("data-keys", "Ctrl+↵");
+    start.setAttribute("aria-keyshortcuts", "Control+Enter");
+    foot.append(count, el("span", "ov-spacer"), cancel, start);
+    body.append(foot);
+
     const taskLines = () => box.value.split("\n").map((l) => l.trim()).filter(Boolean);
 
-    /** tally is what the count line says: how many agents, and — when the run
-     *  has been split between two of them — how many of each. A dozen panes
-     *  divided on purpose is the easiest thing here to have got wrong, and the
-     *  last moment to notice it is before any of them exist. */
+    /** tally is what the footer says: how many agents, how many on each
+     *  model, and how many of those routing chose. A dozen panes divided on
+     *  purpose is the easiest thing here to have got wrong, and the last
+     *  moment to notice it is before any of them exist. */
     const tally = (lines) => {
-      const text = agentTally(lines);
+      const parts = [lines.length === 1 ? "1 agent" : lines.length + " agents"];
+      if (choosable && lines.length) {
+        const run = runSel.value;
+        const runID = pickParts(run)[0];
+        const groups = new Map();
+        lines.forEach((t) => {
+          const v = agentValue(catalog, effective(t) || run);
+          groups.set(v, (groups.get(v) || 0) + 1);
+        });
+        const each = [...groups].sort((a, b) => b[1] - a[1]).map(([v, n]) => {
+          const id = pickParts(v)[0];
+          const a = catalog.find((x) => x.id === id);
+          const name = pickName(catalog, v);
+          // Another agent than the run's is named, as well as its model.
+          const agentName = (a && a.name) || id;
+          return n + "× " + name + (id !== runID && name !== agentName ? " (" + agentName + ")" : "");
+        });
+        parts.push(each.join(", "));
+      }
       const n = lines.filter((t) => activeRoute(t)).length;
-      return n ? text + " · " + n + " routed" : text;
-    };
-    const agentTally = (lines) => {
-      const plural = lines.length === 1 ? "1 agent" : lines.length + " agents";
-      if (!choosable) return plural;
-      const runID = pickParts(runSel.value)[0];
-      const byAgent = new Map();
-      lines.forEach((task) => {
-        const id = pickParts(effective(task))[0] || runID;
-        byAgent.set(id, (byAgent.get(id) || 0) + 1);
-      });
-      if (byAgent.size < 2) return plural;
-      const parts = [];
-      byAgent.forEach((n, id) => {
-        const a = catalog.find((x) => x.id === id);
-        parts.push(n + " × " + ((a && a.name) || id));
-      });
-      return plural + " — " + parts.join(", ");
+      if (n) parts.push(n + " routed");
+      return parts.join(" · ");
     };
 
     /** Whether any agent this fan-out would start asks the folder-trust
@@ -11762,22 +11885,31 @@
       return lines.some((t) => asksTrust(pickParts(effective(t))[0]));
     };
 
+    let asTextMode = false;
     const updateCount = () => {
       const lines = taskLines();
       tr.hidden = !trustApplies(lines.length ? lines : [""]);
       // The server stops at its cap and says so only afterwards, so a list
       // longer than that promised agents that were never going to start.
+      const over = lines.length > FANOUT_MAX;
       const starts = Math.min(lines.length, FANOUT_MAX);
-      count.textContent = lines.length > FANOUT_MAX
+      count.textContent = over
         ? lines.length + " tasks - only the first " + FANOUT_MAX + " start; run the rest as a second fan-out"
         : tally(lines);
+      count.title = count.textContent;
+      count.classList.toggle("warn", over);
+      num.textContent = lines.length + " of " + FANOUT_MAX;
+      num.classList.toggle("warn", over);
       start.disabled = lines.length === 0;
-      start.textContent = starts === 1 ? "Start 1 agent" : "Start " + starts + " agents";
+      start.textContent = starts === 0 ? "Start agents" : starts === 1 ? "Start 1 agent" : "Start " + starts + " agents";
+      add.hidden = asTextMode || list.length >= FANOUT_MAX;
+      addN.textContent = String(list.length + 1);
       if (routing) {
         const chosen = lines.map(activeRoute).filter(Boolean);
         const up = chosen.filter((r) => r.up).length;
-        routeText.textContent = routeSummary(chosen.length - up, up, lines.length) ||
-          routeNote || "Routing has nothing to change in these tasks.";
+        const down = chosen.length - up;
+        routeText.textContent = routeShort(down, up) || routeNote || "Routing: nothing to change";
+        describe(routeText, routeSummary(down, up, lines.length) || routeNote || "Routing has nothing to change in these tasks.");
         routeClear.hidden = chosen.length === 0;
       }
     };
@@ -11806,86 +11938,274 @@
       updateCount();
     };
 
+    /** Ctrl+Enter starts the agents from anywhere in the dialog. */
+    const startKey = (ev) => {
+      if (ev.key !== "Enter" || !(ev.ctrlKey || ev.metaKey)) return false;
+      ev.preventDefault();
+      start.onclick();
+      return true;
+    };
+
     /* The row drawn for each task, by its text, with what its select and tag
-     * were drawn from. The box is typed into a line at a time, and building
-     * every row again for each keystroke - each with a select holding every
-     * model of every agent - was nearly all a keystroke cost: twelve tasks
-     * over three agents of four models were 240 elements a key. A row is kept
-     * while its task and what it shows are unchanged. */
+     * were drawn from. The textarea is typed into a line at a time, and
+     * building every row again for each keystroke - each with a select
+     * holding every model of every agent - was nearly all a keystroke cost:
+     * twelve tasks over three agents of four models were 240 elements a key.
+     * A row is kept while its task is; one whose choice or route changed is
+     * brought up to date where it is, never built again under the keyboard. */
     let drawn = new Map();
+    /** The rows in order, as last drawn. */
+    let list = [];
     const rowKey = (task) => {
       const r = activeRoute(task);
       return effective(task) + "\n" + (r ? [r.model, !!r.up, r.rule, r.reason].join("|") : "");
     };
+    const setTag = (d) => {
+      if (!d.slot) return;
+      d.slot.textContent = "";
+      const r = activeRoute(d.task);
+      if (r) {
+        d.slot.append(describe(el("span", "fan-routed" + (r.up ? " up" : ""), (r.up ? "↗" : "↘") + " routed"),
+          r.reason + ". Choose another model here to decide this row yourself."));
+      }
+    };
+    const refreshRow = (d) => {
+      d.key = rowKey(d.task);
+      if (d.sel) {
+        d.sel.value = agentValue(catalog, effective(d.task));
+        if (d.sel.selectedIndex < 0) d.sel.selectedIndex = 0;
+      }
+      setTag(d);
+    };
     const renderRows = () => {
       const kept = new Map();
-      const order = [];
-      taskLines().forEach((task, i) => {
-        const key = rowKey(task);
+      const next = [];
+      const held = document.activeElement;
+      box.value.split("\n").forEach((line) => {
+        const task = line.trim();
         const pool = drawn.get(task) || [];
-        const at = pool.findIndex((d) => d.key === key);
-        const d = at >= 0 ? pool.splice(at, 1)[0] : buildRow(task, key);
-        if (d.n.textContent !== String(i + 1)) d.n.textContent = String(i + 1);
+        let d;
+        if (!task) {
+          // A row emptied from the keyboard stays while it has it: the next
+          // key typed is its new task. Any other blank line is not a task.
+          const at = pool.findIndex((x) => x.input === held);
+          if (at < 0) return;
+          d = pool.splice(at, 1)[0];
+        } else {
+          const key = rowKey(task);
+          const at = pool.findIndex((x) => x.key === key);
+          d = at >= 0 ? pool.splice(at, 1)[0] : pool.length ? pool.shift() : buildRow(task);
+          if (d.key !== key) refreshRow(d);
+          if (d.input !== held && (d.input.value || "").trim() !== task) d.input.value = task;
+        }
         if (!kept.has(task)) kept.set(task, []);
         kept.get(task).push(d);
-        order.push(d.row);
+        next.push(d);
       });
       drawn = kept;
+      list = next;
+      list.forEach((d, i) => {
+        const n = String(i + 1);
+        if (d.n.textContent !== n) {
+          d.n.textContent = n;
+          d.input.setAttribute("aria-label", "Task " + n);
+          if (d.sel) d.sel.setAttribute("aria-label", "Model for task " + n);
+        }
+        // Past the cap a row is still shown, and marked as one that will
+        // not start.
+        if (d.row.classList.contains("over") !== (i >= FANOUT_MAX)) d.row.classList.toggle("over", i >= FANOUT_MAX);
+      });
       // Into place, moving only what is out of it; what is left over after
-      // the last row is what went from the box.
-      order.forEach((row, i) => { if (rows.children[i] !== row) rows.insertBefore(row, rows.children[i] || null); });
-      while (rows.children.length > order.length) rows.children[rows.children.length - 1].remove();
+      // the last row is what went from the list.
+      list.forEach((d, i) => { if (rows.children[i] !== d.row) rows.insertBefore(d.row, rows.children[i] || null); });
+      while (rows.children.length > list.length) rows.children[rows.children.length - 1].remove();
     };
-    const buildRow = (task, key) => {
+
+    /** setTexts puts the list's text in the textarea, draws it, and asks
+     *  routing about it. */
+    const setTexts = (texts) => {
+      box.value = texts.join("\n");
+      renderRows();
+      updateCount();
+      askRoutes();
+    };
+    const focusRow = (i) => {
+      const d = list[i];
+      const to = d ? d.input : !add.hidden ? addIn : null;
+      if (!to) return;
+      to.focus();
+      if (to.setSelectionRange) to.setSelectionRange(to.value.length, to.value.length);
+    };
+    /** A paste of several lines is several tasks, which a one-line field
+     *  would otherwise run together. */
+    const pastedLines = (ev) => {
+      const text = ev.clipboardData && ev.clipboardData.getData("text");
+      if (!text || !/[\r\n]/.test(text)) return null;
+      ev.preventDefault();
+      return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    };
+
+    const buildRow = (task) => {
       const row = el("div", "fan-row");
       const n = el("span", "fan-row-n");
-      row.append(n);
-      const d = { row, n, key };
-      const text = el("span", "fan-row-task", task);
-      text.title = task;
-      row.append(text);
-      const sel = agentSelect(catalog, effective(task), "Same as the run");
-      const r = activeRoute(task);
-      let tag = null;
-      if (r) {
-        tag = describe(el("span", "fan-routed" + (r.up ? " up" : ""), (r.up ? "↗" : "↘") + " routed"),
-          r.reason + ". Choose another model here to decide this row yourself.");
+      const input = el("input", "fan-row-task");
+      input.type = "text";
+      input.value = task;
+      row.append(n, input);
+      const d = { row, n, input, sel: null, slot: null, task, key: "" };
+      if (choosable) {
+        d.sel = agentSelect(catalog, effective(task), "Same as the run");
+        d.sel.classList.add("fo-sel");
+        d.sel.onchange = () => {
+          // Changing a routed row makes it the user's: the tag goes, and
+          // routing leaves the row alone from here on, even on "Same as the
+          // run".
+          const t = d.task;
+          const was = activeRoute(t);
+          if (was) {
+            overridden.push({ task: t, rule: was.rule, agent: was.agent || pickParts(runSel.value)[0], routed: was.model,
+              chosen: pickParts(d.sel.value)[1] || pickParts(runSel.value)[1] });
+          }
+          if (d.sel.value || was) overrides.set(t, d.sel.value);
+          else overrides.delete(t);
+          // What the row shows now, so the next drawing keeps it.
+          d.key = rowKey(t);
+          setTag(d);
+          // The choice is held by the task's text, so every row with the same
+          // text now has it. Only this row was redrawn, and the other went on
+          // showing "Same as the run" while Start sent the new choice for both.
+          renderRows();
+          updateCount();
+        };
+        d.sel.onkeydown = startKey;
+        row.append(d.sel);
       }
-      sel.onchange = () => {
-        // Changing a routed row makes it the user's: the tag goes, and
-        // routing leaves the row alone from here on, even on "Same as the
-        // run".
-        const was = activeRoute(task);
-        if (was) {
-          overridden.push({ task, rule: was.rule, agent: was.agent || pickParts(runSel.value)[0], routed: was.model,
-            chosen: pickParts(sel.value)[1] || pickParts(runSel.value)[1] });
+      if (routing) {
+        d.slot = el("span", "fan-row-tag");
+        row.append(d.slot);
+      }
+      d.key = rowKey(task);
+      setTag(d);
+
+      input.oninput = () => {
+        const was = d.task;
+        const now = (input.value || "").trim();
+        if (now === was) return;
+        // A row edited in place is the same row: its choice, and what
+        // routing chose for it, go with it until routing has read the new
+        // words.
+        const shared = list.some((x) => x !== d && x.task === was);
+        if (overrides.has(was) && !overrides.has(now)) {
+          overrides.set(now, overrides.get(was));
+          if (!shared) overrides.delete(was);
         }
-        if (sel.value || was) overrides.set(task, sel.value);
-        else overrides.delete(task);
-        if (tag) tag.remove();
-        // What the row shows now, so the next drawing keeps it.
-        d.key = rowKey(task);
-        // The choice is held by the task's text, so every row with the same
-        // text now has it. Only this row was redrawn, and the other went on
-        // showing "Same as the run" while Start sent the new choice for both.
-        renderRows();
-        updateCount();
+        if (routed.has(was) && !routed.has(now)) {
+          routed.set(now, routed.get(was));
+          if (!shared) routed.delete(was);
+        }
+        const pool = drawn.get(was) || [];
+        if (pool.includes(d)) pool.splice(pool.indexOf(d), 1);
+        if (!drawn.has(now)) drawn.set(now, []);
+        drawn.get(now).push(d);
+        d.task = now;
+        d.key = rowKey(now);
+        setTexts(list.map((x) => x.task));
       };
-      row.append(sel);
-      if (tag) row.append(tag);
+      // A row left empty is a task taken out.
+      input.onblur = () => {
+        if (d.task || !d.row.isConnected || dialog !== "fanout") return;
+        setTexts(list.filter((x) => x !== d).map((x) => x.task));
+      };
+      input.onkeydown = (ev) => {
+        if (startKey(ev) || ev.isComposing) return;
+        const at = list.indexOf(d);
+        if (ev.key === "Enter" || ev.key === "ArrowDown") {
+          ev.preventDefault();
+          focusRow(at + 1);
+        } else if (ev.key === "ArrowUp") {
+          ev.preventDefault();
+          focusRow(at - 1);
+        } else if (ev.key === "Backspace" && input.value === "") {
+          ev.preventDefault();
+          setTexts(list.filter((x) => x !== d).map((x) => x.task));
+          focusRow(Math.max(0, at - 1));
+        }
+      };
+      input.onpaste = (ev) => {
+        const lines = pastedLines(ev);
+        if (!lines) return;
+        // Into an empty row the lines take its place; after a task, they
+        // follow it.
+        const at = list.indexOf(d);
+        const texts = list.map((x) => x.task);
+        if (d.task) texts.splice(at + 1, 0, ...lines);
+        else texts.splice(at, 1, ...lines);
+        setTexts(texts);
+        focusRow(at + lines.length - (d.task ? 0 : 1));
+      };
       return d;
     };
 
-    const start = el("button", "chip primary", "Start agents");
+    /** commitAdd makes what is typed in the last row a task of its own. */
+    const commitAdd = () => {
+      const t = (addIn.value || "").trim();
+      if (!t) return false;
+      addIn.value = "";
+      setTexts(list.map((x) => x.task).concat(t));
+      return true;
+    };
+    addIn.onkeydown = (ev) => {
+      if (ev.isComposing) return;
+      if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { startKey(ev); return; }
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        commitAdd();
+        // Straight on to the next: the add row is where a list is typed.
+        if (add.hidden) focusRow(list.length - 1); else addIn.focus();
+      } else if (ev.key === "ArrowUp" && list.length) {
+        ev.preventDefault();
+        focusRow(list.length - 1);
+      }
+    };
+    addIn.onchange = () => { commitAdd(); };
+    addIn.onpaste = (ev) => {
+      const lines = pastedLines(ev);
+      if (!lines) return;
+      const typed = (addIn.value || "").trim();
+      addIn.value = "";
+      setTexts(list.map((x) => x.task).concat(typed ? [typed] : [], lines));
+      focusRow(add.hidden ? list.length - 1 : list.length);
+    };
+
+    const showMode = (text) => {
+      asTextMode = text;
+      box.hidden = !text;
+      rows.hidden = text;
+      asText.classList.toggle("on", text);
+      asText.setAttribute("aria-pressed", String(text));
+      if (!text) renderRows();
+      updateCount();
+    };
+    asText.onclick = () => {
+      commitAdd();
+      showMode(!asTextMode);
+      if (asTextMode) box.focus(); else focusRow(0);
+    };
+
+    let started = false;
     start.onclick = () => {
+      if (started) return;
+      // A task typed into the last row and not yet entered is one of them.
+      commitAdd();
       const tasks = taskLines();
       if (!tasks.length) return;
+      started = true;
       const req = {
         cmd: "fanout",
         id: m.paneId,
         tasks,
-        worktrees: wtBox.checked && !wtBox.disabled,
-        split: spBox.checked,
+        worktrees: worktrees && !wtSw.disabled,
+        split,
         trust: trBox.checked && !trBox.disabled && !tr.hidden,
       };
       // The agent fields are left off altogether where there was nothing to
@@ -11911,30 +12231,27 @@
       send(req);
       closeOverlay();
     };
-    box.oninput = () => { if (choosable) renderRows(); updateCount(); askRoutes(); };
+    box.oninput = () => { renderRows(); updateCount(); askRoutes(); };
     // Enter is a new line here - the tasks go one to a line - so starting
     // them took the pointer, or Tab past every option to the button.
-    box.onkeydown = (ev) => {
-      if (ev.key !== "Enter" || !(ev.ctrlKey || ev.metaKey)) return;
-      ev.preventDefault();
-      start.onclick();
-    };
+    box.onkeydown = startKey;
     if (choosable) {
+      runSel.onkeydown = startKey;
       runSel.onchange = () => {
         // The routes were models of the agent the run was on.
         if (routing) { routed.clear(); renderRows(); askRoutes(); }
         updateCount();
       };
-      renderRows();
     }
-    go.append(start, count);
-    body.append(go);
+    wtSw.onkeydown = startKey;
+    trBox.onkeydown = startKey;
+    renderRows();
     updateCount();
 
-    const tools = el("div", "wt-tools");
-    tools.append(rootLabel(m.cwd || ""));
-    body.append(tools);
-    box.focus();
+    // The keyboard starts on the first task, or on the row to type one into.
+    const first = list[0] ? list[0].input : addIn;
+    first.setAttribute("data-autofocus", "");
+    first.focus();
   }
 
   // -------------------------------------------------------------------- todo

@@ -6105,7 +6105,9 @@ assert.deepStrictEqual(sels().map((s) => s.value), ["claude\nhaiku", "", "claude
 assert.strictEqual(tags().length, 2, "the routed rows are not marked");
 assert.ok(tags()[0].dataset.tip.includes("run the tests"), "the tag does not say why: " + tags()[0].dataset.tip);
 assert.ok(tags()[1].textContent.includes("↗"), "a stronger model is not marked as one");
-assert.strictEqual(body.querySelector("span.fan-route-text").textContent,
+// The model line has room for the count; the sentence is its tooltip.
+assert.strictEqual(body.querySelector("span.fan-route-text").textContent, "Routing: 1 down, 1 up");
+assert.strictEqual(body.querySelector("span.fan-route-text").dataset.tip,
   "Routing chose a smaller model for 1 of 3 tasks and a stronger one for 1.");
 assert.ok(body.querySelector("span.fan-count").textContent.includes("2 routed"),
   "the count does not say how many were routed: " + body.querySelector("span.fan-count").textContent);
