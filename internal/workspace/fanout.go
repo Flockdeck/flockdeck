@@ -1357,5 +1357,10 @@ func (s PlanSource) Tasks() ([]string, bool) {
 			return tasks, true
 		}
 	}
+	// What is last on the screen being a question put to the person, its
+	// numbered choices are not a plan; see endsInPermissionPrompt.
+	if endsInPermissionPrompt(s.Screen) {
+		return nil, false
+	}
 	return ExtractTasks(s.Screen), false
 }

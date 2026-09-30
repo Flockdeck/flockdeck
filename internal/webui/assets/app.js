@@ -238,8 +238,15 @@
   document.addEventListener("focusout", hideTip, true);
   document.addEventListener("pointerout", (e) => { if (!e.relatedTarget) hideTip(); }, true);
   document.addEventListener("pointerdown", hideTip, true);
+  // Using what a bubble describes answers it, and a bubble left behind on
+  // the thing just used - its panel opened, its mark gone - describes nothing.
+  // pointerdown covers a press; a click is also what a tap, a screen reader
+  // and a script make, and Enter and Space are how the keyboard makes one.
+  document.addEventListener("click", hideTip, true);
   document.addEventListener("scroll", hideTip, true);
-  window.addEventListener("keydown", (e) => { if (e.key === "Escape") hideTip(); }, true);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" || e.key === "Enter" || e.key === " ") hideTip();
+  }, true);
   window.addEventListener("blur", hideTip);
 
   const wsBase = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
@@ -9525,8 +9532,10 @@
     if (tab && tab.isConnected) {
       if (had) tab.focus();
       // On a narrow screen the sections are a strip across the top that
-      // scrolls, and the one on show could be off its end.
-      tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+      // scrolls, and the one on show could be off its end - or, brought just to
+      // the edge, sit beside a neighbour cut in half ("iour"). Centred, it has
+      // whole neighbours on both sides.
+      tab.scrollIntoView({ block: "nearest", inline: "center" });
     }
   }
 
@@ -9535,7 +9544,9 @@
   function settingsTabKey(ev, id) {
     const tabs = [...$("settings-tabs").querySelectorAll("button")];
     const at = tabs.findIndex((b) => b.id === "settings-tab-" + id);
-    const to = rowStep(ev.key, at, tabs.length);
+    // Across the top of a narrow window the sections run left to right, so the
+    // sideways arrows walk them as the vertical ones do in the column.
+    const to = rowStep({ ArrowRight: "ArrowDown", ArrowLeft: "ArrowUp" }[ev.key] || ev.key, at, tabs.length);
     if (to === undefined || to < 0 || !tabs[to]) return;
     ev.preventDefault();
     ev.stopPropagation();

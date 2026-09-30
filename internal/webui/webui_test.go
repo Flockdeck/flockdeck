@@ -8745,7 +8745,7 @@ class Element {
   get offsetWidth() { return 100; }
   get offsetHeight() { return 20; }
   get offsetParent() { return this.isConnected ? this.parentElement : null; }
-  scrollIntoView() { this.scrolledTo = (this.scrolledTo || 0) + 1; }
+  scrollIntoView(opts) { this.scrolledTo = (this.scrolledTo || 0) + 1; this.scrolledWith = opts; }
   setSelectionRange(from, to) { this.selectionStart = from; this.selectionEnd = to; }
   select() { this.selectionStart = 0; this.selectionEnd = String(this.value || "").length; }
   setPointerCapture(id) { this.captured = id; }
