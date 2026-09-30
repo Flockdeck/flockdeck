@@ -18,8 +18,11 @@ CHAT := $(BINARY)-chat
 # Where go install puts programs, for the twin it cannot install itself.
 GOBIN_DIR := $(or $(shell go env GOBIN),$(shell go env GOPATH)/bin)
 
-# Every target builds with cgo disabled, so all platforms cross-compile from
-# any one machine with nothing but the Go toolchain installed.
+# Every target here builds with cgo disabled, so all platforms compile from any
+# one machine with nothing but the Go toolchain installed. A Linux or macOS
+# binary built this way has no native window (that needs cgo: GTK4/WebKitGTK,
+# Cocoa) and opens the page in the default browser instead; the release
+# builds of those two use cgo, natively (see cmd/release).
 export CGO_ENABLED = 0
 
 PLATFORMS := \

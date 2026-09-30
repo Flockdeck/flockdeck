@@ -22,9 +22,10 @@ license: "PolyForm Noncommercial 1.0.0"
 description: |
   Run coding agents side by side, each in its own pane.
   .
-  Flockdeck is a terminal multiplexer purpose-built for running several
-  coding agents (Claude Code and others) at once, each isolated in its own
-  pane, so their work never collides.
+  Flockdeck is a desktop app for running several coding agents (Claude Code
+  and others) side by side, each in its own terminal pane, with per-agent
+  status so you can see which one needs you, and git worktrees so they need
+  not share a checkout.
 rpm:
   group: "Applications/Development"
 contents:
