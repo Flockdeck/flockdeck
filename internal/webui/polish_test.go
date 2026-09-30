@@ -83,16 +83,26 @@ assert.ok(h.$("disconnected").hidden, "the panel is still up");
 // being focused that says the keyboard left the hidden button.
 assert.ok(h.terms[0].focused, "the keyboard was left on the hidden reconnect button");
 
-// A dialog that was open gets it back instead.
+// A dialog that was open gets it back instead. The panel holds the keyboard
+// only while the list is being read; once it has arrived the keyboard is on
+// the first control in it (D7 of the pop-over redesign: never the panel once
+// there is something to use), and that is what the reconnect gives back.
 h.recv(fixture());
 h.click(h.$("btn-worktrees"));
-assert.ok(h.doc.activeElement === h.$("overlay-panel"), "the dialog did not take the keyboard");
+assert.ok(h.doc.activeElement === h.$("overlay-panel"), "the dialog did not take the keyboard while it was loading");
+h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main",
+  items: [{ label: "main", path: "C:/repo", main: true, head: "abc1234", panes: 1 },
+          { label: "fix-auth", path: "C:/fix-auth", head: "def5678" }],
+  branches: [{ name: "main", checkedIn: true }] });
+const first = h.doc.activeElement;
+assert.ok(first !== h.$("overlay-panel") && h.$("overlay-body").contains(first),
+  "the keyboard was not handed to the dialog's first control once it was drawn");
 h.controls().pop().close();
 assert.ok(h.doc.activeElement === h.$("retry"));
 h.terms.forEach((t) => { t.focused = false; });
 h.click(h.$("retry"));
 h.open();
-assert.ok(h.doc.activeElement === h.$("overlay-panel"), "the dialog did not get the keyboard back");
+assert.ok(h.doc.activeElement === first, "the dialog did not get the keyboard back");
 assert.ok(!h.terms.some((t) => t.focused), "a terminal behind the dialog took the keyboard");
 `)
 }

@@ -162,13 +162,23 @@
        fails without changing the screen, so it has to be spoken as well. -->
   <div id="notice" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
+  <!-- A still copy of a sheet, kept in view under a dialog stacked on it
+       (Worktrees under the question about removing one), so what closing
+       the dialog goes back to can still be seen. It has no ids and cannot
+       be used. -->
+  <div id="sheet-ghost" aria-hidden="true" inert hidden></div>
+
+  <!-- Every surface: a sheet beside the rail, a dialog, or a picker, as
+       #overlay-panel's data-present says (see openOverlay). -->
   <div id="overlay" hidden>
-    <div id="overlay-panel" role="dialog" aria-modal="true" aria-labelledby="overlay-title" tabindex="-1">
-      <div id="overlay-head">
+    <div id="overlay-panel" class="ov-panel" role="dialog" aria-modal="true" aria-labelledby="overlay-title" tabindex="-1">
+      <div id="overlay-head" class="ov-head">
         <h2 id="overlay-title">Worktrees</h2>
+        <span id="overlay-scope" class="ov-scope" hidden></span>
         <button id="overlay-close" class="icon-btn" aria-label="Close this dialog (Esc)" data-tip="Close this dialog (Esc)">×</button>
       </div>
-      <div id="overlay-body"></div>
+      <div id="overlay-tabs" class="ov-tabs" role="tablist" hidden></div>
+      <div id="overlay-body" class="ov-body"></div>
     </div>
   </div>
 

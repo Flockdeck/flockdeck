@@ -552,6 +552,9 @@
         if (msg.cwd) ghDir = msg.cwd;
         if (dialog === "github" && ghTab === "checks") keepFocus(renderGithub);
       }
+      // A surface opened on a list still being read has its first control
+      // now, perhaps: the keyboard goes to it (see openOverlay).
+      settleOverlayFocus();
     };
     ws.onclose = () => {
       if (control !== ws) return; // an attempt that was given up on
@@ -2199,11 +2202,14 @@
    *  prompt had room for a name and nothing else, and a tab named once kept
    *  that name for good: nothing offered its automatic title back, or said
    *  that an emptied name would give it. */
+  /** The tab the rename dialog is for, to draw it again after its help. */
+  let renamingTab = "";
   function renameTab(id) {
     const tab = (state ? state.tabs : []).find((t) => t.id === id);
     if (!tab) return;
-    openOverlay("Rename tab", "panes");
     dialog = "renameTab";
+    renamingTab = id;
+    openOverlay("Rename tab", "panes");
     const body = $("overlay-body");
     const form = el("div", "wt-form");
     const field = el("input");
@@ -4712,36 +4718,255 @@
 
   // --------------------------------------------------------------- overlays
 
-  /** openOverlay shows the dialog panel. `page` names the help page that
-   *  explains what is in it, which becomes a `?` in the dialog's own header —
-   *  the question is asked here, so this is where the answer belongs. */
-  function openOverlay(title, page) {
+  /* ---- The overlay system (pop-over redesign, part A) ----------------------
+   *
+   * Every surface is drawn into the one #overlay, and says how it is
+   * presented through #overlay-panel's data-present:
+   *   sheet      docked beside the rail with no scrim, the panes left in view:
+   *              the tools used while watching the agents;
+   *   dialog-s   a question or a name (content height);
+   *   dialog-m   a task that ends in one commit: Fan out, New todo, Update;
+   *   dialog-l   Settings and Help;
+   *   picker     top-anchored, the agent picker, like the palette.
+   * Sheets are modal for now (the keyboard stays in them, and the panes they
+   * leave in view cannot be clicked), so the focus rules are the dialogs'.
+   *
+   * A surface opened from another, through openFrom or the header's ?, is
+   * stacked on it: Escape, the × and the ← in its header go back to the one
+   * under it, drawn again from its opener, instead of closing both. Closing
+   * the last one gives the keyboard back to what opened it. */
+
+  /** SURFACES says, for each value of `dialog`, how that surface is presented,
+   *  which rail button it belongs to, which action opens it (pressing that
+   *  key again closes it), and `again`: called as the surface is left for one
+   *  stacked on it, it returns how to draw it once more on the way back. */
+  const SURFACES = {
+    agents: { present: "sheet", rail: "btn-agents", act: "agents", again: () => openAgents },
+    changes: { present: "sheet", wide: true, rail: "btn-changes", act: "changes",
+      again: () => { const at = changes && changes.cwd; return () => openChanges(at); } },
+    worktrees: { present: "sheet", rail: "btn-worktrees", act: "worktrees", again: () => openWorktrees },
+    history: { present: "sheet", rail: "btn-history", act: "history", again: () => openHistory },
+    fanoutHistory: { present: "sheet", rail: "btn-fanout-history", act: "fanoutHistory", again: () => openFanoutHistory },
+    todos: { present: "sheet", rail: "btn-todos", act: "todos", again: () => openTodos },
+    github: { present: "sheet", rail: "btn-github", act: "github",
+      again: () => { const at = ghDir; return () => openGithub(at); } },
+    keys: { present: "sheet", rail: "btn-apikeys", act: "apiKeys", again: () => openKeys },
+    remote: { present: "sheet", rail: "btn-remote", act: "remote", again: () => openRemote },
+    projects: { present: "sheet", rail: "rail-open", act: "projects", again: () => () => openProjects() },
+    settings: { present: "dialog-l", rail: "btn-settings", act: "settings",
+      again: () => { const at = settingsSection; return () => openSettings(at); } },
+    help: { present: "dialog-l", rail: "btn-help", act: "help",
+      again: () => { const at = helpSlug; return () => openHelp(at); } },
+    fanout: { present: "dialog-m", act: "fanout",
+      again: () => { const at = fanoutAsked; return () => openFanout(at); } },
+    todoPlan: { present: "dialog-m", act: "newTodo",
+      again: () => { const at = todoAsked; return () => openNewTodo(at); } },
+    update: { present: "dialog-m", again: () => openUpdate },
+    versions: { present: "dialog-m", again: () => openVersions },
+    agentPicker: { present: "picker",
+      again: () => {
+        const p = picker;
+        return p && (() => chooseAgent(p.title, p.onPick, { setDefault: p.setDefault, scope: p.scope }));
+      } },
+    renameTab: { present: "dialog-s", again: () => { const at = renamingTab; return () => renameTab(at); } },
+    ask: { present: "dialog-s" },
+  };
+
+  /** The surfaces under the one on screen, the nearest last: what it came
+   *  from, and how to draw each again. */
+  let overlayStack = [];
+  /** The surface on screen: {name, title, present, rail}. */
+  let overlayNow = null;
+  /** Where the keyboard was when the overlay opened, to go back to. */
+  let overlayOpener = null;
+  /** Set by openFrom for the one openOverlay it leads to. */
+  let overlayFrom = false;
+  /** Set while overlayBack() draws the surface under the one closed. */
+  let overlayReturning = false;
+  /** Set from opening until the keyboard is on the surface's first control. */
+  let overlaySettling = false;
+
+  /** openFrom opens a surface on top of the one on screen, so that closing it
+   *  comes back here rather than closing both. */
+  function openFrom(open, ...args) {
+    overlayFrom = !$("overlay").hidden;
+    try { open(...args); } finally { overlayFrom = false; }
+  }
+
+  /** openOverlay shows the overlay panel. `page` names the help page that
+   *  explains what is in it, which becomes a `?` in the surface's own header
+   *  -- the question is asked here, so this is where the answer belongs.
+   *  `opts` may give `present` (see SURFACES, which is the default for the
+   *  surface named by `dialog`), `from` (stack it on the surface on screen,
+   *  as openFrom does), `scope` (the mono line beside the title: a project,
+   *  a branch, a path) and `role` ("alertdialog" for a question). */
+  function openOverlay(title, page, opts) {
+    opts = opts || {};
+    const overlay = $("overlay");
+    const panel = $("overlay-panel");
+    const how = SURFACES[dialog] || {};
+    const present = opts.present || how.present || "dialog-m";
+    if (overlay.hidden) {
+      overlayStack = [];
+      const at = document.activeElement;
+      overlayOpener = at && at !== document.body ? at : null;
+    } else if (overlayReturning) {
+      // overlayBack() has taken this one off the stack already.
+    } else if (opts.from || overlayFrom) {
+      const leaving = overlayNow && SURFACES[overlayNow.name];
+      const again = leaving && leaving.again && leaving.again();
+      if (again) {
+        overlayStack.push({ ...overlayNow, again, top: $("overlay-body").scrollTop,
+          ghost: overlayNow.present === "sheet" && present !== "sheet" ? ghostOf(panel) : null });
+      }
+    } else {
+      overlayStack = [];
+    }
+    overlayFrom = false;
+    overlayNow = { name: dialog, title, present, rail: how.rail || "" };
+
     $("overlay-title").textContent = title;
     $("overlay-body").textContent = "";
-    $("overlay-panel").classList.remove("wide", "settings-panel");
+    panel.classList.remove("wide", "settings-panel");
+    panel.setAttribute("data-present", present);
+    if (how.wide) panel.setAttribute("data-size", "wide"); else panel.removeAttribute("data-size");
+    panel.setAttribute("role", opts.role || "dialog");
+    panel.removeAttribute("aria-describedby");
+    const scope = $("overlay-scope");
+    scope.textContent = opts.scope || "";
+    scope.hidden = !opts.scope;
+    const tabs = $("overlay-tabs");
+    tabs.textContent = "";
+    tabs.hidden = true;
 
-    const oldGoto = $("overlay-goto");
-    if (oldGoto) oldGoto.remove();
-    const old = $("overlay-help");
-    if (old) old.remove();
+    for (const id of ["overlay-back", "overlay-help"]) {
+      const old = $(id);
+      if (old) old.remove();
+    }
+    // Where it came from, named: the way back, where Escape and the × go too.
+    const below = overlayStack[overlayStack.length - 1];
+    if (below && present !== "dialog-s") {
+      const back = el("button", "ov-back", "← " + below.title);
+      back.id = "overlay-back";
+      describe(back, "Back to " + below.title + " (Esc)");
+      back.onclick = () => overlayBack();
+      $("overlay-head").insertBefore(back, $("overlay-title"));
+    }
     if (page) {
-      const goto = el("button", "chip", "Go to…");
-      goto.id = "overlay-goto";
-      describe(goto, "Switch to another dialog -- Projects, Agents, Settings and the rest -- without closing this one first.");
-      goto.onclick = () => openPalette(PAGE_ACTIONS);
-      $("overlay-head").insertBefore(goto, $("overlay-close"));
-
       const b = el("button", "icon-btn", "?");
       b.id = "overlay-help";
       describe(b, "What this is, and how it works");
-      b.onclick = () => openHelp(page);
+      // Help opens on top, and Escape comes back to what was asked about.
+      b.onclick = () => openFrom(openHelp, page);
       $("overlay-head").insertBefore(b, $("overlay-close"));
     }
-    $("overlay").hidden = false;
-    // The dialog names itself through its heading, so landing here is what
-    // announces which one opened; the pages that have a field of their own
-    // take the keyboard off it a moment later.
-    $("overlay-panel").focus();
+    if (present === "sheet") placeSheet();
+    showGhost(present);
+    overlay.hidden = false;
+    markRail();
+    // The panel holds the keyboard while the surface is drawn, and hands it
+    // to the first control there is once there is one (settleOverlayFocus):
+    // the filter, the field, the chosen row. A page that puts it somewhere of
+    // its own -- Settings' section list, the picker's filter -- keeps it.
+    panel.focus();
+    overlaySettling = true;
+    Promise.resolve().then(settleOverlayFocus);
+  }
+
+  /** settleOverlayFocus moves the keyboard from the panel, where opening left
+   *  it, to the first control the surface has drawn: one marked
+   *  data-autofocus, else the first stop Tab would reach in the body. While
+   *  there is nothing yet -- a list still being read -- it waits, and is
+   *  asked again as each answer arrives. Anything else having taken the
+   *  keyboard in between ends the wait. */
+  function settleOverlayFocus() {
+    if (!overlaySettling || $("overlay").hidden || !$("palette").hidden || !$("disconnected").hidden) return;
+    const panel = $("overlay-panel");
+    if (document.activeElement !== panel) { overlaySettling = false; return; }
+    const body = $("overlay-body");
+    const marked = body.querySelector("[data-autofocus]");
+    const first = marked && !marked.disabled ? marked : focusablesIn(body)[0];
+    if (!first) return;
+    overlaySettling = false;
+    first.focus();
+  }
+
+  /** placeSheet puts a sheet beside the rail and under the top bar, whatever
+   *  width the rail has been dragged to. */
+  function placeSheet() {
+    const style = document.documentElement.style;
+    if (!style.setProperty) return;
+    const rail = $("rail").getBoundingClientRect();
+    const top = $("topbar").getBoundingClientRect();
+    style.setProperty("--ov-left", Math.max(0, Math.round(rail.right)) + "px");
+    style.setProperty("--ov-top", Math.max(0, Math.round(top.bottom)) + "px");
+  }
+
+  /** ghostOf is a still copy of a sheet, shown under a dialog stacked on it
+   *  so that the sheet it goes back to stays in view. It has no ids, so that
+   *  nothing looking one up finds the copy, and it cannot be used. */
+  function ghostOf(panel) {
+    // Changes is a large dialog, not a sheet, in a narrow window.
+    if (!panel.cloneNode || (panel.getAttribute("data-size") === "wide" && window.innerWidth < 1100)) return null;
+    const copy = panel.cloneNode(true);
+    const strip = (n) => {
+      for (const a of ["id", "for", "aria-labelledby", "aria-describedby", "aria-controls"]) n.removeAttribute(a);
+      for (const c of n.children) strip(c);
+    };
+    strip(copy);
+    copy.className = "ghost-panel";
+    copy.removeAttribute("role");
+    copy.removeAttribute("tabindex");
+    copy.removeAttribute("aria-modal");
+    return copy;
+  }
+
+  function showGhost(present) {
+    const box = $("sheet-ghost");
+    box.textContent = "";
+    const below = overlayStack[overlayStack.length - 1];
+    const ghost = present !== "sheet" && below && below.ghost;
+    if (ghost) box.append(ghost);
+    box.hidden = !ghost;
+  }
+
+  /** markRail marks the rail button of the surface on screen, or of the sheet
+   *  under a dialog stacked on it. */
+  function markRail() {
+    for (const b of $("rail").querySelectorAll(".surface-open")) b.classList.remove("surface-open");
+    if ($("overlay").hidden || !overlayNow) return;
+    const own = overlayStack.concat([overlayNow]).map((s) => s.rail).filter(Boolean).pop();
+    const b = own && $(own);
+    if (b) b.classList.add("surface-open");
+  }
+
+  /** overlayTabs draws the row of tabs under the header -- outside the body,
+   *  so the body stays the one part that scrolls. `items` are
+   *  {id, label, count?}; the arrow keys walk them, as tabs do. */
+  function overlayTabs(items, current, onPick) {
+    const row = $("overlay-tabs");
+    row.textContent = "";
+    row.hidden = !items.length;
+    const btns = items.map((it) => {
+      const b = el("button", "ov-tab" + (it.id === current ? " sel" : ""), it.label);
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", String(it.id === current));
+      b.tabIndex = it.id === current ? 0 : -1;
+      if (it.count != null) b.append(el("span", "ov-tab-num", String(it.count)));
+      b.onclick = () => onPick(it.id);
+      row.append(b);
+      return b;
+    });
+    row.onkeydown = (e) => {
+      const at = btns.indexOf(document.activeElement);
+      if (at < 0) return;
+      const to = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: btns.length - 1 }[e.key];
+      if (to === undefined) return;
+      e.preventDefault();
+      const b = btns[(to + btns.length) % btns.length];
+      b.focus();
+      b.click();
+    };
   }
   /** keepFocus redraws the dialog's body and puts the keyboard back on the
    *  control it was on.
@@ -4850,18 +5075,185 @@
     }
   }
 
-  function closeOverlay() {
+  /** leaveSurface is what leaving any surface puts away: the picker's answer,
+   *  a shortcut still being recorded (it went on taking every key the window
+   *  saw, with no dialog left to show it), a pairing link being polled. */
+  function leaveSurface() {
     picker = null;
-    $("overlay").hidden = true;
-    $("overlay-panel").classList.remove("wide", "settings-panel");
-    dialog = null;
-    // A shortcut still being recorded went on taking every key the window saw,
-    // with no dialog left to show it.
+    askCancel = null;
     keybindEditing = "";
     remotePairPollStop();
+  }
+
+  /** closeOverlay is a surface done with: the work it was for has been sent
+   *  -- a tab opened, a pane gone to -- and the keyboard goes to the terminal
+   *  it was for. A surface stacked on another goes back to that one instead:
+   *  a default agent chosen for Projects comes back to Projects. */
+  function closeOverlay() {
+    if (overlayStack.length && !$("overlay").hidden) { overlayBack(); return; }
+    shutOverlay();
     focusTerminal();
   }
 
+  /** dismissOverlay is the surface put away unused -- Escape, the ×, a click
+   *  beside it -- which goes back one surface, or, from the last, gives the
+   *  keyboard back to what opened the overlay: the rail button, the pane's
+   *  own button, the tab. A terminal, or something no longer on screen, has
+   *  it given back the way a terminal is. */
+  function dismissOverlay() {
+    // A question put away unanswered is answered no.
+    if (dialog === "ask" && askCancel) { const no = askCancel; askCancel = null; no(); return; }
+    if (overlayStack.length) { overlayBack(); return; }
+    const back = overlayOpener;
+    shutOverlay();
+    if (back && back.isConnected && !back.disabled && !hiddenIn(back) &&
+        !(back.classList && back.classList.contains("xterm-helper-textarea"))) back.focus();
+    else focusTerminal();
+  }
+
+  function hiddenIn(node) {
+    for (let p = node; p; p = p.parentElement) if (p.hidden) return true;
+    return false;
+  }
+
+  function shutOverlay() {
+    leaveSurface();
+    $("overlay").hidden = true;
+    $("overlay-panel").classList.remove("wide", "settings-panel");
+    dialog = null;
+    overlayStack = [];
+    overlayNow = null;
+    overlayOpener = null;
+    overlaySettling = false;
+    $("sheet-ghost").textContent = "";
+    $("sheet-ghost").hidden = true;
+    markRail();
+  }
+
+  /** overlayBack closes the surface on screen and draws the one it was opened
+   *  from again, where it was scrolled to. */
+  function overlayBack() {
+    const to = overlayStack.pop();
+    if (!to) { dismissOverlay(); return; }
+    leaveSurface();
+    overlayReturning = true;
+    try { to.again(); } finally { overlayReturning = false; }
+    const body = $("overlay-body");
+    if (to.top) body.scrollTop = to.top;
+  }
+
+  /* ---- Asking: confirmDialog and promptDialog ------------------------------
+   *
+   * The designed question (Dialog S, an alertdialog: the title is the
+   * question, the body its consequence, the button names the action) and the
+   * designed Rename, drawn in the overlay and stacked on whatever surface
+   * asked. Until the in-app questions replace the browser's own (part C2),
+   * a call that passes `native` is answered by window.confirm / prompt with
+   * exactly those words, synchronously, as today; the designed dialog is
+   * what a call without `native` gets, and what C2 turns on everywhere by
+   * setting ASK_NATIVELY to false. Either way the answer arrives through the
+   * callbacks, so a call site is written once. */
+  const ASK_NATIVELY = true;
+
+  /** confirmDialog asks a question with one action. opts: title (the
+   *  question), body (its consequence, a string or a node), action (the
+   *  button's words, naming what it does), danger (a destructive action:
+   *  the button is drawn as one and Cancel takes the keyboard), cancel (its
+   *  words, "Cancel" by default), scope, native (the words for
+   *  window.confirm while ASK_NATIVELY). */
+  function confirmDialog(opts, onYes, onNo) {
+    opts = opts || {};
+    if (ASK_NATIVELY && opts.native != null && typeof window.confirm === "function") {
+      if (window.confirm(opts.native)) { if (onYes) onYes(); } else if (onNo) onNo();
+      return;
+    }
+    askDialog(opts, null, onYes, onNo);
+  }
+
+  /** promptDialog asks for a name. opts: title ("Rename project"), scope,
+   *  label (the field's name), value, placeholder, note (what an empty answer
+   *  does), action ("Rename" by default), native ({message, value} for
+   *  window.prompt while ASK_NATIVELY). onValue gets the text as typed; an
+   *  answer to trim or check is the caller's, as it was with prompt(). */
+  function promptDialog(opts, onValue, onNo) {
+    opts = opts || {};
+    if (ASK_NATIVELY && opts.native && typeof window.prompt === "function") {
+      const got = window.prompt(opts.native.message, opts.native.value == null ? "" : opts.native.value);
+      if (got == null) { if (onNo) onNo(); } else if (onValue) onValue(got);
+      return;
+    }
+    askDialog(opts, { value: opts.value == null ? "" : String(opts.value) }, onValue, onNo);
+  }
+
+  /** askDialog draws both: a field when `field` is given, and a footer with
+   *  Cancel and the action. Enter in the field answers; Escape, the × and
+   *  Cancel go back to what asked, with nothing done. */
+  function askDialog(opts, field, onYes, onNo) {
+    const from = !$("overlay").hidden;
+    dialog = "ask";
+    openOverlay(opts.title || (field ? "Rename" : "Are you sure?"), "", {
+      present: "dialog-s", from, scope: opts.scope, role: field ? "dialog" : "alertdialog",
+    });
+    const body = $("overlay-body");
+    let input = null;
+    if (opts.body) {
+      const say = el("div", "ask-body");
+      say.id = "ask-body";
+      if (typeof opts.body === "string") say.textContent = opts.body; else say.append(opts.body);
+      body.append(say);
+      $("overlay-panel").setAttribute("aria-describedby", "ask-body");
+    }
+    if (field) {
+      input = el("input", "set-input ask-field");
+      input.id = "ask-field";
+      input.type = "text";
+      input.value = field.value;
+      input.setAttribute("aria-label", opts.label || opts.title || "Name");
+      if (opts.placeholder) input.placeholder = opts.placeholder;
+      input.setAttribute("autocomplete", "off");
+      input.spellcheck = false;
+      input.setAttribute("data-autofocus", "");
+      body.append(input);
+      if (opts.note) {
+        const note = el("div", "ask-note", opts.note);
+        note.id = "ask-note";
+        input.setAttribute("aria-describedby", "ask-note");
+        body.append(note);
+      }
+    }
+    // Answered once: a double click, or Enter held, must not run it twice.
+    let done = false;
+    const answer = (yes) => {
+      if (done) return;
+      done = true;
+      askCancel = null;
+      const value = input ? input.value : undefined;
+      dismissOverlay();
+      if (yes) { if (onYes) onYes(value); } else if (onNo) onNo();
+    };
+    const foot = el("div", "ov-foot");
+    foot.append(el("span", "ov-spacer"));
+    const no = el("button", "chip", opts.cancel || "Cancel");
+    no.id = "ask-cancel";
+    no.onclick = () => answer(false);
+    const yes = el("button", "chip " + (opts.danger ? "danger" : "primary"), opts.action || (field ? "Rename" : "OK"));
+    yes.id = "ask-ok";
+    yes.onclick = () => answer(true);
+    foot.append(no, yes);
+    body.append(foot);
+    // A destructive action is never the one Enter lands on by default.
+    if (!input) (opts.danger ? no : yes).setAttribute("data-autofocus", "");
+    if (input) {
+      input.onkeydown = (e) => {
+        if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); answer(true); }
+      };
+    }
+    askCancel = () => answer(false);
+    settleOverlayFocus();
+    if (input && input.select) input.select();
+  }
+  /** How the question on screen is put away unanswered, while one is. */
+  let askCancel = null;
   /** groupMembersOf returns every member of root's own project, only when it
    *  spans more than one -- the shared lookup behind every "which repo?"
    *  picker (Changes' own, and the Worktrees create form's), so the two
@@ -5082,7 +5474,7 @@
         };
         const review = el("button", "chip", "Review");
         review.title = "See what changed here, commit and push";
-        review.onclick = () => openChanges(wt.path);
+        review.onclick = () => openFrom(openChanges, wt.path);
         actions.append(agent, shell, split, review);
         agent.id = key + "agent"; shell.id = key + "shell"; split.id = key + "split"; review.id = key + "review";
       }
@@ -5487,7 +5879,7 @@
       if (p.active) {
         const agentBtn = el("button", "chip", "Default agent\u2026");
         describe(agentBtn, "Choose the agent this project opens new panes with when nobody chooses one.");
-        agentBtn.onclick = () => chooseAgent("Default agent for " + p.name, () => {}, { setDefault: true });
+        agentBtn.onclick = () => openFrom(chooseAgent, "Default agent for " + p.name, () => {}, { setDefault: true });
         row.append(agentBtn);
       }
 
@@ -6128,11 +6520,16 @@
    *  fixed in the source, and a terminal's font is among the first things
    *  anybody who works in one sets to their own. */
   function askFontFamily() {
-    const answer = window.prompt("Which font should the terminals use? Leave it empty for the default.", prefs.fontFamily || "");
-    if (answer === null || answer === undefined) return;
-    const why = chooseFontFamily(answer);
-    if (why) notice(why, true);
-    settingsChanged();
+    const question = "Which font should the terminals use? Leave it empty for the default.";
+    promptDialog({
+      title: "Terminal font", label: "Font", value: prefs.fontFamily || "", placeholder: "Cascadia Mono…",
+      note: "Empty uses the default font.", action: "Use this font",
+      native: { message: question, value: prefs.fontFamily || "" },
+    }, (answer) => {
+      const why = chooseFontFamily(answer);
+      if (why) notice(why, true);
+      settingsChanged();
+    });
   }
 
   /** chooseFontFamily makes a typeface the terminals' own, or says why it
@@ -6170,8 +6567,14 @@
    *  fixed in the source: too few lines for a long agent session to be read
    *  back through, and more than a dozen panes need where memory is short. */
   function askScrollback() {
-    const answer = window.prompt("How many lines should each terminal keep once they scroll off the top? (1,000 to 200,000)", String(scrollback));
-    if (answer === null || answer === undefined) return;
+    const question = "How many lines should each terminal keep once they scroll off the top? (1,000 to 200,000)";
+    promptDialog({
+      title: "Terminal scrollback", label: "Lines kept", value: String(scrollback),
+      note: "From 1,000 to 200,000 lines.", action: "Keep these lines",
+      native: { message: question, value: String(scrollback) },
+    }, (answer) => keepScrollback(answer));
+  }
+  function keepScrollback(answer) {
     const n = Number(String(answer).replace(/[,\s_]/g, ""));
     if (!Number.isInteger(n) || n < 1000 || n > 200000) {
       notice("Scrollback has to be a whole number of lines from 1,000 to 200,000.", true);
@@ -6702,6 +7105,10 @@
     agents: () => openAgents(),
     closeFinishedPanes: () => send({ cmd: "closeFinishedPanes" }),
     apiKeys: () => openKeys(),
+    github: () => openGithub(),
+    // The palette narrowed to the surfaces, by name: what the "Go to…" chip
+    // in every dialog's header was, now one more thing the palette does.
+    goTo: () => openPalette(PAGE_ACTIONS),
 
     worktrees: () => openWorktrees(),
     changes: () => openChanges(),
@@ -6822,7 +7229,11 @@
     const fn = ACTIONS[id];
     if (!fn) return;
     const k = keyTable.find((x) => x.id === id);
-    if (k && k.confirm && !window.confirm(k.confirm)) return;
+    if (k && k.confirm) {
+      confirmDialog({ title: k.confirm, action: k.label.split(/ [—-] /)[0], danger: true, native: k.confirm },
+        () => fn(arg));
+      return;
+    }
     fn(arg);
   }
 
@@ -6890,16 +7301,16 @@
    *  rather than building the list again. */
   let palRows = [];
   /** Set while the palette is showing only the actions in PAGE_ACTIONS --
-   *  opened as "Go to…" from inside a dialog, rather than as the palette
-   *  proper -- and cleared the moment it is asked for everything again. */
+   *  opened as "Go to…", rather than as the palette proper -- and cleared
+   *  the moment it is asked for everything again. */
   let palOnly = null;
 
-  /** Every action that puts a whole dialog on screen, rather than doing
-   *  something and staying put. "Go to…", in a dialog's own header, is the
-   *  palette narrowed to just these -- one dialog reaches any other without
+  /** Every action that puts a whole surface on screen, rather than doing
+   *  something and staying put. "Go to…", the palette's own entry, is the
+   *  palette narrowed to just these -- one surface reaches any other without
    *  a trip back out to the rail or the shortcut that opened this one. */
   const PAGE_ACTIONS = ["projects", "agents", "worktrees", "changes", "history",
-    "fanoutHistory", "settings", "remote", "apiKeys", "help"];
+    "fanoutHistory", "todos", "github", "fanout", "settings", "remote", "apiKeys", "help"];
 
   function paletteCommands() {
     const s = state || {};
@@ -6933,6 +7344,10 @@
     [["newAgentTabChoose", "New agent tab (choose agent)…"],
      ["splitRightChoose", "Split right (choose agent)…"],
      ["apiKeys", "API keys…"],
+     // GitHub had a rail button and nothing else; and the surfaces by name,
+     // which a dialog's header offered as "Go to…".
+     ["github", "GitHub"],
+     ["goTo", "Go to…"],
      ["scrollback", "Terminal scrollback…"],
      ["fontFamily", "Terminal font…"],
      // Renaming was a double-click on the tab and nothing else: nothing a
@@ -6942,7 +7357,7 @@
      ["focusNextPane", "Focus the next pane"],
      ["focusPrevPane", "Focus the previous pane"]].forEach(([id, label]) => {
       if (keyTable.some((k) => k.id === id)) return;
-      cmds.push({ label: label, hint: now(id), also: also(id), run: () => runAction(id) });
+      cmds.push({ id, label: label, hint: now(id), also: also(id), run: () => runAction(id) });
     });
     // A setting kept as "off": the entry turns it back on while it is off and
     // off while it is on, and says which it did - through setOff, as the
@@ -8074,7 +8489,7 @@
         ? "Sign in to GitHub to see pull requests, issues and CI here."
         : "The GitHub CLI is not installed on this machine yet."));
       const go = el("button", "chip primary", "Open GitHub settings");
-      go.onclick = () => openSettings("github");
+      go.onclick = () => openFrom(openSettings, "github");
       body.append(go);
       return;
     }
@@ -9749,7 +10164,7 @@
       if (u) {
         const install = el("button", "chip primary", "Install " + u.version + "…");
         install.id = "set-install";
-        install.onclick = openUpdate;
+        install.onclick = () => openFrom(openUpdate);
         extra.append(install);
       }
     }
@@ -9761,7 +10176,7 @@
     if (!remoteWindow) {
       const rollback = el("button", "chip", "Install a specific version…");
       rollback.id = "set-versions";
-      rollback.onclick = openVersions;
+      rollback.onclick = () => openFrom(openVersions);
       pane.append(settingRow("Roll back or reinstall",
         "Pick a previous release to install over this one, forward or back, or reinstall the version you're running now.",
         rollback));
@@ -11229,7 +11644,7 @@
     const tools = el("div", "wt-tools");
     const add = el("button", "chip primary", "+ New todo");
     describe(add, "Reads the focused pane's plan into a new todo. Ask an agent to plan something first, the same as before fanning it out.");
-    add.onclick = () => openNewTodo();
+    add.onclick = () => openFrom(openNewTodo);
     tools.append(add, rootLabel(m.root || (state ? state.root : "")));
     body.append(tools);
 
@@ -12083,7 +12498,8 @@
         keyCancel();
         return;
       }
-      closeOverlay();
+      // One level at a time: a surface stacked on another goes back to it.
+      dismissOverlay();
       return;
     }
 
@@ -12122,6 +12538,9 @@
     // the browser, whose own idea of Ctrl+Shift+W is closing the window.
     const covered = !!modalRoot();
     if (id && !editsText(e)) {
+      // The key that opened a surface puts it away again.
+      if (!$("overlay").hidden && $("palette").hidden && overlayNow &&
+          (SURFACES[overlayNow.name] || {}).act === id) { claimKey(e); dismissOverlay(); return; }
       if (covered && id !== "palette" && id !== "help") { e.preventDefault(); return; }
       claimKey(e);
       runAction(id);
@@ -12158,6 +12577,7 @@
   }, true);
 
   // ------------------------------------------------------------------ wiring
+
 
   document.querySelectorAll("[data-icon]").forEach((n) => {
     n.innerHTML = iconSVG(n.dataset.icon, Number(n.dataset.size) || 16);
@@ -12221,8 +12641,12 @@
   $("btn-settings").onclick = () => openSettings();
   $("btn-update").onclick = () => openUpdate();
   $("btn-remote").onclick = () => openRemote();
-  $("overlay-close").onclick = closeOverlay;
-  $("overlay").addEventListener("mousedown", (e) => { if (e.target === $("overlay")) closeOverlay(); });
+  $("overlay-close").onclick = dismissOverlay;
+  $("overlay").addEventListener("mousedown", (e) => { if (e.target === $("overlay")) dismissOverlay(); });
+  // A sheet sits against the rail, which can be widened while it is open.
+  window.addEventListener("resize", () => {
+    if (!$("overlay").hidden && overlayNow && overlayNow.present === "sheet") placeSheet();
+  });
   $("prompt-send").onclick = submitPrompt;
   $("prompt-input").onkeydown = promptKey;
   // The field holds several lines, so an instruction pasted in several -
