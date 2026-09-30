@@ -1788,7 +1788,9 @@ textarea:focus-visible {
 }
 .keybind-chord:hover { border-color: var(--accent); }
 .keybind-chord:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.keybind-chord.empty { color: var(--fg-dim); font-family: var(--sans); font-style: italic; }
+/* The generic .empty (a whole-panel placeholder: 40px padding, auto margin)
+ * is also on this class; without resetting it an unbound chord drew ~80px tall. */
+.keybind-chord.empty { color: var(--fg-dim); font-family: var(--sans); font-style: italic; padding: 0 10px; margin: 0; }
 .keybind-chord.recording { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); color: var(--accent); animation: keybind-pulse var(--pulse) var(--ease-in-out) infinite; }
 @keyframes keybind-pulse { 50% { opacity: .55; } }
 .keybind-chord.changed { border-color: var(--accent); }
