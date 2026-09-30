@@ -557,11 +557,15 @@ knows, not decorating the window.
 
 | Dot | Meaning |
 | --- | --- |
-| green, pulsing | Working — producing output or running a tool |
-| amber | **Waiting on you** — a permission prompt or a question |
-| grey | Idle — finished its turn, ready for a new prompt |
-| faint grey | Starting — launched, and not heard from yet |
-| red | The process exited |
+| filled cyan circle, pulsing | Working — producing output or running a tool |
+| amber triangle | **Waiting on you** — a permission prompt or a question |
+| hollow grey circle | Idle — finished its turn, ready for a new prompt |
+| hollow grey circle, pulsing | Starting — launched, and not heard from yet |
+| red filled square | Failed — the process ended with an error, or was killed |
+| hollow square | Exited — the process is gone |
+
+Each state has its own shape as well as its colour, so you can tell them apart
+without seeing colour.
 
 Claude Code's own idle nudge — sent about a minute after a pane has simply
 gone quiet, waiting for a new prompt — never raises any of this, for any pane:
@@ -1049,7 +1053,7 @@ narrow window reaches Settings and the other tools.
 `F1` opens the help: a page per feature, searchable across all of them, beside
 a contents list. Almost every dialog carries a `?` that opens the page
 explaining what is in it, and a dismissible hint appears under the tab bar for the gestures the
-interface cannot advertise for itself — dragging a pane, what an amber dot
+interface cannot advertise for itself — dragging a pane, what an amber triangle
 means. The first run opens it once, unasked, and never again.
 
 The pages are Markdown under `internal/help/pages`, compiled into the binary

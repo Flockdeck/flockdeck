@@ -13,9 +13,10 @@ what follows is everything you need once there is more than one of them.
 
 ## The three things to know first
 
-**The dot in each pane header says what that agent is doing.** Green is
-working, amber is *waiting on you*, grey is idle, red means the process
-exited. A tab holding a waiting agent is marked `▲`, and so is the window
+**The dot in each pane header says what that agent is doing.** A filled cyan
+circle is working, an amber triangle is *waiting on you*, a hollow grey circle
+is idle, a red square means it failed and a hollow square that the process
+exited. Shapes as well as colours tell them apart. A tab holding a waiting agent is marked `▲`, and so is the window
 title, so an agent that blocks while you are looking elsewhere still reaches
 you.
 
@@ -60,7 +61,7 @@ is; [Spend and limits](#spend) says how, and when Claude Code's are read.
 ## Finding the rest of it
 
 The rail down the left of the window has a tile for each open project — one
-with an amber badge has an agent waiting on you, and one with a green badge
+with an amber triangle badge has an agent waiting on you, and one with a cyan badge
 has agents at work — and under them the tools:
 broadcast, changes, history, worktrees, remote access, help and settings. Rest the
 pointer on one, or reach it with the keyboard, and it says what it is and the

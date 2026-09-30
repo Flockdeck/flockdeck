@@ -7491,11 +7491,11 @@ h.recv(fixture({ waiting: 1, projects: [
   { root: "C:/repo", name: "repo", active: true, tabs: 2, waiting: 0, working: 0 },
   { root: "C:/api", name: "api", active: false, tabs: 1, waiting: 1, working: 0 },
 ] }));
-assert.ok(h.$("hints").hidden || !/amber dot/.test(h.$("hints").textContent),
+assert.ok(h.$("hints").hidden || !/amber triangle/.test(h.$("hints").textContent),
   "the hint explained an amber dot that is not on screen");
 
 h.recv(fixture({ waiting: 1, panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2") } }));
-assert.ok(!h.$("hints").hidden && /amber dot/.test(h.$("hints").textContent),
+assert.ok(!h.$("hints").hidden && /amber triangle/.test(h.$("hints").textContent),
   "the hint no longer shows when a waiting pane is on screen");
 `)
 }

@@ -592,16 +592,17 @@ func writeCapabilities(b *strings.Builder, hooked bool) {
 			"own lifecycle to Flockdeck — Claude Code through the hooks a generated `--settings` file "+
 			"registers, with your own settings, hooks and permissions still applying on top, and "+
 			"Flockdeck's built-in chat client by itself — and Flockdeck reads "+
-			"your state from those rather than from your output: green while you work, amber while "+
-			"you wait on the user, grey between turns, red once the process exits. A pane that is "+
+			"your state from those rather than from your output: a cyan circle while you work, an amber "+
+			"triangle while you wait on the user, a hollow grey circle between turns, a red square if the "+
+			"process fails and a hollow square once it exits. A pane that is "+
 			"waiting marks its tab and the window title, and raises a desktop notification when the "+
 			"window is not in front. The pane header names the tool you are running while it runs. "+
 			"%s reaches any pane in any open project from anywhere.\n\n", how("agents"))
 	} else {
 		fmt.Fprintf(b, "**Your status is watched, so stopping to ask is worth it.** You report no "+
 			"lifecycle events to Flockdeck, so it colours this pane from what it prints and how long it "+
-			"has been quiet: green while you work, amber when what you last printed reads as a "+
-			"question, grey between turns, red once the process exits. A pane that is waiting marks "+
+			"has been quiet: a cyan circle while you work, an amber triangle when what you last printed reads as a "+
+			"question, a hollow grey circle between turns, a red square if the process fails and a hollow square once it exits. A pane that is waiting marks "+
 			"its tab and the window title, and raises a desktop notification when the window is not "+
 			"in front, so a question does reach the user even when they are looking elsewhere — but "+
 			"it is read off your output rather than told to Flockdeck, so ask plainly, on a line of its "+
