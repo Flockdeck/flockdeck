@@ -258,11 +258,9 @@ type Project struct {
 	Tabs    int
 	Waiting int
 	Working int
-	// Background counts the agents that are not working but have background
-	// work still running (see PaneBusy), left out of Working: it is the
-	// project's own second reading of "is anything going on here", for the
-	// rail's mark. An agent counted in Waiting or Working is not counted here.
-	Background int
+	// Activity is the project's aggregate activity (Tally.Activity over the
+	// same agents Waiting and Working count), which the rail draws.
+	Activity Activity
 	// Panes counts every pane in the project's tabs, idle ones included, so
 	// that a split or a closed pane changes the summary as it changes the
 	// agents list.
@@ -778,6 +776,7 @@ func (w *Workspace) Projects() []Project {
 	// One pass over the tabs under one lock, rather than a walk of every tab
 	// once per open project and a separately locked lookup for every pane in
 	// it: this is rebuilt every time any pane changes status.
+	tallies := make([]Tally, len(out))
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	for _, t := range w.Tabs {
@@ -801,15 +800,12 @@ func (w *Workspace) Projects() []Project {
 			if pane.Sess == nil {
 				continue
 			}
-			switch st, _ := pane.Sess.Status(); {
-			case st.NeedsAttention():
-				out[i].Waiting++
-			case st == session.StatusWorking:
-				out[i].Working++
-			case pane.Sess.BackgroundTasks() > 0:
-				out[i].Background++
-			}
+			tallies[i].Add(PaneActivity(pane))
 		}
+	}
+	for i := range out {
+		out[i].Waiting, out[i].Working = tallies[i].Waiting, tallies[i].Working
+		out[i].Activity = tallies[i].Activity()
 	}
 	// A project moved within the picker's Open list by hand sorts there
 	// too, ahead of one that has not been moved; among projects alike in
@@ -2891,22 +2887,16 @@ func promptInput(text string, bracketed bool) (string, bool) {
 
 // AttentionCount returns how many panes across every open project need the
 // user -- waiting on them, or stuck the same way with no prompt open to say
-// so -- and how many are actively working.
+// so -- and how many are working: producing output, or idle between turns with
+// background work still running (see PaneActivity). Only display reads this.
 func (w *Workspace) AttentionCount() (waiting, working int) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
+	var tally Tally
 	for _, p := range w.panes {
-		if p.Sess == nil {
-			continue
-		}
-		switch st, _ := p.Sess.Status(); {
-		case st.NeedsAttention():
-			waiting++
-		case st == session.StatusWorking:
-			working++
-		}
+		tally.Add(PaneActivity(p))
 	}
-	return waiting, working
+	return tally.Waiting, tally.Working
 }
 
 // gitStatus reads one checkout's summary within a deadline. It is a variable
@@ -3128,44 +3118,6 @@ func (w *Workspace) applyGit(key string, st gitx.Status, late bool) {
 	if changed {
 		w.wake()
 	}
-}
-
-// TabNeedsAttention reports whether any pane in a tab needs the user: waiting
-// on them, or stuck the same way with no prompt open to say so.
-func (w *Workspace) TabNeedsAttention(t *Tab) bool {
-	for _, id := range t.Tree.Panes() {
-		if p := w.Pane(id); p != nil {
-			if st, _ := p.Status(); st.NeedsAttention() {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// TabWorking reports whether an agent in the tab is busy: working, or idle
-// between turns with background work still running (a run_in_background
-// command, a background subagent). The pane itself keeps reading idle for the
-// second, as it should -- its turn is over -- but the tab is what a person
-// scans to find where work is going on, and it said nothing for either case.
-func (w *Workspace) TabWorking(t *Tab) bool {
-	for _, id := range t.Tree.Panes() {
-		if PaneBusy(w.Pane(id)) {
-			return true
-		}
-	}
-	return false
-}
-
-// PaneBusy reports whether an agent has something going on: it is working, or
-// it is idle between turns with background work still running. It is a reading
-// for marks only; the pane's status stays what the session inferred.
-func PaneBusy(p *Pane) bool {
-	if p == nil || p.Sess == nil {
-		return false
-	}
-	st, _ := p.Status()
-	return st == session.StatusWorking || p.Sess.BackgroundTasks() > 0
 }
 
 // Close terminates every session and stops the hook server.

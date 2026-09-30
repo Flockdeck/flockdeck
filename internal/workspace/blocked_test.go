@@ -30,7 +30,7 @@ func TestAHardDenialThatEndsTheTurnMarksTheTabForAttention(t *testing.T) {
 	if st, _ := p.Sess.Status(); st != session.StatusWorking {
 		t.Fatalf("status = %v right after the denial, want working -- the turn goes on", st)
 	}
-	if ws.TabNeedsAttention(tab) {
+	if ws.TabActivity(tab).NeedsAttention() {
 		t.Error("a denial mid-turn already marked the tab, before the turn even ended")
 	}
 
@@ -42,7 +42,7 @@ func TestAHardDenialThatEndsTheTurnMarksTheTabForAttention(t *testing.T) {
 	if !st.NeedsAttention() {
 		t.Error("StatusBlocked does not report NeedsAttention")
 	}
-	if !ws.TabNeedsAttention(tab) {
+	if !ws.TabActivity(tab).NeedsAttention() {
 		t.Error("a pane stuck on a hard denial did not mark its tab for attention")
 	}
 	if waiting, _ := ws.AttentionCount(); waiting != 1 {

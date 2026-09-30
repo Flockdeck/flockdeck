@@ -90,6 +90,9 @@
     waiting:     "Waiting on you - the agent asked a question, or is holding for a permission.",
     blocked:     "Blocked - a tool call was refused outright and the turn ended there. Nobody is being asked anything, but it needs a look.",
     working:     "Working - the agent is producing output and does not need you yet.",
+    // What a count of working agents, and the tab's dot, mean: the pane's own
+    // dot says "Working" or "Working in the background" for the one agent.
+    workingCount: "Working - an agent is producing output, or its turn is over and a command or subagent it started is still running in the background. It does not need you yet.",
     // An idle agent with background work left running: its status is still
     // idle, so this says what the working mark is for rather than "working".
     workingBackground: "Working in the background - the agent's turn is over and it reads idle, but a command or subagent it started is still running.",
@@ -2057,8 +2060,9 @@
       node.item.classList.toggle("attention", !!tab.attention);
       if (!!node.attn !== !!tab.attention) changed = true;
       setAttention(node, !!tab.attention);
-      // Busy is shown only where nothing is waiting: the triangle outranks it.
-      const busy = !!tab.working && !tab.attention;
+      // The server's aggregate is already one or the other: the triangle
+      // outranks the working dot there.
+      const busy = tab.activity === "working";
       node.item.classList.toggle("busy", busy);
       if (!!node.busy !== busy) changed = true;
       setBusy(node, busy);
@@ -2189,7 +2193,7 @@
     if (!on) { node.busy.remove(); node.busy = null; return; }
     const busy = el("span", "busy-dot", "●");
     busy.setAttribute("role", "img");
-    busy.setAttribute("aria-label", TIPS.working);
+    busy.setAttribute("aria-label", TIPS.workingCount);
     describe(busy, "An agent in this tab is working, or has background work still running.");
     node.btn.append(busy);
     node.busy = busy;
@@ -2344,7 +2348,7 @@
       if (s.waiting > 0) box.append(tally("waiting", s.waiting, TIPS.waiting));
       // The gap between the two is the eye's; a screen reader needs a pause.
       if (s.waiting > 0 && s.working > 0) box.append(el("span", "sr-only", ", "));
-      if (s.working > 0) box.append(tally("working", s.working, TIPS.working));
+      if (s.working > 0) box.append(tally("working", s.working, TIPS.workingCount));
       // The button was named from the action table while it was still empty,
       // and a name set that way outlasts the counts written into it after:
       // tabbed to, it said what it opens and never who was waiting.
@@ -2389,13 +2393,10 @@
    *  relay. */
   function projectActivity(p) {
     const waiting = Math.max(0, p.waiting | 0), working = Math.max(0, p.working | 0);
-    const background = Math.max(0, p.background | 0);
-    if (waiting > 0) return { state: "waiting", n: waiting, waiting, working, background };
-    if (working > 0) return { state: "working", n: working, waiting, working, background };
-    // Idle agents with background work still running: the same mark, and no
-    // count, since the counts are of agents whose status is working.
-    if (background > 0) return { state: "working", n: 0, waiting, working, background };
-    return { state: "", n: 0, waiting, working, background };
+    // The server says which (workspace.Tally.Activity); the counts are of the
+    // same agents, and only written beside the name.
+    const state = p.activity === "waiting" || p.activity === "working" ? p.activity : "";
+    return { state, n: state === "waiting" ? waiting : state === "working" ? working : 0, waiting, working };
   }
 
   /** activityWords says a project's activity aloud, for its accessible name
@@ -2404,7 +2405,6 @@
     const parts = [];
     if (a.waiting) parts.push((a.waiting === 1 ? "an agent is" : a.waiting + " agents are") + " waiting on you");
     if (a.working) parts.push((a.working === 1 ? "an agent is" : a.working + " agents are") + " working");
-    if (a.background) parts.push((a.background === 1 ? "an agent has" : a.background + " agents have") + " background work still running");
     return parts.join(", ");
   }
 
@@ -2416,7 +2416,7 @@
    *  others is still busy. */
   function renderRail(s) {
     const projects = s.projects || [];
-    const key = JSON.stringify(projects.map((p) => [p.root, p.name, !!p.active, p.waiting || 0, p.working || 0, p.background || 0]));
+    const key = JSON.stringify(projects.map((p) => [p.root, p.name, !!p.active, p.waiting || 0, p.working || 0, p.activity || ""]));
     if (key === railShown) return;
     railShown = key;
     const box = $("rail-projects");
@@ -2436,8 +2436,8 @@
       // spell itself out the count is written beside the name, ahead of a
       // shape that differs too - the triangle the tab marks a waiting agent
       // with, or a dot.
-      t.count.textContent = act.state === "waiting" ? "▲ " + act.n : act.n ? "● " + act.n : "";
-      t.count.className = "rail-count" + (act.n ? " " + act.state : "");
+      t.count.textContent = act.state === "waiting" ? "▲ " + act.n : act.state ? "● " + act.n : "";
+      t.count.className = "rail-count" + (act.state ? " " + act.state : "");
       // Two letters say which project to somebody who already knows; the
       // name and the folder say it to everybody else, and two checkouts of
       // one repository have the same name and only the folder differs.
@@ -3895,20 +3895,23 @@
       const was = p.shown;
 
       const shown = shownStatus(v);
-      // An idle agent with background work still running is drawn with the
-      // working mark, though its status stays idle everywhere else.
-      const bgWork = shown === "idle" && (v.background | 0) > 0;
-      const dotKey = bgWork ? shown + "+background" : shown;
+      // The mark is drawn from the server's activity (workspace.PaneActivity),
+      // the one place that decides it; the status above is what the session
+      // inferred and is left to the rules that read it. An idle agent with
+      // background work still running has status idle and activity working.
+      const activity = v.activity || shown;
+      const bgWork = activity === "working" && v.status !== "working";
+      const dotKey = activity + (bgWork ? "+background" : "");
       if (was.status !== dotKey) {
         was.status = dotKey;
         // On the pane as well as on its dot: a tab of six agents is six small
         // discs, and the one that has stopped and is waiting on you should not
         // have to be found by reading each header in turn.
         p.wrap.dataset.status = shown;
-        p.dot.className = bgWork ? "dot working bg" : "dot " + shown;
+        p.dot.className = "dot " + activity + (bgWork ? " bg" : "");
         // The dot is nothing but a coloured circle, so it has to say the whole
         // sentence itself; the bare status word left the colour unexplained.
-        const says = bgWork ? TIPS.workingBackground : (TIPS[shown] || shown);
+        const says = bgWork ? TIPS.workingBackground : (TIPS[activity] || activity);
         p.dot.setAttribute("role", "img");
         p.dot.setAttribute("aria-label", says);
         describe(p.dot, says);
@@ -5449,7 +5452,7 @@
         const n = el("span", "working", "\u25cf " + p.working);
         n.setAttribute("role", "img");
         n.setAttribute("aria-label", p.working + (p.working === 1 ? " agent" : " agents") + " working");
-        badge.append(describe(n, TIPS.working), document.createTextNode(" "));
+        badge.append(describe(n, TIPS.workingCount), document.createTextNode(" "));
       }
       badge.append(document.createTextNode(p.tabs + (p.tabs === 1 ? " tab" : " tabs")));
       go.append(badge);
@@ -8554,7 +8557,7 @@
     // at all, so it needs both the copy and a name of its own.
     // The row writes the status out in words further along, so the disc is
     // decoration here — unlike in a pane header, where it is all there is.
-    const shown = shownStatus(a);
+    const shown = a.activity || shownStatus(a);
     const dot = el("span", "dot " + shown);
     dot.setAttribute("aria-hidden", "true");
     title.append(describe(dot, TIPS[shown] || shown));
