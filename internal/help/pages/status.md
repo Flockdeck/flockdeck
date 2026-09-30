@@ -74,7 +74,8 @@ tells you what the agent is actually doing rather than only that it is busy.
   conversation is cleared, or the pane is closed by hand (or with
   `flockdeck close --force`).
 - A background subagent calling tools after its agent's turn has ended leaves
-  the pane grey, with that count, rather than flashing cyan for each call.
+  the pane idle, with that count and the steady working dot, rather than
+  flashing cyan for each call.
   A question or permission prompt it puts to you still turns it amber.
 
 ## Where it comes from
