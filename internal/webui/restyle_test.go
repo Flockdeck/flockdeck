@@ -3,6 +3,7 @@ package webui
 import (
 	"io/fs"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -215,5 +216,55 @@ func TestEveryStatusHasAShapeOfItsOwn(t *testing.T) {
 	}
 	if root["--ok"] == "" || root["--ok"] == root["--working"] {
 		t.Errorf("a verdict (--ok, %q) has no colour of its own apart from working (%s)", root["--ok"], root["--working"])
+	}
+}
+
+// A pane in a two-by-two grid has a header some 760 pixels wide, and set in
+// the mono its details no longer fitted: every one of them gave way at once,
+// so the figures read "221k t..." and "5h 7...", which are not figures. In a
+// header that wide the figures hold and the names give way; in a narrower one
+// the figures still go first, so the buttons are never pushed off the edge.
+// And a slot with nothing in it takes no room, the status mark excepted: it
+// is drawn, not written, and hiding it would take the status with it.
+func TestAWideHeaderKeepsItsFiguresWhole(t *testing.T) {
+	css := stripComments(readAsset(t, "app.css"))
+	header := regexp.MustCompile(`(?m)^\.pane-header\s*\{[^}]*container:\s*([\w-]+)\s*/\s*inline-size`).FindStringSubmatch(css)
+	if header == nil {
+		t.Fatal(".pane-header is not a container its details can ask the width of")
+	}
+	wide := regexp.MustCompile(`@container ` + header[1] + ` \(min-width:\s*(\d+)px\)\s*\{\s*([^{}]+)\{([^{}]*)\}`).FindStringSubmatch(css)
+	if wide == nil {
+		t.Fatalf("no @container %s (min-width) rule for a wide header", header[1])
+	}
+	for _, sel := range []string{".pane-usage", ".pane-spend", ".pane-limit", ".pane-git"} {
+		found := false
+		for _, s := range strings.Split(wide[2], ",") {
+			found = found || strings.TrimSpace(s) == sel
+		}
+		if !found {
+			t.Errorf("%s can still be cut in a wide header", sel)
+		}
+	}
+	if !regexp.MustCompile(`flex-shrink:\s*0\b`).MatchString(wide[3]) {
+		t.Errorf("a wide header's figures are set to %q, not held whole", strings.TrimSpace(wide[3]))
+	}
+	// Narrower than that, the order the figures give way in is unchanged.
+	shrink := func(sel string) int {
+		m := regexp.MustCompile(`flex:\s*0 (\d+) auto`).FindStringSubmatch(ruleBody(css, sel))
+		if m == nil {
+			t.Fatalf("%s has no flex shorthand to read its shrink from", sel)
+		}
+		n, _ := strconv.Atoi(m[1])
+		return n
+	}
+	if u, s, l := shrink(".pane-usage"), shrink(".pane-spend"), shrink(".pane-limit"); !(u > s && s > l && l > 100) {
+		t.Errorf("in a narrow header usage, spend and the limit give way at %d, %d, %d; want usage first, the limit last, and all before the names", u, s, l)
+	}
+	empty := regexp.MustCompile(`\.pane-header > span:empty([^\s{]*)\s*\{\s*display:\s*none`).FindStringSubmatch(css)
+	if empty == nil {
+		t.Fatal("an empty slot in a header still takes its gaps")
+	}
+	if !strings.Contains(empty[1], ":not(.dot)") {
+		t.Error("the rule hiding a header's empty slots hides the status mark, which is always empty")
 	}
 }
