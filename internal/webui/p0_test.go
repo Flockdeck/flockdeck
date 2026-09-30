@@ -48,3 +48,41 @@ assert.ok(tab.scrolledTo, "the section shown was not scrolled into view");
 assert.strictEqual(tab.scrolledWith.inline, "center", "the section shown is not centred in the strip");
 `)
 }
+
+// A bubble left on screen after the thing it describes has been used - opened
+// by a click, or by Enter or Space on the keyboard - describes nothing. It is
+// removed on the activation, and a bubble still waiting for its delay never
+// opens after it.
+func TestATooltipGoesWhenItsTriggerIsActivated(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const tip = () => h.doc.body.querySelector("div.tip");
+const hover = (b) => h.dispatch(b, new h.Ev("pointerover", { pointerType: "mouse", target: b }));
+const button = h.$("btn-history");
+
+hover(button);
+await h.sleep(320);
+assert.ok(tip(), "the bubble did not open to start with");
+h.dispatch(button, new h.Ev("click", { target: button }));
+assert.ok(!tip(), "the bubble stayed after a click");
+
+hover(button);
+await h.sleep(320);
+assert.ok(tip());
+h.key({ key: "Enter" });
+assert.ok(!tip(), "the bubble stayed after Enter");
+
+hover(button);
+await h.sleep(320);
+assert.ok(tip());
+h.key({ key: " " });
+assert.ok(!tip(), "the bubble stayed after Space");
+
+// Activated before the bubble's delay is up, it never opens.
+hover(h.$("btn-agents"));
+h.key({ key: "Enter" });
+await h.sleep(320);
+assert.ok(!tip(), "a bubble opened after the thing it describes was used");
+`)
+}

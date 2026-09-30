@@ -238,8 +238,15 @@
   document.addEventListener("focusout", hideTip, true);
   document.addEventListener("pointerout", (e) => { if (!e.relatedTarget) hideTip(); }, true);
   document.addEventListener("pointerdown", hideTip, true);
+  // Using what a bubble describes answers it, and a bubble left behind on
+  // the thing just used - its panel opened, its mark gone - describes nothing.
+  // pointerdown covers a press; a click is also what a tap, a screen reader
+  // and a script make, and Enter and Space are how the keyboard makes one.
+  document.addEventListener("click", hideTip, true);
   document.addEventListener("scroll", hideTip, true);
-  window.addEventListener("keydown", (e) => { if (e.key === "Escape") hideTip(); }, true);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" || e.key === "Enter" || e.key === " ") hideTip();
+  }, true);
   window.addEventListener("blur", hideTip);
 
   const wsBase = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
