@@ -28,7 +28,7 @@ on that connection. The few things only another launch of the binary may do —
 open a project from the command line, quit the instance — still insist on the
 token, so a remote window cannot reach them.
 
-## Self-hosted: running it on a server, not a desk
+## Running it headless on a server, not a desk
 
 "Your desktop" above doesn't have to be a desktop. `flockdeck -no-window`
 serves headless — no window, and no browser is ever looked for on that
@@ -36,8 +36,9 @@ machine — so it runs just as well on a spare box, a home server, a NAS or a
 cheap VPS as it does on the machine in front of you. Pair it the same way
 (`flockdeck remote enable` then `flockdeck remote pair`) and it's a desktop
 in every way that matters here: full interface, chat on a phone, fan out, the
-lot. That makes the free app a self-hosted stand-in for a paid "run my coding
-agents in the cloud" service, on hardware you already control.
+lot. That puts the app itself on hardware you already control, for free;
+reaching it from a phone through the shared relay is the same Remote access
+subscription as from any desktop.
 
 `-detach` also releases the terminal that started it, so an SSH session can
 end without ending Flockdeck. Under a process supervisor such as systemd,
@@ -57,7 +58,11 @@ them from one:
   the relay, which can read it;
 - changing where an API agent sends its prompts, its address, since its key
   goes wherever that says;
-- turning the check for updates on or off.
+- turning the check for updates on or off, or checking for one now, and
+  listing or installing a specific version;
+- setting, reading or clearing the TypeSafe API key, and turning **on** status
+  detection with Jev;
+- detaching from the agents.
 
 These keep a phone in a pocket from doing any of them by accident. They are
 not a security boundary: a remote window can open a shell pane, and from a
@@ -275,13 +280,24 @@ can rename any of them from its **Devices** page.
 
 ## What the relay can see
 
-Traffic is encrypted between your browser and the relay, and between the relay
-and this machine. The relay decrypts it to route it, so it is **trusted**: this
-is not end-to-end encryption, and whoever runs the relay could read what passes
-through it. The relay never sees this machine's local token or the API keys
-kept here, though anything typed into a remote window, a shell pane's included,
-passes through it; what it holds for this machine is a credential of its own,
-kept here in `remote.json` in the state directory and readable only by you.
+Traffic is encrypted with TLS between your browser and the relay, and between
+the relay and this machine. On top of that, a **terminal** — what you type into
+it and what it prints — is end-to-end encrypted between this machine and the
+paired browser, with keys the relay hands out but never holds. Only the
+terminal is: when either side has no registered key, the terminal is served
+unencrypted. Everything else passes through the relay decrypted, so it is
+**trusted**, and whoever runs it could read it: the chat view of a pane and
+what you type into it, the state and latest replies of every pane, pictures you
+attach, diffs, commit, push and pull request data, and anything typed into a
+dialog, an API key included. The relay never sees this machine's local token or
+the API keys kept here, though anything typed into a remote window, a shell
+pane's included, passes through it; what it holds for this machine is a
+credential of its own, kept here in `remote.json` in the state directory and
+readable only by you.
+
+A relay could hand out the wrong key for a device. To check, press **Verify**
+beside a device in the dialog and compare the code with the one the device
+shows on its own **Devices** page; if they differ, unpair it.
 
 Reading is not all it could do. The relay is what decides which devices are
 paired, so whoever runs it can open a window on any desktop that is connected

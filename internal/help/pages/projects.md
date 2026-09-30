@@ -57,8 +57,8 @@ name and a tile in the rail, the switcher shows one entry instead of several
 unrelated-looking ones, and an agent in one can see what the others are
 doing.
 
-**Group open projects…**, in the command palette, ticks two or more of the
-projects already open and merges them into one, named however you like.
+**Group open projects…**, at the top of the projects dialog's Open list once
+two or more projects are open, ticks two or more of the projects already open and merges them into one, named however you like.
 **Add directory…**, offered on an existing project's own row, adds another
 into it without leaving the dialog — the same browser used to open a
 project, which flags git repositories but does not require one: a plain

@@ -5,6 +5,12 @@ the keyboard for itself. That is why almost every binding is on
 <kbd>Ctrl+Shift</kbd>. The exceptions are the ones no terminal program claims:
 switching tabs, the font size, [[key:settings]] for the settings,
 <kbd>F1</kbd> for this help, and [[key:nextRegion]] for the rest of the window.
+The one exception that does take a key from programs is [[key:toggleRail]] for
+the rail, which a terminal program such as tmux or readline also uses; remap it
+under Settings › Keybindings if one needs it.
+
+These are the defaults. Change or clear any of them under Settings ›
+Keybindings.
 
 Inside a terminal <kbd>Tab</kbd> belongs to the program running there, so
 [[key:nextRegion]] is how the keyboard gets out: it moves between the rail, the
@@ -17,7 +23,7 @@ Copying and pasting in a terminal works as it does in Windows Terminal.
 the program as usual, to interrupt it. <kbd>Ctrl+Shift+C</kbd> copies too, and
 <kbd>Ctrl+V</kbd> and <kbd>Ctrl+Shift+V</kbd> paste. On macOS,
 <kbd>Cmd+C</kbd> and <kbd>Cmd+V</kbd> copy and paste, and <kbd>Ctrl</kbd>
-with a letter always goes to the program.
+with a letter goes to the program, except for [[key:toggleRail]].
 
 Actions marked *Command palette* have no binding of their own: press
 [[key:palette]], or **Commands** at the right of the top bar, and search for

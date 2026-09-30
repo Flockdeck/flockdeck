@@ -15,7 +15,9 @@ rather than lose what changed; asking a second time goes ahead anyway.
 
 ## macOS or Windows will not open a Flockdeck I downloaded
 
-Release binaries are not signed. A copy you downloaded in a browser, from
+Release downloads are not signed with an Apple Developer ID or a Windows
+code-signing certificate (their checksums are signed with Flockdeck's release
+key, which the updater checks). A copy you downloaded in a browser, from
 `dl.flockdeck.ai` or the GitHub mirror, carries the browser's download mark, so the first start may be
 stopped. On macOS, allow it under System Settings → Privacy & Security, or run
 `xattr -d com.apple.quarantine` on the binary. On Windows, choose More info →

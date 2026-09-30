@@ -162,7 +162,7 @@ func run(out, contentDir, url, repo string) error {
 	home, err := render(layout, "home.html.tmpl", page{
 		site: s, Nav: nav, Active: "",
 		Title:       "Flockdeck docs",
-		Description: "How to use Flockdeck, the desktop app that runs Claude Code, Codex, Gemini and other coding agents side by side, and how to self-host its relay for remote access.",
+		Description: "How to use Flockdeck, the desktop app that runs Claude Code, Codex, Gemini and other coding agents side by side, and how its relay runs on your own infrastructure (Flockdeck Enterprise, coming soon).",
 	})
 	if err != nil {
 		return fmt.Errorf("render the home page: %w", err)
