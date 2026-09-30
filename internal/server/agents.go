@@ -27,7 +27,10 @@ type agentView struct {
 	Branch  string `json:"branch"`
 	Kind    string `json:"kind"`
 	Status  string `json:"status"`
-	Detail  string `json:"detail"`
+	// Activity is what the row is drawn as doing (workspace.PaneActivity), the
+	// same value the pane's own header is drawn from.
+	Activity workspace.Activity `json:"activity"`
+	Detail   string             `json:"detail"`
 	// Failed marks an exited pane whose process ended in error or was killed.
 	Failed bool   `json:"failed,omitempty"`
 	For    string `json:"for"`
@@ -110,15 +113,16 @@ func (s *Server) sendAgents(c *controlClient) {
 				// revealing it has to switch to; Project says which
 				// project the agent is actually working in. They differ
 				// for a pane borrowed onto another project's tab.
-				Root:    t.Root,
-				Project: projectLabel(names, s.ws.RootOf(p.ID)),
-				Name:    p.Name,
-				Branch:  p.Branch,
-				Kind:    kindName(p.Kind),
-				Status:  st.String(),
-				Detail:  detail,
-				Dirty:   p.Git.Dirty + p.Git.Untracked,
-				Active:  p.ID == focused,
+				Root:     t.Root,
+				Project:  projectLabel(names, s.ws.RootOf(p.ID)),
+				Name:     p.Name,
+				Branch:   p.Branch,
+				Kind:     kindName(p.Kind),
+				Status:   st.String(),
+				Activity: workspace.PaneActivity(p),
+				Detail:   detail,
+				Dirty:    p.Git.Dirty + p.Git.Untracked,
+				Active:   p.ID == focused,
 			}
 			_, av.Failed = p.Failed()
 			if p.Parent != "" && s.ws.Pane(p.Parent) != nil {
@@ -154,9 +158,10 @@ func (s *Server) sendAgents(c *controlClient) {
 	}
 
 	// Whatever needs a person comes first; that is the point of the list.
-	rank := map[string]int{"waiting": 0, "blocked": 0, "working": 1, "idle": 2, "starting": 3, "exited": 4}
+	rank := map[workspace.Activity]int{workspace.ActivityWaiting: 0, workspace.ActivityBlocked: 0, workspace.ActivityWorking: 1,
+		workspace.ActivityIdle: 2, workspace.ActivityStarting: 3, workspace.ActivityExited: 4, workspace.ActivityFailed: 4}
 	sort.SliceStable(msg.Items, func(i, j int) bool {
-		ri, rj := rank[msg.Items[i].Status], rank[msg.Items[j].Status]
+		ri, rj := rank[msg.Items[i].Activity], rank[msg.Items[j].Activity]
 		if ri != rj {
 			return ri < rj
 		}

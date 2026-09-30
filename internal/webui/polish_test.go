@@ -1061,7 +1061,7 @@ func TestTheTerminalCannotSitAboveTheExitedPanesButtons(t *testing.T) {
 // background work running looked as quiet as an idle one.
 func TestTabStripMarksABusyTab(t *testing.T) {
 	js := readAsset(t, "app.js")
-	for _, want := range []string{`tab.working`, `setBusy(node, busy)`, `"busy-dot"`} {
+	for _, want := range []string{`tab.activity === "working"`, `setBusy(node, busy)`, `"busy-dot"`} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js lacks %q", want)
 		}
@@ -1084,31 +1084,39 @@ func TestTabStripMarksABusyTab(t *testing.T) {
 	}
 }
 
-// TestPaneAndRailMarkBackgroundWork pins the pane header's and the rail's
-// working marks for background work: an idle pane with background tasks is
-// drawn with the working circle (its status left idle, its tip saying it is
-// working in the background), and a project with only background work gets
-// the rail's working badge, below a waiting one in precedence.
-func TestPaneAndRailMarkBackgroundWork(t *testing.T) {
+// TestMarksFollowTheServersActivity pins that the pane header, the tab strip,
+// the rail and the agents list are drawn from the activity field the server
+// derives (workspace.PaneActivity and its aggregates) and never work it out
+// again: the rule that an idle agent with background work is working lives in
+// one place, and three copies of it had drifted apart.
+func TestMarksFollowTheServersActivity(t *testing.T) {
 	js := readAsset(t, "app.js")
 	for _, want := range []string{
-		`const bgWork = shown === "idle" && (v.background | 0) > 0;`,
-		`bgWork ? "dot working bg" : "dot " + shown`,
-		`p.wrap.dataset.status = shown;`,
+		`const activity = v.activity || shown;`,
+		`"dot " + activity + (bgWork ? " bg" : "")`,
+		`const busy = tab.activity === "working";`,
+		`p.activity === "waiting" || p.activity === "working" ? p.activity : ""`,
+		`const shown = a.activity || shownStatus(a);`,
+		`tally("working", s.working, TIPS.workingCount)`,
+		`busy.setAttribute("aria-label", TIPS.workingCount)`,
 		`workingBackground:`,
-		`p.background | 0`,
-		`if (background > 0) return { state: "working"`,
+		`activityOf(v) !== "working" && activityOf(v) !== "starting"`,
+		`p.every((v) => activityOf(v) === "idle")`,
+		`currentPanes(s).some((v) => activityOf(v) === "working")`,
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js lacks %q", want)
 		}
 	}
-	// Waiting still outranks the new working state.
-	if w, b := strings.Index(js, `if (waiting > 0) return { state: "waiting"`), strings.Index(js, `if (background > 0) return`); w < 0 || b < w {
-		t.Error("projectActivity must test waiting before background work")
+	// None of the old recomputations is left: a pane's background count, a
+	// tab's working flag and a project's separate background count.
+	for _, gone := range []string{`(v.background | 0) > 0`, `tab.working`, `p.background | 0`, `a.background) parts.push`, `v.status !== "working" && v.status !== "starting"`, `v.status === "working"),`} {
+		if strings.Contains(js, gone) {
+			t.Errorf("app.js still works out activity itself: %q", gone)
+		}
 	}
-	css := stripComments(readAsset(t, "app.css"))
-	if body := ruleBody(css, ".rail-badge.working"); !strings.Contains(body, "animation: pulse") {
-		t.Errorf(".rail-badge.working must pulse (and so stop under reduced motion): %s", body)
+	i := strings.Index(js, "workingCount:")
+	if i < 0 || !strings.Contains(js[i:i+400], "background") {
+		t.Error("TIPS.workingCount must say that background work is counted")
 	}
 }

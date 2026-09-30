@@ -23,7 +23,9 @@ without seeing colour.
 A pane whose turn is over but that has background work still running, a
 command or subagent it started, is still **Idle** and its header says how many
 are "in background". Its dot is the working dot all the same, and its tooltip
-says it is working in the background.
+says it is working in the background. Such an agent is counted as working
+everywhere working agents are counted (below), though its own status stays
+idle.
 
 While a tool is running the pane header names it, so `Read`, `Bash` or `Edit`
 tells you what the agent is actually doing rather than only that it is busy.
@@ -36,14 +38,16 @@ tells you what the agent is actually doing rather than only that it is busy.
   waiting.
 - **The window title** reports the count, so a waiting agent is visible in the
   taskbar with the window behind something else.
-- **The top bar** counts the agents waiting and working in this project. Click
+- **The top bar** counts the agents waiting and working in this project; an
+  idle agent whose background work is still running counts as working, here
+  and in the window title and the tab icon. Click
   the count for the same list [[key:agents]] opens.
 - **The rail** down the left of the window has a tile for each open project,
   and the tile says what that project's agents are doing, most urgent first: an
   amber badge where an agent is waiting on you, a pulsing cyan one where
-  agents are working, or idle with background work still running, and none is
-  waiting, and nothing where every pane is
-  idle, exited or not yet heard from, or there are no panes. So one that
+  agents are working (one with background work still running counts) and
+  none is waiting, and nothing where every pane is idle, exited or not yet
+  heard from, or there are no panes. So one that
   starts waiting in a project you are *not* looking at is seen from the one
   you are. Widen the rail and the count is written beside the name — `▲ 2`
   for two waiting, `● 3` for three working — and the tile's tooltip and

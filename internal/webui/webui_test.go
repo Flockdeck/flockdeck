@@ -1996,6 +1996,27 @@ assert.ok(!/^one: /.test(h.notifications[0].body), "an ordinary split's prompts 
 `)
 }
 
+// A fan-out is not settled while an agent in it still has background work
+// running: the server's activity for that pane is working though its status
+// is idle, and the roll-up into a summary card waits for the activity, not the
+// status, to settle. The same rule gates the hints that ask whether a pane is
+// working or idle.
+func TestAFanOutIsNotSettledWhileBackgroundWorkRuns(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const tab = { id: "t9", title: "fan out", focus: "q0", delegated: true, root: split("h", [leaf("m0", "q0"), leaf("m1", "q1")]) };
+const state = (activity) => fixture({
+  activeTab: "t9", tabs: [tab],
+  panes: { q0: pane("q0", { name: "task 0", branch: "task-0", status: "idle", activity: "idle" }),
+           q1: pane("q1", { name: "task 1", branch: "task-1", status: "idle", activity, background: activity === "working" ? 1 : 0 }) },
+});
+h.recv(state("working"));
+assert.ok(!h.$("workspace").querySelector(".summary-card"), "the card rolled up while a background task was still running");
+h.recv(state("idle"));
+assert.ok(h.$("workspace").querySelector(".summary-card"), "the card did not appear once the background work ended");
+`)
+}
+
 // Dismissing a settled fan-out's summary card with "Back to grid" used to be
 // permanent: cardHidden suppressed the card until the tab started working
 // again, and nothing offered a way back to it before then. A chip floated
@@ -5082,7 +5103,7 @@ assert.ok(h.terms.some((t) => t.focused), "clicking the project on screen did no
 h.recv(fixture({ projects: [
   Object.assign({}, projects[0], { active: false }),
   Object.assign({}, projects[1], { active: true }),
-  Object.assign({}, projects[2], { waiting: 0 }),
+  Object.assign({}, projects[2], { waiting: 0, activity: undefined }),
 ] }));
 assert.ok(tiles()[0] === aw && tiles()[1] === fr && tiles()[2] === fm, "a push rebuilt the tiles");
 assert.ok(fr.classList.contains("current") && !aw.classList.contains("current"), "the mark did not follow the switch");
@@ -5103,8 +5124,11 @@ assert.strictEqual(tiles().length, 1, "a closed project kept its tile");
 func TestTheRailTileSummarisesTheProjectsActivity(t *testing.T) {
 	for _, hello := range []string{"h.hello();", remoteHello("")} {
 		runFrontEnd(t, hello+`
+// The server says which mark a tile draws (workspace.Tally.Activity); the
+// counts are of the same agents. The window never works it out from them.
 const mk = (name, waiting, working, extra) => Object.assign(
-  { root: "C:/code/" + name, name, active: false, tabs: 1, waiting, working, panes: waiting + working }, extra);
+  { root: "C:/code/" + name, name, active: false, tabs: 1, waiting, working, panes: waiting + working,
+    activity: waiting > 0 ? "waiting" : working > 0 ? "working" : undefined }, extra);
 const projects = [
   mk("alpha", 0, 3, { active: true }),
   mk("bravo", 2, 1),
@@ -5154,6 +5178,12 @@ assert.strictEqual(tiles().length, 40);
 assert.deepStrictEqual(state(tiles()[7]), ["waiting"]);
 assert.deepStrictEqual(state(tiles()[5]), ["working"]);
 assert.deepStrictEqual(state(tiles()[3]), []);
+
+// A mark follows the server's activity field, not the counts: a project the
+// server calls working with no working agent counted (it cannot happen, but
+// the window must not second-guess it) is drawn working.
+h.recv(fixture({ root: "C:/code/alpha", projects: [mk("alpha", 0, 0, { active: true, activity: "working", panes: 1 })] }));
+assert.deepStrictEqual(state(tiles()[0]), ["working"], "the tile ignored the server's activity");
 `)
 	}
 }
@@ -9067,7 +9097,16 @@ function fixture(over) {
     panes: { p1: pane("p1"), p2: pane("p2") },
     agents: catalog(),
   };
-  return Object.assign(s, over || {});
+  Object.assign(s, over || {});
+  // What the server derives (workspace.Tally.Activity, TabActivity) and the
+  // window draws from: a fixture that leaves it out gets what it would say.
+  for (const p of s.projects || []) {
+    if (p.activity === undefined) p.activity = p.waiting > 0 ? "waiting" : p.working > 0 ? "working" : undefined;
+  }
+  for (const t of s.tabs || []) {
+    if (t.activity === undefined && t.attention) t.activity = "waiting";
+  }
+  return s;
 }
 
 /** split is a node holding several children, for tests about layout. */

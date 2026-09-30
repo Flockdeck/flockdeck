@@ -281,11 +281,10 @@ type projectView struct {
 	Tabs    int    `json:"tabs"`
 	Waiting int    `json:"waiting"`
 	Working int    `json:"working"`
-	// Background counts the agents idle between turns with background work
-	// still running. It is not part of Working, which the top bar and the
-	// counts beside the rail's names use as they always have; the rail's mark
-	// reads it, so a project with only background work shows as working.
-	Background int `json:"background,omitempty"`
+	// Activity is the project's aggregate activity, "waiting" or "working"
+	// (see workspace.Activity), absent when neither: what its rail tile draws.
+	// Waiting and Working are counts of the same panes.
+	Activity workspace.Activity `json:"activity,omitempty"`
 	// Panes counts every pane in the project, so the agents list, which the
 	// window asks for again when this summary moves, follows a split or a
 	// closed idle pane as well as a change of status.
@@ -313,10 +312,11 @@ type tabView struct {
 	Focus     string `json:"focus"`
 	Zoom      bool   `json:"zoom"`
 	Attention bool   `json:"attention"`
-	// Working says an agent in the tab is working, or has background work
-	// running after its turn ended (workspace.TabWorking). Attention outranks it.
-	Working bool      `json:"working,omitempty"`
-	Root    *nodeView `json:"root"`
+	// Activity is the tab's aggregate activity, "waiting" or "working" (see
+	// workspace.Activity), and absent when neither: what the strip draws.
+	// Attention is the same value for a window that predates it.
+	Activity workspace.Activity `json:"activity,omitempty"`
+	Root     *nodeView          `json:"root"`
 	// Named says the title was chosen by hand, which is when the rename
 	// dialog offers to go back to the automatic one.
 	Named bool `json:"named,omitempty"`
@@ -353,7 +353,12 @@ type paneView struct {
 	// job it belongs to, rather than showing it as an unrelated pane.
 	Parent string `json:"parent,omitempty"`
 	Status string `json:"status"`
-	Detail string `json:"detail"`
+	// Activity is what the pane is drawn as doing (workspace.PaneActivity): its
+	// status, except that an idle agent with background work still running is
+	// working, and an exit with an error is failed. Status is what the session
+	// inferred and is unchanged; every mark and count is drawn from Activity.
+	Activity workspace.Activity `json:"activity"`
+	Detail   string             `json:"detail"`
 	// StatusSince is when the current status began, RFC 3339 -- how the phone's
 	// chat view times "Working for 3m" without polling: it ticks the gap to now
 	// locally rather than asking again every second. Left out for a pane with
@@ -650,7 +655,7 @@ func (s *Server) snapshot() stateMsg {
 		}
 		msg.Projects = append(msg.Projects, projectView{
 			Root: p.Root, Name: p.Name, Active: p.Active,
-			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working, Background: p.Background, Panes: p.Panes,
+			Tabs: p.Tabs, Waiting: p.Waiting, Working: p.Working, Activity: p.Activity, Panes: p.Panes,
 			Members:  members,
 			Archived: p.Archived,
 		})
@@ -676,13 +681,14 @@ func (s *Server) snapshot() stateMsg {
 	for _, t := range tabs {
 		ids = ids[:0]
 		root := encodeNode(t.Tree, &ids)
+		tabActivity := ws.TabActivity(t)
 		msg.Tabs = append(msg.Tabs, tabView{
 			ID:        t.ID,
 			Title:     t.Title,
 			Focus:     t.Focus,
 			Zoom:      t.Zoom,
-			Attention: ws.TabNeedsAttention(t),
-			Working:   ws.TabWorking(t),
+			Attention: tabActivity.NeedsAttention(),
+			Activity:  tabActivity,
 			Named:     t.Named,
 			Delegated: t.Delegated,
 			Root:      root,
@@ -703,6 +709,7 @@ func (s *Server) snapshot() stateMsg {
 				Cwd:          p.Cwd,
 				Branch:       p.Branch,
 				Status:       st.String(),
+				Activity:     workspace.PaneActivity(p),
 				Detail:       detail,
 				Broadcast:    ws.InBroadcast(p.ID),
 				Muted:        p.Muted,

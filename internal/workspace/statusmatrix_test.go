@@ -313,7 +313,7 @@ func TestStatusMatrixDerivedCounts(t *testing.T) {
 			if waiting != c.waiting || working != c.working {
 				t.Errorf("AttentionCount = (%d, %d), want (%d, %d)", waiting, working, c.waiting, c.working)
 			}
-			if got := ws.TabNeedsAttention(tab); got != c.attention {
+			if got := ws.TabActivity(tab).NeedsAttention(); got != c.attention {
 				t.Errorf("TabNeedsAttention = %v, want %v", got, c.attention)
 			}
 			if got := ws.PaneFinished(p.ID); got != c.finished {

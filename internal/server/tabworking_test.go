@@ -24,7 +24,7 @@ func TestATabWithBackgroundWorkIsSentAsWorking(t *testing.T) {
 	if !ok {
 		t.Fatal("server closed")
 	}
-	working := func(s stateMsg) bool { return len(s.Tabs) > 0 && s.Tabs[0].Working }
+	working := func(s stateMsg) bool { return len(s.Tabs) > 0 && s.Tabs[0].Activity == workspace.ActivityWorking }
 
 	p.Sess.NoteBackground("PostToolUse", hooks.BackgroundStart, "shell:b1")
 	st := nextState(t, conn, working)
@@ -36,16 +36,17 @@ func TestATabWithBackgroundWorkIsSentAsWorking(t *testing.T) {
 	}
 
 	p.Sess.SetBackground(nil)
-	st = nextState(t, conn, func(s stateMsg) bool { return len(s.Tabs) > 0 && !s.Tabs[0].Working })
+	st = nextState(t, conn, func(s stateMsg) bool { return len(s.Tabs) > 0 && s.Tabs[0].Activity == workspace.ActivityNone })
 	if working(st) {
 		t.Error("the tab is still sent as working once the background work ended")
 	}
 }
 
-// TestAProjectWithBackgroundWorkIsSentWithItsCount covers projectView.Background:
-// the rail's mark needs to tell a project whose agent is idle over background
-// work from a quiet one, while Working, which the tallies read, stays zero.
-func TestAProjectWithBackgroundWorkIsSentWithItsCount(t *testing.T) {
+// TestBackgroundWorkIsCountedAsWorkingInTheSnapshot covers the tallies: the
+// tab, the pane header and the rail marked an agent idle over background work
+// as working while the top bar, the window title, the favicon and the rail's
+// count read 0. The snapshot now counts it, and the pane's status stays idle.
+func TestBackgroundWorkIsCountedAsWorkingInTheSnapshot(t *testing.T) {
 	srv, ws := newTestServer(t)
 	conn := dialControl(t, srv)
 	nextState(t, conn, nil)
@@ -57,30 +58,35 @@ func TestAProjectWithBackgroundWorkIsSentWithItsCount(t *testing.T) {
 	if !ok {
 		t.Fatal("server closed")
 	}
-	bg := func(s stateMsg) int {
+	projectWorking := func(s stateMsg) int {
 		for _, pr := range s.Projects {
 			if pr.Active {
-				return pr.Background
+				return pr.Working
 			}
 		}
 		return -1
 	}
 
 	p.Sess.NoteBackground("PostToolUse", hooks.BackgroundStart, "shell:b1")
-	st := nextState(t, conn, func(s stateMsg) bool { return bg(s) == 1 })
-	if bg(st) != 1 {
-		t.Fatalf("the project's background = %d, want 1", bg(st))
+	st := nextState(t, conn, func(s stateMsg) bool { return s.Working == 1 })
+	if st.Working != 1 || projectWorking(st) != 1 {
+		t.Fatalf("top bar working = %d, project working = %d, want 1 and 1", st.Working, projectWorking(st))
 	}
-	if st.Working != 0 {
-		t.Errorf("the top bar's working = %d: background work must not change it", st.Working)
+	if got := st.Panes[p.ID]; got.Status != session.StatusIdle.String() || got.Activity != workspace.ActivityWorking || got.Background != 1 {
+		t.Errorf("pane status %q activity %q background %d: status must stay idle, activity working", got.Status, got.Activity, got.Background)
 	}
-	if got := st.Panes[p.ID]; got.Status == session.StatusWorking.String() || got.Background != 1 {
-		t.Errorf("pane status %q background %d: status must stay idle and carry the count", got.Status, got.Background)
+	for _, pr := range st.Projects {
+		if pr.Active && pr.Activity != workspace.ActivityWorking {
+			t.Errorf("project activity = %q, want working", pr.Activity)
+		}
+	}
+	if len(st.Tabs) > 0 && st.Tabs[0].Attention {
+		t.Error("a tab with only background work is marked for attention")
 	}
 
 	p.Sess.SetBackground(nil)
-	st = nextState(t, conn, func(s stateMsg) bool { return bg(s) == 0 })
-	if bg(st) != 0 {
-		t.Errorf("the project's background = %d once it ended, want 0", bg(st))
+	st = nextState(t, conn, func(s stateMsg) bool { return s.Working == 0 })
+	if st.Working != 0 || projectWorking(st) != 0 {
+		t.Errorf("top bar working = %d, project working = %d once it ended, want 0", st.Working, projectWorking(st))
 	}
 }
