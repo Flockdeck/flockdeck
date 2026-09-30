@@ -90,6 +90,9 @@
     waiting:     "Waiting on you - the agent asked a question, or is holding for a permission.",
     blocked:     "Blocked - a tool call was refused outright and the turn ended there. Nobody is being asked anything, but it needs a look.",
     working:     "Working - the agent is producing output and does not need you yet.",
+    // An idle agent with background work left running: its status is still
+    // idle, so this says what the working mark is for rather than "working".
+    workingBackground: "Working in the background - the agent's turn is over and it reads idle, but a command or subagent it started is still running.",
     idle:        "Idle - the agent finished its turn and is waiting for a new prompt.",
     starting:    "Starting - the process is launching and has not reported in yet.",
     exited:      "Exited - the process in this pane has stopped.",
@@ -2386,9 +2389,13 @@
    *  relay. */
   function projectActivity(p) {
     const waiting = Math.max(0, p.waiting | 0), working = Math.max(0, p.working | 0);
-    if (waiting > 0) return { state: "waiting", n: waiting, waiting, working };
-    if (working > 0) return { state: "working", n: working, waiting, working };
-    return { state: "", n: 0, waiting, working };
+    const background = Math.max(0, p.background | 0);
+    if (waiting > 0) return { state: "waiting", n: waiting, waiting, working, background };
+    if (working > 0) return { state: "working", n: working, waiting, working, background };
+    // Idle agents with background work still running: the same mark, and no
+    // count, since the counts are of agents whose status is working.
+    if (background > 0) return { state: "working", n: 0, waiting, working, background };
+    return { state: "", n: 0, waiting, working, background };
   }
 
   /** activityWords says a project's activity aloud, for its accessible name
@@ -2397,6 +2404,7 @@
     const parts = [];
     if (a.waiting) parts.push((a.waiting === 1 ? "an agent is" : a.waiting + " agents are") + " waiting on you");
     if (a.working) parts.push((a.working === 1 ? "an agent is" : a.working + " agents are") + " working");
+    if (a.background) parts.push((a.background === 1 ? "an agent has" : a.background + " agents have") + " background work still running");
     return parts.join(", ");
   }
 
@@ -2408,7 +2416,7 @@
    *  others is still busy. */
   function renderRail(s) {
     const projects = s.projects || [];
-    const key = JSON.stringify(projects.map((p) => [p.root, p.name, !!p.active, p.waiting || 0, p.working || 0]));
+    const key = JSON.stringify(projects.map((p) => [p.root, p.name, !!p.active, p.waiting || 0, p.working || 0, p.background || 0]));
     if (key === railShown) return;
     railShown = key;
     const box = $("rail-projects");
@@ -2428,8 +2436,8 @@
       // spell itself out the count is written beside the name, ahead of a
       // shape that differs too - the triangle the tab marks a waiting agent
       // with, or a dot.
-      t.count.textContent = act.state === "waiting" ? "▲ " + act.n : act.state ? "● " + act.n : "";
-      t.count.className = "rail-count" + (act.state ? " " + act.state : "");
+      t.count.textContent = act.state === "waiting" ? "▲ " + act.n : act.n ? "● " + act.n : "";
+      t.count.className = "rail-count" + (act.n ? " " + act.state : "");
       // Two letters say which project to somebody who already knows; the
       // name and the folder say it to everybody else, and two checkouts of
       // one repository have the same name and only the folder differs.
@@ -3887,18 +3895,23 @@
       const was = p.shown;
 
       const shown = shownStatus(v);
-      if (was.status !== shown) {
-        was.status = shown;
+      // An idle agent with background work still running is drawn with the
+      // working mark, though its status stays idle everywhere else.
+      const bgWork = shown === "idle" && (v.background | 0) > 0;
+      const dotKey = bgWork ? shown + "+background" : shown;
+      if (was.status !== dotKey) {
+        was.status = dotKey;
         // On the pane as well as on its dot: a tab of six agents is six small
         // discs, and the one that has stopped and is waiting on you should not
         // have to be found by reading each header in turn.
         p.wrap.dataset.status = shown;
-        p.dot.className = "dot " + shown;
+        p.dot.className = bgWork ? "dot working bg" : "dot " + shown;
         // The dot is nothing but a coloured circle, so it has to say the whole
         // sentence itself; the bare status word left the colour unexplained.
+        const says = bgWork ? TIPS.workingBackground : (TIPS[shown] || shown);
         p.dot.setAttribute("role", "img");
-        p.dot.setAttribute("aria-label", TIPS[shown] || shown);
-        describe(p.dot, TIPS[shown] || shown);
+        p.dot.setAttribute("aria-label", says);
+        describe(p.dot, says);
       }
       // The name is cut short with an ellipsis in a narrow pane, and is only
       // ever a bare directory (see workspace.newPane) -- the same for every

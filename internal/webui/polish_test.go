@@ -1083,3 +1083,32 @@ func TestTabStripMarksABusyTab(t *testing.T) {
 		t.Error("app.css lost its #topbar > .spacer rule")
 	}
 }
+
+// TestPaneAndRailMarkBackgroundWork pins the pane header's and the rail's
+// working marks for background work: an idle pane with background tasks is
+// drawn with the working circle (its status left idle, its tip saying it is
+// working in the background), and a project with only background work gets
+// the rail's working badge, below a waiting one in precedence.
+func TestPaneAndRailMarkBackgroundWork(t *testing.T) {
+	js := readAsset(t, "app.js")
+	for _, want := range []string{
+		`const bgWork = shown === "idle" && (v.background | 0) > 0;`,
+		`bgWork ? "dot working bg" : "dot " + shown`,
+		`p.wrap.dataset.status = shown;`,
+		`workingBackground:`,
+		`p.background | 0`,
+		`if (background > 0) return { state: "working"`,
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js lacks %q", want)
+		}
+	}
+	// Waiting still outranks the new working state.
+	if w, b := strings.Index(js, `if (waiting > 0) return { state: "waiting"`), strings.Index(js, `if (background > 0) return`); w < 0 || b < w {
+		t.Error("projectActivity must test waiting before background work")
+	}
+	css := stripComments(readAsset(t, "app.css"))
+	if body := ruleBody(css, ".rail-badge.working"); !strings.Contains(body, "animation: pulse") {
+		t.Errorf(".rail-badge.working must pulse (and so stop under reduced motion): %s", body)
+	}
+}

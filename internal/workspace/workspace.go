@@ -258,6 +258,11 @@ type Project struct {
 	Tabs    int
 	Waiting int
 	Working int
+	// Background counts the agents that are not working but have background
+	// work still running (see PaneBusy), left out of Working: it is the
+	// project's own second reading of "is anything going on here", for the
+	// rail's mark. An agent counted in Waiting or Working is not counted here.
+	Background int
 	// Panes counts every pane in the project's tabs, idle ones included, so
 	// that a split or a closed pane changes the summary as it changes the
 	// agents list.
@@ -801,6 +806,8 @@ func (w *Workspace) Projects() []Project {
 				out[i].Waiting++
 			case st == session.StatusWorking:
 				out[i].Working++
+			case pane.Sess.BackgroundTasks() > 0:
+				out[i].Background++
 			}
 		}
 	}
@@ -3143,15 +3150,22 @@ func (w *Workspace) TabNeedsAttention(t *Tab) bool {
 // scans to find where work is going on, and it said nothing for either case.
 func (w *Workspace) TabWorking(t *Tab) bool {
 	for _, id := range t.Tree.Panes() {
-		p := w.Pane(id)
-		if p == nil || p.Sess == nil {
-			continue
-		}
-		if st, _ := p.Status(); st == session.StatusWorking || p.Sess.BackgroundTasks() > 0 {
+		if PaneBusy(w.Pane(id)) {
 			return true
 		}
 	}
 	return false
+}
+
+// PaneBusy reports whether an agent has something going on: it is working, or
+// it is idle between turns with background work still running. It is a reading
+// for marks only; the pane's status stays what the session inferred.
+func PaneBusy(p *Pane) bool {
+	if p == nil || p.Sess == nil {
+		return false
+	}
+	st, _ := p.Status()
+	return st == session.StatusWorking || p.Sess.BackgroundTasks() > 0
 }
 
 // Close terminates every session and stops the hook server.
