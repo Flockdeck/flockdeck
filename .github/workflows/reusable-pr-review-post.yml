@@ -59,7 +59,24 @@ jobs:
     name: Review and comment
     runs-on: ubuntu-latest
     steps:
-      - name: Download diff artifact
+      # Two steps because download-artifact behaves differently once run-id
+      # is set: with it, the action lists and fetches the artifact through
+      # the REST API, which needs the `actions: read` permission on the
+      # token; without it, it reads the artifact of the current run straight
+      # from the runtime's artifact service, with no API call and no extra
+      # permission. The second-job callers (same run) grant only
+      # contents: read + pull-requests: write, so they must take the first
+      # path; the workflow_run split (another run) has to take the second.
+      # Either way a single named artifact's files land directly in the
+      # workspace, so pr-meta.json and pr.diff are read from the same place.
+      - name: Download diff artifact (same run)
+        if: ${{ inputs.artifact-run-id == github.run_id }}
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-review-diff
+
+      - name: Download diff artifact (other run)
+        if: ${{ inputs.artifact-run-id != github.run_id }}
         uses: actions/download-artifact@v4
         with:
           name: pr-review-diff
