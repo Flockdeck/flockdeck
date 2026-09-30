@@ -30,13 +30,15 @@ type Decision struct {
 // leaves it answered exactly as it always was.
 var ask = Decision{}
 
-// Decide reviews one PreToolUse call, given its tool name and the same
-// compact tool_input JSON hooks.buildToolInput already produces (Event.ToolInput,
-// carried on Session.ToolInput). Only Bash is judged at all: Edit, Write and
-// MultiEdit change files on disk, which is exactly the kind of request a
-// person is meant to see before it happens, and every other tool -- an MCP
-// call included -- is unknown territory Decide cannot reason about.
-func Decide(tool, toolInputJSON string) Decision {
+// Decide reviews one PreToolUse call, given its tool name, the same compact
+// tool_input JSON hooks.buildToolInput already produces (Event.ToolInput,
+// carried on Session.ToolInput), and the directory the agent is working in
+// (Event.Cwd), which is where a Bash command runs. Only Bash is judged at all:
+// Edit, Write and MultiEdit change files on disk, which is exactly the kind
+// of request a person is meant to see before it happens, and every other
+// tool -- an MCP call included -- is unknown territory Decide cannot reason
+// about.
+func Decide(tool, toolInputJSON, cwd string) Decision {
 	if tool != "Bash" || toolInputJSON == "" {
 		return ask
 	}
@@ -46,7 +48,11 @@ func Decide(tool, toolInputJSON string) Decision {
 	if json.Unmarshal([]byte(toolInputJSON), &in) != nil || in.Command == "" {
 		return ask
 	}
-	if !readOnlyCommand(in.Command) {
+	ok, gitSub := readOnlyCommand(in.Command)
+	if !ok {
+		return ask
+	}
+	if gitSub != "" && !gitRunsNothing(cwd, touchesWorkTree[gitSub]) {
 		return ask
 	}
 	return Decision{Allow: true, Reason: "auto-review: a read-only command"}

@@ -46,12 +46,12 @@ var safeCommands = map[string]bool{
 // first fetches whatever newer toolchain the project's go.mod names, which is
 // a download nobody was asked about.
 //
-// What this list does trust is the repository's own configuration: a
-// .git/config with core.fsmonitor, diff.external or a textconv driver in it
-// has git status, git diff, git log or git show run that program. A clone
-// cannot bring one -- .git/config is never checked in -- so reaching it means
-// something already wrote there: the same trust Claude Code's own read-only
-// rules place in the repository they run in.
+// None of them is trusted on its name alone, though: git's own configuration
+// can have each of them run a program (core.fsmonitor on git status, a
+// textconv driver on git log -p, a submodule's own config on git diff), and
+// an agent can arrange that with nothing but ordinary file writes. So a git
+// command is let through only once gitRunsNothing has asked git itself, in
+// the directory the command will run in -- see gitcheck.go.
 var safeSubcommands = map[[2]string]bool{
 	{"git", "status"}:    true,
 	{"git", "diff"}:      true,
@@ -63,12 +63,14 @@ var safeSubcommands = map[[2]string]bool{
 }
 
 // unsafeFlag reports whether arg is one of the flags that turn an otherwise
-// read-only git subcommand above into a write or a run: --output=<file>, and
-// --ext-diff and --textconv (which run a configured program).
+// read-only git subcommand above into a write or a run: --output=<file>,
+// --ext-diff and --textconv (which run a configured program), and
+// --submodule, which has git diff, log and show open each submodule as a
+// repository of its own, under that submodule's own configuration.
 func unsafeFlag(arg string) bool {
 	name, _, _ := strings.Cut(arg, "=")
 	switch name {
-	case "--output", "--ext-diff", "--textconv":
+	case "--output", "--ext-diff", "--textconv", "--submodule":
 		return true
 	}
 	return false
@@ -101,29 +103,32 @@ func outsideProject(arg string) bool {
 // it do more than that. It is deliberately conservative: a command it cannot
 // be sure of is not read-only, even where a person would recognise it as
 // harmless at a glance.
-func readOnlyCommand(cmd string) bool {
+//
+// For a git subcommand, gitSub names it: read-only by what it says, but only
+// safe to let through once gitRunsNothing agrees about where it will run.
+func readOnlyCommand(cmd string) (ok bool, gitSub string) {
 	if strings.ContainsAny(cmd, metacharacters) {
-		return false
+		return false, ""
 	}
 	fields := strings.Fields(cmd)
 	if len(fields) == 0 {
-		return false
+		return false, ""
 	}
 	for _, f := range fields[1:] {
 		if outsideProject(f) {
-			return false
+			return false, ""
 		}
 	}
 	if safeCommands[fields[0]] {
-		return true
+		return true, ""
 	}
 	if len(fields) < 2 || !safeSubcommands[[2]string{fields[0], fields[1]}] {
-		return false
+		return false, ""
 	}
 	for _, f := range fields[2:] {
 		if unsafeFlag(f) {
-			return false
+			return false, ""
 		}
 	}
-	return true
+	return true, fields[1]
 }

@@ -416,7 +416,7 @@ type Workspace struct {
 	// swapped by a test, so that a policy smarter than a fixed allowlist (a
 	// model asked to look at the call, say) can be dropped in later without
 	// reviewTool or anything upstream of it having to change.
-	reviewer func(tool, toolInputJSON string) review.Decision
+	reviewer func(tool, toolInputJSON, cwd string) review.Decision
 
 	// onWake is swapped rather than assigned. The server installs itself once
 	// the workspace is built, by which time the panes restored with it are
@@ -679,7 +679,7 @@ func (w *Workspace) reviewTool(sessionID string, ev hooks.Event) (allow bool, re
 		return false, ""
 	}
 
-	d := w.reviewer(ev.Tool, ev.ToolInput)
+	d := w.reviewer(ev.Tool, ev.ToolInput, ev.Cwd)
 	if !d.Allow {
 		return false, ""
 	}

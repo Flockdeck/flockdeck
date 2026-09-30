@@ -626,12 +626,18 @@ climbing out with `..`, since Claude Code would have asked before reading
 there; and since the shell rewrites quotes, backslashes and globs before a
 command sees them, a command holding any of those is asked about too. No
 `go` command is let through, since `go env` writes and any `go` command may
-download the toolchain `go.mod` names. The one thing the policy trusts is
-the repository's own `.git/config`, which can have `git status` or `git diff`
-run a program: nothing a clone brings sets it, so it matters only once
-something has already written there. Anything that changes a file — `Edit`, `Write`,
-`MultiEdit` — is left to ask every time, on purpose: that is exactly the
-kind of call a person is meant to see before it happens.
+download the toolchain `go.mod` names. A `git` command is let through only
+once git itself, asked in the directory the command will run in, reports
+nothing configured that would run a program or reach the network — no
+`core.fsmonitor` command, external diff, textconv or filter driver (Git LFS's
+own excepted), gpg program, trace2 target or partial-clone remote, whether
+set by the repository, a file it includes, or your own global configuration.
+`git status`, `git diff` and `git describe` are asked about in any repository
+with a submodule in it, since each one runs git again inside the submodule
+under that submodule's own configuration, which two ordinary files an agent
+writes into the project are enough to supply. Anything that changes a file —
+`Edit`, `Write`, `MultiEdit` — is left to ask every time, on purpose: that is
+exactly the kind of call a person is meant to see before it happens.
 
 It is off for a pane unless you turn it on, with the ✓ button in the pane's
 header, or for new panes with Settings › Behaviour › Start new panes with

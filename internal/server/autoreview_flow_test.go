@@ -1,11 +1,42 @@
 package server
 
 import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
 )
+
+// gitStatusIn is the PreToolUse payload of an agent running git status in
+// dir. The directory matters: auto-review lets a git command through only
+// once git itself, asked there, says nothing it would run is configured.
+func gitStatusIn(dir string) string {
+	d, _ := json.Marshal(dir)
+	return `{"session_id":"s","tool_name":"Bash","cwd":` + string(d) + `,"tool_input":{"command":"git status"}}`
+}
+
+// cleanRepo is a fresh repository with nothing in its configuration that
+// runs a program, under a global and system configuration that are empty too
+// -- so what the test's own machine has in ~/.gitconfig cannot change the
+// answer.
+func cleanRepo(t *testing.T) string {
+	t.Helper()
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(global, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	return dir
+}
 
 // TestAutoReviewAllowsAReadOnlyCommand covers the whole path from a phone or
 // a window turning auto-review on to a pane's own PreToolUse hook being told
@@ -21,8 +52,9 @@ func TestAutoReviewAllowsAReadOnlyCommand(t *testing.T) {
 	srv, ws := newTestServer(t)
 	id := srv.firstPaneID(t)
 	hookSrv := ws.HookServer()
+	repo := cleanRepo(t)
 
-	stdin := strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"git status"}}`)
+	stdin := strings.NewReader(gitStatusIn(repo))
 	res, err := hooks.Emit(stdin, hookSrv.Endpoint(), hookSrv.Token(), id, "PreToolUse")
 	if err != nil {
 		t.Fatalf("emit: %v", err)
@@ -35,7 +67,7 @@ func TestAutoReviewAllowsAReadOnlyCommand(t *testing.T) {
 		t.Fatal("SetPaneAutoReview could not find the pane it was just given")
 	}
 
-	stdin = strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"git status"}}`)
+	stdin = strings.NewReader(gitStatusIn(repo))
 	res, err = hooks.Emit(stdin, hookSrv.Endpoint(), hookSrv.Token(), id, "PreToolUse")
 	if err != nil {
 		t.Fatalf("emit: %v", err)
@@ -86,9 +118,10 @@ func TestAutoReviewCountsWhatItApproves(t *testing.T) {
 	id := srv.firstPaneID(t)
 	hookSrv := ws.HookServer()
 	ws.SetPaneAutoReview(id, true)
+	repo := cleanRepo(t)
 
 	for range 3 {
-		stdin := strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"git status"}}`)
+		stdin := strings.NewReader(gitStatusIn(repo))
 		if _, err := hooks.Emit(stdin, hookSrv.Endpoint(), hookSrv.Token(), id, "PreToolUse"); err != nil {
 			t.Fatalf("emit: %v", err)
 		}

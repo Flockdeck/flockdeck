@@ -110,8 +110,15 @@ reviewer is a fixed policy: a `Bash` call is let through only when it is a
 single call to a command that only ever reads -- `git status`, `cat`, `grep`
 and the like -- inside the project, with nothing in it that could chain into
 something else or write anywhere; a call that changes a file, or reads
-outside the project, is always left to ask. It is off for every pane, and
-there is no switch for it in the window or on the phone yet.
+outside the project, is always left to ask. A `git` command is let through
+only when git itself, asked where the command will run, has nothing
+configured that would run a program or reach the network, and `git status`
+or `git diff` never in a repository with a submodule in it.
+
+It is off for a pane unless you turn it on, with the ✓ in the pane's header,
+or for new panes with **Settings › Behaviour › Start new panes with
+auto-review on**; a pane started by another agent starts as that agent's
+pane is.
 
 One answer is not reported by any event: a permission prompt answered from
 the keyboard. Enter turns the pane cyan, since allowing the tool starts it
