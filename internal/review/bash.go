@@ -8,7 +8,14 @@ import "strings"
 // that runs a nested command, or a variable expansion that can hide any of
 // those inside what looks like a plain argument. A command holding any of
 // them is never read as safe, whatever its first word is.
-const metacharacters = "|&;<>`$(){}\n"
+//
+// Quotes, backslashes and glob characters are on it for a quieter reason: the
+// shell rewrites them before the command sees its arguments, so the text
+// checked here is not the path read. .'.'/x and .\./x both become ../x,
+// "/etc/passwd" becomes /etc/passwd, and a glob can expand to a name no
+// argument spells -- each one past outsideProject, which only ever sees the
+// text as written.
+const metacharacters = "|&;<>`$(){}\n'\"\\*?["
 
 // safeCommands are program names whose every use reads something without
 // changing anything -- no flag turns cat, ls or grep into a write. Kept
@@ -27,11 +34,24 @@ var safeCommands = map[string]bool{
 	"basename": true, "dirname": true, "true": true, "type": true,
 }
 
-// safeSubcommands are the git and go subcommands that read without writing --
+// safeSubcommands are the git subcommands that read without writing --
 // unlike, say, "git branch", which lists with no arguments but deletes with
 // "-d". Only subcommands with no such destructive form are on this list, and
 // the few flags that would give one a way to write or run something are
 // refused by unsafeFlag.
+//
+// No go subcommand is on it. go env rewrites go's own settings file with -w
+// or -u, and Go's flag parser takes --w for -w, so a list of refused
+// spellings is always one short; and every go command, go version included,
+// first fetches whatever newer toolchain the project's go.mod names, which is
+// a download nobody was asked about.
+//
+// What this list does trust is the repository's own configuration: a
+// .git/config with core.fsmonitor, diff.external or a textconv driver in it
+// has git status, git diff, git log or git show run that program. A clone
+// cannot bring one -- .git/config is never checked in -- so reaching it means
+// something already wrote there: the same trust Claude Code's own read-only
+// rules place in the repository they run in.
 var safeSubcommands = map[[2]string]bool{
 	{"git", "status"}:    true,
 	{"git", "diff"}:      true,
@@ -40,20 +60,15 @@ var safeSubcommands = map[[2]string]bool{
 	{"git", "blame"}:     true,
 	{"git", "rev-parse"}: true,
 	{"git", "describe"}:  true,
-	{"go", "version"}:    true,
-	{"go", "env"}:        true,
-	{"go", "doc"}:        true,
 }
 
 // unsafeFlag reports whether arg is one of the flags that turn an otherwise
-// read-only git or go subcommand above into a write or a run: git's
-// --output=<file> and --ext-diff and --textconv (the last two run a
-// configured program), and go env's -w and -u (which rewrite go's own
-// settings file).
+// read-only git subcommand above into a write or a run: --output=<file>, and
+// --ext-diff and --textconv (which run a configured program).
 func unsafeFlag(arg string) bool {
 	name, _, _ := strings.Cut(arg, "=")
 	switch name {
-	case "--output", "--ext-diff", "--textconv", "-w", "-u":
+	case "--output", "--ext-diff", "--textconv":
 		return true
 	}
 	return false

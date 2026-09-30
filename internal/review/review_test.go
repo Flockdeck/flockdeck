@@ -10,7 +10,7 @@ import (
 func TestDecideAllowsAReadOnlyCommand(t *testing.T) {
 	for _, cmd := range []string{
 		"ls -la", "git status", "git status --short", "cat internal/review/review.go",
-		"go env GOPATH", "git log -5", "pwd", "grep -rn TODO .",
+		"git log -5", "git show HEAD~1", "pwd", "grep -rn TODO .",
 	} {
 		d := Decide("Bash", `{"command":`+quote(cmd)+`}`)
 		if !d.Allow {
@@ -57,8 +57,16 @@ func TestDecideAsksForAnythingElse(t *testing.T) {
 		"git log -p --output patch.txt",
 		"git diff --ext-diff",
 		"git show --textconv HEAD",
+		// No go command at all: go env writes with -w, -u or Go's own --w and
+		// --u spellings of them, and any go command fetches the toolchain the
+		// project's go.mod names.
 		"go env -w GOFLAGS=-toolexec=x",
 		"go env -u GOFLAGS",
+		"go env --w GOFLAGS=-toolexec=x",
+		"go env --u GOFLAGS",
+		"go env GOPATH",
+		"go version",
+		"go doc -http",
 		"go list -toolexec x ./...",
 		// Reading outside the project, which Claude Code would have asked about.
 		"cat /etc/passwd",
@@ -70,6 +78,16 @@ func TestDecideAsksForAnythingElse(t *testing.T) {
 		"grep -r password /",
 		"grep --file=/etc/shadow x",
 		"git diff --no-index ../a b",
+		// The same, hidden behind quoting, escaping or a glob the shell
+		// rewrites before the command ever sees the path.
+		`cat '.''.'/secret.txt`,
+		`cat .\./secret.txt`,
+		`cat "/etc/passwd"`,
+		`cat '/'etc/passwd`,
+		`cat ""~/.ssh/id_rsa`,
+		"cat .[.]/secret.txt",
+		"cat .?/secret.txt",
+		"cat .*/secret.txt",
 	} {
 		d := Decide("Bash", `{"command":`+quote(cmd)+`}`)
 		if d.Allow {

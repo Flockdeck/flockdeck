@@ -620,10 +620,16 @@ own: a `Bash` call is let through only when it is a single call to one of a
 short list of commands that only ever read — `git status`, `git log`, `cat`,
 `grep` and the like — with nothing in it that could chain into something
 else, redirect output to a file, or substitute in a nested command, and no
-flag that makes one of them write or run something (`git diff --output`,
-`go env -w`). No argument may name a path outside the project: absolute,
-under `~`, or climbing out with `..`, since Claude Code would have asked
-before reading there. Anything that changes a file — `Edit`, `Write`,
+flag that makes one of them write or run something (`git diff --output`).
+No argument may name a path outside the project: absolute, under `~`, or
+climbing out with `..`, since Claude Code would have asked before reading
+there; and since the shell rewrites quotes, backslashes and globs before a
+command sees them, a command holding any of those is asked about too. No
+`go` command is let through, since `go env` writes and any `go` command may
+download the toolchain `go.mod` names. The one thing the policy trusts is
+the repository's own `.git/config`, which can have `git status` or `git diff`
+run a program: nothing a clone brings sets it, so it matters only once
+something has already written there. Anything that changes a file — `Edit`, `Write`,
 `MultiEdit` — is left to ask every time, on purpose: that is exactly the
 kind of call a person is meant to see before it happens.
 
