@@ -1,0 +1,249 @@
+/* Flockdeck design tokens: the one source of truth for colour, type, space,
+ * shape and motion on every surface (desktop app, site, docs, remote client).
+ *
+ * Each surface keeps its own stylesheet and its own variable names where tests
+ * pin them (color.md, "Token mapping"); what must match across surfaces is
+ * every VALUE here. check-contrast.mjs reads this file and proves the ratios,
+ * and design/tokens_test.go (package design) is the helper surface tests call
+ * to prove their stylesheets carry these values.
+ *
+ * Dark is the default, as it is in the product today. Light is applied by
+ * [data-theme="light"], or by the system when the root carries
+ * [data-theme="system"] (the desktop app's existing "Follow system" writes no
+ * attribute at all; the app keeps its own :root:not([data-theme]) form).
+ */
+
+/* The files are shipped by each surface (cmd/sitegen, cmd/docgen, the desktop
+ * app, the remote client), not from design/. Licences: design/fonts/OFL-*.txt. */
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("fonts/ibm-plex-sans.woff2") format("woff2");
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/jetbrains-mono.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* ---- ground ------------------------------------------------------- */
+  --fd-bg:            #0F1418;  /* the page; the gaps between panes */
+  --fd-bg-raised:     #161C21;  /* bars, pane headers, cards */
+  --fd-bg-sunken:     #0A0E11;  /* terminals, code, text fields, the rail */
+  --fd-bg-overlay:    #1B2329;  /* dialogs, menus, toasts, tooltips */
+  --fd-bg-hover:      #1D252B;  /* a row or a quiet button under the pointer */
+  --fd-bg-active:     #252F36;  /* pressed; the chosen neutral item */
+
+  /* ---- lines -------------------------------------------------------- */
+  --fd-line-subtle:   #1F272D;  /* between related things */
+  --fd-line:          #2C363D;  /* container edges */
+  --fd-line-strong:   #6A7982;  /* anything operable: fields, outline buttons (3:1) */
+
+  /* ---- text --------------------------------------------------------- */
+  --fd-fg:            #E6EDF1;
+  --fd-fg-muted:      #93A1A9;  /* secondary text, placeholders (4.5:1) */
+  --fd-fg-faint:      #738087;  /* glyphs and rules only, never words */
+
+  /* ---- accent: the mark's cyan --------------------------------------- */
+  --fd-accent:        #4FD1DB;
+  --fd-accent-strong: #7BE0E8;  /* hover, pressed */
+  --fd-accent-subtle: #0E2B2E;  /* the chosen row, a tinted fill */
+  --fd-accent-line:   #1F4E53;
+  --fd-on-accent:     #0F1418;
+  --fd-focus:         var(--fd-accent);
+
+  /* ---- status: only ever set from a state the app knows --------------- */
+  --fd-working:        #4FD1DB;  --fd-working-subtle: #0E2B2E;  --fd-working-line: #1F4E53;
+  --fd-waiting:        #E2B341;  --fd-waiting-subtle: #2A2110;  --fd-waiting-line: #4E3D18;
+  --fd-failed:         #F0776A;  --fd-failed-subtle:  #2C1512;  --fd-failed-line:  #58251F;
+  --fd-idle:           #93A1A9;
+  --fd-exited:         #738087;
+  /* a verdict, not a state: passed, clean, lines added */
+  --fd-ok:             #64C97F;  --fd-ok-subtle:      #10261A;  --fd-ok-line:      #24492F;
+  /* broadcast is on: input goes to every pane */
+  --fd-cast:           #C98BE0;  --fd-cast-subtle:    #251A2B;  --fd-on-cast:      #170D1C;
+  --fd-on-waiting:     #1F1602;  --fd-on-failed:      #1F0907;  --fd-on-ok:        #06180C;
+
+  /* ---- the terminal: the same in both themes -------------------------- */
+  --fd-term-bg:        #0A0E11;
+  --fd-term-fg:        #D7DFE4;
+  --fd-term-cursor:    #4FD1DB;
+  --fd-term-selection: #1F4E53;
+
+  /* ANSI 0 to 15, the terminal's 16 colours. Slot 6 is the accent. Slots 1 to 15
+   * reach 4.5:1 on term-bg. Not applied to the desktop terminal in the first
+   * restyle (owner decision 6); the remote client's terminal already uses them. */
+  --fd-ansi-0: #2A3238;  --fd-ansi-1: #F0776A;  --fd-ansi-2: #64C97F;  --fd-ansi-3: #E2B341;
+  --fd-ansi-4: #5AA9E6;  --fd-ansi-5: #C98BE0;  --fd-ansi-6: #4FD1DB;  --fd-ansi-7: #C7D1D7;
+  --fd-ansi-8: #738087;  --fd-ansi-9: #FF9E92;  --fd-ansi-10: #8FE0A2; --fd-ansi-11: #F2CC6E;
+  --fd-ansi-12: #8AC4F0; --fd-ansi-13: #DDAAEF; --fd-ansi-14: #86E5EC; --fd-ansi-15: #EDF3F6;
+
+  /* Accent swatches (desktop Settings > Appearance). Cyan is the default and
+   * equals --fd-accent. A swatch changes focus, links, the primary fill and the
+   * chosen-row bar; it never changes a status. */
+  --fd-swatch-cyan: #4FD1DB;   --fd-swatch-blue: #6CB0FF;  --fd-swatch-purple: #B99AF5;
+  --fd-swatch-green: #64C97F;  --fd-swatch-orange: #F0A552; --fd-swatch-pink: #F28FC0;
+
+  --fd-scrim:          rgb(5 8 10 / .62);
+  --fd-shadow-1:       0 1px 2px rgb(0 0 0 / .4);
+  --fd-shadow-2:       0 8px 24px -8px rgb(0 0 0 / .6);
+  --fd-shadow-3:       0 20px 56px -16px rgb(0 0 0 / .75);
+
+  /* ---- type ---------------------------------------------------------- */
+  --fd-sans: "IBM Plex Sans", "Segoe UI", -apple-system, BlinkMacSystemFont, Ubuntu, "Helvetica Neue", sans-serif;
+  --fd-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, "SF Mono", monospace;
+
+  --fd-fs-10: 10px;  /* a count in a badge; nothing to read */
+  --fd-fs-11: 11px;  /* pane-header metadata, table heads in the app */
+  --fd-fs-12: 12px;  /* secondary text in the app; captions */
+  --fd-fs-13: 13px;  /* the app's body */
+  --fd-fs-14: 14px;  /* dialog titles in the app; small text on the site */
+  --fd-fs-16: 16px;  /* body on the site, the docs and the phone */
+  --fd-fs-18: 18px;
+  --fd-fs-20: 20px;
+  --fd-fs-24: 24px;
+  --fd-fs-30: 30px;
+  --fd-fs-38: 38px;
+  --fd-fs-48: 48px;
+  --fd-fs-60: 60px;
+
+  --fd-lh-tight: 1.08;  /* display */
+  --fd-lh-head:  1.2;   /* headings */
+  --fd-lh-ui:    1.4;   /* controls, the app */
+  --fd-lh-prose: 1.65;  /* paragraphs */
+  --fd-lh-code:  1.6;
+
+  /* ---- space: a 4px grid, with 2 and 6 for the dense app --------------- */
+  --fd-sp-1: 2px;   --fd-sp-2: 4px;   --fd-sp-3: 6px;   --fd-sp-4: 8px;
+  --fd-sp-5: 12px;  --fd-sp-6: 16px;  --fd-sp-7: 20px;  --fd-sp-8: 24px;
+  --fd-sp-9: 32px;  --fd-sp-10: 40px; --fd-sp-11: 48px; --fd-sp-12: 64px;
+  --fd-sp-13: 96px; --fd-sp-14: 128px;
+
+  /* ---- shape: three radii and a pill ----------------------------------- */
+  --fd-r-1: 4px;      /* tags, keys, checkboxes, inline code, close buttons */
+  --fd-r-2: 6px;      /* everything operable: buttons, fields, tabs, panes, rail items */
+  --fd-r-3: 10px;     /* containers: dialogs, cards, code blocks, figures */
+  --fd-r-full: 999px; /* status pills, switches, count badges; nothing else */
+
+  /* ---- motion ---------------------------------------------------------- */
+  --fd-dur-1: 80ms;   /* colour under the pointer */
+  --fd-dur-2: 140ms;  /* a press, a switch, the rail's width */
+  --fd-dur-3: 220ms;  /* a dialog, a toast or a sheet arriving */
+  --fd-dur-4: 400ms;  /* the site only: one entrance, once */
+  --fd-ease-out:    cubic-bezier(.16, 1, .3, 1);
+  --fd-ease-in:     cubic-bezier(.7, 0, .84, 0);
+  --fd-ease-in-out: cubic-bezier(.65, 0, .35, 1);
+  --fd-pulse: 1.6s;   /* the working mark's breath */
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --fd-bg:            #FAFBFB;
+  --fd-bg-raised:     #FFFFFF;
+  --fd-bg-sunken:     #F1F3F4;
+  --fd-bg-overlay:    #FFFFFF;
+  --fd-bg-hover:      #EEF1F2;
+  --fd-bg-active:     #E3E7E9;
+
+  --fd-line-subtle:   #E3E7E9;
+  --fd-line:          #CBD2D6;
+  --fd-line-strong:   #7A868C;
+
+  --fd-fg:            #131A1E;
+  --fd-fg-muted:      #5C676D;
+  --fd-fg-faint:      #7A868C;
+
+  --fd-accent:        #0B6E77;
+  --fd-accent-strong: #08575E;
+  --fd-accent-subtle: #E6F3F4;
+  --fd-accent-line:   #A9D5D8;
+  --fd-on-accent:     #FFFFFF;
+
+  --fd-working:        #0B6E77;  --fd-working-subtle: #E6F3F4;  --fd-working-line: #A9D5D8;
+  --fd-waiting:        #875A08;  --fd-waiting-subtle: #FAF0DC;  --fd-waiting-line: #E3CE96;
+  --fd-failed:         #B02A1F;  --fd-failed-subtle:  #FBEAE8;  --fd-failed-line:  #EBB8B1;
+  --fd-idle:           #5C676D;
+  --fd-exited:         #7A868C;
+  --fd-ok:             #196634;  --fd-ok-subtle:      #E7F2EA;  --fd-ok-line:      #B4D6BF;
+  --fd-cast:           #7E3AA0;  --fd-cast-subtle:    #F4EAF8;  --fd-on-cast:      #FFFFFF;
+  --fd-on-waiting:     #FFFFFF;  --fd-on-failed:      #FFFFFF;  --fd-on-ok:        #FFFFFF;
+
+  --fd-swatch-cyan: #0B6E77;   --fd-swatch-blue: #1F5FA8;  --fd-swatch-purple: #7044C4;
+  --fd-swatch-green: #196634;  --fd-swatch-orange: #9A4D08; --fd-swatch-pink: #A8327A;
+
+  --fd-scrim:          rgb(19 26 30 / .38);
+  --fd-shadow-1:       0 1px 2px rgb(19 26 30 / .08);
+  --fd-shadow-2:       0 8px 24px -8px rgb(19 26 30 / .18);
+  --fd-shadow-3:       0 20px 56px -16px rgb(19 26 30 / .28);
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    color-scheme: light;
+    --fd-bg: #FAFBFB; --fd-bg-raised: #FFFFFF; --fd-bg-sunken: #F1F3F4; --fd-bg-overlay: #FFFFFF;
+    --fd-bg-hover: #EEF1F2; --fd-bg-active: #E3E7E9;
+    --fd-line-subtle: #E3E7E9; --fd-line: #CBD2D6; --fd-line-strong: #7A868C;
+    --fd-fg: #131A1E; --fd-fg-muted: #5C676D; --fd-fg-faint: #7A868C;
+    --fd-accent: #0B6E77; --fd-accent-strong: #08575E; --fd-accent-subtle: #E6F3F4; --fd-accent-line: #A9D5D8; --fd-on-accent: #FFFFFF;
+    --fd-working: #0B6E77; --fd-working-subtle: #E6F3F4; --fd-working-line: #A9D5D8;
+    --fd-waiting: #875A08; --fd-waiting-subtle: #FAF0DC; --fd-waiting-line: #E3CE96;
+    --fd-failed: #B02A1F; --fd-failed-subtle: #FBEAE8; --fd-failed-line: #EBB8B1;
+    --fd-idle: #5C676D; --fd-exited: #7A868C;
+    --fd-ok: #196634; --fd-ok-subtle: #E7F2EA; --fd-ok-line: #B4D6BF;
+    --fd-cast: #7E3AA0; --fd-cast-subtle: #F4EAF8; --fd-on-cast: #FFFFFF;
+    --fd-on-waiting: #FFFFFF; --fd-on-failed: #FFFFFF; --fd-on-ok: #FFFFFF;
+    --fd-swatch-cyan: #0B6E77; --fd-swatch-blue: #1F5FA8; --fd-swatch-purple: #7044C4;
+    --fd-swatch-green: #196634; --fd-swatch-orange: #9A4D08; --fd-swatch-pink: #A8327A;
+    --fd-scrim: rgb(19 26 30 / .38);
+    --fd-shadow-1: 0 1px 2px rgb(19 26 30 / .08);
+    --fd-shadow-2: 0 8px 24px -8px rgb(19 26 30 / .18);
+    --fd-shadow-3: 0 20px 56px -16px rgb(19 26 30 / .28);
+  }
+}
+
+/* ---- the status marks ---------------------------------------------------
+ * Shape says what kind of state it is, fill says whether anything is
+ * happening, colour is the third channel and motion the fourth:
+ *
+ *   circle    the process is alive     filled = working      hollow = idle
+ *   triangle  it needs you             filled = waiting on you (and blocked)
+ *   square    the process has ended    filled = failed       hollow = exited
+ *
+ * One element, 8px (the triangle 10px, to weigh the same), sized in px so it
+ * does not grow with the text beside it. Working is the only one that moves.
+ */
+.fd-st { display: inline-block; flex: none; width: 8px; height: 8px; }
+.fd-st.working  { border-radius: 50%; background: var(--fd-working); animation: fd-pulse var(--fd-pulse) var(--fd-ease-in-out) infinite; }
+.fd-st.idle     { border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--fd-idle); }
+.fd-st.starting { border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--fd-idle); animation: fd-pulse var(--fd-pulse) var(--fd-ease-in-out) infinite; }
+.fd-st.waiting,
+.fd-st.blocked  { width: 10px; height: 10px; background: var(--fd-waiting); clip-path: polygon(50% 6%, 100% 94%, 0 94%); }
+.fd-st.failed   { border-radius: 1.5px; background: var(--fd-failed); }
+.fd-st.exited   { border-radius: 1.5px; box-shadow: inset 0 0 0 1.5px var(--fd-exited); }
+@keyframes fd-pulse { 50% { opacity: .4; } }
+
+/* ---- focus: one ring, stated once --------------------------------------- */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--fd-focus);
+  outline-offset: 2px;
+}
+@media (forced-colors: active) {
+  :focus-visible { outline: 2px solid Highlight !important; }
+  .fd-st { forced-color-adjust: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

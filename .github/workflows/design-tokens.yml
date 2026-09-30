@@ -1,0 +1,47 @@
+name: design-tokens
+
+# design/tokens.css is the one source of truth for colour, type, space, shape
+# and motion on every surface. This proves it still holds: check-contrast.mjs
+# reads tokens.css and checks every contrast ratio the design claims (WCAG 2.1),
+# the colour-vision separation of the status colours, and that
+# design/contrast-report.md is what the script prints now; the Go tests check
+# that tokens.css is well formed, that design/ holds no second palette, and the
+# helper (package design) a surface's own test uses.
+#
+# test.yml already runs `go test ./...`, which includes ./design on all three
+# platforms; this workflow is the fast, named check that turns red on its own
+# when a colour changes. (What each stylesheet must carry is proved by that
+# surface's own Go test, through package design, and runs with test.yml.)
+# Node is on the runners.
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "design/**"
+      - ".github/workflows/design-tokens.yml"
+  pull_request:
+    paths:
+      - "design/**"
+      - ".github/workflows/design-tokens.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contrast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Contrast, colour-vision and report check
+        run: node design/check-contrast.mjs --check-report
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Design package tests
+        run: go test -count=1 ./design/...
