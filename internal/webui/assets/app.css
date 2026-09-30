@@ -779,7 +779,14 @@ textarea:focus-visible {
  * since the pane's own box never scrolls, but claimed the gesture all the
  * same and left script's touchmove with nothing to turn into the wheel event
  * that does the scrolling (watchTouch, in app.js). */
-.term-host { position: absolute; inset: 0; padding: 4px 0 0 6px; touch-action: none; }
+/* isolation: xterm's layers carry z-indexes of their own (its link layer,
+ * its helpers, its decorations), and with no stacking context around them
+ * they competed with the rest of the pane body. The cover for an exited pane
+ * has none, so the terminal's link-layer canvas sat above it and took every
+ * click meant for Restart and Close pane. Kept in a context of its own, the
+ * whole terminal is one layer, and the cover and the scroll button, which
+ * come after it, are above. */
+.term-host { position: absolute; inset: 0; padding: 4px 0 0 6px; touch-action: none; isolation: isolate; }
 /* Shown only while the pane is scrolled back from its newest line. Clear of
  * the terminal's scroll bar at the right edge. */
 .to-latest {
