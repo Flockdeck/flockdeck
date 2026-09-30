@@ -149,7 +149,7 @@ func (s *Server) surviveFor(c *controlClient, doing string) {
 func (s *Server) reportPanic(c *controlClient, doing string, r any) {
 	stack := debug.Stack()
 	fmt.Fprintf(os.Stderr, "flockdeck: panic %s: %v\n%s\n", doing, r, stack)
-	text := fmt.Sprintf("something went wrong %s: %v", doing, r)
+	text := fmt.Sprintf("Something went wrong %s: %v", doing, r)
 	if logPanic(doing, r, stack) {
 		text += " — the details are in error.log in flockdeck's state directory"
 	}
@@ -1540,7 +1540,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// moved its switch, so it is sent the preferences as they stand,
 		// which moves it back.
 		if c.remote {
-			c.notify("whether flockdeck checks for updates is set on the machine it runs on, not from a window reached through the relay", true)
+			c.notify("Whether flockdeck checks for updates is set on the machine it runs on, not from a window reached through the relay", true)
 			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: s.prefs}) })
 			return
 		}
@@ -1552,7 +1552,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// hold the connection's read loop up for -- so this runs on its own,
 		// as restarting onto an update already does below.
 		if c.remote {
-			c.notify("checking for updates is set on the machine flockdeck runs on, not from a window reached through the relay", true)
+			c.notify("Checking for updates is set on the machine flockdeck runs on, not from a window reached through the relay", true)
 			return
 		}
 		go s.checkForUpdates(c)
@@ -1619,7 +1619,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// always allowed. The window has already moved its switch, so a
 		// refusal sends it the preferences as they stand, which moves it back.
 		if c.remote && cmd.Kind == "on" {
-			c.notify("sending terminal output to TypeSafe can only be turned on on the machine flockdeck runs on, not from a window reached through the relay", true)
+			c.notify("Sending terminal output to TypeSafe can only be turned on on the machine flockdeck runs on, not from a window reached through the relay", true)
 			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: s.prefs}) })
 			return
 		}
@@ -1645,7 +1645,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		if err, ok := ask(s, func() error { return store.ForgetRecent(cmd.Root) }); ok && err != nil {
 			// The list is about to be sent again with the project still on
 			// it; without this the entry just refuses to go away.
-			c.notify("could not forget "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+			c.notify("Could not forget "+filepath.Base(cmd.Root)+": "+err.Error(), true)
 		}
 		s.recents(c)
 		return
@@ -1656,7 +1656,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// just changed.
 		if err, ok := ask(s, func() error { return store.SetProjectName(cmd.Root, cmd.Text) }); ok {
 			if err != nil {
-				c.notify("could not rename "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+				c.notify("Could not rename "+filepath.Base(cmd.Root)+": "+err.Error(), true)
 			} else {
 				// The open project's own name, part of the main snapshot
 				// rather than the recent list, has to be told to look again
@@ -1675,7 +1675,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				if !cmd.Archived {
 					verb = "unarchive"
 				}
-				c.notify("could not "+verb+" "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+				c.notify("Could not "+verb+" "+filepath.Base(cmd.Root)+": "+err.Error(), true)
 			} else {
 				s.ws.ReloadProjectMeta()
 				s.wakeAsked()
@@ -1686,7 +1686,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "reorderProjects":
 		if err, ok := ask(s, func() error { return store.ReorderProjects(cmd.Roots) }); ok {
 			if err != nil {
-				c.notify("could not reorder projects: "+err.Error(), true)
+				c.notify("Could not reorder projects: "+err.Error(), true)
 			} else {
 				s.ws.ReloadProjectMeta()
 				s.wakeAsked()
@@ -1715,7 +1715,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		})
 		if ok {
 			if err != nil {
-				c.notify("could not remove "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+				c.notify("Could not remove "+filepath.Base(cmd.Root)+": "+err.Error(), true)
 			} else {
 				s.wakeAsked()
 			}
@@ -1772,7 +1772,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			if title := tabTitle(cmd.Text); title != "" {
 				ws.NameTab(cmd.ID, title)
 			} else if !ws.UseAutoTitle(cmd.ID) {
-				c.notify("this tab already has its automatic title", false)
+				c.notify("This tab already has its automatic title", false)
 			}
 		case "openProject":
 			// A path that is not absolute is resolved against the directory
@@ -1787,7 +1787,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// are not part of it.
 			path := unquotePath(cmd.Path)
 			if !filepath.IsAbs(path) {
-				c.notify("a project has to be named by its full path", true)
+				c.notify("A project has to be named by its full path", true)
 				return
 			}
 			// The recent-projects list and the folder browser open a project
@@ -1800,9 +1800,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				return
 			}
 			if len(ws.Projects()) == before {
-				c.notify("switched to "+filepath.Base(path)+", which was already open", false)
+				c.notify("Switched to "+filepath.Base(path)+", which was already open", false)
 			} else {
-				c.notify("opened "+filepath.Base(path), false)
+				c.notify("Opened "+filepath.Base(path), false)
 			}
 		case "selectProject":
 			ws.SelectProject(cmd.Root)
@@ -1821,14 +1821,14 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// the folder to add, the same shape as openProject.
 			path := unquotePath(cmd.Path)
 			if !filepath.IsAbs(path) {
-				c.notify("a repo has to be named by its full path", true)
+				c.notify("A repo has to be named by its full path", true)
 				return
 			}
 			if err := ws.AddRepoToGroup(cmd.Root, path); err != nil {
 				c.notify(err.Error(), true)
 				return
 			}
-			c.notify("added "+filepath.Base(path)+" to the project", false)
+			c.notify("Added "+filepath.Base(path)+" to the project", false)
 		case "removeRepoFromGroup":
 			if err := ws.RemoveRepoFromGroup(cmd.Root); err != nil {
 				c.notify(err.Error(), true)
@@ -1965,7 +1965,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				focus = t.Focus
 				if cmd.ID != "" {
 					if t.Tree.Find(cmd.ID) == nil {
-						c.notify("the pane that prompt was written for is no longer in the tab on screen, so it was not sent — ↑ in the prompt bar brings it back", true)
+						c.notify("The pane that prompt was written for is no longer in the tab on screen, so it was not sent — ↑ in the prompt bar brings it back", true)
 						return
 					}
 					focus = cmd.ID
@@ -1975,7 +1975,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// focused one stopped and nothing else in the broadcast it went
 			// nowhere, while the prompt bar closed as though it had been sent.
 			if len(ws.BroadcastTargetsFor(focus)) == 0 {
-				c.notify("nothing in this tab is running to send that to — restart the pane and send it again", true)
+				c.notify("Nothing in this tab is running to send that to — restart the pane and send it again", true)
 				return
 			}
 			ws.SendPromptTo(focus, cmd.Text, true)
@@ -1994,7 +1994,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// looking live and answering nothing. It is told what is true
 			// instead.
 			if c.remote {
-				c.notify("closing a window reached through the relay never stops the agents, so there is nothing to detach", false)
+				c.notify("Closing a window reached through the relay never stops the agents, so there is nothing to detach", false)
 				return
 			}
 			s.Detach()
@@ -2003,7 +2003,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// But the window closes itself once told it has detached, and
 			// the failure went with it unread, so it is kept open and told.
 			if err := ws.SaveAll(); err != nil {
-				c.notify("detached, but the layout could not be saved, so a crash now would lose what changed since it last was ("+err.Error()+"); the agents keep running, the save is tried again every half minute, and this window can be closed", true)
+				c.notify("Detached, but the layout could not be saved, so a crash now would lose what changed since it last was ("+err.Error()+"); the agents keep running, the save is tried again every half minute, and this window can be closed", true)
 				return
 			}
 			c.sendJSON(map[string]any{"type": "detached"})
@@ -2013,11 +2013,11 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// help promises that a remote window cannot quit it. /quit keeps
 			// that promise by wanting the token; this is the other way in.
 			if c.remote {
-				c.notify("a window reached through the relay cannot quit flockdeck — quit it on the machine it runs on", true)
+				c.notify("A window reached through the relay cannot quit flockdeck — quit it on the machine it runs on", true)
 				return
 			}
 			if err := ws.SaveAll(); err != nil && !s.askedAgainPastFailedSave() {
-				c.notify("the layout could not be saved, so flockdeck did not quit: quitting now would lose what changed since it last was ("+err.Error()+"). Quit again to quit anyway.", true)
+				c.notify("The layout could not be saved, so flockdeck did not quit: quitting now would lose what changed since it last was ("+err.Error()+"). Quit again to quit anyway.", true)
 				return
 			}
 			go s.requestQuit()
@@ -2027,7 +2027,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// nothing a phone can start again. So it is the desk's, as Quit is.
 			// The window hides the offer; this is for one that sends it anyway.
 			if c.remote {
-				c.notify("a window reached through the relay cannot restart flockdeck — restart it on the machine it runs on", true)
+				c.notify("A window reached through the relay cannot restart flockdeck — restart it on the machine it runs on", true)
 				return
 			}
 			// The layout is saved here as well as by the shutdown, because a
@@ -2035,7 +2035,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// what they were looking at -- and one that could not be saved
 			// would come back to something else.
 			if err := ws.SaveAll(); err != nil && !s.askedAgainPastFailedSave() {
-				c.notify("the layout could not be saved, so flockdeck did not restart: it would come back without what changed since it last was ("+err.Error()+"). Restart again to restart anyway.", true)
+				c.notify("The layout could not be saved, so flockdeck did not restart: it would come back without what changed since it last was ("+err.Error()+"). Restart again to restart anyway.", true)
 				return
 			}
 			go s.requestRestart()
@@ -2082,11 +2082,11 @@ func cmdName(cmd string) string {
 
 // paneGone is what a window is told when it acts on a pane that has since
 // been closed, most often because another window closed it first.
-const paneGone = "that pane is no longer open"
+const paneGone = "That pane is no longer open"
 
 // tabGone is paneGone for a tab, renamed or switched to from a tab bar or a
 // dialog drawn before another window closed it.
-const tabGone = "that tab is no longer open"
+const tabGone = "That tab is no longer open"
 
 // closedFinishedNotice says what closeFinishedPanes did. It runs with no
 // confirmation at all, so closing nothing has to say so as plainly as closing
@@ -2097,9 +2097,9 @@ const tabGone = "that tab is no longer open"
 // tabs is only ever passed while positive.
 func closedFinishedNotice(panes, tabs int) string {
 	if panes == 0 {
-		return "no finished panes to close"
+		return "No finished panes to close"
 	}
-	msg := fmt.Sprintf("closed %s", plural(panes, "finished pane"))
+	msg := fmt.Sprintf("Closed %s", plural(panes, "finished pane"))
 	if tabs > 0 {
 		msg += fmt.Sprintf(" and %s", plural(tabs, "empty tab"))
 	}

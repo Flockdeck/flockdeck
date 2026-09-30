@@ -298,12 +298,12 @@ func TestFanoutSummary(t *testing.T) {
 		want            string
 		wantErr         bool
 	}{
-		{3, 0, "started 3 agents", false},
-		{1, 0, "started 1 agent", false},
-		{2, 1, "started 2 agents, 1 could not be started", true},
-		{0, 1, "the agent could not be started", true},
-		{0, 4, "none of the 4 agents could be started", true},
-		{0, 0, "no tasks to start", true},
+		{3, 0, "Started 3 agents", false},
+		{1, 0, "Started 1 agent", false},
+		{2, 1, "Started 2 agents, 1 could not be started", true},
+		{0, 1, "The agent could not be started", true},
+		{0, 4, "None of the 4 agents could be started", true},
+		{0, 0, "No tasks to start", true},
 	}
 	for _, c := range cases {
 		got, gotErr := fanoutSummary(c.started, c.failed)

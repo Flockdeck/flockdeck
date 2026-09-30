@@ -41,7 +41,7 @@ func (s *Server) listKeys(c *controlClient) {
 		// until a save is refused for the same reason. It is said instead.
 		names, err := creds.Names()
 		if err != nil {
-			c.notify("could not read the stored keys: "+err.Error(), true)
+			c.notify("Could not read the stored keys: "+err.Error(), true)
 		}
 		for _, id := range names {
 			if !slices.ContainsFunc(items, func(st creds.Status) bool { return st.Agent == id }) {
@@ -65,7 +65,7 @@ func (s *Server) setKey(c *controlClient, agentID, key string) {
 		err := creds.Set(agentID, key)
 		keyWrites.Unlock()
 		if err != nil {
-			c.notify("could not save the key: "+err.Error(), true)
+			c.notify("Could not save the key: "+err.Error(), true)
 		} else {
 			c.notify(s.savedKeyNotice(agentID), false)
 		}
@@ -80,7 +80,7 @@ func (s *Server) setKey(c *controlClient, agentID, key string) {
 // The dialog offers Replace… for both kinds alike, and "saved" on its own read
 // as though the key just typed was now in use.
 func (s *Server) savedKeyNotice(agentID string) string {
-	text := "saved the key for " + agentID
+	text := "Saved the key for " + agentID
 	if spec, ok := s.ws.Catalog().Find(agentID); ok {
 		if st := creds.StatusOf(spec); st.Source == creds.SourceEnv {
 			text += ", but " + st.Env + " in flockdeck's environment is what is used while it is set"
@@ -113,7 +113,7 @@ func (s *Server) clearKey(c *controlClient, agentID string) {
 		keyWrites.Unlock()
 		switch {
 		case err != nil:
-			c.notify("could not clear the key: "+err.Error(), true)
+			c.notify("Could not clear the key: "+err.Error(), true)
 		case !had:
 			// Cleared from another window a moment ago, most likely, whose
 			// dialog this one had not caught up with. "cleared the key" said
@@ -121,7 +121,7 @@ func (s *Server) clearKey(c *controlClient, agentID string) {
 			// one from the environment, it goes on using.
 			c.notify(s.noStoredKeyNotice(agentID), false)
 		default:
-			c.notify("cleared the key for "+agentID, false)
+			c.notify("Cleared the key for "+agentID, false)
 		}
 		s.keysChanged(c)
 	}()
@@ -130,7 +130,7 @@ func (s *Server) clearKey(c *controlClient, agentID string) {
 // noStoredKeyNotice says that there was no stored key to clear, and where the
 // key in use comes from when it is flockdeck's environment.
 func (s *Server) noStoredKeyNotice(agentID string) string {
-	text := "there was no stored key for " + agentID + " to clear"
+	text := "There was no stored key for " + agentID + " to clear"
 	if spec, ok := s.ws.Catalog().Find(agentID); ok {
 		if st := creds.StatusOf(spec); st.Source == creds.SourceEnv {
 			text += "; the key it uses is " + st.Env + " in flockdeck's environment"

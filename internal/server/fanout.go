@@ -294,7 +294,7 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 
 		jobs, capped := planJobs(req, baseCwd)
 		if capped {
-			c.notify(fmt.Sprintf("stopped after %d agents; start the rest as a second fan-out", workspace.MaxTasks), true)
+			c.notify(fmt.Sprintf("Stopped after %d agents; start the rest as a second fan-out", workspace.MaxTasks), true)
 		}
 		if len(jobs) == 0 {
 			c.notify(fanoutSummary(0, 0))
@@ -321,7 +321,7 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 			repo = gitRoot(baseCwd)
 			switch {
 			case !gitx.Available():
-				c.notify("git is not installed, so no worktrees can be created", true)
+				c.notify("Git is not installed, so no worktrees can be created", true)
 				return
 			case repo == "":
 				c.notify(fmt.Sprintf("%s is not in a git repository, so no worktrees can be created", filepath.Base(baseCwd)), true)
@@ -442,12 +442,12 @@ const (
 // send frames.
 func (s *Server) startAgent(c *controlClient, cmd command) {
 	if !c.startAgentLimit.allow(startAgentRateLimit, startAgentRateWindow) {
-		c.notify("too many agents started too quickly -- wait a moment and try again", true)
+		c.notify("Too many agents started too quickly -- wait a moment and try again", true)
 		return
 	}
 	task := strings.TrimSpace(cmd.Task)
 	if task == "" {
-		c.notify("a task is required to start an agent", true)
+		c.notify("A task is required to start an agent", true)
 		return
 	}
 	// Settled before anything as slow as a worktree is cut, so a bad root or
@@ -481,7 +481,7 @@ func (s *Server) startAgent(c *controlClient, cmd command) {
 			repo = gitRoot(root)
 			switch {
 			case !gitx.Available():
-				c.notify("git is not installed, so no worktree can be created", true)
+				c.notify("Git is not installed, so no worktree can be created", true)
 				return
 			case repo == "":
 				c.notify(fmt.Sprintf("%s is not in a git repository, so no worktree can be created", filepath.Base(root)), true)
@@ -718,7 +718,7 @@ func prepareWorktrees(c *controlClient, repo string, jobs []*fanoutJob) bool {
 	defer lockRepo(repo)()
 	taken, err := localBranches(repo)
 	if err != nil {
-		c.notify(fmt.Sprintf("could not read the branches of %s, so no worktrees were created: %v", filepath.Base(repo), err), true)
+		c.notify(fmt.Sprintf("Could not read the branches of %s, so no worktrees were created: %v", filepath.Base(repo), err), true)
 		return false
 	}
 	nameBranches(jobs, taken)
@@ -984,15 +984,15 @@ func fanoutTabTitle(jobs []*fanoutJob) string {
 func fanoutSummary(started, failed int) (string, bool) {
 	switch {
 	case started == 0 && failed == 0:
-		return "no tasks to start", true
+		return "No tasks to start", true
 	case started == 0 && failed == 1:
-		return "the agent could not be started", true
+		return "The agent could not be started", true
 	case started == 0:
-		return fmt.Sprintf("none of the %d agents could be started", failed), true
+		return fmt.Sprintf("None of the %d agents could be started", failed), true
 	case failed > 0:
-		return fmt.Sprintf("started %d %s, %d could not be started", started, agents(started), failed), true
+		return fmt.Sprintf("Started %d %s, %d could not be started", started, agents(started), failed), true
 	default:
-		return fmt.Sprintf("started %d %s", started, agents(started)), false
+		return fmt.Sprintf("Started %d %s", started, agents(started)), false
 	}
 }
 
@@ -1008,7 +1008,7 @@ func preparingNotice(n int) string {
 	if n < 2 {
 		return ""
 	}
-	return fmt.Sprintf("preparing %d worktrees…", n)
+	return fmt.Sprintf("Preparing %d worktrees…", n)
 }
 
 // agents is "agent" or "agents", for a count that is read rather than parsed.
@@ -1054,7 +1054,7 @@ func inheritTrust(jobs []*fanoutJob, baseCwd string, inherit func(from, to strin
 			from = baseCwd
 		}
 		if err := inherit(from, j.cwd); err != nil {
-			notify("could not carry over folder trust: " + err.Error())
+			notify("Could not carry over folder trust: " + err.Error())
 			return
 		}
 	}

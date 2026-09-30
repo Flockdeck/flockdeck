@@ -554,7 +554,7 @@ func (s *Server) setAgentAddress(c *controlClient, id, address string) {
 
 // deskOnlyAddress is what a window reached through the relay is told when it
 // asks to change where an API agent sends its prompts.
-const deskOnlyAddress = "an API agent's address is changed on the machine flockdeck runs on, not from a window reached through the relay: the key stored there goes wherever the address says"
+const deskOnlyAddress = "An API agent's address is changed on the machine flockdeck runs on, not from a window reached through the relay: the key stored there goes wherever the address says"
 
 // addressNotice says what an address just saved means for the agent: whether
 // it can be used now, or still needs a key, and that a pane already running
@@ -671,34 +671,34 @@ func (s *Server) applyAgentDefault(c *controlClient, cmd command) {
 		// No answer came: Flockdeck is closing, or looking the agent up
 		// failed. Read as an answer, the empty facts said `there is no agent
 		// called ""`, which named neither and blamed the agent asked for.
-		c.notify("the default agent was not saved: Flockdeck is closing, or could not look the agent up; try again", true)
+		c.notify("The default agent was not saved: Flockdeck is closing, or could not look the agent up; try again", true)
 		return
 	}
 	if !f.known {
-		c.notify(fmt.Sprintf("there is no agent called %q", cmd.Agent), true)
+		c.notify(fmt.Sprintf("There is no agent called %q", cmd.Agent), true)
 		return
 	}
 	root, where := "", "every project"
 	if cmd.Target != "all" && cmd.Kind != "all" {
 		root = f.root
 		if root == "" {
-			c.notify("there is no project open to set a default for", true)
+			c.notify("There is no project open to set a default for", true)
 			return
 		}
 		where = filepath.Base(root)
 	}
 	if err := setAgentDefault(root, agentChoice{Agent: cmd.Agent, Model: cmd.Model}); err != nil {
-		c.notify("could not save the default agent: "+err.Error(), true)
+		c.notify("Could not save the default agent: "+err.Error(), true)
 		return
 	}
 	switch {
 	case cmd.Agent == "" && root == "":
-		c.notify("cleared the default agent for every project", false)
+		c.notify("Cleared the default agent for every project", false)
 	case cmd.Agent == "":
 		// A project that forgets its own choice is not left with none: it
 		// runs the one every project falls back on, and saying so is clearer
 		// than saying only what went.
-		c.notify("cleared the default agent for "+where+", which now runs the default for every project", false)
+		c.notify("Cleared the default agent for "+where+", which now runs the default for every project", false)
 	default:
 		c.notify(describeChoice(cmd.Agent, cmd.Model)+" is now the default for "+where, false)
 	}

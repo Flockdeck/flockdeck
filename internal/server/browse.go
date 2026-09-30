@@ -167,7 +167,7 @@ func (s *Server) browse(c *controlClient, path string) {
 		c.sendJSON(msg)
 		if omitted > 0 {
 			// Said, because a list that stops looks like a folder that ends.
-			c.notify(fmt.Sprintf("showing the first %d of %d folders in %s — type a path to reach the others",
+			c.notify(fmt.Sprintf("Showing the first %d of %d folders in %s — type a path to reach the others",
 				len(msg.Entries), len(msg.Entries)+omitted, filepath.Base(abs)), false)
 		}
 	}()
@@ -300,7 +300,7 @@ func (s *Server) recents(c *controlClient) {
 			// A picker with nothing in it looks exactly like never having
 			// opened a project before, so an unreadable list has to say so
 			// rather than pass for an empty one.
-			c.notify("could not read the recent projects: "+err.Error(), true)
+			c.notify("Could not read the recent projects: "+err.Error(), true)
 		}
 		msg := recentsMsg{Type: "recents"}
 		for _, p := range list {

@@ -122,7 +122,7 @@ func TestTheOmittedNoticeGoesOnlyWithAListingSomebodyAskedFor(t *testing.T) {
 	}
 	showing := func(ns []noticeMsg) bool {
 		for _, n := range ns {
-			if strings.Contains(n.Text, "showing 1 of 6") {
+			if strings.Contains(n.Text, "Showing 1 of 6") {
 				return true
 			}
 		}

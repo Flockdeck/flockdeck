@@ -66,7 +66,7 @@ func TestCloseFinishedPanesCommandClosesFinishedPanesAndReportsCounts(t *testing
 	if note.Error {
 		t.Fatalf("closeFinishedPanes reported an error: %+v", note)
 	}
-	const want = "closed 2 finished panes and 2 empty tabs"
+	const want = "Closed 2 finished panes and 2 empty tabs"
 	if note.Text != want {
 		t.Errorf("notice = %q, want %q", note.Text, want)
 	}
@@ -113,7 +113,7 @@ func TestCloseFinishedPanesCommandWithNothingToCloseSaysSo(t *testing.T) {
 	if note.Error {
 		t.Fatalf("closeFinishedPanes reported an error with nothing to close: %+v", note)
 	}
-	if note.Text != "no finished panes to close" {
-		t.Errorf("notice = %q, want %q", note.Text, "no finished panes to close")
+	if note.Text != "No finished panes to close" {
+		t.Errorf("notice = %q, want %q", note.Text, "No finished panes to close")
 	}
 }

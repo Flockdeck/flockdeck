@@ -49,7 +49,7 @@ func TestAPanicIsToldOnlyToTheWindowThatAsked(t *testing.T) {
 		}
 		var m noticeMsg
 		_ = json.Unmarshal(data, &m)
-		if m.Type == "notice" && strings.Contains(m.Text, "something went wrong") {
+		if m.Type == "notice" && strings.Contains(m.Text, "Something went wrong") {
 			t.Errorf("a window that asked for nothing was told %q", m.Text)
 		}
 		if m.Type == "recents" {

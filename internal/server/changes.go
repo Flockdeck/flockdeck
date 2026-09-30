@@ -160,7 +160,7 @@ func (s *Server) sendChanges(c *controlClient, dir string, asked uint64, reason 
 		// and this one came straight after -- and replaced -- the error saying
 		// why a commit, push or pull had failed.
 		if msg.Omitted > 0 && reason == "asked" {
-			c.notify(fmt.Sprintf("showing %d of %d changed files — the rest are left out to keep the list usable",
+			c.notify(fmt.Sprintf("Showing %d of %d changed files — the rest are left out to keep the list usable",
 				len(msg.Files), len(msg.Files)+msg.Omitted), false)
 		}
 	}()
@@ -379,7 +379,7 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 			answered = true
 			return
 		}
-		c.notify("committed in "+shortName(dir), false)
+		c.notify("Committed in "+shortName(dir), false)
 		if push {
 			if out, err := gitx.Push(dir); err != nil {
 				c.notify(err.Error(), true)
@@ -442,11 +442,11 @@ func remoteSummary(action, out string) string {
 	if out == "" {
 		switch action {
 		case "fetch":
-			return "fetched — nothing new"
+			return "Fetched — nothing new"
 		case "pull":
-			return "already up to date"
+			return "Already up to date"
 		}
-		return "done"
+		return "Done"
 	}
 	lines := strings.Split(out, "\n")
 	return strings.TrimSpace(lines[len(lines)-1])

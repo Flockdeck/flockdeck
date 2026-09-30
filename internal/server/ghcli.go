@@ -150,7 +150,7 @@ type ghProgressMsg struct {
 func (s *Server) ghInstall(c *controlClient) {
 	done, ok := s.gh.begin()
 	if !ok {
-		c.notify("an install or a sign-in is already running", true)
+		c.notify("An install or a sign-in is already running", true)
 		return
 	}
 	in := ghDetectInstaller()
@@ -175,7 +175,7 @@ func (s *Server) ghInstall(c *controlClient) {
 func (s *Server) ghLogin(c *controlClient) {
 	doneFn, ok := s.gh.begin()
 	if !ok {
-		c.notify("an install or a sign-in is already running", true)
+		c.notify("An install or a sign-in is already running", true)
 		return
 	}
 	s.gh.mu.Lock()
@@ -269,7 +269,7 @@ func (s *Server) ghPR(c *controlClient, path string, number int) {
 func (s *Server) ghPRCreate(c *controlClient, path, title, body, base string, draft bool) {
 	dir := s.reviewDir(path)
 	if title == "" {
-		c.notify("a pull request needs a title", true)
+		c.notify("A pull request needs a title", true)
 		return
 	}
 	go func() {
@@ -348,7 +348,7 @@ func (s *Server) ghIssue(c *controlClient, path string, number int) {
 func (s *Server) ghIssueCreate(c *controlClient, path, title, body string) {
 	dir := s.reviewDir(path)
 	if title == "" {
-		c.notify("an issue needs a title", true)
+		c.notify("An issue needs a title", true)
 		return
 	}
 	go func() {

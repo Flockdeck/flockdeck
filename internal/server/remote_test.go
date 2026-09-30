@@ -228,13 +228,13 @@ func TestTheDialogRenamesThisMachine(t *testing.T) {
 	for _, name := range []string{" ", "fdp_code"} {
 		sendCmd(t, conn, command{Cmd: "remoteRename", Kind: "host", Name: name})
 		read()
-		if !note.Error || !strings.HasPrefix(note.Text, "could not rename it: ") {
+		if !note.Error || !strings.HasPrefix(note.Text, "Could not rename it: ") {
 			t.Errorf("renaming this machine to %q was answered %+v, want it refused", name, note)
 		}
 	}
 	sendCmd(t, conn, command{Cmd: "remoteRename", Kind: "device", Name: "phone"})
 	read()
-	if !note.Error || note.Text != "no device was named" {
+	if !note.Error || note.Text != "No device was named" {
 		t.Errorf("renaming a device without its id was answered %+v", note)
 	}
 	if len(fake.renamed) != 1 {

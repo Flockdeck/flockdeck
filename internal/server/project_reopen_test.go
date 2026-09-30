@@ -20,7 +20,7 @@ func TestOpeningAnOpenProjectSaysItSwitched(t *testing.T) {
 	sendCmd(t, conn, command{Cmd: "openProject", Path: first})
 	var note noticeMsg
 	readUntil(t, conn, "notice", &note)
-	if note.Error || strings.HasPrefix(note.Text, "opened") || !strings.Contains(note.Text, filepath.Base(first)) {
+	if note.Error || strings.HasPrefix(note.Text, "Opened") || !strings.Contains(note.Text, filepath.Base(first)) {
 		t.Errorf("opening a project that was already open was answered %+v; want it to say it switched to %s", note, filepath.Base(first))
 	}
 	if got := srv.activeRoot(); got != first {
