@@ -9488,3 +9488,27 @@ func TestRoutingRulesControlCanShrink(t *testing.T) {
 		t.Error("app.css: .route-rule-when cannot wrap a long pattern")
 	}
 }
+
+// A Settings row is words beside a control. The control was sized by its
+// content (a select is as wide as its longest option) and never shrank, while
+// the words had no floor, so a select of long model names left the description
+// a word to a line. jsdom does no layout: this pins the rules that keep the
+// words a width to start from, let the control wrap under them when both do
+// not fit, and stop a select taking the row. The widths themselves are free.
+func TestSettingsRowKeepsItsWordsReadable(t *testing.T) {
+	css := stripComments(readAsset(t, "app.css"))
+	row := ruleBody(css, ".set-row")
+	if !regexp.MustCompile(`flex-wrap:\s*wrap`).MatchString(row) {
+		t.Error("app.css: .set-row cannot wrap, so a wide control leaves the words no room")
+	}
+	text := ruleBody(css, ".set-text")
+	if !regexp.MustCompile(`flex:\s*1 1 \d+px`).MatchString(text) {
+		t.Errorf("app.css: .set-text has no width to start from (flex-basis), got %q", text)
+	}
+	sel := ruleBody(css, ".set-select")
+	if !regexp.MustCompile(`(^|[\s;])width:\s*\d+px`).MatchString(sel) || !regexp.MustCompile(`max-width:\s*100%`).MatchString(sel) {
+		t.Errorf("app.css: a select or input is sized by its content, not a width the row can shrink, got %q", sel)
+	}
+	// The unbound keybinding chord's own height is pinned by
+	// TestAnUnboundChordIsNotPaddedLikeAnEmptyPanel (p0_test.go).
+}
