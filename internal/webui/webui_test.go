@@ -4608,12 +4608,23 @@ assert.strictEqual(zoom.getAttribute("aria-pressed"), "false");
 `)
 }
 
+// worktreeMenu opens the ⋯ menu of a worktree row and answers the item with
+// that name, for the tests of what a row's menu does.
+const worktreeMenu = `
+const wtItem = (row, name) => {
+  h.click(row.querySelector("button.wt-more"));
+  const menu = h.$("overlay-panel").querySelector("div.menu");
+  assert.ok(menu, "the row's menu did not open");
+  return menu.querySelectorAll("button").find((b) => b.textContent.startsWith(name));
+};
+`
+
 // A worktree with agents working in it is not removed from under them: the
 // server refuses it, forced or not, and the dialog says so before sending
 // anything, naming what to do instead. Force is only for uncommitted work in
 // a worktree nothing is running in.
 func TestAWorktreeAgentsAreInIsNotRemovedFromUnderThem(t *testing.T) {
-	runFrontEnd(t, `
+	runFrontEnd(t, worktreeMenu+`
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-worktrees"));
@@ -4622,17 +4633,17 @@ h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], 
   { label: "fix-auth", path: "C:/repo-fix-auth", panes: 2, dirty: 3, untracked: 0 },
   { label: "spare", path: "C:/repo-spare", panes: 0, dirty: 1, untracked: 0 },
 ] });
-const removes = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Remove");
+const rows = h.$("overlay-body").querySelectorAll("div.wt-row");
 let asked = "";
 h.win.confirm = (q) => { asked = q; return true; };
 const before = h.commands().length;
-h.click(removes[0]);
+h.click(wtItem(rows[1], "Remove worktree"));
 assert.strictEqual(h.commands().length, before, "a worktree was removed from under the agents working in it");
 assert.strictEqual(asked, "", "the dialog offered to go ahead past the agents working in it");
 assert.ok(/2 agents are working in fix-auth\. Close those panes first/.test(h.$("notice").textContent),
   "nothing said why, or what to do: " + h.$("notice").textContent);
 
-h.click(removes[1]);
+h.click(wtItem(rows[2], "Remove worktree"));
 assert.ok(/uncommitted changes/.test(asked), "uncommitted work was discarded without asking");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeRemove", path: "C:/repo-spare", force: true });
 `)
@@ -7198,8 +7209,8 @@ h.recv(list([{ label: "main", path: "C:/repo", main: true },
 await h.sleep(10);
 const row = h.$("overlay-body").querySelectorAll("div.wt-row")[1];
 const agent = row.querySelector("button");
-assert.strictEqual(agent.textContent, "Agent");
-assert.ok(h.doc.activeElement === agent, "the keyboard was not left on the new worktree's Agent button");
+assert.strictEqual(agent.textContent, "Open agent");
+assert.ok(h.doc.activeElement === agent, "the keyboard was not left on the new worktree's Open agent button");
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "newTab", kind: "agent", path: "C:/repo-fix-auth", text: "fix-auth" });
 `)
@@ -7282,7 +7293,7 @@ assert.ok(!soloRow.querySelector(".wt-flag"), "a project of one repo showed a re
 // which does not ask, left the keyboard on the next one's Remove, and a second
 // Enter removed that one too.
 func TestRemovingAWorktreeDoesNotAimAtTheNext(t *testing.T) {
-	runFrontEnd(t, `
+	runFrontEnd(t, worktreeMenu+`
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-worktrees"));
@@ -7291,14 +7302,14 @@ const main = { label: "main", path: "C:/repo", main: true };
 const a = { label: "a", path: "C:/repo-a", dirty: 0, untracked: 0 };
 const b = { label: "b", path: "C:/repo-b", dirty: 0, untracked: 0 };
 h.recv(list([main, a, b]));
-const removeA = h.$("overlay-body").querySelectorAll("button").filter((x) => x.textContent === "Remove")[0];
-removeA.focus();
-h.key({ key: "Enter" });
+const rowA = h.$("overlay-body").querySelectorAll("div.wt-row")[1];
+h.click(wtItem(rowA, "Remove worktree"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeRemove", path: "C:/repo-a", force: false });
+assert.ok(!h.$("overlay-panel").querySelector("div.menu"), "the menu stayed open after its item was picked");
 
 h.recv(list([main, b]));
 const now = h.doc.activeElement;
-assert.ok(now.textContent !== "Remove", "the keyboard landed on another worktree's Remove button");
+assert.ok(!/^Remove/.test(now.textContent), "the keyboard landed on another worktree's Remove");
 assert.ok(h.$("overlay-body").contains(now), "the keyboard fell out of the dialog");
 const before = h.commands().length;
 h.key({ key: "Enter" });
@@ -7326,7 +7337,13 @@ assert.ok(!gone.querySelector(".wt-clean"), "a worktree with no folder was calle
 const offered = gone.querySelectorAll("button").map((b) => b.textContent);
 assert.deepStrictEqual(offered, ["Prune"], "a worktree with no folder offers " + offered.join(", "));
 const kept = rows[0].querySelectorAll("button").map((b) => b.textContent);
-assert.deepStrictEqual(kept, ["Agent", "Shell", "Split", "Review"], "the main worktree lost its buttons");
+assert.deepStrictEqual(kept, ["Open agent", "\u22ef"], "the main worktree lost its buttons");
+h.click(rows[0].querySelector("button.wt-more"));
+const offeredByMain = h.$("overlay-panel").querySelector("div.menu").querySelectorAll("button")
+  .map((b) => b.textContent.replace("\u21b5", ""));
+assert.deepStrictEqual(offeredByMain, ["Open agent", "Open shell", "Split beside this pane", "Review changes"],
+  "the main worktree's menu is not the main worktree's actions: " + offeredByMain.join(", "));
+h.key({ key: "Escape" });
 
 const before = h.commands().length;
 gone.querySelector("button").focus();
@@ -7340,14 +7357,15 @@ assert.deepStrictEqual(h.commands().slice(before), [{ cmd: "worktreePrune" }], "
 // one that had not -- the same gap Changes' own fetch, pull, push and commit
 // close.
 func TestAWorktreeOperationSaysItIsRunning(t *testing.T) {
-	runFrontEnd(t, `
+	runFrontEnd(t, worktreeMenu+`
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-worktrees"));
 const list = (items) => ({ type: "worktrees", root: "C:/repo", defaultBase: "main", branches: [], items });
 const main = { label: "main", path: "C:/repo", main: true };
 const spare = { label: "spare", path: "C:/spare", dirty: 0, untracked: 0 };
-h.recv(list([main, spare]));
+const old = { label: "old", path: "C:/old", prunable: true, dirty: 0, untracked: 0 };
+h.recv(list([main, spare, old]));
 
 h.$("wt-branch").value = "fix-auth";
 h.$("wt-branch").oninput();
@@ -7355,8 +7373,8 @@ const create = h.$("overlay-body").querySelectorAll("button").filter((b) => b.te
 h.click(create);
 assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeAdd", text: "fix-auth", base: "main" });
 assert.strictEqual(create.textContent, "Creating\u2026", "the button did not say it was working");
-const remove = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Remove")[0];
-assert.ok(remove.disabled, "the other buttons still invite a press");
+const more = h.$("overlay-body").querySelectorAll("button.wt-more")[0];
+assert.ok(more.disabled, "the other buttons still invite a press");
 
 // A second press while the first is in flight creates nothing more.
 const sent = h.commands().length;
@@ -7364,19 +7382,21 @@ h.click(create);
 assert.strictEqual(h.commands().length, sent, "a second create was sent while the first was in flight");
 
 // It always ends by sending the listing back, which puts the buttons right.
-h.recv(list([main, spare]));
-const removeAgain = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Remove")[0];
-assert.ok(!removeAgain.disabled, "the buttons were left disabled");
+h.recv(list([main, spare, old]));
+const rowsAgain = h.$("overlay-body").querySelectorAll("div.wt-row");
+assert.ok(!rowsAgain[1].querySelector("button.wt-more").disabled, "the buttons were left disabled");
 
-// Remove and Prune say so too, and do not go twice.
-h.click(removeAgain);
+// Remove and Prune say so too, and do not go twice. A menu item is gone once
+// picked, so the row says it is working.
+h.click(wtItem(rowsAgain[1], "Remove worktree"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreeRemove", path: "C:/spare", force: false });
-assert.strictEqual(removeAgain.textContent, "Removing\u2026");
+assert.ok(/Removing\u2026/.test(rowsAgain[1].textContent), "the row did not say it was being removed");
+assert.ok(rowsAgain[1].querySelector("button.wt-more").disabled, "the row's menu could be opened again");
 const twice = h.commands().length;
-h.click(removeAgain);
+h.click(rowsAgain[1].querySelector("button.wt-more"));
 assert.strictEqual(h.commands().length, twice, "the remove was sent twice");
 
-h.recv(list([main, spare]));
+h.recv(list([main, spare, old]));
 const prune = h.$("overlay-body").querySelectorAll("button").filter((b) => b.textContent === "Prune")[0];
 h.click(prune);
 assert.deepStrictEqual(h.commands().pop(), { cmd: "worktreePrune" });

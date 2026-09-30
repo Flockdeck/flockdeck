@@ -2439,6 +2439,94 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   :root:not([data-theme]) .pal-row.sel .pal-hint { color: var(--fg-dim); }
 }
 
+/* ============================================================== Worktrees
+ * The Worktrees sheet (pop-over redesign, part B1). Scoped to .wt-list,
+ * .wt-sec and .wt-foot, because .wt-row, .wt-flag and .wt-actions are also
+ * the rows of API keys, Remote's devices and GitHub's lists. */
+
+.wt-sec { margin-bottom: 18px; }
+.wt-sec-head { display: flex; align-items: baseline; gap: 8px; margin: 2px 0 6px; padding: 0 8px; }
+.wt-sec-head h3 { margin: 0; font-size: 12px; font-weight: 600; color: var(--fg-dim); }
+.wt-count { font: 11px var(--mono); color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.wt-link {
+  border: 0; background: transparent; padding: 2px 4px; border-radius: var(--radius-sm);
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--fg-dim); cursor: pointer;
+}
+.wt-link:hover { color: var(--fg); background: var(--bg-hover); }
+.wt-link:disabled { opacity: .45; cursor: default; }
+.wt-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.wt-list .wt-row {
+  position: relative; gap: 8px; min-height: 48px; padding: 6px 8px 6px 10px;
+  border-bottom: 0; border-radius: var(--radius);
+}
+.wt-list .wt-row:hover { background: var(--bg-hover); }
+/* The row on show: the tint and a two-pixel bar, as every chosen row. */
+.wt-list .wt-row.sel, .wt-list .wt-row:focus-within { background: var(--accent-subtle); }
+.wt-list .wt-row.sel::before, .wt-list .wt-row:focus-within::before {
+  content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px;
+  border-radius: 1px; background: var(--accent);
+}
+.wt-list .wt-row.gone .wt-label { color: var(--fg-dim); }
+.wt-list .wt-title { flex-wrap: wrap; gap: 6px; }
+.wt-list .wt-label { font-size: 13px; }
+.wt-list .wt-meta { gap: 0; margin: 1px 0 0; }
+.wt-list .wt-meta > * + *::before { content: "·"; margin: 0 6px; color: var(--fg-dim); }
+/* The folder is read for the row on show; the rest of the list is names. */
+.wt-list .wt-path { display: none; margin-top: 1px; }
+.wt-list .wt-row.sel .wt-path, .wt-list .wt-row:focus-within .wt-path { display: block; }
+.wt-flag.busy { color: var(--accent); border-color: var(--accent-line); }
+
+/* Open agent is the row's one button, on the row on show. Elsewhere it is
+ * still there for the keyboard -- clipped, not removed -- and appears as the
+ * keyboard arrives. */
+.wt-list .wt-actions { align-items: center; gap: 2px; }
+.wt-list .wt-row:not(.sel):not(:focus-within) .wt-actions > .chip.primary:not([id$="-prune"]) {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+.wt-more { width: 28px; height: 28px; padding: 0; font-size: 16px; line-height: 28px; text-align: center; }
+.wt-more[aria-expanded="true"] { background: var(--bg-active); color: var(--fg); }
+.wt-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.wt-list .wt-actions .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wt-empty { padding: 20px 8px; max-width: 46ch; }
+.wt-empty strong { display: block; font-weight: 600; }
+.wt-empty p { margin: 4px 0 0; color: var(--fg-dim); line-height: 1.5; }
+.wt-sec .places { padding: 0 8px; }
+
+/* The footer is the form for a new worktree: what it is, the fields and the
+ * one primary, then the folder it is about. */
+.wt-foot { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 16px 10px; }
+.wt-foot-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wt-foot-title { font-size: 12px; font-weight: 600; color: var(--fg-dim); }
+.wt-foot .rev-repo-picker { margin: 0; }
+.wt-foot .wt-form { flex-wrap: nowrap; }
+.wt-foot .wt-form input { height: 30px; }
+.wt-foot .wt-form input:first-child { flex: 2 1 0; }
+.wt-foot .wt-form input:nth-child(2) { flex: 1 1 0; max-width: 150px; }
+.wt-foot .wt-form .chip { flex: 0 0 auto; height: 30px; }
+.wt-foot .wt-root { margin: 0; }
+
+/* A menu on a button: the things a row does less often. */
+#overlay-panel:where(:not([data-present="sheet"])) { position: relative; }
+.menu {
+  position: absolute; z-index: 5; min-width: 220px; max-width: calc(100% - 16px); padding: 4px;
+  background: var(--bg-overlay); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
+}
+.menu-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%;
+  height: 28px; padding: 0 8px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--fg); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.menu-item:hover, .menu-item:focus { background: var(--bg-hover); }
+.menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.menu-item:disabled { opacity: .45; cursor: default; }
+.menu-item.danger { color: var(--exited); }
+.menu-hint { font: 11px var(--mono); color: var(--fg-dim); }
+.menu-sep { height: 1px; margin: 4px 4px; background: var(--line-subtle); }
+
 /* --------------------------------------------------------- reduced motion */
 
 /* The working mark breathes for as long as an agent is working, and a tab of
@@ -2498,7 +2586,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   .pane.focused { border-color: Highlight; }
   /* A toggle that is on, and the tab and the project on screen, are each
    * shown by a background; an outline in the highlight is kept. */
-  [aria-pressed="true"], .seg.on, .tab.active, .rail-tile.current, .rail-btn.surface-open, .ov-tab.sel {
+  [aria-pressed="true"], .seg.on, .tab.active, .rail-tile.current, .rail-btn.surface-open, .ov-tab.sel,
+  .wt-list .wt-row.sel, .menu-item:focus {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }

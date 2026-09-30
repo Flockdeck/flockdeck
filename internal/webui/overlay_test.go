@@ -111,7 +111,9 @@ const tree = { type: "worktrees", root: "C:/repo", defaultBase: "main",
           { label: "fix-auth", path: "C:/fix-auth", head: "def5678" }],
   branches: [{ name: "main", checkedIn: true }] };
 h.recv(tree);
-const review = Array.from(h.$("overlay-body").querySelectorAll("button")).filter((b) => b.textContent === "Review").pop();
+// Review is in the row's ⋯ menu.
+h.click(h.$("overlay-body").querySelectorAll("div.wt-row")[1].querySelector("button.wt-more"));
+const review = h.$("overlay-panel").querySelector("div.menu").querySelectorAll("button").find((b) => b.textContent === "Review changes");
 assert.ok(review, "no Review on a worktree");
 h.click(review);
 assert.strictEqual(h.$("overlay-title").textContent, "Changes");
@@ -182,7 +184,7 @@ h.click(btn);
 h.recv({ type: "worktrees", root: "C:/repo", defaultBase: "main",
   items: [{ label: "main", path: "C:/repo", main: true, head: "abc1234", panes: 1 }], branches: [] });
 h.terms.forEach((t) => { t.focused = false; });
-h.click(Array.from(h.$("overlay-body").querySelectorAll("button")).find((b) => b.textContent === "Agent"));
+h.click(Array.from(h.$("overlay-body").querySelectorAll("button")).find((b) => b.textContent === "Open agent"));
 assert.ok(h.$("overlay").hidden);
 assert.ok(h.terms.some((t) => t.focused), "opening an agent left the keyboard on the rail");
 `)
