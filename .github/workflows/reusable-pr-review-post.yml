@@ -33,7 +33,12 @@ on:
     inputs:
       artifact-run-id:
         description: "Run ID that produced the pr-review-diff artifact (usually github.event.workflow_run.id, or github.run_id when called as a second job in the same run)"
-        type: number
+        # A string, not a number: github.run_id is a string in the expression
+        # context, and a string passed to a `type: number` input is rejected
+        # ("Unexpected value '<id>'"), so no second-job caller could start.
+        # github.event.workflow_run.id (a number) is coerced to a string. The
+        # only use is download-artifact's run-id, which takes a string.
+        type: string
         required: true
     secrets:
       review-app-id:
@@ -86,6 +91,10 @@ jobs:
       # pr.diff and writes review.md. llm-api-key never reaches the
       # diff-producing job, which is the whole point of the split.
       #
+      # (thinking is switched off: with maxOutputTokens 1024, 2.5 Flash's
+      # hidden reasoning tokens count against that cap and can leave the
+      # visible text empty, i.e. "no usable review text")
+      #
       # pr.diff is untrusted contributor content, so it's only ever handed
       # to jq as data (--rawfile) to build the request body — never
       # interpolated into a shell command or curl's argv, and nothing in it
@@ -128,7 +137,7 @@ jobs:
             '{
               systemInstruction: {parts: [{text: $sys}]},
               contents: [{role: "user", parts: [{text: ("Diff:\n\n" + $diff)}]}],
-              generationConfig: {temperature: 0.2, maxOutputTokens: 1024}
+              generationConfig: {temperature: 0.2, maxOutputTokens: 1024, thinkingConfig: {thinkingBudget: 0}}
             }' > request.json
 
           http_code=$(curl -sS --max-time 60 --retry 2 --retry-delay 2 \
@@ -142,12 +151,12 @@ jobs:
           skip=false
           review_text=""
           if [ "$http_code" != "200" ]; then
-            echo "::warning::Gemini review call failed (HTTP ${http_code}); skipping the review comment for this run."
+            echo "::warning::Gemini review call failed (HTTP ${http_code}): $(jq -r '.error.message // empty' response.json 2>/dev/null | head -c 300); skipping the review comment for this run."
             skip=true
           else
             review_text=$(jq -r '.candidates[0].content.parts[0].text // empty' response.json 2>/dev/null) || review_text=""
             if [ -z "$review_text" ]; then
-              echo "::warning::Gemini response had no usable review text; skipping the review comment for this run."
+              echo "::warning::Gemini response had no usable review text (finishReason: $(jq -r '.candidates[0].finishReason // "none"' response.json 2>/dev/null), blockReason: $(jq -r '.promptFeedback.blockReason // "none"' response.json 2>/dev/null)); skipping the review comment for this run."
               skip=true
             fi
           fi
