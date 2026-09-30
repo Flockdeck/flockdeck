@@ -1,0 +1,78 @@
+{
+ "checks": [
+  {
+   "name": "palette opens with focus in the field",
+   "ok": true
+  },
+  {
+   "name": "groups are listed",
+   "ok": true,
+   "extra": [
+    "Panes",
+    "Tabs",
+    "Agents",
+    "Go to",
+    "Finding your way",
+    "The window",
+    "Settings",
+    "Projects"
+   ]
+  },
+  {
+   "name": "Tab is trapped in the palette",
+   "ok": true,
+   "extra": 0
+  },
+  {
+   "name": "the highlighted row is in view and named by the field",
+   "ok": true,
+   "extra": {
+    "inView": true,
+    "label": "Focus the previous pane",
+    "active": true
+   }
+  },
+  {
+   "name": "Home returns to the top, headings showing",
+   "ok": true,
+   "extra": 0
+  },
+  {
+   "name": "> enters Go to",
+   "ok": true
+  },
+  {
+   "name": "Backspace leaves Go to",
+   "ok": true
+  },
+  {
+   "name": "Escape closes the palette",
+   "ok": true
+  },
+  {
+   "name": "focus returns to where it was (a terminal)",
+   "ok": true,
+   "extra": "xterm-helper-textarea"
+  },
+  {
+   "name": "focus returns to the Commands button",
+   "ok": true
+  },
+  {
+   "name": "Go to > History opens the History surface",
+   "ok": true,
+   "extra": "Conversations"
+  },
+  {
+   "name": "reduced motion stills the palette's arrival",
+   "ok": true,
+   "extra": "0.001s"
+  },
+  {
+   "name": "no request left the origin",
+   "ok": true,
+   "extra": []
+  }
+ ],
+ "foreign": []
+}

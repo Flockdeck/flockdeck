@@ -1,0 +1,52 @@
+work directory C:\Users\jmwri\AppData\Local\Temp\flockdeck-c1shots-gK8TN3
+live state C:\Users\jmwri\AppData\Roaming\flockdeck - 89 files
+building flockdeck from C:\Users\jmwri\Documents\repos\flockdeck\pc1
+staged instance http://127.0.0.1:61278 pid 51412 state in C:\Users\jmwri\AppData\Local\Temp\flockdeck-c1shots-gK8TN3\appdata\flockdeck
+staged panes {"p0":"1f6129e0-20ad-4b3a-96ed-f3cad52042e4","p1":"904f3774-0f1a-4043-b5c1-043e3e03c07d","p2":"84535bd9-7305-4b9c-bcf6-f5bbd0362850","p3":"812b1e55-65a3-492d-9949-063f096c919c"}
+header figures ["~$2.14","221k tok","5h 72%"]
+PASS palette opens with focus in the field 
+PASS groups are listed ["Panes","Tabs","Agents","Go to","Finding your way","The window","Settings","Projects"]
+PASS Tab is trapped in the palette 0
+PASS the highlighted row is in view and named by the field {"inView":true,"label":"Focus the previous pane","active":true}
+PASS Home returns to the top, headings showing 0
+PASS > enters Go to 
+PASS Backspace leaves Go to 
+PASS Escape closes the palette 
+PASS focus returns to where it was (a terminal) "xterm-helper-textarea"
+PASS focus returns to the Commands button 
+PASS Go to > History opens the History surface "Conversations"
+captured forced-wide-palette.png {"overlay":false,"title":"Conversations","panelClass":"ov-panel","active":"palette-input"}
+PASS reduced motion stills the palette's arrival "0.001s"
+captured dark-wide-palette.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured dark-wide-palette-end.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured dark-wide-palette-typed.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured dark-wide-palette-setting.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured dark-wide-palette-empty.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured dark-wide-palette-goto.png {"overlay":true,"title":"Settings","panelClass":"ov-panel settings-panel","active":"palette-input"}
+captured dark-wide-palette-goto-arrow.png {"overlay":false,"title":"Settings","panelClass":"ov-panel","active":"palette-input"}
+captured dark-narrow-palette.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured dark-narrow-palette-end.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured dark-narrow-palette-typed.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured dark-narrow-palette-setting.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured dark-narrow-palette-empty.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured dark-narrow-palette-goto.png {"overlay":true,"title":"Settings","panelClass":"ov-panel settings-panel","active":"palette-input"}
+captured dark-narrow-palette-goto-arrow.png {"overlay":false,"title":"Settings","panelClass":"ov-panel","active":"palette-input"}
+captured light-wide-palette.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured light-wide-palette-end.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured light-wide-palette-typed.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured light-wide-palette-setting.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured light-wide-palette-empty.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured light-wide-palette-goto.png {"overlay":true,"title":"Settings","panelClass":"ov-panel settings-panel","active":"palette-input"}
+captured light-wide-palette-goto-arrow.png {"overlay":false,"title":"Settings","panelClass":"ov-panel","active":"palette-input"}
+captured light-narrow-palette.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured light-narrow-palette-end.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured light-narrow-palette-typed.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured light-narrow-palette-setting.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured light-narrow-palette-empty.png {"overlay":false,"title":"Fan out","panelClass":"ov-panel","active":"palette-input"}
+captured light-narrow-palette-goto.png {"overlay":true,"title":"Settings","panelClass":"ov-panel settings-panel","active":"palette-input"}
+captured light-narrow-palette-goto-arrow.png {"overlay":false,"title":"Settings","panelClass":"ov-panel","active":"palette-input"}
+PASS no request left the origin []
+flockdeck exited 1
+nothing of the harness's is running
+live state: added 0 removed 0 changed 1
+  changed C:\Users\jmwri\AppData\Roaming\flockdeck\layout-cec8d2e701974134.json 2026-09-30T20:00:34.008Z -> 2026-09-30T20:05:34.051Z
