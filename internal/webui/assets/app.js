@@ -4069,7 +4069,7 @@
     p.reviewBtn.setAttribute("aria-pressed", String(on));
     describe(p.reviewBtn, (on
       ? "Auto-review is on" + (v.autoApproved ? ": " + v.autoApproved + " command" + (v.autoApproved === 1 ? "" : "s") + " let through unasked so far. " : ". ") +
-        "Press to turn it off."
+        "Press to turn it off. "
       : "Auto-review is off. Press to turn it on. ") + TIPS.autoReview);
   }
 
