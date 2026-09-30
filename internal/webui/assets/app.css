@@ -2101,11 +2101,21 @@ kbd {
  * in, so its edge is what takes the accent, in place of a ring. */
 #palette-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 #palette-input::placeholder { color: var(--fg-dim); }
-#palette-list { max-height: 50vh; overflow: auto; padding: 4px 0; overscroll-behavior: contain; scroll-padding: 4px 0; }
+/* Headings and rows are both 32px, and the list is a whole number of them
+ * tall (round() where it is known, half the window's height where not), so
+ * it ends on a row rather than through one; a scroll comes to rest on one. */
+#palette-list {
+  max-height: 50vh; max-height: round(down, 50vh, 32px); overflow: auto;
+  overscroll-behavior: contain; scroll-snap-type: y proximity;
+}
+#palette-list > * { scroll-snap-align: start; }
 /* A heading is 11px/600 in the muted text colour, never the faint one. */
-.pal-grp { padding: 8px 16px 2px; font-size: 11px; font-weight: 600; color: var(--fg-dim); }
+.pal-grp {
+  display: flex; align-items: flex-end; height: 32px; padding: 0 16px 4px; box-sizing: border-box;
+  font-size: 11px; font-weight: 600; color: var(--fg-dim);
+}
 .pal-row {
-  display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 6px 16px; cursor: pointer;
+  display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 16px; cursor: pointer;
 }
 /* The chosen row, here as everywhere: the accent's tint, and a bar of the
  * accent down the left edge. The label keeps the text colour. */
@@ -2117,6 +2127,7 @@ kbd {
 .pal-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pal-hint { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--fg-dim); font-size: 11px; }
 .pal-now { white-space: nowrap; }
+#palette-box.goto .pal-hint { flex: none; width: 124px; justify-content: flex-end; }
 .pal-keys { display: inline-flex; gap: 4px; }
 /* Which kind of window a Go to row opens: the word, in mono, in a column. */
 .pal-kind { flex: none; width: 60px; color: var(--fg-dim); font: 11px var(--mono); }

@@ -7616,8 +7616,9 @@
         if (palOnly && c.kind) row.append(el("span", "pal-kind", c.kind));
         // Where there is no key to show, what a short name leaves out -- "every
         // idle or exited pane, in every open project" -- is the hint.
-        const hint = c.hint || (!c.keys && !c.now && c.gloss) || "";
-        if (hint || c.keys || c.now) {
+        const hint = c.hint || (!palOnly && !c.keys && !c.now && c.gloss) || "";
+        // In Go to every row has a hint, empty or not, so the kind is one column.
+        if (hint || c.keys || c.now || palOnly) {
           const span = el("span", "pal-hint");
           if (hint) span.append(hint);
           if (c.now) span.append(el("span", "pal-now", c.now));

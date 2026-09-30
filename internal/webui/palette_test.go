@@ -302,7 +302,7 @@ func TestThePaletteStyles(t *testing.T) {
 	if !strings.Contains(grp, "var(--fg-dim)") || strings.Contains(grp, "--fg-faint") {
 		t.Errorf("a heading is not in the dim text colour: %q", grp)
 	}
-	if row := ruleBody(css, ".pal-row"); !strings.Contains(row, "min-height: 32px") {
+	if row := ruleBody(css, ".pal-row"); !strings.Contains(row, "height: 32px") {
 		t.Errorf("a palette row is not 32px: %q", row)
 	}
 	if head := ruleBody(css, "#palette-head"); !strings.Contains(head, "height: 48px") {
