@@ -104,13 +104,23 @@ jobs:
           esac
           echo "pr-number=$pr" >> "$GITHUB_OUTPUT"
 
-      # Calls Gemini 2.5 Flash (picked for its free-tier quota) to review
-      # pr.diff and writes review.md. llm-api-key never reaches the
-      # diff-producing job, which is the whole point of the split.
+      # Calls Gemini (model named by GEMINI_MODEL below) to review pr.diff
+      # and writes review.md. llm-api-key never reaches the diff-producing
+      # job, which is the whole point of the split.
       #
-      # (thinking is switched off: with maxOutputTokens 1024, 2.5 Flash's
-      # hidden reasoning tokens count against that cap and can leave the
-      # visible text empty, i.e. "no usable review text")
+      # Models get retired: gemini-2.5-flash was, and every run since then
+      # came back "HTTP 404 ... no longer available to new users". The
+      # warning this step prints carries the API's own error message, which
+      # names the replacement model, so the next retirement is a one-line
+      # change to GEMINI_MODEL.
+      #
+      # Thinking: Gemini 3.x models take thinkingLevel (low/medium/high) and
+      # cannot switch thinking off; the 2.5-era thinkingBudget is not the
+      # control for them. Thinking tokens count against maxOutputTokens, so
+      # the level is kept at "low" and the cap is well above the ~1k visible
+      # tokens a review needs, so reasoning cannot eat the whole budget. The
+      # cap is a ceiling, not a charge: only tokens actually generated are
+      # billed.
       #
       # pr.diff is untrusted contributor content, so it's only ever handed
       # to jq as data (--rawfile) to build the request body — never
@@ -126,6 +136,8 @@ jobs:
         id: review
         env:
           LLM_API_KEY: ${{ secrets.llm-api-key }}
+          # The only place the model is named. Change this when it is retired.
+          GEMINI_MODEL: gemini-3.8-flash
         run: |
           # Keep the request well inside Gemini's per-request payload limit
           # and fast/cheap to run. A truncated diff still gets reviewed —
@@ -154,7 +166,7 @@ jobs:
             '{
               systemInstruction: {parts: [{text: $sys}]},
               contents: [{role: "user", parts: [{text: ("Diff:\n\n" + $diff)}]}],
-              generationConfig: {temperature: 0.2, maxOutputTokens: 1024, thinkingConfig: {thinkingBudget: 0}}
+              generationConfig: {temperature: 0.2, maxOutputTokens: 4096, thinkingConfig: {thinkingLevel: "low"}}
             }' > request.json
 
           http_code=$(curl -sS --max-time 60 --retry 2 --retry-delay 2 \
@@ -162,7 +174,7 @@ jobs:
             -H "x-goog-api-key: ${LLM_API_KEY}" \
             -H "Content-Type: application/json" \
             -d @request.json \
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent") \
+            "https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent") \
             || http_code="000"
 
           skip=false
