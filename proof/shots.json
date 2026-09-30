@@ -1,0 +1,118 @@
+[
+ {
+  "file": "dark-wide-toasts.png",
+  "name": "toasts"
+ },
+ {
+  "name": "tab-order-dark-wide",
+  "order": [
+   "tab-8f6caedd-88ac-41af-a603-90eedf12ccd7",
+   "BUTTON",
+   "new-tab",
+   "new-tab-pick",
+   "summary",
+   "btn-palette",
+   "BUTTON",
+   "TEXTAREA"
+  ]
+ },
+ {
+  "file": "dark-wide-real-server-notice.png",
+  "name": "real-server-notice",
+  "overlay": false,
+  "title": "Settings",
+  "panelClass": "ov-panel",
+  "active": "xterm-helper-textarea"
+ },
+ {
+  "name": "reduced-motion-dark-wide",
+  "animationDuration": "0.001s"
+ },
+ {
+  "file": "dark-narrow-toasts.png",
+  "name": "toasts"
+ },
+ {
+  "name": "tab-order-dark-narrow",
+  "order": [
+   "toast-act:Undo",
+   "toast-act:Pull",
+   "toast-x:×",
+   "BODY",
+   "btn-settings",
+   "tab-8f6caedd-88ac-41af-a603-90eedf12ccd7",
+   "BUTTON",
+   "new-tab"
+  ]
+ },
+ {
+  "file": "dark-narrow-real-server-notice.png",
+  "name": "real-server-notice",
+  "overlay": false,
+  "title": "Settings",
+  "panelClass": "ov-panel",
+  "active": "xterm-helper-textarea"
+ },
+ {
+  "name": "reduced-motion-dark-narrow",
+  "animationDuration": "0.001s"
+ },
+ {
+  "file": "light-wide-toasts.png",
+  "name": "toasts"
+ },
+ {
+  "name": "tab-order-light-wide",
+  "order": [
+   "tab-8f6caedd-88ac-41af-a603-90eedf12ccd7",
+   "BUTTON",
+   "new-tab",
+   "new-tab-pick",
+   "summary",
+   "btn-palette",
+   "BUTTON",
+   "TEXTAREA"
+  ]
+ },
+ {
+  "file": "light-wide-real-server-notice.png",
+  "name": "real-server-notice",
+  "overlay": false,
+  "title": "Settings",
+  "panelClass": "ov-panel",
+  "active": "xterm-helper-textarea"
+ },
+ {
+  "name": "reduced-motion-light-wide",
+  "animationDuration": "0.001s"
+ },
+ {
+  "file": "light-narrow-toasts.png",
+  "name": "toasts"
+ },
+ {
+  "name": "tab-order-light-narrow",
+  "order": [
+   "toast-act:Undo",
+   "toast-act:Pull",
+   "toast-x:×",
+   "btn-settings",
+   "tab-8f6caedd-88ac-41af-a603-90eedf12ccd7",
+   "BUTTON",
+   "new-tab",
+   "new-tab-pick"
+  ]
+ },
+ {
+  "file": "light-narrow-real-server-notice.png",
+  "name": "real-server-notice",
+  "overlay": false,
+  "title": "Settings",
+  "panelClass": "ov-panel",
+  "active": "xterm-helper-textarea"
+ },
+ {
+  "name": "reduced-motion-light-narrow",
+  "animationDuration": "0.001s"
+ }
+]
