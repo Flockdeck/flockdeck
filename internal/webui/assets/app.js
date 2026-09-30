@@ -498,7 +498,11 @@
         // The picker's answer to a download, good or bad, comes as a notice
         // alone; without a redraw the row stayed on "Downloading…", disabled.
         if (versionInstalling) { versionInstalling = false; renderVersions(); }
-        notice(msg.text, msg.error);
+        // A notice may come with a lead-in and one button: {label, send}, the
+        // button sending that command back, as the window would itself.
+        const act = msg.action && msg.action.label && msg.action.send && msg.action.send.cmd
+          ? { label: msg.action.label, run: () => send(msg.action.send) } : null;
+        notice(msg.text, msg.error, { lead: msg.lead, action: act });
       }
       else if (msg.type === "ghStatus") {
         ghStatus = msg;
@@ -12389,6 +12393,8 @@
    *  push you started before turning to another pane. */
   const NOTICE_MS = 4000;
   const ERROR_MS = 12000;
+  /** A message offering a way back ("Undo") has to outlast a glance. */
+  const ACTION_MS = 8000;
   /** How long a message stays once the pointer has left it. */
   const NOTICE_AFTER_MS = 1500;
   /** How long a message stays with the pointer still on it. Long enough to
@@ -12406,35 +12412,131 @@
    *  for as long as someone went on typing. */
   let noticeHeld = false;
 
-  function notice(text, isError) {
+  /** The most toasts on screen at once. A fourth takes the oldest away. */
+  const NOTICE_MAX = 3;
+
+  /** notice says something that already happened and needs no decision.
+   *
+   *  opts.lead   a bold first clause ("Could not push.") for an error;
+   *  opts.action {label, run} a button beside the words ("Undo"): it runs
+   *              then puts the toast away, and the toast stays for as long
+   *              as an error does, since it is offering a way back;
+   *  opts.close  force (or with false, leave out) the × an error has.
+   *
+   *  #notice is the place, a transparent column at the bottom centre; each
+   *  message is a .toast inside it, the newest last and nearest the bottom.
+   *  Plain news replaces plain news, so Ctrl+= held down does not pile up
+   *  "Font size" toasts; an error, or a toast carrying an action, stays under
+   *  whatever comes after it until it ages out or is dismissed. */
+  function notice(text, isError, opts) {
+    opts = opts || {};
     const n = $("notice");
-    n.classList.toggle("error", !!isError);
+    const action = opts.action && opts.action.label ? opts.action : null;
+    const plain = !isError && !action;
+    // Read first: taking the old toast away empties the place, which lets go
+    // of a hold the pointer still has on it.
+    const held = noticeHeld;
+    if (plain) {
+      for (const t of Array.from(n.children)) {
+        if (t.classList.contains("plain")) dropToast(t);
+      }
+    }
+    const t = document.createElement("div");
+    t.className = "toast" + (isError ? " error" : "") + (plain ? " plain" : "");
+    const msg = document.createElement("span");
+    msg.className = "toast-msg";
+    if (opts.lead) {
+      const lead = document.createElement("b");
+      lead.className = "toast-lead";
+      lead.textContent = opts.lead;
+      msg.append(lead, " ");
+    }
+    msg.append(text);
+    t.append(msg);
+    if (action) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "toast-act";
+      b.textContent = action.label;
+      b.onclick = (e) => {
+        e.stopPropagation();
+        dropToast(t);
+        if (action.run) action.run();
+      };
+      t.append(b);
+    }
+    if (opts.close !== undefined ? opts.close : isError) {
+      const x = document.createElement("button");
+      x.type = "button";
+      x.className = "toast-x";
+      x.setAttribute("aria-label", "Dismiss");
+      x.textContent = "×";
+      x.onclick = (e) => { e.stopPropagation(); dropToast(t); };
+      t.append(x);
+    }
     // Set before the text, because it is the text changing that a screen
     // reader acts on and it acts with whatever politeness is in force then. An
     // error interrupts: waiting for a pause to mention that a push was
     // rejected is waiting for the moment it stops mattering.
     n.setAttribute("aria-live", isError ? "assertive" : "polite");
-    n.textContent = text;
+    n.append(t);
+    while (n.children.length > NOTICE_MAX) dropToast(n.children[0]);
     n.hidden = false;
-    clearTimeout(notice.timer);
-    notice.timer = setTimeout(hideNotice, noticeHeld ? NOTICE_HELD_MS : isError ? ERROR_MS : NOTICE_MS);
+    t.life = isError ? ERROR_MS : action ? ACTION_MS : NOTICE_MS;
+    t.timer = setTimeout(() => dropToast(t), held ? NOTICE_HELD_MS : t.life);
+    noticeHeld = held;
+    noticeSettled();
   }
 
-  /** hideNotice takes the message away. It is also what a click on it does:
-   *  the toast is drawn over the terminals and takes the pointer, so a click
+  /** dropToast takes one message away. */
+  function dropToast(t) {
+    clearTimeout(t.timer);
+    t.remove();
+    noticeSettled();
+  }
+
+  /** noticeSettled brings the place in line with what is left in it: hidden
+   *  when empty, and saying of itself what the newest message says. */
+  function noticeSettled() {
+    const n = $("notice");
+    const last = n.children[n.children.length - 1];
+    n.hidden = !last;
+    n.classList.toggle("error", !!last && last.classList.contains("error"));
+    if (!last) { noticeHeld = false; return; }
+    n.setAttribute("aria-live", last.classList.contains("error") ? "assertive" : "polite");
+  }
+
+  /** hideNotice takes every message away. A click on the place between the
+   *  toasts does this; a click on a toast takes that one (see below): the
+   *  toast is drawn over the terminals and takes the pointer, so a click
    *  meant for the pane underneath was going nowhere at all. */
   function hideNotice() {
-    clearTimeout(notice.timer);
-    noticeHeld = false;
-    $("notice").hidden = true;
+    for (const t of Array.from($("notice").children)) dropToast(t);
   }
 
-  /** holdNotice keeps the message while the pointer moves on it, and lets it
+  /** The toasts a pointer event means: the one it is on, or all of them when
+   *  it is on the place itself. */
+  function noticeTargets(e) {
+    const on = e && e.target && e.target.closest ? e.target.closest(".toast") : null;
+    return on ? [on] : Array.from($("notice").children);
+  }
+
+  /** holdNotice keeps a message while the pointer moves on it, and lets it
    *  go once the pointer has been still on it for NOTICE_HELD_MS. */
-  function holdNotice() {
+  function holdNotice(e) {
     noticeHeld = true;
-    clearTimeout(notice.timer);
-    notice.timer = setTimeout(hideNotice, NOTICE_HELD_MS);
+    for (const t of noticeTargets(e)) {
+      clearTimeout(t.timer);
+      t.timer = setTimeout(() => dropToast(t), NOTICE_HELD_MS);
+    }
+  }
+
+  function releaseNotice(e) {
+    noticeHeld = false;
+    for (const t of noticeTargets(e)) {
+      clearTimeout(t.timer);
+      t.timer = setTimeout(() => dropToast(t), NOTICE_AFTER_MS);
+    }
   }
 
   // -------------------------------------------------------------- shortcuts
@@ -12693,14 +12795,12 @@
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => runSearch(false, true), 120);
   };
-  $("notice").onclick = hideNotice;
+  $("notice").onclick = (e) => {
+    const t = e.target.closest ? e.target.closest(".toast") : null;
+    if (t) dropToast(t); else hideNotice();
+  };
   $("notice").addEventListener("pointermove", holdNotice);
-  $("notice").addEventListener("pointerleave", () => {
-    noticeHeld = false;
-    if ($("notice").hidden) return;
-    clearTimeout(notice.timer);
-    notice.timer = setTimeout(hideNotice, NOTICE_AFTER_MS);
-  });
+  $("notice").addEventListener("pointerleave", releaseNotice);
   // A link out of the application - the help has one, to where Claude Code is
   // installed from - followed in place replaces the application with the page
   // it points to. This is an app window, with no address bar and no back

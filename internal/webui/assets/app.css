@@ -2173,22 +2173,49 @@ kbd {
 
 #notice {
   position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
-  background: var(--bg-overlay); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: 8px 14px; z-index: 50; box-shadow: var(--shadow-2);
-  animation: notice-arrive var(--dur-3) var(--ease-out);
+  z-index: 50;
+  /* The place, not the message: a column of toasts, the newest at the
+   * bottom. It takes no pointer itself, so the gap between two toasts is
+   * still the terminal beneath; each toast takes its own. */
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  pointer-events: none;
   /* Centred by shifting a shrink-to-fit box, so its own available width is
    * only the half of the viewport to the right of the midpoint: without a max
    * of its own a long message wrapped into a needlessly narrow column, and an
    * unbreakable one - a git error quoting a full path - ran off the edge. */
   max-width: min(560px, calc(100vw - 28px));
   overflow-wrap: break-word;
+}
+#notice[hidden] { display: none; }
+.toast {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 12px;
+  background: var(--bg-overlay); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 8px 14px; box-shadow: var(--shadow-2);
+  animation: notice-arrive var(--dur-3) var(--ease-out);
   /* It sits over the terminals and takes the pointer either way, so a click on
    * it may as well be the way to put it away. */
   cursor: pointer;
 }
-#notice[hidden] { display: none; }
-/* The same arrival as a dialog's, carrying the shift that centres it. */
-@keyframes notice-arrive { from { opacity: 0; transform: translate(-50%, 4px); } }
+.toast-msg { min-width: 0; }
+/* The lead-in of an error ("Could not push.") is the part to see first. */
+.toast-lead { color: var(--exited); font-weight: 600; }
+.toast-act, .toast-x {
+  flex: none; font: inherit; color: var(--fg); cursor: pointer;
+}
+.toast-act {
+  background: none; border: 1px solid var(--line); border-radius: var(--radius-sm, 4px);
+  padding: 2px 10px; font-size: 12px;
+}
+.toast-act:hover { border-color: var(--accent); color: var(--accent); }
+/* An action beside plain news is a link to a way back, not a second button. */
+.toast:not(.error) .toast-act { border-color: transparent; padding: 2px 4px; color: var(--fg-dim); font-weight: 600; }
+.toast:not(.error) .toast-act:hover { color: var(--fg); text-decoration: underline; }
+.toast-x { background: none; border: 0; padding: 0 2px; font-size: 16px; line-height: 1; color: var(--fg-dim); }
+.toast-x:hover { color: var(--fg); }
+.toast-act:focus-visible, .toast-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The same arrival as a dialog's; the place carries the shift that centres it. */
+@keyframes notice-arrive { from { opacity: 0; transform: translateY(4px); } }
 /* The prompt and find bars sit along the bottom of the window too, and a
  * message dropped over the field being typed into hid it and took the click
  * meant for it. While either is open the message goes above it. */
@@ -2196,7 +2223,7 @@ body:has(#promptbar:not([hidden])) #notice,
 body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
 /* Something went wrong: a red bar down the left edge and a red-tinted line.
  * The words stay in the text colour, where they are easiest to read. */
-#notice.error { border-color: var(--exited-line); box-shadow: inset 3px 0 0 var(--exited), var(--shadow-2); }
+.toast.error { border-color: var(--exited-line); box-shadow: inset 3px 0 0 var(--exited), var(--shadow-2); }
 
 /* ------------------------------------------------------------ disconnected */
 
