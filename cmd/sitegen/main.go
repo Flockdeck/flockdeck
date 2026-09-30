@@ -70,8 +70,9 @@ import (
 // here too, so the site builds from the repository alone rather than from
 // whatever image the person running this happens to have lying around.
 //
-// The fonts are flockdeck-remote's web/app/fonts, the same files the phone
-// client serves, with their licences.
+// The fonts are the two design/tokens.css names, IBM Plex Sans and JetBrains
+// Mono, each one variable file with its licence beside it. cmd/docgen holds
+// the same files, and a test there keeps the two folders the same.
 //
 // assets/licences holds what the licences page is made of: this repository's
 // LICENSE and THIRD-PARTY-NOTICES.md, which a test keeps the same as the
@@ -787,7 +788,7 @@ func loadLicences() (*licences, error) {
 		*n.into = template.HTML(b.String())
 	}
 	for _, f := range []struct{ name, file string }{
-		{"Archivo", "OFL-Archivo.txt"},
+		{"IBM Plex Sans", "OFL-IBMPlexSans.txt"},
 		{"JetBrains Mono", "OFL-JetBrainsMono.txt"},
 	} {
 		body, err := read("fonts/" + f.file)
