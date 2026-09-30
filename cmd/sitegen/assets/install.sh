@@ -187,7 +187,7 @@ detect_os() {
 		Darwin) echo darwin ;;
 		# Git Bash, MSYS2 and Cygwin: Windows, which has its own installer.
 		MINGW* | MSYS* | CYGWIN*) die "on Windows, install from PowerShell instead: irm https://flockdeck.ai/install.ps1 | iex" ;;
-		*) die "no release is built for $(uname -s); with Go installed, go install github.com/$REPO@latest builds it from source" ;;
+		*) die "no release is built for $(uname -s); with Go installed, go install github.com/jmwri/flockdeck@latest builds it from source" ;;
 	esac
 }
 
@@ -397,7 +397,7 @@ main() {
 		# A real .app, not a shell command: open it the way any other
 		# installed Mac application is opened, no terminal needed -- the
 		# whole point of shipping one instead of a bare binary.
-		say "open it from Launchpad, Spotlight or Finder (Applications > Flockdeck)"
+		say "open it from Spotlight, or from $dir in Finder"
 	else
 		# A copy found first on PATH -- a go install, say -- is the one that
 		# runs, so it is not the one to be told to start.

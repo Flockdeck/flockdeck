@@ -35,19 +35,23 @@ SOFTWARE.
 
 ## Fonts
 
-The files in `web/app/fonts/` are the Latin subsets of two typefaces, the same
-two the flockdeck.ai site sets itself in, served from the relay rather than
-from a font service. Both are licensed under the SIL Open Font License,
-Version 1.1, whose full text is beside each file:
+The files in `web/app/fonts/` are subsets of two typefaces, the same two the
+flockdeck.ai site sets itself in, served from the relay rather than from a font
+service. Both are licensed under the SIL Open Font License, Version 1.1, whose
+full text is beside each file:
 
-- **Archivo** (`archivo.woff2`) — Copyright 2020 The Archivo Project Authors
-  (https://github.com/Omnibus-Type/Archivo). Licence: `OFL-Archivo.txt`.
+- **IBM Plex Sans** (`ibm-plex-sans.woff2`) — Copyright © 2017 IBM Corp. with
+  Reserved Font Name "Plex" (https://github.com/IBM/plex). Licence:
+  `OFL-IBMPlexSans.txt`.
 - **JetBrains Mono** (`jetbrains-mono.woff2`) — Copyright 2020 The JetBrains
   Mono Project Authors (https://github.com/JetBrains/JetBrainsMono). Licence:
   `OFL-JetBrainsMono.txt`.
 
-They are unmodified and distributed alongside the client, not sold on their
-own, as the licence asks.
+The outlines are unchanged. Each file is the variable font cut down to the
+characters the client draws (Latin, general punctuation, arrows and the
+geometric shapes) and compressed to WOFF 2; the Plex Sans file is also pinned
+to its normal width. They are distributed alongside the client, not sold on
+their own, as the licence asks.
 
 ## Icons
 

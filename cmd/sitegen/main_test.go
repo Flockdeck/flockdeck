@@ -610,7 +610,8 @@ func TestEnterpriseIsAnnouncedForCompanies(t *testing.T) {
 	card := strings.Join(strings.Fields(page[from:from+end]), " ")
 	for _, want := range []string{
 		`id="private-relays"`, "coming soon", "for companies", "<h3>Enterprise</h3>",
-		"run the relay on your own", "under licence", "with SSO and support",
+		"a licensed, supported relay you run on your own infrastructure",
+		"with single sign-on", "not yet generally available",
 	} {
 		if !strings.Contains(card, want) {
 			t.Errorf("the #enterprise card does not have %q", want)

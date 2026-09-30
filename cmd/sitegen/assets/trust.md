@@ -1,6 +1,6 @@
 # Trust & privacy
 
-*Last updated: 25 September 2026*
+*Last updated: 30 September 2026*
 
 This is the plain-language version of Flockdeck's privacy story: what's
 collected, what isn't, and how that compares to what else is on the market.
@@ -59,15 +59,16 @@ is available, so you can read it and check.
 
 ## What is, and isn't, end-to-end encrypted, said plainly
 
-Remote access is genuinely useful, and most of what it carries is now
+Remote access is genuinely useful, and your terminal traffic is now
 end-to-end encrypted the way push notifications are: your terminal output and
 what you type are encrypted with keys the relay hands out but never holds, so
 the relay carries that traffic to your other devices without being able to
 read it — not even a relay you run yourself.
 
-The state of your panes still isn't: what each pane's agent has spent, its
-usage limits, and which model routing chose for it reach the relay decrypted,
-over TLS, so it can route them. It doesn't record, store or log any of it.
+The rest still isn't: what each pane's agent has spent, its usage limits,
+which model routing chose for it, the conversation view of a pane, what you
+search in it and photos you attach reach the relay decrypted, over TLS, so it
+can route them. It doesn't record, store or log any of it.
 
 This defeats an honestly-run relay. Against one that's been actively
 compromised and tampered with to swap the keys it hands out at pairing, that
@@ -75,15 +76,14 @@ alone isn't enough — a swap like that needs an out-of-band check, and Remote
 access now has one: pairing shows a fingerprint on both the device and the
 desktop, and comparing them by eye is what catches a relay that has swapped
 keys. If your organisation's rules don't allow a third party in that position
-at all, run the relay yourself: see [self-hosting the
-relay](https://docs.flockdeck.ai/self-hosting/overview.html), or the coming
-[Enterprise](./#enterprise) licence.
+at all, Flockdeck Enterprise, coming soon, will let you run the relay on your
+own infrastructure: see [Enterprise](./#enterprise).
 
-## The billing service, when it's live
+## The billing service
 
-A paid plan for the shared relay is coming, not live yet — see the
-[FAQ](./#faq). It's already built so that the relay learns only an account's
-plan and the date it's paid until, through the billing service's own
+Remote access through the shared relay is a subscription after a 30-day free
+trial, sold through Paddle — see the [FAQ](./#faq). The relay learns only an
+account's plan and the date it's paid until, through the billing service's own
 connection to it — never an email address, a name or a country. That data
 stays in the billing service alone, kept only as long as UK tax law requires
 sale records to be kept, then deleted.
