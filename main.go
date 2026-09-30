@@ -979,6 +979,13 @@ func run(opts options) error {
 		before, _ = store.LoadSession()
 	}
 
+	// Before the workspace restores a single pane: each one reads the default
+	// as it opens. A failure leaves the default off, which is what it was
+	// before new installations started with it on, so it is only reported.
+	if _, err := store.SettleAutoReviewDefault(); err != nil {
+		fmt.Fprintln(os.Stderr, "flockdeck: could not settle auto-review's default:", err)
+	}
+
 	ws, err := workspace.New(workspace.Options{Root: root})
 	if err != nil {
 		return err

@@ -23,9 +23,11 @@ the keys change, so whichever you use, the others show it.
   checkbox, which can still be changed for one run from the dialog itself. And
   **Auto-review**'s own default: whether a pane with no parent — one opened by
   hand, or a fresh row of a fan-out run from the window — starts with
-  auto-review on. A pane's own switch still starts off unless this is on, and
-  either way can be turned on or off for that one pane; auto-review only ever
-  lets through a confidently read-only command, and never says "deny". And
+  auto-review on. **On for a new installation**; one upgraded from a version
+  before that keeps it off until you turn it on. A pane started by another
+  agent starts as that agent's pane is instead, and any pane's own switch can
+  be turned on or off for that one pane; auto-review only ever lets through a
+  confidently read-only command, and never says "deny". And
   **Status detection**: whether TypeSafe's Jev model may help read the status
   of a pane whose agent reports none. **Off by default**, and it sends
   terminal output to a third party — see [Knowing who needs you](#status).

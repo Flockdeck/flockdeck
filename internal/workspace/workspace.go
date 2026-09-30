@@ -146,8 +146,9 @@ type Pane struct {
 	// ever say "deny" -- so turning it off simply goes back to asking about
 	// everything, exactly as every pane without it does today.
 	//
-	// It defaults to off, like every pane's, but a pane a fan-out or `flockdeck
-	// spawn` starts is the exception: it is given its parent's AutoReview, on
+	// A new pane starts from store.Prefs.AutoReviewDefault -- on for a new
+	// installation -- but a pane a fan-out or `flockdeck spawn` starts is the
+	// exception: it is given its parent's AutoReview, on
 	// or off, so a dozen children of a pane a person already trusted do not
 	// each have to be found and switched on by hand. See Spawn.
 	//

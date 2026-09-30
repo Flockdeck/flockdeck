@@ -639,10 +639,14 @@ writes into the project are enough to supply. Anything that changes a file —
 `Edit`, `Write`, `MultiEdit` — is left to ask every time, on purpose: that is
 exactly the kind of call a person is meant to see before it happens.
 
-It is off for a pane unless you turn it on, with the ✓ button in the pane's
-header, or for new panes with Settings › Behaviour › Start new panes with
-auto-review on. A pane's own switch is not saved across a restart; the default
-is.
+Each pane has its own switch, the ✓ button in its header, and new panes start
+from Settings › Behaviour › Start new panes with auto-review on — **on for a
+new installation**. An installation upgraded from a version before that keeps
+it off: a `prefs.json` without the setting, or a state directory an earlier
+run left behind with no `prefs.json` at all, reads as off, and only a state
+directory with nothing in it is given it on. A pane started by another
+agent's `flockdeck spawn` or fan-out starts as that agent's pane is. A pane's
+own switch is not saved across a restart; the default is.
 
 The one key the file can take over is `statusLine`, because Claude Code hands a
 subscription's usage limits to its status line command and nowhere else. Where

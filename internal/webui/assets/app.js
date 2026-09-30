@@ -120,7 +120,7 @@
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
     zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back. Double-clicking the pane's header does the same.",
     close:       "Closes this pane and stops the process running in it.",
-    autoReview:  "Lets a confident, read-only command through without asking, instead of stopping for a permission prompt. It only ever says yes: anything it is not sure of still asks, exactly as before. Off by default; a pane this one starts, by fan-out or by its own spawning, starts with the same setting this pane has.",
+    autoReview:  "Lets a confident, read-only command through without asking, instead of stopping for a permission prompt. It only ever says yes: anything it is not sure of still asks, exactly as before. A new pane starts as Settings › Behaviour says (on, for a new installation); a pane this one starts, by fan-out or by its own spawning, starts with the same setting this pane has.",
     usage:       "What this pane is costing the machine: processor share averaged over the last few readings, and memory, across the agent's process and everything it has started.",
     agent:       "The agent running in this pane, and the model it was asked for. A pane that was given no model runs whatever the agent is already set to.",
     chooseAgent: "Asks which agent and which model, instead of starting the one this project runs by default.",
@@ -10474,10 +10474,10 @@
 
     pane.append(el("div", "set-sub", "Auto-review"));
     pane.append(settingRow("Start new panes with auto-review on",
-      "A pane's own auto-review switch still starts off, whatever this says, unless this is turned on: only a " +
-      "confidently read-only command is ever let through without asking, and it is never asked to say “deny.” " +
-      "A pane opened by hand starts here; one fanned out from another agent starts however plan 3's inheritance " +
-      "lands, once that exists.",
+      "A pane opened by hand, or a fresh row of a fan-out run from the window, starts with its own auto-review " +
+      "switch set to this; one started by another agent starts as that agent's pane is. Only a confidently " +
+      "read-only command is ever let through without asking, and it never says “deny.” On for a new " +
+      "installation; an installation upgraded from before keeps it off until you turn it on.",
       switchControl("set-auto-review-default", !!prefs.autoReviewDefault, (on) => setAutoReviewDefault(on))));
 
     pane.append(el("div", "set-sub", "Status detection"));

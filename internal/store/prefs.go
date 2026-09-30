@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -76,9 +77,13 @@ type Prefs struct {
 	// AutoReviewDefault is the value Pane.AutoReview starts at for a pane with
 	// no parent -- one opened by hand, or a fresh row of a fan-out run from the
 	// window -- rather than inherited from a parent that spawned it with its
-	// own `flockdeck spawn`. Off by default, as the switch itself is: a restart
-	// still asks about everything until this, or the pane's own switch, says
-	// otherwise. See workspace.Pane.AutoReview.
+	// own `flockdeck spawn`. See workspace.Pane.AutoReview.
+	//
+	// On for a new installation and off for one upgraded from before it was:
+	// SettleAutoReviewDefault writes it on into the first preferences file a
+	// new installation has, and a file without it -- every file written before
+	// that, and every one since where it was turned off -- reads as off, so an
+	// upgrade never turns auto-review on for anybody who had not.
 	AutoReviewDefault bool `json:"autoReviewDefault,omitempty"`
 	// JevStatus lets TypeSafe's Jev model help read the status of a pane whose
 	// agent reports none, by being sent the last lines of that pane's terminal
@@ -236,6 +241,55 @@ func ReadPrefs() (Prefs, error) {
 	}
 	p.extra = unknownPrefs(data)
 	return p, nil
+}
+
+// earlierRunFiles are state files only a run of Flockdeck that got as far as
+// opening something writes, as opposed to prefs.json, which only a changed
+// setting or a dismissed hint does. A layout file is recognised by its
+// prefix.
+var earlierRunFiles = []string{recentsFile, sessionFile, groupsFile, todosFile, instanceFile, worktreeProcsFile, "sessions"}
+
+// SettleAutoReviewDefault decides, once, what a new installation's
+// AutoReviewDefault is, and is called as the app starts, with the start lock
+// held so no other launch reads the preferences half way through.
+//
+// A preferences file already there is left as it is: whatever it says, or
+// leaves out, is what this user has. With none, the state directory decides.
+// Holding what an earlier run left behind, it is an installation upgraded
+// from before auto-review was on by default by someone who never changed a
+// setting, and off -- the default they had -- is what they keep. Holding
+// nothing, it is a new installation, and the preferences file is written with
+// auto-review on, which from then on is simply its setting, turned off by
+// the same switch as any other.
+//
+// It reports whether it turned the default on. Anything it cannot establish
+// leaves the preferences unwritten, which reads as off.
+func SettleAutoReviewDefault() (bool, error) {
+	dir, err := Dir()
+	if err != nil {
+		return false, err
+	}
+	if _, err := os.Lstat(filepath.Join(dir, prefsFile)); !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", dir, err)
+	}
+	for _, e := range entries {
+		if slices.Contains(earlierRunFiles, e.Name()) || strings.HasPrefix(e.Name(), "layout-") {
+			return false, nil
+		}
+	}
+	p, err := ReadPrefs()
+	if err != nil {
+		return false, err
+	}
+	p.AutoReviewDefault = true
+	if err := SavePrefs(p); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // SavePrefs writes the preferences.

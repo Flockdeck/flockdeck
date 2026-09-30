@@ -9488,3 +9488,42 @@ func TestRoutingRulesControlCanShrink(t *testing.T) {
 		t.Error("app.css: .route-rule-when cannot wrap a long pattern")
 	}
 }
+
+// A new installation has auto-review on by default, which the server sends as
+// the preference itself: the Settings switch shows it on without anybody
+// having pressed it, a new pane's ✓ is lit with a tooltip that says so, and an
+// installation where it is off shows both off.
+func TestTheAutoReviewDefaultShowsWhatItIs(t *testing.T) {
+	runFrontEnd(t, `
+const on = (id) => h.$(id).getAttribute("aria-checked") === "true";
+const review = () => h.$("workspace").querySelectorAll("button").find((b) => b.textContent === "✓");
+
+h.hello({ helpSeen: true, dismissedTips: [], autoReviewDefault: true });
+h.recv(fixture({ panes: { p1: pane("p1", { autoReview: true }), p2: pane("p2", { autoReview: true }) } }));
+const lit = review();
+assert.ok(lit, "the pane header has no auto-review button");
+assert.ok(lit.classList.contains("reviewing") && lit.getAttribute("aria-pressed") === "true",
+  "a pane that started with auto-review on does not show it on");
+assert.ok(/^Auto-review is on/.test(lit.dataset.tip) && /Settings › Behaviour/.test(lit.dataset.tip) && !/Off by default/.test(lit.dataset.tip),
+  "the tooltip does not say auto-review is on and where a new pane's setting comes from: " + lit.dataset.tip);
+h.click(h.$("btn-settings"));
+h.click(h.$("settings-tab-behaviour"));
+assert.ok(on("set-auto-review-default"), "the default is on and the switch says otherwise");
+assert.ok(/new installation/.test(h.$("settings-pane").textContent),
+  "the setting does not say it is on for a new installation");
+h.click(h.$("set-auto-review-default"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "autoReviewDefault", kind: "off" });
+assert.ok(!on("set-auto-review-default"), "the switch did not turn off at once");
+`)
+	runFrontEnd(t, `
+const on = (id) => h.$(id).getAttribute("aria-checked") === "true";
+h.hello({ helpSeen: true, dismissedTips: [] });
+h.recv(fixture());
+const off = h.$("workspace").querySelectorAll("button").find((b) => b.textContent === "✓");
+assert.ok(!off.classList.contains("reviewing") && /^Auto-review is off/.test(off.dataset.tip),
+  "a pane with auto-review off does not show it off");
+h.click(h.$("btn-settings"));
+h.click(h.$("settings-tab-behaviour"));
+assert.ok(!on("set-auto-review-default"), "an installation without the default shows it on");
+`)
+}
