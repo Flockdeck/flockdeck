@@ -823,7 +823,7 @@ assert.strictEqual(h.doc.title, "● 2 working · Flockdeck");
 
 h.recv(fixture({ waiting: 0, working: 0 }));
 assert.strictEqual(box.textContent, "", "an idle workspace shows nothing");
-assert.strictEqual(h.doc.title, "flockdeck");
+assert.strictEqual(h.doc.title, "Flockdeck");
 `)
 	t.Log(strings.TrimSpace(out))
 }
