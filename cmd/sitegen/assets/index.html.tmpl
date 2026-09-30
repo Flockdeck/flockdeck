@@ -69,7 +69,7 @@
 <b>Running</b> go test ./internal/api/
 <span class="ok">ok</span>  internal/api  <span class="dim">1.284s</span></pre>
     </div>
-    <div class="pane is-waiting" data-pane="ui">
+    <div class="pane focused is-waiting" data-pane="ui">
       <div class="pane-head"><span aria-hidden="true" class="dot waiting">▲</span> <span class="name">ui</span> <span class="branch">feat/ui</span></div>
       <pre class="term" data-term="ui" data-at="0 500 820 700 260 200"><span class="u">$</span> flockdeck — agent: codex
 <b>Reading</b> internal/webui/assets/app.js
@@ -89,15 +89,15 @@
 </section>
 <p class="deck-cap">Three agents on three branches. One needs you.</p>
 
-<div class="legend" role="group" aria-label="What the status glyphs mean">
+<div class="legend" role="group" aria-label="What the status marks mean">
   <div><span aria-hidden="true" class="dot working">●</span> <b>working</b> <span class="t">agent is running</span></div>
   <div><span aria-hidden="true" class="dot waiting">▲</span> <b>waiting</b> <span class="t">needs your input</span></div>
   <div><span aria-hidden="true" class="dot idle">●</span> <b>idle</b> <span class="t">finished its turn</span></div>
+  <div><span aria-hidden="true" class="dot failed">●</span> <b>failed</b> <span class="t">hit an error</span></div>
   <div><span aria-hidden="true" class="dot exited">●</span> <b>exited</b> <span class="t">process has stopped</span></div>
 </div>
 
 <section class="band" id="why">
-  <p class="eyebrow">The problem</p>
   <h2>One agent is easy. Five in one repo collide.</h2>
   <p>Agents working the same checkout can undo each other's edits, or fight
      over who's on which branch. Flockdeck gives each one
@@ -109,7 +109,6 @@
 </section>
 
 <section class="band shot" id="app">
-  <p class="eyebrow">In the app</p>
   <h2>Every agent in one window.</h2>
   <figure class="figure">
     <img src="{{asset "deck.png"}}" srcset="{{asset "deck-1584.png"}} 1584w, {{asset "deck.png"}} 3168w" sizes="(max-width: 1080px) 100vw, 1032px" width="1584" height="985" loading="lazy" alt="A Flockdeck window with four agents in a two-by-two grid, and a rail down the left listing four open projects, two of them badged amber because an agent in each is waiting. Gemini CLI has written a four-step plan, Claude Code is running tests on the pricing branch, Codex is adding a search endpoint, and a second Claude Code pane is highlighted in amber, waiting for permission to run a migration. The two Claude Code panes' headers show what they have spent: an estimated $2.14 for the one running tests, and 221k tokens for the waiting one, beside a small meter saying 72% of its five-hour limit is used.">
@@ -118,7 +117,6 @@
 </section>
 
 <section class="band" id="what">
-  <p class="eyebrow">Features</p>
   <h2>What makes it worth switching to.</h2>
   <div class="grid">
     <div class="card">
@@ -209,7 +207,6 @@
 </section>
 
 <section class="band" id="fanout">
-  <p class="eyebrow">Fan out</p>
   <h2>One plan in. A branch per task out.</h2>
   <p>Ask an agent for a plan and edit the list. Flockdeck starts an agent for
      every line, each in its own worktree, and your deck fills up. With
@@ -243,7 +240,6 @@
      commands that turn it on. The relay's address is left out, since it is
      still free to change. -->
 <section class="band" id="remote">
-  <p class="eyebrow">Remote access</p>
   <h2>Check in on your agents from anywhere.</h2>
   <p>Leave Flockdeck running at your desk — or headless, on a server you
      own — and pick it up from your laptop, tablet or phone. See
@@ -352,7 +348,6 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   </div>
 </section>
 <section class="band shot">
-  <p class="eyebrow">Built in</p>
   <h2>Pick any agent. See every branch.</h2>
   <div class="pair">
     <figure class="figure">
@@ -366,7 +361,6 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   </div>
 </section>
 <section class="band" id="install">
-  <p class="eyebrow">Install</p>
   <h2>Up and running in one line.</h2>
   <p>For Windows, macOS and Linux, on Intel and AMD (amd64) or ARM (arm64)
      machines.</p>
@@ -477,7 +471,6 @@ make package    <span class="c"># archives for all six platforms</span></code></
 </section>
 
 <section class="band" id="faq">
-  <p class="eyebrow">FAQ</p>
   <h2>Questions, answered.</h2>
   <div class="faq">
     <details open>
@@ -601,7 +594,6 @@ make package    <span class="c"># archives for all six platforms</span></code></
      who asked to be named: a name, and a link where they gave one, with no
      logo, so that a company's line is not an advertisement. -->
 <section class="band" id="sponsor">
-  <p class="eyebrow">Sponsor</p>
   <h2>Say thank you.</h2>
   <p>Flockdeck is free, with its source available. If it's useful to you or
      your company, you can sponsor it through GitHub Sponsors. Sponsoring buys

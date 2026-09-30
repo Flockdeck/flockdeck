@@ -886,7 +886,7 @@ func TestEveryLinkedFileCarriesItsFingerprint(t *testing.T) {
 // its own is left alone.
 func TestARegenerationLeavesNothingStale(t *testing.T) {
 	dir := t.TempDir()
-	stale := []string{"site.css", "deck.png", "site.0123456789.css", "fonts/archivo.abcdef0123.woff2", "fonts/archivo.woff2"}
+	stale := []string{"site.css", "deck.png", "site.0123456789.css", "fonts/ibm-plex-sans.abcdef0123.woff2", "fonts/ibm-plex-sans.woff2"}
 	kept := []string{"Dockerfile", "nginx.conf", "README.md", "notes.1234.txt"}
 	for _, name := range append(append([]string{}, stale...), kept...) {
 		path := filepath.Join(dir, filepath.FromSlash(name))
@@ -911,7 +911,7 @@ func TestARegenerationLeavesNothingStale(t *testing.T) {
 		}
 	}
 	servedAs(t, dir, "site.css")
-	servedAs(t, dir, "fonts/archivo.woff2")
+	servedAs(t, dir, "fonts/ibm-plex-sans.woff2")
 }
 
 // A page that was open before a deploy goes on asking for the files it names
@@ -935,15 +935,15 @@ func TestARegenerationKeepsWhatThePagesBeforeItLinked(t *testing.T) {
 	}
 	// The generation before: pages naming files whose content has changed
 	// since, one of them only through the stylesheet.
-	previous := []string{"site.aaaaaaaaaa.css", "fonts/archivo.bbbbbbbbbb.woff2", "deck.cccccccccc.png", "deck-1584.dddddddddd.png", "og.eeeeeeeeee.png"}
+	previous := []string{"site.aaaaaaaaaa.css", "fonts/ibm-plex-sans.bbbbbbbbbb.woff2", "deck.cccccccccc.png", "deck-1584.dddddddddd.png", "og.eeeeeeeeee.png"}
 	write("index.html", `<link rel="stylesheet" href="site.aaaaaaaaaa.css">`+
 		`<meta property="og:image" content="`+defaultURL+`/og.eeeeeeeeee.png">`+
 		`<img src="deck.cccccccccc.png" srcset="deck-1584.dddddddddd.png 1584w, deck.cccccccccc.png 3168w">`)
-	write("site.aaaaaaaaaa.css", `@font-face { src: url("fonts/archivo.bbbbbbbbbb.woff2") }`)
+	write("site.aaaaaaaaaa.css", `@font-face { src: url("fonts/ibm-plex-sans.bbbbbbbbbb.woff2") }`)
 	for _, name := range previous[1:] {
 		write(name, "from before")
 	}
-	older := []string{"site.ffffffffff.css", "fonts/archivo.9999999999.woff2", "shot.8888888888.png"}
+	older := []string{"site.ffffffffff.css", "fonts/ibm-plex-sans.9999999999.woff2", "shot.8888888888.png"}
 	for _, name := range older {
 		write(name, "from long before")
 	}
@@ -976,7 +976,7 @@ func TestARegenerationKeepsWhatThePagesBeforeItLinked(t *testing.T) {
 	}
 	// The site's own files are there, each once.
 	servedAs(t, dir, "site.css")
-	servedAs(t, dir, "fonts/archivo.woff2")
+	servedAs(t, dir, "fonts/ibm-plex-sans.woff2")
 }
 
 // The site is deployed from its repository's commits, so the generation being
@@ -1013,10 +1013,10 @@ func TestARegenerationKeepsWhatTheCommittedPagesLink(t *testing.T) {
 	}
 	// The generation being served: committed, with a page naming files one
 	// of them only through the stylesheet.
-	served := []string{"site.aaaaaaaaaa.css", "fonts/archivo.bbbbbbbbbb.woff2", "deck.cccccccccc.png"}
+	served := []string{"site.aaaaaaaaaa.css", "fonts/ibm-plex-sans.bbbbbbbbbb.woff2", "deck.cccccccccc.png"}
 	git("init", "-q")
 	write("index.html", `<link rel="stylesheet" href="site.aaaaaaaaaa.css"><img src="deck.cccccccccc.png">`)
-	write("site.aaaaaaaaaa.css", `@font-face { src: url("fonts/archivo.bbbbbbbbbb.woff2") }`)
+	write("site.aaaaaaaaaa.css", `@font-face { src: url("fonts/ibm-plex-sans.bbbbbbbbbb.woff2") }`)
 	for _, name := range served[1:] {
 		write(name, "from the commit")
 	}
