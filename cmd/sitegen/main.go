@@ -86,7 +86,7 @@ var assets embed.FS
 // icon is the application's own mark, which becomes the site's favicon.
 //
 // It is copied from internal/webui/assets rather than drawn again here: the
-// deck with two agents at rest and one raised is the same picture in the tab
+// five agents flying in formation is the same picture in the tab
 // strip, in the taskbar and on the page, and a second copy would be a second
 // thing to keep in step.
 //
@@ -871,8 +871,9 @@ func (foldedText) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 // wordmark is the mark at 20px, inline so the header does not wait on a
 // request to draw its own name. The geometry is the icon's.
 const wordmark template.HTML = `<svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true">` +
-	`<rect fill="#93A1A9" x="3" y="22" width="26" height="2.6" rx="1.3"/>` +
-	`<circle fill="#93A1A9" cx="8.4" cy="18" r="3.4"/>` +
-	`<circle fill="#93A1A9" cx="23.6" cy="18" r="3.4"/>` +
-	`<path fill="#4FD1DB" d="M16 3.4L21 12.2H11Z"/>` +
+	`<circle fill="#93A1A9" cx="9" cy="5.5" r="3.3"/>` +
+	`<circle fill="#93A1A9" cx="16" cy="10.75" r="3.3"/>` +
+	`<circle fill="#93A1A9" cx="16" cy="21.25" r="3.3"/>` +
+	`<circle fill="#93A1A9" cx="9" cy="26.5" r="3.3"/>` +
+	`<circle fill="#4FD1DB" cx="23" cy="16" r="3.3"/>` +
 	`</svg>`
