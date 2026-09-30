@@ -21,7 +21,10 @@ tells you what the agent is actually doing rather than only that it is busy.
 
 ## Where else it shows
 
-- **The tab** holding a waiting agent is marked `▲`.
+- **The tab** holding a waiting agent is marked `▲`. A tab with an agent
+  working, or idle between turns with background work still running, has a
+  pulsing filled dot instead; the `▲` takes its place when an agent there is
+  waiting.
 - **The window title** reports the count, so a waiting agent is visible in the
   taskbar with the window behind something else.
 - **The top bar** counts the agents waiting and working in this project. Click

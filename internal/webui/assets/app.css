@@ -450,13 +450,7 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
  * that gives up width. Everything else keeps its size, so the last control
  * is never clipped off the edge. */
 #topbar > * { flex: 0 0 auto; }
-#topbar > /* An agent in this tab is working, or has background work running. */
-.tab .busy-dot {
-  flex: 0 0 auto; margin-left: 6px; width: 8px; height: 8px; font-size: 0;
-  border-radius: 50%; background: var(--working);
-}
-
-.spacer { flex: 1 1 auto; }
+#topbar > .spacer { flex: 1 1 auto; }
 #topbar > #tabbar { flex: 0 1 auto; min-width: 0; }
 #tabbar { display: flex; align-items: center; gap: 8px; }
 
@@ -566,6 +560,15 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
 .tab .attn {
   flex: 0 0 auto; margin-left: 4px; width: 10px; height: 10px; font-size: 0;
   background: var(--waiting); clip-path: polygon(50% 6%, 100% 94%, 0 94%);
+}
+
+/* An agent in this tab is working, or has background work running: the
+ * working mark of the pane header (.dot.working), a filled circle that
+ * breathes. It stops under prefers-reduced-motion with every other animation. */
+.tab .busy-dot {
+  flex: 0 0 auto; margin-left: 6px; width: 8px; height: 8px; font-size: 0;
+  align-self: center; border-radius: 50%; background: var(--working);
+  animation: pulse var(--pulse) var(--ease-in-out) infinite;
 }
 
 .spacer { flex: 1 1 auto; }

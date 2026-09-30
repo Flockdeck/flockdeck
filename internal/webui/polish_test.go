@@ -1066,7 +1066,20 @@ func TestTabStripMarksABusyTab(t *testing.T) {
 			t.Errorf("app.js lacks %q", want)
 		}
 	}
-	if css := readAsset(t, "app.css"); !strings.Contains(css, ".tab .busy-dot") {
-		t.Error("app.css does not style .tab .busy-dot")
+	css := stripComments(readAsset(t, "app.css"))
+	// The working mark of the pane header: an 8px filled circle that pulses,
+	// stopped by the reduced-motion rule like every other animation.
+	body := ruleBody(css, ".tab .busy-dot")
+	if body == "" {
+		t.Fatal("app.css has no .tab .busy-dot rule")
+	}
+	for _, want := range []string{"width: 8px", "height: 8px", "border-radius: 50%", "background: var(--working)", "animation: pulse"} {
+		if !strings.Contains(body, want) {
+			t.Errorf(".tab .busy-dot lacks %q: %s", want, body)
+		}
+	}
+	// It once landed in the middle of the top bar's spacer rule.
+	if ruleBody(css, "#topbar > .spacer") == "" {
+		t.Error("app.css lost its #topbar > .spacer rule")
 	}
 }
