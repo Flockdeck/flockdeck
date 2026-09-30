@@ -57,6 +57,34 @@ func TestTheAccentColourIsKeptAndRestricted(t *testing.T) {
 	}
 }
 
+// "teal" was a swatch of its own while the default accent was blue. The
+// default is now the mark's cyan, which teal was nearest to, so a window (an
+// older one, or a phone's) that still sends teal is not refused: it is kept
+// as the default. Blue, which used to be the default and had no name worth
+// sending, is a swatch of its own and is kept by name.
+func TestTealIsStillAcceptedAndIsTheDefaultAccent(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextHello(t, conn)
+
+	sendCmd(t, conn, command{Cmd: "accentColor", Text: "blue"})
+	if got := nextPrefs(t, conn, func(p store.Prefs) bool { return p.AccentColor == "blue" }); got.AccentColor != "blue" {
+		t.Fatalf("accent pushed to the windows is %q, want blue", got.AccentColor)
+	}
+	if saved := store.LoadPrefs(); saved.AccentColor != "blue" {
+		t.Errorf("the blue accent did not reach disk: %q", saved.AccentColor)
+	}
+
+	sendCmd(t, conn, command{Cmd: "accentColor", Text: "teal"})
+	got := nextPrefs(t, conn, func(p store.Prefs) bool { return p.AccentColor != "blue" })
+	if got.AccentColor != "" {
+		t.Fatalf("teal is kept as %q, want it kept as the default", got.AccentColor)
+	}
+	if saved := store.LoadPrefs(); saved.AccentColor != "" {
+		t.Errorf("teal reached disk as %q, want the default", saved.AccentColor)
+	}
+}
+
 // Fan out's own default for its "Put them in this tab" checkbox is chosen
 // in Settings › Behaviour and kept, so the dialog opens on it next time.
 func TestFanOutSameTabDefaultIsKept(t *testing.T) {

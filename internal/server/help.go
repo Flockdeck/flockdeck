@@ -351,10 +351,14 @@ func (s *Server) setTheme(c *controlClient, theme string) {
 
 // setAccentColor records which of the fixed swatches the window's accent is;
 // a colour outside that set would go illegible against one palette or the
-// other and is refused. "" is the default blue.
+// other and is refused. "" is the default, the mark's cyan. "teal" was a
+// swatch of its own while the default was blue; the default is now the cyan
+// it was nearest to, so it is still accepted, and kept as the default.
 func (s *Server) setAccentColor(c *controlClient, color string) {
 	switch color {
-	case "", "blue", "purple", "green", "orange", "pink", "teal":
+	case "teal":
+		color = ""
+	case "", "blue", "purple", "green", "orange", "pink":
 	default:
 		return
 	}

@@ -1,36 +1,123 @@
+/* The two typefaces, shipped with the application so that no request leaves
+ * it and every platform draws the same letters: one sans for words, one mono
+ * for anything measured or machine-made. Latin subsets; the mono also holds
+ * the arrows and geometric shapes the interface types. The terminals keep
+ * the font chosen in Settings and do not use these. */
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("fonts/ibm-plex-sans.woff2") format("woff2");
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/jetbrains-mono.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* The values here are design/tokens.css's, under the names this sheet has
+ * always used. The dark palette stays in this first bare :root block, as
+ * six-digit colours: the contrast tests read it from here. */
 :root {
   color-scheme: dark;
-  --bg: #14161a;
-  --bg-raised: #1b1e24;
-  --bg-inset: #0f1114;
-  --line: #2a2f38;
-  --line-strong: #3a414d;
-  /* The edge of a text field, which is what shows where the field is. The
-   * line colours above came to under 2:1 on the field; this reaches the 3:1
-   * anything that is not text needs on the field (3.79), the panels (3.35)
-   * and the page (3.63). */
-  --field-line: #69707c;
-  --fg: #d8dee9;
-  --fg-dim: #8b93a1;
-  --accent: #4c9aff;
-  --working: #3fb950;
-  --waiting: #e3a008;
-  --idle: #6e7681;
-  --exited: #f25c54;
-  --cast: #d1731d;
+  /* Ground: the page and the gaps between panes; bars, pane headers and
+   * cards; fields and the rail; dialogs, menus and toasts; a row under the
+   * pointer; a pressed or chosen neutral item. */
+  --bg: #0f1418;
+  --bg-raised: #161c21;
+  --bg-inset: #0a0e11;
+  --bg-overlay: #1b2329;
+  --bg-hover: #1d252b;
+  --bg-active: #252f36;
+  /* Lines: between related things, and the edge of a container. Both are
+   * decoration and under 3:1 on purpose. */
+  --line-subtle: #1f272d;
+  --line: #2c363d;
+  /* The edge of anything operable, a text field above all, which is what
+   * shows where the field is: 4.31:1 on the field, 3.82 on the panels, 4.12
+   * on the page and 3.54 on a dialog, where anything that is not text needs
+   * 3:1. One value under two names; the tests read --field-line. */
+  --line-strong: #6a7982;
+  --field-line: #6a7982;
+  --fg: #e6edf1;
+  --fg-dim: #93a1a9;
+  /* Glyphs and rules only, never words. */
+  --fg-faint: #738087;
+  /* The mark's cyan: focus, links, the primary action, the chosen row. */
+  --accent: #4fd1db;
+  --accent-strong: #7be0e8;
+  --accent-subtle: #0e2b2e;
+  --accent-line: #1f4e53;
+  --on-accent: #0f1418;
+  /* Status, only ever set from a state the application knows. --exited is
+   * the red of a failure, and keeps the name it has always had here; a pane
+   * that simply ended is --ended. */
+  --working: #4fd1db;
+  --waiting: #e2b341;
+  --waiting-subtle: #2a2110;
+  --waiting-line: #4e3d18;
+  --idle: #93a1a9;
+  --exited: #f0776a;
+  --exited-subtle: #2c1512;
+  --exited-line: #58251f;
+  --ended: #738087;
+  /* A verdict, not a state: passed, clean, lines added, ahead. */
+  --ok: #64c97f;
+  --ok-subtle: #10261a;
+  --ok-line: #24492f;
+  /* Broadcast is on: what is typed goes to every pane. */
+  --cast: #c98be0;
+  --on-cast: #170d1c;
+  --on-exited: #1f0907;
+  --on-ok: #06180c;
+  /* The terminal is the content, and an agent's colours are chosen for a
+   * dark ground, so it is the same in both themes. */
+  --term-bg: #0a0e11;
+  --term-fg: #d7dfe4;
+  --term-cursor: #4fd1db;
+
+  --scrim: rgb(5 8 10 / .62);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / .4);
+  --shadow-2: 0 8px 24px -8px rgb(0 0 0 / .6);
+  --shadow-3: 0 20px 56px -16px rgb(0 0 0 / .75);
+
+  --sans: "IBM Plex Sans", "Segoe UI", -apple-system, BlinkMacSystemFont, Ubuntu, "Helvetica Neue", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, "SF Mono", monospace;
+
+  /* Three radii and a pill: tags and keys; everything operable; containers;
+   * status pills, switches and count badges. */
+  --radius-sm: 4px;
   --radius: 6px;
+  --radius-lg: 10px;
+  --radius-full: 999px;
+
+  /* Colour under the pointer; a press, a switch, the rail's width; a dialog
+   * or a toast arriving; the working mark's breath. */
+  --dur-1: 80ms;
+  --dur-2: 140ms;
+  --dur-3: 220ms;
+  --pulse: 1.6s;
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-in: cubic-bezier(.7, 0, .84, 0);
+  --ease-in-out: cubic-bezier(.65, 0, .35, 1);
+
   --header-h: 26px;
 }
 
-/* The accent swatches Settings › Appearance offers, dark-safe: each reaches
- * at least 4.5:1 on --bg-inset and --bg-raised, which is everywhere an
- * accent stands for text or an outline against this palette. The default
- * swatch is plain --accent above and gets no [data-accent] rule of its own. */
-:root[data-accent="purple"] { --accent: #b48cf0; }
-:root[data-accent="green"]  { --accent: #4fd17a; }
+/* The accent swatches Settings › Appearance offers. Each reaches at least
+ * 4.5:1 on --bg-inset and --bg-raised, and --on-accent reaches it on each as
+ * a fill. The accent changes focus, links, the primary fill and the chosen
+ * row; it never changes a status. The default swatch is plain --accent above
+ * and gets no [data-accent] rule of its own. app.js's ACCENTS list repeats
+ * these colours for the swatches themselves. */
+:root[data-accent="blue"]   { --accent: #6cb0ff; }
+:root[data-accent="purple"] { --accent: #b99af5; }
+:root[data-accent="green"]  { --accent: #64c97f; }
 :root[data-accent="orange"] { --accent: #f0a552; }
 :root[data-accent="pink"]   { --accent: #f28fc0; }
-:root[data-accent="teal"]   { --accent: #4fd0c6; }
 
 /* The light palette: Settings › Appearance's Light, forced with
  * [data-theme="light"] regardless of the system's own setting, and Follow
@@ -39,53 +126,123 @@
  * root, so the OS decides between this and the plain dark :root above.
  * "Dark" and the default (no preference made yet) are always the bare :root,
  * whatever the system prefers: this used to be the only palette there was,
- * and it stays what nobody has asked to change gets. */
+ * and it stays what nobody has asked to change gets. The two copies below
+ * must be kept the same by hand. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f4f5f7;
+  --bg: #fafbfb;
   --bg-raised: #ffffff;
-  --bg-inset: #e8eaee;
-  --line: #d6dae1;
-  --line-strong: #b7bec9;
-  --field-line: #6b7280;
-  --fg: #1b1e24;
-  --fg-dim: #545c68;
-  --accent: #1f5fd6;
-  --working: #17803d;
-  --waiting: #8a6200;
-  --idle: #6b7280;
-  --exited: #c9302c;
-  --cast: #9a5713;
+  --bg-inset: #f1f3f4;
+  --bg-overlay: #ffffff;
+  --bg-hover: #eef1f2;
+  --bg-active: #e3e7e9;
+  --line-subtle: #e3e7e9;
+  --line: #cbd2d6;
+  --line-strong: #7a868c;
+  --field-line: #7a868c;
+  --fg: #131a1e;
+  --fg-dim: #5c676d;
+  --fg-faint: #7a868c;
+  --accent: #0b6e77;
+  --accent-strong: #08575e;
+  --accent-subtle: #e6f3f4;
+  --accent-line: #a9d5d8;
+  --on-accent: #ffffff;
+  --working: #0b6e77;
+  --waiting: #875a08;
+  --waiting-subtle: #faf0dc;
+  --waiting-line: #e3ce96;
+  --idle: #5c676d;
+  --exited: #b02a1f;
+  --exited-subtle: #fbeae8;
+  --exited-line: #ebb8b1;
+  --ended: #7a868c;
+  --ok: #196634;
+  --ok-subtle: #e7f2ea;
+  --ok-line: #b4d6bf;
+  --cast: #7e3aa0;
+  --on-cast: #ffffff;
+  --on-exited: #ffffff;
+  --on-ok: #ffffff;
+  --scrim: rgb(19 26 30 / .38);
+  --shadow-1: 0 1px 2px rgb(19 26 30 / .08);
+  --shadow-2: 0 8px 24px -8px rgb(19 26 30 / .18);
+  --shadow-3: 0 20px 56px -16px rgb(19 26 30 / .28);
 }
-:root[data-theme="light"][data-accent="purple"] { --accent: #7c4dd6; }
-:root[data-theme="light"][data-accent="green"]  { --accent: #12803a; }
-:root[data-theme="light"][data-accent="orange"] { --accent: #b5590c; }
-:root[data-theme="light"][data-accent="pink"]   { --accent: #b93c85; }
-:root[data-theme="light"][data-accent="teal"]   { --accent: #0e7f77; }
+:root[data-theme="light"][data-accent="blue"]   { --accent: #1f5fa8; }
+:root[data-theme="light"][data-accent="purple"] { --accent: #7044c4; }
+:root[data-theme="light"][data-accent="green"]  { --accent: #196634; }
+:root[data-theme="light"][data-accent="orange"] { --accent: #9a4d08; }
+:root[data-theme="light"][data-accent="pink"]   { --accent: #a8327a; }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
     color-scheme: light;
-    --bg: #f4f5f7;
+    --bg: #fafbfb;
     --bg-raised: #ffffff;
-    --bg-inset: #e8eaee;
-    --line: #d6dae1;
-    --line-strong: #b7bec9;
-    --field-line: #6b7280;
-    --fg: #1b1e24;
-    --fg-dim: #545c68;
-    --accent: #1f5fd6;
-    --working: #17803d;
-    --waiting: #8a6200;
-    --idle: #6b7280;
-    --exited: #c9302c;
-    --cast: #9a5713;
+    --bg-inset: #f1f3f4;
+    --bg-overlay: #ffffff;
+    --bg-hover: #eef1f2;
+    --bg-active: #e3e7e9;
+    --line-subtle: #e3e7e9;
+    --line: #cbd2d6;
+    --line-strong: #7a868c;
+    --field-line: #7a868c;
+    --fg: #131a1e;
+    --fg-dim: #5c676d;
+    --fg-faint: #7a868c;
+    --accent: #0b6e77;
+    --accent-strong: #08575e;
+    --accent-subtle: #e6f3f4;
+    --accent-line: #a9d5d8;
+    --on-accent: #ffffff;
+    --working: #0b6e77;
+    --waiting: #875a08;
+    --waiting-subtle: #faf0dc;
+    --waiting-line: #e3ce96;
+    --idle: #5c676d;
+    --exited: #b02a1f;
+    --exited-subtle: #fbeae8;
+    --exited-line: #ebb8b1;
+    --ended: #7a868c;
+    --ok: #196634;
+    --ok-subtle: #e7f2ea;
+    --ok-line: #b4d6bf;
+    --cast: #7e3aa0;
+    --on-cast: #ffffff;
+    --on-exited: #ffffff;
+    --on-ok: #ffffff;
+    --scrim: rgb(19 26 30 / .38);
+    --shadow-1: 0 1px 2px rgb(19 26 30 / .08);
+    --shadow-2: 0 8px 24px -8px rgb(19 26 30 / .18);
+    --shadow-3: 0 20px 56px -16px rgb(19 26 30 / .28);
   }
-  :root:not([data-theme])[data-accent="purple"] { --accent: #7c4dd6; }
-  :root:not([data-theme])[data-accent="green"]  { --accent: #12803a; }
-  :root:not([data-theme])[data-accent="orange"] { --accent: #b5590c; }
-  :root:not([data-theme])[data-accent="pink"]   { --accent: #b93c85; }
-  :root:not([data-theme])[data-accent="teal"]   { --accent: #0e7f77; }
+  :root:not([data-theme])[data-accent="blue"]   { --accent: #1f5fa8; }
+  :root:not([data-theme])[data-accent="purple"] { --accent: #7044c4; }
+  :root:not([data-theme])[data-accent="green"]  { --accent: #196634; }
+  :root:not([data-theme])[data-accent="orange"] { --accent: #9a4d08; }
+  :root:not([data-theme])[data-accent="pink"]   { --accent: #a8327a; }
+}
+
+/* What goes with a chosen accent is made from it: brighter for hover (deeper
+ * on a light ground), and two tints of it on the page for the chosen row and
+ * its edge. The tint is fainter on a light ground, where the dim text on a
+ * chosen row would otherwise fall short of 4.5:1. After the palettes above,
+ * which would otherwise put the default accent's own tints back. */
+:root[data-accent] {
+  --accent-strong: color-mix(in srgb, var(--accent) 72%, #ffffff);
+  --accent-subtle: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  --accent-line: color-mix(in srgb, var(--accent) 34%, var(--bg));
+}
+:root[data-theme="light"][data-accent] {
+  --accent-strong: color-mix(in srgb, var(--accent) 80%, #000000);
+  --accent-subtle: color-mix(in srgb, var(--accent) 10%, var(--bg));
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme])[data-accent] {
+    --accent-strong: color-mix(in srgb, var(--accent) 80%, #000000);
+    --accent-subtle: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  }
 }
 
 * { box-sizing: border-box; }
@@ -96,7 +253,7 @@ html, body {
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
-  font: 13px/1.4 "Segoe UI", -apple-system, BlinkMacSystemFont, Ubuntu, "Helvetica Neue", sans-serif;
+  font: 13px/1.4 var(--sans);
 }
 
 body { display: flex; flex-direction: column; }
@@ -124,10 +281,10 @@ body { display: flex; flex-direction: column; }
   position: fixed; inset: 0; z-index: 100;
   display: flex; align-items: center; justify-content: center;
   background: var(--bg);
-  opacity: 1; transition: opacity .18s ease-out;
+  opacity: 1; transition: opacity 160ms var(--ease-in);
 }
 #splash.gone { opacity: 0; pointer-events: none; }
-.splash-mark { width: 56px; height: 56px; animation: pulse 1.6s ease-in-out infinite; }
+.splash-mark { width: 56px; height: 56px; animation: pulse var(--pulse) var(--ease-in-out) infinite; }
 
 /* ---------------------------------------------------------------- the rail */
 
@@ -140,7 +297,7 @@ body { flex-direction: row; }
   width: 52px; flex: 0 0 auto;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
   padding: 8px 0;
-  background: var(--bg-inset); border-right: 1px solid var(--line);
+  background: var(--bg-inset); border-right: 1px solid var(--line-subtle);
   /* A short window - a phone held sideways - has less height than the
    * buttons need, and the rail then scrolls as a whole rather than cutting
    * Settings off the bottom. */
@@ -148,7 +305,7 @@ body { flex-direction: row; }
 }
 #rail::-webkit-scrollbar { display: none; }
 .rail-mark { width: 24px; height: 24px; margin: 6px 0; flex: 0 0 auto; }
-.rail-rule { width: 24px; height: 1px; background: var(--line); margin: 4px 0; flex: 0 0 auto; }
+.rail-rule { width: 24px; height: 1px; background: var(--line-subtle); margin: 4px 0; flex: 0 0 auto; }
 .rail-fill { flex: 1 1 auto; }
 /* The projects scroll among themselves when there are more than fit, and
  * give up their height before the tools under them do. The padding is room
@@ -162,49 +319,62 @@ body { flex-direction: row; }
 
 .rail-btn {
   position: relative; flex: 0 0 auto;
-  width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px;
+  width: 36px; height: 36px; padding: 0; border: 0; border-radius: var(--radius);
   display: flex; align-items: center; justify-content: center; gap: 10px;
   background: transparent; color: var(--fg-dim); font: inherit; cursor: pointer;
+  transition: background-color var(--dur-1) linear, color var(--dur-1) linear;
 }
-.rail-btn:hover { background: #22262e; color: var(--fg); }
+.rail-btn:hover { background: var(--bg-hover); color: var(--fg); }
 /* As wide as a monogram's own box, so a tool's icon lines up under a
  * project's two-letter tile instead of sitting 8px further left -- ragged
  * once the rail is wide enough to show both in a column -- and so the badge
  * below, fixed to this same width, clears the label instead of sitting on
  * top of its first letter. */
 .rail-btn .ico { width: 24px; justify-content: center; }
-.rail-tile .mono { font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+.rail-tile .mono { font-size: 12px; font-weight: 600; letter-spacing: .02em; }
 /* The project on screen: a lighter ground, and an edge so that it is told
  * apart from the tile the pointer happens to be over. */
-.rail-tile.current { background: #262a32; color: var(--fg); box-shadow: inset 0 0 0 1px var(--line-strong); }
-/* Broadcast is on: the orange it is everywhere else, with dark ink on it. */
-.rail-btn.on { background: var(--cast); color: #1f0d02; }
-.rail-btn.on:hover { background: var(--cast); color: #1f0d02; }
+.rail-tile.current { background: var(--bg-active); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line); }
+/* Broadcast is on: the violet it is everywhere else, with its own ink on it. */
+.rail-btn.on { background: var(--cast); color: var(--on-cast); }
+.rail-btn.on:hover { background: var(--cast); color: var(--on-cast); }
 
-/* A dot on the corner of a tile or a button. Amber on a project is an agent
- * there waiting on you, which is what the rail is most for; on Remote, green
- * is a working tunnel, grey one still connecting and amber one in trouble; on
- * the button that folds the rail away, amber is an agent waiting on you in a
- * project other than the one on screen, so it still shows once its own tile
- * is out of sight. */
+/* A status mark on the corner of a tile or a button, in the shapes the pane
+ * headers use, ringed in the rail's own ground so it reads over the icon. An
+ * amber triangle on a project is an agent there waiting on you, which is
+ * what the rail is most for; on Remote, a filled circle is a working tunnel,
+ * a hollow one a tunnel still connecting and the triangle one in trouble; on
+ * the button that folds the rail away, the triangle is an agent waiting on
+ * you in a project other than the one on screen, so it still shows once its
+ * own tile is out of sight. */
 .rail-badge {
   display: none; position: absolute; right: 3px; top: 3px;
   width: 8px; height: 8px; border-radius: 50%;
   box-shadow: 0 0 0 2px var(--bg-inset);
 }
-.rail-badge.waiting, .rail-badge.trouble { display: block; background: var(--waiting); }
+/* The triangle is cut from a child, so that the ring, which a clip on the
+ * badge itself would cut away with the rest, can be drawn round it. */
+.rail-badge.waiting, .rail-badge.trouble {
+  display: block; width: 10px; height: 10px; right: 2px; top: 2px;
+  border-radius: 0; box-shadow: none;
+  filter: drop-shadow(1px 0 0 var(--bg-inset)) drop-shadow(-1px 0 0 var(--bg-inset))
+    drop-shadow(0 1px 0 var(--bg-inset)) drop-shadow(0 -1px 0 var(--bg-inset));
+}
+.rail-badge.waiting::before, .rail-badge.trouble::before {
+  content: ""; display: block; width: 100%; height: 100%;
+  background: var(--waiting); clip-path: polygon(50% 6%, 100% 94%, 0 94%);
+}
 .rail-badge.on { display: block; background: var(--working); }
-/* On a project, green is an agent there at work and nobody waiting: the pane
- * header's own pulse, so the two read as one thing. Amber is bigger and rings
- * itself, as the pane's waiting dot does, so the two differ by more than hue. */
-.rail-badge.working { display: block; background: var(--working); animation: pulse 1.6s ease-in-out infinite; }
-#rail-projects .rail-badge.waiting { width: 10px; height: 10px; right: 2px; top: 2px; }
-/* The count beside a project's name, in the shape that goes with its colour:
+/* On a project, the filled circle is an agent there at work and nobody
+ * waiting: the pane header's own breathing mark, so the two read as one
+ * thing. */
+.rail-badge.working { display: block; background: var(--working); animation: pulse var(--pulse) var(--ease-in-out) infinite; }
+/* The count beside a project's name, in the colour that goes with its mark:
  * only where the row is wide enough to hold it. */
-.rail-count { display: none; margin-left: auto; flex: 0 0 auto; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--fg-dim); }
+.rail-count { display: none; margin-left: auto; flex: 0 0 auto; font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--fg-dim); }
 .rail-count.waiting { color: var(--waiting); }
 .rail-count.working { color: var(--working); }
-.rail-badge.pending { display: block; background: var(--idle); }
+.rail-badge.pending { display: block; background: var(--bg-inset); box-shadow: inset 0 0 0 1.5px var(--idle), 0 0 0 2px var(--bg-inset); }
 
 /* Only a narrow screen, where the rail is folded away, has these two. */
 #rail-toggle { display: none; position: relative; }
@@ -232,7 +402,7 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
    * rules apply to it. Smooth for the toggle button, off during a drag:
    * chasing a moving target through an eased transition reads as lag rather
    * than as the pointer. */
-  #rail { transition: width 140ms ease; }
+  #rail { transition: width var(--dur-2) var(--ease-out); }
   body.rail-resizing #rail { transition: none; }
 
   body.rail-expanded #rail { align-items: stretch; }
@@ -273,7 +443,7 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
   height: 40px;
   padding: 0 10px 0 12px;
   background: var(--bg-raised);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-subtle);
   flex: 0 0 auto;
 }
 /* The tab strip is the one part of the bar that scrolls, so it is the part
@@ -286,27 +456,29 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
 
 .bar-btn {
   display: flex; align-items: center; justify-content: center;
-  height: 26px; min-width: 26px; padding: 0 4px; border: 0; border-radius: 5px;
+  height: 26px; min-width: 26px; padding: 0 4px; border: 0; border-radius: var(--radius);
   background: transparent; color: var(--fg-dim); font: inherit; cursor: pointer;
+  transition: background-color var(--dur-1) linear, color var(--dur-1) linear;
 }
-.bar-btn:hover { background: #22262e; color: var(--fg); }
+.bar-btn:hover { background: var(--bg-hover); color: var(--fg); }
 /* The plus and its caret are one control with a fast half and a slow half. */
 .new-tab-group { display: flex; align-items: center; border: 1px solid var(--line); border-radius: var(--radius); }
 .new-tab-group .bar-btn { height: 24px; border-radius: 0; }
-.new-tab-group #new-tab { width: 28px; border-radius: 5px 0 0 5px; }
-.new-tab-group .caret-btn { width: 22px; min-width: 22px; border-left: 1px solid var(--line); border-radius: 0 5px 5px 0; }
+.new-tab-group #new-tab { width: 28px; border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.new-tab-group .caret-btn { width: 22px; min-width: 22px; border-left: 1px solid var(--line); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 
 .commands {
   display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 6px 0 8px;
   border: 1px solid var(--line); border-radius: var(--radius);
   background: transparent; color: var(--fg-dim); font: inherit; font-size: 12px;
   white-space: nowrap; cursor: pointer;
+  transition: background-color var(--dur-1) linear, color var(--dur-1) linear;
 }
-.commands:hover { background: #22262e; color: var(--fg); }
-.commands-keys { display: flex; gap: 3px; }
+.commands:hover { background: var(--bg-hover); color: var(--fg); }
+.commands-keys { display: flex; gap: 4px; }
 .commands-keys kbd {
   background: transparent; color: var(--fg-dim); border-bottom-width: 1px;
-  padding: 0 5px; font-size: 11px; line-height: 17px;
+  padding: 0 4px; font-size: 11px; line-height: 16px;
 }
 
 /* A scrolling box clips at its padding edge, and the tabs' focus ring is drawn
@@ -345,8 +517,9 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
   white-space: nowrap;
   max-width: 220px;
   font: inherit;
+  transition: background-color var(--dur-1) linear, color var(--dur-1) linear, border-color var(--dur-1) linear;
 }
-.tab:hover { background: #22262e; color: var(--fg); }
+.tab:hover { background: var(--bg-hover); color: var(--fg); }
 .tab.active { background: var(--bg); color: var(--fg); border-color: var(--line); }
 /* The tab itself, beside its close button in the box (see tabNode in app.js):
  * it takes the room the close button leaves, and draws nothing of its own. */
@@ -357,7 +530,7 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
 .tab .label { overflow: hidden; text-overflow: ellipsis; }
 .tab .close {
   opacity: 0; border: 0; background: transparent; color: var(--fg-dim);
-  cursor: pointer; font-size: 14px; line-height: 1; padding: 0; border-radius: 3px;
+  cursor: pointer; font-size: 14px; line-height: 1; padding: 0; border-radius: var(--radius-sm);
   /* The glyph on its own is a ten-pixel target. Squaring it off fills the tab's
    * height instead, which is as much room as there is to give. */
   flex: 0 0 auto; width: 20px; height: 20px;
@@ -367,7 +540,7 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
  * tabs - but opacity hides the focus ring too, and a keyboard user reaching it
  * would otherwise be sitting on a button they cannot see. */
 .tab:hover .close, .tab.active .close, .tab .close:focus-visible { opacity: 1; }
-.tab .close:hover { background: #3a414d; color: var(--fg); }
+.tab .close:hover { background: var(--bg-active); color: var(--fg); }
 /* Opacity hides the button from the eye and not from the finger. On a touch
  * screen - this page is opened on tablets and phones through the relay - there
  * is no hover to reveal it first, so a tap near the right end of a tab meant
@@ -380,8 +553,14 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
 /* An agent in this tab is blocked on the user. */
 .tab.attention { color: var(--waiting); }
 /* The marker is a real element rather than generated content, so that it can
- * carry a tooltip and an accessible name; this only spaces it. */
-.tab .attn { flex: 0 0 auto; margin-left: 4px; }
+ * carry a tooltip and an accessible name. Its text is the triangle a window
+ * title or a terminal has to type; here the same mark the pane header shows
+ * is drawn on it instead, so it does not depend on which font the system
+ * finds the glyph in. */
+.tab .attn {
+  flex: 0 0 auto; margin-left: 4px; width: 10px; height: 10px; font-size: 0;
+  background: var(--waiting); clip-path: polygon(50% 6%, 100% 94%, 0 94%);
+}
 
 .spacer { flex: 1 1 auto; }
 
@@ -390,15 +569,20 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
 #summary {
   display: flex; align-items: center; gap: 12px; height: 28px; padding: 0 6px;
   border: 0; border-radius: var(--radius); background: transparent;
-  color: var(--fg-dim); font: inherit; font-size: 12px;
+  color: var(--fg-dim); font: 500 12px/1.4 var(--mono); font-variant-ligatures: none;
   font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer;
+  transition: background-color var(--dur-1) linear;
 }
-#summary:hover { background: #22262e; }
+#summary:hover { background: var(--bg-hover); }
 #summary:empty, #summary:empty + .summary-rule { display: none; }
 #summary .waiting, #summary .working { display: flex; align-items: center; gap: 6px; }
 #summary .waiting { color: var(--waiting); font-weight: 600; }
-.tally-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
-#summary .waiting .tally-dot { background: var(--waiting); box-shadow: 0 0 0 3px rgba(227,160,8,.22); }
+/* The pane header's own marks, beside the count of each. */
+.tally-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+#summary .waiting .tally-dot {
+  width: 10px; height: 10px; border-radius: 0;
+  background: var(--waiting); clip-path: polygon(50% 6%, 100% 94%, 0 94%);
+}
 #summary .working .tally-dot { background: var(--working); }
 
 /* The one thing in the bar that appears on its own account rather than
@@ -406,50 +590,75 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
  * findable, and nothing louder because it is never urgent. */
 .update {
   display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px 0 8px;
-  border: 0; border-radius: 13px;
-  background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
+  border: 0; border-radius: var(--radius);
+  background: var(--accent-subtle); box-shadow: inset 0 0 0 1px var(--accent-line); color: var(--accent);
   font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  transition: background-color var(--dur-1) linear, color var(--dur-1) linear;
 }
-.update:hover { background: var(--accent); color: #06101f; }
+.update:hover { background: var(--accent); box-shadow: none; color: var(--on-accent); }
 .update[hidden] { display: none; }
 
 .chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 28px;
   border: 1px solid var(--line-strong);
   background: transparent;
-  color: var(--fg-dim);
+  color: var(--fg);
   border-radius: var(--radius);
-  padding: 4px 10px;
+  padding: 0 10px;
   cursor: pointer;
   font: inherit;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color var(--dur-1) linear, border-color var(--dur-1) linear, color var(--dur-1) linear;
   /* A chip is always a short label on one line. Left to wrap it grows taller
    * than the 38px top bar and the row it sits in, which is how a two-word
    * label ("Open here", "Remove worktree") breaks the layout when the window
    * or the overlay is narrow. */
   white-space: nowrap;
 }
-.chip:hover { background: #22262e; color: var(--fg); }
-/* Filled chips carry dark ink, not white: --cast is a light enough orange that
- * white on it is 3.4:1, short of readable. The primary and danger fills below
- * already do this; this one was the exception. */
-.chip.on { background: var(--cast); border-color: var(--cast); color: #1f0d02; font-weight: 600; }
-.chip.primary { background: var(--accent); border-color: var(--accent); color: #06101f; font-weight: 600; }
+/* The display above would keep a chip the script has hidden on screen. */
+.chip[hidden] { display: none; }
+.chip:hover { background: var(--bg-hover); }
+/* A press is a pixel down, never a scale. */
+.chip:active { background: var(--bg-active); transform: translateY(1px); }
+/* Filled chips carry the ink that goes with their fill, which is dark in the
+ * dark palette and white in the light one: each pair reaches 4.5:1. */
+.chip.on { background: var(--cast); border-color: var(--cast); color: var(--on-cast); font-weight: 600; }
+.chip.on:hover, .chip.on:active { background: var(--cast); }
+.chip.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.chip.primary:hover, .chip.primary:active { background: var(--accent-strong); border-color: var(--accent-strong); }
+.chip:disabled { opacity: .45; cursor: default; transform: none; }
+.chip:disabled:hover { background: transparent; }
+.chip.primary:disabled:hover { background: var(--accent); border-color: var(--accent); }
 
 .icon-btn {
   border: 0; background: transparent; color: var(--fg-dim);
   font-size: 18px; line-height: 1; padding: 2px 8px; border-radius: var(--radius); cursor: pointer;
+  transition: background-color var(--dur-1) linear, color var(--dur-1) linear;
 }
-.icon-btn:hover { background: #22262e; color: var(--fg); }
-.icon-btn:disabled { opacity: .35; cursor: default; }
+.icon-btn:hover { background: var(--bg-hover); color: var(--fg); }
+.icon-btn:active { background: var(--bg-active); }
+.icon-btn:disabled { opacity: .45; cursor: default; }
 .icon-btn:disabled:hover { background: transparent; color: var(--fg-dim); }
 
 /* Keyboard focus. Every button in here is transparent or sits on a near-black
  * panel, so the browser's own focus ring all but disappears and there is no
  * way to tell, while tabbing, which control is armed. One accent ring, stated
  * once. :focus-visible keeps it off the mouse path, where it would only be
- * noise. Text fields that style their own focus (an accent border, further
- * down) win on specificity and keep doing so; the bare input/textarea entry is
- * for the ones that do not, such as the help search and the fan-out
- * checkboxes. */
+ * noise. Text fields show focus on their own edge instead (further down) and
+ * win on specificity; the bare input/textarea entry is for what is left, such
+ * as the fan-out checkboxes.
+ *
+ * The first rule is the net under the list: a link, a button or a list to
+ * choose from that the list does not name still gets the same ring rather
+ * than the browser's own. It carries no weight of its own, so every rule
+ * that says otherwise wins. It leaves alone what merely holds the keyboard
+ * for a moment, a dialog's own panel above all. */
+:where(a, button, select, summary, [role="button"], [role="radio"], [role="tab"]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .chip:focus-visible,
 .icon-btn:focus-visible,
 .rail-btn:focus-visible,
@@ -475,6 +684,9 @@ textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* A dialog's own panel holds the keyboard when the dialog opens with nothing
+ * in it to put the keyboard on. The ring says that the dialog has it. */
+#overlay-panel:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* The ring goes round the whole tab, close button and all, as it did when the
  * tab's button was the whole tab; the button inside draws none of its own. */
 .tab-btn:focus-visible { outline: none; }
@@ -551,7 +763,7 @@ textarea:focus-visible {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--bg-inset);
+  background: var(--term-bg);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
@@ -568,8 +780,8 @@ textarea:focus-visible {
 .pane-drop {
   position: absolute; inset: 0; z-index: 5; pointer-events: none;
   border: 1px solid var(--accent); border-radius: var(--radius);
-  background: rgba(76, 154, 255, .16);
-  transition: inset 80ms ease;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  transition: inset var(--dur-2) var(--ease-out);
 }
 .pane-drop[hidden] { display: none; }
 .pane-drop.left { inset: 0 50% 0 0; }
@@ -585,16 +797,16 @@ textarea:focus-visible {
    the same as the shaded middle of a pane. */
 .tab { position: relative; }
 .tab.dragging { opacity: .45; }
-.tab.drop-into { border-color: var(--accent); background: rgba(76, 154, 255, .18); }
+.tab.drop-into { border-color: var(--accent); background: var(--accent-subtle); }
 .tab.drop-before::before, .tab.drop-after::after, #tabs.drop-end::after {
   content: ""; position: absolute; top: 4px; bottom: 4px; width: 2px;
-  background: var(--accent); border-radius: 1px;
+  background: var(--accent); border-radius: var(--radius-full);
 }
 .tab.drop-before::before { left: 0; }
 .tab.drop-after::after { right: 0; }
 #tabs { position: relative; }
 #tabs.drop-end::after { right: 0; }
-#new-tab.drop-into { background: rgba(76, 154, 255, .18); color: var(--accent); }
+#new-tab.drop-into { background: var(--accent-subtle); color: var(--accent); }
 
 .pane-header {
   display: flex;
@@ -603,7 +815,7 @@ textarea:focus-visible {
   height: var(--header-h);
   padding: 0 8px;
   background: var(--bg-raised);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-subtle);
   font-size: 12px;
   color: var(--fg-dim);
   flex: 0 0 auto;
@@ -623,46 +835,60 @@ textarea:focus-visible {
  * keyboard is in and that question still has to be answerable while three
  * agents are waiting. color-mix keeps the palette the one source of the
  * colour; where it is not understood the header is simply not tinted, which is
- * where this started. */
+ * where this started. A two-pixel rule along the top in the same colour is
+ * what is left when the tint is too faint to see, and with the mark's shape
+ * it is a second thing, beside hue, to find the pane by. */
 /* StatusBlocked (a pane stuck after a tool call was refused outright, with no
  * prompt open to answer) shares waiting's tint: it needs the same look-here
  * urgency, even though nothing here is actually asking a question. */
 .pane[data-status="waiting"] .pane-header,
 .pane[data-status="blocked"] .pane-header {
-  background: color-mix(in srgb, var(--waiting) 20%, var(--bg-raised));
+  background: color-mix(in srgb, var(--waiting) 14%, var(--bg-raised));
   color: var(--fg);
+  box-shadow: inset 0 2px 0 var(--waiting);
 }
 .pane[data-status="failed"] .pane-header {
-  background: color-mix(in srgb, var(--exited) 18%, var(--bg-raised));
+  background: color-mix(in srgb, var(--exited) 14%, var(--bg-raised));
   color: var(--fg);
+  box-shadow: inset 0 2px 0 var(--exited);
 }
-/* The small text in the header was coloured for the plain header, and on these
- * two grounds it fell short of the 4.5:1 text needs: the dim 11px details came
- * to 3.72:1 on amber, the blue detail 4.04:1, the red behind count 3.53:1. The
- * same colours a little lighter reach it on both (waiting / failed): dim
- * 4.92 / 5.65, blue 4.77 / 5.48, red 4.87 / 5.60, orange 4.87 / 5.60. Amber and
- * green already did. On the header's children rather than the header, whose
- * own ground is mixed from --exited. */
+/* The small text in the header is coloured for the plain header. At a 14%
+ * tint every colour a header uses still reaches the 4.5:1 text needs on both
+ * grounds, in both palettes, so nothing is redefined here; at the 20% the
+ * tint used to be, four of them had to be. The rule is kept, empty, as the
+ * place to put a colour back if the palette or the tint ever changes: the
+ * contrast test reads it for exactly that. */
 .pane[data-status="waiting"] .pane-header > *,
 .pane[data-status="blocked"] .pane-header > *,
 .pane[data-status="failed"] .pane-header > * {
-  --fg-dim: #a2aab7;
-  --accent: #67a9ff;
-  --exited: #f68a84;
-  --cast: #de9a5c;
 }
 
-.dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--idle); }
-.dot.working { background: var(--working); animation: pulse 1.6s ease-in-out infinite; }
-.dot.waiting { background: var(--waiting); box-shadow: 0 0 0 3px rgba(227,160,8,.22); }
-.dot.blocked { background: var(--waiting); box-shadow: 0 0 0 3px rgba(227,160,8,.22); }
-.dot.idle    { background: var(--idle); }
-.dot.exited  { background: var(--idle); opacity: .5; }
-.dot.failed  { background: var(--exited); }
-.dot.starting { background: var(--idle); opacity: .5; }
-@keyframes pulse { 50% { opacity: .35; } }
+/* The status marks. Shape says what kind of state it is, fill says whether
+ * anything is happening, colour is the third channel and motion the fourth:
+ *
+ *   circle    the process is alive     filled = working     hollow = idle
+ *   triangle  it needs you             filled = waiting on you, or blocked
+ *   square    the process has ended    filled = failed      hollow = exited
+ *
+ * One element, 8px (the triangle 10px, to weigh the same), sized in px so it
+ * does not grow with the text beside it. Working and starting are the only
+ * ones that move. */
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; box-shadow: inset 0 0 0 1.5px var(--idle); }
+.dot.working { background: var(--working); box-shadow: none; animation: pulse var(--pulse) var(--ease-in-out) infinite; }
+.dot.waiting, .dot.blocked {
+  width: 10px; height: 10px; border-radius: 0; box-shadow: none;
+  background: var(--waiting); clip-path: polygon(50% 6%, 100% 94%, 0 94%);
+}
+.dot.idle    { box-shadow: inset 0 0 0 1.5px var(--idle); }
+.dot.starting { box-shadow: inset 0 0 0 1.5px var(--idle); animation: pulse var(--pulse) var(--ease-in-out) infinite; }
+.dot.failed  { border-radius: 1.5px; background: var(--exited); box-shadow: none; }
+.dot.exited  { border-radius: 1.5px; box-shadow: inset 0 0 0 1.5px var(--ended); }
+@keyframes pulse { 50% { opacity: .4; } }
 
-.pane-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane-name { font-weight: 600; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A pane whose process has ended steps back: its name goes as quiet as the
+ * details beside it. */
+.pane[data-status="exited"] .pane-name { color: var(--fg-dim); }
 .pane-branch { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The agent and model, in the branch's own weight: it answers the same sort of
  * question the branch does — which of these six panes is the one I want — and
@@ -695,12 +921,13 @@ textarea:focus-visible {
 .pane-project {
   flex: none;
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .02em;
-  padding: 1px 5px;
-  border-radius: 3px;
+  font-weight: 500;
+  line-height: 16px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   color: var(--fg);
-  background: var(--line-strong);
+  background: var(--bg-active);
   white-space: nowrap;
 }
 /* Everything to the left of the actions has to be able to collapse. The
@@ -711,7 +938,7 @@ textarea:focus-visible {
 .pane-detail { color: var(--accent); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pane-git { font-size: 11px; white-space: nowrap; display: flex; gap: 6px; overflow: hidden; cursor: pointer; }
 .pane-git .dirty { color: var(--waiting); }
-.pane-git .ahead { color: var(--working); }
+.pane-git .ahead { color: var(--ok); }
 .pane-git .behind { color: var(--exited); }
 .pane-git .late { color: var(--fg-dim); font-style: italic; }
 /* What the pane is costing the machine. It is glanceable detail rather than
@@ -728,7 +955,7 @@ textarea:focus-visible {
    * says it was cut. */
   text-overflow: ellipsis;
 }
-.pane-usage.hot { color: var(--working); }
+.pane-usage.hot { color: var(--ok); }
 /* What the agent has spent, and the tightest limit it runs under. Glanceable
  * like the usage figure, and in the same dim tabular type, but worth a little
  * more of the header: they give way after it, and the limit last of the three,
@@ -748,7 +975,7 @@ textarea:focus-visible {
 }
 .pane-limit .limit-text { overflow: hidden; text-overflow: ellipsis; }
 /* A bar under the figure, so a limit filling up can be seen without reading. */
-.pane-limit .limit-meter { height: 3px; width: 28px; max-width: 100%; background: var(--line-strong); border-radius: 2px; overflow: hidden; margin-top: 1px; }
+.pane-limit .limit-meter { height: 3px; width: 28px; max-width: 100%; background: var(--line); border-radius: var(--radius-full); overflow: hidden; margin-top: 1px; }
 .pane-limit .limit-fill { height: 100%; background: var(--fg-dim); }
 .pane-limit.warn { color: var(--waiting); }
 .pane-limit.warn .limit-fill { background: var(--waiting); }
@@ -758,20 +985,25 @@ textarea:focus-visible {
 .pane-cast.active { color: var(--cast); font-weight: 600; }
 .pane-actions { margin-left: auto; display: flex; gap: 2px; flex: 0 0 auto; }
 .pane-actions button {
-  border: 0; background: transparent; color: var(--fg-dim); cursor: pointer;
-  border-radius: 3px; padding: 2px 6px; min-width: 22px; text-align: center;
+  border: 0; background: transparent; color: var(--fg-faint); cursor: pointer;
+  border-radius: var(--radius-sm); padding: 2px 6px; min-width: 22px; text-align: center;
   font-size: 12px; line-height: 1.3;
   /* About twenty pixels tall by their text alone, short of the 24 a target
    * needs to be hit without care; the 26px header, less its rule, holds 24. */
   min-height: 24px;
+  transition: background-color var(--dur-1) linear, color var(--dur-1) linear;
 }
-.pane-actions button:hover { background: #333a45; color: var(--fg); }
-.pane-actions button.on { background: var(--cast); color: #1f0d02; }
-/* Zoomed: the accent rather than broadcast's orange, which means something else. */
-.pane-actions button.zoomed { background: var(--accent); color: #06101f; }
-/* Auto-review on: the same green a working status dot uses, since this is
- * exactly what it is trusting the pane to do unwatched. */
-.pane-actions button.reviewing { background: var(--working); color: #062b0d; }
+.pane-actions button:hover { background: var(--bg-hover); color: var(--fg); }
+/* On a tinted header the hover ground would be darker than the header. */
+.pane[data-status="waiting"] .pane-actions button:hover,
+.pane[data-status="blocked"] .pane-actions button:hover,
+.pane[data-status="failed"] .pane-actions button:hover { background: color-mix(in srgb, var(--fg) 12%, transparent); }
+.pane-actions button.on, .pane-actions button.on:hover { background: var(--cast); color: var(--on-cast); }
+/* Zoomed: the accent rather than broadcast's violet, which means something else. */
+.pane-actions button.zoomed, .pane-actions button.zoomed:hover { background: var(--accent); color: var(--on-accent); }
+/* Auto-review on: the green of a verdict, since a verdict is what it is
+ * trusting the pane to reach unwatched. */
+.pane-actions button.reviewing, .pane-actions button.reviewing:hover { background: var(--ok); color: var(--on-ok); }
 
 .pane-body { flex: 1 1 auto; min-height: 0; position: relative; }
 /* touch-action: with none of xterm's own scrollback able to see a touch (only
@@ -791,16 +1023,18 @@ textarea:focus-visible {
  * the terminal's scroll bar at the right edge. */
 .to-latest {
   position: absolute; right: 18px; bottom: 10px; z-index: 3;
-  padding: 3px 10px; border-radius: 12px; font: inherit; font-size: 12px;
-  background: var(--bg-raised); color: var(--fg); border: 1px solid var(--line-strong);
+  height: 24px; padding: 0 8px; border-radius: var(--radius); font: inherit; font-size: 12px; font-weight: 500;
+  background: var(--bg-overlay); color: var(--fg); border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-1);
   cursor: pointer;
+  transition: background-color var(--dur-1) linear;
 }
-.to-latest:hover, .to-latest:focus-visible { border-color: var(--accent); }
+.to-latest:hover { background: var(--bg-hover); }
 
 .pane-error {
-  position: absolute; inset: 0; padding: 12px;
-  display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
-  color: var(--exited); font-size: 12px; background: var(--bg-inset);
+  position: absolute; inset: 0; padding: 16px;
+  display: flex; flex-direction: column; gap: 12px; align-items: flex-start;
+  color: var(--fg-dim); font-size: 13px; background: var(--bg-inset);
   /* This fills the pane, and a pane in a four-way split is not tall. A spawn
    * failure quoting a full PATH is easily taller than that, and it sits above
    * the Restart and Close buttons - the only way out of the state - so without
@@ -810,12 +1044,17 @@ textarea:focus-visible {
 }
 /* Let the box scroll rather than squeezing the message and the buttons. */
 .pane-error > * { flex: 0 0 auto; max-width: 100%; }
+/* What happened, said plainly: an ordinary exit in the text colour, and only
+ * something that went wrong in red. */
+.pane-error-text { color: var(--fg); font-weight: 600; }
+.pane-error-text.error { color: var(--exited); font-weight: 400; }
+.pane-error-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* -------------------------------------------------------------- prompt bar */
 
 #promptbar {
   display: flex; align-items: center; gap: 8px;
-  padding: 8px; background: var(--bg-raised); border-top: 1px solid var(--line);
+  padding: 8px; background: var(--bg-raised); border-top: 1px solid var(--line-subtle);
   flex: 0 0 auto;
 }
 #promptbar[hidden] { display: none; }
@@ -824,56 +1063,62 @@ textarea:focus-visible {
   /* min-width lets it shrink below a text field's default width, which a
    * narrow window does not have, as the worktree form's fields do. */
   flex: 1 1 auto; min-width: 0; background: var(--bg-inset); border: 1px solid var(--field-line);
-  border-radius: var(--radius); color: var(--fg); padding: 7px 10px; font: inherit;
+  border-radius: var(--radius); color: var(--fg); padding: 4px 10px; font: inherit;
   /* It grows with the lines in it (fitPrompt) up to a third of the window and
    * scrolls past that, so a long prompt cannot push the panes off the screen.
    * A drag handle would only fight the growing. */
   resize: none; max-height: 33vh; overflow-y: auto;
 }
-#prompt-input:focus { outline: none; border-color: var(--accent); }
 
 /* ----------------------------------------------------------------- overlay */
 
 #overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.55);
+  position: fixed; inset: 0; background: var(--scrim);
   display: flex; align-items: center; justify-content: center; z-index: 40;
 }
 #overlay[hidden] { display: none; }
 #overlay-panel {
   width: min(760px, 92vw); max-height: 80vh; display: flex; flex-direction: column;
-  background: var(--bg-raised); border: 1px solid var(--line-strong);
-  border-radius: 10px; box-shadow: 0 18px 50px rgba(0,0,0,.5); overflow: hidden;
+  background: var(--bg-overlay); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-3); overflow: hidden;
+  animation: arrive var(--dur-3) var(--ease-out);
 }
+/* A dialog, the palette or a message arriving: up four pixels as it fades in.
+ * It runs each time the element comes back from [hidden]. */
+@keyframes arrive { from { opacity: 0; transform: translateY(4px); } }
 #overlay-head {
-  display: flex; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; flex: 0 0 auto; min-height: 44px; padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--line-subtle);
 }
 #overlay-head h2 { margin: 0; font-size: 14px; font-weight: 600; flex: 1 1 auto; }
-#overlay-body { padding: 10px 14px 14px; overflow: auto; }
+#overlay-body { padding: 14px 16px 16px; overflow: auto; }
 
 .wt-row {
-  display: flex; align-items: center; gap: 12px; padding: 9px 8px;
-  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 12px; padding: 8px;
+  border-bottom: 1px solid var(--line-subtle);
 }
 .wt-row:last-child { border-bottom: 0; }
-.wt-row:hover { background: #1e222a; }
+.wt-row:hover { background: var(--bg-hover); }
 .wt-main { flex: 1 1 auto; min-width: 0; }
-.wt-title { display: flex; align-items: center; gap: 7px; }
+.wt-title { display: flex; align-items: center; gap: 8px; }
 .wt-label { font-weight: 600; }
 .wt-path { color: var(--fg-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wt-meta { display: flex; flex-wrap: wrap; gap: 9px; font-size: 11px; margin: 2px 0; }
-.wt-clean { color: var(--working); }
+.wt-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; margin: 2px 0; }
+.wt-clean { color: var(--ok); }
 .wt-dirty { color: var(--waiting); }
 .wt-untracked { color: var(--fg-dim); }
-.wt-ahead { color: var(--working); }
+.wt-ahead { color: var(--ok); }
 .wt-behind { color: var(--exited); }
-.wt-upstream, .wt-head { color: var(--fg-dim); font-family: ui-monospace, Consolas, monospace; }
-.wt-flag { font-size: 10px; color: var(--fg-dim); border: 1px solid var(--line-strong); border-radius: 10px; padding: 1px 7px; }
-.wt-flag.agents { color: var(--accent); border-color: var(--accent); }
-.wt-flag.gone { color: var(--exited); border-color: var(--exited); }
+.wt-upstream, .wt-head { color: var(--fg-dim); }
+/* A tag: a small square-cornered label in the mono, quiet unless it states a
+ * verdict or a state, when it takes that colour with its line. */
+.wt-flag { font-size: 10px; font-weight: 500; line-height: 16px; color: var(--fg-dim); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 0 6px; white-space: nowrap; }
+.wt-flag.agents { color: var(--accent); border-color: var(--accent-line); }
+.wt-flag.gone { color: var(--exited); border-color: var(--exited-line); background: var(--exited-subtle); }
 .wt-gone { color: var(--fg-dim); }
 .wt-actions { display: flex; gap: 6px; flex: 0 0 auto; }
-.repo-choice { display: block; width: 100%; text-align: left; padding: 8px 10px; margin: 0 0 4px; background: transparent; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
-.repo-choice:hover { background: #1e222a; border-color: var(--line-strong); }
+.repo-choice { display: block; width: 100%; text-align: left; padding: 8px 10px; margin: 0 0 4px; background: transparent; color: var(--fg); border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; font: inherit; }
+.repo-choice:hover { background: var(--bg-hover); }
 .chip.danger { border-color: var(--exited); color: var(--exited); }
 
 .remote-status { margin: 0 0 12px; color: var(--fg-dim); }
@@ -881,7 +1126,7 @@ textarea:focus-visible {
 .remote-error { color: var(--exited); }
 .remote-pair { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; margin: 6px 0 4px; }
 /* The code is dark on white whatever the theme, so it scans. */
-.remote-qr { flex: 0 0 auto; width: 200px; height: 200px; border-radius: 4px; image-rendering: pixelated; }
+.remote-qr { flex: 0 0 auto; width: 200px; height: 200px; border-radius: var(--radius-sm); image-rendering: pixelated; }
 .remote-pair-text { flex: 1 1 220px; min-width: 0; }
 .remote-pair-text p { margin: 0 0 8px; }
 .remote-pair-text .chip { margin: 0 0 10px; }
@@ -889,18 +1134,17 @@ textarea:focus-visible {
   width: 100%; padding: 6px 8px; margin: 0 0 8px;
   background: var(--bg-inset); color: var(--fg);
   border: 1px solid var(--field-line); border-radius: var(--radius);
-  font: 12px ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font: 12px var(--mono); font-variant-ligatures: none;
 }
-.remote-link:focus { outline: none; border-color: var(--accent); }
 .remote-fingerprint {
   margin: 4px 0 0; padding: 4px 8px; width: fit-content;
   background: var(--bg-inset); border-radius: var(--radius);
-  font: 13px ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .03em;
+  font: 13px var(--mono); font-variant-ligatures: none; letter-spacing: .03em;
 }
 .update-notes {
   max-height: 220px; overflow: auto;
-  background: var(--bg-dim, #14171d); border: 1px solid var(--line, #2a2f3a);
-  border-radius: 6px; padding: 10px 12px; margin: 12px 0;
+  background: var(--bg-inset); border: 1px solid var(--line-subtle);
+  border-radius: var(--radius); padding: 8px 12px; margin: 12px 0;
   font-size: 12px; line-height: 1.5;
 }
 /* Headings, paragraphs and lists rendered from the note's Markdown-ish text
@@ -915,11 +1159,11 @@ textarea:focus-visible {
 .update-notes li { margin: 2px 0; }
 .update-notes :last-child { margin-bottom: 0; }
 .update-notes code {
-  font-family: ui-monospace, Consolas, monospace; font-size: 11px;
-  background: var(--bg-inset); border-radius: 3px; padding: 1px 4px;
+  font-family: var(--mono); font-variant-ligatures: none; font-size: 11px;
+  background: var(--bg-raised); border: 1px solid var(--line-subtle); border-radius: var(--radius-sm); padding: 0 4px;
 }
-.update-row { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
-.chip.danger:hover { background: var(--exited); color: #1a0d0c; }
+.update-row { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.chip.danger:hover, .chip.danger:active { background: var(--exited); color: var(--on-exited); }
 
 /* A text field's automatic minimum width is its default twenty-character size,
  * so two of them and a button will not fit inside a narrow overlay and simply
@@ -928,14 +1172,13 @@ textarea:focus-visible {
 .wt-form { display: flex; gap: 8px; flex-wrap: wrap; }
 .wt-form input {
   background: var(--bg-inset); border: 1px solid var(--field-line);
-  border-radius: var(--radius); color: var(--fg); padding: 6px 9px; font: inherit;
+  border-radius: var(--radius); color: var(--fg); height: 28px; padding: 0 10px; font: inherit;
   min-width: 0;
 }
 .wt-form input:first-child { flex: 2 1 180px; }
 .wt-form input:nth-child(2) { flex: 1 1 120px; }
-.wt-form input:focus { outline: none; border-color: var(--accent); }
 .wt-hint { color: var(--fg-dim); font-size: 11px; margin-top: 6px; }
-.wt-tools { display: flex; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+.wt-tools { display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line-subtle); }
 .wt-root { color: var(--fg-dim); font-size: 11px; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* -------------------------------------------------------- project picker */
@@ -946,11 +1189,13 @@ textarea:focus-visible {
   text-transform: uppercase; color: var(--fg-dim);
 }
 .proj-row {
-  display: flex; align-items: center; gap: 10px; padding: 7px 8px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 10px; padding: 6px 8px; flex-wrap: wrap;
   border: 1px solid transparent; border-radius: var(--radius);
 }
-.proj-row:hover { background: #22262e; border-color: var(--line); }
-.proj-row.active { background: var(--bg-inset); border-color: var(--accent); }
+.proj-row:hover { background: var(--bg-hover); }
+/* The chosen row, here as everywhere: the accent's tint, and a bar of the
+ * accent down the left edge. */
+.proj-row.active { background: var(--accent-subtle); box-shadow: inset 2px 0 0 var(--accent); }
 .proj-row.missing { opacity: .55; }
 .proj-row.archived { opacity: .7; }
 /* The row's own switch/open button already flexes to fill the row (.proj-go);
@@ -1005,15 +1250,14 @@ textarea:focus-visible {
 .browse-bar input {
   flex: 1 1 180px; min-width: 0;
   background: var(--bg-inset); border: 1px solid var(--field-line);
-  border-radius: var(--radius); color: var(--fg); padding: 6px 9px; font: inherit;
+  border-radius: var(--radius); color: var(--fg); height: 28px; padding: 0 10px; font: inherit;
 }
-.browse-bar input:focus { outline: none; border-color: var(--accent); }
 .places { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.places button { font-size: 11px; padding: 3px 8px; }
+.places button { height: 24px; font-size: 12px; padding: 0 8px; }
 .dir-list { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); }
 .dir-row {
   display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-subtle);
 }
 /* Looking inside the folder, which is what most of the row is. Same shape as
  * .proj-go and for the same reason: it has to be a button and must not look
@@ -1024,13 +1268,13 @@ textarea:focus-visible {
   color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .dir-row:last-child { border-bottom: 0; }
-.dir-row:hover { background: #22262e; }
+.dir-row:hover { background: var(--bg-hover); }
 .dir-row.hidden-dir { opacity: .6; }
 .dir-icon { color: var(--fg-dim); }
 .dir-row.repo .dir-icon { color: var(--accent); }
 .dir-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dir-repo { font-size: 10px; color: var(--accent); border: 1px solid var(--accent); border-radius: 10px; padding: 0 6px; }
-.dir-empty { padding: 14px; color: var(--fg-dim); text-align: center; }
+.dir-repo { font-size: 10px; font-weight: 500; line-height: 16px; color: var(--accent); border: 1px solid var(--accent-line); border-radius: var(--radius-sm); padding: 0 6px; }
+.dir-empty { padding: 16px; color: var(--fg-dim); text-align: center; }
 
 /* ----------------------------------------------------------------- fan out */
 
@@ -1038,12 +1282,11 @@ textarea:focus-visible {
 .fan-tasks {
   width: 100%; min-height: 150px; resize: vertical;
   background: var(--bg-inset); border: 1px solid var(--field-line);
-  border-radius: var(--radius); color: var(--fg); padding: 9px 11px;
-  font: 12px/1.7 ui-monospace, Consolas, "SF Mono", monospace;
+  border-radius: var(--radius); color: var(--fg); padding: 8px 10px;
+  font: 12px/1.7 var(--mono); font-variant-ligatures: none;
 }
-.fan-tasks:focus { outline: none; border-color: var(--accent); }
-.fan-opts { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0; align-items: center; }
-.fan-opt { display: flex; align-items: center; gap: 7px; color: var(--fg-dim); cursor: pointer; }
+.fan-opts { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0; align-items: center; }
+.fan-opt { display: flex; align-items: center; gap: 8px; color: var(--fg-dim); cursor: pointer; }
 /* The trust option is hidden while none of the agents chosen asks for it,
  * and the display above would otherwise keep it on screen. */
 .fan-opt[hidden] { display: none; }
@@ -1057,9 +1300,8 @@ textarea:focus-visible {
 .fan-agent { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: var(--fg-dim); font-size: 12px; }
 .fan-agent-sel {
   background: var(--bg-inset); border: 1px solid var(--field-line);
-  border-radius: var(--radius); color: var(--fg); font: inherit; font-size: 12px; padding: 4px 6px;
+  border-radius: var(--radius); color: var(--fg); font: inherit; font-size: 12px; height: 24px; padding: 0 6px;
 }
-.fan-agent-sel:focus { outline: none; border-color: var(--accent); }
 .fan-rows { max-height: 210px; overflow: auto; margin: 8px 0 0; }
 .fan-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
 .fan-row-n { color: var(--fg-dim); font-size: 11px; min-width: 18px; text-align: right; }
@@ -1072,11 +1314,14 @@ textarea:focus-visible {
 
 .agent-row {
   display: flex; align-items: center; gap: 10px; padding: 8px;
-  border-bottom: 1px solid var(--line); cursor: pointer;
+  border-bottom: 1px solid var(--line-subtle); cursor: pointer;
 }
 .agent-row:last-child { border-bottom: 0; }
-.agent-row:hover { background: #22262e; }
-.agent-row.active { border-left: 2px solid var(--accent); padding-left: 6px; }
+/* A literal colour, the dark palette's --bg-hover: the contrast test reads
+ * the hover ground from this rule. The light palette's is set at the foot of
+ * the sheet, with the other literal this sheet has to carry. */
+.agent-row:hover { background: #1d252b; }
+.agent-row.active, .agent-row.active:hover { background: var(--accent-subtle); box-shadow: inset 2px 0 0 var(--accent); }
 .agent-main { flex: 1 1 auto; min-width: 0; }
 .agent-title { display: flex; align-items: center; gap: 8px; }
 .agent-tab { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1085,7 +1330,7 @@ textarea:focus-visible {
  * without wrapping the row spilled past the agent's status on the right - the
  * same treatment the worktree rows already get. */
 .agent-meta {
-  color: var(--fg-dim); font-size: 11px; display: flex; gap: 9px; margin-top: 2px;
+  color: var(--fg-dim); font-size: 11px; display: flex; gap: 8px; margin-top: 2px;
   flex-wrap: wrap; overflow-wrap: anywhere;
 }
 .agent-project { color: var(--accent); font-size: 11px; }
@@ -1094,10 +1339,8 @@ textarea:focus-visible {
 .agent-status.waiting { color: var(--waiting); font-weight: 600; }
 .agent-status.blocked { color: var(--waiting); font-weight: 600; }
 .agent-status.working { color: var(--working); }
-/* --idle is tuned for the 8px status dot, where 3.6:1 against the panel is
- * enough. As 11px text - and this is the word that tells you what the agent is
- * actually doing - it is under the 4.5:1 needed to read it, so the dim text
- * colour is used instead. */
+/* The word that tells you what the agent is actually doing, so it is in the
+ * dim text colour, which is measured for text, rather than in a mark's. */
 .agent-status.idle, .agent-status.starting, .agent-status.exited { color: var(--fg-dim); }
 .agent-status.failed { color: var(--exited); }
 /* A helper's row names the pane it was spawned from, and a waiting row says
@@ -1121,10 +1364,14 @@ textarea:focus-visible {
  * it. The guide line is the same treatment a folder tree elsewhere in the
  * app would use, kept faint so it reads as structure, not another row. */
 .agent-view-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
-.chip.agent-view-tab.sel { background: #262a32; color: var(--fg); font-weight: 600; border-color: var(--line-strong); }
-.agent-tree .agent-row { padding: 8px 0; }
+/* A pair of view tabs: the one not chosen steps back, so the chosen one is
+ * told by more than its fill. */
+.chip.agent-view-tab, .chip.gh-tab { color: var(--fg-dim); border-color: var(--line); }
+.chip.agent-view-tab:hover, .chip.gh-tab:hover { color: var(--fg); }
+.chip.agent-view-tab.sel { background: var(--bg-active); color: var(--fg); font-weight: 600; border-color: var(--line-strong); }
+.agent-tree .agent-row { padding: 8px; }
 .agent-children {
-  margin-left: 19px; padding-left: 15px; border-left: 1px solid var(--line);
+  margin-left: 20px; padding-left: 16px; border-left: 1px solid var(--line);
 }
 
 /* ------------------------------------------------------------ summary card */
@@ -1134,17 +1381,17 @@ textarea:focus-visible {
 .summary-card { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 16px; }
 .summary-card-head {
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
-  padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 10px;
+  padding-bottom: 12px; border-bottom: 1px solid var(--line-subtle); margin-bottom: 8px;
 }
-.summary-card-title { font-weight: 600; font-size: 15px; }
+.summary-card-title { font-weight: 600; font-size: 16px; }
 .summary-card-sub { color: var(--fg-dim); font-size: 12px; flex: 1 1 auto; }
 .summary-card-list { display: flex; flex-direction: column; }
 .summary-card-row {
-  display: flex; align-items: flex-start; gap: 10px; padding: 10px 4px;
-  border-bottom: 1px solid var(--line); cursor: pointer;
+  display: flex; align-items: flex-start; gap: 10px; padding: 8px 4px;
+  border-bottom: 1px solid var(--line-subtle); cursor: pointer;
 }
 .summary-card-row:last-child { border-bottom: 0; }
-.summary-card-row:hover { background: #22262e; }
+.summary-card-row:hover { background: var(--bg-hover); }
 .summary-card-row .dot { margin-top: 5px; }
 .summary-card-main { flex: 1 1 auto; min-width: 0; }
 .summary-card-name { display: flex; align-items: baseline; gap: 8px; font-weight: 600; }
@@ -1162,13 +1409,13 @@ textarea:focus-visible {
  * been pressed, clear of the top-right pane's own header beneath it. A
  * plain chip is transparent, which read poorly over a terminal's own dark
  * background -- the same reason .to-latest gives itself one. */
-.show-summary { position: absolute; top: 8px; right: 8px; z-index: 4; background: var(--bg-raised); }
+.show-summary { position: absolute; top: 8px; right: 8px; z-index: 4; background: var(--bg-overlay); box-shadow: var(--shadow-1); }
 
 /* The fan-out history panel is a list of past jobs, each drawn with the
  * summary-card rules above -- reused rather than duplicated, since a closed
  * job's row differs from a live one only in having nothing left to zoom
  * into. This is only the spacing between one job and the next. */
-.fanout-history-job { margin-bottom: 18px; }
+.fanout-history-job { margin-bottom: 16px; }
 .fanout-history-job:last-child { margin-bottom: 0; }
 .fanout-history-job .summary-card-row { cursor: default; }
 .fanout-history-job .summary-card-row:hover { background: none; }
@@ -1178,36 +1425,35 @@ textarea:focus-visible {
 .todo-step-row { cursor: grab; }
 .todo-step-row .fan-opt { cursor: default; }
 .todo-step-row.dragging { opacity: 0.4; }
-.todo-step-row.drop-target { background: #22262e; box-shadow: inset 0 -2px 0 var(--accent); }
+.todo-step-row.drop-target { background: var(--bg-hover); box-shadow: inset 0 -2px 0 var(--accent); }
 .todo-step-text {
   flex: 1 1 auto; min-width: 0; background: transparent; border: 1px solid transparent;
-  color: inherit; font: inherit; padding: 2px 4px; border-radius: 4px;
+  color: inherit; font: inherit; padding: 2px 4px; border-radius: var(--radius-sm);
 }
 .todo-step-text:hover, .todo-step-text:focus { border-color: var(--line); }
-.todo-step-text:focus { outline: none; border-color: var(--accent); }
+.todo-step-text:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 
 /* ------------------------------------------------------------------ review */
 
-.rev-repo-picker { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.rev-repo-picker { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 
 .rev-head {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding-bottom: 10px; border-bottom: 1px solid var(--line); margin-bottom: 10px;
+  padding-bottom: 12px; border-bottom: 1px solid var(--line-subtle); margin-bottom: 12px;
 }
 .rev-branch { font-weight: 600; }
-.rev-track { color: var(--fg-dim); font-size: 11px; font-family: ui-monospace, Consolas, monospace; }
+.rev-track { color: var(--fg-dim); font-size: 11px; }
 .rev-actions { margin-left: auto; display: flex; gap: 6px; }
 
 .rev-body { display: flex; gap: 12px; align-items: flex-start; }
 .rev-files { flex: 0 0 260px; max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); }
 .rev-file {
-  display: flex; align-items: center; gap: 8px; padding: 5px 9px; cursor: pointer;
-  border-bottom: 1px solid var(--line); font-size: 12px;
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer;
+  border-bottom: 1px solid var(--line-subtle); font-size: 12px;
 }
 .rev-file:last-child { border-bottom: 0; }
-.rev-file:hover { background: #22262e; }
-.rev-file.sel { background: var(--accent); color: #06101f; }
-.rev-file.sel .rev-plus, .rev-file.sel .rev-minus, .rev-file.sel .rev-kind { color: #06101f; opacity: .8; }
+.rev-file:hover { background: var(--bg-hover); }
+.rev-file.sel, .rev-file.sel:hover { background: var(--accent-subtle); box-shadow: inset 2px 0 0 var(--accent); }
 /* direction:rtl is what puts the ellipsis at the head of the path, so the file
  * name stays visible. It also makes the line's base direction RTL, which sends
  * a leading punctuation character to the far end: ".gitignore" was drawn as
@@ -1220,22 +1466,21 @@ textarea:focus-visible {
 .rev-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .rev-name::before, .rev-name::after { content: "\200E"; }
 .rev-kind { color: var(--fg-dim); font-size: 10px; }
-.rev-plus { color: var(--working); font-size: 11px; }
+.rev-plus { color: var(--ok); font-size: 11px; }
 .rev-minus { color: var(--exited); font-size: 11px; }
 .rev-omitted { color: var(--fg-dim); font-size: 11px; padding: 4px 2px; }
 /* A row that is not as it was when the list was last looked at. */
 .rev-file.moved { box-shadow: inset 3px 0 0 var(--accent); }
 .rev-mark { color: var(--accent); font-size: 10px; }
-.rev-file.sel .rev-mark { color: #06101f; }
 .rev-moved { color: var(--fg); font-size: 11px; padding: 4px 2px; }
 
 .rev-diff {
   flex: 1 1 auto; min-width: 0; max-height: 320px; overflow: auto;
   border: 1px solid var(--line); border-radius: var(--radius);
   background: var(--bg-inset); padding: 8px 10px;
-  font: 11px/1.5 ui-monospace, Consolas, "SF Mono", monospace; white-space: pre;
+  font: 11px/1.5 var(--mono); font-variant-ligatures: none; white-space: pre;
 }
-.rev-diff .add { color: var(--working); }
+.rev-diff .add { color: var(--ok); }
 .rev-diff .del { color: var(--exited); }
 .rev-diff .hunk { color: var(--accent); }
 .rev-diff .meta { color: var(--fg-dim); }
@@ -1244,9 +1489,9 @@ textarea:focus-visible {
 .rev-commit textarea {
   flex: 1 1 auto; min-height: 58px; resize: vertical;
   background: var(--bg-inset); border: 1px solid var(--field-line);
-  border-radius: var(--radius); color: var(--fg); padding: 7px 10px; font: inherit;
+  border-radius: var(--radius); color: var(--fg); padding: 6px 10px;
+  font: 12px/1.7 var(--mono); font-variant-ligatures: none;
 }
-.rev-commit textarea:focus { outline: none; border-color: var(--accent); }
 .rev-commit-buttons { display: flex; flex-direction: column; gap: 6px; }
 
 /* The file list is a fixed 260px beside the diff, so on a narrow window the
@@ -1262,19 +1507,18 @@ textarea:focus-visible {
 /* ------------------------------------------------------------------ history */
 
 .conv-row {
-  display: flex; align-items: center; gap: 12px; padding: 9px 8px;
-  border-bottom: 1px solid var(--line); cursor: pointer;
+  display: flex; align-items: center; gap: 12px; padding: 8px;
+  border-bottom: 1px solid var(--line-subtle); cursor: pointer;
 }
 /* The filter above the list hides the rows it leaves out, and the display
  * the row sets would otherwise keep them on screen. */
 .conv-row[hidden] { display: none; }
 .conv-row:last-child { border-bottom: 0; }
-.conv-row:hover { background: #22262e; }
+.conv-row:hover { background: var(--bg-hover); }
 .conv-row.open { opacity: .6; cursor: default; }
 .conv-main { flex: 1 1 auto; min-width: 0; }
 .conv-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conv-meta { color: var(--fg-dim); font-size: 11px; display: flex; flex-wrap: wrap; gap: 9px; margin-top: 2px; }
-.conv-id { font-family: ui-monospace, Consolas, monospace; }
+.conv-meta { color: var(--fg-dim); font-size: 11px; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
 
 /* -------------------------------------------------------------------- help */
 
@@ -1287,15 +1531,15 @@ textarea:focus-visible {
 
 .help-nav {
   flex: 0 0 240px; display: flex; flex-direction: column; min-height: 0;
-  border-right: 1px solid var(--line); background: var(--bg);
+  border-right: 1px solid var(--line-subtle); background: var(--bg-inset);
 }
 .help-search {
-  margin: 10px; padding: 6px 9px; font: inherit;
+  flex: 0 0 auto; margin: 8px; height: 28px; padding: 0 10px; font: inherit;
   background: var(--bg-inset); border: 1px solid var(--field-line);
   border-radius: var(--radius); color: var(--fg);
 }
 .help-search::placeholder { color: var(--fg-dim); }
-.help-list { overflow: auto; padding: 0 6px 10px; }
+.help-list { overflow: auto; padding: 0 6px 8px; }
 .help-none { color: var(--fg-dim); padding: 6px 10px; }
 
 .help-item {
@@ -1303,8 +1547,8 @@ textarea:focus-visible {
   background: transparent; border: 1px solid transparent; border-radius: var(--radius);
   color: var(--fg-dim); font: inherit; padding: 6px 8px;
 }
-.help-item:hover { background: #22262e; color: var(--fg); }
-.help-item.sel { background: #22262e; border-color: var(--line-strong); color: var(--fg); }
+.help-item:hover { background: var(--bg-hover); color: var(--fg); }
+.help-item.sel, .help-item.sel:hover { background: var(--accent-subtle); box-shadow: inset 2px 0 0 var(--accent); color: var(--fg); }
 .help-item-title { display: block; font-weight: 600; color: var(--fg); }
 /* Two lines of the matching snippet, no more. The -webkit-box display is what
  * makes the clamp work today and overrides the display:block that used to sit
@@ -1327,41 +1571,45 @@ textarea:focus-visible {
   .help { flex-direction: column; }
   .help-nav {
     flex: 0 1 auto; max-height: 45%;
-    border-right: 0; border-bottom: 1px solid var(--line);
+    border-right: 0; border-bottom: 1px solid var(--line-subtle);
   }
 }
 
-.help-content { flex: 1 1 auto; overflow: auto; padding: 4px 26px 40px; max-width: 74ch; }
-.help-content:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
-.help-content h1 { font-size: 19px; margin: 20px 0 10px; }
-.help-content h2 { font-size: 14px; margin: 26px 0 8px; padding-top: 10px; border-top: 1px solid var(--line); }
-.help-content h3 { font-size: 13px; margin: 18px 0 6px; color: var(--fg-dim); }
+.help-content { flex: 1 1 auto; overflow: auto; padding: 4px 24px 40px; max-width: 74ch; }
+.help-content:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.help-content h1, .help-content h2, .help-content h3 { font-weight: 600; line-height: 1.2; text-wrap: balance; }
+.help-content h1 { font-size: 20px; letter-spacing: -.01em; margin: 20px 0 12px; }
+.help-content h2 { font-size: 14px; margin: 24px 0 8px; padding-top: 12px; border-top: 1px solid var(--line-subtle); }
+.help-content h3 { font-size: 13px; margin: 16px 0 6px; color: var(--fg-dim); }
 .help-content p, .help-content li { line-height: 1.6; }
 .help-content ul, .help-content ol { padding-left: 20px; }
 .help-content li { margin: 4px 0; }
-.help-content a { color: var(--accent); }
-.help-content strong { color: #fff; }
+.help-content a { color: var(--accent); text-decoration-color: var(--accent-line); text-underline-offset: 3px; }
+.help-content a:hover { color: var(--accent-strong); text-decoration-color: currentColor; }
+.help-content strong { color: var(--fg); font-weight: 600; }
 .help-content code {
-  background: var(--bg-inset); border-radius: 4px; padding: 1px 5px;
-  font: 12px/1.5 ui-monospace, Consolas, monospace;
+  background: var(--bg-inset); border: 1px solid var(--line-subtle); border-radius: var(--radius-sm); padding: 1px 6px;
+  font: 12px/1.5 var(--mono); font-variant-ligatures: none; overflow-wrap: anywhere;
 }
 .help-content pre {
-  background: var(--bg-inset); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 10px 12px; overflow-x: auto;
+  background: var(--bg-inset); border: 1px solid var(--line-subtle); border-radius: var(--radius-lg);
+  padding: 12px 16px; overflow-x: auto;
 }
-.help-content pre code { background: none; padding: 0; }
-.help-content table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+.help-content pre code { background: none; border: 0; padding: 0; line-height: 1.6; overflow-wrap: normal; }
+.help-content table { border-collapse: collapse; width: 100%; margin: 12px 0; }
 .help-content th, .help-content td {
-  text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top;
+  text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line-subtle); vertical-align: top;
 }
-.help-content th { color: var(--fg-dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
-.help-content td:first-child { white-space: nowrap; }
+.help-content th { color: var(--fg-dim); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; border-bottom-color: var(--line); }
+.help-content td { color: var(--fg-dim); }
+.help-content td:first-child { white-space: nowrap; color: var(--fg); }
+.help-content tr:last-child td { border-bottom: 0; }
 
 /* Narrower still, the stacked index gives up a little more of the height and
  * the article's margins close in. The stacking itself is the rule above. */
 @media (max-width: 720px) {
   .help-nav { max-height: 42%; }
-  .help-content { padding: 4px 14px 30px; }
+  .help-content { padding: 4px 16px 32px; }
 }
 
 /* ---------------------------------------------------------------- settings */
@@ -1373,28 +1621,27 @@ textarea:focus-visible {
 .settings { display: flex; height: 100%; min-height: 0; }
 .settings-nav {
   flex: 0 0 200px; display: flex; flex-direction: column; gap: 2px; min-height: 0;
-  padding: 12px 10px; background: var(--bg-inset); border-right: 1px solid var(--line);
+  padding: 12px 8px; background: var(--bg-inset); border-right: 1px solid var(--line-subtle);
 }
 .settings-find {
-  margin: 0 0 8px; padding: 6px 9px; min-width: 0; font: inherit; font-size: 12px;
+  margin: 0 0 8px; height: 28px; padding: 0 10px; min-width: 0; font: inherit; font-size: 12px;
   background: var(--bg); border: 1px solid var(--field-line); border-radius: var(--radius); color: var(--fg);
 }
 .settings-find::placeholder { color: var(--fg-dim); }
-.settings-find:focus { outline: none; border-color: var(--accent); }
 .settings-tabs { display: flex; flex-direction: column; gap: 2px; overflow: auto; }
 .settings-tab {
   display: flex; align-items: center; flex: 0 0 auto; height: 32px; padding: 0 10px;
   border: 0; border-radius: var(--radius); background: transparent; color: var(--fg-dim);
   font: inherit; text-align: left; white-space: nowrap; cursor: pointer;
+  transition: background-color var(--dur-1) linear, color var(--dur-1) linear;
 }
-.settings-tab:hover { background: #22262e; color: var(--fg); }
-.settings-tab.sel { background: #262a32; color: var(--fg); font-weight: 600; }
+.settings-tab:hover { background: var(--bg-hover); color: var(--fg); }
+.settings-tab.sel { background: var(--bg-active); color: var(--fg); font-weight: 600; }
 .settings-pane { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 24px 32px; }
-.settings-pane:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
-.set-title { font-size: 17px; font-weight: 600; margin: 0 0 4px; }
+.settings-pane:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.set-title { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
 .set-lede { color: var(--fg-dim); margin: 0 0 20px; }
-.set-sub { font-size: 13px; font-weight: 600; margin: 28px 0 8px; }
-.set-row { display: flex; align-items: center; gap: 24px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.set-row { display: flex; align-items: center; gap: 24px; padding: 12px 0; border-bottom: 1px solid var(--line-subtle); }
 .set-text { flex: 1 1 auto; min-width: 0; }
 .set-desc { color: var(--fg-dim); font-size: 12px; margin-top: 2px; }
 .set-error { color: var(--exited); font-size: 12px; margin-top: 4px; }
@@ -1404,12 +1651,18 @@ textarea:focus-visible {
 
 .switch {
   position: relative; display: flex; justify-content: flex-start; flex: 0 0 auto;
-  width: 34px; height: 20px; padding: 2px; border: 0; border-radius: 10px;
+  width: 34px; height: 20px; padding: 2px; border: 0; border-radius: var(--radius-full);
   background: var(--line-strong); cursor: pointer;
+  transition: background-color var(--dur-2) var(--ease-out);
 }
-.switch .knob { width: 16px; height: 16px; border-radius: 50%; background: var(--fg); }
-.switch.on { justify-content: flex-end; background: var(--accent); }
-.switch.on .knob { background: #06101f; }
+/* The knob slides rather than jumping to the other end, so it is moved
+ * rather than re-justified. */
+.switch .knob {
+  width: 16px; height: 16px; border-radius: 50%; background: var(--bg);
+  transition: transform var(--dur-2) var(--ease-out), background-color var(--dur-2) var(--ease-out);
+}
+.switch.on { background: var(--accent); }
+.switch.on .knob { background: var(--on-accent); transform: translateX(14px); }
 .stepper {
   display: inline-flex; align-items: center; height: 30px;
   border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--bg-inset);
@@ -1417,9 +1670,11 @@ textarea:focus-visible {
 .step-btn {
   display: flex; align-items: center; justify-content: center; width: 30px; height: 28px;
   border: 0; background: transparent; color: var(--fg-dim); cursor: pointer;
+  transition: background-color var(--dur-1) linear, color var(--dur-1) linear;
 }
-.step-btn:hover { background: #22262e; color: var(--fg); }
-.step-btn:disabled { opacity: .4; cursor: default; }
+.step-btn:hover { background: var(--bg-hover); color: var(--fg); }
+.step-btn:disabled { opacity: .45; cursor: default; }
+.step-btn:disabled:hover { background: transparent; color: var(--fg-dim); }
 .step-value {
   width: 56px; text-align: center; line-height: 28px; font-variant-numeric: tabular-nums;
   border-left: 1px solid var(--line); border-right: 1px solid var(--line);
@@ -1429,29 +1684,30 @@ textarea:focus-visible {
   border: 1px solid var(--field-line); border-radius: var(--radius);
   background: var(--bg-inset); color: var(--fg);
 }
-.set-select:focus, .set-input:focus { outline: none; border-color: var(--accent); }
 .segmented {
   display: inline-flex; gap: 2px; padding: 2px;
-  border: 1px solid var(--line-strong); border-radius: 7px; background: var(--bg-inset);
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-inset);
 }
 .seg {
-  height: 26px; padding: 0 12px; border: 0; border-radius: 5px;
+  height: 26px; padding: 0 12px; border: 0; border-radius: var(--radius-sm);
   background: transparent; color: var(--fg-dim); font: inherit; cursor: pointer;
+  transition: background-color var(--dur-2) var(--ease-out), color var(--dur-1) linear;
 }
 .seg:hover { color: var(--fg); }
-.seg.on { background: #2c313a; color: var(--fg); font-weight: 600; }
+.seg.on { background: var(--bg-active); color: var(--fg); font-weight: 600; }
 .switch:focus-visible, .step-btn:focus-visible, .seg:focus-visible, .settings-tab:focus-visible,
-.set-select:focus-visible, .plan-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.plan-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* The preview is drawn in the terminals' own font and size, with a cursor of
- * the chosen shape, so a change is seen before a pane is looked at. */
+ * the chosen shape, so a change is seen before a pane is looked at. It is a
+ * terminal, so it is dark in both palettes, as the panes are. */
 .term-preview {
-  padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius);
-  background: var(--bg-inset); color: var(--fg); line-height: 1.35;
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--term-bg); color: var(--term-fg); line-height: 1.35;
   white-space: pre; overflow: hidden;
 }
-.term-preview .dim { color: var(--fg-dim); }
-.pv-cursor { display: inline-block; width: .6em; height: 1.2em; vertical-align: text-bottom; background: var(--accent); }
+.term-preview .dim { opacity: .62; }
+.pv-cursor { display: inline-block; width: .6em; height: 1.2em; vertical-align: text-bottom; background: var(--term-cursor); }
 .pv-cursor.bar { width: 2px; }
 .pv-cursor.underline { height: 2px; vertical-align: baseline; }
 .pv-cursor.blink { animation: pv-blink 1.1s steps(1) infinite; }
@@ -1459,80 +1715,88 @@ textarea:focus-visible {
 
 /* Settings › Appearance's theme choice and its accent swatches. */
 .set-theme { display: inline-flex; gap: 2px; padding: 2px;
-  border: 1px solid var(--line-strong); border-radius: 7px; background: var(--bg-inset); }
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-inset); }
 .swatches { display: inline-flex; gap: 8px; align-items: center; }
+/* The chosen swatch is ringed in the text colour, with a gap of the panel
+ * between the ring and the colour so the two do not run together. */
 .swatch {
-  width: 26px; height: 26px; border-radius: 50%; padding: 0; cursor: pointer;
-  border: 2px solid transparent; /* background is the swatch's own colour, set inline */
+  width: 24px; height: 24px; border-radius: var(--radius); padding: 0; cursor: pointer;
+  border: 0; /* background is the swatch's own colour, set inline */
 }
-.swatch:hover { border-color: var(--line-strong); }
-.swatch.on { border-color: var(--fg); }
-.swatch:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.swatch:hover { box-shadow: 0 0 0 2px var(--bg-overlay), 0 0 0 3px var(--line-strong); }
+.swatch.on { box-shadow: 0 0 0 2px var(--bg-overlay), 0 0 0 4px var(--fg); }
+.swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
 
 /* Settings › Behaviour and › Keybindings share the description-under-label
  * shape settingRow gives every other setting; only what follows is new. */
-.set-sub { font-size: 12px; font-weight: 600; color: var(--fg-dim); text-transform: uppercase;
-  letter-spacing: .04em; margin: 18px 0 6px; }
+.set-sub { font-size: 11px; font-weight: 600; color: var(--fg-dim); text-transform: uppercase;
+  letter-spacing: .06em; margin: 20px 0 6px; }
 .set-sub:first-child { margin-top: 0; }
 
 .keybind-group + .keybind-group { margin-top: 4px; }
 .keybind-row {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px;
-  padding: 7px 0; border-bottom: 1px solid var(--line);
+  padding: 6px 0; border-bottom: 1px solid var(--line-subtle);
 }
 .keybind-row:last-child { border-bottom: 0; }
 .keybind-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .keybind-controls { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .keybind-chord {
-  min-width: 132px; height: 28px; padding: 0 10px; font: inherit; text-align: center;
+  min-width: 132px; height: 28px; padding: 0 10px; font: 12px var(--mono); font-variant-ligatures: none; text-align: center;
   border: 1px solid var(--field-line); border-radius: var(--radius);
   background: var(--bg-inset); color: var(--fg); cursor: pointer;
+  transition: border-color var(--dur-1) linear;
 }
 .keybind-chord:hover { border-color: var(--accent); }
 .keybind-chord:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.keybind-chord.empty { color: var(--fg-dim); font-style: italic; }
-.keybind-chord.recording { border-color: var(--accent); color: var(--accent); animation: keybind-pulse 1.2s ease-in-out infinite; }
+.keybind-chord.empty { color: var(--fg-dim); font-family: var(--sans); font-style: italic; }
+.keybind-chord.recording { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); color: var(--accent); animation: keybind-pulse var(--pulse) var(--ease-in-out) infinite; }
 @keyframes keybind-pulse { 50% { opacity: .55; } }
 .keybind-chord.changed { border-color: var(--accent); }
 .keybind-reset {
   height: 28px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius);
-  background: transparent; color: var(--fg-dim); font: inherit; cursor: pointer;
+  background: transparent; color: var(--fg); font: inherit; font-weight: 500; cursor: pointer;
+  transition: background-color var(--dur-1) linear;
 }
-.keybind-reset:hover { color: var(--fg); border-color: var(--field-line); }
-.keybind-reset:disabled { opacity: .35; cursor: default; }
+.keybind-reset:hover { background: var(--bg-hover); }
+.keybind-reset:disabled { opacity: .45; cursor: default; }
+.keybind-reset:disabled:hover { background: transparent; }
 .keybind-error { flex-basis: 100%; color: var(--exited); font-size: 12px; }
-.keybind-note { font-size: 12px; color: var(--fg-dim); margin: 2px 0 14px; }
+.keybind-note { font-size: 12px; color: var(--fg-dim); margin: 2px 0 12px; }
 
-.plan-card { padding: 16px 18px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+/* A card: a raised ground, a hairline edge, no shadow. */
+.plan-card { padding: 16px 18px; margin-bottom: 12px; border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); background: var(--bg-raised); }
 .plan-card.current { border-color: var(--line-strong); }
 .plan-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-.plan-name { font-size: 15px; font-weight: 600; }
+.plan-name { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
 .plan-pill {
-  font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
-  padding: 0 6px; line-height: 18px; border-radius: 4px; color: var(--fg-dim); background: #262a32;
+  font-size: 10px; font-weight: 500;
+  padding: 0 6px; line-height: 16px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--fg-dim);
 }
-.plan-pill.soon { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.plan-pill.soon { color: var(--accent); border-color: var(--accent-line); background: var(--accent-subtle); }
 .plan-text { margin: 0; color: var(--fg-dim); }
 .plan-link {
-  display: inline-flex; align-items: center; gap: 6px; height: 30px; margin-top: 14px; padding: 0 12px;
-  border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--fg); text-decoration: none;
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; margin-top: 12px; padding: 0 12px;
+  border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--fg); font-weight: 500; text-decoration: none;
+  transition: background-color var(--dur-1) linear;
 }
-.plan-link:hover { background: #22262e; }
+.plan-link:hover { background: var(--bg-hover); }
+.plan-link:active { background: var(--bg-active); transform: translateY(1px); }
 /* Sponsoring, under the plans and apart from them: a sentence in the
  * section's quiet grey with a link in it, not a card or a button. */
-.plan-sponsor { margin: 18px 0 0; font-size: 13px; color: var(--fg-dim); }
+.plan-sponsor { margin: 16px 0 0; font-size: 13px; color: var(--fg-dim); }
 .plan-sponsor a { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); text-underline-offset: 2px; }
-.plan-sponsor a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
-.plan-legal { margin: 22px 0 0; font-size: 12px; color: var(--fg-dim); line-height: 1.8; }
+.plan-sponsor a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--radius-sm); }
+.plan-legal { margin: 24px 0 0; font-size: 12px; color: var(--fg-dim); line-height: 1.8; }
 .plan-legal a { color: var(--fg-dim); text-underline-offset: 2px; }
 .plan-legal a:hover { color: var(--fg); }
-.plan-legal a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
+.plan-legal a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--radius-sm); }
 
 /* Narrow, the sections go across the top as the help's contents go above
  * its page, and each row puts its control under its words. */
 @media (max-width: 640px) {
   .settings { flex-direction: column; }
-  .settings-nav { flex: 0 0 auto; padding: 8px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .settings-nav { flex: 0 0 auto; padding: 8px; border-right: 0; border-bottom: 1px solid var(--line-subtle); }
   .settings-tabs { flex-direction: row; overflow-x: auto; scrollbar-width: none; }
   .settings-pane { padding: 16px; }
   .set-row { flex-wrap: wrap; gap: 10px; }
@@ -1548,8 +1812,8 @@ textarea:focus-visible {
 }
 
 kbd {
-  background: var(--bg-inset); border: 1px solid var(--line-strong); border-bottom-width: 2px;
-  border-radius: 4px; padding: 1px 6px; font: 11px/1.6 ui-monospace, Consolas, monospace; white-space: nowrap;
+  background: var(--bg-raised); color: var(--fg-dim); border: 1px solid var(--line); border-bottom-width: 2px;
+  border-radius: var(--radius-sm); padding: 0 5px; font: 11px/16px var(--mono); font-variant-ligatures: none; white-space: nowrap;
 }
 
 /* --------------------------------------------------------- recall banner */
@@ -1559,7 +1823,7 @@ kbd {
 #recall-banner {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; background: color-mix(in srgb, var(--waiting) 14%, var(--bg-raised));
-  border-bottom: 1px solid var(--waiting); flex: 0 0 auto;
+  border-bottom: 1px solid var(--waiting-line); flex: 0 0 auto;
 }
 #recall-banner[hidden] { display: none; }
 .recall-text { flex: 1 1 auto; }
@@ -1571,7 +1835,7 @@ kbd {
 #hints {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; background: var(--bg-raised);
-  border-bottom: 1px solid var(--line); flex: 0 0 auto;
+  border-bottom: 1px solid var(--line-subtle); flex: 0 0 auto;
 }
 #hints[hidden] { display: none; }
 .hint-text { flex: 1 1 auto; color: var(--fg-dim); }
@@ -1581,7 +1845,7 @@ kbd {
 
 #searchbar {
   display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px; background: var(--bg-raised); border-top: 1px solid var(--line);
+  padding: 6px 8px; background: var(--bg-raised); border-top: 1px solid var(--line-subtle);
   flex: 0 0 auto;
 }
 #searchbar[hidden] { display: none; }
@@ -1589,44 +1853,50 @@ kbd {
 #searchbar input {
   /* Free to shrink, as the prompt bar's field is, or the bar overflows. */
   flex: 1 1 auto; min-width: 0; background: var(--bg-inset); border: 1px solid var(--field-line);
-  border-radius: var(--radius); color: var(--fg); padding: 5px 9px; font: inherit;
+  border-radius: var(--radius); color: var(--fg); height: 28px; padding: 0 10px; font: inherit;
 }
-#searchbar input:focus { outline: none; border-color: var(--accent); }
 /* A search that found nothing leaves the terminal exactly where it was, so the
  * field has to be the thing that says so. */
-#searchbar input.nomatch, #searchbar input.nomatch:focus { border-color: var(--exited); }
+#searchbar input.nomatch, #searchbar input.nomatch:focus { border-color: var(--exited); box-shadow: 0 0 0 1px var(--exited); }
 #search-count { color: var(--fg-dim); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* ---------------------------------------------------------- command palette */
 
 #palette {
-  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 55;
+  position: fixed; inset: 0; background: var(--scrim); z-index: 55;
   display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh;
 }
 #palette[hidden] { display: none; }
 #palette-box {
-  width: min(620px, 92vw); background: var(--bg-raised);
-  border: 1px solid var(--line-strong); border-radius: 10px;
-  box-shadow: 0 18px 50px rgba(0,0,0,.55); overflow: hidden;
+  width: min(620px, 92vw); background: var(--bg-overlay);
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3); overflow: hidden;
+  animation: arrive var(--dur-3) var(--ease-out);
 }
 #palette-input {
-  width: 100%; background: transparent; border: 0; border-bottom: 1px solid var(--line);
-  color: var(--fg); padding: 13px 16px;
+  width: 100%; background: transparent; border: 0; border-bottom: 1px solid var(--line-subtle);
+  color: var(--fg); padding: 12px 16px;
   /* "font: 14px/1.4 inherit" was a parse error - inherit is only legal as a
    * whole value, never as one part of a shorthand - so the entire declaration
    * was dropped and the palette typed in the browser's default input font
    * rather than the app's, at the browser's size rather than 14px. */
   font-family: inherit; font-size: 14px; line-height: 1.4;
 }
-#palette-input:focus { outline: none; }
+/* The field is the whole top of the box and is always the one being typed
+ * in, so its rule is what takes the accent, in place of a ring. */
+#palette-input:focus { outline: none; border-bottom-color: var(--accent); box-shadow: inset 0 -1px 0 var(--accent); }
+#palette-input::placeholder { color: var(--fg-dim); }
 #palette-list { max-height: 50vh; overflow: auto; }
 .pal-row {
-  display: flex; align-items: center; gap: 10px; padding: 9px 16px; cursor: pointer;
+  display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer;
 }
-.pal-row.sel { background: var(--accent); color: #06101f; }
-/* Dark ink let a little of the row through: at .75 the hint came to 4.47:1,
- * just short of 4.5; at .8 it is 4.93. */
-.pal-row.sel .pal-hint { color: #06101f; opacity: .8; }
+/* The chosen row, here as everywhere: the accent's tint, and a bar of the
+ * accent down the left edge. The label keeps the text colour. */
+.pal-row.sel { background: var(--accent-subtle); box-shadow: inset 2px 0 0 var(--accent); }
+/* A literal colour, the dark palette's --fg-dim, which is 5.64:1 on the row:
+ * the contrast test reads the hint's colour from this rule. The light
+ * palette's is set at the foot of the sheet. */
+.pal-row.sel .pal-hint { color: #93a1a9; }
 .pal-label { flex: 1 1 auto; }
 .pal-hint { color: var(--fg-dim); font-size: 11px; }
 .pal-empty { padding: 16px; color: var(--fg-dim); }
@@ -1634,19 +1904,19 @@ kbd {
 /* ------------------------------------------------------------ agent picker */
 
 .pick-warn {
-  margin-bottom: 10px; padding: 8px 10px; border-radius: var(--radius);
-  border: 1px solid var(--waiting); color: var(--waiting); font-size: 12px;
+  margin-bottom: 12px; padding: 8px 10px; border-radius: var(--radius);
+  border: 1px solid var(--waiting-line); background: var(--waiting-subtle); color: var(--waiting); font-size: 12px;
 }
 .pick-filter {
   width: 100%; background: var(--bg-inset); border: 1px solid var(--field-line);
-  border-radius: var(--radius); color: var(--fg); padding: 9px 12px;
+  border-radius: var(--radius); color: var(--fg); padding: 8px 12px;
   font-family: inherit; font-size: 14px; line-height: 1.4;
 }
-.pick-filter:focus { outline: none; border-color: var(--accent); }
-.pick-list { max-height: 50vh; overflow: auto; margin-top: 10px; }
+.pick-filter::placeholder { color: var(--fg-dim); }
+.pick-list { max-height: 50vh; overflow: auto; margin-top: 8px; }
 .pick-head {
-  padding: 10px 4px 4px; color: var(--fg-dim); font-size: 11px;
-  text-transform: uppercase; letter-spacing: .04em;
+  padding: 12px 4px 4px; color: var(--fg-dim); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .06em;
 }
 .pick-row {
   display: flex; align-items: center; gap: 8px;
@@ -1654,31 +1924,30 @@ kbd {
 }
 /* A model belongs to the agent above it, and the indent is the only thing
  * saying so once the list is being walked from the keyboard. */
-.pick-row.model { padding-left: 30px; }
-.pick-row.sel { background: var(--accent); color: #06101f; }
-.pick-row.sel .pick-note, .pick-row.sel .pick-mark { color: #06101f; opacity: .8; }
+.pick-row.model { padding-left: 32px; }
+.pick-row:hover { background: var(--bg-hover); }
+.pick-row.sel, .pick-row.sel:hover { background: var(--accent-subtle); box-shadow: inset 2px 0 0 var(--accent); }
 /* Greyed rather than hidden: somebody who has not installed an agent should
  * still learn that Flockdeck would run it, and what to install. */
 .pick-row.unavailable .pick-name { color: var(--fg-dim); }
 .pick-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pick-note { color: var(--fg-dim); font-size: 11px; white-space: nowrap; }
 .pick-mark {
-  font-size: 10px; font-weight: 600; letter-spacing: .02em;
-  padding: 1px 5px; border-radius: 3px; color: var(--fg); background: var(--line-strong);
+  font-size: 10px; font-weight: 500; line-height: 16px; white-space: nowrap;
+  padding: 0 6px; border-radius: var(--radius-sm); color: var(--fg); background: var(--bg-active); border: 1px solid var(--line);
 }
 /* A model's tier: quieter than the default mark, since most models have one. */
 .pick-tier {
-  font-size: 10px; letter-spacing: .02em; white-space: nowrap;
-  padding: 0 5px; border-radius: 3px; color: var(--fg-dim); border: 1px solid var(--line-strong);
+  font-size: 10px; font-weight: 500; line-height: 16px; white-space: nowrap;
+  padding: 0 6px; border-radius: var(--radius-sm); color: var(--fg-dim); border: 1px solid var(--line);
 }
-.pick-row.sel .pick-tier { color: #06101f; border-color: currentColor; opacity: .8; }
 /* Routing in the fan-out: one line about what it chose, and a quiet tag on
  * each row it chose for. */
 .fan-route { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 8px; }
 .fan-route-text { color: var(--fg-dim); font-size: 12px; flex: 1 1 auto; }
 .fan-routed {
-  font-size: 10px; letter-spacing: .02em; white-space: nowrap; flex: none;
-  padding: 0 5px; border-radius: 3px; color: var(--fg-dim); border: 1px solid var(--line-strong);
+  font-size: 10px; font-weight: 500; line-height: 16px; white-space: nowrap; flex: none;
+  padding: 0 6px; border-radius: var(--radius-sm); color: var(--fg-dim); border: 1px solid var(--line);
 }
 /* Settings › Agents › Routing: the rules, to read. */
 .route-rules { display: flex; flex-direction: column; gap: 4px; max-width: 100%; min-width: 0; }
@@ -1691,20 +1960,21 @@ kbd {
 .route-rule-stat { color: var(--fg-dim); font-style: italic; }
 .pick-foot {
   display: flex; align-items: center; gap: 10px; margin-top: 12px;
-  padding-top: 10px; border-top: 1px solid var(--line);
+  padding-top: 12px; border-top: 1px solid var(--line-subtle);
 }
 .pick-default { flex: 1 1 auto; display: flex; align-items: center; gap: 6px; color: var(--fg-dim); }
 /* An endpoint's address is typed under the row that asked for it, indented
  * like the models it sits among, so it reads as belonging to that agent. */
-.pick-address { padding: 4px 10px 8px 30px; }
+.pick-address { padding: 4px 10px 8px 32px; }
 .pick-error { color: var(--exited); font-size: 12px; margin-top: 6px; }
 
 /* ------------------------------------------------------------------ notice */
 
 #notice {
   position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
-  background: var(--bg-raised); border: 1px solid var(--line-strong);
-  border-radius: var(--radius); padding: 8px 14px; z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  background: var(--bg-overlay); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 8px 14px; z-index: 50; box-shadow: var(--shadow-2);
+  animation: notice-arrive var(--dur-3) var(--ease-out);
   /* Centred by shifting a shrink-to-fit box, so its own available width is
    * only the half of the viewport to the right of the midpoint: without a max
    * of its own a long message wrapped into a needlessly narrow column, and an
@@ -1716,44 +1986,33 @@ kbd {
   cursor: pointer;
 }
 #notice[hidden] { display: none; }
+/* The same arrival as a dialog's, carrying the shift that centres it. */
+@keyframes notice-arrive { from { opacity: 0; transform: translate(-50%, 4px); } }
 /* The prompt and find bars sit along the bottom of the window too, and a
  * message dropped over the field being typed into hid it and took the click
  * meant for it. While either is open the message goes above it. */
 body:has(#promptbar:not([hidden])) #notice,
 body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
-#notice.error { border-color: var(--exited); color: var(--exited); }
+/* Something went wrong: a red bar down the left edge and a red-tinted line.
+ * The words stay in the text colour, where they are easiest to read. */
+#notice.error { border-color: var(--exited-line); box-shadow: inset 3px 0 0 var(--exited), var(--shadow-2); }
 
 /* ------------------------------------------------------------ disconnected */
 
 #disconnected {
-  position: fixed; inset: 0; background: rgba(10,12,15,.85);
+  position: fixed; inset: 0; background: var(--scrim);
   display: flex; align-items: center; justify-content: center; z-index: 60;
 }
 #disconnected[hidden] { display: none; }
 #disconnected .panel {
-  background: var(--bg-raised); border: 1px solid var(--line-strong);
-  border-radius: 10px; padding: 22px 26px; text-align: center; max-width: 420px;
+  background: var(--bg-overlay); border: 1px solid var(--line);
+  border-radius: var(--radius-lg); padding: 20px 24px; text-align: center; max-width: 420px;
+  box-shadow: var(--shadow-3);
 }
-#disconnected h2 { margin: 0 0 8px; font-size: 15px; }
-#disconnected p { margin: 0 0 14px; color: var(--fg-dim); }
+#disconnected h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+#disconnected p { margin: 0 0 16px; color: var(--fg-dim); }
 
 .empty { padding: 40px; color: var(--fg-dim); text-align: center; margin: auto; }
-
-/* --------------------------------------------------------- reduced motion */
-
-/* The working dot pulses for as long as an agent is working, and a tab of ten
- * panes is then ten things breathing at once in the corner of the eye - the
- * exact case the system setting exists for. Colour still carries the status,
- * so nothing is lost by holding the animation still. Written as a sweep rather
- * than a list because the panes, the drop indicator and anything the script
- * adds later all need to honour it. */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 1ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 1ms !important;
-  }
-}
 
 /* ---------------------------------------------------------------- tooltips */
 
@@ -1766,15 +2025,15 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
   z-index: 70;
   max-width: 280px;
   padding: 6px 9px;
-  background: var(--bg-raised);
-  border: 1px solid var(--line-strong);
+  background: var(--bg-overlay);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
   color: var(--fg);
   font-size: 12px;
   line-height: 1.45;
   white-space: normal;
   overflow-wrap: break-word;
-  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  box-shadow: var(--shadow-2);
   pointer-events: none;
 }
 
@@ -1790,14 +2049,14 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
   #rail {
     position: fixed; top: 0; bottom: 0; left: 0; z-index: 45;
     width: min(260px, 85vw); padding: 10px 8px; align-items: stretch;
-    box-shadow: 0 0 40px rgba(0,0,0,.6);
+    box-shadow: var(--shadow-3);
     /* Hidden rather than only moved off screen, so that Tab does not walk
      * into buttons nobody can see. */
     transform: translateX(-100%); visibility: hidden;
-    transition: transform 160ms ease, visibility 0s linear 160ms;
+    transition: transform var(--dur-2) var(--ease-out), visibility 0s linear var(--dur-2);
   }
-  body.rail-open #rail { transform: none; visibility: visible; transition: transform 160ms ease; }
-  body.rail-open #rail-scrim { display: block; position: fixed; inset: 0; z-index: 44; background: rgba(0,0,0,.5); }
+  body.rail-open #rail { transform: none; visibility: visible; transition: transform var(--dur-2) var(--ease-out); }
+  body.rail-open #rail-scrim { display: block; position: fixed; inset: 0; z-index: 44; background: var(--scrim); }
   #rail-toggle { display: flex; }
   /* The menu this folds the rail into is already the widened shape; there is
    * nothing here for the collapse button or the resize handle to do. */
@@ -1842,7 +2101,6 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
   #topbar { height: auto; min-height: 48px; }
   .bar-btn, #summary, .commands, .update, .tab { min-height: 44px; }
   .bar-btn, .commands { min-width: 44px; justify-content: center; }
-  .update { border-radius: 22px; }
   .new-tab-group .bar-btn { height: 42px; }
   .new-tab-group #new-tab, .new-tab-group .caret-btn { width: 44px; }
   .tab .close { width: 44px; height: 44px; }
@@ -1854,7 +2112,7 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
 /* -------------------------------------------------------------- github --- */
 
 .gh-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
-.chip.gh-tab.sel { background: #262a32; color: var(--fg); font-weight: 600; border-color: var(--line-strong); }
+.chip.gh-tab.sel { background: var(--bg-active); color: var(--fg); font-weight: 600; border-color: var(--line-strong); }
 
 .gh-list-wrap .wt-actions { margin-bottom: 10px; flex-wrap: wrap; }
 
@@ -1873,48 +2131,147 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
 }
 .gh-open:hover, .gh-open:focus-visible { color: var(--accent); text-decoration: underline; }
 
-.gh-create { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; margin-bottom: 14px; background: var(--bg-inset); }
+.gh-create { border: 1px solid var(--line-subtle); border-radius: var(--radius-lg); padding: 12px; margin-bottom: 16px; background: var(--bg-raised); }
 .gh-create input, .gh-create textarea {
   width: 100%; box-sizing: border-box; margin-bottom: 8px;
-  background: var(--bg-raised); border: 1px solid var(--field-line); border-radius: var(--radius);
-  color: var(--fg); font: inherit; padding: 7px 9px;
+  background: var(--bg-inset); border: 1px solid var(--field-line); border-radius: var(--radius);
+  color: var(--fg); font: inherit; padding: 6px 10px;
 }
 .gh-create textarea { min-height: 72px; resize: vertical; }
 .gh-create-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
 .gh-create-row input { flex: 1 1 auto; margin-bottom: 0; }
 
-.gh-detail-head h3 { margin: 0 0 6px; font-size: 15px; }
+.gh-detail-head h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
 .gh-detail-head .wt-meta { margin-bottom: 8px; }
-.gh-body { white-space: pre-wrap; font-size: 13px; line-height: 1.5; margin: 10px 0 16px; }
+.gh-body { white-space: pre-wrap; font-size: 13px; line-height: 1.5; margin: 12px 0 16px; }
 
-.gh-comment { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.gh-comment { padding: 12px 0; border-bottom: 1px solid var(--line-subtle); }
 .gh-comment:last-child { border-bottom: 0; }
 .gh-comment-meta { font-size: 11px; color: var(--fg-dim); margin-bottom: 4px; }
 .gh-comment-body { white-space: pre-wrap; font-size: 13px; }
 
 .gh-run { padding: 4px 0; }
 .gh-code {
-  font-size: 26px; font-weight: 700; letter-spacing: 2px; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
-  background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius);
-  padding: 10px 16px; display: inline-block; margin: 6px 0 12px;
+  font-size: 24px; font-weight: 600; letter-spacing: 2px; font-family: var(--mono); font-variant-ligatures: none;
+  background: var(--bg-inset); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 8px 16px; display: inline-block; margin: 6px 0 12px;
 }
 .gh-log {
   max-height: 140px; overflow-y: auto; font-size: 11px; color: var(--fg-dim);
-  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre-wrap;
-  background: var(--bg-inset); border: 1px solid var(--line); border-radius: var(--radius);
+  font-family: var(--mono); font-variant-ligatures: none; white-space: pre-wrap;
+  background: var(--bg-inset); border: 1px solid var(--line-subtle); border-radius: var(--radius);
   padding: 8px 10px; margin: 8px 0;
 }
 
-.gh-summary { font-size: 12px; font-weight: 600; margin: 4px 0 10px; }
+.gh-summary { font-size: 12px; font-weight: 600; margin: 4px 0 12px; }
 /* Placed after .wt-flag so a check or run's own colour wins over the plain
  * flag it is drawn as: same specificity, later in the sheet. */
-.wt-flag.gh-pass { color: var(--working); border-color: var(--working); }
-.wt-flag.gh-fail { color: var(--exited); border-color: var(--exited); }
-.wt-flag.gh-pending { color: var(--waiting); border-color: var(--waiting); }
-.wt-flag.gh-neutral { color: var(--fg-dim); border-color: var(--line-strong); }
-.gh-summary.gh-pass { color: var(--working); }
+.wt-flag.gh-pass { color: var(--ok); border-color: var(--ok-line); background: var(--ok-subtle); }
+.wt-flag.gh-fail { color: var(--exited); border-color: var(--exited-line); background: var(--exited-subtle); }
+.wt-flag.gh-pending { color: var(--waiting); border-color: var(--waiting-line); background: var(--waiting-subtle); }
+.wt-flag.gh-neutral { color: var(--fg-dim); border-color: var(--line); }
+.gh-summary.gh-pass { color: var(--ok); }
 .gh-summary.gh-fail { color: var(--exited); }
 .gh-summary.gh-pending { color: var(--waiting); }
+
+/* ------------------------------------------------------------ text fields */
+
+/* One treatment of a field in focus, for every field: its edge takes the
+ * accent and doubles. No glow. The outline is switched off only because this
+ * replaces it, and in high contrast, where a colour cannot be relied on, the
+ * rule far above puts an outline back. */
+#prompt-input:focus,
+#searchbar input:focus,
+.wt-form input:focus,
+.browse-bar input:focus,
+.fan-tasks:focus,
+.fan-agent-sel:focus,
+.rev-commit textarea:focus,
+.help-search:focus,
+.settings-find:focus,
+.set-select:focus,
+.set-input:focus,
+.pick-filter:focus,
+.remote-link:focus,
+.remote-cmd:focus,
+.gh-create input:focus,
+.gh-create textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+input::placeholder, textarea::placeholder { color: var(--fg-dim); opacity: 1; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+
+/* ------------------------------------------------------------ the data layer */
+
+/* Anything measured or machine-made is set in the mono: a branch, an agent
+ * and its model, tokens, cost, memory, counts, keys, paths, commit ids, and
+ * the words inside a tag. Names, labels, buttons and prose stay in the sans.
+ * Ligatures are off, so that an arrow typed as two characters stays two.
+ * Gathered here, after the rules that size and colour each of these, so that
+ * the first rule for any one of them is still its own. */
+.pane-branch, .pane-agent, .pane-peer, .pane-bg, .pane-project, .pane-detail, .pane-git,
+.pane-usage, .pane-spend, .pane-limit, .pane-cast,
+.rail-count, .proj-badge, .proj-path,
+.wt-path, .wt-meta, .wt-root, .wt-flag,
+.dir-repo, .fan-row-n, .fan-count, .fan-routed,
+.agent-meta, .agent-status,
+.summary-card-branch, .summary-card-outcome,
+.rev-track, .rev-kind, .rev-plus, .rev-minus, .rev-mark,
+.conv-id, .pal-hint, .pick-note, .pick-mark, .pick-tier,
+.plan-pill, .step-value, #search-count, .gh-comment-meta {
+  font-family: var(--mono);
+  font-variant-ligatures: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------- literal colours, light palette */
+
+/* Two rules above carry a literal colour, because the contrast tests read it
+ * from them, and a literal does not change with the palette. These put the
+ * light palette's own value back, for Light and for Follow system. */
+:root[data-theme="light"] .agent-row:hover { background: var(--bg-hover); }
+:root[data-theme="light"] .pal-row.sel .pal-hint { color: var(--fg-dim); }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .agent-row:hover { background: var(--bg-hover); }
+  :root:not([data-theme]) .pal-row.sel .pal-hint { color: var(--fg-dim); }
+}
+
+/* --------------------------------------------------------- reduced motion */
+
+/* The working mark breathes for as long as an agent is working, and a tab of
+ * ten panes is then ten things breathing at once in the corner of the eye -
+ * the exact case the system setting exists for. Shape and colour still carry
+ * the status, so nothing is lost by holding the animation still. Written as a
+ * sweep rather than a list because the panes, the drop indicator, a dialog
+ * arriving and anything the script adds later all need to honour it. Last in
+ * the sheet but for the high-contrast rules, so nothing written later escapes
+ * it. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* In high contrast the page's ground is the system's, which may be light
+ * while this window's palette is dark, or the other way about. A status mark
+ * keeps its colour there (the rules that follow say so), so it is given the
+ * palette that goes with the ground the system has actually chosen: a mark
+ * coloured for a dark panel is all but invisible on a white one. These two
+ * come before the block below, which has to stay the last of its kind. */
+@media (forced-colors: active) and (prefers-color-scheme: dark) {
+  .dot, .rail-badge, .tally-dot, .tab .attn {
+    --working: #4fd1db; --waiting: #e2b341; --idle: #93a1a9; --exited: #f0776a; --ended: #738087;
+  }
+}
+@media (forced-colors: active) and (prefers-color-scheme: light) {
+  .dot, .rail-badge, .tally-dot, .tab .attn {
+    --working: #0b6e77; --waiting: #875a08; --idle: #5c676d; --exited: #b02a1f; --ended: #7a868c;
+  }
+}
 
 /* Windows high contrast replaces every colour with a system one, and much of
  * this window is told apart by colour alone: every row of a list looked like
@@ -1944,7 +2301,22 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }
-  /* A status dot's colour is the status, so it is kept, ringed so that it
-   * shows on whatever ground the system has chosen. */
-  .dot { forced-color-adjust: none; border: 1px solid CanvasText; }
+  /* A status mark's colour is the status, so it is kept, and its shape is
+   * what says which status it is whatever becomes of the colour. A ring
+   * would muddle the shape, so there is none. */
+  .dot { forced-color-adjust: none; }
+  .rail-badge, .tally-dot, .tab .attn { forced-color-adjust: none; }
+  /* The ring the rail draws round a badge is the rail's ground, which is
+   * the system's here. */
+  .rail-badge { --bg-inset: Canvas; }
+  /* The tint is gone with every other background, and the rule along the top
+   * with every other shadow; a border says the same. */
+  .pane[data-status="waiting"] .pane-header,
+  .pane[data-status="blocked"] .pane-header,
+  .pane[data-status="failed"] .pane-header { border-top: 2px solid Highlight; }
+  /* A chosen row that is shown by a tint and a bar, both taken away. */
+  .agent-row.active, .proj-row.active { outline: 2px solid Highlight; outline-offset: -2px; }
+  /* A swatch is its colour, and the chosen one is ringed by a shadow. */
+  .swatch { forced-color-adjust: none; }
+  .swatch.on { outline: 2px solid Highlight; outline-offset: 2px; box-shadow: none; }
 }

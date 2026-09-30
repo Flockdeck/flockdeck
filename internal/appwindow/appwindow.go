@@ -132,7 +132,7 @@ func Open(cfg Config, target string) (*Window, error) {
 		// page has painted reads as part of the application rather than as
 		// a blank flash; the page itself supplies the real background the
 		// instant it loads.
-		BackgroundColour: application.NewRGB(0x1e, 0x1e, 0x1e),
+		BackgroundColour: application.NewRGB(0x0f, 0x14, 0x18),
 	})
 
 	return &Window{app: app, done: make(chan struct{})}, nil
