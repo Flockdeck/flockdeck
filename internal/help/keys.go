@@ -18,6 +18,12 @@ type Key struct {
 	Keys string `json:"keys"`
 	// Label is the one line shown in the palette and in the shortcut tables.
 	Label string `json:"label"`
+	// Short is the one name the action goes by where a surface is named --
+	// the rail, the palette's rows, Go to: "History" for a label that reads
+	// "Resume a past conversation". The label stays, and stays searchable,
+	// because the README table and the help pages are written from it.
+	// Empty where the label's own name (the part before its dash) will do.
+	Short string `json:"short,omitempty"`
 	// Section groups the action in the shortcut tables.
 	Section string `json:"section"`
 	// Page is the help page that explains the action, if one does.
@@ -83,13 +89,13 @@ var Keys = []Key{
 	{ID: "fanoutHistory", Label: "Fan-out history — past jobs in this project", Section: "Agents", Page: "fanout"},
 	{ID: "newTodo", Label: "New todo — save this pane's plan as a checklist", Section: "Agents", Page: "todo"},
 	{ID: "todos", Label: "Todos — this project's saved checklists", Section: "Agents", Page: "todo"},
-	{ID: "agents", Keys: "Ctrl+Shift+A", Label: "All agents across projects", Section: "Agents", Page: "status"},
+	{ID: "agents", Keys: "Ctrl+Shift+A", Label: "All agents across projects", Short: "Agents", Section: "Agents", Page: "status"},
 	{ID: "closeFinishedPanes", Label: "Close finished panes — every idle or exited pane, in every open project", Section: "Agents", Page: "status"},
-	{ID: "apiKeys", Label: "API keys…", Section: "Agents", Page: "agents"},
+	{ID: "apiKeys", Label: "API keys…", Short: "API keys", Section: "Agents", Page: "agents"},
 
 	// --- git ---------------------------------------------------------------
 	{ID: "worktrees", Keys: "Ctrl+Shift+G", Label: "Worktrees", Section: "Git", Page: "worktrees"},
-	{ID: "changes", Keys: "Ctrl+Shift+S", Label: "Review changes, commit and push", Section: "Git", Page: "changes"},
+	{ID: "changes", Keys: "Ctrl+Shift+S", Label: "Review changes, commit and push", Short: "Changes", Section: "Git", Page: "changes"},
 
 	// --- finding your way --------------------------------------------------
 	{ID: "palette", Keys: "Ctrl+Shift+K", Label: "Command palette", Section: "Finding your way", NoPalette: true},
@@ -98,7 +104,7 @@ var Keys = []Key{
 	{ID: "nextRegion", Keys: "F6", Label: "Move to the next part of the window", Section: "Finding your way", NoPalette: true},
 	{ID: "prevRegion", Keys: "Shift+F6", Label: "Move to the previous part of the window", Section: "Finding your way", NoPalette: true},
 	{ID: "findInTerminal", Keys: "Ctrl+Shift+F", Label: "Find in terminal", Section: "Finding your way"},
-	{ID: "history", Keys: "Ctrl+Shift+R", Label: "Resume a past conversation", Section: "Finding your way", Page: "history"},
+	{ID: "history", Keys: "Ctrl+Shift+R", Label: "Resume a past conversation", Short: "History", Section: "Finding your way", Page: "history"},
 	{ID: "projects", Keys: "Ctrl+Shift+O", Label: "Projects", Section: "Finding your way", Page: "projects"},
 	{ID: "help", Keys: "F1", Label: "Help", Section: "Finding your way", Page: "getting-started"},
 
@@ -110,7 +116,7 @@ var Keys = []Key{
 	{ID: "fontUp", Keys: "Ctrl+=", Label: "Increase font size", Section: "The window"},
 	{ID: "fontDown", Keys: "Ctrl+-", Label: "Decrease font size", Section: "The window"},
 	{ID: "fontReset", Keys: "Ctrl+0", Label: "Reset font size", Section: "The window"},
-	{ID: "remote", Label: "Remote access…", Section: "The window", Page: "remote"},
+	{ID: "remote", Label: "Remote access…", Short: "Remote", Section: "The window", Page: "remote"},
 	{ID: "detach", Label: "Detach — close the window, leave agents running", Section: "The window", Page: "persistence"},
 	{ID: "quit", Label: "Quit — stop every agent in every project", Section: "The window",
 		Confirm: "Stop every agent in every open project?"},

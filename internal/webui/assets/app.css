@@ -2074,9 +2074,23 @@ kbd {
   box-shadow: var(--shadow-3); overflow: hidden;
   animation: arrive var(--dur-3) var(--ease-out);
 }
+/* The head is 48px, as a picker's is: the field (and, in Go to, the tag in
+ * front of it) sits in a row with the rule under it. */
+#palette-head {
+  display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--line-subtle);
+}
+#palette-head[hidden], #palette-tag[hidden], #palette-foot[hidden] { display: none; }
+/* Go to is a mode, and the tag in the field says so. */
+#palette-tag {
+  flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 6px;
+  border-radius: var(--radius-sm); font: 500 10px var(--mono); white-space: nowrap;
+  color: var(--accent); border: 1px solid var(--accent-line); background: var(--accent-subtle);
+}
 #palette-input {
-  width: 100%; background: transparent; border: 0; border-bottom: 1px solid var(--line-subtle);
-  color: var(--fg); padding: 12px 16px;
+  flex: 1 1 auto; min-width: 0; height: 30px; padding: 0 10px;
+  background: var(--bg-inset); border: 1px solid var(--field-line); border-radius: var(--radius);
+  color: var(--fg);
   /* "font: 14px/1.4 inherit" was a parse error - inherit is only legal as a
    * whole value, never as one part of a shorthand - so the entire declaration
    * was dropped and the palette typed in the browser's default input font
@@ -2084,12 +2098,14 @@ kbd {
   font-family: inherit; font-size: 14px; line-height: 1.4;
 }
 /* The field is the whole top of the box and is always the one being typed
- * in, so its rule is what takes the accent, in place of a ring. */
-#palette-input:focus { outline: none; border-bottom-color: var(--accent); box-shadow: inset 0 -1px 0 var(--accent); }
+ * in, so its edge is what takes the accent, in place of a ring. */
+#palette-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 #palette-input::placeholder { color: var(--fg-dim); }
-#palette-list { max-height: 50vh; overflow: auto; }
+#palette-list { max-height: 50vh; overflow: auto; padding: 4px 0; overscroll-behavior: contain; scroll-padding: 4px 0; }
+/* A heading is 11px/600 in the muted text colour, never the faint one. */
+.pal-grp { padding: 8px 16px 2px; font-size: 11px; font-weight: 600; color: var(--fg-dim); }
 .pal-row {
-  display: flex; align-items: center; gap: 10px; padding: 8px 16px; cursor: pointer;
+  display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 6px 16px; cursor: pointer;
 }
 /* The chosen row, here as everywhere: the accent's tint, and a bar of the
  * accent down the left edge. The label keeps the text colour. */
@@ -2098,9 +2114,23 @@ kbd {
  * the contrast test reads the hint's colour from this rule. The light
  * palette's is set at the foot of the sheet. */
 .pal-row.sel .pal-hint { color: #93a1a9; }
-.pal-label { flex: 1 1 auto; }
-.pal-hint { color: var(--fg-dim); font-size: 11px; }
-.pal-empty { padding: 16px; color: var(--fg-dim); }
+.pal-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-hint { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--fg-dim); font-size: 11px; }
+.pal-now { white-space: nowrap; }
+.pal-keys { display: inline-flex; gap: 4px; }
+/* Which kind of window a Go to row opens: the word, in mono, in a column. */
+.pal-kind { flex: none; width: 60px; color: var(--fg-dim); font: 11px var(--mono); }
+/* An empty result says what is missing and what to try, not a grey line. */
+.pal-empty { display: flex; flex-direction: column; gap: 4px; padding: 16px; color: var(--fg-dim); }
+.pal-empty b { color: var(--fg); font-weight: 600; }
+/* The footer: a count in mono on the left, the keys on the right. */
+#palette-foot {
+  display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 8px 16px;
+  border-top: 1px solid var(--line-subtle);
+}
+#palette-count { flex: 1 1 auto; min-width: 0; color: var(--fg-dim); font: 11px var(--mono); font-variant-numeric: tabular-nums; }
+.pal-legend { display: flex; gap: 12px; color: var(--fg-dim); font-size: 11px; white-space: nowrap; }
+
 
 /* ------------------------------------------------------------ agent picker */
 

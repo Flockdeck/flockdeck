@@ -332,3 +332,37 @@ func TestExpandAction(t *testing.T) {
 		t.Error("expand accepted an action that does not exist")
 	}
 }
+
+// One name per surface: the palette draws a surface under the rail's name
+// and searches it by its label, so the name has to be a name the label does
+// not already give, and the README and the pages, which are written from the
+// label, have to keep it.
+func TestKeysKeepTheirLabelAndNameTheSurfaces(t *testing.T) {
+	want := map[string]string{
+		"agents":  "All agents across projects",
+		"changes": "Review changes, commit and push",
+		"history": "Resume a past conversation",
+		"remote":  "Remote access…",
+		"apiKeys": "API keys…",
+	}
+	short := map[string]string{
+		"agents": "Agents", "changes": "Changes", "history": "History", "remote": "Remote", "apiKeys": "API keys",
+	}
+	for id, label := range want {
+		k, ok := Lookup(id)
+		if !ok {
+			t.Fatalf("no action %q", id)
+		}
+		if k.Label != label {
+			t.Errorf("%s: the label is %q, which the README table and the pages are written from, not %q", id, k.Label, label)
+		}
+		if k.Short != short[id] {
+			t.Errorf("%s: its short name is %q, not %q", id, k.Short, short[id])
+		}
+	}
+	for _, k := range Keys {
+		if k.Short != "" && k.Short == k.Label {
+			t.Errorf("%s: the short name is the label, which is no short name", k.ID)
+		}
+	}
+}
