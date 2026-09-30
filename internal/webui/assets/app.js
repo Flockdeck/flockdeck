@@ -396,7 +396,7 @@
       else if (msg.type === "hello") applyHello(msg);
       else if (msg.type === "prefs") { prefs = msg.prefs ? keepPending(msg.prefs) : prefs; applyPrefs(); applyTheme(); renderHints(); settingsChanged(); }
       // A remap saved here, or by another window, redraws the palette, the
-      // tooltips and Settings › Keybindings in one go: they all read keyTable
+      // tooltips and Settings › Keyboard in one go: they all read keyTable
       // and bindings, never a binding of their own. A capture in progress is
       // not disturbed -- another window's remap landing mid-keystroke here
       // would be a strange moment for its row to redraw under the pointer.
@@ -4864,7 +4864,7 @@
     tabs.textContent = "";
     tabs.hidden = true;
 
-    for (const id of ["overlay-back", "overlay-help"]) {
+    for (const id of ["overlay-back", "overlay-help", "settings-find"]) {
       const old = $(id);
       if (old) old.remove();
     }
@@ -10154,19 +10154,28 @@
    * anywhere else - another window included - while it is open. The remote
    * access and API key sections are those dialogs' own parts, drawn here. */
 
+  /** The sections, in the order the list shows them, under the four groups
+   *  it is headed by. `words` are what Find a setting matches besides the
+   *  label: each setting's words go with it to the section it is in. */
   const SETTINGS_SECTIONS = [
-    { id: "general", label: "General", words: "desktop notifications updates releases check hints tips" },
-    { id: "appearance", label: "Appearance",
-      words: "theme dark light system follow colour color accent swatch " +
-        "font size family typeface scrollback lines cursor blink block bar underline preview screen reader accessibility" },
-    { id: "behaviour", label: "Behaviour",
-      words: "fan out fanout tab worktree new agents auto review approve approval default defaults" },
-    { id: "keybindings", label: "Keybindings", words: "keyboard shortcuts shortcut remap rebind bindings keys chord conflict" },
-    { id: "agents", label: "Agents", words: "default agent model project claude status line usage limits spend" },
-    { id: "keys", label: "API keys", words: "api keys key token secret" },
-    { id: "remote", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet push notify notification notifications waiting anonymous identifying" },
-    { id: "github", label: "GitHub", words: "github gh pull request issue pr ci actions checks workflow sign in install auth login" },
-    { id: "plan", label: "Account & plan", words: "account plan free enterprise self-hosted relay sso company companies licence license support paid sponsor sponsors sponsorship donate" },
+    { id: "general", group: "Window", label: "General",
+      words: "desktop notifications notify browser blocked hints tips " +
+        "new panes defaults default auto review approve approval fan out fanout fanned tab beside planner worktree" },
+    { id: "appearance", group: "Window", label: "Appearance", words: "theme dark light system follow colour color accent swatch" },
+    { id: "terminal", group: "Window", label: "Terminal",
+      words: "font size family typeface scrollback lines cursor blink block bar underline preview screen reader accessibility" },
+    { id: "keybindings", group: "Window", label: "Keyboard", words: "keybindings keyboard shortcuts shortcut remap rebind bindings keys chord conflict" },
+    { id: "agents", group: "Agents", label: "Agents & models", words: "default agent model project claude status line usage limits spend" },
+    { id: "routing", group: "Agents", label: "Routing",
+      words: "routing route fan out fanout model models tier floor smallest strategy cost cheapest rules cross agents jev rate unmatched history" },
+    { id: "keys", group: "Agents", label: "API keys", words: "api keys key token secret" },
+    { id: "status", group: "Agents", label: "Status detection",
+      words: "status detection typesafe jev api key waiting blocked quiet pane terminal output third party" },
+    { id: "remote", group: "Connections", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet push notify notification notifications waiting anonymous identifying" },
+    { id: "github", group: "Connections", label: "GitHub", words: "github gh pull request issue pr ci actions checks workflow sign in install auth login" },
+    { id: "plan", group: "Account", label: "Account & plan",
+      words: "account plan free enterprise self-hosted relay sso company companies licence license support paid sponsor sponsors sponsorship donate " +
+        "version versions update updates releases check install roll back rollback reinstall" },
   ];
   /** The section on show, kept from one opening to the next. */
   let settingsSection = "general";
@@ -10211,9 +10220,13 @@
     openOverlay("Settings", "settings");
     $("overlay-panel").classList.add("settings-panel");
     buildSettingsShell();
+    // In a window too narrow for the list beside the section, the settings
+    // open on the list, unless a section was asked for by name.
+    settingsAtPage(!!section);
     showSettingsSection(section || settingsSection, true);
-    // On the section list, so the arrows walk it from the start.
-    const tab = $("settings-tab-" + settingsSection);
+    // On the section list, so the arrows walk it from the start -- or, where
+    // a narrow window shows the section alone, on the way back to the list.
+    const tab = section && settingsNarrow() ? $("settings-back") : $("settings-tab-" + settingsSection);
     if (tab) tab.focus();
   }
 
@@ -10232,7 +10245,10 @@
     const body = $("overlay-body");
     body.textContent = "";
     const wrap = el("div", "settings");
+    wrap.id = "settings";
     const nav = el("div", "settings-nav");
+    // Find a setting is in the header, beside ? and ×: it searches the whole
+    // of the settings, not the list under it.
     const find = el("input", "settings-find");
     find.id = "settings-find";
     find.type = "search";
@@ -10242,6 +10258,8 @@
     find.setAttribute("aria-label", "Find a setting");
     find.oninput = () => {
       settingsQuery = find.value;
+      // Narrow, what was found is the list of sections, so that is shown.
+      settingsAtPage(false);
       const hits = matchingSections();
       if (hits.length && !hits.some((s) => s.id === settingsSection)) showSettingsSection(hits[0].id);
       else drawSettingsNav();
@@ -10251,17 +10269,42 @@
       const tab = $("settings-tab-" + settingsSection);
       if (tab && tab.isConnected) { ev.preventDefault(); tab.focus(); }
     };
+    const head = $("overlay-head");
+    head.insertBefore(find, $("overlay-help") || $("overlay-close"));
     const tabs = el("div", "settings-tabs");
     tabs.id = "settings-tabs";
     tabs.setAttribute("role", "tablist");
     tabs.setAttribute("aria-orientation", "vertical");
     tabs.setAttribute("aria-label", "Sections");
-    nav.append(find, tabs);
+    nav.append(tabs);
+    // Narrow, the list and a section are two pages, and this goes back from
+    // the section to the list. Only CSS shows it, and only there.
+    const back = el("button", "settings-back", "← All settings");
+    back.id = "settings-back";
+    back.onclick = () => {
+      settingsAtPage(false);
+      const tab = $("settings-tab-" + settingsSection);
+      if (tab) tab.focus();
+    };
     const pane = el("div", "settings-pane");
     pane.id = "settings-pane";
     pane.setAttribute("role", "tabpanel");
-    wrap.append(nav, pane);
+    wrap.append(nav, back, pane);
     body.append(wrap);
+  }
+
+  /** settingsAtPage says which of the two pages a narrow window shows: the
+   *  list of sections, or the section. A wide one shows both, whatever this
+   *  says. */
+  function settingsAtPage(on) {
+    const wrap = $("settings");
+    if (wrap) wrap.classList.toggle("at-page", on);
+  }
+
+  /** settingsNarrow is whether the window is narrow enough for the list and
+   *  the section to be two pages: app.css's own width for it. */
+  function settingsNarrow() {
+    return !!(window.matchMedia && window.matchMedia("(max-width: 640px)").matches);
   }
 
   /** matchingSections is the sections holding every word typed into Find. */
@@ -10277,7 +10320,17 @@
     list.textContent = "";
     const hits = matchingSections();
     if (!hits.length) list.append(el("div", "help-none", "No setting matches that."));
+    let group = "";
     hits.forEach((s) => {
+      // Each group is headed by its name, over the first of its sections
+      // shown. The heading is a label to the eye, not a tab or a stop: the
+      // sections are named well enough on their own to a screen reader.
+      if (s.group !== group) {
+        group = s.group;
+        const g = el("div", "settings-group", group);
+        g.setAttribute("aria-hidden", "true");
+        list.append(g);
+      }
       const on = s.id === settingsSection;
       const b = el("button", "settings-tab" + (on ? " sel" : ""), s.label);
       b.id = "settings-tab-" + s.id;
@@ -10285,7 +10338,16 @@
       b.setAttribute("aria-selected", String(on));
       b.setAttribute("aria-controls", "settings-pane");
       b.tabIndex = on ? 0 : -1;
-      b.onclick = () => showSettingsSection(s.id);
+      // Remote access says it is on, where it is: drawn by CSS from this, so
+      // the section's name stays the tab's text.
+      if (s.id === "remote" && state && state.remote) b.setAttribute("data-tag", "on");
+      b.onclick = () => {
+        settingsAtPage(true);
+        showSettingsSection(s.id);
+        // Narrow, the list has just gone, and the keyboard with it: it goes
+        // to the way back to the list, at the top of the section.
+        if (settingsNarrow()) $("settings-back").focus();
+      };
       b.onkeydown = (ev) => settingsTabKey(ev, s.id);
       list.append(b);
     });
@@ -10333,7 +10395,7 @@
         remoteRoster = null; remotePairing = null; remoteOutcome = null; remoteBusy = "";
         send({ cmd: "remoteDevices" });
       } else if (id === "plan") send({ cmd: "remoteDevices" });
-      else if (id === "agents") send({ cmd: "refreshAgents" });
+      else if (id === "agents" || id === "routing") send({ cmd: "refreshAgents" });
       else if (id === "github") { ghStatus = null; send({ cmd: "ghStatus", path: ghDir }); }
     }
     renderSettings();
@@ -10361,10 +10423,12 @@
   const SETTINGS_DRAW = {
     general: settingsGeneral,
     appearance: settingsAppearance,
-    behaviour: settingsBehaviour,
+    terminal: settingsTerminal,
     keybindings: settingsKeybindings,
     agents: settingsAgents,
+    routing: settingsRouting,
     keys: (pane) => { settingsHead(pane, "API keys"); settingsHost(pane); renderKeys(); },
+    status: settingsStatus,
     remote: (pane) => { settingsHead(pane, "Remote access"); settingsPush(pane); settingsHost(pane); renderRemote(); },
     github: (pane) => {
       settingsHead(pane, "GitHub", "Create and review pull requests and issues, and see CI status, without leaving Flockdeck.");
@@ -10498,11 +10562,22 @@
   }
 
   function settingsGeneral(pane) {
-    settingsHead(pane, "General", "How Flockdeck tells you things, and how it keeps itself up to date.");
+    settingsHead(pane, "General", "What the window tells you, and how new panes start.");
+    pane.append(el("div", "set-sub", "Notifications"));
     pane.append(settingRow("Desktop notifications",
       "A notification when an agent stops to wait on you while this window is behind another." + notificationsNote(),
       switchControl("set-notifications", !prefs.notificationsOff, (on) => setOff("notificationsOff", !on))));
 
+    pane.append(el("div", "set-sub", "New panes"));
+    settingsNewPanes(pane);
+
+    pane.append(el("div", "set-sub", "Hints"));
+    settingsHints(pane);
+  }
+
+  /** settingsVersion is Account & plan's Version: whether it looks for new
+   *  releases, looking now, installing what it found, and installing another. */
+  function settingsVersion(pane) {
     // Neither is offered in a window reached through the relay: see
     // remoteWindow. Checking is the desk's to do, as restarting onto what it
     // finds is.
@@ -10538,7 +10613,10 @@
         "Pick a previous release to install over this one, forward or back, or reinstall the version you're running now.",
         rollback));
     }
+  }
 
+  /** settingsHints is General's one line about the hints under the tab bar. */
+  function settingsHints(pane) {
     const dismissed = (prefs.dismissedTips || []).length;
     const tips = el("button", "chip", "Show them again");
     tips.id = "set-tips";
@@ -10603,7 +10681,7 @@
   }
 
   function settingsAppearance(pane) {
-    settingsHead(pane, "Appearance", "How the window looks: its palette, its accent, and every pane's terminal.");
+    settingsHead(pane, "Appearance", "The window's palette and accent. The terminal has its own section.");
 
     const seg = el("div", "set-theme");
     seg.id = "set-theme";
@@ -10657,8 +10735,10 @@
       sw.append(b);
     });
     pane.append(settingRow("Accent colour", "A small fixed set, kept legible against either palette.", sw));
+  }
 
-    pane.append(el("div", "set-sub", "Terminal"));
+  function settingsTerminal(pane) {
+    settingsHead(pane, "Terminal", "Every pane's terminal. Changes apply to open panes at once.");
     appendTerminalSettings(pane);
   }
 
@@ -10681,6 +10761,20 @@
   }
 
   function appendTerminalSettings(pane) {
+    // Drawn in the terminals' own font and size, with a cursor of the chosen
+    // shape, so a change is seen here before a pane is looked at: at the top,
+    // in view of every setting it shows.
+    const shape = cursorShape();
+    const pv = el("div", "term-preview");
+    pv.id = "set-preview";
+    pv.setAttribute("aria-hidden", "true");
+    pv.style.fontFamily = terminalFont();
+    pv.style.fontSize = fontSize + "px";
+    const prompt = () => el("span", "dim", "~/project $ ");
+    pv.append(prompt(), document.createTextNode("go test ./...\nok   example.com/project   4.102s\n"), prompt(),
+      el("span", "pv-cursor " + shape + (cursorBlinks() ? " blink" : "")));
+    pane.append(pv);
+
     const step = el("div", "stepper");
     step.setAttribute("role", "group");
     const down = el("button", "step-btn");
@@ -10740,7 +10834,6 @@
     lines.onchange = () => chooseScrollback(Number(lines.value));
     pane.append(settingRow("Scrollback", "Lines each pane keeps to scroll back through. More costs memory in every pane.", lines));
 
-    const shape = cursorShape();
     const shapes = [["block", "Block"], ["bar", "Bar"], ["underline", "Underline"]];
     const seg = el("div", "segmented");
     seg.id = "set-cursor";
@@ -10772,24 +10865,11 @@
     pane.append(settingRow("Screen reader support",
       "Lets a screen reader read what the agents write. Each terminal keeps a copy of its lines for it, which slows them a little.",
       switchControl("set-screen-reader", !!prefs.screenReader, (on) => setScreenReader(on))));
-
-    // Drawn in the terminals' own font and size, with a cursor of the chosen
-    // shape, so a change is seen here before a pane is looked at.
-    pane.append(el("div", "set-sub", "Preview"));
-    const pv = el("div", "term-preview");
-    pv.id = "set-preview";
-    pv.setAttribute("aria-hidden", "true");
-    pv.style.fontFamily = terminalFont();
-    pv.style.fontSize = fontSize + "px";
-    const prompt = () => el("span", "dim", "~/project $ ");
-    pv.append(prompt(), document.createTextNode("go test ./...\nok   example.com/project   4.102s\n"), prompt(),
-      el("span", "pv-cursor " + shape + (cursorBlinks() ? " blink" : "")));
-    pane.append(pv);
   }
 
-  function settingsBehaviour(pane) {
-    settingsHead(pane, "Behaviour", "Defaults new panes and new fan-outs start from. Each can still be changed for one pane or one run.");
-
+  /** settingsNewPanes is General's New panes: the defaults a new pane and a
+   *  new fan-out start from, each still changed for one pane or one run. */
+  function settingsNewPanes(pane) {
     const fanOut = prefs.fanOut || {};
     const sameTab = el("input");
     sameTab.type = "checkbox";
@@ -10804,19 +10884,25 @@
     };
     const sameTabLabel = el("label", "fan-opt");
     sameTabLabel.append(sameTab, document.createTextNode(" Put fanned-out agents in this tab, beside the agent that planned them"));
-    pane.append(settingRow("Fan out",
+    const fanOutRow = settingRow("Fan out",
       "Off, a fan-out's agents land in a new tab of their own. This is only the default the dialog opens on; " +
-      "either way it can still be changed for one run.", sameTabLabel));
+      "either way it can still be changed for one run.", sameTabLabel);
 
-    pane.append(el("div", "set-sub", "Auto-review"));
     pane.append(settingRow("Start new panes with auto-review on",
       "A pane's own auto-review switch still starts off, whatever this says, unless this is turned on: only a " +
       "confidently read-only command is ever let through without asking, and it is never asked to say “deny.” " +
       "A pane opened by hand starts here; one fanned out from another agent starts however plan 3's inheritance " +
       "lands, once that exists.",
       switchControl("set-auto-review-default", !!prefs.autoReviewDefault, (on) => setAutoReviewDefault(on))));
+    pane.append(fanOutRow);
+  }
 
-    pane.append(el("div", "set-sub", "Status detection"));
+  /** settingsStatus is Status detection: TypeSafe's Jev reading a quiet pane,
+   *  and the key it needs, which Routing's Ask Jev uses too. Nothing is sent
+   *  until it is turned on, and the section says what is then. */
+  function settingsStatus(pane) {
+    settingsHead(pane, "Status detection",
+      "Optional help from TypeSafe's Jev reading a pane's state. Off unless you turn it on; nothing is sent until then.");
     pane.append(jevKeyRow());
     pane.append(settingRow("Let TypeSafe's Jev help read pane status",
       "Off by default. On, and with a TypeSafe API key set (above, or TYPESAFE_API_KEY in the environment flockdeck runs in), the last " +
@@ -10874,7 +10960,7 @@
     const status = el("div", "set-desc", "Key status: " + state);
     status.id = "set-jev-key-status";
     return settingRow("TypeSafe API key",
-      "Used only for the two Jev settings below and under Routing. Saving a key sends nothing: they stay off until " +
+      "Used only for the Jev setting below and Routing's Ask Jev. Saving a key sends nothing: they stay off until " +
       "you turn one on, and what they send is described there, including that it goes to TypeSafe, a third party. " +
       "The key is kept on this machine in flockdeck's key store, is only ever sent to api.typesafe.ai, and is never " +
       "shown again. If none is set here, TYPESAFE_API_KEY from the environment is used. It can only be set on the machine itself.",
@@ -10999,7 +11085,7 @@
   }
 
   function settingsKeybindings(pane) {
-    settingsHead(pane, "Keybindings",
+    settingsHead(pane, "Keyboard",
       "Shortcuts for this window's own chrome — panes, tabs, agents, the rest. Your terminal tool keeps its own " +
       "shortcuts separately, for what you type inside a pane; this does not touch those.");
 
@@ -11060,7 +11146,7 @@
 
   function settingsAgents(pane) {
     const choose = keyTable.find((x) => x.id === "newAgentTabChoose");
-    settingsHead(pane, "Agents", "The agent, and which of its models, a pane starts with when nobody chooses." +
+    settingsHead(pane, "Agents & models", "The agent, and which of its models, a pane starts with when nobody chooses." +
       (choose ? " To choose for one pane, use " + choose.label + " in the command palette." : ""));
     // In the shape the agent control is drawn from, which is the fan-out's.
     const items = (catalog.items || []).map((a) => ({ id: a.id, name: a.name || a.id, unavailable: !a.available,
@@ -11094,16 +11180,6 @@
     pane.append(settingRow(active ? "This project, " + active.name : "This project",
       own ? "This project's own choice, which wins over the one for every project."
         : "Starts what every project does until it is given an agent of its own.", mine));
-    settingsRouting(pane, active);
-
-    const keys = el("button", "chip", "API keys…");
-    keys.id = "set-agent-keys";
-    keys.onclick = () => {
-      showSettingsSection("keys");
-      const tab = $("settings-tab-keys");
-      if (tab) tab.focus();
-    };
-    pane.append(settingRow("API keys", "An agent that talks to a model API needs a key for it.", keys));
 
     // Claude Code hands its usage limits only to its status line command, so
     // reading them means Flockdeck's panes putting a command of their own
@@ -11126,16 +11202,45 @@
       "Shows a Claude subscription's five-hour and weekly limits in the pane header, read from Claude Code's status line. " +
       "Your own status line is kept and runs as before. With none of your own, Claude Code hides its footer's keyboard hints " +
       "while any status line is set, so by default the limits are read only where you already have one.", sl));
+
+    // What was part of this section once, and is next to it in the list now.
+    pane.append(el("div", "set-sub", "Related"));
+    const r = catalog.routing;
+    const MODE = { off: "Off", suggest: "Suggest", auto: "Automatic" };
+    const policy = r ? (r.project || r.every || {}) : null;
+    pane.append(settingRow("Routing", policy
+      ? [MODE[policy.mode] || "Off", (r.rules || []).length + " rules", policy.strategy === "cost" ? "minimise cost" : "cost-first"].join(" · ")
+      : "Which model each fan-out task starts on.", settingsLink("set-agent-routing", "Routing →", "routing")));
+    pane.append(settingRow("API keys", "An agent that talks to a model API needs a key for it.",
+      settingsLink("set-agent-keys", "API keys →", "keys")));
   }
 
-  /** settingsRouting is the Routing group of Settings › Agents: whether a
-   *  fan-out's rows come pre-set to a model chosen for the work, for every
-   *  project and for this one; the smallest tier that may be chosen; the
-   *  rules, to read; and the history kept of it. */
-  function settingsRouting(pane, active) {
+  /** settingsLink is a button that shows another section, for a setting that
+   *  is next door rather than here, with the keyboard on its tab. */
+  function settingsLink(id, text, section) {
+    const b = el("button", "chip", text);
+    b.id = id;
+    b.onclick = () => {
+      showSettingsSection(section);
+      const tab = $(settingsNarrow() ? "settings-back" : "settings-tab-" + section);
+      if (tab) tab.focus();
+    };
+    return b;
+  }
+
+  /** settingsRouting is Settings › Routing: whether a fan-out's rows come
+   *  pre-set to a model chosen for the work, for every project and for this
+   *  one; the smallest tier that may be chosen; the rules, to read; and the
+   *  history kept of it. */
+  function settingsRouting(pane) {
+    settingsHead(pane, "Routing",
+      "Pre-sets each fan-out task to a smaller or stronger model, for you to change before anything starts.");
     const r = catalog.routing;
-    if (!r) return;
-    pane.append(el("div", "set-sub", "Routing"));
+    if (!r) {
+      pane.append(el("div", "dir-empty", catalog.err || "Reading the agents…"));
+      return;
+    }
+    const active = ((state && state.projects) || []).find((p) => p.active);
     const MODES = [["off", "Off"], ["suggest", "Suggest"], ["auto", "Automatic"]];
     const select = (id, options, value) => {
       const sel = el("select", "set-select");
@@ -11216,9 +11321,10 @@
     pane.append(settingRow("Ask Jev to rate unmatched work",
       "With Minimise cost, a fan-out row no rule matched can be rated by TypeSafe's Jev model, so hard work is not " +
       "sent to the cheapest model blindly. This sends the text of that row (its first 2,000 characters) to TypeSafe, " +
-      "a third party, and nothing else: no files, no repository, no history. It needs a TypeSafe API key (set in Settings › Behaviour, or TYPESAFE_API_KEY in the environment)" +
+      "a third party, and nothing else: no files, no repository, no history. It needs a TypeSafe API key (set in Settings › Status detection, or TYPESAFE_API_KEY in the environment)" +
       (r.jevKey ? "" : " (it is not set, so nothing is sent)") + " and does nothing under Cost-first, quality-aware. " +
-      "Off until you turn it on, " + (own ? "for this project." : "for every project."), jevLabel));
+      "Off until you turn it on, " + (own ? "for this project." : "for every project."), jevLabel,
+      settingsLink("set-route-jev-key", "Status detection →", "status")));
     if (r.note) {
       const note = el("p", "set-lede", r.note);
       note.id = "set-route-note";
@@ -11273,7 +11379,7 @@
   }
 
   function settingsPlan(pane) {
-    settingsHead(pane, "Account & plan", "What you are on, and what is coming.");
+    settingsHead(pane, "Account & plan", "What you are on, and which version is running.");
     const card = (name, pill, soon, text) => {
       const c = el("div", "plan-card" + (soon ? "" : " current"));
       const head = el("div", "plan-head");
@@ -11302,6 +11408,9 @@
     link.append(document.createTextNode("Read about Enterprise"), iconEl("ext", 13));
     soon.append(link);
     pane.append(soon);
+    // Which version this is, and getting another, with what it is on.
+    pane.append(el("div", "set-sub", "Version"));
+    settingsVersion(pane);
     pane.append(sponsorLine());
     // Whose it is and under what licence, and the pages that say what the
     // shared relay keeps and on what terms: quiet, at the foot of the section
@@ -11583,7 +11692,7 @@
     const sp = el("label", "fan-opt");
     const spBox = el("input");
     spBox.type = "checkbox";
-    // Settings › Behaviour's own default, until this run's own choice changes it.
+    // Settings › General's own default, until this run's own choice changes it.
     spBox.checked = !!(prefs.fanOut && prefs.fanOut.sameTab);
     sp.append(spBox, document.createTextNode("Put them in this tab, beside the agent that planned them"));
     sp.title = "Off, the agents share a new tab of their own";
@@ -12897,7 +13006,7 @@
       if (!(e.target.classList && e.target.classList.contains("xterm-helper-textarea"))) e.stopPropagation();
       return;
     }
-    // Recording a new binding for Settings › Keybindings takes over the
+    // Recording a new binding for Settings › Keyboard takes over the
     // keyboard entirely -- what is being replaced, most of all, must not run
     // while its own row is waiting to hear what replaces it. Tab is the one
     // key left to fall through: cancelling the capture and letting it go on

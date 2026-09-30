@@ -84,7 +84,7 @@ func TestARemoteWindowIsNotOfferedTheTypeSafeKey(t *testing.T) {
 h.recv({ type: "hello", keys: h.keyTable(), prefs: { helpSeen: true, dismissedTips: [] }, remote: true });
 h.recv(fixture());
 h.click(h.$("btn-settings"));
-h.click(h.$("settings-tab-behaviour"));
+h.click(h.$("settings-tab-status"));
 assert.ok(!h.$("set-jev-key-field") && !h.$("set-jev-key-save"), "a window reached through the relay is given a field for the TypeSafe key");
 assert.ok(h.$("set-jev-key-status").textContent.includes("not from here"), h.$("set-jev-key-status").textContent);
 assert.ok(!h.commands().some((c) => c.cmd === "jevKey"), "a window reached through the relay asked about the TypeSafe key");

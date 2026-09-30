@@ -2918,6 +2918,8 @@ func TestTheVersionPickerListsAndInstallsAChoice(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-settings"));
+// Version and updates are in Account & plan.
+h.click(h.$("settings-tab-plan"));
 h.click(h.$("set-versions"));
 assert.ok(!h.$("overlay").hidden, "the version picker did not open");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "listVersions" });
@@ -2953,6 +2955,8 @@ func TestTheVersionPickerStaysClosedWhenItsAnswerArrives(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-settings"));
+// Version and updates are in Account & plan.
+h.click(h.$("settings-tab-plan"));
 h.click(h.$("set-versions"));
 h.key({ key: "Escape" });
 assert.strictEqual(h.$("overlay-title").textContent, "Settings", "Escape did not close the picker back to Settings");
@@ -2973,6 +2977,8 @@ func TestTheVersionPickerShowsAFailureToList(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-settings"));
+// Version and updates are in Account & plan.
+h.click(h.$("settings-tab-plan"));
 h.click(h.$("set-versions"));
 h.recv({ type: "versions", error: "could not reach dl.flockdeck.ai or GitHub" });
 assert.ok(h.$("overlay-body").textContent.includes("could not reach"), "the picker does not say what went wrong");
@@ -3109,6 +3115,8 @@ func TestCheckingForAnUpdateSaysItIsRunning(t *testing.T) {
 h.hello();
 h.recv(fixture({ recall: { version: "9.9.8", reason: "corrupts settings on first launch", upgrade: "9.9.9" } }));
 h.click(h.$("btn-settings"));
+// Version and updates are in Account & plan.
+h.click(h.$("settings-tab-plan"));
 
 h.click(h.$("set-check-update"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "checkForUpdate" });
@@ -3141,6 +3149,8 @@ func TestACheckForUpdateDroppedWithTheConnectionIsReleased(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-settings"));
+// Version and updates are in Account & plan.
+h.click(h.$("settings-tab-plan"));
 h.click(h.$("set-check-update"));
 assert.ok(h.$("set-check-update").disabled, "the button did not say it was working");
 
@@ -5458,7 +5468,8 @@ assert.ok(!h.$("set-sponsor"), "the sponsor line is drawn in a section other tha
 const find = h.$("settings-find");
 find.value = "sponsor";
 find.oninput();
-assert.deepStrictEqual(h.$("settings-tabs").children.map((b) => b.textContent), ["Account & plan"],
+// The list's tabs, not its group headings, which are labels and not tabs.
+assert.deepStrictEqual(h.$("settings-tabs").querySelectorAll("button").map((b) => b.textContent), ["Account & plan"],
   "Find a setting does not lead to the sponsor line");
 find.value = "";
 find.oninput();
@@ -5493,11 +5504,20 @@ const k = keys.find((x) => x.id === "settings");
 assert.ok(k && k.keys, "the action table has no key for the settings");
 assert.strictEqual(keys.filter((x) => x.keys === k.keys).length, 1, k.keys + " runs something else as well");
 const shown = () => !h.$("overlay").hidden && h.$("overlay-title").textContent === "Settings";
-const sections = () => h.$("settings-tabs").children.map((b) => b.textContent);
+// The sections are the list's tabs; its group headings are labels, not tabs
+// and not stops, each over the first of its group's sections.
+const sections = () => h.$("settings-tabs").querySelectorAll("button").map((b) => b.textContent);
+const groups = () => h.$("settings-tabs").children.map((n) => n.tagName === "BUTTON" ? n.textContent : "[" + n.textContent + "]");
 
 h.click(h.$("btn-settings"));
 assert.ok(shown(), "the rail's Settings button did not open the settings");
-assert.deepStrictEqual(sections(), ["General", "Appearance", "Behaviour", "Keybindings", "Agents", "API keys", "Remote access", "GitHub", "Account & plan"]);
+assert.deepStrictEqual(groups(), ["[Window]", "General", "Appearance", "Terminal", "Keyboard",
+  "[Agents]", "Agents & models", "Routing", "API keys", "Status detection",
+  "[Connections]", "Remote access", "GitHub", "[Account]", "Account & plan"]);
+for (const g of h.$("settings-tabs").querySelectorAll(".settings-group")) {
+  assert.strictEqual(g.getAttribute("aria-hidden"), "true", "the group heading " + g.textContent + " is read out as part of the list");
+  assert.ok(!g.hasAttribute("tabindex") && !g.getAttribute("role"), "the group heading " + g.textContent + " is a stop or a tab");
+}
 assert.strictEqual(h.$("settings-tab-general").getAttribute("aria-selected"), "true");
 assert.ok(h.doc.activeElement === h.$("settings-tab-general"), "the keyboard is not on the sections");
 assert.ok((h.$("btn-settings").dataset.tip || "").includes(k.keys), "the Settings button does not give its key");
@@ -5509,7 +5529,11 @@ assert.ok(shown(), k.keys + " did not open the settings");
 h.key({ key: "ArrowDown" });
 assert.strictEqual(h.$("settings-tab-appearance").getAttribute("aria-selected"), "true", "the arrows do not walk the sections");
 assert.ok(h.doc.activeElement === h.$("settings-tab-appearance"), "the keyboard did not follow the arrows");
-assert.ok(h.$("settings-pane").contains(h.$("set-font-size")), "the section reached is not the one shown");
+assert.ok(h.$("settings-pane").contains(h.$("set-theme")), "the section reached is not the one shown");
+h.key({ key: "ArrowDown" });
+assert.ok(h.doc.activeElement === h.$("settings-tab-terminal"), "the arrows stopped at a group heading");
+assert.ok(h.$("settings-pane").contains(h.$("set-font-size")), "the terminal's settings are not in Terminal");
+h.key({ key: "ArrowUp" });
 h.key({ key: "Escape" });
 
 h.press("palette");
@@ -5526,6 +5550,8 @@ const find = h.$("settings-find");
 find.value = "relay";
 find.oninput();
 assert.deepStrictEqual(sections(), ["Remote access", "Account & plan"], "Find a setting did not narrow the sections");
+assert.deepStrictEqual(groups(), ["[Connections]", "Remote access", "[Account]", "Account & plan"],
+  "a group with no section found is still headed");
 assert.strictEqual(h.$("settings-tab-remote").getAttribute("aria-selected"), "true", "the first section found is not shown");
 `)
 }
@@ -5614,6 +5640,9 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "notifications", kind: "off" }
 assert.ok(!on("set-notifications"), "the switch did not turn off at once");
 h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: ["palette"], fontSize: 13 } });
 assert.ok(on("set-notifications"), "the switch did not follow notifications turned back on in another window");
+
+// Account & plan: Version, which was General's.
+h.click(h.$("settings-tab-plan"));
 h.click(h.$("set-updates"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "updates", kind: "off" });
 h.press("palette");
@@ -5623,6 +5652,9 @@ h.key({ key: "Escape" });
 assert.ok(h.$("set-install"), "the update already downloaded is not offered");
 h.click(h.$("set-check-update"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "checkForUpdate" });
+
+// General: hints.
+h.click(h.$("settings-tab-general"));
 h.click(h.$("set-tips"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "resetTips" });
 assert.ok(h.$("set-tips").disabled, "the hints can still be brought back with none sent away");
@@ -5640,7 +5672,8 @@ assert.strictEqual(h.doc.documentElement.dataset.accent, "purple", "the document
 h.click(h.$("set-theme-dark"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "theme", text: "dark" });
 
-// Appearance: terminal.
+// Terminal, which was Appearance's lower half.
+h.click(h.$("settings-tab-terminal"));
 h.click(h.$("set-font-up"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 14 });
 assert.strictEqual(h.$("set-font-size").textContent, "14 px");
@@ -5672,8 +5705,8 @@ h.click(h.$("set-cursor-blink"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "cursorBlink", kind: "off" });
 assert.strictEqual(h.terms[0].options.cursorBlink, false, "the terminals' cursors still blink");
 
-// Behaviour.
-h.click(h.$("settings-tab-behaviour"));
+// General: New panes, which were Behaviour's.
+h.click(h.$("settings-tab-general"));
 assert.strictEqual(h.$("set-fanout-sametab").checked, false, "fan out's own tab is offered as the default");
 h.$("set-fanout-sametab").checked = true;
 h.dispatch(h.$("set-fanout-sametab"), new h.Ev("change"));
@@ -5682,8 +5715,9 @@ h.click(h.$("set-auto-review-default"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "autoReviewDefault", kind: "on" });
 assert.ok(on("set-auto-review-default"), "the switch did not turn on at once");
 
-// Status detection: sending terminal output to TypeSafe is off until asked for,
-// and the setting says plainly what it sends.
+// Status detection, which was Behaviour's too: sending terminal output to
+// TypeSafe is off until asked for, and the setting says plainly what it sends.
+h.click(h.$("settings-tab-status"));
 assert.ok(!on("set-jev-status"), "sending terminal output to TypeSafe starts on");
 const jevRow = h.$("settings-pane").textContent;
 assert.ok(/SENT TO TYPESAFE/.test(jevRow) && /Off by default/.test(jevRow) && /TYPESAFE_API_KEY/.test(jevRow),
@@ -6269,7 +6303,7 @@ assert.ok(badge().dataset.tip.includes("from claude · sonnet"),
 `)
 }
 
-// Settings › Agents › Routing: the mode for every project and for this one,
+// Settings › Routing: the mode for every project and for this one,
 // the floor of whichever policy this project is routed by, the rules to read,
 // and the history to clear.
 func TestRoutingIsSetInSettings(t *testing.T) {
@@ -6280,7 +6314,16 @@ const routing = (over) => Object.assign({ every: { mode: "off", floor: "" },
   note: "Routing leaves Claude Code's Default alone.", config: "C:/state/agents.json" }, over || {});
 h.recv(fixture({ agents: catalog({ routing: routing() }) }));
 h.press("settings");
+// Routing is a section of its own, next to Agents & models, which it was once
+// part of and which leads to it.
 h.click(h.$("settings-tab-agents"));
+assert.ok(!h.$("set-route-all"), "routing is still drawn in Agents & models");
+assert.ok(h.$("set-agent-routing").closest(".set-row").textContent.includes("Off · 1 rules · cost-first"),
+  "Agents & models does not sum up routing: " + h.$("set-agent-routing").closest(".set-row").textContent);
+h.click(h.$("set-agent-routing"));
+assert.strictEqual(h.$("settings-tab-routing").getAttribute("aria-selected"), "true", "Agents & models' Routing → does not show Routing");
+assert.ok(h.doc.activeElement === h.$("settings-tab-routing"), "the keyboard was not put on Routing's tab");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "refreshAgents" }, "Routing did not ask for what it shows");
 assert.strictEqual(h.$("set-route-all").value, "off", "routing is not shown off");
 
 const pick = (id, value) => { const s = h.$(id); s.value = value; h.dispatch(s, new h.Ev("change")); return h.commands().pop(); };
@@ -6325,6 +6368,12 @@ h.$("set-route-jev").checked = false;
 h.dispatch(h.$("set-route-jev"), new h.Ev("change"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "setRouting", target: "jev", text: "false" },
   "a project with its own policy sent kind: all for Jev");
+
+// Asking Jev needs the TypeSafe key, which is set in Status detection: the
+// row leads there.
+h.click(h.$("set-route-jev-key"));
+assert.strictEqual(h.$("settings-tab-status").getAttribute("aria-selected"), "true", "Ask Jev does not lead to where its key is set");
+assert.ok(h.$("settings-pane").contains(h.$("set-jev-key")), "Status detection has no TypeSafe key");
 `)
 }
 
@@ -6705,7 +6754,7 @@ assert.ok(h.terms.every((t) => t.disposed || t.options.screenReaderMode === fals
 
 // The settings have a switch for it.
 h.press("settings");
-h.click(h.$("settings-tab-appearance"));
+h.click(h.$("settings-tab-terminal"));
 assert.ok(h.$("set-screen-reader"), "the terminal settings have no switch for screen reader support");
 h.click(h.$("set-screen-reader"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "screenReader", kind: "on" });

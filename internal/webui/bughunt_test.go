@@ -116,6 +116,8 @@ func TestAFailedVersionDownloadReleasesItsButton(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-settings"));
+// Version and updates are in Account & plan.
+h.click(h.$("settings-tab-plan"));
 h.click(h.$("set-versions"));
 h.recv({ type: "versions", items: [{ version: "v1.6.0", relation: "newer" }, { version: "v1.5.0", relation: "current" }] });
 const install = () => h.$("version-install-v1.6.0");
