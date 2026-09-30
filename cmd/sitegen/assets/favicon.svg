@@ -1,18 +1,33 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="flockdeck">
-  <!-- The mark on its tile, and the working state: an agent is running.
-       Two agents at rest on the flockdeck and one raised: the glyphs the pane
-       header already uses, ● working and ▲ waiting. The tile is what makes
-       this read as an application in the taskbar, on a dark one and a light
-       one alike; the bare mark there was a few grey dots. Colours are the
-       tokens from design/color.css. Keep the geometry identical across the
-       variants — only the raised bird changes colour, so the swap reads as a
-       state change and not as a different application. -->
-  <rect x="1" y="1" width="30" height="30" rx="7" fill="#151B20"/>
-  <rect x="1.5" y="1.5" width="29" height="29" rx="6.5" fill="none" stroke="#FFFFFF" stroke-opacity=".1"/>
-  <g transform="translate(2.46 4.15) scale(.846)">
-    <rect fill="#C9D3D9" x="3" y="22" width="26" height="2.6" rx="1.3"/>
-    <circle fill="#C9D3D9" cx="8.4" cy="18" r="3.4"/>
-    <circle fill="#C9D3D9" cx="23.6" cy="18" r="3.4"/>
-    <path fill="#4FD1DB" d="M16 3.4L21 12.2H11Z"/>
+  <!-- The mark on its tile, working: an agent is running.
+       Five agents flying in formation; the one at the point is the status slot.
+       Keep the geometry identical across the three files. Only the slot changes. -->
+  <style>.s16,.s24{display:none}@media (max-width:20px){.l{display:none}.s16{display:inline}}@media (min-width:21px) and (max-width:28px){.l{display:none}.s24{display:inline}}</style>
+  <g class="l">
+    <rect x="1" y="1" width="30" height="30" rx="7" fill="#151B20"/>
+    <rect x="1.5" y="1.5" width="29" height="29" rx="6.5" fill="none" stroke="#FFFFFF" stroke-opacity=".1"/>
+    <g transform="translate(4.16 4.16) scale(.74)">
+  <circle fill="#C9D3D9" cx="9" cy="5.5" r="3.3"/>
+  <circle fill="#C9D3D9" cx="16" cy="10.75" r="3.3"/>
+  <circle fill="#C9D3D9" cx="16" cy="21.25" r="3.3"/>
+  <circle fill="#C9D3D9" cx="9" cy="26.5" r="3.3"/>
+  <circle fill="#4FD1DB" cx="23" cy="16" r="3.3"/>
+    </g>
   </g>
+  <svg class="s24" viewBox="0 0 24 24" width="32" height="32">
+    <rect width="24" height="24" rx="5.25" fill="#151B20"/>
+  <rect x="5" y="2" width="4" height="4" rx="1.6" fill="#C9D3D9"/>
+  <rect x="10" y="6" width="4" height="4" rx="1.6" fill="#C9D3D9"/>
+  <rect x="15" y="10" width="4" height="4" rx="1.6" fill="#4FD1DB"/>
+  <rect x="10" y="14" width="4" height="4" rx="1.6" fill="#C9D3D9"/>
+  <rect x="5" y="18" width="4" height="4" rx="1.6" fill="#C9D3D9"/>
+  </svg>
+  <svg class="s16" viewBox="0 0 16 16" width="32" height="32">
+    <rect width="16" height="16" rx="3.5" fill="#151B20"/>
+  <rect x="3" y="0.5" width="3" height="3" rx="1" fill="#C9D3D9"/>
+  <rect x="7" y="3.5" width="3" height="3" rx="1" fill="#C9D3D9"/>
+  <rect x="11" y="6.5" width="3" height="3" rx="1" fill="#4FD1DB"/>
+  <rect x="7" y="9.5" width="3" height="3" rx="1" fill="#C9D3D9"/>
+  <rect x="3" y="12.5" width="3" height="3" rx="1" fill="#C9D3D9"/>
+  </svg>
 </svg>
