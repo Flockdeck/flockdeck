@@ -1374,8 +1374,9 @@ func TestRemoteUsage(t *testing.T) {
 		if !strings.Contains(out, "To move to another relay") {
 			t.Errorf("remote %v does not say how to change relay: %q", args, out)
 		}
-		if !strings.Contains(out, "decrypts") {
-			t.Errorf("remote %v does not say the relay decrypts the traffic: %q", args, out)
+		// Only terminals are end-to-end encrypted; the rest the relay can read.
+		if !strings.Contains(out, "end-to-end") || !strings.Contains(out, "the relay\ncan read them") {
+			t.Errorf("remote %v does not say what is end-to-end encrypted and what the relay can read: %q", args, out)
 		}
 	}
 	if _, _, err := runRemoteCmd(t, "nonsense"); err == nil {

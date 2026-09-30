@@ -19,7 +19,7 @@ switched from inside the window. These are what is left.
 | `flockdeck help` | Print the usage; `flockdeck help spawn` (or any subcommand below) prints that subcommand's usage instead |
 
 `-no-window` needs no browser on the machine it runs on either, so it's
-equally at home on a server you own — see **Self-hosted** in
+equally at home on a server you own — see **Running it headless on a server** in
 [Remote access](#remote) for running Flockdeck headless and reaching it from
 a paired phone or laptop.
 
@@ -218,6 +218,10 @@ The subcommand still works; it is the background updating that goes.
 | --- | --- |
 | `FLOCKDECK_UPDATE` | `off` stops updating in the background: no checks, and nothing already downloaded is put in place |
 | `FLOCKDECK_RELAY` | Which relay `flockdeck remote enable` uses when `-relay` is not given |
+| `FLOCKDECK_API_KEY` | A key for any API agent, used when neither its own variables nor a key stored with `flockdeck keys set` hold one |
+| `FLOCKDECK_DIR`, `FLOCKDECK_START_AGENT` | The equivalents of `-C` and `-agent` |
+| `FLOCKDECK_FRESH`, `FLOCKDECK_SHELL_FIRST`, `FLOCKDECK_NO_WINDOW`, `FLOCKDECK_DETACH`, `FLOCKDECK_SOLO` | Set to `1`, the equivalents of `-new`, `-shell`, `-no-window`, `-detach` and `-solo`, for a service's environment; a flag given on the command line wins |
+| `FLOCKDECK_REMOTE_INVITE`, `FLOCKDECK_REMOTE_JOIN`, `FLOCKDECK_REMOTE_NAME` | The defaults for `-invite`, `-join` and `-name` of `flockdeck remote enable` |
 | `FLOCKDECK_API` | Where Flockdeck listens for its panes — set for you |
 | `FLOCKDECK_TOKEN` | The secret that goes with it — set for you |
 | `FLOCKDECK_PANE` | The pane's id — set for you, read by `spawn`, `peer-name` and `close` |

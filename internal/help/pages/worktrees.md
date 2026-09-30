@@ -26,7 +26,7 @@ For every worktree:
 | **Shell** | Open a plain shell there instead |
 | **Split** | Add an agent for it beside the pane you are looking at |
 | **Review** | See what changed there, commit and push |
-| **Remove** | Delete the worktree — after asking, when it has uncommitted work that would be discarded. A clean one with panes still working in it is refused; close them first |
+| **Remove** | Delete the worktree — after asking, when it has uncommitted work that would be discarded. One with any pane open in it is refused, with or without uncommitted work; close them first |
 
 **New worktree** creates one for a new branch off any base ref —
 <kbd>Enter</kbd> in the branch box does the same. It is created next to the

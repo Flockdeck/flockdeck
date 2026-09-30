@@ -209,8 +209,10 @@ The relay is %s unless -relay or %s
 says otherwise.
 To move to another relay, run move; every device then has to pair again.
 In the window, Remote access… in the command palette does the same things.
-Traffic is encrypted on its way to and from the relay, which decrypts it to
-forward it: the relay is trusted, and it is not end-to-end encrypted.
+Traffic is TLS to and from the relay. A terminal is also end-to-end encrypted
+between this machine and the paired browser, unless either side has no
+registered key. The chat view, pane state and dialogs are not, and the relay
+can read them.
 `, remote.DefaultRelay, remote.RelayEnv)
 }
 

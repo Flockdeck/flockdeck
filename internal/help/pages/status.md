@@ -12,13 +12,15 @@ Every pane header carries a status dot.
 | --- | --- |
 | Filled cyan circle, pulsing | **Working** — producing output or running a tool |
 | Amber triangle | **Waiting on you** — a permission prompt or a question |
+| Amber triangle | **Blocked** — a tool call was refused outright and the turn ended there; nothing is being asked, but it needs a look |
 | Hollow grey circle | **Idle** — it finished its turn and is ready for a new prompt |
 | Hollow grey circle, pulsing | **Starting** — launched, and not heard from yet |
 | Red filled square | **Failed** — the process ended with an error, or was killed |
 | Hollow square | **Exited** — the process is gone |
 
 Each state has its own shape as well as its colour, so you can tell them apart
-without seeing colour.
+without seeing colour, except that waiting and blocked share the triangle. A
+blocked pane counts as waiting everywhere waiting agents are counted (below).
 
 A pane whose turn is over but that has background work still running, a
 command or subagent it started, is still **Idle** and its header says how many
@@ -38,7 +40,8 @@ tells you what the agent is actually doing rather than only that it is busy.
   waiting.
 - **The window title** reports the count, so a waiting agent is visible in the
   taskbar with the window behind something else.
-- **The top bar** counts the agents waiting and working in this project; an
+- **The top bar** counts the agents waiting and working across every open
+  project, the same count the window title carries; an
   idle agent whose background work is still running counts as working, here
   and in the window title and the tab icon. Click
   the count for the same list [[key:agents]] opens.

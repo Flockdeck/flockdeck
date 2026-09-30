@@ -71,8 +71,14 @@ the keys change, so whichever you use, the others show it.
 
 A window reached through the relay leaves a few things to the desk: [Remote
 access](#remote) lists them.
-- **Account & plan** — the free plan you are on, and Enterprise, coming for
-  companies to run the relay on their own infrastructure with SSO and support.
+- **GitHub** — signing in to GitHub, for pull requests, issues and CI status
+  inside Flockdeck; see [GitHub](#github).
+- **Account & plan** — the Free plan, which is every part of the desktop app;
+  the Remote access plan for reaching this machine through the shared relay, a
+  free trial and then a subscription, with the days left or the date it is paid
+  until, paid for from **Devices** on a paired phone or browser; and
+  Enterprise, coming for companies to run the relay on their own
+  infrastructure with SSO and support.
   At its foot are the privacy policy and terms for the shared relay, and the
   licences.
   - **Sponsor Flockdeck** — a link to
@@ -174,12 +180,25 @@ set).
   status, which also carries the pane's status line where that goes through
   Flockdeck.
 - `chats` — the built-in chat client's conversations.
-- `window` — the browser profile the window runs in. On Windows it is kept
-  apart from the rest, in `%LOCALAPPDATA%\flockdeck\window`.
+- `groups.json` — the multi-repo projects' grouping.
+- `todos.json` — every project's saved todo checklists.
+- `worktree-procs.json` — processes recorded for worktrees, so they can be
+  swept up.
+- `e2e_key.json` — this machine's end-to-end key for remote access terminals.
+  It holds a secret; keep it private.
+- `uploads` — pictures attached from a phone, one folder per pane, removed
+  after a week.
+- `window` — the browser profile the window used to run in; nothing writes to
+  it now, and it can be deleted. On Windows it is
+  `%LOCALAPPDATA%\flockdeck\window`.
+
+The window's web view keeps its own data outside this directory; on Windows,
+in `%APPDATA%\flockdeck.exe`.
 
 To uninstall Flockdeck, quit it and delete the `flockdeck` binary (on Windows,
 the `%LOCALAPPDATA%\Programs\flockdeck` folder the installer made, its Start
-menu shortcut and its entry in your PATH), then this directory; turn remote
+menu shortcut and its entry in your PATH), then this directory and, on
+Windows, `%APPDATA%\flockdeck.exe`; turn remote
 access off first if it is on, so the relay forgets the
 machine. Worktrees it made are ordinary git worktrees, and stay beside their
 repositories until you remove them.
@@ -211,8 +230,9 @@ elsewhere — and start Flockdeck again.
 - `CLAUDE_CONFIG_DIR` — where Claude Code keeps its own files; Flockdeck follows
   it to find conversations and folder trust.
 - `NO_COLOR` — the built-in chat client draws without colour.
-- `FLOCKDECK_COLUMNS`, then `COLUMNS` — how wide the built-in chat client wraps
-  its answers; 80 when neither is set.
+- `FLOCKDECK_COLUMNS` — the width the built-in chat client wraps its answers
+  at. Without it the client follows the pane's width, falling back to
+  `COLUMNS` and then 80.
 - `SHELL` — the shell a shell pane runs, as a login shell; `/bin/sh` if it is
   unset or names a program that is not there. On Windows a shell pane runs
   `pwsh` if it is installed, then the shell `COMSPEC` names, then Windows
