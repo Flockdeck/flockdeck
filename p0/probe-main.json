@@ -1,0 +1,180 @@
+{
+ "dark-wide-chord": [
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ]
+ ],
+ "dark-wide-tabs": {
+  "sel": "GitHub",
+  "selLeft": 0,
+  "selRight": 0,
+  "active": "settings-tab-github",
+  "firstVisible": "General",
+  "row": false
+ },
+ "dark-wide-tabsLeft": "Remote access",
+ "dark-wide-tipBtn": "#btn-worktrees",
+ "dark-wide-tipShown": true,
+ "dark-wide-tipAfterClick": false,
+ "dark-wide-tipKbdShown": true,
+ "dark-wide-tipAfterEnter": false,
+ "dark-wide-fanout-p0": "Move cart totals into a pricing package\nHandle Stripe refund webhooks\nAdd a product search endpoint\nDocument the public API",
+ "dark-wide-fanout-p1": "func (c *Cart) subtotal() int64 {",
+ "dark-wide-fanout-p2": "Explored └ Read internal/search/index.go Read internal/http/routes.go\nEdited internal/search/handler.go +48 -3 21 +func (h *Handler) Search(w http.ResponseWriter, 22 + r *http.Request) { 23 + q := strings.TrimSpace(r.URL.Query().Get(\"q\"))\nRan go test ./internal/search/... └ ok shopfront/internal/search 0.62s\nEdited internal/http/routes.go +1\nRan go vet ./...",
+ "dark-wide-fanout-p3": "",
+ "dark-narrow-chord": [
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ]
+ ],
+ "dark-narrow-tabs": {
+  "sel": "GitHub",
+  "selLeft": 0,
+  "selRight": 0,
+  "active": "settings-tab-github",
+  "firstVisible": "General",
+  "row": false
+ },
+ "dark-narrow-tabsLeft": "Remote access",
+ "dark-narrow-tipBtn": "#btn-worktrees",
+ "dark-narrow-tipShown": true,
+ "dark-narrow-tipAfterClick": false,
+ "dark-narrow-tipKbdShown": true,
+ "dark-narrow-tipAfterEnter": false,
+ "dark-narrow-fanout-p0": "Move cart totals into a pricing package\nHandle Stripe refund webhooks\nAdd a product search endpoint\nDocument the public API",
+ "dark-narrow-fanout-p1": "func (c *Cart) subtotal() int64 {",
+ "dark-narrow-fanout-p2": "Explored └ Read internal/search/index.go Read internal/http/routes.go\nEdited internal/search/handler.go +48 -3 21 +func (h *Handler) Search(w http.ResponseWriter, 22 + r *http.Request) { 23 + q := strings.TrimSpace(r.URL.Query().Get(\"q\"))\nRan go test ./internal/search/... └ ok shopfront/internal/search 0.62s\nEdited internal/http/routes.go +1\nRan go vet ./...",
+ "dark-narrow-fanout-p3": "",
+ "dark-phone-tipBtn": "#btn-palette",
+ "dark-phone-tipShown": true,
+ "dark-phone-tipAfterClick": false,
+ "dark-phone-tipKbdShown": false,
+ "dark-phone-tipAfterEnter": false,
+ "dark-phone-fanout-p0": "Move cart totals into a pricing package\nHandle Stripe refund webhooks\nAdd a product search endpoint\nDocument the public API",
+ "dark-phone-fanout-p1": "func (c *Cart) subtotal() int64 {",
+ "dark-phone-fanout-p2": "Explored └ Read internal/search/index.go Read internal/http/routes.go\nEdited internal/search/handler.go +48 -3 21 +func (h *Handler) Search(w http.ResponseWriter, 22 + r *http.Request) { 23 + q := strings.TrimSpace(r.URL.Query().Get(\"q\"))\nRan go test ./internal/search/... └ ok shopfront/internal/search 0.62s\nEdited internal/http/routes.go +1\nRan go vet ./...",
+ "dark-phone-fanout-p3": "",
+ "light-wide-chord": [
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ]
+ ],
+ "light-wide-tabs": {
+  "sel": "GitHub",
+  "selLeft": 0,
+  "selRight": 0,
+  "active": "settings-tab-github",
+  "firstVisible": "General",
+  "row": false
+ },
+ "light-wide-tabsLeft": "Remote access",
+ "light-wide-tipBtn": "#btn-worktrees",
+ "light-wide-tipShown": true,
+ "light-wide-tipAfterClick": false,
+ "light-wide-tipKbdShown": true,
+ "light-wide-tipAfterEnter": false,
+ "light-wide-fanout-p0": "Move cart totals into a pricing package\nHandle Stripe refund webhooks\nAdd a product search endpoint\nDocument the public API",
+ "light-wide-fanout-p1": "func (c *Cart) subtotal() int64 {",
+ "light-wide-fanout-p2": "Explored └ Read internal/search/index.go Read internal/http/routes.go\nEdited internal/search/handler.go +48 -3 21 +func (h *Handler) Search(w http.ResponseWriter, 22 + r *http.Request) { 23 + q := strings.TrimSpace(r.URL.Query().Get(\"q\"))\nRan go test ./internal/search/... └ ok shopfront/internal/search 0.62s\nEdited internal/http/routes.go +1\nRan go vet ./...",
+ "light-wide-fanout-p3": "",
+ "light-narrow-chord": [
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ]
+ ],
+ "light-narrow-tabs": {
+  "sel": "GitHub",
+  "selLeft": 0,
+  "selRight": 0,
+  "active": "settings-tab-github",
+  "firstVisible": "General",
+  "row": false
+ },
+ "light-narrow-tabsLeft": "Remote access",
+ "light-narrow-tipBtn": "#btn-worktrees",
+ "light-narrow-tipShown": true,
+ "light-narrow-tipAfterClick": false,
+ "light-narrow-tipKbdShown": true,
+ "light-narrow-tipAfterEnter": false,
+ "light-narrow-fanout-p0": "Move cart totals into a pricing package\nHandle Stripe refund webhooks\nAdd a product search endpoint\nDocument the public API",
+ "light-narrow-fanout-p1": "func (c *Cart) subtotal() int64 {",
+ "light-narrow-fanout-p2": "Explored └ Read internal/search/index.go Read internal/http/routes.go\nEdited internal/search/handler.go +48 -3 21 +func (h *Handler) Search(w http.ResponseWriter, 22 + r *http.Request) { 23 + q := strings.TrimSpace(r.URL.Query().Get(\"q\"))\nRan go test ./internal/search/... └ ok shopfront/internal/search 0.62s\nEdited internal/http/routes.go +1\nRan go vet ./...",
+ "light-narrow-fanout-p3": "",
+ "light-phone-tipBtn": "#btn-palette",
+ "light-phone-tipShown": true,
+ "light-phone-tipAfterClick": false,
+ "light-phone-tipKbdShown": false,
+ "light-phone-tipAfterEnter": false,
+ "light-phone-fanout-p0": "Move cart totals into a pricing package\nHandle Stripe refund webhooks\nAdd a product search endpoint\nDocument the public API",
+ "light-phone-fanout-p1": "func (c *Cart) subtotal() int64 {",
+ "light-phone-fanout-p2": "Explored └ Read internal/search/index.go Read internal/http/routes.go\nEdited internal/search/handler.go +48 -3 21 +func (h *Handler) Search(w http.ResponseWriter, 22 + r *http.Request) { 23 + q := strings.TrimSpace(r.URL.Query().Get(\"q\"))\nRan go test ./internal/search/... └ ok shopfront/internal/search 0.62s\nEdited internal/http/routes.go +1\nRan go vet ./...",
+ "light-phone-fanout-p3": ""
+}

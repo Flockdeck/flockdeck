@@ -1,0 +1,82 @@
+{
+ "dark-phone-chord": [
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ]
+ ],
+ "dark-phone-tabs": {
+  "sel": "GitHub",
+  "selLeft": 373,
+  "selRight": 111,
+  "active": "settings-tab-github",
+  "firstVisible": "Behaviour",
+  "row": true
+ },
+ "dark-phone-tabsLeft": "Remote access",
+ "dark-phone-tipBtn": "#btn-palette",
+ "dark-phone-tipShown": true,
+ "dark-phone-tipAfterClick": false,
+ "dark-phone-tipKbdShown": false,
+ "dark-phone-tipAfterEnter": false,
+ "dark-phone-fanout-p0": "Move cart totals into a pricing package\nHandle Stripe refund webhooks\nAdd a product search endpoint\nDocument the public API",
+ "dark-phone-fanout-p1": "func (c *Cart) subtotal() int64 {",
+ "dark-phone-fanout-p2": "Explored └ Read internal/search/index.go Read internal/http/routes.go\nEdited internal/search/handler.go +48 -3 21 +func (h *Handler) Search(w http.ResponseWriter, 22 + r *http.Request) { 23 + q := strings.TrimSpace(r.URL.Query().Get(\"q\"))\nRan go test ./internal/search/... └ ok shopfront/internal/search 0.62s\nEdited internal/http/routes.go +1\nRan go vet ./...",
+ "dark-phone-fanout-p3": "",
+ "light-phone-chord": [
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ],
+  [
+   true,
+   28
+  ]
+ ],
+ "light-phone-tabs": {
+  "sel": "GitHub",
+  "selLeft": 373,
+  "selRight": 111,
+  "active": "settings-tab-github",
+  "firstVisible": "Behaviour",
+  "row": true
+ },
+ "light-phone-tabsLeft": "Remote access",
+ "light-phone-tipBtn": "#btn-palette",
+ "light-phone-tipShown": true,
+ "light-phone-tipAfterClick": false,
+ "light-phone-tipKbdShown": false,
+ "light-phone-tipAfterEnter": false,
+ "light-phone-fanout-p0": "Move cart totals into a pricing package\nHandle Stripe refund webhooks\nAdd a product search endpoint\nDocument the public API",
+ "light-phone-fanout-p1": "func (c *Cart) subtotal() int64 {",
+ "light-phone-fanout-p2": "Explored └ Read internal/search/index.go Read internal/http/routes.go\nEdited internal/search/handler.go +48 -3 21 +func (h *Handler) Search(w http.ResponseWriter, 22 + r *http.Request) { 23 + q := strings.TrimSpace(r.URL.Query().Get(\"q\"))\nRan go test ./internal/search/... └ ok shopfront/internal/search 0.62s\nEdited internal/http/routes.go +1\nRan go vet ./...",
+ "light-phone-fanout-p3": ""
+}

@@ -1,0 +1,412 @@
+{
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\agents.json": {
+  "size": 167,
+  "mtime": "2026-09-25T11:36:38.274Z",
+  "sha256": "27d4dd016a4bfa697ad9578a581e6210cc6f1de0a9fed223cd9d2f396a7a20d4"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\e2e_key.json": {
+  "size": 65,
+  "mtime": "2026-09-15T02:13:20.030Z",
+  "sha256": "06178fd7e8ee8e9e6fa3d2a7960ecf88ed3e317de29cae0602eb93df248e3062"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\error.log": {
+  "size": 611,
+  "mtime": "2026-09-12T00:30:59.554Z",
+  "sha256": "2e942a91c758c502e0644cf8b2555f19af49f5595102c9046938d385cf49d42e"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\groups.json": {
+  "size": 1044,
+  "mtime": "2026-09-25T18:45:27.060Z",
+  "sha256": "3dc6ce370f2dc2779ca4b5d6e8ac23e55899f3cfc85bcb6f0779eb01168fda33"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\instance.json": {
+  "size": 166,
+  "mtime": "2026-09-30T15:21:14.061Z",
+  "sha256": "2fc23f809722c42662cd73a46223f5f192543d5556154dd8e34f1ac76bfb1b43"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\keys.json": {
+  "size": 129,
+  "mtime": "2026-09-30T18:41:05.462Z",
+  "sha256": "8b7f2a94d781ec1c64d26af0625fc3d204bfc6a651ba4cb010c5cfd0322902aa"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-0023fb7806983ecf.json": {
+  "size": 122,
+  "mtime": "2026-09-25T11:54:02.479Z",
+  "sha256": "78d9221e504a3f8b4711d7c9e51b451a6e1e00dc0a9dd2874b9bd9a5a8a73e09"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-012b859cccf02cea.json": {
+  "size": 620,
+  "mtime": "2026-09-30T18:41:44.071Z",
+  "sha256": "4401f5e6b0e1bc644b7efc703bf590d8748676466ac95175277c53d3b6ff0822"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-0d34bc74ef4fc409.json": {
+  "size": 259,
+  "mtime": "2026-09-09T14:06:57.366Z",
+  "sha256": "399f97dbea3a85fd39b0a4b1d073905fcf4fe79d1d7acd31584c972f6f774946"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-1595666930eae949.json": {
+  "size": 14083,
+  "mtime": "2026-09-30T18:27:14.079Z",
+  "sha256": "2ddad95ca4ab848165862a2c641bd187216236c8db8eaadb613804d77461c177"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-1692ca5be8196385.json": {
+  "size": 9747,
+  "mtime": "2026-09-17T19:28:06.766Z",
+  "sha256": "fb34a9f95a162f1c6f188e4436dc6f1d2b1b625774845332533e955f95c2c078"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-1e28135b93ac6689.json": {
+  "size": 1535,
+  "mtime": "2026-09-08T19:43:32.374Z",
+  "sha256": "bb702aba4eda4e006aab5d0dd64c7a267088a9144cb9be2599f011e7e7ddf18d"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-2b5ec4be316634aa.json": {
+  "size": 645,
+  "mtime": "2026-09-08T21:51:53.416Z",
+  "sha256": "48595187b71a7546a35c607ab529f5fda467f7c20e85bb192e4e5a08a5af1ccf"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-3343d6108d4ef85b.json": {
+  "size": 45875,
+  "mtime": "2026-09-09T04:44:14.262Z",
+  "sha256": "6689728b476a701fc3f9604e79646bf241361f6b3f14d1e6f6cc89fbf6ca5f07"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-37da87c218a3c3e5.json": {
+  "size": 259,
+  "mtime": "2026-09-09T12:54:43.350Z",
+  "sha256": "5e045a90173da8f4bdc02488dc4661ef4930757cec4ed3c72d2bfa3db37ae2dd"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-59d468e662922525.json": {
+  "size": 586,
+  "mtime": "2026-09-30T17:51:44.052Z",
+  "sha256": "551b5e1574193c4f9c3e477bce486d696fbb05995a740b5380eec4d5bbfb08e0"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-5dd623d403a1bc80.json": {
+  "size": 704,
+  "mtime": "2026-09-18T19:24:31.050Z",
+  "sha256": "b21ea8a2d895ba1a39f66efe23c46a41d4cfb5ee62e592dea2ea4a7c71972665"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-5eee61ce26fa69ed.json": {
+  "size": 811,
+  "mtime": "2026-09-14T02:31:40.735Z",
+  "sha256": "2feedfeecfbbbc600c388bc6b43c23c198ad9b3268a4f7f0ee4240d0bcdbd46c"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-68378a99f4d1fe9b.json": {
+  "size": 508,
+  "mtime": "2026-09-16T05:17:32.041Z",
+  "sha256": "07c31ac27785c05b66af229315b6cea972c55ca902eb604162cb2fbaa325ea9d"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-6ddc7f6589ca9938.json": {
+  "size": 655,
+  "mtime": "2026-09-17T18:00:24.991Z",
+  "sha256": "a85eabf65b5141f37a5f31b15ce78273fd36c53ce07877e3b07b6bdd2aaff16f"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-71bda66d0fca5a9b.json": {
+  "size": 673,
+  "mtime": "2026-09-30T18:15:44.033Z",
+  "sha256": "efb8b635326b0236bbf5724f1e758dd8663f8266bbd275905146c789fac8eb3b"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-74d18a2b63246410.json": {
+  "size": 9811,
+  "mtime": "2026-09-17T19:40:05.491Z",
+  "sha256": "8e76659e156c696d0a828610eeae8c6d7c3fc579a01843eb229a78a3c11b331e"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-74d18b2b632465c3.json": {
+  "size": 9811,
+  "mtime": "2026-09-17T19:38:39.644Z",
+  "sha256": "a9b2ac8b37af61bf3d40cae3ed578cec80570d0e0225d7d5c9ce4b12d610b90f"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-74d18d2b63246929.json": {
+  "size": 9811,
+  "mtime": "2026-09-17T19:41:18.631Z",
+  "sha256": "637675e77859b2bd72b3212345c2802cc9abd9e70ff4e6a5b7b401d6671a2a1c"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-74d1902b63246e42.json": {
+  "size": 9811,
+  "mtime": "2026-09-17T19:37:47.391Z",
+  "sha256": "a152f75ff6d58fc5e0076a113f100de2855e08445005791b665d5d4bd07d03bb"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-74d1912b63246ff5.json": {
+  "size": 18951,
+  "mtime": "2026-09-17T19:36:18.408Z",
+  "sha256": "61b4eb2033887a86ea6b424e2b1f23d2236831cc1a21e5246f7e7365cbd36a41"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-8f72b79e16e2438a.json": {
+  "size": 644,
+  "mtime": "2026-09-08T21:38:16.210Z",
+  "sha256": "a3d9b6140998823c013ff433d2ab0e34d60c4325577fb9102f426d34caf5410c"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-a137cfa093f7fdab.json": {
+  "size": 619,
+  "mtime": "2026-09-30T17:51:44.041Z",
+  "sha256": "01d0a9b31e4c60d7f4dc16398302581a40740c7aa10ee46362405ee0b25d68b1"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-a5c2d446b6460d94.json": {
+  "size": 8211,
+  "mtime": "2026-09-17T19:44:46.736Z",
+  "sha256": "5f8491d20c66d6c0c873d231a0550402bd62998a785168abb8ab5079fe0ee517"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-a5c2d746b64612ad.json": {
+  "size": 8211,
+  "mtime": "2026-09-17T19:42:45.963Z",
+  "sha256": "07719ba2bea73ae0216a88e6bd257909b632706152c128d4ee231dd8935a0a3b"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-a84c5273c376dcd8.json": {
+  "size": 654,
+  "mtime": "2026-09-19T12:55:56.133Z",
+  "sha256": "90a167b127425dda628ebba82ebea13dc46887934a3046f91b47632cdbc5046f"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-b0c7d9ce5656765d.json": {
+  "size": 3851,
+  "mtime": "2026-09-16T20:55:07.875Z",
+  "sha256": "f0f592f9961c2cc06f3e8b9faa973e79a84648ad379712a41c972a0149803945"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-ba0d889cb4eb3e9d.json": {
+  "size": 2647,
+  "mtime": "2026-09-16T21:04:55.454Z",
+  "sha256": "19050a5f00e9886c72241ef9f0b15e5e122d99b7d0140b65c024b8efcfda248a"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-bda81ca2cfa38252.json": {
+  "size": 1903,
+  "mtime": "2026-09-14T11:59:04.497Z",
+  "sha256": "641478465fc2ef9bf996025ef41f9d5e5f393f0e1bddab462d8f0e35354f3857"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-c012f511f256817b.json": {
+  "size": 133,
+  "mtime": "2026-09-14T15:36:19.427Z",
+  "sha256": "f84be3bad4a596851272d64e8d3d8165103b31a52ab8f142b09a8b55f1d2478f"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-c012f511f256817b.json.before-restore": {
+  "size": 484,
+  "mtime": "2026-09-09T10:31:15.355Z",
+  "sha256": "3a05d2dbc0f649bbc08ba967e5ffd5e3e1715cf1e7dd83574e9acbb3adcf2d55"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-c012f511f256817b.json.before-title-repair": {
+  "size": 36701,
+  "mtime": "2026-09-09T10:41:11.611Z",
+  "sha256": "031be8240dc1809b246b4c90a48f3c6dae7da2e58babe5f5c3b2dc762ebbc946"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-cec8d2e701974134.json": {
+  "size": 115468,
+  "mtime": "2026-09-30T18:45:44.033Z",
+  "sha256": "31e3e87d34a8f47d0b2ea440f6994b8c51b1d5d0c80336b0304a79ac4e4810db"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-d6e8dc60c5cf0543.json": {
+  "size": 448,
+  "mtime": "2026-09-08T18:20:09.526Z",
+  "sha256": "32abee449ec729cdc4c7829034d50001e45ad7bcee4cbc4d14239ce8a9698201"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-d6e8dd60c5cf06f6.json": {
+  "size": 449,
+  "mtime": "2026-09-08T18:20:09.527Z",
+  "sha256": "b14a9a4ac0b8886279fef6561f1c66788055c93b5a2e0f22cf16aee8fb8aac79"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-e2cbff1e527de221.json": {
+  "size": 579,
+  "mtime": "2026-09-14T11:49:12.210Z",
+  "sha256": "0839ed36f1711801892f7439527daab2ec9696af42fa00bd5824251c869a546d"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-e743c19330b41300.json": {
+  "size": 118,
+  "mtime": "2026-09-25T13:23:21.517Z",
+  "sha256": "33d2eb91807ac0c77a88ddb04805a96f9ad975e880a54a2c10b73918e8b97ad3"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-f0266c27b911a42d.json": {
+  "size": 8275,
+  "mtime": "2026-09-17T19:43:39.175Z",
+  "sha256": "24320ad00a6809431d6a0219d42df689451277a4997f90a9b9ae03b790914f82"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-f12fb6a0243e475f.json": {
+  "size": 496,
+  "mtime": "2026-09-13T11:45:26.062Z",
+  "sha256": "35b88c8d807f24a54af51cda25b21fafea7fb838dc174590c76116ced9a02853"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-f37035d185fc7770.json": {
+  "size": 542,
+  "mtime": "2026-09-14T11:49:12.204Z",
+  "sha256": "9b6f2ca95b8a5c05c454d61f2aee25b9e1e8984a6bfba03700f22fc024638616"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-f7657d57bb697c10.json": {
+  "size": 575,
+  "mtime": "2026-09-14T11:49:42.200Z",
+  "sha256": "dd0ff769b75b73920f4b9dc22b6c7d4253a6949ecab8ed342b29dc6ead1eec3e"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\layout-f934ccfe37ac912b.json": {
+  "size": 585,
+  "mtime": "2026-09-30T18:35:14.376Z",
+  "sha256": "5ef5e839735ba7f58dca51d3769161aac0410ed5207bd8127a2b7e8e7700fbad"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\prefs.json": {
+  "size": 183,
+  "mtime": "2026-09-30T15:21:33.227Z",
+  "sha256": "b03d85d6c9cd4e2488167ecc9b76149cbe6d12a48d8b0c82df0384a4f461ac7e"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\projects.json": {
+  "size": 3280,
+  "mtime": "2026-09-30T18:45:54.842Z",
+  "sha256": "e053e0dc443e4c74fbb7cac45f2deaeb8b978ae3c4d9c698c2105458c6a8df53"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\remote.json": {
+  "size": 198,
+  "mtime": "2026-09-18T16:48:49.155Z",
+  "sha256": "3b3538defa3295a274cf62e00e6baadebe13eaba03be2d18b9a7811383dedb68"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\session.json": {
+  "size": 487,
+  "mtime": "2026-09-29T12:29:17.402Z",
+  "sha256": "c378e67afac730e9e30f9928cb022206d317496d8c03999fe9db986e3cb26903"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\0c275580-e6a8-49a6-b3ab-f75f9a78129d.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T18:29:30.373Z",
+  "sha256": "5dc509d884585a60e3aa69dcb837aac5f1c756f3c3282097857e71feb082f4fb"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\14a39676-04d8-4e08-9088-1806ec98269b.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T18:32:46.130Z",
+  "sha256": "454fe85b8226710346b8794a4f4a8d92638ecb4a82610cebc7f314d34ad3d59e"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\18c75b05-dd24-4751-a788-ca29ee9dc9c2.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T17:26:10.835Z",
+  "sha256": "c14321d68e427f1f1b64ab180ea3840c7e247480fd4119d7583376673ca41c46"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\2026fc2e-e2d1-4231-88b8-b99208c07dc1.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T15:21:15.604Z",
+  "sha256": "630508a123dbb5fd81e8ea9fd69ca003575078ec27a341e38d8b06bf31e0c28e"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\25380271-913f-43e4-8bf8-8fef7ade3407.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T18:29:53.217Z",
+  "sha256": "7f07743e1b157252103538f5082f9d93d8be546150821d369336c352995acc0a"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\3c1d1b85-a3cc-401a-9103-ac89ffe21a0e.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T15:21:15.707Z",
+  "sha256": "ab0d9f14388cd9c78e8d4e1b2fed4bfe1be865aefc3a6143611b37d41e622714"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\4226063f-fecb-4841-af41-b77888fe782c.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T15:21:15.716Z",
+  "sha256": "564f436bee57db7104d64211409dfc3a24f8df82cc3ad6e152dd4640a6ad7fdc"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\46341ddd-5e45-4c08-9315-afe29c124e42.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T15:21:13.465Z",
+  "sha256": "501e162088fffc874196bc68c3bc92b2acb21a65333924ecd2bf28a0832a8ad4"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\48c6f5d0-3f56-4b58-9119-7140a407abe5.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T17:35:12.534Z",
+  "sha256": "6a3837ac896dde552a242b0840c4a2163879b72c85e91fba1a715d30540be472"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\5d40154c-bfe3-4953-86ee-29489991f05f.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T17:35:11.225Z",
+  "sha256": "1a6a937d6ee8c34830bf6faf86c2c3159f70666871ce6c09833041f4edbf63fe"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\6dce256a-9893-4c9f-b6f2-7b420d70cae4.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T18:32:46.481Z",
+  "sha256": "0c77d1395b5bfab78d5f556da456ca26f0282c14dfd7fc02c8dd46b607cfcbfa"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\7766e7d3-7478-4338-874a-4da6331278f0.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T18:29:30.810Z",
+  "sha256": "c3a1fbf6a5f5dc7aeed2efedcef1f083ca2e900652ffcc260c00e60a02ceb6cb"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\819321f2-ce48-4c75-b4f5-2fa279da193c.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T15:21:15.706Z",
+  "sha256": "133d3f53df6ec33b2bb056b088b920a707f3a8692045de11e65f789c1457d5f4"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\81d3b633-4360-4198-8829-a83cfa5f9afe.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T18:15:39.875Z",
+  "sha256": "052966635b18ff9f8803a66091a056592e8a90eb7d50ac042db6e2368592d762"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\89517bff-9f7a-467a-892d-d91cd6853428.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T16:04:42.154Z",
+  "sha256": "3bbb40a265b4eaf5ae4de54332d31e1f21b6bdc5f99864219c2ce7d53418e8a2"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\89bb28e4-b4c2-4f28-bcfd-e2c3abd8a29f.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T15:21:15.410Z",
+  "sha256": "d78e00448fe156fbf54ea5960d07c931da22b418030190e14c11b989c35a0822"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\92638203-8fcf-478b-8ebc-c9ffef6917b4.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T15:21:13.986Z",
+  "sha256": "c447a58cd55282aeb1269b7833d6a9754d4c47e9077f0f9dc323fba5d2c38350"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\97b00d12-4eda-4372-b09a-57aecac4343c.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T15:21:15.651Z",
+  "sha256": "f34db368bbfeab49fd3170e2339f25ccdf73eb77b54737fee4e8b6032681d5e0"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\9f14955b-e216-4bf2-9877-18d93fb16a92.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T17:35:11.496Z",
+  "sha256": "058236d3b19f9c8311bd051a40b2396a45718480ffc25db413890ba0ab650dab"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\b27fc2c0-7382-4084-a5c4-735c2c7006a7.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T18:29:29.345Z",
+  "sha256": "a20e4160f7c5fccb9a69fef76a17d8599e591286b93d10caefae663439398d16"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\b9e66ab4-63b3-42e9-818e-c6964847dce7.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T15:36:35.183Z",
+  "sha256": "ad6afdad64e5d65df9e9db2c52152f1f6ca0563c3e09378563f0f8650c1233b6"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\bccc01d0-9743-477b-bd6d-5a311a91e819.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T18:29:30.034Z",
+  "sha256": "86d3d45f129ec11ec57effcaa8f92caf4473a0498b84354ccfaf0d9288ea79d7"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\bdea172d-7b6c-435a-9daa-7d33deb0064e.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T18:29:29.622Z",
+  "sha256": "de29501281b018fc588bf27bab8a08e80fd5078cf1fd445dbbd914a1c5e86d71"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\c15f93d2-8cd5-4bda-8553-1c7c3c384e3c.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T18:37:53.476Z",
+  "sha256": "3341d0498d79ddfbcdbb88cfd65a4d70e67229c0d8dc5b40357f42abac6ea2bd"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\c4bfc27e-a82b-4afd-8fcb-f30fbf40b680.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T17:35:11.783Z",
+  "sha256": "a61e1df7c0b7d70582f65fb604a42e4fea0a4c0926648b8837d0dc6db336223d"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\caeff4db-fd34-43dc-9f79-24d31885333a.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T18:29:31.558Z",
+  "sha256": "ade1063d47d8f898a32bf1e44e88ef18cde4a1fe9b0ddf2127d85a775f8e094e"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\da992060-c941-45cd-a0ba-b98eb5834dff.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T17:35:12.094Z",
+  "sha256": "95c05d338ceb294a4683fdd40e24d6f440d0ff7168792c525b1f17c40a1baa10"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\ec786b68-6361-4e6a-9767-899b7abcbf3f.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T15:21:15.716Z",
+  "sha256": "5ee93d0249092a76b8ba1bf058369b38893bb73f4fba5b02319463268b6052b5"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\sessions\\fa62a085-41ad-4921-8b5a-edc80e31449f.settings.json": {
+  "size": 7765,
+  "mtime": "2026-09-30T15:21:15.694Z",
+  "sha256": "c21b4bc1913e79c1c75d6b73f889eb9db5a2f01fe4895a435d2a2b8bacd6bc55"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\start.lock": {
+  "size": 0,
+  "mtime": "2026-09-12T08:39:58.096Z",
+  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+ },
+ "C:\\Users\\jmwri\\AppData\\Roaming\\flockdeck\\worktree-procs.json": {
+  "size": 407,
+  "mtime": "2026-09-30T18:26:57.974Z",
+  "sha256": "c381d85fc5991b7550963835b23c40d443b688a0197b15b155625699cbef48a5"
+ }
+}
