@@ -2934,7 +2934,9 @@ assert.strictEqual(install.textContent, "Downloading…");
 
 // A dialog closed while its answer is still on the way must not come back on
 // its own -- see TestAClosedDialogStaysClosedWhenItsAnswerArrives for the
-// worktree and keys dialogs' own version of this.
+// worktree and keys dialogs' own version of this. The picker is opened from
+// Settings and stacked on it, so Escape goes back to Settings rather than
+// closing both; the answer must not bring the picker back over them either.
 func TestTheVersionPickerStaysClosedWhenItsAnswerArrives(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
@@ -2942,7 +2944,12 @@ h.recv(fixture());
 h.click(h.$("btn-settings"));
 h.click(h.$("set-versions"));
 h.key({ key: "Escape" });
-assert.ok(h.$("overlay").hidden, "Escape did not close the picker");
+assert.strictEqual(h.$("overlay-title").textContent, "Settings", "Escape did not close the picker back to Settings");
+h.recv({ type: "versions", items: [{ version: "v1.4.0", relation: "current" }] });
+assert.strictEqual(h.$("overlay-title").textContent, "Settings", "the answer reopened the picker after it was closed");
+assert.ok(!h.$("version-install-v1.4.0"), "the answer drew the picker's rows into Settings");
+h.key({ key: "Escape" });
+assert.ok(h.$("overlay").hidden, "a second Escape did not close Settings");
 h.recv({ type: "versions", items: [{ version: "v1.4.0", relation: "current" }] });
 assert.ok(h.$("overlay").hidden, "the answer reopened the picker after it was closed");
 `)
@@ -6371,23 +6378,28 @@ assert.strictEqual(h.$("help-content").dataset.slug, "agents");
 `)
 }
 
-// Every dialog's own header offers "Go to…" beside its ?, and that is the
-// palette narrowed to the actions that open a dialog: it lists Settings
-// without listing something like a pane split, and choosing one from there
-// switches straight to it, no trip back out to the rail.
+// "Go to…" was a chip in every dialog's header; it is now the palette's own
+// entry (D5 of the pop-over redesign), and still the palette narrowed to the
+// actions that open a surface: it lists Settings without listing something
+// like a pane split, it covers Todos, GitHub and Fan out, which the chip left
+// out, and choosing one from there switches straight to it, no trip back out
+// to the rail.
 func TestGoToSwitchesDialogsFromThePalette(t *testing.T) {
-	runFrontEnd(t, `
+	runFrontEnd(t, paletteRun+`
 h.hello();
 h.recv(fixture());
 h.press("worktrees");
-assert.ok(h.$("overlay-goto"), "the worktrees dialog has no Go to…");
-h.click(h.$("overlay-goto"));
+assert.ok(!h.$("overlay-goto"), "the header still carries a Go to… chip");
+paletteRun("go to");
 assert.strictEqual(h.$("palette").hidden, false, "Go to… did not open the palette");
 assert.strictEqual(h.$("palette-input").placeholder, "Go to…");
 
 const labels = h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
 assert.ok(labels.includes("Settings"), "Go to… does not offer Settings");
 assert.ok(!labels.some((l) => l.startsWith("Split right")), "Go to… offers more than the dialogs");
+for (const name of ["Todos", "GitHub", "Fan out"]) {
+  assert.ok(labels.some((l) => l.startsWith(name)), "Go to… does not offer " + name + ": " + labels.join(", "));
+}
 
 const row = h.$("palette-list").children.find((r) => r.querySelector(".pal-label").textContent === "Settings");
 assert.ok(row, "Go to… has no Settings");
@@ -6402,10 +6414,6 @@ assert.ok(everything.some((l) => l.startsWith("Split right")), "the ordinary pal
 `)
 }
 
-// The broadcast tooltip said it mirrors what you type into every pane in the
-// set. Nothing mirrors typing: the set is where the prompt bar's message goes
-// (BroadcastTargets is used by SendPrompt alone), and a terminal typed into
-// still reaches only itself.
 func TestTheBroadcastTipSaysWhatBroadcastDoes(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();

@@ -693,9 +693,10 @@ textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-/* A dialog's own panel holds the keyboard when the dialog opens with nothing
- * in it to put the keyboard on. The ring says that the dialog has it. */
-#overlay-panel:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* A dialog's own panel holds the keyboard only while the surface is being
+ * drawn; its first control takes it from there (settleOverlayFocus), so a
+ * ring round the whole panel would only flash. */
+#overlay-panel:focus-visible { outline: none; }
 /* The ring goes round the whole tab, close button and all, as it did when the
  * tab's button was the whole tab; the button inside draws none of its own. */
 .tab-btn:focus-visible { outline: none; }
@@ -1131,6 +1132,165 @@ textarea:focus-visible {
 }
 #overlay-head h2 { margin: 0; font-size: 14px; font-weight: 600; flex: 1 1 auto; }
 #overlay-body { padding: 14px 16px 16px; overflow: auto; }
+
+/* ------------------------------------------ overlay presentations (part A)
+ *
+ * The pop-over redesign's overlay system. #overlay-panel says how it is shown
+ * through data-present (openOverlay sets it from SURFACES):
+ *   sheet     docked beside the rail, full height under the top bar, and no
+ *             scrim, so the panes stay in view; 460px, 820px for Changes;
+ *   dialog-s  440px, as tall as it needs: a question, a name;
+ *   dialog-m  720px, and a fixed height, so it does not jump when its data
+ *             arrives: Fan out, New todo, Update, Versions;
+ *   dialog-l  960 by 680: Settings and Help, which keep their own sizes
+ *             (.settings-panel, .wide) where they have them;
+ *   picker    620px, top-anchored like the palette: the agent picker.
+ * The sizes go through :where() so that a surface's own class still wins
+ * over the presentation it is given, whichever comes first in this sheet. */
+
+#overlay-panel:where([data-present="dialog-s"]) { width: min(440px, calc(100vw - 32px)); max-height: 86vh; }
+#overlay-panel:where([data-present="dialog-m"]) { width: min(720px, calc(100vw - 32px)); height: min(640px, 86vh); max-height: 86vh; }
+#overlay-panel:where([data-present="dialog-l"]) { width: min(960px, calc(100vw - 32px)); height: min(680px, 86vh); max-height: 86vh; }
+#overlay-panel:where([data-present="picker"]) { width: min(620px, 92vw); max-height: min(640px, calc(88vh - 24px)); }
+#overlay:has(> #overlay-panel[data-present="picker"]) { align-items: flex-start; padding-top: 12vh; }
+
+/* The body is the one part that scrolls, and a scroll that reaches its end
+ * stays in it rather than moving what is behind. */
+#overlay-body { flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; }
+
+/* A sheet: the container leaves the rail uncovered (the button that opened
+ * the sheet is beside it, and marked) and draws no scrim, so the panes are in
+ * view -- still modal for now: a click on them puts the sheet away, and Tab
+ * stays in it. --ov-left and --ov-top are the rail's right edge and the top
+ * bar's bottom, set by placeSheet. */
+#overlay:has(> #overlay-panel[data-present="sheet"]) {
+  left: var(--ov-left, 52px); background: transparent;
+  align-items: stretch; justify-content: flex-start;
+}
+#overlay-panel:where([data-present="sheet"]) {
+  position: absolute; left: 0; top: var(--ov-top, 40px); bottom: 0;
+  width: min(460px, calc(100vw - var(--ov-left, 52px) - 48px)); max-height: none;
+  border: 0; border-right: 1px solid var(--line); border-radius: 0;
+  animation: sheet-in var(--dur-3) var(--ease-out);
+}
+#overlay-panel:where([data-present="sheet"][data-size="wide"]) { width: min(820px, calc(100vw - var(--ov-left, 52px) - 160px)); }
+/* In from the rail's edge: eight pixels and a fade, the dialogs' four-pixel
+ * rise turned on its side. Reduced motion stills it with everything else. */
+@keyframes sheet-in { from { opacity: 0; transform: translateX(-8px); } }
+
+/* Changes needs its width, and below 1100px a sheet that wide would cover
+ * nearly every pane: there it is a large dialog over the scrim instead. */
+@media (max-width: 1099px) {
+  #overlay:has(> #overlay-panel[data-present="sheet"][data-size="wide"]) {
+    left: 0; background: var(--scrim); align-items: center; justify-content: center;
+  }
+  #overlay-panel:where([data-present="sheet"][data-size="wide"]) {
+    position: static; width: min(960px, calc(100vw - 32px)); height: min(680px, 86vh); max-height: 86vh;
+    border: 1px solid var(--line); border-radius: var(--radius-lg);
+    animation: arrive var(--dur-3) var(--ease-out);
+  }
+}
+@media (max-width: 899px) {
+  #overlay-panel:where([data-present="dialog-m"], [data-present="dialog-l"]) { width: calc(100vw - 32px); }
+}
+/* Where the rail is a menu, a sheet is the whole width under the top bar and
+ * a dialog all but the whole window. */
+@media (max-width: 640px) {
+  #overlay:has(> #overlay-panel[data-present="sheet"]) { left: 0; }
+  #overlay-panel:where([data-present="sheet"]),
+  #overlay-panel:where([data-present="sheet"][data-size="wide"]) { width: 100%; }
+  #overlay-panel:where([data-present="dialog-m"], [data-present="dialog-l"]) {
+    width: calc(100vw - 16px); height: calc(100vh - 16px); max-height: none;
+  }
+  #overlay-panel:where([data-present="picker"]) { width: calc(100vw - 16px); }
+  #overlay:has(> #overlay-panel[data-present="picker"]) { padding-top: 8px; }
+}
+
+/* The header: ← back, the title, its scope in mono, then ? and ×. */
+#overlay-head { gap: 8px; }
+#overlay-head #overlay-title { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-scope {
+  flex: 1 1 auto; min-width: 0;
+  font: 11px var(--mono); color: var(--fg-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ov-scope[hidden] { display: none; }
+#overlay-head > #overlay-help, #overlay-title ~ #overlay-close { margin-left: auto; }
+#overlay-help ~ #overlay-close { margin-left: 0; }
+#overlay-head .icon-btn { width: 24px; height: 24px; padding: 0; display: inline-grid; place-items: center; font-size: 15px; flex: 0 0 auto; }
+.ov-back {
+  flex: 0 0 auto; height: 24px; padding: 0 6px; margin-left: -6px;
+  border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--fg-dim); font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer;
+  transition: background-color var(--dur-1) linear, color var(--dur-1) linear;
+}
+.ov-back:hover { background: var(--bg-hover); color: var(--fg); }
+.ov-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* The row of tabs under the header, outside the body so the body stays the
+ * one part that scrolls: underlines, and the arrows walk them. */
+.ov-tabs { display: flex; flex: 0 0 auto; gap: 2px; padding: 8px 16px 0; border-bottom: 1px solid var(--line-subtle); }
+.ov-tabs[hidden] { display: none; }
+.ov-tab {
+  padding: 6px 10px 8px; border: 0; border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: transparent; color: var(--fg-dim); font: inherit; cursor: pointer;
+}
+.ov-tab:hover { color: var(--fg); }
+.ov-tab.sel { color: var(--fg); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+.ov-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ov-tab-num { margin-left: 4px; font-size: 11px; font-weight: 400; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+
+/* The footer: the last child of the body, held to its bottom edge, so it is
+ * never scrolled away and the first primary button in the body is still the
+ * surface's own. Meta on the left, then secondary actions and the one
+ * primary last. A body with a footer lays out as a column so that the footer
+ * sits at the bottom of a fixed-height dialog with little in it. */
+#overlay-body:has(> .ov-foot) { display: flex; flex-direction: column; }
+#overlay-body:has(> .ov-foot) > * { flex: 0 0 auto; }
+#overlay-body:has(> .ov-foot) > :nth-last-child(2) { margin-bottom: 16px; }
+.ov-foot {
+  position: sticky; bottom: -16px; z-index: 1;
+  display: flex; align-items: center; gap: 8px;
+  min-height: 52px; margin: auto -16px -16px; padding: 10px 16px;
+  background: var(--bg-overlay); border-top: 1px solid var(--line-subtle);
+}
+.ov-meta {
+  min-width: 0; font: 11px var(--mono); color: var(--fg-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ov-spacer { flex: 1 1 auto; }
+
+/* The questions asked in the window (confirmDialog, promptDialog). */
+.ask-body { line-height: 1.5; max-width: 60ch; }
+.ask-field { width: 100%; }
+.ask-note { margin-top: 6px; font-size: 12px; color: var(--fg-dim); }
+
+/* The rail button of the surface on screen. */
+.rail-btn.surface-open { background: var(--accent-subtle); color: var(--fg); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.rail-btn.surface-open:hover { background: var(--accent-subtle); color: var(--fg); }
+
+/* A still copy of the sheet a dialog was opened from, under the scrim. */
+#sheet-ghost {
+  position: fixed; z-index: 39; left: var(--ov-left, 52px); top: var(--ov-top, 40px); bottom: 0;
+  width: min(460px, calc(100vw - var(--ov-left, 52px) - 48px)); pointer-events: none;
+}
+#sheet-ghost[hidden] { display: none; }
+#sheet-ghost:has(> .ghost-panel[data-size="wide"]) { width: min(820px, calc(100vw - var(--ov-left, 52px) - 160px)); }
+.ghost-panel {
+  height: 100%; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg-overlay); border-right: 1px solid var(--line); box-shadow: var(--shadow-3);
+}
+.ghost-panel .ov-head {
+  display: flex; align-items: center; gap: 8px; flex: 0 0 auto; min-height: 44px; padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--line-subtle);
+}
+.ghost-panel .ov-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.ghost-panel .ov-head .icon-btn { width: 24px; height: 24px; padding: 0; font-size: 15px; }
+.ghost-panel .ov-head .icon-btn:first-of-type, .ghost-panel .ov-scope { margin-left: auto; }
+.ghost-panel .ov-body { flex: 1 1 auto; min-height: 0; padding: 14px 16px 16px; overflow: hidden; }
+@media (max-width: 640px) {
+  #sheet-ghost, #sheet-ghost:has(> .ghost-panel[data-size="wide"]) { left: 0; width: 100%; }
+}
 
 .wt-row {
   display: flex; align-items: center; gap: 12px; padding: 8px;
@@ -2338,7 +2498,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   .pane.focused { border-color: Highlight; }
   /* A toggle that is on, and the tab and the project on screen, are each
    * shown by a background; an outline in the highlight is kept. */
-  [aria-pressed="true"], .seg.on, .tab.active, .rail-tile.current {
+  [aria-pressed="true"], .seg.on, .tab.active, .rail-tile.current, .rail-btn.surface-open, .ov-tab.sel {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }
