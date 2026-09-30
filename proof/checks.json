@@ -1,0 +1,39 @@
+{
+ "openFocus": "settings-tab-agents",
+ "afterTwoDown": "settings-tab-keys",
+ "acrossGroup": "settings-tab-remote",
+ "shiftTabOrder": [
+  "overlay-close",
+  "overlay-help",
+  "settings-find"
+ ],
+ "escClearsFind": {
+  "value": "",
+  "open": true
+ },
+ "escClosesToOpener": {
+  "open": false,
+  "focus": "btn-settings"
+ },
+ "findInHead": true,
+ "panelSize": [
+  960,
+  680
+ ],
+ "phoneOpen": {
+  "focus": "settings-tab-remote",
+  "paneShown": false
+ },
+ "phoneEnter": {
+  "focus": "settings-back",
+  "navShown": false,
+  "paneShown": true
+ },
+ "phoneBack": {
+  "focus": "settings-tab-github",
+  "paneShown": false,
+  "navShown": true
+ },
+ "reducedMotion": "0.001s",
+ "offOrigin": []
+}

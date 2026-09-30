@@ -1,0 +1,402 @@
+[
+ {
+  "file": "dark-wide-set-general.png",
+  "name": "set-general",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-general"
+ },
+ {
+  "file": "dark-wide-set-appearance.png",
+  "name": "set-appearance",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-appearance"
+ },
+ {
+  "file": "dark-wide-set-terminal.png",
+  "name": "set-terminal",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-terminal"
+ },
+ {
+  "file": "dark-wide-set-keybindings.png",
+  "name": "set-keybindings",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-keybindings"
+ },
+ {
+  "file": "dark-wide-set-agents.png",
+  "name": "set-agents",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-agents"
+ },
+ {
+  "file": "dark-wide-set-routing.png",
+  "name": "set-routing",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-routing"
+ },
+ {
+  "file": "dark-wide-set-keys.png",
+  "name": "set-keys",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-keys"
+ },
+ {
+  "file": "dark-wide-set-status.png",
+  "name": "set-status",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-status"
+ },
+ {
+  "file": "dark-wide-set-remote.png",
+  "name": "set-remote",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-remote"
+ },
+ {
+  "file": "dark-wide-set-github.png",
+  "name": "set-github",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-github"
+ },
+ {
+  "file": "dark-wide-set-plan.png",
+  "name": "set-plan",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-plan"
+ },
+ {
+  "file": "dark-wide-set-find-relay.png",
+  "name": "set-find-relay",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-find"
+ },
+ {
+  "file": "dark-narrow-set-general.png",
+  "name": "set-general",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-general"
+ },
+ {
+  "file": "dark-narrow-set-appearance.png",
+  "name": "set-appearance",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-appearance"
+ },
+ {
+  "file": "dark-narrow-set-terminal.png",
+  "name": "set-terminal",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-terminal"
+ },
+ {
+  "file": "dark-narrow-set-keybindings.png",
+  "name": "set-keybindings",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-keybindings"
+ },
+ {
+  "file": "dark-narrow-set-agents.png",
+  "name": "set-agents",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-agents"
+ },
+ {
+  "file": "dark-narrow-set-routing.png",
+  "name": "set-routing",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-routing"
+ },
+ {
+  "file": "dark-narrow-set-keys.png",
+  "name": "set-keys",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-keys"
+ },
+ {
+  "file": "dark-narrow-set-status.png",
+  "name": "set-status",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-status"
+ },
+ {
+  "file": "dark-narrow-set-remote.png",
+  "name": "set-remote",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-remote"
+ },
+ {
+  "file": "dark-narrow-set-github.png",
+  "name": "set-github",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-github"
+ },
+ {
+  "file": "dark-narrow-set-plan.png",
+  "name": "set-plan",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-plan"
+ },
+ {
+  "file": "dark-phone-set-list.png",
+  "name": "set-list",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-plan"
+ },
+ {
+  "file": "dark-phone-set-narrow.png",
+  "name": "set-narrow",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-back"
+ },
+ {
+  "file": "light-wide-set-general.png",
+  "name": "set-general",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-general"
+ },
+ {
+  "file": "light-wide-set-appearance.png",
+  "name": "set-appearance",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-appearance"
+ },
+ {
+  "file": "light-wide-set-terminal.png",
+  "name": "set-terminal",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-terminal"
+ },
+ {
+  "file": "light-wide-set-keybindings.png",
+  "name": "set-keybindings",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-keybindings"
+ },
+ {
+  "file": "light-wide-set-agents.png",
+  "name": "set-agents",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-agents"
+ },
+ {
+  "file": "light-wide-set-routing.png",
+  "name": "set-routing",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-routing"
+ },
+ {
+  "file": "light-wide-set-keys.png",
+  "name": "set-keys",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-keys"
+ },
+ {
+  "file": "light-wide-set-status.png",
+  "name": "set-status",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-status"
+ },
+ {
+  "file": "light-wide-set-remote.png",
+  "name": "set-remote",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-remote"
+ },
+ {
+  "file": "light-wide-set-github.png",
+  "name": "set-github",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-github"
+ },
+ {
+  "file": "light-wide-set-plan.png",
+  "name": "set-plan",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-plan"
+ },
+ {
+  "file": "light-wide-set-find-relay.png",
+  "name": "set-find-relay",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-find"
+ },
+ {
+  "file": "light-narrow-set-general.png",
+  "name": "set-general",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-general"
+ },
+ {
+  "file": "light-narrow-set-appearance.png",
+  "name": "set-appearance",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-appearance"
+ },
+ {
+  "file": "light-narrow-set-terminal.png",
+  "name": "set-terminal",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-terminal"
+ },
+ {
+  "file": "light-narrow-set-keybindings.png",
+  "name": "set-keybindings",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-keybindings"
+ },
+ {
+  "file": "light-narrow-set-agents.png",
+  "name": "set-agents",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-agents"
+ },
+ {
+  "file": "light-narrow-set-routing.png",
+  "name": "set-routing",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-routing"
+ },
+ {
+  "file": "light-narrow-set-keys.png",
+  "name": "set-keys",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-keys"
+ },
+ {
+  "file": "light-narrow-set-status.png",
+  "name": "set-status",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-status"
+ },
+ {
+  "file": "light-narrow-set-remote.png",
+  "name": "set-remote",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-remote"
+ },
+ {
+  "file": "light-narrow-set-github.png",
+  "name": "set-github",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-github"
+ },
+ {
+  "file": "light-narrow-set-plan.png",
+  "name": "set-plan",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-plan"
+ },
+ {
+  "file": "light-phone-set-list.png",
+  "name": "set-list",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-tab-plan"
+ },
+ {
+  "file": "light-phone-set-narrow.png",
+  "name": "set-narrow",
+  "overlay": true,
+  "title": "Settings",
+  "panelClass": "ov-panel settings-panel",
+  "active": "settings-back"
+ }
+]
