@@ -2054,6 +2054,11 @@
       node.item.classList.toggle("attention", !!tab.attention);
       if (!!node.attn !== !!tab.attention) changed = true;
       setAttention(node, !!tab.attention);
+      // Busy is shown only where nothing is waiting: the triangle outranks it.
+      const busy = !!tab.working && !tab.attention;
+      node.item.classList.toggle("busy", busy);
+      if (!!node.busy !== busy) changed = true;
+      setBusy(node, busy);
       // One stop on the way through the window rather than two per tab. With
       // a dozen agents open, tabbing past the strip to reach the terminal
       // behind it took twenty-four presses; the arrow keys walk it instead,
@@ -2153,7 +2158,7 @@
     // button inside a draggable box.
     btn.draggable = true;
     makeTabDraggable(id, item);
-    node = { item, btn, label, close, attn: null };
+    node = { item, btn, label, close, attn: null, busy: null };
     tabNodes.set(id, node);
     return node;
   }
@@ -2171,6 +2176,20 @@
     describe(attn, TIPS.waiting);
     node.btn.append(attn);
     node.attn = attn;
+  }
+
+  /** setBusy adds or removes the dot on a tab in which an agent is working or
+   *  has background work running: the tab strip used to show only a waiting
+   *  agent, so a busy project looked as quiet as an idle one. */
+  function setBusy(node, on) {
+    if (on === !!node.busy) return;
+    if (!on) { node.busy.remove(); node.busy = null; return; }
+    const busy = el("span", "busy-dot", "●");
+    busy.setAttribute("role", "img");
+    busy.setAttribute("aria-label", TIPS.working);
+    describe(busy, "An agent in this tab is working, or has background work still running.");
+    node.btn.append(busy);
+    node.busy = busy;
   }
 
   /** renameTab asks for a tab's new name in a dialog of its own. The browser's

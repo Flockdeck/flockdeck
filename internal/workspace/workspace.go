@@ -3136,6 +3136,24 @@ func (w *Workspace) TabNeedsAttention(t *Tab) bool {
 	return false
 }
 
+// TabWorking reports whether an agent in the tab is busy: working, or idle
+// between turns with background work still running (a run_in_background
+// command, a background subagent). The pane itself keeps reading idle for the
+// second, as it should -- its turn is over -- but the tab is what a person
+// scans to find where work is going on, and it said nothing for either case.
+func (w *Workspace) TabWorking(t *Tab) bool {
+	for _, id := range t.Tree.Panes() {
+		p := w.Pane(id)
+		if p == nil || p.Sess == nil {
+			continue
+		}
+		if st, _ := p.Status(); st == session.StatusWorking || p.Sess.BackgroundTasks() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // Close terminates every session and stops the hook server.
 func (w *Workspace) Close() {
 	// touchRecent's writer can still be working through queued switches;

@@ -562,6 +562,15 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
   background: var(--waiting); clip-path: polygon(50% 6%, 100% 94%, 0 94%);
 }
 
+/* An agent in this tab is working, or has background work running: the
+ * working mark of the pane header (.dot.working), a filled circle that
+ * breathes. It stops under prefers-reduced-motion with every other animation. */
+.tab .busy-dot {
+  flex: 0 0 auto; margin-left: 6px; width: 8px; height: 8px; font-size: 0;
+  align-self: center; border-radius: 50%; background: var(--working);
+  animation: pulse var(--pulse) var(--ease-in-out) infinite;
+}
+
 .spacer { flex: 1 1 auto; }
 
 .divider-v { width: 1px; height: 18px; background: var(--line); flex: 0 0 auto; }
@@ -2293,12 +2302,12 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
  * coloured for a dark panel is all but invisible on a white one. These two
  * come before the block below, which has to stay the last of its kind. */
 @media (forced-colors: active) and (prefers-color-scheme: dark) {
-  .dot, .rail-badge, .tally-dot, .tab .attn {
+  .dot, .rail-badge, .tally-dot, .tab .attn, .tab .busy-dot {
     --working: #4fd1db; --waiting: #e2b341; --idle: #93a1a9; --exited: #f0776a; --ended: #738087;
   }
 }
 @media (forced-colors: active) and (prefers-color-scheme: light) {
-  .dot, .rail-badge, .tally-dot, .tab .attn {
+  .dot, .rail-badge, .tally-dot, .tab .attn, .tab .busy-dot {
     --working: #0b6e77; --waiting: #875a08; --idle: #5c676d; --exited: #b02a1f; --ended: #7a868c;
   }
 }
@@ -2335,7 +2344,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
    * what says which status it is whatever becomes of the colour. A ring
    * would muddle the shape, so there is none. */
   .dot { forced-color-adjust: none; }
-  .rail-badge, .tally-dot, .tab .attn { forced-color-adjust: none; }
+  .rail-badge, .tally-dot, .tab .attn, .tab .busy-dot { forced-color-adjust: none; }
   /* The ring the rail draws round a badge is the rail's ground, which is
    * the system's here. */
   .rail-badge { --bg-inset: Canvas; }

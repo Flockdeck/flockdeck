@@ -303,12 +303,15 @@ type repoView struct {
 }
 
 type tabView struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Focus     string    `json:"focus"`
-	Zoom      bool      `json:"zoom"`
-	Attention bool      `json:"attention"`
-	Root      *nodeView `json:"root"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Focus     string `json:"focus"`
+	Zoom      bool   `json:"zoom"`
+	Attention bool   `json:"attention"`
+	// Working says an agent in the tab is working, or has background work
+	// running after its turn ended (workspace.TabWorking). Attention outranks it.
+	Working bool      `json:"working,omitempty"`
+	Root    *nodeView `json:"root"`
 	// Named says the title was chosen by hand, which is when the rename
 	// dialog offers to go back to the automatic one.
 	Named bool `json:"named,omitempty"`
@@ -674,6 +677,7 @@ func (s *Server) snapshot() stateMsg {
 			Focus:     t.Focus,
 			Zoom:      t.Zoom,
 			Attention: ws.TabNeedsAttention(t),
+			Working:   ws.TabWorking(t),
 			Named:     t.Named,
 			Delegated: t.Delegated,
 			Root:      root,

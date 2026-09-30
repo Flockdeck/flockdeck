@@ -3,6 +3,7 @@ package webui
 import (
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -1052,5 +1053,33 @@ func TestTheTerminalCannotSitAboveTheExitedPanesButtons(t *testing.T) {
 	css := stripComments(readAsset(t, "app.css"))
 	if !regexp.MustCompile(`(?:^|[;\s])isolation:\s*isolate\b`).MatchString(ruleBody(css, ".term-host")) {
 		t.Fatal(".term-host is not a stacking context, so xterm's z-indexed layers can cover .pane-error and its buttons")
+	}
+}
+
+// TestTabStripMarksABusyTab pins the working dot on a tab: the strip used to
+// draw only the waiting triangle, so a tab whose agent was working or had
+// background work running looked as quiet as an idle one.
+func TestTabStripMarksABusyTab(t *testing.T) {
+	js := readAsset(t, "app.js")
+	for _, want := range []string{`tab.working`, `setBusy(node, busy)`, `"busy-dot"`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js lacks %q", want)
+		}
+	}
+	css := stripComments(readAsset(t, "app.css"))
+	// The working mark of the pane header: an 8px filled circle that pulses,
+	// stopped by the reduced-motion rule like every other animation.
+	body := ruleBody(css, ".tab .busy-dot")
+	if body == "" {
+		t.Fatal("app.css has no .tab .busy-dot rule")
+	}
+	for _, want := range []string{"width: 8px", "height: 8px", "border-radius: 50%", "background: var(--working)", "animation: pulse"} {
+		if !strings.Contains(body, want) {
+			t.Errorf(".tab .busy-dot lacks %q: %s", want, body)
+		}
+	}
+	// It once landed in the middle of the top bar's spacer rule.
+	if ruleBody(css, "#topbar > .spacer") == "" {
+		t.Error("app.css lost its #topbar > .spacer rule")
 	}
 }
