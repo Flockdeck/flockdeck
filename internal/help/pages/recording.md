@@ -97,8 +97,15 @@ agent reads and the commands it runs. Flockdeck removes what it can recognise:
   `credentials` files), and what is written to one.
 
 **This is best effort.** A secret in an unusual shape, in text that does not name
-it as one, is recorded as it was. Treat a recording as being as sensitive as the
-conversation itself, and delete the files you do not want kept.
+it as one, is recorded as it was. In particular it does not catch a secret under
+an unconventional name (`SESSION_COOKIE`, `DATABASE_URL`), one that is base64- or
+URL-encoded or split across lines, or the contents of a secret file reached
+through a symlink or an ordinary-looking name. Treat a recording as being as
+sensitive as the conversation itself, assume a secret may be in it even when no
+line is marked redacted, and delete the files you do not want kept. Transcripts
+are saved on this machine (user-only on Linux and macOS; on Windows, readable by
+you and a local administrator, like any file in your profile) — "on this
+machine", not "private to you".
 
 Nothing is sent anywhere: recordings stay on this machine, and `Open recordings
 folder` only works from the machine Flockdeck runs on, not from a phone.
