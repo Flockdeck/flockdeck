@@ -659,8 +659,8 @@ exactly the kind of call a person is meant to see before it happens.
 
 It is off for a pane unless you turn it on, with the ✓ button in the pane's
 header, or for new panes with Settings › Behaviour › Start new panes with
-auto-review on. A pane's own switch is not saved across a restart; the default
-is.
+auto-review on. A pane keeps its own switch across restarts, off included; a layout saved
+before that was kept takes the default.
 
 The one key the file can take over is `statusLine`, because Claude Code hands a
 subscription's usage limits to its status line command and nowhere else. Where

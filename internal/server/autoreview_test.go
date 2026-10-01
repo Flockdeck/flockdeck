@@ -93,3 +93,53 @@ func TestAutoReviewToggleSavesTheLayout(t *testing.T) {
 		t.Fatalf("the layout was not saved with auto-review off: %v", v)
 	}
 }
+
+// Changing the default is for new panes only: a pane's saved switch is its
+// own, so the autoReviewDefault command leaves a saved layout as it was.
+func TestAutoReviewDefaultDoesNotChangeASavedLayout(t *testing.T) {
+	t.Setenv("USERPROFILE", stateTempDir(t))
+	srv, ws := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+	id := firstPane(t, srv, ws)
+
+	sendCmd(t, conn, command{Cmd: "autoReview", ID: id, AutoReview: false})
+	if err := ws.SaveLayouts(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	before, err := store.Peek(ws.ActiveRoot())
+	if err != nil || before == nil {
+		t.Fatalf("peek: %v", err)
+	}
+	sendCmd(t, conn, command{Cmd: "autoReviewDefault", Kind: "on"})
+	nextState(t, conn, func(s stateMsg) bool { return !s.Panes[id].AutoReview })
+	if err := ws.SaveLayouts(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	after, err := store.Peek(ws.ActiveRoot())
+	if err != nil || after == nil {
+		t.Fatalf("peek: %v", err)
+	}
+	pick := func(st *store.State) *bool {
+		var found *bool
+		var walk func(n *store.Node)
+		walk = func(n *store.Node) {
+			if n == nil {
+				return
+			}
+			if n.Pane != nil && n.Pane.ID == id {
+				found = n.Pane.AutoReview
+			}
+			for _, c := range n.Children {
+				walk(c)
+			}
+		}
+		for _, tb := range st.Tabs {
+			walk(tb.Root)
+		}
+		return found
+	}
+	if b, a := pick(before), pick(after); b == nil || a == nil || *b || *a {
+		t.Fatalf("saved switch before=%v after=%v, want both explicit off", b, a)
+	}
+}
