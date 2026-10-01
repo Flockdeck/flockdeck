@@ -118,6 +118,12 @@ type Pane struct {
 	Locked bool `json:"locked,omitempty"`
 }
 
+// DirGuard, when set, is called with the config directory Dir has resolved,
+// before anything is created or read there. Test builds set it (see
+// internal/testiso) to refuse the developer's real directory; it is nil in
+// the program.
+var DirGuard func(dir string)
+
 // Dir returns the per-user directory holding Flockdeck's state.
 //
 // It is kept private to the user. Below it sit the local server's auth token
@@ -129,6 +135,9 @@ func Dir() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("locate config dir: %w", err)
+	}
+	if DirGuard != nil {
+		DirGuard(base)
 	}
 	dir := stateDir(base)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
