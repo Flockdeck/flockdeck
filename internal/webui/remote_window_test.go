@@ -14,6 +14,9 @@ h.recv({ type: "hello", keys: h.keyTable(), prefs: { helpSeen: true, dismissedTi
 h.recv(fixture({ update: { version: "9.9.9", notes: "Faster." } }));
 assert.ok(h.$("btn-update").hidden, "a window reached through the relay is offered the update, whose restart stops every agent at the desk");
 h.click(h.$("btn-settings"));
+// Where the desk is offered them: Account & plan's Version.
+h.click(h.$("settings-tab-plan"));
+assert.ok(h.$("settings-pane").contains(h.$("set-legal")), "Account & plan is not the section shown");
 assert.ok(!h.$("set-install"), "the settings offer a window reached through the relay the update's restart");
 assert.ok(!h.$("set-check-update"), "the settings offer a window reached through the relay a check the desk should run");
 h.key({ key: "Escape" });
@@ -22,5 +25,8 @@ h.key({ key: "Escape" });
 h.hello();
 h.recv(fixture({ update: { version: "9.9.9", notes: "Faster." } }));
 assert.ok(!h.$("btn-update").hidden, "the window on the desk is not offered the update");
+h.click(h.$("btn-settings"));
+h.click(h.$("settings-tab-plan"));
+assert.ok(h.$("set-install") && h.$("set-check-update"), "the settings on the desk do not offer the update and the check");
 `)
 }

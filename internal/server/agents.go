@@ -288,7 +288,7 @@ type agentCatalog struct {
 	// which overrides it. Project is left out when the project has none.
 	Default agentChoice  `json:"default"`
 	Project *agentChoice `json:"project,omitempty"`
-	// Routing is what Settings › Agents › Routing draws.
+	// Routing is what Settings › Routing draws.
 	Routing *routingView `json:"routing,omitempty"`
 	// Err says why the user's agents.json was ignored. A damaged file is a
 	// line in the picker and nothing more: the built-ins carry on, because

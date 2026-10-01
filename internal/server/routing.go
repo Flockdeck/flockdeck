@@ -477,7 +477,7 @@ func paneRoute(c *agent.Catalog, p *workspace.Pane) (rule, from, fromAgent, dir 
 	return rule, from, fromAgent, dir
 }
 
-// routingView is the routing part of Settings › Agents: the mode and floor for
+// routingView is Settings › Routing: the mode and floor for
 // every project and, where it has its own, for this one; the rules this
 // project is routed by; and why routing can do nothing here, where that is so.
 type routingView struct {
@@ -695,7 +695,7 @@ func routingNotice(where, field, value string) string {
 	}
 	if field == "jev" {
 		if value == "true" {
-			return "Routing may now send the text of a fan-out row no rule matched to TypeSafe, for " + where + " -- it also needs a TypeSafe API key (Settings › Behaviour, or TYPESAFE_API_KEY), and only applies to Minimise cost"
+			return "Routing may now send the text of a fan-out row no rule matched to TypeSafe, for " + where + " -- it also needs a TypeSafe API key (Settings › Status detection, or TYPESAFE_API_KEY), and only applies to Minimise cost"
 		}
 		return "Routing no longer sends anything to TypeSafe for " + where
 	}
