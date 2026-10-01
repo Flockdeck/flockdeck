@@ -376,6 +376,9 @@ type paneView struct {
 	// about the phone's own notifications, not the pane's status. See
 	// Pane.Muted.
 	Muted bool `json:"muted,omitempty"`
+	// Locked says the pane is locked against closing (workspace.Pane.Locked),
+	// so its header draws the lock and its close button is disabled.
+	Locked bool `json:"locked,omitempty"`
 	// AutoReview says this pane's PreToolUse calls are put to auto-review
 	// approvals before Claude Code would otherwise show its own permission
 	// prompt, and AutoApproved counts how many it has let through unasked so
@@ -561,6 +564,9 @@ type command struct {
 	// Muted is mutePane's own: whether the named pane should stop, or resume,
 	// being pushed to the phone about. See Workspace.SetPaneMuted.
 	Muted bool `json:"muted"`
+	// Locked is lockPane's own: whether the named pane should be locked
+	// against closing, or unlocked.
+	Locked bool `json:"locked"`
 	// AutoReview is autoReview's own: whether the named pane should start, or
 	// stop, having its PreToolUse calls put to auto-review approvals. See
 	// Workspace.SetPaneAutoReview.
@@ -713,6 +719,7 @@ func (s *Server) snapshot() stateMsg {
 				Detail:       detail,
 				Broadcast:    ws.InBroadcast(p.ID),
 				Muted:        p.Muted,
+				Locked:       p.Locked,
 				AutoReview:   p.AutoReview,
 				AutoApproved: ws.AutoApprovedOf(p),
 				PeerName:     ws.PeerNameOf(p),
@@ -1733,6 +1740,10 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		case "newTab":
 			s.newTabFor(cmd)
 		case "closeTab":
+			if locked := ws.TabLockedPanes(cmd.ID); len(locked) > 0 {
+				c.notify(lockedTabNotice(len(locked)), true)
+				return
+			}
 			// The whole job is about to go, panes and all, so its history is
 			// captured first -- see captureFanoutHistory -- while every pane
 			// it needs is still there to read.
@@ -1849,6 +1860,10 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			s.splitPaneFor(cmd)
 		case "closePane":
 			id := paneIDFor(ws, cmd.ID)
+			if ws.PaneLocked(id) {
+				c.notify(lockedPaneNotice, true)
+				return
+			}
 			// A settled job closed pane by pane rather than by its tab is
 			// captured on the first of those closes, while every pane is
 			// still there to read -- see captureFanoutHistory, which marks
@@ -1865,8 +1880,13 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				return
 			}
 		case "closeFinishedPanes":
-			panes, tabs := ws.CloseFinishedPanes()
-			c.notify(closedFinishedNotice(panes, tabs), false)
+			panes, tabs, locked := ws.CloseFinishedPanes()
+			c.notify(closedFinishedNotice(panes, tabs, locked), locked > 0 && panes == 0)
+		case "lockPane":
+			if !ws.SetPaneLocked(paneIDFor(ws, cmd.ID), cmd.Locked) {
+				c.notify(paneGone, true)
+				return
+			}
 		case "focusPane":
 			ws.FocusPane(cmd.ID)
 		case "restartPane":
@@ -2095,15 +2115,46 @@ const tabGone = "That tab is no longer open"
 // plural (history.go) is safe to reach for here even though it reads "1
 // unit" for a zero count: panes is never zero below the guard above it, and
 // tabs is only ever passed while positive.
-func closedFinishedNotice(panes, tabs int) string {
+func closedFinishedNotice(panes, tabs, locked int) string {
 	if panes == 0 {
+<<<<<<< HEAD
 		return "No finished panes to close"
+=======
+		if locked > 0 {
+			return fmt.Sprintf("no finished panes closed: %s locked", lockedCount(locked))
+		}
+		return "no finished panes to close"
+>>>>>>> 671f7b0b (Per-pane lock toggle so a pane cannot be closed)
 	}
 	msg := fmt.Sprintf("Closed %s", plural(panes, "finished pane"))
 	if tabs > 0 {
 		msg += fmt.Sprintf(" and %s", plural(tabs, "empty tab"))
 	}
+	if locked > 0 {
+		msg += fmt.Sprintf("; %s locked", lockedCount(locked))
+	}
 	return msg
+}
+
+// lockedCount is "1 is" / "3 are" for the finished panes left open by a lock.
+func lockedCount(n int) string {
+	if n == 1 {
+		return "1 is"
+	}
+	return fmt.Sprintf("%d are", n)
+}
+
+// lockedPaneNotice is what closing a locked pane from a window is answered
+// with: it is refused, and the way out is named.
+const lockedPaneNotice = "that pane is locked; unlock it to close it"
+
+// lockedTabNotice is lockedPaneNotice for closing a tab that holds locked
+// panes.
+func lockedTabNotice(n int) string {
+	if n == 1 {
+		return "that tab has a locked pane; unlock it to close the tab"
+	}
+	return fmt.Sprintf("that tab has %d locked panes; unlock them to close the tab", n)
 }
 
 // focusFor moves focus onto the pane a command names and reports whether the

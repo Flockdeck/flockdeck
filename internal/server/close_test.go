@@ -176,3 +176,39 @@ func TestCloseFinishedClosesEveryFinishedPane(t *testing.T) {
 		t.Error("the calling shell pane was swept up by -finished")
 	}
 }
+
+// TestCloseRefusesALockedPaneEvenWithForce covers the lock: the user locked a
+// pane to keep it, so neither a finished pane nor -force gets an agent past it.
+func TestCloseRefusesALockedPaneEvenWithForce(t *testing.T) {
+	srv, ws := newTestServer(t)
+	caller := firstPane(t, srv, ws)
+	hookSrv := ws.HookServer()
+
+	locked, ok := ask(srv, func() *workspace.Pane {
+		p := ws.Pane(ws.NewTab(session.KindShell, ws.ActiveRoot(), "locked").Tree.Panes()[0])
+		p.Kind = session.KindAgent
+		p.Sess.SetStatus(session.StatusIdle, "")
+		ws.SetPaneLocked(p.ID, true)
+		return p
+	})
+	if !ok {
+		t.Fatal("server closed")
+	}
+
+	for _, force := range []bool{false, true} {
+		_, err := hooks.Close(hookSrv.BaseURL(), hookSrv.Token(), caller, hooks.CloseRequest{Target: locked.ID, Force: force})
+		if err == nil || !strings.Contains(err.Error(), "locked") {
+			t.Fatalf("force=%v: err = %v, want a refusal naming the lock", force, err)
+		}
+	}
+	res, err := hooks.Close(hookSrv.BaseURL(), hookSrv.Token(), caller, hooks.CloseRequest{Finished: true})
+	if err != nil {
+		t.Fatalf("close finished: %v", err)
+	}
+	if res.Panes != 0 || res.Locked != 1 {
+		t.Errorf("close finished = %+v, want nothing closed and 1 locked", res)
+	}
+	if remains, ok := ask(srv, func() bool { return ws.Pane(locked.ID) != nil }); !ok || !remains {
+		t.Error("a locked pane was closed")
+	}
+}

@@ -49,7 +49,28 @@ shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
   pane in it.
 
 The buttons in a pane header do the same things: fan out, include in
-broadcast, restart, zoom, close.
+broadcast, restart, zoom, lock, close.
+
+## Locking a pane
+
+[[action:lockPane]], in the command palette and as the padlock in the pane
+header, locks a pane so it cannot be closed by accident. The same action
+unlocks it again, and the palette names it **Unlock pane** while the pane is
+locked. A locked pane shows a padlock and the word "Locked" in its header, and
+while it is locked:
+
+- [[key:closePane]] and the `×` in its header do nothing but say the pane is locked.
+- Its tab cannot be closed, by the `×` on the tab or the middle button, while
+  any pane in it is locked, and neither can a project that holds one.
+- [[action:closeFinishedPanes]] leaves it open and says how many it left.
+- `flockdeck close` refuses it, and `--force` does not change that: `--force`
+  is for a pane still working, and a lock is something only you undo.
+  `flockdeck close --finished` skips it and reports how many it skipped.
+
+[[action:restartPane]] still works on a locked pane and leaves it locked. The
+lock is kept with the layout, so it survives a restart of Flockdeck, and it
+moves with the pane when you drag it to another tab. Quitting Flockdeck is
+not closing a pane, so a lock does not stop it.
 
 ## Naming a tab
 

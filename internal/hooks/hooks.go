@@ -969,7 +969,8 @@ type CloseRequest struct {
 	// misbehaving agent naming the wrong id cannot silently cut off work still
 	// under way; see hooks.SetCloseHandler's installed function. Meaningless
 	// alongside Finished, which never closes a busy pane no matter what Force
-	// says.
+	// says. It does not override a lock either: a locked pane is one the user
+	// asked to keep, which no flag an agent can pass overrides.
 	Force bool   `json:"force,omitempty"`
 	Token string `json:"token"`
 }
@@ -981,6 +982,9 @@ type CloseResult struct {
 	Closed bool `json:"closed,omitempty"`
 	Panes  int  `json:"panes,omitempty"`
 	Tabs   int  `json:"tabs,omitempty"`
+	// Locked is how many finished panes a Finished close left open because
+	// they are locked.
+	Locked int `json:"locked,omitempty"`
 }
 
 // SetCloseHandler installs the function that closes a pane, or every finished

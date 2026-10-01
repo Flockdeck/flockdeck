@@ -141,6 +141,8 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 			// Empty for a pane the user started themselves, which is left out
 			// by omitempty like every other field here.
 			Parent: p.Parent,
+			// Written only while locked, like every optional field here.
+			Locked: p.Locked,
 		}
 		// Only a pane borrowed from another project needs its project written
 		// down; leaving it out otherwise keeps the file as it has always been
@@ -532,6 +534,7 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 			RoutedFromAgent: n.Pane.RoutedFromAgent,
 			Conversation:    n.Pane.Conversation,
 			Parent:          n.Pane.Parent,
+			Locked:          n.Pane.Locked,
 		}
 		if p.Root == "" {
 			p.Root = tabRoot
