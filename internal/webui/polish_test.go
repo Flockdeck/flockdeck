@@ -263,13 +263,13 @@ func TestTheTitleSaysTheWindowIsDisconnected(t *testing.T) {
 h.hello();
 const waiting = () => fixture({ waiting: 1, panes: { p1: pane("p1", { status: "waiting" }), p2: pane("p2") } });
 h.recv(waiting());
-assert.strictEqual(h.doc.title, "▲ 1 waiting · flockdeck");
+assert.strictEqual(h.doc.title, "▲ 1 waiting · Flockdeck");
 h.control.close();
 assert.ok(/disconnected/i.test(h.doc.title), "the title still counts agents in a window that lost them: " + h.doc.title);
 h.click(h.$("retry"));
 h.open();
 h.recv(waiting());
-assert.strictEqual(h.doc.title, "▲ 1 waiting · flockdeck", "the title went on saying the window was disconnected");
+assert.strictEqual(h.doc.title, "▲ 1 waiting · Flockdeck", "the title went on saying the window was disconnected");
 `)
 }
 

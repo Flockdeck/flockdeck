@@ -241,7 +241,7 @@ func TestIndexSetsCookieAndServesAssets(t *testing.T) {
 		t.Errorf("index Content-Security-Policy = %q, want frame-ancestors 'self'", csp)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "flockdeck") {
+	if !strings.Contains(string(body), "Flockdeck") {
 		t.Error("index does not look like the app page")
 	}
 

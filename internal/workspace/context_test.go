@@ -919,14 +919,14 @@ func TestTheSpawnCommandSurvivesTheShell(t *testing.T) {
 // TestTheBriefingDoesNotOfferDetachFromThePane covers the shell section of the
 // briefing, which offered `flockdeck -detach` as the way to close the window
 // and leave the agents running. Run from inside a pane it joins the instance
-// already running, where -detach is one of the flags that only shape a fresh
-// start: it is ignored, and another window opens onto everything instead.
+// already running, where -detach opens no window at all: it hands the project
+// to that instance and prints its address, so it is no way to close one.
 func TestTheBriefingDoesNotOfferDetachFromThePane(t *testing.T) {
 	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
 	if strings.Contains(text, "-detach         # close the window") {
 		t.Errorf("the briefing offers -detach as a way to close the window:\n%s", text)
 	}
-	for _, want := range []string{"`-agent`, `-detach`", how("detach")} {
+	for _, want := range []string{"`-detach` and `-no-window`", "`-solo` starts a second, separate instance", how("detach")} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the briefing never says %q:\n%s", want, text)
 		}
@@ -1271,5 +1271,23 @@ func TestOpeningPromptTaskModeNeedsATask(t *testing.T) {
 	// The other mode still sends the block on its own.
 	if got := ws.OpeningPrompt(pane, "", agent.ContextPrompt); !strings.HasPrefix(got, "<flockdeck-context>") {
 		t.Errorf("ContextPrompt with no task was not briefed: %q", got)
+	}
+}
+
+// TestTheBriefingOnlyPromisesResumeToAgentsThatHaveIt covers the line about
+// the conversation belonging to the pane: Codex, Gemini CLI, opencode and
+// Cursor Agent are briefed in front of their opening prompt and have no resume,
+// so a restored pane starts them fresh.
+func TestTheBriefingOnlyPromisesResumeToAgentsThatHaveIt(t *testing.T) {
+	hooked := PaneContext{PaneName: "one"}.Render()
+	if !strings.Contains(hooked, "It is resumed when the pane is restored") {
+		t.Errorf("a hooked agent is not told its conversation is resumed:\n%s", hooked)
+	}
+	prompted := PaneContext{PaneName: "one"}.OpeningPrompt()
+	if strings.Contains(prompted, "It is resumed when the pane is restored") {
+		t.Errorf("an agent briefed in its prompt is told its conversation is resumed:\n%s", prompted)
+	}
+	if !strings.Contains(prompted, "cannot resume a conversation") {
+		t.Errorf("an agent briefed in its prompt is not told it may start again:\n%s", prompted)
 	}
 }

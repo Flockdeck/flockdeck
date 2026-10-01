@@ -376,7 +376,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
-	fmt.Fprintf(out, "  spawn [--worktree <branch>] [--split] [--shell] [--agent <id>] [--model <model>] <task>\n")
+	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-shell] [-agent <id>] [-model <model>] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "  peer-name <name>\n")
@@ -411,12 +411,14 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  FLOCKDECK_API_KEY=<key>\n")
 	fmt.Fprintf(out, "        the key any API agent uses when neither its own variables nor a key\n")
 	fmt.Fprintf(out, "        stored with `flockdeck keys set` hold one\n")
+	fmt.Fprintf(out, "  %s / %s / %s=<value>\n", remoteNameEnv, remoteJoinEnv, remoteInviteEnv)
+	fmt.Fprintf(out, "        the defaults for remote enable's -name, -join and -invite, for a first-boot script\n")
 	// The rest mirror flags above, for a systemd unit or container manifest
 	// that would rather set these once in the environment than build an argv;
 	// a flag given on the command line still wins over any of them.
-	fmt.Fprintf(out, "  %s=<directory>, %s=<id>, %s=<url>\n", dirEnv, startAgentEnv, remote.RelayEnv)
-	fmt.Fprintf(out, "  %s / %s / %s / %s / %s=1\n", freshEnv, shellFirstEnv, noWindowEnv, detachEnv, soloEnv)
-	fmt.Fprintf(out, "        the environment equivalents of -C, -agent, -relay, -new, -shell,\n")
+	fmt.Fprintf(out, "  %s=<directory>, %s=<id>\n", dirEnv, startAgentEnv)
+	fmt.Fprintf(out, "  %s / %s / %s / %s / %s=1 (or true)\n", freshEnv, shellFirstEnv, noWindowEnv, detachEnv, soloEnv)
+	fmt.Fprintf(out, "        the environment equivalents of -C, -agent, -new, -shell,\n")
 	fmt.Fprintf(out, "        -no-window, -detach and -solo, for a systemd unit or container manifest;\n")
 	fmt.Fprintf(out, "        a flag given on the command line always wins\n")
 	fmt.Fprintf(out, "\nRunning it again attaches to an instance that is already going.\n")

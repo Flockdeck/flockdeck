@@ -313,8 +313,8 @@
    *  reached through the relay. Its own words - the process has stopped,
    *  start it again - are advice for somebody at the machine; from a phone or
    *  another computer it is the machine, or the relay, that is out of reach. */
-  const RELAY_DISCONNECTED = "This window reaches flockdeck through the relay, and the connection was lost: " +
-    "the machine flockdeck runs on may be asleep or offline, flockdeck may have stopped there, or the relay " +
+  const RELAY_DISCONNECTED = "This window reaches Flockdeck through the relay, and the connection was lost: " +
+    "the machine Flockdeck runs on may be asleep or offline, Flockdeck may have stopped there, or the relay " +
     "may be out of reach. This window tries again on its own every couple of seconds, and comes back as it " +
     "was once the machine answers.";
   /** Normalised binding → action id, built from the same table. */
@@ -582,7 +582,7 @@
       $("disconnected").hidden = false;
       // The title is what the taskbar shows of a window behind others, and it
       // went on counting agents waiting in a Flockdeck that had stopped.
-      document.title = "Disconnected · flockdeck";
+      document.title = "Disconnected · Flockdeck";
       // Nothing behind this can be used and the terminal it is covering has
       // the keyboard, so typing would go nowhere until the pointer was used.
       $("retry").focus();
@@ -825,7 +825,7 @@
     remoteChipKey = key;
     const b = $("btn-remote");
     // Amber only when it needs somebody, which is what amber means everywhere
-    // else here; green is a working tunnel, grey one still connecting, and
+    // else here; cyan is a working tunnel, grey one still connecting, and
     // no badge at all is remote access turned off.
     const trouble = !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced" || r.state === "lapsed");
     const pending = !!r && r.state === "connecting";
@@ -997,7 +997,7 @@
       copy.id = "remote-copy";
       copy.onclick = () => copyText(p.url, link, "Copied the pairing link");
       text.append(copy);
-      text.append(el("p", "fan-hint", "Whoever opens it can drive every agent here, so treat it like a password until then."));
+      text.append(el("p", "fan-hint", "Whoever opens it can drive every agent on every machine on this account, and open a shell on any of them, so treat it like a password until then."));
       box.append(text);
       pair.append(box);
     } else if (!p || !p.pending) {
@@ -1035,7 +1035,7 @@
     // what it shows on its own Devices page is the one check that catches it.
     if (devices.some((d) => d.fingerprint)) {
       dev.append(el("p", "fan-hint",
-        "Tap Verify and compare the code with what a device shows on its own Devices page. " +
+        "Press Verify and compare the code with what a device shows on its own Devices page. " +
         "If they differ, unpair it: the relay may have handed it the wrong key."));
     }
     devices.forEach((d) => {
@@ -1193,7 +1193,7 @@
 
   /** enterpriseNote announces Enterprise, which is not here yet. */
   function enterpriseNote() {
-    return el("p", "fan-hint", "Coming soon, for companies: " + ENTERPRISE_WHAT + ".");
+    return el("p", "fan-hint", "Coming soon, for companies: Enterprise, a licence to " + ENTERPRISE_WHAT + ".");
   }
 
   /** remoteMachineSection is this machine's own place on the relay: trying
@@ -1228,7 +1228,7 @@
       const hosts = roster.hosts || [];
       const devices = roster.devices || [];
       let q = "Turn off remote access? This machine is taken off " + where +
-        ", and no paired device can reach it until it is turned on again.";
+        " and no paired device can reach it. Turning it on again enrols it afresh: devices are paired again unless it rejoins the account with a join code.";
       // Taking the account's only machine off deletes the account on the
       // relay, and every device paired with it, which nothing else here says.
       if (hosts.length === 1 && devices.length) {
@@ -1258,7 +1258,7 @@
     if (o && o.untold) {
       box.append(el("p", "fan-hint", "Try again first: a relay that cannot be reached is most often the " +
         "network, for now. Forgetting it here anyway turns remote access off on this machine, but the " +
-        "relay goes on listing it, offline, since nothing else can take it off."));
+        "relay keeps listing it, offline, until it is removed from a paired device's Devices page or has gone 30 days without being heard from."));
       const again = el("div", "update-row");
       const retry = el("button", "chip primary", "Try again");
       retry.id = "remote-disable-again";
@@ -1268,7 +1268,7 @@
       forget.id = "remote-forget";
       forget.disabled = !!remoteBusy;
       forget.onclick = () => {
-        if (!window.confirm("Forget remote access here without telling the relay? It will list this machine, offline, for good.")) return;
+        if (!window.confirm("Forget remote access here without telling the relay? It will keep listing this machine, offline, until it is removed from a paired device or 30 days pass.")) return;
         remoteDisable(true);
       };
       again.append(retry, forget);
@@ -1757,7 +1757,7 @@
       const row = el("div", "summary-card-row");
       const dot = el("span", "dot " + (out.kind === "failed" ? "failed" : v.status));
       dot.setAttribute("aria-hidden", "true");
-      row.append(describe(dot, TIPS[out.kind === "failed" ? "failed" : v.status] || v.status));
+      row.append(describe(dot, TIPS[v.status === "blocked" ? "blocked" : out.kind === "failed" ? "failed" : v.status] || v.status));
       const main = el("div", "summary-card-main");
       const title = el("div", "summary-card-name");
       title.append(el("span", null, v.name || ""));
@@ -2386,8 +2386,8 @@
     // Outside the counts' own check, so a window that said it was
     // disconnected says what it holds again with the first push after.
     const title = s.waiting > 0
-      ? `▲ ${s.waiting} waiting · flockdeck`
-      : (s.working > 0 ? `● ${s.working} working · flockdeck` : "flockdeck");
+      ? `▲ ${s.waiting} waiting · Flockdeck`
+      : (s.working > 0 ? `● ${s.working} working · Flockdeck` : "Flockdeck");
     if (document.title !== title) document.title = title;
     $("btn-broadcast").classList.toggle("on", !!s.broadcast);
     $("btn-broadcast").setAttribute("aria-pressed", String(!!s.broadcast));
@@ -2434,7 +2434,7 @@
 
   /** renderRail draws a tile for each open project: its monogram, which one
    *  is on screen, and a badge for what its agents are doing - amber where
-   *  one is waiting on you, green where one is working. The first is what
+   *  one is waiting on you, cyan where one is working. The first is what
    *  the rail is for - a project with somebody blocked in it is seen from
    *  any other without opening anything - and the second says which of the
    *  others is still busy. */
@@ -5541,7 +5541,7 @@
     const sec = el("div", "wt-sec");
     const head = el("div", "wt-sec-head");
     const count = el("span", "wt-count", String(items.length));
-    head.append(el("h3", null, "Checkouts"), count, el("span", "ov-spacer"));
+    head.append(el("h3", null, "Worktrees"), count, el("span", "ov-spacer"));
     const refresh = el("button", "wt-link", "Refresh");
     // Its wording changes while it works, which identify() cannot follow by
     // text alone.
@@ -5982,7 +5982,7 @@
       const bar = el("div", "proj-group-bar");
       if (!grouping) {
         const start = el("button", "chip", "Group open projects…");
-        describe(start, "Pick two or more of the projects below to treat as one, with agents in each able to see the others.");
+        describe(start, "Pick two or more of the projects below to treat as one. Each agent is told about the other directories and the agents working in them.");
         start.onclick = () => { grouping = true; groupingPicked = []; renderProjects(); };
         bar.append(start);
       } else {
@@ -6254,7 +6254,7 @@
 
     if (moveCtx === null) {
       const addRepo = el("button", "chip", "Add directory\u2026");
-      describe(addRepo, "Add another directory to this project, so agents in each can see the others.");
+      describe(addRepo, "Add another directory to this project. Each agent is told about the other directories and the agents working in them.");
       addRepo.onclick = () => {
         addingRepoTo = root;
         addingRepoToName = name;
@@ -8724,7 +8724,7 @@
     send({ cmd: "ghLogin" });
   }
   function ghLogoutClick() {
-    if (!window.confirm("Sign out of GitHub?")) return;
+    if (!window.confirm("Sign out of GitHub on this machine? This runs gh auth logout, so the gh command and anything else that uses it is signed out too.")) return;
     send({ cmd: "ghLogout", path: ghDir });
   }
 
@@ -9952,8 +9952,8 @@
 
     body.append(el("div", "fan-hint",
       "Agents that talk to a model API need a key. One already exported in your " +
-      "environment is used where it is; anything set here is kept in flockdeck's own " +
-      "file, readable only by you, and reaches nothing but the pane that needs it."));
+      "environment is used where it is; anything set here is kept, unencrypted, in Flockdeck's own " +
+      "file in your user folder, and passed only to the pane that needs it (the program in that pane, and anything it starts, can read it)."));
     if (!apiKeys) { body.append(el("div", "dir-empty", "Loading…")); return; }
 
     if (!items.length) {
@@ -9975,7 +9975,7 @@
       const meta = el("div", "wt-meta");
       if (k.set) {
         meta.append(el("span", "wt-clean",
-          k.source === "env" ? "set — from " + k.env : "set — stored by flockdeck"));
+          k.source === "env" ? "set — from " + k.env : "set — stored by Flockdeck"));
         // A key stored before the variable was exported is still held here,
         // and Clear below is for it, not for the variable.
         if (k.source === "env" && k.stored) meta.append(el("span", null, "a stored key is kept as well"));
@@ -10414,7 +10414,7 @@
     box.append(settingRow("After waiting", "How long an agent has to have been waiting before the devices are told. Each wait is told once.", delay));
 
     box.append(settingRow("Send nothing identifying",
-      "Notifications say only “An agent on " + machine + " needs you”, rather than naming the pane and its project: " +
+      "Notifications say only “An agent on " + machine + " needs you” (or “3 agents on " + machine + " need you”), rather than naming the panes and their projects: " +
       "for a lock screen others can see. Either way it is encrypted here for each device, and neither the relay nor the push service can read it.",
       switchControl("set-push-anonymous", !!push.anonymous, (on) => setPushAnonymous(on))));
   }
@@ -10553,7 +10553,7 @@
       settingsChanged();
     };
     pane.append(settingRow("Hints",
-      "One line under the tab bar for a gesture the window cannot show, each sent away for good with its ×. " +
+      "One line under the tab bar about something on screen or a feature worth knowing, each sent away for good with its ×. " +
       (dismissed ? (dismissed === 1 ? "One has" : dismissed + " have") + " been sent away." : "None has been sent away."),
       tips));
   }
@@ -10810,18 +10810,17 @@
 
     pane.append(el("div", "set-sub", "Auto-review"));
     pane.append(settingRow("Start new panes with auto-review on",
-      "A pane's own auto-review switch still starts off, whatever this says, unless this is turned on: only a " +
-      "confidently read-only command is ever let through without asking, and it is never asked to say “deny.” " +
-      "A pane opened by hand starts here; one fanned out from another agent starts however plan 3's inheritance " +
-      "lands, once that exists.",
+      "Only a command it is confident is read-only is let through without asking; anything else still asks. " +
+      "A pane opened by hand starts with this setting; a pane started from another one (a fan-out or " +
+      "flockdeck spawn) starts the way that pane is set.",
       switchControl("set-auto-review-default", !!prefs.autoReviewDefault, (on) => setAutoReviewDefault(on))));
 
     pane.append(el("div", "set-sub", "Status detection"));
     pane.append(jevKeyRow());
     pane.append(settingRow("Let TypeSafe's Jev help read pane status",
-      "Off by default. On, and with a TypeSafe API key set (above, or TYPESAFE_API_KEY in the environment flockdeck runs in), the last " +
-      "30 lines (at most 2,000 characters) of a pane's terminal output are SENT TO TYPESAFE, a third party, " +
-      "whenever an agent that reports no status of its own goes quiet and flockdeck cannot tell finished " +
+      "Off by default. On, and with a TypeSafe API key set (above, or TYPESAFE_API_KEY in the environment Flockdeck runs in), the last " +
+      "30 lines (at most 2,000 bytes) of a pane's terminal output are SENT TO TYPESAFE, a third party, " +
+      "whenever an agent that reports no status of its own goes quiet and Flockdeck cannot tell finished " +
       "from stopped on a question. Nothing else is sent: not the scrollback, the pane's name, or its folder. " +
       "Secrets on screen are not removed. Panes of agents that report their own status, and shell panes, " +
       "are never sent. It can only turn a quiet pane into waiting or blocked, never the other way. " +
@@ -10840,7 +10839,7 @@
     box.id = "set-jev-key";
     const info = jevKeyInfo;
     let state = "Checking…";
-    if (remoteWindow) state = "Set on the machine flockdeck runs on, not from here.";
+    if (remoteWindow) state = "Set on the machine Flockdeck runs on, not from here.";
     else if (info) {
       state = info.set ? "Set." : info.env ? "Not set here; TYPESAFE_API_KEY from the environment is used." : "Not set.";
       if (info.set && info.env) state = "Set. It is used in place of TYPESAFE_API_KEY from the environment.";
@@ -10876,7 +10875,7 @@
     return settingRow("TypeSafe API key",
       "Used only for the two Jev settings below and under Routing. Saving a key sends nothing: they stay off until " +
       "you turn one on, and what they send is described there, including that it goes to TypeSafe, a third party. " +
-      "The key is kept on this machine in flockdeck's key store, is only ever sent to api.typesafe.ai, and is never " +
+      "The key is kept on this machine in Flockdeck's key store, is only ever sent to api.typesafe.ai, and is never " +
       "shown again. If none is set here, TYPESAFE_API_KEY from the environment is used. It can only be set on the machine itself.",
       box, status);
   }
@@ -11148,8 +11147,10 @@
     const every = select("set-route-all", MODES, (r.every && r.every.mode) || "off");
     every.onchange = () => send({ cmd: "setRouting", kind: "all", target: "mode", text: every.value });
     pane.append(settingRow("Every project",
-      "Pre-sets a fan-out's rows to a smaller model for mechanical work and a stronger one for hard work, " +
-      "marked, for you to change before anything starts. Off until you turn it on. Kept in agents.json.", every));
+      "Chooses a smaller model for mechanical work and a stronger one for hard work. Suggest pre-sets a " +
+      "fan-out's rows, marked, for you to change before anything starts. Automatic does that too, and also picks " +
+      "the model for a helper an agent starts with flockdeck spawn and for the first prompt you send a pane " +
+      "(the pane restarts on the chosen model), with nothing to confirm first. Off until you turn it on. Kept in agents.json.", every));
 
     const own = r.project || null;
     const mine = select("set-route-project", [["", "Same as every project"]].concat(MODES), own ? own.mode : "");
@@ -12155,7 +12156,7 @@
     },
     {
       id: "exited",
-      text: "A pane whose agent has stopped shows Restart over its terminal rather than a dead screen — it starts the same agent again in the same place, and picks the conversation back up.",
+      text: "A pane whose agent has stopped shows Restart over its terminal rather than a dead screen — it starts the same agent again in the same place, and a Claude agent picks the conversation back up.",
       page: "panes",
       when: (s) => currentPanes(s).some((v) => v.status === "exited" || shownStatus(v) === "failed"),
     },
@@ -12240,23 +12241,23 @@
       id: "api-keys",
       text: "API keys…, in the command palette, stores a key for an API agent once, kept on this machine only — no more pasting it into every terminal it opens.",
       page: "agents",
-      when: () => true,
+      when: () => !remoteWindow,
     },
     {
       id: "remote-access",
       text: "Remote access…, in the command palette, pairs a phone or another desktop through a relay, so a waiting agent can be glanced at, or answered, away from this machine.",
       page: "remote",
-      when: () => true,
+      when: () => !remoteWindow,
     },
     {
       id: "detach",
       text: "Detach, in the command palette, closes the window but leaves every agent running — flockdeck from a terminal brings the window back to exactly where you left it.",
       page: "persistence",
-      when: () => true,
+      when: () => !remoteWindow,
     },
     {
       id: "split-project",
-      text: "Split into project: …, in the command palette, puts an agent from another open project into this tab, so two repositories can sit side by side.",
+      text: "Split into project: …, in the command palette, starts a new agent in another open project, beside this one in this tab, so two repositories can sit side by side.",
       page: "projects",
       when: (s) => (s.projects || []).length > 1,
     },

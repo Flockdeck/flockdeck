@@ -474,8 +474,14 @@ func (c PaneContext) render(viaPrompt bool) string {
 			"where it matters, and if you want it shown in this pane's own header, run `%s "+
 			"peer-name <name>`.\n", flockdeck)
 	}
-	b.WriteString("- Your conversation belongs to this pane alone. It is resumed when the pane is " +
-		"restored, so what you say here outlives the window.\n")
+	if viaPrompt {
+		b.WriteString("- Your conversation belongs to this pane alone. If the pane is restored and your " +
+			"agent cannot resume a conversation, you start again with this briefing and nothing you " +
+			"said here.\n")
+	} else {
+		b.WriteString("- Your conversation belongs to this pane alone. It is resumed when the pane is " +
+			"restored, so what you say here outlives the window.\n")
+	}
 
 	b.WriteString("\n## The other agents\n\n")
 	if len(c.Siblings) == 0 {
@@ -685,10 +691,11 @@ func writeCommandLine(b *strings.Builder, flockdeck string) {
 		"%s -quit           # stop every agent in every project\n"+
 		"```\n\n"+
 		"Those are the user's to run rather than yours — `-quit` ends the other agents' work "+
-		"along with your own. `-new`, `-shell`, `-agent`, `-detach`, `-solo`, `-no-window` and "+
-		"`-version` shape a fresh start and mean nothing from in here: `-detach` in particular "+
-		"does not detach the instance already running, it opens another window onto it — "+
-		"closing the window and leaving the agents running is "+how("detach")+". "+
+		"along with your own. `-new`, `-shell` and `-agent` only shape a fresh start and do "+
+		"nothing from in here (Flockdeck says so and ignores them). `-detach` and `-no-window`, "+
+		"joined to the running instance, open no window: they hand the project to it and print "+
+		"its address. `-solo` starts a second, separate instance beside the running one, which "+
+		"is not what you want from in here. Closing the window and leaving the agents running is "+how("detach")+". "+
 		"The interface is a local page: Flockdeck serves it on `127.0.0.1` on "+
 		"a random port, behind a token generated for each run. Nothing else reaches it unless "+
 		"the user turns on remote access, which serves the same interface through Flockdeck's "+
