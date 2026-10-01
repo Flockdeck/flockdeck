@@ -1481,8 +1481,14 @@ textarea:focus-visible {
 .dir-repo { font-size: 10px; font-weight: 500; line-height: 16px; color: var(--accent); border: 1px solid var(--accent-line); border-radius: var(--radius-sm); padding: 0 6px; }
 .dir-empty { padding: 16px; color: var(--fg-dim); text-align: center; }
 
-/* ----------------------------------------------------------------- fan out */
+/* ------------------------------------------ fan out (pop-over redesign B3)
+ *
+ * A medium dialog: the model for every task and what routing chose; the
+ * tasks, one editable row each; where they run; and the footer (.ov-foot)
+ * with the count, Cancel and Start. The textarea the rows are drawn from is
+ * shown in their place by "Edit as text". */
 
+/* Shared with New todo, Settings and the picker, and left as they were. */
 .fan-hint { color: var(--fg-dim); font-size: 12px; margin-bottom: 10px; }
 .fan-tasks {
   width: 100%; min-height: 150px; resize: vertical;
@@ -1490,7 +1496,7 @@ textarea:focus-visible {
   border-radius: var(--radius); color: var(--fg); padding: 8px 10px;
   font: 12px/1.7 var(--mono); font-variant-ligatures: none;
 }
-.fan-opts { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0; align-items: center; }
+.fan-tasks[hidden] { display: none; }
 .fan-opt { display: flex; align-items: center; gap: 8px; color: var(--fg-dim); cursor: pointer; }
 /* The trust option is hidden while none of the agents chosen asks for it,
  * and the display above would otherwise keep it on screen. */
@@ -1498,21 +1504,107 @@ textarea:focus-visible {
 .fan-opt input { accent-color: var(--accent); }
 .fan-go { display: flex; align-items: center; gap: 10px; }
 .fan-count { color: var(--fg-dim); font-size: 12px; }
-
-/* The agent a task runs on, for the whole fan-out and for one row of it. The
-   row list is capped and scrolls: a dozen tasks with a control each is taller
-   than the dialog, and the button that starts them all must stay in sight. */
 .fan-agent { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: var(--fg-dim); font-size: 12px; }
 .fan-agent-sel {
   background: var(--bg-inset); border: 1px solid var(--field-line);
   border-radius: var(--radius); color: var(--fg); font: inherit; font-size: 12px; height: 24px; padding: 0 6px;
 }
-.fan-rows { max-height: 210px; overflow: auto; margin: 8px 0 0; }
-.fan-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
-.fan-row-n { color: var(--fg-dim); font-size: 11px; min-width: 18px; text-align: right; }
-.fan-row-task {
-  flex: 1 1 auto; min-width: 0; font-size: 12px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+
+/* The fan-out's own. */
+.fo-text { min-height: 220px; }
+.fo-sel { height: 30px; min-width: 0; padding: 0 8px; font-size: 13px; }
+.fo-opt { min-width: 0; color: var(--fg); }
+.fo-opt input { margin: 0; }
+
+/* What there is to say before the list: nothing was found, or what was found
+ * is a question for you rather than a plan. */
+.fan-note {
+  margin: 0 0 12px; padding: 8px 12px; border-radius: var(--radius);
+  border: 1px solid var(--line); color: var(--fg-dim); line-height: 1.5;
+}
+.fan-note b { color: var(--fg); font-weight: 600; }
+.fan-note.warn { border-color: var(--waiting-line); background: var(--waiting-subtle); }
+.fan-note.warn b { color: var(--waiting); }
+
+/* The model for every task, and on its right what routing made of them. */
+.fo-model { flex-wrap: wrap; margin: 0 0 4px; font-size: inherit; }
+.fo-model-label { white-space: nowrap; }
+.fo-model > .fo-sel { flex: 0 1 auto; max-width: 320px; }
+.fan-route { display: flex; align-items: center; gap: 8px; margin-left: auto; min-width: 0; }
+.fan-route-text { color: var(--fg-dim); font-size: 12px; min-width: 0; }
+/* A quiet text button: Undo routing, Edit as text. */
+.fan-quiet {
+  height: 24px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius);
+  background: transparent; color: var(--fg-dim); font: inherit; font-size: 12px; font-weight: 600;
+  white-space: nowrap; cursor: pointer;
+  transition: background-color var(--dur-1) linear, color var(--dur-1) linear;
+}
+.fan-quiet[hidden] { display: none; }
+.fan-quiet:hover { background: var(--bg-hover); color: var(--fg); }
+.fan-quiet.on { background: var(--bg-active); color: var(--fg); }
+.fan-quiet:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Section heads: sentence case, 12/600, with a count in mono. */
+.fan-sec { display: flex; align-items: baseline; gap: 8px; margin: 14px 0 6px; }
+.fan-sec:first-child { margin-top: 0; }
+.fan-sec h3 { margin: 0; font-size: 12px; font-weight: 600; color: var(--fg-dim); }
+.fan-sec-num { font: 11px var(--mono); color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.fan-sec-num.warn, .fo-count.warn { color: var(--waiting); }
+
+/* One row a task: its number, its words, the model it runs on, and a tag
+ * where routing chose that model. The row being edited is the chosen one. */
+.fan-rows { display: flex; flex-direction: column; }
+.fan-rows[hidden] { display: none; }
+.fan-row, .fan-add {
+  display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 10px;
+  border-radius: var(--radius); position: relative;
+}
+.fan-row + .fan-row, .fan-row + .fan-add, .fan-rows:not(:empty) + .fan-add { box-shadow: 0 -1px 0 var(--line-subtle); }
+.fan-add[hidden] { display: none; }
+.fan-row:focus-within { background: var(--accent-subtle); box-shadow: inset 2px 0 0 var(--accent); }
+.fan-row-n, .fan-add-n {
+  flex: 0 0 14px; color: var(--fg-dim); font: 12px var(--mono); text-align: right; font-variant-numeric: tabular-nums;
+}
+.fan-row-task, .fan-add-task {
+  flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 10px; font: inherit;
+  background: var(--bg-inset); border: 1px solid var(--field-line); border-radius: var(--radius); color: var(--fg);
+}
+/* The row to add one is a line of text until it is typed into. */
+.fan-add-task { background: transparent; border-color: transparent; padding-left: 0; }
+.fan-add-task:focus { background: var(--bg-inset); padding-left: 10px; }
+.fan-row-task:focus, .fan-add-task:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
+}
+.fan-row > .fo-sel { flex: 0 0 210px; width: 210px; }
+.fan-row-tag { flex: 0 0 70px; display: flex; }
+/* Past the cap: shown, and marked as not starting. */
+.fan-row.over .fan-row-n, .fan-row.over .fan-row-task { color: var(--fg-dim); text-decoration: line-through; }
+.fan-routed {
+  display: inline-flex; align-items: center; height: 18px; padding: 0 6px; white-space: nowrap;
+  font-size: 10px; font-weight: 500; border-radius: var(--radius-sm);
+  color: var(--accent); background: var(--accent-subtle); border: 1px solid var(--accent-line);
+}
+
+/* Where they run: the worktree switch and the tab beside each other, the
+ * trust option under both. */
+.fan-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; align-items: center; }
+.fan-opts > .segmented { justify-self: start; }
+.fo-trust { grid-column: 1 / -1; color: var(--fg-dim); }
+.fo-trust:has(input:disabled) { cursor: default; }
+.fan-opt-note { font-size: 12px; color: var(--fg-dim); min-width: 0; }
+
+/* Start carries its key, drawn so that the button's text stays its words. */
+.fan-start::after { content: attr(data-keys); margin-left: 6px; font: 11px var(--mono); opacity: .8; }
+.fo-count { font-size: 11px; }
+
+/* Narrow: the model column gives way before the task does, and the options
+ * go one under another. */
+@media (max-width: 640px) {
+  .fan-row > .fo-sel { flex-basis: 128px; width: 128px; }
+  .fan-row-tag { flex-basis: auto; }
+  .fan-opts { grid-template-columns: 1fr; }
+  .fan-route { margin-left: 0; }
+  .fan-start::after { content: none; }
 }
 
 /* ------------------------------------------------------------------ agents */
@@ -2245,14 +2337,6 @@ kbd {
 /* A model's tier: quieter than the default mark, since most models have one. */
 .pick-tier {
   font-size: 10px; font-weight: 500; line-height: 16px; white-space: nowrap;
-  padding: 0 6px; border-radius: var(--radius-sm); color: var(--fg-dim); border: 1px solid var(--line);
-}
-/* Routing in the fan-out: one line about what it chose, and a quiet tag on
- * each row it chose for. */
-.fan-route { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 8px; }
-.fan-route-text { color: var(--fg-dim); font-size: 12px; flex: 1 1 auto; }
-.fan-routed {
-  font-size: 10px; font-weight: 500; line-height: 16px; white-space: nowrap; flex: none;
   padding: 0 6px; border-radius: var(--radius-sm); color: var(--fg-dim); border: 1px solid var(--line);
 }
 /* Settings › Agents › Routing: the rules, to read. */

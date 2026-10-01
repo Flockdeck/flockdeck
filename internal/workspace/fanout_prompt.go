@@ -58,3 +58,10 @@ func endsInPermissionPrompt(screen string) bool {
 	}
 	return yes && no
 }
+
+// EndsInQuestion reports whether the pane's screen ends in an agent asking the
+// person something -- a permission prompt -- which is why Tasks found no plan
+// in it. The fan-out dialog says so rather than offering an empty list.
+func (s PlanSource) EndsInQuestion() bool {
+	return endsInPermissionPrompt(s.Screen)
+}
