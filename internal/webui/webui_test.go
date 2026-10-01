@@ -1782,7 +1782,7 @@ assert.ok(bars.every((b) => b.getAttribute("aria-label")), "the rows have no nam
 const stops = (bar) => bar.children.filter((b) => b.tabIndex !== -1).length;
 assert.deepStrictEqual(bars.map(stops), [1, 1, 1, 1, 1, 1],
   "each row of buttons is more than one stop on the way through the window");
-assert.strictEqual(bars[0].children.length, 8, "eight things to do with a pane");
+assert.strictEqual(bars[0].children.length, 9, "nine things to do with a pane");
 
 // The arrows walk the row and take the stop with them.
 const buttons = bars[0].children;
@@ -1792,7 +1792,7 @@ assert.ok(h.doc.activeElement === buttons[1], "the right arrow did not move alon
 assert.strictEqual(buttons[1].tabIndex, 0, "the stop did not move with the focus");
 assert.strictEqual(buttons[0].tabIndex, -1);
 h.key({ key: "End" });
-assert.ok(h.doc.activeElement === buttons[7], "End did not go to the last button");
+assert.ok(h.doc.activeElement === buttons[8], "End did not go to the last button");
 h.key({ key: "ArrowRight" });
 assert.ok(h.doc.activeElement === buttons[0], "the row does not wrap");
 
@@ -1802,13 +1802,13 @@ h.doc.body.focus();
 h.key({ key: "Tab" });
 h.key({ key: "Tab" });
 assert.strictEqual(stops(bars[0]), 1, "the row grew a second stop");
-assert.strictEqual(buttons[7].tabIndex, 0, "the stop did not stay where it was left");
+assert.strictEqual(buttons[8].tabIndex, 0, "the stop did not stay where it was left");
 
 // And they still do what they say.
-buttons[7].focus();
+buttons[8].focus();
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "closePane", id: "p0" });
-buttons[6].focus();
+buttons[7].focus();
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "lockPane", id: "p0", locked: true });
 buttons[5].focus();
@@ -9641,5 +9641,50 @@ assert.ok(mark.hidden, "the lock stayed on show after the pane was unlocked");
 assert.strictEqual(close.getAttribute("aria-disabled"), "false");
 paletteRun("lock pane");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "lockPane", id: "p1", locked: true });
+`)
+}
+
+// A recording pane says so in its header, in words as well as a colour; the
+// palette names the action for the way it goes; the first time is asked about,
+// and what is agreed is told to the server; and a shell has nothing to record.
+func TestARecordingPaneSaysSoAndTheFirstTimeIsAsked(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1", { recording: true }) } }));
+const header = h.doc.querySelector("div.pane-header");
+const mark = header.querySelector(".pane-rec");
+assert.ok(!mark.hidden, "a recording pane shows nothing in its header");
+assert.ok(/Recording/.test(mark.textContent), "the indicator is a colour with no word: " + mark.textContent);
+const buttons = [...header.querySelector("div.pane-actions").children];
+const rec = buttons.find((b) => b.classList.contains("recording"));
+assert.ok(rec, "the record toggle is not marked on");
+assert.strictEqual(rec.getAttribute("aria-pressed"), "true");
+assert.ok(/Stop recording/.test(rec.getAttribute("aria-label")), "the toggle does not say it stops: " + rec.getAttribute("aria-label"));
+
+paletteRun("stop recording");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "recordPane", id: "p1", recording: false });
+
+h.recv(fixture({ panes: { p1: pane("p1") } }));
+assert.ok(mark.hidden, "the indicator stayed on after recording stopped");
+assert.strictEqual(rec.getAttribute("aria-pressed"), "false");
+
+// Nothing was agreed yet: asked first, and nothing sent until the user says yes.
+paletteRun("start recording");
+const sent = h.commands().length;
+assert.strictEqual(h.$("overlay-title").textContent, "Record this pane's agent interaction?");
+const dialog = h.$("overlay-body");
+assert.ok(/secrets/.test(dialog.textContent) && /best effort/.test(dialog.textContent), "the question does not say what is at risk: " + dialog.textContent);
+assert.strictEqual(h.$("ask-ok").textContent, "Start recording");
+h.click(h.$("ask-ok"));
+assert.deepStrictEqual(h.commands().slice(sent).pop(), { cmd: "recordPane", id: "p1", recording: true, confirmed: true });
+
+// Said once: the next one goes straight through.
+paletteRun("start recording");
+assert.ok(h.$("overlay").hidden, "it asked a second time");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "recordPane", id: "p1", recording: true });
+
+// A shell reports no events, so there is nothing to record.
+h.recv(fixture({ panes: { p1: pane("p1", { kind: "shell" }) } }));
+assert.ok([...header.querySelector("div.pane-actions").children].some((b) => b.hidden), "a shell offers a record toggle");
 `)
 }

@@ -173,3 +173,9 @@ func readOnlyCommand(cmd string) (ok bool, gitSub string) {
 	}
 	return true, fields[1]
 }
+
+// SecretPath is secretPath for other packages: whether arg names a file whose
+// contents are a secret in their own right. The transcript recorder uses it to
+// withhold what an agent read from such a file, the same name check and with
+// the same limits -- see secretPath.
+func SecretPath(arg string) bool { return secretPath(arg) }

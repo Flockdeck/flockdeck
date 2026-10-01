@@ -14,6 +14,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/route"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
@@ -1199,6 +1200,9 @@ func (s *Server) installSpawnHandler() {
 			if !req.Shell {
 				_, err = s.ws.AgentSpec(req.Agent)
 			}
+			if err == nil && req.Record {
+				err = recordSpawnRefusal(req.Shell, store.LoadPrefs().RecordingAcknowledged)
+			}
 			return start{cwd, err}
 		})
 		// The agent's `flockdeck spawn` is blocked on this reply, so a
@@ -1253,6 +1257,7 @@ func (s *Server) installSpawnHandler() {
 				Agent:          req.Agent,
 				Model:          req.Model,
 				SpawnedByAgent: true,
+				Record:         req.Record,
 			}
 			if routed.Routed {
 				opts.Model, opts.Routed, opts.RoutedFrom = routed.Model, routed.Rule, baseModel

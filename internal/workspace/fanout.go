@@ -918,6 +918,9 @@ type SpawnOptions struct {
 	// to a fan-out the user ran themselves from the window, whose children are
 	// the user's own and carry no parent. Only installSpawnHandler sets it.
 	SpawnedByAgent bool
+	// Record starts the child with Pane.Recording on. Only the spawn handler
+	// sets it, and only once the user has agreed to recording in the window.
+	Record bool
 }
 
 // Spawn starts a child agent, optionally in a worktree of its own.
@@ -998,6 +1001,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		// helper it starts, rather than needing to be found and flipped on a
 		// dozen new panes one at a time. See Pane.AutoReview.
 		AutoReview: parent != nil && parent.AutoReview,
+		Recording:  o.Record && o.Kind != session.KindShell,
 	}
 	if o.SpawnedByAgent && parent != nil {
 		p.Parent = parentPaneID

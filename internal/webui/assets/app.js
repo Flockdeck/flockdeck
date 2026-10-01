@@ -120,6 +120,7 @@
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
     zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back. Double-clicking the pane's header does the same.",
     close:       "Closes this pane and stops the process running in it.",
+    record:      "Records this pane's agent interaction -- your prompts, the agent's messages, the tools it runs and what they print, permission prompts and status changes -- as a transcript file on this machine. Off by default, and secrets are removed on a best-effort basis only. Recordings are kept for 30 days. Open them with Open recordings folder in the command palette.",
     lock:        "Locks this pane so it can't be closed: not by the close shortcut, its close button, its tab, Close finished panes or an agent's flockdeck close. Restarting it still works, and it stays locked across restarts of Flockdeck and when you move it to another tab.",
     autoReview:  "Lets a confident, read-only command through without asking, instead of stopping for a permission prompt. It only ever says yes: anything it is not sure of still asks, exactly as before. Off by default; a pane this one starts, by fan-out or by its own spawning, starts with the same setting this pane has.",
     usage:       "What this pane is costing the machine: processor share averaged over the last few readings, and memory, across the agent's process and everything it has started.",
@@ -3011,6 +3012,11 @@
     // that will refuse to close says so before anyone tries. See renderPaneLock.
     const lockMark = el("span", "pane-lock");
     lockMark.hidden = true;
+    // The same for recording: a pane that is writing a transcript says so in
+    // words and a red dot, always on show, since the user may not remember
+    // turning it on. See renderPaneRecording.
+    const recMark = el("span", "pane-rec");
+    recMark.hidden = true;
     const actions = el("div", "pane-actions");
 
     // Every one of these reads as a bare symbol, so describe carries the
@@ -3029,6 +3035,12 @@
       send({ cmd: "lockPane", id, locked: !(v && v.locked) });
     });
     const closeBtn = btn("×", TIPS.close, () => send({ cmd: "closePane", id }));
+    // Off for a shell, which reports nothing to record. renderPaneRecording
+    // keeps the glyph's state, the label and aria-pressed true.
+    const recBtn = btn("⏺", TIPS.record, () => {
+      const v = state && state.panes && state.panes[id];
+      setRecording(id, !(v && v.recording));
+    });
     const castBtn = btn("⇉", "Adds this pane to the broadcast set, or takes it out again. " + TIPS.broadcast,
       () => send({ cmd: "toggleBroadcastMember", id }));
     const zoomBtn = btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id }));
@@ -3043,11 +3055,12 @@
       reviewBtn,
       btn("⟳", TIPS.restart, () => send({ cmd: "restartPane", id })),
       zoomBtn,
+      recBtn,
       lockBtn,
       closeBtn,
     );
     makeToolbar(actions, "What to do with this pane");
-    header.append(dot, project, name, branch, agent, peerName, remote, git, detail, background, spend, limit, usage, cast, lockMark, actions);
+    header.append(dot, project, name, branch, agent, peerName, remote, git, detail, background, spend, limit, usage, cast, recMark, lockMark, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -3149,7 +3162,7 @@
     // see drawWithWebgl.
 
     p = { id, wrap, header, dot, name, project, branch, agent, peerName, remote, git, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, search, dropZone,
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, recBtn, recMark, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
           shown: {} };
@@ -4045,6 +4058,9 @@
       const locked = v.locked ? "1" : "";
       if (was.locked !== locked) { was.locked = locked; renderPaneLock(p, !!v.locked); }
 
+      const recording = (v.recording ? "1" : "") + (v.kind === "shell" ? "s" : "");
+      if (was.recording !== recording) { was.recording = recording; renderPaneRecording(p, !!v.recording, v.kind === "shell"); }
+
       const focused = !!tab && tab.focus === id;
       p.wrap.classList.toggle("focused", focused);
       speakIfFocused(p, focused);
@@ -4129,6 +4145,43 @@
       p.overlayClose.setAttribute("aria-disabled", String(on));
       p.overlayClose.classList.toggle("locked", on);
     }
+  }
+
+  /** renderPaneRecording says whether a pane is recording its agent
+   *  interaction: a red dot and the word in the header, and the toggle pressed.
+   *  A shell pane has nothing to record -- it reports no events -- so its toggle
+   *  is hidden. See Pane.Recording. */
+  function renderPaneRecording(p, on, shell) {
+    p.recBtn.hidden = shell;
+    p.recMark.hidden = !on;
+    p.recMark.textContent = on ? "● Recording" : "";
+    if (on) describe(p.recMark, "Recording - this pane's agent interaction is being saved as a transcript on this machine. Secrets are removed on a best-effort basis only.");
+    else delete p.recMark.dataset.tip;
+    p.recBtn.classList.toggle("recording", on);
+    p.recBtn.setAttribute("aria-pressed", String(on));
+    describe(p.recBtn, on ? "Stop recording this pane. The transcript so far is kept." : TIPS.record);
+  }
+
+  /** setRecording turns a pane's recording on or off. The first time ever is
+   *  put to the user first, in the designed dialog: what is kept, that secrets
+   *  may get through, where it goes and how long it stays. The server asks
+   *  for that answer too (confirmed), so the dialog cannot be skipped by a
+   *  client that does not draw it. */
+  function setRecording(id, on) {
+    if (!on || (prefs && prefs.recordingAcknowledged)) {
+      send({ cmd: "recordPane", id, recording: on });
+      return;
+    }
+    confirmDialog({
+      title: "Record this pane's agent interaction?",
+      body: "Flockdeck will save your prompts, the agent's messages, the tools it runs and what they print, to a file on this machine until you stop. " +
+        "It can contain secrets. Flockdeck removes common ones and clips very long output, but that is best effort and not a guarantee. " +
+        "Nothing is written into your project and nothing leaves this machine. Recordings are deleted after 30 days.",
+      action: "Start recording",
+    }, () => {
+      if (prefs) prefs.recordingAcknowledged = true;
+      send({ cmd: "recordPane", id, recording: true, confirmed: true });
+    });
   }
 
   /** renderPaneProject names the pane's own project, and is empty for the
@@ -7353,6 +7406,12 @@
     focusPrevPane: () => focusNeighbour(-1),
     restartPane: () => send({ cmd: "restartPane", id: focusedPaneId() }),
     closePane: () => send({ cmd: "closePane", id: focusedPaneId() }),
+    recordPane: () => {
+      const id = focusedPaneId();
+      const v = id && state && state.panes && state.panes[id];
+      if (v && v.kind !== "shell") setRecording(id, !v.recording);
+    },
+    openRecordings: () => send({ cmd: "openRecordings" }),
     lockPane: () => {
       const id = focusedPaneId();
       const v = id && state && state.panes && state.panes[id];
@@ -7618,7 +7677,7 @@
     // somebody looking for one types - it matched none of them.
     const SETTING = "settings preferences options";
     const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
-    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : "";
+    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "recordPane" || id === "openRecordings" ? "record recording transcript log" : "";
     // What a setting is now, beside the command that changes it: choosing a
     // scrollback or a font meant opening the question to find out.
     const value = {
@@ -7649,7 +7708,12 @@
     const plain = (label, group, run, o) => Object.assign(
       { label, name: label, group, keys: "", gloss: "", short: "", now: "", also: "", kind: "", run }, o);
     // One action that goes both ways is named for the way it goes now.
-    const paletteLabel = (k) => k.id === "lockPane" && id && s.panes && s.panes[id] && s.panes[id].locked ? "Unlock pane" : k.label;
+    const paletteLabel = (k) => {
+      const v = id && s.panes && s.panes[id];
+      if (k.id === "lockPane" && v && v.locked) return "Unlock pane";
+      if (k.id === "recordPane" && v && v.recording) return "Stop recording";
+      return k.label;
+    };
     const cmds = keyTable
       .filter((k) => !k.noPalette && ACTIONS[k.id])
       .map((k) => mk(k.id, paletteLabel(k), { keys: k.keys, short: k.short, group: PAGE_ACTIONS.includes(k.id) ? "Go to" : k.section }));

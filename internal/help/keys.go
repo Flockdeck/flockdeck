@@ -67,6 +67,7 @@ var Keys = []Key{
 	{ID: "zoomPane", Keys: "Ctrl+Shift+Z", Label: "Zoom pane", Section: "Panes", Page: "panes"},
 	{ID: "restartPane", Label: "Restart pane", Section: "Panes", Page: "panes"},
 	{ID: "lockPane", Label: "Lock pane", Section: "Panes", Page: "panes"},
+	{ID: "recordPane", Label: "Start recording", Section: "Panes", Page: "recording"},
 	{ID: "closePane", Keys: "Ctrl+Shift+W", Label: "Close pane", Section: "Panes", Page: "panes"},
 
 	// --- tabs --------------------------------------------------------------
@@ -118,6 +119,7 @@ var Keys = []Key{
 	{ID: "fontDown", Keys: "Ctrl+-", Label: "Decrease font size", Section: "The window"},
 	{ID: "fontReset", Keys: "Ctrl+0", Label: "Reset font size", Section: "The window"},
 	{ID: "remote", Label: "Remote access…", Short: "Remote", Section: "The window", Page: "remote"},
+	{ID: "openRecordings", Label: "Open recordings folder", Section: "The window", Page: "recording"},
 	{ID: "detach", Label: "Detach — close the window, leave agents running", Section: "The window", Page: "persistence"},
 	{ID: "quit", Label: "Quit — stop every agent in every project", Section: "The window",
 		Confirm: "Stop every agent in every open project?"},

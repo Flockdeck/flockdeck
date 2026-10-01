@@ -15,6 +15,7 @@ switched from inside the window. These are what is left.
 | `flockdeck -no-window` | Serve headless, no browser needed here; print the URL and open it yourself |
 | `flockdeck -solo` | Start a separate instance instead of attaching |
 | `flockdeck -version` | Print the version |
+| `flockdeck recordings` | List the transcripts panes have recorded, newest first; `-dir` prints the folder, `-json` prints one JSON object per recording |
 | `flockdeck agents` | List the agents and models that `-agent` and `spawn` accept, and which are installed here |
 | `flockdeck help` | Print the usage; `flockdeck help spawn` (or any subcommand below) prints that subcommand's usage instead |
 
@@ -40,9 +41,16 @@ opens only its own projects.
 Run from inside a pane, this starts another agent:
 
 ```sh
-flockdeck spawn [--worktree <branch>] [--split] [--shell]
+flockdeck spawn [--worktree <branch>] [--split] [--shell] [--record]
                 [--agent <id>] [--model <model>] <task>
 ```
+
+`--record` starts the helper with its agent interaction recorded as a
+transcript, the same as turning on Record in its header; see
+[Recording a pane](#recording). It is off unless given, a helper does not inherit
+it from its parent, and it is refused until you have turned recording on yourself
+in the window, so an agent can never be the first to switch it on. It cannot be
+combined with `--shell`, which reports no events to record.
 
 `--agent` and `--model` choose which agent the helper is; without them it is
 whatever the project runs by default. `flockdeck agents` lists the names both
@@ -99,6 +107,20 @@ Like `spawn` and `peer-name`, this only works inside a pane, using the address
 and token its environment was given. It is what lets a coordinating agent
 clean up a helper whose work is done without a person finding it and pressing
 Ctrl+Shift+W themselves.
+
+## recordings
+
+```sh
+flockdeck recordings [-dir] [-json]
+```
+
+Lists the transcripts panes have recorded, newest first: when it started, the
+project, the pane, its size and the file. `-dir` prints the folder they are kept
+in and nothing else, and `-json` prints one JSON object per recording for a
+script. It reads the state directory, so it works with no Flockdeck running, and
+from any terminal. Nothing is recorded unless a pane's Record toggle is on:
+see [Recording a pane](#recording), which links the format reference for the
+files it lists.
 
 ## keys
 

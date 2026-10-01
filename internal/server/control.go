@@ -379,6 +379,9 @@ type paneView struct {
 	// Locked says the pane is locked against closing (workspace.Pane.Locked),
 	// so its header draws the lock and its close button is disabled.
 	Locked bool `json:"locked,omitempty"`
+	// Recording says the pane's agent interaction is being written to a
+	// transcript (workspace.Pane.Recording), so its header says so.
+	Recording bool `json:"recording,omitempty"`
 	// AutoReview says this pane's PreToolUse calls are put to auto-review
 	// approvals before Claude Code would otherwise show its own permission
 	// prompt, and AutoApproved counts how many it has let through unasked so
@@ -567,6 +570,12 @@ type command struct {
 	// Locked is lockPane's own: whether the named pane should be locked
 	// against closing, or unlocked.
 	Locked bool `json:"locked"`
+	// Recording is recordPane's own: whether the named pane should start, or
+	// stop, recording its agent interaction. Confirmed says the window has just
+	// shown the user what recording stores and they agreed, which is what
+	// lets the first pane be switched on; see Server.recordPane.
+	Recording bool `json:"recording"`
+	Confirmed bool `json:"confirmed"`
 	// AutoReview is autoReview's own: whether the named pane should start, or
 	// stop, having its PreToolUse calls put to auto-review approvals. See
 	// Workspace.SetPaneAutoReview.
@@ -720,6 +729,7 @@ func (s *Server) snapshot() stateMsg {
 				Broadcast:    ws.InBroadcast(p.ID),
 				Muted:        p.Muted,
 				Locked:       p.Locked,
+				Recording:    ws.PaneRecording(p.ID),
 				AutoReview:   p.AutoReview,
 				AutoApproved: ws.AutoApprovedOf(p),
 				PeerName:     ws.PeerNameOf(p),
@@ -1631,6 +1641,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			return
 		}
 		s.setJevStatus(c, cmd.Kind == "on")
+		return
+	case "recordPane":
+		s.recordPane(c, cmd)
+		return
+	case "openRecordings":
+		s.openRecordings(c)
 		return
 	case "jevKey":
 		s.jevKey(c, cmd.Kind, cmd.Text)

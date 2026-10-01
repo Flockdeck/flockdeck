@@ -143,6 +143,8 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 			Parent: p.Parent,
 			// Written only while locked, like every optional field here.
 			Locked: p.Locked,
+			// Recording is on again after a restart, in a new session file.
+			Recording: p.Recording,
 		}
 		// Only a pane borrowed from another project needs its project written
 		// down; leaving it out otherwise keeps the file as it has always been
@@ -535,6 +537,7 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 			Conversation:    n.Pane.Conversation,
 			Parent:          n.Pane.Parent,
 			Locked:          n.Pane.Locked,
+			Recording:       n.Pane.Recording,
 		}
 		if p.Root == "" {
 			p.Root = tabRoot

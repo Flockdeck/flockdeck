@@ -507,6 +507,7 @@ func cliFlagNames() map[string]bool {
 		flockdeckFlagSet(&cliFlags{}),
 		spawnFlagSet(&spawnFlags{}),
 		closeFlagSet(&closeFlags{}),
+		recordingsFlagSet(&recordingsFlags{}),
 		updateFlagSet(&updateFlags{}),
 		remoteEnableFlagSet(&remoteEnableFlags{}),
 		remotePairFlagSet(&remotePairFlags{}),
