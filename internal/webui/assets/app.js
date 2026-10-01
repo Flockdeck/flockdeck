@@ -7317,6 +7317,9 @@
   /** The rows on screen, so moving the highlight can move the highlight
    *  rather than building the list again. */
   let palRows = [];
+  /** The group heading above each row that opens one, or null, parallel to
+   *  palRows, so the highlight can bring the heading along with its row. */
+  let palHeads = [];
   /** Set while the palette is showing only the actions in PAGE_ACTIONS --
    *  opened as "Go to…", rather than as the palette proper -- and cleared
    *  the moment it is asked for everything again. */
@@ -7326,8 +7329,21 @@
    *  something and staying put. "Go to…", the palette's own entry, is the
    *  palette narrowed to just these -- one surface reaches any other without
    *  a trip back out to the rail or the shortcut that opened this one. */
-  const PAGE_ACTIONS = ["projects", "agents", "worktrees", "changes", "history",
-    "fanoutHistory", "todos", "github", "fanout", "settings", "remote", "apiKeys", "help"];
+  const PAGE_ACTIONS = ["agents", "changes", "worktrees", "history", "todos", "github", "remote",
+    "projects", "settings", "help", "fanout", "fanoutHistory", "apiKeys"];
+
+  /** The groups the palette lists its commands under while nothing is typed,
+   *  in this order: the key table's own sections (Panes, Tabs, Agents, The
+   *  window) the help pages already use, with every action that puts a whole
+   *  surface on screen lifted out of them into "Go to" -- the rail's names,
+   *  wherever the table files them -- and the commands that are not in the
+   *  table (the toggles, the projects and tabs to go to) in groups of their own. */
+  const PAL_GROUPS = ["Panes", "Tabs", "Agents", "Go to", "Finding your way", "The window", "Settings", "Projects"];
+  /** What a surface is, as Go to says it beside its name. */
+  function surfaceKind(id) {
+    const s = Object.values(SURFACES).find((x) => x.act === id);
+    return s ? (s.present === "sheet" ? "sheet" : "dialog") : "";
+  }
 
   function paletteCommands() {
     const s = state || {};
@@ -7349,39 +7365,58 @@
       toggleBroadcastMember: id && s.panes && s.panes[id]
         ? (s.panes[id].broadcast ? "in the broadcast set" : "out of the broadcast set") : "",
     };
-    const now = (id, keys) => [keys, value[id] && "now " + value[id]].filter(Boolean).join(" · ");
+    // A command as the palette lists it. The label is the table's and stays
+    // what is searched and what "last run" is remembered by; the name is the
+    // short one the row is drawn with -- "Fan out" for "Fan out — turn this
+    // pane's plan into agents", "History" for "Resume a past conversation" --
+    // and what follows the dash is the gloss, shown where there is no key.
+    const mk = (id, label, o) => {
+      const dash = label.indexOf(" — ");
+      return {
+        id, label, group: o.group, keys: o.keys || "",
+        name: o.short || (dash > 0 ? label.slice(0, dash) : label),
+        gloss: dash > 0 ? label.slice(dash + 3) : "",
+        short: o.short || "",
+        now: value[id] ? "now " + value[id] : "",
+        also: also(id),
+        kind: PAGE_ACTIONS.includes(id) ? surfaceKind(id) : "",
+        run: () => runAction(id),
+      };
+    };
+    const plain = (label, group, run, o) => Object.assign(
+      { label, name: label, group, keys: "", gloss: "", short: "", now: "", also: "", kind: "", run }, o);
     const cmds = keyTable
       .filter((k) => !k.noPalette && ACTIONS[k.id])
-      .map((k) => ({ id: k.id, label: k.label, hint: now(k.id, k.keys), also: also(k.id), run: () => runAction(k.id) }));
+      .map((k) => mk(k.id, k.label, { keys: k.keys, short: k.short, group: PAGE_ACTIONS.includes(k.id) ? "Go to" : k.section }));
     // The picker's own entries belong in the action table with everything
     // else, and are offered here only for as long as the table has not caught
     // up — so choosing an agent is reachable from the palette either way, and
     // never twice. The key dialog is in the same position: the table has no
     // entry for it, and without this there was no way to open it at all.
-    [["newAgentTabChoose", "New agent tab (choose agent)…"],
-     ["splitRightChoose", "Split right (choose agent)…"],
-     ["apiKeys", "API keys…"],
+    [["newAgentTabChoose", "New agent tab (choose agent)…", "Tabs"],
+     ["splitRightChoose", "Split right (choose agent)…", "Panes"],
+     ["apiKeys", "API keys…", "Go to", "API keys"],
      // GitHub had a rail button and nothing else; and the surfaces by name,
      // which a dialog's header offered as "Go to…".
-     ["github", "GitHub"],
-     ["goTo", "Go to…"],
-     ["scrollback", "Terminal scrollback…"],
-     ["fontFamily", "Terminal font…"],
+     ["github", "GitHub", "Go to"],
+     ["goTo", "Go to…", "Go to"],
+     ["scrollback", "Terminal scrollback…", "The window"],
+     ["fontFamily", "Terminal font…", "The window"],
      // Renaming was a double-click on the tab and nothing else: nothing a
      // keyboard could reach, and nothing that said it could be done.
-     ["renameTab", "Rename this tab…"],
+     ["renameTab", "Rename this tab…", "Tabs"],
      // Moving the keyboard between panes had no key and no command at all.
-     ["focusNextPane", "Focus the next pane"],
-     ["focusPrevPane", "Focus the previous pane"]].forEach(([id, label]) => {
+     ["focusNextPane", "Focus the next pane", "Panes"],
+     ["focusPrevPane", "Focus the previous pane", "Panes"]].forEach(([id, label, group, short]) => {
       if (keyTable.some((k) => k.id === id)) return;
-      cmds.push({ id, label: label, hint: now(id), also: also(id), run: () => runAction(id) });
+      cmds.push(mk(id, label, { group, short }));
     });
     // A setting kept as "off": the entry turns it back on while it is off and
     // off while it is on, and says which it did - through setOff, as the
     // settings' switch for it does.
     const toggle = (field, [turnOn, turnOff]) => {
       const off = !!prefs[field];
-      cmds.push({ label: off ? turnOn : turnOff, also: SETTING, run: () => setOff(field, !off) });
+      cmds.push(plain(off ? turnOn : turnOff, "Settings", () => setOff(field, !off), { also: SETTING }));
     };
     // Desktop notifications reach past the window, and the only way to stop
     // them was the browser's own permission - which belongs to the page's
@@ -7395,16 +7430,14 @@
     // way to reach it has to be findable by somebody who cannot see the
     // settings: this entry is it.
     cmds.push(prefs.screenReader
-      ? { label: "Turn screen reader support off", also: SETTING + " accessibility", run: () => setScreenReader(false) }
-      : { label: "Turn screen reader support on", also: SETTING + " accessibility", run: () => setScreenReader(true) });
+      ? plain("Turn screen reader support off", "Settings", () => setScreenReader(false), { also: SETTING + " accessibility" })
+      : plain("Turn screen reader support on", "Settings", () => setScreenReader(true), { also: SETTING + " accessibility" }));
     // A hint sent away stays away, which is the point, but there was no way
     // back for one dismissed by mistake short of editing prefs.json.
     if ((prefs.dismissedTips || []).length) {
-      cmds.push({
-        label: "Show the tips again",
-        also: SETTING,
-        run: () => { send({ cmd: "resetTips" }); notice("The tips will show again where they apply", false); },
-      });
+      cmds.push(plain("Show the tips again", "Settings",
+        () => { send({ cmd: "resetTips" }); notice("The tips will show again where they apply", false); },
+        { also: SETTING }));
     }
     // The background check for a new release could be turned off only with
     // an environment variable set before the application started.
@@ -7414,26 +7447,31 @@
       // Whether anybody there is waiting on you is what decides where to go
       // next, and the entry showed only the folder.
       const waiting = p.waiting ? "▲ " + p.waiting + " waiting · " : "";
-      cmds.push({ label: "Switch to project: " + p.name, hint: waiting + p.root, run: () => send({ cmd: "selectProject", root: p.root }) });
-      cmds.push({ label: "Split into project: " + p.name, hint: p.root, run: () => send({ cmd: "splitPane", dir: "h", root: p.root }) });
+      cmds.push(plain("Switch to project: " + p.name, "Projects", () => send({ cmd: "selectProject", root: p.root }), { hint: waiting + p.root }));
+      cmds.push(plain("Split into project: " + p.name, "Projects", () => send({ cmd: "splitPane", dir: "h", root: p.root }), { hint: p.root }));
     });
     (s.tabs || []).forEach((t) => {
       if (t.id === s.activeTab) return;
       // The strip marks a tab with an agent waiting; the palette did not.
       const hint = t.attention ? "▲ an agent here is waiting" : "";
-      cmds.push({ label: "Go to tab: " + t.title, hint, run: () => send({ cmd: "selectTab", id: t.id }) });
-      cmds.push({
-        label: "Merge tab into this one: " + t.title,
-        run: () => send({ cmd: "mergeTab", id: t.id, target: s.activeTab, dir: "h" }),
-      });
+      cmds.push(plain("Go to tab: " + t.title, "Tabs", () => send({ cmd: "selectTab", id: t.id }), { hint }));
+      cmds.push(plain("Merge tab into this one: " + t.title, "Tabs",
+        () => send({ cmd: "mergeTab", id: t.id, target: s.activeTab, dir: "h" })));
       if (id) {
-        cmds.push({
-          label: "Move this pane to tab: " + t.title,
-          run: () => send({ cmd: "movePaneToTab", id, target: t.id }),
-        });
+        cmds.push(plain("Move this pane to tab: " + t.title, "Tabs",
+          () => send({ cmd: "movePaneToTab", id, target: t.id })));
       }
     });
     return cmds;
+  }
+
+  /** The commands in the order the palette groups them: by group, each group
+   *  keeping the order the table and the code above give it, and "Go to…"
+   *  itself at the head of its own. */
+  function palGrouped(all) {
+    const rank = (c) => PAL_GROUPS.indexOf(c.group);
+    return all.map((c, i) => [c, i]).sort((a, b) =>
+      rank(a[0]) - rank(b[0]) || (b[0].id === "goTo") - (a[0].id === "goTo") || a[1] - b[1]).map((x) => x[0]);
   }
 
   /** The commands last run from the palette, newest first, by label. Several
@@ -7442,10 +7480,6 @@
    *  used a minute ago had to be typed for again every time. While nothing
    *  has been typed they come first. */
   const palRecent = [];
-  function recentFirst(all) {
-    const first = palRecent.map((label) => all.find((c) => c.label === label)).filter(Boolean);
-    return first.concat(all.filter((c) => !first.includes(c)));
-  }
   function runFromPalette(c) {
     closePalette();
     if (!c) return;
@@ -7471,8 +7505,14 @@
   function paletteMatches(all, q) {
     const words = q.split(/\s+/);
     const initials = (label) => label.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map((w) => w[0]).join("");
-    const text = (c) => (c.also ? c.label + " " + c.also : c.label).toLowerCase();
-    const named = all.filter((c) => words.every((w) => text(c).includes(w)));
+    const text = (c) => [c.label, c.short, c.also].filter(Boolean).join(" ").toLowerCase();
+    // Among the commands holding every word, the ones whose name opens with
+    // what was typed come first -- "settings" found the window's settings
+    // after every command that merely mentions them -- and each kind keeps
+    // the order it was listed in.
+    const opens = (c) => c.name.toLowerCase().startsWith(q) || c.label.toLowerCase().startsWith(q);
+    const held = all.filter((c) => words.every((w) => text(c).includes(w)));
+    const named = held.filter(opens).concat(held.filter((c) => !opens(c)));
     const spelled = all.filter((c) => !named.includes(c) &&
       words.every((w) => w.length > 1 && initials(c.label).includes(w)));
     return named.concat(spelled);
@@ -7484,14 +7524,22 @@
    *  running a command. */
   function openPalette(onlyPages) {
     palReturn = document.activeElement;
-    palOnly = onlyPages || null;
     $("palette").hidden = false;
     const input = $("palette-input");
     input.value = "";
-    input.placeholder = palOnly ? "Go to…" : "Type a command…";
+    setPaletteMode(onlyPages);
+    input.focus();
+  }
+  /** Go to is a mode of the palette, marked in the field by a tag: entered
+   *  from its entry, or by typing ">" first, and left by Backspace in the
+   *  empty field, which takes the tag off as in any tag field. */
+  function setPaletteMode(onlyPages) {
+    palOnly = onlyPages || null;
+    $("palette-input").placeholder = palOnly ? "Go to…" : "Type a command…";
+    $("palette-tag").hidden = !palOnly;
+    $("palette-box").classList.toggle("goto", !!palOnly);
     palIndex = 0;
     renderPalette();
-    input.focus();
   }
   function closePalette() {
     $("palette").hidden = true;
@@ -7501,36 +7549,116 @@
     else focusTerminal();
   }
   function renderPalette() {
-    const q = $("palette-input").value.trim().toLowerCase();
-    const all = palOnly ? paletteCommands().filter((c) => palOnly.includes(c.id)) : paletteCommands();
-    palItems = q ? paletteMatches(all, q) : recentFirst(all);
+    const input = $("palette-input");
+    const q = input.value.trim().toLowerCase();
+    const every = paletteCommands();
+    // Go to lists the surfaces in the rail's order; the palette lists what
+    // was last run, then the rest by group; a query lists what it finds,
+    // best first, with no headings to cut the ranking in two.
+    let groups;
+    if (palOnly) {
+      const pages = palOnly.map((id) => every.find((c) => c.id === id)).filter(Boolean);
+      palItems = q ? paletteMatches(pages, q) : pages;
+      groups = [[null, palItems]];
+    } else if (q) {
+      palItems = paletteMatches(every, q);
+      groups = [[null, palItems]];
+    } else {
+      const recent = palRecent.map((label) => every.find((c) => c.label === label)).filter(Boolean);
+      const rest = palGrouped(every.filter((c) => !recent.includes(c)));
+      groups = [];
+      if (recent.length) groups.push(["Recent", recent]);
+      PAL_GROUPS.forEach((g) => {
+        const items = rest.filter((c) => c.group === g);
+        if (items.length) groups.push([g, items]);
+      });
+      palItems = groups.flatMap((g) => g[1]);
+    }
     if (palIndex >= palItems.length) palIndex = Math.max(0, palItems.length - 1);
 
     const list = $("palette-list");
     list.textContent = "";
     palRows = [];
+    palHeads = [];
+    paletteCount(q, every.length);
     if (!palItems.length) {
-      list.append(el("div", "pal-empty", "No matching command."));
+      const none = el("div", "pal-empty");
+      none.append(el("b", null, (palOnly ? "No page matches “" : "No command matches “") + input.value.trim() + "”"));
+      none.append(el("span", null, palOnly
+        ? "Go to lists the windows you can open. Backspace in an empty field goes back to every command."
+        : "Try fewer letters, or the first letter of each word: “rp” finds Restart pane."));
+      list.append(none);
       markPaletteRow();
       return;
     }
-    palItems.forEach((c, i) => {
-      const row = el("div", "pal-row");
-      row.id = "pal-row-" + i;
-      row.setAttribute("role", "option");
-      row.append(el("span", "pal-label", c.label));
-      if (c.hint) row.append(el("span", "pal-hint", c.hint));
-      // On the pointer moving, not on its entering the row. The arrow keys
-      // scroll the list, which slides a row under a pointer that has not
-      // moved, and the browser reports that as the pointer entering it: the
-      // highlight jumped back under the pointer each time the list scrolled,
-      // and walking past the bottom of the box could not be done.
-      row.onmousemove = () => selectPaletteRow(i);
-      row.onclick = () => runFromPalette(c);
-      palRows.push(row);
-      list.append(row);
+    let at = 0;
+    groups.forEach(([name, items], g) => {
+      let head = null;
+      if (name) {
+        // Not an option: a label for the rows under it, which stay the list's
+        // only options, and are the only things the arrow keys stop at.
+        head = el("div", "pal-grp", name);
+        head.id = "pal-grp-" + g;
+        head.setAttribute("role", "presentation");
+        head.setAttribute("aria-hidden", "true");
+        list.append(head);
+      }
+      items.forEach((c, n) => {
+        const i = at++;
+        const row = el("div", "pal-row");
+        row.id = "pal-row-" + i;
+        row.setAttribute("role", "option");
+        // The group is said with the first row of it, as it is seen above it.
+        if (head && n === 0) row.setAttribute("aria-describedby", head.id);
+        const label = el("span", "pal-label", c.name);
+        // The long label is what the name is for a screen reader, not a bubble
+        // under every row the pointer crosses.
+        if (c.name !== c.label) row.setAttribute("aria-description", c.label);
+        row.append(label);
+        if (palOnly && c.kind) row.append(el("span", "pal-kind", c.kind));
+        // Where there is no key to show, what a short name leaves out -- "every
+        // idle or exited pane, in every open project" -- is the hint.
+        const hint = c.hint || (!palOnly && !c.keys && !c.now && c.gloss) || "";
+        // In Go to every row has a hint, empty or not, so the kind is one column.
+        if (hint || c.keys || c.now || palOnly) {
+          const span = el("span", "pal-hint");
+          if (hint) span.append(hint);
+          if (c.now) span.append(el("span", "pal-now", c.now));
+          if (c.keys) span.append(keycaps(c.keys));
+          row.append(span);
+        }
+        // On the pointer moving, not on its entering the row. The arrow keys
+        // scroll the list, which slides a row under a pointer that has not
+        // moved, and the browser reports that as the pointer entering it: the
+        // highlight jumped back under the pointer each time the list scrolled,
+        // and walking past the bottom of the box could not be done.
+        row.onmousemove = () => selectPaletteRow(i);
+        row.onclick = () => runFromPalette(c);
+        palRows.push(row);
+        palHeads.push(n === 0 ? head : null);
+        list.append(row);
+      });
     });
     markPaletteRow();
+  }
+
+  /** A binding drawn as keys, one cap to a key. The plus between two is there
+   *  for a screen reader, and for what reads the text, not for the eye. */
+  function keycaps(keys) {
+    const box = el("span", "pal-keys");
+    keys.split("+").forEach((part, i) => {
+      if (i) box.append(el("span", "sr-only", "+"));
+      box.append(el("kbd", null, part));
+    });
+    return box;
+  }
+
+  /** The footer's count: how many commands there are, and how many of them
+   *  the field has left. Go to, which lists a handful of windows, has none. */
+  function paletteCount(q, total) {
+    $("palette-foot").hidden = !!palOnly;
+    $("palette-count").textContent = q
+      ? palItems.length + " of " + total + " commands" : total + " commands";
   }
 
   /** selectPaletteRow moves the highlight. Building the list again to move it
@@ -7559,6 +7687,10 @@
     // The list is taller than the box it is in, so the highlight has to be
     // brought along or arrowing down walks it off the bottom and out of sight.
     sel.scrollIntoView({ block: "nearest" });
+    // The first row of a group, reached from below, was left with its heading
+    // just out of sight above it.
+    const head = palHeads[palIndex];
+    if (head) head.scrollIntoView({ block: "nearest" });
   }
   /** listStep is where a key moves the highlight of a list walked from the
    *  field above it, or null for a key that is not the list's. The arrows
@@ -7583,6 +7715,8 @@
 
   function paletteKey(e) {
     if (e.key === "Escape") { e.preventDefault(); closePalette(); return; }
+    const input = $("palette-input");
+    if (e.key === "Backspace" && palOnly && !input.value) { e.preventDefault(); setPaletteMode(null); return; }
     const to = listStep(e, palIndex, palRows.length, !$("palette-input").value);
     if (to !== null) { e.preventDefault(); selectPaletteRow(to); return; }
     if (e.key === "Enter") {
@@ -12677,7 +12811,13 @@
   $("prompt-input").addEventListener("input", fitPrompt);
   $("prompt-cancel").onclick = closePrompt;
   $("retry").onclick = connectControl;
-  $("palette-input").oninput = () => { palIndex = 0; renderPalette(); };
+  $("palette-input").oninput = () => {
+    const input = $("palette-input");
+    // ">" first is how Go to is asked for from the field, as a tag would be.
+    if (!palOnly && input.value.startsWith(">")) { input.value = input.value.slice(1).trimStart(); setPaletteMode(PAGE_ACTIONS); return; }
+    palIndex = 0;
+    renderPalette();
+  };
   $("palette").addEventListener("mousedown", (e) => { if (e.target === $("palette")) closePalette(); });
   // The arrows hand the keyboard back to the field, where a search is refined
   // by typing more of it; left on the button, the next letters went nowhere.

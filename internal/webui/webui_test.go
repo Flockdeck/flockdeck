@@ -950,7 +950,9 @@ h.press("palette");
 assert.ok(!h.$("palette").hidden, "the palette is open");
 
 const list = h.$("palette-list");
-const rows = list.children;
+// The group headings are in the list too, and are not rows.
+const rowsOf = () => list.children.filter((r) => r.classList.contains("pal-row"));
+const rows = rowsOf();
 assert.ok(rows.length > 20, "the palette lists the actions; got " + rows.length);
 assert.ok(rows[0].classList.contains("sel"), "the first row starts highlighted");
 
@@ -958,7 +960,7 @@ assert.ok(rows[0].classList.contains("sel"), "the first row starts highlighted")
 const before = h.made();
 for (let i = 0; i < 15; i++) h.key({ key: "ArrowDown" });
 console.log("elements built by fifteen presses of the down arrow: " + (h.made() - before));
-assert.ok(list.children[15] === rows[15], "the list was built again to move the highlight");
+assert.ok(rowsOf()[15] === rows[15], "the list was built again to move the highlight");
 assert.ok(rows[15].classList.contains("sel"), "the highlight did not move");
 assert.ok(!rows[0].classList.contains("sel"), "the old highlight was left behind");
 assert.ok(rows[15].scrolledTo > 0, "the highlight was moved out of sight rather than scrolled to");
@@ -968,12 +970,12 @@ const crossing = h.made();
 for (let i = 0; i < 10; i++) h.dispatch(rows[i], new h.Ev("mousemove", {}));
 console.log("elements built by a pointer crossing ten rows: " + (h.made() - crossing));
 assert.ok(rows[9].classList.contains("sel"), "the pointer did not move the highlight");
-assert.ok(list.children[9] === rows[9], "the row under the pointer was replaced");
+assert.ok(rowsOf()[9] === rows[9], "the row under the pointer was replaced");
 
 // Enter runs whatever is highlighted, and typing narrows the list.
 h.$("palette-input").value = "worktree";
 h.$("palette-input").oninput();
-const hits = list.children;
+const hits = rowsOf();
 assert.ok(hits.length >= 1 && hits.length < rows.length, "the search did not narrow the list");
 assert.ok(hits[0].classList.contains("sel"), "the first hit is highlighted");
 assert.ok(hits[0].textContent.toLowerCase().includes("worktree"), "got: " + hits[0].textContent);
@@ -998,8 +1000,17 @@ assert.strictEqual(input.getAttribute("role"), "combobox");
 assert.strictEqual(input.getAttribute("aria-controls"), "palette-list");
 assert.strictEqual(list.getAttribute("role"), "listbox");
 
-const rows = list.children;
+// Headings are not options, and say so: nothing in the list claims to be
+// one that the arrow keys cannot reach.
+const heads = list.children.filter((r) => r.classList.contains("pal-grp"));
+assert.ok(heads.length >= 3, "the palette has no group headings");
+assert.ok(heads.every((g) => g.getAttribute("role") === "presentation" && g.getAttribute("aria-hidden") === "true"),
+  "a heading is taken for something to choose");
+const rows = list.children.filter((r) => r.classList.contains("pal-row"));
+assert.strictEqual(rows.length + heads.length, list.children.length, "something in the list is neither a heading nor a row");
 assert.ok(rows.every((r) => r.getAttribute("role") === "option"), "every row is an option");
+// A group is said with the first row of it.
+assert.strictEqual(rows[0].getAttribute("aria-describedby"), heads[0].id, "the first row does not say which group it opens");
 assert.strictEqual(new Set(rows.map((r) => r.id)).size, rows.length, "the rows have distinct ids");
 
 const named = () => h.doc.getElementById(input.getAttribute("aria-activedescendant"));
@@ -4309,7 +4320,7 @@ h.recv(fixture());
 h.press("palette");
 h.key({ key: "ArrowDown" });
 h.key({ key: "ArrowDown" });
-const rows = h.$("palette-list").children;
+const rows = h.$("palette-list").children.filter((r) => r.classList.contains("pal-row"));
 assert.ok(rows[2].classList.contains("sel"), "the arrow keys did not move the highlight");
 // The list scrolled; row 0 is now under the resting pointer.
 h.dispatch(rows[0], new h.Ev("mouseenter", { target: rows[0] }));
@@ -4500,7 +4511,7 @@ func TestTheListsPageAndJumpToTheirEnds(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.press("palette");
-const rows = () => h.$("palette-list").children;
+const rows = () => h.$("palette-list").children.filter((r) => r.classList.contains("pal-row"));
 const sel = () => rows().findIndex((r) => r.classList.contains("sel"));
 h.key({ key: "PageDown" });
 assert.strictEqual(sel(), 8, "Page Down did not move a boxful");
@@ -5494,7 +5505,7 @@ h.press("palette");
 const input = h.$("palette-input");
 input.value = "settings";
 input.oninput();
-const row = h.$("palette-list").children.find((r) => r.querySelector(".pal-label").textContent === "Settings");
+const row = h.$("palette-list").children.filter((r) => r.classList.contains("pal-row")).find((r) => r.querySelector(".pal-label").textContent === "Settings");
 assert.ok(row, "the palette has no Settings");
 h.click(row);
 assert.ok(shown(), "the palette's Settings did not open the settings");
@@ -5595,7 +5606,7 @@ assert.ok(on("set-notifications"), "the switch did not follow notifications turn
 h.click(h.$("set-updates"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "updates", kind: "off" });
 h.press("palette");
-const labels = h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
+const labels = h.$("palette-list").children.filter((r) => r.classList.contains("pal-row")).map((r) => r.querySelector(".pal-label").textContent);
 assert.ok(labels.includes("Turn update checks on"), "the palette does not know the settings turned update checks off");
 h.key({ key: "Escape" });
 assert.ok(h.$("set-install"), "the update already downloaded is not offered");
@@ -5796,7 +5807,7 @@ paletteRun("tile");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "tilePanes" });
 paletteRun("restart");
 h.press("palette");
-const labels = h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
+const labels = h.$("palette-list").children.filter((r) => r.classList.contains("pal-row")).map((r) => r.querySelector(".pal-label").textContent);
 assert.deepStrictEqual(labels.slice(0, 2), ["Restart pane", "Tile these panes evenly"],
   "the commands just run are not the first offered: " + labels.slice(0, 3).join(", "));
 // Enter on the first row runs the last command again.
@@ -5823,7 +5834,7 @@ func TestDismissedTipsCanBeBroughtBackFromThePalette(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.press("palette");
-const labels = () => h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
+const labels = () => h.$("palette-list").children.filter((r) => r.classList.contains("pal-row")).map((r) => r.querySelector(".pal-label").textContent);
 assert.ok(!labels().includes("Show the tips again"), "offered to bring back tips when none were dismissed");
 h.key({ key: "Escape" });
 
@@ -6394,14 +6405,14 @@ paletteRun("go to");
 assert.strictEqual(h.$("palette").hidden, false, "Go to… did not open the palette");
 assert.strictEqual(h.$("palette-input").placeholder, "Go to…");
 
-const labels = h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
+const labels = h.$("palette-list").children.filter((r) => r.classList.contains("pal-row")).map((r) => r.querySelector(".pal-label").textContent);
 assert.ok(labels.includes("Settings"), "Go to… does not offer Settings");
 assert.ok(!labels.some((l) => l.startsWith("Split right")), "Go to… offers more than the dialogs");
 for (const name of ["Todos", "GitHub", "Fan out"]) {
   assert.ok(labels.some((l) => l.startsWith(name)), "Go to… does not offer " + name + ": " + labels.join(", "));
 }
 
-const row = h.$("palette-list").children.find((r) => r.querySelector(".pal-label").textContent === "Settings");
+const row = h.$("palette-list").children.filter((r) => r.classList.contains("pal-row")).find((r) => r.querySelector(".pal-label").textContent === "Settings");
 assert.ok(row, "Go to… has no Settings");
 h.click(row);
 assert.strictEqual(h.$("overlay-title").textContent, "Settings", "Go to… did not switch dialogs");
@@ -6409,7 +6420,7 @@ assert.strictEqual(h.$("overlay-title").textContent, "Settings", "Go to… did n
 // Opened as the palette proper, by contrast, it offers everything again.
 h.press("worktrees");
 h.press("palette");
-const everything = h.$("palette-list").children.map((r) => r.querySelector(".pal-label").textContent);
+const everything = h.$("palette-list").children.filter((r) => r.classList.contains("pal-row")).map((r) => r.querySelector(".pal-label").textContent);
 assert.ok(everything.some((l) => l.startsWith("Split right")), "the ordinary palette lost commands");
 `)
 }
