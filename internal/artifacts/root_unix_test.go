@@ -96,7 +96,7 @@ func TestRootReachedThroughALink(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	for _, c := range []string{"ok.txt", filepath.Join(alias, "ok.txt"), filepath.Join(tr.root, "ok.txt")} {
+	for _, c := range []string{"ok.txt", filepath.Join(alias, "ok.txt"), filepath.Join(r.Path(), "ok.txt")} {
 		f, err := r.Open(c)
 		if err != nil {
 			t.Fatalf("Open(%q): %v", c, err)
