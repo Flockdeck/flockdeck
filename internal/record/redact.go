@@ -42,7 +42,7 @@ var (
 	// NAME=value, NAME: value and "name": "value", where the name says it is a
 	// secret. The value is a quoted string or the run up to whitespace or a
 	// delimiter. Group 1 is kept.
-	assignRe = regexp.MustCompile(`(?i)(["']?[A-Za-z0-9_.\-]*` + secretName + `[A-Za-z0-9_.\-]*["']?\s*[:=]\s*)("(?:[^"\\n]|\.)*"|'[^'\n]*'|[^\s"',;&)}\]]+)`)
+	assignRe = regexp.MustCompile(`(?i)(["']?[A-Za-z0-9_.\-]*` + secretName + `[A-Za-z0-9_.\-]*["']?\s*[:=]\s*)("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\n])*'|[^\s"',;&)}\]]+)`)
 
 	// user:password@ in a URL; group 1 is the scheme and user.
 	urlCredRe = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.\-]*://[^\s/:@]+):[^\s/@]+@`)

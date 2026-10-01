@@ -304,6 +304,37 @@ Replaced with `[withheld: a secret file]`:
 
 A line with any of this has `"redacted": true`.
 
+### What redaction does not catch
+
+Redaction is a pattern list over text, not a guarantee. Treat a transcript as
+possibly holding a secret even when no line is marked `redacted`, and do not
+record a pane you will handle a secret in if you intend to share the file. In
+particular:
+
+- **Unconventional names.** A secret named something not on the list above —
+  `SESSION_COOKIE`, `DATABASE_URL`, `SLACK_WEBHOOK`, `dsn`, `db_pass` — with no
+  recognisable token shape is kept as written.
+- **Encodings and splits.** A secret that is base64- or URL-encoded, or split
+  across two fields or two lines, is not recognised: redaction sees the text as
+  it is written, and does not decode or reassemble it.
+- **Secret files by resolved content.** The secret-file check above is a name
+  check only. A symlink inside the project that points at a real secret, a
+  secret stored under an ordinary name, or a read whose path sits in a tool
+  field other than `file_path`/`path`/`notebook_path`/`command` is not withheld;
+  its contents then fall back to pattern redaction, which catches only the
+  shapes and names above.
+- **A cut secret.** A value long enough to be clipped before it reaches
+  redaction can leave a fragment too short to match a token pattern, and the
+  fragment is kept.
+
+### File permissions
+
+Transcripts are written user-only (`0600`, in a `0700` folder) on Linux and
+macOS. On Windows the file inherits the permissions of the recordings folder
+under your profile, which is readable by you (and by a local administrator, as
+any file under your profile is), not by other standard users. The honest claim
+is "saved on this machine", not "private to you".
+
 ### Clipping
 
 | What | Cut at |

@@ -330,6 +330,33 @@ func TestRedactPatterns(t *testing.T) {
 	}
 }
 
+// A quoted secret value is redacted whatever letters it holds. The quoted-value
+// pattern used to be written so that a value containing the letter n (or, under
+// the case-insensitive flag, N) broke the match and the secret was written out
+// in full -- and a real token or password almost always has an n in it.
+func TestRedactsQuotedValuesContainingN(t *testing.T) {
+	for _, line := range []string{
+		`"password":"hunterN2incredible"`,
+		`{"api_key": "ANiceLongApiKeyValue"}`,
+		`token = "another-secret-one"`,
+		`"client_secret":"navigatorKey"`,
+		`'password':'contains an n'`,
+	} {
+		got := Redact(line)
+		for _, frag := range []string{"hunterN2incredible", "ANiceLongApiKeyValue", "another-secret-one", "navigatorKey", "contains an n"} {
+			if strings.Contains(got, frag) {
+				t.Errorf("Redact(%q) = %q, left the secret value in", line, got)
+			}
+		}
+	}
+	// An escaped quote inside the value must not end the value early and leak
+	// what follows it.
+	got := Redact(`"password":"a\"b secret n tail"`)
+	if strings.Contains(got, "tail") {
+		t.Errorf("Redact left the tail of a value with an escaped quote: %q", got)
+	}
+}
+
 func TestClipKeepsRunesWhole(t *testing.T) {
 	s := strings.Repeat("é", 10)
 	got := Clip(s, 5)
