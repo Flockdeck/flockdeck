@@ -106,6 +106,7 @@ func exportFixture(t *testing.T, panes map[string]savedPane) exportEnv {
 	return exportEnv{
 		stateDir: recordingsState(t),
 		catalog:  func() ([]agent.Spec, string) { return specs, "claude" },
+		reveal:   func(p string) error { t.Errorf("a file manager was asked to show %s", p); return nil },
 		pane: func(id string) (savedPane, bool) {
 			p, ok := panes[id]
 			return p, ok
@@ -250,6 +251,37 @@ func TestExportCommandFailsWhenTheEarlierExportIsKept(t *testing.T) {
 	}
 	err := exportRecording([]string{exportFixtureID}, &out, env)
 	if err == nil || !strings.Contains(err.Error(), "kept as it was") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestExportCommandRevealsTheFileItWrote(t *testing.T) {
+	env := exportFixture(t, nil)
+	var shown []string
+	env.reveal = func(p string) error { shown = append(shown, p); return nil }
+	var out bytes.Buffer
+	if err := exportRecording([]string{"-reveal", exportFixtureID}, &out, env); err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := env.stateDir()
+	files, _ := filepath.Glob(filepath.Join(dir, "recordings", "*", "exports", "*.jsonl"))
+	if len(files) != 1 || len(shown) != 1 {
+		t.Fatalf("files %v, shown %v", files, shown)
+	}
+	if want, _ := filepath.EvalSymlinks(files[0]); shown[0] != want {
+		t.Errorf("shown %s, want %s", shown[0], want)
+	}
+	// Without the flag, nothing is shown.
+	shown = nil
+	env2 := exportFixture(t, nil)
+	env2.reveal = func(p string) error { shown = append(shown, p); return nil }
+	if err := exportRecording([]string{exportFixtureID}, &out, env2); err != nil || len(shown) != 0 {
+		t.Errorf("err %v, shown %v", err, shown)
+	}
+	// A failure to show is reported after the export, which stands.
+	env3 := exportFixture(t, nil)
+	env3.reveal = func(string) error { return os.ErrPermission }
+	if err := exportRecording([]string{"-reveal", exportFixtureID}, &out, env3); err == nil || !strings.Contains(err.Error(), "exported, but") {
 		t.Errorf("err = %v", err)
 	}
 }

@@ -414,6 +414,7 @@ which the command palette and the in-app help are also drawn from; run
 | Command palette | Lock pane |
 | Command palette | Start recording |
 | Command palette | Export transcript |
+| Command palette | Reveal transcript |
 | `Ctrl+Shift+W` | Close pane |
 
 ### Tabs

@@ -69,6 +69,7 @@ var Keys = []Key{
 	{ID: "lockPane", Label: "Lock pane", Section: "Panes", Page: "panes"},
 	{ID: "recordPane", Label: "Start recording", Section: "Panes", Page: "recording"},
 	{ID: "exportTranscript", Label: "Export transcript", Section: "Panes", Page: "recording"},
+	{ID: "revealTranscript", Label: "Reveal transcript", Section: "Panes", Page: "recording"},
 	{ID: "closePane", Keys: "Ctrl+Shift+W", Label: "Close pane", Section: "Panes", Page: "panes"},
 
 	// --- tabs --------------------------------------------------------------

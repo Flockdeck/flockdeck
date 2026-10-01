@@ -852,3 +852,43 @@ func (w *Workspace) ExportTranscript(id, path string) (record.ExportResult, erro
 	}
 	return res, err
 }
+
+// ErrNoTranscriptFile says a pane has no transcript file to show: it is not
+// recording, and nothing of it has been exported.
+var ErrNoTranscriptFile = errors.New("this pane has no transcript file yet")
+
+// TranscriptFile is the file to show for a pane's transcript, from Flockdeck's
+// own records and never from what a client says: the file its recording is
+// writing now if it is recording and has written one, otherwise its newest
+// export. It is checked to be a regular file inside the recordings folder, and
+// returned with links resolved. ErrNoTranscriptFile says there is none.
+func (w *Workspace) TranscriptFile(id string) (string, error) {
+	w.mu.RLock()
+	p := w.panes[id]
+	if p == nil || !p.IsAgent() {
+		w.mu.RUnlock()
+		return "", errors.New("only an agent pane has a transcript, and that pane is not one or is no longer open")
+	}
+	conv, recording := paneConversation(p), p.Recording
+	spec, ex, ok := w.transcriptSourceLocked(p)
+	w.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("%s stores no conversation Flockdeck can read, so it has no transcript", specLabel(spec))
+	}
+	path := ""
+	if recording {
+		// The recording's file is open under the conversation's id, which is
+		// what a transcript is keyed by.
+		path = w.rec.Path(conv)
+	}
+	if path == "" {
+		var err error
+		if path, err = record.FindExport(store.Dir, record.MetaFor(spec, ex, conv)); err != nil {
+			return "", err
+		}
+	}
+	if path == "" {
+		return "", ErrNoTranscriptFile
+	}
+	return record.InRecordings(store.Dir, path)
+}

@@ -3,6 +3,7 @@ package workspace
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -974,5 +975,36 @@ func TestCloseDoesNotWaitOnAStopItHasStopped(t *testing.T) {
 	case <-closed:
 	case <-time.After(20 * time.Second):
 		t.Fatal("Close did not return: it waited on a stop that waited on it")
+	}
+}
+
+// The file to show is the live recording's if the pane is recording, else its
+// newest export, else there is none; and it is one of Flockdeck's own.
+func TestTranscriptFileIsTheRecordingElseTheExport(t *testing.T) {
+	isolatedRecordings(t)
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := recordingPane(t, ws, root, "shown")
+	if _, err := ws.TranscriptFile(p.ID); !errors.Is(err, ErrNoTranscriptFile) {
+		t.Fatalf("nothing made yet: %v", err)
+	}
+	storeConversation(t, home, p.ID, promptLine, sayLine)
+	res, err := ws.ExportTranscript(p.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ws.TranscriptFile(p.ID)
+	if want, _ := filepath.EvalSymlinks(res.Path); err != nil || got != want {
+		t.Fatalf("export: %s, %v; want %s", got, err, want)
+	}
+	startRecording(t, ws, p.ID)
+	got, err = ws.TranscriptFile(p.ID)
+	files := recordingFiles(t)
+	if want, _ := filepath.EvalSymlinks(files[0]); err != nil || got != want {
+		t.Fatalf("recording: %s, %v; want %s", got, err, want)
+	}
+	if _, err := ws.TranscriptFile("no-such-pane"); err == nil {
+		t.Error("a pane that is not there had a transcript")
 	}
 }

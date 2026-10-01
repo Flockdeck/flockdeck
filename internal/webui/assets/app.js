@@ -121,6 +121,7 @@
     zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back. Double-clicking the pane's header does the same.",
     close:       "Closes this pane and stops the process running in it.",
     record:      "Records this pane's agent interaction -- your prompts, the agent's messages, and the tools it runs and what they print -- as a transcript file on this machine, built from the conversation the agent itself stores and starting from the beginning of it. Off by default, and secrets are removed on a best-effort basis only. Recordings are kept for 30 days. Open them with Open recordings folder in the command palette.",
+    revealTranscript: "Shows this pane's transcript file in your file manager with the file selected: the file it is recording to if it is recording, otherwise its latest export. Only from the machine Flockdeck runs on.",
     exportTranscript: "Writes this pane's whole stored conversation to a transcript file on this machine, in the same format as a recording, whether or not recording is on. It can contain secrets: they are removed on a best-effort basis only. Agents that store no conversation Flockdeck can read have nothing to export.",
     lock:        "Locks this pane so it can't be closed: not by the close shortcut, its close button, its tab, Close finished panes or an agent's flockdeck close. Restarting it still works, and it stays locked across restarts of Flockdeck and when you move it to another tab.",
     autoReview:  "Lets a confident, read-only command through without asking, instead of stopping for a permission prompt. It only ever says yes: anything it is not sure of still asks, exactly as before. Off by default; a pane this one starts, by fan-out or by its own spawning, starts with the same setting this pane has.",
@@ -3045,6 +3046,8 @@
     // Works whether or not the pane is recording, and is hidden for a shell,
     // which has no conversation. renderPaneRecording keeps it so.
     const exportBtn = btn("⤓", TIPS.exportTranscript, () => exportTranscript(id));
+    // Shows the pane's transcript file in the file manager. Hidden for a shell.
+    const revealBtn = btn("🗂", TIPS.revealTranscript, () => send({ cmd: "revealTranscript", id }));
     const castBtn = btn("⇉", "Adds this pane to the broadcast set, or takes it out again. " + TIPS.broadcast,
       () => send({ cmd: "toggleBroadcastMember", id }));
     const zoomBtn = btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id }));
@@ -3060,6 +3063,7 @@
       btn("⟳", TIPS.restart, () => send({ cmd: "restartPane", id })),
       zoomBtn,
       exportBtn,
+      revealBtn,
       recBtn,
       lockBtn,
       closeBtn,
@@ -3173,7 +3177,7 @@
     // see drawWithWebgl.
 
     p = { id, wrap, header, dot, name, project, branch, agent, peerName, remote, git, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, recBtn, exportBtn, recMark, search, dropZone,
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, recBtn, exportBtn, revealBtn, recMark, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
           shown: {} };
@@ -4259,6 +4263,7 @@
   function renderPaneRecording(p, on, shell) {
     p.recBtn.hidden = shell;
     p.exportBtn.hidden = shell;
+    p.revealBtn.hidden = shell;
     p.recMark.hidden = !on;
     p.recMark.textContent = on ? "● Recording" : "";
     if (on) describe(p.recMark, "Recording - this pane's agent interaction is being saved as a transcript on this machine. Secrets are removed on a best-effort basis only.");
@@ -7537,6 +7542,11 @@
       const v = id && state && state.panes && state.panes[id];
       if (v && v.kind !== "shell") exportTranscript(id);
     },
+    revealTranscript: () => {
+      const id = focusedPaneId();
+      const v = id && state && state.panes && state.panes[id];
+      if (v && v.kind !== "shell") send({ cmd: "revealTranscript", id });
+    },
     openRecordings: () => send({ cmd: "openRecordings" }),
     lockPane: () => {
       const id = focusedPaneId();
@@ -7803,7 +7813,7 @@
     // somebody looking for one types - it matched none of them.
     const SETTING = "settings preferences options";
     const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
-    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" ? "record recording transcript log export save" : "";
+    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : "";
     // What a setting is now, beside the command that changes it: choosing a
     // scrollback or a font meant opening the question to find out.
     const value = {
