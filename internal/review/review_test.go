@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -309,4 +310,17 @@ func quote(s string) string {
 		panic(err)
 	}
 	return string(b)
+}
+
+// A command longer than any read-only one is asked about, whatever it starts
+// with: the hook clips a long command before it reaches Decide, and what
+// follows the cut -- here a chained echo -- is still run by Claude Code.
+func TestDecideAsksForAnOverlongCommand(t *testing.T) {
+	long := strings.Repeat("cat a ", 64<<10/6+10) + "; echo CANARY"
+	clipped := long[:64<<10]
+	for _, cmd := range []string{clipped, strings.Repeat("cat a ", 1000)} {
+		if d := Decide("Bash", `{"command":`+quote(cmd)+`}`, t.TempDir()); d.Allow {
+			t.Errorf("Decide allowed a %d-byte command", len(cmd))
+		}
+	}
 }

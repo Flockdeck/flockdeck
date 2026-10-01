@@ -30,6 +30,15 @@ type Decision struct {
 // leaves it answered exactly as it always was.
 var ask = Decision{}
 
+// maxCommandBytes is the longest command Decide will judge at all. The hook
+// that carries a tool_input here clips each field (hooks.buildToolInput), and
+// Claude Code runs the command it holds, not the clipped one: a command whose
+// first 64 KiB read as a harmless cat was let through with whatever followed
+// the cut never seen. No read-only command anyone types comes near this, so
+// anything longer is simply asked about -- well short of any clip, so that a
+// command cut down anywhere on its way here can never be judged by its prefix.
+const maxCommandBytes = 4 << 10
+
 // Decide reviews one PreToolUse call, given its tool name, the same compact
 // tool_input JSON hooks.buildToolInput already produces (Event.ToolInput,
 // carried on Session.ToolInput), and the directory the agent is working in
@@ -46,6 +55,9 @@ func Decide(tool, toolInputJSON, cwd string) Decision {
 		Command string `json:"command"`
 	}
 	if json.Unmarshal([]byte(toolInputJSON), &in) != nil || in.Command == "" {
+		return ask
+	}
+	if len(in.Command) > maxCommandBytes {
 		return ask
 	}
 	ok, gitSub := readOnlyCommand(in.Command)
