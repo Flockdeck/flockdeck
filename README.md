@@ -624,7 +624,20 @@ flag that makes one of them write or run something (`git diff --output`).
 No argument may name a path outside the project: absolute, under `~`, or
 climbing out with `..`, since Claude Code would have asked before reading
 there; and since the shell rewrites quotes, backslashes and globs before a
-command sees them, a command holding any of those is asked about too. No
+command sees them, a command holding any of those is asked about too. Nor may
+an argument name a file whose contents are a secret in their own right — a
+`.env` file, a private key, an `.npmrc`, `.netrc` or credentials file — since a
+read of one would otherwise reach the transcript unseen; the public half of a
+key pair (`id_rsa.pub`) is left alone.
+
+These last two checks read the command as text, not the filesystem: they are
+not a sandbox. A path is judged by what it spells, so a symlink that sits
+inside the project but points outside it reads as an ordinary in-project name
+and is let through — the file it resolves to is never consulted. The
+secret-file check is a list of conventional names, so a secret stored under an
+unconventional name is not recognised. Both err towards reading rather than
+asking; neither is a boundary you should rely on to contain a hostile agent,
+which is part of why auto-review is off by default. No
 `go` command is let through, since `go env` writes and any `go` command may
 download the toolchain `go.mod` names. A `git` command is let through only
 once git itself, asked in the directory the command will run in, reports

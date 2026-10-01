@@ -98,6 +98,47 @@ func outsideProject(arg string) bool {
 	return strings.Contains(arg, "..")
 }
 
+// secretPath reports whether arg names a file whose contents are a secret in
+// their own right -- a dotenv file, a private key, a credentials or token file.
+// Reading inside the project is otherwise fine, but these are exactly the
+// files Claude Code would stop to ask about, and auto-review must not read one
+// into the transcript unasked. The match is on the base name, lower-cased, and
+// a flag's value (--file=.env) is checked the same way as outsideProject does.
+//
+// It is only a name check, not a classifier: a secret under an unconventional
+// name is not caught, and a public key (id_rsa.pub) is deliberately left
+// alone. Matching errs towards asking -- a file that merely looks like a
+// credential falls through to the ordinary prompt, which is the safe side.
+func secretPath(arg string) bool {
+	if _, v, ok := strings.Cut(arg, "="); ok {
+		arg = v
+	}
+	if arg == "" || arg[0] == '-' {
+		return false
+	}
+	base := arg
+	if i := strings.LastIndexAny(base, "/\\"); i >= 0 {
+		base = base[i+1:]
+	}
+	base = strings.ToLower(base)
+	switch {
+	case base == ".env" || strings.HasPrefix(base, ".env."):
+		return true
+	case strings.HasPrefix(base, "id_") && !strings.HasSuffix(base, ".pub"):
+		return true // private ssh key; the .pub beside it is public
+	case base == ".npmrc" || base == ".netrc" || base == "_netrc" || base == ".pgpass":
+		return true
+	case base == ".git-credentials" || strings.Contains(base, "credential"):
+		return true
+	}
+	for _, ext := range []string{".pem", ".key", ".p12", ".pfx", ".ppk", ".keystore", ".jks"} {
+		if strings.HasSuffix(base, ext) {
+			return true
+		}
+	}
+	return false
+}
+
 // readOnlyCommand reports whether cmd is a single call to one of the commands
 // above, reading only inside the project, with nothing in it that could make
 // it do more than that. It is deliberately conservative: a command it cannot
@@ -115,7 +156,7 @@ func readOnlyCommand(cmd string) (ok bool, gitSub string) {
 		return false, ""
 	}
 	for _, f := range fields[1:] {
-		if outsideProject(f) {
+		if outsideProject(f) || secretPath(f) {
 			return false, ""
 		}
 	}

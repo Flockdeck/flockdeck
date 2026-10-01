@@ -112,11 +112,19 @@ it is not sure of, a pane behaves exactly as it always would. Today that
 reviewer is a fixed policy: a `Bash` call is let through only when it is a
 single call to a command that only ever reads -- `git status`, `cat`, `grep`
 and the like -- inside the project, with nothing in it that could chain into
-something else or write anywhere; a call that changes a file, or reads
-outside the project, is always left to ask. A `git` command is let through
-only when git itself, asked where the command will run, has nothing
-configured that would run a program or reach the network, and `git status`
-or `git diff` never in a repository with a submodule in it.
+something else or write anywhere; a call that changes a file, reads outside
+the project, or reads a secret file (a `.env`, a private key, a credentials
+file) is always left to ask. A `git` command is let through only when git
+itself, asked where the command will run, has nothing configured that would
+run a program or reach the network, and `git status` or `git diff` never in a
+repository with a submodule in it.
+
+These path checks read the command as text, not the filesystem -- auto-review
+is not a sandbox. A symlink inside the project that points outside it reads as
+an ordinary in-project name and is let through, and the secret-file check
+knows only conventional names. Both err towards reading, which is part of why
+auto-review is off unless you turn it on, and why you should turn it on only
+for a pane whose agent you trust.
 
 It is off for a pane unless you turn it on, with the ✓ in the pane's header,
 or for new panes with **Settings › Behaviour › Start new panes with
