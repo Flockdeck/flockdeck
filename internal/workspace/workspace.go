@@ -172,8 +172,9 @@ type Pane struct {
 	// or off, so a dozen children of a pane a person already trusted do not
 	// each have to be found and switched on by hand. See Spawn.
 	//
-	// Like Muted it is not persisted: a restart starts over asking about
-	// everything until the user turns it back on.
+	// It is persisted with the layout, off included, so a restart keeps what
+	// the user chose; a layout saved before it was kept takes
+	// Prefs.AutoReviewDefault.
 	AutoReview bool
 	// AutoApproved counts the calls auto-review has let through for this pane
 	// without a prompt, so a person who turned it on has something to see for
@@ -3393,6 +3394,8 @@ func (w *Workspace) OpenConversationAs(id, cwd, title, agentID string) error {
 		Name:   filepath.Base(cwd),
 		Root:   w.projectFor(cwd),
 		Branch: branchOf(cwd),
+		// Opened by hand, so from the default like any other such pane.
+		AutoReview: store.LoadPrefs().AutoReviewDefault,
 	}
 	if paneID != id {
 		p.Conversation = id

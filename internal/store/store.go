@@ -119,6 +119,11 @@ type Pane struct {
 	// Recording is set for a pane whose agent interaction is being written to
 	// a transcript. See workspace.Pane.Recording.
 	Recording bool `json:"recording,omitempty"`
+	// AutoReview is the pane's auto-review switch. A pointer so a layout saved
+	// before it was kept (absent) is told apart from an explicit off: absent
+	// takes Prefs.AutoReviewDefault on restore, false stays off. See
+	// workspace.Pane.AutoReview.
+	AutoReview *bool `json:"autoReview,omitempty"`
 }
 
 // DirGuard, when set, is called with the config directory Dir has resolved,

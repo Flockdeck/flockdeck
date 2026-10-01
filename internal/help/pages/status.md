@@ -130,7 +130,8 @@ for a pane whose agent you trust.
 It is off for a pane unless you turn it on, with the ✓ in the pane's header,
 or for new panes with **Settings › Behaviour › Start new panes with
 auto-review on**; a pane started by another agent starts as that agent's
-pane is.
+pane is. A pane keeps its setting
+across restarts, whichever way you left it.
 
 One answer is not reported by any event: a permission prompt answered from
 the keyboard. Enter turns the pane cyan, since allowing the tool starts it

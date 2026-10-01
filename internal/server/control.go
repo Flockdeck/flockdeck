@@ -1926,6 +1926,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				c.notify(paneGone, true)
 				return
 			}
+			// Saved now rather than at the next tick, so a crash right after
+			// the toggle does not lose it.
+			s.saveLayouts()
 			s.wakeAsked()
 		case "movePane":
 			if err := ws.MovePane(cmd.ID, cmd.Target, parseEdge(cmd.Edge)); err != nil {
