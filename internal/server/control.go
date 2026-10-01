@@ -2117,14 +2117,10 @@ const tabGone = "That tab is no longer open"
 // tabs is only ever passed while positive.
 func closedFinishedNotice(panes, tabs, locked int) string {
 	if panes == 0 {
-<<<<<<< HEAD
-		return "No finished panes to close"
-=======
 		if locked > 0 {
-			return fmt.Sprintf("no finished panes closed: %s locked", lockedCount(locked))
+			return fmt.Sprintf("No finished panes closed: %s locked", lockedCount(locked))
 		}
-		return "no finished panes to close"
->>>>>>> 671f7b0b (Per-pane lock toggle so a pane cannot be closed)
+		return "No finished panes to close"
 	}
 	msg := fmt.Sprintf("Closed %s", plural(panes, "finished pane"))
 	if tabs > 0 {
@@ -2146,15 +2142,15 @@ func lockedCount(n int) string {
 
 // lockedPaneNotice is what closing a locked pane from a window is answered
 // with: it is refused, and the way out is named.
-const lockedPaneNotice = "that pane is locked; unlock it to close it"
+const lockedPaneNotice = "That pane is locked; unlock it to close it"
 
 // lockedTabNotice is lockedPaneNotice for closing a tab that holds locked
 // panes.
 func lockedTabNotice(n int) string {
 	if n == 1 {
-		return "that tab has a locked pane; unlock it to close the tab"
+		return "That tab has a locked pane; unlock it to close the tab"
 	}
-	return fmt.Sprintf("that tab has %d locked panes; unlock them to close the tab", n)
+	return fmt.Sprintf("That tab has %d locked panes; unlock them to close the tab", n)
 }
 
 // focusFor moves focus onto the pane a command names and reports whether the
