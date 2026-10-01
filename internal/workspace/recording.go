@@ -25,9 +25,59 @@ import (
 // the event that ends it arrives. Each look that finds nothing new waits twice
 // as long as the one before, and after recIdleLooks of them the recording stops
 // looking until the agent reports another event.
-var recSettle = 1500 * time.Millisecond
+const (
+	recSettle    = 1500 * time.Millisecond
+	recIdleLooks = 3
+)
 
-const recIdleLooks = 3
+// recSettleFor is the interval a Workspace waits before its first further look.
+// It is a field, set before anything runs and never after, and not a package
+// variable, because the timers of a Workspace outlive the code that made it and
+// read it from their own goroutines.
+func (w *Workspace) recSettleFor() time.Duration {
+	if w.recSettle > 0 {
+		return w.recSettle
+	}
+	return recSettle
+}
+
+// recActivity counts the looks under way and lets a caller wait for none to be.
+// It is not a sync.WaitGroup because looks begin from timers at any time, and a
+// WaitGroup may not have an Add from zero race with a Wait.
+type recActivity struct {
+	mu   sync.Mutex
+	cond *sync.Cond
+	n    int
+}
+
+func (a *recActivity) c() *sync.Cond {
+	if a.cond == nil {
+		a.cond = sync.NewCond(&a.mu)
+	}
+	return a.cond
+}
+
+func (a *recActivity) begin() {
+	a.mu.Lock()
+	a.n++
+	a.mu.Unlock()
+}
+
+func (a *recActivity) end() {
+	a.mu.Lock()
+	a.n--
+	a.c().Broadcast()
+	a.mu.Unlock()
+}
+
+// wait returns when no look is under way.
+func (a *recActivity) wait() {
+	a.mu.Lock()
+	for a.n > 0 {
+		a.c().Wait()
+	}
+	a.mu.Unlock()
+}
 
 // paneRecorder follows one pane's conversation into its transcript.
 type paneRecorder struct {
@@ -204,11 +254,13 @@ func (w *Workspace) kickRecording(id string, fromEvent bool) {
 		return
 	}
 	r.running = true
+	// Counted while r.ctl is held and r is known not to be stopped, so that
+	// stopRecorders, which stops r under the same lock before it waits, sees it.
+	w.recAct.begin()
 	r.ctl.Unlock()
 
-	w.recWG.Add(1)
 	go func() {
-		defer w.recWG.Done()
+		defer w.recAct.end()
 		for {
 			r.ctl.Lock()
 			if !r.pending || r.stopped {
@@ -307,7 +359,7 @@ func (w *Workspace) scheduleRecording(id string, r *paneRecorder, found bool) {
 	if r.idle > recIdleLooks {
 		return
 	}
-	delay := recSettle << max(r.idle-1, 0)
+	delay := w.recSettleFor() << max(r.idle-1, 0)
 	if r.timer == nil {
 		r.timer = time.AfterFunc(delay, func() { w.kickRecording(id, false) })
 	} else {
@@ -363,7 +415,7 @@ func (w *Workspace) stopRecorders() {
 		}
 		r.ctl.Unlock()
 	}
-	w.recWG.Wait()
+	w.recAct.wait()
 }
 
 // recordingCapped is what happens to a pane whose transcript has hit its size

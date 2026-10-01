@@ -74,7 +74,7 @@ const (
 // stored conversation, and waits for that to be done.
 func syncRecording(ws *Workspace, id string) {
 	ws.kickRecording(id, true)
-	ws.recWG.Wait()
+	ws.recAct.wait()
 }
 
 // startRecording turns a pane's recording on and waits for what was stored so
@@ -84,7 +84,7 @@ func startRecording(t *testing.T, ws *Workspace, id string) {
 	if found, err := ws.SetPaneRecording(id, true); !found || err != nil {
 		t.Fatalf("SetPaneRecording = %v, %v", found, err)
 	}
-	ws.recWG.Wait()
+	ws.recAct.wait()
 }
 
 // recordingPane is a pane running Claude.
@@ -470,7 +470,7 @@ func TestRecordingAConversationAlreadyOverTheCap(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("recording was not ended by the cap")
 	}
-	ws.recWG.Wait()
+	ws.recAct.wait()
 	if ws.PaneRecording(p.ID) {
 		t.Error("the pane still shows as recording")
 	}
@@ -499,11 +499,9 @@ func TestRecordingAConversationAlreadyOverTheCap(t *testing.T) {
 func TestRecordingStopsLookingWhenTheConversationIsQuiet(t *testing.T) {
 	isolatedRecordings(t)
 	home := claudeHome(t)
-	old := recSettle
-	recSettle = 5 * time.Millisecond
-	t.Cleanup(func() { recSettle = old })
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
+	ws.recSettle = 5 * time.Millisecond
 	p := recordingPane(t, ws, root, "quiet")
 	storeConversation(t, home, p.ID, promptLine)
 	startRecording(t, ws, p.ID)
@@ -525,7 +523,7 @@ func TestRecordingStopsLookingWhenTheConversationIsQuiet(t *testing.T) {
 		t.Error("it went on looking after it had stopped")
 	}
 	ws.kickRecording(p.ID, true) // the agent reported something
-	ws.recWG.Wait()
+	ws.recAct.wait()
 	if es := readTranscript(t, recordingFiles(t)[0]); es[len(es)-1].Type != record.TypeAssistant {
 		t.Errorf("an event did not bring the transcript up to date: %v", es[len(es)-1].Type)
 	}

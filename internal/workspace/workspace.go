@@ -406,11 +406,14 @@ type Workspace struct {
 	// rec writes the transcripts of the panes that are recording.
 	rec *record.Manager
 	// recorders follow the stored conversation of each recording pane; see
-	// kickRecording. recMu guards the map and nothing else, and recWG counts the
+	// kickRecording. recMu guards the map and nothing else, and recAct counts the
 	// looks under way, which Close waits for.
 	recMu     sync.Mutex
 	recorders map[string]*paneRecorder
-	recWG     sync.WaitGroup
+	recAct    recActivity
+	// recSettle overrides the interval of the first further look, for a test
+	// that cannot wait seconds. Zero is the default; set before the workspace runs.
+	recSettle time.Duration
 	// onRecordingEnded is told when a pane's recording stopped by itself, the
 	// size cap being reached, so a window can say so. See SetRecordingEndedHook.
 	onRecordingEnded atomic.Pointer[func(paneID, why string)]
