@@ -113,6 +113,9 @@ type Pane struct {
 	// `flockdeck spawn`, absent for a pane the user started themselves. See
 	// workspace.Pane.Parent.
 	Parent string `json:"parent,omitempty"`
+	// Locked is set for a pane the user locked so it cannot be closed. See
+	// workspace.Pane.Locked.
+	Locked bool `json:"locked,omitempty"`
 }
 
 // Dir returns the per-user directory holding Flockdeck's state.

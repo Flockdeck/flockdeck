@@ -23,8 +23,8 @@ func (s *Server) installCloseHandler() {
 	hookSrv.SetCloseHandler(func(req hooks.CloseRequest) (hooks.CloseResult, error) {
 		if req.Finished {
 			res, ok := ask(s, func() hooks.CloseResult {
-				panes, tabs := s.ws.CloseFinishedPanes()
-				return hooks.CloseResult{Panes: panes, Tabs: tabs}
+				panes, tabs, locked := s.ws.CloseFinishedPanes()
+				return hooks.CloseResult{Panes: panes, Tabs: tabs, Locked: locked}
 			})
 			if !ok {
 				return hooks.CloseResult{}, errShuttingDown
@@ -48,6 +48,11 @@ func (s *Server) installCloseHandler() {
 		out, ok := ask(s, func() outcome {
 			if s.ws.Pane(req.Target) == nil {
 				return outcome{err: fmt.Errorf("no pane %q is open here", req.Target)}
+			}
+			// Checked before the working rule, and not something -force gets
+			// past: the user locked it to keep it, which is theirs to undo.
+			if s.ws.PaneLocked(req.Target) {
+				return outcome{err: fmt.Errorf("pane %q is locked, so it can't be closed; -force does not override a lock. Ask the user to unlock it", req.Target)}
 			}
 			// A pane still working is left alone unless the caller insists:
 			// naming the wrong id must not be able to cut off work in

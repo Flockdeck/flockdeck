@@ -1861,13 +1861,19 @@ func parseClose(args []string) (hooks.CloseRequest, error) {
 
 // closedFinishedMessage says what a `close -finished` did, the same wording
 // the "Close finished panes" command's own notice uses.
-func closedFinishedMessage(panes, tabs int) string {
+func closedFinishedMessage(panes, tabs, locked int) string {
 	if panes == 0 {
+		if locked > 0 {
+			return fmt.Sprintf("no finished panes closed: %d locked", locked)
+		}
 		return "no finished panes to close"
 	}
 	msg := fmt.Sprintf("closed %d %s", panes, plural(panes, "finished pane", "finished panes"))
 	if tabs > 0 {
 		msg += fmt.Sprintf(" and %d %s", tabs, plural(tabs, "empty tab", "empty tabs"))
+	}
+	if locked > 0 {
+		msg += fmt.Sprintf("; %d left open because locked", locked)
 	}
 	return msg
 }
@@ -1900,7 +1906,7 @@ func runClose(args []string) error {
 		return err
 	}
 	if req.Finished {
-		fmt.Println(closedFinishedMessage(res.Panes, res.Tabs))
+		fmt.Println(closedFinishedMessage(res.Panes, res.Tabs, res.Locked))
 		return nil
 	}
 	fmt.Println("closed pane", req.Target)

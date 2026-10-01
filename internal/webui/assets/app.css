@@ -996,6 +996,7 @@ textarea:focus-visible {
 .pane-limit.full .limit-fill { background: var(--exited); }
 .pane-cast { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pane-cast.active { color: var(--cast); font-weight: 600; }
+.pane-lock { flex: none; color: var(--fg); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .pane-actions { margin-left: auto; display: flex; gap: 2px; flex: 0 0 auto; }
 
 /* What gives way first. The branch, the agent and its model, the peer name
@@ -1038,6 +1039,11 @@ textarea:focus-visible {
 .pane[data-status="waiting"] .pane-actions button:hover,
 .pane[data-status="blocked"] .pane-actions button:hover,
 .pane[data-status="failed"] .pane-actions button:hover { background: color-mix(in srgb, var(--fg) 12%, transparent); }
+/* Locked: the padlock in the accent, and the close buttons it disables dimmed
+ * but still hoverable, so their bubble can say why. */
+.pane-actions button.locked, .pane-actions button.locked:hover { background: var(--accent); color: var(--on-accent); }
+.pane-actions button.locked[aria-disabled="true"] { background: transparent; color: var(--fg-faint); }
+.pane-actions button[aria-disabled="true"], .tab .close[aria-disabled="true"], .pane-error-actions .chip[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
 .pane-actions button.on, .pane-actions button.on:hover { background: var(--cast); color: var(--on-cast); }
 /* Zoomed: the accent rather than broadcast's violet, which means something else. */
 .pane-actions button.zoomed, .pane-actions button.zoomed:hover { background: var(--accent); color: var(--on-accent); }

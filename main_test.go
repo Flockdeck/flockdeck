@@ -320,18 +320,20 @@ func TestParseCloseFinishedRejectsAPaneIDOrForce(t *testing.T) {
 // closing several looks the same as closing none.
 func TestClosedFinishedMessage(t *testing.T) {
 	cases := []struct {
-		panes, tabs int
-		want        string
+		panes, tabs, locked int
+		want                string
 	}{
-		{0, 0, "no finished panes to close"},
-		{1, 0, "closed 1 finished pane"},
-		{3, 0, "closed 3 finished panes"},
-		{2, 1, "closed 2 finished panes and 1 empty tab"},
-		{1, 2, "closed 1 finished pane and 2 empty tabs"},
+		{0, 0, 0, "no finished panes to close"},
+		{1, 0, 0, "closed 1 finished pane"},
+		{3, 0, 0, "closed 3 finished panes"},
+		{2, 1, 0, "closed 2 finished panes and 1 empty tab"},
+		{1, 2, 0, "closed 1 finished pane and 2 empty tabs"},
+		{0, 0, 2, "no finished panes closed: 2 locked"},
+		{2, 0, 1, "closed 2 finished panes; 1 left open because locked"},
 	}
 	for _, c := range cases {
-		if got := closedFinishedMessage(c.panes, c.tabs); got != c.want {
-			t.Errorf("closedFinishedMessage(%d, %d) = %q, want %q", c.panes, c.tabs, got, c.want)
+		if got := closedFinishedMessage(c.panes, c.tabs, c.locked); got != c.want {
+			t.Errorf("closedFinishedMessage(%d, %d, %d) = %q, want %q", c.panes, c.tabs, c.locked, got, c.want)
 		}
 	}
 }

@@ -71,7 +71,8 @@ tells you what the agent is actually doing rather than only that it is busy.
   closing finished browser tabs. It asks nothing first, on purpose: a pane
   still waiting on you or still working is never touched, and one whose last
   turn failed is left alone too, since a failure is worth a look before it
-  disappears. An idle agent that still has background work going — a command
+  disappears. A pane the user has locked is left open too, with a count of how
+  many were skipped. An idle agent that still has background work going — a command
   it started with `run_in_background`, or a background subagent — is not
   finished either, since closing it would kill that work. Its header says
   `◔ 1 in background` while it has any, and so does its row in

@@ -1782,7 +1782,7 @@ assert.ok(bars.every((b) => b.getAttribute("aria-label")), "the rows have no nam
 const stops = (bar) => bar.children.filter((b) => b.tabIndex !== -1).length;
 assert.deepStrictEqual(bars.map(stops), [1, 1, 1, 1, 1, 1],
   "each row of buttons is more than one stop on the way through the window");
-assert.strictEqual(bars[0].children.length, 7, "seven things to do with a pane");
+assert.strictEqual(bars[0].children.length, 8, "eight things to do with a pane");
 
 // The arrows walk the row and take the stop with them.
 const buttons = bars[0].children;
@@ -1792,7 +1792,7 @@ assert.ok(h.doc.activeElement === buttons[1], "the right arrow did not move alon
 assert.strictEqual(buttons[1].tabIndex, 0, "the stop did not move with the focus");
 assert.strictEqual(buttons[0].tabIndex, -1);
 h.key({ key: "End" });
-assert.ok(h.doc.activeElement === buttons[6], "End did not go to the last button");
+assert.ok(h.doc.activeElement === buttons[7], "End did not go to the last button");
 h.key({ key: "ArrowRight" });
 assert.ok(h.doc.activeElement === buttons[0], "the row does not wrap");
 
@@ -1802,12 +1802,15 @@ h.doc.body.focus();
 h.key({ key: "Tab" });
 h.key({ key: "Tab" });
 assert.strictEqual(stops(bars[0]), 1, "the row grew a second stop");
-assert.strictEqual(buttons[6].tabIndex, 0, "the stop did not stay where it was left");
+assert.strictEqual(buttons[7].tabIndex, 0, "the stop did not stay where it was left");
 
 // And they still do what they say.
-buttons[6].focus();
+buttons[7].focus();
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "closePane", id: "p0" });
+buttons[6].focus();
+h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "lockPane", id: "p0", locked: true });
 buttons[5].focus();
 h.key({ key: " " });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "toggleZoom", id: "p0" });
@@ -9608,4 +9611,33 @@ func TestSettingsRowKeepsItsWordsReadable(t *testing.T) {
 	}
 	// The unbound keybinding chord's own height is pinned by
 	// TestAnUnboundChordIsNotPaddedLikeAnEmptyPanel (p0_test.go).
+}
+
+// A locked pane says so in its header, in words as well as a symbol, marks the
+// buttons that would close it, and the palette offers the way back out.
+func TestALockedPaneSaysSoAndOffersUnlock(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1", { locked: true }) } }));
+const header = h.doc.querySelector("div.pane-header");
+const mark = header.querySelector(".pane-lock");
+assert.ok(!mark.hidden, "a locked pane shows no lock in its header");
+assert.ok(/Locked/.test(mark.textContent), "the lock is a symbol with no word: " + mark.textContent);
+const buttons = [...header.querySelector("div.pane-actions").children];
+const lock = buttons.find((b) => b.getAttribute("aria-pressed") === "true" && b.classList.contains("locked") && !b.getAttribute("aria-disabled"));
+assert.ok(lock, "the lock toggle is not pressed for a locked pane");
+assert.ok(/Unlock/.test(lock.getAttribute("aria-label")), "the toggle does not say it unlocks: " + lock.getAttribute("aria-label"));
+const close = buttons[buttons.length - 1];
+assert.strictEqual(close.getAttribute("aria-disabled"), "true", "the close button is not marked unavailable");
+assert.ok(/locked/.test(close.getAttribute("aria-label")), "the close button does not say why");
+
+paletteRun("unlock pane");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "lockPane", id: "p1", locked: false });
+
+h.recv(fixture({ panes: { p1: pane("p1") } }));
+assert.ok(mark.hidden, "the lock stayed on show after the pane was unlocked");
+assert.strictEqual(close.getAttribute("aria-disabled"), "false");
+paletteRun("lock pane");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "lockPane", id: "p1", locked: true });
+`)
 }

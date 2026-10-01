@@ -45,7 +45,7 @@ func TestCloseFinishedPanesLeavesWorkingWaitingAndFailedPanesAlone(t *testing.T)
 	failed.Sess.SetStatus(session.StatusIdle, "")
 	failed.Err = errors.New("boom")
 
-	panes, tabs := ws.CloseFinishedPanes()
+	panes, tabs, _ := ws.CloseFinishedPanes()
 	if panes != 0 || tabs != 0 {
 		t.Fatalf("CloseFinishedPanes() = (%d, %d), want (0, 0)", panes, tabs)
 	}
@@ -72,7 +72,7 @@ func TestCloseFinishedPanesLeavesAQuietShellAlone(t *testing.T) {
 	}
 	shell.Sess.SetStatus(session.StatusIdle, "")
 
-	panes, tabs := ws.CloseFinishedPanes()
+	panes, tabs, _ := ws.CloseFinishedPanes()
 	if panes != 0 || tabs != 0 {
 		t.Fatalf("CloseFinishedPanes() = (%d, %d), want (0, 0)", panes, tabs)
 	}
@@ -119,7 +119,7 @@ func TestCloseFinishedPanesClosesIdleAgentsAndExitedPanes(t *testing.T) {
 		}
 	}
 
-	panes, tabs := ws.CloseFinishedPanes()
+	panes, tabs, _ := ws.CloseFinishedPanes()
 	if panes != 3 {
 		t.Errorf("panes closed = %d, want 3", panes)
 	}
@@ -197,7 +197,7 @@ func TestCloseFinishedPanesActsAcrossEveryOpenProject(t *testing.T) {
 	idleInSecond := agentPaneIn(t, ws, second, "idle-elsewhere")
 	idleInSecond.Sess.SetStatus(session.StatusIdle, "")
 
-	panes, tabs := ws.CloseFinishedPanes()
+	panes, tabs, _ := ws.CloseFinishedPanes()
 	if panes != 1 || tabs != 1 {
 		t.Fatalf("CloseFinishedPanes() = (%d, %d), want (1, 1)", panes, tabs)
 	}
@@ -234,7 +234,7 @@ func TestCloseFinishedPanesLeavesAnIdleAgentWithBackgroundWorkAlone(t *testing.T
 	if ws.PaneFinished(busy.ID) {
 		t.Fatal("PaneFinished is true with background work running")
 	}
-	if panes, _ := ws.CloseFinishedPanes(); panes != 0 || ws.Pane(busy.ID) == nil {
+	if panes, _, _ := ws.CloseFinishedPanes(); panes != 0 || ws.Pane(busy.ID) == nil {
 		t.Fatalf("CloseFinishedPanes closed a pane with background work (closed %d)", panes)
 	}
 
@@ -257,7 +257,7 @@ func TestCloseFinishedPanesLeavesAnIdleAgentWithBackgroundWorkAlone(t *testing.T
 		t.Error("an exited pane with background work was not finished")
 	}
 
-	if panes, _ := ws.CloseFinishedPanes(); panes != 2 {
+	if panes, _, _ := ws.CloseFinishedPanes(); panes != 2 {
 		t.Errorf("panes closed = %d, want 2", panes)
 	}
 }

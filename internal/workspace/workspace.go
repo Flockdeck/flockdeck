@@ -135,6 +135,16 @@ type Pane struct {
 	// there is nowhere it needs clearing when the pane closes: the Pane it
 	// lives on is simply gone.
 	Muted bool
+	// Locked is set by the user so this pane cannot be closed by accident: by
+	// Ctrl+Shift+W, its header's close button, its tab being closed, "Close
+	// finished panes", or an agent's `flockdeck close`. Every one of those goes
+	// through a method here that refuses while it is set; see SetPaneLocked.
+	//
+	// Unlike Muted it is persisted with the layout, and it travels with the
+	// pane when it is moved to another tab, since a move carries the Pane
+	// itself. A restart relaunches the process but not the Pane, so it stays
+	// locked.
+	Locked bool
 	// AutoReview opts this pane into auto-review approvals: a PreToolUse call
 	// is put to reviewTool before Claude Code would otherwise show its own
 	// permission prompt, and one the reviewer is confident is safe is let
@@ -1081,6 +1091,11 @@ func (w *Workspace) CloseProject(root string) error {
 	if g == nil || len(w.groups) <= 1 {
 		return nil
 	}
+	// Closing a project closes what it contains, so one holding a locked pane
+	// stays open until the pane is unlocked.
+	if w.hasLockedPane(g) {
+		return fmt.Errorf("%s has a locked pane, so it can't be closed. Unlock the pane first", filepath.Base(root))
+	}
 
 	var errs []error
 	for _, member := range append([]string(nil), g.Roots...) {
@@ -1101,6 +1116,27 @@ func (w *Workspace) CloseProject(root string) error {
 	w.focusFirstTabOf(w.activeRoot)
 	w.wake()
 	return errors.Join(errs...)
+}
+
+// hasLockedPane reports whether any pane shown in a tab of the group, or
+// working in one of its repos from another project's tab, is locked.
+func (w *Workspace) hasLockedPane(g *ProjectGroup) bool {
+	in := func(root string) bool {
+		for _, m := range g.Roots {
+			if sameDir(m, root) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, t := range w.Tabs {
+		for _, id := range t.Tree.Panes() {
+			if w.PaneLocked(id) && (in(t.Root) || in(w.rootOf(id))) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // closeOneRoot is the whole of closing a single repo root: it saves its
@@ -2200,11 +2236,13 @@ func (w *Workspace) NewTabWith(c Choice, cwd, title string) *Tab {
 	return t
 }
 
-// CloseTab closes a tab and every session in it.
-func (w *Workspace) CloseTab(id string) {
+// CloseTab closes a tab and every session in it, and reports whether it did.
+// A tab holding a locked pane stays open, panes and all: see TabLockedPanes
+// for what a caller says about it.
+func (w *Workspace) CloseTab(id string) bool {
 	closing := w.Tab(id)
-	if closing == nil {
-		return
+	if closing == nil || len(w.TabLockedPanes(id)) > 0 {
+		return false
 	}
 	for _, pid := range closing.Tree.Panes() {
 		w.destroyPane(pid)
@@ -2212,6 +2250,52 @@ func (w *Workspace) CloseTab(id string) {
 	// What is left to do is what a tab emptied by a move needs, focus landing
 	// on a neighbour in the same project included.
 	w.unlinkTab(closing)
+	return true
+}
+
+// TabLockedPanes returns the ids of the locked panes in a tab, which is what
+// keeps it from being closed.
+func (w *Workspace) TabLockedPanes(tabID string) []string {
+	t := w.Tab(tabID)
+	if t == nil {
+		return nil
+	}
+	var locked []string
+	for _, id := range t.Tree.Panes() {
+		if w.PaneLocked(id) {
+			locked = append(locked, id)
+		}
+	}
+	return locked
+}
+
+// PaneLocked reports whether the pane named id is locked against closing. A
+// pane that is not there is not locked.
+func (w *Workspace) PaneLocked(id string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	p := w.panes[id]
+	return p != nil && p.Locked
+}
+
+// SetPaneLocked locks or unlocks a pane against closing -- see Pane.Locked --
+// and reports whether the pane was found, which is false for one already
+// closed, and is what a lockPane command for a gone id is refused by.
+func (w *Workspace) SetPaneLocked(id string, locked bool) bool {
+	w.mu.Lock()
+	p := w.panes[id]
+	changed := p != nil && p.Locked != locked
+	if changed {
+		p.Locked = locked
+	}
+	w.mu.Unlock()
+	if p == nil {
+		return false
+	}
+	if changed {
+		w.wake()
+	}
+	return true
 }
 
 // destroyPane terminates and forgets a pane.
@@ -2366,13 +2450,16 @@ func (w *Workspace) ClosePane() {
 // off whatever tab or project is on screen, and reports whether the pane was
 // there to close. Closing the last pane in its tab closes the tab.
 //
+// A locked pane is not closed, and reports false like one that is gone; a
+// caller that wants to say which it was asks PaneLocked first.
+//
 // It is what lets the control socket close a helper sitting in a tab nobody
 // is looking at: FocusPane, which every command used to go through, only
 // finds a pane in the tab already on screen, and refused one anywhere else as
 // though it had already gone.
 func (w *Workspace) ClosePaneByID(id string) bool {
 	t := w.tabOf(id)
-	if t == nil {
+	if t == nil || w.PaneLocked(id) {
 		return false
 	}
 	if t.Tree.Count() <= 1 {
@@ -2417,7 +2504,10 @@ func (w *Workspace) ClosePaneByID(id string) bool {
 // Closing goes through ClosePaneByID, so a tab left with no panes closes
 // itself the same way it always has; tabs closed is only ever the side effect
 // of that, counted by comparing the tabs open before and after.
-func (w *Workspace) CloseFinishedPanes() (panesClosed, tabsClosed int) {
+//
+// A finished pane that is locked is left open, and counted in locked so the
+// caller can say so rather than seem to have found nothing.
+func (w *Workspace) CloseFinishedPanes() (panesClosed, tabsClosed, locked int) {
 	before := make(map[string]bool, len(w.Tabs))
 	for _, t := range w.Tabs {
 		before[t.ID] = true
@@ -2425,9 +2515,14 @@ func (w *Workspace) CloseFinishedPanes() (panesClosed, tabsClosed int) {
 	var ids []string
 	for _, t := range w.Tabs {
 		for _, id := range t.Tree.Panes() {
-			if w.paneFinished(id) {
-				ids = append(ids, id)
+			if !w.paneFinished(id) {
+				continue
 			}
+			if w.PaneLocked(id) {
+				locked++
+				continue
+			}
+			ids = append(ids, id)
 		}
 	}
 	for _, id := range ids {
@@ -2438,7 +2533,7 @@ func (w *Workspace) CloseFinishedPanes() (panesClosed, tabsClosed int) {
 	for _, t := range w.Tabs {
 		delete(before, t.ID)
 	}
-	return panesClosed, len(before)
+	return panesClosed, len(before), locked
 }
 
 // PaneFinished reports whether the pane named id is idle or exited -- safe to

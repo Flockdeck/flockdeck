@@ -120,6 +120,7 @@
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
     zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back. Double-clicking the pane's header does the same.",
     close:       "Closes this pane and stops the process running in it.",
+    lock:        "Locks this pane so it can't be closed: not by the close shortcut, its close button, its tab, Close finished panes or an agent's flockdeck close. Restarting it still works, and it stays locked across restarts of Flockdeck and when you move it to another tab.",
     autoReview:  "Lets a confident, read-only command through without asking, instead of stopping for a permission prompt. It only ever says yes: anything it is not sure of still asks, exactly as before. Off by default; a pane this one starts, by fan-out or by its own spawning, starts with the same setting this pane has.",
     usage:       "What this pane is costing the machine: processor share averaged over the last few readings, and memory, across the agent's process and everything it has started.",
     agent:       "The agent running in this pane, and the model it was asked for. A pane that was given no model runs whatever the agent is already set to.",
@@ -2067,6 +2068,20 @@
         // The close button said only "Close tab", a dozen times over across
         // the strip, and nothing said that closing one stops its agents.
         describe(node.close, "Close tab: " + title + ". Every agent in it stops.");
+        node.lockedPanes = 0;
+      }
+      // A tab holding a locked pane cannot be closed, which its close button
+      // says; it still answers a click, with the toast that says why.
+      const held = new Set();
+      collectPanes(tab.root, held);
+      const lockedHere = [...held].filter((pid) => s.panes && s.panes[pid] && s.panes[pid].locked).length;
+      if ((node.lockedPanes || 0) !== lockedHere) {
+        node.lockedPanes = lockedHere;
+        node.close.setAttribute("aria-disabled", String(lockedHere > 0));
+        node.close.classList.toggle("locked", lockedHere > 0);
+        describe(node.close, lockedHere
+          ? "This tab can't be closed: " + (lockedHere === 1 ? "a pane in it is" : lockedHere + " panes in it are") + " locked. Unlock " + (lockedHere === 1 ? "it" : "them") + " first."
+          : "Close tab: " + title + ". Every agent in it stops.");
       }
       // Named by its title, and the agent waiting in it. Named from what it
       // holds, a tab said the button inside it as well - "one, Close tab" -
@@ -2992,6 +3007,10 @@
     const spend = el("span", "pane-spend");
     const limit = el("span", "pane-limit");
     const cast = el("span", "pane-cast");
+    // Always on show while the pane is locked, unlike the buttons, so a pane
+    // that will refuse to close says so before anyone tries. See renderPaneLock.
+    const lockMark = el("span", "pane-lock");
+    lockMark.hidden = true;
     const actions = el("div", "pane-actions");
 
     // Every one of these reads as a bare symbol, so describe carries the
@@ -3003,6 +3022,13 @@
       b.onclick = (ev) => { ev.stopPropagation(); fn(); };
       return describe(b, tip);
     };
+    // A padlock that is open while the pane can be closed and shut while it
+    // cannot. renderPaneLock keeps the glyph, the label and aria-pressed true.
+    const lockBtn = btn("🔓", TIPS.lock, () => {
+      const v = state && state.panes && state.panes[id];
+      send({ cmd: "lockPane", id, locked: !(v && v.locked) });
+    });
+    const closeBtn = btn("×", TIPS.close, () => send({ cmd: "closePane", id }));
     const castBtn = btn("⇉", "Adds this pane to the broadcast set, or takes it out again. " + TIPS.broadcast,
       () => send({ cmd: "toggleBroadcastMember", id }));
     const zoomBtn = btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id }));
@@ -3017,10 +3043,11 @@
       reviewBtn,
       btn("⟳", TIPS.restart, () => send({ cmd: "restartPane", id })),
       zoomBtn,
-      btn("×", TIPS.close, () => send({ cmd: "closePane", id })),
+      lockBtn,
+      closeBtn,
     );
     makeToolbar(actions, "What to do with this pane");
-    header.append(dot, project, name, branch, agent, peerName, remote, git, detail, background, spend, limit, usage, cast, actions);
+    header.append(dot, project, name, branch, agent, peerName, remote, git, detail, background, spend, limit, usage, cast, lockMark, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -3122,7 +3149,7 @@
     // see drawWithWebgl.
 
     p = { id, wrap, header, dot, name, project, branch, agent, peerName, remote, git, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, search, dropZone,
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
           shown: {} };
@@ -4015,6 +4042,9 @@
       const review = (v.autoReview ? "1" : "0") + ":" + (v.autoApproved || 0);
       if (was.review !== review) { was.review = review; renderPaneReview(p, v); }
 
+      const locked = v.locked ? "1" : "";
+      if (was.locked !== locked) { was.locked = locked; renderPaneLock(p, !!v.locked); }
+
       const focused = !!tab && tab.focus === id;
       p.wrap.classList.toggle("focused", focused);
       speakIfFocused(p, focused);
@@ -4075,6 +4105,30 @@
       ? "Auto-review is on" + (v.autoApproved ? ": " + v.autoApproved + " command" + (v.autoApproved === 1 ? "" : "s") + " let through unasked so far. " : ". ") +
         "Press to turn it off. "
       : "Auto-review is off. Press to turn it on. ") + TIPS.autoReview);
+  }
+
+  /** renderPaneLock says whether a pane is locked against closing, in the
+   *  header where it cannot be missed -- a padlock and the word, always on
+   *  show -- and on the two buttons it changes: the lock toggle, which says what
+   *  it will do, and the close button, which is marked unavailable. The close
+   *  button still answers a click, with the server's toast saying why, rather
+   *  than being a dead target. See Pane.Locked. */
+  function renderPaneLock(p, on) {
+    p.lockMark.hidden = !on;
+    p.lockMark.textContent = on ? "🔒 Locked" : "";
+    if (on) describe(p.lockMark, "Locked - this pane can't be closed until you unlock it.");
+    else delete p.lockMark.dataset.tip;
+    p.lockBtn.textContent = on ? "🔒" : "🔓";
+    p.lockBtn.classList.toggle("locked", on);
+    p.lockBtn.setAttribute("aria-pressed", String(on));
+    describe(p.lockBtn, on ? "Unlock this pane so it can be closed again." : TIPS.lock);
+    p.closeBtn.classList.toggle("locked", on);
+    p.closeBtn.setAttribute("aria-disabled", String(on));
+    describe(p.closeBtn, on ? "This pane is locked, so it can't be closed. Unlock it first." : TIPS.close);
+    if (p.overlayClose) {
+      p.overlayClose.setAttribute("aria-disabled", String(on));
+      p.overlayClose.classList.toggle("locked", on);
+    }
   }
 
   /** renderPaneProject names the pane's own project, and is empty for the
@@ -4417,6 +4471,8 @@
     restart.onclick = () => send({ cmd: "restartPane", id: p.id });
     const close = el("button", "chip", "Close pane");
     close.onclick = () => send({ cmd: "closePane", id: p.id });
+    p.overlayClose = close;
+    if (v.locked) { close.setAttribute("aria-disabled", "true"); close.classList.add("locked"); }
     row.append(restart, document.createTextNode(" "), close);
     box.append(row);
     p.body.append(box);
@@ -7297,6 +7353,11 @@
     focusPrevPane: () => focusNeighbour(-1),
     restartPane: () => send({ cmd: "restartPane", id: focusedPaneId() }),
     closePane: () => send({ cmd: "closePane", id: focusedPaneId() }),
+    lockPane: () => {
+      const id = focusedPaneId();
+      const v = id && state && state.panes && state.panes[id];
+      if (v) send({ cmd: "lockPane", id, locked: !v.locked });
+    },
 
     newAgentTab: () => send({ cmd: "newTab", kind: "agent" }),
     newAgentTabChoose: () => chooseAgent("New agent tab", (agent, model) =>
@@ -7557,7 +7618,7 @@
     // somebody looking for one types - it matched none of them.
     const SETTING = "settings preferences options";
     const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
-    const also = (id) => SETTINGS.has(id) ? SETTING : "";
+    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : "";
     // What a setting is now, beside the command that changes it: choosing a
     // scrollback or a font meant opening the question to find out.
     const value = {
@@ -7587,9 +7648,11 @@
     };
     const plain = (label, group, run, o) => Object.assign(
       { label, name: label, group, keys: "", gloss: "", short: "", now: "", also: "", kind: "", run }, o);
+    // One action that goes both ways is named for the way it goes now.
+    const paletteLabel = (k) => k.id === "lockPane" && id && s.panes && s.panes[id] && s.panes[id].locked ? "Unlock pane" : k.label;
     const cmds = keyTable
       .filter((k) => !k.noPalette && ACTIONS[k.id])
-      .map((k) => mk(k.id, k.label, { keys: k.keys, short: k.short, group: PAGE_ACTIONS.includes(k.id) ? "Go to" : k.section }));
+      .map((k) => mk(k.id, paletteLabel(k), { keys: k.keys, short: k.short, group: PAGE_ACTIONS.includes(k.id) ? "Go to" : k.section }));
     // The picker's own entries belong in the action table with everything
     // else, and are offered here only for as long as the table has not caught
     // up — so choosing an agent is reachable from the palette either way, and
