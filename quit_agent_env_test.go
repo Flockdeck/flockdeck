@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"github.com/jmwri/flockdeck/internal/testiso/iso"
 	"os"
 	"os/exec"
 	"strings"
@@ -34,6 +35,7 @@ func TestQuitIgnoresTheStartAgent(t *testing.T) {
 			"HOME=" + dir, "USERPROFILE=" + dir,
 			"SystemRoot=" + os.Getenv("SystemRoot"), "PATH=" + os.Getenv("PATH"),
 		}
+		cmd.Env = append(cmd.Env, iso.ChildEnv()...)
 		var out bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &out, &out
 		if err := cmd.Run(); err != nil {

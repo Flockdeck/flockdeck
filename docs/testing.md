@@ -56,7 +56,7 @@ non-zero and lists what was refused.
   dir)` with `t.TempDir()` for one test; never a path under the real home.
 - **Spawning the built binary?** A child inherits the redirected environment, so
   pass `os.Environ()` along (a test binary re-run as a child keeps the
-  environment it is given and still remembers which directory is the real one), or set `APPDATA`, `LOCALAPPDATA`, `XDG_CONFIG_HOME`
+  environment it is given and still remembers which directory is the real one), or build the environment by hand, adding `iso.ChildEnv()`, and set `APPDATA`, `LOCALAPPDATA`, `XDG_CONFIG_HOME`
   and `HOME`/`USERPROFILE` explicitly as `quit_agent_env_test.go` does.
 
 If a guard trips, the message names what was reached; fix the test rather than

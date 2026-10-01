@@ -54,6 +54,13 @@ func RealConfigDir() string { return realConfig }
 // RealHomeDir is the user's actual home directory, as it was before Main.
 func RealHomeDir() string { return realHome }
 
+// ChildEnv is what a test that builds a test binary's environment by hand adds
+// to it, so the child keeps the directories that environment names and still
+// knows which one is the real one. A child given os.Environ() has it already.
+func ChildEnv() []string {
+	return []string{realConfigEnv + "=" + realConfig, realHomeEnv + "=" + realHome}
+}
+
 // Violations lists what the guards refused so far.
 func Violations() []string {
 	mu.Lock()
