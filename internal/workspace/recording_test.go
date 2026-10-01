@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/record/schemacheck"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -35,10 +34,62 @@ func isolatedRecordings(t *testing.T) {
 	}
 }
 
+// claudeHome points Claude Code's state directory at a temporary one, so the
+// stored conversations these tests make are the only ones there are.
+func claudeHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	return home
+}
+
+// storeConversation appends lines to the file Claude Code would keep a
+// conversation in.
+func storeConversation(t *testing.T, home, id string, lines ...string) {
+	t.Helper()
+	dir := filepath.Join(home, "projects", "C--work-shop")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(filepath.Join(dir, id+".jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+const (
+	promptLine = `{"type":"user","timestamp":"2026-10-01T09:00:00Z","message":{"role":"user","content":"run the tests with key sk-ant-api03-abcdefghijklmnop"}}`
+	callLine   = `{"type":"assistant","timestamp":"2026-10-01T09:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"Running them."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"go test ./..."}}]}}`
+	resultLine = `{"type":"user","timestamp":"2026-10-01T09:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok  all passed"}]},"toolUseResult":"ok  all passed"}`
+	sayLine    = `{"type":"assistant","timestamp":"2026-10-01T09:00:03Z","message":{"role":"assistant","content":[{"type":"text","text":"All green."}]}}`
+	lateLine   = `{"type":"user","timestamp":"2026-10-01T09:05:00Z","message":{"role":"user","content":"after the stop"}}`
+)
+
+// recordingPane is a pane running Claude.
+func recordingPane(t *testing.T, ws *Workspace, root, title string) *Pane {
+	t.Helper()
+	p := agentPaneIn(t, ws, root, title)
+	ws.mu.Lock()
+	p.Agent, p.Model = "claude", "opus"
+	ws.mu.Unlock()
+	return p
+}
+
 func recordingFiles(t *testing.T) []string {
 	t.Helper()
 	dir, _ := store.Dir()
 	files, _ := filepath.Glob(filepath.Join(dir, "recordings", "*", "*.jsonl"))
+	return files
+}
+
+func exportFiles(t *testing.T) []string {
+	t.Helper()
+	dir, _ := store.Dir()
+	files, _ := filepath.Glob(filepath.Join(dir, "recordings", "*", "exports", "*.jsonl"))
 	return files
 }
 
@@ -64,82 +115,64 @@ func readTranscript(t *testing.T, path string) []record.Entry {
 
 func TestRecordingIsOffUntilTurnedOn(t *testing.T) {
 	isolatedRecordings(t)
+	home := claudeHome(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	p := agentPaneIn(t, ws, root, "quiet")
+	p := recordingPane(t, ws, root, "quiet")
 	if ws.PaneRecording(p.ID) {
 		t.Fatal("a new pane is recording")
 	}
-	ws.handleHook(hooks.Event{SessionID: p.ID, Event: "UserPromptSubmit", Prompt: "hello", Launch: p.launch,
-		Detail: &hooks.Detail{Prompt: "hello"}})
+	storeConversation(t, home, p.ID, promptLine, sayLine)
+	ws.syncRecording(p.ID)
 	if files := recordingFiles(t); len(files) != 0 {
 		t.Errorf("a pane that was never asked to record wrote %v", files)
 	}
 }
 
-func TestRecordingWritesTheInteractionFromHookEvents(t *testing.T) {
+// Recording is the stored conversation, from its beginning, followed as it
+// grows: what was said before it was turned on is in it, and what is said after
+// it is turned off is not.
+func TestRecordingFollowsTheStoredConversation(t *testing.T) {
 	isolatedRecordings(t)
+	home := claudeHome(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	p := agentPaneIn(t, ws, root, "work")
-	p.Agent, p.Model = "claude", "opus"
+	p := recordingPane(t, ws, root, "work")
+	storeConversation(t, home, p.ID, promptLine, callLine)
 
 	if found, err := ws.SetPaneRecording(p.ID, true); !found || err != nil {
 		t.Fatalf("SetPaneRecording = %v, %v", found, err)
 	}
-	send := func(ev hooks.Event) {
-		ev.SessionID, ev.Launch = p.ID, p.launch
-		ws.handleHook(ev)
+	// Already there when it was turned on.
+	files := recordingFiles(t)
+	if len(files) != 1 {
+		t.Fatalf("want one transcript, got %v", files)
 	}
-	send(hooks.Event{Event: "UserPromptSubmit", Detail: &hooks.Detail{Prompt: "run the tests with key sk-ant-api03-abcdefghijklmnop"}})
-	send(hooks.Event{Event: "PreToolUse", Tool: "Bash", Detail: &hooks.Detail{ToolUseID: "t1", Input: json.RawMessage(`{"command":"go test ./..."}`)}})
-	send(hooks.Event{Event: "PermissionRequest", Tool: "Bash", Detail: &hooks.Detail{Input: json.RawMessage(`{"command":"go test ./..."}`)}})
-	send(hooks.Event{Event: "PostToolUse", Tool: "Bash", Detail: &hooks.Detail{ToolUseID: "t1", Result: "ok  all passed"}})
-	send(hooks.Event{Event: "PostToolUseFailure", Tool: "Bash", Detail: &hooks.Detail{ToolUseID: "t2", Error: "exit status 1"}})
-	send(hooks.Event{Event: "Stop", Detail: &hooks.Detail{Message: "All green."}})
+	if es := readTranscript(t, files[0]); len(es) != 4 {
+		t.Fatalf("the conversation so far is %d lines, want 4", len(es))
+	}
 
-	// A Stop with nothing to say records no message.
-	send(hooks.Event{Event: "Stop"})
-
+	storeConversation(t, home, p.ID, resultLine, sayLine)
+	ws.syncRecording(p.ID)
 	if found, err := ws.SetPaneRecording(p.ID, false); !found || err != nil {
 		t.Fatalf("stop = %v, %v", found, err)
 	}
-	send(hooks.Event{Event: "UserPromptSubmit", Detail: &hooks.Detail{Prompt: "after the stop"}})
+	storeConversation(t, home, p.ID, lateLine)
+	ws.syncRecording(p.ID)
 
-	files := recordingFiles(t)
-	if len(files) != 1 {
-		t.Fatalf("want one session file, got %v", files)
-	}
 	es := readTranscript(t, files[0])
-	// Status lines come from the session's own transitions and are checked
-	// apart from the rest.
 	var got []string
-	status := 0
 	for _, e := range es {
-		if e.Type == record.TypeStatus {
-			status++
-			if e.Status == "" {
-				t.Errorf("status line without a status: %+v", e)
-			}
-			continue
-		}
 		got = append(got, e.Type)
 	}
-	// The permission outcome is written when the tool's result settles it,
-	// ahead of the result's own line.
-	want := []string{record.TypeStarted, record.TypePrompt, record.TypeToolCall, record.TypePermission, record.TypeOutcome, record.TypeToolResult, record.TypeToolResult, record.TypeAssistant, record.TypeStopped}
+	want := []string{record.TypeStarted, record.TypePrompt, record.TypeAssistant, record.TypeToolCall, record.TypeToolResult, record.TypeAssistant, record.TypeStopped}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("types = %v\nwant    %v", got, want)
-	}
-	if status == 0 {
-		t.Error("no status change was recorded")
 	}
 	if es[0].Agent != "claude" || es[0].Model != "opus" || es[0].PaneName == "" || es[0].Project != filepath.Base(root) || es[0].Pane != p.ID {
 		t.Errorf("the first line does not say whose it is: %+v", es[0])
 	}
 	raw, _ := os.ReadFile(files[0])
-	// What the workspace really wrote, status lines included, matches the
-	// published schema.
 	schema, err := schemacheck.Load("../../docs/recording-line.schema.json")
 	if err != nil {
 		t.Fatal(err)
@@ -154,6 +187,137 @@ func TestRecordingWritesTheInteractionFromHookEvents(t *testing.T) {
 	}
 }
 
+// A recording and an export of the same conversation are the same bytes.
+func TestExportMatchesTheRecording(t *testing.T) {
+	isolatedRecordings(t)
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := recordingPane(t, ws, root, "work")
+	storeConversation(t, home, p.ID, promptLine, callLine)
+
+	// Exported with recording never on.
+	res, err := ws.ExportTranscript(p.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := exportFiles(t); len(got) != 1 || got[0] != res.Path {
+		t.Fatalf("export files = %v, result %s", got, res.Path)
+	}
+	if len(recordingFiles(t)) != 0 {
+		t.Error("an export made a recording")
+	}
+
+	ws.SetPaneRecording(p.ID, true)
+	storeConversation(t, home, p.ID, resultLine, sayLine)
+	ws.syncRecording(p.ID)
+	ws.SetPaneRecording(p.ID, false)
+	res, err = ws.ExportTranscript(p.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := recordingFiles(t)
+	if len(files) != 1 {
+		t.Fatalf("recordings = %v", files)
+	}
+	rec, _ := os.ReadFile(files[0])
+	exp, _ := os.ReadFile(res.Path)
+	if string(rec) != string(exp) {
+		t.Errorf("the recording and the export differ\nrecorded:\n%s\nexported:\n%s", rec, exp)
+	}
+}
+
+func TestExportOfAnAgentThatStoresNothingSaysSoAndWritesNothing(t *testing.T) {
+	isolatedRecordings(t)
+	claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := recordingPane(t, ws, root, "other")
+	ws.mu.Lock()
+	p.Agent = "codex"
+	ws.mu.Unlock()
+	if name, ok := ws.PaneTranscriptSupported(p.ID); ok || name == "" {
+		t.Errorf("PaneTranscriptSupported = %q, %v", name, ok)
+	}
+	_, err := ws.ExportTranscript(p.ID, "")
+	if err == nil || !strings.Contains(err.Error(), "stores no conversation") {
+		t.Fatalf("export said %v", err)
+	}
+	// Recording can be on, and records nothing.
+	if found, err := ws.SetPaneRecording(p.ID, true); !found || err != nil {
+		t.Fatalf("recording = %v, %v", found, err)
+	}
+	ws.syncRecording(p.ID)
+	if n := len(recordingFiles(t)) + len(exportFiles(t)); n != 0 {
+		t.Errorf("%d files were written for an agent with nothing stored", n)
+	}
+}
+
+func TestExportBeforeAnythingIsStored(t *testing.T) {
+	isolatedRecordings(t)
+	claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := recordingPane(t, ws, root, "new")
+	if _, err := ws.ExportTranscript(p.ID, ""); err == nil || !strings.Contains(err.Error(), "no conversation for this pane yet") {
+		t.Errorf("export said %v", err)
+	}
+	if len(exportFiles(t)) != 0 {
+		t.Error("an export of nothing left a file")
+	}
+}
+
+func TestExportNeverGoesIntoTheProject(t *testing.T) {
+	isolatedRecordings(t)
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := recordingPane(t, ws, root, "work")
+	storeConversation(t, home, p.ID, promptLine)
+	if _, err := ws.ExportTranscript(p.ID, filepath.Join(root, "transcript.jsonl")); err == nil {
+		t.Error("an export was written into the project")
+	}
+	if _, err := os.Stat(filepath.Join(root, "transcript.jsonl")); err == nil {
+		t.Error("a file is in the project")
+	}
+}
+
+// After /clear the agent goes on in a conversation of its own: the transcript
+// of the one before ends, and the new one has a transcript of its own.
+func TestRecordingFollowsTheAgentIntoANewConversation(t *testing.T) {
+	isolatedRecordings(t)
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := recordingPane(t, ws, root, "clears")
+	storeConversation(t, home, p.ID, promptLine, sayLine)
+	ws.SetPaneRecording(p.ID, true)
+
+	const next = "99999999-8888-7777-6666-555555555555"
+	ws.mu.Lock()
+	p.Conversation = next
+	ws.mu.Unlock()
+	storeConversation(t, home, next, lateLine)
+	ws.syncRecording(p.ID)
+	ws.SetPaneRecording(p.ID, false)
+
+	files := recordingFiles(t)
+	if len(files) != 2 {
+		t.Fatalf("want a transcript for each conversation, got %v", files)
+	}
+	for _, f := range files {
+		es := readTranscript(t, f)
+		if es[0].Type != record.TypeStarted || es[len(es)-1].Type != record.TypeStopped {
+			t.Errorf("%s is not whole: %v", f, es)
+		}
+		for _, e := range es {
+			if e.Conversation != es[0].Conversation {
+				t.Errorf("%s mixes conversations", f)
+			}
+		}
+	}
+}
+
 func TestOnlyAnAgentPaneCanRecord(t *testing.T) {
 	isolatedRecordings(t)
 	root := t.TempDir()
@@ -164,7 +328,10 @@ func TestOnlyAnAgentPaneCanRecord(t *testing.T) {
 		t.Error("a shell pane was set recording")
 	}
 	if found, _ := ws.SetPaneRecording("no-such-pane", true); found {
-		t.Error("a pane that is not there was found")
+		t.Error("a pane that was not there was found")
+	}
+	if _, err := ws.ExportTranscript(id, ""); err == nil {
+		t.Error("a shell pane was exported")
 	}
 	if len(recordingFiles(t)) != 0 {
 		t.Error("a refused recording left a file")
@@ -173,10 +340,13 @@ func TestOnlyAnAgentPaneCanRecord(t *testing.T) {
 
 func TestClosingARecordingPaneEndsItsTranscript(t *testing.T) {
 	isolatedRecordings(t)
+	home := claudeHome(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	p := agentPaneIn(t, ws, root, "short-lived")
+	p := recordingPane(t, ws, root, "short-lived")
+	storeConversation(t, home, p.ID, promptLine)
 	ws.SetPaneRecording(p.ID, true)
+	storeConversation(t, home, p.ID, sayLine) // said since the last look
 	ws.ClosePaneByID(p.ID)
 	files := recordingFiles(t)
 	if len(files) != 1 {
@@ -186,14 +356,19 @@ func TestClosingARecordingPaneEndsItsTranscript(t *testing.T) {
 	if last := es[len(es)-1]; last.Type != record.TypeStopped {
 		t.Errorf("the transcript ends with %s, not a stop", last.Type)
 	}
+	if got := es[len(es)-2]; got.Type != record.TypeAssistant {
+		t.Errorf("what was said just before the pane closed is %s, want it kept", got.Type)
+	}
 }
 
 func TestRecordingSurvivesRestartMoveAndRestore(t *testing.T) {
 	isolatedRecordings(t)
+	home := claudeHome(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	p := agentPaneIn(t, ws, root, "kept")
+	p := recordingPane(t, ws, root, "kept")
 	plain := agentPaneIn(t, ws, root, "plain")
+	storeConversation(t, home, p.ID, promptLine, sayLine)
 	ws.SetPaneRecording(p.ID, true)
 
 	if !ws.RestartPaneByID(p.ID) {
@@ -224,15 +399,15 @@ func TestRecordingSurvivesRestartMoveAndRestore(t *testing.T) {
 	if restored.PaneRecording(plain.ID) {
 		t.Error("a pane that was not recording came back recording")
 	}
-	// A restored pane records again, in a session of its own, from its first event.
-	// Written through the recorder directly, as handleHook does: a pane whose
-	// agent is not installed here (CI) has no session to hear a hook event.
-	rp := restored.Pane(p.ID)
-	restored.mu.Lock()
-	meta := restored.recMetaLocked(rp)
-	restored.mu.Unlock()
-	restored.rec.Record(meta, record.Entry{Type: record.TypePrompt, Text: "back again"})
-	if n := len(recordingFiles(t)); n != 2 {
-		t.Errorf("want a second session file after the restore, got %d files", n)
+	// A restored pane catches up from the stored conversation, into the file
+	// the conversation has: the same one, not another.
+	storeConversation(t, home, p.ID, lateLine)
+	restored.syncRecording(p.ID)
+	files := recordingFiles(t)
+	if len(files) != 1 {
+		t.Fatalf("want the one transcript after the restore, got %v", files)
+	}
+	if es := readTranscript(t, files[0]); es[len(es)-1].Text != "after the stop" {
+		t.Errorf("the restored pane's transcript did not catch up: %+v", es[len(es)-1])
 	}
 }

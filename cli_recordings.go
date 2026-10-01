@@ -15,9 +15,12 @@ import (
 
 // runRecordings implements `flockdeck recordings`: it lists the transcripts
 // panes have recorded, newest first, or with -dir prints the folder they are
-// kept in. It reads the state directory directly, so it works with no
+// kept in; `recordings export` makes one from an agent's stored conversation. It reads the state directory directly, so it works with no
 // instance running -- which is when somebody goes looking for one.
 func runRecordings(args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] == "export" {
+		return exportRecording(args[1:], out, realExportEnv())
+	}
 	return listRecordings(args, out, store.Dir)
 }
 
@@ -45,7 +48,9 @@ func listRecordings(args []string, out io.Writer, stateDir func() (string, error
 		fmt.Fprintf(os.Stderr, "Usage: flockdeck recordings [flags]\n\n")
 		fmt.Fprintf(os.Stderr, "Lists the transcripts panes have recorded, newest first: when it started, the\n")
 		fmt.Fprintf(os.Stderr, "project, the pane, its size and the file. A pane records only while its Record\n")
-		fmt.Fprintf(os.Stderr, "toggle is on, and nothing is recorded by default.\n\n")
+		fmt.Fprintf(os.Stderr, "toggle is on, and nothing is recorded by default. A pane that was not recorded\n")
+		fmt.Fprintf(os.Stderr, "can still have a transcript made from its agent's stored conversation:\n")
+		fmt.Fprintf(os.Stderr, "see `flockdeck recordings export -h`.\n\n")
 		fmt.Fprintf(os.Stderr, "Each recording is a JSON Lines file. The format is documented in\n")
 		fmt.Fprintf(os.Stderr, "docs/recording-format.md in the Flockdeck repository, with a JSON Schema in\n")
 		fmt.Fprintf(os.Stderr, "docs/recording-line.schema.json.\n\nFlags:\n")

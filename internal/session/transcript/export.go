@@ -1,0 +1,81 @@
+package transcript
+
+import (
+	"errors"
+	"time"
+
+	"github.com/jmwri/flockdeck/internal/agent"
+)
+
+// ErrNoTranscript says an agent has no stored conversation to export: either
+// it keeps none Flockdeck can read, or the one it was asked about is not on
+// this machine (or is empty).
+var ErrNoTranscript = errors.New("no stored conversation to export")
+
+// ExportKind is what an ExportEvent is.
+type ExportKind int
+
+const (
+	// ExportPrompt is something the person typed.
+	ExportPrompt ExportKind = iota
+	// ExportMessage is something the agent said.
+	ExportMessage
+	// ExportToolCall is the agent starting a tool.
+	ExportToolCall
+	// ExportToolResult is what a tool gave back.
+	ExportToolResult
+)
+
+// ExportEvent is one thing that happened in a stored conversation, in the
+// agent-neutral shape the exporter in internal/record turns into a transcript.
+type ExportEvent struct {
+	Time time.Time
+	Kind ExportKind
+	// Text is the prompt or the message.
+	Text      string
+	Tool      string
+	ToolUseID string
+	// Input is a tool call's input, decoded from JSON.
+	Input       any
+	Output      string
+	IsError     bool
+	Interrupted bool
+}
+
+// ExportStats says how a read of a conversation went.
+type ExportStats struct {
+	// Skipped counts entries that could not be read: lines that were not JSON,
+	// and entries too large to hold in memory.
+	Skipped int
+}
+
+// Follower reads a stored conversation as it grows: each Poll gives the events
+// written since the last. It is how a transcript is made, whether the
+// conversation is over and the transcript is exported, or still going and it is
+// being recorded; both go through the same Follower, which is what makes the
+// two the same.
+type Follower interface {
+	// Poll calls yield for each event written since the last Poll, in order,
+	// and stops at the first error yield returns. It returns ErrNoTranscript
+	// while there is nothing stored under the conversation's id.
+	Poll(yield func(ExportEvent) error) (ExportStats, error)
+}
+
+// Exporter is a Reader whose stored conversations can be followed. An agent
+// whose record nobody has written this for is not an Exporter, has no
+// transcript, and cannot be exported or recorded.
+type Exporter interface {
+	// Follow returns a Follower for a conversation, from its beginning. The
+	// conversation need not be stored yet.
+	Follow(spec agent.Spec, sessionID string) Follower
+	// Cwd is the working directory the stored conversation records, or "" if
+	// it is not stored or does not say.
+	Cwd(spec agent.Spec, sessionID string) string
+}
+
+// ExporterFor returns the exporter for an agent, and false for one whose
+// stored conversations cannot be followed.
+func ExporterFor(spec agent.Spec) (Exporter, bool) {
+	e, ok := For(spec).(Exporter)
+	return e, ok
+}

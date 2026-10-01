@@ -1,8 +1,19 @@
 # Pane recording: transcript format reference
 
-This is the reference for the files Flockdeck writes when a pane's **Record**
-toggle is on. For turning it on and what it is for, see *Recording a pane* in
-the in-app help (`F1`) or the README. This page is about the files.
+This is the reference for the transcript files Flockdeck writes: when a pane's
+**Record** toggle is on, and when a pane's transcript is exported with *Export
+transcript* or `flockdeck recordings export`. For turning it on and what it is
+for, see *Recording a pane* in the in-app help (`F1`) or the README. This page
+is about the files.
+
+**A transcript is made from the conversation the agent stored itself** (for
+Claude Code, `~/.claude/projects/<folder>/<conversation>.jsonl`), by one piece of
+code, whether the conversation is still going and the pane is being recorded, or
+is over and it is exported. A recording of a conversation and an export of it are
+therefore the same bytes (section 8). Anything the agent only tells Flockdeck
+while it runs, such as a permission dialog opening, is not in a transcript;
+earlier versions of Flockdeck wrote some of those lines, and the format keeps
+them so that those files are still readable (see *Lines earlier versions wrote*).
 
 The machine-readable definition is [`recording-line.schema.json`](recording-line.schema.json)
 (JSON Schema, draft 2020-12). A test validates lines the recorder really writes
@@ -14,7 +25,8 @@ Format version: **1**.
 ## 1. Where the files are
 
 ```text
-<state directory>/recordings/<project>-<hash>/<start>-<pane>.jsonl
+<state directory>/recordings/<project>-<hash>/<start>-<conversation>.jsonl
+<state directory>/recordings/<project>-<hash>/exports/<start>-<conversation>.jsonl
 ```
 
 - `<state directory>` is Flockdeck's per-user directory: `%AppData%\flockdeck`
@@ -25,29 +37,40 @@ Format version: **1**.
 - `<project>` is the project's name with anything outside `A-Za-z0-9._-` turned
   into `-` (at most 40 characters), and `<hash>` is eight hex digits of a hash of
   the project's directory, so two projects with one name get two folders.
-- `<start>` is the session's start, UTC, as `20261001T101530Z`, and `<pane>` is the
-  first eight characters of the pane's id. If that name is taken (recording
-  switched off and on within one second) `-2`, `-3` and so on is added.
+- `<start>` is the time of the conversation's first event, UTC, as
+  `20261001T101530Z`, and `<conversation>` is the first eight characters of the
+  conversation's id (the pane's id for a conversation that has not been told
+  apart from it). That name is the line's `session`.
+- A recording is in the project's folder, and an export, unless it was given a
+  path of its own, in its `exports` folder.
 - The folder is created `0700` and files `0600` (on Windows, with the user's own
   permissions only, as the rest of the state directory).
 
-**One file is one recording session**: from recording being turned on (or, for
-a pane left recording across a restart of Flockdeck, from its first event
-after the restart) until it is turned off, the pane is closed, the size cap is
-reached, or Flockdeck quits. A new session is a new file; files are never
-appended to after the session that wrote them ends.
+**One file is one conversation.** It is written from the conversation's first
+event: turning recording on for a pane whose conversation is already going writes
+what has been said so far, and then follows it. It ends when recording is turned
+off, the pane is closed, the size cap is reached, or the agent goes on in a new
+conversation (`/clear`), which starts a file of its own. A pane left recording
+across a restart of Flockdeck has the file written again from the conversation's
+beginning, which gives the same lines and the same name, so it is the same file
+and not another. A file is never added to once its transcript has ended, except
+by being made again.
 
-**There is no rotation.** A session file has a size cap of **16 MiB**. When the
-next line would pass it, the recorder writes one `recording_truncated` line, the
-file is closed, and the pane's recording is switched off (the window says so).
-Turning recording on again starts a new file.
+A pane whose agent stores no conversation Flockdeck can read has nothing to
+write: no file is made.
 
-**Retention** is applied to a project's folder each time a session starts in it:
-files with a modification time older than **30 days** are deleted; then, if more
-than **100** files or **256 MiB** remain, the oldest are deleted until neither is
-exceeded. The file just opened is never deleted, and files in the folder that
-do not end in `.jsonl` are left alone. Nothing else deletes recordings:
-delete the files you do not want kept.
+**There is no rotation.** A file has a size cap of **16 MiB**. When the next line
+would pass it, the writer ends the file with one `recording_truncated` line, and
+a recording is switched off (the window says so). An export is cut there too, and
+says so.
+
+**Retention** is applied to a project's folder each time a recording is made in
+it: files with a modification time older than **30 days** are deleted; then, if
+more than **100** files or **256 MiB** remain, the oldest are deleted until
+neither is exceeded. The file just opened is never deleted, and files in the
+folder that do not end in `.jsonl` are left alone. Exports are not counted, and
+making one deletes nothing. Nothing else deletes transcripts: delete the files
+you do not want kept.
 
 ## 2. The line format
 
@@ -78,9 +101,9 @@ Every line has these.
 | --- | --- | --- | --- |
 | `v` | integer | yes | Format version. `1`. |
 | `seq` | integer | yes | The line's number within its file: 1 for the first, then 2, 3, with no gaps. |
-| `time` | string | yes | When Flockdeck **wrote** the line, RFC 3339 in UTC with a `Z` and up to nanosecond precision (`2026-10-01T10:15:30.123456789Z`). It is the time the event reached Flockdeck, not the agent's own clock. |
-| `session` | string | yes | The session: the file's name without `.jsonl`. |
-| `pane` | string | yes | The pane's id, which is stable across restarts of the pane and of Flockdeck. |
+| `time` | string | yes | When the event **happened**, as the agent's own record has it: RFC 3339 in UTC with a `Z` and up to nanosecond precision (`2026-10-01T10:15:30.123456789Z`). It never goes back from one line to the next: an entry the agent's record has out of order is given the time of the one before. In files made by earlier versions it is the time Flockdeck wrote the line. |
+| `session` | string | yes | The transcript's id: `<start>-<conversation>` (section 1), which is the file's name without `.jsonl` where Flockdeck named it. The same wherever the file is put. |
+| `pane` | string | yes | The pane's id, which is stable across restarts of the pane and of Flockdeck. For an export of a conversation no pane was found for, the conversation's id. |
 | `paneName` | string | no | The pane's display name at the time of the line. |
 | `project` | string | no | The project's name (the last element of its directory). |
 | `agent` | string | no | The agent's id (`claude`, `codex`, ...) as `flockdeck agents` lists it. |
@@ -101,26 +124,26 @@ optional unless it says required.
 
 #### `recording_started`
 
-First line of every file.
+First line of every file, at the time of the conversation's first event.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `text` | string | yes | Why: `turned on`, or `resumed` for a pane that was left recording when Flockdeck last quit. |
+| `text` | string | yes | `start of the transcript`. It says nothing of how the transcript was made, which is the same however it was. Files of earlier versions have `turned on` or `resumed` here. |
 
 ```json
-{"v":1,"seq":1,"time":"2026-10-01T10:15:30.1Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","paneName":"api","project":"shop","agent":"claude","model":"opus","type":"recording_started","text":"turned on"}
+{"v":1,"seq":1,"time":"2026-10-01T10:15:30.1Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","paneName":"api","project":"shop","agent":"claude","model":"opus","type":"recording_started","text":"start of the transcript"}
 ```
 
 #### `recording_stopped`
 
-Last line of a file that was ended deliberately.
+Last line of a file that was ended deliberately, at the time of the last event.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `text` | string | yes | `turned off` or `the pane was closed`. |
+| `text` | string | yes | `end of the transcript`. Files of earlier versions have `turned off` or `the pane was closed`. |
 
 ```json
-{"v":1,"seq":41,"time":"2026-10-01T10:31:02.8Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","paneName":"api","project":"shop","agent":"claude","model":"opus","type":"recording_stopped","text":"turned off"}
+{"v":1,"seq":41,"time":"2026-10-01T10:31:02.8Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","paneName":"api","project":"shop","agent":"claude","model":"opus","type":"recording_stopped","text":"end of the transcript"}
 ```
 
 #### `recording_truncated`
@@ -133,13 +156,13 @@ after it.
 | `text` | string | yes | What happened, in words. |
 
 ```json
-{"v":1,"seq":9120,"time":"2026-10-01T11:02:44.0Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"recording_truncated","text":"the recording reached its size cap of 16 MiB and ended here"}
+{"v":1,"seq":9120,"time":"2026-10-01T11:02:44.0Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"recording_truncated","text":"the transcript reached its size cap of 16 MiB and ended here"}
 ```
 
 #### `session`
 
-The agent's own session starting or ending (Claude Code's `SessionStart` and
-`SessionEnd`).
+**No longer written** (see *Lines earlier versions wrote*). The agent's own
+session starting or ending (Claude Code's `SessionStart` and `SessionEnd`).
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -152,9 +175,12 @@ The agent's own session starting or ending (Claude Code's `SessionStart` and
 
 #### `user_prompt`
 
-What the user submitted. A message Claude Code submits on the user's behalf,
-such as a `<task-notification>` about a finished background task, is recorded
-the same way: it is a prompt as far as the agent can tell.
+What the user typed. The entries Claude Code writes into the conversation for
+itself are not prompts and are left out: a slash command and its output, an
+injected `<system-reminder>`, a background task's `<task-notification>`, the
+note a conversation continued from a summary opens with, "Request interrupted by
+user". (Files of earlier versions, written from the agent's live events, hold
+some of these, since the agent counts them as prompts.)
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -166,14 +192,16 @@ the same way: it is a prompt as far as the agent can tell.
 
 #### `assistant_message`
 
-The agent's message at the end of a turn (a `Stop`, `SubagentStop` or
-`StopFailure` event that carries one). It is **not** every message the agent
-wrote: see section 5.
+A message the agent said: **every** text message in the conversation, including
+the ones between tool calls ("Let me look at the client first"), in order. A
+message that came with tool calls is written before them. (Files of earlier
+versions have only the last message of each turn, since that was all the agent
+reported while it ran.)
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `text` | string | yes | The message. Cut at 32 KiB. |
-| `reason` | string | no | `the turn ended on an error` where the event was a `StopFailure`. |
+| `reason` | string | no | Only in files of earlier versions: `the turn ended on an error`. |
 
 ```json
 {"v":1,"seq":19,"time":"2026-10-01T10:16:55.9Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","type":"assistant_message","text":"All 212 tests pass."}
@@ -201,9 +229,9 @@ A tool finishing, or failing.
 | --- | --- | --- | --- |
 | `tool` | string | yes | The tool's name. |
 | `toolUseId` | string | no | The id of the call it answers. |
-| `output` | string | no | What the tool returned. A structured response is written as compact JSON text. Cut at 8 KiB. For a failure, the error. |
+| `output` | string | no | What the tool returned. The tool's own structured result, where the agent stored one, is written as compact JSON text (keys in sorted order); otherwise the text the agent was shown. Cut at 8 KiB. For a failure, the error. |
 | `isError` | boolean | no | `true` if the tool failed. |
-| `interrupted` | boolean | no | `true` if it failed because the user stopped it. Always with `isError`. |
+| `interrupted` | boolean | no | `true` if it failed because the user stopped it (the error says so). Always with `isError`. |
 
 ```json
 {"v":1,"seq":5,"time":"2026-10-01T10:15:58.4Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","type":"tool_result","tool":"Bash","toolUseId":"toolu_01","output":"ok  \tshop/api\t0.412s"}
@@ -211,7 +239,8 @@ A tool finishing, or failing.
 
 #### `permission_prompt`
 
-A permission dialog opening for a tool (Claude Code's `PermissionRequest`).
+**No longer written.** A permission dialog opening for a tool (Claude Code's
+`PermissionRequest`).
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -225,7 +254,7 @@ A permission dialog opening for a tool (Claude Code's `PermissionRequest`).
 
 #### `permission_outcome`
 
-How a permission question was answered.
+**No longer written.** How a permission question was answered.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -250,7 +279,7 @@ itself and is not inferred. A `denied` that Claude Code reports through its
 
 #### `status`
 
-The pane's status changing as a result of an agent event.
+**No longer written.** The pane's status changing as a result of an agent event.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -262,8 +291,22 @@ The pane's status changing as a result of an agent event.
 {"v":1,"seq":8,"time":"2026-10-01T10:16:03.5Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","type":"status","status":"working","previous":"waiting","detail":"Bash"}
 ```
 
-Only changes that an agent event causes are recorded. A pane going quiet on a
-timer, or its process ending, changes the status without a line.
+The agent's stored conversation does not say when a pane went working, waiting
+or idle, so a transcript made from it has no `status` lines.
+
+### Lines earlier versions wrote
+
+Versions of Flockdeck before the one that made transcripts from the agent's
+stored conversation wrote a recording from the events the agent reported to it
+while it ran. Those files are still format 1 and are still valid: they have
+`session`, `permission_prompt`, `permission_outcome` and `status` lines, the
+last assistant message of each turn only, `time` as the time Flockdeck wrote the
+line, and `turned on` / `turned off` / `resumed` in their first and last lines.
+The schema and this page keep describing all of them, marked *no longer
+written*. Removing the writing of a line type does not change the meaning of any
+field or type, which is the only thing that changes `v`, and a reader that
+follows section 2 already skips a type it does not see. A consumer should not
+rely on any of those four types being present.
 
 ## 4. Redaction and clipping
 
@@ -359,57 +402,69 @@ before the recorder sees them, using the same marker: where it did, `clipped`
 still gives the original length for `text`, `output`, `detail` and `reason`,
 and for `input` it is the length received, so a lower bound.
 
-## 5. What each agent reports
+## 5. Which agents have a transcript
 
-The recorder is fed by the events an agent reports to Flockdeck (`internal/hooks`),
-not by reading the screen. What an agent can put in a recording is therefore what
-it reports, and this is what was checked in the code:
+A transcript is made from what an agent stored, so what an agent can put in one
+is what it stores, in a form Flockdeck can read. This is what was checked in the
+code (`internal/session/transcript`):
 
-| Agent | Reports events? | What a recording holds |
+| Agent | Stores a conversation Flockdeck can read? | What a transcript holds |
 | --- | --- | --- |
-| **Claude Code** | Yes, by command hooks | Everything in section 3. Gaps below. |
-| **Claude API**, **OpenAI API** (and the other built-in chat client agents: Gemini API, OpenAI-compatible endpoints) | Yes: Flockdeck's own chat client reports through the same hook protocol | `session`, `user_prompt` (text), `tool_call` and `tool_result` with the tool's **name only** (no input, output or ids), `status`. When a tool asks permission it reports a notification, which is not recorded, so there are no `permission_*` lines. No `assistant_message`: its stop event carries no message. |
-| **Codex**, **Gemini CLI**, **Aider**, **opencode**, **Cursor Agent** | No: Flockdeck has no hook for them, and infers their status from the terminal | `recording_started` and `recording_stopped` only. Their status is read off the screen, not from events, so it is not recorded either. |
+| **Claude Code** | Yes: `<claude home>/projects/<folder>/<conversation>.jsonl`, under `CLAUDE_CONFIG_DIR` if the agent's catalog entry sets it | Everything in section 3 that is not marked *no longer written*. Gaps below. |
+| **Claude API**, **OpenAI API** (and the other built-in chat client agents) | Flockdeck's own chat client keeps its conversations itself, but no transcript can be made from them yet | Nothing: recording and export say so, and write no file. |
+| **Codex**, **Gemini CLI**, **Aider**, **opencode**, **Cursor Agent** | No: nothing Flockdeck has a reader for | Nothing: recording and export say so, and write no file. |
+
+An agent with no readable conversation can still have its pane's recording
+switched on; it records nothing, and Flockdeck says so when it is switched on.
 
 For Claude Code the known gaps are:
 
-- **Only the final assistant message of a turn.** The messages written between
-  tool calls have no hook. A Claude Code that predates `last_assistant_message` on its
-  stop event gives none.
-- **Permission outcomes are inferred**, as described under `permission_outcome`.
-- **A `tool_result` may be missing** for a call whose process was killed before
-  its hook could report.
-- **Subagents**: a subagent's tool calls and its final message are recorded
-  with `subagent` set; its own prompt and the messages in between are not.
-- **Notifications** (the idle nudge, "Claude needs your attention") are not
-  recorded as such; they show up as `status` changes.
-- **Thinking** is not reported and is not recorded.
+- **No permission dialogs, status or session lines**: the stored conversation
+  has no record of them. A tool the user refused has an error `tool_result`;
+  one that ran has a result; nothing says a dialog was shown in between.
+- **Subagents** (Claude Code's `isSidechain` entries) are left out, so there are
+  no lines with `subagent` set. Their result to the main agent is in the main
+  agent's tool results.
+- **An entry over 8 MiB** (a pasted screenshot, a very large tool result) is
+  stepped over and left out, and so is a line that is not JSON. A `tool_call`
+  may therefore have no `tool_result`.
+- **Thinking** is not recorded.
+- **Prompts are only what the user typed**, as described under `user_prompt`.
+- **Images** in a prompt are not in it: only the text blocks are.
+- **A conversation Claude Code has deleted** (it removes old ones) cannot be
+  exported or recorded from. A recording already made is kept.
 
-Nothing is claimed here about what the other agents *could* report with a
-different integration; if one gains hooks, this table gets a row.
+Nothing is claimed here about what the other agents *could* store; if one gains a
+reader, this table gets a row.
 
 ## 6. Ordering, delivery and crashes
 
-- **Order**: lines are in the order Flockdeck handled the events, and `seq`
-  is the order of writing. Hooks run as separate short-lived processes, so two
-  events that fire within a few milliseconds of each other can arrive in the
-  opposite order to the one the agent fired them in. `time` is when
-  Flockdeck wrote the line.
-- **Delivery is best effort and at most once.** An event whose hook could not
-  reach Flockdeck (it gives up after three seconds) is not recorded and
-  nothing marks the gap, so a `tool_call` may have no `tool_result`. Use
-  `toolUseId` to pair them and treat a missing one as normal.
+- **Order**: lines are in the order the agent's record has the events, and
+  `seq` is the order of writing. `time` does not go back (section 3). Where
+  one message of the agent holds words and tool calls, the words come first.
+- **A transcript is a function of the stored conversation** (and of the pane's
+  name, project, agent and model, which are in every line): the same
+  conversation gives the same bytes, however it was made. A recording is written
+  as the agent's file grows, a piece at a time, and only whole lines are read; the
+  last line of the file, if it has no line break yet, is read once it is
+  complete JSON. Recording lags the agent by a moment: Flockdeck looks at the
+  agent's record when the agent reports an event, and again shortly after.
+- **Delivery**: nothing is lost between the agent's record and the transcript
+  except what section 5 lists. A `tool_call` whose process was killed has no
+  `tool_result`; use `toolUseId` to pair them and treat a missing one as normal.
 - **No gaps in `seq`** within a file: a missing number means the file was edited.
 - **Durability**: each line is a single write to the file, with no `fsync`.
   A crash of Flockdeck loses nothing already written, because the operating
   system holds it; a power loss or a kernel crash can lose the most recent lines.
 - **How an unclean end shows**: a file whose last line is neither
-  `recording_stopped` nor `recording_truncated` was not ended by the recorder:
+  `recording_stopped` nor `recording_truncated` was not ended by the writer:
   Flockdeck quit (quitting is not turning recording off, so the pane is
-  recording again at the next start, in a new file) or crashed. The last line
-  may be cut off mid-object; ignore it if it does not parse. The pane's
-  recording continues in a *new* file, whose `recording_started` says `resumed`.
-- **Redaction cannot be undone**: the original text is not kept anywhere.
+  recording again at the next start, and the file is written again in full,
+  complete) or crashed. The last line may be cut off mid-object; ignore it if it
+  does not parse.
+- **Redaction cannot be undone**: the original text is not kept in the
+  transcript. (It is in the agent's own stored conversation, which Flockdeck
+  does not change.)
 
 ### Compatibility policy
 
@@ -422,6 +477,13 @@ different integration; if one gains hooks, this table gets a row.
 - Event types are never reused with a different meaning.
 - A new version's release notes say so, and this page and the schema are updated in
   the same change as the code (the build checks the schema against the code).
+- Stopping writing a line type is not a change to `v`: its definition stays here
+  and in the schema, marked *no longer written*, so files already made are still
+  described. The change to make transcripts from the agent's stored conversation
+  stopped writing `session`, `permission_prompt`, `permission_outcome` and
+  `status`, and changed what `time` and the first and last lines' `text` say;
+  none of that is a field changing meaning in a way a reader following section 2
+  would misread, and `v` stays `1`.
 
 ## 7. Reading a transcript
 
@@ -447,14 +509,15 @@ jq -sr '
 ' session.jsonl
 ```
 
-Permission prompts and what happened to them:
+Permission prompts and what happened to them (only in files made by earlier
+versions; a current transcript has none):
 
 ```sh
 jq -r 'select(.type == "permission_outcome")
        | "\(.time)  \(.tool)  \(.outcome)\(if .inferred then " (inferred)" else "" end)"' session.jsonl
 ```
 
-How long the pane spent in each status, in order:
+How long the pane spent in each status, in order (earlier versions' files only):
 
 ```sh
 jq -r 'select(.type == "status") | "\(.time)  \(.previous // "-") -> \(.status)"' session.jsonl
@@ -488,3 +551,35 @@ with open("session.jsonl", encoding="utf-8") as f:
         if event["type"] == "user_prompt":
             print(event["time"], event["text"])
 ```
+
+## 8. Recording and exporting give the same file
+
+*Export transcript* in the window (the command palette and the pane's header)
+and `flockdeck recordings export <pane-or-conversation-id> [-o file]` write the
+conversation an agent has stored, whether or not the pane was ever recorded. They
+go through the same writer as a recording, so redaction and clipping (section 4),
+the withholding of what a secret file held, and the 16 MiB cap are the same, and
+so are the lines: **an export of a conversation is byte for byte what a
+recording of it from the start would be**, given the same pane name, project,
+agent and model. A test holds the two together by making one transcript both
+ways, the recording from a conversation's file as it grows in awkward pieces.
+
+An export differs from a recording only in where it goes and how it is asked
+for:
+
+- **Where.** By default, the `exports` folder of the project's folder (section
+  1); made again if it is exported again. With `-o`, a file of your own, which
+  must not exist, and must not be inside the pane's project or any git
+  repository: a transcript can hold secrets, and is never written into a
+  project. Files are `0600`.
+- **Without a pane.** `export` takes a pane's id as the saved layouts hold it, or
+  a Claude Code conversation's id. For the second the line's `pane` is the
+  conversation's id and the project is the directory the conversation recorded.
+- **It says what it did.** How many lines, and how many entries of the
+  conversation could not be read; whether it was cut at the size cap.
+- **Nothing for an agent with nothing stored.** The command and the window say
+  that the agent stores no conversation Flockdeck can read, and write nothing.
+- **It can contain secrets.** Redaction is best effort (section 4); the window
+  says so every time, and the command after it has run.
+
+Retention (section 1) does not touch exports and an export deletes nothing.

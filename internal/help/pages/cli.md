@@ -16,6 +16,7 @@ switched from inside the window. These are what is left.
 | `flockdeck -solo` | Start a separate instance instead of attaching |
 | `flockdeck -version` | Print the version |
 | `flockdeck recordings` | List the transcripts panes have recorded, newest first; `-dir` prints the folder, `-json` prints one JSON object per recording |
+| `flockdeck recordings export` | Write an agent's stored conversation as a transcript, whether or not the pane was recorded; `-o` chooses the file |
 | `flockdeck agents` | List the agents and models that `-agent` and `spawn` accept, and which are installed here |
 | `flockdeck help` | Print the usage; `flockdeck help spawn` (or any subcommand below) prints that subcommand's usage instead |
 
@@ -121,6 +122,27 @@ script. It reads the state directory, so it works with no Flockdeck running, and
 from any terminal. Nothing is recorded unless a pane's Record toggle is on:
 see [Recording a pane](#recording), which links the format reference for the
 files it lists.
+
+### recordings export
+
+```sh
+flockdeck recordings export [-o file] <pane-id | conversation-id>
+```
+
+Writes the whole conversation an agent has stored as a transcript in the same
+format, **whether or not the pane was ever recorded**; a recording and an export
+of one conversation are the same lines. The id is a pane's, as the saved layouts
+hold it, or a Claude Code conversation's (its file's name under
+`~/.claude/projects`). By default the file goes in the `exports` folder of the
+project's folder under the recordings folder; `-o` names a file of your own,
+which must not exist and must not be inside the project or a git repository.
+It is written readable by you only.
+
+It prints how many lines it wrote, and how many entries it could not read. For
+an agent that stores no conversation Flockdeck can read (anything but Claude
+Code today) it says so, and writes nothing. The transcript can contain secrets:
+common ones are removed, but that is best effort. It works with no Flockdeck
+running.
 
 ## keys
 

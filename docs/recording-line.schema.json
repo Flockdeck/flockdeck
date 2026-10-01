@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Flockdeck recording line, format version 1",
-  "description": "One line of a Flockdeck pane recording (JSON Lines). Consumers must ignore fields and line types they do not know, so additionalProperties is true. See docs/recording-format.md.",
+  "description": "One line of a Flockdeck pane transcript (JSON Lines), made from the conversation the agent stored, whether recorded as it went on or exported afterwards. Consumers must ignore fields and line types they do not know, so additionalProperties is true. See docs/recording-format.md.",
   "type": "object",
   "required": ["v", "seq", "time", "session", "pane", "type"],
   "properties": {
     "v": { "type": "integer", "const": 1, "description": "Format version. Changes only when a field changes meaning." },
     "seq": { "type": "integer", "minimum": 1, "description": "Line number within the session file, from 1, with no gaps." },
-    "time": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$", "description": "When Flockdeck wrote the line: RFC 3339, UTC, nanosecond precision." },
-    "session": { "type": "string", "minLength": 1, "description": "The session file's name without extension." },
+    "time": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$", "description": "When the event happened, as the agent's own record has it (in files of earlier versions, when Flockdeck wrote the line): RFC 3339, UTC, nanosecond precision. Does not go back from one line to the next." },
+    "session": { "type": "string", "minLength": 1, "description": "The transcript's id, <start>-<conversation>: the file's name without extension where Flockdeck named it." },
     "pane": { "type": "string", "minLength": 1, "description": "The pane's id." },
     "paneName": { "type": "string" },
     "project": { "type": "string" },
@@ -17,6 +17,7 @@
     "conversation": { "type": "string", "description": "The agent's own conversation id; changes after /clear." },
     "type": {
       "type": "string",
+      "description": "The event type. session, permission_prompt, permission_outcome and status are no longer written, since a transcript is made from the agent's stored conversation, which has no record of them; files of earlier versions still have them.",
       "enum": [
         "recording_started", "recording_stopped", "recording_truncated", "session",
         "user_prompt", "assistant_message", "tool_call", "tool_result",
@@ -34,7 +35,7 @@
     "outcome": { "type": "string", "enum": ["allowed", "denied", "abandoned", "auto_approved"] },
     "inferred": { "type": "boolean" },
     "reason": { "type": "string" },
-    "source": { "type": "string" },
+    "source": { "type": "string", "description": "On a session line (no longer written), why the session began." },
     "status": { "type": "string" },
     "previous": { "type": "string" },
     "detail": { "type": "string" },

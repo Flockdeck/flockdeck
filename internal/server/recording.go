@@ -2,8 +2,10 @@ package server
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/jmwri/flockdeck/internal/appwindow"
+	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/store"
 )
 
@@ -58,8 +60,67 @@ func (s *Server) recordPane(c *controlClient, cmd command) {
 	case !r.found:
 		c.notify("Only an agent pane can be recorded, and that pane is not one or is no longer open", true)
 	case cmd.Recording:
-		c.notify("Recording this pane. Transcripts are saved on this machine", false)
+		if name, ok := paneTranscriptSupported(s, cmd.ID); !ok {
+			c.notify(name+" stores no conversation Flockdeck can read, so this pane's recording will be empty", true)
+			return
+		}
+		c.notify("Recording this pane, from the start of its conversation. Transcripts are saved on this machine", false)
 	}
+}
+
+// paneTranscriptSupported says whether the pane's agent stores a conversation a
+// transcript can be made from, and the agent's name.
+func paneTranscriptSupported(s *Server, id string) (string, bool) {
+	type result struct {
+		name string
+		ok   bool
+	}
+	r, _ := ask(s, func() result {
+		name, ok := s.ws.PaneTranscriptSupported(paneIDFor(s.ws, id))
+		if name == "" {
+			name = "That agent"
+		}
+		return result{name, ok}
+	})
+	return r.name, r.ok
+}
+
+// exportConfirmNotice answers an exportTranscript command the window did not
+// confirm: the window asks before sending one, so this is only a client that
+// did not.
+const exportConfirmNotice = "Exporting writes the pane's whole stored conversation to a file, including anything secret in it. Export from the window to read what it keeps first"
+
+// exportTranscript writes the conversation a pane's agent stored as a
+// transcript file, whether or not the pane is being recorded. Unlike turning
+// recording on it is put to the user every time, and arrives confirmed.
+func (s *Server) exportTranscript(c *controlClient, cmd command) {
+	if !cmd.Confirmed {
+		c.notify(exportConfirmNotice, true)
+		return
+	}
+	type result struct {
+		res record.ExportResult
+		err error
+	}
+	r, ok := ask(s, func() result {
+		res, err := s.ws.ExportTranscript(paneIDFor(s.ws, cmd.ID), "")
+		return result{res, err}
+	})
+	if !ok {
+		return
+	}
+	if r.err != nil {
+		c.notify("Could not export the transcript: "+r.err.Error(), true)
+		return
+	}
+	msg := fmt.Sprintf("Exported %d lines to %s. It may contain secrets", r.res.Lines, r.res.Path)
+	if r.res.Full {
+		msg += ", and it was cut at its size cap"
+	}
+	if r.res.Skipped > 0 {
+		msg += fmt.Sprintf("; %d entries could not be read and are left out", r.res.Skipped)
+	}
+	c.notify(msg, false)
 }
 
 // openRecordings shows the recordings folder in the machine's file manager.

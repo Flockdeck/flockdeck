@@ -120,7 +120,8 @@
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
     zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back. Double-clicking the pane's header does the same.",
     close:       "Closes this pane and stops the process running in it.",
-    record:      "Records this pane's agent interaction -- your prompts, the agent's messages, the tools it runs and what they print, permission prompts and status changes -- as a transcript file on this machine. Off by default, and secrets are removed on a best-effort basis only. Recordings are kept for 30 days. Open them with Open recordings folder in the command palette.",
+    record:      "Records this pane's agent interaction -- your prompts, the agent's messages, and the tools it runs and what they print -- as a transcript file on this machine, built from the conversation the agent itself stores and starting from the beginning of it. Off by default, and secrets are removed on a best-effort basis only. Recordings are kept for 30 days. Open them with Open recordings folder in the command palette.",
+    exportTranscript: "Writes this pane's whole stored conversation to a transcript file on this machine, in the same format as a recording, whether or not recording is on. It can contain secrets: they are removed on a best-effort basis only. Agents that store no conversation Flockdeck can read have nothing to export.",
     lock:        "Locks this pane so it can't be closed: not by the close shortcut, its close button, its tab, Close finished panes or an agent's flockdeck close. Restarting it still works, and it stays locked across restarts of Flockdeck and when you move it to another tab.",
     autoReview:  "Lets a confident, read-only command through without asking, instead of stopping for a permission prompt. It only ever says yes: anything it is not sure of still asks, exactly as before. Off by default; a pane this one starts, by fan-out or by its own spawning, starts with the same setting this pane has.",
     usage:       "What this pane is costing the machine: processor share averaged over the last few readings, and memory, across the agent's process and everything it has started.",
@@ -3041,6 +3042,9 @@
       const v = state && state.panes && state.panes[id];
       setRecording(id, !(v && v.recording));
     });
+    // Works whether or not the pane is recording, and is hidden for a shell,
+    // which has no conversation. renderPaneRecording keeps it so.
+    const exportBtn = btn("⤓", TIPS.exportTranscript, () => exportTranscript(id));
     const castBtn = btn("⇉", "Adds this pane to the broadcast set, or takes it out again. " + TIPS.broadcast,
       () => send({ cmd: "toggleBroadcastMember", id }));
     const zoomBtn = btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id }));
@@ -3055,6 +3059,7 @@
       reviewBtn,
       btn("⟳", TIPS.restart, () => send({ cmd: "restartPane", id })),
       zoomBtn,
+      exportBtn,
       recBtn,
       lockBtn,
       closeBtn,
@@ -3162,7 +3167,7 @@
     // see drawWithWebgl.
 
     p = { id, wrap, header, dot, name, project, branch, agent, peerName, remote, git, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, recBtn, recMark, search, dropZone,
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, recBtn, exportBtn, recMark, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
           shown: {} };
@@ -4153,6 +4158,7 @@
    *  is hidden. See Pane.Recording. */
   function renderPaneRecording(p, on, shell) {
     p.recBtn.hidden = shell;
+    p.exportBtn.hidden = shell;
     p.recMark.hidden = !on;
     p.recMark.textContent = on ? "● Recording" : "";
     if (on) describe(p.recMark, "Recording - this pane's agent interaction is being saved as a transcript on this machine. Secrets are removed on a best-effort basis only.");
@@ -4174,7 +4180,8 @@
     }
     confirmDialog({
       title: "Record this pane's agent interaction?",
-      body: "Flockdeck will save your prompts, the agent's messages, the tools it runs and what they print, to a file on this machine until you stop. " +
+      body: "Flockdeck will write a transcript of this pane's conversation to a file on this machine: your prompts, the agent's messages, and the tools it runs and what they print, from the start of the conversation and as it goes on, until you stop. " +
+        "It is made from the conversation the agent stores itself, so an agent that stores none has nothing to record. " +
         "It can contain secrets. Flockdeck removes common ones and clips very long output, but that is best effort and not a guarantee. " +
         "Nothing is written into your project and nothing leaves this machine. Recordings are deleted after 30 days.",
       action: "Start recording",
@@ -4182,6 +4189,20 @@
       if (prefs) prefs.recordingAcknowledged = true;
       send({ cmd: "recordPane", id, recording: true, confirmed: true });
     });
+  }
+
+  /** exportTranscript writes a pane's whole stored conversation to a file in
+   *  the recording format. It is asked about every time, not once like turning
+   *  recording on: what is written, that it may contain secrets, where it goes.
+   *  The server asks for the answer too (confirmed). */
+  function exportTranscript(id) {
+    confirmDialog({
+      title: "Export this pane's transcript?",
+      body: "Flockdeck will write the whole conversation this pane's agent has stored -- your prompts, the agent's messages, and the tools it runs and what they print -- to a file on this machine, in the same format as a recording. It works whether or not recording is on. " +
+        "It can contain secrets. Flockdeck removes common ones and clips very long output, but that is best effort and not a guarantee. " +
+        "Nothing is written into your project and nothing leaves this machine. An agent that stores no conversation Flockdeck can read has nothing to export, and nothing is written.",
+      action: "Export transcript",
+    }, () => send({ cmd: "exportTranscript", id, confirmed: true }));
   }
 
   /** renderPaneProject names the pane's own project, and is empty for the
@@ -7411,6 +7432,11 @@
       const v = id && state && state.panes && state.panes[id];
       if (v && v.kind !== "shell") setRecording(id, !v.recording);
     },
+    exportTranscript: () => {
+      const id = focusedPaneId();
+      const v = id && state && state.panes && state.panes[id];
+      if (v && v.kind !== "shell") exportTranscript(id);
+    },
     openRecordings: () => send({ cmd: "openRecordings" }),
     lockPane: () => {
       const id = focusedPaneId();
@@ -7677,7 +7703,7 @@
     // somebody looking for one types - it matched none of them.
     const SETTING = "settings preferences options";
     const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
-    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "recordPane" || id === "openRecordings" ? "record recording transcript log" : "";
+    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" ? "record recording transcript log export save" : "";
     // What a setting is now, beside the command that changes it: choosing a
     // scrollback or a font meant opening the question to find out.
     const value = {

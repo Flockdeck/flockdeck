@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/record/schemacheck"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
 const schemaPath = "../../docs/recording-line.schema.json"
@@ -39,26 +40,26 @@ func rawLines(t *testing.T, path string) [][]byte {
 	return out
 }
 
+// writtenTypes are the line types this version writes. The others are still in
+// the schema, because files made by earlier versions have them and are still
+// format 1.
+var writtenTypes = []string{TypeStarted, TypeStopped, TypeTruncated, TypePrompt, TypeAssistant, TypeToolCall, TypeToolResult}
+
 // Every line the recorder can write, of every type and with clipping and
 // redaction in play, validates against the published schema.
 func TestEmittedLinesMatchThePublishedSchema(t *testing.T) {
 	schema := loadSchema(t)
 	m, _ := newTestManager(t)
-	path, _ := m.Start(testMeta, "turned on")
-	m.Record(testMeta, Entry{Type: TypeSession, Source: "startup", Text: "start"})
-	m.Record(testMeta, Entry{Type: TypePrompt, Text: "use ghp_" + strings.Repeat("b", 36)})
-	m.Record(testMeta, Entry{Type: TypeToolCall, Tool: "Bash", ToolUseID: "t1", Subagent: "sub-1", Input: map[string]any{"command": strings.Repeat("a", MaxFieldBytes*2)}})
-	m.Record(testMeta, Entry{Type: TypePermission, Tool: "Bash", ToolUseID: "t1"})
-	m.Record(testMeta, Entry{Type: TypeToolResult, Tool: "Bash", ToolUseID: "t1", Output: strings.Repeat("o", MaxFieldBytes*2)})
-	m.Record(testMeta, Entry{Type: TypeToolCall, Tool: "Read", ToolUseID: "t2", Input: map[string]any{"file_path": ".env"}})
-	m.Record(testMeta, Entry{Type: TypeToolResult, Tool: "Read", ToolUseID: "t2", Output: "SECRET=1"})
-	m.Record(testMeta, Entry{Type: TypeToolResult, Tool: "Bash", IsError: true, Interrupted: true, Output: "stopped"})
-	m.Record(testMeta, Entry{Type: TypePermission, Tool: "Edit"})
-	m.Record(testMeta, Entry{Type: TypePrompt, Text: "never mind"})
-	m.Record(testMeta, Entry{Type: TypeOutcome, Tool: "Bash", Outcome: OutcomeAutoApproved, Reason: "read-only"})
-	m.Record(testMeta, Entry{Type: TypeAssistant, Text: "Done."})
-	m.Record(testMeta, Entry{Type: TypeStatus, Status: "idle", Previous: "working", Detail: "turn over"})
-	m.Stop(testMeta, "turned off")
+	f := newFeed(t, m)
+	f.prompt("use ghp_" + strings.Repeat("b", 36))
+	f.call("Bash", "t1", map[string]any{"command": strings.Repeat("a", MaxFieldBytes*2)})
+	f.result("Bash", "t1", strings.Repeat("o", MaxFieldBytes*2))
+	f.call("Read", "t2", map[string]any{"file_path": ".env"})
+	f.result("Read", "t2", "SECRET=1")
+	f.must(transcript.ExportEvent{Kind: transcript.ExportToolResult, Tool: "Bash", IsError: true, Interrupted: true, Output: "stopped"})
+	f.say("Done.")
+	path := f.path()
+	f.finish()
 
 	seen := map[string]bool{}
 	var seq int64
@@ -76,9 +77,27 @@ func TestEmittedLinesMatchThePublishedSchema(t *testing.T) {
 		}
 		seq = e.Seq
 	}
-	for _, ty := range allTypes {
+	for _, ty := range writtenTypes {
 		if ty != TypeTruncated && !seen[ty] {
 			t.Errorf("the test never emitted a %s line", ty)
+		}
+	}
+}
+
+// Lines an earlier version wrote -- from the agent's hooks, with status and
+// permission lines -- are still format 1 and still match.
+func TestLinesOfEarlierVersionsMatchThePublishedSchema(t *testing.T) {
+	schema := loadSchema(t)
+	for _, line := range []string{
+		`{"v":1,"seq":1,"time":"2026-10-01T10:15:30.1Z","session":"20261001T101530Z-0123abcd","pane":"p","type":"recording_started","text":"turned on"}`,
+		`{"v":1,"seq":2,"time":"2026-10-01T10:15:31.0Z","session":"s","pane":"p","type":"session","source":"startup","text":"start"}`,
+		`{"v":1,"seq":3,"time":"2026-10-01T10:15:31.0Z","session":"s","pane":"p","type":"permission_prompt","tool":"Bash","toolUseId":"t1","subagent":"sub-1","input":{"command":"ls"}}`,
+		`{"v":1,"seq":4,"time":"2026-10-01T10:15:31.0Z","session":"s","pane":"p","type":"permission_outcome","tool":"Bash","outcome":"allowed","inferred":true}`,
+		`{"v":1,"seq":5,"time":"2026-10-01T10:15:31.0Z","session":"s","pane":"p","type":"status","status":"idle","previous":"working","detail":"turn over"}`,
+		`{"v":1,"seq":6,"time":"2026-10-01T10:31:02.8Z","session":"s","pane":"p","type":"recording_stopped","text":"turned off"}`,
+	} {
+		if errs := schema.Validate([]byte(line)); len(errs) != 0 {
+			t.Errorf("%v: %s", errs, line)
 		}
 	}
 }
@@ -87,10 +106,11 @@ func TestTruncatedLineMatchesTheSchema(t *testing.T) {
 	schema := loadSchema(t)
 	m, _ := newTestManager(t)
 	m.max = 1 << 10
-	path, _ := m.Start(testMeta, "turned on")
+	f := newFeed(t, m)
 	for i := 0; i < 50; i++ {
-		m.Record(testMeta, Entry{Type: TypeAssistant, Text: strings.Repeat("z", 100)})
+		_ = f.send(transcript.ExportEvent{Kind: transcript.ExportMessage, Text: strings.Repeat("z", 100)})
 	}
+	path := f.path()
 	lines := rawLines(t, path)
 	last := lines[len(lines)-1]
 	if !strings.Contains(string(last), TypeTruncated) {
@@ -105,12 +125,13 @@ func TestTruncatedLineMatchesTheSchema(t *testing.T) {
 
 func TestClippingAndRedactionAreFlagged(t *testing.T) {
 	m, _ := newTestManager(t)
-	path, _ := m.Start(testMeta, "turned on")
-	m.Record(testMeta, Entry{Type: TypeToolResult, Tool: "Bash", Output: strings.Repeat("x", MaxFieldBytes+500) + " password=hunter2"})
-	// Already clipped by the hook, which leaves only its marker.
-	m.Record(testMeta, Entry{Type: TypeToolResult, Tool: "Bash", Output: "head…[clipped 1000 bytes]"})
-	m.Record(testMeta, Entry{Type: TypeToolResult, Tool: "Bash", Output: "small"})
-	m.Stop(testMeta, "turned off")
+	f := newFeed(t, m)
+	f.result("Bash", "", strings.Repeat("x", MaxFieldBytes+500)+" password=hunter2")
+	// Already clipped by something earlier, which leaves only its marker.
+	f.result("Bash", "", "head…[clipped 1000 bytes]")
+	f.result("Bash", "", "small")
+	path := f.path()
+	f.finish()
 	var es []Entry
 	for _, l := range rawLines(t, path) {
 		var e Entry
@@ -122,7 +143,7 @@ func TestClippingAndRedactionAreFlagged(t *testing.T) {
 		t.Errorf("redacted+clipped line: redacted=%v clipped=%v", a.Redacted, a.Clipped)
 	}
 	if b.Clipped["output"] != len("head")+1000 || b.Redacted {
-		t.Errorf("hook-clipped line: redacted=%v clipped=%v", b.Redacted, b.Clipped)
+		t.Errorf("already-clipped line: redacted=%v clipped=%v", b.Redacted, b.Clipped)
 	}
 	if c.Redacted || c.Clipped != nil {
 		t.Errorf("a plain line is flagged: %+v", c)

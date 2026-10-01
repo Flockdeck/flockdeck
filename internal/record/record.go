@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
 // Version is the schema version written on every line (the "v" field). It goes
@@ -41,6 +43,11 @@ const (
 	TypeOutcome    = "permission_outcome"
 	TypeStatus     = "status"
 )
+
+// SourceExport is the "source" of the lines that open and close a transcript
+// made by Export rather than recorded live, which is how a reader tells the
+// two apart. A live recording's carry no source.
+const SourceExport = "export"
 
 // Permission outcomes, the "outcome" field of a permission_outcome line.
 const (
@@ -71,6 +78,7 @@ const (
 	folderMode     = 0o700
 	fileMode       = 0o600
 	recordingsDir  = "recordings"
+	exportsDir     = "exports"
 	sessionFileExt = ".jsonl"
 )
 
@@ -116,6 +124,8 @@ type Entry struct {
 	// Code has no event that reports the answer to a permission prompt.
 	Inferred bool   `json:"inferred,omitempty"`
 	Reason   string `json:"reason,omitempty"`
+	// Source is how a session started, on a session line; on the lines that
+	// open and close a file it is "export" for a transcript made by Export.
 	Source   string `json:"source,omitempty"`
 	Status   string `json:"status,omitempty"`
 	Previous string `json:"previous,omitempty"`
@@ -139,6 +149,13 @@ type Manager struct {
 	now   func() time.Time
 	max   int64
 	panes map[string]*session
+
+	// export is set on the Manager an export writes through (see Export). It
+	// writes to the project's exports folder rather than beside the recordings,
+	// and deletes nothing, since nobody asked for an old recording to go.
+	export bool
+	// target is the file an export writes to instead. It must not exist.
+	target string
 }
 
 // session is one pane's open file and what is tracked while it is open.
@@ -149,13 +166,14 @@ type session struct {
 	seq    int64
 	size   int64
 	capped bool
+	// last is the time of the last event written, which is the time of the
+	// closing line.
+	last time.Time
 	// secret marks the tool calls that touched a secret file, by tool_use_id,
 	// so their output is withheld; lastSecret does the same for a result that
 	// does not say which call it answers.
 	secret     map[string]bool
 	lastSecret bool
-	// pending is the permission prompt waiting on an answer, if there is one.
-	pending *Entry
 }
 
 // NewManager returns a Manager writing under the state directory dir names.
@@ -199,70 +217,77 @@ func (m *Manager) Path(pane string) string {
 	return ""
 }
 
-// Start opens a new session file for the pane and writes its first line. A
-// pane already recording keeps the file it has.
-func (m *Manager) Start(meta Meta, reason string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.startLocked(meta, reason)
-}
+// The text of the lines that open and close a transcript. They say nothing
+// about how it was made, so that a transcript recorded as a conversation went
+// on and one exported afterwards are the same bytes.
+const (
+	startText = "start of the transcript"
+	endText   = "end of the transcript"
+)
 
-func (m *Manager) startLocked(meta Meta, reason string) (string, error) {
-	if s := m.panes[meta.Pane]; s != nil {
-		return s.path, nil
+// SessionID is the id a transcript made from a conversation has, and so the
+// name of its file without the extension. It is the time of the
+// conversation's first event and the start of the conversation's id, which
+// are the same whenever and however the transcript is made.
+func SessionID(first time.Time, meta Meta) string {
+	conv := meta.Conversation
+	if conv == "" {
+		conv = meta.Pane
 	}
-	base, err := m.Dir()
-	if err != nil {
-		return "", err
-	}
-	folder := filepath.Join(base, recordingsDir, Folder(meta.Project, meta.ProjectRoot))
-	if err := os.MkdirAll(folder, folderMode); err != nil {
-		return "", fmt.Errorf("create the recordings folder: %w", err)
-	}
-	stamp := m.now().UTC().Format("20060102T150405Z")
-	short := meta.Pane
+	short := slugRe.ReplaceAllString(conv, "")
 	if len(short) > 8 {
 		short = short[:8]
 	}
-	var f *os.File
-	var path string
-	for i := 0; i < 100; i++ {
-		name := stamp + "-" + short
-		if i > 0 {
-			name = fmt.Sprintf("%s-%d", name, i+1)
-		}
-		path = filepath.Join(folder, name+sessionFileExt)
-		f, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)
-		if !errors.Is(err, os.ErrExist) {
-			break
-		}
-	}
-	if err != nil {
-		return "", fmt.Errorf("create the recording: %w", err)
-	}
-	m.panes[meta.Pane] = &session{f: f, path: path, id: strings.TrimSuffix(filepath.Base(path), sessionFileExt), secret: map[string]bool{}}
-	prune(folder, path, m.now())
-	m.writeLocked(meta, Entry{Type: TypeStarted, Text: reason})
-	return path, nil
+	return first.UTC().Format("20060102T150405Z") + "-" + short
 }
 
-// Stop ends the pane's recording, with a closing line saying why. It is
-// harmless for a pane that is not recording.
-func (m *Manager) Stop(meta Meta, reason string) {
+// Write adds one event of the pane's conversation to its transcript, opening
+// the file first if the pane has none: a transcript begins with the
+// conversation's first event, whatever the time is now. It reports false when
+// the transcript has reached its size cap and ended (ErrFull), which the caller answers
+// by switching the pane's recording off, and an error when it could not be
+// opened.
+func (m *Manager) Write(meta Meta, ev transcript.ExportEvent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s := m.panes[meta.Pane]
+	if s == nil {
+		if err := m.openLocked(meta, ev.Time); err != nil {
+			return err
+		}
+		s = m.panes[meta.Pane]
+		m.writeLocked(meta, Entry{Type: TypeStarted, Text: startText, Time: stamp(ev.Time)})
+	}
+	e := entryOf(ev)
+	m.prepareLocked(s, &e)
+	m.writeLocked(meta, e)
+	s.last = ev.Time
+	if s.capped {
+		return ErrFull
+	}
+	return nil
+}
+
+// ErrFull is what Write returns once the transcript has reached its size cap.
+var ErrFull = errors.New("the transcript is full")
+
+// Finish ends the pane's transcript with a closing line, at the time of the
+// last event. It is harmless for a pane with no transcript open.
+func (m *Manager) Finish(meta Meta) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := m.panes[meta.Pane]
 	if s == nil {
 		return
 	}
-	m.resolveLocked(meta, s, OutcomeAbandoned, "")
-	m.writeLocked(meta, Entry{Type: TypeStopped, Text: reason})
+	m.writeLocked(meta, Entry{Type: TypeStopped, Text: endText, Time: stamp(s.last)})
 	_ = s.f.Close()
 	delete(m.panes, meta.Pane)
 }
 
-// Close ends every recording, for a Flockdeck that is quitting. Nothing is
-// written: a recording left on is on again at the next start.
+// Close closes every transcript, for a Flockdeck that is quitting. Nothing is
+// written: a recording left on is on again at the next start, and writes its
+// file again from the conversation's beginning.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -272,27 +297,76 @@ func (m *Manager) Close() {
 	}
 }
 
-// Record writes an entry for the pane, opening its file first if it has none
-// -- a pane restored still recording starts a new session at its first event.
-// It reports false when the recording has reached its size cap and ended,
-// which the caller answers by switching the pane's recording off.
-func (m *Manager) Record(meta Meta, e Entry) bool {
+// Discard closes the pane's transcript and deletes its file, for an export
+// that failed part way.
+func (m *Manager) Discard(meta Meta) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.panes[meta.Pane] == nil {
-		if _, err := m.startLocked(meta, "resumed"); err != nil {
-			return true // nowhere to write; not a reason to stop trying
-		}
+	if s := m.panes[meta.Pane]; s != nil {
+		_ = s.f.Close()
+		_ = os.Remove(s.path)
+		delete(m.panes, meta.Pane)
 	}
-	s := m.panes[meta.Pane]
-	m.prepareLocked(meta, s, &e)
-	m.writeLocked(meta, e)
-	return !s.capped
+}
+
+func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
+
+// entryOf is the line an event of a conversation is.
+func entryOf(ev transcript.ExportEvent) Entry {
+	e := Entry{Time: stamp(ev.Time)}
+	switch ev.Kind {
+	case transcript.ExportPrompt:
+		e.Type, e.Text = TypePrompt, ev.Text
+	case transcript.ExportMessage:
+		e.Type, e.Text = TypeAssistant, ev.Text
+	case transcript.ExportToolCall:
+		e.Type, e.Tool, e.ToolUseID, e.Input = TypeToolCall, ev.Tool, ev.ToolUseID, ev.Input
+	case transcript.ExportToolResult:
+		e.Type, e.Tool, e.ToolUseID, e.Output, e.IsError, e.Interrupted = TypeToolResult, ev.Tool, ev.ToolUseID, ev.Output, ev.IsError, ev.Interrupted
+	}
+	return e
+}
+
+// openLocked creates the pane's transcript file for a conversation whose first
+// event was at first.
+//
+// A live recording's file and an export's default file are named by the
+// session, and are made afresh if they are there: the same conversation gives
+// the same lines, so writing it again is how a recording left on across a
+// restart catches up, and an export made twice is one file. An export to a
+// path of its own never writes over a file.
+func (m *Manager) openLocked(meta Meta, first time.Time) error {
+	base, err := m.Dir()
+	if err != nil {
+		return err
+	}
+	id := SessionID(first, meta)
+	folder := filepath.Join(base, recordingsDir, Folder(meta.Project, meta.ProjectRoot))
+	path, flags := filepath.Join(folder, id+sessionFileExt), os.O_WRONLY|os.O_CREATE|os.O_TRUNC
+	if m.export {
+		folder = filepath.Join(folder, exportsDir)
+		path = filepath.Join(folder, id+sessionFileExt)
+	}
+	if m.target != "" {
+		folder, path, flags = filepath.Dir(m.target), m.target, os.O_WRONLY|os.O_CREATE|os.O_EXCL
+	}
+	if err := os.MkdirAll(folder, folderMode); err != nil {
+		return fmt.Errorf("create the recordings folder: %w", err)
+	}
+	f, err := os.OpenFile(path, flags, fileMode)
+	if err != nil {
+		return fmt.Errorf("create the transcript: %w", err)
+	}
+	m.panes[meta.Pane] = &session{f: f, path: path, id: id, secret: map[string]bool{}}
+	if !m.export {
+		prune(folder, path, m.now())
+	}
+	return nil
 }
 
 // prepareLocked applies what the transcript tracks across lines to e: which
-// tool calls touched a secret file, and which prompt is waiting on an answer.
-func (m *Manager) prepareLocked(meta Meta, s *session, e *Entry) {
+// tool calls touched a secret file.
+func (m *Manager) prepareLocked(s *session, e *Entry) {
 	switch e.Type {
 	case TypeToolCall:
 		secret := touchesSecretFile(e.Input)
@@ -314,37 +388,7 @@ func (m *Manager) prepareLocked(meta Meta, s *session, e *Entry) {
 		if secret && e.Output != "" {
 			e.Output, e.Redacted = Withheld, true
 		}
-		// A tool result is the answer to the prompt that was waiting, if the
-		// tool is the one it was about.
-		if s.pending != nil && (s.pending.Tool == e.Tool || e.Tool == "") {
-			if e.IsError || e.Interrupted {
-				m.resolveLocked(meta, s, OutcomeDenied, "")
-			} else {
-				m.resolveLocked(meta, s, OutcomeAllowed, "")
-			}
-		}
-	case TypePermission:
-		m.resolveLocked(meta, s, OutcomeAbandoned, "")
-		c := *e
-		s.pending = &c
-	case TypeOutcome:
-		s.pending = nil
-	case TypePrompt, TypeAssistant:
-		// A new prompt, or the turn ending, with the dialog never answered by
-		// a tool running: it was refused, or went away.
-		m.resolveLocked(meta, s, OutcomeDenied, "")
 	}
-}
-
-// resolveLocked writes the outcome of the pending permission prompt, if there
-// is one. It is inferred: what is known is what happened next.
-func (m *Manager) resolveLocked(meta Meta, s *session, outcome, reason string) {
-	p := s.pending
-	s.pending = nil
-	if p == nil {
-		return
-	}
-	m.writeLocked(meta, Entry{Type: TypeOutcome, Tool: p.Tool, ToolUseID: p.ToolUseID, Outcome: outcome, Inferred: true, Reason: reason, Subagent: p.Subagent})
 }
 
 func (m *Manager) writeLocked(meta Meta, e Entry) {
@@ -355,7 +399,6 @@ func (m *Manager) writeLocked(meta Meta, e Entry) {
 	e.V = Version
 	e.Seq = s.seq + 1
 	e.Session = s.id
-	e.Time = m.now().UTC().Format(time.RFC3339Nano)
 	e.Pane, e.PaneName, e.Project = meta.Pane, meta.PaneName, meta.Project
 	e.Agent, e.Model, e.Conversation = meta.Agent, meta.Model, meta.Conversation
 	sanitise(&e)
@@ -367,7 +410,7 @@ func (m *Manager) writeLocked(meta Meta, e Entry) {
 	if s.size+int64(len(line)) > m.max {
 		s.capped = true
 		end, _ := json.Marshal(Entry{V: Version, Seq: e.Seq, Session: s.id, Time: e.Time, Pane: meta.Pane, PaneName: meta.PaneName, Project: meta.Project, Type: TypeTruncated,
-			Text: fmt.Sprintf("the recording reached its size cap of %d MiB and ended here", m.max>>20)})
+			Text: fmt.Sprintf("the transcript reached its size cap of %d MiB and ended here", m.max>>20)})
 		_, _ = s.f.Write(append(end, '\n'))
 		return
 	}
