@@ -119,8 +119,8 @@ func redirect(dir string) {
 		"APPDATA":         cfg,   // Windows
 		"LOCALAPPDATA":    local, // Windows
 		"XDG_CONFIG_HOME": cfg,   // Linux
-		"HOME":            dir, // Linux, macOS (Library/Application Support is under it)
-		"USERPROFILE":     dir, // Windows
+		"HOME":            dir,   // Linux, macOS (Library/Application Support is under it)
+		"USERPROFILE":     dir,   // Windows
 	} {
 		os.Setenv(k, v)
 	}
