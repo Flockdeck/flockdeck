@@ -141,6 +141,17 @@ func main() {
 		}
 		return
 	}
+	// `recordings` lists the transcripts panes have recorded. It reads the
+	// state directory and needs no running instance.
+	if len(os.Args) > 1 && os.Args[1] == "recordings" {
+		if err := runRecordings(os.Args[2:], os.Stdout); err != nil {
+			if !errors.Is(err, errReported) {
+				fmt.Fprintln(os.Stderr, "flockdeck recordings:", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
 	// `agents` prints the catalog. It is a subcommand rather than a flag
 	// because it answers a question instead of changing how a run starts, and
 	// because it is the only place to find out what an -agent name may be.
@@ -277,7 +288,7 @@ func helpArgs(rest []string) (args []string, top bool) {
 	switch {
 	case len(rest) == 0:
 		return nil, true
-	case map[string]bool{"spawn": true, "peer-name": true, "close": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true}[rest[0]]:
+	case map[string]bool{"spawn": true, "peer-name": true, "close": true, "recordings": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true}[rest[0]]:
 		return []string{rest[0], "-h"}, false
 	}
 	return nil, true
@@ -376,13 +387,15 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
-	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-shell] [-agent <id>] [-model <model>] <task>\n")
+	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-shell] [-record] [-agent <id>] [-model <model>] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "  peer-name <name>\n")
 	fmt.Fprintf(out, "        report the name another Claude session would address this pane by; run from inside a pane\n")
 	fmt.Fprintf(out, "  close [-force] <pane-id> | close -finished\n")
 	fmt.Fprintf(out, "        close another pane, or every finished one; run from inside a pane\n")
+	fmt.Fprintf(out, "  recordings [-dir] [-json]\n")
+	fmt.Fprintf(out, "        list the transcripts panes have recorded, newest first; -dir prints the folder they are kept in\n")
 	fmt.Fprintf(out, "  agents\n")
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "  chat [flags]\n")
@@ -1654,6 +1667,9 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	if f.shell && (f.agent != "" || f.model != "") {
 		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, so it cannot also take -agent or -model")
 	}
+	if f.shell && f.record {
+		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, which reports no events, so it cannot also take -record")
+	}
 	if err := checkAgent(f.agent, f.model); err != nil {
 		return hooks.SpawnRequest{}, err
 	}
@@ -1664,6 +1680,7 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 		Shell:  f.shell,
 		Agent:  f.agent,
 		Model:  f.model,
+		Record: f.record,
 	}, nil
 }
 
@@ -1674,6 +1691,7 @@ type spawnFlags struct {
 	model    string
 	split    bool
 	shell    bool
+	record   bool
 }
 
 // spawnFlagSet defines the command line of `flockdeck spawn`. It is built here
@@ -1685,6 +1703,7 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	fs.StringVar(&f.worktree, "worktree", "", "`branch` for the helper's own git worktree, made for it")
 	fs.BoolVar(&f.split, "split", false, "place the helper beside this pane instead of in a new tab")
 	fs.BoolVar(&f.shell, "shell", false, "start a shell instead of an agent")
+	fs.BoolVar(&f.record, "record", false, "record the helper's agent interaction as a transcript; off unless given, and only once recording has been turned on in the window")
 	fs.StringVar(&f.agent, "agent", "", "`id` of the agent to start; flockdeck agents lists them")
 	fs.StringVar(&f.model, "model", "", "which of that agent's `model`s to ask for")
 	fs.Usage = func() {

@@ -412,6 +412,7 @@ which the command palette and the in-app help are also drawn from; run
 | `Ctrl+Shift+Z` | Zoom pane |
 | Command palette | Restart pane |
 | Command palette | Lock pane |
+| Command palette | Start recording |
 | `Ctrl+Shift+W` | Close pane |
 
 ### Tabs
@@ -472,6 +473,7 @@ which the command palette and the in-app help are also drawn from; run
 | `Ctrl+-` | Decrease font size |
 | `Ctrl+0` | Reset font size |
 | Command palette | Remote access… |
+| Command palette | Open recordings folder |
 | Command palette | Detach — close the window, leave agents running |
 | Command palette | Quit — stop every agent in every project |
 
@@ -974,6 +976,7 @@ hand work to helpers itself:
 flockdeck spawn "add tests for the parser"
 flockdeck spawn --worktree fix-auth "repair the token refresh"
 flockdeck spawn --split "watch the build"
+flockdeck spawn --record "refactor the parser"   # transcript recorded; see below
 ```
 
 Ask a lead agent to plan and then run one of these per task, and it fans itself
@@ -1001,6 +1004,42 @@ before you have seen it is refused.
 
 The worktree panel has a **Review** action per checkout, which is usually how
 you get here: see which agent produced something, then look at what it did.
+
+### Recording a pane
+
+Turn on **Record** in a pane's header, or run **Start recording** from the
+command palette, and Flockdeck appends a structured transcript of that pane's
+agent interaction to a file: one JSON object per line, each with a timestamp, the
+pane's id and name, the project, the agent and model, and a type — your prompts,
+the agent's messages, tool calls and their results, permission prompts and how
+they were answered, and status changes. It is off for every pane until you turn
+it on, a pane that is recording shows a red dot and "Recording" in its header,
+and the first time you turn it on Flockdeck asks you to confirm and says what is
+kept. The setting persists across restarts and goes with the pane when you move
+it to another tab. `flockdeck spawn --record` starts a helper recorded, but only
+once you have turned recording on yourself in the window.
+
+It is built from the events the agent reports, not from the screen, so it holds
+what Claude Code's hooks carry: the agent's last message of each turn rather than
+every message in between, and a permission answer worked out from what happened
+next, since no event reports it. An agent that reports no events records only
+status. The help page lists the gaps.
+
+Recordings are written under Flockdeck's state directory, in a folder per
+project with one file per recording session, and never into your repository.
+A file stops at 16 MiB, long outputs are clipped with a marker, and the
+folder is tidied each time a recording starts: files older than 30 days go, then
+the oldest beyond 100 files or 256 MiB. **Open recordings folder** in the command
+palette opens the folder, and `flockdeck recordings` lists them.
+
+**Redaction is best effort.** Private keys, common token formats, credentials in
+URLs, values named like secrets (`API_KEY=…`, `password: …`) and what is read from
+files named like secrets (`.env`, private keys) are removed, but a secret with no
+recognisable shape in text that does not name it will be recorded. Treat a
+recording like the conversation it came from. There is no replay view yet.
+
+The file format is specified in [docs/recording-format.md](docs/recording-format.md),
+with a JSON Schema in [docs/recording-line.schema.json](docs/recording-line.schema.json).
 
 ### Conversation history
 

@@ -49,7 +49,8 @@ shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
   pane in it.
 
 The buttons in a pane header do the same things: fan out, include in
-broadcast, restart, zoom, lock, close.
+broadcast, restart, zoom, record, lock, close. Record is off until you turn it
+on: see [Recording a pane](#recording).
 
 ## Locking a pane
 

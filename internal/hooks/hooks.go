@@ -33,6 +33,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/spend"
 )
 
@@ -96,6 +97,26 @@ type Event struct {
 	// and leaves off the main agent's. Empty for the main agent, and for
 	// every event from a Claude Code too old to say.
 	AgentID string `json:"agentId,omitempty"`
+	// Detail is what the transcript recorder (internal/record) needs of an
+	// event beyond what the status does: the whole of a tool call and its
+	// result, a prompt, the agent's last message. It is built for every
+	// event of the kinds that carry any, whether or not the pane is being
+	// recorded, because the hook cannot know; every string in it is clipped,
+	// so it is bounded, and nothing reads it unless the pane is recording.
+	Detail *Detail `json:"detail,omitempty"`
+}
+
+// Detail is Event.Detail. See buildDetail for which events carry what.
+type Detail struct {
+	ToolUseID string `json:"toolUseId,omitempty"`
+	// Input is the tool_input as compact JSON, with every string clipped.
+	Input  json.RawMessage `json:"input,omitempty"`
+	Result string          `json:"result,omitempty"`
+	Error  string          `json:"error,omitempty"`
+	// Message is the agent's own message: a Stop's last_assistant_message.
+	Message string `json:"message,omitempty"`
+	// Prompt is a UserPromptSubmit's prompt, longer than Event.Prompt keeps.
+	Prompt string `json:"prompt,omitempty"`
 }
 
 // Background work a lifecycle event can report; see Event.Background.
@@ -149,6 +170,12 @@ type claudePayload struct {
 	// BackgroundTasks is a Stop's own list of the background work still in
 	// flight; nil when the payload has no such field at all.
 	BackgroundTasks *[]backgroundTaskWire `json:"background_tasks"`
+	// LastAssistantMessage is what Stop and SubagentStop carry of the agent's
+	// final message of the turn. Claude Code before it sent this has none, and
+	// no hook reports the messages in between.
+	LastAssistantMessage string `json:"last_assistant_message"`
+	// Error is a PostToolUseFailure's account of what went wrong.
+	Error string `json:"error"`
 }
 
 // backgroundTaskWire is one entry of a Stop's background_tasks, in Claude
@@ -380,6 +407,73 @@ func buildToolInput(raw json.RawMessage) string {
 		return ""
 	}
 	return string(data)
+}
+
+// Limits on what Detail carries. They are the hook's own and generous: the
+// recorder clips again to its own, smaller ones, and these only keep an event
+// within the body the server reads (see handle).
+const (
+	maxDetailString  = 16 << 10
+	maxDetailMessage = 48 << 10
+	maxDetailInput   = 48 << 10
+)
+
+// buildDetail reads what the recorder wants out of a hook payload: the tool
+// and its input for the events about a tool call, what it answered for its
+// result or failure, the prompt, and the agent's last message at the end of a
+// turn. It is nil for every other event, and for one with none of these.
+func buildDetail(event string, cp claudePayload) *Detail {
+	d := Detail{}
+	switch event {
+	case "UserPromptSubmit":
+		d.Prompt = record.Clip(cp.Prompt, maxDetailMessage)
+	case "PreToolUse", "PermissionRequest", "PermissionDenied":
+		d.ToolUseID, d.Input = cp.ToolUseID, clipInput(cp.ToolInput)
+	case "PostToolUse":
+		d.ToolUseID, d.Input, d.Result = cp.ToolUseID, clipInput(cp.ToolInput), clipResult(cp.ToolResponse)
+	case "PostToolUseFailure":
+		d.ToolUseID, d.Input, d.Error = cp.ToolUseID, clipInput(cp.ToolInput), record.Clip(cp.Error, maxDetailString)
+	case "Stop", "SubagentStop", "StopFailure":
+		d.Message = record.Clip(cp.LastAssistantMessage, maxDetailMessage)
+	}
+	if d.ToolUseID == "" && d.Input == nil && d.Result == "" && d.Error == "" && d.Message == "" && d.Prompt == "" {
+		return nil
+	}
+	return &d
+}
+
+// clipInput is a tool_input with every string in it clipped, as compact JSON.
+// One still over its budget, many small fields adding up, is left out whole.
+func clipInput(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return nil
+	}
+	out, err := json.Marshal(record.ClipValue(v, maxDetailString))
+	if err != nil || len(out) > maxDetailInput {
+		return json.RawMessage(`{"_omitted":"too large to record"}`)
+	}
+	return out
+}
+
+// clipResult is a tool_response as text: a string as it is, anything else as
+// compact JSON, either clipped.
+func clipResult(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var str string
+	if json.Unmarshal(raw, &str) == nil {
+		return record.Clip(str, maxDetailString)
+	}
+	var buf bytes.Buffer
+	if json.Compact(&buf, raw) != nil {
+		return ""
+	}
+	return record.Clip(buf.String(), maxDetailString)
 }
 
 // Interrupted is what a PostToolUseFailure is reported as when the tool failed
@@ -649,6 +743,7 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (Response, 
 			p.NotificationType = cp.NotificationType
 			p.Background, p.BackgroundID = backgroundOf(event, cp)
 			p.AgentID = cp.AgentID
+			p.Detail = buildDetail(event, cp)
 			if (event == "Stop" || event == "StopFailure") && cp.BackgroundTasks != nil {
 				ids := make([]string, 0, len(*cp.BackgroundTasks))
 				for _, t := range *cp.BackgroundTasks {
@@ -716,7 +811,12 @@ type SpawnRequest struct {
 	// asked for without an opinion is started exactly as it always was.
 	Agent string `json:"agent,omitempty"`
 	Model string `json:"model,omitempty"`
-	Token string `json:"token"`
+	// Record starts the helper with its transcript being recorded; see
+	// workspace.Pane.Recording. Only honoured once the user has turned
+	// recording on in the window and read what it stores, so an agent cannot
+	// be the first to switch it on.
+	Record bool   `json:"record,omitempty"`
+	Token  string `json:"token"`
 }
 
 // SpawnResult is what the application answers a spawn with.

@@ -87,6 +87,11 @@ type Prefs struct {
 	// without a TypeSafe key (Settings or TYPESAFE_API_KEY) as well. See
 	// session.StatusAssist.
 	JevStatus bool `json:"jevStatus,omitempty"`
+	// RecordingAcknowledged records that the user has been told what turning on
+	// a pane's recording stores, and agreed once. Until it is set the window
+	// asks before the first pane is recorded, and `flockdeck spawn -record`
+	// refuses, so that no agent is the first to switch recording on.
+	RecordingAcknowledged bool `json:"recordingAcknowledged,omitempty"`
 
 	// extra is every top-level key the file held that this build does not
 	// know, as it was written. A newer build's setting would otherwise go at

@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Flockdeck recording line, format version 1",
+  "description": "One line of a Flockdeck pane recording (JSON Lines). Consumers must ignore fields and line types they do not know, so additionalProperties is true. See docs/recording-format.md.",
+  "type": "object",
+  "required": ["v", "seq", "time", "session", "pane", "type"],
+  "properties": {
+    "v": { "type": "integer", "const": 1, "description": "Format version. Changes only when a field changes meaning." },
+    "seq": { "type": "integer", "minimum": 1, "description": "Line number within the session file, from 1, with no gaps." },
+    "time": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$", "description": "When Flockdeck wrote the line: RFC 3339, UTC, nanosecond precision." },
+    "session": { "type": "string", "minLength": 1, "description": "The session file's name without extension." },
+    "pane": { "type": "string", "minLength": 1, "description": "The pane's id." },
+    "paneName": { "type": "string" },
+    "project": { "type": "string" },
+    "agent": { "type": "string" },
+    "model": { "type": "string" },
+    "conversation": { "type": "string", "description": "The agent's own conversation id; changes after /clear." },
+    "type": {
+      "type": "string",
+      "enum": [
+        "recording_started", "recording_stopped", "recording_truncated", "session",
+        "user_prompt", "assistant_message", "tool_call", "tool_result",
+        "permission_prompt", "permission_outcome", "status"
+      ]
+    },
+    "subagent": { "type": "string", "description": "The subagent an event came from; absent for the main agent." },
+    "text": { "type": "string" },
+    "tool": { "type": "string" },
+    "toolUseId": { "type": "string" },
+    "input": { "description": "The tool's input: any JSON value, usually an object." },
+    "output": { "type": "string" },
+    "isError": { "type": "boolean" },
+    "interrupted": { "type": "boolean" },
+    "outcome": { "type": "string", "enum": ["allowed", "denied", "abandoned", "auto_approved"] },
+    "inferred": { "type": "boolean" },
+    "reason": { "type": "string" },
+    "source": { "type": "string" },
+    "status": { "type": "string" },
+    "previous": { "type": "string" },
+    "detail": { "type": "string" },
+    "redacted": { "type": "boolean" },
+    "clipped": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "integer", "minimum": 1 },
+        "output": { "type": "integer", "minimum": 1 },
+        "detail": { "type": "integer", "minimum": 1 },
+        "reason": { "type": "integer", "minimum": 1 },
+        "input": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "type": { "const": "recording_started" } } }, "then": { "required": ["text"] } },
+    { "if": { "properties": { "type": { "const": "recording_stopped" } } }, "then": { "required": ["text"] } },
+    { "if": { "properties": { "type": { "const": "recording_truncated" } } }, "then": { "required": ["text"] } },
+    { "if": { "properties": { "type": { "const": "session" } } }, "then": { "required": ["text"] } },
+    { "if": { "properties": { "type": { "const": "user_prompt" } } }, "then": { "required": ["text"] } },
+    { "if": { "properties": { "type": { "const": "assistant_message" } } }, "then": { "required": ["text"] } },
+    { "if": { "properties": { "type": { "const": "tool_call" } } }, "then": { "required": ["tool"] } },
+    { "if": { "properties": { "type": { "const": "tool_result" } } }, "then": { "required": ["tool"] } },
+    { "if": { "properties": { "type": { "const": "permission_prompt" } } }, "then": { "required": ["tool"] } },
+    { "if": { "properties": { "type": { "const": "permission_outcome" } } }, "then": { "required": ["outcome"] } },
+    { "if": { "properties": { "type": { "const": "status" } } }, "then": { "required": ["status"] } }
+  ]
+}

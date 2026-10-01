@@ -39,6 +39,7 @@ var order = []string{
 	"changes",
 	"github",
 	"history",
+	"recording",
 	"projects",
 	"persistence",
 	"remote",

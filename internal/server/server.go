@@ -365,6 +365,9 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	go s.conversationPollLoop()
 	go cleanupAttachedImages(attachedImageMaxAge)
 	s.installSpawnHandler()
+	s.ws.SetRecordingEndedHook(func(_, why string) {
+		s.notifyAll("A recording stopped: its transcript "+why, true)
+	})
 	s.installContextHandler()
 	s.installUsageHandler()
 	s.installCloseHandler()

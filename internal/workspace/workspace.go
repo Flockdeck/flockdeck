@@ -35,6 +35,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/layout"
+	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/review"
 	"github.com/jmwri/flockdeck/internal/route"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -145,6 +146,16 @@ type Pane struct {
 	// itself. A restart relaunches the process but not the Pane, so it stays
 	// locked.
 	Locked bool
+	// Recording is set by the user so this pane's agent interaction is written
+	// to a transcript file under the state directory: see SetPaneRecording and
+	// package record. Off unless asked for, whether by the user from the
+	// header or palette or by `flockdeck spawn -record`.
+	//
+	// It is persisted with the layout, so it is still on after Flockdeck
+	// restarts (a new session file is started), and moves with the pane when it
+	// is dragged to another tab, which carries the Pane itself. A restart of the
+	// pane's process leaves it on, as it does Locked.
+	Recording bool
 	// AutoReview opts this pane into auto-review approvals: a PreToolUse call
 	// is put to reviewTool before Claude Code would otherwise show its own
 	// permission prompt, and one the reviewer is confident is safe is let
@@ -392,7 +403,12 @@ type Workspace struct {
 	spawnCmd    string
 	settingsDir string
 	hookSrv     *hooks.Server
-	claudeExe   string
+	// rec writes the transcripts of the panes that are recording.
+	rec *record.Manager
+	// onRecordingEnded is told when a pane's recording stopped by itself, the
+	// size cap being reached, so a window can say so. See SetRecordingEndedHook.
+	onRecordingEnded atomic.Pointer[func(paneID, why string)]
+	claudeExe        string
 
 	// catalogMu guards the catalog, which is read from the goroutine that
 	// starts panes and replaced by whoever asks for it to be read again.
@@ -491,6 +507,7 @@ func New(opts Options) (*Workspace, error) {
 		selfExe:      selfExe,
 		settingsDir:  settingsDir,
 		reviewer:     review.Decide,
+		rec:          record.NewManager(store.Dir),
 		statusAssist: &session.StatusAssist{Enabled: func() bool { return store.LoadPrefs().JevStatus }},
 	}
 	w.savedGroups = loadSavedGroups()
@@ -606,9 +623,14 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	}
 	var sess *session.Session
 	var paneID string
+	var recMeta *record.Meta
 	if p != nil {
 		sess = p.Sess
 		paneID = p.ID
+		if p.Recording {
+			m := w.recMetaLocked(p)
+			recMeta = &m
+		}
 		// Every event says which conversation the agent is in, and after
 		// /clear that is a new one. Following it is what lets a restart, a
 		// restore and a fan-out go on finding the conversation on screen
@@ -648,6 +670,12 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		sess.SetBackground(*ev.BackgroundTasks)
 	}
 
+	var statusBefore session.Status
+	if recMeta != nil {
+		statusBefore, _ = sess.Status()
+		w.recordEvent(*recMeta, ev)
+	}
+
 	// Every event goes to the session, including those that change no status
 	// of their own: a SessionStart clears a denial, a SubagentStop can end
 	// what a background subagent left showing, and the idle nudge ends a
@@ -661,6 +689,9 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		ToolInput:        ev.ToolInput,
 		Agent:            ev.AgentID,
 	})
+	if recMeta != nil {
+		w.recordStatus(*recMeta, statusBefore, sess)
+	}
 	// A compaction the user asked for is work no turn brackets: PreCompact
 	// shows working, and if its end never reports, the pane settles once quiet.
 	if ev.Event == "PreCompact" && ev.Source == "manual" {
@@ -695,10 +726,18 @@ func (w *Workspace) reviewTool(sessionID string, ev hooks.Event) (allow bool, re
 	}
 
 	w.mu.Lock()
+	var recMeta *record.Meta
 	if p := w.panes[sessionID]; p != nil {
 		p.AutoApproved++
+		if p.Recording {
+			m := w.recMetaLocked(p)
+			recMeta = &m
+		}
 	}
 	w.mu.Unlock()
+	if recMeta != nil {
+		w.rec.Record(*recMeta, record.Entry{Type: record.TypeOutcome, Outcome: record.OutcomeAutoApproved, Tool: ev.Tool, Reason: d.Reason, Subagent: ev.AgentID})
+	}
 	w.wake()
 	return true, d.Reason
 }
@@ -2304,7 +2343,15 @@ func (w *Workspace) destroyPane(id string) {
 	p := w.panes[id]
 	delete(w.panes, id)
 	delete(w.BroadcastSet, id)
+	var recMeta *record.Meta
+	if p != nil && p.Recording {
+		m := w.recMetaLocked(p)
+		recMeta = &m
+	}
 	w.mu.Unlock()
+	if recMeta != nil {
+		w.rec.Stop(*recMeta, "the pane was closed")
+	}
 	if p != nil && p.Sess != nil {
 		_ = p.Sess.Close()
 	}
@@ -3233,6 +3280,9 @@ func (w *Workspace) Close() {
 		<-w.recentDone
 		w.recentTouches = nil
 	}
+	// Quitting is not turning recording off: the files are closed with no
+	// closing line, and a pane left recording records again at the next start.
+	w.rec.Close()
 	for _, t := range w.Tabs {
 		for _, id := range t.Tree.Panes() {
 			w.destroyPane(id)

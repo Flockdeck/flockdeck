@@ -116,6 +116,9 @@ type Pane struct {
 	// Locked is set for a pane the user locked so it cannot be closed. See
 	// workspace.Pane.Locked.
 	Locked bool `json:"locked,omitempty"`
+	// Recording is set for a pane whose agent interaction is being written to
+	// a transcript. See workspace.Pane.Recording.
+	Recording bool `json:"recording,omitempty"`
 }
 
 // Dir returns the per-user directory holding Flockdeck's state.
