@@ -64,6 +64,20 @@ func TestKeysListReportsOnlyWhatAPaneWouldFind(t *testing.T) {
 
 // runKeysCmd drives the subcommand with nobody at the terminal, which is how a
 // script uses it, and returns everything it printed.
+// fakeKeyEndpoint points the anthropic agent at an in-process server that
+// accepts any key, so a `keys set` that checks the key at a terminal stays on
+// this machine.
+func fakeKeyEndpoint(t *testing.T) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(`{"data":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", srv.URL); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func runKeysCmd(t *testing.T, stdin string, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
@@ -233,6 +247,9 @@ func TestAChatIsOfferedItsAgentsModels(t *testing.T) {
 // back afterwards, and the prompt says which of the two it is.
 func TestKeysSetHidesTheKeyAtATerminal(t *testing.T) {
 	isolateKeys(t)
+	// At a terminal the key is checked against the agent's endpoint, which
+	// has to be one of ours or the key goes to the vendor.
+	fakeKeyEndpoint(t)
 	hidden, restored := false, false
 	var prompt bytes.Buffer
 	err := keysCmd([]string{"set", "anthropic"}, keysIO{

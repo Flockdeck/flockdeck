@@ -30,6 +30,14 @@ import (
 // ErrNonLoopback is what a refused request or connection fails with.
 var ErrNonLoopback = errors.New("testiso: tests may only talk to loopback; use httptest.NewServer, not a real host")
 
+// These carry the real directories down to a test binary that a test starts
+// (the program under test re-run as a child), which would otherwise take the
+// first one's temporary directories for the real ones.
+const (
+	realConfigEnv = "FLOCKDECK_TESTISO_REAL_CONFIG"
+	realHomeEnv   = "FLOCKDECK_TESTISO_REAL_HOME"
+)
+
 var (
 	mu         sync.Mutex
 	violations []string
@@ -70,17 +78,24 @@ func record(format string, args ...any) string {
 
 // Main is a TestMain body: os.Exit(iso.Main(m)).
 func Main(m *testing.M) int {
-	realConfig, _ = os.UserConfigDir()
-	realHome, _ = os.UserHomeDir()
-
-	dir, err := os.MkdirTemp("", "flockdeck-test-home-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "testiso:", err)
-		return 1
+	if cfg, ok := os.LookupEnv(realConfigEnv); ok {
+		// A test binary a test started, with the environment it chose for it:
+		// that environment stays, and "real" is still what the first one found.
+		realConfig, realHome = cfg, os.Getenv(realHomeEnv)
+	} else {
+		realConfig, _ = os.UserConfigDir()
+		realHome, _ = os.UserHomeDir()
+		os.Setenv(realConfigEnv, realConfig)
+		os.Setenv(realHomeEnv, realHome)
+		dir, err := os.MkdirTemp("", "flockdeck-test-home-")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "testiso:", err)
+			return 1
+		}
+		defer os.RemoveAll(dir)
+		redirect(dir)
+		clearKeys()
 	}
-	defer os.RemoveAll(dir)
-	redirect(dir)
-	clearKeys()
 	InstallNetworkGuard()
 
 	code := m.Run()
@@ -104,9 +119,6 @@ func redirect(dir string) {
 		"APPDATA":         cfg,   // Windows
 		"LOCALAPPDATA":    local, // Windows
 		"XDG_CONFIG_HOME": cfg,   // Linux
-		"XDG_CACHE_HOME":  local,
-		"XDG_DATA_HOME":   local,
-		"XDG_STATE_HOME":  local,
 		"HOME":            dir, // Linux, macOS (Library/Application Support is under it)
 		"USERPROFILE":     dir, // Windows
 	} {

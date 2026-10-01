@@ -18,7 +18,7 @@ func TestMain(m *testing.M) { os.Exit(testiso.Main(m)) }
 
 `internal/testiso` then, before any test runs:
 
-- points `APPDATA`, `LOCALAPPDATA`, `XDG_*`, `HOME` and `USERPROFILE` at a fresh
+- points `APPDATA`, `LOCALAPPDATA`, `XDG_CONFIG_HOME`, `HOME` and `USERPROFILE` at a fresh
   temporary directory, so `os.UserConfigDir` and `os.UserHomeDir` (and so
   `store.Dir`) give a throwaway place on Windows, macOS and Linux;
 - unsets every `*_API_KEY`, `*_API_TOKEN` and `*_AUTH_TOKEN` in the environment;
@@ -45,6 +45,9 @@ non-zero and lists what was refused.
 - **A client with its own `Transport`, or a raw `net.Dial`, is not covered.**
   Build such a client against a loopback address, and do not rely on the guard
   to catch it.
+- **A command that checks a key against the vendor** (`keys set` at a terminal,
+  `keys check`) goes to the real API unless the agent's endpoint is pointed at a
+  fake first; see `fakeKeyEndpoint` in `cli_keys_test.go`.
 - **Need a key?** Set it with `t.Setenv("TYPESAFE_API_KEY", "k-test")`. An
   *empty* value counts as unset and falls through to the stored key, which in an
   isolated run is simply absent.
@@ -52,7 +55,8 @@ non-zero and lists what was refused.
   Write there, or call `t.Setenv("APPDATA", dir)` and `t.Setenv("XDG_CONFIG_HOME",
   dir)` with `t.TempDir()` for one test; never a path under the real home.
 - **Spawning the built binary?** A child inherits the redirected environment, so
-  pass `os.Environ()` along, or set `APPDATA`, `LOCALAPPDATA`, `XDG_CONFIG_HOME`
+  pass `os.Environ()` along (a test binary re-run as a child keeps the
+  environment it is given and still remembers which directory is the real one), or set `APPDATA`, `LOCALAPPDATA`, `XDG_CONFIG_HOME`
   and `HOME`/`USERPROFILE` explicitly as `quit_agent_env_test.go` does.
 
 If a guard trips, the message names what was reached; fix the test rather than
