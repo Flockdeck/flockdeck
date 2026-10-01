@@ -3,7 +3,6 @@ package workspace
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -15,42 +14,51 @@ import (
 
 // A pane's transcript is made from the conversation its agent stored, and from
 // nothing else: recording follows that file as it grows and exporting reads it
-// once, through the same record.Sync. What the agent says to hooks is not part
-// of it, so a transcript does not depend on whether recording was on while the
-// conversation happened.
+// once, through the same record.Sync, with the identity record.MetaFor works
+// out from the conversation. What the agent says to hooks is not part of it, so
+// a transcript does not depend on whether recording was on while the
+// conversation happened, or on the pane's name or model.
 
 // recSettle is how long after the last hook event a recording looks at the
 // stored conversation again. An agent writes its record a moment after it
 // reports what it did, so the last entries of a turn are not there yet when
-// the event that ends it arrives.
-const recSettle = 1500 * time.Millisecond
+// the event that ends it arrives. Each look that finds nothing new waits twice
+// as long as the one before, and after recIdleLooks of them the recording stops
+// looking until the agent reports another event.
+var recSettle = 1500 * time.Millisecond
+
+const recIdleLooks = 3
 
 // paneRecorder follows one pane's conversation into its transcript.
 type paneRecorder struct {
-	mu       sync.Mutex
+	// work serialises the reading and writing, which can take a while for a
+	// long conversation.
+	work     sync.Mutex
 	conv     string
+	meta     record.Meta
 	follower transcript.Follower
-	timer    *time.Timer
-	stopped  bool
+	// synced says the conversation has been read once, so a transcript already
+	// over the cap when recording was turned on is told apart from one that
+	// grew into it.
+	synced bool
+	// looks counts the times the conversation has been read.
+	looks int
+
+	// ctl guards the rest, and is only ever held briefly.
+	ctl     sync.Mutex
+	timer   *time.Timer
+	idle    int
+	pending bool
+	running bool
+	stopped bool
 }
 
-// recMetaLocked says whose lines a pane's recording writes. It reads the pane,
-// so it is called with w.mu held.
-func (w *Workspace) recMetaLocked(p *Pane) record.Meta {
-	// Not the tab's root as a last resort: the tabs belong to the workspace's
-	// own goroutine, and this is called from a hook server's.
-	root := p.Root
-	if root == "" {
-		root = p.Cwd
+// conversationOf is the id of the conversation a pane is in, for a transcript.
+func paneConversation(p *Pane) string {
+	if p.Conversation != "" {
+		return p.Conversation
 	}
-	conv := p.Conversation
-	if conv == "" {
-		conv = p.ID
-	}
-	return record.Meta{
-		Pane: p.ID, PaneName: p.Name, Project: filepath.Base(root), ProjectRoot: root,
-		Agent: p.Agent, Model: p.Model, Conversation: conv,
-	}
+	return p.ID
 }
 
 // transcriptSourceLocked is what a pane's transcript is made from: the agent's
@@ -70,6 +78,16 @@ func (w *Workspace) transcriptSourceLocked(p *Pane) (agent.Spec, transcript.Expo
 	return spec, ex, ok
 }
 
+func specLabel(spec agent.Spec) string {
+	switch {
+	case spec.Name != "":
+		return spec.Name
+	case spec.ID != "":
+		return spec.ID
+	}
+	return "this agent"
+}
+
 // PaneTranscriptSupported reports whether a pane's agent stores a conversation
 // Flockdeck can turn into a transcript, and the agent's name for saying so.
 func (w *Workspace) PaneTranscriptSupported(id string) (name string, ok bool) {
@@ -80,20 +98,16 @@ func (w *Workspace) PaneTranscriptSupported(id string) (name string, ok bool) {
 		return "", false
 	}
 	spec, _, ok := w.transcriptSourceLocked(p)
-	name = spec.Name
-	if name == "" {
-		name = spec.ID
-	}
-	return name, ok
+	return specLabel(spec), ok
 }
 
 // SetPaneRecording turns a pane's recording on or off -- see Pane.Recording --
-// and reports whether the pane was found. Turning it on writes the
-// conversation so far at once and follows it from there; turning it off ends
-// the transcript. Only an agent pane records: a shell has no conversation, so
-// asking for one is refused the same way as a pane that is gone. An agent that
-// stores no conversation can be set recording and records nothing; see
-// PaneTranscriptSupported.
+// and reports whether the pane was found. Turning it on starts writing the
+// conversation so far, from its first message, in the background, and then
+// follows it; turning it off ends the transcript. Only an agent pane records: a
+// shell has no conversation, so asking for one is refused the same way as a pane
+// that is gone. An agent that stores no conversation Flockdeck can read has
+// nothing to record, and turning it on is an error saying so.
 func (w *Workspace) SetPaneRecording(id string, on bool) (found bool, err error) {
 	w.mu.Lock()
 	p := w.panes[id]
@@ -105,7 +119,12 @@ func (w *Workspace) SetPaneRecording(id string, on bool) (found bool, err error)
 		w.mu.Unlock()
 		return true, nil
 	}
-	meta := w.recMetaLocked(p)
+	if on {
+		if spec, _, ok := w.transcriptSourceLocked(p); !ok {
+			w.mu.Unlock()
+			return true, fmt.Errorf("%s stores no conversation Flockdeck can read, so there is nothing to record", specLabel(spec))
+		}
+	}
 	w.mu.Unlock()
 
 	if on {
@@ -115,7 +134,7 @@ func (w *Workspace) SetPaneRecording(id string, on bool) (found bool, err error)
 			return true, err
 		}
 	} else {
-		w.stopRecorder(meta, true)
+		w.stopRecorder(id, true)
 	}
 	w.mu.Lock()
 	if p := w.panes[id]; p != nil {
@@ -123,7 +142,7 @@ func (w *Workspace) SetPaneRecording(id string, on bool) (found bool, err error)
 	}
 	w.mu.Unlock()
 	if on {
-		w.syncRecording(id)
+		w.kickRecording(id, true)
 	}
 	w.wake()
 	return true, nil
@@ -149,25 +168,9 @@ func (w *Workspace) SetRecordingEndedHook(fn func(paneID, why string)) {
 	w.onRecordingEnded.Store(&fn)
 }
 
-// syncRecording brings a recording pane's transcript up to date with the
-// conversation its agent has stored, and sees that it looks again shortly.
-// It is called for every event a recording pane's agent reports, which is when
-// there is something new to find.
-func (w *Workspace) syncRecording(id string) {
-	w.mu.RLock()
-	p := w.panes[id]
-	if p == nil || !p.Recording {
-		w.mu.RUnlock()
-		return
-	}
-	meta := w.recMetaLocked(p)
-	spec, ex, ok := w.transcriptSourceLocked(p)
-	w.mu.RUnlock()
-	if !ok {
-		return
-	}
-
+func (w *Workspace) recorder(id string) *paneRecorder {
 	w.recMu.Lock()
+	defer w.recMu.Unlock()
 	if w.recorders == nil {
 		w.recorders = map[string]*paneRecorder{}
 	}
@@ -176,96 +179,206 @@ func (w *Workspace) syncRecording(id string) {
 		r = &paneRecorder{}
 		w.recorders[id] = r
 	}
-	w.recMu.Unlock()
+	return r
+}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// kickRecording has a recording pane's transcript brought up to date with the
+// stored conversation, off the goroutine that asked: it is called from the hook
+// server for every event and from the control path, neither of which can wait
+// on a long conversation being read. A kick while one is under way is folded
+// into a further look when it ends. fromEvent says the agent just reported
+// something, which is when a recording that had stopped looking starts again.
+func (w *Workspace) kickRecording(id string, fromEvent bool) {
+	r := w.recorder(id)
+	r.ctl.Lock()
+	if r.stopped {
+		r.ctl.Unlock()
+		return
+	}
+	if fromEvent {
+		r.idle = 0
+	}
+	r.pending = true
+	if r.running {
+		r.ctl.Unlock()
+		return
+	}
+	r.running = true
+	r.ctl.Unlock()
+
+	w.recWG.Add(1)
+	go func() {
+		defer w.recWG.Done()
+		for {
+			r.ctl.Lock()
+			if !r.pending || r.stopped {
+				r.running = false
+				r.ctl.Unlock()
+				return
+			}
+			r.pending = false
+			r.ctl.Unlock()
+			w.syncRecording(id, r)
+		}
+	}()
+}
+
+// syncRecording reads what the agent has stored since the last look and writes
+// it to the pane's transcript.
+func (w *Workspace) syncRecording(id string, r *paneRecorder) {
+	w.mu.RLock()
+	p := w.panes[id]
+	if p == nil || !p.Recording {
+		w.mu.RUnlock()
+		return
+	}
+	conv := paneConversation(p)
+	spec, ex, ok := w.transcriptSourceLocked(p)
+	w.mu.RUnlock()
+	if !ok {
+		// Nothing to follow, as for a pane restored or spawned recording whose
+		// agent stores no conversation: it is not recording, and does not say so.
+		w.mu.Lock()
+		if p := w.panes[id]; p != nil {
+			p.Recording = false
+		}
+		w.mu.Unlock()
+		w.wake()
+		return
+	}
+
+	r.work.Lock()
+	defer r.work.Unlock()
+	r.looks++
+	r.ctl.Lock()
+	stopped := r.stopped
+	r.ctl.Unlock()
+	if stopped {
+		return
+	}
+	if r.follower != nil && r.conv != conv {
+		// The agent went on in a conversation of its own (/clear): the one
+		// before ends here, and the new one is a transcript of its own.
+		if _, err := record.Sync(w.rec, r.meta, r.follower); err == nil || errors.Is(err, transcript.ErrNoTranscript) {
+			w.rec.Finish(r.meta)
+		}
+		r.follower, r.synced = nil, false
+	}
+	if r.follower == nil {
+		r.conv, r.follower = conv, ex.Follow(spec, conv)
+		r.meta = record.MetaFor(spec, ex, conv)
+	} else if !w.rec.Active(r.meta.Pane) {
+		// Nothing is written yet, so the directory the conversation recorded may
+		// be learnt now.
+		r.meta = record.MetaFor(spec, ex, conv)
+	}
+	res, err := record.Sync(w.rec, r.meta, r.follower)
+	if errors.Is(err, transcript.ErrReplaced) {
+		// What is stored is not what was read: write the transcript again from
+		// the start, which is what it would be if it had been made now.
+		w.rec.Abandon(r.meta)
+		res, err = record.Sync(w.rec, r.meta, r.follower)
+	}
+	if res.Full {
+		why := "reached its size cap"
+		if !r.synced {
+			why = "was already longer than a transcript can be (16 MiB), so it was cut there and recording ended"
+		}
+		go w.recordingCapped(id, why)
+		return
+	}
+	r.synced = true
+	w.scheduleRecording(id, r, res.Events > 0)
+}
+
+// scheduleRecording arranges the next look, later each time a look finds
+// nothing, and none once enough have.
+func (w *Workspace) scheduleRecording(id string, r *paneRecorder, found bool) {
+	r.ctl.Lock()
+	defer r.ctl.Unlock()
 	if r.stopped {
 		return
 	}
-	if r.follower != nil && r.conv != meta.Conversation {
-		// The agent went on in a conversation of its own (/clear): the one
-		// before ends here, and the new one is a transcript of its own.
-		old := meta
-		old.Conversation = r.conv
-		if _, err := record.Sync(w.rec, old, r.follower); err == nil || errors.Is(err, transcript.ErrNoTranscript) {
-			w.rec.Finish(old)
-		}
-		r.follower = nil
+	if found {
+		r.idle = 0
+	} else {
+		r.idle++
 	}
-	if r.follower == nil {
-		r.conv, r.follower = meta.Conversation, ex.Follow(spec, meta.Conversation)
-	}
-	// A conversation not stored yet is one not begun, and any other failure is
-	// one to try again at the next event.
-	res, _ := record.Sync(w.rec, meta, r.follower)
-	if res.Full {
-		go w.recordingCapped(meta)
+	if r.idle > recIdleLooks {
 		return
 	}
+	delay := recSettle << max(r.idle-1, 0)
 	if r.timer == nil {
-		r.timer = time.AfterFunc(recSettle, func() { w.syncRecording(id) })
+		r.timer = time.AfterFunc(delay, func() { w.kickRecording(id, false) })
 	} else {
-		r.timer.Reset(recSettle)
+		r.timer.Reset(delay)
 	}
 }
 
 // stopRecorder ends a pane's transcript. With final it first reads what the
 // agent has stored since the last look, and closes the transcript with its
 // closing line; without, it only lets go.
-func (w *Workspace) stopRecorder(meta record.Meta, final bool) {
+func (w *Workspace) stopRecorder(id string, final bool) {
 	w.recMu.Lock()
-	r := w.recorders[meta.Pane]
-	delete(w.recorders, meta.Pane)
+	r := w.recorders[id]
+	delete(w.recorders, id)
 	w.recMu.Unlock()
 	if r == nil {
 		return
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.ctl.Lock()
 	r.stopped = true
 	if r.timer != nil {
 		r.timer.Stop()
 	}
+	r.ctl.Unlock()
+
+	r.work.Lock()
+	defer r.work.Unlock()
 	if r.follower == nil {
 		return
 	}
-	meta.Conversation = r.conv
 	if final {
-		_, _ = record.Sync(w.rec, meta, r.follower)
+		if _, err := record.Sync(w.rec, r.meta, r.follower); errors.Is(err, transcript.ErrReplaced) {
+			w.rec.Abandon(r.meta)
+			_, _ = record.Sync(w.rec, r.meta, r.follower)
+		}
 	}
-	w.rec.Finish(meta)
+	w.rec.Finish(r.meta)
 }
 
-// stopRecorders lets go of every recorder, for a Flockdeck that is quitting.
-// Nothing is written: a pane left recording starts again at the next start.
+// stopRecorders lets go of every recorder, for a Flockdeck that is quitting, and
+// waits for the looks under way. Nothing is written: a pane left recording
+// starts again at the next start.
 func (w *Workspace) stopRecorders() {
 	w.recMu.Lock()
 	recorders := w.recorders
 	w.recorders = nil
 	w.recMu.Unlock()
 	for _, r := range recorders {
-		r.mu.Lock()
+		r.ctl.Lock()
 		r.stopped = true
 		if r.timer != nil {
 			r.timer.Stop()
 		}
-		r.mu.Unlock()
+		r.ctl.Unlock()
 	}
+	w.recWG.Wait()
 }
 
 // recordingCapped is what happens to a pane whose transcript has hit its size
-// cap: the recording is over, so the pane stops showing that it is on.
-func (w *Workspace) recordingCapped(meta record.Meta) {
+// cap: the recording is over, so the pane stops showing that it is on, and the
+// window is told why.
+func (w *Workspace) recordingCapped(id, why string) {
 	w.mu.Lock()
-	if p := w.panes[meta.Pane]; p != nil {
+	if p := w.panes[id]; p != nil {
 		p.Recording = false
 	}
 	w.mu.Unlock()
-	w.stopRecorder(meta, false)
+	w.stopRecorder(id, false)
 	w.wake()
 	if fn := w.onRecordingEnded.Load(); fn != nil && *fn != nil {
-		(*fn)(meta.Pane, "reached its size cap")
+		(*fn)(id, why)
 	}
 }
 
@@ -281,25 +394,25 @@ func (w *Workspace) ExportTranscript(id, path string) (record.ExportResult, erro
 		w.mu.RUnlock()
 		return record.ExportResult{}, errors.New("only an agent pane has a conversation to export, and that pane is not one or is no longer open")
 	}
-	meta := w.recMetaLocked(p)
+	conv := paneConversation(p)
+	root := p.Root
+	if root == "" {
+		root = p.Cwd
+	}
 	spec, ex, ok := w.transcriptSourceLocked(p)
 	w.mu.RUnlock()
 	if !ok {
-		name := spec.Name
-		if name == "" {
-			name = spec.ID
-		}
-		if name == "" {
-			name = "this agent"
-		}
-		return record.ExportResult{}, fmt.Errorf("%s stores no conversation Flockdeck can read, so there is nothing to export", name)
+		return record.ExportResult{}, fmt.Errorf("%s stores no conversation Flockdeck can read, so there is nothing to export", specLabel(spec))
 	}
+	meta := record.MetaFor(spec, ex, conv)
 	if path != "" {
-		if err := record.CheckExportPath(path, meta.ProjectRoot); err != nil {
-			return record.ExportResult{}, err
+		for _, project := range []string{meta.ProjectRoot, root} {
+			if err := record.CheckExportPath(path, project); err != nil {
+				return record.ExportResult{}, err
+			}
 		}
 	}
-	res, err := record.Export(store.Dir, meta, ex.Follow(spec, meta.Conversation), record.ExportOptions{Path: path})
+	res, err := record.Export(store.Dir, meta, ex.Follow(spec, conv), record.ExportOptions{Path: path})
 	switch {
 	case errors.Is(err, transcript.ErrNoTranscript):
 		return res, errors.New("the agent has stored no conversation for this pane yet, so there is nothing to export")

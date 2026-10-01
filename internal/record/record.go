@@ -44,11 +44,6 @@ const (
 	TypeStatus     = "status"
 )
 
-// SourceExport is the "source" of the lines that open and close a transcript
-// made by Export rather than recorded live, which is how a reader tells the
-// two apart. A live recording's carry no source.
-const SourceExport = "export"
-
 // Permission outcomes, the "outcome" field of a permission_outcome line.
 const (
 	OutcomeAllowed      = "allowed"
@@ -124,8 +119,7 @@ type Entry struct {
 	// Code has no event that reports the answer to a permission prompt.
 	Inferred bool   `json:"inferred,omitempty"`
 	Reason   string `json:"reason,omitempty"`
-	// Source is how a session started, on a session line; on the lines that
-	// open and close a file it is "export" for a transcript made by Export.
+	// Source is how a session started, on a session line.
 	Source   string `json:"source,omitempty"`
 	Status   string `json:"status,omitempty"`
 	Previous string `json:"previous,omitempty"`
@@ -294,6 +288,17 @@ func (m *Manager) Close() {
 	for id, s := range m.panes {
 		_ = s.f.Close()
 		delete(m.panes, id)
+	}
+}
+
+// Abandon closes the pane's transcript with no closing line, leaving the file as
+// it is, for a transcript about to be written again from the start.
+func (m *Manager) Abandon(meta Meta) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s := m.panes[meta.Pane]; s != nil {
+		_ = s.f.Close()
+		delete(m.panes, meta.Pane)
 	}
 }
 

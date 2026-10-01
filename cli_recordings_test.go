@@ -153,10 +153,34 @@ func TestExportCommandTakesAPaneAndAPathAfterTheId(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := strings.SplitN(string(raw), "\n", 2)[0]
-	for _, want := range []string{`"pane":"pane-1"`, `"paneName":"shop"`, `"model":"opus"`, `"project":"shop"`} {
+	// The conversation's, as a recording has it: not the saved layout's pane
+	// name or model, which can be stale, and the pane's id is the conversation's.
+	for _, want := range []string{`"pane":"` + exportFixtureID + `"`, `"conversation":"` + exportFixtureID + `"`, `"agent":"claude"`} {
 		if !strings.Contains(first, want) {
 			t.Errorf("first line lacks %s: %s", want, first)
 		}
+	}
+	for _, not := range []string{"paneName", `"model"`} {
+		if strings.Contains(first, not) {
+			t.Errorf("first line has %s, which is the saved layout's and not the conversation's: %s", not, first)
+		}
+	}
+	// Byte for byte what the same conversation exports as with another saved name
+	// and model, and as by its id alone.
+	other := filepath.Join(t.TempDir(), "other.jsonl")
+	env2 := exportFixture(t, map[string]savedPane{"pane-9": {Pane: store.Pane{ID: "pane-9", Name: "renamed", Agent: "claude", Model: "sonnet", Conversation: exportFixtureID}, Root: "/elsewhere"}})
+	if err := exportRecording([]string{"-o", other, "pane-9"}, &out, env2); err != nil {
+		t.Fatal(err)
+	}
+	if raw2, _ := os.ReadFile(other); string(raw2) != string(raw) {
+		t.Errorf("the same conversation exported differently by a pane with another name and model:\n%s\n%s", raw, raw2)
+	}
+	byID := filepath.Join(t.TempDir(), "byid.jsonl")
+	if err := exportRecording([]string{"-o", byID, exportFixtureID}, &out, env2); err != nil {
+		t.Fatal(err)
+	}
+	if raw3, _ := os.ReadFile(byID); string(raw3) != string(raw) {
+		t.Error("the conversation exported by its id differs from the same exported by its pane")
 	}
 	// Never over a file.
 	if err := exportRecording([]string{"-o", target, "pane-1"}, &out, env); err == nil || !strings.Contains(err.Error(), "already exists") {

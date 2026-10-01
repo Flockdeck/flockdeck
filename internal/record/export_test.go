@@ -282,6 +282,35 @@ func TestCheckExportPathRefusesTheProjectAndGitRepositories(t *testing.T) {
 	}
 }
 
+// A link into the project does not get a transcript into it.
+func TestCheckExportPathFollowsSymbolicLinks(t *testing.T) {
+	project := t.TempDir()
+	elsewhere := t.TempDir()
+	link := filepath.Join(elsewhere, "link")
+	if err := os.Symlink(project, link); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	if err := CheckExportPath(filepath.Join(link, "t.jsonl"), project); err == nil {
+		t.Error("a path into the project through a link was allowed")
+	}
+	if err := CheckExportPath(filepath.Join(link, "new", "t.jsonl"), project); err == nil {
+		t.Error("a path below a folder that does not exist yet, through a link, was allowed")
+	}
+}
+
+// Whose lines a transcript has is the conversation's alone: nothing a pane or a
+// saved layout says about itself is in them.
+func TestMetaForIsTheConversationsAlone(t *testing.T) {
+	spec, ex := claudeAt(t, fixtureHome(t))
+	a := MetaFor(spec, ex, fixtureConversation)
+	if a.Pane != fixtureConversation || a.Conversation != fixtureConversation || a.Agent != "claude" || a.PaneName != "" || a.Model != "" {
+		t.Errorf("meta = %+v", a)
+	}
+	if b := MetaFor(spec, ex, fixtureConversation); b != a {
+		t.Errorf("two askings differ: %+v and %+v", a, b)
+	}
+}
+
 func TestExportOfNothingMakesNoFile(t *testing.T) {
 	dir := t.TempDir()
 	_, err := Export(func() (string, error) { return dir, nil }, exportMeta, fixtureFollower(t, "99999999-0000-0000-0000-000000000000"), ExportOptions{})

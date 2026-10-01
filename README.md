@@ -1011,7 +1011,7 @@ you get here: see which agent produced something, then look at what it did.
 Turn on **Record** in a pane's header, or run **Start recording** from the
 command palette, and Flockdeck writes a structured transcript of that pane's
 conversation to a file and keeps adding to it: one JSON object per line, each with
-a timestamp, the pane's id and name, the project, the agent and model, and a
+a timestamp, the conversation's id, the project and the agent, and a
 type — your prompts, the agent's messages, and tool calls and their results. It
 is off for every pane until you turn it on, a pane that is recording shows a red
 dot and "Recording" in its header, and the first time you turn it on Flockdeck
@@ -1029,8 +1029,8 @@ turned recording on, and so **a pane that was never recorded can be exported**:
 same lines a recording of it would, byte for byte. It holds every message the
 agent said, not permission prompts or status changes, which a stored
 conversation has no record of. Only Claude Code stores a conversation Flockdeck
-can read: for any other agent there is nothing to record or export, and Flockdeck
-says so. The help page lists the gaps.
+can read: for any other agent there is nothing to export, and recording cannot be
+turned on, and Flockdeck says so. The help page lists the gaps.
 
 Transcripts are written under Flockdeck's state directory, in a folder per
 project with one file per conversation (exports in an `exports` folder beside),

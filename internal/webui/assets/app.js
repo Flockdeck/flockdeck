@@ -4181,7 +4181,7 @@
     confirmDialog({
       title: "Record this pane's agent interaction?",
       body: "Flockdeck will write a transcript of this pane's conversation to a file on this machine: your prompts, the agent's messages, and the tools it runs and what they print, from the start of the conversation and as it goes on, until you stop. " +
-        "It is made from the conversation the agent stores itself, so an agent that stores none has nothing to record. " +
+        "It is made from the conversation the agent stores itself, so an agent that stores none has nothing to record, and a conversation already longer than 16 MiB is cut there. " +
         "It can contain secrets. Flockdeck removes common ones and clips very long output, but that is best effort and not a guarantee. " +
         "Nothing is written into your project and nothing leaves this machine. Recordings are deleted after 30 days.",
       action: "Start recording",
@@ -4200,7 +4200,7 @@
       title: "Export this pane's transcript?",
       body: "Flockdeck will write the whole conversation this pane's agent has stored -- your prompts, the agent's messages, and the tools it runs and what they print -- to a file on this machine, in the same format as a recording. It works whether or not recording is on. " +
         "It can contain secrets. Flockdeck removes common ones and clips very long output, but that is best effort and not a guarantee. " +
-        "Nothing is written into your project and nothing leaves this machine. An agent that stores no conversation Flockdeck can read has nothing to export, and nothing is written.",
+        "Nothing is written into your project and nothing leaves this machine. An agent that stores no conversation Flockdeck can read has nothing to export, and nothing is written. A conversation longer than 16 MiB is cut there.",
       action: "Export transcript",
     }, () => send({ cmd: "exportTranscript", id, confirmed: true }));
   }

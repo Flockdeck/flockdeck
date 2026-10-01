@@ -9,7 +9,7 @@
     "seq": { "type": "integer", "minimum": 1, "description": "Line number within the session file, from 1, with no gaps." },
     "time": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$", "description": "When the event happened, as the agent's own record has it (in files of earlier versions, when Flockdeck wrote the line): RFC 3339, UTC, nanosecond precision. Does not go back from one line to the next." },
     "session": { "type": "string", "minLength": 1, "description": "The transcript's id, <start>-<conversation>: the file's name without extension where Flockdeck named it." },
-    "pane": { "type": "string", "minLength": 1, "description": "The pane's id." },
+    "pane": { "type": "string", "minLength": 1, "description": "The conversation's id in a transcript made now (the pane's id in files of earlier versions)." },
     "paneName": { "type": "string" },
     "project": { "type": "string" },
     "agent": { "type": "string" },

@@ -129,7 +129,7 @@ func exportRecording(args []string, out io.Writer, env exportEnv) error {
 	}
 	id := rest[0]
 
-	meta, spec, ex, err := resolveExport(id, env)
+	meta, spec, ex, layoutRoot, err := resolveExport(id, env)
 	if err != nil {
 		return err
 	}
@@ -138,8 +138,10 @@ func exportRecording(args []string, out io.Writer, env exportEnv) error {
 		if path, err = filepath.Abs(path); err != nil {
 			return err
 		}
-		if err := record.CheckExportPath(path, meta.ProjectRoot); err != nil {
-			return err
+		for _, project := range []string{meta.ProjectRoot, layoutRoot} {
+			if err := record.CheckExportPath(path, project); err != nil {
+				return err
+			}
 		}
 	}
 	res, err := record.Export(env.stateDir, meta, ex.Follow(spec, meta.Conversation), record.ExportOptions{Path: path})
@@ -162,8 +164,11 @@ func exportRecording(args []string, out io.Writer, env exportEnv) error {
 	return nil
 }
 
-// resolveExport works out whose conversation id names, and who stores it.
-func resolveExport(id string, env exportEnv) (record.Meta, agent.Spec, transcript.Exporter, error) {
+// resolveExport works out whose conversation id names, and who stores it. The
+// last value is the project directory the saved layout gives a pane, which is
+// kept out of by a path of the user's own as the conversation's is, and is not
+// part of the transcript.
+func resolveExport(id string, env exportEnv) (record.Meta, agent.Spec, transcript.Exporter, string, error) {
 	specs, defaultID := env.catalog()
 	find := func(agentID string) (agent.Spec, bool) {
 		if agentID == "" {
@@ -180,21 +185,24 @@ func resolveExport(id string, env exportEnv) (record.Meta, agent.Spec, transcrip
 	if sp, ok := env.pane(id); ok {
 		spec, ok := find(sp.Agent)
 		if !ok {
-			return record.Meta{}, agent.Spec{}, nil, fmt.Errorf("pane %s runs %q, which is not an agent in this machine's catalog, so its conversation cannot be read", id, sp.Agent)
+			return record.Meta{}, agent.Spec{}, nil, "", fmt.Errorf("pane %s runs %q, which is not an agent in this machine's catalog, so its conversation cannot be read", id, sp.Agent)
 		}
 		ex, ok := transcript.ExporterFor(spec)
 		if !ok {
-			return record.Meta{}, agent.Spec{}, nil, fmt.Errorf("%s stores no conversation Flockdeck can read, so there is nothing to export", agentName(spec))
-		}
-		root := sp.Root
-		if sp.Pane.Root != "" {
-			root = sp.Pane.Root
+			return record.Meta{}, agent.Spec{}, nil, "", fmt.Errorf("%s stores no conversation Flockdeck can read, so there is nothing to export", agentName(spec))
 		}
 		conv := sp.Conversation
 		if conv == "" {
 			conv = sp.ID
 		}
-		return record.Meta{Pane: sp.ID, PaneName: sp.Name, Project: filepath.Base(root), ProjectRoot: root, Agent: sp.Agent, Model: sp.Model, Conversation: conv}, spec, ex, nil
+		// Whose lines they are is the conversation's, as it is for a recording
+		// and for the window's export, and not the saved layout's, which can
+		// have a name or a model the pane no longer has.
+		root := sp.Root
+		if sp.Pane.Root != "" {
+			root = sp.Pane.Root
+		}
+		return record.MetaFor(spec, ex, conv), spec, ex, root, nil
 	}
 
 	// Not a pane: a conversation, which is found by looking where each agent
@@ -211,17 +219,12 @@ func resolveExport(id string, env exportEnv) (record.Meta, agent.Spec, transcrip
 			continue
 		}
 		seen[home] = true
-		cwd := ex.Cwd(spec, id)
-		if cwd == "" && !stored(ex, spec, id) {
+		if ex.Cwd(spec, id) == "" && !stored(ex, spec, id) {
 			continue
 		}
-		project := ""
-		if cwd != "" {
-			project = filepath.Base(cwd)
-		}
-		return record.Meta{Pane: id, Project: project, ProjectRoot: cwd, Agent: spec.ID, Conversation: id}, spec, ex, nil
+		return record.MetaFor(spec, ex, id), spec, ex, "", nil
 	}
-	return record.Meta{}, agent.Spec{}, nil, fmt.Errorf("no pane or stored conversation %q was found. A pane's id is in the saved layout and a conversation's is its file's name under ~/.claude/projects; "+
+	return record.Meta{}, agent.Spec{}, nil, "", fmt.Errorf("no pane or stored conversation %q was found. A pane's id is in the saved layout and a conversation's is its file's name under ~/.claude/projects; "+
 		"agents other than Claude Code store nothing Flockdeck can read, so nothing can be exported for them", id)
 }
 

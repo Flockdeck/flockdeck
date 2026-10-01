@@ -60,29 +60,8 @@ func (s *Server) recordPane(c *controlClient, cmd command) {
 	case !r.found:
 		c.notify("Only an agent pane can be recorded, and that pane is not one or is no longer open", true)
 	case cmd.Recording:
-		if name, ok := paneTranscriptSupported(s, cmd.ID); !ok {
-			c.notify(name+" stores no conversation Flockdeck can read, so this pane's recording will be empty", true)
-			return
-		}
 		c.notify("Recording this pane, from the start of its conversation. Transcripts are saved on this machine", false)
 	}
-}
-
-// paneTranscriptSupported says whether the pane's agent stores a conversation a
-// transcript can be made from, and the agent's name.
-func paneTranscriptSupported(s *Server, id string) (string, bool) {
-	type result struct {
-		name string
-		ok   bool
-	}
-	r, _ := ask(s, func() result {
-		name, ok := s.ws.PaneTranscriptSupported(paneIDFor(s.ws, id))
-		if name == "" {
-			name = "That agent"
-		}
-		return result{name, ok}
-	})
-	return r.name, r.ok
 }
 
 // exportConfirmNotice answers an exportTranscript command the window did not
@@ -94,6 +73,12 @@ const exportConfirmNotice = "Exporting writes the pane's whole stored conversati
 // transcript file, whether or not the pane is being recorded. Unlike turning
 // recording on it is put to the user every time, and arrives confirmed.
 func (s *Server) exportTranscript(c *controlClient, cmd command) {
+	// The file is written on the machine flockdeck runs on, and what is said of
+	// it names a path there: neither is for a window reached through the relay.
+	if c.remote {
+		c.notify("A transcript is exported on the machine flockdeck runs on, from its own window, not from one reached through the relay", true)
+		return
+	}
 	if !cmd.Confirmed {
 		c.notify(exportConfirmNotice, true)
 		return

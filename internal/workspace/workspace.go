@@ -406,9 +406,11 @@ type Workspace struct {
 	// rec writes the transcripts of the panes that are recording.
 	rec *record.Manager
 	// recorders follow the stored conversation of each recording pane; see
-	// syncRecording. recMu guards the map and nothing else.
+	// kickRecording. recMu guards the map and nothing else, and recWG counts the
+	// looks under way, which Close waits for.
 	recMu     sync.Mutex
 	recorders map[string]*paneRecorder
+	recWG     sync.WaitGroup
 	// onRecordingEnded is told when a pane's recording stopped by itself, the
 	// size cap being reached, so a window can say so. See SetRecordingEndedHook.
 	onRecordingEnded atomic.Pointer[func(paneID, why string)]
@@ -627,13 +629,12 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	}
 	var sess *session.Session
 	var paneID string
-	var recMeta *record.Meta
+	recording := false
 	if p != nil {
 		sess = p.Sess
 		paneID = p.ID
 		if p.Recording {
-			m := w.recMetaLocked(p)
-			recMeta = &m
+			recording = true
 		}
 		// Every event says which conversation the agent is in, and after
 		// /clear that is a new one. Following it is what lets a restart, a
@@ -676,8 +677,8 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 
 	// A recording pane's transcript is made from what the agent has stored,
 	// and an event is when there is likely to be more of it.
-	if recMeta != nil {
-		w.syncRecording(paneID)
+	if recording {
+		w.kickRecording(paneID, true)
 	}
 
 	// Every event goes to the session, including those that change no status
@@ -2336,14 +2337,10 @@ func (w *Workspace) destroyPane(id string) {
 	p := w.panes[id]
 	delete(w.panes, id)
 	delete(w.BroadcastSet, id)
-	var recMeta *record.Meta
-	if p != nil && p.Recording {
-		m := w.recMetaLocked(p)
-		recMeta = &m
-	}
+	recording := p != nil && p.Recording
 	w.mu.Unlock()
-	if recMeta != nil {
-		w.stopRecorder(*recMeta, true)
+	if recording {
+		w.stopRecorder(id, true)
 	}
 	if p != nil && p.Sess != nil {
 		_ = p.Sess.Close()

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
@@ -26,6 +27,8 @@ type SyncResult struct {
 	Full bool
 	// Skipped counts entries of the stored conversation that could not be read.
 	Skipped int
+	// Events counts the events written, of every kind.
+	Events int
 }
 
 // Sync writes what the follower has read since it was last asked to the pane's
@@ -42,6 +45,7 @@ func Sync(m *Manager, meta Meta, f transcript.Follower) (SyncResult, error) {
 			res.First = ev.Time
 		}
 		res.Last = ev.Time
+		res.Events++
 		switch ev.Kind {
 		case transcript.ExportPrompt:
 			res.Prompts++
@@ -57,6 +61,24 @@ func Sync(m *Manager, meta Meta, f transcript.Follower) (SyncResult, error) {
 		res.Full, err = true, nil
 	}
 	return res, err
+}
+
+// MetaFor says whose lines a conversation's transcript has. It is the one place
+// a transcript's identity comes from -- recording, the window's export and the
+// command line's all call it -- and it is worked out from the stored
+// conversation alone: the conversation's id (which stands where a pane's id
+// did, since a transcript is of a conversation and not of a pane that may have
+// had several), the agent's id, and the directory the conversation recorded,
+// from which the project's name and folder come. Nothing about a pane, whose
+// name and model change and which a saved layout can have stale, is in it, so
+// the same conversation has the same lines whichever way it was reached.
+func MetaFor(spec agent.Spec, ex transcript.Exporter, conversation string) Meta {
+	cwd := ex.Cwd(spec, conversation)
+	project := ""
+	if cwd != "" {
+		project = filepath.Base(cwd)
+	}
+	return Meta{Pane: conversation, Project: project, ProjectRoot: cwd, Agent: spec.ID, Conversation: conversation}
 }
 
 // ExportOptions say how a transcript is exported.
@@ -120,13 +142,15 @@ func (m *Manager) seqOf(pane string) int64 {
 
 // CheckExportPath refuses a path an export must not be written to: one inside
 // the project the conversation belongs to, or inside any git repository, since
-// a transcript can hold what a repository should never be given.
+// a transcript can hold what a repository should never be given. Symbolic links
+// are followed, so a path that gets into the project through one is refused too.
 func CheckExportPath(path, projectRoot string) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
 	}
-	if projectRoot != "" && within(abs, projectRoot) {
+	abs = resolveExisting(abs)
+	if projectRoot != "" && within(abs, resolveExisting(projectRoot)) {
 		return fmt.Errorf("%s is inside the project; a transcript can hold secrets, so it is never written there. Choose a path outside it", path)
 	}
 	for dir := filepath.Dir(abs); ; dir = filepath.Dir(dir) {
@@ -136,6 +160,23 @@ func CheckExportPath(path, projectRoot string) error {
 		if filepath.Dir(dir) == dir {
 			return nil
 		}
+	}
+}
+
+// resolveExisting is path with the symbolic links in its longest existing
+// leading part followed; what does not exist yet is left as it is.
+func resolveExisting(path string) string {
+	rest := ""
+	for p := path; ; {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(r, rest)
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return path
+		}
+		rest = filepath.Join(filepath.Base(p), rest)
+		p = parent
 	}
 }
 

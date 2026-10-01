@@ -25,18 +25,20 @@ made from the conversation the agent stores itself (for Claude Code, the file
 under `~/.claude/projects` that **Resume a past conversation** reads), by one
 piece of code. Turning recording on writes the conversation so far, from its
 first message, and then follows it; it does not begin at the moment you turned
-it on.
+it on. Export is only from the machine Flockdeck runs on, not from a phone.
 
 **Only agents that store their conversation in a form Flockdeck can read have
 anything to record or export.** That is Claude Code today. For Codex, Gemini
 CLI, Aider, opencode, Cursor Agent and the built-in chat clients, Flockdeck says
-so, and nothing is exported or recorded: their panes' recordings are empty.
+so, and nothing is exported; turning recording on for one is refused, saying so.
 
 ## What is recorded
 
 One JSON object per line, in the order things happened. Every line has a
-timestamp (`time`), the pane's id and name (`pane`, `paneName`), the `project`,
-the `agent` and `model`, and a `type`:
+timestamp (`time`), the conversation's id (`pane`, `conversation`), the
+`project` and the `agent`, and a `type`. A pane's name and model are not in the
+lines: they are the pane's, not the conversation's, and an export has to match a
+recording of the same conversation:
 
 | `type` | What it holds |
 | --- | --- |
@@ -99,7 +101,9 @@ or a script.
 ### Size and retention
 
 A file stops at 16 MiB: it ends with a `recording_truncated` line, the pane stops
-recording and Flockdeck says so. Any one string is cut at 8 KiB (a prompt or
+recording and Flockdeck says so. A conversation already longer than that when you
+turn recording on is cut at the same place, the same as an export of it, and
+recording ends at once. Any one string is cut at 8 KiB (a prompt or
 message at 32 KiB), with a marker saying how much was cut. When a recording
 starts, the project's folder is tidied: files older than 30 days are deleted, then
 the oldest until at most 100 files and 256 MiB are left. Exports are not

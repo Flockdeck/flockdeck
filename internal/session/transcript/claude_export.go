@@ -57,12 +57,23 @@ func (f *claudeFollower) Poll(yield func(ExportEvent) error) (ExportStats, error
 		if f.path == "" {
 			return stats, ErrNoTranscript
 		}
+		if f.offset > 0 || !f.last.IsZero() {
+			// Found again after it had been read: it may be another copy.
+			f.start()
+			return stats, ErrReplaced
+		}
 	}
 	file, err := os.Open(f.path)
 	if err != nil {
+		// Gone, or moved to another folder: look for it again next time.
+		f.path = ""
 		return stats, ErrNoTranscript
 	}
 	defer file.Close()
+	if fi, err := file.Stat(); err == nil && fi.Size() < f.offset {
+		f.start()
+		return stats, ErrReplaced
+	}
 	if f.buf == nil {
 		f.buf = make([]byte, pollChunk)
 	}
@@ -113,6 +124,12 @@ func (f *claudeFollower) Poll(yield func(ExportEvent) error) (ExportStats, error
 	return stats, nil
 }
 
+// start forgets everything read, to read the file again from its beginning.
+func (f *claudeFollower) start() {
+	f.offset, f.carry, f.discarding = 0, nil, false
+	f.names, f.last = map[string]string{}, time.Time{}
+}
+
 // hold keeps the part of a line that has no end yet.
 func (f *claudeFollower) hold(part []byte, stats *ExportStats) {
 	if f.discarding {
@@ -145,6 +162,7 @@ func (f *claudeFollower) line(raw []byte, yield func(ExportEvent) error, stats *
 		ts = f.last
 	}
 	if ts.IsZero() {
+		stats.Skipped++
 		return nil
 	}
 	f.last = ts

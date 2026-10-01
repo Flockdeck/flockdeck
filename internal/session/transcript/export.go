@@ -12,6 +12,13 @@ import (
 // this machine (or is empty).
 var ErrNoTranscript = errors.New("no stored conversation to export")
 
+// ErrReplaced is what a Follower returns, with no events, when the stored
+// conversation was replaced by one that is shorter than what had been read of it
+// (rewritten, or deleted and started again). The Follower has started over, so
+// the next Poll gives the conversation from its beginning, and whoever has been
+// writing a transcript from it has to write that again from the start.
+var ErrReplaced = errors.New("the stored conversation was replaced")
+
 // ExportKind is what an ExportEvent is.
 type ExportKind int
 
@@ -57,7 +64,8 @@ type ExportStats struct {
 type Follower interface {
 	// Poll calls yield for each event written since the last Poll, in order,
 	// and stops at the first error yield returns. It returns ErrNoTranscript
-	// while there is nothing stored under the conversation's id.
+	// while there is nothing stored under the conversation's id, and ErrReplaced
+	// if what is stored is no longer what had been read.
 	Poll(yield func(ExportEvent) error) (ExportStats, error)
 }
 

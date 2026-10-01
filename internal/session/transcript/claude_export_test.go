@@ -252,3 +252,62 @@ func TestCwdOfAStoredConversation(t *testing.T) {
 		t.Errorf("cwd of nothing = %q", got)
 	}
 }
+
+// A conversation that comes to be shorter than what was read of it is read again
+// from the start, and one that moves is looked for again.
+func TestFollowingAReplacedConversationStartsOver(t *testing.T) {
+	home := t.TempDir()
+	spec := agent.Spec{ID: "claude", Exe: "claude", Env: []string{"CLAUDE_CONFIG_DIR=" + home}, Caps: agent.Caps{Transcript: true}}
+	one := `{"type":"user","timestamp":"2026-10-01T09:00:00Z","message":{"role":"user","content":"first"}}`
+	two := `{"type":"user","timestamp":"2026-10-01T09:00:01Z","message":{"role":"user","content":"second"}}`
+	path := writeTranscript(t, filepath.Join(home, "projects", "C--work"), exportFixtureID, one, two)
+	f := Claude{}.Follow(spec, exportFixtureID)
+	var got []string
+	poll := func() error {
+		_, err := f.Poll(func(e ExportEvent) error { got = append(got, e.Text); return nil })
+		return err
+	}
+	if err := poll(); err != nil || len(got) != 2 {
+		t.Fatalf("first look: %v %v", got, err)
+	}
+	short := `{"type":"user","timestamp":"2026-10-01T09:00:00Z","message":{"role":"user","content":"x"}}`
+	if err := os.WriteFile(path, []byte(short+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := poll(); !errors.Is(err, ErrReplaced) {
+		t.Fatalf("after the replacement: %v", err)
+	}
+	got = nil
+	if err := poll(); err != nil || len(got) != 1 || got[0] != "x" {
+		t.Errorf("after starting over: %v %v", got, err)
+	}
+	// Gone, and then somewhere else.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := poll(); !errors.Is(err, ErrNoTranscript) {
+		t.Fatalf("with the file gone: %v", err)
+	}
+	moved := writeTranscript(t, filepath.Join(home, "projects", "C--elsewhere"), exportFixtureID, short, `{"type":"user","timestamp":"2026-10-01T09:00:02Z","message":{"role":"user","content":"y"}}`)
+	_ = moved
+	if err := poll(); !errors.Is(err, ErrReplaced) {
+		t.Fatalf("after it moved: %v", err)
+	}
+	got = nil
+	if err := poll(); err != nil || len(got) != 2 {
+		t.Errorf("after starting over from the copy: %v %v", got, err)
+	}
+}
+
+// An entry with no time to put it at is not written, and is counted.
+func TestAnEntryWithNoTimeIsCountedAsSkipped(t *testing.T) {
+	home := t.TempDir()
+	spec := agent.Spec{ID: "claude", Exe: "claude", Env: []string{"CLAUDE_CONFIG_DIR=" + home}, Caps: agent.Caps{Transcript: true}}
+	writeTranscript(t, filepath.Join(home, "projects", "C--work"), exportFixtureID,
+		`{"type":"user","message":{"role":"user","content":"no time"}}`,
+		`{"type":"user","timestamp":"2026-10-01T09:00:00Z","message":{"role":"user","content":"timed"}}`)
+	evs, stats, err := collect(t, spec, exportFixtureID)
+	if err != nil || len(evs) != 1 || evs[0].Text != "timed" || stats.Skipped != 1 {
+		t.Errorf("events %+v, skipped %d, %v", evs, stats.Skipped, err)
+	}
+}

@@ -57,12 +57,16 @@ and not another. A file is never added to once its transcript has ended, except
 by being made again.
 
 A pane whose agent stores no conversation Flockdeck can read has nothing to
-write: no file is made.
+write: turning recording on for it is refused, saying so, and no file is made.
 
 **There is no rotation.** A file has a size cap of **16 MiB**. When the next line
 would pass it, the writer ends the file with one `recording_truncated` line, and
 a recording is switched off (the window says so). An export is cut there too, and
-says so.
+says so. A conversation that is already longer than that when recording is turned
+on is cut in the same place, so the recording is the first 16 MiB of it, exactly
+as an export of it is, and recording ends at once with a notice saying the
+conversation was already longer than a transcript can be. (The confirmation says
+so beforehand.)
 
 **Retention** is applied to a project's folder each time a recording is made in
 it: files with a modification time older than **30 days** are deleted; then, if
@@ -103,19 +107,22 @@ Every line has these.
 | `seq` | integer | yes | The line's number within its file: 1 for the first, then 2, 3, with no gaps. |
 | `time` | string | yes | When the event **happened**, as the agent's own record has it: RFC 3339 in UTC with a `Z` and up to nanosecond precision (`2026-10-01T10:15:30.123456789Z`). It never goes back from one line to the next: an entry the agent's record has out of order is given the time of the one before. In files made by earlier versions it is the time Flockdeck wrote the line. |
 | `session` | string | yes | The transcript's id: `<start>-<conversation>` (section 1), which is the file's name without `.jsonl` where Flockdeck named it. The same wherever the file is put. |
-| `pane` | string | yes | The pane's id, which is stable across restarts of the pane and of Flockdeck. For an export of a conversation no pane was found for, the conversation's id. |
-| `paneName` | string | no | The pane's display name at the time of the line. |
-| `project` | string | no | The project's name (the last element of its directory). |
+| `pane` | string | yes | In a transcript made now, the conversation's id: a transcript is of a conversation, which a pane can have several of, and the same conversation must give the same lines whichever pane, layout or command reached it. In files of earlier versions, the pane's id. |
+| `paneName` | string | no | **Not written now.** A pane's name changes, and a saved layout can have a stale one, so it cannot be in lines that must be the same however they were made. Files of earlier versions have the pane's name at the time of the line. |
+| `project` | string | no | The project's name: the last element of the directory the stored conversation recorded. Absent if it records none. |
 | `agent` | string | no | The agent's id (`claude`, `codex`, ...) as `flockdeck agents` lists it. |
-| `model` | string | no | The model the pane was asked for. Absent when it runs whatever the agent defaults to. |
+| `model` | string | no | **Not written now**, for the reason `paneName` is not: it is the pane's, not the conversation's. Files of earlier versions have the model the pane was asked for. |
 | `conversation` | string | no | The agent's own conversation id. It changes when the user runs `/clear`. |
 | `type` | string | yes | The event type, one of the types below. |
 | `subagent` | string | no | The id of the subagent the event came from. Absent for the main agent. |
 | `redacted` | boolean | no | `true` if anything in the line was replaced by redaction (section 4). |
 | `clipped` | object | no | For each field that was cut, its length in bytes before cutting (section 4). |
 
-`agent`, `model` and `paneName` are read when the line is written, so a pane
-renamed or switched mid-session changes from that line on.
+The identity in the envelope (`pane`, `project`, `agent`, `conversation`) is
+worked out from the stored conversation alone, in one place, whichever way the
+transcript is made: recording, *Export transcript* and the command line all give
+the same lines for the same conversation. The pane's name and model, which are
+not in the stored conversation, are therefore not in the lines.
 
 ### Event types
 
@@ -131,7 +138,7 @@ First line of every file, at the time of the conversation's first event.
 | `text` | string | yes | `start of the transcript`. It says nothing of how the transcript was made, which is the same however it was. Files of earlier versions have `turned on` or `resumed` here. |
 
 ```json
-{"v":1,"seq":1,"time":"2026-10-01T10:15:30.1Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","paneName":"api","project":"shop","agent":"claude","model":"opus","type":"recording_started","text":"start of the transcript"}
+{"v":1,"seq":1,"time":"2026-10-01T10:15:30.1Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","type":"recording_started","text":"start of the transcript"}
 ```
 
 #### `recording_stopped`
@@ -143,7 +150,7 @@ Last line of a file that was ended deliberately, at the time of the last event.
 | `text` | string | yes | `end of the transcript`. Files of earlier versions have `turned off` or `the pane was closed`. |
 
 ```json
-{"v":1,"seq":41,"time":"2026-10-01T10:31:02.8Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","paneName":"api","project":"shop","agent":"claude","model":"opus","type":"recording_stopped","text":"end of the transcript"}
+{"v":1,"seq":41,"time":"2026-10-01T10:31:02.8Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","type":"recording_stopped","text":"end of the transcript"}
 ```
 
 #### `recording_truncated`
@@ -414,8 +421,9 @@ code (`internal/session/transcript`):
 | **Claude API**, **OpenAI API** (and the other built-in chat client agents) | Flockdeck's own chat client keeps its conversations itself, but no transcript can be made from them yet | Nothing: recording and export say so, and write no file. |
 | **Codex**, **Gemini CLI**, **Aider**, **opencode**, **Cursor Agent** | No: nothing Flockdeck has a reader for | Nothing: recording and export say so, and write no file. |
 
-An agent with no readable conversation can still have its pane's recording
-switched on; it records nothing, and Flockdeck says so when it is switched on.
+Turning recording on for a pane whose agent has no readable conversation is
+refused, and says so; a pane that came back recording (from a saved layout or
+`spawn --record`) with such an agent stops showing as recording.
 
 For Claude Code the known gaps are:
 
@@ -442,13 +450,18 @@ reader, this table gets a row.
 - **Order**: lines are in the order the agent's record has the events, and
   `seq` is the order of writing. `time` does not go back (section 3). Where
   one message of the agent holds words and tool calls, the words come first.
-- **A transcript is a function of the stored conversation** (and of the pane's
-  name, project, agent and model, which are in every line): the same
-  conversation gives the same bytes, however it was made. A recording is written
+- **A transcript is a function of the stored conversation** alone, its identity
+  included (section 3): the same conversation gives the same bytes, however it
+  was made, whatever the pane is called or runs. A recording is written
   as the agent's file grows, a piece at a time, and only whole lines are read; the
   last line of the file, if it has no line break yet, is read once it is
   complete JSON. Recording lags the agent by a moment: Flockdeck looks at the
-  agent's record when the agent reports an event, and again shortly after.
+  agent's record, off the goroutines that handle the agent's events, when the
+  agent reports one and again shortly after, each look that finds nothing new
+  waiting twice as long as the last. After three such looks it stops until the
+  agent reports another event, so a quiet conversation costs nothing. If what is
+  stored is replaced by something shorter, or turns up in another folder, the
+  transcript is written again from the start.
 - **Delivery**: nothing is lost between the agent's record and the transcript
   except what section 5 lists. A `tool_call` whose process was killed has no
   `tool_result`; use `toolUseId` to pair them and treat a missing one as normal.
@@ -572,9 +585,13 @@ for:
   must not exist, and must not be inside the pane's project or any git
   repository: a transcript can hold secrets, and is never written into a
   project. Files are `0600`.
-- **Without a pane.** `export` takes a pane's id as the saved layouts hold it, or
-  a Claude Code conversation's id. For the second the line's `pane` is the
-  conversation's id and the project is the directory the conversation recorded.
+- **Pane or conversation.** `export` takes a pane's id as the saved layouts hold
+  it, or a Claude Code conversation's id. A pane is only a way to find the
+  conversation: the lines are the conversation's either way, with nothing of the
+  layout's pane name or model in them.
+- **Only from the machine itself.** The window's export is refused for a window
+  reached through the relay: the file is written on the host, and a path there is
+  not something to send to a phone.
 - **It says what it did.** How many lines, and how many entries of the
   conversation could not be read; whether it was cut at the size cap.
 - **Nothing for an agent with nothing stored.** The command and the window say
