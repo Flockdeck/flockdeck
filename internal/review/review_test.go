@@ -324,3 +324,32 @@ func TestDecideAsksForAnOverlongCommand(t *testing.T) {
 		}
 	}
 }
+
+// A read that names a secret file -- a dotenv file, a private key, a
+// credentials file -- is asked about, not auto-allowed, even though it reads
+// only inside the project: its contents would otherwise reach the transcript
+// unseen. The public half of a key pair is left alone.
+func TestDecideAsksForSecretFiles(t *testing.T) {
+	dir := cleanRepo(t)
+	asked := []string{
+		"cat .env", "cat .env.production", "head .env.local",
+		"cat deploy/id_rsa", "cat .ssh/id_ed25519", "stat server.pem",
+		"cat tls.key", "cat .npmrc", "cat .netrc", "cat .git-credentials",
+		"cat config/credentials.json", "grep token aws-credentials",
+		"cat keystore.p12", "cat cert.pfx",
+	}
+	for _, cmd := range asked {
+		if d := Decide("Bash", `{"command":`+quote(cmd)+`}`, dir); d.Allow {
+			t.Errorf("Decide allowed a read of a secret file: %q", cmd)
+		}
+	}
+	allowed := []string{
+		"cat id_rsa.pub", "cat README.md", "cat environment.go",
+		"grep -rn TODO .", "cat main.key.go",
+	}
+	for _, cmd := range allowed {
+		if d := Decide("Bash", `{"command":`+quote(cmd)+`}`, dir); !d.Allow {
+			t.Errorf("Decide asked about a harmless read: %q", cmd)
+		}
+	}
+}
