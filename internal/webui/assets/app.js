@@ -4761,7 +4761,10 @@
     agents: { present: "sheet", rail: "btn-agents", act: "agents", again: () => openAgents },
     changes: { present: "sheet", wide: true, rail: "btn-changes", act: "changes",
       again: () => { const at = changes && changes.cwd; return () => openChanges(at); } },
-    worktrees: { present: "sheet", rail: "btn-worktrees", act: "worktrees", again: () => openWorktrees },
+    worktrees: { present: "sheet", rail: "btn-worktrees", act: "worktrees", again: () => {
+      const keep = { picked: wtPicked, draft: { ...wtDraft }, sel: wtSel };
+      return () => openWorktrees(keep);
+    } },
     history: { present: "sheet", rail: "btn-history", act: "history", again: () => openHistory },
     fanoutHistory: { present: "sheet", rail: "btn-fanout-history", act: "fanoutHistory", again: () => openFanoutHistory },
     todos: { present: "sheet", rail: "btn-todos", act: "todos", again: () => openTodos },
@@ -4819,6 +4822,7 @@
    *  a branch, a path) and `role` ("alertdialog" for a question). */
   function openOverlay(title, page, opts) {
     opts = opts || {};
+    closeMenu(false);
     const overlay = $("overlay");
     const panel = $("overlay-panel");
     const how = SURFACES[dialog] || {};
@@ -5096,6 +5100,7 @@
    *  a shortcut still being recorded (it went on taking every key the window
    *  saw, with no dialog left to show it), a pairing link being polled. */
   function leaveSurface() {
+    closeMenu(false);
     picker = null;
     askCancel = null;
     keybindEditing = "";
@@ -5325,13 +5330,6 @@
     if (dialog === "worktrees") send(wtRequest());
   }
 
-  /** openWorktrees opens the dialog and asks for what goes in it. It opens at
-   *  once rather than when the answer arrives, because the same answer comes
-   *  back after every add, remove and prune, and those take seconds: opened
-   *  by its answer, a dialog closed while one of them ran came back over the
-   *  terminals on its own and took the keyboard from the pane being typed
-   *  into. The other dialogs already opened this way; their answers are now
-   *  drawn only into the dialog they belong to. */
   /** rootLabel is the line at the foot of a dialog naming the folder it is
    *  about. It is cut short with an ellipsis, paths differ at the end the
    *  ellipsis takes, and it had no bubble: which checkout a dialog was for
@@ -5357,26 +5355,161 @@
     body.append(box);
   }
 
-  function openWorktrees() {
+  /* ---- A menu on a button ---------------------------------------------------
+   *
+   * The ⋯ beside a row: the things you do to that row less often than the one
+   * thing the row is for. Drawn inside the panel it belongs to, so Tab and the
+   * scrim treat it as part of the surface, and opened from its anchor so that
+   * putting it away returns the keyboard there. Arrow keys, Home and End move
+   * between the items, a letter goes to the next item that starts with it,
+   * Enter or a click picks, Escape puts the menu away and nothing else. */
+  let menuNode = null;
+  let menuAnchor = null;
+
+  /** closeMenu puts the open menu away, and reports whether there was one. */
+  function closeMenu(refocus) {
+    if (!menuNode) return false;
+    const node = menuNode;
+    const anchor = menuAnchor;
+    menuNode = null;
+    menuAnchor = null;
+    node.remove();
+    if (anchor) anchor.setAttribute("aria-expanded", "false");
+    if (refocus && anchor && anchor.isConnected && !anchor.disabled) anchor.focus();
+    return true;
+  }
+
+  /** openMenu draws a menu under (or, with no room there, over) its anchor.
+   *  items: {label, run, hint, danger, disabled} or {sep: true}. The keyboard
+   *  goes to the first item that can be picked. */
+  function openMenu(anchor, items, label) {
+    closeMenu(false);
+    const panel = $("overlay-panel");
+    const menu = el("div", "menu");
+    menu.id = "row-menu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", label || "Actions");
+    const buttons = [];
+    for (const it of items) {
+      if (it.sep) { menu.append(el("div", "menu-sep")); continue; }
+      const b = el("button", "menu-item" + (it.danger ? " danger" : ""), it.label);
+      b.type = "button";
+      b.setAttribute("role", "menuitem");
+      b.tabIndex = -1;
+      b.disabled = !!it.disabled;
+      if (it.hint) b.append(el("span", "menu-hint", it.hint));
+      // The keyboard goes back to the anchor first, so that what the item
+      // does -- closing the surface, opening another -- has the last word.
+      b.onclick = () => { closeMenu(true); it.run(); };
+      buttons.push(b);
+      menu.append(b);
+    }
+    const live = () => buttons.filter((b) => !b.disabled);
+    const go = (to) => { const l = live(); if (l.length) l[(to + l.length) % l.length].focus(); };
+    menu.addEventListener("keydown", (ev) => {
+      const l = live();
+      const at = l.indexOf(document.activeElement);
+      let handled = true;
+      if (ev.key === "ArrowDown") go(at + 1);
+      else if (ev.key === "ArrowUp") go(at < 0 ? -1 : at - 1);
+      else if (ev.key === "Home") go(0);
+      else if (ev.key === "End") go(-1);
+      else if (ev.key.length === 1 && /\S/.test(ev.key) && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+        const c = ev.key.toLowerCase();
+        const next = l.slice(at + 1).concat(l.slice(0, at + 1)).find((b) => b.textContent.toLowerCase().startsWith(c));
+        if (next) next.focus();
+      } else handled = false;
+      if (handled) { ev.preventDefault(); ev.stopPropagation(); }
+    });
+    // Tab, or a click elsewhere, leaves the menu: it is not a place to stay.
+    menu.addEventListener("focusout", (ev) => {
+      const to = ev.relatedTarget;
+      if (!to || !menu.contains(to)) setTimeout(() => { if (menuNode === menu && !menu.contains(document.activeElement)) closeMenu(false); }, 0);
+    });
+    panel.append(menu);
+    menuNode = menu;
+    menuAnchor = anchor;
+    anchor.setAttribute("aria-expanded", "true");
+    // Right edges level with the anchor's, under it; over it when the panel
+    // has no room below.
+    const a = anchor.getBoundingClientRect();
+    const p = panel.getBoundingClientRect();
+    const w = menu.offsetWidth || 220;
+    const h = menu.offsetHeight || 0;
+    let top = a.bottom - p.top + 2;
+    if (h && top + h > p.height - 8) top = Math.max(8, a.top - p.top - h - 2);
+    menu.style.top = Math.round(top) + "px";
+    menu.style.left = Math.round(Math.max(8, Math.min(a.right - p.left - w, p.width - w - 8))) + "px";
+    go(0);
+    return menu;
+  }
+  // A press anywhere but on the menu and the button that opened it puts it away.
+  document.addEventListener("pointerdown", (ev) => {
+    if (!menuNode) return;
+    const t = ev.target;
+    if (t && t.closest && (t.closest("#row-menu") || (menuAnchor && menuAnchor.contains(t)))) return;
+    closeMenu(false);
+  }, true);
+
+  /** The folder's own name, for the scope beside a title. */
+  function baseName(path) {
+    const parts = String(path || "").split(/[\\/]+/).filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : String(path || "");
+  }
+  /** setScope writes the mono scope in the head, where the title says what
+   *  and this says where. */
+  function setScope(text) {
+    const scope = $("overlay-scope");
+    if (!scope) return;
+    scope.textContent = text || "";
+    scope.hidden = !text;
+  }
+
+  /** The row the Open agent button is shown on. */
+  let wtSel = "";
+
+  /** openWorktrees opens the sheet and asks for what goes in it. It opens at
+   *  once rather than when the answer arrives, because the same answer comes
+   *  back after every add, remove and prune, and those take seconds: opened
+   *  by its answer, a sheet closed while one of them ran came back over the
+   *  terminals on its own and took the keyboard from the pane being typed
+   *  into. The other surfaces open this way too; their answers are drawn only
+   *  into the surface they belong to. `keep` is what a sheet coming back from
+   *  the question it asked carries with it: the repository picked, what was
+   *  typed, the row on show. */
+  function openWorktrees(keep) {
     dialog = "worktrees";
     worktrees = null;
-    wtPicked = "";
-    wtDraft = { branch: "", base: "", root: "" };
+    wtPicked = (keep && keep.picked) || "";
+    wtDraft = (keep && keep.draft) || { branch: "", base: "", root: "" };
+    wtSel = (keep && keep.sel) || "";
     wtBusy = false;
     openOverlay("Worktrees", "worktrees");
     $("overlay-body").append(el("div", "dir-empty", "Reading the worktrees…"));
     send(wtRequest());
   }
 
+  /** wtEmpty is the state of a list with nothing to show: a bold line saying
+   *  what is missing, a sentence on how it comes to be there. */
+  function wtEmpty(title, why) {
+    const box = el("div", "wt-empty");
+    box.append(el("strong", null, title), el("p", null, why));
+    return box;
+  }
+
   function renderWorktrees(msg) {
     if (msg) { worktrees = msg; wtBusy = false; }
     if (dialog !== "worktrees") return; // closed, or replaced by another
+    closeMenu(false);
     const m = worktrees || {};
     const body = $("overlay-body");
     body.textContent = "";
+    setScope(m.root ? baseName(m.root) : "");
 
     if (m.error) {
-      body.append(el("p", null, m.error));
+      body.append(wtEmpty(m.error, m.repos && m.repos.length
+        ? "Pick the repository whose worktrees you want."
+        : "Open a project that is a git repository to see its worktrees."));
       repoChoices(body, m.repos, (path) => {
         wtPicked = path;
         body.textContent = "";
@@ -5388,18 +5521,50 @@
 
     // Adding, removing and pruning all run git, which is not always quick,
     // and the same fresh listing settles whichever one is out -- so every
-    // button in the dialog is disabled while any one runs, as Changes' own
-    // fetch, pull, push and commit do, rather than only the one pressed.
-    const running = (btn, saying) => {
-      btn.textContent = saying;
+    // button in the sheet is disabled while any one runs, as Changes' own
+    // fetch, pull, push and commit do, rather than only the one pressed. A
+    // button says what it is doing; a menu item has gone, so the row says it.
+    const running = (btn, saying, row) => {
+      if (btn) btn.textContent = saying;
+      if (row) row.querySelector(".wt-title").append(el("span", "wt-flag busy", saying));
       for (const b of body.querySelectorAll("button")) b.disabled = true;
       wtBusy = true;
     };
+    const items = m.items || [];
+    const gone = items.filter((wt) => wt.prunable).length;
 
     // --- existing worktrees ------------------------------------------------
-    const list = section("Checkouts");
-    (m.items || []).forEach((wt) => {
-      const row = el("div", "wt-row");
+    const sec = el("div", "wt-sec");
+    const head = el("div", "wt-sec-head");
+    const count = el("span", "wt-count", String(items.length));
+    head.append(el("h3", null, "Checkouts"), count, el("span", "ov-spacer"));
+    const refresh = el("button", "wt-link", "Refresh");
+    // Its wording changes while it works, which identify() cannot follow by
+    // text alone.
+    refresh.id = "wt-refresh";
+    refresh.type = "button";
+    refresh.onclick = () => { running(refresh, "Reading…"); send(wtRequest()); };
+    head.append(refresh);
+    if (gone) {
+      const pruneAll = el("button", "wt-link", "Prune gone");
+      pruneAll.id = "wt-prune-all";
+      pruneAll.type = "button";
+      pruneAll.title = "Drop records for worktrees whose folders are gone";
+      pruneAll.onclick = () => { running(pruneAll, "Pruning…"); send({ cmd: "worktreePrune" }); };
+      head.append(pruneAll);
+    }
+    sec.append(head);
+
+    const list = el("div", "wt-list");
+    const rows = [];
+    const choose = (path) => {
+      wtSel = path;
+      for (const r of rows) r.classList.toggle("sel", r.dataset.path === path);
+    };
+    items.forEach((wt) => {
+      const row = el("div", "wt-row" + (wt.prunable ? " gone" : "") + (wt.path === wtSel ? " sel" : ""));
+      row.dataset.path = wt.path;
+      rows.push(row);
 
       const main = el("div", "wt-main");
       const titleLine = el("div", "wt-title");
@@ -5455,53 +5620,45 @@
       if (wt.head) meta.append(describe(el("span", "wt-head", wt.head),
         "The commit this worktree has checked out."));
       main.append(meta);
-      // Cut from the end with an ellipsis, and paths differ at the end.
+      // Cut from the end with an ellipsis, and paths differ at the end. Shown
+      // on the row on show: the list reads as names, and the folder is there
+      // for the one being looked at.
       main.append(describe(el("div", "wt-path", wt.path), wt.path));
       row.append(main);
 
       const actions = el("div", "wt-actions");
       // Named by the worktree they act on. A redraw finds the control the
-      // keyboard was on by what it is, and by wording alone "Remove" in one
-      // row is "Remove" in the next: removing a clean worktree - which does
-      // not ask - left the keyboard on the next one's Remove, and a second
-      // Enter removed that as well.
+      // keyboard was on by what it is, and by wording alone one row's button
+      // is the next row's.
       const key = "wt-" + encodeURIComponent(wt.path) + "-";
       if (wt.prunable) {
         // There is no folder for an agent, a shell or a review to start in,
         // and each of them failed there with nothing better to say than that
-        // a path does not exist. What is left to do is the panel's own Prune,
-        // offered on the row where the stale record is seen. git's prune is
-        // not selective, which the bubble says.
-        const prune = el("button", "chip primary", "Prune");
+        // a path does not exist. What is left to do is to prune, offered on
+        // the row where the stale record is seen. git's prune is not
+        // selective, which the bubble says.
+        const prune = el("button", "chip", "Prune");
         prune.id = key + "prune";
-        prune.title = "Clear git's record of this worktree. Like Prune below, it clears every worktree whose folder is gone.";
+        prune.title = "Clear git's record of this worktree. Like Prune gone above, it clears every worktree whose folder is gone.";
         prune.onclick = () => { running(prune, "Pruning…"); send({ cmd: "worktreePrune" }); };
         actions.append(prune);
       } else {
-        const agent = el("button", "chip primary", "Agent");
+        const openAgent = () => { send({ cmd: "newTab", kind: "agent", path: wt.path, text: wt.label }); closeOverlay(); };
+        const agent = el("button", "chip primary", "Open agent");
+        agent.id = key + "agent";
         agent.title = "Open an agent tab in this worktree";
-        agent.onclick = () => { send({ cmd: "newTab", kind: "agent", path: wt.path, text: wt.label }); closeOverlay(); };
-        const shell = el("button", "chip", "Shell");
-        shell.onclick = () => { send({ cmd: "newTab", kind: "shell", path: wt.path, text: wt.label }); closeOverlay(); };
-        const split = el("button", "chip", "Split");
-        split.title = "Add an agent for this worktree beside the current pane";
-        split.onclick = () => {
-          send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "agent", path: wt.path });
-          closeOverlay();
-        };
-        const review = el("button", "chip", "Review");
-        review.title = "See what changed here, commit and push";
-        review.onclick = () => openFrom(openChanges, wt.path);
-        actions.append(agent, shell, split, review);
-        agent.id = key + "agent"; shell.id = key + "shell"; split.id = key + "split"; review.id = key + "review";
-      }
+        agent.onclick = openAgent;
 
-      if (!wt.main && !wt.prunable) {
-        const rm = el("button", "chip danger", "Remove");
-        rm.id = key + "remove";
+        const more = el("button", "icon-btn wt-more", "⋯");
+        more.id = key + "more";
+        more.type = "button";
+        more.setAttribute("aria-haspopup", "menu");
+        more.setAttribute("aria-expanded", "false");
+        more.setAttribute("aria-label", "More about " + wt.label);
+        more.dataset.tip = "More: shell, split, review" + (wt.main ? "" : ", remove");
+
         const unsafe = wt.dirty || wt.untracked;
-        rm.title = unsafe ? "This worktree has uncommitted work" : "Remove this worktree";
-        rm.onclick = () => {
+        const remove = () => {
           // Not while agents are working in it: they would be left in a
           // directory that no longer exists, and the server refuses it,
           // forced or not. Saying so here, before anything is sent, is where
@@ -5512,39 +5669,138 @@
               ". Close " + (wt.panes === 1 ? "that pane" : "those panes") + " first, then remove it.", true);
             return;
           }
-          if (unsafe && !window.confirm(
-            wt.label + " has uncommitted changes.\n\nRemove it and discard them?")) return;
-          running(rm, "Removing…");
-          send({ cmd: "worktreeRemove", path: wt.path, force: !!unsafe });
+          const go = () => {
+            running(null, "Removing…", row);
+            send({ cmd: "worktreeRemove", path: wt.path, force: !!unsafe });
+          };
+          if (!unsafe) { go(); return; }
+          confirmDialog({
+            title: "Remove " + wt.label + "?",
+            body: wt.label + " has uncommitted changes. Removing it deletes the folder and discards them.",
+            action: "Remove and discard", danger: true, scope: wt.path,
+            native: wt.label + " has uncommitted changes.\n\nRemove it and discard them?",
+          }, go);
         };
-        actions.append(rm);
+        const menu = () => {
+          const entries = [
+            { label: "Open agent", hint: "↵", run: openAgent },
+            { label: "Open shell", run: () => { send({ cmd: "newTab", kind: "shell", path: wt.path, text: wt.label }); closeOverlay(); } },
+            { label: "Split beside this pane", run: () => {
+              send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "agent", path: wt.path });
+              closeOverlay();
+            } },
+            { label: "Review changes", run: () => openFrom(openChanges, wt.path) },
+          ];
+          if (!wt.main) entries.push({ sep: true }, { label: "Remove worktree…", danger: true, run: remove });
+          choose(wt.path);
+          openMenu(more, entries, "What to do with " + wt.label);
+        };
+        more.onclick = menu;
+        row.oncontextmenu = (ev) => { ev.preventDefault(); if (!wtBusy) menu(); };
+        actions.append(agent, more);
+        // The keyboard starts on the first row's action, not on Refresh.
+        if (!list.querySelector("[data-autofocus]") && !rows.some((r) => r.querySelector("[data-autofocus]"))) agent.setAttribute("data-autofocus", "");
       }
       // One stop per worktree, walked with the arrows, as a pane's header
       // is. Four or five stops a row put the new-worktree form fifty presses
       // of Tab past a list of ten.
       makeToolbar(actions, "What to do with " + wt.label);
       row.append(actions);
+      // The row the keyboard is in, or a click is on, is the one on show.
+      row.addEventListener("focusin", () => { if (wtSel !== wt.path) choose(wt.path); });
+      row.onclick = (ev) => { if (!(ev.target.closest && ev.target.closest("button"))) choose(wt.path); };
       list.append(row);
     });
-    if (!(m.items || []).length) list.append(el("div", "dir-empty", "No worktrees."));
-    body.append(list);
+    // Up and down walk the rows, as left and right walk a row's buttons; each
+    // row's one stop is where the keyboard lands.
+    list.addEventListener("keydown", (ev) => {
+      if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+      const bar = document.activeElement && document.activeElement.closest && document.activeElement.closest("div.wt-actions");
+      const bars = [...list.querySelectorAll("div.wt-actions")];
+      const at = bars.indexOf(bar);
+      const to = bars[at + (ev.key === "ArrowDown" ? 1 : -1)];
+      if (at < 0 || !to) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      ([...to.children].find((b) => b.tabIndex === 0) || to.children[0]).focus();
+      choose(to.closest("div.wt-row").dataset.path);
+    });
+    if (!items.length) {
+      list.append(wtEmpty("No worktrees yet",
+        "A worktree is another checkout of this repository, so an agent can work on a branch without disturbing the one you are on. Create one below."));
+    }
+    sec.append(list);
+    body.append(sec);
 
-    // --- create a new one --------------------------------------------------
-    const create = section("New worktree");
+    const target0 = wtDraft.root || m.root;
+    // --- existing branches without a worktree ------------------------------
+    // The branches on offer here and in the base-branch suggestions are this
+    // repo's own -- a project spanning more than one no longer merges every
+    // member's branches into one list with no way to tell whose is whose, or
+    // which repo checking one out would run git in. Untagged (every branch,
+    // for a project of one) always matches.
+    const members = groupMembersOf(m.root);
+    if (members) {
+      // Default to the active repo the first time there is a choice to make,
+      // and whenever the one picked drops out of the list -- a member
+      // removed from the project while the sheet was open, say.
+      if (!members.some((mem) => mem.root === wtDraft.root)) wtDraft.root = m.root;
+    } else {
+      wtDraft.root = "";
+    }
+    const target = wtDraft.root || target0;
+    const branchesHere = (m.branches || []).filter((b) => !b.repoRoot || b.repoRoot === target);
+    const free = branchesHere.filter((b) => !b.checkedIn);
+    if (free.length) {
+      const bs = el("div", "wt-sec");
+      const bh = el("div", "wt-sec-head");
+      bh.append(el("h3", null, "Branches without a worktree"), el("span", "wt-count", String(free.length)));
+      bs.append(bh);
+      const chips = el("div", "places");
+      free.slice(0, 14).forEach((b) => {
+        const btn = el("button", "chip", b.name);
+        // Its wording changes while it works, which identify() cannot follow
+        // by text alone.
+        btn.id = "wt-checkout-" + encodeURIComponent(b.name);
+        btn.title = "Create a worktree checking out " + b.name;
+        btn.onclick = () => {
+          wtCreated = b.name;
+          running(btn, "Creating…");
+          const add = { cmd: "worktreeAdd", text: b.name };
+          if (wtDraft.root) add.root = wtDraft.root;
+          send(add);
+        };
+        chips.append(btn);
+      });
+      // One stop, walked with the arrows, like the rows above it: up to
+      // fourteen branches, each a Tab stop, stood between the list and the
+      // rest of the sheet.
+      makeToolbar(chips, "Branches without a worktree");
+      bs.append(chips);
+      // Only the first fourteen are offered as buttons, and the rest simply
+      // were not there: a branch further down the list looked as though it
+      // did not exist. Typing its name into the form below checks it out.
+      if (free.length > 14) {
+        const more = free.length - 14;
+        bs.append(el("div", "wt-hint", (more === 1 ? "1 more branch" : more + " more branches") +
+          " not shown - type a branch name into the form below to check it out."));
+      }
+      body.append(bs);
+    }
+
+    // --- create a new one: the footer --------------------------------------
+    const foot = el("div", "ov-foot wt-foot");
+    const label = el("div", "wt-foot-head");
+    const title = el("span", "wt-foot-title", "New worktree");
+    describe(title, "The worktree is created next to the repository. An existing branch name checks it out instead of creating one.");
+    label.append(title);
 
     // Which repo, in a project spanning more than one: git has no notion of
     // a worktree that isn't rooted in exactly one repository, so a project
     // with more than one member has to say which one a new worktree belongs
     // to -- the same question Changes' own picker answers for which one is
-    // being reviewed. Left out for a project of one, which is every project
-    // this form ever targeted before one could span more than one repo, so
-    // it still reads exactly as it always has.
-    const members = groupMembersOf(m.root);
+    // being reviewed. Left out for a project of one.
     if (members) {
-      // Default to the active repo the first time there is a choice to make,
-      // and whenever the one picked drops out of the list -- a member
-      // removed from the project while the dialog was open, say.
-      if (!members.some((mem) => mem.root === wtDraft.root)) wtDraft.root = m.root;
       const picker = el("div", "rev-repo-picker");
       members.forEach((mem) => {
         const here = mem.root === wtDraft.root;
@@ -5554,30 +5810,24 @@
         btn.onclick = () => { wtDraft.root = mem.root; renderWorktrees(); };
         picker.append(btn);
       });
-      create.append(picker);
-    } else {
-      wtDraft.root = "";
+      label.append(picker);
     }
-    // The branches on offer below and in the base-branch suggestions are
-    // this repo's own -- a project spanning more than one no longer merges
-    // every member's branches into one list with no way to tell whose is
-    // whose, or which repo checking one out would run git in. Untagged
-    // (every branch, for a project of one) always matches.
-    const target = wtDraft.root || m.root;
-    const branchesHere = (m.branches || []).filter((b) => !b.repoRoot || b.repoRoot === target);
+    foot.append(label);
 
     const form = el("div", "wt-form");
-
     const branch = el("input");
-    branch.placeholder = "Branch name, e.g. fix-auth";
+    branch.placeholder = "Branch, e.g. fix-auth";
     branch.id = "wt-branch";
     branch.value = wtDraft.branch;
+    branch.setAttribute("aria-label", "Branch name");
     branch.oninput = () => { wtDraft.branch = branch.value; };
+    if (!items.length) branch.setAttribute("data-autofocus", "");
     const base = el("input");
     base.placeholder = "Base";
     base.value = wtDraft.base || m.defaultBase || "";
     base.oninput = () => { wtDraft.base = base.value; };
     base.id = "wt-base";
+    base.setAttribute("aria-label", "Base branch");
     base.title = "The commit or branch the new branch starts from";
     base.setAttribute("list", "wt-bases");
 
@@ -5622,63 +5872,11 @@
     // did nothing at all.
     branch.onkeydown = base.onkeydown = (ev) => { if (ev.key === "Enter") submit(); };
     form.append(branch, base, go, bases);
-    create.append(form);
-    create.append(el("div", "wt-hint",
-      "The worktree is created next to the repository. An existing branch name checks it out instead of creating one."));
-    body.append(create);
-
-    // --- existing branches without a worktree ------------------------------
-    const free = branchesHere.filter((b) => !b.checkedIn);
-    if (free.length) {
-      const bs = section("Branches without a worktree");
-      const chips = el("div", "places");
-      free.slice(0, 14).forEach((b) => {
-        const btn = el("button", "chip", b.name);
-        // Its wording changes while it works, which identify() cannot follow
-        // by text alone.
-        btn.id = "wt-checkout-" + encodeURIComponent(b.name);
-        btn.title = "Create a worktree checking out " + b.name;
-        btn.onclick = () => {
-          wtCreated = b.name;
-          running(btn, "Creating…");
-          const add = { cmd: "worktreeAdd", text: b.name };
-          if (wtDraft.root) add.root = wtDraft.root;
-          send(add);
-        };
-        chips.append(btn);
-      });
-      // One stop, walked with the arrows, like the rows above it: up to
-      // fourteen branches, each a Tab stop, stood between the list and the
-      // rest of the dialog.
-      makeToolbar(chips, "Branches without a worktree");
-      bs.append(chips);
-      // Only the first fourteen are offered as buttons, and the rest simply
-      // were not there: a branch further down the list looked as though it
-      // did not exist. Typing its name into the form above checks it out.
-      if (free.length > 14) {
-        const more = free.length - 14;
-        bs.append(el("div", "wt-hint", (more === 1 ? "1 more branch" : more + " more branches") +
-          " not shown - type a branch name into the form above to check it out."));
-      }
-      body.append(bs);
-    }
-
-    // --- maintenance -------------------------------------------------------
-    const tools = el("div", "wt-tools");
-    const refresh = el("button", "chip", "Refresh");
-    // Its wording changes while it works, which identify() cannot follow by
-    // text alone.
-    refresh.id = "wt-refresh";
-    refresh.onclick = () => { running(refresh, "Reading…"); send(wtRequest()); };
-    const prune = el("button", "chip", "Prune");
-    prune.id = "wt-prune-all";
-    prune.title = "Drop records for worktrees whose folders are gone";
-    prune.onclick = () => { running(prune, "Pruning…"); send({ cmd: "worktreePrune" }); };
-    tools.append(refresh, prune, rootLabel(m.root || ""));
-    body.append(tools);
+    foot.append(form, rootLabel(m.root || ""));
+    body.append(foot);
 
     if (wtCreated) {
-      const made = (m.items || []).findIndex((wt) => wt.label === wtCreated);
+      const made = items.findIndex((wt) => wt.label === wtCreated);
       if (made >= 0) {
         wtCreated = "";
         // After the redraw's own keyboard handling, which put it back on
@@ -12653,6 +12851,8 @@
         keyCancel();
         return;
       }
+      // A menu open on a row goes first, with the keyboard back on its button.
+      if (closeMenu(true)) { e.preventDefault(); return; }
       // One level at a time: a surface stacked on another goes back to it.
       dismissOverlay();
       return;
