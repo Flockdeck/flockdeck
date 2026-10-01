@@ -225,8 +225,13 @@ func TestRecordingSurvivesRestartMoveAndRestore(t *testing.T) {
 		t.Error("a pane that was not recording came back recording")
 	}
 	// A restored pane records again, in a session of its own, from its first event.
+	// Written through the recorder directly, as handleHook does: a pane whose
+	// agent is not installed here (CI) has no session to hear a hook event.
 	rp := restored.Pane(p.ID)
-	restored.handleHook(hooks.Event{SessionID: p.ID, Event: "UserPromptSubmit", Launch: rp.launch, Detail: &hooks.Detail{Prompt: "back again"}})
+	restored.mu.Lock()
+	meta := restored.recMetaLocked(rp)
+	restored.mu.Unlock()
+	restored.rec.Record(meta, record.Entry{Type: record.TypePrompt, Text: "back again"})
 	if n := len(recordingFiles(t)); n != 2 {
 		t.Errorf("want a second session file after the restore, got %d files", n)
 	}
