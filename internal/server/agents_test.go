@@ -124,7 +124,7 @@ func TestAgentDefaultIsCheckedAndClearable(t *testing.T) {
 	readUntil(t, conn, "notice", &note)
 	sendCmd(t, conn, command{Cmd: "setAgentDefault"})
 	readUntil(t, conn, "notice", &note)
-	if note.Error || !strings.HasPrefix(note.Text, "cleared the default agent") {
+	if note.Error || !strings.HasPrefix(note.Text, "Cleared the default agent") {
 		t.Errorf("clearing the project's default was answered %+v", note)
 	}
 	if f := read(); len(f.Projects) != 0 {

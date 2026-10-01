@@ -37,7 +37,7 @@ func jevKeyAtTheDesk(c *controlClient) bool {
 	if !c.remote {
 		return false
 	}
-	c.notify("the TypeSafe key is set on the machine flockdeck runs on — one typed in a window reached through the relay passes through the relay, which can read it", true)
+	c.notify("The TypeSafe key is set on the machine flockdeck runs on — one typed in a window reached through the relay passes through the relay, which can read it", true)
 	return true
 }
 
@@ -56,9 +56,9 @@ func (s *Server) jevKey(c *controlClient, kind, text string) {
 			err := creds.SetJevKey(text)
 			keyWrites.Unlock()
 			if err != nil {
-				c.notify("could not save the TypeSafe key: "+err.Error(), true)
+				c.notify("Could not save the TypeSafe key: "+err.Error(), true)
 			} else {
-				c.notify("saved the TypeSafe key. Nothing is sent to TypeSafe until you turn on a setting that uses it", false)
+				c.notify("Saved the TypeSafe key. Nothing is sent to TypeSafe until you turn on a setting that uses it", false)
 			}
 		case "clear":
 			keyWrites.Lock()
@@ -66,11 +66,11 @@ func (s *Server) jevKey(c *controlClient, kind, text string) {
 			keyWrites.Unlock()
 			switch {
 			case err != nil:
-				c.notify("could not clear the TypeSafe key: "+err.Error(), true)
+				c.notify("Could not clear the TypeSafe key: "+err.Error(), true)
 			case had:
-				c.notify("cleared the TypeSafe key", false)
+				c.notify("Cleared the TypeSafe key", false)
 			default:
-				c.notify("there was no TypeSafe key set in Settings to clear", false)
+				c.notify("There was no TypeSafe key set in Settings to clear", false)
 			}
 		}
 		c.sendJSON(jevKeyState())

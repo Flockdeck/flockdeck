@@ -24,7 +24,7 @@ func TestClearingAKeyThatIsNotStoredSaysSo(t *testing.T) {
 	sendCmd(t, conn, command{Cmd: "keyClear", ID: spec.ID})
 	var note noticeMsg
 	readUntil(t, conn, "notice", &note)
-	if note.Error || strings.HasPrefix(note.Text, "cleared") || !strings.Contains(note.Text, "no stored key") {
+	if note.Error || strings.HasPrefix(note.Text, "Cleared") || !strings.Contains(note.Text, "no stored key") {
 		t.Errorf("clearing a key that was never stored was answered %+v; want it to say there was none", note)
 	}
 
@@ -32,7 +32,7 @@ func TestClearingAKeyThatIsNotStoredSaysSo(t *testing.T) {
 	t.Setenv(exported, "sk-from-the-environment")
 	sendCmd(t, conn, command{Cmd: "keyClear", ID: spec.ID})
 	readUntil(t, conn, "notice", &note)
-	if note.Error || strings.HasPrefix(note.Text, "cleared") || !strings.Contains(note.Text, exported) {
+	if note.Error || strings.HasPrefix(note.Text, "Cleared") || !strings.Contains(note.Text, exported) {
 		t.Errorf("clearing a key that comes from the environment was answered %+v; want it to name %s, which is still used", note, exported)
 	}
 }

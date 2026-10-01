@@ -50,7 +50,7 @@ func runFanout(t *testing.T, srv *Server, req fanoutRequest) {
 				continue
 			}
 			said = append(said, msg.Text)
-			if strings.HasPrefix(msg.Text, "started ") {
+			if strings.HasPrefix(msg.Text, "Started ") {
 				if msg.Error {
 					t.Fatalf("the fan-out did not start every agent: %q", said)
 				}

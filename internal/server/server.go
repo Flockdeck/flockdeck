@@ -787,7 +787,7 @@ func (s *Server) saveLayouts() {
 		return
 	}
 	if !s.saveFailShown && s.ClientCount() > 0 {
-		s.notifyAll("the layout could not be saved, and it is tried again every half minute; if this goes on, check that the disk has room and that Flockdeck's state folder can be written to: "+err.Error(), true)
+		s.notifyAll("The layout could not be saved, and it is tried again every half minute; if this goes on, check that the disk has room and that Flockdeck's state folder can be written to: "+err.Error(), true)
 		s.saveFailShown = true
 	}
 }

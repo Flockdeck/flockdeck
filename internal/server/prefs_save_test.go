@@ -44,7 +44,7 @@ func TestASettingIsNotSavedOverSettingsThatCouldNotBeRead(t *testing.T) {
 	sendCmd(t, conn, command{Cmd: "fontSize", Size: 17})
 	var note noticeMsg
 	readUntil(t, conn, "notice", &note)
-	if !note.Error || !strings.Contains(note.Text, "could not save") {
+	if !note.Error || !strings.Contains(note.Text, "Could not save") {
 		t.Fatalf("a setting that could not be saved was answered %+v; want an error saying so", note)
 	}
 	if fi, err := os.Stat(file); err != nil || !fi.IsDir() {

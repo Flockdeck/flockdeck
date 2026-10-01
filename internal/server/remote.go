@@ -397,12 +397,12 @@ func (s *Server) remotePair(c *controlClient, kind string) {
 
 // deskOnlyJoin is what a window reached through the relay is told when it asks
 // for a code that takes another desktop into this account.
-const deskOnlyJoin = "a code for another desktop to join this account is made on the machine flockdeck runs on, not from a window reached through the relay"
+const deskOnlyJoin = "A code for another desktop to join this account is made on the machine flockdeck runs on, not from a window reached through the relay"
 
 // remoteRevoke unpairs a device and sends the list again.
 func (s *Server) remoteRevoke(c *controlClient, id string) {
 	if id == "" {
-		c.notify("no device was named", true)
+		c.notify("No device was named", true)
 		return
 	}
 	go func() {
@@ -413,9 +413,9 @@ func (s *Server) remoteRevoke(c *controlClient, id string) {
 			return
 		}
 		if err := cl.Revoke(context.Background(), id); err != nil {
-			c.notify("could not unpair that device: "+err.Error(), true)
+			c.notify("Could not unpair that device: "+err.Error(), true)
 		} else {
-			c.notify("device unpaired", false)
+			c.notify("Device unpaired", false)
 		}
 		s.remoteDevices(c)
 	}()
@@ -427,11 +427,11 @@ func (s *Server) remoteRevoke(c *controlClient, id string) {
 func (s *Server) remoteRename(c *controlClient, kind, id, name string) {
 	clean, err := remote.CheckName(name)
 	if err != nil {
-		c.notify("could not rename it: "+err.Error(), true)
+		c.notify("Could not rename it: "+err.Error(), true)
 		return
 	}
 	if kind != remote.KindHost && id == "" {
-		c.notify("no device was named", true)
+		c.notify("No device was named", true)
 		return
 	}
 	go func() {
@@ -456,7 +456,7 @@ func (s *Server) remoteRename(c *controlClient, kind, id, name string) {
 			}
 		}
 		if err != nil {
-			c.notify("could not rename "+what+": "+err.Error(), true)
+			c.notify("Could not rename "+what+": "+err.Error(), true)
 		} else {
 			c.notify(what+" is now called “"+clean+"”", false)
 		}
@@ -498,9 +498,9 @@ func (s *Server) remoteEnable(c *controlClient, cmd command) {
 		case err != nil:
 			msg.Error = err.Error()
 		case replaced:
-			c.notify("remote access is on: the relay had forgotten this machine, so it was enrolled again", false)
+			c.notify("Remote access is on: the relay had forgotten this machine, so it was enrolled again", false)
 		default:
-			c.notify("remote access is on", false)
+			c.notify("Remote access is on", false)
 		}
 	})
 }
@@ -524,7 +524,7 @@ func (s *Server) remoteDisable(c *controlClient, force bool) {
 			if untold != nil {
 				msg.Warning = "The relay could not be told, so it will go on listing this machine, offline: " + untold.Error()
 			}
-			c.notify("remote access is off", false)
+			c.notify("Remote access is off", false)
 		}
 	})
 }
@@ -534,7 +534,7 @@ func (s *Server) remoteDisable(c *controlClient, force bool) {
 // the far end can turn it on again; on, from a window that is already in, can
 // only be against another relay -- moving everything typed at the desk, and
 // everything the agents print, to a relay chosen from somewhere else.
-const deskOnlyRemote = "remote access is turned off, or moved to another relay, on the machine flockdeck runs on — not from a window reached through the relay"
+const deskOnlyRemote = "Remote access is turned off, or moved to another relay, on the machine flockdeck runs on — not from a window reached through the relay"
 
 // refusedThroughRelay refuses a window reached through the relay that asked to
 // turn remote access on or off, and reports whether it did. The dialog's
@@ -565,7 +565,7 @@ func (s *Server) remoteMove(c *controlClient, cmd command) {
 		case untold != nil:
 			msg.Warning = "The old relay could not be told, so it will go on listing this machine, offline, until a device paired there removes it: " + untold.Error()
 		}
-		c.notify("this machine has moved to the new relay; pair each device again", false)
+		c.notify("This machine has moved to the new relay; pair each device again", false)
 	})
 }
 

@@ -21,7 +21,7 @@ func (s *Server) setKeybinding(c *controlClient, id, text string) {
 			c.notify(text+" is already "+conflict.With.Name(), true)
 			return
 		}
-		c.notify("could not save the binding: "+err.Error(), true)
+		c.notify("Could not save the binding: "+err.Error(), true)
 		return
 	}
 	s.broadcastKeys()
@@ -33,7 +33,7 @@ func (s *Server) resetKeybinding(c *controlClient, id string) {
 		return
 	}
 	if _, err := keybindings.ResetBinding(id); err != nil {
-		c.notify("could not reset the binding: "+err.Error(), true)
+		c.notify("Could not reset the binding: "+err.Error(), true)
 		return
 	}
 	s.broadcastKeys()
@@ -42,7 +42,7 @@ func (s *Server) resetKeybinding(c *controlClient, id string) {
 // resetKeybindings takes every action back to its built-in binding.
 func (s *Server) resetKeybindings(c *controlClient) {
 	if _, err := keybindings.ResetAll(); err != nil {
-		c.notify("could not reset the bindings: "+err.Error(), true)
+		c.notify("Could not reset the bindings: "+err.Error(), true)
 		return
 	}
 	s.broadcastKeys()

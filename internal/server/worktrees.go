@@ -300,11 +300,11 @@ var panesIn = func(s *Server, paths []string) map[string]int {
 func prunedSummary(n int) string {
 	switch n {
 	case 0:
-		return "nothing to prune — every worktree is where its record says it is"
+		return "Nothing to prune — every worktree is where its record says it is"
 	case 1:
-		return "pruned 1 stale worktree record"
+		return "Pruned 1 stale worktree record"
 	default:
-		return fmt.Sprintf("pruned %d stale worktree records", n)
+		return fmt.Sprintf("Pruned %d stale worktree records", n)
 	}
 }
 
@@ -374,7 +374,7 @@ func (s *Server) addWorktree(c *controlClient, root, branch, base, path string) 
 		defer s.sendWorktrees(c, s.projectRepos(root), asked)
 		branch = strings.TrimSpace(branch)
 		if branch == "" {
-			c.notify("a branch name is required", true)
+			c.notify("A branch name is required", true)
 			return
 		}
 		if path == "" {
@@ -384,7 +384,7 @@ func (s *Server) addWorktree(c *controlClient, root, branch, base, path string) 
 			c.notify(err.Error(), true)
 			return
 		}
-		c.notify("created "+filepath.Base(path), false)
+		c.notify("Created "+filepath.Base(path), false)
 	}()
 }
 
@@ -408,7 +408,7 @@ func (s *Server) removeWorktree(c *controlClient, root, path string, force bool)
 		defer lockRepo(root)()
 		counts, ok := s.panesPerPath([]string{path})
 		if !ok {
-			c.notify(fmt.Sprintf("could not tell whether an agent is working in %s, so it was not removed", filepath.Base(path)), true)
+			c.notify(fmt.Sprintf("Could not tell whether an agent is working in %s, so it was not removed", filepath.Base(path)), true)
 			return
 		}
 		if n := counts[path]; n > 0 {
@@ -424,7 +424,7 @@ func (s *Server) removeWorktree(c *controlClient, root, path string, force bool)
 			c.notify(err.Error(), true)
 			return
 		}
-		c.notify("removed "+filepath.Base(path), false)
+		c.notify("Removed "+filepath.Base(path), false)
 	}()
 }
 

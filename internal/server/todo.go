@@ -154,7 +154,7 @@ func (s *Server) listTodos(c *controlClient, root string) {
 func (s *Server) saveTodo(c *controlClient, cmd command) {
 	root := strings.TrimSpace(cmd.Root)
 	if root == "" {
-		c.notify("a todo needs a project", true)
+		c.notify("A todo needs a project", true)
 		return
 	}
 	stepIDs := cmd.StepIDs
@@ -249,7 +249,7 @@ func prepareNamedWorktree(c *controlClient, repo string, job *fanoutJob) bool {
 	defer lockRepo(repo)()
 	taken, err := localBranches(repo)
 	if err != nil {
-		c.notify(fmt.Sprintf("could not read the branches of %s, so no worktree was created: %v", filepath.Base(repo), err), true)
+		c.notify(fmt.Sprintf("Could not read the branches of %s, so no worktree was created: %v", filepath.Base(repo), err), true)
 		return false
 	}
 	job.branch = uniqueBranch(job.branch, taken, map[string]bool{})
@@ -273,7 +273,7 @@ func prepareNamedWorktree(c *controlClient, repo string, job *fanoutJob) bool {
 // text; see todoStepBranch.
 func (s *Server) startTodoStep(c *controlClient, cmd command) {
 	if !c.startAgentLimit.allow(startAgentRateLimit, startAgentRateWindow) {
-		c.notify("too many agents started too quickly -- wait a moment and try again", true)
+		c.notify("Too many agents started too quickly -- wait a moment and try again", true)
 		return
 	}
 
@@ -322,7 +322,7 @@ func (s *Server) startTodoStep(c *controlClient, cmd command) {
 			repo = gitRoot(root)
 			switch {
 			case !gitx.Available():
-				c.notify("git is not installed, so no worktree can be created", true)
+				c.notify("Git is not installed, so no worktree can be created", true)
 				return
 			case repo == "":
 				c.notify(fmt.Sprintf("%s is not in a git repository, so no worktree can be created", filepath.Base(root)), true)

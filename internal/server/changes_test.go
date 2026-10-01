@@ -690,9 +690,9 @@ func TestPrunedSummarySaysWhatItDid(t *testing.T) {
 		n    int
 		want string
 	}{
-		{0, "nothing to prune"},
-		{1, "pruned 1 stale worktree record"},
-		{3, "pruned 3 stale worktree records"},
+		{0, "Nothing to prune"},
+		{1, "Pruned 1 stale worktree record"},
+		{3, "Pruned 3 stale worktree records"},
 	} {
 		if got := prunedSummary(tc.n); !strings.Contains(got, tc.want) {
 			t.Errorf("prunedSummary(%d) = %q, want it to contain %q", tc.n, got, tc.want)
@@ -739,9 +739,9 @@ func TestRemoteSummary(t *testing.T) {
 	cases := []struct {
 		action, out, want string
 	}{
-		{"fetch", "", "fetched — nothing new"},
-		{"pull", "  \n ", "already up to date"},
-		{"push", "", "done"},
+		{"fetch", "", "Fetched — nothing new"},
+		{"pull", "  \n ", "Already up to date"},
+		{"push", "", "Done"},
 		{"push", "To github.com:x/y.git\n * [new branch] main -> main\n", "* [new branch] main -> main"},
 		{"pull", "Updating a..b\nFast-forward\n 1 file changed\n", "1 file changed"},
 	}

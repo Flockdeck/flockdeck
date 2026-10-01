@@ -663,7 +663,7 @@ func (s *Server) setRouting(c *controlClient, cmd command) {
 	project, where := "", "every project"
 	if cmd.Kind != "all" {
 		if root == "" {
-			c.notify("there is no project open to set routing for", true)
+			c.notify("There is no project open to set routing for", true)
 			return
 		}
 		project, where = root, filepath.Base(root)
@@ -677,7 +677,7 @@ func (s *Server) setRouting(c *controlClient, cmd command) {
 			defaultWrites.Unlock()
 		}
 		if err != nil {
-			c.notify("could not save routing: "+err.Error(), true)
+			c.notify("Could not save routing: "+err.Error(), true)
 			return
 		}
 		c.notify(routingNotice(where, cmd.Target, cmd.Text), false)
@@ -691,29 +691,29 @@ func routingNotice(where, field, value string) string {
 		if value == "" {
 			value = agent.TierSmall
 		}
-		return "routing will choose nothing below " + value + " for " + where
+		return "Routing will choose nothing below " + value + " for " + where
 	}
 	if field == "jev" {
 		if value == "true" {
-			return "routing may now send the text of a fan-out row no rule matched to TypeSafe, for " + where + " -- it also needs a TypeSafe API key (Settings › Behaviour, or TYPESAFE_API_KEY), and only applies to Minimise cost"
+			return "Routing may now send the text of a fan-out row no rule matched to TypeSafe, for " + where + " -- it also needs a TypeSafe API key (Settings › Behaviour, or TYPESAFE_API_KEY), and only applies to Minimise cost"
 		}
-		return "routing no longer sends anything to TypeSafe for " + where
+		return "Routing no longer sends anything to TypeSafe for " + where
 	}
 	if field == "strategy" {
 		if value == agent.StrategyCost {
-			return "routing now minimises cost for " + where + ": work no rule recognises is routed to the cheapest available model too"
+			return "Routing now minimises cost for " + where + ": work no rule recognises is routed to the cheapest available model too"
 		}
-		return "routing is now cost-first but quality-aware for " + where + ": work no rule recognises is left where it was"
+		return "Routing is now cost-first but quality-aware for " + where + ": work no rule recognises is left where it was"
 	}
 	switch value {
 	case "":
 		return where + " is now routed as every project is"
 	case agent.RoutingSuggest:
-		return "routing now suggests models for " + where + ": a fan-out's rows come pre-set, to change before they start"
+		return "Routing now suggests models for " + where + ": a fan-out's rows come pre-set, to change before they start"
 	case agent.RoutingAuto:
-		return "routing now chooses models for " + where
+		return "Routing now chooses models for " + where
 	}
-	return "routing is off for " + where
+	return "Routing is off for " + where
 }
 
 // clearRoutingLog deletes the routing log, which is the user's to delete.
@@ -725,9 +725,9 @@ func (s *Server) clearRoutingLog(c *controlClient) {
 			err = route.ClearLog(dir)
 		}
 		if err != nil {
-			c.notify("could not clear the routing history: "+err.Error(), true)
+			c.notify("Could not clear the routing history: "+err.Error(), true)
 			return
 		}
-		c.notify("cleared the routing history", false)
+		c.notify("Cleared the routing history", false)
 	}()
 }
