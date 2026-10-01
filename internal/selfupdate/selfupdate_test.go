@@ -26,6 +26,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/testiso"
 )
 
 // runningOld makes this test binary stand in for a program still running: set,
@@ -37,7 +39,7 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	os.Exit(testiso.Main(m))
 }
 
 // A second update put in place before a restart finds the first one's .old
