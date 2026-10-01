@@ -39,10 +39,10 @@ func TestIDsAreRandomAndOfFixedShape(t *testing.T) {
 func TestIDsDoNotCrossRegistries(t *testing.T) {
 	a, b := NewRegistry(nil, 0, 0), NewRegistry(nil, 0, 0)
 	id, _ := a.Issue(Entry{Kind: "files", Path: "x"})
-	if _, err := a.Lookup(id); err != nil {
+	if _, err := a.Lookup(id, "files", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Lookup(id); !errors.Is(err, ErrUnknownID) {
+	if _, err := b.Lookup(id, "files", ""); !errors.Is(err, ErrUnknownID) {
 		t.Fatalf("another registry knew the id: %v", err)
 	}
 }
@@ -54,11 +54,11 @@ func TestIDsExpire(t *testing.T) {
 	r := NewRegistry(c.now, time.Minute, 10)
 	id, _ := r.Issue(Entry{Path: "x"})
 	c.advance(59 * time.Second)
-	if _, err := r.Lookup(id); err != nil {
+	if _, err := r.Lookup(id, "", ""); err != nil {
 		t.Fatalf("expired early: %v", err)
 	}
 	c.advance(2 * time.Second) // using it did not extend it
-	if _, err := r.Lookup(id); !errors.Is(err, ErrUnknownID) {
+	if _, err := r.Lookup(id, "", ""); !errors.Is(err, ErrUnknownID) {
 		t.Fatalf("still good after its life: %v", err)
 	}
 	if r.Len() != 0 {
@@ -81,7 +81,7 @@ func TestRegistryIsBounded(t *testing.T) {
 		t.Fatalf("Len = %d, want 3", r.Len())
 	}
 	for i, id := range ids {
-		_, err := r.Lookup(id)
+		_, err := r.Lookup(id, "", "")
 		if (i < 2) != (err != nil) {
 			t.Errorf("id %d: err = %v; the two oldest should be gone and the rest kept", i, err)
 		}
@@ -93,7 +93,7 @@ func TestClear(t *testing.T) {
 	r := NewRegistry(nil, 0, 0)
 	id, _ := r.Issue(Entry{})
 	r.Clear()
-	if _, err := r.Lookup(id); !errors.Is(err, ErrUnknownID) {
+	if _, err := r.Lookup(id, "", ""); !errors.Is(err, ErrUnknownID) {
 		t.Fatalf("an id survived Clear: %v", err)
 	}
 }
@@ -105,7 +105,7 @@ func TestMalformedIDsAreUnknown(t *testing.T) {
 	r := NewRegistry(nil, 0, 0)
 	r.Issue(Entry{})
 	for _, id := range []string{"", "../../etc/passwd", `C:\Windows\win.ini`, strings.Repeat("A", 22+1), strings.Repeat("A", 1<<20), "\x00", "AAAAAAAAAAAAAAAAAAAAAA"} {
-		if _, err := r.Lookup(id); !errors.Is(err, ErrUnknownID) {
+		if _, err := r.Lookup(id, "", ""); !errors.Is(err, ErrUnknownID) {
 			t.Errorf("Lookup(%.30q) = %v", id, err)
 		}
 	}
@@ -119,7 +119,7 @@ func TestRegistryHoldsNoHandle(t *testing.T) {
 	tr := newTree(t)
 	r := NewRegistry(nil, 0, 0)
 	id, _ := r.Issue(Entry{Kind: "files", Root: tr.r, Path: "ok.txt"})
-	e, err := r.Lookup(id)
+	e, err := r.Lookup(id, "files", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,5 +128,43 @@ func TestRegistryHoldsNoHandle(t *testing.T) {
 	}
 	if _, err := e.Root.Open(e.Path); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("the file was removed but Open said %v", err)
+	}
+}
+
+// Threat: an id of one kind or pane being used to ask for another's. A client
+// that was shown recordings, or one pane's files, cannot present those ids for
+// a pane that was never shared with it.
+func TestLookupBindsKindAndPane(t *testing.T) {
+	r := NewRegistry(nil, 0, 0)
+	id, _ := r.Issue(Entry{Kind: "files", Pane: "pane-1", Path: "x"})
+	if _, err := r.Lookup(id, "files", "pane-1"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range [][2]string{{"recordings", "pane-1"}, {"files", "pane-2"}, {"files", ""}, {"", "pane-1"}, {"", ""}} {
+		if _, err := r.Lookup(id, c[0], c[1]); !errors.Is(err, ErrUnknownID) {
+			t.Errorf("Lookup(kind=%q, pane=%q) = %v, want unknown", c[0], c[1], err)
+		}
+	}
+}
+
+// Threat: a second listing taking the first's ids away while somebody reads
+// from the first. A registry holds several full lists before it drops any.
+func TestSecondListDoesNotEvictTheFirst(t *testing.T) {
+	c := newClock()
+	r := NewRegistry(c.now, 0, 0)
+	var first []string
+	for range MaxListItems {
+		id, _ := r.Issue(Entry{Kind: "files", Pane: "p"})
+		first = append(first, id)
+		c.advance(time.Millisecond)
+	}
+	for range MaxListItems {
+		r.Issue(Entry{Kind: "files", Pane: "p"})
+		c.advance(time.Millisecond)
+	}
+	for i, id := range first {
+		if _, err := r.Lookup(id, "files", "p"); err != nil {
+			t.Fatalf("id %d of the first list was evicted by a second list: %v", i, err)
+		}
 	}
 }

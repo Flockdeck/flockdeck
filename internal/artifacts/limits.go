@@ -1,6 +1,8 @@
 package artifacts
 
 import (
+	"fmt"
+	"math"
 	"sync"
 	"time"
 )
@@ -40,12 +42,21 @@ type Limiter struct {
 	last   time.Time
 }
 
-// NewLimiter makes a full bucket. now may be nil for time.Now.
-func NewLimiter(rate float64, burst int, now func() time.Time) *Limiter {
+// NewLimiter makes a full bucket. now may be nil for time.Now. A rate that is
+// not a positive finite number, or a burst below one, is an error: a limiter
+// that is silently unlimited (NaN compares false with everything) or silently
+// shut is a worse thing to find out about later.
+func NewLimiter(rate float64, burst int, now func() time.Time) (*Limiter, error) {
+	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate <= 0 {
+		return nil, fmt.Errorf("limiter rate must be a positive number, not %v", rate)
+	}
+	if burst < 1 {
+		return nil, fmt.Errorf("limiter burst must be at least 1, not %d", burst)
+	}
 	if now == nil {
 		now = time.Now
 	}
-	return &Limiter{now: now, rate: rate, burst: float64(burst), tokens: float64(burst), last: now()}
+	return &Limiter{now: now, rate: rate, burst: float64(burst), tokens: float64(burst), last: now()}, nil
 }
 
 // Allow takes n units and reports true, or takes nothing and reports false. A

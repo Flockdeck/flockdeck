@@ -10,8 +10,9 @@ import (
 )
 
 // openFlags: never block opening a file that turned into a pipe between the
-// look at it and the open, and never follow a link in the last part.
-const openFlags = syscall.O_NONBLOCK | syscall.O_NOFOLLOW
+// look at it and the open, never follow a link in the last part, and never
+// let an opened terminal device become this process's controlling terminal.
+const openFlags = syscall.O_NONBLOCK | syscall.O_NOFOLLOW | syscall.O_NOCTTY
 
 // canonical is where dir really is, with every link followed.
 func canonical(dir string) (string, error) { return filepath.EvalSymlinks(dir) }

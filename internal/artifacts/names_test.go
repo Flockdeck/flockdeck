@@ -28,14 +28,17 @@ func TestCheckLexical(t *testing.T) {
 		{`\\.\COM1`, true, false},            // device namespace
 		{`\\server\share\x.md`, true, false}, // UNC
 		{"//server/share/x.md", true, false},
-		{"con", false, false},
-		{"CON.txt", false, false},
-		{"a/Nul", false, false},
-		{"aux.tar.gz", false, false},
-		{"com1", false, false},
-		{"LPT9.md", false, false},
-		{"com\u00b9", false, false}, // superscript digit: a device on Windows
+		{"con", false, true}, // an ordinary name on Unix, a device on Windows
+		{"con", true, false},
+		{"CON.txt", true, false},
+		{"CON.txt", false, true},
+		{"a/Nul", true, false},
+		{"aux.tar.gz", true, false},
+		{"com1", true, false},
+		{"LPT9.md", true, false},
+		{"com¹", true, false}, // superscript digit: a device on Windows
 		{"console.md", false, true},
+		{"console.md", true, true},
 		{"x.md.", false, false}, // Windows drops the dot: it is x.md
 		{"x.md ", false, false},
 		{"a./b.md", false, false},
@@ -83,6 +86,11 @@ func TestDenied(t *testing.T) {
 		"src/main.go":          false,
 		"docs/git.md":          false,
 		"notes/.github/ci.yml": false,
+		"a/secrets/x.md":       true, // every component is judged
+		"a/private/x.md":       true,
+		"-prod.pem":            true,
+		"key.pem=":             true,
+		"secretary.md":         false,
 		"environment.md":       false,
 	} {
 		if got := denied(p); got != want {

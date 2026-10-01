@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,6 +19,10 @@ const isWindows = runtime.GOOS == "windows"
 // foldCase is whether the platform's usual file systems ignore case, so that a
 // candidate spelled with other capitals is still the same place.
 var foldCase = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+
+// MaxCandidateBytes is the longest path Open will look at. Nothing a viewer
+// shows needs more, and a longer one is refused before any work is done on it.
+const MaxCandidateBytes = 4096
 
 // MaxViewBytes is the most of one file that is ever read for a viewer. A larger
 // file is shown clipped, never refused, and never read past this.
@@ -29,21 +34,35 @@ const MaxViewBytes = 5 << 20
 var ErrUnavailable = errors.New("artifact unavailable")
 
 // Refusal is an error that is ErrUnavailable to a client and says why to this
-// machine. Use ReasonOf to read it; never send it anywhere.
-type Refusal struct{ Reason Reason }
+// machine. Use ReasonOf to read the reason, for a log; never send it anywhere.
+//
+// The reason is not exported and the error does not print or encode it, in any
+// verb or format (%v, %+v, %#v, %s, JSON): a Refusal that is formatted or
+// marshalled into a reply by mistake says only what a client may be told.
+type Refusal struct{ reason Reason }
 
 func (e *Refusal) Error() string { return ErrUnavailable.Error() }
 
 // Is makes errors.Is(err, ErrUnavailable) true for every refusal.
 func (e *Refusal) Is(target error) bool { return target == ErrUnavailable }
 
-func refuse(r Reason) error { return &Refusal{Reason: r} }
+// Format prints the same words for every verb, so %+v and %#v cannot print
+// the reason field.
+func (e Refusal) Format(s fmt.State, _ rune) { _, _ = io.WriteString(s, ErrUnavailable.Error()) }
+
+// GoString is for the same reason as Format.
+func (e Refusal) GoString() string { return ErrUnavailable.Error() }
+
+// MarshalJSON encodes a Refusal as the one thing a client may be told.
+func (e Refusal) MarshalJSON() ([]byte, error) { return []byte(`"unavailable"`), nil }
+
+func refuse(r Reason) error { return &Refusal{reason: r} }
 
 // ReasonOf is why err refused a path, or "" if err is not a Refusal.
 func ReasonOf(err error) Reason {
 	var r *Refusal
 	if errors.As(err, &r) {
-		return r.Reason
+		return r.reason
 	}
 	return ""
 }
@@ -58,9 +77,14 @@ type Root struct {
 	r           *os.Root
 }
 
-// NewRoot opens dir as a root. dir must be a directory; it may itself be
-// reached through links (a temporary folder, a drive's alias) because it is
-// the caller's own choice, not anything a client named.
+// NewRoot opens dir as a root. dir must be a directory.
+//
+// NewRoot follows every link in dir (a temporary folder, a drive's alias, a
+// junction), because it is the caller's own choice of where to show files from.
+// It must therefore only ever be built from a path the host itself chose -- a
+// pane's own project or worktree, the recordings folder -- and never from one
+// an agent, a transcript, a remote client or a file's contents could have
+// influenced: a root made from such a path is a way to anywhere.
 func NewRoot(dir string) (*Root, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -90,8 +114,14 @@ func (r *Root) Close() error { return r.r.Close() }
 // Path is the root's real directory.
 func (r *Root) Path() string { return r.path }
 
-// File is an open, vetted, read-only file. The only way to read it is Limited,
-// which cannot be made to read more than MaxViewBytes.
+// File is an open, vetted, read-only file. The only way to read it is Limited.
+// Everything read through it, by any number of readers, is counted against one
+// total of MaxViewBytes, served in order from the start; the *os.File itself is
+// never reachable, so no caller can seek, read past the total or write.
+//
+// Size is the file's size when it was opened. A file that grows or shrinks
+// afterwards is read as it is, up to the total; the reader will not say that it
+// was cut short (see the package documentation's list of what is not done).
 type File struct {
 	f *os.File
 	// Rel is the file's path below the root, with forward slashes. It is what
@@ -99,18 +129,56 @@ type File struct {
 	Rel     string
 	Size    int64
 	ModTime time.Time
+
+	mu     sync.Mutex
+	served int64 // bytes handed out so far, which is also the next offset
+	closed bool
 }
 
-// Limited reads at most n bytes (and never more than MaxViewBytes) of the
-// file from its start. A file that grew since it was opened is cut, not
-// followed.
-func (f *File) Limited(n int64) io.Reader {
-	n = min(n, MaxViewBytes)
-	return io.LimitReader(f.f, n)
+// Limited is a reader of at most n more bytes of the file, from where the
+// previous reader stopped. However many readers are made, and however large n
+// is, the total ever served is at most MaxViewBytes. The result is a private
+// type: it holds no exported way to the file.
+func (f *File) Limited(n int64) io.Reader { return &fileReader{file: f, left: n} }
+
+type fileReader struct {
+	file *File
+	left int64
 }
 
-// Close closes the file.
-func (f *File) Close() error { return f.f.Close() }
+func (r *fileReader) Read(p []byte) (int, error) {
+	f := r.file
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return 0, os.ErrClosed
+	}
+	room := min(r.left, MaxViewBytes-f.served)
+	if room <= 0 || len(p) == 0 {
+		if room <= 0 {
+			return 0, io.EOF
+		}
+		return 0, nil
+	}
+	if int64(len(p)) > room {
+		p = p[:room]
+	}
+	n, err := f.f.ReadAt(p, f.served)
+	f.served += int64(n)
+	r.left -= int64(n)
+	if n > 0 && err == io.EOF {
+		err = nil // the end is reported by the next read
+	}
+	return n, err
+}
+
+// Close closes the file; readers made from it fail after that.
+func (f *File) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closed = true
+	return f.f.Close()
+}
 
 // raceHook is called between the steps of Open, at "checked" (the path has
 // been looked at, nothing is open) and "opened" (the file is open, nothing is
@@ -125,7 +193,7 @@ var raceHook = func(stage string) {}
 // package documentation. Everything is read back from the open handle, so a
 // path swapped between a check and the open is caught.
 func (r *Root) Open(candidate string) (*File, error) {
-	if !cleanChars(candidate, isWindows) {
+	if len(candidate) > MaxCandidateBytes || !cleanChars(candidate, isWindows) {
 		return nil, refuse(ReasonLexical)
 	}
 	rel, ok := r.relativize(candidate)
@@ -167,16 +235,16 @@ func (r *Root) Open(candidate string) (*File, error) {
 	return file, nil
 }
 
-// missingOrOutside is the reason an open failed, for the log: os.Root says a
-// path left the root, or crossed a link, in its own words.
+// missingOrOutside is the reason an open failed, for the log.
 func missingOrOutside(err error) Reason {
-	if strings.Contains(err.Error(), "escapes") {
-		return ReasonOutside
-	}
 	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
 		return ReasonMissing
 	}
-	return ReasonLink // too many links, or a final link refused by the open
+	// Anything else -- the root refusing a path that leaves it, a link refused
+	// by the open, too many links -- is a refusal by the root. os.Root has no
+	// error type for it, so it is not told apart by its message, which could
+	// change; it is one reason.
+	return ReasonOutside
 }
 
 // vet checks the open file is the plain file the path says, and fills in a File.
@@ -221,10 +289,10 @@ func (r *Root) walk(rel string) (fs.FileInfo, Reason) {
 	for i := range parts {
 		fi, err := r.r.Lstat(strings.Join(parts[:i+1], "/"))
 		if err != nil {
-			if strings.Contains(err.Error(), "escapes") {
-				return nil, ReasonOutside
+			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+				return nil, ReasonMissing
 			}
-			return nil, ReasonMissing
+			return nil, ReasonOutside // the root refused the path
 		}
 		m := fi.Mode()
 		switch {

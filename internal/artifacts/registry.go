@@ -9,10 +9,14 @@ import (
 )
 
 // IDLife and MaxIDs bound what a Registry holds: an id is good for a quarter
-// of an hour and a registry holds at most this many at once.
+// of an hour and a registry holds at most this many at once. MaxIDs is four
+// full lists (MaxListItems), so that listing again while a person is reading
+// from an earlier list does not take the earlier list's ids away; when it is
+// full the soonest to expire goes. A caller that shows several lists at once
+// can also give each its own Registry.
 const (
 	IDLife = 15 * time.Minute
-	MaxIDs = 500
+	MaxIDs = 4 * MaxListItems
 	idLen  = 22 // 16 random bytes, unpadded base64url
 )
 
@@ -92,15 +96,18 @@ func (r *Registry) Issue(e Entry) (string, error) {
 // been revoked. It is deliberately all one thing.
 var ErrUnknownID = errors.New("unknown id")
 
-// Lookup is what id stands for. It does not extend the id's life.
-func (r *Registry) Lookup(id string) (Entry, error) {
+// Lookup is what id stands for, if it was issued for this kind and this pane.
+// An id from a list of one kind, or one pane, is not good for another's, so a
+// client holding an id of recordings cannot use it to ask for a file of a pane
+// that was never shared. It does not extend the id's life.
+func (r *Registry) Lookup(id, kind, pane string) (Entry, error) {
 	if len(id) != idLen {
 		return Entry{}, ErrUnknownID
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	e, ok := r.entries[id]
-	if !ok {
+	if !ok || e.Kind != kind || e.Pane != pane {
 		return Entry{}, ErrUnknownID
 	}
 	if !r.now().Before(e.expires) {

@@ -15,15 +15,15 @@ import (
 // command. Refused, and nothing outside is read.
 func TestSymlinkOutOfRootIsRefused(t *testing.T) {
 	tr := newTree(t)
-	if err := os.Symlink(filepath.Join(tr.outside, "secret.txt"), filepath.Join(tr.root, "report.html")); err != nil {
-		t.Skip("cannot make symlinks here:", err)
+	if err := os.Symlink(filepath.Join(tr.outside, "payload.txt"), filepath.Join(tr.root, "report.html")); err != nil {
+		cannot(t, "cannot make symlinks here:", err)
 	}
 	if err := os.Symlink(tr.outside, filepath.Join(tr.root, "dirlink")); err != nil {
 		t.Fatal(err)
 	}
 	tr.mustRefuse("report.html", ReasonLink)
-	tr.mustRefuse("dirlink/secret.txt", ReasonLink, ReasonOutside)
-	tr.mustRefuse(filepath.Join(tr.root, "dirlink", "secret.txt"), ReasonLink, ReasonOutside)
+	tr.mustRefuse("dirlink/payload.txt", ReasonLink, ReasonOutside)
+	tr.mustRefuse(filepath.Join(tr.root, "dirlink", "payload.txt"), ReasonLink, ReasonOutside)
 }
 
 // Threat: a link that stays inside the project but points at a secret there --
@@ -32,7 +32,7 @@ func TestSymlinkOutOfRootIsRefused(t *testing.T) {
 func TestSymlinkToSecretInsideRootIsRefused(t *testing.T) {
 	tr := newTree(t)
 	if err := os.Symlink(".env", filepath.Join(tr.root, "notes.txt")); err != nil {
-		t.Skip("cannot make symlinks here:", err)
+		cannot(t, "cannot make symlinks here:", err)
 	}
 	if err := os.Symlink(".git", filepath.Join(tr.root, "innocent")); err != nil {
 		t.Fatal(err)
@@ -51,8 +51,8 @@ func TestSymlinkToSecretInsideRootIsRefused(t *testing.T) {
 // that was vetted is the only one there is.
 func TestHardlinkIsRefused(t *testing.T) {
 	tr := newTree(t)
-	if err := os.Link(filepath.Join(tr.outside, "secret.txt"), filepath.Join(tr.root, "innocent.txt")); err != nil {
-		t.Skip("cannot make hardlinks here:", err)
+	if err := os.Link(filepath.Join(tr.outside, "payload.txt"), filepath.Join(tr.root, "innocent.txt")); err != nil {
+		cannot(t, "cannot make hardlinks here:", err)
 	}
 	if err := os.Link(filepath.Join(tr.root, ".env"), filepath.Join(tr.root, "notes.txt")); err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func TestRootReachedThroughALink(t *testing.T) {
 	tr := newTree(t)
 	alias := filepath.Join(tr.base, "alias")
 	if err := os.Symlink(tr.root, alias); err != nil {
-		t.Skip("cannot make symlinks here:", err)
+		cannot(t, "cannot make symlinks here:", err)
 	}
 	r, err := NewRoot(alias)
 	if err != nil {
@@ -110,7 +110,7 @@ func TestRootReachedThroughALink(t *testing.T) {
 // secret.
 func TestSwapAfterCheckIsCaught(t *testing.T) {
 	tr := newTree(t)
-	secret := filepath.Join(tr.outside, "secret.txt")
+	secret := filepath.Join(tr.outside, "payload.txt")
 	target := filepath.Join(tr.root, "ok.txt")
 	raceHook = func(stage string) {
 		if stage != "checked" {
@@ -121,7 +121,7 @@ func TestSwapAfterCheckIsCaught(t *testing.T) {
 	}
 	defer func() { raceHook = func(string) {} }()
 	if err := os.Symlink(secret, filepath.Join(tr.base, "probe")); err != nil {
-		t.Skip("cannot make symlinks here:", err)
+		cannot(t, "cannot make symlinks here:", err)
 	}
 	tr.mustRefuse("ok.txt")
 }
@@ -131,7 +131,7 @@ func TestSwapAfterCheckIsCaught(t *testing.T) {
 // the one that counts.
 func TestSwapAfterOpenIsCaught(t *testing.T) {
 	tr := newTree(t)
-	secret := filepath.Join(tr.outside, "secret.txt")
+	secret := filepath.Join(tr.outside, "payload.txt")
 	target := filepath.Join(tr.root, "ok.txt")
 	raceHook = func(stage string) {
 		if stage != "opened" {
@@ -142,7 +142,7 @@ func TestSwapAfterOpenIsCaught(t *testing.T) {
 	}
 	defer func() { raceHook = func(string) {} }()
 	if err := os.Symlink(secret, filepath.Join(tr.base, "probe")); err != nil {
-		t.Skip("cannot make symlinks here:", err)
+		cannot(t, "cannot make symlinks here:", err)
 	}
 	tr.mustRefuse("ok.txt", ReasonLink)
 }
@@ -186,4 +186,40 @@ func TestBackslashIsRefusedOnUnix(t *testing.T) {
 	tr.write("proj/a\\b.txt", "x")
 	tr.mustRefuse(`a\b.txt`, ReasonLexical)
 	tr.mustRefuse(`sub\..\ok.txt`, ReasonLexical)
+}
+
+// replaceDirWithLink swaps a folder for a symbolic link to target, and says
+// whether it did.
+func replaceDirWithLink(t testing.TB, dir, target string) bool {
+	t.Helper()
+	if err := os.Rename(dir, dir+".moved"); err != nil {
+		t.Error(err)
+		return false
+	}
+	if err := os.Symlink(target, dir); err != nil {
+		cannot(t, "cannot make symlinks here:", err)
+		return false
+	}
+	return true
+}
+
+// plantLinks puts the links a fuzzed Open must never be led through into the
+// tree: a symlink to a file outside, one to a file inside, one to a folder
+// outside, and a hardlink to a file outside. A link that cannot be made is a
+// failure under CI, a skip of the fuzz run elsewhere.
+func plantLinks(tb testing.TB, base string) {
+	tb.Helper()
+	proj, outside := filepath.Join(base, "proj"), filepath.Join(base, "outside")
+	for _, l := range [][2]string{
+		{filepath.Join(outside, "payload.txt"), filepath.Join(proj, "lnk-out")},
+		{"ok.txt", filepath.Join(proj, "lnk-in")},
+		{outside, filepath.Join(proj, "lnk-dir")},
+	} {
+		if err := os.Symlink(l[0], l[1]); err != nil {
+			cannot(tb, "cannot make symlinks here:", err)
+		}
+	}
+	if err := os.Link(filepath.Join(outside, "payload.txt"), filepath.Join(proj, "hard.txt")); err != nil {
+		cannot(tb, "cannot make hardlinks here:", err)
+	}
 }

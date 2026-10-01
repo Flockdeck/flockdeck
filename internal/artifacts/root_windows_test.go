@@ -15,7 +15,7 @@ import (
 func junction(t *testing.T, link, target string) {
 	t.Helper()
 	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
-		t.Skipf("cannot make a junction here: %v: %s", err, out)
+		cannot(t, "cannot make a junction here:", err, string(out))
 	}
 }
 
@@ -25,9 +25,9 @@ func TestJunctionIsRefused(t *testing.T) {
 	tr := newTree(t)
 	junction(t, filepath.Join(tr.root, "jct"), tr.outside)
 	junction(t, filepath.Join(tr.root, "gitjct"), filepath.Join(tr.root, ".git"))
-	tr.mustRefuse("jct/secret.txt", ReasonLink, ReasonOutside)
-	tr.mustRefuse(`jct\secret.txt`, ReasonLink, ReasonOutside)
-	tr.mustRefuse(filepath.Join(tr.root, "jct", "secret.txt"), ReasonLink, ReasonOutside)
+	tr.mustRefuse("jct/payload.txt", ReasonLink, ReasonOutside)
+	tr.mustRefuse(`jct\payload.txt`, ReasonLink, ReasonOutside)
+	tr.mustRefuse(filepath.Join(tr.root, "jct", "payload.txt"), ReasonLink, ReasonOutside)
 	tr.mustRefuse("gitjct/config", ReasonLink)
 }
 
@@ -35,8 +35,8 @@ func TestJunctionIsRefused(t *testing.T) {
 // skipped without), to a file outside and to a secret inside.
 func TestSymlinkIsRefused(t *testing.T) {
 	tr := newTree(t)
-	if err := os.Symlink(filepath.Join(tr.outside, "secret.txt"), filepath.Join(tr.root, "report.html")); err != nil {
-		t.Skip("cannot make symlinks here:", err)
+	if err := os.Symlink(filepath.Join(tr.outside, "payload.txt"), filepath.Join(tr.root, "report.html")); err != nil {
+		cannot(t, "cannot make symlinks here:", err)
 	}
 	if err := os.Symlink(".env", filepath.Join(tr.root, "notes.txt")); err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestAlternateDataStreamsAreRefused(t *testing.T) {
 		"ok.txt:s", "ok.txt::$DATA", ".env::$DATA", ".env:s", "sub:s/deep.md", "sub::$INDEX_ALLOCATION",
 		filepath.Join(tr.root, "ok.txt") + ":s",
 	} {
-		tr.mustRefuse(c)
+		tr.mustRefuse(c, ReasonLexical)
 	}
 }
 
@@ -63,8 +63,38 @@ func TestAlternateDataStreamsAreRefused(t *testing.T) {
 // read for ever.
 func TestReservedDeviceNamesAreRefused(t *testing.T) {
 	tr := newTree(t)
-	for _, c := range []string{"con", "CON", "nul", "NUL.txt", "aux", "prn", "com1", "COM9.log", "lpt1", "sub/con.md", `\\.\COM1`, `\\.\C:\Windows\win.ini`, "CONIN$"} {
-		tr.mustRefuse(c)
+	for _, c := range []string{"con", "CON", "nul", "NUL.txt", "aux", "prn", "com1", "COM9.log", "lpt1", "sub/con.md", "CONIN$"} {
+		tr.mustRefuse(c, ReasonLexical)
+	}
+	// The device namespace, spelled out: not under the root at all.
+	for _, c := range []string{`\\.\COM1`, `\\.\C:\Windows\win.ini`} {
+		tr.mustRefuse(c, ReasonOutside, ReasonLexical)
+	}
+}
+
+// Threat: an 8.3 alias with no tilde in it. NTFS lets an administrator set any
+// short name for a file (fsutil file setshortname), so "ENVX.TXT" can be
+// another name for secret-credentials.txt, and the spelling check on "~digit"
+// does not see it. Open itself must refuse it, by the real name read back from
+// the open file -- not only the helper, called on its own.
+func TestOpenCatchesAShortNameWithNoTilde(t *testing.T) {
+	tr := newTree(t)
+	long := filepath.Join(tr.root, "secret-credentials.txt")
+	if out, err := exec.Command("fsutil", "file", "setshortname", long, "ENVX.TXT").CombinedOutput(); err != nil {
+		cannot(t, "cannot set a short name here (needs administrator and 8.3 names on):", err, string(out))
+	}
+	tr.mustRefuse("ENVX.TXT", ReasonDenied)
+	tr.mustRefuse(filepath.Join(tr.root, "ENVX.TXT"), ReasonDenied)
+	// A harmless file with a tilde-less alias is judged by its real name too: it
+	// is refused as a different name from the one asked for, never shown under
+	// two names.
+	ok := tr.write("proj/a-harmless-long-name.txt", "ok") // a name that is not itself 8.3, so it can have an alias
+	if out, err := exec.Command("fsutil", "file", "setshortname", ok, "OKALIAS.TXT").CombinedOutput(); err != nil {
+		t.Fatalf("setting a second short name: %v: %s", err, out)
+	}
+	tr.mustRefuse("OKALIAS.TXT", ReasonChanged)
+	if got, err := tr.open("a-harmless-long-name.txt"); err != nil || got != "ok" {
+		t.Fatalf("the file under its real name: %q, %v", got, err)
 	}
 }
 
@@ -74,7 +104,7 @@ func TestReservedDeviceNamesAreRefused(t *testing.T) {
 func TestTrailingDotsAndSpacesAreRefused(t *testing.T) {
 	tr := newTree(t)
 	for _, c := range []string{"ok.txt.", "ok.txt ", ".env.", ".env ", "id_rsa.", "sub./deep.md", "sub /deep.md", "ok.txt. ."} {
-		tr.mustRefuse(c)
+		tr.mustRefuse(c, ReasonLexical)
 	}
 }
 
@@ -144,15 +174,19 @@ func TestUNCAndExtendedPathsAreRefused(t *testing.T) {
 	vol := filepath.VolumeName(ok)
 	unc := `\\localhost\` + strings.Replace(vol, ":", "$", 1) + strings.TrimPrefix(ok, vol)
 	for _, c := range []string{
-		`\\?\` + ok,
+		`\\?\` + ok, // "?" is refused as a character
 		`\\?\UNC\localhost\` + strings.Replace(vol, ":", "$", 1) + strings.TrimPrefix(ok, vol),
+	} {
+		tr.mustRefuse(c, ReasonLexical)
+	}
+	for _, c := range []string{
 		unc,
 		`\\.\` + ok,
 		vol + "ok.txt",
 		`\ok.txt`,
 		"/" + "ok.txt",
 	} {
-		tr.mustRefuse(c)
+		tr.mustRefuse(c, ReasonOutside)
 	}
 }
 
@@ -160,8 +194,8 @@ func TestUNCAndExtendedPathsAreRefused(t *testing.T) {
 // (NTFS hardlink), is a plain file by every check of its path.
 func TestHardlinkIsRefusedOnWindows(t *testing.T) {
 	tr := newTree(t)
-	if err := os.Link(filepath.Join(tr.outside, "secret.txt"), filepath.Join(tr.root, "innocent.txt")); err != nil {
-		t.Skip("cannot make hardlinks here:", err)
+	if err := os.Link(filepath.Join(tr.outside, "payload.txt"), filepath.Join(tr.root, "innocent.txt")); err != nil {
+		cannot(t, "cannot make hardlinks here:", err)
 	}
 	tr.mustRefuse("innocent.txt", ReasonHardlink)
 }
@@ -181,4 +215,41 @@ func TestAbsolutePathCaseAndSeparators(t *testing.T) {
 		}
 	}
 	tr.mustRefuse(strings.ToUpper(filepath.Join(tr.root, ".env")), ReasonDenied)
+}
+
+// replaceDirWithLink swaps a folder for a junction to target, and says whether
+// it did. Windows refuses to rename a folder that has a file open in it, which
+// is itself a defence: the swap cannot be made after the file is open.
+func replaceDirWithLink(t testing.TB, dir, target string) bool {
+	t.Helper()
+	if err := os.Rename(dir, dir+".moved"); err != nil {
+		t.Log("the folder cannot be renamed while a file in it is open:", err)
+		return false
+	}
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", dir, target).CombinedOutput(); err != nil {
+		cannot(t, "cannot make a junction here:", err, string(out))
+		return false
+	}
+	return true
+}
+
+// plantLinks puts the links a fuzzed Open must never be led through into the
+// tree: a junction to a folder outside, a hardlink to a file outside, symbolic
+// links where the privilege allows, and a file with a tilde-less 8.3 alias
+// where it can be set.
+func plantLinks(tb testing.TB, base string) {
+	tb.Helper()
+	proj, outside := filepath.Join(base, "proj"), filepath.Join(base, "outside")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(proj, "jct"), outside).CombinedOutput(); err != nil {
+		cannot(tb, "cannot make a junction here:", err, string(out))
+	}
+	if err := os.Link(filepath.Join(outside, "payload.txt"), filepath.Join(proj, "hard.txt")); err != nil {
+		cannot(tb, "cannot make hardlinks here:", err)
+	}
+	// Symbolic links need a privilege that a developer's machine may not have;
+	// where it is missing the junction and the hardlink are what are tried.
+	_ = os.Symlink(filepath.Join(outside, "payload.txt"), filepath.Join(proj, "lnk-out"))
+	_ = os.Symlink("ok.txt", filepath.Join(proj, "lnk-in"))
+	_ = os.Symlink(outside, filepath.Join(proj, "lnk-dir"))
+	_ = exec.Command("fsutil", "file", "setshortname", filepath.Join(proj, "secret-credentials.txt"), "ENVX.TXT").Run()
 }

@@ -1,6 +1,7 @@
 package artifacts
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,11 +10,38 @@ import (
 
 func removeFile(tr *tree, rel string) error { return os.Remove(filepath.Join(tr.root, rel)) }
 
+func mustLimiter(t *testing.T, rate float64, burst int, now func() time.Time) *Limiter {
+	t.Helper()
+	l, err := NewLimiter(rate, burst, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l
+}
+
+// Threat: a limiter that does not limit. NaN compares false with everything, so
+// a NaN rate would refill to nothing or to everything; zero, negative and
+// infinite rates and a burst below one are the same kind of mistake. All are
+// refused when the limiter is made, not found out when it is relied on.
+func TestNewLimiterValidates(t *testing.T) {
+	for _, c := range []struct {
+		rate  float64
+		burst int
+	}{{math.NaN(), 5}, {math.Inf(1), 5}, {math.Inf(-1), 5}, {0, 5}, {-1, 5}, {1, 0}, {1, -3}} {
+		if l, err := NewLimiter(c.rate, c.burst, nil); err == nil || l != nil {
+			t.Errorf("NewLimiter(%v, %d) = %v, %v; want an error", c.rate, c.burst, l, err)
+		}
+	}
+	if _, err := NewLimiter(0.5, 1, nil); err != nil {
+		t.Errorf("a slow, valid limiter was refused: %v", err)
+	}
+}
+
 // Threat: a device asking, or being sent, faster than allowed. A burst is let
 // through, the next is refused, and the bucket refills with time.
 func TestLimiter(t *testing.T) {
 	c := newClock()
-	l := NewLimiter(3, 3, c.now) // three a second, three at once
+	l := mustLimiter(t, 3, 3, c.now) // three a second, three at once
 	for i := range 3 {
 		if !l.Allow(1) {
 			t.Fatalf("burst request %d refused", i)
@@ -38,7 +66,7 @@ func TestLimiter(t *testing.T) {
 // bigger burst than the cap.
 func TestLimiterEdges(t *testing.T) {
 	c := newClock()
-	l := NewLimiter(10, 5, c.now)
+	l := mustLimiter(t, 10, 5, c.now)
 	if l.Allow(6) {
 		t.Error("allowed more than the burst")
 	}
@@ -58,7 +86,7 @@ func TestLimiterEdges(t *testing.T) {
 // what one device is sent, with the chunk size as the unit a request takes.
 func TestLimiterAsByteBudget(t *testing.T) {
 	c := newClock()
-	l := NewLimiter(float64(BytesPerMinute)/60, BytesPerMinute, c.now)
+	l := mustLimiter(t, float64(BytesPerMinute)/60, BytesPerMinute, c.now)
 	n := 0
 	for l.Allow(ChunkBytes) {
 		n++

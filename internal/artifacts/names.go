@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/jmwri/flockdeck/internal/review"
+	"github.com/jmwri/flockdeck/internal/secretname"
 )
 
 // Reason says why a path was refused. It is for this machine's own log and
@@ -24,27 +24,14 @@ const (
 	ReasonMissing    Reason = "missing"     // not there, or not readable
 )
 
-// deniedComponents are folder names whose contents are never shown, however
-// they are reached: they hold credentials a name check on the file would not
-// recognise (a git remote with a token in .git/config, an SSH or cloud
-// configuration). Compared case-insensitively, and a *file* of the same name
-// (a worktree's .git) is refused too.
-var deniedComponents = map[string]bool{
-	".git": true, ".ssh": true, ".aws": true, ".gnupg": true, ".kube": true, ".docker": true,
-}
-
-// denied reports whether rel, a slash-separated path inside a root, is a
-// secret file by name or lies under a denied folder. It is applied to what the
-// candidate says and again to what the file really is.
-func denied(rel string) bool {
-	parts := strings.Split(rel, "/")
-	for _, p := range parts {
-		if deniedComponents[strings.ToLower(p)] {
-			return true
-		}
-	}
-	return review.SecretPath(parts[len(parts)-1])
-}
+// denied reports whether rel, a slash-separated path inside a root, has a
+// secret by name for any component, file or folder, or lies under a folder that
+// exists to keep secrets (.git, .ssh, secrets/, private/ ...). It is applied to
+// what the candidate says and again to what the file really is.
+//
+// It is a name check and nothing more: a secret copied under an innocent name
+// is not caught, and nothing here can catch it. See internal/secretname.
+func denied(rel string) bool { return secretname.Path(rel) }
 
 // reservedDevice is a name Windows treats as a device however it is spelled:
 // with an extension (CON.txt), in any case, with trailing dots or spaces.
@@ -73,11 +60,12 @@ func cleanChars(p string, windows bool) bool {
 // checkLexical refuses a path whose text alone is unsafe. It runs before the
 // disk is touched, on the part of a candidate below the root. windows says to
 // apply the rules that only mean something on Windows (alternate data
-// streams, drive and UNC syntax); the rest -- control characters, reserved
-// device names, trailing dots and spaces, 8.3 aliases -- are applied on every
-// platform, because the same repository is opened on all of them and a file
-// that is unsafe to name on one is not worth showing on another. The function
-// is pure so that the Windows rules are tested on every platform.
+// streams, drive and UNC syntax, reserved device names, which are ordinary
+// file names elsewhere); the rest -- control characters, trailing dots and
+// spaces, 8.3 aliases -- are applied on every platform, because the same
+// repository is opened on all of them and a file that is unsafe to name on one
+// is not worth showing on another. The function is pure so that the Windows
+// rules are tested on every platform.
 //
 // p is relative to the root, though one that looks absolute is judged as
 // such. Separators may be / or \ whatever the platform.
@@ -113,7 +101,7 @@ func checkLexical(p string, windows bool) bool {
 		if strings.HasSuffix(c, ".") || strings.HasSuffix(c, " ") {
 			return false
 		}
-		if reservedDevice.MatchString(strings.TrimRight(c, ". ")) {
+		if windows && reservedDevice.MatchString(strings.TrimRight(c, ". ")) {
 			return false
 		}
 		if shortName.MatchString(c) {
