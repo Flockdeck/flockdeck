@@ -1498,8 +1498,8 @@ Programs under `cmd/` make what is published rather than the application:
   repositories whose main branch has changes no version tag has picked up yet
   (merging to main deploys nothing for the relay, billing, site or docs; a
   `v*` tag does) and keeps one tracking issue in step with that.
-- `cmd/sitegen` writes the landing page at flockdeck.ai, its privacy policy,
-  terms and licences pages, and the install scripts it serves, from
+- `cmd/sitegen` writes the landing page at flockdeck.ai, its trust, privacy,
+  terms, refunds and licences pages, and the install scripts it serves, from
   `cmd/sitegen/assets`:
   `go run ./cmd/sitegen -out ../flockdeck-site -release v1.2.3 -checksums checksums.txt`,
   where `checksums.txt` is that release's, from dl.flockdeck.ai, with its
