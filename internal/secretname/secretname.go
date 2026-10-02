@@ -55,7 +55,8 @@ import (
 // this is used with; it is called secret, so that hostile input costs nothing.
 // A name with "=" in it is judged whole, then by all that is after its first
 // "=", then segment by segment, each text between two "=" on its own, which is how an argument carries a file name
-// ("--file=.env.local"); the work is linear in the name.
+// ("--file=.env.local"). The name is capped, so the work is bounded (about
+// MaxName squared byte steps in the worst case, a fraction of a millisecond).
 func Component(name string) bool {
 	if len(name) > MaxName {
 		return true
@@ -68,8 +69,18 @@ func Component(name string) bool {
 	if i < 0 {
 		return false
 	}
-	if hit(n[i+1:]) { // all after the first "=", which is what an argument parser hands on
-		return true
+	// All that is after each "=" (the first is what an argument parser hands on)
+	// and each text between two "=" on its own. With the name capped at MaxName
+	// bytes the work is bounded by MaxName squared, a small constant.
+	for rest := n[i+1:]; ; {
+		if hit(rest) {
+			return true
+		}
+		j := strings.IndexByte(rest, 0x3d)
+		if j < 0 {
+			break
+		}
+		rest = rest[j+1:]
 	}
 	for _, seg := range strings.Split(n, "=") {
 		if seg != "" && hit(seg) {

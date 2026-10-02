@@ -82,8 +82,8 @@ func TestAHomeIsAHomeWhateverHomeSays(t *testing.T) {
 		"opt/work/proj":                          false,
 	} {
 		real := vol + sep + filepath.FromSlash(rel)
-		if got := homeShape(real, homes) != ""; got != want {
-			t.Errorf("homeShape(%q) refused = %v, want %v (%s)", real, got, want, homeShape(real, homes))
+		if got := homeShape(real, homes, nil) != ""; got != want {
+			t.Errorf("homeShape(%q) refused = %v, want %v (%s)", real, got, want, homeShape(real, homes, nil))
 		}
 	}
 	// A home this process does know as its own: the home itself, its secret and
@@ -107,8 +107,8 @@ func TestAHomeIsAHomeWhateverHomeSays(t *testing.T) {
 		"AppData/Local/Temp/x/001":              false,
 	} {
 		real := filepath.Join(me, filepath.FromSlash(rel))
-		if got := homeShape(real, homes) != ""; got != want {
-			t.Errorf("homeShape(%q) refused = %v, want %v (%s)", real, got, want, homeShape(real, homes))
+		if got := homeShape(real, homes, nil) != ""; got != want {
+			t.Errorf("homeShape(%q) refused = %v, want %v (%s)", real, got, want, homeShape(real, homes, nil))
 		}
 	}
 }
@@ -210,4 +210,69 @@ func TestSystemFoldersAreRefused(t *testing.T) {
 func withSystemAnswer(ge guardEnv) guardEnv {
 	ge.profile = osProfileDir
 	return ge
+}
+
+// Threat: a Windows profile seen from WSL (/mnt/c/Users/<name>) is the user's
+// own when the name is the user's, and no one else's is.
+func TestWSLProfileByName(t *testing.T) {
+	homes := []string{"/home/me"}
+	names := []string{"me"}
+	sep := string(filepath.Separator)
+	vol := filepath.VolumeName(t.TempDir())
+	for rel, want := range map[string]bool{ // true: refused
+		"mnt/c/Users/me/repos/app": false,
+		"mnt/d/Users/ME/work/x":    false,
+		"mnt/c/Users/bob/repos":    true,
+		"mnt/c/Users/me":           true,
+		"mnt/c/Users/me/.ssh":      true,
+		"mnt/c/Users/me/Documents": true,
+		"mnt/c/Users/Public/x":     true,
+	} {
+		real := vol + sep + filepath.FromSlash(rel)
+		if got := homeShape(real, homes, names) != ""; got != want {
+			t.Errorf("homeShape(%q) refused = %v, want %v (%s)", real, got, want, homeShape(real, homes, names))
+		}
+	}
+	ge := env(map[string]string{"USERPROFILE": `C:\Users\Alice`, "USER": "bob/../x"})
+	if got := ge.userNames(nil); len(got) != 1 || got[0] != "alice" {
+		t.Errorf("userNames = %v, want [alice] (a USER with a separator is no name)", got)
+	}
+}
+
+// Threat: system folders as roots when the environment does not name them, and
+// the Unix ones that are not a place to show files from (/var, /usr, /tmp,
+// /var/lib, /usr/lib) while a project below /tmp or /opt stays allowed.
+func TestSystemFoldersByTheirNames(t *testing.T) {
+	base := t.TempDir()
+	home := mkdir(t, filepath.Join(base, "home"))
+	ge := withSystemAnswer(env(map[string]string{"HOME": home})) // no SystemRoot, no ProgramFiles
+	if runtime.GOOS == "windows" {
+		dirs := osSystemDirs()
+		if len(dirs) == 0 {
+			t.Fatal("the system gave no Windows folder")
+		}
+		for _, d := range dirs {
+			if _, err := os.Stat(d); err != nil {
+				continue
+			}
+			if why := forbiddenRoot(d, ge); why == "" {
+				t.Errorf("%s was allowed as a root with no environment to name it", d)
+			}
+		}
+		return
+	}
+	for _, d := range []string{"/var", "/usr", "/tmp", "/run", "/opt", "/srv", "/var/lib", "/var/log", "/usr/lib", "/etc", "/bin", "/sbin"} {
+		c, err := filepath.EvalSymlinks(d)
+		if err != nil {
+			continue // not on this system
+		}
+		if why := forbiddenRoot(c, ge); why == "" {
+			t.Errorf("%s (%s) was allowed as a root", d, c)
+		}
+	}
+	// A project below a system folder that holds projects is a project.
+	proj := mkdir(t, filepath.Join(base, "workspaces", "x"))
+	if why := forbiddenRoot(proj, ge); why != "" {
+		t.Errorf("a project in a temporary folder was refused: %s", why)
+	}
 }

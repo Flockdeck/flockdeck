@@ -60,7 +60,7 @@ func TestUnicodeCaseFoldingCannotHideASecret(t *testing.T) {
 func TestEqualsForms(t *testing.T) {
 	for _, n := range []string{
 		"x=.env.local", "--file=.env.local", "-o=.env.local.bak", "=.env.pub", "a=b=id_rsa", "--key=server.pem",
-		"--cfg=a/.env", "k=-id_rsa", "--token-file=credentials.json",
+		"--cfg=a/.env", "k=-id_rsa", "--token-file=credentials.json", "0130=sshb=-id_=secretsssh=", "x=y=id_rsa.pub=",
 	} {
 		if !Path(n) {
 			t.Errorf("Path(%q) = false, want secret", n)
@@ -105,7 +105,7 @@ func TestAtLeastAsStrictAsReview(t *testing.T) {
 func FuzzAtLeastAsStrictAsReview(f *testing.F) {
 	for _, s := range []string{
 		".env", "id_rsa", "a.pem", "x/y/.npmrc", "a.pub", "credential", ".ENV.local",
-		"x=.env.local", "--file=.env.local", "-o=.env.local.bak", "=.env.pub", "-id_rsa", dotI + "d_rsa", "a=b=.env", "k" + kelvin + ".pem",
+		"x=.env.local", "--file=.env.local", "-o=.env.local.bak", "=.env.pub", "-id_rsa", dotI + "d_rsa", "a=b=.env", "k" + kelvin + ".pem", dotI + "=sshb=-id_=secretsssh=", "x=y=id_rsa.pub=",
 	} {
 		f.Add(s)
 	}

@@ -53,8 +53,10 @@ func (ge guardEnv) homes() []string {
 	if h := passwdHome(ge.passwd, ge.uid); h != "" {
 		cands = append(cands, h)
 	}
+	var trusted string // the system's own answer, which is not tested for an owner (Windows profiles are owned by SYSTEM or Administrators)
 	if ge.profile != nil {
-		cands = append(cands, ge.profile())
+		trusted = ge.profile()
+		cands = append(cands, trusted)
 	}
 	var out []string
 	seen := map[string]bool{}
@@ -63,7 +65,7 @@ func (ge guardEnv) homes() []string {
 			continue
 		}
 		fi, err := os.Stat(h)
-		if err != nil || !fi.IsDir() || !ownedBy(fi, ge.uid) {
+		if err != nil || !fi.IsDir() || (h != trusted && !ownedBy(h, fi, ge.uid)) {
 			continue
 		}
 		h = filepath.ToSlash(filepath.Clean(h))
@@ -129,7 +131,7 @@ func forbiddenRoot(real string, ge guardEnv) string {
 	if why := namedAsSecret(real); why != "" {
 		return why
 	}
-	if why := homeShape(real, homes); why != "" {
+	if why := homeShape(real, homes, ge.userNames(homes)); why != "" {
 		return why
 	}
 	for _, h := range homes {
@@ -162,7 +164,39 @@ func forbiddenRoot(real string, ge guardEnv) string {
 			return "a system folder"
 		}
 	}
+	for _, s := range systemDirsExactly(ge) {
+		if same(s, real) {
+			return "a system folder"
+		}
+	}
 	return ""
+}
+
+// userNames are the names this user goes by, for recognising their folder under
+// a Windows drive seen from WSL (/mnt/c/Users/<name>): the home folders' own
+// names, USER and LOGNAME, and the name in USERPROFILE (which may be written
+// the Windows way). It is a heuristic by name, not by identity.
+func (ge guardEnv) userNames(homes []string) []string {
+	var out []string
+	add := func(p string) {
+		p = strings.TrimRight(p, "/\\")
+		if i := strings.LastIndexAny(p, "/\\"); i >= 0 {
+			p = p[i+1:]
+		}
+		if p != "" {
+			out = append(out, strings.ToLower(p))
+		}
+	}
+	for _, h := range homes {
+		add(h)
+	}
+	add(ge.get("USERPROFILE"))
+	for _, e := range []string{"USER", "LOGNAME", "USERNAME"} {
+		if v := ge.get(e); v != "" && !strings.ContainsAny(v, "/\\") {
+			out = append(out, strings.ToLower(v))
+		}
+	}
+	return out
 }
 
 // secretsUnderHome are folders below the home directory that keep secrets, a
@@ -215,7 +249,7 @@ func namedAsSecret(real string) string {
 // homes (another user's, or one this process does not know as its own), a home
 // itself, and a place in one that keeps secrets or settings (a project is not
 // there).
-func homeShape(real string, homes []string) string {
+func homeShape(real string, homes, names []string) string {
 	vol := filepath.VolumeName(real)
 	parts := strings.FieldsFunc(real[len(vol):], func(r rune) bool { return r == '/' || r == '\\' })
 	lower := make([]string, len(parts))
@@ -244,6 +278,14 @@ func homeShape(real string, homes []string) string {
 		if same(h, prefix) {
 			mine = true
 			break
+		}
+	}
+	if !mine && n == 4 {
+		// A Windows profile seen from WSL: the user's own if it has the user's name.
+		for _, u := range names {
+			if lower[3] == u {
+				mine = true
+			}
 		}
 	}
 	if !mine {
@@ -280,16 +322,39 @@ func restForbidden(rest []string) string {
 	return ""
 }
 
+// systemDirs are folders that are system folders with everything below them.
 func systemDirs(ge guardEnv) []string {
 	var out []string
-	for _, d := range []string{"/etc", "/proc", "/sys", "/dev", "/root", "/boot", "/private/etc", "/System", "/Library", "/run/secrets"} {
+	for _, d := range []string{
+		"/etc", "/proc", "/sys", "/dev", "/root", "/boot", "/private/etc", "/System", "/Library", "/run/secrets",
+		"/bin", "/sbin", "/lib", "/lib32", "/lib64", "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib64", "/usr/libexec",
+		"/usr/share", "/var/lib", "/var/log", "/var/run", "/var/spool", "/var/cache", "/var/mail", "/var/db",
+		"/private/var/db", "/private/var/log", "/Applications",
+	} {
 		if filepath.IsAbs(d) { // an absolute path only on a platform that has it
 			out = append(out, d)
 		}
 	}
-	for _, e := range []string{"SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "ProgramData"} {
+	for _, e := range []string{"SystemRoot", "windir", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "ProgramData"} {
 		if v := ge.get(e); v != "" && filepath.IsAbs(v) {
 			out = append(out, v)
+		}
+	}
+	// The system's own answer, for when the environment does not give them.
+	return append(out, osSystemDirs()...)
+}
+
+// systemDirsExactly are system folders that hold other people's projects below
+// them (/opt/<project>, /srv/<x>, /tmp/<x>, /workspaces/<x>) but are not
+// themselves a place to show files from.
+func systemDirsExactly(ge guardEnv) []string {
+	var out []string
+	for _, d := range []string{
+		"/var", "/usr", "/usr/local", "/tmp", "/run", "/opt", "/srv", "/media", "/mnt", "/private", "/private/var",
+		"/private/tmp", "/var/tmp", "/home", "/Users", "/Volumes",
+	} {
+		if filepath.IsAbs(d) {
+			out = append(out, d)
 		}
 	}
 	return out

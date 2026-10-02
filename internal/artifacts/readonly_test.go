@@ -30,7 +30,12 @@ import (
 //
 // A later change that needs one has to change this test, and so be seen.
 //
-// This is a tripwire, not a sandbox. It catches the ordinary ways a change
+// This is a tripwire, not a sandbox. An allowlist (the few calls this package
+// makes, nothing else) would be stronger and is the better design if this is
+// ever replaced; and root_windows.go is exempt from the DLL and unsafe rules by
+// its file name alone.
+//
+// It catches the ordinary ways a change
 // would grow a write, a process or a connection, and a careless or confused one
 // that reaches for them by another name. It cannot stop code that is written to
 // get round it (reflection, a table of function values built from a package
@@ -169,6 +174,9 @@ var writes = map[string]bool{
 	"WriteFileEx": true, "LockFileEx": true, "CreateSymbolicLink": true, "CreateHardLink": true, "TerminateProcess": true,
 	// reflection reaching a method by its name
 	"MethodByName": true,
+	// the rest of the ways to change the machine or reach beyond the file
+	"Fchmodat": true, "FcntlFlock": true, "Ptrace": true, "Reboot": true, "Setreuid": true, "Setregid": true,
+	"Setrlimit": true, "Settimeofday": true, "Sync": true, "Mmap": true, "Pipe": true, "Pipe2": true, "WriteConsole": true,
 }
 
 // windowsOnly are the ways to call a DLL by name, which only the one Windows file
@@ -250,6 +258,9 @@ func checkSource(fset *token.FileSet, name string, f *ast.File) []string {
 		if bannedImport(p) {
 			add(imp, "imports %s", p)
 		}
+		if imp.Name != nil && aliasable[p] {
+			add(imp, "imports %s under another name (%s)", p, imp.Name.Name)
+		}
 		if p == "unsafe" && !unsafeAllowed[filepath.Base(name)] {
 			add(imp, "imports unsafe")
 		}
@@ -287,12 +298,15 @@ func checkSource(fset *token.FileSet, name string, f *ast.File) []string {
 			if writeIdents[x.Sel.Name] {
 				add(x, "names %s", x.Sel.Name)
 			}
-			if id, ok := x.X.(*ast.Ident); ok && !called[x] {
-				// An open held as a value, to be called with flags this test
-				// cannot read: open := syscall.Open; f := r.OpenFile.
+			if !called[x] || isMethodExpr(x) {
+				// An open held as a value, or named as a method expression
+				// ((*os.Root).OpenFile), to be called with flags this test cannot
+				// read: open := syscall.Open; of := t.root.OpenFile.
+				id, _ := x.X.(*ast.Ident)
 				switch {
-				case (x.Sel.Name == "Open" || x.Sel.Name == "Openat") && (id.Name == "syscall" || id.Name == "unix"),
-					x.Sel.Name == "OpenFile", x.Sel.Name == "CreateFile":
+				case (x.Sel.Name == "Open" || x.Sel.Name == "Openat") && id != nil && (id.Name == "syscall" || id.Name == "unix"):
+					add(x, "uses %s as a value, so its flags cannot be read", x.Sel.Name)
+				case x.Sel.Name == "OpenFile", x.Sel.Name == "CreateFile":
 					add(x, "uses %s as a value, so its flags cannot be read", x.Sel.Name)
 				}
 			}
@@ -349,6 +363,17 @@ func sourceChecks(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Assembly, C, and anything else that is not Go can make a system call that
+	// no check of Go source sees: the package is Go only.
+	all, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range all {
+		if !e.IsDir() && filepath.Ext(e.Name()) != ".go" {
+			t.Errorf("%s is not a Go file: raw assembly or C in this package would not be checked", e.Name())
+		}
 	}
 	fset := token.NewFileSet()
 	checked := 0
@@ -434,6 +459,14 @@ func TestReadOnlyCheckCatchesWhatItForbids(t *testing.T) {
 		"set attrs":        `syscall.SetFileAttributes(n, 1)`,
 		"lazy dll":         `syscall.NewLazyDLL("kernel32.dll").NewProc("DeleteFileW").Call(1)`,
 		"reflect method":   `reflect.ValueOf(r).MethodByName("Remove")`,
+		"method expr":      `(*os.Root).OpenFile(r, "a", 0x41, 0)`,
+		"held method":      `of := t.root.OpenFile; _ = of`,
+		"fchmodat":         `syscall.Fchmodat(1, "a", 0, 0)`,
+		"ptrace":           `syscall.Ptrace(1, 2, 3, 4)`,
+		"mmap":             `syscall.Mmap(1, 0, 1, 1, 1)`,
+		"setrlimit":        `syscall.Setrlimit(1, nil)`,
+		"pipe":             `syscall.Pipe(nil)`,
+		"console write":    `syscall.WriteConsole(1, nil, 0, nil, nil)`,
 	}
 	for name, body := range bad {
 		src := "package x\nimport (\"os\"; \"os/exec\"; \"syscall\")\nfunc f(r *os.Root, n *uint16, acc uint32, fl int) {\n" + body + "\n}\n"
@@ -446,6 +479,10 @@ func TestReadOnlyCheckCatchesWhatItForbids(t *testing.T) {
 		"exec import":     "package x\nimport \"os/exec\"\n",
 		"smtp import":     "package x\nimport \"net/smtp\"\n",
 		"x/sys import":    "package x\nimport \"golang.org/x/sys/unix\"\n",
+		"alias syscall":   "package x\nimport sc \"syscall\"\nvar g = sc.Open\n",
+		"dot syscall":     "package x\nimport . \"syscall\"\nvar g = Open\n",
+		"dot os":          "package x\nimport . \"os\"\nvar o = OpenFile\n",
+		"alias unix":      "package x\nimport u \"golang.org/x/sys/unix\"\n",
 		"net sub import":  "package x\nimport \"net/http/httputil\"\n",
 		"cgo import":      "package x\nimport \"C\"\n",
 		"unsafe import":   "package x\nimport \"unsafe\"\n",
@@ -481,3 +518,23 @@ func f(r *os.Root, n *uint16) {
 		t.Error("the walk did not find os/exec under internal/review, which does import it by way of sysproc")
 	}
 }
+
+// isMethodExpr is whether x names a method through a type, not a value:
+// (*os.Root).OpenFile, whose first argument is then the receiver.
+func isMethodExpr(x *ast.SelectorExpr) bool {
+	switch t := x.X.(type) {
+	case *ast.ParenExpr:
+		return true
+	case *ast.StarExpr:
+		return true
+	case *ast.ArrayType, *ast.MapType, *ast.InterfaceType, *ast.StructType:
+		return true
+	default:
+		_ = t
+		return false
+	}
+}
+
+// aliasable are the packages that may only be imported under their own name: a
+// renamed or dot import hides which function a call is.
+var aliasable = map[string]bool{"os": true, "syscall": true, "golang.org/x/sys/unix": true, "golang.org/x/sys/windows": true}

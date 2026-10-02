@@ -82,7 +82,7 @@ func (r *Root) checkRealName(_ *os.File, rel string) error {
 }
 
 // ownedBy is whether the file belongs to uid (always true if there is no uid).
-func ownedBy(fi fs.FileInfo, uid int) bool {
+func ownedBy(_ string, fi fs.FileInfo, uid int) bool {
 	if uid < 0 {
 		return true
 	}
@@ -92,3 +92,6 @@ func ownedBy(fi fs.FileInfo, uid int) bool {
 
 // osProfileDir has no answer here: the password file is asked instead.
 func osProfileDir() string { return "" }
+
+// osSystemDirs has nothing to add here: the list in systemDirs is the Unix one.
+func osSystemDirs() []string { return nil }

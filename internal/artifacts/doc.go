@@ -74,6 +74,28 @@
 // of someone else's, or below a home this process does not know as its own, is
 // refused too.
 //
+// System folders are refused by name: /etc /proc /sys /dev /root /boot /bin
+// /sbin /lib* /usr/{bin,sbin,lib,share,libexec} /var/{lib,log,run,spool,cache,
+// mail,db} /Applications /System /Library and everything below them, and
+// exactly (not what is below them, where projects live) /var /usr /usr/local
+// /tmp /run /opt /srv /media /mnt /home /Users /private; on Windows the Windows,
+// Program Files and ProgramData folders, by the environment and by the system's
+// own answer. A Windows profile seen from WSL (/mnt/c/Users/<name>) is the
+// user's when the name is the user's (by name, not identity); no other is.
+//
+// By design these are refused: a root below another user's home (/home/alice
+// when running as root; /Users/Shared); every root when no home can be found (an
+// arbitrary-uid container with HOME=/ owned by root).
+//
+// Known false refusals: a name over 255 bytes (about 85 CJK characters); a root
+// that is literally named private, secret or secrets; a root below an ancestor
+// named .git, .m2, .terraform or "User Data"; a project under /var/lib or
+// /usr/lib.
+//
+// Known residual: on Linux, if HOME is wrong, there is no password file entry,
+// and the real home is outside /home, /Users and /mnt/<d>/Users (/export/home/me,
+// /var/home/me on Fedora Silverblue), that home is not recognised as one.
+//
 // # Reading
 //
 // File.Limited serves at most MaxViewBytes in all. A File expects one reader:
