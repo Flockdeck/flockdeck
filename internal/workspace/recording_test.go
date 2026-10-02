@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -450,27 +451,26 @@ func TestRecordingAConversationAlreadyOverTheCap(t *testing.T) {
 	home := claudeHome(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
+	ws.recMax = 16 << 10
+	ws.rec.SetMaxFileBytes(ws.recMax)
 	p := recordingPane(t, ws, root, "long")
-	big := strings.Repeat("word ", 5000)
-	line := `{"type":"assistant","cwd":"/work/shop","timestamp":"2026-10-01T09:00:00Z","message":{"role":"assistant","content":[{"type":"text","text":"` + big + `"}]}}`
+	line := `{"type":"assistant","cwd":"/work/shop","timestamp":"2026-10-01T09:00:00Z","message":{"role":"assistant","content":[{"type":"text","text":"` + strings.Repeat("word ", 400) + `"}]}}`
 	var lines []string
-	for i := 0; i < 700; i++ {
+	for i := 0; i < 30; i++ {
 		lines = append(lines, line)
 	}
 	storeConversation(t, home, p.ID, lines...)
-	ended := make(chan string, 1)
-	ws.SetRecordingEndedHook(func(_, why string) { ended <- why })
+	var whys []string
+	var mu sync.Mutex
+	ws.SetRecordingEndedHook(func(_, why string) { mu.Lock(); whys = append(whys, why); mu.Unlock() })
 
-	startRecording(t, ws, p.ID)
-	select {
-	case why := <-ended:
-		if !strings.Contains(why, "already longer") {
-			t.Errorf("recording ended with %q", why)
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("recording was not ended by the cap")
+	startRecording(t, ws, p.ID) // waits for the look, and for the ending it starts
+	mu.Lock()
+	got := append([]string(nil), whys...)
+	mu.Unlock()
+	if len(got) != 1 || !strings.Contains(got[0], "already longer") {
+		t.Fatalf("recording ended with %q", got)
 	}
-	ws.recAct.wait()
 	if ws.PaneRecording(p.ID) {
 		t.Error("the pane still shows as recording")
 	}
@@ -501,31 +501,111 @@ func TestRecordingStopsLookingWhenTheConversationIsQuiet(t *testing.T) {
 	home := claudeHome(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	ws.recSettle = 5 * time.Millisecond
+	ws.recSettle = time.Millisecond
 	p := recordingPane(t, ws, root, "quiet")
 	storeConversation(t, home, p.ID, promptLine)
 	startRecording(t, ws, p.ID)
 
-	looks := func() int {
-		r := ws.recorder(p.ID)
+	r := ws.recorder(p.ID, false)
+	state := func() (looks, idle int, timer bool) {
+		r.ctl.Lock()
+		idle = r.idle
+		r.ctl.Unlock()
 		r.work.Lock()
 		defer r.work.Unlock()
-		return r.looks
+		return r.looks, idle, true
 	}
-	time.Sleep(500 * time.Millisecond) // well past 5+10+20+40 ms
-	settled := looks()
-	if settled > recIdleLooks+3 {
-		t.Errorf("%d looks at a quiet conversation", settled)
+	// The looks run on timers of a millisecond or so: wait for them to give up,
+	// which is when the idle count passes the limit.
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		ws.recAct.wait()
+		if _, idle, _ := state(); idle > recIdleLooks {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the recording never stopped looking")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// One look that found the conversation, and the idle ones that followed.
+	settled, _, _ := state()
+	if settled != recIdleLooks+2 {
+		t.Errorf("%d looks, want %d", settled, recIdleLooks+2)
 	}
 	storeConversation(t, home, p.ID, sayLine)
-	time.Sleep(200 * time.Millisecond)
-	if looks() != settled {
-		t.Error("it went on looking after it had stopped")
+	time.Sleep(50 * time.Millisecond) // long enough for a look that should not happen
+	ws.recAct.wait()
+	if again, _, _ := state(); again != settled {
+		t.Errorf("it went on looking after it had stopped: %d looks", again)
 	}
 	ws.kickRecording(p.ID, true) // the agent reported something
 	ws.recAct.wait()
 	if es := readTranscript(t, recordingFiles(t)[0]); es[len(es)-1].Type != record.TypeAssistant {
 		t.Errorf("an event did not bring the transcript up to date: %v", es[len(es)-1].Type)
+	}
+}
+
+// A look that comes after the workspace has closed writes nothing, and a pane
+// that is not recording has no recorder made for it.
+func TestNoRecorderIsMadeAfterCloseOrForAPaneNotRecording(t *testing.T) {
+	isolatedRecordings(t)
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := recordingPane(t, ws, root, "late")
+	storeConversation(t, home, p.ID, promptLine, sayLine)
+	ws.kickRecording(p.ID, true) // not recording
+	ws.recAct.wait()
+	if ws.recorder(p.ID, false) != nil {
+		t.Error("a recorder was made for a pane that is not recording")
+	}
+	startRecording(t, ws, p.ID)
+	ws.SetPaneRecording(p.ID, false)
+	files := recordingFiles(t)
+	if len(files) != 1 {
+		t.Fatalf("files = %v", files)
+	}
+	finished, _ := os.ReadFile(files[0])
+
+	ws.Close()
+	ws.kickRecording(p.ID, true)
+	ws.recAct.wait()
+	if ws.recorder(p.ID, true) != nil {
+		t.Error("a recorder was made after Close")
+	}
+	if now, _ := os.ReadFile(files[0]); string(now) != string(finished) {
+		t.Error("a finished transcript was changed after the workspace closed")
+	}
+}
+
+// A conversation is one file: a second pane in it is refused.
+func TestTwoPanesCannotRecordOneConversation(t *testing.T) {
+	isolatedRecordings(t)
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	a := recordingPane(t, ws, root, "a")
+	b := recordingPane(t, ws, root, "b")
+	ws.mu.Lock()
+	b.Conversation = a.ID // a concurrent resume of the same conversation
+	ws.mu.Unlock()
+	storeConversation(t, home, a.ID, promptLine, sayLine)
+	startRecording(t, ws, a.ID)
+	found, err := ws.SetPaneRecording(b.ID, true)
+	if !found || err == nil || !strings.Contains(err.Error(), "already recording") {
+		t.Fatalf("second pane: %v, %v", found, err)
+	}
+	if ws.PaneRecording(b.ID) {
+		t.Error("the refused pane shows as recording")
+	}
+	if es := readTranscript(t, recordingFiles(t)[0]); len(es) != 3 {
+		t.Errorf("the transcript has %d lines, want 3", len(es))
+	}
+	// Once the first stops, the second may.
+	ws.SetPaneRecording(a.ID, false)
+	if found, err := ws.SetPaneRecording(b.ID, true); !found || err != nil {
+		t.Errorf("after the first stopped: %v, %v", found, err)
 	}
 }
 

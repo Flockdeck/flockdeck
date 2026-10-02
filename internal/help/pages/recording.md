@@ -106,8 +106,8 @@ turn recording on is cut at the same place, the same as an export of it, and
 recording ends at once. Any one string is cut at 8 KiB (a prompt or
 message at 32 KiB), with a marker saying how much was cut. When a recording
 starts, the project's folder is tidied: files older than 30 days are deleted, then
-the oldest until at most 100 files and 256 MiB are left. Exports are not
-tidied, and making one deletes nothing.
+the oldest until at most 100 files and 256 MiB are left. **Exports are kept until
+you delete them yourself**: they are not tidied, and making one deletes nothing.
 
 ## Secrets
 

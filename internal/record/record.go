@@ -10,9 +10,12 @@
 package record
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -21,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
@@ -143,6 +147,9 @@ type Manager struct {
 	now   func() time.Time
 	max   int64
 	panes map[string]*session
+	// closed is set by Close, which is final: a Manager that has been closed
+	// writes nothing more, whatever is still handed to it.
+	closed bool
 
 	// export is set on the Manager an export writes through (see Export). It
 	// writes to the project's exports folder rather than beside the recordings,
@@ -154,8 +161,11 @@ type Manager struct {
 
 // session is one pane's open file and what is tracked while it is open.
 type session struct {
-	f      *os.File
-	path   string
+	f    *os.File
+	path string
+	// final, when path is a file a finished transcript of this conversation is
+	// being replaced through, is the file it replaces. See openLocked.
+	final  string
 	id     string
 	seq    int64
 	size   int64
@@ -206,9 +216,21 @@ func (m *Manager) Path(pane string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s := m.panes[pane]; s != nil {
+		if s.final != "" {
+			return s.final
+		}
 		return s.path
 	}
 	return ""
+}
+
+// SetMaxFileBytes lowers the size a transcript file may reach from MaxFileBytes.
+// It is for a caller that cannot make 16 MiB of conversation, and is set before
+// anything is written.
+func (m *Manager) SetMaxFileBytes(n int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.max = n
 }
 
 // The text of the lines that open and close a transcript. They say nothing
@@ -224,6 +246,12 @@ const (
 // conversation's first event and the start of the conversation's id, which
 // are the same whenever and however the transcript is made.
 func SessionID(first time.Time, meta Meta) string {
+	return first.UTC().Format("20060102T150405Z") + "-" + shortConversation(meta)
+}
+
+// shortConversation is the part of a conversation's id its transcripts' names
+// end with.
+func shortConversation(meta Meta) string {
 	conv := meta.Conversation
 	if conv == "" {
 		conv = meta.Pane
@@ -232,7 +260,7 @@ func SessionID(first time.Time, meta Meta) string {
 	if len(short) > 8 {
 		short = short[:8]
 	}
-	return first.UTC().Format("20060102T150405Z") + "-" + short
+	return short
 }
 
 // Write adds one event of the pane's conversation to its transcript, opening
@@ -244,17 +272,25 @@ func SessionID(first time.Time, meta Meta) string {
 func (m *Manager) Write(meta Meta, ev transcript.ExportEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed {
+		return ErrClosed
+	}
 	s := m.panes[meta.Pane]
 	if s == nil {
 		if err := m.openLocked(meta, ev.Time); err != nil {
 			return err
 		}
 		s = m.panes[meta.Pane]
-		m.writeLocked(meta, Entry{Type: TypeStarted, Text: startText, Time: stamp(ev.Time)})
+		if err := m.writeLocked(meta, Entry{Type: TypeStarted, Text: startText, Time: stamp(ev.Time)}); err != nil {
+			m.dropLocked(meta.Pane)
+			return err
+		}
 	}
 	e := entryOf(ev)
 	m.prepareLocked(s, &e)
-	m.writeLocked(meta, e)
+	if err := m.writeLocked(meta, e); err != nil {
+		return err
+	}
 	s.last = ev.Time
 	if s.capped {
 		return ErrFull
@@ -262,11 +298,29 @@ func (m *Manager) Write(meta Meta, ev transcript.ExportEvent) error {
 	return nil
 }
 
+// ErrClosed is what Write returns after Close.
+var ErrClosed = errors.New("the transcripts are closed")
+
+// dropLocked closes a pane's file after a failure and removes what was made of a
+// replacement, leaving a finished file it was to replace as it was.
+func (m *Manager) dropLocked(pane string) {
+	if s := m.panes[pane]; s != nil {
+		_ = s.f.Close()
+		if s.final != "" {
+			_ = os.Remove(s.path)
+		}
+		delete(m.panes, pane)
+	}
+}
+
 // ErrFull is what Write returns once the transcript has reached its size cap.
 var ErrFull = errors.New("the transcript is full")
 
 // Finish ends the pane's transcript with a closing line, at the time of the
 // last event. It is harmless for a pane with no transcript open.
+//
+// A transcript that was written through a replacement of an earlier, finished
+// one takes its place only if it has everything the earlier one had.
 func (m *Manager) Finish(meta Meta) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -274,32 +328,49 @@ func (m *Manager) Finish(meta Meta) {
 	if s == nil {
 		return
 	}
-	m.writeLocked(meta, Entry{Type: TypeStopped, Text: endText, Time: stamp(s.last)})
+	_ = m.writeLocked(meta, Entry{Type: TypeStopped, Text: endText, Time: stamp(s.last)})
 	_ = s.f.Close()
 	delete(m.panes, meta.Pane)
+	if s.final != "" {
+		if supersedes(s.final, s.path) {
+			if err := os.Rename(s.path, s.final); err != nil {
+				_ = os.Remove(s.path)
+			}
+		} else {
+			_ = os.Remove(s.path)
+		}
+	}
+	if m.target == "" {
+		removeSuperseded(filepath.Dir(s.path), meta, filepath.Base(m.finalPath(s)))
+	}
 }
 
-// Close closes every transcript, for a Flockdeck that is quitting. Nothing is
-// written: a recording left on is on again at the next start, and writes its
-// file again from the conversation's beginning.
+func (m *Manager) finalPath(s *session) string {
+	if s.final != "" {
+		return s.final
+	}
+	return s.path
+}
+
+// Close closes every transcript, for a Flockdeck that is quitting, for good.
+// Nothing is written, and what was being written in place of a finished
+// transcript is dropped: a recording left on is on again at the next start, and
+// writes its file again from the conversation's beginning.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for id, s := range m.panes {
-		_ = s.f.Close()
-		delete(m.panes, id)
+	m.closed = true
+	for id := range m.panes {
+		m.dropLocked(id)
 	}
 }
 
-// Abandon closes the pane's transcript with no closing line, leaving the file as
-// it is, for a transcript about to be written again from the start.
+// Abandon closes the pane's transcript with no closing line, for one about to
+// be written again from the start. What it replaces is left as it is.
 func (m *Manager) Abandon(meta Meta) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if s := m.panes[meta.Pane]; s != nil {
-		_ = s.f.Close()
-		delete(m.panes, meta.Pane)
-	}
+	m.dropLocked(meta.Pane)
 }
 
 // Discard closes the pane's transcript and deletes its file, for an export
@@ -336,10 +407,13 @@ func entryOf(ev transcript.ExportEvent) Entry {
 // event was at first.
 //
 // A live recording's file and an export's default file are named by the
-// session, and are made afresh if they are there: the same conversation gives
-// the same lines, so writing it again is how a recording left on across a
-// restart catches up, and an export made twice is one file. An export to a
-// path of its own never writes over a file.
+// session. The same conversation gives the same lines, so writing it again is
+// how a recording left on across a restart catches up, and an export made twice
+// is one file. A file that is there and has no closing line was never finished
+// and is written over. One that has a closing line is not touched while the
+// new one is written: that goes to a file beside it, which takes its place when
+// it is finished and has everything the old one had (see Finish). An export to
+// a path of its own never writes over a file.
 func (m *Manager) openLocked(meta Meta, first time.Time) error {
 	base, err := m.Dir()
 	if err != nil {
@@ -347,13 +421,14 @@ func (m *Manager) openLocked(meta Meta, first time.Time) error {
 	}
 	id := SessionID(first, meta)
 	folder := filepath.Join(base, recordingsDir, Folder(meta.Project, meta.ProjectRoot))
-	path, flags := filepath.Join(folder, id+sessionFileExt), os.O_WRONLY|os.O_CREATE|os.O_TRUNC
 	if m.export {
 		folder = filepath.Join(folder, exportsDir)
-		path = filepath.Join(folder, id+sessionFileExt)
 	}
+	path, flags, final := filepath.Join(folder, id+sessionFileExt), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, ""
 	if m.target != "" {
 		folder, path, flags = filepath.Dir(m.target), m.target, os.O_WRONLY|os.O_CREATE|os.O_EXCL
+	} else if finished(path) {
+		final, path = path, path+".new"
 	}
 	if err := os.MkdirAll(folder, folderMode); err != nil {
 		return fmt.Errorf("create the recordings folder: %w", err)
@@ -362,11 +437,116 @@ func (m *Manager) openLocked(meta Meta, first time.Time) error {
 	if err != nil {
 		return fmt.Errorf("create the transcript: %w", err)
 	}
-	m.panes[meta.Pane] = &session{f: f, path: path, id: id, secret: map[string]bool{}}
+	m.panes[meta.Pane] = &session{f: f, path: path, final: final, id: id, secret: map[string]bool{}}
 	if !m.export {
 		prune(folder, path, m.now())
 	}
 	return nil
+}
+
+// finished reports whether the file at path is a transcript that ended with its
+// closing line.
+func finished(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || !fi.Mode().IsRegular() {
+		return false
+	}
+	const tail = 64 << 10
+	off := max(fi.Size()-tail, 0)
+	buf := make([]byte, fi.Size()-off)
+	if _, err := f.ReadAt(buf, off); err != nil && err != io.EOF {
+		return false
+	}
+	lines := strings.Split(strings.TrimRight(string(buf), "\n"), "\n")
+	var e Entry
+	if json.Unmarshal([]byte(lines[len(lines)-1]), &e) != nil {
+		return false
+	}
+	return e.Type == TypeStopped || e.Type == TypeTruncated
+}
+
+// supersedes reports whether the transcript at next has every line the finished
+// one at old had but its closing line: whether it is the same transcript, grown.
+func supersedes(old, next string) bool {
+	a, err := os.Open(old)
+	if err != nil {
+		return true // nothing there to lose
+	}
+	defer a.Close()
+	b, err := os.Open(next)
+	if err != nil {
+		return false
+	}
+	defer b.Close()
+	ra, rb := bufio.NewReaderSize(a, 64<<10), bufio.NewReaderSize(b, 64<<10)
+	line := func(r *bufio.Reader) ([]byte, bool) {
+		var out []byte
+		for {
+			part, err := r.ReadSlice('\n')
+			out = append(out, part...)
+			if err == bufio.ErrBufferFull {
+				continue
+			}
+			return out, len(out) > 0
+		}
+	}
+	prev, ok := line(ra)
+	for ok {
+		cur, more := line(ra)
+		if !more {
+			return true // prev was the closing line
+		}
+		theirs, has := line(rb)
+		if !has || !bytes.Equal(prev, theirs) {
+			return false
+		}
+		prev = cur
+	}
+	return true
+}
+
+// removeSuperseded deletes the other transcripts of the same conversation in a
+// folder, which an earlier first event gave another name: a conversation is one
+// file. Only files whose first line says the same conversation are touched.
+func removeSuperseded(folder string, meta Meta, keep string) {
+	conv := meta.Conversation
+	if conv == "" {
+		conv = meta.Pane
+	}
+	ents, err := os.ReadDir(folder)
+	if err != nil {
+		return
+	}
+	suffix := "-" + shortConversation(meta) + sessionFileExt
+	for _, e := range ents {
+		if e.Name() == keep || !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), suffix) {
+			continue
+		}
+		p := filepath.Join(folder, e.Name())
+		var first Entry
+		if b, err := readFirstLine(p); err == nil && json.Unmarshal(b, &first) == nil && first.Type == TypeStarted && first.Conversation == conv && finished(p) {
+			_ = os.Remove(p)
+		}
+	}
+}
+
+// cutID is an id or a name cut to a length no real one reaches, for the fields
+// of a line that are not clipped as text is.
+func cutID(s string) string {
+	const limit = 256
+	if len(s) <= limit {
+		return s
+	}
+	s = s[:limit]
+	for !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 // prepareLocked applies what the transcript tracks across lines to e: which
@@ -396,32 +576,39 @@ func (m *Manager) prepareLocked(s *session, e *Entry) {
 	}
 }
 
-func (m *Manager) writeLocked(meta Meta, e Entry) {
+func (m *Manager) writeLocked(meta Meta, e Entry) error {
 	s := m.panes[meta.Pane]
 	if s == nil || s.capped {
-		return
+		return nil
 	}
 	e.V = Version
 	e.Seq = s.seq + 1
 	e.Session = s.id
-	e.Pane, e.PaneName, e.Project = meta.Pane, meta.PaneName, meta.Project
-	e.Agent, e.Model, e.Conversation = meta.Agent, meta.Model, meta.Conversation
+	e.Pane, e.PaneName, e.Project = cutID(meta.Pane), meta.PaneName, meta.Project
+	e.Agent, e.Model, e.Conversation = meta.Agent, meta.Model, cutID(meta.Conversation)
+	e.Tool, e.ToolUseID = cutID(e.Tool), cutID(e.ToolUseID)
 	sanitise(&e)
 	line, err := json.Marshal(e)
 	if err != nil {
-		return
+		return err
 	}
 	line = append(line, '\n')
 	if s.size+int64(len(line)) > m.max {
 		s.capped = true
-		end, _ := json.Marshal(Entry{V: Version, Seq: e.Seq, Session: s.id, Time: e.Time, Pane: meta.Pane, PaneName: meta.PaneName, Project: meta.Project, Type: TypeTruncated,
+		end, _ := json.Marshal(Entry{V: Version, Seq: e.Seq, Session: s.id, Time: e.Time, Pane: e.Pane, PaneName: meta.PaneName, Project: meta.Project, Type: TypeTruncated,
 			Text: fmt.Sprintf("the transcript reached its size cap of %d MiB and ended here", m.max>>20)})
-		_, _ = s.f.Write(append(end, '\n'))
-		return
+		if _, err := s.f.Write(append(end, '\n')); err != nil {
+			return err
+		}
+		return nil
 	}
-	n, _ := s.f.Write(line)
+	n, err := s.f.Write(line)
+	if err != nil {
+		return err
+	}
 	s.size += int64(n)
 	s.seq++
+	return nil
 }
 
 // sanitise is the last step before a line is written, and runs for every one:

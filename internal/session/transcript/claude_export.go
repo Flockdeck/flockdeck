@@ -45,6 +45,8 @@ type claudeFollower struct {
 	names map[string]string
 	last  time.Time
 	buf   []byte
+	// pending is what the line last read gave that has not been handed over.
+	pending []ExportEvent
 }
 
 // pollChunk is how much of the file is read at a time.
@@ -52,6 +54,10 @@ const pollChunk = 256 << 10
 
 func (f *claudeFollower) Poll(yield func(ExportEvent) error) (ExportStats, error) {
 	var stats ExportStats
+	// Events a look before this one read but could not hand over go first.
+	if err := f.drain(yield); err != nil {
+		return stats, err
+	}
 	if f.path == "" {
 		f.path = claudePath(f.home, f.id)
 		if f.path == "" {
@@ -80,16 +86,16 @@ func (f *claudeFollower) Poll(yield func(ExportEvent) error) (ExportStats, error
 	buf := f.buf
 	for {
 		n, rerr := file.ReadAt(buf, f.offset)
-		f.offset += int64(n)
 		data := buf[:n]
-		for len(data) > 0 {
-			i := bytes.IndexByte(data, '\n')
+		pos := 0
+		for pos < len(data) {
+			i := bytes.IndexByte(data[pos:], '\n')
 			if i < 0 {
-				f.hold(data, &stats)
+				f.hold(data[pos:])
 				break
 			}
-			line := data[:i]
-			data = data[i+1:]
+			line := data[pos : pos+i]
+			pos += i + 1
 			if f.discarding {
 				f.discarding = false
 				stats.Skipped++
@@ -105,9 +111,15 @@ func (f *claudeFollower) Poll(yield func(ExportEvent) error) (ExportStats, error
 				f.carry = nil
 			}
 			if err := f.line(line, yield, &stats); err != nil {
+				// What was read of this chunk past the line that could not be
+				// handed over is read again at the next look, and what of the line
+				// itself was not handed over is kept to go first.
+				f.offset += int64(pos)
+				f.carry = nil
 				return stats, err
 			}
 		}
+		f.offset += int64(n)
 		if rerr != nil {
 			break
 		}
@@ -124,14 +136,20 @@ func (f *claudeFollower) Poll(yield func(ExportEvent) error) (ExportStats, error
 	return stats, nil
 }
 
-// start forgets everything read, to read the file again from its beginning.
-func (f *claudeFollower) start() {
-	f.offset, f.carry, f.discarding = 0, nil, false
-	f.names, f.last = map[string]string{}, time.Time{}
+// drain hands over the events kept from a look that could not.
+func (f *claudeFollower) drain(yield func(ExportEvent) error) error {
+	for len(f.pending) > 0 {
+		if err := yield(f.pending[0]); err != nil {
+			return err
+		}
+		f.pending = f.pending[1:]
+	}
+	f.pending = nil
+	return nil
 }
 
 // hold keeps the part of a line that has no end yet.
-func (f *claudeFollower) hold(part []byte, stats *ExportStats) {
+func (f *claudeFollower) hold(part []byte) {
 	if f.discarding {
 		return
 	}
@@ -141,7 +159,8 @@ func (f *claudeFollower) hold(part []byte, stats *ExportStats) {
 	}
 }
 
-// line reads one line of the file, giving its events to yield.
+// line reads one line of the file, giving its events to yield. An event yield
+// does not take, and the ones after it in the line, are kept for the next look.
 func (f *claudeFollower) line(raw []byte, yield func(ExportEvent) error, stats *ExportStats) error {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil
@@ -167,23 +186,23 @@ func (f *claudeFollower) line(raw []byte, yield func(ExportEvent) error, stats *
 	}
 	f.last = ts
 
-	var events []ExportEvent
 	switch line.Type {
 	case "user":
 		if text, ok := humanPrompt(line); ok {
-			events = []ExportEvent{{Time: ts, Kind: ExportPrompt, Text: text}}
+			f.pending = []ExportEvent{{Time: ts, Kind: ExportPrompt, Text: text}}
 		} else {
-			events = toolResults(line, ts, f.names)
+			f.pending = toolResults(line, ts, f.names)
 		}
 	case "assistant":
-		events = assistantEvents(line, ts, f.names)
+		f.pending = assistantEvents(line, ts, f.names)
 	}
-	for _, ev := range events {
-		if err := yield(ev); err != nil {
-			return err
-		}
-	}
-	return nil
+	return f.drain(yield)
+}
+
+// start forgets everything read, to read the file again from its beginning.
+func (f *claudeFollower) start() {
+	f.offset, f.carry, f.discarding, f.pending = 0, nil, false, nil
+	f.names, f.last = map[string]string{}, time.Time{}
 }
 
 // exportLine is the part of a transcript entry the export reads.
@@ -195,9 +214,8 @@ type exportLine struct {
 	Origin      struct {
 		Kind string `json:"kind"`
 	} `json:"origin"`
-	IsCompactSummary          bool            `json:"isCompactSummary"`
-	IsVisibleInTranscriptOnly bool            `json:"isVisibleInTranscriptOnly"`
-	ToolUseResult             json.RawMessage `json:"toolUseResult"`
+	IsCompactSummary          bool `json:"isCompactSummary"`
+	IsVisibleInTranscriptOnly bool `json:"isVisibleInTranscriptOnly"`
 	Message                   struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
@@ -278,34 +296,21 @@ func assistantEvents(line exportLine, ts time.Time, names map[string]string) []E
 	return out
 }
 
-// toolResults is the results a user entry carries. Claude Code writes the
-// tool's own structured result beside the entry, which is the fuller of the
-// two; the content blocks are the text the agent was shown, and are used where
-// there is no structured result, the result is an error, or the entry holds
-// several results and the one structured result could be any of them.
+// toolResults is the results a user entry carries: the text the agent was shown.
+// Claude Code writes the tool's own structured result beside the entry, but it
+// can hold what the agent was never shown and a transcript has no use for -- a
+// whole file an edit was made to, an image as base64 -- so it is not used.
 func toolResults(line exportLine, ts time.Time, names map[string]string) []ExportEvent {
 	var blocks []rawBlock
 	if json.Unmarshal(line.Message.Content, &blocks) != nil {
 		return nil
-	}
-	n := 0
-	for _, b := range blocks {
-		if b.Type == "tool_result" {
-			n++
-		}
 	}
 	var out []ExportEvent
 	for _, b := range blocks {
 		if b.Type != "tool_result" {
 			continue
 		}
-		var text string
-		if n == 1 && !b.IsError {
-			text = structuredResult(line.ToolUseResult)
-		}
-		if text == "" {
-			text = flattenContent(b.Content)
-		}
+		text := flattenContent(b.Content)
 		ev := ExportEvent{Time: ts, Kind: ExportToolResult, Tool: names[b.ToolUseID], ToolUseID: b.ToolUseID, Output: text, IsError: b.IsError}
 		if b.IsError && strings.Contains(strings.ToLower(text), "interrupted by user") {
 			ev.Interrupted = true
@@ -313,26 +318,6 @@ func toolResults(line exportLine, ts time.Time, names map[string]string) []Expor
 		out = append(out, ev)
 	}
 	return out
-}
-
-// structuredResult is a tool's own result as compact JSON, or as it is when it
-// is only text.
-func structuredResult(raw json.RawMessage) string {
-	if len(raw) == 0 || string(raw) == "null" {
-		return ""
-	}
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		return s
-	}
-	var buf strings.Builder
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	var v any
-	if json.Unmarshal(raw, &v) != nil || enc.Encode(v) != nil {
-		return ""
-	}
-	return strings.TrimSuffix(buf.String(), "\n")
 }
 
 // flattenContent is the text of a tool_result's content, which is a string or

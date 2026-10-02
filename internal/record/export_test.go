@@ -194,7 +194,7 @@ func TestRecordedAndExportedTranscriptsAreIdentical(t *testing.T) {
 			}
 			fh.Write(whole[at:min(at+step, len(whole))])
 			fh.Close()
-			if _, err := Sync(m, exportMeta, f); err != nil {
+			if _, err := Sync(m, func() Meta { return exportMeta }, f); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -419,4 +419,160 @@ func (c cappedFollower) Poll(yield func(transcript.ExportEvent) error) (transcri
 		}
 	}
 	return transcript.ExportStats{}, nil
+}
+
+// A Manager that has been closed writes nothing more, and does not open the
+// file again to truncate a transcript that was finished.
+func TestAClosedManagerWritesNothing(t *testing.T) {
+	m, _ := newTestManager(t)
+	f := newFeed(t, m)
+	f.prompt("one")
+	f.say("two")
+	path := f.path()
+	f.finish()
+	before, _ := os.ReadFile(path)
+	m.Close()
+	g := newFeed(t, m)
+	if err := g.send(transcript.ExportEvent{Kind: transcript.ExportPrompt, Text: "late"}); !errors.Is(err, ErrClosed) {
+		t.Errorf("a write after Close gave %v", err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Errorf("a finished transcript was changed after Close:\n%s\n%s", before, after)
+	}
+}
+
+// A finished transcript is only replaced by one that has everything it had, and
+// what was being written in its place does not survive otherwise.
+func TestAFinishedTranscriptIsNotReplacedByLess(t *testing.T) {
+	m, _ := newTestManager(t)
+	f := newFeed(t, m)
+	f.prompt("one")
+	f.say("two")
+	path := f.path()
+	f.finish()
+	finishedBytes, _ := os.ReadFile(path)
+
+	// The same transcript, grown: it takes the file's place.
+	g := newFeed(t, m)
+	g.prompt("one")
+	g.say("two")
+	g.say("three")
+	if p := g.path(); p != path {
+		t.Fatalf("the replacement is going to %s, not %s", p, path)
+	}
+	if during, _ := os.ReadFile(path); string(during) != string(finishedBytes) {
+		t.Error("the finished transcript was changed while its replacement was being written")
+	}
+	g.finish()
+	if es := readEntries(t, path); len(es) != 5 || es[3].Text != "three" {
+		t.Errorf("the grown transcript did not replace it: %v", types(es))
+	}
+	grown, _ := os.ReadFile(path)
+
+	// One that is not: left alone.
+	h := newFeed(t, m)
+	h.prompt("one")
+	h.say("something else")
+	h.finish()
+	if now, _ := os.ReadFile(path); string(now) != string(grown) {
+		t.Errorf("a transcript was replaced by one that did not have its lines:\n%s", now)
+	}
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "*.new")); len(left) != 0 {
+		t.Errorf("left behind: %v", left)
+	}
+}
+
+// A conversation whose first event moved is one file, not two.
+func TestAConversationWhoseFirstEventMovedIsOneFile(t *testing.T) {
+	m, _ := newTestManager(t)
+	f := newFeed(t, m)
+	f.prompt("one")
+	old := f.path()
+	f.finish()
+
+	g := newFeed(t, m)
+	g.at = g.at.Add(-time.Hour)
+	g.prompt("one, earlier")
+	now := g.path()
+	g.finish()
+	if now == old {
+		t.Fatal("the test did not move the first event")
+	}
+	if _, err := os.Stat(old); err == nil {
+		t.Error("the old file of the same conversation is still there")
+	}
+	if files, _ := filepath.Glob(filepath.Join(filepath.Dir(now), "*.jsonl")); len(files) != 1 {
+		t.Errorf("files: %v", files)
+	}
+	// Another conversation's file is not touched.
+	h := newFeed(t, m)
+	h.meta.Pane, h.meta.Conversation = "ffffffff-0000", "ffffffff-0000"
+	h.prompt("other")
+	other := h.path()
+	h.finish()
+	i := newFeed(t, m)
+	i.at = i.at.Add(-2 * time.Hour)
+	i.prompt("again")
+	i.finish()
+	if _, err := os.Stat(other); err != nil {
+		t.Errorf("another conversation's transcript was removed: %v", err)
+	}
+}
+
+// A write that fails is reported, not counted, and not lost track of.
+func TestAWriteThatCannotBeOpenedIsReported(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(func() (string, error) { return blocker, nil }) // a file where a folder must be
+	t.Cleanup(m.Close)
+	f := newFeed(t, m)
+	if err := f.send(transcript.ExportEvent{Kind: transcript.ExportPrompt, Text: "x"}); err == nil || errors.Is(err, ErrFull) {
+		t.Errorf("err = %v", err)
+	}
+	if m.Active(f.meta.Pane) {
+		t.Error("a file is open for a transcript that could not be made")
+	}
+}
+
+// Long ids are cut, not written whole.
+func TestIdsAreClipped(t *testing.T) {
+	m, _ := newTestManager(t)
+	f := newFeed(t, m)
+	long := strings.Repeat("t", 5000)
+	f.call(long, long, map[string]any{"x": 1})
+	path := f.path()
+	f.finish()
+	for _, e := range readEntries(t, path) {
+		if len(e.Tool) > 256 || len(e.ToolUseID) > 256 {
+			t.Errorf("an id of %d / %d bytes", len(e.Tool), len(e.ToolUseID))
+		}
+	}
+}
+
+// Whose lines they are is asked for when the first is about to be written, so
+// what the conversation has said of itself by then is in them.
+func TestMetaIsAskedForAtTheFirstEvent(t *testing.T) {
+	m, _ := newTestManager(t)
+	cwd := ""
+	fol := lateFollower{before: func() { cwd = "/work/late" }}
+	meta := func() Meta {
+		return Meta{Pane: "conv-late", Conversation: "conv-late", ProjectRoot: cwd, Project: filepath.Base(cwd)}
+	}
+	if _, err := Sync(m, meta, fol); err != nil {
+		t.Fatal(err)
+	}
+	path := m.Path("conv-late")
+	m.Finish(Meta{Pane: "conv-late"})
+	if es := readEntries(t, path); es[0].Project != "late" {
+		t.Errorf("project = %q, want the directory known by the first event", es[0].Project)
+	}
+}
+
+type lateFollower struct{ before func() }
+
+func (l lateFollower) Poll(yield func(transcript.ExportEvent) error) (transcript.ExportStats, error) {
+	l.before()
+	return transcript.ExportStats{}, yield(transcript.ExportEvent{Time: time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC), Kind: transcript.ExportPrompt, Text: "hi"})
 }
