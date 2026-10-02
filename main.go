@@ -407,7 +407,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        the API keys agents talk to a model API with\n")
 	fmt.Fprintf(out, "  remote enable [-relay <url>] [-name <name>] [-join <code>] [-invite <code>]\n")
 	fmt.Fprintf(out, "        enrol this machine with a relay, so another device can reach its agents\n")
-	fmt.Fprintf(out, "  remote pair [-desktop] | status | devices | revoke <id> | disable [-force]\n")
+	fmt.Fprintf(out, "  remote pair [-desktop] | status | devices | revoke <id or name> | disable [-force]\n")
 	fmt.Fprintf(out, "        pair a device, and see or change what is paired\n")
 	fmt.Fprintf(out, "  remote rename [-device <id or name>] <name>\n")
 	fmt.Fprintf(out, "        rename this machine, or a paired device, as every device lists it\n")
