@@ -78,10 +78,10 @@ const exportConfirmNotice = "Exporting writes the pane's whole stored conversati
 // transcript file, whether or not the pane is being recorded. Unlike turning
 // recording on it is put to the user every time, and arrives confirmed.
 func (s *Server) exportTranscript(c *controlClient, cmd command) {
-	// The file is written on the machine flockdeck runs on, and what is said of
+	// The file is written on the machine Flockdeck runs on, and what is said of
 	// it names a path there: neither is for a window reached through the relay.
 	if c.remote {
-		c.notify("A transcript is exported on the machine flockdeck runs on, from its own window, not from one reached through the relay", true)
+		c.notify("A transcript is exported on the machine Flockdeck runs on, from its own window, not from one reached through the relay", true)
 		return
 	}
 	if !cmd.Confirmed {
@@ -107,20 +107,24 @@ func (s *Server) exportTranscript(c *controlClient, cmd command) {
 		c.notify(fmt.Sprintf("Nothing new was written: the earlier export at %s has events this one would lack (the stored conversation was cut or changed), so it was kept as it was. Delete it to have a fresh one", r.res.Path), true)
 		return
 	}
-	msg := fmt.Sprintf("Exported %d lines to %s. It may contain secrets. Reveal transcript shows it in your file manager", r.res.Lines, r.res.Path)
+	msg := fmt.Sprintf("Exported %d lines to %s", r.res.Lines, r.res.Path)
 	if r.res.Full {
-		msg += ", and it was cut at its size cap"
+		msg += fmt.Sprintf(", cut at the %d MiB size cap", record.MaxFileBytes>>20)
 	}
-	if r.res.Skipped > 0 {
-		msg += fmt.Sprintf("; %d entries could not be read and are left out", r.res.Skipped)
+	switch {
+	case r.res.Skipped == 1:
+		msg += "; 1 entry of the stored conversation could not be read and is left out"
+	case r.res.Skipped > 1:
+		msg += fmt.Sprintf("; %d entries of the stored conversation could not be read and are left out", r.res.Skipped)
 	}
+	msg += ". It may contain secrets. Reveal transcript shows it in your file manager"
 	c.notify(msg, false)
 }
 
 // openRecordings shows the recordings folder in the machine's file manager.
 func (s *Server) openRecordings(c *controlClient) {
 	if c.remote {
-		c.notify("The recordings folder opens on the machine flockdeck runs on, not from a window reached through the relay", true)
+		c.notify("The recordings folder opens on the machine Flockdeck runs on, not from a window reached through the relay", true)
 		return
 	}
 	dir, err := s.ws.RecordingsDir()
@@ -138,7 +142,7 @@ func (s *Server) openRecordings(c *controlClient) {
 // file inside the recordings folder, so nothing a client sends can name a path.
 func (s *Server) revealTranscript(c *controlClient, cmd command) {
 	if c.remote {
-		c.notify("A transcript is shown on the machine flockdeck runs on, not from a window reached through the relay", true)
+		c.notify("A transcript is shown on the machine Flockdeck runs on, not from a window reached through the relay", true)
 		return
 	}
 	type result struct {

@@ -151,7 +151,7 @@ func (s *Server) reportPanic(c *controlClient, doing string, r any) {
 	fmt.Fprintf(os.Stderr, "flockdeck: panic %s: %v\n%s\n", doing, r, stack)
 	text := fmt.Sprintf("Something went wrong %s: %v", doing, r)
 	if logPanic(doing, r, stack) {
-		text += " — the details are in error.log in flockdeck's state directory"
+		text += " — the details are in error.log in Flockdeck's state directory"
 	}
 	if c != nil {
 		c.notify(text, true)
@@ -1558,7 +1558,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// moved its switch, so it is sent the preferences as they stand,
 		// which moves it back.
 		if c.remote {
-			c.notify("Whether flockdeck checks for updates is set on the machine it runs on, not from a window reached through the relay", true)
+			c.notify("Whether Flockdeck checks for updates is set on the machine it runs on, not from a window reached through the relay", true)
 			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: s.prefs}) })
 			return
 		}
@@ -1570,7 +1570,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// hold the connection's read loop up for -- so this runs on its own,
 		// as restarting onto an update already does below.
 		if c.remote {
-			c.notify("Checking for updates is set on the machine flockdeck runs on, not from a window reached through the relay", true)
+			c.notify("Checking for updates is done on the machine Flockdeck runs on, not from a window reached through the relay", true)
 			return
 		}
 		go s.checkForUpdates(c)
@@ -1637,7 +1637,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// always allowed. The window has already moved its switch, so a
 		// refusal sends it the preferences as they stand, which moves it back.
 		if c.remote && cmd.Kind == "on" {
-			c.notify("Sending terminal output to TypeSafe can only be turned on on the machine flockdeck runs on, not from a window reached through the relay", true)
+			c.notify("Sending terminal output to TypeSafe can only be turned on on the machine Flockdeck runs on, not from a window reached through the relay", true)
 			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: s.prefs}) })
 			return
 		}
@@ -2059,11 +2059,11 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// help promises that a remote window cannot quit it. /quit keeps
 			// that promise by wanting the token; this is the other way in.
 			if c.remote {
-				c.notify("A window reached through the relay cannot quit flockdeck — quit it on the machine it runs on", true)
+				c.notify("A window reached through the relay cannot quit Flockdeck — quit it on the machine it runs on", true)
 				return
 			}
 			if err := ws.SaveAll(); err != nil && !s.askedAgainPastFailedSave() {
-				c.notify("The layout could not be saved, so flockdeck did not quit: quitting now would lose what changed since it last was ("+err.Error()+"). Quit again to quit anyway.", true)
+				c.notify("The layout could not be saved, so Flockdeck did not quit: quitting now would lose what changed since it last was ("+err.Error()+"). Quit again to quit anyway.", true)
 				return
 			}
 			go s.requestQuit()
@@ -2073,7 +2073,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// nothing a phone can start again. So it is the desk's, as Quit is.
 			// The window hides the offer; this is for one that sends it anyway.
 			if c.remote {
-				c.notify("A window reached through the relay cannot restart flockdeck — restart it on the machine it runs on", true)
+				c.notify("A window reached through the relay cannot restart Flockdeck — restart it on the machine it runs on", true)
 				return
 			}
 			// The layout is saved here as well as by the shutdown, because a
@@ -2081,7 +2081,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// what they were looking at -- and one that could not be saved
 			// would come back to something else.
 			if err := ws.SaveAll(); err != nil && !s.askedAgainPastFailedSave() {
-				c.notify("The layout could not be saved, so flockdeck did not restart: it would come back without what changed since it last was ("+err.Error()+"). Restart again to restart anyway.", true)
+				c.notify("The layout could not be saved, so Flockdeck did not restart: it would come back without what changed since it last was ("+err.Error()+"). Restart again to restart anyway.", true)
 				return
 			}
 			go s.requestRestart()

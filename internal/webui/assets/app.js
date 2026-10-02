@@ -120,11 +120,11 @@
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
     zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back. Double-clicking the pane's header does the same.",
     close:       "Closes this pane and stops the process running in it.",
-    record:      "Records this pane's agent interaction -- your prompts, the agent's messages, and the tools it runs and what they print -- as a transcript file on this machine, built from the conversation the agent itself stores and starting from the beginning of it. Off by default, and secrets are removed on a best-effort basis only. Recordings are kept for 30 days. Open them with Open recordings folder in the command palette.",
+    record:      "Records this pane's agent interaction -- your prompts, the agent's messages, and the tools it runs and what they print -- as a transcript file on this machine, built from the conversation the agent itself stores (Claude Code's, today) and starting from the beginning of it. Off by default, and secrets are removed on a best-effort basis only. Recordings are kept for up to 30 days. Open them with Open recordings folder in the command palette.",
     revealTranscript: "Shows this pane's transcript file in your file manager with the file selected: the file it is recording to if it is recording, otherwise its latest export. Only from the machine Flockdeck runs on.",
-    exportTranscript: "Writes this pane's whole stored conversation to a transcript file on this machine, in the same format as a recording, whether or not recording is on. It can contain secrets: they are removed on a best-effort basis only. Agents that store no conversation Flockdeck can read have nothing to export.",
-    lock:        "Locks this pane so it can't be closed: not by the close shortcut, its close button, its tab, Close finished panes or an agent's flockdeck close. Restarting it still works, and it stays locked across restarts of Flockdeck and when you move it to another tab.",
-    autoReview:  "Lets a confident, read-only command through without asking, instead of stopping for a permission prompt. It only ever says yes: anything it is not sure of still asks, exactly as before. Off by default; a pane this one starts, by fan-out or by its own spawning, starts with the same setting this pane has.",
+    exportTranscript: "Writes this pane's whole stored conversation to a transcript file on this machine, in the same format as a recording, whether or not recording is on. It can contain secrets: they are removed on a best-effort basis only. Only Claude Code stores a conversation Flockdeck can read today; other agents have nothing to export. Only from the machine Flockdeck runs on.",
+    lock:        "Locks this pane so it can't be closed: not by the close shortcut, its close button, its tab, its project, Close finished panes or an agent's flockdeck close. Restarting it still works, and it stays locked across restarts of Flockdeck and when you move it to another tab.",
+    autoReview:  "Lets a confident, read-only command through without asking, instead of stopping for a permission prompt. It only ever says yes: anything it is not sure of still asks, exactly as before. A pane opened by hand starts with it off, unless Settings › General turns it on for new panes; a pane this one starts, by fan-out or by its own spawning, starts with the same setting this pane has. Each pane keeps its setting across restarts of Flockdeck.",
     usage:       "What this pane is costing the machine: processor share averaged over the last few readings, and memory, across the agent's process and everything it has started.",
     agent:       "The agent running in this pane, and the model it was asked for. A pane that was given no model runs whatever the agent is already set to.",
     chooseAgent: "Asks which agent and which model, instead of starting the one this project runs by default.",
@@ -4003,7 +4003,7 @@
     p.sizeNote.hidden = !cropped;
     if (cropped) {
       p.sizeNote.textContent = "Viewing " + want.cols + "×" + want.rows + " · fit to this window";
-      describe(p.sizeNote, "This pane is sized for another window and shows here cropped. Click to size it for this one.");
+      describe(p.sizeNote, "This pane is sized for another window and shows here cropped. Click to size it for this one; a window showing it elsewhere then sees it at this size.");
     }
   }
 
@@ -4286,9 +4286,11 @@
     confirmDialog({
       title: "Record this pane's agent interaction?",
       body: "Flockdeck will write a transcript of this pane's conversation to a file on this machine: your prompts, the agent's messages, and the tools it runs and what they print, from the start of the conversation and as it goes on, until you stop. " +
-        "It is made from the conversation the agent stores itself, so an agent that stores none has nothing to record, and a conversation already longer than 16 MiB is cut there. " +
+        "It is made from the conversation the agent stores itself (Claude Code's, today), so an agent that stores none has nothing to record. " +
+        "A transcript stops at 16 MiB, and a conversation already longer than that is cut there. " +
         "It can contain secrets. Flockdeck removes common ones and clips very long output, but that is best effort and not a guarantee. " +
-        "Nothing is written into your project and nothing leaves this machine. Recordings are deleted after 30 days.",
+        "Nothing is written into your project and nothing leaves this machine. Recordings older than 30 days are deleted, " +
+        "and the oldest go sooner once a project has more than 100 of them or 256 MiB.",
       action: "Start recording",
     }, () => {
       if (prefs) prefs.recordingAcknowledged = true;
@@ -7900,9 +7902,9 @@
     // A hint sent away stays away, which is the point, but there was no way
     // back for one dismissed by mistake short of editing prefs.json.
     if ((prefs.dismissedTips || []).length) {
-      cmds.push(plain("Show the tips again", "Settings",
-        () => { send({ cmd: "resetTips" }); notice("The tips will show again where they apply", false); },
-        { also: SETTING }));
+      cmds.push(plain("Show the hints again", "Settings",
+        () => { send({ cmd: "resetTips" }); notice("The hints will show again where they apply", false); },
+        { also: SETTING + " tips" }));
     }
     // The background check for a new release could be turned off only with
     // an environment variable set before the application started.
@@ -8201,9 +8203,9 @@
   function openHistory() {
     dialog = "history";
     historyQuery = "";
-    openOverlay("Conversations", "history");
+    openOverlay("Past conversations", "history");
     $("overlay-body").textContent = "";
-    $("overlay-body").append(el("div", "dir-empty", "Reading transcripts…"));
+    $("overlay-body").append(el("div", "dir-empty", "Reading past conversations…"));
     send({ cmd: "conversations" });
   }
 
@@ -8340,7 +8342,7 @@
     body.textContent = "";
 
     if (!m.items || !m.items.length) {
-      body.append(el("div", "dir-empty", "No fan-out jobs finished in this project yet."));
+      body.append(el("div", "dir-empty", "No fan-out jobs have finished in this project since Flockdeck started."));
       return;
     }
 
@@ -9493,7 +9495,7 @@
     refresh.onclick = () => send({ cmd: "agents" });
     tools.append(refresh);
     const closeFinished = describe(el("button", "chip", "Close finished panes"),
-      "Close every idle or exited pane here, in every open project, with no confirmation. A pane still waiting or working, or whose last turn failed, is left alone.");
+      "Close every idle or exited pane here, in every open project, with no confirmation. A pane still waiting or working, one with background work still running, one whose last turn failed, and a locked pane are left alone.");
     closeFinished.onclick = () => runAction("closeFinishedPanes");
     tools.append(closeFinished);
     body.append(tools);
@@ -10889,7 +10891,7 @@
       pendingDismissed.clear();
       pendingReset = true;
       send({ cmd: "resetTips" });
-      notice("The tips will show again where they apply", false);
+      notice("The hints will show again where they apply", false);
       renderHints();
       settingsChanged();
     };

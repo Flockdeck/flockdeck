@@ -397,7 +397,7 @@ func (s *Server) remotePair(c *controlClient, kind string) {
 
 // deskOnlyJoin is what a window reached through the relay is told when it asks
 // for a code that takes another desktop into this account.
-const deskOnlyJoin = "A code for another desktop to join this account is made on the machine flockdeck runs on, not from a window reached through the relay"
+const deskOnlyJoin = "A code for another desktop to join this account is made on the machine Flockdeck runs on, not from a window reached through the relay"
 
 // remoteRevoke unpairs a device and sends the list again.
 func (s *Server) remoteRevoke(c *controlClient, id string) {
@@ -534,7 +534,7 @@ func (s *Server) remoteDisable(c *controlClient, force bool) {
 // the far end can turn it on again; on, from a window that is already in, can
 // only be against another relay -- moving everything typed at the desk, and
 // everything the agents print, to a relay chosen from somewhere else.
-const deskOnlyRemote = "Remote access is turned off, or moved to another relay, on the machine flockdeck runs on — not from a window reached through the relay"
+const deskOnlyRemote = "Remote access is turned off, or moved to another relay, on the machine Flockdeck runs on — not from a window reached through the relay"
 
 // refusedThroughRelay refuses a window reached through the relay that asked to
 // turn remote access on or off, and reports whether it did. The dialog's
