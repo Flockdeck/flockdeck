@@ -313,9 +313,10 @@ beside a device in the dialog and compare the code with the one the device
 shows on its own **Devices** page; if they differ, unpair it.
 
 What the relay cannot read, it cannot read as long as it only reads or stores
-what passes through it. A relay that actively tampers with the client it serves
-to a browser could hand that browser code that sends it the terminal's keys, so
-this does not hold against one. Running your own relay is the mitigation.
+what passes through it, unless it actively tampers with the client it serves:
+the web client's JavaScript, and the desktop pages it proxies on a desk origin.
+Tampered code could send the relay the terminal's keys, so this does not hold
+against such a relay; running your own relay is the mitigation.
 
 Reading is not all it could do. The relay is what decides which devices are
 paired, so whoever runs it can open a window on any desktop that is connected
