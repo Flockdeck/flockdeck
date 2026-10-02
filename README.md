@@ -1,9 +1,10 @@
 # Flockdeck
 
 A desktop application for running several coding agents at once without them
-stomping on each other's work: each can have its own git worktree, on its own
-branch, so two agents never edit the same checkout. It runs them on hardware
-you control, and reaches you wherever you are.
+stomping on each other's work: in a git repository each can have its own
+worktree, on its own branch, so agents given one do not edit each other's
+checkout. It runs them on hardware you control, and reaches you wherever you
+are.
 
 Start it on a spare machine, a home server or a cheap VPS with `-no-window`
 and it needs no browser there either — pair it with `flockdeck remote pair`
@@ -45,9 +46,11 @@ keys` keeps it.
 
 ## What it gives you
 
-- **Agents that don't overwrite each other** — a fan-out or a helper can start
-  each agent in its own git worktree, and the worktree panel creates, inspects,
-  occupies and removes them without leaving the app.
+- **Each agent can have its own worktree** — in a git repository a fan-out
+  starts each agent in a worktree of its own unless you turn that off, a helper
+  can ask for one, and the worktree panel creates, inspects, occupies and
+  removes them without leaving the app. A plain new pane shares the checkout it
+  opens in, and a folder that is not a repository has no worktrees to give.
 - **Run it on a server instead of a desk** — `-no-window` needs no browser on
   that machine either, so a spare box, a home server or a cheap VPS works as
   well as a laptop; pair it and it's a desktop in every way that matters.
@@ -88,8 +91,8 @@ keys` keeps it.
 Running one agent is easy. Running several in one checkout is not: they edit
 the same files, and one agent's change lands in the middle of another's. They
 also finish at different times and block on permission prompts, and you lose
-track of which one is waiting on you. Flockdeck gives each agent its own git
-worktree and branch, so they work in parallel without touching each other's
+track of which one is waiting on you. Flockdeck can give each agent its own
+git worktree and branch, so they work in parallel without touching each other's
 files, and answers one question at a glance — **which agent needs me right
 now**.
 
@@ -681,7 +684,7 @@ writes into the project are enough to supply. Anything that changes a file —
 exactly the kind of call a person is meant to see before it happens.
 
 It is off for a pane unless you turn it on, with the ✓ button in the pane's
-header, or for new panes with Settings › General › Start new panes with
+header, or for new panes with Settings › General › New panes › Start new panes with
 auto-review on. A pane keeps its own switch across restarts, updates and
 crashes, off included; a pane from a layout saved before v0.3.48, which did not
 keep it, takes that setting.
@@ -959,7 +962,7 @@ The children share **one tab**, laid out in rows of even columns — three panes
 are a row of three, twelve are three rows of four. Under **Where they run**,
 **New tab** puts them in a new tab called **Fan out**, and **Beside the
 planner** in the tab the plan came from, beside the agent that wrote it;
-Settings › General sets which one the dialog starts on. A tab each was the old behaviour and it was the wrong one:
+Settings › General › New panes sets which one the dialog starts on. A tab each was the old behaviour and it was the wrong one:
 a dozen agents made a dozen tabs nobody could read, and a fan-out is exactly
 when you want to see them all at once.
 
@@ -1068,7 +1071,8 @@ turned on, and Flockdeck says so. The help page lists the gaps.
 
 Transcripts are written under Flockdeck's state directory, in a folder per
 project with one file per conversation (exports in an `exports` folder inside it),
-and never into your repository. A file stops at 16 MiB, long outputs are clipped
+and never into your repository; a file is `0600` on Linux and macOS (on
+Windows, with your profile's permissions). A file stops at 16 MiB, long outputs are clipped
 with a marker, and the folder is tidied each time a recording starts: files older
 than 30 days go, then the oldest beyond 100 files or 256 MiB. **Open recordings
 folder** in the command palette opens the folder, and `flockdeck recordings`
