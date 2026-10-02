@@ -47,10 +47,12 @@ func listRecordings(args []string, out io.Writer, stateDir func() (string, error
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: flockdeck recordings [flags]\n\n")
 		fmt.Fprintf(os.Stderr, "Lists the transcripts panes have recorded, newest first: when it started, the\n")
-		fmt.Fprintf(os.Stderr, "project, the pane, its size and the file. A pane records only while its Record\n")
-		fmt.Fprintf(os.Stderr, "toggle is on, and nothing is recorded by default. A pane that was not recorded\n")
-		fmt.Fprintf(os.Stderr, "can still have a transcript made from its agent's stored conversation:\n")
-		fmt.Fprintf(os.Stderr, "see `flockdeck recordings export -h`.\n\n")
+		fmt.Fprintf(os.Stderr, "project, the pane's name (\"-\" if the file has none), its size and\n")
+		fmt.Fprintf(os.Stderr, "the file. Exports are not listed: they are in each project's exports folder.\n")
+		fmt.Fprintf(os.Stderr, "A pane records only while recording is on for it (the record button in its\n")
+		fmt.Fprintf(os.Stderr, "header, or Start recording in the command palette), and nothing is recorded\n")
+		fmt.Fprintf(os.Stderr, "by default. A pane that was not recorded can still have a transcript made\n")
+		fmt.Fprintf(os.Stderr, "from its agent's stored conversation: see `flockdeck recordings export -h`.\n\n")
 		fmt.Fprintf(os.Stderr, "Each recording is a JSON Lines file. The format is documented in\n")
 		fmt.Fprintf(os.Stderr, "docs/recording-format.md in the Flockdeck repository, with a JSON Schema in\n")
 		fmt.Fprintf(os.Stderr, "docs/recording-line.schema.json.\n\nFlags:\n")
@@ -88,7 +90,7 @@ func listRecordings(args []string, out io.Writer, stateDir func() (string, error
 		return nil
 	}
 	if len(infos) == 0 {
-		fmt.Fprintln(out, "no recordings; turn on Record for a pane to make one (folder:", root+")")
+		fmt.Fprintln(out, "no recordings; turn on recording for a pane to make one (folder:", root+")")
 		return nil
 	}
 	for _, in := range infos {
