@@ -86,10 +86,14 @@ Under Flockdeck's own state directory, never in your project:
 
 There is one file per conversation: `<start time>` is when its first message
 was, and a new one starts when the agent goes on in a conversation of its own
-(after `/clear`, say). Recording again, or exporting again, makes the file again
-rather than another: a recording left on across a restart of Flockdeck catches
-up from the stored conversation. The files are readable by you only, and the
-setting moves with the pane when you drag it to another tab.
+(after `/clear`, say). Recording again, or exporting again, makes the same file
+again rather than another, so a recording left on across a restart of Flockdeck
+catches up from the stored conversation. The new file replaces the earlier one
+only if it has every event the earlier one had; if the stored conversation has
+been cut or changed so that it does not, the earlier file is kept, Flockdeck says
+so, and `flockdeck recordings export` exits with an error. Delete the file to have
+a fresh one. The files are readable by you only, and the setting moves with the
+pane when you drag it to another tab.
 
 [[action:openRecordings]] opens the folder. `flockdeck recordings` lists the
 recordings, newest first, and `flockdeck recordings -dir` prints the folder.
@@ -106,8 +110,8 @@ turn recording on is cut at the same place, the same as an export of it, and
 recording ends at once. Any one string is cut at 8 KiB (a prompt or
 message at 32 KiB), with a marker saying how much was cut. When a recording
 starts, the project's folder is tidied: files older than 30 days are deleted, then
-the oldest until at most 100 files and 256 MiB are left. Exports are not
-tidied, and making one deletes nothing.
+the oldest until at most 100 files and 256 MiB are left. **Exports are kept until
+you delete them yourself**: they are not tidied, and making one deletes nothing.
 
 ## Secrets
 

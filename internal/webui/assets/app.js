@@ -4200,7 +4200,7 @@
       title: "Export this pane's transcript?",
       body: "Flockdeck will write the whole conversation this pane's agent has stored -- your prompts, the agent's messages, and the tools it runs and what they print -- to a file on this machine, in the same format as a recording. It works whether or not recording is on. " +
         "It can contain secrets. Flockdeck removes common ones and clips very long output, but that is best effort and not a guarantee. " +
-        "Nothing is written into your project and nothing leaves this machine. An agent that stores no conversation Flockdeck can read has nothing to export, and nothing is written. A conversation longer than 16 MiB is cut there.",
+        "Nothing is written into your project and nothing leaves this machine. Exports are kept until you delete them yourself. An agent that stores no conversation Flockdeck can read has nothing to export, and nothing is written. A conversation longer than 16 MiB is cut there.",
       action: "Export transcript",
     }, () => send({ cmd: "exportTranscript", id, confirmed: true }));
   }

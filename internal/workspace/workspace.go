@@ -412,6 +412,25 @@ type Workspace struct {
 	recMu     sync.Mutex
 	recorders map[string]*paneRecorder
 	recAct    recActivity
+	// onRecordingNotice is told what a recording needs the user to hear, as a
+	// sentence. See SetRecordingNoticeHook.
+	onRecordingNotice atomic.Pointer[func(paneID, text string)]
+	// recClosed is set when the Workspace closes, after which no recorder is
+	// made; recOwner is the pane recording each conversation. Both are guarded by
+	// recMu.
+	recClosed bool
+	recOwner  map[string]string
+	// recMax, when set, lowers the size of a transcript file, for a test that
+	// cannot make 16 MiB. Zero is the usual cap. Set before the workspace runs.
+	recMax int64
+	// stopGate, when set, holds every stop at its start until it is closed, for a
+	// test that has to put a stop in a place Close can meet. Set before the
+	// workspace runs.
+	stopGate chan struct{}
+	gateHits atomic.Int32
+	// wrapFollower, when set, is put around every follower, for a test that makes
+	// reading fail. Set before the workspace runs.
+	wrapFollower func(transcript.Follower) transcript.Follower
 	// recSettle overrides the interval of the first further look, for a test
 	// that cannot wait seconds. Zero is the default; set before the workspace runs.
 	recSettle time.Duration
@@ -2344,7 +2363,7 @@ func (w *Workspace) destroyPane(id string) {
 	recording := p != nil && p.Recording
 	w.mu.Unlock()
 	if recording {
-		w.stopRecorder(id, true)
+		w.stopRecorderAsync(id, true)
 	}
 	if p != nil && p.Sess != nil {
 		_ = p.Sess.Close()

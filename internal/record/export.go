@@ -27,6 +27,7 @@ type SyncResult struct {
 	Full bool
 	// Skipped counts entries of the stored conversation that could not be read.
 	Skipped int
+	metaSet bool
 	// Events counts the events written, of every kind.
 	Events int
 }
@@ -38,11 +39,19 @@ type SyncResult struct {
 // because nothing about how it was called reaches what it writes.
 //
 // It returns transcript.ErrNoTranscript while the conversation is not stored.
-func Sync(m *Manager, meta Meta, f transcript.Follower) (SyncResult, error) {
+//
+// meta says whose lines they are, and is asked for when an event is about to be
+// written to a file that is not open yet, so that what the conversation has said
+// of itself by then (the directory it is in) is what the file has.
+func Sync(m *Manager, meta func() Meta, f transcript.Follower) (SyncResult, error) {
 	var res SyncResult
+	var mt Meta
 	stats, err := f.Poll(func(ev transcript.ExportEvent) error {
 		if res.First.IsZero() {
 			res.First = ev.Time
+		}
+		if !res.metaSet || !m.Active(mt.Pane) {
+			mt, res.metaSet = meta(), true
 		}
 		res.Last = ev.Time
 		res.Events++
@@ -54,7 +63,7 @@ func Sync(m *Manager, meta Meta, f transcript.Follower) (SyncResult, error) {
 		case transcript.ExportToolCall:
 			res.ToolCalls++
 		}
-		return m.Write(meta, ev)
+		return m.Write(mt, ev)
 	})
 	res.Skipped = stats.Skipped
 	if errors.Is(err, ErrFull) {
@@ -87,6 +96,9 @@ type ExportOptions struct {
 	// named for its session in the exports folder of the project's folder under
 	// the recordings folder.
 	Path string
+	// MaxBytes lowers the size the file may reach, for a caller that cannot make
+	// a conversation of 16 MiB. Zero is the usual cap.
+	MaxBytes int64
 }
 
 // ExportResult says what an export wrote.
@@ -95,6 +107,9 @@ type ExportResult struct {
 	Path string
 	// Lines is the number of lines in the file.
 	Lines int
+	// Kept says an earlier, finished export of the conversation has events this
+	// one lacks, so it was left as it was and Path is that file, not a new one.
+	Kept bool
 }
 
 // Export writes a stored conversation as a transcript, through a Manager of
@@ -109,9 +124,12 @@ func Export(dir func() (string, error), meta Meta, f transcript.Follower, opts E
 	}
 	m := NewManager(dir)
 	m.export, m.target = true, opts.Path
+	if opts.MaxBytes > 0 {
+		m.max = opts.MaxBytes
+	}
 	defer m.Close()
 
-	sync, err := Sync(m, meta, f)
+	sync, err := Sync(m, func() Meta { return meta }, f)
 	if err != nil {
 		// Nothing half-made is left behind to be mistaken for an export.
 		m.Discard(meta)
@@ -124,8 +142,13 @@ func Export(dir func() (string, error), meta Meta, f transcript.Follower, opts E
 	// A full file ends with the truncation line, which seq does not count; any
 	// other ends with the closing line Finish writes.
 	res.Lines = int(m.seqOf(meta.Pane)) + 1
-	if !sync.Full {
-		m.Finish(meta)
+	if err := m.Finish(meta); err != nil {
+		if errors.Is(err, ErrEarlierKept) {
+			// Not a failure: the file there is a fuller transcript than this one.
+			res.Kept = true
+			return res, nil
+		}
+		return res, err
 	}
 	return res, nil
 }

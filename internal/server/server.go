@@ -368,6 +368,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	s.ws.SetRecordingEndedHook(func(_, why string) {
 		s.notifyAll("A recording stopped: its transcript "+why, true)
 	})
+	s.ws.SetRecordingNoticeHook(func(_, text string) { s.notifyAll(text, true) })
 	s.installContextHandler()
 	s.installUsageHandler()
 	s.installCloseHandler()

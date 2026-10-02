@@ -54,7 +54,17 @@ conversation (`/clear`), which starts a file of its own. A pane left recording
 across a restart of Flockdeck has the file written again from the conversation's
 beginning, which gives the same lines and the same name, so it is the same file
 and not another. A file is never added to once its transcript has ended, except
-by being made again.
+by being made again, and a finished transcript is only replaced by one that has
+every event it had (it is written beside it and moved into place when finished;
+otherwise it is left as it was). If a program has the earlier file open and it
+cannot be replaced, the new transcript is left beside it as `<name>.jsonl.new` and
+Flockdeck says so. A `.jsonl.new` that nothing is writing and that is a day old, as
+a quit or a crash leaves, is removed the next time a transcript is made in that
+folder. If the conversation's first event is now a
+different one, so that the name is different, the earlier finished transcript of
+the same conversation is removed when the new one is finished: a conversation is
+one file. Two panes cannot record one conversation at once, as they would
+interleave: the second is refused.
 
 A pane whose agent stores no conversation Flockdeck can read has nothing to
 write: turning recording on for it is refused, saying so, and no file is made.
@@ -72,9 +82,9 @@ so beforehand.)
 it: files with a modification time older than **30 days** are deleted; then, if
 more than **100** files or **256 MiB** remain, the oldest are deleted until
 neither is exceeded. The file just opened is never deleted, and files in the
-folder that do not end in `.jsonl` are left alone. Exports are not counted, and
-making one deletes nothing. Nothing else deletes transcripts: delete the files
-you do not want kept.
+folder that do not end in `.jsonl` are left alone. **Exports are kept until you
+delete them by hand**: retention does not count them, and making one deletes
+nothing. Nothing else deletes transcripts: delete the files you do not want kept.
 
 ## 2. The line format
 
@@ -236,7 +246,7 @@ A tool finishing, or failing.
 | --- | --- | --- | --- |
 | `tool` | string | yes | The tool's name. |
 | `toolUseId` | string | no | The id of the call it answers. |
-| `output` | string | no | What the tool returned. The tool's own structured result, where the agent stored one, is written as compact JSON text (keys in sorted order); otherwise the text the agent was shown. Cut at 8 KiB. For a failure, the error. |
+| `output` | string | no | What the tool returned: the text the agent was shown. (The tool's own structured result, which can hold a whole file an edit was made to or an image as base64, is not used.) Cut at 8 KiB. For a failure, the error. |
 | `isError` | boolean | no | `true` if the tool failed. |
 | `interrupted` | boolean | no | `true` if it failed because the user stopped it (the error says so). Always with `isError`. |
 
@@ -438,9 +448,16 @@ For Claude Code the known gaps are:
   may therefore have no `tool_result`.
 - **Thinking** is not recorded.
 - **Prompts are only what the user typed**, as described under `user_prompt`.
-- **Images** in a prompt are not in it: only the text blocks are.
+- **Images** are not in it, in a prompt or in a tool's result: only text blocks
+  are, so no image data (base64) is in any line.
 - **A conversation Claude Code has deleted** (it removes old ones) cannot be
   exported or recorded from. A recording already made is kept.
+- **Limits of following the file.** A stored conversation replaced by a shorter
+  one, or found in another folder, is noticed and the transcript is written again
+  from the start. One replaced by a file of the same size or longer, whose
+  earlier part differs, is not noticed: the follower only knows how far it has
+  read. A file that disappears and comes back is read from the start, and the
+  transcript is rewritten.
 
 Nothing is claimed here about what the other agents *could* store; if one gains a
 reader, this table gets a row.
@@ -483,20 +500,45 @@ reader, this table gets a row.
 
 - Within `v: 1`, fields and event types may be **added**; existing ones keep their
   meaning and type. Readers follow the rules in section 2.
-- `v` is increased for anything else (a field removed, renamed or changed in
-  meaning or type, or a change in how lines are separated). Flockdeck then
-  writes the new version in new files; **it never rewrites old files**, so files of
-  both versions can sit in one folder.
+- `v` is increased for a change of how lines are separated, or a field removed,
+  renamed or changed in type, where the change is not one of the amendments
+  below. Flockdeck then writes the new version in new files.
 - Event types are never reused with a different meaning.
 - A new version's release notes say so, and this page and the schema are updated in
   the same change as the code (the build checks the schema against the code).
-- Stopping writing a line type is not a change to `v`: its definition stays here
-  and in the schema, marked *no longer written*, so files already made are still
-  described. The change to make transcripts from the agent's stored conversation
-  stopped writing `session`, `permission_prompt`, `permission_outcome` and
-  `status`, and changed what `time` and the first and last lines' `text` say;
-  none of that is a field changing meaning in a way a reader following section 2
-  would misread, and `v` stays `1`.
+
+**What changed within version 1, and what that means for a reader.** The release
+that made transcripts from the agent's stored conversation (section 8) changed
+some things while staying at `v: 1`. That is a departure from the policy above,
+which would have increased `v` for a field that changes meaning, and it was
+decided on purpose: the shape of a line is the same, and a reader written for the
+files of Flockdeck 0.3.47 reads the new ones, but it can no longer assume what it
+could. So **files of 0.3.47 and files of later versions share `v: 1` and differ
+in these ways**:
+
+| | 0.3.47 | Later |
+| --- | --- | --- |
+| `pane` | the pane's id | the conversation's id |
+| `time` | when Flockdeck wrote the line | when the event happened, from the agent's record |
+| `paneName`, `model` | written | not written |
+| `recording_started` / `recording_stopped` text | `turned on` or `resumed` / `turned off` or `the pane was closed` | `start of the transcript` / `end of the transcript` |
+| `session`, `permission_prompt`, `permission_outcome`, `status` | written | not written |
+| `assistant_message` | the last message of each turn | every message |
+| `user_prompt` | includes what the agent counts as prompts but a person did not type | only what the person typed |
+| `output` of a `tool_result` | the hook's result text | the text the agent was shown |
+| file name | `<start of recording>-<pane>.jsonl` | `<first event>-<conversation>.jsonl` |
+
+**How to tell them apart.** The reliable sign is the first line: a
+`recording_started` whose `text` is `start of the transcript` is a later file, and
+`turned on` or `resumed` is a 0.3.47 one. A file that has any `status`, `session`,
+`permission_prompt` or `permission_outcome` line, or a `paneName`, is a 0.3.47
+one (a later file has none). The file name cannot be told apart by its shape, as
+both are a time and eight characters. There is no field that says; a consumer
+that needs one reading should key on the first line.
+
+Stopping writing a line type is not itself a change to `v`: its definition stays
+here and in the schema, marked *no longer written*, so files already made are
+still described.
 
 ## 7. Reading a transcript
 
@@ -581,7 +623,7 @@ An export differs from a recording only in where it goes and how it is asked
 for:
 
 - **Where.** By default, the `exports` folder of the project's folder (section
-  1); made again if it is exported again. With `-o`, a file of your own, which
+  1); made again if it is exported again, **unless the new one would lack an event the earlier one had** (the stored conversation was cut or changed since; events are compared by their place, type and time, not their bytes). Then the earlier file is kept as it was, the window says so, and the command exits with an error, so that a script does not mistake the old file for a fresh one; delete the file to have a fresh export. With `-o`, a file of your own, which
   must not exist, and must not be inside the pane's project or any git
   repository: a transcript can hold secrets, and is never written into a
   project. Files are `0600`.

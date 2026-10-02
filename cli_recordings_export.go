@@ -106,6 +106,9 @@ func exportRecording(args []string, out io.Writer, env exportEnv) error {
 		fmt.Fprintf(os.Stderr, "The id is a pane's, as the saved layouts hold it, or a Claude Code conversation's.\n")
 		fmt.Fprintf(os.Stderr, "The transcript can contain secrets: common ones are removed and very long output\n")
 		fmt.Fprintf(os.Stderr, "is clipped, but that is best effort. It is written 0600, never into a project.\n")
+		fmt.Fprintf(os.Stderr, "If an earlier export of the conversation has events this one would lack (the\n")
+		fmt.Fprintf(os.Stderr, "stored conversation was cut or changed), it is kept, nothing new is written, and\n")
+		fmt.Fprintf(os.Stderr, "the command exits with an error; delete that file to have a fresh one.\n")
 		fmt.Fprintf(os.Stderr, "The format is documented in docs/recording-format.md in the Flockdeck repository.\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
@@ -152,6 +155,9 @@ func exportRecording(args []string, out io.Writer, env exportEnv) error {
 		return fmt.Errorf("the stored conversation %s has nothing in it to export", meta.Conversation)
 	case err != nil:
 		return err
+	}
+	if res.Kept {
+		return fmt.Errorf("nothing new was written: the earlier export at %s has events this one would lack (the stored conversation was cut or changed), so it was kept as it was; delete it to have a fresh one", res.Path)
 	}
 	fmt.Fprintf(out, "exported %d lines (%d prompts, %d messages, %d tool calls) to %s\n", res.Lines, res.Prompts, res.Messages, res.ToolCalls, res.Path)
 	if res.Full {

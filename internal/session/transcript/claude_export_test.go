@@ -101,9 +101,10 @@ func TestClaudeExportResults(t *testing.T) {
 			results = append(results, e)
 		}
 	}
-	// A structured result is written as compact JSON; a plain one as it is.
-	if got := results[0].Output; got != `{"file":{"content":"package client","filePath":"src/client.go"},"type":"text"}` {
-		t.Errorf("structured result = %s", got)
+	// The text the agent was shown, not the tool's own structured result, which
+	// can hold what a transcript has no use for.
+	if got := results[0].Output; got != "package client" {
+		t.Errorf("result = %s", got)
 	}
 	if results[0].ToolUseID != "toolu_1" || results[0].Tool != "Read" {
 		t.Errorf("result is not tied to its call: %+v", results[0])
@@ -309,5 +310,72 @@ func TestAnEntryWithNoTimeIsCountedAsSkipped(t *testing.T) {
 	evs, stats, err := collect(t, spec, exportFixtureID)
 	if err != nil || len(evs) != 1 || evs[0].Text != "timed" || stats.Skipped != 1 {
 		t.Errorf("events %+v, skipped %d, %v", evs, stats.Skipped, err)
+	}
+}
+
+// An event the caller could not take is not lost, and not given twice: it, and
+// the rest of what had been read, come at the next look.
+func TestFollowingLosesNothingWhenTheCallerFails(t *testing.T) {
+	want, _, _ := collect(t, exportSpec(t), exportFixtureID)
+	for failAt := 0; failAt < len(want); failAt++ {
+		f := Claude{}.Follow(exportSpec(t), exportFixtureID)
+		var got []ExportEvent
+		n := 0
+		fail := errors.New("disk")
+		take := func(e ExportEvent) error {
+			if n == failAt {
+				n++
+				return fail
+			}
+			n++
+			got = append(got, e)
+			return nil
+		}
+		if _, err := f.Poll(take); !errors.Is(err, fail) {
+			t.Fatalf("failAt %d: %v", failAt, err)
+		}
+		if _, err := f.Poll(func(e ExportEvent) error { got = append(got, e); return nil }); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("failAt %d: %d events, want %d", failAt, len(got), len(want))
+		}
+	}
+}
+
+// What a tool's structured result holds that the agent was not shown is not in
+// the transcript.
+func TestToolResultsAreTheTextTheAgentWasShown(t *testing.T) {
+	home := t.TempDir()
+	spec := agent.Spec{ID: "claude", Exe: "claude", Env: []string{"CLAUDE_CONFIG_DIR=" + home}, Caps: agent.Caps{Transcript: true}}
+	writeTranscript(t, filepath.Join(home, "projects", "C--work"), exportFixtureID,
+		`{"type":"assistant","timestamp":"2026-10-01T09:00:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Edit","input":{}}]}}`,
+		`{"type":"user","timestamp":"2026-10-01T09:00:01Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"edited"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAABASE64AAAA"}}]}]},"toolUseResult":{"originalFile":"WHOLE FILE","base64":"AAAABASE64AAAA"}}`)
+	evs, _, err := collect(t, spec, exportFixtureID)
+	if err != nil || len(evs) != 2 {
+		t.Fatal(evs, err)
+	}
+	if got := evs[1].Output; got != "edited" {
+		t.Errorf("output = %q", got)
+	}
+}
+
+// A file that is there but cannot be opened is not a file that is not there: the
+// first is tried again, and nothing is concluded from it.
+func TestAnOpenThatFailsIsAReadErrorNotAMissingFile(t *testing.T) {
+	home := t.TempDir()
+	spec := agent.Spec{ID: "claude", Exe: "claude", Env: []string{"CLAUDE_CONFIG_DIR=" + home}, Caps: agent.Caps{Transcript: true}}
+	writeTranscript(t, filepath.Join(home, "projects", "C--work"), exportFixtureID,
+		`{"type":"user","timestamp":"2026-10-01T09:00:00Z","message":{"role":"user","content":"hi"}}`)
+	old := openTranscript
+	openTranscript = func(string) (*os.File, error) { return nil, os.ErrPermission }
+	t.Cleanup(func() { openTranscript = old })
+	_, _, err := collect(t, spec, exportFixtureID)
+	if !errors.Is(err, ErrRead) || errors.Is(err, ErrNoTranscript) {
+		t.Errorf("err = %v, want ErrRead", err)
+	}
+	openTranscript = old
+	if evs, _, err := collect(t, spec, exportFixtureID); err != nil || len(evs) != 1 {
+		t.Errorf("after the lock: %v, %v", evs, err)
 	}
 }

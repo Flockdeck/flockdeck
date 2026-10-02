@@ -9665,6 +9665,7 @@ for (const how of ["palette", "button"]) {
   assert.ok(/secrets/.test(text) && /best effort/.test(text), "it does not say what is at risk: " + text);
   assert.ok(/whether or not recording is on/.test(text), "it does not say it works without recording: " + text);
   assert.ok(/stores no conversation/.test(text), "it does not say what an agent with nothing stored gets: " + text);
+  assert.ok(/kept until you delete them/.test(text), "it does not say exports are kept until deleted: " + text);
   assert.strictEqual(h.commands().length, sent, "it sent the export before being told yes");
   assert.strictEqual(h.$("ask-ok").textContent, "Export transcript");
   h.click(h.$("ask-ok"));
