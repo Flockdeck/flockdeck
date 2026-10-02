@@ -78,3 +78,27 @@ func TestRevealTriesTheFallbackOnlyWhenTheFirstFails(t *testing.T) {
 		t.Error("a bad path was accepted")
 	}
 }
+
+// What is an absolute path is the platform's rule, not the machine the test runs
+// on's: the same answers on every host.
+func TestAbsoluteIsDecidedByThePlatformNotTheHost(t *testing.T) {
+	for _, c := range []struct {
+		goos, path string
+		want       bool
+	}{
+		{"windows", `C:\Users\me\t.jsonl`, true},
+		{"windows", `c:/Users/me/t.jsonl`, true},
+		{"windows", `\\server\share\t.jsonl`, true},
+		{"windows", `/Users/me/t.jsonl`, false},
+		{"windows", `C:t.jsonl`, false},
+		{"windows", `t.jsonl`, false},
+		{"linux", "/home/me/t.jsonl", true},
+		{"linux", `C:\Users\me\t.jsonl`, false},
+		{"darwin", "/Users/me/t.jsonl", true},
+		{"darwin", "t.jsonl", false},
+	} {
+		if got := absoluteOn(c.goos, c.path); got != c.want {
+			t.Errorf("absoluteOn(%s, %q) = %v", c.goos, c.path, got)
+		}
+	}
+}

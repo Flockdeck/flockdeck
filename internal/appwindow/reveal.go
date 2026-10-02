@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"os/exec"
 	pathpkg "path"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -64,7 +63,7 @@ func reveal(goos, path string, run revealRunner) error {
 // character that would end an argument early where a command line is built by
 // hand.
 func revealPlan(goos, path string) ([]revealStep, error) {
-	if !filepath.IsAbs(path) && !strings.HasPrefix(path, "/") {
+	if !absoluteOn(goos, path) {
 		return nil, fmt.Errorf("%q is not an absolute path", path)
 	}
 	if strings.HasPrefix(path, "-") || strings.ContainsAny(path, "\x00\r\n") {
@@ -91,6 +90,21 @@ func revealPlan(goos, path string) ([]revealStep, error) {
 			{name: "xdg-open", args: []string{pathpkg.Dir(path)}},
 		}, nil
 	}
+}
+
+// absoluteOn reports whether path is an absolute path as goos writes one: a
+// drive and a separator or a UNC name on Windows, a slash everywhere else. It
+// does not ask the machine it runs on, so a plan for another platform is judged
+// by that platform's rules.
+func absoluteOn(goos, path string) bool {
+	if goos != "windows" {
+		return strings.HasPrefix(path, "/")
+	}
+	if strings.HasPrefix(path, `\\`) || strings.HasPrefix(path, "//") {
+		return len(path) > 2
+	}
+	return len(path) >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/') &&
+		(path[0] >= 'A' && path[0] <= 'Z' || path[0] >= 'a' && path[0] <= 'z')
 }
 
 // revealTimeout is how long a program is given to say it has shown the file.
