@@ -2111,7 +2111,7 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutHistory", root: "C:/rep
 assert.ok(h.$("overlay-body").textContent.includes("Reading past jobs"));
 
 h.recv({ type: "fanoutHistory", root: "C:/repo", items: [] });
-assert.ok(h.$("overlay-body").textContent.includes("No fan-out jobs have finished in this project since Flockdeck started"));
+assert.ok(h.$("overlay-body").textContent.includes("No finished fan-out jobs have been closed in this project since Flockdeck started"));
 
 h.recv({
   type: "fanoutHistory", root: "C:/repo",

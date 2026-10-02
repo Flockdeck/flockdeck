@@ -517,9 +517,9 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 	}
 	switch {
 	case res.Full:
-		why := "its transcript reached its size cap of 16 MiB"
+		why := fmt.Sprintf("its transcript reached its size cap of %d MiB", record.MaxFileBytes>>20)
 		if !r.synced {
-			why = "the conversation was already longer than a transcript can be (16 MiB), so its transcript was cut there"
+			why = fmt.Sprintf("the conversation was already longer than a transcript can be (%d MiB), so its transcript was cut there", record.MaxFileBytes>>20)
 		}
 		w.endRecordingAsync(id, why)
 		return

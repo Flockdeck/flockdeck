@@ -434,8 +434,10 @@ type Workspace struct {
 	// recSettle overrides the interval of the first further look, for a test
 	// that cannot wait seconds. Zero is the default; set before the workspace runs.
 	recSettle time.Duration
-	// onRecordingEnded is told when a pane's recording stopped by itself, the
-	// size cap being reached, so a window can say so. See SetRecordingEndedHook.
+	// onRecordingEnded is told when a pane's recording stopped by itself -- the
+	// size cap reached, another pane already recording the conversation, or the
+	// stored conversation or the transcript failing to read or write -- so a
+	// window can say why. See SetRecordingEndedHook.
 	onRecordingEnded atomic.Pointer[func(paneID, why string)]
 	claudeExe        string
 

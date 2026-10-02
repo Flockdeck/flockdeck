@@ -8342,7 +8342,7 @@
     body.textContent = "";
 
     if (!m.items || !m.items.length) {
-      body.append(el("div", "dir-empty", "No fan-out jobs have finished in this project since Flockdeck started."));
+      body.append(el("div", "dir-empty", "No finished fan-out jobs have been closed in this project since Flockdeck started."));
       return;
     }
 
