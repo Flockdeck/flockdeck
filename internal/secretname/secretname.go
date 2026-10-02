@@ -26,9 +26,13 @@
 // letter (U+017F "long s" is "s", U+212A Kelvin is "k", U+0130 is "i"), and
 // the ligatures and sharp s that expand to ASCII letters are expanded. A name
 // that a case-insensitive file system (APFS, ext4 with casefold, vfat, NTFS,
-// SMB) would resolve to a secret is therefore judged as that secret. A caller
-// that opens files must also confirm that a name with non-ASCII letters is a
-// real directory entry byte for byte; see internal/artifacts.
+// SMB) would resolve to a secret is therefore usually judged as that secret,
+// and default-ignorable code points (zero-width joiners and the like) are
+// dropped. That is defence in depth, not the guarantee: no table here can know
+// every file system's folding. The guarantee a caller that opens files has to
+// provide is to confirm that a name with non-ASCII letters is a real directory
+// entry byte for byte (internal/artifacts does, on Unix, and on Windows reads
+// the real name back from the open handle).
 //
 // # What it cannot do
 //
@@ -46,9 +50,17 @@ import (
 // Component reports whether one path component, a file or a folder name, is a
 // secret by name. It is case-insensitive and ignores trailing dots and spaces,
 // which Windows drops.
+//
+// A name longer than MaxName bytes cannot be a file's name on any file system
+// this is used with; it is called secret, so that hostile input costs nothing.
+// The text after "=" is examined for the first maxEquals of them and for the
+// last one, which keeps the work linear.
 func Component(name string) bool {
+	if len(name) > MaxName {
+		return true
+	}
 	n := fold(name)
-	for {
+	for eq := 0; ; eq++ {
 		// Both as written (folded) and cleaned of what a check should not be
 		// fooled by: the second can only find more. Then the same for the text
 		// after each "=", which is how an argument carries a file name.
@@ -59,9 +71,25 @@ func Component(name string) bool {
 		if i < 0 {
 			return false
 		}
+		if eq+1 >= maxEquals {
+			// Skip to the last "=": the tail after it is the one an argument
+			// parser would most likely have been handed.
+			if j := strings.LastIndexByte(n, '='); j > i {
+				i = j
+			}
+			n = n[i+1:]
+			return match(n) || match(normalise(n))
+		}
 		n = n[i+1:]
 	}
 }
+
+// MaxName is the longest component Component will look at (the longest name any
+// common file system allows).
+const MaxName = 255
+
+// maxEquals is how many "=" Component reads a tail after, besides the last.
+const maxEquals = 4
 
 // fold lower-cases a name the way file systems that ignore case compare it,
 // for every letter a secret's name is written in: a rune whose case-folding
@@ -82,6 +110,9 @@ func fold(s string) string {
 	}
 	var b strings.Builder
 	for _, r := range s {
+		if ignorable(r) {
+			continue
+		}
 		if x, ok := expansions[r]; ok {
 			b.WriteString(x)
 			continue
@@ -89,6 +120,13 @@ func fold(s string) string {
 		b.WriteRune(asciiFold(r))
 	}
 	return b.String()
+}
+
+// ignorable is whether r is a code point that shows nothing and that some file
+// systems (ext4 casefold) ignore in a name: format characters (zero-width
+// joiners, bidi marks, the soft hyphen) and variation selectors.
+func ignorable(r rune) bool {
+	return unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Variation_Selector, r) || r == 0x034f || r == 0x115f || r == 0x1160 || r == 0x3164 || r == 0xffa0
 }
 
 // asciiFold is r lower-cased, or the ASCII letter r folds to.
@@ -123,8 +161,10 @@ func match(n string) bool {
 	switch {
 	case strings.HasPrefix(n, ".env."), strings.HasSuffix(n, ".env"), strings.Contains(n, ".env."):
 		return true // .env.local, prod.env, prod.env.json
-	case strings.HasPrefix(n, "kubeconfig"), strings.HasPrefix(n, "login data"):
+	case strings.HasPrefix(n, "kubeconfig"), strings.HasPrefix(n, "login data"), strings.HasPrefix(n, "firebase-adminsdk"):
 		return true // kubeconfig.yaml, kubeconfig-prod; a browser's "Login Data"
+	case strings.HasPrefix(n, "ssh_host_") && !strings.HasSuffix(n, ".pub"), strings.HasPrefix(n, ".authinfo"):
+		return true // a host's private key; ssh_host_rsa_key.pub is public
 	case strings.HasPrefix(n, "id_") && !strings.HasSuffix(n, ".pub"):
 		return true // a private ssh key; the .pub beside it is public
 	case strings.Contains(n, "credential"):
@@ -231,6 +271,8 @@ var secretFiles = map[string]bool{
 	".my.cnf": true, ".dev.vars": true, "gradle.properties": true, ".terraformrc": true, "terraform.rc": true,
 	"auth.json": true, "kube.config": true, ".gitconfig": true, "known_hosts": true,
 	"cookies.sqlite": true, "cookies": true, "logins.json": true, "key4.db": true,
+	".mylogin.cnf": true, ".rails_master_key": true, ".msmtprc": true, "rclone.conf": true,
+	"serviceaccountkey.json": true, ".vault_pass": true, ".vault-pass": true, "authorized_keys": true, "wallet.dat": true,
 }
 
 // secretFolders are folder names whose whole contents are secret, wherever
@@ -238,7 +280,7 @@ var secretFiles = map[string]bool{
 var secretFolders = map[string]bool{
 	".git": true, ".ssh": true, ".aws": true, ".gnupg": true, ".kube": true, ".docker": true,
 	".azure": true, ".terraform": true, ".gcloud": true, ".password-store": true, ".vault": true,
-	".secrets": true, ".m2": true,
+	".secrets": true, ".m2": true, "user data": true, ".mozilla": true, ".thunderbird": true, "keyrings": true,
 	"secrets": true, "secret": true, "private": true,
 }
 

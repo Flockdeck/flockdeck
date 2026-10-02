@@ -101,6 +101,9 @@ func checkLexical(p string, windows bool) bool {
 		if c == "" || c == "." || c == ".." {
 			continue // confinement refuses ".." where it leaves the root
 		}
+		if len(c) > secretname.MaxName {
+			return false // no file system has a name this long; it is only work
+		}
 		if strings.HasSuffix(c, ".") || strings.HasSuffix(c, " ") {
 			return false
 		}

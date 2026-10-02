@@ -3,6 +3,7 @@ package secretname
 import (
 	"strings"
 	"testing"
+	"time"
 	"unicode"
 
 	"github.com/jmwri/flockdeck/internal/review"
@@ -124,6 +125,12 @@ func TestFoldCoversEveryRune(t *testing.T) {
 		if r >= 0xd800 && r < 0xe000 {
 			continue
 		}
+		if ignorable(r) {
+			if fold(string(r)) != "" {
+				t.Fatalf("fold(%U) kept an ignorable code point", r)
+			}
+			continue
+		}
 		if _, ok := expansions[r]; ok {
 			continue
 		}
@@ -138,5 +145,67 @@ func TestFoldCoversEveryRune(t *testing.T) {
 				t.Fatalf("fold(%U) = %q, but it case-folds to %q", r, got, string(f))
 			}
 		}
+	}
+}
+
+// Threat: code points a file system ignores in a name (ext4 casefold drops
+// default-ignorable ones) used to split a secret's name. Dropped before matching.
+func TestIgnorableCodePointsCannotSplitAName(t *testing.T) {
+	for _, n := range []string{".s‍sh", ".en​v", "id­_rsa", "pass⁠word.txt", ".e️nv"} {
+		if !Component(n) {
+			t.Errorf("Component(%q) = false, want secret", n)
+		}
+	}
+}
+
+// Threat: a hostile component made to cost CPU. A name over MaxName bytes is
+// called secret outright, and a name with many "=" is read after only a few.
+// The time for the worst names of each kind is bounded.
+func TestHostileNamesAreCheap(t *testing.T) {
+	worst := []string{
+		strings.Repeat("a=", MaxName/2),
+		strings.Repeat(longS+"=", MaxName/4),
+		strings.Repeat("=", MaxName),
+		strings.Repeat("-a.bak=", MaxName/7),
+		strings.Repeat("a", MaxName),
+	}
+	start := time.Now()
+	for i := 0; i < 200; i++ {
+		for _, n := range worst {
+			Component(n)
+		}
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Errorf("1000 worst-case names took %v", d)
+	}
+	if !Component(strings.Repeat("a", MaxName+1)) || Component(strings.Repeat("a", MaxName)) {
+		t.Error("the length limit is not at MaxName")
+	}
+	// An "=" deep in a name is still read: the first few and the last tail.
+	if !Path(strings.Repeat("a=", 20) + ".env.local") {
+		t.Error("the tail after the last = was not read")
+	}
+}
+
+func BenchmarkComponentWorst(b *testing.B) {
+	n := strings.Repeat(longS+"=", MaxName/4)
+	for i := 0; i < b.N; i++ {
+		Component(n)
+	}
+}
+
+// Threat: the names the third review found missing.
+func TestMoreNames(t *testing.T) {
+	for _, n := range []string{
+		"ssh_host_rsa_key", "ssh_host_ed25519_key", ".mylogin.cnf", ".rails_master_key", ".authinfo", ".authinfo.gpg", ".msmtprc",
+		"rclone.conf", "serviceAccountKey.json", "firebase-adminsdk-abc123.json", ".vault_pass", "authorized_keys", "wallet.dat",
+		"User Data", "keyrings", ".mozilla",
+	} {
+		if !Component(n) {
+			t.Errorf("Component(%q) = false, want secret", n)
+		}
+	}
+	if Component("ssh_host_rsa_key.pub") {
+		t.Error("the public half of a host key is not secret")
 	}
 }

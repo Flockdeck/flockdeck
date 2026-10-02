@@ -44,7 +44,13 @@ var ErrUnavailable = errors.New("artifact unavailable")
 // The reason is not exported and the error does not print or encode it, in any
 // verb or format (%v, %+v, %#v, %s, JSON): a Refusal that is formatted or
 // marshalled into a reply by mistake says only what a client may be told.
-type Refusal struct {
+//
+// What it holds is behind a pointer, so that a formatter that ignores methods
+// (fmt's %w outside Errorf, a struct dump of a value held in a field) prints
+// an address and not the reason.
+type Refusal struct{ d *refusalDetail }
+
+type refusalDetail struct {
 	reason Reason
 	// cause is what the system said, which names absolute paths of this
 	// machine. It is for CauseOf, for the log; it is not unwrapped
@@ -59,7 +65,7 @@ func (e *Refusal) Is(target error) bool { return target == ErrUnavailable }
 
 // Format prints the same words for every verb, so %+v and %#v cannot print
 // the reason field.
-func (e Refusal) Format(s fmt.State, _ rune) { _, _ = io.WriteString(s, ErrUnavailable.Error()) }
+func (e Refusal) Format(s fmt.State, _ rune) { _, _ = fmt.Fprint(s, ErrUnavailable.Error()) }
 
 // GoString is for the same reason as Format.
 func (e Refusal) GoString() string { return ErrUnavailable.Error() }
@@ -67,20 +73,20 @@ func (e Refusal) GoString() string { return ErrUnavailable.Error() }
 // MarshalJSON encodes a Refusal as the one thing a client may be told.
 func (e Refusal) MarshalJSON() ([]byte, error) { return []byte(`"unavailable"`), nil }
 
-func refuse(r Reason) error { return &Refusal{reason: r} }
+func refuse(r Reason) error { return &Refusal{d: &refusalDetail{reason: r}} }
 
 // unreadable is what a read or a close that failed is reported as: the system's
 // own error is a *fs.PathError carrying the file's absolute path (a locked byte
 // range, a disk error, a vanished network share), which must not reach a
 // client. The detail is kept for CauseOf.
-func unreadable(err error) error { return &Refusal{reason: ReasonRead, cause: err} }
+func unreadable(err error) error { return &Refusal{d: &refusalDetail{reason: ReasonRead, cause: err}} }
 
 // CauseOf is what the system said when err is an unreadable file, or nil. It
 // names absolute paths and is for this machine's log only; never send it.
 func CauseOf(err error) error {
 	var r *Refusal
-	if errors.As(err, &r) {
-		return r.cause
+	if errors.As(err, &r) && r.d != nil {
+		return r.d.cause
 	}
 	return nil
 }
@@ -88,8 +94,8 @@ func CauseOf(err error) error {
 // ReasonOf is why err refused a path, or "" if err is not a Refusal.
 func ReasonOf(err error) Reason {
 	var r *Refusal
-	if errors.As(err, &r) {
-		return r.reason
+	if errors.As(err, &r) && r.d != nil {
+		return r.d.reason
 	}
 	return ""
 }
@@ -154,7 +160,12 @@ func NewRoot(dir string) (*Root, error) {
 }
 
 // Close releases the root.
-func (r *Root) Close() error { return r.r.Close() }
+func (r *Root) Close() error {
+	if r == nil || r.r == nil {
+		return os.ErrClosed
+	}
+	return r.r.Close()
+}
 
 // Path is the root's real directory.
 func (r *Root) Path() string { return r.path }
@@ -207,7 +218,12 @@ type fileState struct {
 // type: it holds no exported way to the file. A read that fails for any reason
 // but the end of the file returns a Refusal (ErrUnavailable) and never the
 // system's error, which carries this machine's absolute path; CauseOf has it.
-func (f *File) Limited(n int64) io.Reader { return &fileReader{st: f.st, left: n} }
+func (f *File) Limited(n int64) io.Reader {
+	if f == nil {
+		return &fileReader{}
+	}
+	return &fileReader{st: f.st, left: n}
+}
 
 type fileReader struct {
 	st   *fileState
@@ -252,6 +268,9 @@ func (r *fileReader) Read(p []byte) (int, error) {
 // Close closes the file; readers made from it fail after that. Closing twice
 // reports os.ErrClosed.
 func (f *File) Close() error {
+	if f == nil || f.st == nil {
+		return os.ErrClosed
+	}
 	st := f.st
 	if st == nil {
 		return os.ErrClosed
@@ -281,6 +300,9 @@ var raceHook = func(stage string) {}
 // package documentation. Everything is read back from the open handle, so a
 // path swapped between a check and the open is caught.
 func (r *Root) Open(candidate string) (*File, error) {
+	if r == nil || r.r == nil {
+		return nil, refuse(ReasonMissing) // a zero Root opens nothing
+	}
 	if len(candidate) > MaxCandidateBytes || !cleanChars(candidate, isWindows) {
 		return nil, refuse(ReasonLexical)
 	}

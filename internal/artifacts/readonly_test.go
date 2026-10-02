@@ -29,15 +29,39 @@ import (
 //     or that starts a process; and no open for writing.
 //
 // A later change that needs one has to change this test, and so be seen.
+//
+// This is a tripwire, not a sandbox. It catches the ordinary ways a change
+// would grow a write, a process or a connection, and a careless or confused one
+// that reaches for them by another name. It cannot stop code that is written to
+// get round it (reflection, a table of function values built from a package
+// that is allowed, a dependency that is added to go.mod and imported under a
+// name it does not list). The security of the package rests on its design and
+// on review of every change to it; this test makes such a change visible.
+
+// forbiddenImports are packages this package may not import, directly or by
+// anything it imports, on any platform.
+var forbiddenImports = map[string]bool{
+	"os/exec": true, "net": true, "net/http": true, "net/rpc": true, "net/smtp": true, "net/mail": true,
+	"net/textproto": true, "plugin": true, "os/signal": true, "os/user": true, "log/syslog": true,
+	"crypto/tls": true, "database/sql": true, "C": true,
+}
+
+// everyPlatform are all the systems Go builds for, with the architecture that
+// has them. The walk covers all of them: a file for one of them is not built on
+// the machine that runs this test.
+var everyPlatform = [][2]string{
+	{"windows", "amd64"}, {"linux", "amd64"}, {"darwin", "arm64"}, {"freebsd", "amd64"}, {"netbsd", "amd64"},
+	{"openbsd", "amd64"}, {"dragonfly", "amd64"}, {"solaris", "amd64"}, {"illumos", "amd64"}, {"aix", "ppc64"},
+	{"plan9", "amd64"}, {"android", "arm64"}, {"ios", "arm64"}, {"js", "wasm"}, {"wasip1", "wasm"},
+}
+
 func TestPackageIsReadOnlyAndOffline(t *testing.T) {
-	forbidden := map[string]bool{
-		"os/exec": true, "net": true, "net/http": true, "net/rpc": true, "net/smtp": true, "plugin": true,
-		"os/signal": true, "os/user": true, "log/syslog": true,
-	}
+	forbidden := forbiddenImports
 	root := moduleRoot(t)
-	for _, goos := range []string{"windows", "linux", "darwin"} {
+	for _, p := range everyPlatform {
+		goos := p[0]
 		ctx := build.Default
-		ctx.GOOS, ctx.GOARCH, ctx.CgoEnabled = goos, "amd64", false
+		ctx.GOOS, ctx.GOARCH, ctx.CgoEnabled = goos, p[1], false
 		deps := map[string]bool{}
 		walkDeps(t, &ctx, root, "github.com/jmwri/flockdeck/internal/artifacts", deps)
 		var names []string
@@ -55,7 +79,7 @@ func TestPackageIsReadOnlyAndOffline(t *testing.T) {
 				t.Errorf("on %s the package imports %s: only the leaf internal/secretname is allowed", goos, d)
 			}
 		}
-		if len(deps) < 10 {
+		if len(deps) < 5 {
 			t.Fatalf("on %s only %d packages were found; the walk is not looking where it should", goos, len(deps))
 		}
 	}
@@ -127,6 +151,13 @@ var writes = map[string]bool{
 	"Unlink": true, "Rmdir": true, "StartProcess": true, "ForkExec": true, "Exec": true,
 	"CreateProcess": true, "DeleteFile": true, "MoveFile": true, "SetEndOfFile": true, "SetFileTime": true,
 	"Renameat": true, "Unlinkat": true, "Mkdirat": true, "Symlinkat": true, "Linkat": true, "Mknodat": true,
+	// more ways to write to a file or to change one
+	"WriteString": true, "ReadFrom": true, "Utimes": true, "UtimesNano": true, "Futimes": true, "Lutimes": true,
+	"Fchdir": true, "Setuid": true, "Setgid": true, "Fsync": true,
+	// raw system calls, sockets, signals, and leaving
+	"Syscall": true, "Syscall6": true, "Syscall9": true, "RawSyscall": true, "RawSyscall6": true,
+	"Socket": true, "Connect": true, "Bind": true, "Listen": true, "Accept": true, "Sendto": true, "Dial": true,
+	"Kill": true, "FindProcess": true, "Exit": true,
 }
 
 // writeIdents may not be named at all in this package's sources: not in an open,
@@ -174,19 +205,36 @@ func onlyNames(e ast.Expr, allowed map[string]bool) bool {
 	return false
 }
 
+// unsafeAllowed are the only files that may import "unsafe": the Windows file
+// that asks the system for a handle's final path.
+var unsafeAllowed = map[string]bool{"root_windows.go": true}
+
 // checkSource returns what a source file does that this package must not: import
-// a package that starts processes or dials, call anything that changes a file,
-// a folder or the environment or makes a file from a descriptor, open a file
-// with flags that are not read-only names, or name a write flag at all.
-func checkSource(fset *token.FileSet, f *ast.File) []string {
+// a package that starts processes or dials (or "C", or "unsafe" outside the file
+// that needs it), use anything that changes a file, a folder or the environment,
+// makes a file from a descriptor, makes a raw system call or leaves the process
+// -- as a call or as a value that is called later -- open a file with flags that
+// are not read-only names, name a write flag at all, or link to a runtime
+// function with a go:linkname.
+func checkSource(fset *token.FileSet, name string, f *ast.File) []string {
 	var bad []string
 	add := func(n ast.Node, format string, args ...any) {
 		bad = append(bad, fset.Position(n.Pos()).String()+": "+fmt.Sprintf(format, args...))
 	}
 	for _, imp := range f.Imports {
 		p, _ := strconv.Unquote(imp.Path.Value)
-		if p == "os/exec" || p == "net" || p == "net/http" {
+		if forbiddenImports[p] || strings.HasPrefix(p, "net/") && p != "net/url" && !strings.HasPrefix(p, "net/netip") {
 			add(imp, "imports %s", p)
+		}
+		if p == "unsafe" && !unsafeAllowed[filepath.Base(name)] {
+			add(imp, "imports unsafe")
+		}
+	}
+	for _, cg := range f.Comments {
+		for _, c := range cg.List {
+			if strings.HasPrefix(c.Text, "//go:linkname") || strings.HasPrefix(c.Text, "//go:cgo") {
+				add(c, "has a %s directive", strings.Fields(c.Text)[0])
+			}
 		}
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -195,9 +243,16 @@ func checkSource(fset *token.FileSet, f *ast.File) []string {
 			if writeIdents[x.Name] {
 				add(x, "names %s", x.Name)
 			}
+			if writes[x.Name] {
+				add(x, "uses %s, which changes files or starts processes", x.Name)
+			}
 		case *ast.SelectorExpr:
 			if writeIdents[x.Sel.Name] {
 				add(x, "names %s", x.Sel.Name)
+			}
+			// As a value too, not only as a call: rm := os.Remove; rm(path).
+			if writes[x.Sel.Name] {
+				add(x, "uses %s, which changes files or starts processes", x.Sel.Name)
 			}
 		case *ast.ValueSpec:
 			// The one constant the open flags may be spelled with is itself held to
@@ -217,9 +272,6 @@ func checkSource(fset *token.FileSet, f *ast.File) []string {
 				}
 			case *ast.Ident:
 				fn = c.Name
-			}
-			if writes[fn] {
-				add(x, "calls %s, which changes files or starts processes", fn)
 			}
 			flagArg := -1
 			switch {
@@ -260,12 +312,12 @@ func sourceChecks(t *testing.T) {
 		}
 		// Parsed for every platform at once (no build constraints applied), so
 		// a Windows or Unix file is read wherever this runs.
-		f, err := parser.ParseFile(fset, name, nil, 0)
+		f, err := parser.ParseFile(fset, name, nil, parser.ParseComments)
 		if err != nil {
 			t.Fatal(err)
 		}
 		checked++
-		for _, b := range checkSource(fset, f) {
+		for _, b := range checkSource(fset, name, f) {
 			t.Error(b)
 		}
 	}
@@ -277,7 +329,7 @@ func sourceChecks(t *testing.T) {
 func parseSample(t *testing.T, name, src string) (*token.FileSet, *ast.File) {
 	t.Helper()
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, name, src, 0)
+	f, err := parser.ParseFile(fset, name, src, parser.ParseComments)
 	if err != nil {
 		t.Fatalf("%s: %v", name, err)
 	}
@@ -308,21 +360,37 @@ func TestReadOnlyCheckCatchesWhatItForbids(t *testing.T) {
 		"createfile w":     `syscall.CreateFile(n, syscall.GENERIC_WRITE, 0, nil, syscall.OPEN_EXISTING, 0, 0)`,
 		"createfile disp":  `syscall.CreateFile(n, 0, 0, nil, syscall.CREATE_ALWAYS, 0, 0)`,
 		"createfile var":   `syscall.CreateFile(n, acc, 0, nil, syscall.OPEN_EXISTING, 0, 0)`,
+		"function value":   `rm := os.Remove; rm("a")`,
+		"var value":        `var rm = os.Rename; _ = rm`,
+		"write string":     `f.WriteString("x")`,
+		"read from":        `f.ReadFrom(nil)`,
+		"raw syscall":      `syscall.Syscall(1, 2, 3, 4)`,
+		"socket":           `syscall.Socket(1, 2, 3)`,
+		"connect":          `syscall.Connect(1, nil)`,
+		"kill":             `syscall.Kill(1, 9)`,
+		"process kill":     `p.Kill()`,
+		"utimes":           `syscall.Utimes("a", nil)`,
+		"exit":             `os.Exit(1)`,
 	}
 	for name, body := range bad {
 		src := "package x\nimport (\"os\"; \"os/exec\"; \"syscall\")\nfunc f(r *os.Root, n *uint16, acc uint32, fl int) {\n" + body + "\n}\n"
 		fset, f := parseSample(t, name, src)
-		if len(checkSource(fset, f)) == 0 {
+		if len(checkSource(fset, "x.go", f)) == 0 {
 			t.Errorf("%s: the check did not object to %s", name, body)
 		}
 	}
 	for name, src := range map[string]string{
 		"exec import":     "package x\nimport \"os/exec\"\n",
+		"smtp import":     "package x\nimport \"net/smtp\"\n",
+		"net sub import":  "package x\nimport \"net/http/httputil\"\n",
+		"cgo import":      "package x\nimport \"C\"\n",
+		"unsafe import":   "package x\nimport \"unsafe\"\n",
+		"linkname":        "package x\n//go:linkname f runtime.f\nfunc f()\n",
 		"openFlags write": "package x\nconst openFlags = 0x41\n",
 		"openFlags mixed": "package x\nconst openFlags = syscall.O_NONBLOCK | 0x1\n",
 	} {
 		fset, f := parseSample(t, name, src)
-		if len(checkSource(fset, f)) == 0 {
+		if len(checkSource(fset, "x.go", f)) == 0 {
 			t.Errorf("%s: the check did not object", name)
 		}
 	}
@@ -337,7 +405,7 @@ func f(r *os.Root, n *uint16) {
 }
 `
 	fset, f := parseSample(t, "good", good)
-	if got := checkSource(fset, f); len(got) != 0 {
+	if got := checkSource(fset, "x.go", f); len(got) != 0 {
 		t.Errorf("the check objected to read-only opens: %v", got)
 	}
 	// And the walk of imports reaches os/exec through a package that uses it.
