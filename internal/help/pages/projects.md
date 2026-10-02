@@ -43,11 +43,9 @@ or paste a path: <kbd>Enter</kbd> browses to it, and **Open this folder** opens
 whichever folder the browser is showing.
 
 The eight most recent projects are shown, with the rest a click away, and the
-`×` beside one takes it off the list. Once more than one project is open, each open one has a `×` of its
-own that closes it.
-
-The browser is served by the Go side rather than by the page, because a web
-page cannot be handed a real directory path.
+`×` beside one takes it off the list. Once more than one project is open, each
+open one has a `×` of its own that closes it — after asking, if any of its
+agents is working or waiting on you.
 
 ## Grouping several directories into one project
 
@@ -64,11 +62,11 @@ into it without leaving the dialog — the same browser used to open a
 project, which flags git repositories but does not require one: a plain
 folder joins just as readily.
 
-A grouped project's row expands (▸ / ▾) to show every member. Each one
-offers **go to it** directly rather than wherever the project was last left,
-an **Agent** or **Shell** button to open a tab there without switching
-first, and **×** to split it back out into a project of its own — which
-does not close it, and touches nothing on disk.
+A grouped project's row expands (▸ / ▾) to show every member. Clicking a
+member's name goes straight to it rather than wherever the project was last
+left; its **Agent** and **Shell** buttons open a tab there without switching
+first, and **×** splits it back out into a project of its own — which does
+not close it, and touches nothing on disk.
 
 A member does not need a git repository. One that has none simply has
 nothing to show in [[key:changes]] or [[key:worktrees]] — every other part
@@ -98,8 +96,8 @@ Every project, open or not, carries a small row of its own controls:
 
 **Default agent…**, offered on the project you are in, is the same
 per-project default the agent picker's own "Set as default for" checkbox
-saves (see the Agents help page) — reached here without starting a pane
-first.
+saves (see [Agents and models](#agents)) — reached here without starting a
+pane first.
 
 ## From the command line
 

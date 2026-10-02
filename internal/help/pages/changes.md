@@ -1,9 +1,10 @@
 # Review, commit and push
 
 [[key:changes]], or **Changes** in the rail, shows what changed in the working
-tree the focused agent has been using. The **Review** button on each worktree opens the same panel for
-that checkout, which is usually how you get here: see which agent produced
-something, then look at what it did.
+tree the focused agent has been using. Clicking the change counts in a pane's
+header opens it on that pane's checkout, and **Review changes**, in a
+worktree's `⋯` menu, on that worktree's — which is usually how you get here:
+see which agent produced something, then look at what it did.
 
 The panel always shows the whole repository the pane is in, even when the pane
 was started in a folder inside it, and a commit takes every file in its list.
@@ -16,17 +17,21 @@ the same choice for creating a worktree.
 - The branch and where it stands against its upstream.
 - Every changed file, what happened to it, and how many lines moved.
 - A coloured diff of whichever file you select. A diff longer than 3,000 lines
-  draws the first 3,000, with **Show them** for the rest, and the list of files
-  stops at 2,000.
+  draws the first 3,000, with **Show them** for the rest. The list of files
+  stops at 2,000; a line under it counts the rest, which a commit still takes.
 
 ## What you can do
 
-- **Commit**, with the message you type in the box.
+- **Commit**, with the message you type in the box — the button counts the
+  files, as in **Commit 3 files**, and <kbd>Ctrl</kbd>+<kbd>Enter</kbd> in the
+  box does the same. A message is required.
 - **Commit and push** in one go.
-- **Fetch** and **Push** against the upstream.
+- **Fetch** and **Push** against the upstream; Push counts the commits it
+  would send, as in **Push 2**.
 - **Pull**, which appears only when the upstream has commits this branch does
   not, and only ever fast-forwards: a branch that has gone its own way is left
   for you to merge or rebase in a shell, and is offered no Pull.
+- **Refresh** reads the working tree again.
 
 Everything that talks to a remote is there only when the checkout has one. The
 first push sets the upstream, so a branch a fan-out invented does not need a

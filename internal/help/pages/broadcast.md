@@ -15,7 +15,8 @@ still there when you open it again.
 <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line, so an instruction can be
 a list — "1. add tests", "2. run them" — and the bar grows to show all of it.
 A list pasted in keeps its lines. <kbd>↑</kbd> on the first line and
-<kbd>↓</kbd> on the last bring back the prompts you sent before; on the lines
+<kbd>↓</kbd> on the last bring back the prompts you have sent from this window
+since it opened, up to the last 50; on the lines
 between, they move from line to line.
 
 You get to read the sentence before six agents act on it, and a typo is yours
@@ -50,8 +51,11 @@ Membership is shown in the pane header even while broadcast is off. Once you
 have picked panes by hand the set stays as you made it, through broadcast
 being turned off and on, rather than following you from tab to tab.
 
-The focused pane is always included, so a prompt never goes somewhere you
-cannot see.
+The focused pane — the one that had the keyboard when you opened the bar — is
+always included. Only panes in the tab on screen receive the prompt, so it
+never goes somewhere you cannot see: a member of the set in another tab is
+left out until you are on its tab, and a pane whose process has stopped is
+skipped.
 
 Broadcast only decides where the prompt bar sends. What you type into a pane
 goes to that pane alone.

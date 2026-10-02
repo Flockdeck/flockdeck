@@ -32,8 +32,9 @@ shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
 - Drag the divider between two panes to resize them — or reach it with
   <kbd>Tab</kbd> and use the arrow keys, and <kbd>Home</kbd> to share the room
   equally again.
-- [[key:zoomPane]] gives the focused pane the whole tab, and gives it back.
-  The others keep running; they are simply not on screen.
+- [[key:zoomPane]] gives the focused pane the whole tab, and gives it back;
+  so does double-clicking the pane's header. The others keep running; they
+  are simply not on screen.
 - [[key:findInTerminal]] searches the focused terminal's scrollback.
 - Select text with the mouse and <kbd>Ctrl+C</kbd> copies it; <kbd>Ctrl+V</kbd>
   pastes. With nothing selected, <kbd>Ctrl+C</kbd> goes to the agent, as it
@@ -45,12 +46,29 @@ shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
   started with `code .` — stays open, as it does when a terminal is closed,
   and so does what it runs, such as the terminals in that editor.
   On macOS a background job that ignores the hangup (`nohup`) keeps running.
-  Closing a tab's last pane closes the tab, and the `×` on a tab closes every
-  pane in it.
+  Closing a tab's last pane closes the tab, and the `×` on a tab, or a click
+  on it with the middle button, closes every pane in it.
 
-The buttons in a pane header do the same things: fan out, include in
-broadcast, restart, zoom, export transcript, record, lock, close. Record is off until you turn it
-on: see [Recording a pane](#recording).
+The buttons in a pane header, in order: fan out (`⑂`), save the plan as a
+todo (`☑`), include in broadcast (`⇉`), auto-review (`✓`), restart, zoom,
+export transcript, reveal transcript, record, lock, close. Auto-review is off
+until you turn it on, pane by pane, and the pane keeps the setting across a
+restart of Flockdeck: see [Knowing who needs you](#status). Record is off
+until you turn it on too; export, reveal and record are not shown on a shell
+pane, which has no conversation, and reveal works only in a window on the
+machine Flockdeck runs on: see [Recording a pane](#recording).
+
+## One pane, several windows
+
+A pane has one terminal however many windows show it — a second window, a
+phone over [remote access](#remote) — and that terminal is the size of the
+window last used on it: the one you focus or type in. Every other window draws
+it at that same size, so what the agent prints lands where it should. Where
+that is larger than the pane's room in a window, the window shows the part of
+it nearest the bottom left, where the latest lines are, with a note such as
+**Viewing 120×40 · fit to this window**; click it to size the pane for this
+window instead. A pane's terminal is never
+made smaller than 20 columns by 5 rows or larger than 500 by 200.
 
 ## Locking a pane
 
@@ -64,9 +82,9 @@ while it is locked:
 - Its tab cannot be closed, by the `×` on the tab or the middle button, while
   any pane in it is locked, and neither can a project that holds one.
 - [[action:closeFinishedPanes]] leaves it open and says how many it left.
-- `flockdeck close` refuses it, and `--force` does not change that: `--force`
+- `flockdeck close` refuses it, and `-force` does not change that: `-force`
   is for a pane still working, and a lock is something only you undo.
-  `flockdeck close --finished` skips it and reports how many it skipped.
+  `flockdeck close -finished` skips it and reports how many it skipped.
 
 [[action:restartPane]] still works on a locked pane and leaves it locked. The
 lock is kept with the layout, so it survives a restart of Flockdeck, and it
@@ -90,8 +108,9 @@ model — resuming the same conversation where that agent can, because a pane an
 its conversation are one identity. Use it when an agent is stuck or has wedged
 itself, not to clear the screen.
 
-A pane whose process exits covers its terminal with a **Restart** button
-rather than leaving a dead black rectangle.
+A pane whose process exits covers its terminal with what happened and two
+buttons, **Restart** and **Close pane**, rather than leaving a dead black
+rectangle.
 
 ## Font size
 
