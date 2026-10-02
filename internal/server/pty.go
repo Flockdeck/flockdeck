@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -209,8 +211,8 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 				subscribers int
 			)
 			fresh := true
+			var start int64
 			if resume {
-				var start int64
 				var resumed bool
 				subID, replay, start, resumed, out, subscribers = sess.SubscribeFrom(epoch, from)
 				fresh = !resumed
@@ -225,12 +227,12 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			} else {
-				subID, replay, out, subscribers = sess.Subscribe()
+				subID, replay, start, _, out, subscribers = sess.SubscribeFrom(0, -1)
 			}
 			s.armRepaint(ctx, &repaint, id, viewer, sess, subscribers, fresh)
 			var feed *sizeFeed
 			if tellSize {
-				feed = &sizeFeed{sess: sess}
+				feed = newSizeFeed(sess, start)
 			}
 			ended := streamOutputSized(ctx, tc, replay, out, liveFrame(r), &writes, feed)
 			if subID >= 0 {
@@ -421,12 +423,41 @@ func (s *Server) applyResizes(ctx context.Context, id string, measured <-chan st
 		case <-ctx.Done():
 			return
 		case <-measured:
+			// Taking a pane over is a resize, which the agent answers with a
+			// redraw of everything; a window that focuses, types and measures
+			// itself in the same moment is one resize, not three.
+			if !settleResize(ctx, measured) {
+				return
+			}
 			s.do(func() {
 				s.fitPane(id)
 				if repaint.CompareAndSwap(true, false) {
 					s.repaintPane(id)
 				}
 			})
+		}
+	}
+}
+
+// resizeSettle is how long a window's measurements are gathered before the pane
+// is sized for them. It is a variable so a test need not wait it out.
+var resizeSettle = 120 * time.Millisecond
+
+// settleResize waits out resizeSettle, taking in whatever else was measured
+// meanwhile. It reports false if the window went first.
+func settleResize(ctx context.Context, measured <-chan struct{}) bool {
+	if resizeSettle <= 0 {
+		return true
+	}
+	t := time.NewTimer(resizeSettle)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-measured:
+		case <-t.C:
+			return true
 		}
 	}
 }
@@ -449,7 +480,45 @@ func (s *Server) applyResizes(ctx context.Context, id string, measured <-chan st
 func (s *Server) fitPane(id string) {
 	if cols, rows := viewers.size(id); cols > 0 && rows > 0 {
 		s.ws.ResizePaneTerminal(id, cols, rows)
+		noteSizes(id, cols, rows)
 	}
+}
+
+// diagSeen is the last disagreement noted for each pane, so one that goes on is
+// said once and not at every resize.
+var (
+	diagMu   sync.Mutex
+	diagSeen = map[string]string{}
+	// diagLog is where a note goes. It is a variable so a test can read it.
+	diagLog = func(line string) { logNote(line) }
+)
+
+// noteSizes says, in error.log, when the windows showing a pane do not all
+// measure the size it was just given: how many there are, what each measured
+// and the size the pty is. It is the state in which a window draws a program
+// into a terminal of another size, and on the next occurrence of garbled
+// output it shows whether that was the case. It holds no output and nothing
+// typed, only numbers and the start of the pane's id.
+func noteSizes(pane string, cols, rows int) {
+	sizes, used := viewers.snapshot(pane)
+	differ := false
+	for _, sz := range sizes {
+		if sz != [2]int{cols, rows} {
+			differ = true
+		}
+	}
+	diagMu.Lock()
+	defer diagMu.Unlock()
+	if !differ || len(sizes) < 2 {
+		delete(diagSeen, pane)
+		return
+	}
+	line := fmt.Sprintf("pane %.8s: %d windows measured %v, last used window %d, pty set to %dx%d; the others show it at their own size until told", pane, len(sizes), sizes, used, cols, rows)
+	if diagSeen[pane] == line {
+		return
+	}
+	diagSeen[pane] = line
+	diagLog(line)
 }
 
 // altScreen reports whether a pane's program is on the alternate screen. It is
@@ -661,23 +730,63 @@ func streamOutput(ctx context.Context, conn termConn, replay []byte, out <-chan 
 	return streamOutputSized(ctx, conn, replay, out, frame, writes, nil)
 }
 
+// sizeSource is where a sizeFeed learns the pty's sizes from: a session.
+type sizeSource interface {
+	SizeMarks(after int64) ([]session.SizeMark, <-chan struct{})
+}
+
 // sizeFeed is what keeps one window's terminal the size of the pane's pty.
 //
 // There is one pty behind a pane however many windows show it, and it is the
 // size of one of them (see viewers). Every window fits its own terminal to its
-// own box, so each of the others drew the program's output into a terminal of a
-// different size: a full-screen program, and ConPTY repainting one by sending
+// own box, so each of the others drew the program's output into a terminal of
+// a different size: a full-screen program, and ConPTY repainting one by sending
 // only the cells that changed, address the screen by row and column, so words
 // lost letters, rows landed on each other and backgrounds on the wrong rows,
 // in the window that was not the one the pane was sized for -- and in all of
 // them when the pane had been sized for none, to the least of each dimension.
 //
-// So the window is told the size the pty is, ahead of the replay and again
-// whenever it changes, in the same ordered stream as the output, and keeps its
-// terminal that size whatever its box allows.
+// So the window is told the size the pty is, and told it in the stream itself:
+// the session says at which byte of its output each size began, and the size
+// goes out between that byte and the one before it, however the frames are cut
+// and whatever order this loop happens to see a resize and the output in. The
+// replay is the same: the buffer was written across many sizes, and each part
+// of it is sent at the size it was drawn for.
 type sizeFeed struct {
-	sess *session.Session
-	sent [2]int
+	src sizeSource
+	// pos is where in the pane's output the next byte sent is, counted as the
+	// stream header counts it.
+	pos int64
+	// fetched is the last mark asked for, and pending the marks asked for and
+	// not yet sent, oldest first.
+	fetched int64
+	pending []session.SizeMark
+	changed <-chan struct{}
+}
+
+func newSizeFeed(src sizeSource, start int64) *sizeFeed {
+	z := &sizeFeed{src: src, pos: start}
+	z.look()
+	return z
+}
+
+// look asks for the marks made since the last look.
+func (z *sizeFeed) look() {
+	marks, changed := z.src.SizeMarks(z.fetched)
+	for _, m := range marks {
+		z.pending = append(z.pending, m)
+		z.fetched = m.Seq
+	}
+	z.changed = changed
+}
+
+// wake is the channel that is closed when the size next changes; nil, which
+// never is, for a window that is not told.
+func (z *sizeFeed) wake() <-chan struct{} {
+	if z == nil {
+		return nil
+	}
+	return z.changed
 }
 
 // sizeFrame is the text frame that carries a size.
@@ -685,28 +794,61 @@ func sizeFrame(cols, rows int) []byte {
 	return []byte(`{"size":{"cols":` + strconv.Itoa(cols) + `,"rows":` + strconv.Itoa(rows) + `}}`)
 }
 
-// flush sends the size if it is not the one the window was last told, and
-// returns the channel that is closed when it next changes. The size and the
-// channel are read together, so a change made after the read is never missed.
-func (z *sizeFeed) flush(ctx context.Context, conn termConn, writes *writeGauge) (<-chan struct{}, error) {
+// due sends the size in force at the place the stream has reached: the latest
+// mark at or before it. The ones before that were passed by no byte sent, so
+// there is nothing for them to say.
+func (z *sizeFeed) due(ctx context.Context, conn termConn, writes *writeGauge) error {
 	if z == nil {
-		return nil, nil
+		return nil
 	}
-	cols, rows, changed := z.sess.SizeWatch()
-	if sz := [2]int{cols, rows}; cols > 0 && rows > 0 && sz != z.sent {
-		if err := writes.write(ctx, conn, websocket.MessageText, sizeFrame(cols, rows)); err != nil {
-			return nil, err
+	select {
+	case <-z.changed:
+		z.look()
+	default:
+	}
+	n := 0
+	for n < len(z.pending) && z.pending[n].At <= z.pos {
+		n++
+	}
+	if n == 0 {
+		return nil
+	}
+	m := z.pending[n-1]
+	z.pending = append(z.pending[:0], z.pending[n:]...)
+	return writes.write(ctx, conn, websocket.MessageText, sizeFrame(m.Cols, m.Rows))
+}
+
+// send writes data as frames of at most frame bytes, cut wherever a size begins
+// inside it, with the size sent at the cut. A nil feed cuts nothing.
+func (z *sizeFeed) send(ctx context.Context, conn termConn, writes *writeGauge, data []byte, frame int) error {
+	for len(data) > 0 {
+		n := len(data)
+		if z != nil {
+			if err := z.due(ctx, conn, writes); err != nil {
+				return err
+			}
+			if len(z.pending) > 0 {
+				if gap := z.pending[0].At - z.pos; gap > 0 && gap < int64(n) {
+					n = int(gap)
+				}
+			}
 		}
-		z.sent = sz
+		n = min(n, frame)
+		if err := writeChunk(ctx, conn, writes, data[:n]); err != nil {
+			return err
+		}
+		if z != nil {
+			z.pos += int64(n)
+		}
+		data = data[n:]
 	}
-	return changed, nil
+	return nil
 }
 
 // streamOutputSized is streamOutput for a window that is also told the size of
-// the pty. A nil feed tells it nothing.
+// the pty, from where the replay starts. A nil feed tells it nothing.
 func streamOutputSized(ctx context.Context, conn termConn, replay []byte, out <-chan []byte, frame int, writes *writeGauge, feed *sizeFeed) bool {
-	resized, err := feed.flush(ctx, conn, writes)
-	if err != nil {
+	if err := feed.due(ctx, conn, writes); err != nil {
 		return false
 	}
 	// The replay goes out a frame at a time, and each frame has the write's
@@ -714,12 +856,8 @@ func streamOutputSized(ctx context.Context, conn termConn, replay []byte, out <-
 	// -- a phone reaching this through the relay -- outlasted that budget, the
 	// socket was dropped for it, and the window reconnected to be sent the same
 	// replay again, never once getting as far as the live output.
-	for len(replay) > 0 {
-		n := min(len(replay), replayFrame)
-		if err := writeChunk(ctx, conn, writes, replay[:n]); err != nil {
-			return false
-		}
-		replay = replay[n:]
+	if err := feed.send(ctx, conn, writes, replay, replayFrame); err != nil {
+		return false
 	}
 
 	// A burst -- a build's output, a page of scrollback, Claude redrawing --
@@ -734,8 +872,11 @@ func streamOutputSized(ctx context.Context, conn termConn, replay []byte, out <-
 		select {
 		case <-ctx.Done():
 			return false
-		case <-resized:
-			if resized, err = feed.flush(ctx, conn, writes); err != nil {
+		case <-feed.wake():
+			// Nothing is waiting to be sent that a mark could come before, or
+			// the output would have been taken first: the size is one the
+			// stream has already reached.
+			if err := feed.due(ctx, conn, writes); err != nil {
 				return false
 			}
 		case chunk, ok := <-out:
@@ -748,19 +889,12 @@ func streamOutputSized(ctx context.Context, conn termConn, replay []byte, out <-
 			// Merging stops once the frame is full, but the read that filled
 			// it can take it past the bound, so what it holds goes out in
 			// frames no larger.
-			for rest := buf; len(rest) > 0; {
-				n := min(len(rest), frame)
-				if err := writeChunk(ctx, conn, writes, rest[:n]); err != nil {
-					return false
-				}
-				rest = rest[n:]
+			if err := feed.send(ctx, conn, writes, buf, frame); err != nil {
+				return false
 			}
 			sent = time.Now()
 			if ended {
 				return true
-			}
-			if resized, err = feed.flush(ctx, conn, writes); err != nil {
-				return false
 			}
 		}
 	}
@@ -905,8 +1039,24 @@ type viewerSizes struct {
 	seq int64
 }
 
-// set records what one window measured for a pane.
+// The sizes a window may say it is. A terminal is never smaller than the
+// least, and a window measuring less -- a box laid out before it has a size, a
+// pane squeezed to a sliver -- is not a size the pane could be run at. The most
+// is what any screen shows: past it every other window's terminal is made as
+// large, with its scrollback, for one that claimed it, and any window that can
+// reach a pane can claim it, the one through the relay no less than the desk's.
+const (
+	minViewCols, minViewRows = 20, 5
+	maxViewCols, maxViewRows = 500, 200
+)
+
+// set records what one window measured for a pane. A size below the least
+// is not recorded, and one above the most is taken as the most.
 func (v *viewerSizes) set(pane string, viewer int64, cols, rows int) {
+	if cols < minViewCols || rows < minViewRows {
+		return
+	}
+	cols, rows = min(cols, maxViewCols), min(rows, maxViewRows)
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	byViewer := v.panes[pane]
@@ -969,6 +1119,25 @@ func (v *viewerSizes) drop(pane string, viewer int64) bool {
 		return false
 	}
 	return true
+}
+
+// snapshot is what each window showing a pane measured, in a fixed order, and
+// which of them was used last (zero if none).
+func (v *viewerSizes) snapshot(pane string) (sizes [][2]int, used int64) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	by := v.panes[pane]
+	ids := make([]int64, 0, len(by))
+	for id, st := range by {
+		if st.cols > 0 && st.rows > 0 {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		sizes = append(sizes, [2]int{by[id].cols, by[id].rows})
+	}
+	return sizes, lastUsed(by)
 }
 
 // sized reports whether one window has said what size it is.

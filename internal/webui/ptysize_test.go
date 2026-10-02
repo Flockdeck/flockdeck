@@ -60,3 +60,66 @@ term.parse();
 assert.strictEqual(term.cols, 100, "the terminal was never resized");
 `)
 }
+
+// TestACroppedTerminalSaysSoAndCanTakeThePaneOver covers the window that is
+// not the one the pane is sized for. Its terminal is the pty's size, so a
+// smaller box shows only part of it: that has to be said, with the way to have
+// the pane fitted to this window, and the bottom -- an agent's prompt and
+// status -- is the part kept.
+func TestACroppedTerminalSaysSoAndCanTakeThePaneOver(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.open();
+const sock = h.sockets.filter((s) => s.url.includes("/ws/pty") && s.url.includes("id=p1"))[0];
+const term = h.terms.find((x) => !x.disposed);
+const note = h.$("workspace").querySelector(".size-note");
+assert.ok(note, "a pane has nowhere to say it is cropped");
+const host = term.host;
+await h.sleep(80);
+assert.ok(note.hidden, "a pane no size has been said for claims to be cropped");
+
+// The fake box measures 80x24; the pty is larger.
+sock.onmessage({ data: JSON.stringify({ epoch: 1, offset: 0, resumed: false }) });
+sock.onmessage({ data: JSON.stringify({ size: { cols: 132, rows: 41 } }) });
+term.parse();
+assert.ok(!note.hidden, "a terminal larger than its box did not say it was cropped");
+assert.ok(note.textContent.includes("132") && note.textContent.includes("41"), "the note does not say what is being viewed: " + note.textContent);
+assert.ok(host.classList.contains("cropped"), "a terminal taller than its box is not kept to the bottom");
+
+// Asking for the pane to be fitted to this window says what the box is, and
+// that this window is the one in use.
+sock.sent.length = 0;
+note.onclick({ stopPropagation() {} });
+const sent = sock.sent.map((m) => (typeof m === "string" ? m : ""));
+assert.ok(sent.some((m) => m.includes('"resize"') && m.includes('"cols":80')), "taking over did not say what size this window is: " + sent);
+assert.ok(sent.some((m) => m.includes('"focus"')), "taking over did not say this window is the one in use: " + sent);
+
+// Once the server has made the pane that size the note goes.
+sock.onmessage({ data: JSON.stringify({ size: { cols: 80, rows: 24 } }) });
+term.parse();
+assert.ok(note.hidden, "the note stayed after the pane was fitted to this window");
+assert.ok(!host.classList.contains("cropped"));
+`)
+}
+
+// TestAPaneIsNeverMadeLargerThanAScreenShows holds the page to the bound the
+// server holds a window to: a size past it is taken as the most, and one that
+// is no size for a terminal is ignored.
+func TestAPaneIsNeverMadeLargerThanAScreenShows(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.open();
+const sock = h.sockets.filter((s) => s.url.includes("/ws/pty") && s.url.includes("id=p1"))[0];
+const term = h.terms.find((x) => !x.disposed);
+sock.onmessage({ data: JSON.stringify({ epoch: 1, offset: 0, resumed: false }) });
+sock.onmessage({ data: JSON.stringify({ size: { cols: 2000, rows: 2000 } }) });
+term.parse();
+assert.strictEqual(term.cols, 500);
+assert.strictEqual(term.rows, 200);
+sock.onmessage({ data: JSON.stringify({ size: { cols: 1, rows: 1 } }) });
+term.parse();
+assert.strictEqual(term.cols, 500, "a size too small for a terminal was taken");
+`)
+}

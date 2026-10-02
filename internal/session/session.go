@@ -229,8 +229,11 @@ type Session struct {
 	sawInput   bool
 	startedAt  time.Time
 	cols, rows int
-	// sized is closed, and replaced, each time the size changes: see SizeWatch.
-	sized chan struct{}
+	// marks is where in the output each size began, and sized is closed, and
+	// replaced, each time the size changes: see SizeMarks.
+	marks   []SizeMark
+	markSeq int64
+	sized   chan struct{}
 	// resizedAt is when the pane was last resized with nothing typed into it
 	// since, which is when its program was last made to redraw by Flockdeck
 	// rather than by anything it was doing: see ownRedraw. Typing clears it.
@@ -1433,11 +1436,8 @@ func (s *Session) Resize(cols, rows int) {
 		s.mu.Unlock()
 		return
 	}
+	s.markSizeLocked(cols, rows)
 	s.cols, s.rows = cols, rows
-	if s.sized != nil {
-		close(s.sized)
-	}
-	s.sized = make(chan struct{})
 	// The program redraws for it, and that redraw is Flockdeck's doing, not
 	// work: see ownRedraw. Stamped before the PTY is told, so the redraw
 	// cannot arrive ahead of it.
@@ -1453,22 +1453,68 @@ func clampSize(cols, rows int) (int, int) {
 	return min(cols, maxCols), min(rows, maxRows)
 }
 
-// SizeWatch is Size with a channel that is closed when the size next changes.
+// SizeMark says that from byte At of the pane's output, counted as the replay
+// buffer counts it, the pty is Cols by Rows. Seq numbers the marks in the order
+// they were made.
+type SizeMark struct {
+	Seq, At    int64
+	Cols, Rows int
+}
+
+// maxSizeMarks bounds the marks kept. A pane resized hundreds of times has
+// nobody who could still use the oldest: they are for the window that attaches
+// and is sent what the buffer holds, which is half a megabyte.
+const maxSizeMarks = 512
+
+// markSizeLocked records that the pty is now cols by rows, from the next byte
+// of output on, and wakes whoever is watching. It must be called with s.mu
+// held, which is what makes At the exact number of bytes published before it.
+func (s *Session) markSizeLocked(cols, rows int) {
+	if len(s.marks) == 0 {
+		// The size the pane started at, from the first byte.
+		s.markSeq++
+		s.marks = append(s.marks, SizeMark{Seq: s.markSeq, Cols: s.cols, Rows: s.rows})
+	}
+	s.markSeq++
+	s.marks = append(s.marks, SizeMark{Seq: s.markSeq, At: s.written, Cols: cols, Rows: rows})
+	if len(s.marks) > maxSizeMarks {
+		s.marks = append(s.marks[:0], s.marks[len(s.marks)-maxSizeMarks:]...)
+	}
+	if s.sized != nil {
+		close(s.sized)
+	}
+	s.sized = make(chan struct{})
+}
+
+// SizeMarks is where in the output the pty changed size, for the window that
+// is sending it on.
 //
-// A pane has one pseudo-terminal however many windows are showing it, and each
-// window fits its own terminal to its own box. The pty is the size of just one
-// of them, so every other window has to be told the size the program is really
-// drawing for and match it: a program that addresses the screen by row and
+// A pane has one pty however many windows show it, and each fits its own
+// terminal to its own box. A program that addresses the screen by row and
 // column -- Claude Code's redraw, or ConPTY's repaint of it on Windows, which
 // sends only the cells that changed -- writes into the wrong cells of a
-// terminal of any other size.
-func (s *Session) SizeWatch() (cols, rows int, changed <-chan struct{}) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.sized == nil {
-		s.sized = make(chan struct{})
+// terminal of any other size than the one it drew for. So a window is told the
+// size at the very byte it changed at, in the same order as the bytes, and
+// the replay buffer, which was written across many sizes, is replayed with
+// them in the places they happened.
+//
+// It returns the marks after the one numbered after, oldest first, and a
+// channel that is closed when there next is one. A session that has never
+// been resized has the one it started with.
+func (s *Session) SizeMarks(after int64) ([]SizeMark, <-chan struct{}) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	marks := s.marks
+	if len(marks) == 0 {
+		marks = []SizeMark{{Seq: 1, Cols: s.cols, Rows: s.rows}}
 	}
-	return s.cols, s.rows, s.sized
+	var out []SizeMark
+	for _, m := range marks {
+		if m.Seq > after {
+			out = append(out, m)
+		}
+	}
+	return out, s.sized
 }
 
 // Size returns the current PTY dimensions.

@@ -3,10 +3,18 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/jmwri/flockdeck/internal/session"
 )
 
 // sizeNote is the text frame that tells a window the size of its pane's pty.
@@ -110,5 +118,231 @@ func TestAWindowThatDoesNotAskIsNotToldTheSize(t *testing.T) {
 	}
 	if headers != 1 {
 		t.Fatalf("the window was sent %d text frames, want only the header", headers)
+	}
+}
+
+// fakeSizes is a pane's record of its sizes, with the marks and the channel a
+// test chooses.
+type fakeSizes struct {
+	mu      sync.Mutex
+	marks   []session.SizeMark
+	changed chan struct{}
+}
+
+func newFakeSizes(marks ...session.SizeMark) *fakeSizes {
+	f := &fakeSizes{marks: marks, changed: make(chan struct{})}
+	for i := range f.marks {
+		f.marks[i].Seq = int64(i + 1)
+	}
+	return f
+}
+
+func (f *fakeSizes) SizeMarks(after int64) ([]session.SizeMark, <-chan struct{}) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []session.SizeMark
+	for _, m := range f.marks {
+		if m.Seq > after {
+			out = append(out, m)
+		}
+	}
+	return out, f.changed
+}
+
+// resize adds a mark, and wakes the feed as the session does.
+func (f *fakeSizes) resize(at int64, cols, rows int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.marks = append(f.marks, session.SizeMark{Seq: int64(len(f.marks) + 1), At: at, Cols: cols, Rows: rows})
+	close(f.changed)
+	f.changed = make(chan struct{})
+}
+
+// sizedPair streams replay and out to a real websocket as streamOutputSized
+// does for a window told the size, and returns what that window receives as a
+// list: "<cols>x<rows>" for a size, and the bytes themselves for output.
+func sizedPair(t *testing.T, src sizeSource, start int64, replay []byte, out <-chan []byte, frame int) func() []string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		if streamOutputSized(r.Context(), conn, replay, out, frame, nil, newSizeFeed(src, start)) {
+			_ = conn.Close(websocket.StatusNormalClosure, "stream ended")
+		}
+	}))
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	t.Cleanup(func() { conn.CloseNow() })
+	return func() []string {
+		var got []string
+		for {
+			typ, data, err := conn.Read(ctx)
+			if err != nil {
+				return got
+			}
+			if typ == websocket.MessageText {
+				var n sizeNote
+				if json.Unmarshal(data, &n) != nil || n.Size == nil {
+					t.Fatalf("unexpected text frame %s", data)
+				}
+				got = append(got, fmt.Sprintf("%dx%d", n.Size.Cols, n.Size.Rows))
+				continue
+			}
+			// Frames are cut anywhere; the order is what is checked.
+			if last := len(got) - 1; last >= 0 && !strings.Contains(got[last], "x") && !isSizeText(got[last]) {
+				got[last] += string(data)
+			} else {
+				got = append(got, string(data))
+			}
+		}
+	}
+}
+
+func isSizeText(s string) bool {
+	var c, r int
+	n, _ := fmt.Sscanf(s, "%dx%d", &c, &r)
+	return n == 2
+}
+
+// TestTheReplayIsDrawnAtTheSizesItWasWrittenAt covers a window attaching to a
+// pane whose buffer was written across several sizes -- a phone opened on an
+// agent that has been resized as windows came and went. The history was drawn
+// by the program for one size after another, and the whole of it was replayed
+// at the current one: cells addressed for 100 columns written into a terminal
+// of 60, until the program next redrew everything. Each part of the replay is
+// sent at the size it was drawn for.
+func TestTheReplayIsDrawnAtTheSizesItWasWrittenAt(t *testing.T) {
+	src := newFakeSizes(
+		session.SizeMark{At: 0, Cols: 80, Rows: 24},
+		session.SizeMark{At: 10, Cols: 100, Rows: 30},
+		session.SizeMark{At: 20, Cols: 60, Rows: 20},
+	)
+	out := make(chan []byte)
+	close(out)
+	read := sizedPair(t, src, 0, []byte("0123456789ABCDEFGHIJabcdefghij"), out, replayFrame)
+	got := read()
+	want := []string{"80x24", "0123456789", "100x30", "ABCDEFGHIJ", "60x20", "abcdefghij"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("the window was sent %q, want %q", got, want)
+	}
+}
+
+// TestAReplayBeginsAtTheSizeInForceThere is a replay that starts part way
+// through the history, as one does once the buffer has wrapped: the sizes
+// before it are not sent, only the one in force where it begins.
+func TestAReplayBeginsAtTheSizeInForceThere(t *testing.T) {
+	src := newFakeSizes(
+		session.SizeMark{At: 0, Cols: 80, Rows: 24},
+		session.SizeMark{At: 50, Cols: 90, Rows: 30},
+		session.SizeMark{At: 100, Cols: 70, Rows: 25},
+		session.SizeMark{At: 106, Cols: 71, Rows: 26},
+	)
+	out := make(chan []byte)
+	close(out)
+	got := sizedPair(t, src, 100, []byte("0123456789"), out, replayFrame)()
+	want := []string{"70x25", "012345", "71x26", "6789"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("the window was sent %q, want %q", got, want)
+	}
+}
+
+// TestASizeComesBetweenTheOutputBeforeItAndAfterIt forces the interleaving
+// that left the size and the output to a coin toss: a resize, with output
+// already queued behind it and output queued before it, all ready at once. The
+// size goes where the session says it began, whichever the loop looks at first,
+// and however the frames are cut.
+func TestASizeComesBetweenTheOutputBeforeItAndAfterIt(t *testing.T) {
+	for _, frame := range []int{replayFrame, 3} {
+		src := newFakeSizes(session.SizeMark{At: 0, Cols: 80, Rows: 24})
+		out := make(chan []byte, 8)
+		out <- []byte("before-")
+		out <- []byte("-still-before")
+		// Resized after 20 bytes, with the next output already waiting.
+		src.resize(int64(len("before--still-before")), 120, 40)
+		out <- []byte("after")
+		close(out)
+		got := sizedPair(t, src, 0, nil, out, frame)()
+		joined := strings.Join(got, "|")
+		if frame == replayFrame {
+			want := []string{"80x24", "before--still-before", "120x40", "after"}
+			if !slices.Equal(got, want) {
+				t.Fatalf("frame %d: the window was sent %q, want %q", frame, got, want)
+			}
+		} else if !strings.HasPrefix(joined, "80x24|") || !strings.Contains(joined, "before--still-before|120x40|after") {
+			t.Fatalf("frame %d: the window was sent %q, want the size between the two", frame, got)
+		}
+	}
+}
+
+// TestASizeInTheMiddleOfAFrameSplitsIt is a resize that fell inside one read of
+// the pty, whose bytes the stream merged into one frame.
+func TestASizeInTheMiddleOfAFrameSplitsIt(t *testing.T) {
+	src := newFakeSizes(session.SizeMark{At: 0, Cols: 80, Rows: 24})
+	out := make(chan []byte, 2)
+	out <- []byte("123456789")
+	src.resize(4, 100, 30)
+	close(out)
+	got := sizedPair(t, src, 0, nil, out, coalesceLimit)()
+	want := []string{"80x24", "1234", "100x30", "56789"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("the window was sent %q, want %q", got, want)
+	}
+}
+
+// TestAWindowCannotSizeAPaneBeyondWhatAScreenShows is the bound on what a
+// window may claim. Every other window's terminal is made the size of the pty,
+// with its scrollback, so one window saying 2000 by 2000 -- or 1 by 1 -- is
+// every window's cost.
+func TestAWindowCannotSizeAPaneBeyondWhatAScreenShows(t *testing.T) {
+	v := &viewerSizes{panes: map[string]map[int64]viewerState{}}
+	v.set("p", 1, 2000, 2000)
+	if c, r := v.size("p"); c != maxViewCols || r != maxViewRows {
+		t.Fatalf("a window claiming 2000x2000 sized the pane %dx%d, want %dx%d", c, r, maxViewCols, maxViewRows)
+	}
+	v.set("p", 2, 1, 1)
+	v.set("p", 3, 2, 80)
+	if c, r := v.size("p"); c != maxViewCols || r != maxViewRows {
+		t.Fatalf("windows measuring 1x1 and 2x80 took the pane to %dx%d", c, r)
+	}
+	if sizes, _ := v.snapshot("p"); len(sizes) != 1 {
+		t.Fatalf("a size too small to run a pane at was recorded: %v", sizes)
+	}
+}
+
+// TestWindowsDisagreeingAboutAPaneAreNoted is the diagnostic for the next time
+// a pane is garbled: it says how many windows were showing it, what each
+// measured and what the pty was set to, once per distinct state.
+func TestWindowsDisagreeingAboutAPaneAreNoted(t *testing.T) {
+	var mu sync.Mutex
+	var lines []string
+	was := diagLog
+	diagLog = func(l string) { mu.Lock(); lines = append(lines, l); mu.Unlock() }
+	t.Cleanup(func() { diagLog = was })
+
+	pane := "disagree-pane-xyz"
+	t.Cleanup(func() { viewers.drop(pane, 91); viewers.drop(pane, 92) })
+	viewers.set(pane, 91, 100, 30)
+	noteSizes(pane, 100, 30)
+	viewers.set(pane, 92, 70, 40)
+	noteSizes(pane, 70, 30)
+	noteSizes(pane, 70, 30)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(lines) != 1 {
+		t.Fatalf("%d notes %q, want one for the one disagreement", len(lines), lines)
+	}
+	for _, want := range []string{"2 windows", "[100 30]", "[70 40]", "70x30"} {
+		if !strings.Contains(lines[0], want) {
+			t.Fatalf("the note %q does not say %q", lines[0], want)
+		}
 	}
 }
