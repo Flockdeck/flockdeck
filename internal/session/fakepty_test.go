@@ -138,6 +138,7 @@ func fakeSession(f *fakePTY) *Session {
 		statusSince: time.Now(),
 		cols:        80,
 		rows:        24,
+		sized:       make(chan struct{}),
 		idleAfter:   time.Minute,
 		history:     newRing(4096),
 		subs:        map[int]*subscriber{},

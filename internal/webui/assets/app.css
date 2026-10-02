@@ -1067,9 +1067,20 @@ textarea:focus-visible {
  * click meant for Restart and Close pane. Kept in a context of its own, the
  * whole terminal is one layer, and the cover and the scroll button, which
  * come after it, are above. */
-.term-host { position: absolute; inset: 0; padding: 4px 0 0 6px; touch-action: none; isolation: isolate; }
+.term-host { position: absolute; inset: 0; overflow: hidden; padding: 4px 0 0 6px; touch-action: none; isolation: isolate; }
 /* Shown only while the pane is scrolled back from its newest line. Clear of
  * the terminal's scroll bar at the right edge. */
+/* The terminal is the size of the pane's pty, which is not always the size of
+ * this window's box. When it is taller than the box, the bottom is what is kept
+ * in view: that is where an agent's prompt and status are. */
+.term-host.cropped .xterm { position: absolute; left: 6px; bottom: 0; }
+.size-note {
+  position: absolute; right: 18px; top: 8px; z-index: 3;
+  height: 24px; padding: 0 8px; border-radius: var(--radius); font: inherit; font-size: 12px; font-weight: 500;
+  background: var(--bg-overlay); color: var(--fg); border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-1); cursor: pointer;
+}
+.size-note:hover { background: var(--bg-hover); }
 .to-latest {
   position: absolute; right: 18px; bottom: 10px; z-index: 3;
   height: 24px; padding: 0 8px; border-radius: var(--radius); font: inherit; font-size: 12px; font-weight: 500;

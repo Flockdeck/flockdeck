@@ -3156,6 +3156,12 @@
     describe(latest, "Scroll to the newest output");
     latest.onclick = (ev) => { ev.stopPropagation(); term.scrollToBottom(); latest.hidden = true; term.focus(); };
     body.append(latest);
+    // Said when this window's box is not the size the pane is, which is when
+    // the terminal is cropped to it: see setPtySize.
+    const sizeNote = el("button", "size-note", "");
+    sizeNote.hidden = true;
+    sizeNote.onclick = (ev) => { ev.stopPropagation(); takeOverSize(panes.get(id)); };
+    body.append(sizeNote);
     const scrolledBack = () => {
       const b = term.buffer && term.buffer.active;
       const back = !!b && b.viewportY < b.baseY;
@@ -3171,6 +3177,7 @@
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
           shown: {} };
+    p.sizeNote = sizeNote;
     panes.set(id, p);
     watchTouch(p);
 
@@ -3710,6 +3717,8 @@
   function handlePtyHeader(p, text) {
     let h;
     try { h = JSON.parse(text); } catch { return; }
+    // The size of the pty behind the pane, which is not an opening of a run.
+    if (h && h.size) { setPtySize(p, h.size.cols, h.size.rows); return; }
     // Reset in the stream's own order, as RIS written to it. reset() acts at
     // once while write() only queues, so bytes of the old run still queued -
     // a slow window dropped and reconnected, or a restart on the same
@@ -3767,7 +3776,7 @@
     // place counts the terminal modes put back ahead of the replay, and a
     // terminal that never received them would carry on without them.
     const held = p.stream && !p.stream.fresh ? "&epoch=" + p.stream.epoch + "&from=" + p.stream.offset : "&from=-1";
-    const ws = new WebSocket(wsBase + basePath + "ws/pty?id=" + encodeURIComponent(p.id) + held);
+    const ws = new WebSocket(wsBase + basePath + "ws/pty?id=" + encodeURIComponent(p.id) + "&size=1" + held);
     ws.binaryType = "arraybuffer";
     p.ws = ws;
 
@@ -3918,11 +3927,102 @@
 
   function doFit(p) {
     if (!p.host.isConnected || p.host.offsetParent === null) return;
-    try { p.fit.fit(); } catch { return; }
-    const { cols, rows } = p.term;
-    if (!cols || !rows || (cols === p.cols && rows === p.rows)) return;
-    p.cols = cols; p.rows = rows;
-    ptySend(p, JSON.stringify({ resize: { cols, rows } }), true);
+    let cols, rows;
+    if (p.ptySize) {
+      // The terminal is the size of the pty, which is not necessarily the size
+      // of this box (see setPtySize), so the box is measured without fitting
+      // the terminal to it.
+      let d;
+      try { d = p.fit.proposeDimensions(); } catch { return; }
+      if (!d) return;
+      ({ cols, rows } = d);
+    } else {
+      try { p.fit.fit(); } catch { return; }
+      ({ cols, rows } = p.term);
+    }
+    if (!cols || !rows) return;
+    if (cols !== p.cols || rows !== p.rows) {
+      p.cols = cols; p.rows = rows;
+      ptySend(p, JSON.stringify({ resize: { cols, rows } }), true);
+    }
+    matchPtySize(p);
+  }
+
+  /** setPtySize is the server saying what size the pane's pty is.
+   *
+   *  A pane has one pty however many windows show it, and it is the size of
+   *  the window somebody is using. Every window fits its terminal to its own
+   *  box, so each of the others drew the program's output into a terminal of
+   *  a different size, and a program that addresses the screen by row and
+   *  column - Claude Code redrawing, and ConPTY on Windows repainting it with
+   *  only the cells that changed - wrote into the wrong cells: letters
+   *  dropped or swapped, rows on top of each other, backgrounds on the wrong
+   *  rows. The terminal is kept the size of the pty instead, whatever its box
+   *  allows; a box that is smaller shows the top left of it, and using the
+   *  window (focusing or typing in it) is what makes the pane its size. */
+  /** flockdeckPanes is for reading what each terminal is, from this window's
+   *  console, when a pane is garbled: the size the terminal is, the size the
+   *  server last said the pty is, and the size of this window's box. It
+   *  changes nothing and holds nothing the pane printed. */
+  window.flockdeckPanes = () => [...panes.values()].map((p) => ({
+    id: p.id, term: [p.term.cols, p.term.rows], pty: p.ptySize ? [p.ptySize.cols, p.ptySize.rows] : null,
+    box: [p.cols, p.rows], offset: p.stream ? p.stream.offset : null,
+  }));
+
+  function setPtySize(p, cols, rows) {
+    // The server bounds what a window can make a pane, and so does this: a
+    // terminal of thousands of columns costs every window showing it.
+    if (!(cols >= 20 && rows >= 5)) return;
+    cols = Math.min(cols, 500); rows = Math.min(rows, 200);
+    p.ptySize = { cols, rows };
+    updateSizeNote(p);
+    // Each size is drawn at its place in the stream, whatever else has been
+    // received since and is still waiting to be parsed: a burst of them -- a
+    // replay written across several sizes -- is every one of them in turn.
+    p.term.write("", () => {
+      if (p.term.cols !== cols || p.term.rows !== rows) p.term.resize(cols, rows);
+    });
+  }
+
+  /** updateSizeNote says so when the pane is a size this window's box is not:
+   *  the terminal is the pty's size, so a smaller box shows the part of it
+   *  nearest the bottom left, and a larger one has room over. The note is the
+   *  way to have the pane fitted to this window instead. */
+  function updateSizeNote(p) {
+    const want = p.ptySize;
+    // A box too small to be a terminal is not one the server would size the
+    // pane for, so there is nothing to offer.
+    const differs = !!want && p.cols >= 20 && p.rows >= 5 && (want.cols !== p.cols || want.rows !== p.rows);
+    const cropped = differs && (want.cols > p.cols || want.rows > p.rows);
+    p.host.classList.toggle("cropped", differs && want.rows > p.rows);
+    if (!p.sizeNote) return;
+    p.sizeNote.hidden = !cropped;
+    if (cropped) {
+      p.sizeNote.textContent = "Viewing " + want.cols + "×" + want.rows + " · fit to this window";
+      describe(p.sizeNote, "This pane is sized for another window and shows here cropped. Click to size it for this one.");
+    }
+  }
+
+  /** takeOverSize makes the pane the size of this window, which is what using
+   *  it does; the note asks for it in so many words. */
+  function takeOverSize(p) {
+    if (!p || !p.sizeNote || p.sizeNote.hidden) return;
+    p.cols = p.rows = 0; // measure again, and say so
+    doFit(p);
+    sendFocus(p);
+    p.term.focus();
+  }
+
+  /** matchPtySize brings the terminal to the pty's size once what has been
+   *  received is drawn, for a box that changed since: the same place in the
+   *  stream the size itself would have taken. */
+  function matchPtySize(p) {
+    updateSizeNote(p);
+    const want = p.ptySize;
+    if (!want) return;
+    p.term.write("", () => {
+      if (p.term.cols !== want.cols || p.term.rows !== want.rows) p.term.resize(want.cols, want.rows);
+    });
   }
 
   /** taskTip bounds a pane's task to something a bubble can hold. The field

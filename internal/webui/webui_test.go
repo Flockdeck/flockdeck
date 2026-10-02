@@ -9116,6 +9116,7 @@ class FakeTerm {
   onBinary(fn) { this._bin = fn; }
   write(d, cb) { this.queue.push({ data: d, cb }); }
   reset() { this.screen.length = 0; }
+  resize(cols, rows) { this.cols = cols; this.rows = rows; this.resizes = (this.resizes || 0) + 1; (this.sizeLog = this.sizeLog || []).push({ cols, rows, drawn: this.screen.map((d) => (typeof d === "string" ? d : new TextDecoder().decode(d))).join("") }); }
   dispose() { this.disposed = true; }
   focus() { terms.forEach((t) => { t.focused = false; }); this.focused = true; }
   blur() { this.focused = false; }
