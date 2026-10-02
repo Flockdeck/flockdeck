@@ -7,6 +7,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"unsafe"
 )
 
 // junction makes a directory junction, which any user may make without a
@@ -252,4 +253,42 @@ func plantLinks(tb testing.TB, base string) {
 	_ = os.Symlink("ok.txt", filepath.Join(proj, "lnk-in"))
 	_ = os.Symlink(outside, filepath.Join(proj, "lnk-dir"))
 	_ = exec.Command("fsutil", "file", "setshortname", filepath.Join(proj, "secret-credentials.txt"), "ENVX.TXT").Run()
+}
+
+// Threat: a read that the system fails -- here another process holding a lock
+// on the byte range -- returning a *fs.PathError that names the file's absolute
+// path. The reader returns the generic refusal instead, and the detail is kept
+// for the log.
+func TestLockedRangeReadIsGeneric(t *testing.T) {
+	tr := newTree(t)
+	f, err := tr.r.Open("ok.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	other, err := os.Open(filepath.Join(tr.root, "ok.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	lockFileEx := syscall.NewLazyDLL("kernel32.dll").NewProc("LockFileEx")
+	var ol syscall.Overlapped
+	const exclusiveNow = 0x2 | 0x1 // LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY
+	if r, _, e := lockFileEx.Call(other.Fd(), exclusiveNow, 0, 2, 0, uintptr(unsafe.Pointer(&ol))); r == 0 {
+		cannot(t, "cannot lock a byte range here:", e)
+	}
+	_, err = f.Limited(10).Read(make([]byte, 4))
+	mustBeGeneric(t, "read of a locked range", err, tr)
+	if CauseOf(err) == nil {
+		t.Error("the detail of the failed read was not kept for the log")
+	}
+}
+
+// dirLink makes link a link to the folder target: a junction, which needs no
+// privilege.
+func dirLink(t testing.TB, link, target string) {
+	t.Helper()
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+		cannot(t, "cannot make a junction here:", err, string(out))
+	}
 }

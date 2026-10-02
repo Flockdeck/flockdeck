@@ -28,19 +28,46 @@
 //   - a secret by name in ANY component of the path, file or folder
 //     (internal/secretname: dotenv and key files, credential and state files,
 //     .git, .ssh, .aws, secrets/, private/ and more; a superset of what
-//     internal/review.SecretPath treats as secret, which is an argument
-//     matcher and misses names such as "-prod.pem" and "key.pem=");
+//     internal/review.SecretPath treats as secret, including the argv forms
+//     with an "=", and more: that function is an argument matcher and misses
+//     names such as "-prod.pem" and "key.pem="). Case is folded the way file
+//     systems fold it, so ".ſsh" (a long s) is ".ssh";
+//   - on Unix, a component that is not ASCII and is not, byte for byte, an entry
+//     of its folder: a file system that ignores case or composition (APFS, ext4
+//     casefold, vfat, SMB) resolves such a spelling to another entry (the
+//     name check cannot know which), so it is refused (ReasonAlias);
+//   - on Unix, a folder inside the root on another device (a submount; a bind
+//     mount of the same file system has the same device and is NOT seen, and
+//     needs privilege to make);
 //   - anything that is not a regular file, with exactly one name (a hardlink
 //     out of the root cannot be seen by path, so a file with more than one
 //     link is refused);
 //   - on Windows, a file whose real long name, read back from the open handle,
 //     is outside the root or is denied.
 //
-// A path longer than MaxCandidateBytes is refused unread.
+// A path longer than MaxCandidateBytes, or with more than MaxComponents parts, is
+// refused unread.
 //
 // The checks that depend on the file's identity are made on the handle that
 // was opened, after it was opened, so a path swapped for a link between the
 // check and the read is caught rather than followed.
+//
+// # Roots
+//
+// NewRoot refuses a root that is empty or relative, a filesystem or drive root,
+// the user's home directory or any folder above it, a folder that keeps secrets
+// (~/.ssh, ~/.aws, ~/.gnupg, ~/.kube, ~/.config/gh ... and anything below
+// them), a folder that holds every program's settings (~/.config, AppData,
+// XDG directories) and a system folder. It follows links in the root's own path,
+// so the root must come from a path the host chose, never one a client, an
+// agent or a file's contents could influence.
+//
+// # Reading
+//
+// File.Limited serves at most MaxViewBytes in all. A File expects one reader:
+// readers share a position, so concurrent ones interleave ranges. A read or
+// close error is never the system's (which names an absolute path): it is the
+// generic refusal, and CauseOf has the detail for a log.
 //
 // # What a name check cannot do
 //

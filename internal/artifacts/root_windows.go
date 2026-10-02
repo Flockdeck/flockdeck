@@ -1,6 +1,7 @@
 package artifacts
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,6 +55,10 @@ func finalPathOf(h syscall.Handle) (string, error) {
 	}
 	return filepath.Clean(s), nil
 }
+
+// devOf has no device to report: a mount point is a reparse point here, which
+// walk refuses as one.
+func devOf(fs.FileInfo) (uint64, bool) { return 0, false }
 
 // linkCount is how many names the open file has.
 func linkCount(f *os.File) (uint64, error) {

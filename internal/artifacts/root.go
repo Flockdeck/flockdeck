@@ -28,6 +28,11 @@ const MaxCandidateBytes = 4096
 // file is shown clipped, never refused, and never read past this.
 const MaxViewBytes = 5 << 20
 
+// MaxComponents is the most path components Open will look at. A project is
+// never this deep, and the check of each component looks at the path again from
+// the root, so an unbounded count would be quadratic work for a client.
+const MaxComponents = 64
+
 // ErrUnavailable is the only thing a client is ever told about a refusal, so
 // that asking cannot tell a file that is not there from one that is forbidden
 // from one that went away.
@@ -39,7 +44,13 @@ var ErrUnavailable = errors.New("artifact unavailable")
 // The reason is not exported and the error does not print or encode it, in any
 // verb or format (%v, %+v, %#v, %s, JSON): a Refusal that is formatted or
 // marshalled into a reply by mistake says only what a client may be told.
-type Refusal struct{ reason Reason }
+type Refusal struct {
+	reason Reason
+	// cause is what the system said, which names absolute paths of this
+	// machine. It is for CauseOf, for the log; it is not unwrapped
+	// (errors.Is(err, fs.ErrPermission) is false), printed or encoded.
+	cause error
+}
 
 func (e *Refusal) Error() string { return ErrUnavailable.Error() }
 
@@ -58,6 +69,22 @@ func (e Refusal) MarshalJSON() ([]byte, error) { return []byte(`"unavailable"`),
 
 func refuse(r Reason) error { return &Refusal{reason: r} }
 
+// unreadable is what a read or a close that failed is reported as: the system's
+// own error is a *fs.PathError carrying the file's absolute path (a locked byte
+// range, a disk error, a vanished network share), which must not reach a
+// client. The detail is kept for CauseOf.
+func unreadable(err error) error { return &Refusal{reason: ReasonRead, cause: err} }
+
+// CauseOf is what the system said when err is an unreadable file, or nil. It
+// names absolute paths and is for this machine's log only; never send it.
+func CauseOf(err error) error {
+	var r *Refusal
+	if errors.As(err, &r) {
+		return r.cause
+	}
+	return nil
+}
+
 // ReasonOf is why err refused a path, or "" if err is not a Refusal.
 func ReasonOf(err error) Reason {
 	var r *Refusal
@@ -75,6 +102,11 @@ type Root struct {
 	// is how an agent that was started in it will spell the files it writes.
 	path, given string
 	r           *os.Root
+	// dev is the root's device number where the platform has one (hasDev): a
+	// folder inside the root on another device is a mount, which a path check
+	// cannot see, and is refused.
+	dev    uint64
+	hasDev bool
 }
 
 // NewRoot opens dir as a root. dir must be a directory.
@@ -85,7 +117,16 @@ type Root struct {
 // pane's own project or worktree, the recordings folder -- and never from one
 // an agent, a transcript, a remote client or a file's contents could have
 // influenced: a root made from such a path is a way to anywhere.
+//
+// dir must be absolute: an empty or relative one would be the process's current
+// directory, which is nobody's choice. A filesystem or drive root, the user's
+// home directory or any folder above it, and the folders that exist to keep
+// secrets (~/.ssh, ~/.aws, ~/.gnupg, ~/.config itself and the like) are refused
+// as a root; see forbiddenRoot.
 func NewRoot(dir string) (*Root, error) {
+	if dir == "" || !filepath.IsAbs(dir) {
+		return nil, errors.New("artifacts: a root must be an absolute directory")
+	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
@@ -93,6 +134,9 @@ func NewRoot(dir string) (*Root, error) {
 	real, err := canonical(abs)
 	if err != nil {
 		return nil, err
+	}
+	if why := forbiddenRoot(real); why != "" {
+		return nil, fmt.Errorf("artifacts: %s is not a safe root: %s", dir, why)
 	}
 	fi, err := os.Stat(real)
 	if err != nil {
@@ -105,7 +149,8 @@ func NewRoot(dir string) (*Root, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Root{path: real, given: abs, r: r}, nil
+	dev, hasDev := devOf(fi)
+	return &Root{path: real, given: abs, r: r, dev: dev, hasDev: hasDev}, nil
 }
 
 // Close releases the root.
@@ -119,17 +164,38 @@ func (r *Root) Path() string { return r.path }
 // total of MaxViewBytes, served in order from the start; the *os.File itself is
 // never reachable, so no caller can seek, read past the total or write.
 //
+// A File expects one reader at a time. Readers share one position, so two that
+// read concurrently, or alternately, each get the ranges the other did not:
+// neither sees the whole file. The shared total still holds.
+//
+// A copy of a File value shares its state (the total, the position, the open
+// file) with the original, so a copy cannot be used to read more; go vet also
+// reports the copy.
+//
 // Size is the file's size when it was opened. A file that grows or shrinks
 // afterwards is read as it is, up to the total; the reader will not say that it
 // was cut short (see the package documentation's list of what is not done).
 type File struct {
-	f *os.File
+	_ noCopy
 	// Rel is the file's path below the root, with forward slashes. It is what
 	// a viewer is shown as the name; an absolute path is never sent.
 	Rel     string
 	Size    int64
 	ModTime time.Time
 
+	st *fileState
+}
+
+// noCopy makes go vet's copylocks check report a File that is copied.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
+
+// fileState is everything about an open file that every copy of its File and
+// every reader of it shares.
+type fileState struct {
+	f      *os.File
 	mu     sync.Mutex
 	served int64 // bytes handed out so far, which is also the next offset
 	closed bool
@@ -138,22 +204,27 @@ type File struct {
 // Limited is a reader of at most n more bytes of the file, from where the
 // previous reader stopped. However many readers are made, and however large n
 // is, the total ever served is at most MaxViewBytes. The result is a private
-// type: it holds no exported way to the file.
-func (f *File) Limited(n int64) io.Reader { return &fileReader{file: f, left: n} }
+// type: it holds no exported way to the file. A read that fails for any reason
+// but the end of the file returns a Refusal (ErrUnavailable) and never the
+// system's error, which carries this machine's absolute path; CauseOf has it.
+func (f *File) Limited(n int64) io.Reader { return &fileReader{st: f.st, left: n} }
 
 type fileReader struct {
-	file *File
+	st   *fileState
 	left int64
 }
 
 func (r *fileReader) Read(p []byte) (int, error) {
-	f := r.file
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.closed {
+	st := r.st
+	if st == nil {
 		return 0, os.ErrClosed
 	}
-	room := min(r.left, MaxViewBytes-f.served)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.closed {
+		return 0, os.ErrClosed
+	}
+	room := min(r.left, MaxViewBytes-st.served)
 	if room <= 0 || len(p) == 0 {
 		if room <= 0 {
 			return 0, io.EOF
@@ -163,21 +234,38 @@ func (r *fileReader) Read(p []byte) (int, error) {
 	if int64(len(p)) > room {
 		p = p[:room]
 	}
-	n, err := f.f.ReadAt(p, f.served)
-	f.served += int64(n)
+	n, err := st.f.ReadAt(p, st.served)
+	st.served += int64(n)
 	r.left -= int64(n)
-	if n > 0 && err == io.EOF {
-		err = nil // the end is reported by the next read
+	switch {
+	case err == nil:
+	case err == io.EOF:
+		if n > 0 {
+			err = nil // the end is reported by the next read
+		}
+	default:
+		err = unreadable(err)
 	}
 	return n, err
 }
 
-// Close closes the file; readers made from it fail after that.
+// Close closes the file; readers made from it fail after that. Closing twice
+// reports os.ErrClosed.
 func (f *File) Close() error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.closed = true
-	return f.f.Close()
+	st := f.st
+	if st == nil {
+		return os.ErrClosed
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.closed {
+		return os.ErrClosed
+	}
+	st.closed = true
+	if err := st.f.Close(); err != nil {
+		return unreadable(err)
+	}
+	return nil
 }
 
 // raceHook is called between the steps of Open, at "checked" (the path has
@@ -208,6 +296,9 @@ func (r *Root) Open(candidate string) (*File, error) {
 	rel = path.Clean(rel)
 	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") || strings.HasPrefix(rel, "/") {
 		return nil, refuse(ReasonOutside)
+	}
+	if strings.Count(rel, "/") >= MaxComponents {
+		return nil, refuse(ReasonLexical)
 	}
 	if !checkLexical(rel, isWindows) {
 		return nil, refuse(ReasonLexical)
@@ -277,7 +368,7 @@ func (r *Root) vet(f *os.File, rel string) (*File, error) {
 	if err := r.checkRealName(f, rel); err != nil {
 		return nil, err
 	}
-	return &File{f: f, Rel: rel, Size: fi.Size(), ModTime: fi.ModTime()}, nil
+	return &File{st: &fileState{f: f}, Rel: rel, Size: fi.Size(), ModTime: fi.ModTime()}, nil
 }
 
 // walk looks at each part of rel, from the root down, without following
@@ -293,6 +384,9 @@ func (r *Root) walk(rel string) (fs.FileInfo, Reason) {
 				return nil, ReasonMissing
 			}
 			return nil, ReasonOutside // the root refused the path
+		}
+		if d, ok := devOf(fi); ok && r.hasDev && d != r.dev {
+			return nil, ReasonMount // another file system is mounted here
 		}
 		m := fi.Mode()
 		switch {
