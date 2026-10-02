@@ -1071,8 +1071,9 @@ turned on, and Flockdeck says so. The help page lists the gaps.
 
 Transcripts are written under Flockdeck's state directory, in a folder per
 project with one file per conversation (exports in an `exports` folder inside it),
-and never into your repository; a file is `0600` on Linux and macOS (on
-Windows, with your profile's permissions). A file stops at 16 MiB, long outputs are clipped
+and never into your repository; a file is `0600` on Linux and macOS, and on
+Windows inherits the recordings folder's permissions, readable by you and by a
+local administrator: saved on this machine, not private to you. A file stops at 16 MiB, long outputs are clipped
 with a marker, and the folder is tidied each time a recording starts: files older
 than 30 days go, then the oldest beyond 100 files or 256 MiB. **Open recordings
 folder** in the command palette opens the folder, and `flockdeck recordings`

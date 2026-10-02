@@ -45,8 +45,10 @@ Format version: **1**.
   apart from it). That name is the line's `session`.
 - A recording is in the project's folder, and an export, unless it was given a
   path of its own, in its `exports` folder.
-- The folder is created `0700` and files `0600` (on Windows, with the user's own
-  permissions only, as the rest of the state directory).
+- On Linux and macOS the folder is created `0700` and files `0600`. On Windows
+  the files inherit the recordings folder's permissions, under your profile:
+  readable by you and by a local administrator. A transcript is saved on this
+  machine, not private to you (section 4, *File permissions*).
 
 **One file is one conversation.** It is written from the conversation's first
 event: turning recording on for a pane whose conversation is already going writes
@@ -403,7 +405,7 @@ is "saved on this machine", not "private to you".
 | --- | --- |
 | `text` of a `user_prompt` or `assistant_message` | 32 KiB (32768 bytes) |
 | any other string: `output`, `detail`, `reason`, and every string inside `input` | 8 KiB (8192 bytes) |
-| a tool `input` that was over 48 KiB once its strings were cut (files of earlier versions only) | replaced by `{"_omitted":"too large to record"}` |
+| a tool `input` that was over 48 KiB once its strings were cut (files made before v0.3.48 only) | replaced by `{"_omitted":"too large to record"}` |
 
 The cut is at a character boundary, and the string ends with the marker
 `…[clipped N bytes]` (a single `…` character), where **N is the number of bytes
@@ -415,13 +417,15 @@ long that field was **in bytes as the recorder received it, before redaction**:
 ```
 
 `clipped` has the keys `text`, `output`, `detail`, `reason` and `input`. For
-`input` the number is the length of the input as JSON. In files of earlier
-versions, which were written from what Flockdeck's hook passed on, the hook had
-already clipped very large values (16 KiB per string; 48 KiB for a message or
-prompt) with the same marker: there `clipped` still gives the original length
-for `text`, `output`, `detail` and `reason`, and for `input` the length
-received, so a lower bound. A transcript made now is read from the stored
-conversation, which nothing has clipped before the recorder.
+`input` the number is the length of the input as JSON.
+
+In files made before v0.3.48 (by v0.3.47, which wrote recordings from the
+events the agent reported), Flockdeck's hook also clipped very large values (16
+KiB per string; 48 KiB for a message or prompt) before the recorder saw them,
+using the same marker: where it did, `clipped` still gives the original length
+for `text`, `output`, `detail` and `reason`, and for `input` it is the length
+received, so a lower bound. From v0.3.48 a transcript is read from the agent's
+stored conversation, which nothing clips before the recorder.
 
 ## 5. Which agents have a transcript
 
@@ -629,7 +633,9 @@ for:
   1); made again if it is exported again, **unless the new one would lack an event the earlier one had** (the stored conversation was cut or changed since; events are compared by their place, type and time, not their bytes). Then the earlier file is kept as it was, the window says so, and the command exits with an error, so that a script does not mistake the old file for a fresh one; delete the file to have a fresh export. With `-o`, a file of your own, which
   must not exist, and must not be inside the pane's project or any git
   repository: a transcript can hold secrets, and is never written into a
-  project. Files are `0600`.
+  project. Files are `0600` on Linux and macOS; on Windows a file inherits the
+  permissions of the folder it is written to (for the default, the recordings
+  folder: readable by you and by a local administrator).
 - **Pane or conversation.** `export` takes a pane's id as the saved layouts hold
   it, or a Claude Code conversation's id. A pane is only a way to find the
   conversation: the lines are the conversation's either way, with nothing of the
