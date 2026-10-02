@@ -8,30 +8,40 @@ task of a plan at once and forgets the run the moment its tab closes.
 ## Turning a plan into a todo
 
 Ask an agent to plan something the same way you would before [fanning it
-out](#fanout) — the plan can come from any pane's conversation, drafted with
-the application's ordinary chat. Once it has answered, press
-[[action:newTodo]], or the `☑` button in the pane header, beside `⑂`.
+out](#fanout) — the plan can come from any pane's conversation. Once it has
+answered, press [[action:newTodo]] in the command palette, or the `☑` button
+in the pane header, beside `⑂`.
 
 The steps are read out of the pane the same way Fan out reads its tasks: out
-of a Claude Code agent's own transcript where that is available, off the
-screen otherwise. They appear in an editable box, one step per line, with a
-title field above it. Edit the list, give it a name, and press **Save as
-todo**. Nothing is started yet — saving only writes the checklist down.
+of the agent's own stored conversation where Flockdeck can read it — Claude
+Code's, or the built-in chat client's — and off the screen otherwise. They
+appear in an editable box, one step per line, under a **Title** field. Edit the list, give it a name, and press **Save as todo**, or
+<kbd>Ctrl</kbd>+<kbd>Enter</kbd> in the box. Nothing is started yet — saving
+only writes the checklist down. A todo saved without a title is called
+"Untitled todo".
 
 ## The checklist
 
-Open [[action:todos]] to see every todo saved for the project. Each one shows
-its steps with a checkbox and a **Start** button:
+Open [[action:todos]], in the rail or the command palette, to see every todo
+saved for the project; **+ New todo** there reads the focused pane's plan the
+same way. Each todo shows how many of its steps are done, and each step a
+checkbox and a **Start** button:
 
 - The **checkbox** ticks a step off by hand, in either direction, at any time.
-- **Start** opens a fresh agent for that one step, with the step's own text as
-  its task — the same way [[action:newAgentTab]] or a fan-out row does,
-  optionally in a git worktree of its own. Started this way, several steps of
-  one todo get worktrees grouped under the todo's own name in `git branch` and
-  the worktree list, rather than a dozen unrelated branches that happen to
-  have come from the same checklist.
+- **Start** opens a fresh agent for that one step, on the project's default
+  agent, with the step's own text as its task. **Start each step below in a
+  git worktree of its own**, at the top of the todo, puts it in a worktree
+  instead of the project's own checkout; it starts off each time the dialog
+  opens. Steps of one todo started this way get branches grouped under the
+  todo's own name — `agent/<todo>/<step>` — in `git branch` and the worktree
+  list, rather than a dozen unrelated branches that happen to have come from
+  the same checklist.
 - Editing a step's text, or dragging it to reorder it, is saved back the same
   way the plan was saved in the first place.
+- **Delete** removes the whole todo, checklist and history, after asking.
+
+Todos are kept on disk with Flockdeck's own state, so they are there after a
+restart.
 
 A step you start is not removed from the list, and starting it a second time
 — after a failed attempt, or just to try again — keeps every earlier attempt
@@ -41,11 +51,11 @@ went, not only the latest.
 ## When a step is done
 
 Closing the pane a step's agent ran in reads its outcome the same way a
-settled [fan-out](#fanout) job does, and ticks the step automatically once
-that outcome reads as finished. A tick made this way is only ever a starting
-point: checking or unchecking a step by hand always has the last word, so a
-step you know is really done, or really is not, stays exactly as you left it
-regardless of what its agent's pane said on the way out.
+settled [fan-out](#fanout) job does — done, needs input, or failed — and the
+step's row shows it beside how many attempts it has had. An outcome of done
+ticks the step. An outcome never unticks one, so a step you ticked by hand
+stays ticked whatever its agent's pane said on the way out, and a tick you
+think is wrong is yours to take off.
 
 ## Why not just fan out again
 

@@ -12,6 +12,12 @@ starts the agent and model it had, and each one resumes the conversation it had
 rather than starting an empty one. The project you name on the command line is
 the one you land in; the rest are restored around it.
 
+What you set on a pane comes back with it too: its lock, whether it is
+recording, and its auto-review switch, along with a name you gave its tab and
+the terminal size it was last drawn at. A layout saved before auto-review was
+kept per pane brings its panes back with auto-review as **Settings ›
+General › Start new panes with auto-review on** says.
+
 A project whose folder is not there when Flockdeck starts — on a USB stick
 that is not plugged in, or a network drive not yet connected — is not opened,
 but it stays in the list for the next ten starts, so it comes back with its
@@ -74,6 +80,6 @@ from the palette, carries on.
 
 ## Reloading the window
 
-Each pane keeps a bounded ring buffer of recent output, so a window that
+Each pane keeps its most recent 512 KB of output, so a window that
 reconnects or is reloaded replays it into a fresh terminal. Reloading the page
 costs you scrollback beyond that buffer, not the conversation.

@@ -25,8 +25,9 @@ another tab, or a tab of its own; nothing restarts, and the conversation,
 working directory and scrollback come with it.
 
 **[[key:palette]] opens the command palette**, and so does **Commands** at the
-right of the top bar. It holds every action in the application but switching
-tabs, searchable. If you remember one shortcut, remember that one.
+right of the top bar. It holds every action in the application, searchable,
+and goes to any tab or project by name. If you remember one shortcut,
+remember that one.
 
 ## A first session
 
@@ -62,8 +63,9 @@ is; [Spend and limits](#spend) says how, and when Claude Code's are read.
 
 The rail down the left of the window has a tile for each open project — one
 with an amber triangle badge has an agent waiting on you, and one with a cyan badge
-has agents at work — and under them the tools:
-broadcast, changes, history, worktrees, remote access, help and settings. Rest the
+has agents at work — and under them the tools: the agents overview,
+broadcast, changes, history, worktrees, fan-out history, todos, GitHub, API
+keys, remote access, help and settings. Rest the
 pointer on one, or reach it with the keyboard, and it says what it is and the
 key that does the same. On a phone or a narrow window the rail folds into the
 menu at the left of the top bar.
