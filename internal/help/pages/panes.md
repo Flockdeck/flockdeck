@@ -58,6 +58,15 @@ until you turn it on too; export, reveal and record are not shown on a shell
 pane, which has no conversation, and reveal works only in a window on the
 machine Flockdeck runs on: see [Recording a pane](#recording).
 
+## Auto-review, per pane
+
+The ✓ in a pane header turns auto-review on or off for that one pane, and its
+tooltip counts the commands let through unasked so far. It is kept with the
+layout, so it survives a restart; see [Knowing who needs you](#status) for what
+it does and [Settings](#settings) for the default new panes start with. A pane
+an agent starts, by fan-out or `flockdeck spawn`, starts with its parent's
+setting.
+
 ## One pane, several windows
 
 A pane has one terminal however many windows show it — a second window, a
