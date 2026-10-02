@@ -7,7 +7,7 @@ switched from inside the window. These are what is left.
 | --- | --- |
 | `flockdeck` | Open the current directory |
 | `flockdeck -C ~/code/api` | Open that directory, in the running instance if there is one |
-| `flockdeck -new` | Start without the saved layout, and replace it with this run's |
+| `flockdeck -new` | Start with a single pane instead of the saved layout, which this run's layout then replaces |
 | `flockdeck -shell` | Make the first pane a shell, not an agent |
 | `flockdeck -agent codex` | Make every new pane this run that agent |
 | `flockdeck -detach` | Run with no window; attach to it later |
@@ -16,7 +16,7 @@ switched from inside the window. These are what is left.
 | `flockdeck -solo` | Start a separate instance instead of attaching |
 | `flockdeck -version` | Print the version |
 | `flockdeck recordings` | List the transcripts panes have recorded, newest first; `-dir` prints the folder, `-json` prints one JSON object per recording |
-| `flockdeck recordings export` | Write an agent's stored conversation as a transcript, whether or not the pane was recorded; `-o` chooses the file |
+| `flockdeck recordings export` | Write an agent's stored conversation as a transcript, whether or not the pane was recorded; `-o` chooses the file, `-reveal` shows it in your file manager |
 | `flockdeck agents` | List the agents and models that `-agent` and `spawn` accept, and which are installed here |
 | `flockdeck help` | Print the usage; `flockdeck help spawn` (or any subcommand below) prints that subcommand's usage instead |
 
@@ -42,18 +42,18 @@ opens only its own projects.
 Run from inside a pane, this starts another agent:
 
 ```sh
-flockdeck spawn [--worktree <branch>] [--split] [--shell] [--record]
-                [--agent <id>] [--model <model>] <task>
+flockdeck spawn [-worktree <branch>] [-split] [-shell] [-record]
+                [-agent <id>] [-model <model>] <task>
 ```
 
-`--record` starts the helper with its agent interaction recorded as a
-transcript, the same as turning on Record in its header; see
+`-record` starts the helper with its agent interaction recorded as a
+transcript, the same as the record button in its header; see
 [Recording a pane](#recording). It is off unless given, a helper does not inherit
 it from its parent, and it is refused until you have turned recording on yourself
 in the window, so an agent can never be the first to switch it on. It cannot be
-combined with `--shell`, which reports no events to record.
+combined with `-shell`, which has no conversation to record.
 
-`--agent` and `--model` choose which agent the helper is; without them it is
+`-agent` and `-model` choose which agent the helper is; without them it is
 whatever the project runs by default. `flockdeck agents` lists the names both
 of them take, and a name neither the catalog nor the agent has is answered here
 rather than becoming a pane that never starts.
@@ -89,18 +89,19 @@ Run from inside a pane, this closes another pane — the same effect
 Ctrl+Shift+W has on the one you're focused on:
 
 ```sh
-flockdeck close [--force] <pane-id>
-flockdeck close --finished
+flockdeck close [-force] <pane-id>
+flockdeck close -finished
 ```
 
 `<pane-id>` is the id `spawn` printed back when it started the pane you now
-want gone. A pane still working is left alone unless `--force` is given, so
+want gone. A pane still working is left alone unless `-force` is given, so
 naming the wrong id cannot cut off work in progress (an idle agent with a
 background command or subagent still running counts as in progress); a locked pane
-is refused whatever the flags say, since `--force` only covers a pane still working
+is refused whatever the flags say, since `-force` only covers a pane still working
 and only the user can unlock a pane, from its header or the command palette; a pane cannot close
-itself this way — end its own turn instead. `--finished` closes every idle or
-exited pane (leaving alone an agent with background work still running) across every open project instead of naming one, the same as the
+itself this way — end its own turn instead. `-finished` closes every idle agent
+pane and every cleanly exited pane (leaving alone idle shells, panes whose
+process failed or was killed, and an agent with background work still running) across every open project instead of naming one, the same as the
 "Close finished panes" command, and takes no pane id. It leaves locked panes open and
 prints how many it left.
 
@@ -116,10 +117,14 @@ flockdeck recordings [-dir] [-json]
 ```
 
 Lists the transcripts panes have recorded, newest first: when it started, the
-project, the pane, its size and the file. `-dir` prints the folder they are kept
+project, the pane's name (only a recording made before v0.3.48 has one; a newer
+one shows `-`), its size and the file. Exports are not listed: they are in each
+project folder's `exports` folder. `-dir` prints the folder they are kept
 in and nothing else, and `-json` prints one JSON object per recording for a
 script. It reads the state directory, so it works with no Flockdeck running, and
-from any terminal. Nothing is recorded unless a pane's Record toggle is on:
+from any terminal. Nothing is recorded unless you turn recording on for a pane,
+with the record button in its header or **Start recording** in the command
+palette:
 see [Recording a pane](#recording), which links the format reference for the
 files it lists.
 
@@ -136,10 +141,16 @@ hold it, or a Claude Code conversation's (its file's name under
 `~/.claude/projects`). By default the file goes in the `exports` folder of the
 project's folder under the recordings folder; `-o` names a file of your own,
 which must not exist and must not be inside the project or a git repository.
-It is written readable by you only. `-reveal` shows the file in your file
+It is written 0600 on Linux and macOS (on Windows, with your profile's
+permissions), never into the project or a git repository. `-reveal` shows the file in your file
 manager, selected, when it has been written.
 
-It prints how many lines it wrote, and how many entries it could not read. For
+It prints how many lines it wrote, whether the conversation was cut at the 16
+MiB cap, and how many entries it could not read (one over 8 MiB is left out).
+If an earlier export of the same conversation has events this one would lack,
+because the stored conversation was cut or changed, that file is kept, nothing
+new is written, and the command exits with an error; delete the file to have a
+fresh one. For
 an agent that stores no conversation Flockdeck can read (anything but Claude
 Code today) it says so, and writes nothing. The transcript can contain secrets:
 common ones are removed, but that is best effort. It works with no Flockdeck
@@ -159,7 +170,7 @@ only while the agent talks to that vendor's own address.
 | `flockdeck keys list` | Which agents have one, not what it is |
 | `flockdeck keys clear openai` | Forgets the one Flockdeck stored |
 | `flockdeck keys check openai` | Asks the agent's endpoint whether it takes the key a pane would use |
-| `flockdeck keys endpoint <agent> <url>` | Points an API agent at another address; `default` in place of the address goes back to the vendor's own |
+| `flockdeck keys endpoint <agent> <url>` | Points an API agent at another address; `default` in place of the address goes back to the vendor's own, and no address at all prints the one it uses now |
 
 Nothing here ever prints a key back, and neither does the interface.
 
@@ -219,7 +230,7 @@ desk.
 `-version` installs a specific release rather than always the latest,
 checked the same way and asking first unless `-yes` is given: it is how to
 undo a bad update yourself, right now, without waiting for a fix to be
-published. **Settings › General › Install a specific version…** offers the
+published. **Settings › Account & plan › Install a specific version…** offers the
 same choice from a list of recent releases, without typing a version number:
 picking one downloads and checks it, then offers it through the same
 **Update** button, so restarting onto it goes through the same confirmation
@@ -268,7 +279,7 @@ The subcommand still works; it is the background updating that goes.
 | `FLOCKDECK_RELAY` | Which relay `flockdeck remote enable` uses when `-relay` is not given |
 | `FLOCKDECK_API_KEY` | A key for any API agent, used when neither its own variables nor a key stored with `flockdeck keys set` hold one |
 | `FLOCKDECK_DIR`, `FLOCKDECK_START_AGENT` | The equivalents of `-C` and `-agent` |
-| `FLOCKDECK_FRESH`, `FLOCKDECK_SHELL_FIRST`, `FLOCKDECK_NO_WINDOW`, `FLOCKDECK_DETACH`, `FLOCKDECK_SOLO` | Set to `1`, the equivalents of `-new`, `-shell`, `-no-window`, `-detach` and `-solo`, for a service's environment; a flag given on the command line wins |
+| `FLOCKDECK_FRESH`, `FLOCKDECK_SHELL_FIRST`, `FLOCKDECK_NO_WINDOW`, `FLOCKDECK_DETACH`, `FLOCKDECK_SOLO` | Set to `1` or `true` (any case), the equivalents of `-new`, `-shell`, `-no-window`, `-detach` and `-solo`, for a service's environment; a flag given on the command line wins |
 | `FLOCKDECK_REMOTE_INVITE`, `FLOCKDECK_REMOTE_JOIN`, `FLOCKDECK_REMOTE_NAME` | The defaults for `-invite`, `-join` and `-name` of `flockdeck remote enable` |
 | `FLOCKDECK_API` | Where Flockdeck listens for its panes — set for you |
 | `FLOCKDECK_TOKEN` | The secret that goes with it — set for you |

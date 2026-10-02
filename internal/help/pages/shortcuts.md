@@ -7,10 +7,13 @@ switching tabs, the font size, [[key:settings]] for the settings,
 <kbd>F1</kbd> for this help, and [[key:nextRegion]] for the rest of the window.
 The one exception that does take a key from programs is [[key:toggleRail]] for
 the rail, which a terminal program such as tmux or readline also uses; remap it
-under Settings › Keybindings if one needs it.
+under Settings › Keyboard if one needs it.
 
-These are the defaults. Change or clear any of them under Settings ›
-Keybindings.
+These are the defaults. Change or clear any of them under Settings › Keyboard,
+except picking a tab by number, which is a range rather than one key: press a
+binding's button and then the new key, <kbd>Backspace</kbd> or
+<kbd>Delete</kbd> to leave the action with no binding, or <kbd>Esc</kbd> to
+change nothing.
 
 Inside a terminal <kbd>Tab</kbd> belongs to the program running there, so
 [[key:nextRegion]] is how the keyboard gets out: it moves between the rail, the
@@ -27,7 +30,10 @@ with a letter goes to the program, except for [[key:toggleRail]].
 
 Actions marked *Command palette* have no binding of their own: press
 [[key:palette]], or **Commands** at the right of the top bar, and search for
-them by name.
+them by name. The palette also has **Rename this tab…**, **Focus the next
+pane** and **Focus the previous pane**, which are not in the table below. Type
+`>` first in the palette, or choose **Go to…**, to list only the places to go
+to; <kbd>Backspace</kbd> in the empty field goes back to every command.
 
 On macOS the bindings are the same, with <kbd>Ctrl</kbd> rather than
 <kbd>Cmd</kbd>, except for picking a tab by number: that is
@@ -39,8 +45,10 @@ how most Mac layouts type characters such as <kbd>[</kbd>, <kbd>|</kbd> and
 
 Panes are focused by clicking, resized by dragging the divider between them,
 moved by dragging their header, and closed, restarted or zoomed from the
-buttons in their header. Double-click a tab to rename it; an empty name gives
-it back the title it gives itself.
+buttons in their header; double-clicking the header, away from its buttons,
+zooms it too. Double-click a tab, or press <kbd>F2</kbd> while the keyboard is
+on it, to rename it; an empty name gives it back the title it gives itself.
+Middle-click a tab to close it.
 
 A divider can be resized from the keyboard too: reach it with <kbd>Tab</kbd>,
 then the arrow keys move it and <kbd>Home</kbd> shares the room equally. In the
@@ -50,15 +58,18 @@ and <kbd>End</kbd> go to the first and the last.
 ## Inside a dialog
 
 - <kbd>Esc</kbd> closes any dialog, the command palette and the prompt bar, and
-  the find bar while you are typing in it. <kbd>Tab</kbd> stays inside an open
+  the find bar while the keyboard is in it. In a search field with something
+  typed in it, the first <kbd>Esc</kbd> empties the field, and a dialog opened
+  from another goes back to that one. <kbd>Tab</kbd> stays inside an open
   dialog.
 - While a dialog is open, the other shortcuts wait until it closes, so nothing
   changes behind it unseen. The font size keys, [[key:palette]] and
-  [[key:help]] still work.
+  [[key:help]] still work, and the key that opened the dialog closes it.
 - In the command palette, the agent picker and the help's contents,
   <kbd>↑</kbd> and <kbd>↓</kbd> move through the list and <kbd>Enter</kbd>
   takes the one selected.
 - In the agent picker, <kbd>→</kbd> opens an agent's models and <kbd>←</kbd>
   closes them, while nothing has been typed to narrow the list.
 - In the find bar, <kbd>Enter</kbd> goes to the next match and
-  <kbd>Shift+Enter</kbd> to the one before.
+  <kbd>Shift+Enter</kbd> to the one before. While the find bar is open,
+  <kbd>F3</kbd> and <kbd>Shift+F3</kbd> do the same from the terminal too.

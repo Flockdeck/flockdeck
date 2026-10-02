@@ -1,40 +1,34 @@
 # Settings
 
 [[key:settings]], or **Settings** at the foot of the rail, opens the settings:
-the sections on the left and the one you are in on the right. Every control
-changes its setting at once, and it is the same setting the command palette and
-the keys change, so whichever you use, the others show it.
+eleven sections in four groups on the left, and the one you are in on the
+right. Every control changes its setting at once, and it is the same setting
+the command palette and the keys change, so whichever you use, the others show
+it.
 
-- **General** — desktop notifications, and whether Flockdeck checks for new
-  releases in the background, which is changed only at the desk; **Check for
-  updates now** asks once on the spot, whatever that switch says. **Show them
-  again** brings back every hint you sent away.
+### Window
+
+- **General** — **Desktop notifications**. Under **New panes**, **Start new
+  panes with auto-review on**: a pane opened by hand starts with this setting,
+  and a pane started from another one (a fan-out row, or a helper started with
+  `flockdeck spawn`) starts the way that pane is set. Either way the ✓ in a
+  pane's header turns it on or off for that one pane; auto-review only ever
+  lets through a command it is confident only reads, and never says "deny".
+  Then **Fan out**'s own default for its "Put fanned-out agents in this tab,
+  beside the agent that planned them" checkbox, which can still be changed for
+  one run from the dialog itself. Under **Hints**, **Show them again** brings
+  back every hint you sent away.
 - **Appearance** — **Theme**: **Dark**, the palette this window has always
   drawn in; **Light**; or **Follow system**, which changes with this
   computer's own light-or-dark setting. **Accent colour** is a small fixed set
   of swatches, kept legible against either palette, not a free colour picker.
-  Below them, **Terminal**: the font size, the font, how many lines each pane
-  keeps to scroll back through, and the cursor's shape and whether it blinks,
-  with a preview. The size is also [[key:fontUp]], [[key:fontDown]] and
+- **Terminal** — a preview at the top, then the font size, the font, how many
+  lines each pane keeps to scroll back through, and the cursor's shape and
+  whether it blinks. The size is also [[key:fontUp]], [[key:fontDown]] and
   [[key:fontReset]]. **Screen reader support** lets a screen reader read what
   the agents write; it is off unless you turn it on, because it slows every
   terminal a little. The palette has **Turn screen reader support on** too.
-- **Behaviour** — **Fan out**'s own default for its "Put them in this tab"
-  checkbox, which can still be changed for one run from the dialog itself. And
-  **Auto-review**'s own default: whether a pane with no parent — one opened by
-  hand, or a fresh row of a fan-out run from the window — starts with
-  auto-review on. A pane's own switch still starts off unless this is on, and
-  either way can be turned on or off for that one pane; auto-review only ever
-  lets through a confidently read-only command, and never says "deny". And
-  **Status detection**: whether TypeSafe's Jev model may help read the status
-  of a pane whose agent reports none. **Off by default**, and it sends
-  terminal output to a third party — see [Knowing who needs you](#status).
-  Above it, **TypeSafe API key** is where you paste, replace or clear the key
-  that feature and **Ask Jev to rate unmatched work** need. The field is
-  masked and never shows the key back, only whether one is set. Saving a key
-  sends nothing: both features stay off until you turn them on. At the desk
-  only.
-- **Keybindings** — every shortcut this window's own chrome offers, grouped as
+- **Keyboard** — every shortcut this window's own chrome offers, grouped as
   [Keyboard shortcuts](#shortcuts) groups them, each with a button that
   records the next key you press as its new binding; **Reset** puts one back,
   and **Reset every shortcut to its default** puts all of them back. Two
@@ -43,64 +37,89 @@ the keys change, so whichever you use, the others show it.
   own keybindings — Claude Code's `~/.claude/keybindings.json`, say — which
   remaps keystrokes inside a pane; this remaps the window around it, before a
   pane ever sees the keystroke.
-- **Agents** — the agent and model a pane starts when nobody chooses: for every
-  project, and for the project on screen, which can go back to **Same as every
-  project**.
-  - **Routing** — whether a fan-out's rows come with a model chosen for the
-    work: **Off**, which it is until you change it, **Suggest** or
-    **Automatic**, for every project and for this one. **Never go below** keeps
-    it off the smaller tiers. **Strategy** is **Cost-first, quality-aware**,
-    the default, or **Minimise cost**: quality-aware leaves work no rule
-    recognises exactly where it was; minimise cost routes it too, to the
-    cheapest model the floor allows. Either way a rule that matches still
-    decides first. The rules in force are listed, each with how often the log
-    shows it overridden where it has decided at least once, with where
-    `agents.json` is, since that is where they are edited, and **Clear routing
-    history** empties the record of what it chose. [Agents and models](#agents)
-    has the rest.
-  - **Claude Code's usage limits** — which Claude panes read their five-hour
-    and weekly limits for the pane header: **Only where I have a status line**,
-    the default, **Always** or **Never**. It applies to a pane when it starts.
-    [Spend and limits](#spend) says what each one costs.
+
+### Agents
+
+- **Agents & models** — the agent and model a pane starts when nobody
+  chooses: for **Every project**, and for the project on screen, which can go
+  back to **Same as every project**. And **Claude Code's usage limits**: which
+  Claude panes read their five-hour and weekly limits for the pane header:
+  **Only where I have a status line**, the default, **Always** or **Never**.
+  It applies to a pane when it starts. [Spend and limits](#spend) says what
+  each one costs. Below them, links to **Routing** and **API keys**.
+- **Routing** — whether a fan-out's rows come with a model chosen for the
+  work: **Off**, which it is until you change it, **Suggest** or
+  **Automatic**, for every project and for this one. **Never go below** keeps
+  it off the smaller tiers. **Strategy** is **Cost-first, quality-aware**,
+  the default, or **Minimise cost**: quality-aware leaves work no rule
+  recognises exactly where it was; minimise cost routes it too, to the
+  cheapest model the floor allows. Either way a rule that matches still
+  decides first. **Let a rule send work to another agent** and **Ask Jev to
+  rate unmatched work** are off until you turn them on. The rules in force are
+  listed, each with how often the log shows it overridden where it has decided
+  at least once, with where `agents.json` is, since that is where they are
+  edited, and **Clear routing history** empties the record of what it chose.
+  [Agents and models](#agents) has the rest.
 - **API keys** — set, replace or clear the key each API agent uses. A key is
   never shown once it is set. Keys are set and cleared only at the desk: a
   window reached through the relay shows which are set, and no more.
-- **Remote access** — turn it on or off, the relay it goes through, this
+- **Status detection** — **TypeSafe API key**, where you paste, replace or
+  clear the key that **Let TypeSafe's Jev help read pane status** and
+  Routing's **Ask Jev to rate unmatched work** need. The field is masked and
+  never shows the key back, only whether one is set, and it is set only at the
+  desk. Saving a key sends nothing: both stay off until you turn them on.
+  Below it, **Let TypeSafe's Jev help read pane status**: whether TypeSafe's
+  Jev model may help read the status of a pane whose agent reports none. **Off
+  by default**, and it sends terminal output to a third party — see [Knowing
+  who needs you](#status). It is turned on only at the desk.
+
+### Connections
+
+- **Remote access** — whether paired devices are notified when an agent has
+  been waiting, after how long, and whether the notification names the pane;
+  then turning remote access on or off, the relay it goes through, this
   machine's name, and the paired devices. Turning it on or off, and the
   relay, are changed only at the desk.
+- **GitHub** — signing in to GitHub, for pull requests, issues and CI status
+  inside Flockdeck; see [GitHub](#github).
+
+### Account
+
+- **Account & plan** — the Free plan, which is every part of the desktop app;
+  where the relay reports one, the Remote access plan for reaching this
+  machine through the shared relay, a free trial and then a subscription, with
+  the days left or the date it is paid until, paid for from **Devices** on a
+  paired phone or browser; and Enterprise, coming for companies to run the
+  relay on their own infrastructure with SSO and support. Under **Version**,
+  **Check for updates**: whether Flockdeck looks for new releases in the
+  background, changed only at the desk; **Check for updates now** asks once
+  on the spot, whatever that switch says; and **Install a specific version…**
+  to roll back or reinstall (see [The command line](#cli)). Then **Sponsor
+  Flockdeck**, a link to [GitHub Sponsors](https://github.com/sponsors/jmwri)
+  for anyone who wants to say thank you. Sponsoring buys nothing, and the app
+  is the same either way. At its foot are the licence (PolyForm
+  Noncommercial), the privacy policy and terms for the shared relay, and the
+  licences.
 
 A window reached through the relay leaves a few things to the desk: [Remote
 access](#remote) lists them.
-- **GitHub** — signing in to GitHub, for pull requests, issues and CI status
-  inside Flockdeck; see [GitHub](#github).
-- **Account & plan** — the Free plan, which is every part of the desktop app;
-  the Remote access plan for reaching this machine through the shared relay, a
-  free trial and then a subscription, with the days left or the date it is paid
-  until, paid for from **Devices** on a paired phone or browser; and
-  Enterprise, coming for companies to run the relay on their own
-  infrastructure with SSO and support.
-  At its foot are the privacy policy and terms for the shared relay, and the
-  licences.
-  - **Sponsor Flockdeck** — a link to
-    [GitHub Sponsors](https://github.com/sponsors/jmwri), under the plans, for
-    anyone who wants to say thank you. Sponsoring buys nothing, and the app is
-    the same either way.
 
-Type into **Find a setting** to narrow the sections to the ones that mention a
-word. On a narrow screen the sections go across the top.
+Type into **Find a setting**, at the top of the settings, to narrow the list to
+the sections that mention a word. In a narrow window the list and a section are
+two pages: pick a section to open it, and **← All settings** goes back.
 
 ## Elsewhere in the window
 
 - **The agent and model a pane runs** — [[action:splitRightChoose]] or
   [[action:newAgentTabChoose]]. Kept with the layout.
-- **Which agent and model a project starts** — **Agents** in the settings, or
-  **Set as default for** at the foot of the picker. Kept in
+- **Which agent and model a project starts** — **Agents & models** in the
+  settings, or **Set as default for** at the foot of the picker. Kept in
   `agents.json`.
-- **Whether a fan-out's models are routed, and by which rules** — **Agents ›
-  Routing** in the settings for the mode, the floor and the strategy; the
-  rules themselves are edited by hand. Kept in `agents.json`.
-- **Whether Claude panes read their usage limits** — **Agents › Claude Code's
-  usage limits** in the settings. Kept in `prefs.json`.
+- **Whether a fan-out's models are routed, and by which rules** — **Routing**
+  in the settings for the mode, the floor and the strategy; the rules
+  themselves are edited by hand. Kept in `agents.json`.
+- **Whether Claude panes read their usage limits** — **Agents & models ›
+  Claude Code's usage limits** in the settings. Kept in `prefs.json`.
 - **An API agent's key** — **API keys** in the settings, [[action:apiKeys]], or
   `flockdeck keys set <agent>`. Kept in `keys.json`. At the desk only.
 - **Where an API agent sends its prompts** — its address, in the agent picker,
@@ -112,10 +131,13 @@ word. On a narrow screen the sections go across the top.
 - **Which panes the prompt bar reaches** — [[key:toggleBroadcast]], and the `⇉`
   button in each pane header; [Broadcast and the prompt bar](#broadcast) has the
   rest. Kept until Flockdeck stops.
-- **The terminal's font, size, scrollback and cursor** — **Appearance** in the
+- **The terminal's font, size, scrollback and cursor** — **Terminal** in the
   settings, or the palette's entries for each. Kept in `prefs.json`.
-- **A fan-out's own shortcut, or any other window shortcut** — **Keybindings**
+- **A fan-out's own shortcut, or any other window shortcut** — **Keyboard**
   in the settings. Kept in `keybindings.json`.
+- **A pane's auto-review, lock and recording** — the ✓, padlock and record
+  buttons in its header, or the command palette. Kept with the layout, so a
+  pane comes back after a restart the way you left it.
 - **This machine's name and paired devices** — **Remote access** in the
   settings, or [[action:remote]]. Use **Pair a device**, **Rename** and
   **Unpair**. Kept on the relay; [Remote access](#remote) has the rest.
@@ -129,11 +151,12 @@ word. On a narrow screen the sections go across the top.
   run only: each run has an address of its own.
 - **Hints under the tab bar** — their close button sends one away for good.
   Kept in `prefs.json`.
-- **Fan out's own default, and auto-review's own default** — **Behaviour** in
-  the settings. Kept in `prefs.json`.
-- **Status detection with Jev** — **Behaviour** in the settings. Kept in
-  `prefs.json`; off unless you turn it on, and only from the machine itself.
-- **TypeSafe API key** — **Behaviour** in the settings. Kept in `keys.json`
+- **Fan out's own default, and auto-review's own default** — **General ›
+  New panes** in the settings. Kept in `prefs.json`.
+- **Status detection with Jev** — **Status detection** in the settings. Kept
+  in `prefs.json`; off unless you turn it on, and only from the machine
+  itself.
+- **TypeSafe API key** — **Status detection** in the settings. Kept in `keys.json`
   with your agents' keys, never in `prefs.json`; set and cleared at the desk
   only, never shown back, and only ever sent to `api.typesafe.ai`.
 
@@ -158,15 +181,17 @@ set).
   whether you kept it: the rule's name and the models, never the task. It
   keeps the last 10,000 lines, and **Clear routing history** empties it.
 - `keybindings.json` — every shortcut you have remapped or cleared under
-  **Keybindings**, by the action's own id; one absent from it is still its
+  **Keyboard**, by the action's own id; one absent from it is still its
   built-in binding. Delete it, or **Reset every shortcut to its default**, to
   put every shortcut back at once.
-- `prefs.json` — the settings under General, Appearance and Behaviour,
-  Claude Code's usage limits, whether the help has
-  been opened, and which hints were dismissed. Delete it while Flockdeck is not
+- `prefs.json` — the settings under General, Appearance and Terminal, the
+  Jev switch under Status detection, Claude Code's usage limits, what paired
+  devices are notified of, whether you have agreed to recording once, whether
+  the help has been opened, and which hints were dismissed. Delete it while Flockdeck is not
   running to have the help open on the next start, every hint back, and every
   one of those settings as it first was.
-- `layout-….json` — one per project: its tabs, splits and panes.
+- `layout-….json` — one per project: its tabs, splits and panes, with each
+  pane's auto-review, lock and recording.
   `flockdeck -new` starts without it.
 - `projects.json` — the recent projects the picker offers.
 - `session.json` — which projects are reopened on the next start.
@@ -186,6 +211,8 @@ set).
   swept up.
 - `e2e_key.json` — this machine's end-to-end key for remote access terminals.
   It holds a secret; keep it private.
+- `recordings` — the transcripts of recorded panes, and their exports; see
+  [Recording a pane](#recording).
 - `uploads` — pictures attached from a phone, one folder per pane, removed
   after a week.
 - `window` — the browser profile the window used to run in; nothing writes to
@@ -215,10 +242,11 @@ elsewhere — and start Flockdeck again.
   already downloaded is put in place. That is what keeps an older version you
   installed on purpose from updating itself to the latest.
 - `FLOCKDECK_RELAY` — which relay `flockdeck remote enable` uses.
-- `TYPESAFE_API_KEY` — a key for TypeSafe's Jev, used only when **Status
-  detection** under **Behaviour**, or **Ask Jev to rate unmatched work**, is
-  turned on; see [Knowing who needs you](#status). A key set in **Settings ›
-  Behaviour › TypeSafe API key** is used first; this is the fallback when none
+- `TYPESAFE_API_KEY` — a key for TypeSafe's Jev, used only when **Let
+  TypeSafe's Jev help read pane status**, under **Status detection**, or **Ask
+  Jev to rate unmatched work**, under **Routing**, is turned on; see [Knowing
+  who needs you](#status). A key set in **Settings › Status detection ›
+  TypeSafe API key** is used first; this is the fallback when none
   is set there. No other variable is ever tried. Without a key nothing is ever
   sent.
 - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GEMINI_API_KEY` (or

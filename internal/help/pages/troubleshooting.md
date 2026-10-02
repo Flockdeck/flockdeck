@@ -8,7 +8,9 @@ Started from a shortcut, Flockdeck has no terminal to print to, so a failure to
 start is also written to `error.log` in the state directory — [Settings](#settings) says
 where that is. Running `flockdeck` from a terminal shows the same message there.
 What goes wrong as it stops — a layout it could not save, an update it could
-not put in place, a restart that did not come back — is written there too.
+not put in place, a restart that did not come back — is written there too, and
+so are a few notes for diagnosing a problem later: a window link that was
+refused, and windows that disagree about a pane's size (see below).
 
 When the layout cannot be saved, Quit and Restart say why and stop there
 rather than lose what changed; asking a second time goes ahead anyway.
@@ -92,14 +94,14 @@ built to be watched.
 Claude Code hands its five-hour and weekly windows only to its status line,
 only on a Pro or Max plan, and only after the first answer in a session. By
 default Flockdeck reads them only where you have a status line of your own;
-**Settings › Agents › Claude Code's usage limits › Always** reads them in every
+**Settings › Agents & models › Claude Code's usage limits › Always** reads them in every
 Claude pane. That choice, and any change to your own status line, applies to a
 pane when it starts, so use [[action:restartPane]] on one already running.
 [Spend and limits](#spend) has the rest.
 
 ## A fan-out shows no routed rows
 
-Routing is off until you turn it on, in **Settings › Agents › Routing**. When
+Routing is off until you turn it on, in **Settings › Routing**. When
 it is on, it still leaves a line alone when no rule matches its task, when the
 run is on a model whose size it does not know — Claude Code's **Default** among
 them — and when the agent has no model in the tier the rule asks for. The
@@ -141,15 +143,14 @@ the assets and both WebSockets — must carry a token generated fresh for each
 run. A second launch of the binary reaches the running instance through that
 same loopback address.
 
-The window's own browser is never started with that token, or even with the
-one-time link that stands in for it, on its command line: another account on
-the same machine can often read one process's command line from another's,
-and a moment's head start with either would be enough to open a window onto
-your agents. The link is written into a file only your account can read
-instead, and the browser is pointed at that file. If a window ever shows "This
-link has already been used" and you did not just open one yourself, someone
-else on this computer may have — quit Flockdeck and start it again, which ends
-that session along with whichever window got to it first.
+The window is opened on a one-time link rather than on the token itself, and
+loads it inside Flockdeck's own process. Where it falls back to your default
+browser, the link is handed to the browser's launcher instead; either way it
+can be used once, within about a minute. If a window ever shows "This link has
+already been used" and you did not just open one yourself, someone else on
+this computer may have — quit Flockdeck and start it again, which ends that
+session along with whichever window got to it first. "This link has expired"
+and "This link isn't valid" are answered the same way.
 
 Remote access, once you turn it on, is a connection this machine makes out to
 the relay. A request arriving through it is let in without the token, because
@@ -158,10 +159,28 @@ access](#remote) has the rest.
 
 ## Desktop notifications never appear
 
-The browser asks for permission on your first interaction with the window. If
+Check **Settings › General › Desktop notifications** first: off, nothing is
+raised. The browser asks for permission on your first interaction with the window. If
 it was refused, grant it in the browser's site settings for this window's
 address, for this run only: the address changes each time Flockdeck starts,
 and the question comes back with it. Notifications are only raised while the window is *not* in front.
+
+## A pane's text is garbled, or in the wrong place
+
+A pane has one terminal however many windows show it, and that terminal is one
+size: the size of the window last used for it (typed into, or whose terminal
+was focused or tapped), or, until one has been, the smallest of them. Every
+window draws the pane at that size. A window too small for it shows the pane
+cropped, with **Viewing N×M · fit to this window** over it, N×M being the
+pane's own size: press it, or click or type in the pane there, and the pane is sized
+for that window instead. A pane is never smaller than 20×5 or larger than
+500×200.
+
+When windows disagree about a pane's size, a line saying
+so (sizes only, never what the pane shows) is written to `error.log`, at most
+once a minute per pane; in the window's developer tools,
+`window.flockdeckPanes()` lists each pane's terminal, pty and box sizes. Both
+are worth including if you report a pane that stays garbled.
 
 ## An agent seems to think it is a child of another session
 

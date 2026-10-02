@@ -6,7 +6,7 @@ A pane's header says what its agent has spent in the conversation, and how close
 
 Two small figures sit after the tool name, before the processor and memory figure:
 
-- **What it has spent.** `~$1.24` is an estimate in US dollars. `84k tok` is tokens read and written, shown where there is no price to put on them, such as a local model. A `+` after the money, as in `~$0.40+`, means some of the tokens had no price, so the figure is a floor.
+- **What it has spent.** `~$1.24` is an estimate in US dollars. `84k tok` is tokens read and written, shown where there is no price to put on them, such as a local model. Amounts from $1 have two decimal places, from a cent three, and below a cent four (`~$0.0042`). A `+` after the money, as in `~$0.400+`, means some of the tokens had no price, so the figure is a floor.
 - **The tightest limit.** `5h 72%` means 72% of the five-hour window is used; `7d` is the weekly one. A bar under it fills as the window does. It turns amber at 80% and red at 95%.
 
 Hover over either one for the rest: every window and when it resets, the tokens in, cached and out, and where the money figure came from.
@@ -34,7 +34,7 @@ Claude Code hands its limits to one place only: the command that draws its statu
 
 Where you have no status line of your own, doing this would cost you something: Claude Code hides most of the keyboard hints in its footer whenever any status line is set. So by default Flockdeck only does it where you already have a status line, and there it changes nothing you can see.
 
-To choose, open **Settings › Agents › Claude Code's usage limits**:
+To choose, open **Settings › Agents & models › Claude Code's usage limits**:
 
 - **Only where I have a status line** is the default.
 - **Always** shows the limits in every Claude pane. Where you have no status line of your own, the line under Claude's prompt is left empty and the footer hints go.
