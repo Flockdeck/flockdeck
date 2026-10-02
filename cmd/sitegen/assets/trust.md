@@ -1,6 +1,6 @@
 # Trust & privacy
 
-*Last updated: 30 September 2026*
+*Last updated: 2 October 2026*
 
 This is the plain-language version of Flockdeck's privacy story: what's
 collected, what isn't, and how that compares to what else is on the market.
@@ -73,8 +73,9 @@ can route them. It doesn't record, store or log any of it.
 This defeats an honestly-run relay. Against one that's been actively
 compromised and tampered with to swap the keys it hands out at pairing, that
 alone isn't enough — a swap like that needs an out-of-band check, and Remote
-access now has one: pairing shows a fingerprint on both the device and the
-desktop, and comparing them by eye is what catches a relay that has swapped
+access has one: the device and the desktop can each show a code for the other
+(Verify, under Devices on the phone and in the desktop's Remote access
+settings), and comparing them by eye is what catches a relay that has swapped
 keys. If your organisation's rules don't allow a third party in that position
 at all, Flockdeck Enterprise, coming soon, will let you run the relay on your
 own infrastructure: see [Enterprise](./#enterprise).

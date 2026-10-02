@@ -1,6 +1,6 @@
 # Privacy policy
 
-*Last updated: 30 September 2026*
+*Last updated: 2 October 2026*
 
 Flockdeck is made by Jim Wright, an individual based in the United Kingdom.
 This policy explains what personal data is involved when you use the
@@ -59,7 +59,14 @@ The same folder also holds:
   of this desktop and its account, the name you gave the desktop, and the
   token it signs in to the relay with;
 - a photo you attach to a message from a paired phone, removed after about a
-  week.
+  week;
+- if you turn on recording for a pane, or export a pane's transcript, a
+  transcript file of that conversation, in a `recordings` folder there. It is
+  built from the conversation Claude Code stored on your computer, with secrets
+  removed on a best-effort basis, so it can still contain some. Recording is
+  off until you turn it on and confirm. Recordings older than 30 days are
+  deleted as new ones are made; exports are kept until you delete them. Flockdeck
+  sends them nowhere and writes none into a project.
 
 If the app fails to start, it writes
 the error to a file there, `error.log`, which can include the paths of files
@@ -111,13 +118,13 @@ The app makes these network connections of its own.
   starts in; with either missing, nothing is sent. A key entered in Settings is
   kept in Flockdeck's key store on your machine and is sent only to
   api.typesafe.ai.
-  - *Status detection* (Settings, Behaviour). When an agent that reports no
+  - *Status detection* (Settings, Status detection). When an agent that reports no
     status of its own goes quiet, the last 30 lines of that pane's terminal
     output, at most 2,000 bytes and with escape sequences removed, are sent so
     that TypeSafe can help tell whether the agent has finished or is waiting
     for you. This setting can be turned on only on the computer Flockdeck runs
     on, not from a window reached through the relay.
-  - *Routing* (Settings, Agents, "Ask Jev to rate unmatched work"). When
+  - *Routing* (Settings, Routing, "Ask Jev to rate unmatched work"). When
     routing is set to minimise cost and a fan-out task matches no rule, the
     task's text, cut at 2,000 characters, is sent so that TypeSafe can rate how
     demanding it is.
@@ -185,8 +192,9 @@ the clear, so it can be seen there: what each pane's agent has spent, its
 usage limits, and which model routing chose for it. End-to-end encryption
 protects your terminal's contents from an honestly-run relay, including one
 you host yourself. Against a relay that has been tampered with to swap the
-keys it hands out at pairing, it needs one more check from you: pairing shows
-a fingerprint on both the device and the desktop, and comparing them by eye
+keys it hands out at pairing, it needs one more check from you: the device and
+the desktop can each show a code for the other (Verify, under Devices on the
+phone and in the desktop's Remote access settings), and comparing them by eye
 catches a swapped key.
 
 The relay does not record, store or log the content of that traffic.
@@ -275,8 +283,9 @@ session; it carries no permission of its own, is checked against your account
 on every request, and stops working the moment the device or the desktop is
 removed. Getting there uses a one-time code, kept in the relay's memory for
 60 seconds and good once, never written to a cookie or stored any longer. The
-relay's web client also remembers three display preferences in your
-browser's local storage: notifications, zoom and fit to screen. It keeps a
+relay's web client also remembers four display preferences in your
+browser's local storage: notifications, zoom, fit to screen and whether the
+second row of keys is open. It keeps a
 message you've started typing to an agent there too, per pane, so switching
 away and back doesn't lose it — on your device only, and never sent anywhere
 until you send it. It also remembers, per desktop, when you last had that
@@ -320,7 +329,7 @@ account:
 - the plan: its price, its status, and the dates it started, renews and is
   paid until, and any cancellation you have asked for;
 - a record of each payment and refund: its amount, tax, fee, currency,
-  country and invoice number.
+  country and invoice number, and the reason given for a refund.
 
 It keeps nothing about your desktops, your devices or what you do with them.
 It tells the relay only your account's plan and the date it runs until.
