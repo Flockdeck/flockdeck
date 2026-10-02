@@ -413,6 +413,7 @@ which the command palette and the in-app help are also drawn from; run
 | Command palette | Restart pane |
 | Command palette | Lock pane |
 | Command palette | Start recording |
+| Command palette | Export transcript |
 | `Ctrl+Shift+W` | Close pane |
 
 ### Tabs
@@ -1008,35 +1009,43 @@ you get here: see which agent produced something, then look at what it did.
 ### Recording a pane
 
 Turn on **Record** in a pane's header, or run **Start recording** from the
-command palette, and Flockdeck appends a structured transcript of that pane's
-agent interaction to a file: one JSON object per line, each with a timestamp, the
-pane's id and name, the project, the agent and model, and a type — your prompts,
-the agent's messages, tool calls and their results, permission prompts and how
-they were answered, and status changes. It is off for every pane until you turn
-it on, a pane that is recording shows a red dot and "Recording" in its header,
-and the first time you turn it on Flockdeck asks you to confirm and says what is
-kept. The setting persists across restarts and goes with the pane when you move
-it to another tab. `flockdeck spawn --record` starts a helper recorded, but only
-once you have turned recording on yourself in the window.
+command palette, and Flockdeck writes a structured transcript of that pane's
+conversation to a file and keeps adding to it: one JSON object per line, each with
+a timestamp, the conversation's id, the project and the agent, and a
+type — your prompts, the agent's messages, and tool calls and their results. It
+is off for every pane until you turn it on, a pane that is recording shows a red
+dot and "Recording" in its header, and the first time you turn it on Flockdeck
+asks you to confirm and says what is kept. The setting persists across restarts
+and goes with the pane when you move it to another tab. `flockdeck spawn
+--record` starts a helper recorded, but only once you have turned recording on
+yourself in the window.
 
-It is built from the events the agent reports, not from the screen, so it holds
-what Claude Code's hooks carry: the agent's last message of each turn rather than
-every message in between, and a permission answer worked out from what happened
-next, since no event reports it. An agent that reports no events records only
-status. The help page lists the gaps.
+A transcript is made from the conversation the agent stores itself (for Claude
+Code, the file **Resume a past conversation** reads), not from the screen or
+from the agent's live events. So it starts at the first message, whenever you
+turned recording on, and so **a pane that was never recorded can be exported**:
+**Export transcript** in the command palette or the pane's header, or
+`flockdeck recordings export <pane-or-conversation-id> [-o file]`, writes the
+same lines a recording of it would, byte for byte. It holds every message the
+agent said, not permission prompts or status changes, which a stored
+conversation has no record of. Only Claude Code stores a conversation Flockdeck
+can read: for any other agent there is nothing to export, and recording cannot be
+turned on, and Flockdeck says so. The help page lists the gaps.
 
-Recordings are written under Flockdeck's state directory, in a folder per
-project with one file per recording session, and never into your repository.
-A file stops at 16 MiB, long outputs are clipped with a marker, and the
-folder is tidied each time a recording starts: files older than 30 days go, then
-the oldest beyond 100 files or 256 MiB. **Open recordings folder** in the command
-palette opens the folder, and `flockdeck recordings` lists them.
+Transcripts are written under Flockdeck's state directory, in a folder per
+project with one file per conversation (exports in an `exports` folder beside),
+and never into your repository. A file stops at 16 MiB, long outputs are clipped
+with a marker, and the folder is tidied each time a recording starts: files older
+than 30 days go, then the oldest beyond 100 files or 256 MiB. **Open recordings
+folder** in the command palette opens the folder, and `flockdeck recordings`
+lists them.
 
 **Redaction is best effort.** Private keys, common token formats, credentials in
 URLs, values named like secrets (`API_KEY=…`, `password: …`) and what is read from
 files named like secrets (`.env`, private keys) are removed, but a secret with no
-recognisable shape in text that does not name it will be recorded. Treat a
-recording like the conversation it came from. There is no replay view yet.
+recognisable shape in text that does not name it will be written. Exporting says
+so every time, and treat a transcript like the conversation it came from. There
+is no replay view yet.
 
 The file format is specified in [docs/recording-format.md](docs/recording-format.md),
 with a JSON Schema in [docs/recording-line.schema.json](docs/recording-line.schema.json).

@@ -508,6 +508,7 @@ func cliFlagNames() map[string]bool {
 		spawnFlagSet(&spawnFlags{}),
 		closeFlagSet(&closeFlags{}),
 		recordingsFlagSet(&recordingsFlags{}),
+		exportFlagSet(&exportFlags{}),
 		updateFlagSet(&updateFlags{}),
 		remoteEnableFlagSet(&remoteEnableFlags{}),
 		remotePairFlagSet(&remotePairFlags{}),

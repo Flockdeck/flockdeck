@@ -1763,7 +1763,7 @@ assert.strictEqual(list().length, pages, "clearing the search did not bring the 
 }
 
 // The buttons in a pane header sit between the top bar and the terminals, and
-// there are five of them per pane.
+// there are ten of them per pane.
 func TestThePaneButtonsAreOneStopEach(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
@@ -1782,7 +1782,7 @@ assert.ok(bars.every((b) => b.getAttribute("aria-label")), "the rows have no nam
 const stops = (bar) => bar.children.filter((b) => b.tabIndex !== -1).length;
 assert.deepStrictEqual(bars.map(stops), [1, 1, 1, 1, 1, 1],
   "each row of buttons is more than one stop on the way through the window");
-assert.strictEqual(bars[0].children.length, 9, "nine things to do with a pane");
+assert.strictEqual(bars[0].children.length, 10, "ten things to do with a pane");
 
 // The arrows walk the row and take the stop with them.
 const buttons = bars[0].children;
@@ -1792,7 +1792,7 @@ assert.ok(h.doc.activeElement === buttons[1], "the right arrow did not move alon
 assert.strictEqual(buttons[1].tabIndex, 0, "the stop did not move with the focus");
 assert.strictEqual(buttons[0].tabIndex, -1);
 h.key({ key: "End" });
-assert.ok(h.doc.activeElement === buttons[8], "End did not go to the last button");
+assert.ok(h.doc.activeElement === buttons[9], "End did not go to the last button");
 h.key({ key: "ArrowRight" });
 assert.ok(h.doc.activeElement === buttons[0], "the row does not wrap");
 
@@ -1802,13 +1802,13 @@ h.doc.body.focus();
 h.key({ key: "Tab" });
 h.key({ key: "Tab" });
 assert.strictEqual(stops(bars[0]), 1, "the row grew a second stop");
-assert.strictEqual(buttons[8].tabIndex, 0, "the stop did not stay where it was left");
+assert.strictEqual(buttons[9].tabIndex, 0, "the stop did not stay where it was left");
 
 // And they still do what they say.
-buttons[8].focus();
+buttons[9].focus();
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "closePane", id: "p0" });
-buttons[7].focus();
+buttons[8].focus();
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "lockPane", id: "p0", locked: true });
 buttons[5].focus();
@@ -9641,6 +9641,46 @@ assert.ok(mark.hidden, "the lock stayed on show after the pane was unlocked");
 assert.strictEqual(close.getAttribute("aria-disabled"), "false");
 paletteRun("lock pane");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "lockPane", id: "p1", locked: true });
+`)
+}
+
+// Exporting a transcript works whether or not the pane is recording, is asked
+// about every time, says what it writes and that it can hold secrets, and is not
+// offered for a shell, which has no conversation.
+func TestExportTranscriptIsAskedAboutEveryTime(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1") } }));
+const header = h.doc.querySelector("div.pane-header");
+const buttons = [...header.querySelector("div.pane-actions").children];
+const exp = buttons.find((b) => /stored conversation to a transcript/.test(b.getAttribute("aria-label") || ""));
+assert.ok(exp, "the pane header has no export button");
+assert.ok(!exp.hidden);
+
+for (const how of ["palette", "button"]) {
+  const sent = h.commands().length;
+  if (how === "palette") paletteRun("export transcript"); else h.click(exp);
+  assert.strictEqual(h.$("overlay-title").textContent, "Export this pane's transcript?");
+  const text = h.$("overlay-body").textContent;
+  assert.ok(/secrets/.test(text) && /best effort/.test(text), "it does not say what is at risk: " + text);
+  assert.ok(/whether or not recording is on/.test(text), "it does not say it works without recording: " + text);
+  assert.ok(/stores no conversation/.test(text), "it does not say what an agent with nothing stored gets: " + text);
+  assert.strictEqual(h.commands().length, sent, "it sent the export before being told yes");
+  assert.strictEqual(h.$("ask-ok").textContent, "Export transcript");
+  h.click(h.$("ask-ok"));
+  assert.deepStrictEqual(h.commands().pop(), { cmd: "exportTranscript", id: "p1", confirmed: true });
+}
+
+// Recording on makes no difference.
+h.recv(fixture({ panes: { p1: pane("p1", { recording: true }) } }));
+const sent = h.commands().length;
+paletteRun("export transcript");
+h.click(h.$("ask-ok"));
+assert.deepStrictEqual(h.commands().slice(sent).pop(), { cmd: "exportTranscript", id: "p1", confirmed: true });
+
+// A shell has no conversation.
+h.recv(fixture({ panes: { p1: pane("p1", { kind: "shell" }) } }));
+assert.ok(exp.hidden, "a shell offers an export");
 `)
 }
 

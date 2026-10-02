@@ -573,7 +573,8 @@ type command struct {
 	// Recording is recordPane's own: whether the named pane should start, or
 	// stop, recording its agent interaction. Confirmed says the window has just
 	// shown the user what recording stores and they agreed, which is what
-	// lets the first pane be switched on; see Server.recordPane.
+	// lets the first pane be switched on; see Server.recordPane. It is also
+	// exportTranscript's, which is always put to the user.
 	Recording bool `json:"recording"`
 	Confirmed bool `json:"confirmed"`
 	// AutoReview is autoReview's own: whether the named pane should start, or
@@ -1644,6 +1645,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "recordPane":
 		s.recordPane(c, cmd)
+		return
+	case "exportTranscript":
+		s.exportTranscript(c, cmd)
 		return
 	case "openRecordings":
 		s.openRecordings(c)

@@ -396,6 +396,8 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        close another pane, or every finished one; run from inside a pane\n")
 	fmt.Fprintf(out, "  recordings [-dir] [-json]\n")
 	fmt.Fprintf(out, "        list the transcripts panes have recorded, newest first; -dir prints the folder they are kept in\n")
+	fmt.Fprintf(out, "  recordings export [-o file] <pane-id | conversation-id>\n")
+	fmt.Fprintf(out, "        write an agent's stored conversation as a transcript, whether or not the pane was recorded\n")
 	fmt.Fprintf(out, "  agents\n")
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "  chat [flags]\n")

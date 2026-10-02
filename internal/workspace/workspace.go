@@ -406,6 +406,15 @@ type Workspace struct {
 	hookSrv     *hooks.Server
 	// rec writes the transcripts of the panes that are recording.
 	rec *record.Manager
+	// recorders follow the stored conversation of each recording pane; see
+	// kickRecording. recMu guards the map and nothing else, and recAct counts the
+	// looks under way, which Close waits for.
+	recMu     sync.Mutex
+	recorders map[string]*paneRecorder
+	recAct    recActivity
+	// recSettle overrides the interval of the first further look, for a test
+	// that cannot wait seconds. Zero is the default; set before the workspace runs.
+	recSettle time.Duration
 	// onRecordingEnded is told when a pane's recording stopped by itself, the
 	// size cap being reached, so a window can say so. See SetRecordingEndedHook.
 	onRecordingEnded atomic.Pointer[func(paneID, why string)]
@@ -624,13 +633,12 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	}
 	var sess *session.Session
 	var paneID string
-	var recMeta *record.Meta
+	recording := false
 	if p != nil {
 		sess = p.Sess
 		paneID = p.ID
 		if p.Recording {
-			m := w.recMetaLocked(p)
-			recMeta = &m
+			recording = true
 		}
 		// Every event says which conversation the agent is in, and after
 		// /clear that is a new one. Following it is what lets a restart, a
@@ -671,10 +679,10 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		sess.SetBackground(*ev.BackgroundTasks)
 	}
 
-	var statusBefore session.Status
-	if recMeta != nil {
-		statusBefore, _ = sess.Status()
-		w.recordEvent(*recMeta, ev)
+	// A recording pane's transcript is made from what the agent has stored,
+	// and an event is when there is likely to be more of it.
+	if recording {
+		w.kickRecording(paneID, true)
 	}
 
 	// Every event goes to the session, including those that change no status
@@ -690,9 +698,6 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 		ToolInput:        ev.ToolInput,
 		Agent:            ev.AgentID,
 	})
-	if recMeta != nil {
-		w.recordStatus(*recMeta, statusBefore, sess)
-	}
 	// A compaction the user asked for is work no turn brackets: PreCompact
 	// shows working, and if its end never reports, the pane settles once quiet.
 	if ev.Event == "PreCompact" && ev.Source == "manual" {
@@ -727,18 +732,10 @@ func (w *Workspace) reviewTool(sessionID string, ev hooks.Event) (allow bool, re
 	}
 
 	w.mu.Lock()
-	var recMeta *record.Meta
 	if p := w.panes[sessionID]; p != nil {
 		p.AutoApproved++
-		if p.Recording {
-			m := w.recMetaLocked(p)
-			recMeta = &m
-		}
 	}
 	w.mu.Unlock()
-	if recMeta != nil {
-		w.rec.Record(*recMeta, record.Entry{Type: record.TypeOutcome, Outcome: record.OutcomeAutoApproved, Tool: ev.Tool, Reason: d.Reason, Subagent: ev.AgentID})
-	}
 	w.wake()
 	return true, d.Reason
 }
@@ -2344,14 +2341,10 @@ func (w *Workspace) destroyPane(id string) {
 	p := w.panes[id]
 	delete(w.panes, id)
 	delete(w.BroadcastSet, id)
-	var recMeta *record.Meta
-	if p != nil && p.Recording {
-		m := w.recMetaLocked(p)
-		recMeta = &m
-	}
+	recording := p != nil && p.Recording
 	w.mu.Unlock()
-	if recMeta != nil {
-		w.rec.Stop(*recMeta, "the pane was closed")
+	if recording {
+		w.stopRecorder(id, true)
 	}
 	if p != nil && p.Sess != nil {
 		_ = p.Sess.Close()
@@ -3283,6 +3276,7 @@ func (w *Workspace) Close() {
 	}
 	// Quitting is not turning recording off: the files are closed with no
 	// closing line, and a pane left recording records again at the next start.
+	w.stopRecorders()
 	w.rec.Close()
 	for _, t := range w.Tabs {
 		for _, id := range t.Tree.Panes() {

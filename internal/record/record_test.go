@@ -3,11 +3,14 @@ package record
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
 // newTestManager writes under a temporary directory of its own, never the
@@ -23,6 +26,57 @@ func newTestManager(t *testing.T) (*Manager, string) {
 }
 
 var testMeta = Meta{Pane: "0123456789abcdef", PaneName: "api", Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Model: "opus", Conversation: "conv-1"}
+
+// feed writes the events of a made-up conversation, a second apart.
+type feed struct {
+	t    *testing.T
+	m    *Manager
+	meta Meta
+	at   time.Time
+}
+
+func newFeed(t *testing.T, m *Manager) *feed {
+	return &feed{t: t, m: m, meta: testMeta, at: time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)}
+}
+
+// send writes one event and returns what Write said.
+func (f *feed) send(ev transcript.ExportEvent) error {
+	f.at = f.at.Add(time.Second)
+	ev.Time = f.at
+	return f.m.Write(f.meta, ev)
+}
+
+func (f *feed) must(ev transcript.ExportEvent) {
+	f.t.Helper()
+	if err := f.send(ev); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func (f *feed) prompt(text string) {
+	f.t.Helper()
+	f.must(transcript.ExportEvent{Kind: transcript.ExportPrompt, Text: text})
+}
+
+func (f *feed) say(text string) {
+	f.t.Helper()
+	f.must(transcript.ExportEvent{Kind: transcript.ExportMessage, Text: text})
+}
+
+func (f *feed) call(tool, id string, input any) {
+	f.t.Helper()
+	f.must(transcript.ExportEvent{Kind: transcript.ExportToolCall, Tool: tool, ToolUseID: id, Input: input})
+}
+
+func (f *feed) result(tool, id, out string) {
+	f.t.Helper()
+	f.must(transcript.ExportEvent{Kind: transcript.ExportToolResult, Tool: tool, ToolUseID: id, Output: out})
+}
+
+// path is the file the feed has written to.
+func (f *feed) path() string { return f.m.Path(f.meta.Pane) }
+
+func (f *feed) finish() { f.m.Finish(f.meta) }
 
 func readEntries(t *testing.T, path string) []Entry {
 	t.Helper()
@@ -54,56 +108,78 @@ func types(es []Entry) []string {
 
 func TestSessionFileHoldsOneObjectPerLineWithTheWhoAndWhen(t *testing.T) {
 	m, dir := newTestManager(t)
-	path, err := m.Start(testMeta, "turned on")
-	if err != nil {
-		t.Fatal(err)
-	}
-	m.Record(testMeta, Entry{Type: TypePrompt, Text: "fix the build"})
-	m.Record(testMeta, Entry{Type: TypeToolCall, Tool: "Bash", ToolUseID: "t1", Input: map[string]any{"command": "go build ./..."}})
-	m.Record(testMeta, Entry{Type: TypeToolResult, Tool: "Bash", ToolUseID: "t1", Output: "ok"})
-	m.Record(testMeta, Entry{Type: TypeStatus, Status: "idle", Previous: "working"})
-	m.Stop(testMeta, "turned off")
+	f := newFeed(t, m)
+	f.prompt("fix the build")
+	f.call("Bash", "t1", map[string]any{"command": "go build ./..."})
+	f.result("Bash", "t1", "ok")
+	f.say("Built.")
+	path := f.path()
+	f.finish()
 
 	if !strings.HasPrefix(path, filepath.Join(dir, "recordings", "shop-")) {
 		t.Errorf("recording is not in the project's folder under the state dir: %s", path)
 	}
+	// Named for the session: when the conversation began, and which it is.
+	if want := "20261001T090001Z-conv-1.jsonl"; filepath.Base(path) != want {
+		t.Errorf("file is %s, want %s", filepath.Base(path), want)
+	}
 	es := readEntries(t, path)
-	want := []string{TypeStarted, TypePrompt, TypeToolCall, TypeToolResult, TypeStatus, TypeStopped}
+	want := []string{TypeStarted, TypePrompt, TypeToolCall, TypeToolResult, TypeAssistant, TypeStopped}
 	if got := types(es); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("types = %v, want %v", got, want)
 	}
-	for _, e := range es {
-		if e.V != Version || e.Pane != testMeta.Pane || e.PaneName != "api" || e.Project != "shop" || e.Agent != "claude" || e.Model != "opus" {
+	for i, e := range es {
+		if e.V != Version || e.Pane != testMeta.Pane || e.PaneName != "api" || e.Project != "shop" || e.Agent != "claude" || e.Model != "opus" || e.Seq != int64(i+1) {
 			t.Errorf("a line lacks who it is about: %+v", e)
+		}
+		if e.Session != "20261001T090001Z-conv-1" {
+			t.Errorf("session = %q", e.Session)
 		}
 		if _, err := time.Parse(time.RFC3339Nano, e.Time); err != nil {
 			t.Errorf("time %q is not RFC 3339: %v", e.Time, err)
 		}
 	}
+	// A transcript says nothing of how it was made.
+	if es[0].Text != startText || es[len(es)-1].Text != endText || es[0].Source != "" {
+		t.Errorf("first line %+v, last %+v", es[0], es[len(es)-1])
+	}
+	// The lines carry the times of the events.
+	if es[0].Time != es[1].Time || es[len(es)-1].Time != es[len(es)-2].Time {
+		t.Errorf("the opening and closing lines are not at the first and last event: %s %s / %s %s", es[0].Time, es[1].Time, es[len(es)-2].Time, es[len(es)-1].Time)
+	}
 	if in, _ := es[2].Input.(map[string]any); in["command"] != "go build ./..." {
 		t.Errorf("tool input = %v", es[2].Input)
 	}
 	if m.Active(testMeta.Pane) {
-		t.Error("the pane is still recording after Stop")
+		t.Error("the pane still has a file open after Finish")
 	}
 }
 
-func TestEachSessionGetsItsOwnFile(t *testing.T) {
+// A transcript is made from a conversation, so making it again gives the same
+// file rather than another.
+func TestTheSameConversationMakesTheSameFile(t *testing.T) {
 	m, _ := newTestManager(t)
-	a, _ := m.Start(testMeta, "turned on")
-	m.Stop(testMeta, "turned off")
-	b, _ := m.Start(testMeta, "turned on")
-	m.Stop(testMeta, "turned off")
-	if a == b {
-		t.Fatalf("two sessions share %s", a)
+	f := newFeed(t, m)
+	f.prompt("one")
+	a := f.path()
+	f.finish()
+	g := newFeed(t, m)
+	g.prompt("one")
+	g.prompt("two")
+	if b := g.path(); a != b {
+		t.Fatalf("one conversation in two files: %s and %s", a, b)
+	}
+	g.finish()
+	if es := readEntries(t, a); len(es) != 4 {
+		t.Errorf("the file was added to rather than made again: %v", types(es))
 	}
 }
 
 func TestFilesAreNotReadableByOthers(t *testing.T) {
 	m, _ := newTestManager(t)
-	path, _ := m.Start(testMeta, "turned on")
-	defer m.Stop(testMeta, "turned off")
-	fi, err := os.Stat(path)
+	f := newFeed(t, m)
+	f.prompt("hello")
+	fi, err := os.Stat(f.path())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,26 +189,25 @@ func TestFilesAreNotReadableByOthers(t *testing.T) {
 	}
 }
 
-func TestRecordingStartsItselfForAPaneRestoredWhileRecording(t *testing.T) {
-	m, _ := newTestManager(t)
-	m.Record(testMeta, Entry{Type: TypePrompt, Text: "hello"})
-	path := m.Path(testMeta.Pane)
-	if path == "" {
-		t.Fatal("no file was opened")
+func TestNothingIsWrittenUntilTheConversationHasAnEvent(t *testing.T) {
+	m, dir := newTestManager(t)
+	if m.Active(testMeta.Pane) {
+		t.Error("a pane with nothing said is open")
 	}
-	es := readEntries(t, path)
-	if len(es) < 2 || es[0].Type != TypeStarted || es[0].Text != "resumed" {
-		t.Errorf("entries = %v", types(es))
+	m.Finish(testMeta)
+	if _, err := os.Stat(filepath.Join(dir, "recordings")); err == nil {
+		t.Error("a folder was made for a conversation with nothing in it")
 	}
 }
 
 func TestSecretsAreRedactedAndLongOutputClipped(t *testing.T) {
 	m, _ := newTestManager(t)
-	path, _ := m.Start(testMeta, "turned on")
-	m.Record(testMeta, Entry{Type: TypePrompt, Text: "use key sk-ant-api03-abcdefghijklmnopqrstuvwxyz and ghp_" + strings.Repeat("a", 36)})
-	m.Record(testMeta, Entry{Type: TypeToolCall, Tool: "Bash", Input: map[string]any{"command": "curl -H 'Authorization: Bearer abcdefghijklmnopqrstuv' https://x", "env": map[string]any{"DB_PASSWORD": "hunter2"}}})
-	m.Record(testMeta, Entry{Type: TypeToolResult, Tool: "Bash", Output: strings.Repeat("x", MaxFieldBytes*3)})
-	m.Stop(testMeta, "turned off")
+	f := newFeed(t, m)
+	f.prompt("use key sk-ant-api03-abcdefghijklmnopqrstuvwxyz and ghp_" + strings.Repeat("a", 36))
+	f.call("Bash", "", map[string]any{"command": "curl -H 'Authorization: Bearer abcdefghijklmnopqrstuv' https://x", "env": map[string]any{"DB_PASSWORD": "hunter2"}})
+	f.result("Bash", "", strings.Repeat("x", MaxFieldBytes*3))
+	path := f.path()
+	f.finish()
 
 	raw, _ := os.ReadFile(path)
 	for _, leak := range []string{"sk-ant-api03", "ghp_aaaa", "abcdefghijklmnopqrstuv", "hunter2"} {
@@ -149,13 +224,14 @@ func TestSecretsAreRedactedAndLongOutputClipped(t *testing.T) {
 
 func TestOutputOfASecretFileIsWithheld(t *testing.T) {
 	m, _ := newTestManager(t)
-	path, _ := m.Start(testMeta, "turned on")
-	m.Record(testMeta, Entry{Type: TypeToolCall, Tool: "Read", ToolUseID: "r1", Input: map[string]any{"file_path": "/work/shop/.env"}})
-	m.Record(testMeta, Entry{Type: TypeToolResult, Tool: "Read", ToolUseID: "r1", Output: "STRIPE=plainvalue"})
-	m.Record(testMeta, Entry{Type: TypeToolCall, Tool: "Write", ToolUseID: "w1", Input: map[string]any{"file_path": "deploy/id_rsa", "content": "private stuff"}})
-	m.Record(testMeta, Entry{Type: TypeToolCall, Tool: "Read", ToolUseID: "r2", Input: map[string]any{"file_path": "README.md"}})
-	m.Record(testMeta, Entry{Type: TypeToolResult, Tool: "Read", ToolUseID: "r2", Output: "plain readme"})
-	m.Stop(testMeta, "turned off")
+	f := newFeed(t, m)
+	f.call("Read", "r1", map[string]any{"file_path": "/work/shop/.env"})
+	f.result("Read", "r1", "STRIPE=plainvalue")
+	f.call("Write", "w1", map[string]any{"file_path": "deploy/id_rsa", "content": "private stuff"})
+	f.call("Read", "r2", map[string]any{"file_path": "README.md"})
+	f.result("Read", "r2", "plain readme")
+	path := f.path()
+	f.finish()
 
 	raw, _ := os.ReadFile(path)
 	if strings.Contains(string(raw), "plainvalue") || strings.Contains(string(raw), "private stuff") {
@@ -169,58 +245,27 @@ func TestOutputOfASecretFileIsWithheld(t *testing.T) {
 	}
 }
 
-func TestPermissionOutcomesAreInferredFromWhatHappensNext(t *testing.T) {
-	m, _ := newTestManager(t)
-	path, _ := m.Start(testMeta, "turned on")
-	// Asked, then the tool ran: allowed.
-	m.Record(testMeta, Entry{Type: TypePermission, Tool: "Bash"})
-	m.Record(testMeta, Entry{Type: TypeToolResult, Tool: "Bash", Output: "done"})
-	// Asked, then the user moved on to a new prompt: denied.
-	m.Record(testMeta, Entry{Type: TypePermission, Tool: "Edit"})
-	m.Record(testMeta, Entry{Type: TypePrompt, Text: "no, do it differently"})
-	// Auto-approved is reported as it is, and is not inferred.
-	m.Record(testMeta, Entry{Type: TypeOutcome, Tool: "Bash", Outcome: OutcomeAutoApproved, Reason: "read-only"})
-	m.Stop(testMeta, "turned off")
-
-	var outcomes []Entry
-	for _, e := range readEntries(t, path) {
-		if e.Type == TypeOutcome {
-			outcomes = append(outcomes, e)
-		}
-	}
-	if len(outcomes) != 3 {
-		t.Fatalf("got %d outcomes: %+v", len(outcomes), outcomes)
-	}
-	if outcomes[0].Outcome != OutcomeAllowed || !outcomes[0].Inferred {
-		t.Errorf("first = %+v", outcomes[0])
-	}
-	if outcomes[1].Outcome != OutcomeDenied || !outcomes[1].Inferred {
-		t.Errorf("second = %+v", outcomes[1])
-	}
-	if outcomes[2].Outcome != OutcomeAutoApproved || outcomes[2].Inferred {
-		t.Errorf("third = %+v", outcomes[2])
-	}
-}
-
-func TestSizeCapEndsTheFileWithAMarkerAndTheRecording(t *testing.T) {
+func TestSizeCapEndsTheFileWithAMarker(t *testing.T) {
 	m, _ := newTestManager(t)
 	m.max = 2 << 10
-	path, _ := m.Start(testMeta, "turned on")
-	ok := true
-	for i := 0; i < 100 && ok; i++ {
-		ok = m.Record(testMeta, Entry{Type: TypeAssistant, Text: strings.Repeat("y", 200)})
+	f := newFeed(t, m)
+	var err error
+	for i := 0; i < 100 && err == nil; i++ {
+		err = f.send(transcript.ExportEvent{Kind: transcript.ExportMessage, Text: strings.Repeat("y", 200)})
 	}
-	if ok {
-		t.Fatal("Record never reported the cap")
+	if !errors.Is(err, ErrFull) {
+		t.Fatalf("Write never reported the cap: %v", err)
 	}
-	m.Stop(testMeta, "size cap reached")
+	path := f.path()
+	f.finish()
 	fi, _ := os.Stat(path)
 	if fi.Size() > 3<<10 {
 		t.Errorf("file is %d bytes past a cap of %d", fi.Size(), m.max)
 	}
 	es := readEntries(t, path)
-	if last := es[len(es)-1]; last.Type != TypeTruncated {
-		t.Errorf("last line is %s, want %s", last.Type, TypeTruncated)
+	last := es[len(es)-1]
+	if last.Type != TypeTruncated || strings.Contains(last.Text, "recording") {
+		t.Errorf("last line is %+v, want %s", last, TypeTruncated)
 	}
 }
 
@@ -248,10 +293,7 @@ func TestRetentionDropsOldFilesAndTheOldestBeyondTheCount(t *testing.T) {
 		write("bulk-"+string(rune('a'+i%26))+string(rune('a'+i/26))+".jsonl", time.Duration(i+2)*time.Minute)
 	}
 
-	if _, err := m.Start(testMeta, "turned on"); err != nil {
-		t.Fatal(err)
-	}
-	defer m.Stop(testMeta, "turned off")
+	newFeed(t, m).prompt("hello")
 
 	if _, err := os.Stat(old); err == nil {
 		t.Error("a file past the retention age was kept")
@@ -270,12 +312,15 @@ func TestRetentionDropsOldFilesAndTheOldestBeyondTheCount(t *testing.T) {
 
 func TestListFindsRecordingsNewestFirst(t *testing.T) {
 	m, dir := newTestManager(t)
-	a, _ := m.Start(testMeta, "turned on")
-	m.Stop(testMeta, "turned off")
-	other := testMeta
-	other.Pane, other.Project, other.ProjectRoot = "ffffffffffff", "blog", "/work/blog"
-	b, _ := m.Start(other, "turned on")
-	m.Stop(other, "turned off")
+	f := newFeed(t, m)
+	f.prompt("one")
+	a := f.path()
+	f.finish()
+	g := newFeed(t, m)
+	g.meta.Pane, g.meta.Project, g.meta.ProjectRoot, g.meta.Conversation = "ffffffffffff", "blog", "/work/blog", "conv-2"
+	g.prompt("two")
+	b := g.path()
+	g.finish()
 	past := time.Now().Add(-time.Hour)
 	_ = os.Chtimes(a, past, past)
 

@@ -1,0 +1,18 @@
+{"type":"summary","summary":"Retry for the fetch client","leafUuid":"x"}
+{"type":"user","timestamp":"2026-10-01T09:00:00.000Z","message":{"role":"user","content":"Add a retry to the fetch client. The staging login is password=hunter2"}}
+{"type":"user","timestamp":"2026-10-01T09:00:01.000Z","message":{"role":"user","content":"<system-reminder>Remember the style guide.</system-reminder>"},"isMeta":true}
+{"type":"assistant","timestamp":"2026-10-01T09:00:02.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"I'll look at the client first."},{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"src/client.go"}}]}}
+{"type":"user","timestamp":"2026-10-01T09:00:01.500Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"package client"}]},"toolUseResult":{"type":"text","file":{"filePath":"src/client.go","content":"package client"}}}
+{"type":"assistant","timestamp":"2026-10-01T09:00:03.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_2","name":"Read","input":{"file_path":".env"}}]}}
+{"type":"user","timestamp":"2026-10-01T09:00:04.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"API_KEY=hunter2"}]},"toolUseResult":"API_KEY=hunter2"}
+{"type":"assistant","timestamp":"2026-10-01T09:00:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"subagent chatter"}]},"isSidechain":true}
+{"type":"assistant","timestamp":"2026-10-01T09:00:06.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_3","name":"Bash","input":{"command":"go test ./..."}}]}}
+{"type":"user","timestamp":"2026-10-01T09:00:07.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_3","is_error":true,"content":"The user doesn't want to proceed with this tool use. The tool use was rejected. [Request interrupted by user for tool use]"}]}}
+{"type":"user","timestamp":"2026-10-01T09:00:08.000Z","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}
+{"type":"assistant","timestamp":"2026-10-01T09:00:09.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Stopped. Say go to retry."}]}}
+{"type":"user","timestamp":"2026-10-01T09:01:00.000Z","message":{"role":"user","content":"go"}}
+{"type":"user","timestamp":"2026-10-01T09:01:01.000Z","message":{"role":"user","content":"<command-name>/clear</command-name>"}}
+{"type":"assistant","timestamp":"2026-10-01T09:01:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Trying the change."},{"type":"tool_use","id":"toolu_4","name":"Edit","input":{"file_path":"src/client.go","old_string":"a","new_string":"b"}}]}}
+this line is not JSON
+{"type":"user","timestamp":"2026-10-01T09:01:03.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_4","content":"The file src/client.go has been updated."}]},"toolUseResult":{"filePath":"src/client.go","oldString":"a","newString":"b"}}
+{"type":"assistant","timestamp":"2026-10-01T09:01:04.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Done: added a retry."}]}}
