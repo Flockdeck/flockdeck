@@ -76,9 +76,9 @@ type Prefs struct {
 	// AutoReviewDefault is the value Pane.AutoReview starts at for a pane with
 	// no parent -- one opened by hand, or a fresh row of a fan-out run from the
 	// window -- rather than inherited from a parent that spawned it with its
-	// own `flockdeck spawn`. Off by default, as the switch itself is: a restart
-	// still asks about everything until this, or the pane's own switch, says
-	// otherwise. See workspace.Pane.AutoReview.
+	// own `flockdeck spawn`. Off by default, as the switch itself is. A pane's
+	// own switch is kept across restarts; this also stands in for a layout
+	// saved before that was. See workspace.Pane.AutoReview.
 	AutoReviewDefault bool `json:"autoReviewDefault,omitempty"`
 	// JevStatus lets TypeSafe's Jev model help read the status of a pane whose
 	// agent reports none, by being sent the last lines of that pane's terminal

@@ -146,6 +146,10 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 			// Recording is on again after a restart, in a new session file.
 			Recording: p.Recording,
 		}
+		// Always written, off included, so a pane turned off stays off even
+		// when the default is on; a layout without it takes the default.
+		ar := p.AutoReview
+		out.Pane.AutoReview = &ar
 		// Only a pane borrowed from another project needs its project written
 		// down; leaving it out otherwise keeps the file as it has always been
 		// for the ordinary case, which is every pane in a one-project tab.
@@ -209,7 +213,7 @@ func (w *Workspace) restoreProject(root string) int {
 		return 0
 	}
 
-	r := &restoring{branches: branchesOf(paneDirs(st))}
+	r := &restoring{branches: branchesOf(paneDirs(st)), autoReviewDefault: store.LoadPrefs().AutoReviewDefault}
 	added := 0
 	// nearest is the last tab restored at or before the saved active one, so a
 	// tab that cannot be restored hands the window over to its neighbour.
@@ -454,6 +458,9 @@ func branchesOf(dirs []string) map[string]string {
 type restoring struct {
 	branches map[string]string
 	waiting  []*Pane
+	// autoReviewDefault is Prefs.AutoReviewDefault, read once per restore: the
+	// value a pane from a layout saved before AutoReview was kept starts at.
+	autoReviewDefault bool
 }
 
 // paneLaunches is how many panes are started at once. They are processes, and
@@ -538,6 +545,12 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 			Parent:          n.Pane.Parent,
 			Locked:          n.Pane.Locked,
 			Recording:       n.Pane.Recording,
+		}
+		if n.Pane.AutoReview != nil {
+			p.AutoReview = *n.Pane.AutoReview
+		} else {
+			// Saved before auto-review was kept per pane.
+			p.AutoReview = r.autoReviewDefault
 		}
 		if p.Root == "" {
 			p.Root = tabRoot

@@ -1,6 +1,10 @@
 package server
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/jmwri/flockdeck/internal/store"
+)
 
 // The state a phone or a window reads says this instance understands
 // autoReview, and carries autoReview:true for a pane that has turned it on --
@@ -42,5 +46,100 @@ func TestAutoReviewForAGoneIDRefuses(t *testing.T) {
 	readUntil(t, conn, "notice", &note)
 	if !note.Error || note.Text != paneGone {
 		t.Errorf("autoReview for a gone pane = %+v, want an error notice %q", note, paneGone)
+	}
+}
+
+// Toggling auto-review writes the layout at once, not at the next timer tick,
+// so a crash right after the toggle keeps it.
+func TestAutoReviewToggleSavesTheLayout(t *testing.T) {
+	t.Setenv("USERPROFILE", stateTempDir(t))
+	srv, ws := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+	id := firstPane(t, srv, ws)
+
+	saved := func() *bool {
+		st, err := store.Peek(ws.ActiveRoot())
+		if err != nil || st == nil {
+			return nil
+		}
+		var found *bool
+		var walk func(n *store.Node)
+		walk = func(n *store.Node) {
+			if n == nil {
+				return
+			}
+			if n.Pane != nil && n.Pane.ID == id {
+				found = n.Pane.AutoReview
+			}
+			for _, c := range n.Children {
+				walk(c)
+			}
+		}
+		for _, tb := range st.Tabs {
+			walk(tb.Root)
+		}
+		return found
+	}
+
+	sendCmd(t, conn, command{Cmd: "autoReview", ID: id, AutoReview: true})
+	nextState(t, conn, func(s stateMsg) bool { return s.Panes[id].AutoReview })
+	if v := saved(); v == nil || !*v {
+		t.Fatalf("the layout was not saved with auto-review on: %v", v)
+	}
+	sendCmd(t, conn, command{Cmd: "autoReview", ID: id, AutoReview: false})
+	nextState(t, conn, func(s stateMsg) bool { return !s.Panes[id].AutoReview })
+	if v := saved(); v == nil || *v {
+		t.Fatalf("the layout was not saved with auto-review off: %v", v)
+	}
+}
+
+// Changing the default is for new panes only: a pane's saved switch is its
+// own, so the autoReviewDefault command leaves a saved layout as it was.
+func TestAutoReviewDefaultDoesNotChangeASavedLayout(t *testing.T) {
+	t.Setenv("USERPROFILE", stateTempDir(t))
+	srv, ws := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextState(t, conn, nil)
+	id := firstPane(t, srv, ws)
+
+	sendCmd(t, conn, command{Cmd: "autoReview", ID: id, AutoReview: false})
+	if err := ws.SaveLayouts(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	before, err := store.Peek(ws.ActiveRoot())
+	if err != nil || before == nil {
+		t.Fatalf("peek: %v", err)
+	}
+	sendCmd(t, conn, command{Cmd: "autoReviewDefault", Kind: "on"})
+	nextState(t, conn, func(s stateMsg) bool { return !s.Panes[id].AutoReview })
+	if err := ws.SaveLayouts(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	after, err := store.Peek(ws.ActiveRoot())
+	if err != nil || after == nil {
+		t.Fatalf("peek: %v", err)
+	}
+	pick := func(st *store.State) *bool {
+		var found *bool
+		var walk func(n *store.Node)
+		walk = func(n *store.Node) {
+			if n == nil {
+				return
+			}
+			if n.Pane != nil && n.Pane.ID == id {
+				found = n.Pane.AutoReview
+			}
+			for _, c := range n.Children {
+				walk(c)
+			}
+		}
+		for _, tb := range st.Tabs {
+			walk(tb.Root)
+		}
+		return found
+	}
+	if b, a := pick(before), pick(after); b == nil || a == nil || *b || *a {
+		t.Fatalf("saved switch before=%v after=%v, want both explicit off", b, a)
 	}
 }
