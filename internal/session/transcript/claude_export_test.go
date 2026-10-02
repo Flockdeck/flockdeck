@@ -359,3 +359,23 @@ func TestToolResultsAreTheTextTheAgentWasShown(t *testing.T) {
 		t.Errorf("output = %q", got)
 	}
 }
+
+// A file that is there but cannot be opened is not a file that is not there: the
+// first is tried again, and nothing is concluded from it.
+func TestAnOpenThatFailsIsAReadErrorNotAMissingFile(t *testing.T) {
+	home := t.TempDir()
+	spec := agent.Spec{ID: "claude", Exe: "claude", Env: []string{"CLAUDE_CONFIG_DIR=" + home}, Caps: agent.Caps{Transcript: true}}
+	writeTranscript(t, filepath.Join(home, "projects", "C--work"), exportFixtureID,
+		`{"type":"user","timestamp":"2026-10-01T09:00:00Z","message":{"role":"user","content":"hi"}}`)
+	old := openTranscript
+	openTranscript = func(string) (*os.File, error) { return nil, os.ErrPermission }
+	t.Cleanup(func() { openTranscript = old })
+	_, _, err := collect(t, spec, exportFixtureID)
+	if !errors.Is(err, ErrRead) || errors.Is(err, ErrNoTranscript) {
+		t.Errorf("err = %v, want ErrRead", err)
+	}
+	openTranscript = old
+	if evs, _, err := collect(t, spec, exportFixtureID); err != nil || len(evs) != 1 {
+		t.Errorf("after the lock: %v, %v", evs, err)
+	}
+}

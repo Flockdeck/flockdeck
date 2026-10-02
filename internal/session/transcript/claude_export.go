@@ -3,6 +3,7 @@ package transcript
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -51,6 +52,10 @@ type claudeFollower struct {
 	pending []ExportEvent
 }
 
+// openTranscript opens a stored conversation. A variable so that a test can make
+// it fail the way a locked file does.
+var openTranscript = os.Open
+
 // pollChunk is how much of the file is read at a time.
 const pollChunk = 256 << 10
 
@@ -71,11 +76,16 @@ func (f *claudeFollower) Poll(yield func(ExportEvent) error) (ExportStats, error
 			return stats, ErrReplaced
 		}
 	}
-	file, err := os.Open(f.path)
+	file, err := openTranscript(f.path)
 	if err != nil {
-		// Gone, or moved to another folder: look for it again next time.
-		f.path = ""
-		return stats, ErrNoTranscript
+		if errors.Is(err, os.ErrNotExist) {
+			// Gone, or moved to another folder: look for it again next time.
+			f.path = ""
+			return stats, ErrNoTranscript
+		}
+		// There, but not to be opened for now: another program has it, or there
+		// are no more handles. Nothing is lost by trying again.
+		return stats, fmt.Errorf("%w: %v", ErrRead, err)
 	}
 	defer file.Close()
 	if fi, err := file.Stat(); err == nil && fi.Size() < f.offset {

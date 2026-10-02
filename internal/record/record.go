@@ -327,14 +327,19 @@ var ErrFull = errors.New("the transcript is full")
 // says so.
 func (m *Manager) Finish(meta Meta) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	s := m.panes[meta.Pane]
 	if s == nil {
+		m.mu.Unlock()
 		return nil
 	}
 	werr := m.writeLocked(meta, Entry{Type: TypeStopped, Text: endText, Time: stamp(s.last)})
 	cerr := s.f.Close()
 	delete(m.panes, meta.Pane)
+	plain := m.target == "" && !m.export
+	m.mu.Unlock()
+
+	// Moving the file into place can take a moment, and nothing else waits for
+	// it: the lock is not held.
 	if werr == nil {
 		werr = cerr
 	}
@@ -347,28 +352,38 @@ func (m *Manager) Finish(meta Meta) error {
 	if s.final != "" {
 		if !finished(s.path) || !supersedes(s.final, s.path) {
 			_ = os.Remove(s.path)
-		} else if err := renameRetry(s.path, s.final); err != nil {
+			return ErrEarlierKept
+		}
+		if err := renameRetry(s.path, s.final); err != nil {
 			return fmt.Errorf("the new transcript is left as %s, because %s could not be replaced: %w", s.path, s.final, err)
 		}
 	}
 	// A recording of a conversation is the one file of it; an export never
 	// deletes another, as nobody asked for an earlier one to go.
-	if m.target == "" && !m.export {
+	if plain {
 		removeSuperseded(filepath.Dir(s.path), meta, filepath.Base(m.finalPath(s)))
 	}
 	return nil
 }
 
+// ErrEarlierKept is what Finish returns when the transcript it made was not put
+// in place of an earlier, finished one of the same conversation, because that has
+// lines this one does not (the stored conversation changed under it, or this one
+// was cut short): the earlier one is kept as it was.
+var ErrEarlierKept = errors.New("an earlier, finished transcript of this conversation has lines the new one lacks, so it was kept as it was")
+
 // renameRetry moves a file over another, trying again for a moment: on Windows
 // a program with the old one open (a viewer, a scanner) makes it fail until it
-// lets go.
+// lets go. It does not wait after the last try.
 func renameRetry(from, to string) error {
 	var err error
 	for i := 0; i < 6; i++ {
 		if err = os.Rename(from, to); err == nil {
 			return nil
 		}
-		time.Sleep(time.Duration(i+1) * 50 * time.Millisecond)
+		if i < 5 {
+			time.Sleep(time.Duration(i+1) * 50 * time.Millisecond)
+		}
 	}
 	return err
 }
@@ -493,7 +508,11 @@ func (m *Manager) openLocked(meta Meta, first time.Time) error {
 		return fmt.Errorf("create the transcript: %w", err)
 	}
 	m.panes[meta.Pane] = &session{f: f, path: path, final: final, id: id, secret: map[string]bool{}}
-	m.sweepStale(folder)
+	if m.target == "" {
+		// Only Flockdeck's own folders are swept, never one beside a file the user
+		// chose.
+		m.sweepStale(folder)
+	}
 	if !m.export {
 		prune(folder, path, m.now())
 	}

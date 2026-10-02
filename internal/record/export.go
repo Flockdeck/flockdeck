@@ -107,6 +107,9 @@ type ExportResult struct {
 	Path string
 	// Lines is the number of lines in the file.
 	Lines int
+	// Kept says an earlier, finished export of the conversation has lines this
+	// one lacks, so it was left as it was and Path is that file, not a new one.
+	Kept bool
 }
 
 // Export writes a stored conversation as a transcript, through a Manager of
@@ -140,6 +143,11 @@ func Export(dir func() (string, error), meta Meta, f transcript.Follower, opts E
 	// other ends with the closing line Finish writes.
 	res.Lines = int(m.seqOf(meta.Pane)) + 1
 	if err := m.Finish(meta); err != nil {
+		if errors.Is(err, ErrEarlierKept) {
+			// Not a failure: the file there is a fuller transcript than this one.
+			res.Kept = true
+			return res, nil
+		}
 		return res, err
 	}
 	return res, nil

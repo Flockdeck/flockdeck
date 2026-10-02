@@ -153,6 +153,10 @@ func exportRecording(args []string, out io.Writer, env exportEnv) error {
 	case err != nil:
 		return err
 	}
+	if res.Kept {
+		fmt.Fprintf(out, "nothing new was written: the earlier export at %s has lines this one would lack (the stored conversation has changed since), so it was kept as it was\n", res.Path)
+		return nil
+	}
 	fmt.Fprintf(out, "exported %d lines (%d prompts, %d messages, %d tool calls) to %s\n", res.Lines, res.Prompts, res.Messages, res.ToolCalls, res.Path)
 	if res.Full {
 		fmt.Fprintf(out, "the conversation is longer than a transcript can be, so it was cut at its %d MiB cap\n", record.MaxFileBytes>>20)

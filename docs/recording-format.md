@@ -623,7 +623,7 @@ An export differs from a recording only in where it goes and how it is asked
 for:
 
 - **Where.** By default, the `exports` folder of the project's folder (section
-  1); made again if it is exported again. With `-o`, a file of your own, which
+  1); made again if it is exported again, **unless the new one would have fewer lines than the earlier one** (the stored conversation was changed or cut since), in which case the earlier file is kept as it was and the command and the window say so. With `-o`, a file of your own, which
   must not exist, and must not be inside the pane's project or any git
   repository: a transcript can hold secrets, and is never written into a
   project. Files are `0600`.

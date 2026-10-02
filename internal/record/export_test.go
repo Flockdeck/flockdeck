@@ -635,3 +635,53 @@ func TestStaleReplacementsAreSwept(t *testing.T) {
 		t.Error("a recent replacement was swept")
 	}
 }
+
+// An export to a file of the user's own sweeps nothing in the folder it is in.
+func TestAnExportToAPathOfItsOwnTouchesNothingBesideIt(t *testing.T) {
+	dir := t.TempDir()
+	notes := filepath.Join(dir, "notes.jsonl.new")
+	if err := os.WriteFile(notes, []byte("mine"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-72 * time.Hour)
+	_ = os.Chtimes(notes, old, old)
+	if _, err := Export(func() (string, error) { return t.TempDir(), nil }, exportMeta, fixtureFollower(t, fixtureConversation), ExportOptions{Path: filepath.Join(dir, "x.jsonl")}); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(notes); err != nil || string(b) != "mine" {
+		t.Errorf("a file beside the export was touched: %q, %v", b, err)
+	}
+}
+
+// An export that would replace a fuller earlier one leaves it and says so.
+func TestAnExportThatWouldLoseLinesKeepsTheEarlierOne(t *testing.T) {
+	dir := t.TempDir()
+	d := func() (string, error) { return dir, nil }
+	first, err := Export(d, exportMeta, fixtureFollower(t, fixtureConversation), ExportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(first.Path)
+	// The same conversation, begun at the same time, with less in it.
+	short := shortFollower{}
+	res, err := Export(d, exportMeta, short, ExportOptions{})
+	if err != nil {
+		t.Fatalf("a kept earlier export is not an error: %v", err)
+	}
+	if !res.Kept || res.Path != first.Path {
+		t.Errorf("result = %+v", res)
+	}
+	if after, _ := os.ReadFile(first.Path); string(after) != string(before) {
+		t.Error("the earlier export was changed")
+	}
+	if news, _ := filepath.Glob(filepath.Join(filepath.Dir(first.Path), "*.new")); len(news) != 0 {
+		t.Errorf("left behind: %v", news)
+	}
+}
+
+type shortFollower struct{}
+
+func (shortFollower) Poll(yield func(transcript.ExportEvent) error) (transcript.ExportStats, error) {
+	// The fixture's first event time, and one prompt.
+	return transcript.ExportStats{}, yield(transcript.ExportEvent{Time: time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC), Kind: transcript.ExportPrompt, Text: "different"})
+}

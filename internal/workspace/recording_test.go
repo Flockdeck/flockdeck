@@ -3,16 +3,19 @@ package workspace
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/record/schemacheck"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/store"
 )
 
@@ -174,6 +177,7 @@ func TestRecordingFollowsTheStoredConversation(t *testing.T) {
 	if found, err := ws.SetPaneRecording(p.ID, false); !found || err != nil {
 		t.Fatalf("stop = %v, %v", found, err)
 	}
+	ws.recAct.wait()
 	storeConversation(t, home, p.ID, lateLine)
 	syncRecording(ws, p.ID)
 
@@ -229,6 +233,7 @@ func TestExportMatchesTheRecording(t *testing.T) {
 	storeConversation(t, home, p.ID, resultLine, sayLine)
 	syncRecording(ws, p.ID)
 	ws.SetPaneRecording(p.ID, false)
+	ws.recAct.wait()
 	// The pane is not what it was, which is not in the lines.
 	ws.mu.Lock()
 	p.Name, p.Model = "renamed", "sonnet"
@@ -332,6 +337,7 @@ func TestRecordingFollowsTheAgentIntoANewConversation(t *testing.T) {
 	storeConversation(t, home, next, lateLine)
 	syncRecording(ws, p.ID)
 	ws.SetPaneRecording(p.ID, false)
+	ws.recAct.wait()
 
 	files := recordingFiles(t)
 	if len(files) != 2 {
@@ -380,6 +386,7 @@ func TestClosingARecordingPaneEndsItsTranscript(t *testing.T) {
 	startRecording(t, ws, p.ID)
 	storeConversation(t, home, p.ID, sayLine) // said since the last look
 	ws.ClosePaneByID(p.ID)
+	ws.recAct.wait()
 	files := recordingFiles(t)
 	if len(files) != 1 {
 		t.Fatalf("files = %v", files)
@@ -562,6 +569,7 @@ func TestNoRecorderIsMadeAfterCloseOrForAPaneNotRecording(t *testing.T) {
 	}
 	startRecording(t, ws, p.ID)
 	ws.SetPaneRecording(p.ID, false)
+	ws.recAct.wait()
 	files := recordingFiles(t)
 	if len(files) != 1 {
 		t.Fatalf("files = %v", files)
@@ -604,6 +612,7 @@ func TestTwoPanesCannotRecordOneConversation(t *testing.T) {
 	}
 	// Once the first stops, the second may.
 	ws.SetPaneRecording(a.ID, false)
+	ws.recAct.wait()
 	if found, err := ws.SetPaneRecording(b.ID, true); !found || err != nil {
 		t.Errorf("after the first stopped: %v, %v", found, err)
 	}
@@ -668,6 +677,7 @@ func TestTurningRecordingOffWhileEventsArriveLeavesNothingBehind(t *testing.T) {
 			}()
 		}
 		ws.SetPaneRecording(p.ID, false)
+		ws.recAct.wait()
 		close(stop)
 		wg.Wait()
 		ws.recAct.wait()
@@ -687,6 +697,152 @@ func TestTurningRecordingOffWhileEventsArriveLeavesNothingBehind(t *testing.T) {
 		es := readTranscript(t, recordingFiles(t)[0])
 		if len(es) != 7 || es[len(es)-1].Type != record.TypeStopped {
 			t.Fatalf("round %d: the transcript is %d lines ending %s", i, len(es), es[len(es)-1].Type)
+		}
+	}
+}
+
+// failingFollower makes the follower it wraps fail to read, once told to, in the
+// way a locked file does.
+type failingFollower struct {
+	transcript.Follower
+	fail *atomic.Pointer[error]
+}
+
+func (f failingFollower) Poll(yield func(transcript.ExportEvent) error) (transcript.ExportStats, error) {
+	if e := f.fail.Load(); e != nil {
+		return transcript.ExportStats{}, *e
+	}
+	return f.Follower.Poll(yield)
+}
+
+func failingWorkspace(t *testing.T, ws *Workspace) *atomic.Pointer[error] {
+	var fail atomic.Pointer[error]
+	ws.wrapFollower = func(f transcript.Follower) transcript.Follower { return failingFollower{f, &fail} }
+	return &fail
+}
+
+func failWith(fail *atomic.Pointer[error], err error) { fail.Store(&err) }
+
+// A recording whose conversation cannot be read when it is stopped is not given
+// a closing line over what it could not read, and the user is told.
+func TestStoppingARecordingThatCannotReadLeavesItUnfinishedAndSaysSo(t *testing.T) {
+	for name, cause := range map[string]error{
+		"locked": fmt.Errorf("%w: sharing violation", transcript.ErrRead),
+		"gone":   transcript.ErrNoTranscript,
+	} {
+		t.Run(name, func(t *testing.T) {
+			isolatedRecordings(t)
+			home := claudeHome(t)
+			root := t.TempDir()
+			ws := newTestWorkspace(t, root)
+			fail := failingWorkspace(t, ws)
+			var notes []string
+			var mu sync.Mutex
+			ws.SetRecordingNoticeHook(func(_, text string) { mu.Lock(); notes = append(notes, text); mu.Unlock() })
+			p := recordingPane(t, ws, root, "locked")
+			storeConversation(t, home, p.ID, promptLine, sayLine)
+			startRecording(t, ws, p.ID)
+			storeConversation(t, home, p.ID, resultLine, lateLine) // stored since the last look
+			failWith(fail, cause)
+			ws.SetPaneRecording(p.ID, false)
+			ws.recAct.wait()
+
+			es := readTranscript(t, recordingFiles(t)[0])
+			if last := es[len(es)-1]; last.Type == record.TypeStopped {
+				t.Errorf("a transcript with gaps was given a closing line (%d lines)", len(es))
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(notes) != 1 || !strings.Contains(notes[0], "left unfinished") {
+				t.Errorf("notices = %q", notes)
+			}
+			if ws.rec.Active(p.ID) {
+				t.Error("the unfinished file is still open")
+			}
+		})
+	}
+}
+
+// Events do not bring a failing recording's next look forward, so a lock that
+// lasts a few seconds is waited out and not given up on.
+func TestEventsDoNotHurryAFailingRecording(t *testing.T) {
+	isolatedRecordings(t)
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.recSettle = 200 * time.Millisecond
+	fail := failingWorkspace(t, ws)
+	p := recordingPane(t, ws, root, "locked")
+	storeConversation(t, home, p.ID, promptLine)
+	failWith(fail, fmt.Errorf("%w: locked", transcript.ErrRead))
+	startRecording(t, ws, p.ID)
+	for i := 0; i < 500; i++ {
+		ws.kickRecording(p.ID, true) // the agent's events, at once
+	}
+	ws.recAct.wait()
+	r := ws.recorder(p.ID, false)
+	r.work.Lock()
+	looks, fails := r.looks, r.readFails
+	r.work.Unlock()
+	if looks > 3 || fails > 3 {
+		t.Errorf("%d looks and %d failures from 500 events", looks, fails)
+	}
+	// And once the lock is gone, it records.
+	fail.Store(nil)
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		ws.recAct.wait()
+		if files := recordingFiles(t); len(files) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("it never recovered")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// Togglers, events and a size cap racing leave one recorder's worth of lines at
+// most, no file for an empty conversation, and nothing open.
+func TestConcurrentTogglesLeaveACleanTranscript(t *testing.T) {
+	isolatedRecordings(t)
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := recordingPane(t, ws, root, "toggled")
+	storeConversation(t, home, p.ID, promptLine, callLine, resultLine, sayLine)
+	var wg sync.WaitGroup
+	for g := 0; g < 4; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < 25; i++ {
+				ws.SetPaneRecording(p.ID, (i+g)%2 == 0)
+				ws.kickRecording(p.ID, true)
+			}
+		}(g)
+	}
+	wg.Wait()
+	ws.SetPaneRecording(p.ID, false)
+	ws.recAct.wait()
+	ws.SetPaneRecording(p.ID, false)
+	ws.recAct.wait()
+
+	ws.recMu.Lock()
+	left := len(ws.recorders)
+	ws.recMu.Unlock()
+	if left != 0 || ws.rec.Active(p.ID) {
+		t.Fatalf("%d recorders left, open=%v", left, ws.rec.Active(p.ID))
+	}
+	for _, f := range recordingFiles(t) {
+		if strings.HasSuffix(f, "-.jsonl") {
+			t.Errorf("a transcript for no conversation: %s", f)
+		}
+		es := readTranscript(t, f)
+		for i, e := range es {
+			if e.Seq != int64(i+1) {
+				t.Fatalf("%s: line %d has seq %d: lines were repeated or interleaved", f, i+1, e.Seq)
+			}
 		}
 	}
 }

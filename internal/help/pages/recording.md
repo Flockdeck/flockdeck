@@ -87,6 +87,8 @@ Under Flockdeck's own state directory, never in your project:
 There is one file per conversation: `<start time>` is when its first message
 was, and a new one starts when the agent goes on in a conversation of its own
 (after `/clear`, say). Recording again, or exporting again, makes the file again
+only if the new one has every line the earlier one had; otherwise the earlier one
+is kept and Flockdeck says so. It makes the file again
 rather than another: a recording left on across a restart of Flockdeck catches
 up from the stored conversation. The files are readable by you only, and the
 setting moves with the pane when you drag it to another tab.

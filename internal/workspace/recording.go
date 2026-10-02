@@ -30,6 +30,15 @@ const (
 	recIdleLooks = 3
 )
 
+// followerFor is a follower as the workspace uses it: as it is, unless a test has
+// put something between it and what it reads to make it fail.
+func (w *Workspace) followerFor(f transcript.Follower) transcript.Follower {
+	if w.wrapFollower != nil {
+		return w.wrapFollower(f)
+	}
+	return f
+}
+
 // recSettleFor is the interval a Workspace waits before its first further look.
 // It is a field, set before anything runs and never after, and not a package
 // variable, because the timers of a Workspace outlive the code that made it and
@@ -86,6 +95,7 @@ type paneRecorder struct {
 	work     sync.Mutex
 	conv     string
 	meta     record.Meta
+	mk       func() record.Meta
 	follower transcript.Follower
 	// synced says the conversation has been read once, so a transcript already
 	// over the cap when recording was turned on is told apart from one that
@@ -99,6 +109,12 @@ type paneRecorder struct {
 	// looks counts the times the conversation has been read.
 	looks int
 
+	// done is closed when the recorder has been stopped and is finished with: a
+	// recorder stays where it is found until then, so that a pane turned on again
+	// waits for it rather than writing beside it.
+	done     chan struct{}
+	doneOnce sync.Once
+
 	// ctl guards the rest, and is only ever held briefly.
 	ctl     sync.Mutex
 	timer   *time.Timer
@@ -106,6 +122,24 @@ type paneRecorder struct {
 	pending bool
 	running bool
 	stopped bool
+	// failing says a look failed and is to be tried again when the timer fires,
+	// and that events are not to bring it forward.
+	failing bool
+}
+
+func newPaneRecorder() *paneRecorder { return &paneRecorder{done: make(chan struct{})} }
+
+func (r *paneRecorder) finish() { r.doneOnce.Do(func() { close(r.done) }) }
+
+// metaNow is whose lines the transcript has: the one it was opened with, or, if
+// nothing is written yet, what the conversation says of itself now. It is never
+// empty once there is a follower.
+func (r *paneRecorder) metaNow(w *Workspace) record.Meta {
+	if r.meta.Pane != "" && w.rec.Active(r.meta.Pane) {
+		return r.meta
+	}
+	r.meta = r.mk()
+	return r.meta
 }
 
 // conversationOf is the id of the conversation a pane is in, for a transcript.
@@ -196,6 +230,11 @@ func (w *Workspace) SetPaneRecording(id string, on bool) (found bool, err error)
 			return true, err
 		}
 	}
+	if on {
+		// A recorder still finishing the transcript this one turns on again is
+		// waited for, not written beside.
+		w.awaitStopped(id)
+	}
 	// The pane stops being a recording one before its recorder is stopped, so
 	// that an event arriving in between cannot make a second recorder for it.
 	w.mu.Lock()
@@ -206,7 +245,7 @@ func (w *Workspace) SetPaneRecording(id string, on bool) (found bool, err error)
 	if on {
 		w.kickRecording(id, true)
 	} else {
-		w.stopRecorder(id, true)
+		w.stopRecorderAsync(id, true)
 	}
 	w.wake()
 	return true, nil
@@ -258,7 +297,7 @@ func (w *Workspace) recorder(id string, create bool) *paneRecorder {
 			if w.recorders == nil {
 				w.recorders = map[string]*paneRecorder{}
 			}
-			r = &paneRecorder{}
+			r = newPaneRecorder()
 			w.recorders[id] = r
 		}
 	}
@@ -301,14 +340,16 @@ func (w *Workspace) conversationOwner(conv string) string {
 // server for every event and from the control path, neither of which can wait
 // on a long conversation being read. A kick while one is under way is folded
 // into a further look when it ends. fromEvent says the agent just reported
-// something, which is when a recording that had stopped looking starts again.
+// something, which is when a recording that had stopped looking starts again --
+// but not one that is waiting out a failure, which would be tried at once, for
+// every event, and give up in seconds.
 func (w *Workspace) kickRecording(id string, fromEvent bool) {
 	r := w.recorder(id, true)
 	if r == nil {
 		return
 	}
 	r.ctl.Lock()
-	if r.stopped {
+	if r.stopped || (fromEvent && r.failing) {
 		r.ctl.Unlock()
 		return
 	}
@@ -342,8 +383,6 @@ func (w *Workspace) kickRecording(id string, fromEvent bool) {
 	}()
 }
 
-// recMaxFails is how many looks in a row may fail to write before recording
-// gives up and says so.
 const (
 	recMaxFails     = 8
 	recMaxReadFails = 20
@@ -383,14 +422,15 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 	if stopped {
 		return
 	}
-	current := func() record.Meta { return r.meta }
+	meta := func() record.Meta { return r.metaNow(w) }
 	if r.follower != nil && r.conv != conv {
 		// The agent went on in a conversation of its own (/clear): the one
 		// before ends here, and the new one is a transcript of its own.
-		if _, err := record.Sync(w.rec, current, r.follower); err == nil || errors.Is(err, transcript.ErrNoTranscript) {
-			w.finished(id, w.rec.Finish(r.meta))
-		} else {
+		if err := w.finalSync(r); err != nil {
 			w.rec.Abandon(r.meta)
+			w.note(id, "The transcript of the earlier conversation was left unfinished: "+err.Error())
+		} else {
+			w.finished(id, w.rec.Finish(r.meta))
 		}
 		w.releaseConversation(r.conv, id)
 		r.follower, r.synced, r.meta = nil, false, record.Meta{}
@@ -400,18 +440,9 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 			w.endRecordingAsync(id, "was not started: another pane is already recording this conversation")
 			return
 		}
-		r.conv, r.follower = conv, ex.Follow(spec, conv)
-		r.fresh = func() transcript.Follower { return ex.Follow(spec, conv) }
-	}
-	// Whose lines they are is asked for when the first is about to be written,
-	// not before: what the conversation says of itself, the directory it is in,
-	// is only there once it has begun.
-	meta := func() record.Meta {
-		if w.rec.Active(conv) {
-			return r.meta
-		}
-		r.meta = record.MetaFor(spec, ex, conv)
-		return r.meta
+		r.fresh = func() transcript.Follower { return w.followerFor(ex.Follow(spec, conv)) }
+		r.conv, r.follower = conv, r.fresh()
+		r.mk = func() record.Meta { return record.MetaFor(spec, ex, conv) }
 	}
 	res, err := record.Sync(w.rec, meta, r.follower)
 	if errors.Is(err, transcript.ErrReplaced) {
@@ -453,18 +484,56 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 		return
 	}
 	r.fails, r.readFails = 0, 0
-	r.synced = true
+	r.synced = r.synced || err == nil
+	r.ctl.Lock()
+	r.failing = false
+	r.ctl.Unlock()
 	w.scheduleRecording(id, r, res.Events > 0)
 }
 
+// finalSync reads what the agent has stored since the last look, for a
+// transcript that is about to be finished. It reports an error if the file could
+// not be made complete -- a write that failed is redone from the start once, a
+// read that failed is tried again once -- since a closing line on a file with
+// gaps makes it look whole.
+func (w *Workspace) finalSync(r *paneRecorder) error {
+	meta := func() record.Meta { return r.metaNow(w) }
+	sync := func() error {
+		_, err := record.Sync(w.rec, meta, r.follower)
+		if errors.Is(err, transcript.ErrReplaced) {
+			w.rec.Abandon(r.meta)
+			_, err = record.Sync(w.rec, meta, r.follower)
+		}
+		return err
+	}
+	err := sync()
+	if errors.Is(err, transcript.ErrRead) {
+		time.Sleep(100 * time.Millisecond)
+		err = sync()
+	} else if err != nil && !errors.Is(err, transcript.ErrNoTranscript) {
+		w.rec.Abandon(r.meta)
+		r.follower = r.fresh()
+		err = sync()
+	}
+	if errors.Is(err, transcript.ErrNoTranscript) {
+		if r.synced {
+			return fmt.Errorf("the stored conversation can no longer be found, and what was stored since the last look may be missing: %w", err)
+		}
+		return nil // nothing was ever stored, so nothing is missing
+	}
+	return err
+}
+
 // scheduleAfterFailure arranges a look after one that failed, later the more
-// have: a lock that lasts seconds is waited out and not given up on.
+// have: a lock that lasts seconds is waited out and not given up on. Events do
+// not bring it forward.
 func (w *Workspace) scheduleAfterFailure(id string, r *paneRecorder, failures int) {
 	r.ctl.Lock()
 	defer r.ctl.Unlock()
 	if r.stopped {
 		return
 	}
+	r.failing = true
 	delay := w.recSettleFor() << min(failures, recMaxBackoff)
 	if r.timer == nil {
 		r.timer = time.AfterFunc(delay, func() { w.kickRecording(id, false) })
@@ -476,12 +545,27 @@ func (w *Workspace) scheduleAfterFailure(id string, r *paneRecorder, failures in
 // finished tells the window when a transcript could not be completed or put in
 // its place, which is the one thing about ending one that the user needs to hear.
 func (w *Workspace) finished(id string, err error) {
-	if err == nil {
-		return
+	switch {
+	case err == nil:
+	case errors.Is(err, record.ErrEarlierKept):
+		w.note(id, "The earlier transcript of this conversation was kept: it has lines the new one lacks.")
+	default:
+		text := err.Error()
+		w.note(id, "Could not finish a transcript: "+text+".")
 	}
-	if fn := w.onRecordingEnded.Load(); fn != nil && *fn != nil {
-		(*fn)(id, err.Error())
+}
+
+// note puts a sentence to the window.
+func (w *Workspace) note(id, text string) {
+	if fn := w.onRecordingNotice.Load(); fn != nil && *fn != nil {
+		(*fn)(id, text)
 	}
+}
+
+// SetRecordingNoticeHook installs the function told about something a recording
+// or an export did that the user needs to hear, as a whole sentence.
+func (w *Workspace) SetRecordingNoticeHook(fn func(paneID, text string)) {
+	w.onRecordingNotice.Store(&fn)
 }
 
 // scheduleRecording arranges the next look, later each time a look finds
@@ -508,18 +592,22 @@ func (w *Workspace) scheduleRecording(id string, r *paneRecorder, found bool) {
 	}
 }
 
-// stopRecorder ends a pane's transcript. With final it first reads what the
-// agent has stored since the last look, and closes the transcript with its
-// closing line; without, it only lets go.
+// stopRecorder ends a pane's transcript, and returns when it is ended. With final
+// it first reads what the agent has stored since the last look, and closes the
+// transcript with its closing line, or leaves it unfinished and says why if it
+// could not be made complete; without, it only lets go. The recorder stays where
+// it is found until it is done, and a second stop waits for the first.
 func (w *Workspace) stopRecorder(id string, final bool) {
-	w.recMu.Lock()
-	r := w.recorders[id]
-	delete(w.recorders, id)
-	w.recMu.Unlock()
+	r := w.recorder(id, false)
 	if r == nil {
 		return
 	}
 	r.ctl.Lock()
+	if r.stopped {
+		r.ctl.Unlock()
+		<-r.done
+		return
+	}
 	r.stopped = true
 	if r.timer != nil {
 		r.timer.Stop()
@@ -527,37 +615,59 @@ func (w *Workspace) stopRecorder(id string, final bool) {
 	r.ctl.Unlock()
 
 	r.work.Lock()
-	defer r.work.Unlock()
-	if r.follower == nil {
+	if r.follower != nil {
+		w.releaseConversation(r.conv, id)
+		if final {
+			if err := w.finalSync(r); err != nil {
+				w.rec.Abandon(r.meta)
+				w.note(id, "A transcript was left unfinished, as it could not be made complete: "+err.Error())
+			} else {
+				w.finished(id, w.rec.Finish(r.meta))
+			}
+		} else {
+			w.finished(id, w.rec.Finish(r.meta))
+		}
+	}
+	r.work.Unlock()
+
+	w.recMu.Lock()
+	if w.recorders[id] == r {
+		delete(w.recorders, id)
+	}
+	w.recMu.Unlock()
+	r.finish()
+}
+
+// stopRecorderAsync is stopRecorder off the goroutine that asked, which is the
+// control path or the workspace's own and must not wait on a file being finished.
+// It is counted, so that closing the Workspace waits for it.
+func (w *Workspace) stopRecorderAsync(id string, final bool) {
+	w.recAct.begin()
+	go func() {
+		defer w.recAct.end()
+		w.stopRecorder(id, final)
+	}()
+}
+
+// awaitStopped waits for a pane's recorder to be finished with, if it is being
+// stopped, so that turning recording on again does not start one beside it.
+func (w *Workspace) awaitStopped(id string) {
+	r := w.recorder(id, false)
+	if r == nil {
 		return
 	}
-	w.releaseConversation(r.conv, id)
-	if final {
-		current := func() record.Meta { return r.meta }
-		_, err := record.Sync(w.rec, current, r.follower)
-		if errors.Is(err, transcript.ErrReplaced) {
-			w.rec.Abandon(r.meta)
-			_, err = record.Sync(w.rec, current, r.follower)
-		}
-		if err != nil && !errors.Is(err, transcript.ErrNoTranscript) && !errors.Is(err, record.ErrFull) {
-			// What could not be written is not in the file, so a closing line
-			// would make a transcript with gaps look whole: it is written again
-			// from the start, once, and left unfinished if that fails too.
-			w.rec.Abandon(r.meta)
-			r.follower = r.fresh()
-			if _, err = record.Sync(w.rec, current, r.follower); err != nil && !errors.Is(err, transcript.ErrNoTranscript) && !errors.Is(err, record.ErrFull) {
-				w.rec.Abandon(r.meta)
-				w.finished(id, fmt.Errorf("could not be completed (%w), so it was left unfinished", err))
-				return
-			}
-		}
+	r.ctl.Lock()
+	stopped := r.stopped
+	r.ctl.Unlock()
+	if stopped {
+		<-r.done
 	}
-	w.finished(id, w.rec.Finish(r.meta))
 }
 
 // stopRecorders lets go of every recorder, for a Flockdeck that is quitting, and
-// waits for the looks under way. Nothing more is written, now or by a look that
-// is still to come: a pane left recording starts again at the next start.
+// waits for the looks and the stops under way. Nothing more is written, now or by
+// a look that is still to come: a pane left recording starts again at the next
+// start.
 func (w *Workspace) stopRecorders() {
 	w.recMu.Lock()
 	w.recClosed = true
@@ -573,6 +683,9 @@ func (w *Workspace) stopRecorders() {
 		r.ctl.Unlock()
 	}
 	w.recAct.wait()
+	for _, r := range recorders {
+		r.finish()
+	}
 }
 
 // endRecordingAsync ends a pane's recording, saying why, off the goroutine that
