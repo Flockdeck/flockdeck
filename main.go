@@ -348,7 +348,7 @@ func flockdeckFlagSet(c *cliFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("flockdeck", flag.ExitOnError)
 	fs.StringVar(&c.dir, "C", envOr(dirEnv, "."), "`directory` to open the workspace on\n(default: $"+dirEnv+" if set, else the working directory)")
 	fs.StringVar(&c.agent, "agent", os.Getenv(startAgentEnv), "`id` of the agent new panes start as for this run; flockdeck agents lists them\n(default: $"+startAgentEnv+" if set)")
-	fs.BoolVar(&c.fresh, "new", envBool(freshEnv), "ignore any saved layout and start with a single pane\n(default: $"+freshEnv+" if set to 1 or true)")
+	fs.BoolVar(&c.fresh, "new", envBool(freshEnv), "start with a single pane instead of the saved layout,\nwhich this run's layout then replaces\n(default: $"+freshEnv+" if set to 1 or true)")
 	fs.BoolVar(&c.shell, "shell", envBool(shellFirstEnv), "open the first pane as a shell instead of an agent\n(default: $"+shellFirstEnv+" if set to 1 or true)")
 	fs.BoolVar(&c.noWindow, "no-window", envBool(noWindowEnv), "do not open a window or need a browser here; print the URL and keep serving\n(default: $"+noWindowEnv+" if set to 1 or true)")
 	fs.BoolVar(&c.detach, "detach", envBool(detachEnv), "keep running without a window; reattach later by running it again\n(default: $"+detachEnv+" if set to 1 or true)")
@@ -397,7 +397,8 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  recordings [-dir] [-json]\n")
 	fmt.Fprintf(out, "        list the transcripts panes have recorded, newest first; -dir prints the folder they are kept in\n")
 	fmt.Fprintf(out, "  recordings export [-o file] [-reveal] <pane-id | conversation-id>\n")
-	fmt.Fprintf(out, "        write an agent's stored conversation as a transcript, whether or not the pane was recorded\n")
+	fmt.Fprintf(out, "        write an agent's stored conversation as a transcript, whether or not the pane\n")
+	fmt.Fprintf(out, "        was recorded; only Claude Code stores a conversation flockdeck can read\n")
 	fmt.Fprintf(out, "  agents\n")
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "  chat [flags]\n")
@@ -406,7 +407,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        the API keys agents talk to a model API with\n")
 	fmt.Fprintf(out, "  remote enable [-relay <url>] [-name <name>] [-join <code>] [-invite <code>]\n")
 	fmt.Fprintf(out, "        enrol this machine with a relay, so another device can reach its agents\n")
-	fmt.Fprintf(out, "  remote pair [-desktop] | status | devices | revoke <id> | disable [-force]\n")
+	fmt.Fprintf(out, "  remote pair [-desktop] | status | devices | revoke <id or name> | disable [-force]\n")
 	fmt.Fprintf(out, "        pair a device, and see or change what is paired\n")
 	fmt.Fprintf(out, "  remote rename [-device <id or name>] <name>\n")
 	fmt.Fprintf(out, "        rename this machine, or a paired device, as every device lists it\n")
@@ -1845,10 +1846,11 @@ func closeFlagSet(f *closeFlags) *flag.FlagSet {
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: flockdeck close [-force] <pane-id>\n"+
 			"       flockdeck close -finished\n\n"+
-			"Closes another pane -- the same as Ctrl+Shift+W on it. Refuses a pane\n"+
-			"that is still working unless -force is given. -finished closes every\n"+
-			"idle or exited pane across every open project instead of naming one,\n"+
-			"the same as the \"Close finished panes\" command.\n\nFlags:\n")
+			"Closes another pane -- the same as Ctrl+Shift+W on it. Refuses a pane that\n"+
+			"is still working unless -force is given, and a locked pane whatever the\n"+
+			"flags say. -finished closes every idle or exited pane across every open\n"+
+			"project instead of naming one, the same as the \"Close finished panes\"\n"+
+			"command, and leaves locked panes open.\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
 	return fs

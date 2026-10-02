@@ -91,7 +91,7 @@ type exportFlags struct {
 func exportFlagSet(f *exportFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("recordings export", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	fs.StringVar(&f.path, "o", "", "write the transcript to this `file`, which must not exist and must not be inside the project or a git repository; by default it goes in the exports folder under the recordings folder")
+	fs.StringVar(&f.path, "o", "", "write the transcript to this `file`, which must not exist and must not be inside the project or a git repository; by default it goes in the project's exports folder under the recordings folder")
 	fs.BoolVar(&f.reveal, "reveal", false, "show the exported file in the file manager, selected, when it has been written")
 	return fs
 }
@@ -109,13 +109,19 @@ func exportRecording(args []string, out io.Writer, env exportEnv) error {
 		fmt.Fprintf(os.Stderr, "from the agent's own stored conversation, so a recording of it and an export of\n")
 		fmt.Fprintf(os.Stderr, "it are the same lines. Claude Code is the agent whose conversations Flockdeck can\n")
 		fmt.Fprintf(os.Stderr, "read; for any other, nothing is exported and nothing is written.\n\n")
-		fmt.Fprintf(os.Stderr, "The id is a pane's, as the saved layouts hold it, or a Claude Code conversation's.\n")
-		fmt.Fprintf(os.Stderr, "The transcript can contain secrets: common ones are removed and very long output\n")
-		fmt.Fprintf(os.Stderr, "is clipped, but that is best effort. It is written 0600, never into a project.\n")
+		fmt.Fprintf(os.Stderr, "The id is a pane's, as the saved layouts hold it, or a Claude Code\n")
+		fmt.Fprintf(os.Stderr, "conversation's (its file's name under ~/.claude/projects).\n\n")
+		fmt.Fprintf(os.Stderr, "The transcript can contain secrets: common ones are removed and very long\n")
+		fmt.Fprintf(os.Stderr, "output is clipped, but that is best effort. It is written 0600 on Linux and\n")
+		fmt.Fprintf(os.Stderr, "macOS (on Windows, with your profile's permissions), never into the project\n")
+		fmt.Fprintf(os.Stderr, "or a git repository. A transcript stops at %d MiB, and an entry of the stored\n", record.MaxFileBytes>>20)
+		fmt.Fprintf(os.Stderr, "conversation that cannot be read, such as one over 8 MiB, is left out; the\n")
+		fmt.Fprintf(os.Stderr, "command says how many were.\n\n")
 		fmt.Fprintf(os.Stderr, "If an earlier export of the conversation has events this one would lack (the\n")
-		fmt.Fprintf(os.Stderr, "stored conversation was cut or changed), it is kept, nothing new is written, and\n")
-		fmt.Fprintf(os.Stderr, "the command exits with an error; delete that file to have a fresh one.\n")
-		fmt.Fprintf(os.Stderr, "The format is documented in docs/recording-format.md in the Flockdeck repository.\n\nFlags:\n")
+		fmt.Fprintf(os.Stderr, "stored conversation was cut or changed), it is kept, nothing new is written,\n")
+		fmt.Fprintf(os.Stderr, "and the command exits with an error; delete that file to have a fresh one.\n\n")
+		fmt.Fprintf(os.Stderr, "The format is documented in docs/recording-format.md in the Flockdeck\n")
+		fmt.Fprintf(os.Stderr, "repository.\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -170,7 +176,7 @@ func exportRecording(args []string, out io.Writer, env exportEnv) error {
 		fmt.Fprintf(out, "the conversation is longer than a transcript can be, so it was cut at its %d MiB cap\n", record.MaxFileBytes>>20)
 	}
 	if res.Skipped > 0 {
-		fmt.Fprintf(out, "%d entries of the stored conversation could not be read and are left out\n", res.Skipped)
+		fmt.Fprintf(out, "%d entries of the stored conversation could not be read (not JSON or over 8 MiB, for example) and are left out\n", res.Skipped)
 	}
 	fmt.Fprintln(out, "it may contain secrets: common ones are removed, but that is best effort")
 	if f.reveal {

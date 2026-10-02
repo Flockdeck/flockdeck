@@ -74,7 +74,7 @@ func usage(fs *flag.FlagSet, out io.Writer) {
 	fmt.Fprintf(out, "Usage: flockdeck chat [flags] [--] [task]\n\n")
 	fmt.Fprintf(out, "Holds a conversation with a model API in this terminal: no wrapper CLI,\n")
 	fmt.Fprintf(out, "no node, no python. Run inside a Flockdeck pane it reports its own status,\n")
-	fmt.Fprintf(out, "records a transcript and can be resumed.\n\nFlags:\n")
+	fmt.Fprintf(out, "keeps its conversation and can be resumed.\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nWhat -wire, -base-url and -key-env leave unsaid is taken from the -agent's\n")
 	fmt.Fprintf(out, "catalog entry, agents.json included. The API key is read from those names\n")
