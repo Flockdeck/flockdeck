@@ -179,6 +179,11 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	resume := q.Has("from")
 	from, _ := strconv.ParseInt(q.Get("from"), 10, 64)
+	// A window that says size=1 is told what size the pane's pty is, and keeps
+	// its terminal that size; see sizeFeed. One that does not is sent nothing
+	// it would not know what to do with: it reads every text frame as the
+	// opening of a run, and starts its terminal afresh for it.
+	tellSize := q.Get("size") == "1"
 	epoch, _ := strconv.ParseInt(q.Get("epoch"), 10, 64)
 
 	// Keystrokes and resizes have to reach whichever session the pane is
@@ -223,7 +228,11 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 				subID, replay, out, subscribers = sess.Subscribe()
 			}
 			s.armRepaint(ctx, &repaint, id, viewer, sess, subscribers, fresh)
-			ended := streamOutput(ctx, tc, replay, out, liveFrame(r), &writes)
+			var feed *sizeFeed
+			if tellSize {
+				feed = &sizeFeed{sess: sess}
+			}
+			ended := streamOutputSized(ctx, tc, replay, out, liveFrame(r), &writes, feed)
 			if subID >= 0 {
 				sess.Unsubscribe(subID)
 			}
@@ -649,6 +658,57 @@ func (s *Server) paneSession(id string) (sess *session.Session, found bool, err 
 // It returns true when the session's stream ended, leaving the connection
 // usable, and false when the connection itself went away.
 func streamOutput(ctx context.Context, conn termConn, replay []byte, out <-chan []byte, frame int, writes *writeGauge) bool {
+	return streamOutputSized(ctx, conn, replay, out, frame, writes, nil)
+}
+
+// sizeFeed is what keeps one window's terminal the size of the pane's pty.
+//
+// There is one pty behind a pane however many windows show it, and it is the
+// size of one of them (see viewers). Every window fits its own terminal to its
+// own box, so each of the others drew the program's output into a terminal of a
+// different size: a full-screen program, and ConPTY repainting one by sending
+// only the cells that changed, address the screen by row and column, so words
+// lost letters, rows landed on each other and backgrounds on the wrong rows,
+// in the window that was not the one the pane was sized for -- and in all of
+// them when the pane had been sized for none, to the least of each dimension.
+//
+// So the window is told the size the pty is, ahead of the replay and again
+// whenever it changes, in the same ordered stream as the output, and keeps its
+// terminal that size whatever its box allows.
+type sizeFeed struct {
+	sess *session.Session
+	sent [2]int
+}
+
+// sizeFrame is the text frame that carries a size.
+func sizeFrame(cols, rows int) []byte {
+	return []byte(`{"size":{"cols":` + strconv.Itoa(cols) + `,"rows":` + strconv.Itoa(rows) + `}}`)
+}
+
+// flush sends the size if it is not the one the window was last told, and
+// returns the channel that is closed when it next changes. The size and the
+// channel are read together, so a change made after the read is never missed.
+func (z *sizeFeed) flush(ctx context.Context, conn termConn, writes *writeGauge) (<-chan struct{}, error) {
+	if z == nil {
+		return nil, nil
+	}
+	cols, rows, changed := z.sess.SizeWatch()
+	if sz := [2]int{cols, rows}; cols > 0 && rows > 0 && sz != z.sent {
+		if err := writes.write(ctx, conn, websocket.MessageText, sizeFrame(cols, rows)); err != nil {
+			return nil, err
+		}
+		z.sent = sz
+	}
+	return changed, nil
+}
+
+// streamOutputSized is streamOutput for a window that is also told the size of
+// the pty. A nil feed tells it nothing.
+func streamOutputSized(ctx context.Context, conn termConn, replay []byte, out <-chan []byte, frame int, writes *writeGauge, feed *sizeFeed) bool {
+	resized, err := feed.flush(ctx, conn, writes)
+	if err != nil {
+		return false
+	}
 	// The replay goes out a frame at a time, and each frame has the write's
 	// budget to itself. Sent whole, half a megabyte of history on a slow link
 	// -- a phone reaching this through the relay -- outlasted that budget, the
@@ -674,6 +734,10 @@ func streamOutput(ctx context.Context, conn termConn, replay []byte, out <-chan 
 		select {
 		case <-ctx.Done():
 			return false
+		case <-resized:
+			if resized, err = feed.flush(ctx, conn, writes); err != nil {
+				return false
+			}
 		case chunk, ok := <-out:
 			if !ok {
 				// The process exited, or this viewer fell too far behind.
@@ -694,6 +758,9 @@ func streamOutput(ctx context.Context, conn termConn, replay []byte, out <-chan 
 			sent = time.Now()
 			if ended {
 				return true
+			}
+			if resized, err = feed.flush(ctx, conn, writes); err != nil {
+				return false
 			}
 		}
 	}

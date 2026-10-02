@@ -1067,7 +1067,7 @@ textarea:focus-visible {
  * click meant for Restart and Close pane. Kept in a context of its own, the
  * whole terminal is one layer, and the cover and the scroll button, which
  * come after it, are above. */
-.term-host { position: absolute; inset: 0; padding: 4px 0 0 6px; touch-action: none; isolation: isolate; }
+.term-host { position: absolute; inset: 0; overflow: hidden; padding: 4px 0 0 6px; touch-action: none; isolation: isolate; }
 /* Shown only while the pane is scrolled back from its newest line. Clear of
  * the terminal's scroll bar at the right edge. */
 .to-latest {

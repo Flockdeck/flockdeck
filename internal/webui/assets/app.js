@@ -3710,6 +3710,8 @@
   function handlePtyHeader(p, text) {
     let h;
     try { h = JSON.parse(text); } catch { return; }
+    // The size of the pty behind the pane, which is not an opening of a run.
+    if (h && h.size) { setPtySize(p, h.size.cols, h.size.rows); return; }
     // Reset in the stream's own order, as RIS written to it. reset() acts at
     // once while write() only queues, so bytes of the old run still queued -
     // a slow window dropped and reconnected, or a restart on the same
@@ -3767,7 +3769,7 @@
     // place counts the terminal modes put back ahead of the replay, and a
     // terminal that never received them would carry on without them.
     const held = p.stream && !p.stream.fresh ? "&epoch=" + p.stream.epoch + "&from=" + p.stream.offset : "&from=-1";
-    const ws = new WebSocket(wsBase + basePath + "ws/pty?id=" + encodeURIComponent(p.id) + held);
+    const ws = new WebSocket(wsBase + basePath + "ws/pty?id=" + encodeURIComponent(p.id) + "&size=1" + held);
     ws.binaryType = "arraybuffer";
     p.ws = ws;
 
@@ -3918,11 +3920,55 @@
 
   function doFit(p) {
     if (!p.host.isConnected || p.host.offsetParent === null) return;
-    try { p.fit.fit(); } catch { return; }
-    const { cols, rows } = p.term;
-    if (!cols || !rows || (cols === p.cols && rows === p.rows)) return;
-    p.cols = cols; p.rows = rows;
-    ptySend(p, JSON.stringify({ resize: { cols, rows } }), true);
+    let cols, rows;
+    if (p.ptySize) {
+      // The terminal is the size of the pty, which is not necessarily the size
+      // of this box (see setPtySize), so the box is measured without fitting
+      // the terminal to it.
+      let d;
+      try { d = p.fit.proposeDimensions(); } catch { return; }
+      if (!d) return;
+      ({ cols, rows } = d);
+    } else {
+      try { p.fit.fit(); } catch { return; }
+      ({ cols, rows } = p.term);
+    }
+    if (!cols || !rows) return;
+    if (cols !== p.cols || rows !== p.rows) {
+      p.cols = cols; p.rows = rows;
+      ptySend(p, JSON.stringify({ resize: { cols, rows } }), true);
+    }
+    matchPtySize(p);
+  }
+
+  /** setPtySize is the server saying what size the pane's pty is.
+   *
+   *  A pane has one pty however many windows show it, and it is the size of
+   *  the window somebody is using. Every window fits its terminal to its own
+   *  box, so each of the others drew the program's output into a terminal of
+   *  a different size, and a program that addresses the screen by row and
+   *  column - Claude Code redrawing, and ConPTY on Windows repainting it with
+   *  only the cells that changed - wrote into the wrong cells: letters
+   *  dropped or swapped, rows on top of each other, backgrounds on the wrong
+   *  rows. The terminal is kept the size of the pty instead, whatever its box
+   *  allows; a box that is smaller shows the top left of it, and using the
+   *  window (focusing or typing in it) is what makes the pane its size. */
+  function setPtySize(p, cols, rows) {
+    if (!(cols > 0 && rows > 0)) return;
+    p.ptySize = { cols, rows };
+    matchPtySize(p);
+  }
+
+  /** matchPtySize resizes the terminal to the pty's size once what the server
+   *  has already sent has been drawn, so the resize lands where it falls in
+   *  the output rather than ahead of it. */
+  function matchPtySize(p) {
+    const want = p.ptySize;
+    if (!want || (p.term.cols === want.cols && p.term.rows === want.rows)) return;
+    p.term.write("", () => {
+      if (p.ptySize !== want) return;
+      if (p.term.cols !== want.cols || p.term.rows !== want.rows) p.term.resize(want.cols, want.rows);
+    });
   }
 
   /** taskTip bounds a pane's task to something a bubble can hold. The field

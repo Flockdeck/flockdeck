@@ -229,6 +229,8 @@ type Session struct {
 	sawInput   bool
 	startedAt  time.Time
 	cols, rows int
+	// sized is closed, and replaced, each time the size changes: see SizeWatch.
+	sized chan struct{}
 	// resizedAt is when the pane was last resized with nothing typed into it
 	// since, which is when its program was last made to redraw by Flockdeck
 	// rather than by anything it was doing: see ownRedraw. Typing clears it.
@@ -349,6 +351,7 @@ func Start(cfg Config) (*Session, error) {
 		startedAt:   time.Now(),
 		cols:        cfg.Cols,
 		rows:        cfg.Rows,
+		sized:       make(chan struct{}),
 		patterns:    foldPatterns(cfg.Spec.Patterns),
 		assist:      assistFor(cfg),
 		idleAfter:   quietBeforeIdle,
@@ -1431,6 +1434,10 @@ func (s *Session) Resize(cols, rows int) {
 		return
 	}
 	s.cols, s.rows = cols, rows
+	if s.sized != nil {
+		close(s.sized)
+	}
+	s.sized = make(chan struct{})
 	// The program redraws for it, and that redraw is Flockdeck's doing, not
 	// work: see ownRedraw. Stamped before the PTY is told, so the redraw
 	// cannot arrive ahead of it.
@@ -1444,6 +1451,24 @@ func (s *Session) Resize(cols, rows int) {
 // clampSize bounds terminal dimensions to something a display could produce.
 func clampSize(cols, rows int) (int, int) {
 	return min(cols, maxCols), min(rows, maxRows)
+}
+
+// SizeWatch is Size with a channel that is closed when the size next changes.
+//
+// A pane has one pseudo-terminal however many windows are showing it, and each
+// window fits its own terminal to its own box. The pty is the size of just one
+// of them, so every other window has to be told the size the program is really
+// drawing for and match it: a program that addresses the screen by row and
+// column -- Claude Code's redraw, or ConPTY's repaint of it on Windows, which
+// sends only the cells that changed -- writes into the wrong cells of a
+// terminal of any other size.
+func (s *Session) SizeWatch() (cols, rows int, changed <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sized == nil {
+		s.sized = make(chan struct{})
+	}
+	return s.cols, s.rows, s.sized
 }
 
 // Size returns the current PTY dimensions.
