@@ -65,8 +65,9 @@ The same folder also holds:
   built from the conversation Claude Code stored on your computer, with secrets
   removed on a best-effort basis, so it can still contain some. Recording is
   off until you turn it on and confirm. Recordings older than 30 days are
-  deleted as new ones are made, as are the oldest beyond 100 files or 256 MiB; exports are kept until you delete them. Flockdeck
-  sends them nowhere and writes none into a project.
+  deleted as new ones are made, as are the oldest beyond 100 files or
+  256 MiB; exports are kept until you delete them. Flockdeck sends them
+  nowhere and writes none into a project.
 
 If the app fails to start, it writes
 the error to a file there, `error.log`, which can include the paths of files
