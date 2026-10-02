@@ -110,4 +110,6 @@ running, hands it the directory, and opens a window onto it — so the project
 joins the session you already have.
 
 Closing a project closes its panes, which stops its agents and ends what was
-started in them, as closing each pane would. Switching away does not.
+started in them, as closing each pane would; if an agent in it is working or
+waiting, you are asked first, and a locked pane in it stops it closing.
+Switching away does not.

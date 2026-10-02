@@ -52,7 +52,8 @@ shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
 The buttons in a pane header, in order: fan out (`⑂`), save the plan as a
 todo (`☑`), include in broadcast (`⇉`), auto-review (`✓`), restart, zoom,
 export transcript, reveal transcript, record, lock, close. Auto-review is off
-until you turn it on, pane by pane, and the pane keeps the setting across a
+until you turn it on, pane by pane (the ✓'s tooltip counts the commands it has
+let through unasked so far), and the pane keeps the setting across a
 restart of Flockdeck: see [Knowing who needs you](#status). Record is off
 until you turn it on too; export, reveal and record are not shown on a shell
 pane, which has no conversation, and reveal works only in a window on the

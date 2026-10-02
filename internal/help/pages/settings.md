@@ -22,12 +22,13 @@ it.
   drawn in; **Light**; or **Follow system**, which changes with this
   computer's own light-or-dark setting. **Accent colour** is a small fixed set
   of swatches, kept legible against either palette, not a free colour picker.
-- **Terminal** — a preview at the top, then the font size, the font, how many
-  lines each pane keeps to scroll back through, and the cursor's shape and
-  whether it blinks. The size is also [[key:fontUp]], [[key:fontDown]] and
-  [[key:fontReset]]. **Screen reader support** lets a screen reader read what
-  the agents write; it is off unless you turn it on, because it slows every
-  terminal a little. The palette has **Turn screen reader support on** too.
+- **Terminal** — a preview at the top, then the font size (13 px unless changed, from 8 to
+  28), the font, how many lines each pane keeps to scroll back through (10,000
+  by default), and the cursor's shape and whether it blinks. The size is also
+  [[key:fontUp]], [[key:fontDown]] and [[key:fontReset]]. **Screen reader
+  support** lets a screen reader read what the agents write; it is off unless
+  you turn it on, because it slows every terminal a little. The palette has
+  **Turn screen reader support on** too.
 - **Keyboard** — every shortcut this window's own chrome offers, grouped as
   [Keyboard shortcuts](#shortcuts) groups them, each with a button that
   records the next key you press as its new binding; **Reset** puts one back,
@@ -76,7 +77,8 @@ it.
 ### Connections
 
 - **Remote access** — whether paired devices are notified when an agent has
-  been waiting, after how long, and whether the notification names the pane;
+  been waiting, after how long (30 seconds unless changed; 15 seconds to 10
+  minutes), and whether the notification names the pane;
   then turning remote access on or off, the relay it goes through, this
   machine's name, and the paired devices. Turning it on or off, and the
   relay, are changed only at the desk.

@@ -63,11 +63,16 @@ is; [Spend and limits](#spend) says how, and when Claude Code's are read.
 
 The rail down the left of the window has a tile for each open project — one
 with an amber triangle badge has an agent waiting on you, and one with a cyan badge
-has agents at work — and under them the tools: the agents overview,
-broadcast, changes, history, worktrees, fan-out history, todos, GitHub, API
-keys, remote access, help and settings. Rest the
+has agents at work — and under them the tools: Agents, Broadcast, Changes,
+History, Worktrees, Fan-out history, Todos, GitHub and API keys, then, below a
+rule, Remote, Help and Settings. Rest the
 pointer on one, or reach it with the keyboard, and it says what it is and the
 key that does the same. On a phone or a narrow window the rail folds into the
 menu at the left of the top bar.
+
+Most tools (all but Broadcast, Help and Settings) open as a sheet beside the
+rail, with your panes still in view. While one is open the keyboard stays in
+it, and a click on the panes puts it away; so does <kbd>Esc</kbd>, or the
+shortcut that opened it.
 
 [[key:help]] brings this page back from anywhere.
