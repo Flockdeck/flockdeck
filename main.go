@@ -397,8 +397,8 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  recordings [-dir] [-json]\n")
 	fmt.Fprintf(out, "        list the transcripts panes have recorded, newest first; -dir prints the folder they are kept in\n")
 	fmt.Fprintf(out, "  recordings export [-o file] [-reveal] <pane-id | conversation-id>\n")
-	fmt.Fprintf(out, "        write an agent's stored conversation as a transcript, whether or not the pane was recorded;\n")
-	fmt.Fprintf(out, "        only Claude Code stores a conversation flockdeck can read\n")
+	fmt.Fprintf(out, "        write an agent's stored conversation as a transcript, whether or not the pane\n")
+	fmt.Fprintf(out, "        was recorded; only Claude Code stores a conversation flockdeck can read\n")
 	fmt.Fprintf(out, "  agents\n")
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "  chat [flags]\n")
@@ -1846,11 +1846,11 @@ func closeFlagSet(f *closeFlags) *flag.FlagSet {
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: flockdeck close [-force] <pane-id>\n"+
 			"       flockdeck close -finished\n\n"+
-			"Closes another pane -- the same as Ctrl+Shift+W on it. Refuses a pane\n"+
-			"that is still working unless -force is given, and a locked pane\n"+
-			"whatever the flags say. -finished closes every idle or exited pane\n"+
-			"across every open project instead of naming one, the same as the\n"+
-			"\"Close finished panes\" command, and leaves locked panes open.\n\nFlags:\n")
+			"Closes another pane -- the same as Ctrl+Shift+W on it. Refuses a pane that\n"+
+			"is still working unless -force is given, and a locked pane whatever the\n"+
+			"flags say. -finished closes every idle or exited pane across every open\n"+
+			"project instead of naming one, the same as the \"Close finished panes\"\n"+
+			"command, and leaves locked panes open.\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
 	return fs
