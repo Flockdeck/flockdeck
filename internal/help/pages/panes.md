@@ -82,9 +82,9 @@ while it is locked:
 - Its tab cannot be closed, by the `×` on the tab or the middle button, while
   any pane in it is locked, and neither can a project that holds one.
 - [[action:closeFinishedPanes]] leaves it open and says how many it left.
-- `flockdeck close` refuses it, and `--force` does not change that: `--force`
+- `flockdeck close` refuses it, and `-force` does not change that: `-force`
   is for a pane still working, and a lock is something only you undo.
-  `flockdeck close --finished` skips it and reports how many it skipped.
+  `flockdeck close -finished` skips it and reports how many it skipped.
 
 [[action:restartPane]] still works on a locked pane and leaves it locked. The
 lock is kept with the layout, so it survives a restart of Flockdeck, and it

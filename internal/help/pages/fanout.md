@@ -154,8 +154,8 @@ hand work to helpers itself:
 
 ```sh
 flockdeck spawn "add tests for the parser"
-flockdeck spawn --worktree fix-auth "repair the token refresh"
-flockdeck spawn --split "watch the build"
+flockdeck spawn -worktree fix-auth "repair the token refresh"
+flockdeck spawn -split "watch the build"
 ```
 
 Ask a lead agent to plan and then run one of these per task, and it fans
