@@ -1,6 +1,7 @@
 package artifacts
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,6 +56,10 @@ func finalPathOf(h syscall.Handle) (string, error) {
 	return filepath.Clean(s), nil
 }
 
+// devOf has no device to report: a mount point is a reparse point here, which
+// walk refuses as one.
+func devOf(fs.FileInfo) (uint64, bool) { return 0, false }
+
 // linkCount is how many names the open file has.
 func linkCount(f *os.File) (uint64, error) {
 	var d syscall.ByHandleFileInformation
@@ -85,4 +90,81 @@ func (r *Root) checkRealName(f *os.File, rel string) error {
 		return refuse(ReasonChanged)
 	}
 	return nil
+}
+
+// osProfileDir is the user's profile folder as the system says, whatever the
+// environment says.
+func osProfileDir() string {
+	t, err := syscall.OpenCurrentProcessToken()
+	if err != nil {
+		return ""
+	}
+	defer t.Close()
+	d, err := t.GetUserProfileDirectory()
+	if err != nil {
+		return ""
+	}
+	return d
+}
+
+var (
+	procGetNamedSecurityInfoW      = syscall.NewLazyDLL("advapi32.dll").NewProc("GetNamedSecurityInfoW")
+	procGetSystemWindowsDirectoryW = syscall.NewLazyDLL("kernel32.dll").NewProc("GetSystemWindowsDirectoryW")
+)
+
+// administrators is the SID of the Administrators group, which owns what an
+// elevated process makes.
+const administrators = "S-1-5-32-544"
+
+// ownedBy is whether the folder at path is owned by the process's user (or by
+// the Administrators group, which owns what an elevated process creates). A
+// HOME or APPDATA that names another user's profile (C:\Users\bob) is therefore
+// not this user's home. If the user's or the owner's SID cannot be read, it is
+// not: a home that cannot be shown to be the user's is no home.
+func ownedBy(path string, _ fs.FileInfo, _ int) bool {
+	tok, err := syscall.OpenCurrentProcessToken()
+	if err != nil {
+		return false
+	}
+	defer tok.Close()
+	tu, err := tok.GetTokenUser()
+	if err != nil {
+		return false
+	}
+	me, err := tu.User.Sid.String()
+	if err != nil {
+		return false
+	}
+	p, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return false
+	}
+	var owner *syscall.SID
+	var sd uintptr
+	const seFileObject, ownerSecurityInformation = 1, 1
+	r, _, _ := procGetNamedSecurityInfoW.Call(uintptr(unsafe.Pointer(p)), seFileObject, ownerSecurityInformation,
+		uintptr(unsafe.Pointer(&owner)), 0, 0, 0, uintptr(unsafe.Pointer(&sd)))
+	if r != 0 || owner == nil {
+		return false
+	}
+	defer syscall.LocalFree(syscall.Handle(sd))
+	got, err := owner.String()
+	if err != nil {
+		return false
+	}
+	return got == me || got == administrators
+}
+
+// osSystemDirs are the Windows folder as the system says, and the program and
+// data folders beside it by their usual names on its drive, for when the
+// environment names none of them.
+func osSystemDirs() []string {
+	buf := make([]uint16, 512)
+	n, _, _ := procGetSystemWindowsDirectoryW.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if n == 0 || int(n) >= len(buf) {
+		return nil
+	}
+	win := syscall.UTF16ToString(buf[:n])
+	drive := filepath.VolumeName(win) + `\`
+	return []string{win, drive + "Windows", drive + "Program Files", drive + "Program Files (x86)", drive + "ProgramData"}
 }

@@ -28,19 +28,80 @@
 //   - a secret by name in ANY component of the path, file or folder
 //     (internal/secretname: dotenv and key files, credential and state files,
 //     .git, .ssh, .aws, secrets/, private/ and more; a superset of what
-//     internal/review.SecretPath treats as secret, which is an argument
-//     matcher and misses names such as "-prod.pem" and "key.pem=");
+//     internal/review.SecretPath treats as secret, including the argv forms
+//     with an "=", and more: that function is an argument matcher and misses
+//     names such as "-prod.pem" and "key.pem="). Case is folded the way file
+//     systems fold it, so ".ſsh" (a long s) is ".ssh";
+//   - on Unix, a component that is not ASCII and is not, byte for byte, an entry
+//     of its folder: a file system that ignores case or composition (APFS, ext4
+//     casefold, vfat, SMB) resolves such a spelling to another entry (the
+//     name check cannot know which), so it is refused (ReasonAlias);
+//   - on Unix, a folder inside the root on another device (a submount; a bind
+//     mount of the same file system has the same device and is NOT seen, and
+//     needs privilege to make);
 //   - anything that is not a regular file, with exactly one name (a hardlink
 //     out of the root cannot be seen by path, so a file with more than one
 //     link is refused);
 //   - on Windows, a file whose real long name, read back from the open handle,
 //     is outside the root or is denied.
 //
-// A path longer than MaxCandidateBytes is refused unread.
+// A path longer than MaxCandidateBytes, or with more than MaxComponents parts, is
+// refused unread.
 //
 // The checks that depend on the file's identity are made on the handle that
 // was opened, after it was opened, so a path swapped for a link between the
 // check and the read is caught rather than followed.
+//
+// # Roots
+//
+// NewRoot refuses a root that is empty or relative, a filesystem or drive root,
+// a home directory (the user's or anyone's: /home/x, /Users/x, C:/Users/x,
+// /mnt/c/Users/x, judged by where it is as well as by HOME) and any folder that
+// holds homes or is above one, a folder that keeps secrets (~/.ssh, ~/.aws,
+// ~/.gnupg, ~/.kube, ~/.config/gh, browser profiles ... and anything below
+// them), a folder that holds every program's settings (~/.config, AppData,
+// XDG directories, ~/Documents, also as redirected into OneDrive), a system or
+// program folder, and a place with a folder named as a secret on the way
+// (/mnt/backup/.ssh/a, /run/secrets; the plain words private and secrets count
+// only for the root itself). It follows links in the root's own path, so the
+// root must come from a path the host chose, never one a client, an agent or a
+// file's contents could influence.
+//
+// It fails closed: unless a home directory is found that exists (from HOME,
+// USERPROFILE, the parents of APPDATA, the password file entry of the process's
+// user, or the system's own profile answer on Windows) and, where the platform
+// says, is owned by the process's user, every root is refused. A project
+// of someone else's, or below a home this process does not know as its own, is
+// refused too.
+//
+// System folders are refused by name: /etc /proc /sys /dev /root /boot /bin
+// /sbin /lib* /usr/{bin,sbin,lib,share,libexec} /var/{lib,log,run,spool,cache,
+// mail,db} /Applications /System /Library and everything below them, and
+// exactly (not what is below them, where projects live) /var /usr /usr/local
+// /tmp /run /opt /srv /media /mnt /home /Users /private; on Windows the Windows,
+// Program Files and ProgramData folders, by the environment and by the system's
+// own answer. A Windows profile seen from WSL (/mnt/c/Users/<name>) is the
+// user's when the name is the user's (by name, not identity); no other is.
+//
+// By design these are refused: a root below another user's home (/home/alice
+// when running as root; /Users/Shared); every root when no home can be found (an
+// arbitrary-uid container with HOME=/ owned by root).
+//
+// Known false refusals: a name over 255 bytes (about 85 CJK characters); a root
+// that is literally named private, secret or secrets; a root below an ancestor
+// named .git, .m2, .terraform or "User Data"; a project under /var/lib or
+// /usr/lib.
+//
+// Known residual: on Linux, if HOME is wrong, there is no password file entry,
+// and the real home is outside /home, /Users and /mnt/<d>/Users (/export/home/me,
+// /var/home/me on Fedora Silverblue), that home is not recognised as one.
+//
+// # Reading
+//
+// File.Limited serves at most MaxViewBytes in all. A File expects one reader:
+// readers share a position, so concurrent ones interleave ranges. A read or
+// close error is never the system's (which names an absolute path): it is the
+// generic refusal, and CauseOf has the detail for a log.
 //
 // # What a name check cannot do
 //

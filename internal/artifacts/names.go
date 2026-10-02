@@ -22,6 +22,9 @@ const (
 	ReasonHardlink   Reason = "hardlink"    // more than one name for the file
 	ReasonChanged    Reason = "changed"     // not what it was when it was checked
 	ReasonMissing    Reason = "missing"     // not there, or not readable
+	ReasonMount      Reason = "mount"       // another file system is mounted inside the root
+	ReasonAlias      Reason = "alias"       // a name the file system resolves, but is not the entry's own name
+	ReasonRead       Reason = "read"        // the system failed a read or a close of an open file
 )
 
 // denied reports whether rel, a slash-separated path inside a root, has a
@@ -97,6 +100,9 @@ func checkLexical(p string, windows bool) bool {
 	for _, c := range strings.Split(norm, "/") {
 		if c == "" || c == "." || c == ".." {
 			continue // confinement refuses ".." where it leaves the root
+		}
+		if len(c) > secretname.MaxName {
+			return false // no file system has a name this long; it is only work
 		}
 		if strings.HasSuffix(c, ".") || strings.HasSuffix(c, " ") {
 			return false

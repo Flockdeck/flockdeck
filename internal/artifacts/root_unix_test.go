@@ -223,3 +223,59 @@ func plantLinks(tb testing.TB, base string) {
 		cannot(tb, "cannot make hardlinks here:", err)
 	}
 }
+
+// Threat: a file system mounted inside the project (a bind mount of another
+// disk, a submount) shows another place through an ordinary-looking folder; no
+// path check sees it. Every folder is on the root's device or is refused. A real
+// mount needs privileges a test lacks, so the root's device is changed to
+// stand for "this is not the device the folder is on".
+func TestOtherDeviceInsideRootIsRefused(t *testing.T) {
+	tr := newTree(t)
+	if !tr.r.hasDev {
+		t.Fatal("no device number on this platform; the mount check is not running")
+	}
+	if got, err := tr.open("sub/deep.md"); err != nil || got != "# deep" {
+		t.Fatalf("same device: %q, %v", got, err)
+	}
+	tr.r.dev++
+	tr.mustRefuse("sub/deep.md", ReasonMount)
+	tr.mustRefuse("ok.txt", ReasonMount)
+}
+
+// Threat: the exact-entry check on Unix refuses a spelling the file system might
+// resolve to another entry. checkRealName is called with spellings that are not
+// entries of their folders (as a folding file system would resolve), and with
+// the entry's own.
+func TestCheckRealNameWantsTheEntrysOwnSpelling(t *testing.T) {
+	tr := newTree(t)
+	tr.write("proj/café/über.txt", "x")
+	for rel, want := range map[string]Reason{
+		"café/über.txt":  "",
+		"ok.txt":         "", // ASCII needs no look
+		"OK.TXT":         "",
+		"CAFÉ/über.txt":  ReasonAlias,
+		"café/ÜBER.txt":  ReasonAlias,
+		"ſecrets/x":      ReasonAlias, // no such entry in the folder
+		"café/ſecret":    ReasonAlias,
+		"café/über.txt": ReasonAlias,
+	} {
+		err := tr.r.checkRealName(nil, rel)
+		if want == "" {
+			if err != nil {
+				t.Errorf("checkRealName(%q) = %v, want ok", rel, err)
+			}
+			continue
+		}
+		if err == nil || ReasonOf(err) != want {
+			t.Errorf("checkRealName(%q) = %v (%q), want a refusal for %q", rel, err, ReasonOf(err), want)
+		}
+	}
+}
+
+// dirLink makes link a link to the folder target.
+func dirLink(t testing.TB, link, target string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		cannot(t, "cannot make symlinks here:", err)
+	}
+}
