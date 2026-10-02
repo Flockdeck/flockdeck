@@ -218,3 +218,38 @@ func TestExportCommandRefusesAPathInsideTheProject(t *testing.T) {
 		t.Error("a file is in the project")
 	}
 }
+
+// An export that would lose events leaves the earlier one and is an error, so a
+// script does not take the old file for a fresh one.
+func TestExportCommandFailsWhenTheEarlierExportIsKept(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "projects", "C--work")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, exportFixtureID+".jsonl")
+	line := func(sec int, text string) string {
+		return `{"type":"user","cwd":"/work/shop","timestamp":"2026-10-01T09:00:0` + string(rune('0'+sec)) + `Z","message":{"role":"user","content":"` + text + `"}}` + "\n"
+	}
+	if err := os.WriteFile(file, []byte(line(0, "one")+line(1, "two")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	specs := []agent.Spec{{ID: "claude", Name: "Claude Code", Exe: "claude", Env: []string{"CLAUDE_CONFIG_DIR=" + home}, Caps: agent.Caps{Transcript: true}}}
+	env := exportEnv{
+		stateDir: recordingsState(t),
+		catalog:  func() ([]agent.Spec, string) { return specs, "claude" },
+		pane:     func(string) (savedPane, bool) { return savedPane{}, false },
+	}
+	var out bytes.Buffer
+	if err := exportRecording([]string{exportFixtureID}, &out, env); err != nil {
+		t.Fatal(err)
+	}
+	// The stored conversation is cut.
+	if err := os.WriteFile(file, []byte(line(0, "one")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := exportRecording([]string{exportFixtureID}, &out, env)
+	if err == nil || !strings.Contains(err.Error(), "kept as it was") {
+		t.Errorf("err = %v", err)
+	}
+}

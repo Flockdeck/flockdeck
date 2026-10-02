@@ -154,8 +154,7 @@ func exportRecording(args []string, out io.Writer, env exportEnv) error {
 		return err
 	}
 	if res.Kept {
-		fmt.Fprintf(out, "nothing new was written: the earlier export at %s has lines this one would lack (the stored conversation has changed since), so it was kept as it was\n", res.Path)
-		return nil
+		return fmt.Errorf("nothing new was written: the earlier export at %s has events this one would lack (the stored conversation was cut or changed), so it was kept as it was; delete it to have a fresh one", res.Path)
 	}
 	fmt.Fprintf(out, "exported %d lines (%d prompts, %d messages, %d tool calls) to %s\n", res.Lines, res.Prompts, res.Messages, res.ToolCalls, res.Path)
 	if res.Full {

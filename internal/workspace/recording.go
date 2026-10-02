@@ -3,6 +3,7 @@ package workspace
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -122,6 +123,9 @@ type paneRecorder struct {
 	pending bool
 	running bool
 	stopped bool
+	// restarting says a turn-on is waiting for this recorder, which is being
+	// stopped, to be finished with.
+	restarting bool
 	// failing says a look failed and is to be tried again when the timer fires,
 	// and that events are not to bring it forward.
 	failing bool
@@ -218,7 +222,9 @@ func (w *Workspace) SetPaneRecording(id string, on bool) (found bool, err error)
 	}
 	w.mu.Unlock()
 	if on {
-		if owner := w.conversationOwner(conv); owner != "" && owner != id {
+		// A pane that is being closed, or turned off, still has the conversation
+		// until its transcript is finished; that is waited for, not refused.
+		if owner, stopping := w.conversationOwner(conv); owner != "" && owner != id && !stopping {
 			return true, errors.New("another pane is already recording this conversation, and a conversation is one file")
 		}
 	}
@@ -229,11 +235,6 @@ func (w *Workspace) SetPaneRecording(id string, on bool) (found bool, err error)
 		if _, err := record.EnsureRoot(store.Dir); err != nil {
 			return true, err
 		}
-	}
-	if on {
-		// A recorder still finishing the transcript this one turns on again is
-		// waited for, not written beside.
-		w.awaitStopped(id)
 	}
 	// The pane stops being a recording one before its recorder is stopped, so
 	// that an event arriving in between cannot make a second recorder for it.
@@ -304,20 +305,20 @@ func (w *Workspace) recorder(id string, create bool) *paneRecorder {
 	return r
 }
 
-// claimConversation records that pane id is the one recording a conversation,
-// and reports false if another pane already is: a conversation is one file, and
-// two writers to it would interleave and repeat its lines.
-func (w *Workspace) claimConversation(conv, id string) bool {
+// claimConversation records that pane id is the one recording a conversation. If
+// another pane is, it says who: a conversation is one file, and two writers to
+// it would interleave and repeat its lines.
+func (w *Workspace) claimConversation(conv, id string) (owner string, ok bool) {
 	w.recMu.Lock()
 	defer w.recMu.Unlock()
-	if owner, ok := w.recOwner[conv]; ok && owner != id {
-		return false
+	if o, held := w.recOwner[conv]; held && o != id {
+		return o, false
 	}
 	if w.recOwner == nil {
 		w.recOwner = map[string]string{}
 	}
 	w.recOwner[conv] = id
-	return true
+	return id, true
 }
 
 func (w *Workspace) releaseConversation(conv, id string) {
@@ -328,11 +329,46 @@ func (w *Workspace) releaseConversation(conv, id string) {
 	}
 }
 
-// conversationOwner is the pane recording a conversation, if one is.
-func (w *Workspace) conversationOwner(conv string) string {
+// conversationOwner is the pane recording a conversation, if one is, and whether
+// its recorder is being stopped, which means the conversation is about to be free.
+func (w *Workspace) conversationOwner(conv string) (owner string, stopping bool) {
 	w.recMu.Lock()
 	defer w.recMu.Unlock()
-	return w.recOwner[conv]
+	owner = w.recOwner[conv]
+	if r := w.recorders[owner]; r != nil {
+		r.ctl.Lock()
+		stopping = r.stopped
+		r.ctl.Unlock()
+	}
+	return owner, stopping
+}
+
+// awaitConversation claims a conversation for pane id, waiting for the pane that
+// has it if that one is being stopped, and reports false if it is not.
+func (w *Workspace) awaitConversation(conv, id string) bool {
+	for {
+		owner, ok := w.claimConversation(conv, id)
+		if ok {
+			return true
+		}
+		or := w.recorder(owner, false)
+		if or == nil {
+			// Its recorder is gone but it still has the conversation, which can
+			// only be a moment before it lets it go.
+			if o, stopping := w.conversationOwner(conv); o == owner && !stopping {
+				return false
+			}
+			time.Sleep(time.Millisecond)
+			continue
+		}
+		or.ctl.Lock()
+		stopped := or.stopped
+		or.ctl.Unlock()
+		if !stopped {
+			return false
+		}
+		<-or.done
+	}
 }
 
 // kickRecording has a recording pane's transcript brought up to date with the
@@ -349,7 +385,23 @@ func (w *Workspace) kickRecording(id string, fromEvent bool) {
 		return
 	}
 	r.ctl.Lock()
-	if r.stopped || (fromEvent && r.failing) {
+	if r.stopped {
+		// Being stopped: if the pane has been turned on again since, it starts once
+		// this has finished, off this goroutine, and is not lost.
+		again := !r.restarting && w.PaneRecording(id)
+		r.restarting = r.restarting || again
+		r.ctl.Unlock()
+		if again {
+			w.recAct.begin()
+			go func() {
+				defer w.recAct.end()
+				<-r.done
+				w.kickRecording(id, true)
+			}()
+		}
+		return
+	}
+	if fromEvent && r.failing {
 		r.ctl.Unlock()
 		return
 	}
@@ -436,7 +488,7 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 		r.follower, r.synced, r.meta = nil, false, record.Meta{}
 	}
 	if r.follower == nil {
-		if !w.claimConversation(conv, id) {
+		if !w.awaitConversation(conv, id) {
 			w.endRecordingAsync(id, "was not started: another pane is already recording this conversation")
 			return
 		}
@@ -548,10 +600,9 @@ func (w *Workspace) finished(id string, err error) {
 	switch {
 	case err == nil:
 	case errors.Is(err, record.ErrEarlierKept):
-		w.note(id, "The earlier transcript of this conversation was kept: it has lines the new one lacks.")
+		w.note(id, "The earlier transcript of this conversation was kept: it has events the new one lacks. Delete it to have a fresh one.")
 	default:
-		text := err.Error()
-		w.note(id, "Could not finish a transcript: "+text+".")
+		w.note(id, "A transcript could not be finished cleanly: "+strings.TrimRight(err.Error(), ".")+".")
 	}
 }
 
@@ -592,6 +643,31 @@ func (w *Workspace) scheduleRecording(id string, r *paneRecorder, found bool) {
 	}
 }
 
+// beginStop marks a pane's recorder as stopping, at once, and reports it, or nil
+// if there is none or it is stopping already. Marking is what a turn-on that comes
+// straight after a turn-off finds, so it is done where the stop is asked for and
+// not in whatever goroutine does the work.
+func (w *Workspace) beginStop(id string) *paneRecorder {
+	r := w.recorder(id, false)
+	if r == nil {
+		return nil
+	}
+	if w.stopGate != nil {
+		<-w.stopGate
+	}
+	r.ctl.Lock()
+	if r.stopped {
+		r.ctl.Unlock()
+		return nil
+	}
+	r.stopped = true
+	if r.timer != nil {
+		r.timer.Stop()
+	}
+	r.ctl.Unlock()
+	return r
+}
+
 // stopRecorder ends a pane's transcript, and returns when it is ended. With final
 // it first reads what the agent has stored since the last look, and closes the
 // transcript with its closing line, or leaves it unfinished and says why if it
@@ -602,21 +678,17 @@ func (w *Workspace) stopRecorder(id string, final bool) {
 	if r == nil {
 		return
 	}
-	r.ctl.Lock()
-	if r.stopped {
-		r.ctl.Unlock()
-		<-r.done
+	if first := w.beginStop(id); first == nil {
+		<-r.done // already stopping
 		return
 	}
-	r.stopped = true
-	if r.timer != nil {
-		r.timer.Stop()
-	}
-	r.ctl.Unlock()
+	w.endRecorder(id, r, final)
+}
 
+// endRecorder does the work of a stop that beginStop has marked.
+func (w *Workspace) endRecorder(id string, r *paneRecorder, final bool) {
 	r.work.Lock()
 	if r.follower != nil {
-		w.releaseConversation(r.conv, id)
 		if final {
 			if err := w.finalSync(r); err != nil {
 				w.rec.Abandon(r.meta)
@@ -627,6 +699,9 @@ func (w *Workspace) stopRecorder(id string, final bool) {
 		} else {
 			w.finished(id, w.rec.Finish(r.meta))
 		}
+		// The conversation is let go of only now that its file is finished with:
+		// a pane that takes it over before that would write into the open one.
+		w.releaseConversation(r.conv, id)
 	}
 	r.work.Unlock()
 
@@ -640,28 +715,18 @@ func (w *Workspace) stopRecorder(id string, final bool) {
 
 // stopRecorderAsync is stopRecorder off the goroutine that asked, which is the
 // control path or the workspace's own and must not wait on a file being finished.
-// It is counted, so that closing the Workspace waits for it.
+// The recorder is marked as stopping before it returns. It is counted, so that
+// closing the Workspace waits for it.
 func (w *Workspace) stopRecorderAsync(id string, final bool) {
-	w.recAct.begin()
-	go func() {
-		defer w.recAct.end()
-		w.stopRecorder(id, final)
-	}()
-}
-
-// awaitStopped waits for a pane's recorder to be finished with, if it is being
-// stopped, so that turning recording on again does not start one beside it.
-func (w *Workspace) awaitStopped(id string) {
-	r := w.recorder(id, false)
+	r := w.beginStop(id)
 	if r == nil {
 		return
 	}
-	r.ctl.Lock()
-	stopped := r.stopped
-	r.ctl.Unlock()
-	if stopped {
-		<-r.done
-	}
+	w.recAct.begin()
+	go func() {
+		defer w.recAct.end()
+		w.endRecorder(id, r, final)
+	}()
 }
 
 // stopRecorders lets go of every recorder, for a Flockdeck that is quitting, and
@@ -682,10 +747,13 @@ func (w *Workspace) stopRecorders() {
 		}
 		r.ctl.Unlock()
 	}
-	w.recAct.wait()
+	// Nothing waits on a recorder once the Workspace is closing: a stop that was
+	// about to wait for another, or a turn-on for a stop, is let go now, so that
+	// waiting for them cannot wait on this.
 	for _, r := range recorders {
 		r.finish()
 	}
+	w.recAct.wait()
 }
 
 // endRecordingAsync ends a pane's recording, saying why, off the goroutine that

@@ -11,7 +11,6 @@ package record
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -347,7 +346,7 @@ func (m *Manager) Finish(meta Meta) error {
 		if s.final != "" {
 			_ = os.Remove(s.path)
 		}
-		return fmt.Errorf("could not finish the transcript: %w", werr)
+		return fmt.Errorf("its closing line could not be written: %w", werr)
 	}
 	if s.final != "" {
 		if !finished(s.path) || !supersedes(s.final, s.path) {
@@ -355,7 +354,11 @@ func (m *Manager) Finish(meta Meta) error {
 			return ErrEarlierKept
 		}
 		if err := renameRetry(s.path, s.final); err != nil {
-			return fmt.Errorf("the new transcript is left as %s, because %s could not be replaced: %w", s.path, s.final, err)
+			var link *os.LinkError
+			if errors.As(err, &link) {
+				err = link.Err
+			}
+			return fmt.Errorf("the new one is left beside the earlier one as %s, which could not be replaced: %v", filepath.Base(s.path), err)
 		}
 	}
 	// A recording of a conversation is the one file of it; an export never
@@ -370,7 +373,7 @@ func (m *Manager) Finish(meta Meta) error {
 // in place of an earlier, finished one of the same conversation, because that has
 // lines this one does not (the stored conversation changed under it, or this one
 // was cut short): the earlier one is kept as it was.
-var ErrEarlierKept = errors.New("an earlier, finished transcript of this conversation has lines the new one lacks, so it was kept as it was")
+var ErrEarlierKept = errors.New("an earlier, finished transcript of this conversation has events the new one lacks (the stored conversation was cut or changed), so it was kept as it was; delete it to have a fresh one")
 
 // renameRetry moves a file over another, trying again for a moment: on Windows
 // a program with the old one open (a viewer, a scanner) makes it fail until it
@@ -547,6 +550,10 @@ func finished(path string) bool {
 
 // supersedes reports whether the transcript at next has every line the finished
 // one at old had but its closing line: whether it is the same transcript, grown.
+// Lines are the same if they are the same event -- the same place in the file,
+// the same type and the same time -- and not if they are the same bytes, so that
+// a later version of Flockdeck that redacts or clips a little differently can
+// still replace an earlier one, while a transcript that has lost an event cannot.
 func supersedes(old, next string) bool {
 	a, err := os.Open(old)
 	if err != nil {
@@ -559,7 +566,7 @@ func supersedes(old, next string) bool {
 	}
 	defer b.Close()
 	ra, rb := bufio.NewReaderSize(a, 64<<10), bufio.NewReaderSize(b, 64<<10)
-	line := func(r *bufio.Reader) ([]byte, bool) {
+	line := func(r *bufio.Reader) (Entry, bool) {
 		var out []byte
 		for {
 			part, err := r.ReadSlice('\n')
@@ -567,8 +574,14 @@ func supersedes(old, next string) bool {
 			if err == bufio.ErrBufferFull {
 				continue
 			}
-			return out, len(out) > 0
+			break
 		}
+		var e Entry
+		if len(out) == 0 {
+			return e, false
+		}
+		_ = json.Unmarshal(out, &e)
+		return e, true
 	}
 	prev, ok := line(ra)
 	for ok {
@@ -577,7 +590,7 @@ func supersedes(old, next string) bool {
 			return true // prev was the closing line
 		}
 		theirs, has := line(rb)
-		if !has || !bytes.Equal(prev, theirs) {
+		if !has || prev.Seq != theirs.Seq || prev.Type != theirs.Type || prev.Time != theirs.Time {
 			return false
 		}
 		prev = cur

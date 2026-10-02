@@ -685,3 +685,23 @@ func (shortFollower) Poll(yield func(transcript.ExportEvent) error) (transcript.
 	// The fixture's first event time, and one prompt.
 	return transcript.ExportStats{}, yield(transcript.ExportEvent{Time: time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC), Kind: transcript.ExportPrompt, Text: "different"})
 }
+
+// A transcript with the same events but different text -- another version's
+// redaction, say -- replaces the earlier one: it is the same transcript.
+func TestSameEventsWithDifferentTextReplace(t *testing.T) {
+	m, _ := newTestManager(t)
+	f := newFeed(t, m)
+	f.prompt("one")
+	f.say("two")
+	path := f.path()
+	f.finish()
+	g := newFeed(t, m)
+	g.prompt("one, redacted another way")
+	g.say("two")
+	if err := m.Finish(g.meta); err != nil {
+		t.Fatal(err)
+	}
+	if es := readEntries(t, path); es[1].Text != "one, redacted another way" {
+		t.Errorf("the replacement did not take its place: %q", es[1].Text)
+	}
+}

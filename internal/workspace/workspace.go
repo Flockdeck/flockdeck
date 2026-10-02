@@ -423,6 +423,10 @@ type Workspace struct {
 	// recMax, when set, lowers the size of a transcript file, for a test that
 	// cannot make 16 MiB. Zero is the usual cap. Set before the workspace runs.
 	recMax int64
+	// stopGate, when set, holds every stop at its start until it is closed, for a
+	// test that has to put a stop in a place Close can meet. Set before the
+	// workspace runs.
+	stopGate chan struct{}
 	// wrapFollower, when set, is put around every follower, for a test that makes
 	// reading fail. Set before the workspace runs.
 	wrapFollower func(transcript.Follower) transcript.Follower

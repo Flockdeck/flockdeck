@@ -55,7 +55,7 @@ across a restart of Flockdeck has the file written again from the conversation's
 beginning, which gives the same lines and the same name, so it is the same file
 and not another. A file is never added to once its transcript has ended, except
 by being made again, and a finished transcript is only replaced by one that has
-every line it had (it is written beside it and moved into place when finished;
+every event it had (it is written beside it and moved into place when finished;
 otherwise it is left as it was). If a program has the earlier file open and it
 cannot be replaced, the new transcript is left beside it as `<name>.jsonl.new` and
 Flockdeck says so. A `.jsonl.new` that nothing is writing and that is a day old, as
@@ -623,7 +623,7 @@ An export differs from a recording only in where it goes and how it is asked
 for:
 
 - **Where.** By default, the `exports` folder of the project's folder (section
-  1); made again if it is exported again, **unless the new one would have fewer lines than the earlier one** (the stored conversation was changed or cut since), in which case the earlier file is kept as it was and the command and the window say so. With `-o`, a file of your own, which
+  1); made again if it is exported again, **unless the new one would lack an event the earlier one had** (the stored conversation was cut or changed since; events are compared by their place, type and time, not their bytes). Then the earlier file is kept as it was, the window says so, and the command exits with an error, so that a script does not mistake the old file for a fresh one; delete the file to have a fresh export. With `-o`, a file of your own, which
   must not exist, and must not be inside the pane's project or any git
   repository: a transcript can hold secrets, and is never written into a
   project. Files are `0600`.

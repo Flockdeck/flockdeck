@@ -846,3 +846,128 @@ func TestConcurrentTogglesLeaveACleanTranscript(t *testing.T) {
 		}
 	}
 }
+
+// Turning recording off and straight on again is not lost: the pane that shows as
+// recording has a live recorder, and writes when its agent says more.
+func TestAFastOffThenOnKeepsRecording(t *testing.T) {
+	isolatedRecordings(t)
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.recSettle = time.Millisecond
+	p := recordingPane(t, ws, root, "flip")
+	storeConversation(t, home, p.ID, promptLine, callLine)
+	startRecording(t, ws, p.ID)
+	for i := 0; i < 60; i++ {
+		ws.SetPaneRecording(p.ID, false)
+		ws.SetPaneRecording(p.ID, true)
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			ws.recAct.wait()
+			r := ws.recorder(p.ID, false)
+			live := false
+			if r != nil {
+				r.ctl.Lock()
+				live = !r.stopped
+				r.ctl.Unlock()
+			}
+			if live {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("round %d: the pane shows as recording and has no live recorder", i)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	// And it writes: what is stored now is in the file.
+	storeConversation(t, home, p.ID, resultLine, sayLine)
+	ws.kickRecording(p.ID, true)
+	ws.recAct.wait()
+	ws.SetPaneRecording(p.ID, false)
+	ws.recAct.wait()
+	es := readTranscript(t, recordingFiles(t)[0])
+	if len(es) != 7 || es[len(es)-1].Type != record.TypeStopped {
+		t.Errorf("the transcript is %d lines ending %s", len(es), es[len(es)-1].Type)
+	}
+}
+
+// A pane that takes over a conversation while the pane that had it is being
+// closed waits for it to be finished, and does not write into its open file.
+func TestAPaneTakingAConversationDuringAStopDoesNotDuplicateLines(t *testing.T) {
+	isolatedRecordings(t)
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	a := recordingPane(t, ws, root, "a")
+	b := recordingPane(t, ws, root, "b")
+	ws.mu.Lock()
+	b.Conversation = a.ID
+	ws.mu.Unlock()
+	storeConversation(t, home, a.ID, promptLine, callLine, resultLine, sayLine)
+	startRecording(t, ws, a.ID)
+	for i := 0; i < 20; i++ {
+		ws.SetPaneRecording(a.ID, false) // being stopped...
+		if found, err := ws.SetPaneRecording(b.ID, true); !found || err != nil {
+			t.Fatalf("round %d: the other pane was refused: %v, %v", i, found, err)
+		}
+		ws.recAct.wait()
+		ws.SetPaneRecording(b.ID, false)
+		ws.recAct.wait()
+		if found, err := ws.SetPaneRecording(a.ID, true); !found || err != nil {
+			t.Fatalf("round %d: %v, %v", i, found, err)
+		}
+		ws.recAct.wait()
+	}
+	ws.SetPaneRecording(a.ID, false)
+	ws.recAct.wait()
+	for _, f := range recordingFiles(t) {
+		es := readTranscript(t, f)
+		if len(es) != 7 {
+			t.Fatalf("%s has %d lines, want 7", f, len(es))
+		}
+		for i, e := range es {
+			if e.Seq != int64(i+1) {
+				t.Fatalf("%s: line %d has seq %d", f, i+1, e.Seq)
+			}
+		}
+	}
+	if news, _ := filepath.Glob(filepath.Join(filepath.Dir(recordingFiles(t)[0]), "*.new")); len(news) != 0 {
+		t.Errorf("left behind: %v", news)
+	}
+}
+
+// Closing the workspace while a stop is on its way does not wait for itself.
+func TestCloseDoesNotWaitOnAStopItHasStopped(t *testing.T) {
+	isolatedRecordings(t)
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	gate := make(chan struct{})
+	ws.stopGate = gate
+	p := recordingPane(t, ws, root, "closing")
+	storeConversation(t, home, p.ID, promptLine)
+	startRecording(t, ws, p.ID)
+	ws.endRecordingAsync(p.ID, "ended") // reaches the gate, holding at the start of its stop
+	closed := make(chan struct{})
+	go func() { ws.Close(); close(closed) }()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		ws.recMu.Lock()
+		marked := ws.recClosed
+		ws.recMu.Unlock()
+		if marked {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Close never began")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(gate)
+	select {
+	case <-closed:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Close did not return: it waited on a stop that waited on it")
+	}
+}
