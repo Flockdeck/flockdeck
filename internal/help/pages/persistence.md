@@ -28,11 +28,6 @@ home folder — Flockdeck opens the projects you had open last time and lands in
 the one you were in. Your home folder opens as a project only when there were
 none; to open it on purpose, run `flockdeck -C ~`.
 
-A pane's own auto-review switch is saved with the layout, so a pane you turned
-it on for still has it on after a restart. A layout saved before that was kept
-gives its panes the Settings default, **Start new panes with auto-review on**,
-instead.
-
 A layout is written when the window closes or reloads, when you detach,
 restart or quit, when a project is closed, and every half minute while
 Flockdeck runs — so if it is killed or crashes, it comes back as it was at

@@ -70,8 +70,9 @@ pointer on one, or reach it with the keyboard, and it says what it is and the
 key that does the same. On a phone or a narrow window the rail folds into the
 menu at the left of the top bar.
 
-The tools open as a sheet beside the rail, with your panes still in view. While
-one is open the keyboard stays in it, and a click on the panes puts the sheet
-away; so does <kbd>Esc</kbd> or its rail button.
+Most tools (all but Broadcast, Help and Settings) open as a sheet beside the
+rail, with your panes still in view. While one is open the keyboard stays in
+it, and a click on the panes puts it away; so does <kbd>Esc</kbd>, or the
+shortcut that opened it.
 
 [[key:help]] brings this page back from anywhere.
