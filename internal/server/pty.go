@@ -17,6 +17,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // ptyControl is the JSON a window sends on a terminal connection for anything
@@ -170,6 +171,8 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		// queue behind whatever the workspace is busy with.
 		if viewers.drop(id, viewer) {
 			go s.do(func() { s.fitPane(id) })
+		} else {
+			forgetSizeNotes(id)
 		}
 	}()
 
@@ -484,14 +487,32 @@ func (s *Server) fitPane(id string) {
 	}
 }
 
-// diagSeen is the last disagreement noted for each pane, so one that goes on is
-// said once and not at every resize.
+// diagSeen is the last disagreement noted for each pane and when, so one that
+// goes on is said once, and a pane whose windows keep changing shape is said
+// at most once a minute.
+type diagNote struct {
+	line string
+	at   time.Time
+}
+
 var (
 	diagMu   sync.Mutex
-	diagSeen = map[string]string{}
-	// diagLog is where a note goes. It is a variable so a test can read it.
-	diagLog = func(line string) { logNote(line) }
+	diagSeen = map[string]diagNote{}
+	diagNow  = time.Now
+	// diagLog is where a note goes. It is a variable so a test can read it. It
+	// writes off the caller's goroutine, which is the workspace's.
+	diagLog = func(line string) { go logNote(line) }
 )
+
+// diagEvery is the least time between two notes about one pane.
+const diagEvery = time.Minute
+
+// forgetSizeNotes is for a pane nobody is showing any more.
+func forgetSizeNotes(pane string) {
+	diagMu.Lock()
+	defer diagMu.Unlock()
+	delete(diagSeen, pane)
+}
 
 // noteSizes says, in error.log, when the windows showing a pane do not all
 // measure the size it was just given: how many there are, what each measured
@@ -513,11 +534,12 @@ func noteSizes(pane string, cols, rows int) {
 		delete(diagSeen, pane)
 		return
 	}
+	now := diagNow()
 	line := fmt.Sprintf("pane %.8s: %d windows measured %v, last used window %d, pty set to %dx%d; the others show it at their own size until told", pane, len(sizes), sizes, used, cols, rows)
-	if diagSeen[pane] == line {
+	if last, ok := diagSeen[pane]; ok && (last.line == line || now.Sub(last.at) < diagEvery) {
 		return
 	}
-	diagSeen[pane] = line
+	diagSeen[pane] = diagNote{line, now}
 	diagLog(line)
 }
 
@@ -1046,8 +1068,8 @@ type viewerSizes struct {
 // large, with its scrollback, for one that claimed it, and any window that can
 // reach a pane can claim it, the one through the relay no less than the desk's.
 const (
-	minViewCols, minViewRows = 20, 5
-	maxViewCols, maxViewRows = 500, 200
+	minViewCols, minViewRows = workspace.MinPaneCols, workspace.MinPaneRows
+	maxViewCols, maxViewRows = workspace.MaxPaneCols, workspace.MaxPaneRows
 )
 
 // set records what one window measured for a pane. A size below the least

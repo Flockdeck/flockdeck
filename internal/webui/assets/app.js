@@ -3973,8 +3973,15 @@
     // The server bounds what a window can make a pane, and so does this: a
     // terminal of thousands of columns costs every window showing it.
     if (!(cols >= 20 && rows >= 5)) return;
-    p.ptySize = { cols: Math.min(cols, 500), rows: Math.min(rows, 200) };
-    matchPtySize(p);
+    cols = Math.min(cols, 500); rows = Math.min(rows, 200);
+    p.ptySize = { cols, rows };
+    updateSizeNote(p);
+    // Each size is drawn at its place in the stream, whatever else has been
+    // received since and is still waiting to be parsed: a burst of them -- a
+    // replay written across several sizes -- is every one of them in turn.
+    p.term.write("", () => {
+      if (p.term.cols !== cols || p.term.rows !== rows) p.term.resize(cols, rows);
+    });
   }
 
   /** updateSizeNote says so when the pane is a size this window's box is not:
@@ -3983,7 +3990,9 @@
    *  way to have the pane fitted to this window instead. */
   function updateSizeNote(p) {
     const want = p.ptySize;
-    const differs = !!want && p.cols > 0 && p.rows > 0 && (want.cols !== p.cols || want.rows !== p.rows);
+    // A box too small to be a terminal is not one the server would size the
+    // pane for, so there is nothing to offer.
+    const differs = !!want && p.cols >= 20 && p.rows >= 5 && (want.cols !== p.cols || want.rows !== p.rows);
     const cropped = differs && (want.cols > p.cols || want.rows > p.rows);
     p.host.classList.toggle("cropped", differs && want.rows > p.rows);
     if (!p.sizeNote) return;
@@ -3997,22 +4006,21 @@
   /** takeOverSize makes the pane the size of this window, which is what using
    *  it does; the note asks for it in so many words. */
   function takeOverSize(p) {
-    if (!p) return;
+    if (!p || !p.sizeNote || p.sizeNote.hidden) return;
     p.cols = p.rows = 0; // measure again, and say so
     doFit(p);
     sendFocus(p);
     p.term.focus();
   }
 
-  /** matchPtySize resizes the terminal to the pty's size once what the server
-   *  has already sent has been drawn, so the resize lands where it falls in
-   *  the output rather than ahead of it. */
+  /** matchPtySize brings the terminal to the pty's size once what has been
+   *  received is drawn, for a box that changed since: the same place in the
+   *  stream the size itself would have taken. */
   function matchPtySize(p) {
-    const want = p.ptySize;
     updateSizeNote(p);
-    if (!want || (p.term.cols === want.cols && p.term.rows === want.rows)) return;
+    const want = p.ptySize;
+    if (!want) return;
     p.term.write("", () => {
-      if (p.ptySize !== want) return;
       if (p.term.cols !== want.cols || p.term.rows !== want.rows) p.term.resize(want.cols, want.rows);
     });
   }

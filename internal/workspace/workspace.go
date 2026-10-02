@@ -2744,14 +2744,24 @@ func (w *Workspace) SetPanePeerName(id, name string) bool {
 	return true
 }
 
+// The sizes a pane's terminal may be made, whoever asks. A terminal is never
+// smaller than the least, and the most is what any screen shows: past it every
+// window showing the pane makes its own terminal as large, with its
+// scrollback, for one client's say-so.
+const (
+	MinPaneCols, MinPaneRows = 20, 5
+	MaxPaneCols, MaxPaneRows = 500, 200
+)
+
 // ResizePaneTerminal records the terminal size the viewer measured for a pane
 // and applies it to the PTY. Geometry is decided by the browser, which knows
 // the font metrics, so the server only forwards the result.
 func (w *Workspace) ResizePaneTerminal(id string, cols, rows int) {
 	p := w.Pane(id)
-	if p == nil || cols <= 0 || rows <= 0 {
+	if p == nil || cols < MinPaneCols || rows < MinPaneRows {
 		return
 	}
+	cols, rows = min(cols, MaxPaneCols), min(rows, MaxPaneRows)
 	p.Cols, p.Rows = cols, rows
 	if p.Sess != nil {
 		p.Sess.Resize(cols, rows)

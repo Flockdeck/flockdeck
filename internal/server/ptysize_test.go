@@ -346,3 +346,38 @@ func TestWindowsDisagreeingAboutAPaneAreNoted(t *testing.T) {
 		}
 	}
 }
+
+// TestNotesAboutAPaneAreRateLimitedAndForgotten keeps the diagnostic from
+// growing error.log for a window that alternates shapes: a pane is noted at
+// most once a minute, and its record goes when nobody is showing it.
+func TestNotesAboutAPaneAreRateLimitedAndForgotten(t *testing.T) {
+	var lines []string
+	was, wasNow := diagLog, diagNow
+	now := time.Now()
+	diagLog = func(l string) { lines = append(lines, l) }
+	diagNow = func() time.Time { return now }
+	t.Cleanup(func() { diagLog, diagNow = was, wasNow })
+
+	pane := "ratelimit-pane-xyz"
+	t.Cleanup(func() { viewers.drop(pane, 81); viewers.drop(pane, 82); forgetSizeNotes(pane) })
+	viewers.set(pane, 81, 100, 30)
+	viewers.set(pane, 82, 70, 40)
+	noteSizes(pane, 70, 30)
+	noteSizes(pane, 100, 30)
+	noteSizes(pane, 70, 30)
+	if len(lines) != 1 {
+		t.Fatalf("a pane alternating shapes was noted %d times in a moment: %q", len(lines), lines)
+	}
+	now = now.Add(2 * time.Minute)
+	noteSizes(pane, 100, 30)
+	if len(lines) != 2 {
+		t.Fatalf("a change after a minute was not noted: %q", lines)
+	}
+	forgetSizeNotes(pane)
+	diagMu.Lock()
+	_, kept := diagSeen[pane]
+	diagMu.Unlock()
+	if kept {
+		t.Fatal("a pane nobody shows kept its record")
+	}
+}

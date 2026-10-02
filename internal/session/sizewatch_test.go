@@ -69,3 +69,25 @@ func TestSizeMarksAreBounded(t *testing.T) {
 		t.Fatalf("the newest mark is %+v, the pane is %dx%d", marks[len(marks)-1], cols, rows)
 	}
 }
+
+// More resizes than marks are kept for must not leave the start of what is
+// held with no size: the last mark dropped stands in for it.
+func TestTheStartOfHeldOutputKeepsASizeWhenMarksAreDropped(t *testing.T) {
+	s := fakeSession(newFakePTY())
+	for i := 0; i < maxSizeMarks+50; i++ {
+		s.publish([]byte("x"))
+		s.Resize(20+i%100, 10+i%30+i/100)
+	}
+	marks, _ := s.SizeMarks(0)
+	if len(marks) != maxSizeMarks {
+		t.Fatalf("%d marks kept, want %d", len(marks), maxSizeMarks)
+	}
+	if marks[0].At != 0 {
+		t.Fatalf("the first mark kept begins at byte %d, so the bytes before it have no size", marks[0].At)
+	}
+	for i := 1; i < len(marks); i++ {
+		if marks[i].At < marks[i-1].At || marks[i].Seq <= marks[i-1].Seq {
+			t.Fatalf("marks out of order at %d: %+v then %+v", i, marks[i-1], marks[i])
+		}
+	}
+}

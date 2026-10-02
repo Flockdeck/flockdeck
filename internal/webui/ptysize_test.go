@@ -123,3 +123,34 @@ term.parse();
 assert.strictEqual(term.cols, 500, "a size too small for a terminal was taken");
 `)
 }
+
+// TestABurstOfSizesIsDrawnAtEveryOne covers a replay written across several
+// sizes arriving in one go, before the terminal has parsed any of it. Only the
+// last size was applied, at its place, and the output between the sizes drew at
+// the wrong one.
+func TestABurstOfSizesIsDrawnAtEveryOne(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.open();
+const sock = h.sockets.filter((s) => s.url.includes("/ws/pty") && s.url.includes("id=p1"))[0];
+const term = h.terms.find((x) => !x.disposed);
+const bytes = (s) => new TextEncoder().encode(s).buffer;
+const size = (cols, rows) => JSON.stringify({ size: { cols, rows } });
+sock.onmessage({ data: JSON.stringify({ epoch: 1, offset: 0, resumed: false }) });
+// All of it in one batch, as a websocket delivers a replay.
+sock.onmessage({ data: size(80, 24) });
+sock.onmessage({ data: bytes("AAA") });
+sock.onmessage({ data: size(100, 30) });
+sock.onmessage({ data: bytes("BBB") });
+sock.onmessage({ data: size(60, 20) });
+sock.onmessage({ data: bytes("CCC") });
+term.parse();
+const at = (c, r) => term.sizeLog.filter((e) => e.cols === c && e.rows === r);
+assert.ok(at(100, 30).length === 1, "the middle size was dropped: " + JSON.stringify(term.sizeLog));
+assert.strictEqual(at(100, 30)[0].drawn.replace(/\u001bc/g, ""), "AAA", "the middle size came out of place in the stream");
+assert.strictEqual(at(60, 20)[0].drawn.replace(/\u001bc/g, ""), "AAABBB", "the last size came out of place in the stream");
+assert.strictEqual(term.cols, 60);
+assert.strictEqual(term.rows, 20);
+`)
+}

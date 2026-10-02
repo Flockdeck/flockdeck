@@ -1478,7 +1478,13 @@ func (s *Session) markSizeLocked(cols, rows int) {
 	s.markSeq++
 	s.marks = append(s.marks, SizeMark{Seq: s.markSeq, At: s.written, Cols: cols, Rows: rows})
 	if len(s.marks) > maxSizeMarks {
-		s.marks = append(s.marks[:0], s.marks[len(s.marks)-maxSizeMarks:]...)
+		// The oldest are dropped, and the last of them stands in for the size
+		// everything before the first one kept was drawn at, so the bytes at
+		// the start of what is held still have a size.
+		drop := len(s.marks) - maxSizeMarks + 1
+		lead := s.marks[drop-1]
+		lead.At = 0
+		s.marks = append(s.marks[:0], append([]SizeMark{lead}, s.marks[drop:]...)...)
 	}
 	if s.sized != nil {
 		close(s.sized)
