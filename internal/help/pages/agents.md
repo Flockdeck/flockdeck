@@ -33,9 +33,9 @@ choice.
 The pane header names what is running, beside the branch and in the same dim
 weight — `claude · sonnet`, `codex · gpt-5.6-sol`. A shell pane shows nothing there,
 because there is nothing to choose. For the API agents, and for Claude Code
-where its status line is read, what the conversation has spent and how near its
-usage limit it is follow;
-[Spend and limits](#spend) explains the figures.
+where its status line is read, it is followed by what the conversation has
+spent and how near its usage limit it is; [Spend and limits](#spend) explains
+the figures.
 
 ## Two kinds of agent
 

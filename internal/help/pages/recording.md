@@ -38,8 +38,9 @@ recording on in a second pane showing the same conversation is refused.
 ## What is recorded
 
 One JSON object per line, in the order things happened. Every line has a
-timestamp (`time`), the conversation's id (`pane`, `conversation`), the
-`project` and the `agent`, and a `type`. A pane's name and model are not in the
+timestamp (`time`), the conversation's id (`pane`) and a `type`; `conversation`,
+`project` and `agent` are there whenever they are known, and left out when
+not. A pane's name and model are not in the
 lines: they are the pane's, not the conversation's, and an export has to match a
 recording of the same conversation:
 

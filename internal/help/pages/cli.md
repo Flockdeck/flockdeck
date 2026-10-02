@@ -99,8 +99,9 @@ naming the wrong id cannot cut off work in progress (an idle agent with a
 background command or subagent still running counts as in progress); a locked pane
 is refused whatever the flags say, since `-force` only covers a pane still working
 and only the user can unlock a pane, from its header or the command palette; a pane cannot close
-itself this way — end its own turn instead. `-finished` closes every idle or
-exited pane (leaving alone an agent with background work still running) across every open project instead of naming one, the same as the
+itself this way — end its own turn instead. `-finished` closes every idle agent
+pane and every cleanly exited pane (leaving alone idle shells, panes whose
+process failed or was killed, and an agent with background work still running) across every open project instead of naming one, the same as the
 "Close finished panes" command, and takes no pane id. It leaves locked panes open and
 prints how many it left.
 
@@ -140,7 +141,8 @@ hold it, or a Claude Code conversation's (its file's name under
 `~/.claude/projects`). By default the file goes in the `exports` folder of the
 project's folder under the recordings folder; `-o` names a file of your own,
 which must not exist and must not be inside the project or a git repository.
-It is written readable by you only. `-reveal` shows the file in your file
+It is written 0600 on Linux and macOS (on Windows, with your profile's
+permissions), never into the project or a git repository. `-reveal` shows the file in your file
 manager, selected, when it has been written.
 
 It prints how many lines it wrote, whether the conversation was cut at the 16
@@ -168,7 +170,7 @@ only while the agent talks to that vendor's own address.
 | `flockdeck keys list` | Which agents have one, not what it is |
 | `flockdeck keys clear openai` | Forgets the one Flockdeck stored |
 | `flockdeck keys check openai` | Asks the agent's endpoint whether it takes the key a pane would use |
-| `flockdeck keys endpoint <agent> <url>` | Points an API agent at another address; `default` in place of the address goes back to the vendor's own |
+| `flockdeck keys endpoint <agent> <url>` | Points an API agent at another address; `default` in place of the address goes back to the vendor's own, and no address at all prints the one it uses now |
 
 Nothing here ever prints a key back, and neither does the interface.
 
