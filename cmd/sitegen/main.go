@@ -271,9 +271,9 @@ var pages = []struct {
 	Social                 string
 }{
 	{Path: "", Template: "index.html.tmpl",
-		Title:       "Flockdeck | Coding agents on hardware you control",
-		Description: "Flockdeck runs Claude Code, Codex, Gemini or your own model on hardware you already own, self-hosted or on your desk, and reaches your phone with no port opened. Free, with its source available, for Windows, macOS and Linux.",
-		Social:      "Run your coding agents on hardware you control, and reach them from your phone."},
+		Title:       "Flockdeck | Coding agents, a git worktree for each",
+		Description: "Flockdeck runs Claude Code, Codex, Gemini or your own model side by side, with a git worktree for each one step away so parallel agents need not overwrite each other's files, on your desk or on hardware you own, and reaches your phone with no port opened. Free, with its source available, for Windows, macOS and Linux.",
+		Social:      "Run several coding agents in one repo, a git worktree for each, and reach them from your phone."},
 	{Path: "trust.html", Template: "doc.html.tmpl", Source: "trust.md",
 		Title:       "Trust & privacy | Flockdeck",
 		Description: "What Flockdeck collects (almost nothing, structurally, not as a paid mode), what isn't end-to-end encrypted yet, and how that compares to the rest of the market.",
