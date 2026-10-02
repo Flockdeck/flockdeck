@@ -15,8 +15,8 @@ the `+` that opens a new tab.
 The picker lists agents in two groups, **installed** and **not installed**. An
 agent you have not got is shown greyed with where to get it rather than
 hidden: somebody who has never installed Codex should still learn that Flockdeck
-would run it. Expand an agent for its models, with its default marked. Each
-model carries its tier — **small**, **mid** or **top**, how capable and so how
+would run it. Expand an agent for its models, with its default marked. A
+model carries its tier where it has a fixed one — **small**, **mid** or **top**, how capable and so how
 costly it is among that agent's own — and a model of an API agent its published
 price per million tokens, in and out, with the day it was read. A command-line
 agent's models show no price: the same model may be billed per token or
@@ -52,7 +52,8 @@ model, its token counts and, for a model in the price table, the running cost,
 and tools for reading files, editing them and
 running commands; the ones that write a file or run a command ask before they
 act. A command can be let through for the rest of the session by answering
-*always*; a write is asked about every time. *Always* is not offered for a
+*always*, and so can edits to files (except inside `.git` or `.hg`). *Always*
+is not offered for a
 command that can run anything at all — a shell, `git config`, `npm exec`,
 `docker run` — and a command with an option that writes a file wherever it
 says or runs a program it names, such as `git log --output` or
@@ -64,7 +65,9 @@ The price table holds Anthropic's, OpenAI's and Google's models. A model is
 priced only when its id is one the table names, or a dated snapshot of one
 such as `claude-haiku-4-5-20251001`; any other id, including one that only
 begins like a priced model, is shown in tokens with no dollars, because a
-made-up price is worse than none.
+made-up price is worse than none. An API agent given an address of its own,
+such as a gateway's, is not priced at all, since what it charges is not the
+vendor's list price.
 
 ## An endpoint's address
 
@@ -97,8 +100,9 @@ address is taken away, and a built-in goes back to its vendor's own.
 An address that is not one is refused under the field, with what to type
 instead: `localhost:11434` is answered with `http://localhost:11434`. An
 address with a name or password in it is refused too, because it is shown in
-the picker; the key goes under [[action:apiKeys]]. A pane already running keeps
-the address it started with until it is restarted. From a terminal, `flockdeck
+the picker; the key goes under [[action:apiKeys]]. A pane already running
+keeps the address it started with, until the old one cannot be reached: then
+it asks the new address instead, and says so. From a terminal, `flockdeck
 keys endpoint <agent> <address>` does the same, and `default` in place of the
 address goes back to the vendor's own.
 
@@ -153,11 +157,13 @@ never sent the key you exported for the vendor, and uses the one stored for it.
 | `flockdeck keys set openai` | Reads the key from stdin, so it misses shell history |
 | `flockdeck keys list` | Which agents have one, not what it is |
 | `flockdeck keys clear openai` | Forgets the one Flockdeck stored |
+| `flockdeck keys check openai` | Asks the agent's endpoint whether it takes the key a pane would use |
 
-Or set them from the window: [[action:apiKeys]], in the command palette, lists
-every API agent with **set** or **not set** beside it — and, for one that is
-not, the environment variables it would look in — and offers **Set…** and
-**Clear**.
+Or set them from the window: [[action:apiKeys]], in the command palette, or
+**API keys** in the settings, lists every API agent with **set** or **not
+set** beside it — and, for one that is not, the environment variables it would
+look in — and offers **Set…** (**Replace…** once one is set) and, for a key
+Flockdeck stored, **Clear**.
 
 Keys are kept in `keys.json` in the state directory, readable only by you. A
 key reaches exactly one place: the environment of the chat process for the pane
@@ -210,17 +216,18 @@ A fan-out multiplies whatever its model costs, and many of its tasks are
 mechanical: run the tests, rename a symbol, fix a typo. Routing pre-sets each
 row of a [fan-out](#fanout) to a model suited to the work — a smaller one for
 mechanical work, a stronger one for hard work — and leaves every other row
-exactly as it was. It is **off** until you turn it on, in Settings › Agents ›
-Routing, for every project or for one.
+exactly as it was. It is **off** until you turn it on, in **Settings ›
+Routing**, for every project or for one.
 
 What it chooses is shown before anything starts. A routed row's model is
 pre-set in its select, with a **↘ routed** tag (↗ for a stronger model) whose
 tooltip says which rule chose it and, for an API agent, what the two models
-cost. Changing the select makes the row yours again, and **Use the run's
-model for every task**, beside the line saying how many rows were routed,
-does that for all of them. What was shown is what runs. A pane started on a
-routed model says so in its header — `claude · haiku ↘` — with the rule in
-its tooltip.
+cost. Changing the select makes the row yours again, and **Undo routing**,
+beside the line saying how many rows were routed, puts every row back on the
+run's model. What was shown is what runs. A pane a rule routed says so in its
+header — `claude · haiku ↘` — with the rule, and the agent and model it would
+otherwise have used, in its tooltip. A pane **Minimise cost** routed with no
+rule runs the cheaper model without the arrow.
 
 Routing moves work between the models of the agent the run is on, and only
 between models whose tier it knows. It sends work to another agent only when
@@ -230,17 +237,19 @@ runs to a local model through an OpenAI-compatible endpoint, say. Even then,
 only a new fan-out row or helper moves, never a conversation already under
 way. The other agent has to be installed or keyed and trusted for the project,
 and, if it has an address of its own, something has to be answering there. The
-fan-out dialog shows the agent a row will run on, and the pane's header names
-the agent and model it would otherwise have used. Claude Code's
+fan-out dialog shows the agent a row will run on, and the pane header's
+tooltip names the agent and model it would otherwise have used. Claude Code's
 **Default** is whatever the CLI is set to, which might be its smallest model
 or its largest, so routing leaves work on it alone: choose a model for the run
 in the fan-out, or make one your default, for routing to choose from it.
 
 **Suggest** and **Automatic** are the same for a fan-out, since the dialog asks
 before anything starts either way. **Automatic** also routes a helper an agent
-starts with `flockdeck spawn` without `--agent` or `--model`; with
-**Suggest** such a helper runs as asked, since there is nobody to show a
-suggestion to. **Never go below** keeps routing off the
+starts with `flockdeck spawn` without `-agent` or `-model`, and the first
+prompt you send a pane from the prompt bar, while it has no conversation yet:
+the pane restarts on the chosen model with that prompt, and never on another
+agent. With **Suggest** such a helper or prompt runs as asked, since there is
+nobody to show a suggestion to. **Never go below** keeps routing off the
 smaller tiers for a project where the work matters.
 
 **Strategy** decides what happens to a task no rule matches. **Cost-first,
@@ -267,7 +276,7 @@ is slow, is refused or is down, the row is routed exactly as it would be without
 it. The row's tooltip says what Jev rated it when it did decide.
 
 It is **off** by default and needs both this setting, for every project or for
-one, and a TypeSafe API key: the one set in **Settings › Behaviour ›
+one, and a TypeSafe API key: the one set in **Settings › Status detection ›
 TypeSafe API key** (used first), or else `TYPESAFE_API_KEY` in the environment
 Flockdeck starts in. Saving a key on its own sends nothing.
 **Turning it on sends the text of each such row to TypeSafe, a third party.**
@@ -277,7 +286,8 @@ conversation, no path of your machine's that the text does not itself contain.
 Nothing is removed from the text first, so a task that contains a secret sends
 it; leave the setting off for work like that. Calls give up after 2 seconds,
 run at most 20 a minute, are remembered for an hour so an edited fan-out does
-not ask again, and pause for 30 seconds after a failure. Without the key the
+not ask again, and pause for 30 seconds after a failure, or 5 minutes after
+the key is refused. Without the key the
 setting does nothing and nothing is sent.
 
 The policy is kept in `agents.json` — and only there, never in a file inside a
@@ -331,10 +341,11 @@ connection to that address, and closes it at once without sending anything, to
 check something is listening. With **Ask Jev to rate unmatched work** on, and a
 key set, it sends a fan-out row's text to TypeSafe as described above. The routed mark on a pane travels only as the
 rest of the pane's state does, to your own paired devices when remote access
-is on. What it chose, and whether you kept it, is kept
-in `routing.jsonl` in the state directory, for your own numbers: the rule's
-name and the models, never the task. A row decided with no rule is logged too,
-with what Jev rated it if it did. Settings lists each rule beside how often
+is on. What it chose for each fan-out row, and whether you kept it, is kept
+in `routing.jsonl` in the state directory, for your own numbers: when, the
+project, the pane, the agent, the rule's name and the models, never the task;
+the last 10,000 lines. A row decided with no rule is logged too, with what Jev
+rated it if it did. Helpers and first prompts are not logged. Settings lists each rule beside how often
 the log shows it overridden, once it has decided at least once — the evidence
 for deciding which rules are worth hand-editing. Below the rules,
 **Unmatched work** shows how often what Minimise cost chose was overridden with

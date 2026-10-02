@@ -34,7 +34,7 @@ Claude Code hands its limits to one place only: the command that draws its statu
 
 Where you have no status line of your own, doing this would cost you something: Claude Code hides most of the keyboard hints in its footer whenever any status line is set. So by default Flockdeck only does it where you already have a status line, and there it changes nothing you can see.
 
-To choose, open **Settings › Agents › Claude Code's usage limits**:
+To choose, open **Settings › Agents & models › Claude Code's usage limits**:
 
 - **Only where I have a status line** is the default.
 - **Always** shows the limits in every Claude pane. Where you have no status line of your own, the line under Claude's prompt is left empty and the footer hints go.

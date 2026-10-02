@@ -25,12 +25,15 @@ made from the conversation the agent stores itself (for Claude Code, the file
 under `~/.claude/projects` that **Resume a past conversation** reads), by one
 piece of code. Turning recording on writes the conversation so far, from its
 first message, and then follows it; it does not begin at the moment you turned
-it on. Export is only from the machine Flockdeck runs on, not from a phone.
+it on. Export is only from the machine Flockdeck runs on, not from a window
+reached through the relay.
 
 **Only agents that store their conversation in a form Flockdeck can read have
 anything to record or export.** That is Claude Code today. For Codex, Gemini
 CLI, Aider, opencode, Cursor Agent and the built-in chat clients, Flockdeck says
 so, and nothing is exported; turning recording on for one is refused, saying so.
+A conversation is one file, so only one pane at a time can record it: turning
+recording on in a second pane showing the same conversation is refused.
 
 ## What is recorded
 
@@ -67,6 +70,10 @@ and nothing else:
   shown, how you answered it, or when the pane went idle or waiting. Earlier
   versions of Flockdeck wrote these lines from the agent's live events;
   recordings made then still have them, and the format still defines them.
+  Those files are format 1 too: they are told apart by the text of their first
+  and last lines (`turned on`, `resumed`, `turned off`, where a transcript made
+  now says `start of the transcript` and `end of the transcript`), and in them
+  `pane` is the pane's id, not the conversation's.
 - **Only what you typed is a prompt.** Entries Claude Code writes for itself
   (a slash command and its output, injected reminders, the note a conversation
   continued from a summary opens with) are left out, and so is a subagent's own
@@ -103,7 +110,8 @@ runs on, and only for a file in the recordings folder. `flockdeck recordings
 export -reveal` does it for the file it has just written.
 
 [[action:openRecordings]] opens the folder. `flockdeck recordings` lists the
-recordings, newest first, and `flockdeck recordings -dir` prints the folder.
+recordings, newest first (not the exports), and `flockdeck recordings -dir`
+prints the folder.
 `flockdeck recordings export -o file` writes an export to a path of your
 choice, which must not exist and cannot be inside the project or any git
 repository. There is no replay view: the files are plain JSON lines, for `jq`
@@ -144,8 +152,9 @@ are saved on this machine (user-only on Linux and macOS; on Windows, readable by
 you and a local administrator, like any file in your profile) — "on this
 machine", not "private to you".
 
-Nothing is sent anywhere: transcripts stay on this machine, and `Open recordings
-folder` only works from the machine Flockdeck runs on, not from a phone.
+Nothing is sent anywhere: transcripts stay on this machine, and **Open
+recordings folder** only works from the machine Flockdeck runs on, not from a
+window reached through the relay.
 
 ## Starting a helper recorded
 
@@ -153,9 +162,9 @@ An agent can start a helper whose conversation is recorded from the first
 message:
 
 ```sh
-flockdeck spawn --record "refactor the parser"
+flockdeck spawn -record "refactor the parser"
 ```
 
 This only works once you have turned recording on yourself, in the window, and
 read what it keeps: an agent cannot be the first to switch it on. Without
-`--record` a helper is not recorded, even if its parent is.
+`-record` a helper is not recorded, even if its parent is.

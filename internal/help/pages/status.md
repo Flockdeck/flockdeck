@@ -38,10 +38,11 @@ tells you what the agent is actually doing rather than only that it is busy.
   working, or idle between turns with background work still running, has a
   pulsing filled dot instead; the `▲` takes its place when an agent there is
   waiting.
-- **The window title** reports the count, so a waiting agent is visible in the
+- **The window title** reports the count — `▲ 2 waiting` while any agent is
+  waiting, otherwise `● 3 working` — so a waiting agent is visible in the
   taskbar with the window behind something else.
 - **The top bar** counts the agents waiting and working across every open
-  project, the same count the window title carries; an
+  project, the same counts the window title draws from; an
   idle agent whose background work is still running counts as working, here
   and in the window title and the tab icon. Click
   the count for the same list [[key:agents]] opens.
@@ -49,15 +50,16 @@ tells you what the agent is actually doing rather than only that it is busy.
   and the tile says what that project's agents are doing, most urgent first: an
   amber badge where an agent is waiting on you, a pulsing cyan one where
   agents are working (one with background work still running counts) and
-  none is waiting, and nothing where every pane is idle, exited or not yet
-  heard from, or there are no panes. So one that
+  none is waiting, and nothing where every pane is idle, exited, failed or not
+  yet heard from, or there are no panes. So one that
   starts waiting in a project you are *not* looking at is seen from the one
   you are. Widen the rail and the count is written beside the name — `▲ 2`
   for two waiting, `● 3` for three working — and the tile's tooltip and
   screen-reader name say it in words. A window reached through the relay
   shows the same.
 - **A desktop notification** is raised when an agent blocks while the window is
-  not in front. It is not raised when you are already looking at the window —
+  not in front, unless **Desktop notifications** is off in **Settings ›
+  General**. It is not raised when you are already looking at the window —
   the tab marker is enough, and a toast would be noise.
 - Claude Code's own idle nudge — sent about a minute after a pane has simply
   gone quiet, waiting for a new prompt — never raises any of the above, for
@@ -66,13 +68,17 @@ tells you what the agent is actually doing rather than only that it is busy.
   for **a helper another agent started** for itself (see [[key:fanout]]).
 - [[key:agents]] lists every pane in every open project with its status, and
   jumps to any of them.
-- [[action:closeFinishedPanes]] clears out every pane that has gone idle or
-  exited, in every open project, in one go — the tidying-up equivalent of
-  closing finished browser tabs. It asks nothing first, on purpose: a pane
-  still waiting on you or still working is never touched, and one whose last
-  turn failed is left alone too, since a failure is worth a look before it
-  disappears. A pane the user has locked is left open too, with a count of how
-  many were skipped. An idle agent that still has background work going — a command
+- [[action:closeFinishedPanes]] clears out every agent pane that has gone idle
+  and every pane that has exited cleanly, in every open project, in one go —
+  the tidying-up equivalent of closing finished browser tabs. It asks nothing
+  first, on purpose: a pane still waiting on you or still working is never
+  touched, an idle shell is left alone, and one whose process failed (it never
+  started, exited with an error, or was killed) is left alone too, since a
+  failure is worth a look before it disappears. A pane locked with the padlock
+  in its header (🔓, 🔒 once locked) or **Lock pane** in the command palette is
+  left open too, with a count of how many were skipped; a locked pane cannot be
+  closed any other way either until you unlock it, though it can still be
+  restarted. An idle agent that still has background work going — a command
   it started with `run_in_background`, or a background subagent — is not
   finished either, since closing it would kill that work. Its header says
   `◔ 1 in background` while it has any, and so does its row in
@@ -80,10 +86,10 @@ tells you what the agent is actually doing rather than only that it is busy.
   the agent so, or says at the end of a turn what is still running. A Claude
   Code too old to say either keeps it counted until the agent stops it, the
   conversation is cleared, or the pane is closed by hand (or with
-  `flockdeck close --force`).
+  `flockdeck close -force`).
 - A background subagent calling tools after its agent's turn has ended leaves
-  the pane idle, with that count and the steady working dot, rather than
-  flashing cyan for each call.
+  the pane idle, with that count and the working dot, rather than
+  flickering between states for each call.
   A question or permission prompt it puts to you still turns it amber.
 
 ## Where it comes from
@@ -117,8 +123,9 @@ something else or write anywhere; a call that changes a file, reads outside
 the project, or reads a secret file (a `.env`, a private key, a credentials
 file) is always left to ask. A `git` command is let through only when git
 itself, asked where the command will run, has nothing configured that would
-run a program or reach the network, and `git status` or `git diff` never in a
-repository with a submodule in it.
+run a program or reach the network, and `git status`, `git diff` or `git
+describe` never in a repository with a submodule in it. A command too long to
+be judged whole is always left to ask.
 
 These path checks read the command as text, not the filesystem -- auto-review
 is not a sandbox. A symlink inside the project that points outside it reads as
@@ -128,9 +135,9 @@ auto-review is off unless you turn it on, and why you should turn it on only
 for a pane whose agent you trust.
 
 It is off for a pane unless you turn it on, with the ✓ in the pane's header,
-or for new panes with **Settings › Behaviour › Start new panes with
-auto-review on**; a pane started by another agent starts as that agent's
-pane is.
+or for new panes with **Settings › General › Start new panes with
+auto-review on**; a pane started from another one (a fan-out row or a
+`flockdeck spawn` helper) starts as that pane is.
 A pane keeps its setting across restarts, whichever way you left it.
 
 One answer is not reported by any event: a permission prompt answered from
@@ -163,11 +170,12 @@ anything. **This sends terminal output to a third party, TypeSafe**, which
 nothing else in Flockdeck does with what your panes print, so it is **off by
 default** and needs both of these:
 
-1. **Settings › Behaviour › Status detection** turned on. It can only be turned
+1. **Settings › Status detection › Let TypeSafe's Jev help read pane status**
+   turned on. It can only be turned
    on from the machine itself, not from a window reached through the relay;
    turning it off works from anywhere.
-2. A TypeSafe API key: either the one you paste into **Settings › Behaviour ›
-   TypeSafe API key** (kept on this machine with your other keys, never shown
+2. A TypeSafe API key: either the one you paste into **Settings › Status
+   detection › TypeSafe API key** (kept on this machine with your other keys, never shown
    back, only ever sent to `api.typesafe.ai`, and only set from the machine
    itself), or `TYPESAFE_API_KEY` in the environment Flockdeck starts in. The
    one in Settings is used first. Saving a key does not turn anything on.
@@ -176,7 +184,7 @@ With either missing, nothing is ever sent, and no error is shown.
 
 What is sent, when a pane of an agent that reports nothing has been quiet for
 a few seconds and its status is still a guess: the **last 30 lines of its
-output, at most 2,000 characters, with the escape sequences taken out** — one
+output, at most 2,000 bytes, with the escape sequences taken out** — one
 request holding that text and the two questions asked of it. Not the
 scrollback, not the pane's name or folder. Secrets that happen to be on screen
 in those lines are **not** removed. Shell panes, and agents that report their
@@ -187,4 +195,6 @@ when Jev answers with high confidence. It never turns waiting or blocked into
 anything else, and if it errors, is slow, is rate limited, or is unsure, the
 pane shows what it would have shown without it. Asks are limited to one per
 pane every 15 seconds, twelve per pane an hour and ten a minute in all, and
-the same output is never asked about twice.
+the same output is not asked about twice in a row. After an error or a rate
+limit nothing is asked for a minute, and after a refused key or request for
+15 minutes.
