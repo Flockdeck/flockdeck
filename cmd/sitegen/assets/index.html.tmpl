@@ -4,7 +4,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Flockdeck",
-  "description": "A desktop app that runs Claude Code, Codex, Gemini and other coding agents side by side, each in its own git worktree so they do not overwrite each other's files, on your desk or on hardware you own, and reaches your phone or laptop with no port opened.",
+  "description": "A desktop app that runs Claude Code, Codex, Gemini and other coding agents side by side, with a git worktree and branch for each one step away so they need not overwrite each other's files, on your desk or on hardware you own, and reaches your phone or laptop with no port opened.",
   "url": {{ .URL }},
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Windows, macOS, Linux",
@@ -20,11 +20,11 @@
 <main class="wrap" id="main">
 
 <section class="hero">
-  <p class="kicker"><span aria-hidden="true" class="dot waiting">▲</span> One worktree and branch per agent</p>
-  <h1>Run several agents in one repo. <em>They won't touch each other's files.</em></h1>
+  <p class="kicker"><span aria-hidden="true" class="dot waiting">▲</span> A worktree and branch for each agent</p>
+  <h1>Run several agents in one repo. <em>Give each its own worktree.</em></h1>
   <p class="lede">Flockdeck runs Claude Code, Codex, Gemini or your own model side
-     by side, each in its own git worktree and branch, so parallel agents don't
-     undo each other's edits. Run it on your desk, or on hardware you already
+     by side, and makes it one step to give each its own git worktree and
+     branch, so parallel agents don't undo each other's edits. Run it on your desk, or on hardware you already
      own — a spare machine, a NAS, a cheap VPS — and reach it from your phone
      with no port opened and no password. The app is free and source-available;
      remote access is free for 30 days, then £5 a month.</p>
@@ -104,8 +104,9 @@
   <p>Agents working the same checkout can undo each other's edits, or fight
      over who's on which branch. Flockdeck makes it one step to give each one
      <strong>its own git worktree and branch</strong> — fan out does it by
-     default, and the Worktrees panel does it for any pane — so they work in
-     parallel without touching each other's files. And since they finish at
+     default in a git repository, and the Worktrees panel creates one and opens
+     an agent or a shell in it — so they work in parallel without touching
+     each other's files. And since they finish at
      different times and stop for permission prompts, it shows you which
      agent needs you right now too, instead of you flicking between terminals
      to find out.</p>
@@ -232,7 +233,8 @@
 <section class="band" id="fanout">
   <h2>One plan in. A branch per task out.</h2>
   <p>Ask an agent for a plan and edit the list. Flockdeck starts an agent for
-     every line, each in its own worktree unless you turn that off, and your
+     every line, each in its own worktree (in a git repository, unless you turn
+     that off), and your
      deck fills up. With
      routing on, lines that match a rule come with a smaller or a stronger
      model already chosen.</p>
@@ -367,7 +369,7 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
          <a href="https://docs.flockdeck.ai/self-hosting/overview.html">self-hosting the relay</a>.</p>
     </div>
     <figure class="figure">
-      <img src="{{asset "settings.png"}}" srcset="{{asset "settings-1584.png"}} 1584w, {{asset "settings.png"}} 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The Settings dialog open over a window of running agents, on its Account and plan section, with General, Appearance, Behaviour, Keybindings, Agents, API keys, Remote access and GitHub listed beside it. Free is marked as the current plan, covering every part of the desktop app for good, while remote access through the relay has a plan of its own: below it, Remote access is on its free trial, with 30 days left, paid for from Devices on a paired phone or browser. Enterprise, for companies to run the relay on their own infrastructure with SSO and support, is marked coming soon, with a link to read about Enterprise. Under them, a line invites sponsoring Flockdeck on GitHub, and another links the privacy policy, terms and licences.">
+      <img src="{{asset "settings.png"}}" srcset="{{asset "settings-1584.png"}} 1584w, {{asset "settings.png"}} 3168w" sizes="(max-width: 880px) 100vw, 505px" width="1584" height="985" loading="lazy" alt="The Settings dialog open over a window of running agents, on its Account and plan section. Free is marked as the current plan, covering every part of the desktop app for good, while remote access through the relay has a plan of its own: below it, Remote access is on its free trial, with 30 days left, paid for from Devices on a paired phone or browser. Enterprise, for companies to run the relay on their own infrastructure with SSO and support, is marked coming soon, with a link to read about Enterprise. Under them, a line invites sponsoring Flockdeck on GitHub, and another links the privacy policy, terms and licences.">
       <figcaption class="caption">Settings say which plan you're on, and what is coming.</figcaption>
     </figure>
   </div>
