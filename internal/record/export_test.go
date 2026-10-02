@@ -705,3 +705,71 @@ func TestSameEventsWithDifferentTextReplace(t *testing.T) {
 		t.Errorf("the replacement did not take its place: %q", es[1].Text)
 	}
 }
+
+func TestFindExportTakesTheNewestOfTheConversation(t *testing.T) {
+	dir := t.TempDir()
+	d := func() (string, error) { return dir, nil }
+	meta := exportMeta
+	folder := filepath.Join(dir, "recordings", Folder(meta.Project, meta.ProjectRoot), "exports")
+	if got, err := FindExport(d, meta); err != nil || got != "" {
+		t.Fatalf("nothing there: %q, %v", got, err)
+	}
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name string, age time.Duration) string {
+		p := filepath.Join(folder, name)
+		if err := os.WriteFile(p, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Now().Add(-age)
+		_ = os.Chtimes(p, at, at)
+		return p
+	}
+	write("20260101T000000Z-11111111.jsonl", 3*time.Hour)
+	newest := write("20260102T000000Z-11111111.jsonl", time.Hour)
+	write("20260103T000000Z-99999999.jsonl", 0) // another conversation
+	if got, _ := FindExport(d, meta); got != newest {
+		t.Errorf("found %s, want %s", got, newest)
+	}
+}
+
+// Only a regular file inside the recordings folder may be shown, links
+// followed: not a file elsewhere, a folder, or a link out of the folder.
+func TestInRecordingsRefusesAnythingButItsOwnFiles(t *testing.T) {
+	dir := t.TempDir()
+	d := func() (string, error) { return dir, nil }
+	folder := filepath.Join(dir, "recordings", "p-1")
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(folder, "t.jsonl")
+	outside := filepath.Join(t.TempDir(), "other.txt")
+	for _, p := range []string{inside, outside} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := InRecordings(d, inside)
+	if err != nil {
+		t.Fatalf("a file of its own was refused: %v", err)
+	}
+	if want, _ := filepath.EvalSymlinks(inside); got != want {
+		t.Errorf("returned %s, want the resolved %s", got, want)
+	}
+	if _, err := InRecordings(d, outside); err == nil {
+		t.Error("a file outside the recordings folder was accepted")
+	}
+	if _, err := InRecordings(d, folder); err == nil {
+		t.Error("a folder was accepted")
+	}
+	if _, err := InRecordings(d, filepath.Join(folder, "missing.jsonl")); err == nil {
+		t.Error("a file that is not there was accepted")
+	}
+	link := filepath.Join(folder, "link.jsonl")
+	if err := os.Symlink(outside, link); err == nil {
+		if _, err := InRecordings(d, link); err == nil {
+			t.Error("a link out of the recordings folder was accepted")
+		}
+	}
+}

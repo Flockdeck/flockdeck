@@ -1649,6 +1649,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "exportTranscript":
 		s.exportTranscript(c, cmd)
 		return
+	case "revealTranscript":
+		s.revealTranscript(c, cmd)
+		return
 	case "openRecordings":
 		s.openRecordings(c)
 		return

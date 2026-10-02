@@ -126,7 +126,7 @@ files it lists.
 ### recordings export
 
 ```sh
-flockdeck recordings export [-o file] <pane-id | conversation-id>
+flockdeck recordings export [-o file] [-reveal] <pane-id | conversation-id>
 ```
 
 Writes the whole conversation an agent has stored as a transcript in the same
@@ -136,7 +136,8 @@ hold it, or a Claude Code conversation's (its file's name under
 `~/.claude/projects`). By default the file goes in the `exports` folder of the
 project's folder under the recordings folder; `-o` names a file of your own,
 which must not exist and must not be inside the project or a git repository.
-It is written readable by you only.
+It is written readable by you only. `-reveal` shows the file in your file
+manager, selected, when it has been written.
 
 It prints how many lines it wrote, and how many entries it could not read. For
 an agent that stores no conversation Flockdeck can read (anything but Claude

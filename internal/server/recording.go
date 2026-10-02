@@ -7,11 +7,16 @@ import (
 	"github.com/jmwri/flockdeck/internal/appwindow"
 	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // openFolder shows a folder in the desktop's file manager. A variable so a
 // test does not open a window on the developer's desktop.
 var openFolder = appwindow.OpenDefault
+
+// revealFile shows a file selected in the desktop's file manager. A variable
+// for the same reason as openFolder.
+var revealFile = appwindow.RevealFile
 
 // recordingConfirmNotice answers a recordPane command that would be the first
 // and was not confirmed: the window asks before sending one, so this is only
@@ -102,7 +107,7 @@ func (s *Server) exportTranscript(c *controlClient, cmd command) {
 		c.notify(fmt.Sprintf("Nothing new was written: the earlier export at %s has events this one would lack (the stored conversation was cut or changed), so it was kept as it was. Delete it to have a fresh one", r.res.Path), true)
 		return
 	}
-	msg := fmt.Sprintf("Exported %d lines to %s. It may contain secrets", r.res.Lines, r.res.Path)
+	msg := fmt.Sprintf("Exported %d lines to %s. It may contain secrets. Reveal transcript shows it in your file manager", r.res.Lines, r.res.Path)
 	if r.res.Full {
 		msg += ", and it was cut at its size cap"
 	}
@@ -124,5 +129,38 @@ func (s *Server) openRecordings(c *controlClient) {
 	}
 	if err != nil {
 		c.notify("Could not open the recordings folder: "+err.Error(), true)
+	}
+}
+
+// revealTranscript shows a pane's transcript file in the machine's file manager,
+// with the file selected. The file is found from Flockdeck's own records for the
+// pane -- the client says only which pane -- and has been checked to be a regular
+// file inside the recordings folder, so nothing a client sends can name a path.
+func (s *Server) revealTranscript(c *controlClient, cmd command) {
+	if c.remote {
+		c.notify("A transcript is shown on the machine flockdeck runs on, not from a window reached through the relay", true)
+		return
+	}
+	type result struct {
+		path string
+		err  error
+	}
+	r, ok := ask(s, func() result {
+		path, err := s.ws.TranscriptFile(paneIDFor(s.ws, cmd.ID))
+		return result{path, err}
+	})
+	if !ok {
+		return
+	}
+	switch {
+	case errors.Is(r.err, workspace.ErrNoTranscriptFile):
+		c.notify("This pane has no transcript file yet: it is not being recorded and has not been exported. Export transcript or Start recording makes one, and Open recordings folder shows where they go", true)
+		return
+	case r.err != nil:
+		c.notify("Could not find the transcript: "+r.err.Error(), true)
+		return
+	}
+	if err := revealFile(r.path); err != nil {
+		c.notify("Could not show the transcript in the file manager: "+err.Error(), true)
 	}
 }

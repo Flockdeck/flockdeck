@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/appwindow"
 	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -22,6 +23,8 @@ type exportEnv struct {
 	catalog func() ([]agent.Spec, string)
 	// pane finds a pane in the saved layouts by its id.
 	pane func(id string) (savedPane, bool)
+	// reveal shows a file in the desktop's file manager.
+	reveal func(path string) error
 }
 
 // savedPane is a pane as the saved layouts hold it.
@@ -38,7 +41,8 @@ func realExportEnv() exportEnv {
 			specs, def, _ := agentCatalog()
 			return specs, def
 		},
-		pane: findSavedPane,
+		pane:   findSavedPane,
+		reveal: appwindow.RevealFile,
 	}
 }
 
@@ -80,13 +84,15 @@ func paneIn(n *store.Node, id string) (store.Pane, bool) {
 
 // exportFlags are the flags of `flockdeck recordings export`.
 type exportFlags struct {
-	path string
+	path   string
+	reveal bool
 }
 
 func exportFlagSet(f *exportFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("recordings export", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(&f.path, "o", "", "write the transcript to this `file`, which must not exist and must not be inside the project or a git repository; by default it goes in the exports folder under the recordings folder")
+	fs.BoolVar(&f.reveal, "reveal", false, "show the exported file in the file manager, selected, when it has been written")
 	return fs
 }
 
@@ -97,7 +103,7 @@ func exportRecording(args []string, out io.Writer, env exportEnv) error {
 	var f exportFlags
 	fs := exportFlagSet(&f)
 	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: flockdeck recordings export [-o file] <pane-id | conversation-id>\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: flockdeck recordings export [-o file] [-reveal] <pane-id | conversation-id>\n\n")
 		fmt.Fprintf(os.Stderr, "Writes the whole conversation an agent has stored as a transcript, in the format\n")
 		fmt.Fprintf(os.Stderr, "recordings use, whether or not the pane was ever recorded. A transcript is made\n")
 		fmt.Fprintf(os.Stderr, "from the agent's own stored conversation, so a recording of it and an export of\n")
@@ -167,6 +173,20 @@ func exportRecording(args []string, out io.Writer, env exportEnv) error {
 		fmt.Fprintf(out, "%d entries of the stored conversation could not be read and are left out\n", res.Skipped)
 	}
 	fmt.Fprintln(out, "it may contain secrets: common ones are removed, but that is best effort")
+	if f.reveal {
+		// The file just written, which is where this process put it. One in the
+		// recordings folder is checked to be a regular file in it, as the
+		// window's reveal does; one at a path the user chose is the user's own.
+		show := res.Path
+		if path == "" {
+			if show, err = record.InRecordings(env.stateDir, res.Path); err != nil {
+				return fmt.Errorf("exported, but not showing it: %w", err)
+			}
+		}
+		if err := env.reveal(show); err != nil {
+			return fmt.Errorf("exported, but could not show it in the file manager: %w", err)
+		}
+	}
 	return nil
 }
 

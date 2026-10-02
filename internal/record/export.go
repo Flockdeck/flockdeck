@@ -212,3 +212,67 @@ func within(path, dir string) bool {
 	rel, err := filepath.Rel(abs, path)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
+
+// FindExport is the newest export of the conversation meta names, in its
+// project's exports folder, or "" if there is none. It looks only at what this
+// package wrote there: regular files named for the conversation.
+func FindExport(dir func() (string, error), meta Meta) (string, error) {
+	root, err := Root(dir)
+	if err != nil {
+		return "", err
+	}
+	folder := filepath.Join(root, Folder(meta.Project, meta.ProjectRoot), exportsDir)
+	ents, err := os.ReadDir(folder)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	suffix := "-" + shortConversation(meta) + sessionFileExt
+	best, bestMod := "", time.Time{}
+	for _, e := range ents {
+		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), suffix) {
+			continue
+		}
+		fi, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if best == "" || fi.ModTime().After(bestMod) {
+			best, bestMod = filepath.Join(folder, e.Name()), fi.ModTime()
+		}
+	}
+	return best, nil
+}
+
+// InRecordings checks that path is a regular file inside the recordings folder,
+// with symbolic links followed on both, and returns the path with them
+// resolved: the path to hand to anything that acts on it, so that a link
+// swapped in afterwards is not followed. It is how a file Flockdeck is about to
+// show or open is known to be one of its own transcripts.
+func InRecordings(dir func() (string, error), path string) (string, error) {
+	root, err := Root(dir)
+	if err != nil {
+		return "", err
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	fi, err := os.Lstat(real)
+	if err != nil {
+		return "", err
+	}
+	if !fi.Mode().IsRegular() {
+		return "", fmt.Errorf("%s is not a regular file", path)
+	}
+	if !within(real, realRoot) {
+		return "", fmt.Errorf("%s is not inside the recordings folder", path)
+	}
+	return real, nil
+}
