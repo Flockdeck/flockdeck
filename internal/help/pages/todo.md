@@ -31,8 +31,8 @@ checkbox and a **Start** button:
 - **Start** opens a fresh agent for that one step, on the project's default
   agent, with the step's own text as its task. **Start each step below in a
   git worktree of its own**, at the top of the todo, puts it in a worktree
-  instead of the project's own checkout; it starts off each time the dialog
-  opens. Steps of one todo started this way get branches grouped under the
+  instead of the project's own checkout; it starts off, and is remembered per
+  todo while the window stays open. Steps of one todo started this way get branches grouped under the
   todo's own name — `agent/<todo>/<step>` — in `git branch` and the worktree
   list, rather than a dozen unrelated branches that happen to have come from
   the same checklist.

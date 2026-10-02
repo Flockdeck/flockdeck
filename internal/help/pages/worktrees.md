@@ -50,8 +50,9 @@ the worktree in — defaulting to whichever is active — since a worktree alway
 belongs to exactly one repository; [Review, commit and push](#changes) has the
 same choice for reviewing one.
 
-**Prune gone**, at the top of the list, drops git's records of worktrees whose
-folders were deleted outside the application. A worktree like that is listed
+**Prune gone**, at the top of the list and shown only while some worktree's
+folder is gone, drops git's records of worktrees whose folders were deleted
+outside the application. A worktree like that is listed
 as **folder gone**, with a **Prune** button of its own in place of the others,
 since there is no folder left to open an agent, a shell or a review in. Either
 button clears every such record at once, including one for a worktree on a
