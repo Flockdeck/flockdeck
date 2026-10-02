@@ -19,6 +19,12 @@ var ErrNoTranscript = errors.New("no stored conversation to export")
 // writing a transcript from it has to write that again from the start.
 var ErrReplaced = errors.New("the stored conversation was replaced")
 
+// ErrRead wraps the error of a Follower that could not read what is stored,
+// as opposed to one that could not find it: a file another program has locked
+// for a moment, say. It is worth trying again later, and nothing has been lost:
+// the Follower has not moved past what it could not read.
+var ErrRead = errors.New("could not read the stored conversation")
+
 // ExportKind is what an ExportEvent is.
 type ExportKind int
 

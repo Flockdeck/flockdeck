@@ -388,10 +388,9 @@ func TestExportDeletesNothing(t *testing.T) {
 // A conversation that goes past the size cap is cut there, and the file ends
 // with the line that says so.
 func TestExportStopsAtTheSizeCap(t *testing.T) {
-	big := strings.Repeat("word ", 5000) // 25 KB, under the message cap
-	src := cappedFollower{text: big}
+	src := cappedFollower{text: strings.Repeat("word ", 400)}
 	dir := t.TempDir()
-	res, err := Export(func() (string, error) { return dir, nil }, exportMeta, src, ExportOptions{})
+	res, err := Export(func() (string, error) { return dir, nil }, exportMeta, src, ExportOptions{MaxBytes: 32 << 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +398,7 @@ func TestExportStopsAtTheSizeCap(t *testing.T) {
 		t.Fatal("not cut at the cap")
 	}
 	fi, _ := os.Stat(res.Path)
-	if fi.Size() > MaxFileBytes+1<<10 {
+	if fi.Size() > 32<<10+1<<10 {
 		t.Errorf("file is %d bytes, over the cap", fi.Size())
 	}
 	es := readEntries(t, res.Path)
@@ -413,7 +412,7 @@ type cappedFollower struct{ text string }
 
 func (c cappedFollower) Poll(yield func(transcript.ExportEvent) error) (transcript.ExportStats, error) {
 	at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 200; i++ {
 		if err := yield(transcript.ExportEvent{Time: at.Add(time.Duration(i) * time.Second), Kind: transcript.ExportPrompt, Text: c.text}); err != nil {
 			return transcript.ExportStats{}, err
 		}
@@ -575,4 +574,64 @@ type lateFollower struct{ before func() }
 func (l lateFollower) Poll(yield func(transcript.ExportEvent) error) (transcript.ExportStats, error) {
 	l.before()
 	return transcript.ExportStats{}, yield(transcript.ExportEvent{Time: time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC), Kind: transcript.ExportPrompt, Text: "hi"})
+}
+
+// An export never deletes another export of the conversation, as a recording's
+// finishing removes a superseded recording.
+func TestAnExportDoesNotDeleteAnEarlierExport(t *testing.T) {
+	dir := t.TempDir()
+	d := func() (string, error) { return dir, nil }
+	at := func(h int) transcript.Follower {
+		return cappedFollowerAt{start: time.Date(2026, 10, 1, h, 0, 0, 0, time.UTC)}
+	}
+	a, err := Export(d, exportMeta, at(9), ExportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Export(d, exportMeta, at(8), ExportOptions{}) // another first event, same conversation
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Path == b.Path {
+		t.Fatal("the test did not give the exports different names")
+	}
+	for _, p := range []string{a.Path, b.Path} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("an export is gone: %v", err)
+		}
+	}
+}
+
+type cappedFollowerAt struct{ start time.Time }
+
+func (c cappedFollowerAt) Poll(yield func(transcript.ExportEvent) error) (transcript.ExportStats, error) {
+	return transcript.ExportStats{}, yield(transcript.ExportEvent{Time: c.start, Kind: transcript.ExportPrompt, Text: "hi"})
+}
+
+// A replacement left by a quit or a crash is swept when it is old and nothing
+// holds it, and not before.
+func TestStaleReplacementsAreSwept(t *testing.T) {
+	m, dir := newTestManager(t)
+	folder := filepath.Join(dir, "recordings", Folder(testMeta.Project, testMeta.ProjectRoot))
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(name string, age time.Duration) string {
+		p := filepath.Join(folder, name)
+		if err := os.WriteFile(p, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Now().Add(-age)
+		_ = os.Chtimes(p, at, at)
+		return p
+	}
+	old := mk("20250101T000000Z-aaaaaaaa.jsonl.new", 48*time.Hour)
+	fresh := mk("20250102T000000Z-bbbbbbbb.jsonl.new", time.Hour)
+	newFeed(t, m).prompt("hello")
+	if _, err := os.Stat(old); err == nil {
+		t.Error("an old abandoned replacement was kept")
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Error("a recent replacement was swept")
+	}
 }

@@ -3,6 +3,8 @@ package transcript
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -121,6 +123,9 @@ func (f *claudeFollower) Poll(yield func(ExportEvent) error) (ExportStats, error
 		}
 		f.offset += int64(n)
 		if rerr != nil {
+			if rerr != io.EOF {
+				return stats, fmt.Errorf("%w: %v", ErrRead, rerr)
+			}
 			break
 		}
 	}

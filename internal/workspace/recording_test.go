@@ -638,3 +638,55 @@ func TestRecordingFollowsAReplacedConversation(t *testing.T) {
 		t.Errorf("the transcript was not written again from the replacement: %+v", es)
 	}
 }
+
+// Turning recording off while the agent is still reporting events leaves no
+// recorder behind, no replacement file, and a finished transcript.
+func TestTurningRecordingOffWhileEventsArriveLeavesNothingBehind(t *testing.T) {
+	isolatedRecordings(t)
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := recordingPane(t, ws, root, "busy")
+	storeConversation(t, home, p.ID, promptLine, callLine, resultLine, sayLine)
+
+	for i := 0; i < 15; i++ {
+		startRecording(t, ws, p.ID)
+		stop := make(chan struct{})
+		var wg sync.WaitGroup
+		for g := 0; g < 4; g++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+						ws.kickRecording(p.ID, true) // the agent's events
+					}
+				}
+			}()
+		}
+		ws.SetPaneRecording(p.ID, false)
+		close(stop)
+		wg.Wait()
+		ws.recAct.wait()
+
+		ws.recMu.Lock()
+		left := len(ws.recorders)
+		ws.recMu.Unlock()
+		if left != 0 {
+			t.Fatalf("round %d: %d recorders left behind", i, left)
+		}
+		if ws.rec.Active(p.ID) {
+			t.Fatalf("round %d: a transcript file is still open", i)
+		}
+		if news, _ := filepath.Glob(filepath.Join(filepath.Dir(recordingFiles(t)[0]), "*.new")); len(news) != 0 {
+			t.Fatalf("round %d: left behind %v", i, news)
+		}
+		es := readTranscript(t, recordingFiles(t)[0])
+		if len(es) != 7 || es[len(es)-1].Type != record.TypeStopped {
+			t.Fatalf("round %d: the transcript is %d lines ending %s", i, len(es), es[len(es)-1].Type)
+		}
+	}
+}

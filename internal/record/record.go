@@ -320,28 +320,83 @@ var ErrFull = errors.New("the transcript is full")
 // last event. It is harmless for a pane with no transcript open.
 //
 // A transcript that was written through a replacement of an earlier, finished
-// one takes its place only if it has everything the earlier one had.
-func (m *Manager) Finish(meta Meta) {
+// one takes its place only if it is itself finished and has every line the
+// earlier one had. If the closing line cannot be written the replacement is
+// dropped and the earlier file stays; if the earlier file cannot be replaced (a
+// program has it open) the finished replacement is left beside it, and the error
+// says so.
+func (m *Manager) Finish(meta Meta) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := m.panes[meta.Pane]
 	if s == nil {
-		return
+		return nil
 	}
-	_ = m.writeLocked(meta, Entry{Type: TypeStopped, Text: endText, Time: stamp(s.last)})
-	_ = s.f.Close()
+	werr := m.writeLocked(meta, Entry{Type: TypeStopped, Text: endText, Time: stamp(s.last)})
+	cerr := s.f.Close()
 	delete(m.panes, meta.Pane)
-	if s.final != "" {
-		if supersedes(s.final, s.path) {
-			if err := os.Rename(s.path, s.final); err != nil {
-				_ = os.Remove(s.path)
-			}
-		} else {
+	if werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		if s.final != "" {
 			_ = os.Remove(s.path)
 		}
+		return fmt.Errorf("could not finish the transcript: %w", werr)
 	}
-	if m.target == "" {
+	if s.final != "" {
+		if !finished(s.path) || !supersedes(s.final, s.path) {
+			_ = os.Remove(s.path)
+		} else if err := renameRetry(s.path, s.final); err != nil {
+			return fmt.Errorf("the new transcript is left as %s, because %s could not be replaced: %w", s.path, s.final, err)
+		}
+	}
+	// A recording of a conversation is the one file of it; an export never
+	// deletes another, as nobody asked for an earlier one to go.
+	if m.target == "" && !m.export {
 		removeSuperseded(filepath.Dir(s.path), meta, filepath.Base(m.finalPath(s)))
+	}
+	return nil
+}
+
+// renameRetry moves a file over another, trying again for a moment: on Windows
+// a program with the old one open (a viewer, a scanner) makes it fail until it
+// lets go.
+func renameRetry(from, to string) error {
+	var err error
+	for i := 0; i < 6; i++ {
+		if err = os.Rename(from, to); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(i+1) * 50 * time.Millisecond)
+	}
+	return err
+}
+
+// staleNewAfter is how old a replacement left beside a transcript has to be
+// before it is taken to have been abandoned by a quit or a crash.
+const staleNewAfter = 24 * time.Hour
+
+// sweepStale removes the replacements in a folder that nothing is writing and
+// that are old: a Flockdeck that quit mid-rewrite leaves one, and nothing else
+// would ever list or count it.
+func (m *Manager) sweepStale(folder string) {
+	ents, err := os.ReadDir(folder)
+	if err != nil {
+		return
+	}
+	held := map[string]bool{}
+	for _, s := range m.panes {
+		held[s.path] = true
+	}
+	for _, e := range ents {
+		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), sessionFileExt+".new") {
+			continue
+		}
+		p := filepath.Join(folder, e.Name())
+		if fi, err := e.Info(); err == nil && !held[p] && m.now().Sub(fi.ModTime()) > staleNewAfter {
+			_ = os.Remove(p)
+		}
 	}
 }
 
@@ -438,6 +493,7 @@ func (m *Manager) openLocked(meta Meta, first time.Time) error {
 		return fmt.Errorf("create the transcript: %w", err)
 	}
 	m.panes[meta.Pane] = &session{f: f, path: path, final: final, id: id, secret: map[string]bool{}}
+	m.sweepStale(folder)
 	if !m.export {
 		prune(folder, path, m.now())
 	}

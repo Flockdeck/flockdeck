@@ -91,8 +91,11 @@ type paneRecorder struct {
 	// over the cap when recording was turned on is told apart from one that
 	// grew into it.
 	synced bool
-	// fails counts the looks in a row that could not write.
-	fails int
+	// fails and readFails count the looks in a row that could not write, and
+	// that could not read what is stored.
+	fails, readFails int
+	// fresh makes a follower of the conversation from its start.
+	fresh func() transcript.Follower
 	// looks counts the times the conversation has been read.
 	looks int
 
@@ -171,17 +174,20 @@ func (w *Workspace) SetPaneRecording(id string, on bool) (found bool, err error)
 		w.mu.Unlock()
 		return true, nil
 	}
+	conv := ""
 	if on {
 		if spec, _, ok := w.transcriptSourceLocked(p); !ok {
 			w.mu.Unlock()
 			return true, fmt.Errorf("%s stores no conversation Flockdeck can read, so there is nothing to record", specLabel(spec))
 		}
-		if owner := w.conversationOwner(paneConversation(p)); owner != "" && owner != id {
-			w.mu.Unlock()
+		conv = paneConversation(p)
+	}
+	w.mu.Unlock()
+	if on {
+		if owner := w.conversationOwner(conv); owner != "" && owner != id {
 			return true, errors.New("another pane is already recording this conversation, and a conversation is one file")
 		}
 	}
-	w.mu.Unlock()
 
 	if on {
 		// The folder is made now, so that a state directory that cannot be
@@ -189,9 +195,9 @@ func (w *Workspace) SetPaneRecording(id string, on bool) (found bool, err error)
 		if _, err := record.EnsureRoot(store.Dir); err != nil {
 			return true, err
 		}
-	} else {
-		w.stopRecorder(id, true)
 	}
+	// The pane stops being a recording one before its recorder is stopped, so
+	// that an event arriving in between cannot make a second recorder for it.
 	w.mu.Lock()
 	if p := w.panes[id]; p != nil {
 		p.Recording = on
@@ -199,6 +205,8 @@ func (w *Workspace) SetPaneRecording(id string, on bool) (found bool, err error)
 	w.mu.Unlock()
 	if on {
 		w.kickRecording(id, true)
+	} else {
+		w.stopRecorder(id, true)
 	}
 	w.wake()
 	return true, nil
@@ -230,25 +238,29 @@ func (w *Workspace) SetRecordingEndedHook(fn func(paneID, why string)) {
 // the Workspace is closing, which is what keeps a late look from writing to a
 // transcript that has been finished.
 func (w *Workspace) recorder(id string, create bool) *paneRecorder {
-	recording := false
-	if create {
-		w.mu.RLock()
-		p := w.panes[id]
-		recording = p != nil && p.Recording
-		w.mu.RUnlock()
-	}
 	w.recMu.Lock()
 	defer w.recMu.Unlock()
 	if w.recClosed {
 		return nil
 	}
 	r := w.recorders[id]
-	if r == nil && create && recording {
-		if w.recorders == nil {
-			w.recorders = map[string]*paneRecorder{}
+	if r == nil && create {
+		// Whether the pane is recording is read with recMu held, so that it is not
+		// read, and then acted on, either side of the pane being switched off and
+		// its recorder removed (which takes recMu after switching it off): that
+		// would leave a recorder nothing ever stops. The order is recMu, then w.mu,
+		// and nothing takes them the other way round.
+		w.mu.RLock()
+		p := w.panes[id]
+		recording := p != nil && p.Recording
+		w.mu.RUnlock()
+		if recording {
+			if w.recorders == nil {
+				w.recorders = map[string]*paneRecorder{}
+			}
+			r = &paneRecorder{}
+			w.recorders[id] = r
 		}
-		r = &paneRecorder{}
-		w.recorders[id] = r
 	}
 	return r
 }
@@ -332,7 +344,11 @@ func (w *Workspace) kickRecording(id string, fromEvent bool) {
 
 // recMaxFails is how many looks in a row may fail to write before recording
 // gives up and says so.
-const recMaxFails = 3
+const (
+	recMaxFails     = 8
+	recMaxReadFails = 20
+	recMaxBackoff   = 5 // doublings of the settle interval
+)
 
 // syncRecording reads what the agent has stored since the last look and writes
 // it to the pane's transcript.
@@ -372,7 +388,9 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 		// The agent went on in a conversation of its own (/clear): the one
 		// before ends here, and the new one is a transcript of its own.
 		if _, err := record.Sync(w.rec, current, r.follower); err == nil || errors.Is(err, transcript.ErrNoTranscript) {
-			w.rec.Finish(r.meta)
+			w.finished(id, w.rec.Finish(r.meta))
+		} else {
+			w.rec.Abandon(r.meta)
 		}
 		w.releaseConversation(r.conv, id)
 		r.follower, r.synced, r.meta = nil, false, record.Meta{}
@@ -383,6 +401,7 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 			return
 		}
 		r.conv, r.follower = conv, ex.Follow(spec, conv)
+		r.fresh = func() transcript.Follower { return ex.Follow(spec, conv) }
 	}
 	// Whose lines they are is asked for when the first is about to be written,
 	// not before: what the conversation says of itself, the directory it is in,
@@ -409,23 +428,60 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 		}
 		w.endRecordingAsync(id, why)
 		return
+	case errors.Is(err, transcript.ErrRead):
+		// What is stored could not be read for now, a file another program has
+		// locked. Nothing was passed over, so it is tried again, later each time.
+		r.readFails++
+		if r.readFails >= recMaxReadFails {
+			w.endRecordingAsync(id, "could not be read ("+err.Error()+"), so recording ended")
+			return
+		}
+		w.scheduleAfterFailure(id, r, r.readFails)
+		return
 	case err != nil && !errors.Is(err, transcript.ErrNoTranscript):
 		// Something could not be written. Nothing is carried on from a file that
-		// is missing what it could not take: it is made again from the start at the
-		// next look, and if that keeps failing recording ends and says why.
+		// is missing what it could not take: it is made again from the start at a
+		// later look, and if that keeps failing recording ends and says why.
 		w.rec.Abandon(r.meta)
-		r.follower, r.synced = ex.Follow(spec, conv), false
+		r.follower, r.synced = r.fresh(), false
 		r.fails++
 		if r.fails >= recMaxFails {
 			w.endRecordingAsync(id, "could not be written ("+err.Error()+"), so recording ended")
 			return
 		}
-		w.scheduleRecording(id, r, true)
+		w.scheduleAfterFailure(id, r, r.fails)
 		return
 	}
-	r.fails = 0
+	r.fails, r.readFails = 0, 0
 	r.synced = true
 	w.scheduleRecording(id, r, res.Events > 0)
+}
+
+// scheduleAfterFailure arranges a look after one that failed, later the more
+// have: a lock that lasts seconds is waited out and not given up on.
+func (w *Workspace) scheduleAfterFailure(id string, r *paneRecorder, failures int) {
+	r.ctl.Lock()
+	defer r.ctl.Unlock()
+	if r.stopped {
+		return
+	}
+	delay := w.recSettleFor() << min(failures, recMaxBackoff)
+	if r.timer == nil {
+		r.timer = time.AfterFunc(delay, func() { w.kickRecording(id, false) })
+	} else {
+		r.timer.Reset(delay)
+	}
+}
+
+// finished tells the window when a transcript could not be completed or put in
+// its place, which is the one thing about ending one that the user needs to hear.
+func (w *Workspace) finished(id string, err error) {
+	if err == nil {
+		return
+	}
+	if fn := w.onRecordingEnded.Load(); fn != nil && *fn != nil {
+		(*fn)(id, err.Error())
+	}
 }
 
 // scheduleRecording arranges the next look, later each time a look finds
@@ -478,12 +534,25 @@ func (w *Workspace) stopRecorder(id string, final bool) {
 	w.releaseConversation(r.conv, id)
 	if final {
 		current := func() record.Meta { return r.meta }
-		if _, err := record.Sync(w.rec, current, r.follower); errors.Is(err, transcript.ErrReplaced) {
+		_, err := record.Sync(w.rec, current, r.follower)
+		if errors.Is(err, transcript.ErrReplaced) {
 			w.rec.Abandon(r.meta)
-			_, _ = record.Sync(w.rec, current, r.follower)
+			_, err = record.Sync(w.rec, current, r.follower)
+		}
+		if err != nil && !errors.Is(err, transcript.ErrNoTranscript) && !errors.Is(err, record.ErrFull) {
+			// What could not be written is not in the file, so a closing line
+			// would make a transcript with gaps look whole: it is written again
+			// from the start, once, and left unfinished if that fails too.
+			w.rec.Abandon(r.meta)
+			r.follower = r.fresh()
+			if _, err = record.Sync(w.rec, current, r.follower); err != nil && !errors.Is(err, transcript.ErrNoTranscript) && !errors.Is(err, record.ErrFull) {
+				w.rec.Abandon(r.meta)
+				w.finished(id, fmt.Errorf("could not be completed (%w), so it was left unfinished", err))
+				return
+			}
 		}
 	}
-	w.rec.Finish(r.meta)
+	w.finished(id, w.rec.Finish(r.meta))
 }
 
 // stopRecorders lets go of every recorder, for a Flockdeck that is quitting, and

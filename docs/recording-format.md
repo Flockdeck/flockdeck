@@ -56,7 +56,11 @@ beginning, which gives the same lines and the same name, so it is the same file
 and not another. A file is never added to once its transcript has ended, except
 by being made again, and a finished transcript is only replaced by one that has
 every line it had (it is written beside it and moved into place when finished;
-otherwise it is left as it was). If the conversation's first event is now a
+otherwise it is left as it was). If a program has the earlier file open and it
+cannot be replaced, the new transcript is left beside it as `<name>.jsonl.new` and
+Flockdeck says so. A `.jsonl.new` that nothing is writing and that is a day old, as
+a quit or a crash leaves, is removed the next time a transcript is made in that
+folder. If the conversation's first event is now a
 different one, so that the name is different, the earlier finished transcript of
 the same conversation is removed when the new one is finished: a conversation is
 one file. Two panes cannot record one conversation at once, as they would

@@ -139,7 +139,9 @@ func Export(dir func() (string, error), meta Meta, f transcript.Follower, opts E
 	// A full file ends with the truncation line, which seq does not count; any
 	// other ends with the closing line Finish writes.
 	res.Lines = int(m.seqOf(meta.Pane)) + 1
-	m.Finish(meta)
+	if err := m.Finish(meta); err != nil {
+		return res, err
+	}
 	return res, nil
 }
 
