@@ -75,7 +75,7 @@ func (s *Server) setKey(c *controlClient, agentID, key string) {
 
 // savedKeyNotice says that a key was saved, and whether it is the one used.
 //
-// A key already in flockdeck's environment comes first (creds.Resolve), so one
+// A key already in Flockdeck's environment comes first (creds.Resolve), so one
 // saved over it is kept for later and does nothing while the variable is set.
 // The dialog offers Replace… for both kinds alike, and "saved" on its own read
 // as though the key just typed was now in use.
@@ -83,7 +83,7 @@ func (s *Server) savedKeyNotice(agentID string) string {
 	text := "Saved the key for " + agentID
 	if spec, ok := s.ws.Catalog().Find(agentID); ok {
 		if st := creds.StatusOf(spec); st.Source == creds.SourceEnv {
-			text += ", but " + st.Env + " in flockdeck's environment is what is used while it is set"
+			text += ", but " + st.Env + " in Flockdeck's environment is what is used while it is set"
 		}
 	}
 	return text
@@ -97,7 +97,7 @@ func keysAtTheDesk(c *controlClient) bool {
 	if !c.remote {
 		return false
 	}
-	c.notify("API keys are set on the machine flockdeck runs on — one typed in a window reached through the relay passes through the relay, which can read it", true)
+	c.notify("API keys are set on the machine Flockdeck runs on — one typed in a window reached through the relay passes through the relay, which can read it", true)
 	return true
 }
 
@@ -133,7 +133,7 @@ func (s *Server) noStoredKeyNotice(agentID string) string {
 	text := "There was no stored key for " + agentID + " to clear"
 	if spec, ok := s.ws.Catalog().Find(agentID); ok {
 		if st := creds.StatusOf(spec); st.Source == creds.SourceEnv {
-			text += "; the key it uses is " + st.Env + " in flockdeck's environment"
+			text += "; the key it uses is " + st.Env + " in Flockdeck's environment"
 		}
 	}
 	return text

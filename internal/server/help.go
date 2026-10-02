@@ -160,7 +160,7 @@ func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
 			// Only the window that made the change is told. Every other window
 			// has nothing to do about it, and a phone reached through the relay
 			// would be shown an error for a hint dismissed on the desk.
-			c.notify("Could not save the setting, because the settings saved before could not be read and saving now would write over them; it will not be kept after flockdeck restarts: "+err.Error(), true)
+			c.notify("Could not save the setting, because the settings saved before could not be read and saving now would write over them; it will not be kept after Flockdeck restarts: "+err.Error(), true)
 			return
 		}
 		if !change(&p) {
@@ -172,7 +172,7 @@ func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
 			// already applied the change and said so, and it would go back at
 			// the next start with nothing to say why -- so that is said now, to
 			// the window that made it.
-			c.notify("Could not save the setting, so it will not be kept after flockdeck restarts: "+err.Error(), true)
+			c.notify("Could not save the setting, so it will not be kept after Flockdeck restarts: "+err.Error(), true)
 			return
 		}
 		s.prefs = p

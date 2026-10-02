@@ -186,7 +186,7 @@ var readDir = os.ReadDir
 // system's reason, after the folder it was about.
 func listingError(abs string, err error) string {
 	if errors.Is(err, fs.ErrPermission) {
-		return "flockdeck is not allowed to look inside " + abs + " — go up, or choose another folder"
+		return "Flockdeck is not allowed to look inside " + abs + " — go up, or choose another folder"
 	}
 	var pe *fs.PathError
 	if errors.As(err, &pe) {

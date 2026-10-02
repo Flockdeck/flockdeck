@@ -101,7 +101,7 @@ func saveAttachedImage(paneID, name, mediaType, dataB64 string) (string, error) 
 	}
 	ext, ok := sniffImageExt(data)
 	if !ok {
-		return "", fmt.Errorf("that file is not a picture flockdeck can attach")
+		return "", fmt.Errorf("that file is not a picture Flockdeck can attach")
 	}
 
 	dir, err := store.Dir()

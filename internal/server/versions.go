@@ -44,7 +44,7 @@ const (
 // OnCheckForUpdates is.
 func (s *Server) listVersions(c *controlClient) {
 	if c.remote {
-		c.notify("Installing a specific version is set on the machine flockdeck runs on, not from a window reached through the relay", true)
+		c.notify("A specific version is installed on the machine Flockdeck runs on, not from a window reached through the relay", true)
 		return
 	}
 	if s.OnListVersions == nil {
@@ -72,7 +72,7 @@ func (s *Server) listVersions(c *controlClient) {
 // the interface's existing confirmation dialog rather than one of its own.
 func (s *Server) installVersion(c *controlClient, target string) {
 	if c.remote {
-		c.notify("Installing a specific version is set on the machine flockdeck runs on, not from a window reached through the relay", true)
+		c.notify("A specific version is installed on the machine Flockdeck runs on, not from a window reached through the relay", true)
 		return
 	}
 	target = strings.TrimSpace(target)

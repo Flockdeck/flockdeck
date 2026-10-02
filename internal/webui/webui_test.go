@@ -2111,7 +2111,7 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutHistory", root: "C:/rep
 assert.ok(h.$("overlay-body").textContent.includes("Reading past jobs"));
 
 h.recv({ type: "fanoutHistory", root: "C:/repo", items: [] });
-assert.ok(h.$("overlay-body").textContent.includes("No fan-out jobs finished in this project yet"));
+assert.ok(h.$("overlay-body").textContent.includes("No finished fan-out jobs have been closed in this project since Flockdeck started"));
 
 h.recv({
   type: "fanoutHistory", root: "C:/repo",
@@ -3035,7 +3035,7 @@ assert.ok(h.$("overlay").hidden, "a worktree list arriving opened the dialog aga
 // Nor does one dialog's answer land in another.
 h.click(h.$("btn-history"));
 h.recv(changes);
-assert.strictEqual(h.$("overlay-title").textContent, "Conversations");
+assert.strictEqual(h.$("overlay-title").textContent, "Past conversations");
 assert.ok(!h.$("overlay-body").textContent.includes("a.go"), "the review was drawn into the history dialog");
 `)
 }
@@ -5900,11 +5900,11 @@ h.hello();
 h.recv(fixture());
 h.press("palette");
 const labels = () => h.$("palette-list").children.filter((r) => r.classList.contains("pal-row")).map((r) => r.querySelector(".pal-label").textContent);
-assert.ok(!labels().includes("Show the tips again"), "offered to bring back tips when none were dismissed");
+assert.ok(!labels().includes("Show the hints again"), "offered to bring back tips when none were dismissed");
 h.key({ key: "Escape" });
 
 h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: ["palette"] } });
-paletteRun("tips again");
+paletteRun("hints again");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "resetTips" });
 `)
 }

@@ -23,7 +23,7 @@ func TestAFolderThatCannotBeListedIsSaidInWords(t *testing.T) {
 		err  error
 		want string
 	}{
-		{"not allowed", fs.ErrPermission, "flockdeck is not allowed to look inside " + dir + " — go up, or choose another folder"},
+		{"not allowed", fs.ErrPermission, "Flockdeck is not allowed to look inside " + dir + " — go up, or choose another folder"},
 		{"anything else", errors.New("the device is not ready"), "could not list " + dir + ": the device is not ready"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

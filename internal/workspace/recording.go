@@ -267,7 +267,8 @@ func (w *Workspace) RecordingsDir() (string, error) {
 }
 
 // SetRecordingEndedHook installs the function told when a recording stopped by
-// itself, which is only the size cap being reached.
+// itself -- the size cap reached, or what it reads or writes failing -- with
+// why, as a clause that follows "A recording stopped: ".
 func (w *Workspace) SetRecordingEndedHook(fn func(paneID, why string)) {
 	w.onRecordingEnded.Store(&fn)
 }
@@ -500,7 +501,7 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 			return
 		}
 		if !got {
-			w.endRecordingAsync(id, "was not started: another pane is already recording this conversation")
+			w.endRecordingAsync(id, "another pane is already recording this conversation, so this one was not started")
 			return
 		}
 		r.fresh = func() transcript.Follower { return w.followerFor(ex.Follow(spec, conv)) }
@@ -516,9 +517,9 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 	}
 	switch {
 	case res.Full:
-		why := "reached its size cap"
+		why := fmt.Sprintf("its transcript reached its size cap of %d MiB", record.MaxFileBytes>>20)
 		if !r.synced {
-			why = "was already longer than a transcript can be (16 MiB), so it was cut there and recording ended"
+			why = fmt.Sprintf("the conversation was already longer than a transcript can be (%d MiB), so its transcript was cut there", record.MaxFileBytes>>20)
 		}
 		w.endRecordingAsync(id, why)
 		return
@@ -527,7 +528,7 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 		// locked. Nothing was passed over, so it is tried again, later each time.
 		r.readFails++
 		if r.readFails >= recMaxReadFails {
-			w.endRecordingAsync(id, "could not be read ("+err.Error()+"), so recording ended")
+			w.endRecordingAsync(id, "the agent's stored conversation could not be read ("+err.Error()+")")
 			return
 		}
 		w.scheduleAfterFailure(id, r, r.readFails)
@@ -540,7 +541,7 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 		r.follower, r.synced = r.fresh(), false
 		r.fails++
 		if r.fails >= recMaxFails {
-			w.endRecordingAsync(id, "could not be written ("+err.Error()+"), so recording ended")
+			w.endRecordingAsync(id, "its transcript could not be written ("+err.Error()+")")
 			return
 		}
 		w.scheduleAfterFailure(id, r, r.fails)

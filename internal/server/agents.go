@@ -554,7 +554,7 @@ func (s *Server) setAgentAddress(c *controlClient, id, address string) {
 
 // deskOnlyAddress is what a window reached through the relay is told when it
 // asks to change where an API agent sends its prompts.
-const deskOnlyAddress = "An API agent's address is changed on the machine flockdeck runs on, not from a window reached through the relay: the key stored there goes wherever the address says"
+const deskOnlyAddress = "An API agent's address is changed on the machine Flockdeck runs on, not from a window reached through the relay: the key stored there goes wherever the address says"
 
 // addressNotice says what an address just saved means for the agent: whether
 // it can be used now, or still needs a key, and that a pane already running
