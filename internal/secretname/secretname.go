@@ -53,43 +53,57 @@ import (
 //
 // A name longer than MaxName bytes cannot be a file's name on any file system
 // this is used with; it is called secret, so that hostile input costs nothing.
-// The text after "=" is examined for the first maxEquals of them and for the
-// last one, which keeps the work linear.
+// A name with "=" in it is judged whole, then by all that is after its first
+// "=", then segment by segment, each text between two "=" on its own, which is how an argument carries a file name
+// ("--file=.env.local"); the work is linear in the name.
 func Component(name string) bool {
 	if len(name) > MaxName {
 		return true
 	}
 	n := fold(name)
-	for eq := 0; ; eq++ {
-		// Both as written (folded) and cleaned of what a check should not be
-		// fooled by: the second can only find more. Then the same for the text
-		// after each "=", which is how an argument carries a file name.
-		if match(n) || match(normalise(n)) {
+	if hit(n) {
+		return true
+	}
+	i := strings.IndexByte(n, '=')
+	if i < 0 {
+		return false
+	}
+	if hit(n[i+1:]) { // all after the first "=", which is what an argument parser hands on
+		return true
+	}
+	for _, seg := range strings.Split(n, "=") {
+		if seg != "" && hit(seg) {
 			return true
 		}
-		i := strings.IndexByte(n, '=')
-		if i < 0 {
-			return false
-		}
-		if eq+1 >= maxEquals {
-			// Skip to the last "=": the tail after it is the one an argument
-			// parser would most likely have been handed.
-			if j := strings.LastIndexByte(n, '='); j > i {
-				i = j
-			}
-			n = n[i+1:]
-			return match(n) || match(normalise(n))
-		}
-		n = n[i+1:]
 	}
+	return false
 }
+
+// hit is match on a folded name as written and cleaned of what a check should
+// not be fooled by (the second can only find more).
+func hit(n string) bool { return match(n) || match(normalise(n)) }
+
+// Folder reports whether name, as a folder, is one whose whole contents are
+// secret (.ssh, .aws, .git, secrets, private ...).
+func Folder(name string) bool { return secretFolders[normalise(fold(name))] }
+
+// StrictFolder is Folder without the plain words that are also ordinary folder
+// names ("private", "secret", "secrets"): for judging the folders above a place
+// where those are common and harmless (/private/var on macOS, ~/repos/private).
+func StrictFolder(name string) bool {
+	n := normalise(fold(name))
+	return secretFolders[n] && !genericFolders[n]
+}
+
+// FolderPair reports whether a then b, two folders in a row, are one of the
+// pairs that hold secrets (.config/gh).
+func FolderPair(a, b string) bool { return pairFolders[fold(a)+"/"+fold(b)] }
+
+var genericFolders = map[string]bool{"private": true, "secret": true, "secrets": true}
 
 // MaxName is the longest component Component will look at (the longest name any
 // common file system allows).
 const MaxName = 255
-
-// maxEquals is how many "=" Component reads a tail after, besides the last.
-const maxEquals = 4
 
 // fold lower-cases a name the way file systems that ignore case compare it,
 // for every letter a secret's name is written in: a rune whose case-folding
@@ -163,7 +177,7 @@ func match(n string) bool {
 		return true // .env.local, prod.env, prod.env.json
 	case strings.HasPrefix(n, "kubeconfig"), strings.HasPrefix(n, "login data"), strings.HasPrefix(n, "firebase-adminsdk"):
 		return true // kubeconfig.yaml, kubeconfig-prod; a browser's "Login Data"
-	case strings.HasPrefix(n, "ssh_host_") && !strings.HasSuffix(n, ".pub"), strings.HasPrefix(n, ".authinfo"):
+	case strings.HasPrefix(n, "ssh_host_") && !strings.HasSuffix(n, ".pub"), strings.HasPrefix(n, ".authinfo"), strings.HasPrefix(n, "ntuser.dat"):
 		return true // a host's private key; ssh_host_rsa_key.pub is public
 	case strings.HasPrefix(n, "id_") && !strings.HasSuffix(n, ".pub"):
 		return true // a private ssh key; the .pub beside it is public
@@ -272,7 +286,9 @@ var secretFiles = map[string]bool{
 	"auth.json": true, "kube.config": true, ".gitconfig": true, "known_hosts": true,
 	"cookies.sqlite": true, "cookies": true, "logins.json": true, "key4.db": true,
 	".mylogin.cnf": true, ".rails_master_key": true, ".msmtprc": true, "rclone.conf": true,
-	"serviceaccountkey.json": true, ".vault_pass": true, ".vault-pass": true, "authorized_keys": true, "wallet.dat": true,
+	"serviceaccountkey.json": true,
+	"web data":               true, "local state": true, "oauth_creds.json": true, "shadow": true, "htpasswd": true, "sam": true,
+	"ntds.dit": true, "key.json": true, "azureprofile.json": true, ".vault_pass": true, ".vault-pass": true, "authorized_keys": true, "wallet.dat": true,
 }
 
 // secretFolders are folder names whose whole contents are secret, wherever

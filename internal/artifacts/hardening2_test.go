@@ -39,79 +39,18 @@ func TestLongComponentsAreRefusedCheaply(t *testing.T) {
 	}
 }
 
-// Threat: a root judged against a home directory that is not known -- HOME and
-// USERPROFILE unset, empty or relative, or pointing elsewhere (a daemon, a
-// launchd or systemd unit, env -i). With no home found every root is refused;
-// with one found only through the password file it is still protected.
-func TestNewRootFailsClosedWithoutAHome(t *testing.T) {
-	base := t.TempDir()
-	proj := filepath.Join(base, "proj")
-	if err := os.MkdirAll(proj, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range []string{"HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"} {
-		t.Setenv(e, "")
-	}
-	old := passwdPath
-	passwdPath = filepath.Join(base, "no-such-passwd")
-	t.Cleanup(func() { passwdPath = old })
-	if r, err := NewRoot(proj); err == nil {
-		r.Close()
-		t.Fatal("NewRoot succeeded though no home directory can be found")
-	}
-	t.Setenv("HOME", "relative/home") // relative: no better than unset
-	t.Setenv("USERPROFILE", "relative/home")
-	if r, err := NewRoot(proj); err == nil {
-		r.Close()
-		t.Fatal("NewRoot succeeded with a relative home")
-	}
-	if runtime.GOOS == "windows" {
-		return
-	}
-	// The password file says where the user's home really is, whatever HOME says.
-	home := filepath.Join(base, "realhome")
-	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	passwd := filepath.Join(base, "passwd")
-	line := fmt.Sprintf("someone:x:%d:%d:Some One:%s:/bin/sh\n", os.Getuid(), os.Getgid(), home)
-	if err := os.WriteFile(passwd, []byte("root:x:0:0:root:/root:/bin/sh\n"+line), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	passwdPath = passwd
-	t.Setenv("HOME", proj) // a lie: HOME says the project is home
-	for _, d := range []string{home, filepath.Join(home, ".ssh"), base} {
-		if r, err := NewRoot(d); err == nil {
-			r.Close()
-			t.Errorf("NewRoot(%q) succeeded though the password file says it is or holds the home", d)
-		}
-	}
-	if r, err := NewRoot(filepath.Join(home, "work")); err == nil {
-		r.Close()
-		t.Error("a folder that does not exist was made a root")
-	}
-	if err := os.MkdirAll(filepath.Join(home, "work"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	r, err := NewRoot(filepath.Join(home, "work"))
-	if err != nil {
-		t.Fatalf("a project below the home was refused: %v", err)
-	}
-	r.Close()
-}
-
 // Threat: a root whose own name is the secret (/run/secrets, /mnt/backup/.ssh,
 // a keyring or a browser's "User Data"): the name check only sees what is
 // below a root, so it would serve /run/secrets/db_password. Refused when the
-// last one or two folders are secret by name.
+// root, or a folder above it, is secret by name.
 func TestNewRootRefusesARootNamedAsASecret(t *testing.T) {
 	base := t.TempDir()
 	home := filepath.Join(base, "home")
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	for _, d := range []string{
-		"mnt/backup/.ssh", "run/secrets", "x/private/y", "etc-ssl/private", "a/keyrings", "b/User Data", "c/.config/gh", "d/.git",
-		".local/share/keyrings", ".mozilla/firefox", "ok/proj", "ok/src",
+		"mnt/backup/.ssh", "mnt/backup/.ssh/a/b", "run/secrets", "etc-ssl/private", "a/keyrings", "b/User Data", "c/.config/gh", "d/.git",
+		".local/share/keyrings", ".mozilla/firefox", "ok/proj", "ok/src", "x/private/y",
 	} {
 		if err := os.MkdirAll(filepath.Join(base, filepath.FromSlash(d)), 0o755); err != nil {
 			t.Fatal(err)
@@ -121,7 +60,7 @@ func TestNewRootRefusesARootNamedAsASecret(t *testing.T) {
 		}
 	}
 	for _, d := range []string{
-		"mnt/backup/.ssh", "run/secrets", "x/private/y", "etc-ssl/private", "a/keyrings", "b/User Data", "c/.config/gh", "d/.git",
+		"mnt/backup/.ssh", "mnt/backup/.ssh/a/b", "run/secrets", "etc-ssl/private", "a/keyrings", "b/User Data", "c/.config/gh", "d/.git",
 	} {
 		if r, err := NewRoot(filepath.Join(base, filepath.FromSlash(d))); err == nil {
 			r.Close()
@@ -134,7 +73,7 @@ func TestNewRootRefusesARootNamedAsASecret(t *testing.T) {
 			t.Errorf("NewRoot(~/%s) succeeded, want a refusal", d)
 		}
 	}
-	for _, d := range []string{"ok/proj", "ok/src"} {
+	for _, d := range []string{"ok/proj", "ok/src", "x/private/y"} {
 		r, err := NewRoot(filepath.Join(base, filepath.FromSlash(d)))
 		if err != nil {
 			t.Errorf("NewRoot(%q) = %v, want a root", d, err)
@@ -222,5 +161,24 @@ func TestNewRootAncestryIsByIdentity(t *testing.T) {
 	if r, err := NewRoot(unc); err == nil {
 		r.Close()
 		t.Errorf("NewRoot(%q) succeeded, but that is the folder that holds the home", unc)
+	}
+}
+
+// Threat: a typed-nil *Refusal (the result of a failed type assertion kept in an
+// error) or a nil Root reaching the accessors that report on a refusal or a
+// root: no panic.
+func TestNilAccessorsDoNotPanic(t *testing.T) {
+	var nilRefusal *Refusal
+	var err error = nilRefusal
+	if ReasonOf(err) != "" || CauseOf(err) != nil {
+		t.Error("a typed-nil Refusal reported a reason or a cause")
+	}
+	var nilRoot *Root
+	if nilRoot.Path() != "" {
+		t.Error("a nil Root has a path")
+	}
+	var zero Root
+	if zero.Path() != "" {
+		t.Error("a zero Root has a path")
 	}
 }

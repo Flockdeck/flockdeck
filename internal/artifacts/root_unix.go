@@ -80,3 +80,15 @@ func (r *Root) checkRealName(_ *os.File, rel string) error {
 	}
 	return nil
 }
+
+// ownedBy is whether the file belongs to uid (always true if there is no uid).
+func ownedBy(fi fs.FileInfo, uid int) bool {
+	if uid < 0 {
+		return true
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	return ok && int(st.Uid) == uid
+}
+
+// osProfileDir has no answer here: the password file is asked instead.
+func osProfileDir() string { return "" }

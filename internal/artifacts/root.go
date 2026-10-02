@@ -85,7 +85,7 @@ func unreadable(err error) error { return &Refusal{d: &refusalDetail{reason: Rea
 // names absolute paths and is for this machine's log only; never send it.
 func CauseOf(err error) error {
 	var r *Refusal
-	if errors.As(err, &r) && r.d != nil {
+	if errors.As(err, &r) && r != nil && r.d != nil {
 		return r.d.cause
 	}
 	return nil
@@ -94,7 +94,7 @@ func CauseOf(err error) error {
 // ReasonOf is why err refused a path, or "" if err is not a Refusal.
 func ReasonOf(err error) Reason {
 	var r *Refusal
-	if errors.As(err, &r) && r.d != nil {
+	if errors.As(err, &r) && r != nil && r.d != nil {
 		return r.d.reason
 	}
 	return ""
@@ -141,7 +141,7 @@ func NewRoot(dir string) (*Root, error) {
 	if err != nil {
 		return nil, err
 	}
-	if why := forbiddenRoot(real); why != "" {
+	if why := forbiddenRoot(real, osGuardEnv()); why != "" {
 		return nil, fmt.Errorf("artifacts: %s is not a safe root: %s", dir, why)
 	}
 	fi, err := os.Stat(real)
@@ -168,7 +168,12 @@ func (r *Root) Close() error {
 }
 
 // Path is the root's real directory.
-func (r *Root) Path() string { return r.path }
+func (r *Root) Path() string {
+	if r == nil {
+		return ""
+	}
+	return r.path
+}
 
 // File is an open, vetted, read-only file. The only way to read it is Limited.
 // Everything read through it, by any number of readers, is counted against one

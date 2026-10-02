@@ -55,12 +55,24 @@
 // # Roots
 //
 // NewRoot refuses a root that is empty or relative, a filesystem or drive root,
-// the user's home directory or any folder above it, a folder that keeps secrets
-// (~/.ssh, ~/.aws, ~/.gnupg, ~/.kube, ~/.config/gh ... and anything below
+// a home directory (the user's or anyone's: /home/x, /Users/x, C:/Users/x,
+// /mnt/c/Users/x, judged by where it is as well as by HOME) and any folder that
+// holds homes or is above one, a folder that keeps secrets (~/.ssh, ~/.aws,
+// ~/.gnupg, ~/.kube, ~/.config/gh, browser profiles ... and anything below
 // them), a folder that holds every program's settings (~/.config, AppData,
-// XDG directories) and a system folder. It follows links in the root's own path,
-// so the root must come from a path the host chose, never one a client, an
-// agent or a file's contents could influence.
+// XDG directories, ~/Documents, also as redirected into OneDrive), a system or
+// program folder, and a place with a folder named as a secret on the way
+// (/mnt/backup/.ssh/a, /run/secrets; the plain words private and secrets count
+// only for the root itself). It follows links in the root's own path, so the
+// root must come from a path the host chose, never one a client, an agent or a
+// file's contents could influence.
+//
+// It fails closed: unless a home directory is found that exists (from HOME,
+// USERPROFILE, the parents of APPDATA, the password file entry of the process's
+// user, or the system's own profile answer on Windows) and, where the platform
+// says, is owned by the process's user, every root is refused. A project
+// of someone else's, or below a home this process does not know as its own, is
+// refused too.
 //
 // # Reading
 //

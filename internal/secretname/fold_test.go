@@ -209,3 +209,51 @@ func TestMoreNames(t *testing.T) {
 		t.Error("the public half of a host key is not secret")
 	}
 }
+
+// Threat: a secret hidden behind many "=" (the scan used to read only the first
+// four tails and the last). Every segment is judged.
+func TestEveryEqualsSegmentIsJudged(t *testing.T) {
+	n := strings.Repeat("a=", 40) + ".env.local" + strings.Repeat("=b", 40)
+	if !Component(n) {
+		t.Errorf("Component(%q) = false", n)
+	}
+	for _, n := range []string{"a=b=c=d=e=f=g=id_rsa=h", "x=y=z=w=v=server.pem=q"} {
+		if !Component(n) {
+			t.Errorf("Component(%q) = false", n)
+		}
+	}
+}
+
+func TestFoldersAndTheirStrictForm(t *testing.T) {
+	for _, n := range []string{".ssh", ".SSH", "secrets", "private", "User Data", "keyrings", ".mozilla", ".git"} {
+		if !Folder(n) {
+			t.Errorf("Folder(%q) = false", n)
+		}
+	}
+	for _, n := range []string{"secrets", "private", "secret", "Private"} {
+		if StrictFolder(n) {
+			t.Errorf("StrictFolder(%q) = true: the plain words are ordinary folders above a root", n)
+		}
+	}
+	for _, n := range []string{".ssh", ".git", ".aws", "keyrings"} {
+		if !StrictFolder(n) {
+			t.Errorf("StrictFolder(%q) = false", n)
+		}
+	}
+	for _, n := range []string{"secrets-manager", "token-service", "src", "private-notes"} {
+		if Folder(n) || StrictFolder(n) {
+			t.Errorf("%q is judged a secret folder: only exact folder names are", n)
+		}
+	}
+	if !FolderPair(".config", "GH") || FolderPair(".config", "htop") {
+		t.Error("FolderPair is wrong")
+	}
+}
+
+func TestOptionalNames(t *testing.T) {
+	for _, n := range []string{"Web Data", "Local State", "oauth_creds.json", "shadow", "htpasswd", "NTUSER.DAT", "NTUSER.DAT.LOG1", "SAM", "ntds.dit", "key.json", "azureProfile.json"} {
+		if !Component(n) {
+			t.Errorf("Component(%q) = false", n)
+		}
+	}
+}

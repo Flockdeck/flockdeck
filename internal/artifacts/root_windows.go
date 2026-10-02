@@ -91,3 +91,22 @@ func (r *Root) checkRealName(f *os.File, rel string) error {
 	}
 	return nil
 }
+
+// ownedBy: Windows owners are not compared; the profile folder is found by the
+// system's own answer (osProfileDir) as well as the environment's.
+func ownedBy(fs.FileInfo, int) bool { return true }
+
+// osProfileDir is the user's profile folder as the system says, whatever the
+// environment says.
+func osProfileDir() string {
+	t, err := syscall.OpenCurrentProcessToken()
+	if err != nil {
+		return ""
+	}
+	defer t.Close()
+	d, err := t.GetUserProfileDirectory()
+	if err != nil {
+		return ""
+	}
+	return d
+}

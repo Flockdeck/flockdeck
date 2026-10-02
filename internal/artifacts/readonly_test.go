@@ -56,7 +56,6 @@ var everyPlatform = [][2]string{
 }
 
 func TestPackageIsReadOnlyAndOffline(t *testing.T) {
-	forbidden := forbiddenImports
 	root := moduleRoot(t)
 	for _, p := range everyPlatform {
 		goos := p[0]
@@ -70,7 +69,7 @@ func TestPackageIsReadOnlyAndOffline(t *testing.T) {
 		}
 		sort.Strings(names)
 		for _, d := range names {
-			if forbidden[d] {
+			if bannedImport(d) {
 				t.Errorf("on %s the package can reach %s", goos, d)
 			}
 			if strings.HasPrefix(d, "github.com/jmwri/flockdeck/") &&
@@ -116,6 +115,9 @@ func walkDeps(t *testing.T, ctx *build.Context, modRoot, path string, seen map[s
 		return
 	}
 	seen[path] = true
+	if bannedImport(path) {
+		return // reported by name by the caller; its own imports (the standard library's vendored ones) are not followed
+	}
 	var pkg *build.Package
 	var err error
 	if rest, ok := strings.CutPrefix(path, modulePath+"/"); ok {
@@ -158,6 +160,28 @@ var writes = map[string]bool{
 	"Syscall": true, "Syscall6": true, "Syscall9": true, "RawSyscall": true, "RawSyscall6": true,
 	"Socket": true, "Connect": true, "Bind": true, "Listen": true, "Accept": true, "Sendto": true, "Dial": true,
 	"Kill": true, "FindProcess": true, "Exit": true,
+	// more of the system call table
+	"Creat": true, "Sendfile": true, "Sendmsg": true, "Mount": true, "Unmount": true, "Setxattr": true, "Removexattr": true,
+	"Flock": true, "Fallocate": true, "Chroot": true, "Dup2": true, "Dup3": true, "Sethostname": true, "Splice": true,
+	"Pwritev": true, "Writev": true, "CopyFileRange": true,
+	// Windows
+	"SyscallN": true, "RemoveDirectory": true, "CreateDirectory": true, "SetFileAttributes": true, "CopyFile": true,
+	"WriteFileEx": true, "LockFileEx": true, "CreateSymbolicLink": true, "CreateHardLink": true, "TerminateProcess": true,
+	// reflection reaching a method by its name
+	"MethodByName": true,
+}
+
+// windowsOnly are the ways to call a DLL by name, which only the one Windows file
+// that asks for a handle's final path may use.
+var windowsOnly = map[string]bool{
+	"NewLazyDLL": true, "NewProc": true, "Call": true, "LoadDLL": true, "MustLoadDLL": true, "FindProc": true,
+	"LoadLibrary": true, "GetProcAddress": true,
+}
+
+// bannedImport is whether p is a package this one may not import.
+func bannedImport(p string) bool {
+	return forbiddenImports[p] || strings.HasPrefix(p, "golang.org/x/sys") ||
+		strings.HasPrefix(p, "net/") && p != "net/url" && !strings.HasPrefix(p, "net/netip")
 }
 
 // writeIdents may not be named at all in this package's sources: not in an open,
@@ -223,7 +247,7 @@ func checkSource(fset *token.FileSet, name string, f *ast.File) []string {
 	}
 	for _, imp := range f.Imports {
 		p, _ := strconv.Unquote(imp.Path.Value)
-		if forbiddenImports[p] || strings.HasPrefix(p, "net/") && p != "net/url" && !strings.HasPrefix(p, "net/netip") {
+		if bannedImport(p) {
 			add(imp, "imports %s", p)
 		}
 		if p == "unsafe" && !unsafeAllowed[filepath.Base(name)] {
@@ -237,9 +261,22 @@ func checkSource(fset *token.FileSet, name string, f *ast.File) []string {
 			}
 		}
 	}
+	// The expressions that are called, to tell a call of an open from an open
+	// held as a value and called later with flags this test cannot see.
+	called := map[ast.Expr]bool{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok {
+			called[c.Fun] = true
+		}
+		return true
+	})
+	isWindowsFile := filepath.Base(name) == "root_windows.go"
 	ast.Inspect(f, func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.Ident:
+			if windowsOnly[x.Name] && !isWindowsFile {
+				add(x, "uses %s, which calls a DLL by name, outside root_windows.go", x.Name)
+			}
 			if writeIdents[x.Name] {
 				add(x, "names %s", x.Name)
 			}
@@ -249,6 +286,15 @@ func checkSource(fset *token.FileSet, name string, f *ast.File) []string {
 		case *ast.SelectorExpr:
 			if writeIdents[x.Sel.Name] {
 				add(x, "names %s", x.Sel.Name)
+			}
+			if id, ok := x.X.(*ast.Ident); ok && !called[x] {
+				// An open held as a value, to be called with flags this test
+				// cannot read: open := syscall.Open; f := r.OpenFile.
+				switch {
+				case (x.Sel.Name == "Open" || x.Sel.Name == "Openat") && (id.Name == "syscall" || id.Name == "unix"),
+					x.Sel.Name == "OpenFile", x.Sel.Name == "CreateFile":
+					add(x, "uses %s as a value, so its flags cannot be read", x.Sel.Name)
+				}
 			}
 			// As a value too, not only as a call: rm := os.Remove; rm(path).
 			if writes[x.Sel.Name] {
@@ -371,6 +417,23 @@ func TestReadOnlyCheckCatchesWhatItForbids(t *testing.T) {
 		"process kill":     `p.Kill()`,
 		"utimes":           `syscall.Utimes("a", nil)`,
 		"exit":             `os.Exit(1)`,
+		"aliased open":     `open := syscall.Open; open("a", 0x41, 0)`,
+		"held openfile":    `of := r.OpenFile; _ = of`,
+		"creat":            `syscall.Creat("a", 0)`,
+		"sendfile":         `syscall.Sendfile(1, 2, nil, 3)`,
+		"mount":            `syscall.Mount("a", "b", "c", 0, "")`,
+		"setxattr":         `syscall.Setxattr("a", "b", nil, 0)`,
+		"flock":            `syscall.Flock(1, 2)`,
+		"fallocate":        `syscall.Fallocate(1, 0, 0, 1)`,
+		"chroot":           `syscall.Chroot("a")`,
+		"dup2":             `syscall.Dup2(1, 2)`,
+		"sethostname":      `syscall.Sethostname(nil)`,
+		"syscalln":         `syscall.SyscallN(1)`,
+		"rmdir windows":    `syscall.RemoveDirectory(n)`,
+		"mkdir windows":    `syscall.CreateDirectory(n, nil)`,
+		"set attrs":        `syscall.SetFileAttributes(n, 1)`,
+		"lazy dll":         `syscall.NewLazyDLL("kernel32.dll").NewProc("DeleteFileW").Call(1)`,
+		"reflect method":   `reflect.ValueOf(r).MethodByName("Remove")`,
 	}
 	for name, body := range bad {
 		src := "package x\nimport (\"os\"; \"os/exec\"; \"syscall\")\nfunc f(r *os.Root, n *uint16, acc uint32, fl int) {\n" + body + "\n}\n"
@@ -382,6 +445,7 @@ func TestReadOnlyCheckCatchesWhatItForbids(t *testing.T) {
 	for name, src := range map[string]string{
 		"exec import":     "package x\nimport \"os/exec\"\n",
 		"smtp import":     "package x\nimport \"net/smtp\"\n",
+		"x/sys import":    "package x\nimport \"golang.org/x/sys/unix\"\n",
 		"net sub import":  "package x\nimport \"net/http/httputil\"\n",
 		"cgo import":      "package x\nimport \"C\"\n",
 		"unsafe import":   "package x\nimport \"unsafe\"\n",
