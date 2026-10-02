@@ -103,24 +103,24 @@ The relay is `https://remote.flockdeck.ai` unless `-relay` or `FLOCKDECK_RELAY`
 names another. `flockdeck remote enable` also reads `FLOCKDECK_REMOTE_NAME`,
 `FLOCKDECK_REMOTE_JOIN` and `FLOCKDECK_REMOTE_INVITE` as the defaults for
 `-name`, `-join` and `-invite`, so a first boot can enrol without being asked
-anything; a flag given on the command line wins. A second desktop joins the same account with a code from
-`flockdeck remote pair -desktop` on the first, given to the second — in the
-dialog under **Joining an account, or invited?**, or as
+anything; a flag given on the command line wins. A second desktop joins the same
+account with a code from `flockdeck remote pair -desktop` on the first, given to
+the second — in the dialog under **Joining an account, or invited?**, or as
 `flockdeck remote enable -join <code>`. Every device paired with the account
 then reaches every desktop on it: pairing with one is pairing with them all.
 
 ## Pairing a device
 
-[[action:remote]] in the command palette — or the **Remote** button in the
-rail, which is there whether or not remote access is on — opens a dialog saying whether
-the relay is reachable and how many windows are open through it. **Pair a
-device** asks the relay for a link and shows it as a QR code: scan it with the
+[[action:remote]] in the command palette — or the **Remote** button in the rail,
+which is there whether or not remote access is on — opens a dialog saying
+whether the relay is reachable and how many windows are open through it. **Pair
+a device** asks the relay for a link and shows it as a QR code: scan it with the
 device you want to pair, or open the link on it.
 
-A link works once and expires after ten minutes, unless the relay is set up
-for another time. Until then, whoever opens it
-can drive every agent on every desktop on this account, and open a shell on
-any of them, so treat it like a password.
+A link works once and expires after ten minutes by default; a relay can be set
+up for another time. Until then, whoever opens it can drive every agent on every
+desktop on this account, and open a shell on any of them, so treat it like a
+password.
 
 A phone paired with just one desktop opens straight into it; paired with more
 than one, it shows a list to choose from first. At 900px and wider — a
@@ -272,14 +272,14 @@ while it goes on showing as waiting everywhere, including here. Muting lives
 on the pane, not the device that asked, and is forgotten on close: it does
 not survive a restart of Flockdeck.
 
-Each notification is encrypted here, on this machine, for the device it goes
-to, and the relay only passes it on: neither the relay nor the push service
-that carries it — Apple's, Google's, Mozilla's or Microsoft's, which is the
-browser's to choose — can read what it says, since the key that opens it never
-leaves the phone. They see that one was sent, and when; every notification is
-the same size, however long the names in it. A relay that does not send
-notifications, or an account whose plan does not include them, is said under
-the switch in the relay's own words.
+Each notification is encrypted here, on this machine, for the device it goes to,
+and the relay only passes it on: neither the relay nor the push service that
+carries it — Apple's, Google's, Mozilla's or Microsoft's, which is the browser's
+to choose — can read what it says, since the key that opens it never leaves the
+phone (see the limit on that in **What the relay can see**). They see that one
+was sent, and when; every notification is the same size, however long the names
+in it. A relay that does not send notifications, or an account whose plan does
+not include them, is said under the switch in the relay's own words.
 
 ## Renaming
 
@@ -312,19 +312,24 @@ A relay could hand out the wrong key for a device. To check, press **Verify**
 beside a device in the dialog and compare the code with the one the device
 shows on its own **Devices** page; if they differ, unpair it.
 
+What the relay cannot read, it cannot read as long as it only reads or stores
+what passes through it. A relay that actively tampers with the client it serves
+to a browser could hand that browser code that sends it the terminal's keys, so
+this does not hold against one. Running your own relay is the mitigation.
+
 Reading is not all it could do. The relay is what decides which devices are
 paired, so whoever runs it can open a window on any desktop that is connected
 to it and use it as a paired device would: type to every agent, and open a
 shell. Use a relay you would trust with this machine.
 
 A relay that gives every desktop's window its own address — the shared relay
-does, under `d.flockdeck.ai` — keeps a page from one desktop's window from reaching another's: it runs
-on a different address, with none of the account's own session, so it cannot
-list your devices, open another desktop, or make a code for one to join. A
-relay without one instead serves every desktop's window from the same address
-as the account itself, which trusts every desktop of an account with the
-others' sessions; that is weaker, and is what a relay run without a spare
-domain for it falls back to.
+does, under `d.flockdeck.ai` — keeps a page from one desktop's window from
+reaching another's: it runs on a different address, with none of the account's
+own session, so it cannot list your devices, open another desktop, or make a
+code for one to join. A relay without one instead serves every desktop's window
+from the same address as the account itself, which trusts every desktop of an
+account with the others' sessions; that is weaker, and is what a relay run
+without a spare domain for it falls back to.
 
 The shared relay at `https://remote.flockdeck.ai` has a
 [privacy policy](https://flockdeck.ai/privacy.html), which says what it stores
@@ -334,19 +339,20 @@ deleted, and [terms](https://flockdeck.ai/terms.html) for using it.
 ## The trial, and the subscription
 
 Remote access through the shared relay at `https://remote.flockdeck.ai` is a
-subscription of £5 a month, after a free trial of 30 days for every account
-that starts when its first machine is enrolled. The desktop app itself is free, every part of it,
+subscription, after a free trial, by default 30 days, for every account that
+starts when its first machine is enrolled. What it costs is set in Paddle and
+shown on Paddle's checkout. The desktop app itself is free, every part of it,
 whatever the plan: only reaching it through the shared relay is paid for.
 
 The plan is the relay's to keep, and Flockdeck only shows what the relay says.
 [[action:remote]] shows the account's plan and, during the trial, how many days
 are left, and so does **Account & plan** in the settings. A paired phone or
-browser shows the same on its **Devices** page, which is where you subscribe: press
-**Subscribe** there, and the browser opens the billing page, which takes you to
-Paddle's checkout, hosted by Paddle, to pay. Once the account pays, the same
-button reads **Manage subscription** and opens Paddle's customer portal, where
-you can change or cancel it. The relay is told only the plan and the date it
-runs to: no email address, name or country goes to it.
+browser shows the same on its **Devices** page, which is where you subscribe:
+press **Subscribe** there, and the browser opens the billing page, which takes
+you to Paddle's checkout, hosted by Paddle, to pay. Once the account pays, the
+same button reads **Manage subscription** and opens Paddle's customer portal,
+where you can change or cancel it. The relay is told only the plan and the date
+it runs to: no email address, name or country goes to it.
 
 When a trial ends, or a subscription lapses, the relay stops carrying remote
 windows to this machine, and the dialog says so in the relay's own words.
@@ -356,21 +362,22 @@ asks the relay again every ten minutes, and at once from **Try again**, so
 remote access comes back by itself once the account is paid for.
 
 How long a subscription lasts is worked out from what Paddle reports. Remote
-access runs to the end of the period paid for, or to the date a cancellation
-you asked for takes effect, whichever is sooner. When a renewal payment fails
-it carries on, by default, for 14 days past the end of that period while Paddle retries the
-payment, and once only: a second notice of the same failure does not add
-more. A paused or cancelled subscription ends when it was paused or cancelled,
-never later than it had already paid until. A refund alone changes nothing;
-access follows the subscription.
+access runs to the end of the period paid for, or to the date a cancellation you
+asked for takes effect, whichever is sooner. When a renewal payment fails it
+carries on, by default, for 14 days past the end of that period while Paddle
+retries the payment, and once only: a second notice of the same failure does not
+add more. A paused or cancelled subscription ends when it was paused or
+cancelled, never later than it had already paid until. A refund alone changes
+nothing; access follows the subscription.
 
 Nothing is deleted straight away. The account, its machines and its paired
-devices are kept for 90 days after a trial or subscription ends, and deleted
-after that; subscribing before then puts everything back as it was. Separately
-from a plan, and by the relay's defaults, a paired device that goes 30 days
-without being used has to pair again, and a machine is removed from its account
-after 30 days without being heard from, or after 7 if it enrolled and never
-connected.
+devices are kept, by default, for 90 days after a trial or subscription ends,
+and deleted after that; subscribing before then puts everything back as it was.
+Separately from a plan, by default, a paired device that goes 30 days without
+being used has to pair again, and a machine is removed from its account after
+30 days without being heard from, or after 7 if it enrolled and never
+connected. A relay that is not the shared one can set any of these figures
+otherwise.
 
 A relay other than the shared one may have no plans at all, and then none of
 this applies: nothing is shown, and nothing stops.
@@ -438,8 +445,8 @@ A machine that was wiped or lost before remote access was turned off on it
 cannot take itself off. Remove it from the **Devices** page of a paired device
 instead, rather than wait: no device can reach it after that, and its
 credential stops working, so a copy of Flockdeck restored from a backup cannot
-connect with it either. Left alone, the relay removes it on its own once it
-has gone 30 days without being heard from.
+connect with it either. Left alone, the relay removes it on its own, by default,
+once it has gone 30 days without being heard from.
 
 ## If a device is lost
 
@@ -458,4 +465,4 @@ has gone 30 days without being heard from.
    unpairs every device, and each of them pairs again with a new link.
 
 A pairing link or join code that was made and not used stops working on its
-own after a few minutes.
+own, after ten minutes by default.
