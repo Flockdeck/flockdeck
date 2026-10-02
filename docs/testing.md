@@ -20,7 +20,10 @@ func TestMain(m *testing.M) { os.Exit(testiso.Main(m)) }
 
 - points `APPDATA`, `LOCALAPPDATA`, `XDG_CONFIG_HOME`, `HOME` and `USERPROFILE` at a fresh
   temporary directory, so `os.UserConfigDir` and `os.UserHomeDir` (and so
-  `store.Dir`) give a throwaway place on Windows, macOS and Linux;
+  `store.Dir`) give a throwaway place on Windows, macOS and Linux, and unsets
+  `HOMEDRIVE` and `HOMEPATH`. It does **not** touch `CLAUDE_CONFIG_DIR`, which
+  the Claude Code transcript and status-line readers look at before `HOME`: run
+  the tests with it unset, or pointed at a temporary directory;
 - unsets every `*_API_KEY`, `*_API_TOKEN` and `*_AUTH_TOKEN` in the environment;
 - refuses any request or dial to a host that is not loopback, through
   `http.DefaultTransport` (so `http.DefaultClient` and any client without a

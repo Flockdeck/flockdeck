@@ -1,7 +1,9 @@
 # Flockdeck
 
-A desktop application that runs your coding agents on hardware you control,
-and reaches you wherever you are.
+A desktop application for running several coding agents at once without them
+stomping on each other's work: each can have its own git worktree, on its own
+branch, so two agents never edit the same checkout. It runs them on hardware
+you control, and reaches you wherever you are.
 
 Start it on a spare machine, a home server or a cheap VPS with `-no-window`
 and it needs no browser there either — pair it with `flockdeck remote pair`
@@ -43,6 +45,9 @@ keys` keeps it.
 
 ## What it gives you
 
+- **Agents that don't overwrite each other** — a fan-out or a helper can start
+  each agent in its own git worktree, and the worktree panel creates, inspects,
+  occupies and removes them without leaving the app.
 - **Run it on a server instead of a desk** — `-no-window` needs no browser on
   that machine either, so a spare box, a home server or a cheap VPS works as
   well as a laptop; pair it and it's a desktop in every way that matters.
@@ -71,8 +76,6 @@ keys` keeps it.
   windows. Worked out on this machine, and sent no further than your own
   paired devices.
 - **Multiple projects open together**, switched without stopping anything.
-- **Worktrees as a first-class thing**: create, inspect, occupy and remove them
-  without leaving the app.
 - **Everything comes back**: layouts, the set of projects you had open, and
   each pane's conversation.
 - **Agents can outlive the window** — detach, close it, reattach later.
@@ -82,10 +85,13 @@ keys` keeps it.
 
 ## Why
 
-Running one agent is easy. Running several is not: they finish at different
-times, they block on permission prompts, and you lose track of which one is
-waiting on you. Flockdeck answers one question at a glance — **which agent
-needs me right now** — and gives each agent its own branch to work on.
+Running one agent is easy. Running several in one checkout is not: they edit
+the same files, and one agent's change lands in the middle of another's. They
+also finish at different times and block on permission prompts, and you lose
+track of which one is waiting on you. Flockdeck gives each agent its own git
+worktree and branch, so they work in parallel without touching each other's
+files, and answers one question at a glance — **which agent needs me right
+now**.
 
 ## Install
 
@@ -193,7 +199,7 @@ neither: all it can do is point at a release whose own manifest is signed. An
 old or forged one can hold an update back for as long as it is cached, and
 can never have anything unsigned or older installed. GitHub carries every
 release as well, as a mirror. Tagging a commit `v1.2.3` is the whole of cutting one: the
-workflow vets, tests, cross-builds all six, publishes them on GitHub, signs
+workflow vets, tests, builds all six, publishes them on GitHub, signs
 them and uploads them to `dl.flockdeck.ai` (`scripts/publish-downloads.sh`). A
 tag with a suffix, `v1.2.3-rc.1`, is a pre-release: it is published under its
 version and never becomes the latest.
@@ -201,7 +207,8 @@ version and never becomes the latest.
 The install scripts above use the same `latest.json` to decide, once their
 own pinned release is in and checked, whether to run `flockdeck update`
 right away and land you on the latest release instead — unless
-`FLOCKDECK_VERSION` or `FLOCKDECK_DOWNLOAD` said to stay put.
+`FLOCKDECK_VERSION` or `FLOCKDECK_DOWNLOAD` said to stay put, or
+`FLOCKDECK_UPDATE=off` is set.
 
 A running Flockdeck watches for releases and downloads anything newer in the
 background. It asks `dl.flockdeck.ai` first, and trusts only what carries the
@@ -214,7 +221,8 @@ version, appears at the right of the top bar, and installing it now is a
 restart you ask for: the layout is saved and
 reopened, though the agents running in panes are stopped, which is why it is
 never done for you. Otherwise it goes in as Flockdeck next quits, unless
-`FLOCKDECK_UPDATE=off` or **Check for updates** is off in Settings → General,
+`FLOCKDECK_UPDATE=off` or **Check for updates** is off in Settings → Account &
+plan,
 so the start after that is the new version.
 
 From a terminal:
@@ -229,7 +237,7 @@ Replacing the binary leaves a running instance alone — it is already loaded �
 so the new version is what starts next time. A build you made
 yourself — stamped `dev` by `go build`, or by `git describe` when built with
 make — is never replaced by a release. `FLOCKDECK_UPDATE=off`, or turning
-off **Check for updates** in Settings → General, turns the background check
+off **Check for updates** in Settings → Account & plan, turns the background check
 off, and stops an update already downloaded being put in place when Flockdeck
 exits; the subcommand still works.
 
@@ -245,8 +253,8 @@ entry in your PATH. A `.deb` or `.rpm` is removed with your package manager, and
 the Windows installer under Apps. Settings, layouts
 and keys are kept apart, in `%AppData%\flockdeck`,
 `~/Library/Application Support/flockdeck` or `~/.config/flockdeck`; delete that
-too, and on Windows `%LOCALAPPDATA%\flockdeck`, which holds the window's
-browser profile. Worktrees Flockdeck made are ordinary git worktrees beside your
+too, and on Windows `%AppData%\flockdeck.exe`, which holds the window's
+WebView2 data. Worktrees Flockdeck made are ordinary git worktrees beside your
 repositories, and stay until you remove them.
 
 ## Running it
@@ -349,8 +357,10 @@ terminal as its interface and lets the supervisor manage the process's
 lifecycle and logs itself.
 
 The only things that stay at "the desk" are a handful of actions a paired
-device is refused for its own safety — quitting or updating Flockdeck,
-turning remote access off, minting a join code, setting an API key — done
+device is refused for its own safety — quitting, restarting or updating
+Flockdeck, turning remote access off or moving it to another relay, minting a
+join code, setting an API key or an API agent's address, and exporting or
+revealing a transcript — done
 instead from that machine's own terminal, over SSH.
 
 #### Docker and Kubernetes
@@ -501,8 +511,8 @@ The plain split and new-tab keystrokes take the project's default and stay one
 keystroke, because that is what you want almost every time. The picker — the
 caret beside the `+` in the tab bar, or the command palette — is for choosing
 deliberately. It lists agents as **installed** and **not installed**,
-each expanding to its models with the default marked, and offers *set as
-default for this project* at the foot. An agent you have not got is greyed with
+each expanding to its models with the default marked, and offers *Set as
+default for* this project or every project at the foot. An agent you have not got is greyed with
 where to get it rather than hidden: somebody who has never installed Codex
 should still learn that Flockdeck would run it. An OpenAI-compatible endpoint
 is given its address there too: pick it, type where the model server answers,
@@ -579,7 +589,7 @@ knows, not decorating the window.
 | Mark | Meaning |
 | --- | --- |
 | filled cyan circle, pulsing | Working — producing output or running a tool |
-| amber triangle | **Waiting on you** — a permission prompt or a question |
+| amber triangle | **Waiting on you** — a permission prompt or a question, or blocked: a tool call was refused and the turn ended there |
 | hollow grey circle | Idle — finished its turn, ready for a new prompt |
 | hollow grey circle, pulsing | Starting — launched, and not heard from yet |
 | red filled square | Failed — the process ended with an error, or was killed |
@@ -609,6 +619,16 @@ like, and `PreToolUse` even surfaces the running tool's name in the pane header.
 The settings are additive — your own settings, hooks and permissions still
 apply.
 
+The one key the file can take over is `statusLine`, because Claude Code hands a
+subscription's usage limits to its status line command and nowhere else. Where
+you have a status line of your own, the pane's runs this binary in a hidden
+`statusline` mode, which passes the figures to the app and then runs your
+command with the same input, so the line under the prompt is the one you had.
+Where you have none it is left alone unless Settings says otherwise, since any
+status line hides the keyboard hints in Claude Code's footer. The header then
+shows the five-hour and weekly windows beside what the conversation has cost;
+the help's *Spend and limits* page has the rest.
+
 ### Auto-review approvals
 
 Turned on for a pane, auto-review answers a `PreToolUse` call itself, before
@@ -628,7 +648,8 @@ short list of commands that only ever read — `git status`, `git log`, `cat`,
 `grep` and the like — with nothing in it that could chain into something
 else, redirect output to a file, or substitute in a nested command, and no
 flag that makes one of them write or run something (`git diff --output`).
-No argument may name a path outside the project: absolute, under `~`, or
+A command over 4 KiB is asked about whatever it says, so it is never judged by
+its beginning alone. No argument may name a path outside the project: absolute, under `~`, or
 climbing out with `..`, since Claude Code would have asked before reading
 there; and since the shell rewrites quotes, backslashes and globs before a
 command sees them, a command holding any of those is asked about too. Nor may
@@ -660,19 +681,10 @@ writes into the project are enough to supply. Anything that changes a file —
 exactly the kind of call a person is meant to see before it happens.
 
 It is off for a pane unless you turn it on, with the ✓ button in the pane's
-header, or for new panes with Settings › Behaviour › Start new panes with
-auto-review on. A pane keeps its own switch across restarts, off included; a layout saved
-before that was kept takes the default.
-
-The one key the file can take over is `statusLine`, because Claude Code hands a
-subscription's usage limits to its status line command and nowhere else. Where
-you have a status line of your own, the pane's runs this binary in a hidden
-`statusline` mode, which passes the figures to the app and then runs your
-command with the same input, so the line under the prompt is the one you had.
-Where you have none it is left alone unless Settings says otherwise, since any
-status line hides the keyboard hints in Claude Code's footer. The header then
-shows the five-hour and weekly windows beside what the conversation has cost;
-the help's *Spend and limits* page has the rest.
+header, or for new panes with Settings › General › Start new panes with
+auto-review on. A pane keeps its own switch across restarts, updates and
+crashes, off included; a pane from a layout saved before v0.3.48, which did not
+keep it, takes that setting.
 
 Not every coding agent has a lifecycle to register, and Flockdeck runs those too.
 For them the status is read from the terminal instead: the bell, a quiet timer,
@@ -683,6 +695,14 @@ bytes with the escape sequences stripped, never against the whole scrollback,
 and a reported event always beats a pattern. None of the built-in agents has
 patterns yet. It is a guess where the other is a fact, and the help says which
 agents are which so you know which you are looking at.
+
+For those agents, **Let TypeSafe's Jev help read pane status** in Settings ›
+Status detection can sharpen the guess. It is off by default. On, and with a
+TypeSafe API key set, the last 30 lines (at most 2,000 bytes) of a quiet pane's
+terminal output are sent to TypeSafe, a third party, with no secrets removed,
+when Flockdeck cannot tell a finished agent from one stopped on a question. It
+can only turn a quiet pane waiting or blocked, never the other way, and a shell
+pane or an agent that reports its own status is never sent.
 
 ### Spend and limits
 
@@ -695,8 +715,8 @@ about to stop, can be picked out of a tab of six.
   with no price, or `~$0.04+` when some of the tokens had none, which makes
   the figure a floor.
 - **Claude Code** hands its figures to its status line, above, so they are read
-  by default only where you have a status line of your own; Settings › Agents
-  › Claude Code's usage limits › *Always* reads them in every Claude pane, at
+  by default only where you have a status line of your own; Settings › Agents &
+  models › Claude Code's usage limits › *Always* reads them in every Claude pane, at
   the cost of Claude's footer hints where you have none. On a Pro or Max
   plan the header leads with the tightest window, `5h 72%` over a small meter,
   amber at 80% and red at 95%, and shows tokens rather than dollars; the
@@ -725,12 +745,12 @@ On those tiers, rules in `agents.json` pre-set a fan-out's rows to a model
 suited to the work: the built-in ones move running the tests, a short rename
 or move, and changelog or README wording to the smallest model, and a
 refactor, a race, a migration or a security fix to the strongest. Routing is
-**off** until it is turned on in Settings › Agents › Routing, for every project
+**off** until it is turned on in Settings › Routing, for every project
 or for one, and a project's own policy replaces the other whole.
 
 What it chooses is shown in the dialog before anything starts: a routed row's
 select is pre-set, tagged `↘ routed` or `↗ routed` with the rule in its
-tooltip, and one button puts every row back on the run's model. The server
+tooltip, and **Undo routing** puts every row back on the run's model. The server
 never routes a fan-out itself — the dialog sends the rows as though they had
 been chosen by hand — so what was shown is what runs. A pane started on a
 routed model says so in its header, `claude · haiku ↘`.
@@ -745,13 +765,14 @@ spawn` moves, never a running conversation, and only to an agent that is
 installed or keyed, trusted for the project, and, if it has an address of its
 own, answering. A moved pane records the agent it would otherwise have run
 on. In *Automatic* mode, a helper spawned without `--agent` or `--model` is
-routed too.
+routed too, and so is the first prompt sent to a new agent pane with the
+prompt bar, which restarts the pane on the chosen model (never another agent).
 
 Routing makes no request of any kind, except in two cases you turn on. With
 cross-agent routing on, it opens a TCP connection to such an agent's address,
 and closes it at once without sending anything, before moving work there. With
-`"strategy": "cost"` and `"jev": true` (Settings › Agents › Routing, **Ask Jev
-to rate unmatched work**) and a TypeSafe API key set (Settings › Behaviour, or `TYPESAFE_API_KEY`), a fan-out row that no rule
+`"strategy": "cost"` and `"jev": true` (Settings › Routing, **Ask Jev
+to rate unmatched work**) and a TypeSafe API key set (Settings › Status detection, or `TYPESAFE_API_KEY`), a fan-out row that no rule
 matched has its text sent to TypeSafe's Jev model, which rates how demanding it
 is so that the cheapest-model fallback can pick a tier to suit; that is off by
 default, sends that text alone (cut at 2,000 characters, unredacted), and only
@@ -909,8 +930,9 @@ lost and nobody is asked anything.
 ### Fan out: one agent's plan, several agents doing it
 
 Ask an agent to plan something and it answers with a list. `Ctrl+Shift+X` reads
-what that agent last said, pulls the list items out of it, and offers them —
-editable, one per line — as a set of agents to start. Nothing runs until you say
+what that agent last said, pulls the list items out of it, and offers them as
+a list of tasks to start, one editable row each, with **Add a task…** for
+another and **Edit as text** for pasting or rewriting the list at once. Nothing runs until you say
 so; the extracted list is a suggestion, not a decision.
 
 For a Claude Code pane, what it reads is the agent's own transcript, not the
@@ -934,9 +956,10 @@ a normal pane: watch it, type into it, review and commit its work from the
 Changes panel.
 
 The children share **one tab**, laid out in rows of even columns — three panes
-are a row of three, twelve are three rows of four. A tick box puts them in the
-tab the plan came from, beside the agent that wrote it, instead of a new one
-called **Fan out**. A tab each was the old behaviour and it was the wrong one:
+are a row of three, twelve are three rows of four. Under **Where they run**,
+**New tab** puts them in a new tab called **Fan out**, and **Beside the
+planner** in the tab the plan came from, beside the agent that wrote it;
+Settings › General sets which one the dialog starts on. A tab each was the old behaviour and it was the wrong one:
 a dozen agents made a dozen tabs nobody could read, and a fan-out is exactly
 when you want to see them all at once.
 
@@ -945,8 +968,8 @@ agent has the focus, or, in the tab the plan came from, the focus moves to the
 first new pane. If you have gone to another tab while the worktrees were being
 made, the window is left where you are.
 
-The dialog carries one agent-and-model control for the whole run and an
-override on each row, so twelve tasks can be split between two agents
+The dialog carries one control, **Model for every task**, for the whole run
+and an override on each row, so twelve tasks can be split between two agents
 deliberately — the capable one for the refactor, the cheap one for the six
 renames. The run starts on the project's default agent and model, and with
 [routing](#model-routing) on for the project, rows its rules match come with a
@@ -962,7 +985,7 @@ question of its own — Claude Code has one — would stop and ask whether the
 folder is trusted before doing any work, once per child. If the project you are
 fanning out from is already trusted, the dialog offers to carry that same
 answer over to the worktrees it creates. It is a checkbox, it says what it
-does, and it will not invent trust: inheriting is refused unless the source
+does (**Trust the new worktrees**), and it will not invent trust: inheriting is refused unless the source
 directory is genuinely trusted already. The project's answer to Claude Code's
 second question, "Allow external CLAUDE.md file imports?", comes across the
 same way: a yes stays a yes, a no stays a no, and nothing is written if the
@@ -981,8 +1004,9 @@ flockdeck spawn --split "watch the build"
 flockdeck spawn --record "refactor the parser"   # transcript recorded; see below
 ```
 
-Ask a lead agent to plan and then run one of these per task, and it fans itself
-out. Only processes running inside a pane can do this: the token never leaves
+`--agent` and `--model` choose what a helper runs, and `--shell` starts a shell
+instead. Ask a lead agent to plan and then run one of these per task, and it
+fans itself out. Only processes running inside a pane can do this: the token never leaves
 the environment the pane was started with.
 
 A helper started this way is its parent's responsibility, not yours: its
@@ -1004,8 +1028,8 @@ to leave the machine. A commit takes the files the list showed you; one that
 arrives or is written to again after you looked is marked, and a commit made
 before you have seen it is refused.
 
-The worktree panel has a **Review** action per checkout, which is usually how
-you get here: see which agent produced something, then look at what it did.
+Each checkout in the worktree panel has **Review changes** in its **⋯** menu,
+which is usually how you get here: see which agent produced something, then look at what it did.
 
 ### Recording a pane
 
@@ -1026,20 +1050,29 @@ Code, the file **Resume a past conversation** reads), not from the screen or
 from the agent's live events. So it starts at the first message, whenever you
 turned recording on, and so **a pane that was never recorded can be exported**:
 **Export transcript** in the command palette or the pane's header, or
-`flockdeck recordings export <pane-or-conversation-id> [-o file]`, writes the
-same lines a recording of it would, byte for byte. It holds every message the
-agent said, not permission prompts or status changes, which a stored
-conversation has no record of. Only Claude Code stores a conversation Flockdeck
+`flockdeck recordings export [-o file] <pane-or-conversation-id>`, writes the
+same lines a recording of it would, byte for byte. The window asks every time
+before it exports. It holds every message the agent said, not permission
+prompts or status changes, which a stored conversation has no record of, and
+an entry of the stored conversation over 8 MiB, such as a pasted screenshot, is
+left out and counted. If the stored conversation has been cut or changed so
+that a new export would lack something an earlier one has, the earlier file is
+kept, nothing is written, the window says so, and the command exits with an
+error; delete the file to have a fresh one. **Reveal transcript**, in the
+command palette or the pane's header, shows the file the pane is recording to,
+or else its newest export, in your file manager; `recordings export -reveal`
+shows the file it has just written. Neither export nor reveal works from a
+window reached through the relay. Only Claude Code stores a conversation Flockdeck
 can read: for any other agent there is nothing to export, and recording cannot be
 turned on, and Flockdeck says so. The help page lists the gaps.
 
 Transcripts are written under Flockdeck's state directory, in a folder per
-project with one file per conversation (exports in an `exports` folder beside),
+project with one file per conversation (exports in an `exports` folder inside it),
 and never into your repository. A file stops at 16 MiB, long outputs are clipped
 with a marker, and the folder is tidied each time a recording starts: files older
 than 30 days go, then the oldest beyond 100 files or 256 MiB. **Open recordings
 folder** in the command palette opens the folder, and `flockdeck recordings`
-lists them.
+lists the recordings.
 
 **Redaction is best effort.** Private keys, common token formats, credentials in
 URLs, values named like secrets (`API_KEY=…`, `password: …`) and what is read from
@@ -1100,9 +1133,10 @@ list of paths. For every worktree the panel shows:
 - how far ahead or behind its upstream it is
 - whether it is the main worktree, or locked
 
-From there you can open a worktree as an agent tab, as a shell, or **split it
-in beside the pane you are looking at**; create a worktree for a new branch off
-any base ref; check out a branch that has no worktree in one click; remove a
+From there you can open a worktree as an agent tab (**Open agent**, the row's
+button), or from its **⋯** menu as a shell or **split in beside the pane you
+are looking at**; create a worktree for a new branch off any base ref, with the
+form at the foot of the panel; check out a branch that has no worktree in one click; remove a
 worktree (with a confirmation that says what will be discarded when it has
 uncommitted work); and prune records left behind by folders deleted outside
 git. A worktree whose folder was deleted outside git is marked **folder
@@ -1127,17 +1161,22 @@ of date, until it answers again.
 lists every action except tab switching, and it switches to any open project
 or tab by name. `Ctrl+Shift+F` searches the focused terminal. `Ctrl+=` and
 `Ctrl+-` change the terminal font size for every pane, and Flockdeck remembers
-it. Settings → Appearance sets the size, typeface, scrollback and cursor.
+it. Settings → Terminal sets the size, typeface, scrollback and cursor.
 
 ### Settings
 
 `Ctrl+,`, or **Settings** at the foot of the rail, opens one dialog for
-everything Flockdeck remembers: notifications and updates (General), theme,
-accent, font, scrollback and cursor (Appearance), the defaults for fan-out and
-auto-review (Behaviour), shortcuts (Keybindings), the default agent and model,
-routing and whether Claude panes read their usage limits (Agents), keys
-(API keys), pairing (Remote access), GitHub sign-in (GitHub), and your plan
-(Account & plan). Every control changes its setting at once. Below 640px wide
+everything Flockdeck remembers, in eleven sections under four groups. Under
+**Window**: desktop notifications, how new panes start (fan out, auto-review)
+and hints (General); theme and accent (Appearance); font, size, scrollback,
+cursor and screen reader support (Terminal); and shortcuts (Keyboard). Under
+**Agents**: the default agent and model, and whether Claude panes read their
+usage limits (Agents & models); Routing; API keys; and the TypeSafe key and
+Jev's help reading pane status (Status detection). Under **Connections**:
+pairing and push notifications (Remote access), and GitHub sign-in (GitHub).
+Under **Account**: your plan, the version, and checking for and installing
+updates (Account & plan). **Find a setting**, in the dialog's header, searches
+them all. Every control changes its setting at once. Below 640px wide
 the rail folds into a menu behind the menu button at the left of the top bar, which is how a phone or a
 narrow window reaches Settings and the other tools.
 
@@ -1204,9 +1243,17 @@ handlers the local window uses. So the remote window is not a second interface
 kept level with the first: it is the first, every pane and every dialog, and
 the front end asks for everything relative to wherever it was served from so
 that it works under the relay's per-machine prefix unchanged. A pane open in
-two windows at once takes the size of whichever last typed into it or focused
-it, so glancing from a phone leaves the desk's terminal alone, and typing on the
-phone fits it to the phone until you type at the desk again. The desk's own
+two windows at once has one terminal size, that of whichever window last typed
+into it or focused it, so glancing from a phone leaves the desk's terminal
+alone, and typing on the phone fits it to the phone until you type at the desk
+again. Every other window draws the pane at that size rather than its own, so
+output lands in the right cells; where its box is smaller it shows the pane
+cropped, with the bottom kept in view, and a **Viewing 120×40 · fit to this
+window** button that sizes the pane for that window instead. A size smaller
+than 20×5 is ignored, and none goes beyond 500×200. When a pane's windows
+disagree about its size Flockdeck writes a line to `error.log`, at most one a
+minute per pane, and `window.flockdeckPanes()` in a window's developer console
+lists what each of its terminals is, for a bug report. The desk's own
 window shows a small phone glyph on a pane's header while a paired device has
 it open, in its chat or its terminal, naming the device — so text appearing
 there is not a surprise.
@@ -1392,7 +1439,7 @@ Settings → **Remote access** says what is sent:
 - **Notify paired devices** turns notifications off for every device at once;
   a device turns itself off again from its own **Notify me…** toggle.
 - **After waiting** is how long an agent has to have been waiting first: 30
-  seconds, unless you choose otherwise, from 5 seconds to an hour. Each wait
+  seconds, unless you choose otherwise, from 15 seconds to 10 minutes. Each wait
   is told once, and an agent that is answered and then asks again is a new
   wait. However many agents are waiting, the phone is sent one notification
   that says how many, which replaces the one before it, and no more than one

@@ -34,9 +34,11 @@ Format version: **1**.
   `$XDG_CONFIG_HOME/flockdeck` (default `~/.config/flockdeck`) on Linux.
   `flockdeck recordings -dir` prints the `recordings` folder. Nothing is ever
   written into a project's repository.
-- `<project>` is the project's name with anything outside `A-Za-z0-9._-` turned
-  into `-` (at most 40 characters), and `<hash>` is eight hex digits of a hash of
-  the project's directory, so two projects with one name get two folders.
+- `<project>` is the last element of the directory the stored conversation
+  recorded (the project's, or a worktree's for an agent working in one), with
+  anything outside `A-Za-z0-9._-` turned into `-` (at most 40 characters), and
+  `<hash>` is eight hex digits of a hash of that directory, so two directories
+  with one name get two folders.
 - `<start>` is the time of the conversation's first event, UTC, as
   `20261001T101530Z`, and `<conversation>` is the first eight characters of the
   conversation's id (the pane's id for a conversation that has not been told
@@ -148,7 +150,7 @@ First line of every file, at the time of the conversation's first event.
 | `text` | string | yes | `start of the transcript`. It says nothing of how the transcript was made, which is the same however it was. Files of earlier versions have `turned on` or `resumed` here. |
 
 ```json
-{"v":1,"seq":1,"time":"2026-10-01T10:15:30.1Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","type":"recording_started","text":"start of the transcript"}
+{"v":1,"seq":1,"time":"2026-10-01T10:15:30.1Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"recording_started","text":"start of the transcript"}
 ```
 
 #### `recording_stopped`
@@ -160,7 +162,7 @@ Last line of a file that was ended deliberately, at the time of the last event.
 | `text` | string | yes | `end of the transcript`. Files of earlier versions have `turned off` or `the pane was closed`. |
 
 ```json
-{"v":1,"seq":41,"time":"2026-10-01T10:31:02.8Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","type":"recording_stopped","text":"end of the transcript"}
+{"v":1,"seq":41,"time":"2026-10-01T10:31:02.8Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"recording_stopped","text":"end of the transcript"}
 ```
 
 #### `recording_truncated`
@@ -173,7 +175,7 @@ after it.
 | `text` | string | yes | What happened, in words. |
 
 ```json
-{"v":1,"seq":9120,"time":"2026-10-01T11:02:44.0Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"recording_truncated","text":"the transcript reached its size cap of 16 MiB and ended here"}
+{"v":1,"seq":9120,"time":"2026-10-01T11:02:44.0Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","type":"recording_truncated","text":"the transcript reached its size cap of 16 MiB and ended here"}
 ```
 
 #### `session`
@@ -204,7 +206,7 @@ some of these, since the agent counts them as prompts.)
 | `text` | string | yes | The prompt. Cut at 32 KiB. |
 
 ```json
-{"v":1,"seq":3,"time":"2026-10-01T10:15:40.2Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","type":"user_prompt","text":"run the tests and fix what fails"}
+{"v":1,"seq":3,"time":"2026-10-01T10:15:40.2Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"user_prompt","text":"run the tests and fix what fails"}
 ```
 
 #### `assistant_message`
@@ -221,7 +223,7 @@ reported while it ran.)
 | `reason` | string | no | Only in files of earlier versions: `the turn ended on an error`. |
 
 ```json
-{"v":1,"seq":19,"time":"2026-10-01T10:16:55.9Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","type":"assistant_message","text":"All 212 tests pass."}
+{"v":1,"seq":19,"time":"2026-10-01T10:16:55.9Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"assistant_message","text":"All 212 tests pass."}
 ```
 
 #### `tool_call`
@@ -235,7 +237,7 @@ The agent calling a tool, before it runs.
 | `input` | any JSON | no | The tool's input as the agent gave it, usually an object. Each string in it is redacted and cut at 8 KiB. |
 
 ```json
-{"v":1,"seq":4,"time":"2026-10-01T10:15:42.0Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","type":"tool_call","tool":"Bash","toolUseId":"toolu_01","input":{"command":"go test ./...","description":"Run the tests"}}
+{"v":1,"seq":4,"time":"2026-10-01T10:15:42.0Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"tool_call","tool":"Bash","toolUseId":"toolu_01","input":{"command":"go test ./...","description":"Run the tests"}}
 ```
 
 #### `tool_result`
@@ -251,7 +253,7 @@ A tool finishing, or failing.
 | `interrupted` | boolean | no | `true` if it failed because the user stopped it (the error says so). Always with `isError`. |
 
 ```json
-{"v":1,"seq":5,"time":"2026-10-01T10:15:58.4Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","type":"tool_result","tool":"Bash","toolUseId":"toolu_01","output":"ok  \tshop/api\t0.412s"}
+{"v":1,"seq":5,"time":"2026-10-01T10:15:58.4Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"tool_result","tool":"Bash","toolUseId":"toolu_01","output":"ok  \tshop/api\t0.412s"}
 ```
 
 #### `permission_prompt`
@@ -356,10 +358,10 @@ Replaced with `[withheld: a secret file]`:
 - the `output` of a tool call whose input names a secret file, and the
   string fields of such a call's `input` other than its path or command. A file
   is a secret file by the name check Flockdeck's auto-review uses: `.env` and
-  `.env.*`, `id_*` that is not `.pub`, `.npmrc`, `.netrc`, `.pgpass`,
+  `.env.*`, `id_*` that is not `.pub`, `.npmrc`, `.netrc`, `_netrc`, `.pgpass`,
   `.git-credentials`, anything with `credential` in its name, and `.pem`, `.key`,
   `.p12`, `.pfx`, `.ppk`, `.keystore` and `.jks` files. The path is a
-  `file_path`, `path` or `notebook_path` field, or a word of a Bash `command`.
+  `file_path`, `filePath`, `path` or `notebook_path` field, or a word of a Bash `command`.
   The file's name is kept.
 
 A line with any of this has `"redacted": true`.
@@ -380,7 +382,7 @@ particular:
 - **Secret files by resolved content.** The secret-file check above is a name
   check only. A symlink inside the project that points at a real secret, a
   secret stored under an ordinary name, or a read whose path sits in a tool
-  field other than `file_path`/`path`/`notebook_path`/`command` is not withheld;
+  field other than `file_path`/`filePath`/`path`/`notebook_path`/`command` is not withheld;
   its contents then fall back to pattern redaction, which catches only the
   shapes and names above.
 - **A cut secret.** A value long enough to be clipped before it reaches
@@ -401,7 +403,7 @@ is "saved on this machine", not "private to you".
 | --- | --- |
 | `text` of a `user_prompt` or `assistant_message` | 32 KiB (32768 bytes) |
 | any other string: `output`, `detail`, `reason`, and every string inside `input` | 8 KiB (8192 bytes) |
-| a tool `input` that is over 48 KiB once its strings are cut | replaced by `{"_omitted":"too large to record"}` |
+| a tool `input` that was over 48 KiB once its strings were cut (files of earlier versions only) | replaced by `{"_omitted":"too large to record"}` |
 
 The cut is at a character boundary, and the string ends with the marker
 `…[clipped N bytes]` (a single `…` character), where **N is the number of bytes
@@ -413,11 +415,13 @@ long that field was **in bytes as the recorder received it, before redaction**:
 ```
 
 `clipped` has the keys `text`, `output`, `detail`, `reason` and `input`. For
-`input` the number is the length of the input as JSON. Flockdeck's hook also
-clips very large values (16 KiB per string; 48 KiB for a message or prompt)
-before the recorder sees them, using the same marker: where it did, `clipped`
-still gives the original length for `text`, `output`, `detail` and `reason`,
-and for `input` it is the length received, so a lower bound.
+`input` the number is the length of the input as JSON. In files of earlier
+versions, which were written from what Flockdeck's hook passed on, the hook had
+already clipped very large values (16 KiB per string; 48 KiB for a message or
+prompt) with the same marker: there `clipped` still gives the original length
+for `text`, `output`, `detail` and `reason`, and for `input` the length
+received, so a lower bound. A transcript made now is read from the stored
+conversation, which nothing has clipped before the recorder.
 
 ## 5. Which agents have a transcript
 
@@ -615,8 +619,7 @@ conversation an agent has stored, whether or not the pane was ever recorded. The
 go through the same writer as a recording, so redaction and clipping (section 4),
 the withholding of what a secret file held, and the 16 MiB cap are the same, and
 so are the lines: **an export of a conversation is byte for byte what a
-recording of it from the start would be**, given the same pane name, project,
-agent and model. A test holds the two together by making one transcript both
+recording of it from the start would be**. A test holds the two together by making one transcript both
 ways, the recording from a conversation's file as it grows in awkward pieces.
 
 An export differs from a recording only in where it goes and how it is asked
@@ -640,5 +643,10 @@ for:
   that the agent stores no conversation Flockdeck can read, and write nothing.
 - **It can contain secrets.** Redaction is best effort (section 4); the window
   says so every time, and the command after it has run.
+- **Finding the file.** *Reveal transcript* (the command palette and the pane's
+  header) shows the file the pane is recording to, or else its newest export, in
+  the file manager, selected; it shows only a file inside the recordings folder,
+  and not from a window reached through the relay. `recordings export -reveal`
+  shows the file it has just written.
 
 Retention (section 1) does not touch exports and an export deletes nothing.
