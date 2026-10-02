@@ -427,6 +427,7 @@ type Workspace struct {
 	// test that has to put a stop in a place Close can meet. Set before the
 	// workspace runs.
 	stopGate chan struct{}
+	gateHits atomic.Int32
 	// wrapFollower, when set, is put around every follower, for a test that makes
 	// reading fail. Set before the workspace runs.
 	wrapFollower func(transcript.Follower) transcript.Follower

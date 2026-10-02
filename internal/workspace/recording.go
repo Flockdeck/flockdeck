@@ -488,7 +488,18 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 		r.follower, r.synced, r.meta = nil, false, record.Meta{}
 	}
 	if r.follower == nil {
-		if !w.awaitConversation(conv, id) {
+		got := w.awaitConversation(conv, id)
+		r.ctl.Lock()
+		stopped := r.stopped
+		r.ctl.Unlock()
+		if stopped || w.closing() {
+			// Stopped, or the Workspace closed, while waiting: nothing is started.
+			if got {
+				w.releaseConversation(conv, id)
+			}
+			return
+		}
+		if !got {
 			w.endRecordingAsync(id, "was not started: another pane is already recording this conversation")
 			return
 		}
@@ -653,6 +664,7 @@ func (w *Workspace) beginStop(id string) *paneRecorder {
 		return nil
 	}
 	if w.stopGate != nil {
+		w.gateHits.Add(1)
 		<-w.stopGate
 	}
 	r.ctl.Lock()
@@ -682,7 +694,24 @@ func (w *Workspace) stopRecorder(id string, final bool) {
 		<-r.done // already stopping
 		return
 	}
+	w.restartIfOn(id)
 	w.endRecorder(id, r, final)
+}
+
+// restartIfOn sees that a pane turned on while its recorder was being marked as
+// stopping is not left showing as recording with nothing live: the kick finds the
+// stopping recorder and starts a new one once it is finished.
+func (w *Workspace) restartIfOn(id string) {
+	if w.PaneRecording(id) {
+		w.kickRecording(id, true)
+	}
+}
+
+// closing reports whether the Workspace is closing.
+func (w *Workspace) closing() bool {
+	w.recMu.Lock()
+	defer w.recMu.Unlock()
+	return w.recClosed
 }
 
 // endRecorder does the work of a stop that beginStop has marked.
@@ -722,6 +751,7 @@ func (w *Workspace) stopRecorderAsync(id string, final bool) {
 	if r == nil {
 		return
 	}
+	w.restartIfOn(id)
 	w.recAct.begin()
 	go func() {
 		defer w.recAct.end()

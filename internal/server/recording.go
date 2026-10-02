@@ -99,7 +99,7 @@ func (s *Server) exportTranscript(c *controlClient, cmd command) {
 		return
 	}
 	if r.res.Kept {
-		c.notify(fmt.Sprintf("Nothing new was written: the earlier export at %s has lines this one would lack (the stored conversation has changed since), so it was kept as it was", r.res.Path), true)
+		c.notify(fmt.Sprintf("Nothing new was written: the earlier export at %s has events this one would lack (the stored conversation was cut or changed), so it was kept as it was. Delete it to have a fresh one", r.res.Path), true)
 		return
 	}
 	msg := fmt.Sprintf("Exported %d lines to %s. It may contain secrets", r.res.Lines, r.res.Path)

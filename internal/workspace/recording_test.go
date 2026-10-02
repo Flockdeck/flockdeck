@@ -949,6 +949,11 @@ func TestCloseDoesNotWaitOnAStopItHasStopped(t *testing.T) {
 	storeConversation(t, home, p.ID, promptLine)
 	startRecording(t, ws, p.ID)
 	ws.endRecordingAsync(p.ID, "ended") // reaches the gate, holding at the start of its stop
+	for deadline := time.Now().Add(10 * time.Second); ws.gateHits.Load() == 0; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the stop never reached the gate")
+		}
+	}
 	closed := make(chan struct{})
 	go func() { ws.Close(); close(closed) }()
 	deadline := time.Now().Add(10 * time.Second)

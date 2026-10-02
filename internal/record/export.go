@@ -107,7 +107,7 @@ type ExportResult struct {
 	Path string
 	// Lines is the number of lines in the file.
 	Lines int
-	// Kept says an earlier, finished export of the conversation has lines this
+	// Kept says an earlier, finished export of the conversation has events this
 	// one lacks, so it was left as it was and Path is that file, not a new one.
 	Kept bool
 }
