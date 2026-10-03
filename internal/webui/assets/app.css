@@ -2840,3 +2840,17 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   .swatch { forced-color-adjust: none; }
   .swatch.on { outline: 2px solid Highlight; outline-offset: 2px; box-shadow: none; }
 }
+
+/* Pane info and Find pane. */
+.pi-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.pi-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pi-label { color: var(--fg-dim); font-size: 12px; }
+.pi-value { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; user-select: text; }
+.pi-value.unset { color: var(--fg-faint); font-family: inherit; }
+.pi-note { color: var(--fg-faint); font-size: 11px; }
+.pf-list { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.pf-row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; border: 1px solid transparent; background: transparent; color: var(--fg); border-radius: var(--radius-sm); padding: 6px 8px; cursor: pointer; }
+.pf-row:hover, .pf-row:focus-visible { background: var(--bg-hover); }
+.pf-name { font-weight: 600; }
+.pf-where { color: var(--fg-dim); font-size: 12px; }
+.pf-why { color: var(--fg-faint); font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

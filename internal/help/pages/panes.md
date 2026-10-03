@@ -51,7 +51,7 @@ shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
 
 The buttons in a pane header, in order: fan out (`⑂`), save the plan as a
 todo (`☑`), include in broadcast (`⇉`), auto-review (`✓`), restart, zoom,
-export transcript, reveal transcript, record, lock, close. Auto-review is off
+export transcript, reveal transcript, record, pane info (`ⓘ`), lock, close. Auto-review is off
 until you turn it on, pane by pane (the ✓'s tooltip counts the commands it has
 let through unasked so far), and the pane keeps the setting across a
 restart of Flockdeck: see [Knowing who needs you](#status). Record is off
@@ -70,6 +70,46 @@ it nearest the bottom left, where the latest lines are, with a note such as
 **Viewing 120×40 · fit to this window**; click it to size the pane for this
 window instead. A pane's terminal is never
 made smaller than 20 columns by 5 rows or larger than 500 by 200.
+
+## Pane info
+
+[[action:paneInfo]], in the command palette and as the `ⓘ` in the pane header,
+lists what names a pane in files, logs and commands, each with a **Copy**
+button, and **Copy all** puts the whole list on the clipboard as plain text.
+A value the pane does not have yet says "not set". The list has:
+
+- The pane id, which `flockdeck close` takes and which transcript files hold as
+  `pane`.
+- The pane's name, its project and project folder, its directory (a worktree
+  has its own), its branch and its tab.
+- For an agent, the agent, the model and the **conversation id**, which is the
+  agent's own id for the conversation. It changes after `/clear`. The first 8
+  characters of it are in a transcript's file name, and it is the file name of
+  the conversation the agent stores under `~/.claude/projects`.
+- The process id, the peer name set by `flockdeck peer-name`, and the pane's
+  status.
+- Whether the pane is recording, the path of its transcript file (the one it is
+  recording to, or its latest export) and the path of the conversation file the
+  agent stores itself.
+
+A shell has no agent, conversation or transcript, so those are left out for it.
+Nothing secret is listed: no keys, tokens or environment. A path can name your
+own folders, so look at **Copy all** before pasting it somewhere public. The
+list is read on the machine Flockdeck runs on and is not sent anywhere else, so
+a window reached through [remote access](#remote) cannot open it.
+
+## Finding a pane
+
+[[action:findPane]], in the command palette, searches every pane in every open
+project. Type part of a pane's name, project, tab, agent, model, directory,
+branch, pane id, conversation id, process id or peer name; several words must
+all match, in any of those, and case does not matter. A conversation id matches
+from its first characters, so the 8 in a transcript's file name will do. Each
+result shows the pane, its project and tab, and what matched. Press
+<kbd>Enter</kbd> for the first result or click one: Flockdeck goes to that
+project and tab and gives the pane the keyboard. <kbd>Esc</kbd> closes the
+search. [All agents across projects](#status) lists the same panes by what needs
+you, rather than by what you type.
 
 ## Locking a pane
 
