@@ -1319,7 +1319,7 @@ that hasn't after a while says **Not delivered yet**, with **Retry** beside
 it. The chat header, and each row in the list below, also says what the
 agent has spent in its conversation: a token count and the tightest of its
 usage windows for one on a subscription, or a rough cost in dollars for one
-paying by the token. That figure is coloured once the window is close to running out.
+paying by the token. The usage window (for example 5h 72%) is coloured once it is close to running out.
 
 Every open pane also appears in the paired device's list with its latest
 reply, or the question it's waiting on, a time, and an unread dot, so you
