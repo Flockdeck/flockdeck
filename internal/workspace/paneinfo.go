@@ -86,10 +86,17 @@ func (w *Workspace) PaneDetailsOf(id string, files bool) (PaneDetails, bool) {
 	if d.AgentID == "" {
 		d.AgentID = spec.ID
 	}
-	if !ok || !files {
+	if !files {
 		return d, true
 	}
+	// The stored conversation is wherever the agent's reader says, which
+	// is a real file for Claude Code and for Flockdeck's own API agents, and ""
+	// for an agent with no reader or while the file is not there yet. It does
+	// not need an exporter: only the transcript rows below do.
 	d.StoredPath = transcript.For(spec).Path(spec, conv)
+	if !ok {
+		return d, true
+	}
 	if d.Recording {
 		d.TranscriptPath = w.rec.Path(conv)
 	}
