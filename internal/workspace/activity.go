@@ -55,10 +55,25 @@ func PaneActivity(p *Pane) Activity {
 	// Idle: its turn is over, but an agent with work still running in the
 	// background is not finished. A shell has none to count, and a process
 	// that has gone has nothing running whatever was last counted.
-	if p.Sess != nil && p.IsAgent() && p.Sess.BackgroundTasks() > 0 {
+	if p.Sess != nil && p.IsAgent() && backgroundKeepsAgentWorking(p.Sess) {
 		return ActivityWorking
 	}
 	return ActivityIdle
+}
+
+// backgroundKeepsAgentWorking is the one place that decides whether an idle
+// agent's background work makes it read as working.
+//
+// Work that something has shown to be running within
+// session.BackgroundUnverifiedGrace does. Work that has gone that long with no
+// sign either way -- no end seen, but no start, turn-end list or transcript
+// write since either -- does not: the pane goes back to reading idle, so a
+// count stuck on work that ended unseen stops adding to "N working", while the
+// header still counts it and marks it unverified. Nothing is dropped from the
+// count without evidence, and a pane with any background work counted is still
+// never closed as finished (PaneFinished).
+func backgroundKeepsAgentWorking(s *session.Session) bool {
+	return s.BackgroundVerified() > 0
 }
 
 // rank orders what an aggregate shows; anything not listed shows nothing.

@@ -218,7 +218,7 @@ The original recommendation, for reference:
 | F5 | `pushDue` (phone push) | pushes waiting and blocked after the delay; never working, idle, starting or exited | ✓ | V `TestStatusMatrixWhatIsPushed` |
 | F6 | `sendAgents` sort (All agents list) | needs-you first: `blocked` ranks with `waiting` in the rank map | ✓ | none |
 | F7 | Web UI `projectActivity`, `tabSettleInfo`, `announceStatus`, `notifyAttention`, `outcomeOf` (in `app.js`) | they mirror F1 and F3; `tabSettleInfo` treats everything except working and starting as settled | ✓ | existing webui Go+node tests (`TestTheRailMarkFollowsStatus`, `TestTheRailTileSummarisesTheProjectsActivity`, `TestFanOutHistoryListsPastJobs`, …) |
-| F8 | Background tasks in the UI | `BackgroundTasks` is sent as `background` in each pane's view (header and phone) and in the agents list, left out at zero and for an exited pane. The web UI shows "◔ N in background" in the pane header and on the agent's row in the agents list. Alongside it goes `backgroundWork` (`Session.BackgroundWork`, at most 8 entries): each piece's kind, id, the description, command or agent type its start or the Stop list gave (redacted with `record.Redact` and cut to 200 bytes by the hook), when Flockdeck first heard of it, and `listed` when that was a Stop's list rather than its start. The badge's tooltip lists these with "first seen … ago", says "seen since" for a listed one, and "details unavailable (count only)" where Claude Code gave only an id. The pane's status stays idle, but its header mark is the working mark and its tooltip says it is working in the background; its project's rail badge shows the working mark (below waiting) when the project has only that (`Project.Activity`). | ✓ | V `TestBackgroundWorkReachesTheWindow`, webui `TestAnIdleAgentWithBackgroundWorkSaysSo`, `TestTheBackgroundBadgeListsTheWork`, `TestTheBackgroundWorkCountCanBeRead`; session `TestBackgroundWorkKeepsWhatWasSaidOfIt`; H `TestEmitSaysWhatBackgroundWorkIs` |
+| F8 | Background tasks in the UI | `BackgroundTasks` is sent as `background` in each pane's view (header and phone) and in the agents list, left out at zero and for an exited pane. The web UI shows "◔ N in background" in the pane header and on the agent's row in the agents list. Alongside it goes `backgroundWork` (`Session.BackgroundWork`, at most 8 entries): each piece's kind, id, the description, command or agent type its start or the Stop list gave (redacted with `record.Redact` and cut to 200 bytes by the hook), when Flockdeck first heard of it, and `listed` when that was a Stop's list rather than its start. The badge's tooltip lists these with "first seen … ago", says "seen since" for a listed one, and "details unavailable (count only)" where Claude Code gave only an id. The pane's status stays idle, but (while any of the work is verified, G7) its header mark is the working mark and its tooltip says it is working in the background; its project's rail badge shows the working mark (below waiting) when the project has only that (`Project.Activity`). | ✓ | V `TestBackgroundWorkReachesTheWindow`, webui `TestAnIdleAgentWithBackgroundWorkSaysSo`, `TestTheBackgroundBadgeListsTheWork`, `TestTheBackgroundWorkCountCanBeRead`; session `TestBackgroundWorkKeepsWhatWasSaidOfIt`; H `TestEmitSaysWhatBackgroundWorkIs` |
 
 ## G. Background work: how an end is learned
 
@@ -236,6 +236,22 @@ The signals below were checked against real hook payloads from Claude Code 2.1.2
 | G6 | New conversation | `SessionStart` `clear` or `startup` | forget everything | ✓ | W `B14` |
 
 `SubagentStop` also carries `background_tasks`, but that list still shows the stopping subagent as running, so only Stop's list is trusted.
+
+### G7. Checking idle panes' background work against the stored conversation
+
+`server.backgroundLoop` ticks every 15 s and asks `workspace.DueBackgroundChecks` which panes are due: agents that are idle with background work counted and a Claude Code conversation on disk, first after `BackgroundCheckInterval` (45 s), then doubling up to 8 min while checks find nothing. `RunBackgroundCheck` reads only that conversation's `.jsonl` (the last 8 MB the first time, then only what was appended, a whole line at a time) and `<conversation>/subagents/agent-<id>.{meta.json,jsonl}` for counted subagents.
+
+| Evidence | Read from | Effect |
+|---|---|---|
+| `<task-notification>` user turn with `<task-id>` | the conversation | ended |
+| `TaskStop`/`KillShell` tool_use whose tool_result is not an error | the conversation | ended |
+| foreground `Agent`/`Task` call (no `run_in_background`) returning, matched by the subagent's `meta.json` `toolUseId` | conversation and subagent meta | ended |
+| subagent transcript modified in the last 2 min | subagent `.jsonl` mtime | confirmed running |
+| start hook, or named in a Stop's `background_tasks` | hooks | confirmed running |
+
+A drop is recorded with its evidence (`Session.BackgroundEnded`, shown for 2 min, logged with `slog.Debug`). Work with no running sign for `session.BackgroundUnverifiedGrace` (20 min) is marked `Unverified`. It stays counted, so `PaneFinished` still refuses to close the pane, but `backgroundKeepsAgentWorking` (activity.go) no longer counts the idle agent as working when all of its work is unverified.
+
+Not available: a background shell has no running sign that can be read (its output file is outside the conversation's folder and no pid is given), so a long command no Stop names again becomes unverified after the grace. Whether a subagent transcript has a final "stop" entry is not known from the fixtures, so it is not used.
 
 **Residual limitations:**
 

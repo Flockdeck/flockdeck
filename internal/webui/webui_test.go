@@ -7992,6 +7992,43 @@ assert.strictEqual(bg.dataset.tipLines, undefined, "the list's line breaks outli
 `)
 }
 
+// Work nothing has shown running for a while is still counted but marked
+// unverified, in the badge and in its bubble with how long; work the checks
+// or a hook showed had ended is listed a while with what showed it, and keeps
+// the badge up after the count has gone.
+func TestTheBackgroundBadgeSaysWhatIsUnverifiedAndWhatEnded(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const ago = (ms) => new Date(Date.now() - ms).toISOString();
+const quiet = { id: "b1", kind: "shell", command: "make", since: ago(40 * 60e3), confirmed: ago(25 * 60e3),
+  confirmedBy: "Claude Code's list at the end of a turn", unverified: true };
+const live = { id: "a7", kind: "subagent", agentType: "general-purpose", since: ago(60e3), confirmed: ago(10e3), confirmedBy: "its transcript is being written" };
+const gone = { id: "b2", kind: "shell", command: "sleep 9", since: ago(5 * 60e3), evidence: "ended: its task notification is in the conversation", ended: ago(30e3) };
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", background: 1, backgroundWork: [quiet] }) } }));
+const wrap = h.terms[0].host.parentElement.parentElement;
+const bg = wrap.querySelector(".pane-bg");
+assert.ok(bg.textContent.includes("1 in background, unverified"), "the badge does not say its work is unverified: " + bg.textContent);
+assert.ok(/unverified: nothing has shown it running for 25 minutes \(last sign: Claude Code's list at the end of a turn\)/.test(bg.dataset.tip),
+  "the bubble does not say how long the work has been unverified: " + bg.dataset.tip);
+assert.ok(/no longer makes the agent read as working/.test(bg.dataset.tip), "the bubble does not say what unverified means: " + bg.dataset.tip);
+
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", background: 2, backgroundWork: [quiet, live] }) } }));
+assert.ok(bg.textContent.includes("2 in background, 1 unverified"), "the badge does not count the unverified part: " + bg.textContent);
+
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", background: 1, backgroundWork: [live], backgroundEnded: [gone] }) } }));
+assert.ok(!/unverified/.test(bg.textContent), "verified work was called unverified: " + bg.textContent);
+assert.ok(/Lately ended:\n• Shell command: sleep 9\n   ended: its task notification is in the conversation \(just now\)/.test(bg.dataset.tip),
+  "the bubble does not say what ended and why: " + bg.dataset.tip);
+
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", backgroundEnded: [gone] }) } }));
+assert.ok(bg.textContent.includes("background ended"), "the badge went before saying the work had ended: " + bg.textContent);
+assert.ok(!/still running/.test(bg.dataset.tip), "the bubble still says work is running: " + bg.dataset.tip);
+
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle" }) } }));
+assert.strictEqual(bg.textContent, "", "the badge outlived the ended work");
+`)
+}
+
 // A pane's header counts its checkout's changes, and nothing went from the
 // counts to the changes: the review was a trip to the top bar.
 func TestAPanesChangeCountsOpenItsReview(t *testing.T) {

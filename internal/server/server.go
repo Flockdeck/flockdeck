@@ -360,6 +360,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	go s.pushLoop()
 	go s.gitLoop()
 	go s.usageLoop()
+	go s.backgroundLoop()
 	go s.saveLoop()
 	go s.waitLoop()
 	go s.conversationPollLoop()

@@ -4142,8 +4142,8 @@
       }
 
       const background = v.background || 0;
-      const bgKey = background + JSON.stringify(v.backgroundWork || []);
-      if (was.background !== bgKey) { was.background = bgKey; renderPaneBackground(p, background, v.backgroundWork); }
+      const bgKey = background + JSON.stringify(v.backgroundWork || []) + JSON.stringify(v.backgroundEnded || []);
+      if (was.background !== bgKey) { was.background = bgKey; renderPaneBackground(p, v); }
 
       const git = [v.dirty, v.untracked, v.ahead, v.behind, v.gitTimedOut ? "late" : ""].join(" ");
       if (was.git !== git) { was.git = git; renderPaneGit(p, v); }
@@ -4400,10 +4400,18 @@
     } catch { return ""; }
   }
 
+  /** bgFor is how long ago a time was, as a length: "25 minutes". */
+  function bgFor(when) {
+    const ago = remoteAgo(when);
+    return ago === "just now" ? "under a minute" : ago.replace(/ ago$/, "");
+  }
+
   /** backgroundItemTip is one piece of background work in the bubble: what it
    *  is, what Claude Code said of it, and how long ago Flockdeck first heard
    *  of it. Only what was reported is shown: work Claude Code gave nothing
-   *  but an id for says so rather than being guessed at. */
+   *  but an id for says so rather than being guessed at. Work nothing has
+   *  shown running for a while says so, and for how long; work lately ended
+   *  says what showed it had. */
   function backgroundItemTip(w) {
     const kind = BG_KINDS[w.kind] || (w.kind ? w.kind[0].toUpperCase() + w.kind.slice(1) : "Background task");
     const what = kind + (w.agentType ? " (" + bgShort(w.agentType, 40) + ")" : "");
@@ -4414,33 +4422,67 @@
     else if (cmd) line += ": " + cmd;
     else if (!w.agentType) line += " " + bgShort(w.id, 24) + " — details unavailable (count only)";
     if (said && cmd) line += "\n   $ " + cmd;
+    if (w.evidence) return line + "\n   " + bgShort(w.evidence, 90) + (w.ended ? " (" + remoteAgo(w.ended) + ")" : "");
     // Heard of first in a turn end's list of what is still running, it was
     // already going by then, for however long before that nothing said.
     const at = bgClock(w.since);
     line += "\n   first seen " + remoteAgo(w.since);
     if (w.listed) line += " (seen since " + (at || "then") + "; already running, so it may have started earlier)";
     else if (at) line += " (started " + at + ")";
+    if (w.unverified) {
+      line += "\n   unverified: nothing has shown it running for " + (w.confirmed ? bgFor(w.confirmed) : "a while") +
+        (w.confirmedBy ? " (last sign: " + bgShort(w.confirmedBy, 60) + ")" : "");
+    }
     return line;
   }
 
-  /** backgroundDetailTip is backgroundTip followed by a list of the work,
-   *  as far as the server sent it. A server too old to send any says only
-   *  the count. */
-  function backgroundDetailTip(n, work) {
-    const items = Array.isArray(work) ? work : [];
-    if (!items.length) return backgroundTip(n);
-    const lines = items.map(backgroundItemTip);
-    if (n > items.length) lines.push("…and " + (n - items.length) + " more not listed");
-    return backgroundTip(n) + "\n\n" + lines.join("\n");
+  /** backgroundCounts is a pane or agent view's background work: how much is
+   *  counted, the part of it listed, how much of that is unverified, and the
+   *  work lately ended. */
+  function backgroundCounts(v) {
+    const work = Array.isArray(v.backgroundWork) ? v.backgroundWork : [];
+    const ended = Array.isArray(v.backgroundEnded) ? v.backgroundEnded : [];
+    return { n: v.background || 0, work, ended, unverified: work.filter((w) => w.unverified).length };
   }
 
-  /** describeBackground gives node the bubble for n pieces of background work,
+  /** backgroundLabel is the badge's words: the count, and how much of it is
+   *  unverified; "background ended" while only lately ended work is left. */
+  function backgroundLabel(b) {
+    if (!b.n) return "background ended";
+    let s = b.n + " in background";
+    if (b.unverified) s += b.unverified >= b.n ? ", unverified" : ", " + b.unverified + " unverified";
+    return s;
+  }
+
+  /** backgroundDetailTip is backgroundTip followed by a list of the work,
+   *  as far as the server sent it, and then the work lately ended. A server
+   *  too old to send any says only the count. */
+  function backgroundDetailTip(b) {
+    const parts = [];
+    if (b.n) {
+      let head = backgroundTip(b.n);
+      if (b.unverified) {
+        head += " Work nothing has shown running for a while is marked unverified: it stays counted until something " +
+          "shows it has ended, but no longer makes the agent read as working.";
+      }
+      parts.push(head);
+      if (b.work.length) {
+        const lines = b.work.map(backgroundItemTip);
+        if (b.n > b.work.length) lines.push("…and " + (b.n - b.work.length) + " more not listed");
+        parts.push(lines.join("\n"));
+      }
+    }
+    if (b.ended.length) parts.push("Lately ended:\n" + b.ended.map(backgroundItemTip).join("\n"));
+    return parts.join("\n\n");
+  }
+
+  /** describeBackground gives node the bubble for a view's background work,
    *  worked out again whenever the pointer arrives so "first seen 3 minutes
    *  ago" is never as old as the last state message. The badge is not a
    *  focus stop, so the pointer is the only way the bubble is asked for. */
-  function describeBackground(node, n, work) {
+  function describeBackground(node, b) {
     const say = () => {
-      describe(node, backgroundDetailTip(n, work));
+      describe(node, backgroundDetailTip(b));
       node.dataset.tipLines = "1";
     };
     say();
@@ -4449,18 +4491,19 @@
   }
 
   /** renderPaneBackground shows how much background work the pane's agent
-   *  has left running, and nothing at all while it has none -- most panes,
-   *  most of the time. Its bubble lists the work. */
-  function renderPaneBackground(p, n, work) {
+   *  has left running, and nothing at all while it has none and none has
+   *  lately ended -- most panes, most of the time. Its bubble lists the work. */
+  function renderPaneBackground(p, v) {
+    const b = backgroundCounts(v);
     p.background.textContent = "";
-    if (!n) {
+    if (!b.n && !b.ended.length) {
       delete p.background.dataset.tip;
       delete p.background.dataset.tipLines;
       p.background.onpointerenter = null;
       return;
     }
-    p.background.append(glyph("◔"), document.createTextNode(" " + n + " in background"));
-    describeBackground(p.background, n, work);
+    p.background.append(glyph("◔"), document.createTextNode(" " + backgroundLabel(b)));
+    describeBackground(p.background, b);
   }
 
   /** renderPanePeerName shows the name another Claude session would use to
@@ -9730,9 +9773,10 @@
     // tool call was -- so a list of several needing a look at once says
     // which is worth a look first, without opening any of them.
     if (a.background) {
+      const b = backgroundCounts(a);
       const bg = el("span", "agent-bg");
-      bg.append(glyph("◔"), document.createTextNode(" " + a.background + " in background"));
-      meta.append(describeBackground(bg, a.background, a.backgroundWork));
+      bg.append(glyph("◔"), document.createTextNode(" " + backgroundLabel(b)));
+      meta.append(describeBackground(bg, b));
     }
     if (a.status === "waiting" && a.waiting) {
       meta.append(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));

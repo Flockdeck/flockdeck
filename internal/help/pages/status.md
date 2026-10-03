@@ -41,6 +41,20 @@ since", because it was already running by then. Where Claude Code gave nothing
 but an id, the list says "details unavailable (count only)" rather than
 guessing. Flockdeck keeps the list in memory only and never saves it.
 
+While an agent is idle with background work counted, Flockdeck checks that
+work against the conversation Claude Code has stored for the pane, every 45
+seconds at first and less often while nothing changes. It drops a piece only
+on evidence that it ended: Claude Code's notice that the task finished, a
+stop of it that succeeded, or a subagent's call returning. For a short while
+afterwards the tooltip says what ended and what showed it, under "Lately
+ended". A subagent whose own transcript is still being written counts as
+running. A piece nothing has shown running for 20 minutes (no start, no
+end-of-turn list naming it, no transcript being written) stays counted but is
+marked unverified, and the badge says so (`◔ 1 in background, unverified`).
+An idle agent whose background work is all unverified no longer counts as
+working; it still isn't treated as finished. There is no way to clear the
+count by hand.
+
 While a tool is running the pane header names it, so `Read`, `Bash` or `Edit`
 tells you what the agent is doing, not only that it is busy.
 
@@ -95,7 +109,9 @@ tells you what the agent is doing, not only that it is busy.
   finished either, since closing it would kill that work. Its header says
   `◔ 1 in background` while it has any, and so does its row in
   [[key:agents]]. Flockdeck learns the work has ended when Claude Code tells
-  the agent so, or says at the end of a turn what is still running. A Claude
+  the agent so, says at the end of a turn what is still running, or has
+  recorded its end in the stored conversation (see above). Work counted but
+  unverified still keeps the pane open. A Claude
   Code too old to say either keeps it counted until the agent stops it, the
   conversation is cleared, or the pane is closed by hand (or with
   `flockdeck close -force`).
