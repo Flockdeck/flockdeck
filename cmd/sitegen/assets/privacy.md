@@ -186,7 +186,7 @@ is never used expires after ten minutes, and is deleted within ten more.
 ### What passes through
 
 Your devices and your desktop reach the relay over encrypted connections
-(TLS). Terminal traffic — what you type and what an agent prints back — is
+(TLS). Terminal traffic (what you type and what an agent prints back) is
 also **end-to-end encrypted** on top of that: the relay carries it but
 cannot read it. The state of your panes still passes through the relay in
 the clear, so it can be seen there: what each pane's agent has spent, its
@@ -215,12 +215,12 @@ desktop's memory while it keeps running: it is not persisted there or
 anywhere else, and the relay stores nothing about it. Which paired devices
 have a pane open right now, shown as a small phone glyph naming the device
 on the desk's own window, is worked out from those same connections and
-kept the same way — in memory only, forgotten the moment the pane is
+kept the same way: in memory only, forgotten the moment the pane is
 closed or the device disconnects.
 
 Notifications are the exception. When an agent has been waiting on you for a
-while and you haven't touched this computer — no keyboard or mouse input in
-any application for two minutes, or its screen is locked — your desktop
+while and you haven't touched this computer (no keyboard or mouse input in
+any application for two minutes, or its screen is locked), your desktop
 encrypts a notification for each device you turned notifications on for, with
 that device's own keys, before it leaves your computer. Whether you are at
 this computer is worked out here, on this computer, and is never sent
@@ -288,10 +288,10 @@ relay's web client also remembers four display preferences in your
 browser's local storage: notifications, zoom, fit to screen and whether the
 second row of keys is open. It keeps a
 message you've started typing to an agent there too, per pane, so switching
-away and back doesn't lose it — on your device only, and never sent anywhere
+away and back doesn't lose it. It stays on your device only, and is never sent anywhere
 until you send it. It also remembers, per desktop, when you last had that
 desktop's list of panes open, so it can show what's changed since, and
-whether an agent's helpers are folded or shown — the same way, on your
+whether an agent's helpers are folded or shown, in the same way, on your
 device only. It also keeps the messages you have recently sent, so you can send
 one again; which view (chat or terminal) each pane was last in; and, in the
 browser's IndexedDB, this device's private encryption key, which never leaves

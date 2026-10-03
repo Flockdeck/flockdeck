@@ -9,8 +9,8 @@ page is the short one, for skimming or for linking to.
 
 ## Nothing to opt out of
 
-Flockdeck's privacy design is structural, not a setting you turn on. There's
-no "privacy mode," because there's nothing to turn off:
+Privacy in Flockdeck is structural. There is no "privacy mode" to turn on,
+because there is nothing to turn off:
 
 - **No accounts, no analytics, no telemetry and no crash reporting** in the
   desktop app, on the free tier or any other.
@@ -39,7 +39,7 @@ no "privacy mode," because there's nothing to turn off:
   none of your code or terminal content is part of a download. See the
   [privacy policy](privacy.html#downloads-and-update-checks).
 - **Nobody's data is sold**, and nothing is used to train a model, anyone
-  else's or Flockdeck's own — there is no model here to train.
+  else's or Flockdeck's own, and there is no model here to train.
 
 None of that is a paid feature. It's what the free tier does, because it's
 what the app does.
@@ -47,23 +47,23 @@ what the app does.
 ## Where that differs from what's on the market
 
 As of April 2026, GitHub changed Copilot's policy: Free, Pro and Pro+ plans
-now train on your prompts and code **by default** — opt-out, not opt-in. Only
+now train on your prompts and code **by default** (opt-out, not opt-in). Only
 Business and Enterprise plans are exempt automatically. Several other coding
 assistants offer a "zero data retention" mode you can turn on, sometimes only
 on a paid or team plan.
 
-The Flockdeck app itself collects nothing to begin with — on the free tier, same as
-any other — so there is no default to opt out of. That isn't a promise about
+The Flockdeck app itself collects nothing to begin with, on the free tier as on any
+other, so there is no default to opt out of. That isn't a promise about
 a future release; it's what the app already does, and the desktop app's source
 is available, so you can read it and check.
 
 ## What is, and isn't, end-to-end encrypted, said plainly
 
-Remote access is genuinely useful, and your terminal traffic is now
+Your terminal traffic through remote access is now
 end-to-end encrypted the way push notifications are: your terminal output and
 what you type are encrypted with keys the relay hands out but never holds, so
 the relay carries that traffic to your other devices without being able to
-read it — not even a relay you run yourself.
+read it, even on a relay you run yourself.
 
 The rest still isn't: what each pane's agent has spent, its usage limits,
 which model routing chose for it, the conversation view of a pane, what you
@@ -72,7 +72,7 @@ can route them. It doesn't record, store or log any of it.
 
 This defeats an honestly-run relay. Against one that's been actively
 compromised and tampered with to swap the keys it hands out at pairing, that
-alone isn't enough — a swap like that needs an out-of-band check, and Remote
+alone isn't enough. A swap like that needs an out-of-band check, and Remote
 access has one: the device and the desktop can each show a code for the other
 (Verify, under Devices on the phone and in the desktop's Remote access
 settings), and comparing them by eye is what catches a relay that has swapped
@@ -83,18 +83,18 @@ own infrastructure: see [Enterprise](./#enterprise).
 ## The billing service
 
 Remote access through the shared relay is a subscription after a 30-day free
-trial, sold through Paddle — see the [FAQ](./#faq). The relay learns only an
+trial, sold through Paddle (see the [FAQ](./#faq)). The relay learns only an
 account's plan and the date it's paid until, through the billing service's own
-connection to it — never an email address, a name or a country. That data
+connection to it, never an email address, a name or a country. That data
 stays in the billing service alone, kept only as long as UK tax law requires
 sale records to be kept, then deleted.
 
 ## Read more
 
-- [Privacy policy](privacy.html) — what's kept, why, for how long, and your
+- [Privacy policy](privacy.html): what's kept, why, for how long, and your
   rights over it.
 - [Terms of service](terms.html)
-- [Licences](licences.html) — every third-party component, with its licence
+- [Licences](licences.html): every third-party component, with its licence
   in full.
 - The desktop app's source is available for noncommercial use under the
   PolyForm Noncommercial licence:
