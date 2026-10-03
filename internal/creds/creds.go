@@ -196,14 +196,14 @@ func StatusAll(specs []agent.Spec) []Status {
 func (s Status) Describe() string {
 	switch {
 	case !s.Set && s.NotNeeded:
-		return "not needed — it talks to a model on this machine"
+		return "not needed, it talks to a model on this machine"
 	case !s.Set && len(s.Vars) > 0:
-		return fmt.Sprintf("not set — export %s, or run `flockdeck keys set %s`",
+		return fmt.Sprintf("not set: export %s, or run `flockdeck keys set %s`",
 			strings.Join(s.Vars, " or "), s.Agent)
 	case !s.Set:
 		// With no variable to name, the store is the one place to put it,
 		// and "not set" alone would leave somebody to find that out.
-		return fmt.Sprintf("not set — run `flockdeck keys set %s`", s.Agent)
+		return fmt.Sprintf("not set: run `flockdeck keys set %s`", s.Agent)
 	case s.Source == SourceEnv:
 		return "set (from " + s.Env + ")"
 	default:

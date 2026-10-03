@@ -160,7 +160,7 @@ func (s *Server) sendChanges(c *controlClient, dir string, asked uint64, reason 
 		// and this one came straight after -- and replaced -- the error saying
 		// why a commit, push or pull had failed.
 		if msg.Omitted > 0 && reason == "asked" {
-			c.notify(fmt.Sprintf("Showing %d of %d changed files — the rest are left out to keep the list usable",
+			c.notify(fmt.Sprintf("Showing %d of %d changed files. The rest are left out to keep the list usable",
 				len(msg.Files), len(msg.Files)+msg.Omitted), false)
 		}
 	}()
@@ -312,14 +312,14 @@ func (s *Server) showDiff(c *controlClient, path, file string) {
 			// UTF-8 replaced, and the name it asks about is not a file at all:
 			// the diff was empty, and was explained as a file that matches the
 			// last commit.
-			msg.Text = "(this file's name is not valid UTF-8, so its diff cannot be shown here — look at it in a terminal. " +
+			msg.Text = "(this file's name is not valid UTF-8, so its diff cannot be shown here. Look at it in a terminal. " +
 				"A commit still includes it.)"
 		} else if strings.TrimSpace(text) == "" {
 			// Binary content is not the explanation it once looked like: git
 			// says "Binary files differ" for a tracked one and gitx renders an
 			// untracked one as a size. An empty diff now means the file agrees
 			// with the last commit after all.
-			msg.Text = "(nothing to show — this file matches the last commit, so it may have been changed back)"
+			msg.Text = "(nothing to show: this file matches the last commit, so it may have been changed back)"
 		} else {
 			msg.Text = text
 		}
@@ -442,7 +442,7 @@ func remoteSummary(action, out string) string {
 	if out == "" {
 		switch action {
 		case "fetch":
-			return "Fetched — nothing new"
+			return "Fetched, nothing new"
 		case "pull":
 			return "Already up to date"
 		}

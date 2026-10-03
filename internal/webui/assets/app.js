@@ -109,7 +109,7 @@
     gitLate:     "Git did not finish reading this checkout in time, so its changed files and ahead and behind counts are not shown: the last ones read may be out of date. It is asked again on the next refresh. A very large checkout, or one on a slow or network drive, can do this - running git status in a terminal there shows how long it takes.",
     folderGone:  "This worktree's folder was deleted outside git, so there is nothing in it to open or review - only git's record of it is left. Prune clears that record.",
     branch:      "The branch this checkout has in its working tree.",
-    project:     "The project this agent is working in. It is shown because that is not the project of the tab it is sitting on — this tab holds agents from more than one.",
+    project:     "The project this agent is working in. It is shown because that is not the project of the tab it is sitting on. This tab holds agents from more than one.",
     splitHere:   "Splits the focused pane and starts an agent in this project, so both projects are worked on side by side in one tab.",
     // Not what is typed into a terminal: nothing mirrors that. It is the
     // prompt bar's message that goes to the set, and this used to say
@@ -965,7 +965,7 @@
     // it will use — empty is the default, named — before anything is pressed.
     if (!r && remoteRoster && !remoteRoster.enabled) {
       body.append(el("div", "fan-hint",
-        "Remote access opens this window from another device — a laptop, a tablet, a phone — " +
+        "Remote access opens this window from another device (a laptop, a tablet, a phone) " +
         "through a relay, without opening a port on this machine."));
       body.append(remoteWindow ? el("p", "fan-hint", DESK_ONLY_REMOTE) : remoteEnableForm());
       return;
@@ -8567,7 +8567,7 @@
         // offered one, and "Pull to catch up" would send the reader looking
         // for a button that is not there.
         parts.push(m.ahead
-          ? "Both have moved on, so this branch cannot simply catch up: merge or rebase in a terminal, then push."
+          ? "Both have moved on, so this branch cannot catch up on its own: merge or rebase in a terminal, then push."
           : TIPS.behind);
         label.push(m.behind + (m.behind === 1 ? " commit behind" : " commits behind"));
       }
@@ -10728,7 +10728,7 @@
     const refused = r && r.pushError ? el("div", "set-desc", "The last one was not sent: " + r.pushError) : null;
     box.append(settingRow("Notify paired devices",
       "When an agent has been waiting on you for a while, the relay tells each phone or browser paired with this " +
-      "machine that asked with its Notify me button — whether or not it is open there.",
+      "machine that asked with its Notify me button, whether or not it is open there.",
       switchControl("set-push", !push.off, (on) => setPushOff(!on)), refused));
 
     const delay = el("select", "set-select");
@@ -10743,8 +10743,8 @@
     box.append(settingRow("After waiting", "How long an agent has to have been waiting before the devices are told. Each wait is told once.", delay));
 
     box.append(settingRow("Send nothing identifying",
-      "Notifications say only “An agent on " + machine + " needs you” (or “3 agents on " + machine + " need you”), rather than naming the panes and their projects: " +
-      "for a lock screen others can see. Either way it is encrypted here for each device, and neither the relay nor the push service can read it.",
+      "Notifications say only “An agent on " + machine + " needs you” (or “3 agents on " + machine + " need you”), instead of naming the panes and their projects, which suits a lock screen others can see. " +
+      "Either way it is encrypted here for each device, and neither the relay nor the push service can read it.",
       switchControl("set-push-anonymous", !!push.anonymous, (on) => setPushAnonymous(on))));
   }
 
@@ -11350,8 +11350,8 @@
 
   function settingsKeybindings(pane) {
     settingsHead(pane, "Keyboard",
-      "Shortcuts for this window's own chrome — panes, tabs, agents, the rest. Your terminal tool keeps its own " +
-      "shortcuts separately, for what you type inside a pane; this does not touch those.");
+      "Shortcuts for this window's own controls: panes, tabs, agents and the rest. Your terminal tool keeps its own " +
+      "shortcuts for what you type inside a pane, and this does not touch those.");
 
     const resetAll = el("button", "chip", "Reset every shortcut to its default");
     resetAll.id = "set-keybind-reset-all";
@@ -11568,8 +11568,8 @@
     const crossLabel = el("label", "fan-opt");
     crossLabel.append(cross, document.createTextNode(" Let a rule send work to another agent"));
     pane.append(settingRow("Routing across agents",
-      "A rule may name another agent's model, not only a smaller or stronger model of this one — a local model " +
-      "through an OpenAI-compatible endpoint, say. That pane runs a different program, with its own login, tools " +
+      "A rule may name another agent's model as well as a smaller or stronger model of this one, such as a local model " +
+      "through an OpenAI-compatible endpoint. That pane runs a different program, with its own login, tools " +
       "and transcript. Off until you turn it on, " + (own ? "for this project." : "for every project."), crossLabel));
     // Asking Jev is the one setting here that sends anything off this machine,
     // so it says so, in plain words, beside the switch.
@@ -12585,7 +12585,7 @@
     hint.append(document.createTextNode(
       found
         ? (m.fromReply ? "Found these in what this agent last said. " : "Found these in the pane's output. ") +
-          "Edit the list — one step per line — then save it as a todo."
+          "Edit the list, one step per line, then save it as a todo."
         : "No plan was found in this pane. Type one step per line, or ask an agent to draft one first, the same as before fanning one out."));
     body.append(hint);
 
@@ -12838,7 +12838,7 @@
   const PRIORITY_HINTS = [
     {
       id: "waiting",
-      text: "An amber triangle means that agent needs you — a permission prompt, a question, or a tool call it was refused outright and stopped over.",
+      text: "An amber triangle means that agent needs you: a permission prompt, a question, or a tool call it was refused outright and stopped over.",
       page: "status",
       // Only with an amber dot on screen to point at. The waiting count is
       // every project's, and an agent waiting in one not shown had this
@@ -12847,14 +12847,14 @@
     },
     {
       id: "exited",
-      text: "A pane whose agent has stopped shows Restart over its terminal rather than a dead screen — it starts the same agent again in the same place, and a Claude agent picks the conversation back up.",
+      text: "A pane whose agent has stopped shows Restart over its terminal instead of a dead screen. It starts the same agent again in the same place, and a Claude agent picks the conversation back up.",
       page: "panes",
       when: (s) => currentPanes(s).some((v) => v.status === "exited" || shownStatus(v) === "failed"),
     },
     {
       id: "dirty-pane",
       action: "changes",
-      text: "reviews what has changed in this checkout — a coloured diff, then commit and push — before whichever agent wrote it gets any further ahead of you.",
+      text: "reviews what has changed in this checkout (a coloured diff, then commit and push) before the agent that wrote it gets any further ahead of you.",
       page: "changes",
       when: (s) => currentPanes(s).some((v) => (v.dirty || 0) + (v.untracked || 0) > 0),
     },
@@ -12864,7 +12864,7 @@
     {
       id: "palette",
       action: "palette",
-      text: "opens the command palette — every action in the application, searchable.",
+      text: "opens the command palette, which searches every action in the application.",
       page: "shortcuts",
       when: () => true,
     },
@@ -12876,35 +12876,35 @@
     },
     {
       id: "shell-pane",
-      text: "Split right (shell), in the command palette, opens an ordinary terminal beside your agent, in the same folder — for the git status or npm run you want to run yourself while it works.",
+      text: "Split right (shell), in the command palette, opens an ordinary terminal beside your agent, in the same folder, for the git status or npm run you want to run yourself while it works.",
       page: "panes",
       when: () => true,
     },
     {
       id: "broadcast",
       action: "promptAll",
-      text: "opens the prompt bar — write an instruction once and send it to several agents together. Turn on Broadcast to reach every pane in the tab, or add panes to the set by hand with their ⇉ button.",
+      text: "opens the prompt bar. Write an instruction once and send it to several agents together. Turn on Broadcast to reach every pane in the tab, or add panes to the set by hand with their ⇉ button.",
       page: "broadcast",
       when: (s) => paneCount(s) > 1,
     },
     {
       id: "fanout",
       action: "fanout",
-      text: "turns a plan an agent just wrote into one agent per task, up to twelve at once — each can get its own git worktree, and nothing starts until you say so.",
+      text: "turns a plan an agent just wrote into one agent per task, up to twelve at once. Each can get its own git worktree, and nothing starts until you say so.",
       page: "fanout",
       when: () => true,
     },
     {
       id: "worktrees",
       action: "worktrees",
-      text: "gives each agent its own checkout and branch, which is what keeps several of them from fighting over one working tree.",
+      text: "gives each agent its own checkout and branch, so several agents don't fight over one working tree.",
       page: "worktrees",
       when: (s) => paneCount(s) > 2,
     },
     {
       id: "history",
       action: "history",
-      text: "lists every past conversation in this project — Claude Code's own transcripts included — and resumes any of them into a new tab, picked up exactly where it stopped.",
+      text: "lists every past conversation in this project, Claude Code's own transcripts included, and resumes any of them into a new tab where it stopped.",
       page: "history",
       when: () => true,
     },
@@ -12917,32 +12917,32 @@
     },
     {
       id: "tidy-panes",
-      text: "Tile these panes evenly and Merge every tab into this one, both in the command palette, straighten a lopsided split and fold a scattered workspace back into a single tab.",
+      text: "Tile these panes evenly and Merge every tab into this one, both in the command palette, straighten a lopsided split and fold a scattered workspace back into one tab.",
       page: "rearranging",
       when: (s) => paneCount(s) > 2,
     },
     {
       id: "find-in-terminal",
       action: "findInTerminal",
-      text: "searches the focused terminal's own scrollback — the error message that went by twenty tool calls ago is still in there.",
+      text: "searches the focused terminal's own scrollback. The error message that went by twenty tool calls ago is still in there.",
       page: "panes",
       when: () => true,
     },
     {
       id: "api-keys",
-      text: "API keys…, in the command palette, stores a key for an API agent once, kept on this machine only — no more pasting it into every terminal it opens.",
+      text: "API keys…, in the command palette, stores a key for an API agent once, kept on this machine only, so you stop pasting it into every terminal.",
       page: "agents",
       when: () => !remoteWindow,
     },
     {
       id: "remote-access",
-      text: "Remote access…, in the command palette, pairs a phone or another desktop through a relay, so a waiting agent can be glanced at, or answered, away from this machine.",
+      text: "Remote access…, in the command palette, pairs a phone or another desktop through a relay, so you can see or answer a waiting agent away from this machine.",
       page: "remote",
       when: () => !remoteWindow,
     },
     {
       id: "detach",
-      text: "Detach, in the command palette, closes the window but leaves every agent running — flockdeck from a terminal brings the window back to exactly where you left it.",
+      text: "Detach, in the command palette, closes the window but leaves every agent running. Running flockdeck from a terminal brings the window back as you left it.",
       page: "persistence",
       when: () => !remoteWindow,
     },
@@ -12954,7 +12954,7 @@
     },
     {
       id: "pane-header-git",
-      text: "A pane's header keeps showing its branch and how many files are uncommitted even while it sits idle, so you can see whose work is worth a look without opening anything.",
+      text: "A pane's header keeps showing its branch and how many files are uncommitted even while it sits idle, so you can see whose work is worth a look without opening it.",
       page: "worktrees",
       when: (s) => {
         const p = currentPanes(s);
@@ -12963,7 +12963,7 @@
     },
     {
       id: "working-tool",
-      text: "While a pane's cyan dot is pulsing, its header names the tool it is using right now — Read, Bash, Edit — so you can tell what it is actually doing, not only that it is busy.",
+      text: "While a pane's cyan dot is pulsing, its header names the tool it is using right now (Read, Bash, Edit), so you can see what it is doing and not only that it is busy.",
       page: "status",
       when: (s) => currentPanes(s).some((v) => activityOf(v) === "working"),
     },

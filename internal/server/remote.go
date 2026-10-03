@@ -534,7 +534,7 @@ func (s *Server) remoteDisable(c *controlClient, force bool) {
 // the far end can turn it on again; on, from a window that is already in, can
 // only be against another relay -- moving everything typed at the desk, and
 // everything the agents print, to a relay chosen from somewhere else.
-const deskOnlyRemote = "Remote access is turned off, or moved to another relay, on the machine Flockdeck runs on — not from a window reached through the relay"
+const deskOnlyRemote = "Remote access is turned off, or moved to another relay, on the machine Flockdeck runs on, not from a window reached through the relay"
 
 // refusedThroughRelay refuses a window reached through the relay that asked to
 // turn remote access on or off, and reports whether it did. The dialog's

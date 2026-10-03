@@ -97,7 +97,7 @@ func keysAtTheDesk(c *controlClient) bool {
 	if !c.remote {
 		return false
 	}
-	c.notify("API keys are set on the machine Flockdeck runs on — one typed in a window reached through the relay passes through the relay, which can read it", true)
+	c.notify("API keys are set on the machine Flockdeck runs on. A key typed in a window reached through the relay passes through the relay, which can read it", true)
 	return true
 }
 

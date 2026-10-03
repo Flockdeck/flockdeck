@@ -107,7 +107,7 @@ const hostGoneMessage = "this desktop is no longer registered with the relay"
 // because it still had the tunnel open, and so knew, or the token was refused
 // with a reason of its own -- that is passed on too.
 func RevokedReason(err error) string {
-	reason := "this machine is no longer paired with the relay — it may have been removed after 30 days offline, or removed from another device"
+	reason := "this machine is no longer paired with the relay. It may have been removed after 30 days offline, or removed from another device"
 	var api *APIError
 	if errors.As(err, &api) && api.Message != "" && api.Message != hostGoneMessage {
 		reason += " (" + api.Message + ")"

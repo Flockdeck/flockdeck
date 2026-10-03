@@ -739,7 +739,7 @@ func TestRemoteSummary(t *testing.T) {
 	cases := []struct {
 		action, out, want string
 	}{
-		{"fetch", "", "Fetched — nothing new"},
+		{"fetch", "", "Fetched, nothing new"},
 		{"pull", "  \n ", "Already up to date"},
 		{"push", "", "Done"},
 		{"push", "To github.com:x/y.git\n * [new branch] main -> main\n", "* [new branch] main -> main"},

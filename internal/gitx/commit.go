@@ -419,9 +419,9 @@ func unresolved(dir string, recs []statusRecord) error {
 		list += fmt.Sprintf(" and %d more", len(stuck)-3)
 	}
 	if markersOnly {
-		return &gitError{"still in conflict: " + list + " — resolve the <<<<<<< markers first, then commit"}
+		return &gitError{"still in conflict: " + list + ": resolve the <<<<<<< markers first, then commit"}
 	}
-	return &gitError{"still in conflict: " + list + " — a conflict with no markers to edit cannot be settled from here. " +
+	return &gitError{"still in conflict: " + list + ". A conflict with no markers to edit cannot be settled from here. " +
 		"In a terminal, keep the side you want (git checkout --ours or --theirs, or git rm) and git add it, then commit"}
 }
 
