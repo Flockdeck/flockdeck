@@ -3,13 +3,13 @@
 [[key:changes]], or **Changes** in the rail, shows what changed in the working
 tree the focused agent has been using. Clicking the change counts in a pane's
 header opens it on that pane's checkout, and **Review changes**, in a
-worktree's `⋯` menu, on that worktree's — which is usually how you get here:
+worktree's `⋯` menu, on that worktree's, which is usually how you get here:
 see which agent produced something, then look at what it did.
 
 The panel always shows the whole repository the pane is in, even when the pane
 was started in a folder inside it, and a commit takes every file in its list.
 In a project [grouping more than one directory](#projects), a picker at the
-top chooses which repo the panel reviews — [Git worktrees](#worktrees) has
+top chooses which repo the panel reviews. [Git worktrees](#worktrees) has
 the same choice for creating a worktree.
 
 ## What it shows
@@ -22,7 +22,7 @@ the same choice for creating a worktree.
 
 ## What you can do
 
-- **Commit**, with the message you type in the box — the button counts the
+- **Commit**, with the message you type in the box. The button counts the
   files, as in **Commit 3 files**, and <kbd>Ctrl</kbd>+<kbd>Enter</kbd> in the
   box does the same. A message is required.
 - **Commit and push** in one go.
@@ -36,7 +36,7 @@ the same choice for creating a worktree.
 Everything that talks to a remote is there only when the checkout has one. The
 first push sets the upstream, so a branch a fan-out invented does not need a
 hand-typed command to leave the machine. A checkout with no branch checked out
-— a detached HEAD, or one in the middle of a rebase or a bisect — says so in
+(a detached HEAD, or one in the middle of a rebase or a bisect) says so in
 place of the branch, and offers no push.
 
 ## What a commit takes
@@ -46,9 +46,9 @@ you last pressed **Refresh**. The list keeps up with the agents by itself, and
 a file that joins it after you looked, or is written to again, is marked
 **new** or **edited** rather than quietly added to what you commit.
 
-If the working tree has moved since you looked — a file has appeared, one has
+If the working tree has moved since you looked (a file has appeared, one has
 gone back to how it was committed, or one in the list has been written to
-again — nothing is committed. The list then shows the tree as it is, with what
+again), nothing is committed. The list then shows the tree as it is, with what
 moved marked; check it and commit again. Only the files that were checked are
 staged, so one written a moment after the check waits for the next commit.
 
@@ -59,13 +59,13 @@ until you have chosen a side in a shell and added it.
 What this does not promise:
 
 - A file written to again is noticed by its size and modification time, not by
-  reading it. An edit that leaves both as they were — possible where the file
-  system keeps times only to the second — goes through.
+  reading it. An edit that leaves both as they were (possible where the file
+  system keeps times only to the second) goes through.
 - When the list stops at 2,000 files, the ones it leaves out are held to their
   number, not their names.
 - A listed file written to in the instant between that check and the commit
   itself goes in as it is then.
 
 Nothing here stages files selectively: a commit takes every file in the list,
-whole. Reviewing the diff first is the point of the panel — for anything
+whole. Reviewing the diff first is the point of the panel. For anything
 finer, a shell pane is a keystroke away.

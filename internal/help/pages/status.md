@@ -10,13 +10,13 @@ Every pane header carries a status dot.
 
 | Dot | Meaning |
 | --- | --- |
-| Filled cyan circle, pulsing | **Working** — producing output or running a tool |
-| Amber triangle | **Waiting on you** — a permission prompt or a question |
-| Amber triangle | **Blocked** — a tool call was refused outright and the turn ended there; nothing is being asked, but it needs a look |
-| Hollow grey circle | **Idle** — it finished its turn and is ready for a new prompt |
-| Hollow grey circle, pulsing | **Starting** — launched, and not heard from yet |
-| Red filled square | **Failed** — the process ended with an error, or was killed |
-| Hollow square | **Exited** — the process is gone |
+| Filled cyan circle, pulsing | **Working**: producing output or running a tool |
+| Amber triangle | **Waiting on you**: a permission prompt or a question |
+| Amber triangle | **Blocked**: a tool call was refused outright and the turn ended there. Nothing is being asked, but it needs a look |
+| Hollow grey circle | **Idle**: it finished its turn and is ready for a new prompt |
+| Hollow grey circle, pulsing | **Starting**: launched, and not heard from yet |
+| Red filled square | **Failed**: the process ended with an error, or was killed |
+| Hollow square | **Exited**: the process is gone |
 
 Each state has its own shape as well as its colour, so you can tell them apart
 without seeing colour, except that waiting and blocked share the triangle. A
@@ -30,7 +30,7 @@ everywhere working agents are counted (below), though its own status stays
 idle.
 
 While a tool is running the pane header names it, so `Read`, `Bash` or `Edit`
-tells you what the agent is actually doing rather than only that it is busy.
+tells you what the agent is doing, not only that it is busy.
 
 ## Where else it shows
 
@@ -38,8 +38,8 @@ tells you what the agent is actually doing rather than only that it is busy.
   working, or idle between turns with background work still running, has a
   pulsing filled dot instead; the `▲` takes its place when an agent there is
   waiting.
-- **The window title** reports the count — `▲ 2 waiting` while any agent is
-  waiting, otherwise `● 3 working` — so a waiting agent is visible in the
+- **The window title** reports the count, `▲ 2 waiting` while any agent is
+  waiting, otherwise `● 3 working`, so a waiting agent is visible in the
   taskbar with the window behind something else.
 - **The top bar** counts the agents waiting and working across every open
   project, the same counts the window title draws from; an
@@ -53,24 +53,24 @@ tells you what the agent is actually doing rather than only that it is busy.
   none is waiting, and nothing where every pane is idle, exited, failed or not
   yet heard from, or there are no panes. So one that
   starts waiting in a project you are *not* looking at is seen from the one
-  you are. Widen the rail and the count is written beside the name — `▲ 2`
-  for two waiting, `● 3` for three working — and the tile's tooltip and
+  you are. Widen the rail and the count is written beside the name: `▲ 2`
+  for two waiting, `● 3` for three working. The tile's tooltip and
   screen-reader name say it in words. A window reached through the relay
   shows the same.
 - **A desktop notification** is raised when an agent blocks while the window is
   not in front, unless **Desktop notifications** is off in **Settings ›
-  General**. It is not raised when you are already looking at the window —
+  General**. It is not raised when you are already looking at the window:
   the tab marker is enough, and a toast would be noise.
-- Claude Code's own idle nudge — sent about a minute after a pane has simply
-  gone quiet, waiting for a new prompt — never raises any of the above, for
+- Claude Code's own idle nudge (sent about a minute after a pane has simply
+  gone quiet, waiting for a new prompt) never raises any of the above, for
   any pane: it says nothing more than that the pane is still there. A
   permission prompt or a real question always still reaches you, including
   for **a helper another agent started** for itself (see [[key:fanout]]).
 - [[key:agents]] lists every pane in every open project with its status, and
   jumps to any of them.
 - [[action:closeFinishedPanes]] clears out every agent pane that has gone idle
-  and every pane that has exited cleanly, in every open project, in one go —
-  the tidying-up equivalent of closing finished browser tabs. It asks nothing
+  and every pane that has exited cleanly, in every open project, in one go,
+  like closing finished browser tabs. It asks nothing
   first, on purpose: a pane still waiting on you or still working is never
   touched, an idle shell is left alone, and one whose process failed (it never
   started, exited with an error, or was killed) is left alone too, since a
@@ -78,8 +78,8 @@ tells you what the agent is actually doing rather than only that it is busy.
   in its header (🔓, 🔒 once locked) or **Lock pane** in the command palette is
   left open too, with a count of how many were skipped; a locked pane cannot be
   closed any other way either until you unlock it, though it can still be
-  restarted. An idle agent that still has background work going — a command
-  it started with `run_in_background`, or a background subagent — is not
+  restarted. An idle agent that still has background work going (a command
+  it started with `run_in_background`, or a background subagent) is not
   finished either, since closing it would kill that work. Its header says
   `◔ 1 in background` while it has any, and so does its row in
   [[key:agents]]. Flockdeck learns the work has ended when Claude Code tells
@@ -96,29 +96,29 @@ tells you what the agent is actually doing rather than only that it is busy.
 
 For an agent that can report its own lifecycle, this is not screen scraping.
 Claude Code is launched with a generated `--settings` file registering its
-lifecycle hooks — `UserPromptSubmit`, `PreToolUse`, `Notification`, `Stop` and
-the rest — and an API agent, which is Flockdeck's own chat client, reports the same
+lifecycle hooks (`UserPromptSubmit`, `PreToolUse`, `Notification`, `Stop` and
+the rest), and an API agent, which is Flockdeck's own chat client, reports the same
 events itself. For Claude Code each event re-invokes this same binary in a
 hidden mode; the chat client sends its own. Either way the report reaches the
 application over the loopback interface.
 
-Status therefore reflects what the agent is actually doing rather than what
+Status therefore reflects what the agent is doing, not what
 its output happens to look like. Those settings are additive: your own
 settings, hooks and permissions still apply.
 
 ### Auto-review approvals
 
-A pane can turn on auto-review approvals, which spares a person the wait for
+A pane can turn on auto-review approvals, which spares you the wait for
 some of what would otherwise stop and ask: the same hidden hook that reports
 a `PreToolUse` call can also carry a permission decision back, before Claude
 Code's own prompt ever opens, for a call auto-review is confident about. It
-works like Codex's `auto_review` -- a reviewer looking at the request in
-front of it -- but it never touches Claude Code's own permission settings and
+works like Codex's `auto_review`, a reviewer looking at the request in
+front of it, but it never touches Claude Code's own permission settings and
 it can only ever say "let this one through," never "deny": off, or for a call
 it is not sure of, a pane behaves exactly as it always would. Today that
 reviewer is a fixed policy: a `Bash` call is let through only when it is a
-single call to a command that only ever reads -- `git status`, `cat`, `grep`
-and the like -- inside the project, with nothing in it that could chain into
+single call to a command that only ever reads (`git status`, `cat`, `grep`
+and the like) inside the project, with nothing in it that could chain into
 something else or write anywhere; a call that changes a file, reads outside
 the project, or reads a secret file (a `.env`, a private key, a credentials
 file) is always left to ask. A `git` command is let through only when git
@@ -127,7 +127,7 @@ run a program or reach the network, and `git status`, `git diff` or `git
 describe` never in a repository with a submodule in it. A command too long to
 be judged whole is always left to ask.
 
-These path checks read the command as text, not the filesystem -- auto-review
+These path checks read the command as text, not the filesystem. Auto-review
 is not a sandbox. A symlink inside the project that points outside it reads as
 an ordinary in-project name and is let through, and the secret-file check
 knows only conventional names. Both err towards reading, which is part of why
@@ -151,7 +151,7 @@ draws, for ten seconds goes back to grey.
 Not every coding agent has a lifecycle to report, and Flockdeck runs those too. For
 their panes the status is read from the terminal instead: the bell an agent
 rings when it wants you, a quiet timer for when it has stopped producing
-output, and — where its entry in `agents.json` gives it `patterns` — the lines
+output, and, where its entry in `agents.json` gives it `patterns`, the lines
 it prints: the shape of a permission question, the shape of a prompt waiting
 to be typed at. Only the last few hundred bytes are looked at, with the
 escape sequences stripped, so a question two screens back does not
@@ -184,9 +184,9 @@ With either missing, nothing is ever sent, and no error is shown.
 
 What is sent, when a pane of an agent that reports nothing has been quiet for
 a few seconds and its status is still a guess: the **last 30 lines of its
-output, at most 2,000 bytes, with the escape sequences taken out** — one
-request holding that text and the two questions asked of it. Not the
-scrollback, not the pane's name or folder. Secrets that happen to be on screen
+output, at most 2,000 bytes, with the escape sequences taken out**. It goes in one
+request holding that text and the two questions asked of it. The
+scrollback and the pane's name and folder are not sent. Secrets that happen to be on screen
 in those lines are **not** removed. Shell panes, and agents that report their
 own status, are never sent.
 

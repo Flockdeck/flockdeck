@@ -383,7 +383,7 @@ func dirWasGiven(fs *flag.FlagSet, envDir string) bool {
 
 func usage(fs *flag.FlagSet) {
 	out := fs.Output()
-	fmt.Fprintf(out, "flockdeck — runs your coding agents on hardware you control.\n\n")
+	fmt.Fprintf(out, "flockdeck runs your coding agents on hardware you control.\n\n")
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
@@ -775,7 +775,7 @@ func attach(inst *store.Instance, base, root string, noWindow bool) error {
 			fmt.Println("Could not open Flockdeck's own window (" + err.Error() + "); opened in your default browser instead.")
 			return nil
 		}
-		return fmt.Errorf("%w — open this URL manually:\n  %s", err, url)
+		return fmt.Errorf("%w: open this URL manually:\n  %s", err, url)
 	}
 	// This launch's only job from here is to keep the window's process
 	// alive for as long as the window is open -- the same role the browser
@@ -1558,7 +1558,7 @@ func watchSignals(stop, force func(), isDetached func() bool) {
 // finish. It is the last resort: a window that has gone and an application
 // that will not stop is worse than an abrupt exit.
 func forceQuit() {
-	fmt.Fprintln(os.Stderr, "flockdeck: shutting down is taking too long — stopping now")
+	fmt.Fprintln(os.Stderr, "flockdeck: shutting down is taking too long, stopping now")
 	os.Exit(1)
 }
 

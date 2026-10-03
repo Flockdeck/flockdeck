@@ -1,6 +1,6 @@
 # Broadcast and the prompt bar
 
-Some instructions are for every agent at once — "run the tests and fix what
+Some instructions are for every agent at once: "run the tests and fix what
 breaks", across five worktrees. The prompt bar is how you say a thing once,
 and broadcast decides who hears it.
 
@@ -13,20 +13,20 @@ as one submitted message rather than typed key by key. <kbd>Esc</kbd> or
 still there when you open it again.
 
 <kbd>Shift</kbd>+<kbd>Enter</kbd> starts a new line, so an instruction can be
-a list — "1. add tests", "2. run them" — and the bar grows to show all of it.
+a list ("1. add tests", "2. run them") and the bar grows to show all of it.
 A list pasted in keeps its lines. <kbd>↑</kbd> on the first line and
 <kbd>↓</kbd> on the last bring back the prompts you have sent from this window
 since it opened, up to the last 50; on the lines
 between, they move from line to line.
 
-You get to read the sentence before six agents act on it, and a typo is yours
-to fix rather than theirs to interpret.
+You read the sentence before six agents act on it, so a typo is yours
+to fix, not theirs to interpret.
 
 ## Prompts of several lines
 
 A prompt of several lines reaches a pane as one message when the program in
-it accepts pasted text — it asks the terminal for bracketed paste, as Claude
-Code does — because the bar hands the lines over the way a paste would, and
+it accepts pasted text (it asks the terminal for bracketed paste, as Claude
+Code does), because the bar hands the lines over the way a paste would, and
 presses <kbd>Enter</kbd> once, after the last.
 
 A program that does not accept pasted text gets the prompt typed, and there a
@@ -37,8 +37,8 @@ prompt as one.
 ## Who receives it
 
 With broadcast off, the prompt goes to the focused pane, and to any panes you
-have added with their `⇉` button. [[key:toggleBroadcast]] — or **Broadcast** in
-the rail — turns broadcast on, and then it goes to every pane in the
+have added with their `⇉` button. [[key:toggleBroadcast]], or **Broadcast** in
+the rail, turns broadcast on, and then it goes to every pane in the
 **broadcast set**: by default every agent in the tab on screen. Whenever the
 prompt will reach more than one pane, the bar's label says how many, as in
 **Prompt → 3 panes**. That includes panes you added with `⇉` while broadcast
@@ -51,7 +51,7 @@ Membership is shown in the pane header even while broadcast is off. Once you
 have picked panes by hand the set stays as you made it, through broadcast
 being turned off and on, rather than following you from tab to tab.
 
-The focused pane — the one that had the keyboard when you opened the bar — is
+The focused pane (the one that had the keyboard when you opened the bar) is
 always included. Only panes in the tab on screen receive the prompt, so it
 never goes somewhere you cannot see: a member of the set in another tab is
 left out until you are on its tab, and a pane whose process has stopped is

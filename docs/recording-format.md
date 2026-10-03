@@ -377,8 +377,8 @@ possibly holding a secret even when no line is marked `redacted`, and do not
 record a pane you will handle a secret in if you intend to share the file. In
 particular:
 
-- **Unconventional names.** A secret named something not on the list above —
-  `SESSION_COOKIE`, `DATABASE_URL`, `SLACK_WEBHOOK`, `dsn`, `db_pass` — with no
+- **Unconventional names.** A secret named something not on the list above
+  (`SESSION_COOKIE`, `DATABASE_URL`, `SLACK_WEBHOOK`, `dsn`, `db_pass`) with no
   recognisable token shape is kept as written.
 - **Encodings and splits.** A secret that is base64- or URL-encoded, or split
   across two fields or two lines, is not recognised: redaction sees the text as

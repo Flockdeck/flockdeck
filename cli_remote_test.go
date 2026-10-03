@@ -569,7 +569,7 @@ func TestRemoteDevicesWhileNotRunning(t *testing.T) {
 		if err := remoteCmd([]string{"devices"}, remoteIO{out: &out, running: func() bool { return running }}); err != nil {
 			t.Fatal(err)
 		}
-		if got := strings.Contains(out.String(), "desk (this one) — offline — flockdeck is not running here"); got != want {
+		if got := strings.Contains(out.String(), "desk (this one): offline, flockdeck is not running here"); got != want {
 			t.Errorf("devices with flockdeck running=%v said why it is offline: %v, want %v\n%s", running, got, want, out.String())
 		}
 	}

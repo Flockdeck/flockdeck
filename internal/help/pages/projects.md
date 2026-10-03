@@ -7,18 +7,18 @@ folder browser; [[key:projects]] does the same from the keyboard. The dialog
 also switches between the projects already open, and closes them.
 
 The rail starts as icons alone. [[key:toggleRail]] widens it into a panel of
-icons and names, or folds it back; widened, drag its right edge — or use the
-left and right arrow keys once it has the keyboard — to whatever width suits
+icons and names, or folds it back; widened, drag its right edge (or use the
+left and right arrow keys once it has the keyboard) to whatever width suits
 you. Both are kept, and are what a new window opens onto.
 
-Several projects stay open at once and **switching does not stop anything** —
-the other project's agents keep working. Its tile carries a pulsing cyan badge
+Several projects stay open at once and **switching does not stop anything**.
+The other project's agents keep working. Its tile carries a pulsing cyan badge
 while they do, and an amber one if any of them starts waiting on you while you
 are elsewhere; amber wins when both are true. With the rail widened, the count
 of waiting (`▲`) or working (`●`) agents is written beside the project's name.
 
 Each project keeps its own tabs, its own layout, its own restored
-conversations, and its own default agent and model — so the repository you
+conversations, and its own default agent and model. The repository you
 want Codex on gets Codex from the plain one-keystroke split, while everything
 else goes on getting Claude Code.
 
@@ -32,7 +32,7 @@ the tab still says which is which.
 
 The tab goes on belonging to the project it was made in, and is saved with that
 project's layout. Reopening it brings the other project back too, since the
-agent on it belongs there — and closing that project stops the agent wherever
+agent on it belongs there, and closing that project stops the agent wherever
 it is being shown.
 
 ## Opening one
@@ -44,13 +44,13 @@ whichever folder the browser is showing.
 
 The eight most recent projects are shown, with the rest a click away, and the
 `×` beside one takes it off the list. Once more than one project is open, each
-open one has a `×` of its own that closes it — after asking, if any of its
+open one has a `×` of its own that closes it, after asking if any of its
 agents is working or waiting on you.
 
 ## Grouping several directories into one project
 
-A project can be more than one directory — sibling repositories, or a repo
-alongside a plain folder of docs or notes — treated as one: they share a
+A project can be more than one directory (sibling repositories, or a repo
+alongside a plain folder of docs or notes), treated as one: they share a
 name and a tile in the rail, the switcher shows one entry instead of several
 unrelated-looking ones, and an agent in one can see what the others are
 doing.
@@ -58,18 +58,18 @@ doing.
 **Group open projects…**, at the top of the projects dialog's Open list once
 two or more projects are open, ticks two or more of the projects already open and merges them into one, named however you like.
 **Add directory…**, offered on an existing project's own row, adds another
-into it without leaving the dialog — the same browser used to open a
+into it without leaving the dialog. It is the same browser used to open a
 project, which flags git repositories but does not require one: a plain
 folder joins just as readily.
 
 A grouped project's row expands (▸ / ▾) to show every member. Clicking a
 member's name goes straight to it rather than wherever the project was last
 left; its **Agent** and **Shell** buttons open a tab there without switching
-first, and **×** splits it back out into a project of its own — which does
+first, and **×** splits it back out into a project of its own. That does
 not close it, and touches nothing on disk.
 
 A member does not need a git repository. One that has none simply has
-nothing to show in [[key:changes]] or [[key:worktrees]] — every other part
+nothing to show in [[key:changes]] or [[key:worktrees]]. Every other part
 of the project works the same either way.
 
 ## Managing the list
@@ -77,26 +77,26 @@ of the project works the same either way.
 Every project, open or not, carries a small row of its own controls:
 
 - **✎ Rename** gives it a name of its own, shown everywhere the project's
-  name appears — the rail, the top bar, the switcher, another project's pane
-  headers — in place of the one taken from its folder. Renaming to nothing
+  name appears (the rail, the top bar, the switcher, another project's pane
+  headers) in place of the one taken from its folder. Renaming to nothing
   goes back to that one.
 - **Archive** keeps a project out of the Recent list without touching
   anything on disk or closing it if it is open; it moves into its own
   Archived section, folded away behind a button until you ask to see it.
   **Unarchive** brings it back. Archiving the project you are working in does
-  not close it — it simply stops cluttering the picker the next time it is
+  not close it. It simply stops cluttering the picker the next time it is
   closed.
 - **▲ ▼ Move** reorders a project within the Recent or Archived list it is
   in. A list nobody has reordered still sorts by when it was last used, as
   it always did; moving one project the first time puts the whole list in an
   order you keep from then on.
 - **×** (Recent and Archived only) drops a project from the list, the way it
-  always has — nothing on disk is touched, and opening the folder again puts
+  always has. Nothing on disk is touched, and opening the folder again puts
   it straight back.
 
 **Default agent…**, offered on the project you are in, is the same
 per-project default the agent picker's own "Set as default for" checkbox
-saves (see [Agents and models](#agents)) — reached here without starting a
+saves (see [Agents and models](#agents)), reached here without starting a
 pane first.
 
 ## From the command line
@@ -106,7 +106,7 @@ flockdeck -C ~/code/api
 ```
 
 This does not start a second set of agents. It finds the instance already
-running, hands it the directory, and opens a window onto it — so the project
+running, hands it the directory, and opens a window onto it, so the project
 joins the session you already have.
 
 Closing a project closes its panes, which stops its agents and ends what was

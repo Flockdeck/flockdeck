@@ -105,7 +105,7 @@ func runUpdate(args []string) error {
 		staged, err = selfupdate.Stage(ctx, rel, dir)
 		if err != nil {
 			if errors.Is(err, selfupdate.ErrNoAsset) {
-				return fmt.Errorf("%w — nothing was built for this platform", err)
+				return fmt.Errorf("%w: nothing was built for this platform", err)
 			}
 			return explainUnreachable(err, "download the release")
 		}
@@ -124,7 +124,7 @@ func runUpdate(args []string) error {
 		if runtime.GOOS == "windows" {
 			how = "from an administrator shell"
 		}
-		return fmt.Errorf("%w\n\nThe download is fine and is still staged. This usually means\n%s cannot be written to — try again %s,\nor move the program somewhere you own", err, exe, how)
+		return fmt.Errorf("%w\n\nThe download is fine and is still staged. This usually means\n%s cannot be written to. Try again %s,\nor move the program somewhere you own", err, exe, how)
 	}
 
 	fmt.Printf("Updated to %s. It will be in use from the next start.\n", staged.Version)
@@ -211,7 +211,7 @@ func runRollback(ctx context.Context, f updateFlags) error {
 	staged, err := selfupdate.Stage(ctx, rel, dir)
 	if err != nil {
 		if errors.Is(err, selfupdate.ErrNoAsset) {
-			return fmt.Errorf("%w — nothing was built for this platform", err)
+			return fmt.Errorf("%w: nothing was built for this platform", err)
 		}
 		return explainUnreachable(err, "download the release")
 	}
@@ -227,7 +227,7 @@ func runRollback(ctx context.Context, f updateFlags) error {
 		if runtime.GOOS == "windows" {
 			how = "from an administrator shell"
 		}
-		return fmt.Errorf("%w\n\nThe download is fine and is still staged. This usually means\n%s cannot be written to — try again %s,\nor move the program somewhere you own", err, exe, how)
+		return fmt.Errorf("%w\n\nThe download is fine and is still staged. This usually means\n%s cannot be written to. Try again %s,\nor move the program somewhere you own", err, exe, how)
 	}
 
 	fmt.Printf("Installed %s. It will be in use from the next start.\n", staged.Version)
@@ -333,7 +333,7 @@ func installVersionNow(ctx context.Context, srv *server.Server, target string) (
 	staged, err := selfupdate.StageChosen(ctx, rel, dir)
 	if err != nil {
 		if errors.Is(err, selfupdate.ErrNoAsset) {
-			return err.Error() + " — nothing was built for this platform", true
+			return err.Error() + ": nothing was built for this platform", true
 		}
 		return explainUnreachable(err, "download the release").Error(), true
 	}
@@ -735,7 +735,7 @@ func checkRound(ctx context.Context, dir string, srv *server.Server) (message st
 	p, err := selfupdate.Stage(ctx, latest, dir)
 	if err != nil {
 		if errors.Is(err, selfupdate.ErrNoAsset) {
-			return fmt.Sprintf("%v — nothing was built for this platform", err), true
+			return fmt.Sprintf("%v: nothing was built for this platform", err), true
 		}
 		return explainUnreachable(err, "download the release").Error(), true
 	}

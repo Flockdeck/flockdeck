@@ -9,29 +9,28 @@ For a plan you want to work through over days rather than start all at once,
 see [Todo](#todo) instead.
 
 For a Claude Code pane, and for a model API spoken to through the built-in
-chat client, the list is read out of the agent's own stored conversation — the
-markdown it actually produced, rather than the wrapped and redrawn version of
-it on screen — from its latest reply that holds one, so a plan followed by an
+chat client, the list is read out of the agent's own stored conversation (the
+markdown it actually produced, not the wrapped and redrawn version of
+it on screen) from its latest reply that holds one, so a plan followed by an
 answer to a follow-up question is not lost. Any other pane, shells among them,
 falls back to the screen and is more often wrong for it.
 
 ## What the dialog does
 
 The plan is shown as a list of **Tasks**, one row each, every row its own
-field. **Nothing runs until you say so** — the list is a suggestion, not a
-decision. Edit a row in place, empty it to take the task out, and type a task
+field. **Nothing runs until you say so.** The list is a suggestion. Edit a row in place, empty it to take the task out, and type a task
 the agent missed into **Add a task…** below the last row. <kbd>Enter</kbd>
 moves to the next row rather than starting anything. A list of several lines
 pasted into a row becomes that many tasks; **Edit as text** swaps the rows for
 one box with a task per line, for pasting or rewriting the whole list at once,
 and pressing it again brings the rows back.
 
-The footer counts what will start — how many agents, and on which models — and
+The footer counts what will start, how many agents and on which models, and
 **Start agents** (it reads **Start 3 agents** and so on) is what starts them,
 as does <kbd>Ctrl</kbd>+<kbd>Enter</kbd> anywhere in the dialog. **Cancel**, or
 <kbd>Esc</kbd>, closes it without starting any.
 
-If the pane ends in a question the agent is asking you — a permission prompt —
+If the pane ends in a question the agent is asking you (a permission prompt),
 the dialog says so rather than offering the prompt's choices as tasks: answer
 it in the pane, then fan out again, or type the tasks yourself. A pane with no
 plan in it opens on an empty list, ready to type into.
@@ -41,13 +40,13 @@ These choices go with it:
 - **Model for every task.** One control at the top sets the agent and model
   the whole run uses, and starts on the project's default; each row has a
   control of its own, on **Same as the run** until you change it, so twelve
-  tasks can be split between two agents on purpose — the one that is good at
+  tasks can be split between two agents on purpose: the one that is good at
   the refactor and the cheap one that is good enough for the six renames.
   These controls are shown only where there is more than one agent or model to
   choose from.
 - **Routing**, when it is on for the project. A row whose task one of the
-  rules matches comes with its model already set — a smaller one for
-  mechanical work, a stronger one for hard work — and tagged **↘ routed** or
+  rules matches comes with its model already set (a smaller one for
+  mechanical work, a stronger one for hard work) and tagged **↘ routed** or
   **↗ routed**; the tag's tooltip gives the rule's reason. A line under the
   run's model sums it up, as in **Routing: 2 down, 1 up**, beside **Undo
   routing**, which puts every routed row back on the run's model. Change a
@@ -64,15 +63,15 @@ Under **Where they run**:
   repository the switch is off and says the agents share this directory.
   [Git worktrees](#worktrees) covers what you can do with them afterwards.
 - **New tab** or **Beside the planner.** A new tab of their own is called
-  **Fan out** — or is named after the task, when there is only one; beside
+  **Fan out**, or is named after the task when there is only one. Beside
   the planner puts them in this tab, next to the agent that planned them.
-  Either way they end up in one tab together rather than a tab each: a dozen
-  agents is a dozen tabs nobody can read, and a fan-out is precisely when you
-  want to see them at once. Which one the dialog opens on is set under
+  Either way they end up in one tab together, not a tab each: a dozen
+  tabs is more than anybody can read, and a fan-out is when you
+  want to see the agents at once. Which one the dialog opens on is set under
   **Settings › General › New panes**.
 - **Trust the new worktrees.** A fresh worktree is a directory the agent has
-  never seen, so an agent with a trust question of its own — Claude Code has
-  one — would stop and ask whether the folder is trusted before doing any work,
+  never seen, so an agent with a trust question of its own (Claude Code has
+  one) would stop and ask whether the folder is trusted before doing any work,
   once per child. If the folder you are fanning out from is already trusted,
   this carries that same answer over to the folder each child works in. It will
   not invent trust: the box can be ticked only when the source directory is
@@ -85,13 +84,13 @@ Under **Where they run**:
   shown only when the run starts Claude Code.
 
 Each task is handed to the agent as its opening argument rather than typed into
-the terminal, so it is submitted the moment the agent starts rather than
-depending on guessing when the interface is ready.
+the terminal, so it is submitted the moment the agent starts, with no guessing
+when the interface is ready.
 
 ## How they are arranged
 
-The children are laid out in rows of even columns — three panes are a row of
-three, twelve are three rows of four — and the grid is rebuilt as each one
+The children are laid out in rows of even columns (three panes are a row of
+three, twelve are three rows of four), and the grid is rebuilt as each one
 starts. A row of twelve wraps every line a terminal prints and a stack of
 twelve leaves four lines showing, so neither is a tab you can actually watch.
 
@@ -110,17 +109,17 @@ its work from [Changes](#changes).
 ## When it settles
 
 Once nothing in it is left working or starting, a gathered tab collapses to a
-summary: one line per agent, its branch, and how it stopped — done, needing
-your input, or failed, each with the detail that goes with it. A line opens
+summary: one line per agent, its branch, and how it stopped (done, needing
+your input, or failed, each with the detail that goes with it). A line opens
 its own pane the same way zooming into any other does; **Back to grid** takes
 the whole tab back to its terminals. Dismissing it this way is not permanent:
 a **Show summary** chip stays over the grid for as long as the tab stays
-settled, and brings the card straight back. Starting the tab working again —
-restarting a pane, say — clears the chip along with the dismissal.
+settled, and brings the card straight back. Starting the tab working again,
+restarting a pane, say, clears the chip along with the dismissal.
 
 Closing a settled job, tab and all or one pane at a time, does not throw its
 outcome away. [[action:fanoutHistory]], in the rail and the command palette,
-lists a project's past fan-out jobs for as long as Flockdeck runs — what was
+lists a project's past fan-out jobs for as long as Flockdeck runs: what was
 fanned out, when, and each pane's own outcome, read the same way the card
 itself reads them. It is kept in memory only: quitting Flockdeck clears it,
 the same as everything else a fan-out is not asked to write to disk.
@@ -140,8 +139,8 @@ Blank lines are not tasks and do not count towards it.
 
 A task that cannot be started does not cancel the others. Each one that fails
 is reported on its own, and the summary at the end says how many agents
-started and how many did not — a fan-out opens a screenful of panes, and
-without the count a task that never started reads as one you simply lost track
+started and how many did not. A fan-out opens a screenful of panes, and
+without the count a task that never started reads as one you lost track
 of among the ones that did.
 
 A worktree cut for an agent that then failed to start is removed again, so the
@@ -163,8 +162,8 @@ itself out. Only processes running inside a pane can do this: the token never
 leaves the environment the pane was started with.
 
 A helper started this way is its parent's responsibility to watch, not yours:
-its finishing and going quiet never raises a phone push, a desktop
-notification or counts toward the waiting badges, since Claude Code's own
-idle nudge means nothing more than that the pane has gone quiet — true of
-any pane, not only a helper's. A helper asking permission or a real question
+its finishing and going quiet never raises a phone push or a desktop
+notification, and never counts toward the waiting badges. Claude Code's own
+idle nudge means only that the pane has gone quiet, which is true of
+any pane. A helper asking permission or a real question
 still turns amber and reaches you as usual, since only you can answer those.
