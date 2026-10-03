@@ -22,21 +22,20 @@ import (
 // replayed as the output it is, so neither is touched.
 func TestAFreshAttachRepaintsAFullScreenProgram(t *testing.T) {
 	var full atomic.Bool
-	wasAlt, wasResize, wasGap, wasWait := altScreen, repaintResize, repaintGap, unsizedRepaintWait
-	t.Cleanup(func() { altScreen, repaintResize, repaintGap, unsizedRepaintWait = wasAlt, wasResize, wasGap, wasWait })
-	altScreen = func(*session.Session) bool { return full.Load() }
+	rp := defaultRepaintHooks()
+	rp.altScreen = func(*session.Session) bool { return full.Load() }
 	// Each window here says its size, and it is that size the repaint is
 	// wanted at; one that has not said by the time a slow shell has echoed
 	// is TestAWindowThatNeverSaysItsSizeIsRepaintedAnyway's.
-	unsizedRepaintWait = time.Hour
+	rp.unsizedWait = time.Hour
 	var mu sync.Mutex
 	var steps []string
-	repaintResize = func(_ *Server, _ string, cols, rows int) {
+	rp.resize = func(_ *Server, _ string, cols, rows int) {
 		mu.Lock()
 		steps = append(steps, fmt.Sprintf("%dx%d", cols, rows))
 		mu.Unlock()
 	}
-	repaintGap = 20 * time.Millisecond
+	rp.gap = 20 * time.Millisecond
 	taken := func() []string {
 		mu.Lock()
 		defer mu.Unlock()
@@ -64,6 +63,7 @@ func TestAFreshAttachRepaintsAFullScreenProgram(t *testing.T) {
 	}
 
 	srv, _ := newTestServer(t)
+	srv.rp = rp
 	paneID := nextState(t, dialControl(t, srv), nil).Tabs[0].Root.Pane
 
 	// A fresh attach to a full-screen program.
@@ -120,18 +120,17 @@ func TestAFreshAttachRepaintsAFullScreenProgram(t *testing.T) {
 // without this at all -- the ordinary cost of arriving at a pane somebody else
 // already has open.
 func TestASecondFreshAttachIsNotRepaintedForWhileTheFirstIsWatching(t *testing.T) {
-	wasAlt, wasResize, wasGap, wasWait := altScreen, repaintResize, repaintGap, unsizedRepaintWait
-	t.Cleanup(func() { altScreen, repaintResize, repaintGap, unsizedRepaintWait = wasAlt, wasResize, wasGap, wasWait })
-	altScreen = func(*session.Session) bool { return true }
-	unsizedRepaintWait = time.Hour
+	rp := defaultRepaintHooks()
+	rp.altScreen = func(*session.Session) bool { return true }
+	rp.unsizedWait = time.Hour
 	var mu sync.Mutex
 	var steps []string
-	repaintResize = func(_ *Server, _ string, cols, rows int) {
+	rp.resize = func(_ *Server, _ string, cols, rows int) {
 		mu.Lock()
 		steps = append(steps, fmt.Sprintf("%dx%d", cols, rows))
 		mu.Unlock()
 	}
-	repaintGap = 20 * time.Millisecond
+	rp.gap = 20 * time.Millisecond
 	taken := func() []string {
 		mu.Lock()
 		defer mu.Unlock()
@@ -153,6 +152,7 @@ func TestASecondFreshAttachIsNotRepaintedForWhileTheFirstIsWatching(t *testing.T
 	}
 
 	srv, _ := newTestServer(t)
+	srv.rp = rp
 	paneID := nextState(t, dialControl(t, srv), nil).Tabs[0].Root.Pane
 
 	// The first window to attach is repainted for, same as ever.
@@ -219,20 +219,20 @@ func TestASecondFreshAttachIsNotRepaintedForWhileTheFirstIsWatching(t *testing.T
 // two real websocket dials: both attaches share the one pty behind the
 // pane, and only one goroutine may safely type into it at a time.
 func TestTwoSimultaneousFreshAttachesAtLeastOneIsRepainted(t *testing.T) {
-	wasAlt, wasResize, wasGap, wasWait := altScreen, repaintResize, repaintGap, unsizedRepaintWait
-	t.Cleanup(func() { altScreen, repaintResize, repaintGap, unsizedRepaintWait = wasAlt, wasResize, wasGap, wasWait })
-	altScreen = func(*session.Session) bool { return true }
-	unsizedRepaintWait = time.Hour
+	rp := defaultRepaintHooks()
+	rp.altScreen = func(*session.Session) bool { return true }
+	rp.unsizedWait = time.Hour
 	var mu sync.Mutex
 	var steps []string
-	repaintResize = func(_ *Server, _ string, cols, rows int) {
+	rp.resize = func(_ *Server, _ string, cols, rows int) {
 		mu.Lock()
 		steps = append(steps, fmt.Sprintf("%dx%d", cols, rows))
 		mu.Unlock()
 	}
-	repaintGap = 20 * time.Millisecond
+	rp.gap = 20 * time.Millisecond
 
 	srv, ws := newTestServer(t)
+	srv.rp = rp
 	paneID := nextState(t, dialControl(t, srv), nil).Tabs[0].Root.Pane
 	sess, ok := ask(srv, func() *session.Session {
 		if p := ws.Pane(paneID); p != nil {
@@ -246,7 +246,7 @@ func TestTwoSimultaneousFreshAttachesAtLeastOneIsRepainted(t *testing.T) {
 
 	// Each of the two windows measures its own size before subscribing, as a
 	// real one does on connecting, so armRepaint's already-sized branch fires
-	// the repaint at once instead of waiting on unsizedRepaintWait (disabled
+	// the repaint at once instead of waiting on rp.unsizedWait (disabled
 	// above, to keep either window's own timer from masking the other's
 	// decision).
 	start := make(chan struct{})

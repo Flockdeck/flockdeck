@@ -75,6 +75,9 @@ type Server struct {
 	ws    *workspace.Workspace
 	token string
 
+	// rp is what a repaint does at each step; see repaintHooks.
+	rp repaintHooks
+
 	// links are the one-time links a window may be opened with, each with
 	// when it stops working and, where the caller has said (see SetLinkFile),
 	// the file on this machine it was written into as a local redirect --
@@ -327,6 +330,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		asked:   make(chan struct{}, 1),
 		gitNow:  make(chan struct{}, 1),
 		closed:  make(chan struct{}),
+		rp:      defaultRepaintHooks(),
 
 		linkLife:      windowLinkLife,
 		loopDone:      make(chan struct{}),

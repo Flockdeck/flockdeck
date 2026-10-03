@@ -775,6 +775,32 @@ func waitForStatus(t *testing.T, s *Session, want Status, d time.Duration) {
 // Without it a build running flat out and a prompt nobody has typed at are the
 // same dot in the tab bar.
 func TestOutputMarksAPaneWorkingUntilItGoesQuiet(t *testing.T) {
+	// Output arriving inside the quiet period keeps the pane working, and does
+	// not restart the clock: how long it has been busy is the useful number.
+	// The quiet period here is a minute, not shellPane's short one, so that
+	// what is tested is that output inside it changes nothing, rather than how
+	// fast this machine gets back to the next line of the test: a pause past a
+	// short period -- a loaded runner, a timer that wakes late -- let the pane
+	// go idle and work again between two lines, which is the restarted clock
+	// this once reported 15 times in 100 on a loaded machine.
+	busy := shellPane()
+	busy.idleAfter = time.Minute
+	busy.publish([]byte("compiling one.go\n"))
+	if st, _ := busy.Status(); st != StatusWorking {
+		t.Fatalf("status = %v, want working while a pane is printing", st)
+	}
+	since := busy.StatusSince()
+	for i := 0; i < 5; i++ {
+		busy.publish([]byte("compiling.\n"))
+		if st, _ := busy.Status(); st != StatusWorking {
+			t.Fatalf("status = %v part way through a run of output, want working", st)
+		}
+	}
+	if got := busy.StatusSince(); !got.Equal(since) {
+		t.Errorf("the busy clock restarted mid-run: %v then %v", since, got)
+	}
+
+	// Then a pane that is left alone goes quiet.
 	s := shellPane()
 	changed := make(chan struct{}, 32)
 	s.OnChange = func() {
@@ -783,24 +809,9 @@ func TestOutputMarksAPaneWorkingUntilItGoesQuiet(t *testing.T) {
 		default:
 		}
 	}
-
 	s.publish([]byte("compiling one.go\n"))
 	if st, _ := s.Status(); st != StatusWorking {
 		t.Fatalf("status = %v, want working while a pane is printing", st)
-	}
-	busy := s.StatusSince()
-
-	// Output arriving inside the quiet period keeps the pane working, and does
-	// not restart the clock: how long it has been busy is the useful number.
-	for i := 0; i < 5; i++ {
-		time.Sleep(15 * time.Millisecond)
-		s.publish([]byte("compiling.\n"))
-		if st, _ := s.Status(); st != StatusWorking {
-			t.Fatalf("status = %v part way through a run of output, want working", st)
-		}
-	}
-	if got := s.StatusSince(); !got.Equal(busy) {
-		t.Errorf("the busy clock restarted mid-run: %v then %v", busy, got)
 	}
 
 	waitForStatus(t, s, StatusIdle, 5*time.Second)

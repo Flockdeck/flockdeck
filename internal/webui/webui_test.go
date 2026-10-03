@@ -9515,9 +9515,15 @@ function boot(opts) {
      *  timeoutMs has passed without it -- for a case that needs to wait on
      *  real async work (WebCrypto, the fake IndexedDB's own setImmediate
      *  hops) with no event of its own to await, where a fixed h.sleep is a
-     *  race against however fast the machine running it happens to be. */
+     *  race against however fast the machine running it happens to be.
+     *
+     *  The time allowed is only how long a failure takes to be told: a wait
+     *  that is going to succeed returns the moment it does. It is generous
+     *  because the work waited for is key generation and encryption, which a
+     *  loaded Windows runner took several seconds over, and a wait of a second
+     *  rejected a window that was working. */
     async waitFor(cond, timeoutMs) {
-      const deadline = Date.now() + (timeoutMs || 1000);
+      const deadline = Date.now() + (timeoutMs || 20000);
       for (;;) {
         if (cond()) return;
         if (Date.now() >= deadline) throw new Error("harness: waitFor timed out");

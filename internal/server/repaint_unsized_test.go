@@ -18,18 +18,17 @@ import (
 // showed the garbage until the program next redrew of its own accord. Left
 // unsized for a moment, the pane is repainted at the size it already is.
 func TestAWindowThatNeverSaysItsSizeIsRepaintedAnyway(t *testing.T) {
-	wasAlt, wasResize, wasGap, wasWait := altScreen, repaintResize, repaintGap, unsizedRepaintWait
-	t.Cleanup(func() { altScreen, repaintResize, repaintGap, unsizedRepaintWait = wasAlt, wasResize, wasGap, wasWait })
-	altScreen = func(*session.Session) bool { return true }
+	rp := defaultRepaintHooks()
+	rp.altScreen = func(*session.Session) bool { return true }
 	var mu sync.Mutex
 	var steps []string
-	repaintResize = func(_ *Server, _ string, cols, rows int) {
+	rp.resize = func(_ *Server, _ string, cols, rows int) {
 		mu.Lock()
 		steps = append(steps, fmt.Sprintf("%dx%d", cols, rows))
 		mu.Unlock()
 	}
-	repaintGap = 20 * time.Millisecond
-	unsizedRepaintWait = 50 * time.Millisecond
+	rp.gap = 20 * time.Millisecond
+	rp.unsizedWait = 50 * time.Millisecond
 	taken := func() []string {
 		mu.Lock()
 		defer mu.Unlock()
@@ -37,6 +36,7 @@ func TestAWindowThatNeverSaysItsSizeIsRepaintedAnyway(t *testing.T) {
 	}
 
 	srv, ws := newTestServer(t)
+	srv.rp = rp
 	paneID := nextState(t, dialControl(t, srv), nil).Tabs[0].Root.Pane
 	size, ok := ask(srv, func() [2]int {
 		p := ws.Pane(paneID)
@@ -82,27 +82,27 @@ func TestAWindowThatNeverSaysItsSizeIsRepaintedAnyway(t *testing.T) {
 // The wait is ended by the test rather than sat through, so the connection is
 // certainly gone by the time it is over.
 func TestAWindowThatHasGoneIsNotRepaintedFor(t *testing.T) {
-	wasAlt, wasResize, wasGap, wasAfter := altScreen, repaintResize, repaintGap, repaintAfter
-	t.Cleanup(func() { altScreen, repaintResize, repaintGap, repaintAfter = wasAlt, wasResize, wasGap, wasAfter })
-	altScreen = func(*session.Session) bool { return true }
+	rp := defaultRepaintHooks()
+	rp.altScreen = func(*session.Session) bool { return true }
 	var mu sync.Mutex
 	var steps int
-	repaintResize = func(*Server, string, int, int) {
+	rp.resize = func(*Server, string, int, int) {
 		mu.Lock()
 		steps++
 		mu.Unlock()
 	}
 	// Only a repaint's first step is counted: the one putting the pane back
 	// never comes.
-	repaintGap = time.Hour
+	rp.gap = time.Hour
 	// armRepaint is called from this goroutine, so waits needs no lock.
 	var waits []func()
-	repaintAfter = func(_ time.Duration, f func()) *time.Timer {
+	rp.after = func(_ time.Duration, f func()) *time.Timer {
 		waits = append(waits, f)
 		return time.AfterFunc(time.Hour, func() {})
 	}
 
 	srv, ws := newTestServer(t)
+	srv.rp = rp
 	paneID := nextState(t, dialControl(t, srv), nil).Tabs[0].Root.Pane
 	sess, ok := ask(srv, func() *session.Session {
 		if p := ws.Pane(paneID); p != nil {

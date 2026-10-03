@@ -160,23 +160,58 @@ func TestIgnorableCodePointsCannotSplitAName(t *testing.T) {
 
 // Threat: a hostile component made to cost CPU. A name over MaxName bytes is
 // called secret outright, and a name with many "=" is read after only a few.
-// The time for the worst names of each kind is bounded.
+// The cost of the worst names of each kind is bounded.
+//
+// The bound is how many times dearer a worst-case name is than an ordinary one
+// of the same length, never a number of seconds. Seconds were this test's flake:
+// a shared CI runner, more so under the race detector, ran the same work in
+// anything from one second to six, and a fixed limit could only be too tight on
+// a slow runner or too loose to catch anything on a fast one. A ratio taken in
+// the same process, from the fastest of several rounds of each (so a pause that
+// hit one round does not count), moves with the machine.
+//
+// What a ratio of this size catches: Component's worst case is about MaxName
+// squared byte steps, which costs a few hundred times a name read once; that is
+// the cost the package accepts, and wantAtMost is well over three times what a
+// pinned machine shows. A change that made the work cubic, or exponential in
+// the "=" count, would cost many times more again and fail however fast the
+// machine is (fifty times the work in one loop, tried, is caught).
 func TestHostileNamesAreCheap(t *testing.T) {
-	worst := []string{
-		strings.Repeat("a=", MaxName/2),
-		strings.Repeat(longS+"=", MaxName/4),
-		strings.Repeat("=", MaxName),
-		strings.Repeat("-a.bak=", MaxName/7),
-		strings.Repeat("a", MaxName),
+	const (
+		rounds     = 9
+		perRound   = 40
+		wantAtMost = 5000 // worst-case cost / ordinary cost: about 300 when quiet, about 1000 on a machine pinned by other work
+	)
+	worst := map[string]string{
+		"a=":      strings.Repeat("a=", MaxName/2),
+		"s=":      strings.Repeat(longS+"=", MaxName/4),
+		"=":       strings.Repeat("=", MaxName),
+		"-a.bak=": strings.Repeat("-a.bak=", MaxName/7),
+		"a":       strings.Repeat("a", MaxName),
 	}
-	start := time.Now()
-	for i := 0; i < 200; i++ {
-		for _, n := range worst {
-			Component(n)
+	// cost is the time of the quickest of several rounds of calls on name.
+	cost := func(name string) time.Duration {
+		best := time.Duration(1<<63 - 1)
+		for r := 0; r < rounds; r++ {
+			start := time.Now()
+			for i := 0; i < perRound; i++ {
+				Component(name)
+			}
+			if d := time.Since(start); d < best {
+				best = d
+			}
 		}
+		return best
 	}
-	if d := time.Since(start); d > 3*time.Second {
-		t.Errorf("1000 worst-case names took %v", d)
+	ordinary := cost(strings.Repeat("a", MaxName-1))
+	if ordinary <= 0 {
+		ordinary = 1 // a clock too coarse to see it: the ratio is then at its harshest
+	}
+	for label, name := range worst {
+		if c := cost(name); c > ordinary*wantAtMost {
+			t.Errorf("a name of %q repeated costs %v for %d calls, %dx an ordinary name's %v (at most %dx is allowed)",
+				label, c, perRound, c/ordinary, ordinary, wantAtMost)
+		}
 	}
 	if !Component(strings.Repeat("a", MaxName+1)) || Component(strings.Repeat("a", MaxName)) {
 		t.Error("the length limit is not at MaxName")

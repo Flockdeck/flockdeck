@@ -400,21 +400,31 @@ func TestSweepFindsWhatApplyMovedAsideThroughALink(t *testing.T) {
 // A download that keeps arriving is not cut off for being slow, and one that
 // stops arriving is given up on. The client's deadline covered reading the
 // whole body, so below about 31KB/s the Windows archive could never finish.
+//
+// Time here is the test's to give out, not the clock's. The stall is a gap
+// between two bytes longer than stallTimeout, and a gap of real time is
+// however late this machine's scheduler is: a Windows runner under load went
+// 300ms between bytes and then more than a second, and gave up on a download
+// that was still arriving, however long the allowance was made. So the wait
+// is a timer the test advances, each byte is let through only once the client
+// has read the one before, and what passes between two bytes is exactly what
+// the test says.
 func TestASlowDownloadIsKeptAndAStalledOneIsNot(t *testing.T) {
-	old := stallTimeout
-	// A whole second: a Windows runner under load has been seen to go 300ms
-	// between two of the bytes below, and give up on the download that was
-	// still arriving.
+	oldTimeout, oldAfter := stallTimeout, stallAfter
 	stallTimeout = time.Second
-	t.Cleanup(func() { stallTimeout = old })
+	clock := &fakeStall{resets: make(chan struct{}, 1024)}
+	stallAfter = clock.after
+	t.Cleanup(func() { stallTimeout, stallAfter = oldTimeout, oldAfter })
 
-	// A byte every 25ms: a second and a half in all, longer than may pass with
-	// nothing arriving, and never anywhere near that long without a byte.
 	body := bytes.Repeat([]byte("x"), 60)
+	sent := make(chan struct{})  // a byte has gone out
+	next := make(chan struct{})  // the test is ready for another
+	stuck := make(chan struct{}) // the server has stopped sending
 	hold := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for i := range body {
 			if r.URL.Path == "/stalls" && i == len(body)/2 {
+				close(stuck)
 				select {
 				case <-hold:
 				case <-r.Context().Done():
@@ -423,7 +433,16 @@ func TestASlowDownloadIsKeptAndAStalledOneIsNot(t *testing.T) {
 			}
 			w.Write(body[i : i+1])
 			w.(http.Flusher).Flush()
-			time.Sleep(25 * time.Millisecond)
+			select {
+			case sent <- struct{}{}:
+			case <-r.Context().Done():
+				return
+			}
+			select {
+			case <-next:
+			case <-r.Context().Done():
+				return
+			}
 		}
 	}))
 	t.Cleanup(srv.Close)
@@ -431,16 +450,137 @@ func TestASlowDownloadIsKeptAndAStalledOneIsNot(t *testing.T) {
 
 	h := sha256.Sum256(body)
 	want := hex.EncodeToString(h[:])
-	if err := download(context.Background(), srv.URL+"/slow", filepath.Join(t.TempDir(), "slow"), want, int64(len(body))); err != nil {
-		t.Errorf("a download that kept arriving, slowly: %v", err)
+	fetch := func(path string) chan error {
+		done := make(chan error, 1)
+		go func() {
+			done <- download(context.Background(), srv.URL+path, filepath.Join(t.TempDir(), "got"), want, int64(len(body)))
+		}()
+		return done
 	}
-	start := time.Now()
-	err := download(context.Background(), srv.URL+"/stalls", filepath.Join(t.TempDir(), "stalls"), want, int64(len(body)))
-	if err == nil || !strings.Contains(err.Error(), "stopped sending") {
-		t.Errorf("a download that stopped arriving = %v, want it given up on as having stopped", err)
+	// pace lets bytes through one at a time, a little under the allowance
+	// between each, so the download takes far longer than that in all.
+	pace := func(bytes int) {
+		t.Helper()
+		clock.forgetResets()
+		for i := 0; i < bytes; i++ {
+			select {
+			case <-sent:
+			case <-time.After(30 * time.Second):
+				t.Fatal("the server never sent a byte")
+			}
+			clock.afterNextReset(t)
+			clock.advance(stallTimeout * 6 / 10)
+			select {
+			case next <- struct{}{}:
+			case <-time.After(30 * time.Second):
+				t.Fatal("the server was not waiting for the next byte")
+			}
+		}
 	}
-	if d := time.Since(start); d > 10*time.Second {
-		t.Errorf("giving up on a stalled download took %s", d)
+
+	slow := fetch("/slow")
+	pace(len(body))
+	select {
+	case err := <-slow:
+		if err != nil {
+			t.Errorf("a download that kept arriving, slowly: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the slow download never finished")
+	}
+
+	stalls := fetch("/stalls")
+	pace(len(body) / 2)
+	select {
+	case <-stuck:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the server never stopped sending")
+	}
+	clock.advance(stallTimeout + time.Millisecond)
+	select {
+	case err := <-stalls:
+		if err == nil || !strings.Contains(err.Error(), "stopped sending") {
+			t.Errorf("a download that stopped arriving = %v, want it given up on as having stopped", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("a stalled download was not given up on")
+	}
+}
+
+// fakeStall is a timer whose time passes only when advance says. It serves as
+// stallAfter: the wait runs out once advance has carried time past the moment
+// it was last started or restarted.
+type fakeStall struct {
+	mu     sync.Mutex
+	now    time.Duration
+	fireAt time.Duration
+	armed  bool
+	f      func()
+	resets chan struct{} // one for each Reset, so a test can tell the client has read a byte
+}
+
+func (c *fakeStall) after(d time.Duration, f func()) stallTimer {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.f, c.fireAt, c.armed = f, c.now+d, true
+	return c
+}
+
+func (c *fakeStall) Reset(d time.Duration) bool {
+	c.mu.Lock()
+	was := c.armed
+	c.fireAt, c.armed = c.now+d, true
+	c.mu.Unlock()
+	select {
+	case c.resets <- struct{}{}:
+	default:
+	}
+	return was
+}
+
+func (c *fakeStall) Stop() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	was := c.armed
+	c.armed = false
+	return was
+}
+
+// afterNextReset waits for the client to read what has just been sent, which
+// restarts the wait.
+func (c *fakeStall) afterNextReset(t *testing.T) {
+	t.Helper()
+	select {
+	case <-c.resets:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the client never read the byte it was sent")
+	}
+	c.forgetResets()
+}
+
+// forgetResets drops the Resets already counted, so that the next one waited
+// for is the next byte's and not one left over.
+func (c *fakeStall) forgetResets() {
+	for {
+		select {
+		case <-c.resets:
+		default:
+			return
+		}
+	}
+}
+
+func (c *fakeStall) advance(d time.Duration) {
+	c.mu.Lock()
+	c.now += d
+	fire := c.armed && c.now >= c.fireAt
+	f := c.f
+	if fire {
+		c.armed = false
+	}
+	c.mu.Unlock()
+	if fire {
+		f()
 	}
 }
 

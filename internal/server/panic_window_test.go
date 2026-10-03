@@ -81,11 +81,40 @@ func TestACommitThatPanicsStillAnswersThePanel(t *testing.T) {
 	nextState(t, conn, nil)
 
 	sendCmd(t, conn, command{Cmd: "commit", Path: srv.activeRoot(), Text: "a message", Files: []string{"a.txt"}})
+	// The two answers are sent by two deferred calls in the commit's goroutine,
+	// the tree first and the panic after, and the tree takes however long
+	// reading it takes. Which of the two a window gets first is not the
+	// commit's to promise, so each is waited for wherever it falls: reading for
+	// the notice and then for the tree dropped the tree whenever it came first,
+	// and then waited for it until the test gave up.
 	var note noticeMsg
-	readUntil(t, conn, "notice", &note)
+	var sawNote, sawTree bool
+	for deadline := time.Now().Add(20 * time.Second); !(sawNote && sawTree); {
+		if time.Now().After(deadline) {
+			t.Fatalf("a commit that panicked answered with a notice: %v, the changes: %v; want both", sawNote, sawTree)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		_, data, err := conn.Read(ctx)
+		cancel()
+		if err != nil {
+			t.Fatalf("read control (a notice: %v, the changes: %v): %v", sawNote, sawTree, err)
+		}
+		var probe struct {
+			Type string `json:"type"`
+		}
+		_ = json.Unmarshal(data, &probe)
+		switch probe.Type {
+		case "notice":
+			var n noticeMsg
+			_ = json.Unmarshal(data, &n)
+			if n.Error && strings.Contains(n.Text, "a commit nobody expected") {
+				note, sawNote = n, true
+			}
+		case "changes":
+			sawTree = true
+		}
+	}
 	if !note.Error || !strings.Contains(note.Text, "a commit nobody expected") {
 		t.Errorf("a commit that panicked was told %+v, want the panic", note)
 	}
-	var ch changesMsg
-	readUntil(t, conn, "changes", &ch)
 }
