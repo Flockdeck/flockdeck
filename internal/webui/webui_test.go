@@ -7936,6 +7936,62 @@ assert.ok(!mark(rows[1]), "an agent with no background work was marked as having
 `)
 }
 
+// The count alone said nothing of what was running, so a pane stuck at
+// "1 in background" could not be told from one with a long build going. The
+// bubble lists each piece: what it is, what Claude Code said of it, how long
+// ago it was first seen, whether it was first seen only in a turn end's list,
+// and, where nothing was said past an id, that the details are unavailable.
+func TestTheBackgroundBadgeListsTheWork(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+const ago = (ms) => new Date(Date.now() - ms).toISOString();
+const work = [
+  { id: "b1", kind: "shell", description: "Sleep then echo", command: "sleep 15; echo a", since: ago(5 * 60e3) },
+  { id: "a7", kind: "subagent", agentType: "general-purpose", description: "Run the tests", since: ago(2 * 3600e3) },
+  { id: "m1", kind: "monitor", since: ago(10e3), listed: true },
+  { id: "t9", since: ago(10e3) },
+];
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", background: 5, backgroundWork: work }) } }));
+const wrap = h.terms[0].host.parentElement.parentElement;
+const bg = wrap.querySelector(".pane-bg");
+const tip = bg.dataset.tip || "";
+assert.ok(bg.textContent.includes("5 in background"), "the badge lost its count: " + bg.textContent);
+assert.ok(/^5 background tasks still running/.test(tip), "the bubble lost what the count means: " + tip);
+assert.strictEqual(bg.dataset.tipLines, "1", "the bubble's list is not kept one to a line");
+assert.ok(tip.includes("• Shell command: Sleep then echo\n   $ sleep 15; echo a"), "the shell is not described: " + tip);
+assert.ok(/first seen 5 minutes ago/.test(tip), "how long ago the shell was first seen is missing: " + tip);
+assert.ok(tip.includes("• Subagent (general-purpose): Run the tests"), "the subagent is not described: " + tip);
+assert.ok(/first seen 2 hours ago/.test(tip), "the subagent's age is missing: " + tip);
+assert.ok(/• Monitor m1 — details unavailable \(count only\)/.test(tip), "a monitor that said nothing was not called so: " + tip);
+assert.ok(/seen since [^;]*; already running, so it may have started earlier/.test(tip), "work first seen in a list is not marked so: " + tip);
+assert.ok(/• Background task t9 — details unavailable \(count only\)/.test(tip), "work of no known kind was not called so: " + tip);
+assert.ok(/…and 1 more not listed/.test(tip), "the work past the list is not counted: " + tip);
+
+// A cut is made by code point, never through a surrogate pair, and work first
+// seen days ago says on which day.
+const smile = String.fromCodePoint(0x1F600);
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", background: 1, backgroundWork: [
+  { id: "b3", kind: "shell", description: smile.repeat(120), since: ago(3 * 86400e3) },
+] }) } }));
+const tip2 = bg.dataset.tip || "";
+assert.ok(tip2.includes(smile.repeat(89) + "…"), "a long description was not cut to 90 characters by code point");
+assert.ok(!tip2.includes(smile.repeat(89) + smile.charAt(0) + "…"), "a cut split a surrogate pair");
+const day = new Date(Date.now() - 3 * 86400e3).toLocaleDateString([], { day: "numeric", month: "short" });
+assert.ok(tip2.includes("first seen 3 days ago (started " + day + " "), "work first seen days ago does not say the day: " + tip2);
+
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "one", name: "a", status: "idle", background: 1, backgroundWork: [work[0]] },
+] });
+const mark = h.$("overlay-body").querySelectorAll("div.agent-row")[0].querySelector(".agent-bg");
+assert.ok(mark && (mark.dataset.tip || "").includes("• Shell command: Sleep then echo"), "the agents list's bubble does not list the work: " + (mark && mark.dataset.tip));
+
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle" }) } }));
+assert.strictEqual(bg.dataset.tip, undefined, "the bubble outlived the background work");
+assert.strictEqual(bg.dataset.tipLines, undefined, "the list's line breaks outlived the background work");
+`)
+}
+
 // A pane's header counts its checkout's changes, and nothing went from the
 // counts to the changes: the review was a trip to the top bar.
 func TestAPanesChangeCountsOpenItsReview(t *testing.T) {

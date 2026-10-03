@@ -690,14 +690,21 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	// Only SessionStart of a source that begins a fresh conversation forgets
 	// background work; a compaction or resume goes on with the same one.
 	if ev.Background != "" {
-		sess.NoteBackground(ev.Event, ev.Background, ev.BackgroundID)
+		sess.NoteBackgroundWork(ev.Event, ev.Background, ev.BackgroundID, backgroundInfo(ev.BackgroundInfo))
 	} else if ev.Event == "SessionStart" && (ev.Source == "clear" || ev.Source == "startup") {
 		sess.NoteBackground(ev.Event, "", "")
 	}
 	// A turn's end says what is still in flight, which is the whole of it:
 	// what was counted one start and end at a time gives way to it.
 	if ev.BackgroundTasks != nil {
-		sess.SetBackground(*ev.BackgroundTasks)
+		var info map[string]session.BackgroundInfo
+		for id, b := range ev.BackgroundTaskInfo {
+			if info == nil {
+				info = map[string]session.BackgroundInfo{}
+			}
+			info[id] = backgroundInfo(&b)
+		}
+		sess.SetBackgroundWork(*ev.BackgroundTasks, info)
 	}
 
 	// A recording pane's transcript is made from what the agent has stored,
@@ -3444,4 +3451,13 @@ func (w *Workspace) OpenConversationAs(id, cwd, title, agentID string) error {
 	w.activeTab = t.ID
 	w.wake()
 	return nil
+}
+
+// backgroundInfo is what a hook said of a piece of background work, in the
+// session's terms; an event that said nothing gives the zero value.
+func backgroundInfo(b *hooks.BackgroundInfo) session.BackgroundInfo {
+	if b == nil {
+		return session.BackgroundInfo{}
+	}
+	return session.BackgroundInfo{Type: b.Type, AgentType: b.AgentType, Description: b.Description, Command: b.Command}
 }

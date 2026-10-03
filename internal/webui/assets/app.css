@@ -2467,6 +2467,9 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
   box-shadow: var(--shadow-2);
   pointer-events: none;
 }
+/* A bubble that lists things, the background work behind "◔ 2 in
+ * background" say, one to a line. */
+.tip.tip-lines { white-space: pre-line; max-width: 380px; }
 
 /* ---------------------------------------------------------- narrow screens */
 

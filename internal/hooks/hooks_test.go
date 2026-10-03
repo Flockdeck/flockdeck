@@ -1005,3 +1005,166 @@ func TestEmitCapsTheEditsOfAMultiEditTogether(t *testing.T) {
 		t.Errorf("ToolInput is %d bytes, want it bounded", len(got.ToolInput))
 	}
 }
+
+// TestEmitSaysWhatBackgroundWorkIs covers BackgroundInfo and
+// BackgroundTaskInfo: what a start of background work, and a Stop's list of
+// what is still running, say of each piece -- redacted and cut to a line, and
+// nothing at all where the payload says nothing.
+func TestEmitSaysWhatBackgroundWorkIs(t *testing.T) {
+	t.Run("a background command's start", func(t *testing.T) {
+		srv, r := newServer(t)
+		stdin := `{"hook_event_name":"PostToolUse","tool_name":"Bash",` +
+			`"tool_input":{"command":"curl -H 'Authorization: Bearer abcdefghijklmnopqrstuvwx' https://x\n  && sleep 8","description":"Fetch then sleep","run_in_background":true},` +
+			`"tool_response":{"backgroundTaskId":"b8qs3bzx9"},"tool_use_id":"toolu_1"}`
+		if _, err := Emit(strings.NewReader(stdin), srv.Endpoint(), srv.Token(), "pane-bg", "PostToolUse"); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		got := r.next(t)
+		if got.BackgroundInfo == nil {
+			t.Fatal("a background command's start says nothing of the command")
+		}
+		b := *got.BackgroundInfo
+		if b.Type != "shell" || b.Description != "Fetch then sleep" {
+			t.Errorf("info = %+v", b)
+		}
+		if strings.Contains(b.Command, "abcdefghijklmnop") || !strings.Contains(b.Command, "[redacted]") {
+			t.Errorf("the command's secret was not redacted: %q", b.Command)
+		}
+		if strings.Contains(b.Command, "\n") || !strings.Contains(b.Command, "https://x && sleep 8") {
+			t.Errorf("the command was not put on one line: %q", b.Command)
+		}
+	})
+	t.Run("a long description is cut", func(t *testing.T) {
+		srv, r := newServer(t)
+		stdin := `{"tool_name":"Bash","tool_input":{"command":"sleep 1","description":"` + strings.Repeat("é", 300) + `","run_in_background":true},"tool_response":{"shell_id":"b1"}}`
+		if _, err := Emit(strings.NewReader(stdin), srv.Endpoint(), srv.Token(), "pane-bg", "PostToolUse"); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		got := r.next(t)
+		if got.BackgroundInfo == nil {
+			t.Fatal("no info")
+		}
+		d := got.BackgroundInfo.Description
+		if len(d) > maxBackgroundText || !strings.HasSuffix(d, "…") || !utf8.ValidString(d) {
+			t.Errorf("description of %d bytes, ends %q", len(d), d[len(d)-4:])
+		}
+	})
+	t.Run("a subagent's start", func(t *testing.T) {
+		srv, r := newServer(t)
+		if _, err := Emit(strings.NewReader(`{"agent_id":"a7","agent_type":"general-purpose"}`), srv.Endpoint(), srv.Token(), "pane-bg", "SubagentStart"); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		got := r.next(t)
+		if got.BackgroundInfo == nil || got.BackgroundInfo.Type != "subagent" || got.BackgroundInfo.AgentType != "general-purpose" {
+			t.Errorf("info = %+v", got.BackgroundInfo)
+		}
+	})
+	t.Run("a start that says nothing", func(t *testing.T) {
+		srv, r := newServer(t)
+		if _, err := Emit(strings.NewReader(`{"agent_id":"a7"}`), srv.Endpoint(), srv.Token(), "pane-bg", "SubagentStart"); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		if got := r.next(t); got.BackgroundInfo != nil {
+			t.Errorf("info made up from nothing: %+v", *got.BackgroundInfo)
+		}
+	})
+	t.Run("a Stop's list", func(t *testing.T) {
+		srv, r := newServer(t)
+		stdin := `{"hook_event_name":"Stop","background_tasks":[` +
+			`{"id":"a24a75d5a81a9c58f","type":"subagent","status":"running","description":"Run sleep 6 and reply done","agent_type":"general-purpose"},` +
+			`{"id":"bmxcupw20","type":"shell","status":"running","description":"Background sleep and echo command","command":"sleep 15; echo a"},` +
+			`{"id":"m1","type":"monitor","status":"running"}]}`
+		if _, err := Emit(strings.NewReader(stdin), srv.Endpoint(), srv.Token(), "pane-bg", "Stop"); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		got := r.next(t)
+		want := map[string]BackgroundInfo{
+			"agent:a24a75d5a81a9c58f": {Type: "subagent", AgentType: "general-purpose", Description: "Run sleep 6 and reply done"},
+			"shell:bmxcupw20":         {Type: "shell", Description: "Background sleep and echo command", Command: "sleep 15; echo a"},
+		}
+		if !reflect.DeepEqual(got.BackgroundTaskInfo, want) {
+			t.Errorf("task info = %+v, want %+v", got.BackgroundTaskInfo, want)
+		}
+		if got.BackgroundTasks == nil || len(*got.BackgroundTasks) != 3 {
+			t.Errorf("the count lost the monitor that said nothing: %v", got.BackgroundTasks)
+		}
+	})
+}
+
+// TestAFieldOfAnUnexpectedTypeCostsOnlyItself covers the fields read only to
+// be shown: one Claude Code sends as an object or array rather than a string
+// is taken as unsaid, and the event -- its background start or end, a Stop's
+// replacing list, its prompt -- arrives as it would have without it.
+func TestAFieldOfAnUnexpectedTypeCostsOnlyItself(t *testing.T) {
+	emit := func(t *testing.T, event, stdin string) Event {
+		t.Helper()
+		srv, r := newServer(t)
+		if _, err := Emit(strings.NewReader(stdin), srv.Endpoint(), srv.Token(), "pane-bg", event); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		return r.next(t)
+	}
+	t.Run("SubagentStart", func(t *testing.T) {
+		got := emit(t, "SubagentStart", `{"cwd":"/repo","agent_id":"a7","agent_type":{"x":1},"description":["y"]}`)
+		if got.Background != BackgroundStart || got.BackgroundID != "agent:a7" || got.Cwd != "/repo" {
+			t.Errorf("event lost: %+v", got)
+		}
+		if got.BackgroundInfo != nil {
+			t.Errorf("non-strings made into info: %+v", *got.BackgroundInfo)
+		}
+	})
+	t.Run("Stop, details of the wrong type", func(t *testing.T) {
+		got := emit(t, "Stop", `{"cwd":"/repo","background_tasks":[`+
+			`{"id":"b1","type":"shell","command":["x"],"description":{"a":1}},`+
+			`{"id":"a2","type":"subagent","agent_type":7,"description":"Run tests"},`+
+			`{"id":"m1","type":"monitor"}]}`)
+		if got.Cwd != "/repo" || got.BackgroundTasks == nil {
+			t.Fatalf("event lost: %+v", got)
+		}
+		if want := []string{"shell:b1", "agent:a2", "monitor:m1"}; !reflect.DeepEqual(*got.BackgroundTasks, want) {
+			t.Errorf("tasks = %v, want %v", *got.BackgroundTasks, want)
+		}
+		want := map[string]BackgroundInfo{"agent:a2": {Type: "subagent", Description: "Run tests"}}
+		if !reflect.DeepEqual(got.BackgroundTaskInfo, want) {
+			t.Errorf("info = %+v, want %+v", got.BackgroundTaskInfo, want)
+		}
+	})
+	// A list that cannot be read whole says nothing of what is running: it
+	// must not replace what is counted, with nothing or with part of it.
+	// The rest of the event still arrives.
+	for name, list := range map[string]string{
+		"bare strings":        `["s1","s2"]`,
+		"numbers":             `[1,2]`,
+		"an id not a string":  `[{"id":{"no":1},"type":"shell"}]`,
+		"a type not a string": `[{"id":"b1","type":["shell"]}]`,
+		"an entry with no id": `[{"type":"shell"}]`,
+		"mixed":               `[{"id":"b1","type":"shell"},"s2"]`,
+		"not an array":        `{"id":"b1"}`,
+		"a string":            `"b1"`,
+		"null":                `null`,
+	} {
+		t.Run("Stop, a list that is "+name, func(t *testing.T) {
+			got := emit(t, "Stop", `{"cwd":"/repo","last_assistant_message":"done","background_tasks":`+list+`}`)
+			if got.Cwd != "/repo" {
+				t.Fatalf("event lost: %+v", got)
+			}
+			if got.BackgroundTasks != nil {
+				t.Errorf("a list that could not be read whole replaces the count with %v", *got.BackgroundTasks)
+			}
+		})
+	}
+	t.Run("Stop, an empty list", func(t *testing.T) {
+		got := emit(t, "Stop", `{"background_tasks":[]}`)
+		if got.BackgroundTasks == nil || len(*got.BackgroundTasks) != 0 {
+			t.Errorf("an empty list does not say nothing is running: %v", got.BackgroundTasks)
+		}
+	})
+	t.Run("a long type is clipped", func(t *testing.T) {
+		got := emit(t, "Stop", `{"background_tasks":[{"id":"x1","type":"`+strings.Repeat("k", 100)+`","description":"d"}]}`)
+		for _, b := range got.BackgroundTaskInfo {
+			if len(b.Type) > 32 {
+				t.Errorf("type of %d bytes", len(b.Type))
+			}
+		}
+	})
+}
