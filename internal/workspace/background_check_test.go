@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,58 +12,109 @@ import (
 	"github.com/jmwri/flockdeck/internal/session"
 )
 
-// Conversation lines in Claude Code's stored shape, cut down to what a check
-// reads (see the testdata of internal/session/transcript).
-const (
-	lineNotification = `{"type":"user","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n<summary>Background command \"make\" completed (exit code 0)</summary>\n</task-notification>"}}`
-	lineStopCall     = `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_stop","name":"TaskStop","input":{"task_id":"b2"}}]}}`
-	lineStopDone     = `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_stop","content":"stopped"}]}}`
-	lineStopFailCall = `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_stop2","name":"KillShell","input":{"shell_id":"b3"}}]}}`
-	lineStopFailed   = `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_stop2","content":"no such shell","is_error":true}]}}`
-	lineAgentCall    = `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_fg","name":"Agent","input":{"description":"Explore","prompt":"Look","subagent_type":"general-purpose"}}]}}`
-	lineAgentDone    = `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_fg","content":"Found it."}]}}`
-	lineBgAgentCall  = `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_bg","name":"Agent","input":{"description":"Run tests","prompt":"Run","run_in_background":true}}]}}`
-	lineBgAgentAck   = `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_bg","content":"Async agent launched."}]}}`
-	lineQuoted       = `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"<task-notification><task-id>b9</task-id></task-notification>"}]}}`
-)
+// Conversation lines in the shape Claude Code 2.1.28x stores them, with
+// synthesised content and only the fields a check reads plus a few of their
+// neighbours. ts is the line's timestamp.
+func lineNotification(ts, id, status string) string {
+	return fmt.Sprintf(`{"type":"user","timestamp":%q,"origin":{"kind":"task-notification"},"promptSource":"system","message":{"role":"user","content":"<task-notification>\n<task-id>%s</task-id>\n<tool-use-id>toolu_x</tool-use-id>\n<output-file>C:\\Temp\\tasks\\%s.output</output-file>\n<status>%s</status>\n<summary>Background command \"make\" %s</summary>\n</task-notification>"}}`, ts, id, id, status, status)
+}
+
+func lineQueuedNotification(ts, id, status string) string {
+	return fmt.Sprintf(`{"type":"attachment","timestamp":%q,"attachment":{"type":"queued_command","prompt":"<task-notification>\n<task-id>%s</task-id>\n<status>%s</status>\n<summary>Agent \"x\" %s</summary>\n</task-notification>","commandMode":"task-notification","origin":{"kind":"task-notification","producer":"session-task"}}}`, ts, id, status, status)
+}
+
+func lineHandback(ts, id string) string {
+	return fmt.Sprintf(`{"type":"attachment","timestamp":%q,"attachment":{"type":"queued_command","prompt":"report","commandMode":"prompt","origin":{"kind":"peer","from":%q,"senderTaskId":%q,"name":"Explore","body":"[Subagent hand-back] done","handback":true}}}`, ts, id, id)
+}
+
+func linePeerMessage(ts, id string) string {
+	return fmt.Sprintf(`{"type":"user","timestamp":%q,"origin":{"kind":"peer","from":%q,"senderTaskId":%q,"body":"still going"},"message":{"role":"user","content":"still going"}}`, ts, id, id)
+}
+
+func lineStopCall(ts, toolUse, task string) string {
+	return fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"role":"assistant","content":[{"type":"tool_use","id":%q,"name":"TaskStop","input":{"task_id":%q}}]}}`, ts, toolUse, task)
+}
+
+func lineStopResult(ts, toolUse string, isError bool) string {
+	return fmt.Sprintf(`{"type":"user","timestamp":%q,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":%q,"content":"ok","is_error":%t}]},"toolUseResult":{"task_id":"x","task_type":"local_bash","command":"make","message":"stopped"}}`, ts, toolUse, isError)
+}
+
+// lineAsyncAgent is an Agent call and its result as Claude Code records them:
+// the call has no run_in_background, and is answered at once with
+// status async_launched while the subagent goes on running.
+func lineAsyncAgent(ts, toolUse, agentID string) string {
+	return fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"role":"assistant","content":[{"type":"tool_use","id":%q,"name":"Agent","input":{"description":"Explore","prompt":"Look","subagent_type":"Explore"}}]}}`+"\n"+
+		`{"type":"user","timestamp":%q,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":%q,"content":"Async agent launched successfully."}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":%q,"description":"Explore","prompt":"Look","outputFile":"C:\\Temp\\tasks\\%s.output","canReadOutputFile":true,"resolvedModel":"m"}}`,
+		ts, toolUse, ts, toolUse, agentID, agentID)
+}
+
+func lineQuoted(ts string) string {
+	return fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"role":"assistant","content":[{"type":"text","text":"<task-notification><task-id>b9</task-id><status>completed</status></task-notification>"}]}}`, ts)
+}
+
+func ts(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z") }
 
 // TestAConversationScanFindsOnlyEvidence covers scanConversation: a task
-// notification, a stop the tool answered, and a foreground Agent call
-// returning are evidence of an end; a failed stop, a background Agent call's
-// immediate answer, and the agent quoting a notification are not.
+// notification with a stopped status (as a user turn or as a queued command),
+// a hand-back, and a stop the tool answered are evidence of an end, each with
+// the time it was written; a notification still running, a failed stop, a
+// peer message from a running subagent, an Agent call's async_launched
+// result, and the agent quoting a notification are not.
 func TestAConversationScanFindsOnlyEvidence(t *testing.T) {
+	at := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
 	var scan backgroundScan
-	data := strings.Join([]string{lineNotification, lineStopCall, lineStopFailCall, lineAgentCall, lineBgAgentCall, "not json", lineQuoted, lineStopDone, lineStopFailed, lineAgentDone, lineBgAgentAck}, "\n") + "\n"
-	found := scanConversation([]byte(data), &scan)
-	ended := map[string]string{}
-	for _, e := range found {
+	data := strings.Join([]string{
+		lineNotification(ts(at), "b1", "completed"),
+		lineQueuedNotification(ts(at.Add(time.Second)), "a2", "stopped"),
+		lineNotification(ts(at), "b5", "running"),
+		lineHandback(ts(at.Add(2*time.Second)), "a3"),
+		linePeerMessage(ts(at), "a6"),
+		lineStopCall(ts(at), "toolu_stop", "b2"),
+		lineStopCall(ts(at), "toolu_stop2", "b3"),
+		lineAsyncAgent(ts(at), "toolu_agent", "a4"),
+		"not json",
+		lineQuoted(ts(at)),
+		lineStopResult(ts(at.Add(3*time.Second)), "toolu_stop", false),
+		lineStopResult(ts(at), "toolu_stop2", true),
+	}, "\n") + "\n"
+	ended := map[string]backgroundEvidence{}
+	for _, e := range scanConversation([]byte(data), &scan) {
 		if e.ended {
-			ended[e.id] = e.what
+			ended[e.id] = e
 		}
 	}
-	if len(ended) != 2 || !strings.Contains(ended["b1"], "task notification") || !strings.Contains(ended["b2"], "TaskStop") {
-		t.Fatalf("ended = %v, want b1 by its notification and b2 by its stop", ended)
+	want := map[string]time.Time{"b1": at, "a2": at.Add(time.Second), "a3": at.Add(2 * time.Second), "b2": at.Add(3 * time.Second)}
+	if len(ended) != len(want) {
+		t.Fatalf("ended = %v, want %v", ended, want)
 	}
-	if !scan.returned["toolu_fg"] || scan.returned["toolu_bg"] {
-		t.Errorf("returned calls = %v, want only the foreground one", scan.returned)
+	for id, w := range want {
+		if e, ok := ended[id]; !ok || !e.at.Equal(w) {
+			t.Errorf("%s: %+v, want an end at %v", id, e, w)
+		}
+	}
+	if !strings.Contains(ended["a2"].what, "stopped") || !strings.Contains(ended["a3"].what, "hand-back") {
+		t.Errorf("evidence not named: %v", ended)
 	}
 }
 
 // TestAConversationIsReadAWholeLineAtATime covers scanConversationFile's
 // offset: a line still being written is left for the next check, what was
-// read is not read again, and a file replaced by a shorter one is read anew.
+// read is not read again, a file replaced by a shorter one is read anew, and a
+// line longer than a whole read is skipped rather than read every check.
 func TestAConversationIsReadAWholeLineAtATime(t *testing.T) {
+	at := ts(time.Now())
 	path := filepath.Join(t.TempDir(), "c.jsonl")
 	var scan backgroundScan
-	half := lineNotification[:40]
-	if err := os.WriteFile(path, []byte(lineStopCall+"\n"+half), 0o600); err != nil {
+	note := lineNotification(at, "b1", "completed")
+	call := lineStopCall(at, "toolu_stop", "b2")
+	if err := os.WriteFile(path, []byte(call+"\n"+note[:40]), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	found, off := scanConversationFile(path, 0, &scan)
-	if len(found) != 0 || off != int64(len(lineStopCall)+1) {
+	if len(found) != 0 || off != int64(len(call)+1) {
 		t.Fatalf("first read: %v at %d", found, off)
 	}
-	if err := os.WriteFile(path, []byte(lineStopCall+"\n"+lineNotification+"\n"+lineStopDone+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(call+"\n"+note+"\n"+lineStopResult(at, "toolu_stop", false)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	found, off2 := scanConversationFile(path, off, &scan)
@@ -72,11 +124,47 @@ func TestAConversationIsReadAWholeLineAtATime(t *testing.T) {
 	if found, _ := scanConversationFile(path, off2, &scan); len(found) != 0 {
 		t.Errorf("a read with nothing new found %v", found)
 	}
-	if err := os.WriteFile(path, []byte(lineNotification+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(note+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if found, _ := scanConversationFile(path, off2, &scan); len(found) != 1 {
 		t.Errorf("a replaced file was not read anew: %v", found)
+	}
+
+	// A line longer than a read, after the first: skipped, with progress.
+	huge := strings.Repeat("x", backgroundScanStep+10)
+	if err := os.WriteFile(path, []byte(note+"\n"+huge+"\n"+note+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	start := int64(len(note) + 1)
+	_, next := scanConversationFile(path, start, &scan)
+	if next <= start {
+		t.Fatalf("a line longer than a read made no progress: %d -> %d", start, next)
+	}
+	found, last := scanConversationFile(path, next, &scan)
+	for len(found) == 0 && last < int64(len(note)*2+len(huge)+3) {
+		var more []backgroundEvidence
+		more, last = scanConversationFile(path, last, &scan)
+		found = append(found, more...)
+	}
+	if len(found) != 1 {
+		t.Errorf("the line after a long one was not read: %v", found)
+	}
+}
+
+// TestTheFirstReadTakesTheEndOfTheConversation covers a file between one read
+// step and the first read's size: it is read whole the first time.
+func TestTheFirstReadTakesTheEndOfTheConversation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.jsonl")
+	note := lineNotification(ts(time.Now()), "b1", "completed")
+	pad := strings.Repeat(`{"type":"system"}`+"\n", (backgroundScanStep+(1<<20))/18)
+	if err := os.WriteFile(path, []byte(pad+note+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var scan backgroundScan
+	found, off := scanConversationFile(path, 0, &scan)
+	if len(found) != 1 || off != int64(len(pad)+len(note)+1) {
+		t.Fatalf("first read of a %d-byte file found %v and stopped at %d", len(pad)+len(note)+1, found, off)
 	}
 }
 
@@ -91,47 +179,109 @@ func claudeConversation(t *testing.T, conv string, lines ...string) string {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, conv+".jsonl")
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeLines(t, path, lines...)
 	return path
 }
 
+func writeLines(t *testing.T, path string, lines ...string) {
+	t.Helper()
+	body := ""
+	if len(lines) > 0 {
+		body = strings.Join(lines, "\n") + "\n"
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func appendLines(t *testing.T, path string, lines ...string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// subagentTranscript writes a subagent's transcript, ending on its hand-back
+// (toolEndsTurn) when ended is set, with its mtime at mod.
+func subagentTranscript(t *testing.T, path string, ended bool, last time.Time, mod time.Time) {
+	t.Helper()
+	lines := []string{fmt.Sprintf(`{"type":"assistant","timestamp":%q,"isSidechain":true,"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_r","name":"Read","input":{}}]}}`, ts(last))}
+	if ended {
+		lines = append(lines,
+			fmt.Sprintf(`{"type":"assistant","timestamp":%q,"isSidechain":true,"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_h","name":"SubagentHandback","input":{}}]}}`, ts(last)),
+			fmt.Sprintf(`{"type":"user","timestamp":%q,"isSidechain":true,"toolEndsTurn":true,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_h","content":"ok"}]}}`, ts(last)))
+	}
+	writeLines(t, path, lines...)
+	if err := os.Chtimes(path, mod, mod); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// checkNow runs whatever check is due on p at now, failing if none is.
+func checkNow(t *testing.T, ws *Workspace, p *Pane, now time.Time) {
+	t.Helper()
+	for _, j := range ws.DueBackgroundChecks(now) {
+		if j.PaneID == p.ID {
+			ws.RunBackgroundCheck(j, now)
+			return
+		}
+	}
+	t.Fatalf("no check was due at %v", now)
+}
+
+func counted(p *Pane) map[string]session.BackgroundWork {
+	m := map[string]session.BackgroundWork{}
+	for _, w := range p.Sess.BackgroundWork() {
+		m[w.ID] = w
+	}
+	return m
+}
+
+func endedWith(p *Pane) map[string]string {
+	m := map[string]string{}
+	for _, e := range p.Sess.BackgroundEnded() {
+		m[e.ID] = e.Evidence
+	}
+	return m
+}
+
 // TestIdleBackgroundWorkIsCheckedAgainstTheConversation runs the check end to
-// end on a fake clock: nothing is due before BackgroundCheckInterval; then
-// work the conversation shows ended is dropped with its evidence, a subagent
-// whose transcript is being written is confirmed running and kept, one whose
-// foreground call returned is dropped, and a shell nothing says anything of
-// is kept and, after the grace, marked unverified -- which, with nothing else
-// verified, has the idle agent read idle rather than working while it is
-// still counted.
+// end: nothing is due before BackgroundCheckInterval; work the conversation
+// shows ended after it started is dropped with its evidence; a subagent whose
+// Agent call was answered async_launched and whose transcript is being
+// written is confirmed running and kept; a shell nothing says anything of is
+// kept and, after the grace, marked unverified -- which, with nothing else
+// verified, has the idle agent read idle while it is still counted.
 func TestIdleBackgroundWorkIsCheckedAgainstTheConversation(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
 	p := agentPaneIn(t, ws, root, "a")
 	conv := ws.conversationOf(p)
-	path := claudeConversation(t, conv, lineNotification, lineAgentCall, lineAgentDone)
+	path := claudeConversation(t, conv)
 	subs := filepath.Join(strings.TrimSuffix(path, ".jsonl"), "subagents")
-	write := func(name, body string) {
-		if err := os.WriteFile(filepath.Join(subs, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("agent-afg.meta.json", `{"agentType":"general-purpose","description":"Explore","toolUseId":"toolu_fg"}`)
-	write("agent-afg.jsonl", "{}\n")
-	write("agent-arun.meta.json", `{"agentType":"general-purpose","description":"Run tests","toolUseId":"toolu_bg"}`)
-	write("agent-arun.jsonl", "{}\n")
 
 	p.Sess.SetStatus(session.StatusIdle, "")
-	for _, id := range []string{"shell:b1", "agent:afg", "agent:arun", "shell:quiet"} {
+	for _, id := range []string{"shell:b1", "agent:afin", "agent:arun", "shell:quiet", "agent:aback"} {
 		p.Sess.NoteBackground("PostToolUse", hooks.BackgroundStart, id)
 	}
+	started := time.Now()
+	later := started.Add(time.Second)
+	appendLines(t, path,
+		lineAsyncAgent(ts(started), "toolu_run", "arun"),
+		lineNotification(ts(later), "b1", "completed"),
+		lineHandback(ts(later), "aback"))
+	subagentTranscript(t, filepath.Join(subs, "agent-afin.jsonl"), true, later, later)
+
 	if PaneActivity(p) != ActivityWorking {
 		t.Fatalf("an idle agent with work just started reads %q", PaneActivity(p))
 	}
-
-	now := time.Now()
+	now := started
 	if jobs := ws.DueBackgroundChecks(now); len(jobs) != 0 {
 		t.Fatalf("a check was due at once: %v", jobs)
 	}
@@ -144,21 +294,16 @@ func TestIdleBackgroundWorkIsCheckedAgainstTheConversation(t *testing.T) {
 		t.Fatal("a pane already being checked was handed out again")
 	}
 	// The running subagent's transcript was just written.
-	_ = os.Chtimes(filepath.Join(subs, "agent-arun.jsonl"), now, now)
+	subagentTranscript(t, filepath.Join(subs, "agent-arun.jsonl"), false, now, now)
 	ws.RunBackgroundCheck(jobs[0], now)
 
-	left := map[string]session.BackgroundWork{}
-	for _, w := range p.Sess.BackgroundWork() {
-		left[w.ID] = w
-	}
+	left := counted(p)
 	if len(left) != 2 || left["agent:arun"].ConfirmedBy != "its transcript is being written" || left["shell:quiet"].ID == "" {
 		t.Fatalf("left counted = %+v, want the running subagent (confirmed) and the quiet shell", left)
 	}
-	ended := map[string]string{}
-	for _, e := range p.Sess.BackgroundEnded() {
-		ended[e.ID] = e.Evidence
-	}
-	if !strings.Contains(ended["shell:b1"], "task notification") || !strings.Contains(ended["agent:afg"], "Agent call returned") {
+	ended := endedWith(p)
+	if !strings.Contains(ended["shell:b1"], "task notification (completed)") || !strings.Contains(ended["agent:afin"], "transcript ends on its hand-back") ||
+		!strings.Contains(ended["agent:aback"], "hand-back is in the conversation") {
 		t.Fatalf("ended = %v", ended)
 	}
 
@@ -167,13 +312,9 @@ func TestIdleBackgroundWorkIsCheckedAgainstTheConversation(t *testing.T) {
 	if jobs := ws.DueBackgroundChecks(now.Add(BackgroundCheckInterval - time.Second)); len(jobs) != 0 {
 		t.Fatal("checked again before the interval")
 	}
-	now = now.Add(BackgroundCheckInterval)
-	jobs = ws.DueBackgroundChecks(now)
-	if len(jobs) != 1 {
-		t.Fatal("not checked again after the interval")
-	}
-	ws.RunBackgroundCheck(jobs[0], now.Add(backgroundSubagentFresh))
-	if jobs := ws.DueBackgroundChecks(now.Add(backgroundSubagentFresh + BackgroundCheckInterval)); len(jobs) != 0 {
+	now = now.Add(BackgroundCheckInterval + backgroundFresh)
+	checkNow(t, ws, p, now)
+	if jobs := ws.DueBackgroundChecks(now.Add(BackgroundCheckInterval)); len(jobs) != 0 {
 		t.Fatal("a check that found nothing did not back off")
 	}
 
@@ -199,6 +340,109 @@ func TestIdleBackgroundWorkIsCheckedAgainstTheConversation(t *testing.T) {
 	}
 }
 
+// TestOldEvidenceDoesNotEndNewWork covers evidence older than the work it
+// names: an end recorded before the work was started (a task id used again,
+// a subagent resumed under its id after it had handed back) does not end it,
+// whether the history is read the first time or read again.
+func TestOldEvidenceDoesNotEndNewWork(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := agentPaneIn(t, ws, root, "a")
+	path := claudeConversation(t, ws.conversationOf(p))
+	subs := filepath.Join(strings.TrimSuffix(path, ".jsonl"), "subagents")
+
+	old := time.Now().Add(-time.Hour)
+	appendLines(t, path,
+		lineNotification(ts(old), "b1", "completed"),
+		lineQueuedNotification(ts(old), "ares", "completed"),
+		lineHandback(ts(old), "ares"),
+		lineStopCall(ts(old), "toolu_s", "b2"),
+		lineStopResult(ts(old), "toolu_s", false))
+	subagentTranscript(t, filepath.Join(subs, "agent-ares.jsonl"), true, old, old)
+
+	p.Sess.SetStatus(session.StatusIdle, "")
+	for _, id := range []string{"shell:b1", "shell:b2", "agent:ares"} {
+		p.Sess.NoteBackground("PostToolUse", hooks.BackgroundStart, id)
+	}
+	ws.DueBackgroundChecks(time.Now())
+	now := time.Now().Add(BackgroundCheckInterval)
+	checkNow(t, ws, p, now)
+	if n := p.Sess.BackgroundTasks(); n != 3 {
+		t.Fatalf("old evidence ended new work: %v left, ended %v", counted(p), endedWith(p))
+	}
+
+	// Busy and idle again: the history is not read again as new.
+	p.Sess.SetStatus(session.StatusWorking, "")
+	ws.DueBackgroundChecks(now)
+	p.Sess.SetStatus(session.StatusIdle, "")
+	now = now.Add(BackgroundCheckInterval)
+	ws.DueBackgroundChecks(now)
+	checkNow(t, ws, p, now.Add(BackgroundCheckInterval))
+	if n := p.Sess.BackgroundTasks(); n != 3 {
+		t.Fatalf("old evidence ended new work on the next idle spell: %v", endedWith(p))
+	}
+
+	// The resumed subagent hands back again: that ends it.
+	appendLines(t, path, lineHandback(ts(time.Now().Add(time.Second)), "ares"))
+	checkNow(t, ws, p, now.Add(3*BackgroundCheckInterval))
+	if _, still := counted(p)["agent:ares"]; still {
+		t.Fatal("a fresh hand-back did not end the resumed subagent")
+	}
+}
+
+// TestATurnEndListBeatsEvidenceItOvertook covers the race: an end is read,
+// then Claude Code's list at a turn's end names the work as still running,
+// and only then is the end applied. The list wins.
+func TestATurnEndListBeatsEvidenceItOvertook(t *testing.T) {
+	s := &session.Session{}
+	s.NoteBackground("PostToolUse", hooks.BackgroundStart, "shell:b1")
+	seen := time.Now().Add(time.Millisecond)
+	time.Sleep(5 * time.Millisecond)
+	s.SetBackgroundWork([]string{"shell:b1"}, nil)
+	if s.EndBackgroundWorkSeen("b1", seen, "ended: x") {
+		t.Fatal("an end older than a turn end's list naming the work ended it")
+	}
+	if s.EndBackgroundWorkSeen("b1", time.Time{}, "ended: x") {
+		t.Fatal("an end with no time ended work")
+	}
+	if !s.EndBackgroundWorkSeen("b1", time.Now().Add(time.Second), "ended: y") {
+		t.Fatal("an end newer than everything did not end the work")
+	}
+}
+
+// TestWorkIDsNeverReachOutsideTheirFolders covers the ids put into paths: one
+// with a separator or a dot is not looked up at all, so a transcript or output
+// file outside the subagents and tasks folders is never read for it.
+func TestWorkIDsNeverReachOutsideTheirFolders(t *testing.T) {
+	base := t.TempDir()
+	conv := filepath.Join(base, "projects", "C--repo", "c1.jsonl")
+	if err := os.MkdirAll(filepath.Join(base, "projects", "C--repo", "c1", "subagents"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	// Where each traversal would land, holding what would end or confirm it.
+	evil := filepath.Join(base, "projects", "C--repo", "c1", "evil.jsonl")
+	subagentTranscript(t, evil, true, now, now)
+	temp := filepath.Join(base, "tmp")
+	if err := os.MkdirAll(filepath.Join(temp, "claude", "C--repo", "c1", "tasks"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeLines(t, filepath.Join(temp, "claude", "C--repo", "c1", "out.output"), "x")
+	var work []session.BackgroundWork
+	for _, id := range []string{`agent:x/../../evil`, `agent:..\evil`, `agent:../evil`, `shell:../out`, `shell:..\out`, `shell:a.b`} {
+		work = append(work, session.BackgroundWork{ID: id, Since: now.Add(-time.Hour)})
+	}
+	if found := checkWorkFiles(conv, temp, work, now); len(found) != 0 {
+		t.Fatalf("ids with separators or dots reached files: %+v", found)
+	}
+	// The same files under proper ids are found, so the test would see it.
+	writeLines(t, filepath.Join(temp, "claude", "C--repo", "c1", "tasks", "b1.output"), "x")
+	if found := checkWorkFiles(conv, temp, []session.BackgroundWork{{ID: "shell:b1"}}, now); len(found) != 1 || found[0].ended {
+		t.Fatalf("a task's fresh output is not a sign of running: %+v", found)
+	}
+}
+
 // TestBusyOrClearedPanesAreNotChecked covers what DueBackgroundChecks leaves
 // alone: a pane that is working, and one whose conversation was cleared.
 func TestBusyOrClearedPanesAreNotChecked(t *testing.T) {
@@ -206,7 +450,7 @@ func TestBusyOrClearedPanesAreNotChecked(t *testing.T) {
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
 	p := agentPaneIn(t, ws, root, "a")
-	claudeConversation(t, ws.conversationOf(p), lineNotification)
+	claudeConversation(t, ws.conversationOf(p), lineNotification(ts(time.Now().Add(time.Hour)), "b1", "completed"))
 	p.Sess.NoteBackground("PostToolUse", hooks.BackgroundStart, "shell:b1")
 	p.Sess.SetStatus(session.StatusWorking, "")
 	now := time.Now().Add(time.Hour)

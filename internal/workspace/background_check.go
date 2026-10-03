@@ -7,11 +7,13 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
@@ -19,20 +21,30 @@ import (
 // Background work an idle agent has left counted is checked against the
 // conversation Claude Code has stored for the pane, so a count stuck on work
 // that ended where no hook saw it corrects itself -- and only on evidence that
-// it ended, never on a guess:
+// it ended, never on a guess. What counts, as Claude Code 2.1.28x records it:
 //
-//   - a <task-notification> naming the task, which Claude Code records in the
-//     conversation as a user turn when a background command or subagent ends;
-//   - a KillShell/TaskStop call naming it that the tool answered without an
+//   - a <task-notification> naming the task with a status that says it has
+//     stopped ("completed", "stopped", ...), whether recorded as a user turn
+//     or, when it was folded into a turn already going, as a queued_command
+//     attachment;
+//   - a subagent's hand-back: a message whose origin is the subagent
+//     (senderTaskId) and says it is its hand-back;
+//   - a TaskStop/KillShell naming the task that the tool answered without an
 //     error;
-//   - for a subagent run in the foreground, its Agent call returning (the
-//     subagent's own meta.json, beside the conversation, names that call).
+//   - a subagent's own transcript ending on the turn-ending tool result
+//     (toolEndsTurn) of its hand-back.
 //
-// The only sign of a subagent still running that is read is its own
-// transcript being written to within backgroundSubagentFresh. A background
-// command has none to read: Claude Code keeps its output outside the
-// conversation's folder and names no process. Claude Code's own list at the
-// end of each turn (hooks, Stop) stays the freshest word on both.
+// Each piece carries the time Claude Code wrote it, and ends the work only
+// when that is after Flockdeck first heard of the work and after the latest
+// sign it was running (see session.EndBackgroundWorkSeen): an old end in the
+// history is about an earlier task, not this one.
+//
+// An Agent call's result is not an end: Claude Code runs every subagent
+// asynchronously and answers the call at once ("async_launched").
+//
+// Signs of running: a subagent's transcript, or a task's output file, written
+// to within backgroundFresh. Claude Code's own list at the end of each turn
+// (hooks, Stop) stays the freshest word on all of it.
 const (
 	// BackgroundCheckInterval is how soon an idle pane with background work
 	// counted is first checked, and how often while checks keep finding
@@ -41,20 +53,34 @@ const (
 	BackgroundCheckInterval    = 45 * time.Second
 	backgroundCheckMaxInterval = 8 * time.Minute
 	// backgroundScanFirst is how much of the end of a conversation the first
-	// check reads; later checks read only what has been added since, at most
+	// read takes; later reads take only what has been added since, at most
 	// backgroundScanStep at a time.
 	backgroundScanFirst = 8 << 20
 	backgroundScanStep  = 4 << 20
-	// backgroundSubagentFresh is how recently a subagent's transcript must
-	// have been written to for that to count as it still running.
-	backgroundSubagentFresh = 2 * time.Minute
-	// maxBackgroundCalls bounds the tool calls a check remembers across the
-	// conversation; past it they are forgotten and a call answered after
-	// that is not taken as evidence.
-	maxBackgroundCalls = 4096
+	// backgroundTailBytes is how much of the end of a subagent's transcript
+	// is read for its last line.
+	backgroundTailBytes = 256 << 10
+	// backgroundFresh is how recently a subagent's transcript or a task's
+	// output must have been written to for that to count as it running.
+	backgroundFresh = 2 * time.Minute
+	// maxBackgroundStops bounds the TaskStop/KillShell calls a check keeps
+	// waiting for an answer to; past it, one is not taken as evidence.
+	maxBackgroundStops = 1024
 )
 
-// backgroundCheck is what is remembered of one pane's checks.
+// backgroundTaskID is the shape of an id Claude Code gives a background task
+// or subagent. Anything else is never put into a path.
+var backgroundTaskID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// backgroundStopped are the <status> values of a task notification that say
+// the task is no longer running.
+var backgroundStopped = map[string]bool{
+	"completed": true, "stopped": true, "killed": true, "failed": true, "cancelled": true, "canceled": true, "error": true,
+}
+
+// backgroundCheck is what is remembered of one pane's checks. It is kept for
+// as long as the pane is open, so a pane that goes busy and idle again goes on
+// reading its conversation where it left off.
 type backgroundCheck struct {
 	running  bool
 	path     string
@@ -67,28 +93,24 @@ type backgroundCheck struct {
 	scan backgroundScan
 }
 
-// backgroundScan is what the conversation has said so far that a later line
-// may complete: the KillShell/TaskStop calls not yet answered (tool use id to
-// the task it stops), the foreground Agent calls not yet answered, and the
-// Agent calls that have returned.
+// backgroundScan is the TaskStop/KillShell calls the conversation has made and
+// not yet had answered: tool use id to the task it stops.
 type backgroundScan struct {
-	stops    map[string]string
-	agents   map[string]bool
-	returned map[string]bool
+	stops map[string]string
 }
 
 // backgroundEvidence is one thing a check found.
 type backgroundEvidence struct {
 	// id is the task or agent id it is about, with no kind.
 	id string
-	// ended says it shows the work has ended; otherwise it shows it running,
-	// as of at.
+	// ended says it shows the work has ended; otherwise it shows it running.
+	// Either way, at is when.
 	ended bool
 	at    time.Time
 	what  string
 }
 
-// backgroundChecks guards Workspace.bgChecks.
+// backgroundChecksMu guards Workspace.bgChecks and what it holds.
 var backgroundChecksMu sync.Mutex
 
 // BackgroundJob is one pane's check, worked out on the workspace goroutine
@@ -96,14 +118,16 @@ var backgroundChecksMu sync.Mutex
 type BackgroundJob struct {
 	PaneID string
 	sess   *session.Session
-	path   string
+	spec   agent.Spec
+	conv   string
 	state  *backgroundCheck
 }
 
 // DueBackgroundChecks refreshes which counted background work is unverified on
 // every agent pane (no reading of files), and returns the checks due at now:
-// panes that are idle with background work counted and a stored Claude Code
-// conversation to read. It runs on the workspace goroutine.
+// agent panes that are idle with background work counted and run Claude Code.
+// It runs on the workspace goroutine and touches no file; finding the
+// conversation is left to RunBackgroundCheck.
 func (w *Workspace) DueBackgroundChecks(now time.Time) []BackgroundJob {
 	w.mu.RLock()
 	panes := make([]*Pane, 0, len(w.panes))
@@ -128,13 +152,17 @@ func (w *Workspace) DueBackgroundChecks(now time.Time) []BackgroundJob {
 		p.Sess.RefreshBackground(now)
 		work := p.Sess.BackgroundWork()
 		st, _ := p.Sess.Status()
+		c := w.bgChecks[p.ID]
 		if len(work) == 0 || st != session.StatusIdle {
-			delete(w.bgChecks, p.ID)
+			// Not due, but what has been read is remembered: the next idle
+			// spell carries on from it rather than reading the history again.
+			if c != nil {
+				c.seen = ""
+			}
 			continue
 		}
-		c := w.bgChecks[p.ID]
 		if c == nil {
-			c = &backgroundCheck{interval: BackgroundCheckInterval, next: now.Add(BackgroundCheckInterval)}
+			c = &backgroundCheck{interval: BackgroundCheckInterval}
 			w.bgChecks[p.ID] = c
 		}
 		ids := make([]string, len(work))
@@ -142,11 +170,9 @@ func (w *Workspace) DueBackgroundChecks(now time.Time) []BackgroundJob {
 			ids[i] = b.ID
 		}
 		if seen := strings.Join(ids, ","); seen != c.seen {
-			// New work: back to checking at the base interval.
-			if c.seen != "" && c.interval != BackgroundCheckInterval {
-				c.interval = BackgroundCheckInterval
-				c.next = now.Add(BackgroundCheckInterval)
-			}
+			// New work, or a new idle spell: back to the base interval.
+			c.interval = BackgroundCheckInterval
+			c.next = now.Add(BackgroundCheckInterval)
 			c.seen = seen
 		}
 		if c.running || now.Before(c.next) {
@@ -156,17 +182,11 @@ func (w *Workspace) DueBackgroundChecks(now time.Time) []BackgroundJob {
 		if !ok {
 			continue
 		}
-		reader := transcript.For(spec)
-		if _, claude := reader.(transcript.Claude); !claude {
-			continue
-		}
-		path := reader.Path(spec, w.conversationOf(p))
-		if path == "" {
-			c.next = now.Add(c.interval)
+		if _, claude := transcript.For(spec).(transcript.Claude); !claude {
 			continue
 		}
 		c.running = true
-		jobs = append(jobs, BackgroundJob{PaneID: p.ID, sess: p.Sess, path: path, state: c})
+		jobs = append(jobs, BackgroundJob{PaneID: p.ID, sess: p.Sess, spec: spec, conv: w.conversationOf(p), state: c})
 	}
 	for id := range w.bgChecks {
 		if !live[id] {
@@ -177,31 +197,33 @@ func (w *Workspace) DueBackgroundChecks(now time.Time) []BackgroundJob {
 }
 
 // RunBackgroundCheck reads what job's conversation has added since its last
-// check, and the transcripts of the subagents counted, and applies what they
-// show: work shown to have ended stops being counted, with the evidence kept
-// for the header; work shown running is confirmed. It reads nothing outside
-// the conversation's own file and its folder, and can run on any goroutine.
+// check, and the transcripts and output files of the work counted, and applies
+// what they show: work shown to have ended since it was last seen running
+// stops being counted, with the evidence kept for the header; work shown
+// running is confirmed. It can run on any goroutine.
 func (w *Workspace) RunBackgroundCheck(job BackgroundJob, now time.Time) {
 	c := job.state
+	path := transcript.For(job.spec).Path(job.spec, job.conv)
+
 	backgroundChecksMu.Lock()
-	if c.path != job.path {
-		*c = backgroundCheck{running: true, path: job.path, interval: c.interval, seen: c.seen}
+	if c.path != path {
+		c.path, c.offset, c.scan = path, 0, backgroundScan{}
 	}
 	offset, scan := c.offset, c.scan
 	backgroundChecksMu.Unlock()
 
-	found, offset := scanConversationFile(job.path, offset, &scan)
-	found = append(found, checkSubagents(job.path, job.sess.BackgroundWork(), &scan, now)...)
+	var found []backgroundEvidence
+	if path != "" {
+		found, offset = scanConversationFile(path, offset, &scan)
+		found = append(found, checkWorkFiles(path, os.TempDir(), job.sess.BackgroundWork(), now)...)
+	}
 
 	useful := false
 	for _, e := range found {
 		if e.ended {
-			for _, b := range job.sess.BackgroundWork() {
-				if bareBackgroundID(b.ID) == e.id {
-					slog.Debug("background work ended by evidence", "pane", job.PaneID, "work", b.ID, "evidence", e.what)
-					job.sess.EndBackgroundWork(b.ID, e.what)
-					useful = true
-				}
+			if job.sess.EndBackgroundWorkSeen(e.id, e.at, e.what) {
+				slog.Debug("background work ended by evidence", "pane", job.PaneID, "task", e.id, "evidence", e.what, "at", e.at)
+				useful = true
 			}
 			continue
 		}
@@ -235,7 +257,8 @@ func bareBackgroundID(id string) string {
 // scanConversationFile reads the conversation at path from offset -- or, the
 // first time (offset 0), its last backgroundScanFirst bytes -- and returns
 // what it shows and the offset to start from next time. A file shorter than
-// offset has been replaced and is read again from the start.
+// offset has been replaced and is read again from the start. Only whole lines
+// are read; one longer than a whole read is skipped.
 func scanConversationFile(path string, offset int64, scan *backgroundScan) ([]backgroundEvidence, int64) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -247,18 +270,16 @@ func scanConversationFile(path string, offset int64, scan *backgroundScan) ([]ba
 		return nil, offset
 	}
 	size := fi.Size()
-	skipPartial := false
 	if size < offset {
 		offset, *scan = 0, backgroundScan{}
 	}
-	if offset == 0 && size > backgroundScanFirst {
-		offset, skipPartial = size-backgroundScanFirst, true
-	}
-	// The first read takes the whole of the end it starts from, so the
-	// latest of the conversation is read at once rather than a check later.
 	limit := int64(backgroundScanStep)
-	if skipPartial {
+	skipPartial := false
+	if offset == 0 {
 		limit = backgroundScanFirst
+		if size > backgroundScanFirst {
+			offset, skipPartial = size-backgroundScanFirst, true
+		}
 	}
 	n := size - offset
 	if n > limit {
@@ -280,9 +301,14 @@ func scanConversationFile(path string, offset int64, scan *backgroundScan) ([]ba
 		}
 		start = i + 1
 	}
-	// Only whole lines: one still being written is read next time.
 	end := bytes.LastIndexByte(buf, '\n')
 	if end < start {
+		if n == limit {
+			// A line longer than a whole read: skip what was read of it
+			// rather than reading the same bytes every check.
+			return nil, offset + n
+		}
+		// A line still being written: read it next time.
 		return nil, offset + int64(start)
 	}
 	return scanConversation(buf[start:end+1], scan), offset + int64(end+1)
@@ -290,10 +316,30 @@ func scanConversationFile(path string, offset int64, scan *backgroundScan) ([]ba
 
 // conversationLine is the part of a stored conversation line a check reads.
 type conversationLine struct {
-	Type    string `json:"type"`
-	Message struct {
-		Content json.RawMessage `json:"content"`
-	} `json:"message"`
+	Type      string          `json:"type"`
+	Timestamp string          `json:"timestamp"`
+	Origin    *lineOrigin     `json:"origin"`
+	Message   lineMessage     `json:"message"`
+	Attach    *lineAttachment `json:"attachment"`
+}
+
+type lineMessage struct {
+	Content json.RawMessage `json:"content"`
+}
+
+type lineAttachment struct {
+	Type        string      `json:"type"`
+	CommandMode string      `json:"commandMode"`
+	Prompt      string      `json:"prompt"`
+	Origin      *lineOrigin `json:"origin"`
+}
+
+// lineOrigin is where a user turn or queued command came from. A subagent's
+// hand-back names it as senderTaskId and says handback.
+type lineOrigin struct {
+	Kind         string `json:"kind"`
+	SenderTaskID string `json:"senderTaskId"`
+	Handback     bool   `json:"handback"`
 }
 
 type conversationBlock struct {
@@ -307,26 +353,68 @@ type conversationBlock struct {
 }
 
 type stopInput struct {
-	ShellID         string `json:"shell_id"`
-	BashID          string `json:"bash_id"`
-	TaskID          string `json:"task_id"`
-	RunInBackground bool   `json:"run_in_background"`
+	ShellID string `json:"shell_id"`
+	BashID  string `json:"bash_id"`
+	TaskID  string `json:"task_id"`
+}
+
+// lineTime is a conversation line's timestamp, or the zero time, which is
+// never taken as evidence of an end.
+func lineTime(s string) time.Time {
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // scanConversation reads whole conversation lines for the evidence described
 // at the top of this file. A line that is not JSON is skipped.
 func scanConversation(data []byte, scan *backgroundScan) []backgroundEvidence {
 	if scan.stops == nil {
-		scan.stops, scan.agents, scan.returned = map[string]string{}, map[string]bool{}, map[string]bool{}
+		scan.stops = map[string]string{}
 	}
 	var found []backgroundEvidence
+	ended := func(id string, at time.Time, what string) {
+		if id != "" {
+			found = append(found, backgroundEvidence{id: id, ended: true, at: at, what: what})
+		}
+	}
+	notifications := func(text string, at time.Time) {
+		for _, n := range taskNotifications(text) {
+			if backgroundStopped[n.status] {
+				ended(n.id, at, "ended: its task notification ("+n.status+") is in the conversation")
+			}
+		}
+	}
+	handback := func(o *lineOrigin, at time.Time) {
+		if o != nil && o.Handback && o.SenderTaskID != "" {
+			ended(o.SenderTaskID, at, "ended: its hand-back is in the conversation")
+		}
+	}
 	for _, raw := range bytes.Split(data, []byte("\n")) {
 		raw = bytes.TrimSpace(raw)
 		if len(raw) == 0 {
 			continue
 		}
 		var line conversationLine
-		if json.Unmarshal(raw, &line) != nil || (line.Type != "user" && line.Type != "assistant") {
+		if json.Unmarshal(raw, &line) != nil {
+			continue
+		}
+		at := lineTime(line.Timestamp)
+		switch line.Type {
+		case "attachment":
+			// A notification or hand-back that arrived while a turn was going
+			// is folded into it, and recorded only as this.
+			if a := line.Attach; a != nil && a.Type == "queued_command" {
+				if a.CommandMode == "task-notification" {
+					notifications(a.Prompt, at)
+				}
+				handback(a.Origin, at)
+			}
+			continue
+		case "user", "assistant":
+		default:
 			continue
 		}
 		var text string
@@ -335,30 +423,17 @@ func scanConversation(data []byte, scan *backgroundScan) []backgroundEvidence {
 			_ = json.Unmarshal(line.Message.Content, &blocks)
 		}
 		if line.Type == "user" {
-			if strings.HasPrefix(strings.TrimSpace(text), "<task-notification>") {
-				for _, id := range notificationTaskIDs(text) {
-					found = append(found, backgroundEvidence{id: id, ended: true, what: "ended: its task notification is in the conversation"})
-				}
-			}
+			handback(line.Origin, at)
+			notifications(text, at)
 			for _, b := range blocks {
 				switch b.Type {
 				case "text":
-					if strings.HasPrefix(strings.TrimSpace(b.Text), "<task-notification>") {
-						for _, id := range notificationTaskIDs(b.Text) {
-							found = append(found, backgroundEvidence{id: id, ended: true, what: "ended: its task notification is in the conversation"})
-						}
-					}
+					notifications(b.Text, at)
 				case "tool_result":
 					if id, ok := scan.stops[b.ToolUseID]; ok {
 						delete(scan.stops, b.ToolUseID)
 						if !b.IsError {
-							found = append(found, backgroundEvidence{id: id, ended: true, what: "ended: stopped with TaskStop/KillShell in the conversation"})
-						}
-					}
-					if scan.agents[b.ToolUseID] {
-						delete(scan.agents, b.ToolUseID)
-						if len(scan.returned) < maxBackgroundCalls {
-							scan.returned[b.ToolUseID] = true
+							ended(id, at, "ended: stopped with TaskStop/KillShell in the conversation")
 						}
 					}
 				}
@@ -366,80 +441,136 @@ func scanConversation(data []byte, scan *backgroundScan) []backgroundEvidence {
 			continue
 		}
 		for _, b := range blocks {
-			if b.Type != "tool_use" || b.ID == "" {
+			if b.Type != "tool_use" || b.ID == "" || (b.Name != "TaskStop" && b.Name != "KillShell") {
 				continue
 			}
 			var in stopInput
 			_ = json.Unmarshal(b.Input, &in)
-			switch b.Name {
-			case "TaskStop", "KillShell":
-				id := in.TaskID
-				for _, s := range []string{in.ShellID, in.BashID} {
-					if id == "" {
-						id = s
-					}
+			id := in.TaskID
+			for _, s := range []string{in.ShellID, in.BashID} {
+				if id == "" {
+					id = s
 				}
-				if id != "" && len(scan.stops) < maxBackgroundCalls {
-					scan.stops[b.ID] = id
-				}
-			case "Agent", "Task":
-				// A background subagent's call returns as soon as it has
-				// started, so only a foreground one's return says it ended.
-				if !in.RunInBackground && len(scan.agents) < maxBackgroundCalls {
-					scan.agents[b.ID] = true
-				}
+			}
+			if id != "" && len(scan.stops) < maxBackgroundStops {
+				scan.stops[b.ID] = id
 			}
 		}
 	}
 	return found
 }
 
-// notificationTaskIDs is every <task-id> in a <task-notification>.
-func notificationTaskIDs(text string) []string {
-	var ids []string
-	for {
-		_, rest, ok := strings.Cut(text, "<task-id>")
-		if !ok {
-			return ids
-		}
-		id, after, ok := strings.Cut(rest, "</task-id>")
-		if !ok {
-			return ids
-		}
-		if id = strings.TrimSpace(id); id != "" {
-			ids = append(ids, id)
-		}
-		text = after
+// taskNotification is the id and status of one <task-notification>.
+type taskNotification struct{ id, status string }
+
+// taskNotifications reads the <task-notification> blocks a message starts
+// with: only a message that is one, not one that mentions one.
+func taskNotifications(text string) []taskNotification {
+	if !strings.HasPrefix(strings.TrimSpace(text), "<task-notification>") {
+		return nil
 	}
+	var out []taskNotification
+	for _, block := range strings.Split(text, "<task-notification>")[1:] {
+		block, _, _ = strings.Cut(block, "</task-notification>")
+		id := strings.TrimSpace(between(block, "<task-id>", "</task-id>"))
+		status := strings.ToLower(strings.TrimSpace(between(block, "<status>", "</status>")))
+		if id != "" {
+			out = append(out, taskNotification{id: id, status: status})
+		}
+	}
+	return out
 }
 
-// checkSubagents looks at the transcript Claude Code keeps of each counted
-// subagent, beside the conversation at <conversation>/subagents/: one whose
-// meta.json names an Agent call the conversation shows returning has ended,
-// and one whose transcript was written within backgroundSubagentFresh is
-// running.
-func checkSubagents(conversation string, work []session.BackgroundWork, scan *backgroundScan, now time.Time) []backgroundEvidence {
-	dir := filepath.Join(strings.TrimSuffix(conversation, ".jsonl"), "subagents")
+// between is the text of s between the first open and the close after it.
+func between(s, open, close string) string {
+	_, rest, ok := strings.Cut(s, open)
+	if !ok {
+		return ""
+	}
+	in, _, ok := strings.Cut(rest, close)
+	if !ok {
+		return ""
+	}
+	return in
+}
+
+// checkWorkFiles looks at the files Claude Code keeps of each piece of counted
+// work, by its id and nowhere else:
+//
+//   - a subagent's own transcript, <conversation>/subagents/agent-<id>.jsonl:
+//     ending on its hand-back's turn-ending result has it ended; written to
+//     within backgroundFresh otherwise has it running;
+//   - a task's output, <temp>/claude/<project folder>/<conversation>/tasks/
+//     <id>.output, which Claude Code appends a background command's output
+//     to: written to within backgroundFresh has it running.
+func checkWorkFiles(conversation, temp string, work []session.BackgroundWork, now time.Time) []backgroundEvidence {
+	convDir := strings.TrimSuffix(conversation, ".jsonl")
+	subagents := filepath.Join(convDir, "subagents")
+	tasks := ""
+	if temp != "" {
+		tasks = filepath.Join(temp, "claude", filepath.Base(filepath.Dir(conversation)), filepath.Base(convDir), "tasks")
+	}
 	var found []backgroundEvidence
 	for _, b := range work {
 		kind, id, _ := strings.Cut(b.ID, ":")
-		if kind != "agent" || id == "" || strings.ContainsAny(id, `/\.`) {
+		if !backgroundTaskID.MatchString(id) {
 			continue
 		}
-		if data, err := os.ReadFile(filepath.Join(dir, "agent-"+id+".meta.json")); err == nil {
-			var meta struct {
-				ToolUseID string `json:"toolUseId"`
+		if kind == "agent" || kind == "task" {
+			p := filepath.Join(subagents, "agent-"+id+".jsonl")
+			if at, ok := subagentEnded(p); ok {
+				found = append(found, backgroundEvidence{id: id, ended: true, at: at, what: "ended: its transcript ends on its hand-back"})
+				continue
 			}
-			if json.Unmarshal(data, &meta) == nil && meta.ToolUseID != "" && scan.returned[meta.ToolUseID] {
-				found = append(found, backgroundEvidence{id: id, ended: true, what: "ended: its Agent call returned in the conversation"})
+			if fi, err := os.Stat(p); err == nil && now.Sub(fi.ModTime()) < backgroundFresh {
+				found = append(found, backgroundEvidence{id: id, at: fi.ModTime(), what: "its transcript is being written"})
 				continue
 			}
 		}
-		if fi, err := os.Stat(filepath.Join(dir, "agent-"+id+".jsonl")); err == nil {
-			if at := fi.ModTime(); now.Sub(at) < backgroundSubagentFresh {
-				found = append(found, backgroundEvidence{id: id, at: at, what: "its transcript is being written"})
+		if tasks != "" {
+			if fi, err := os.Stat(filepath.Join(tasks, id+".output")); err == nil && fi.Size() > 0 && now.Sub(fi.ModTime()) < backgroundFresh {
+				found = append(found, backgroundEvidence{id: id, at: fi.ModTime(), what: "its output is being written"})
 			}
 		}
 	}
 	return found
+}
+
+// subagentEnded reads the last line of a subagent's transcript and reports
+// when it was written if it is the tool result that ends the subagent's turn
+// (toolEndsTurn), which Claude Code writes as a subagent hands back.
+func subagentEnded(path string) (time.Time, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || fi.Size() == 0 {
+		return time.Time{}, false
+	}
+	off := fi.Size() - backgroundTailBytes
+	if off < 0 {
+		off = 0
+	}
+	buf := make([]byte, fi.Size()-off)
+	if _, err := f.ReadAt(buf, off); err != nil && err != io.EOF {
+		return time.Time{}, false
+	}
+	buf = bytes.TrimRight(buf, "\r\n ")
+	if i := bytes.LastIndexByte(buf, '\n'); i >= 0 {
+		buf = buf[i+1:]
+	} else if off > 0 {
+		return time.Time{}, false
+	}
+	var last struct {
+		Type         string `json:"type"`
+		Timestamp    string `json:"timestamp"`
+		ToolEndsTurn bool   `json:"toolEndsTurn"`
+	}
+	if json.Unmarshal(buf, &last) != nil || last.Type != "user" || !last.ToolEndsTurn {
+		return time.Time{}, false
+	}
+	at := lineTime(last.Timestamp)
+	return at, !at.IsZero()
 }

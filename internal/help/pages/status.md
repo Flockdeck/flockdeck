@@ -35,25 +35,32 @@ description or command Claude Code gave for it, shortened, and how long ago
 Flockdeck first saw it. Text that looks like a secret (a token, a password
 given as a value) is hidden, with the same redaction the transcript recorder
 uses. A file path is shown as typed, though, even one to a secret file. The
-same text reaches the relay and phone views. A piece
-first seen only in the list Claude Code sends when a turn ends says "seen
-since", because it was already running by then. Where Claude Code gave nothing
+same text reaches the relay and phone views. A piece first seen only in the
+list Claude Code sends when a turn ends says "seen since", because it was
+already running by then. Where Claude Code gave nothing
 but an id, the list says "details unavailable (count only)" rather than
 guessing. Flockdeck keeps the list in memory only and never saves it.
 
 While an agent is idle with background work counted, Flockdeck checks that
-work against the conversation Claude Code has stored for the pane, every 45
-seconds at first and less often while nothing changes. It drops a piece only
-on evidence that it ended: Claude Code's notice that the task finished, a
-stop of it that succeeded, or a subagent's call returning. For a short while
-afterwards the tooltip says what ended and what showed it, under "Lately
-ended". A subagent whose own transcript is still being written counts as
-running. A piece nothing has shown running for 20 minutes (no start, no
-end-of-turn list naming it, no transcript being written) stays counted but is
-marked unverified, and the badge says so (`◔ 1 in background, unverified`).
-An idle agent whose background work is all unverified no longer counts as
-working; it still isn't treated as finished. There is no way to clear the
-count by hand.
+work against the conversation Claude Code has stored for the pane: 45 seconds
+after it goes idle, then less often while nothing changes. The first check
+reads the last 8 MB of the conversation, and later checks read only what has
+been added since. A piece is dropped only on evidence of its end, written
+after Flockdeck first saw the piece and after the last sign it was running:
+Claude Code's notice that the task completed or was stopped, a subagent's
+hand-back, a successful stop of the task, or a subagent's own transcript
+ending on its hand-back. An older end in the history is about an earlier task
+and is ignored. For a short while afterwards the tooltip lists what ended and
+what showed it, under "Lately ended".
+
+A subagent whose transcript is still being written, or a command whose output
+file is still growing, counts as running. A piece with no sign of running for
+30 minutes (no start, no end-of-turn list naming it, nothing being written)
+stays counted but is marked unverified, and the badge says so
+(`◔ 1 in background, unverified`). An idle agent whose background work is all
+unverified no longer counts as working, so its dot and its tab go back to
+idle. It still isn't treated as finished. There is no way to clear the count
+by hand.
 
 While a tool is running the pane header names it, so `Read`, `Bash` or `Edit`
 tells you what the agent is doing, not only that it is busy.
@@ -61,9 +68,9 @@ tells you what the agent is doing, not only that it is busy.
 ## Where else it shows
 
 - **The tab** holding a waiting agent is marked `▲`. A tab with an agent
-  working, or idle between turns with background work still running, has a
-  pulsing filled dot instead; the `▲` takes its place when an agent there is
-  waiting.
+  working, or idle between turns with background work still running (not
+  counting work that is all unverified), has a pulsing filled dot instead;
+  the `▲` takes its place when an agent there is waiting.
 - **The window title** reports the count, `▲ 2 waiting` while any agent is
   waiting, otherwise `● 3 working`, so a waiting agent is visible in the
   taskbar with the window behind something else.
@@ -110,8 +117,8 @@ tells you what the agent is doing, not only that it is busy.
   `◔ 1 in background` while it has any, and so does its row in
   [[key:agents]]. Flockdeck learns the work has ended when Claude Code tells
   the agent so, says at the end of a turn what is still running, or has
-  recorded its end in the stored conversation (see above). Work counted but
-  unverified still keeps the pane open. A Claude
+  recorded the end in the stored conversation (see above). Work that is
+  counted but unverified still keeps the pane open. A Claude
   Code too old to say either keeps it counted until the agent stops it, the
   conversation is cleared, or the pane is closed by hand (or with
   `flockdeck close -force`).

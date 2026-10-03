@@ -14,7 +14,10 @@ import (
 // all unverified no longer counts as working (see workspace.PaneActivity),
 // though the work is still counted and listed: nothing is dropped without
 // evidence that it has ended.
-const BackgroundUnverifiedGrace = 20 * time.Minute
+//
+// It is the one setting behind that choice: 30 minutes outlasts a monitor's
+// default timeout, and a longer or shorter wait is a change to this line.
+const BackgroundUnverifiedGrace = 30 * time.Minute
 
 // backgroundEndedShown is how long work that has stopped being counted is
 // kept, with what showed it had ended, for the header to say so.
@@ -173,6 +176,37 @@ func (s *Session) endLocked(id, evidence string, now time.Time) bool {
 func (s *Session) EndBackgroundWork(id, evidence string) bool {
 	s.mu.Lock()
 	ended := s.endLocked(id, evidence, backgroundNow())
+	s.mu.Unlock()
+	if ended {
+		s.changed()
+	}
+	return ended
+}
+
+// EndBackgroundWorkSeen stops counting the work under id (of any kind) on the
+// strength of evidence that Claude Code recorded at at -- but only work that
+// evidence can be about: work first heard of before at, with no sign of
+// running since. An end older than the work is about an earlier task under
+// the same id, or a subagent since resumed; an end older than a later sign of
+// running -- a turn end's list naming the work, say -- has been overtaken by
+// it. Both are decided here, under the lock, so a sign that lands while the
+// evidence was being read still wins. It reports whether anything ended.
+func (s *Session) EndBackgroundWorkSeen(id string, at time.Time, evidence string) bool {
+	if at.IsZero() {
+		return false
+	}
+	bare := backgroundBareID(id)
+	now := backgroundNow()
+	s.mu.Lock()
+	ended := false
+	for k, w := range s.background {
+		if backgroundBareID(k) != bare || !at.After(w.Since) || !at.After(w.Confirmed) {
+			continue
+		}
+		delete(s.background, k)
+		s.endedLocked(w, evidence, now)
+		ended = true
+	}
 	s.mu.Unlock()
 	if ended {
 		s.changed()
