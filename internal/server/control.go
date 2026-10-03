@@ -1659,6 +1659,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "openRecordings":
 		s.openRecordings(c)
 		return
+	case "paneInfo":
+		s.paneInfo(c, cmd)
+		return
+	case "findPane":
+		s.findPane(c, cmd)
+		return
 	case "jevKey":
 		s.jevKey(c, cmd.Kind, cmd.Text)
 		return

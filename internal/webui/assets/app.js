@@ -122,6 +122,7 @@
     close:       "Closes this pane and stops the process running in it.",
     record:      "Records this pane's agent interaction -- your prompts, the agent's messages, and the tools it runs and what they print -- as a transcript file on this machine, built from the conversation the agent itself stores (Claude Code's, today) and starting from the beginning of it. Off by default, and secrets are removed on a best-effort basis only. Recordings are kept for up to 30 days. Open them with Open recordings folder in the command palette.",
     revealTranscript: "Shows this pane's transcript file in your file manager with the file selected: the file it is recording to if it is recording, otherwise its latest export. Only from the machine Flockdeck runs on.",
+    paneInfo:    "Pane info",
     exportTranscript: "Writes this pane's whole stored conversation to a transcript file on this machine, in the same format as a recording, whether or not recording is on. It can contain secrets: they are removed on a best-effort basis only. Only Claude Code stores a conversation Flockdeck can read today; other agents have nothing to export. Only from the machine Flockdeck runs on.",
     lock:        "Locks this pane so it can't be closed: not by the close shortcut, its close button, its tab, its project, Close finished panes or an agent's flockdeck close. Restarting it still works, and it stays locked across restarts of Flockdeck and when you move it to another tab.",
     autoReview:  "Lets a confident, read-only command through without asking, instead of stopping for a permission prompt. It only ever says yes: anything it is not sure of still asks, exactly as before. A pane opened by hand starts with it off, unless Settings › General turns it on for new panes; a pane this one starts, by fan-out or by its own spawning, starts with the same setting this pane has. Each pane keeps its setting across restarts of Flockdeck.",
@@ -456,6 +457,8 @@
         keepFocus(() => renderChanges(msg), (body) => body.querySelector("#rev-push") || body.querySelector("#rev-refresh"));
       }
       else if (msg.type === "agents") keepFocus(() => renderAgents(msg));
+      else if (msg.type === "paneInfo") renderPaneInfo(msg);
+      else if (msg.type === "paneMatches") renderPaneMatches(msg);
       // A Clear pressed goes with the key it cleared; the keyboard goes to
       // that row's own button rather than out of the dialog.
       else if (msg.type === "jevKey") { jevKeyInfo = { set: !!msg.set, env: !!msg.env }; settingsChanged(); }
@@ -2285,6 +2288,134 @@
     field.select();
   }
 
+  /** Pane info lists what identifies one pane to the files, logs and commands
+   *  that name it. The values come from the server on request, for this window
+   *  only: the ids, process id and paths are not in the state every window is
+   *  sent. Every value is written with textContent, never as markup. */
+  let paneInfoFor = "";
+  function openPaneInfo(id) {
+    const v = id && state && state.panes && state.panes[id];
+    if (!v) { notice("There is no pane to show info for", true); return; }
+    dialog = "paneInfo";
+    paneInfoFor = id;
+    openOverlay("Pane info", "panes");
+    $("overlay-body").append(el("div", "dir-empty", "Loading…"));
+    send({ cmd: "paneInfo", id });
+  }
+
+  /** paneInfoText is the whole list as plain text, one "Label: value" line
+   *  each, with "not set" where a pane has no value yet. */
+  function paneInfoText(fields) {
+    return fields.map((f) => f.label + ": " + (f.value || "not set")).join("\n");
+  }
+
+  /** copyValue puts one value on the clipboard and says what it copied. */
+  function copyValue(text, what) {
+    const failed = () => notice("The clipboard could not be reached, so nothing was copied", true);
+    try {
+      const clip = window.navigator && window.navigator.clipboard;
+      if (!clip || !clip.writeText) { failed(); return; }
+      clip.writeText(text).then(() => notice("Copied " + what, false), failed);
+    } catch { failed(); }
+  }
+
+  function renderPaneInfo(msg) {
+    if (dialog !== "paneInfo" || msg.id !== paneInfoFor) return;
+    const body = $("overlay-body");
+    body.textContent = "";
+    const fields = msg.fields || [];
+    body.append(el("p", "fan-hint", "What names " + (msg.name ? "“" + msg.name + "”" : "this pane") +
+      " in files, logs and commands. Nothing here is a secret, but a path can name your folders."));
+    const list = el("div", "pi-list");
+    fields.forEach((f) => {
+      const row = el("div", "pi-row");
+      row.dataset.key = f.label;
+      const head = el("div", "pi-head");
+      head.append(el("span", "pi-label", f.label));
+      if (f.value) {
+        const copy = el("button", "chip", "Copy");
+        copy.setAttribute("aria-label", "Copy " + f.label.toLowerCase());
+        copy.onclick = () => copyValue(f.value, f.label.toLowerCase());
+        head.append(copy);
+      }
+      row.append(head, el("div", f.value ? "pi-value" : "pi-value unset", f.value || "not set"));
+      if (f.note) row.append(el("div", "pi-note", f.note));
+      list.append(row);
+    });
+    body.append(list);
+    const tools = el("div", "wt-tools");
+    const all = el("button", "chip primary", "Copy all");
+    all.id = "pane-info-copy-all";
+    all.onclick = () => copyValue(paneInfoText(fields), "all pane info");
+    tools.append(all);
+    body.append(tools);
+  }
+
+  /** Find pane searches every pane in every open project, on the server, by
+   *  what the pane is called and by the ids that name it. Choosing a result
+   *  goes through revealPane, the same as the Agents list does. */
+  let findPaneQuery = "";
+  function openFindPane(query) {
+    dialog = "findPane";
+    findPaneQuery = query || "";
+    openOverlay("Find pane", "panes");
+    const body = $("overlay-body");
+    const field = el("input");
+    field.id = "find-pane-input";
+    field.value = findPaneQuery;
+    field.placeholder = "Name, project, tab, agent, id, conversation, process or peer name";
+    field.setAttribute("aria-label", "Find a pane");
+    field.autocomplete = "off";
+    field.spellcheck = false;
+    field.dataset.autofocus = "true";
+    field.oninput = () => { findPaneQuery = field.value; send({ cmd: "findPane", text: field.value }); };
+    field.onkeydown = (ev) => {
+      const rows = [...body.querySelectorAll(".pf-row")];
+      if (ev.key === "Enter" && rows[0]) { ev.preventDefault(); rows[0].onclick(); }
+      else if (ev.key === "ArrowDown" && rows[0]) { ev.preventDefault(); rows[0].focus(); }
+    };
+    const results = el("div", "pf-list");
+    results.id = "find-pane-results";
+    results.setAttribute("aria-live", "polite");
+    body.append(field, results);
+    send({ cmd: "findPane", text: field.value });
+    field.focus();
+  }
+
+  function renderPaneMatches(msg) {
+    if (dialog !== "findPane") return;
+    const field = $("find-pane-input");
+    // An answer to what was typed a moment ago is not this one's.
+    if (!field || msg.query !== field.value) return;
+    const results = $("find-pane-results");
+    results.textContent = "";
+    const items = msg.items || [];
+    if (!items.length) {
+      results.append(el("div", "dir-empty", msg.query.trim()
+        ? "No pane matches “" + msg.query.trim() + "”."
+        : "No panes open."));
+      return;
+    }
+    items.forEach((m, i) => {
+      const row = el("button", "pf-row");
+      row.append(el("span", "pf-name", m.name || m.paneId));
+      row.append(el("span", "pf-where", [m.project, m.tab].filter(Boolean).join(" · ")));
+      if (m.matched && m.matched.length) {
+        row.append(el("span", "pf-why", "Matched " + m.matched.map((f) => f.label.toLowerCase() + " " + f.value).join(", ")));
+      }
+      row.onclick = () => {
+        closeOverlay();
+        send({ cmd: "revealPane", root: m.root, node: m.tabId, id: m.paneId });
+      };
+      row.onkeydown = (ev) => {
+        const rows = [...results.querySelectorAll(".pf-row")];
+        if (ev.key === "ArrowDown" && rows[i + 1]) { ev.preventDefault(); rows[i + 1].focus(); }
+        else if (ev.key === "ArrowUp") { ev.preventDefault(); (rows[i - 1] || field).focus(); }
+      };
+      results.append(row);
+    });
+  }
+
   /** tally builds one "3 waiting" count: the dot is decoration in the status's
    *  colour, the words after it are the reading, and the tip explains the
    *  state being counted. The word is its own element so that a narrow
@@ -3050,6 +3181,9 @@
     const exportBtn = btn("⤓", TIPS.exportTranscript, () => exportTranscript(id));
     // Shows the pane's transcript file in the file manager. Hidden for a shell.
     const revealBtn = btn("🗂", TIPS.revealTranscript, () => send({ cmd: "revealTranscript", id }));
+    // Opens the Pane info view: the ids and files that identify this pane. On
+    // every pane, a shell included, since a shell has an id and a process too.
+    const infoBtn = btn("ⓘ", TIPS.paneInfo, () => openPaneInfo(id));
     const castBtn = btn("⇉", "Adds this pane to the broadcast set, or takes it out again. " + TIPS.broadcast,
       () => send({ cmd: "toggleBroadcastMember", id }));
     const zoomBtn = btn("⤢", TIPS.zoom, () => send({ cmd: "toggleZoom", id }));
@@ -3067,6 +3201,7 @@
       exportBtn,
       revealBtn,
       recBtn,
+      infoBtn,
       lockBtn,
       closeBtn,
     );
@@ -5109,6 +5244,8 @@
         const p = picker;
         return p && (() => chooseAgent(p.title, p.onPick, { setDefault: p.setDefault, scope: p.scope }));
       } },
+    paneInfo: { present: "dialog-m", act: "paneInfo", again: () => { const at = paneInfoFor; return () => openPaneInfo(at); } },
+    findPane: { present: "dialog-m", act: "findPane", again: () => { const at = findPaneQuery; return () => openFindPane(at); } },
     renameTab: { present: "dialog-s", again: () => { const at = renamingTab; return () => renameTab(at); } },
     ask: { present: "dialog-s" },
   };
@@ -7630,6 +7767,8 @@
       if (v && v.kind !== "shell") send({ cmd: "revealTranscript", id });
     },
     openRecordings: () => send({ cmd: "openRecordings" }),
+    paneInfo: () => openPaneInfo(focusedPaneId()),
+    findPane: () => openFindPane(),
     lockPane: () => {
       const id = focusedPaneId();
       const v = id && state && state.panes && state.panes[id];
@@ -7895,7 +8034,7 @@
     // somebody looking for one types - it matched none of them.
     const SETTING = "settings preferences options";
     const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
-    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : "";
+    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "paneInfo" ? "id identifier identifiers details info information conversation session process pid peer path file copy" : id === "findPane" ? "search locate where switch go id identifier conversation session process pid peer name project tab branch" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : "";
     // What a setting is now, beside the command that changes it: choosing a
     // scrollback or a font meant opening the question to find out.
     const value = {
