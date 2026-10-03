@@ -20,8 +20,8 @@ switched from inside the window. These are what is left.
 | `flockdeck agents` | List the agents and models that `-agent` and `spawn` accept, and which are installed here |
 | `flockdeck help` | Print the usage; `flockdeck help spawn` (or any subcommand below) prints that subcommand's usage instead |
 
-`-no-window` needs no browser on the machine it runs on either, so it's
-equally at home on a server you own — see **Running it headless on a server** in
+`-no-window` needs no browser on the machine it runs on, so it suits
+a server you own. See **Running it headless on a server** in
 [Remote access](#remote) for running Flockdeck headless and reaching it from
 a paired phone or laptop.
 
@@ -58,26 +58,25 @@ whatever the project runs by default. `flockdeck agents` lists the names both
 of them take, and a name neither the catalog nor the agent has is answered here
 rather than becoming a pane that never starts.
 
-The address and token come from the environment the pane was started with —
-`FLOCKDECK_API` and `FLOCKDECK_TOKEN` below — so only processes running inside a pane
+The address and token come from the environment the pane was started with
+(`FLOCKDECK_API` and `FLOCKDECK_TOKEN` below), so only processes running inside a pane
 can use it, and running it anywhere else says so rather than failing
 obscurely. That is what lets an agent hand work to helpers of its own.
 
 ## peer-name
 
 Run from inside a pane, this reports the name another Claude session would
-use to address it — a cross-session messaging tool's own "to", or the "This
+use to address it: a cross-session messaging tool's own "to", or the "This
 session is …" line a tool like `ListAgents` answers with:
 
 ```sh
 flockdeck peer-name <name>
 ```
 
-Flockdeck cannot learn this on its own: it is assigned by infrastructure
-outside the application entirely, and known only to whichever agent asks for
-it, typically by calling its own `ListAgents` tool. Reporting it here is what
-puts it in the pane's header (see [Panes and tabs](#panes)), so another
-session's "go look at pane X" is something the user can actually act on
+Flockdeck cannot learn this on its own: it is assigned outside the application
+and known only to the agent, typically by calling its own `ListAgents` tool.
+Reporting it here puts it in the pane's header (see [Panes and tabs](#panes)),
+so another session's "go look at pane X" is something the user can act on
 without asking the pane to describe itself first.
 
 Like `spawn`, this only works inside a pane, using the address and token its
@@ -85,7 +84,7 @@ environment was given.
 
 ## close
 
-Run from inside a pane, this closes another pane — the same effect
+Run from inside a pane, this closes another pane, with the same effect
 Ctrl+Shift+W has on the one you're focused on:
 
 ```sh
@@ -99,16 +98,16 @@ naming the wrong id cannot cut off work in progress (an idle agent with a
 background command or subagent still running counts as in progress); a locked pane
 is refused whatever the flags say, since `-force` only covers a pane still working
 and only the user can unlock a pane, from its header or the command palette; a pane cannot close
-itself this way — end its own turn instead. `-finished` closes every idle agent
+itself this way, so end its own turn instead. `-finished` closes every idle agent
 pane and every cleanly exited pane (leaving alone idle shells, panes whose
 process failed or was killed, and an agent with background work still running) across every open project instead of naming one, the same as the
 "Close finished panes" command, and takes no pane id. It leaves locked panes open and
 prints how many it left.
 
 Like `spawn` and `peer-name`, this only works inside a pane, using the address
-and token its environment was given. It is what lets a coordinating agent
-clean up a helper whose work is done without a person finding it and pressing
-Ctrl+Shift+W themselves.
+and token its environment was given. It lets a coordinating agent
+clean up a helper whose work is done without a person pressing
+Ctrl+Shift+W.
 
 ## recordings
 
@@ -158,8 +157,8 @@ running.
 
 ## keys
 
-An API agent — one Flockdeck talks to directly rather than through a CLI of its
-own — needs a key. It is looked for in that agent's own environment variables
+An API agent (one Flockdeck talks to directly rather than through a CLI of its
+own) needs a key. It is looked for in that agent's own environment variables
 first, then in `keys.json` in the state directory, and last in
 `FLOCKDECK_API_KEY`. A vendor's own variable, such as `OPENAI_API_KEY`, is read
 only while the agent talks to that vendor's own address.
@@ -199,14 +198,14 @@ anything, and connects, disconnects or switches relay on the spot. [Remote acces
 flockdeck chat
 ```
 
-This is the terminal chat client Flockdeck runs in a pane for an API agent — the
+This is the terminal chat client Flockdeck runs in a pane for an API agent, the
 one that talks to a model API itself, with no wrapper CLI, no node and no
 Python. It is told which agent, which model and which session to be; the pane
 fills all three in, which is why you meet it as a pane rather than type it. Run
 outside a pane it still works, but there is nothing listening for the lifecycle
 events it reports, so nothing turns amber when it wants you. It has flags of its
-own for setting it up by hand — which wire to speak, the base URL, the model,
-and which environment variable holds the key — and lists them when asked for
+own for setting it up by hand (which wire to speak, the base URL, the model,
+and which environment variable holds the key) and lists them when asked for
 help, for talking to an endpoint from a plain terminal. On
 Windows, run it as `flockdeck-chat chat`: `flockdeck.exe` is built without a
 console, so it has nowhere to draw the conversation, and `flockdeck-chat.exe`
@@ -227,9 +226,9 @@ Flockdeck next quits. A window reached through the relay is not shown the
 button, and cannot turn the check for updates on or off: both are done at the
 desk.
 
-`-version` installs a specific release rather than always the latest,
-checked the same way and asking first unless `-yes` is given: it is how to
-undo a bad update yourself, right now, without waiting for a fix to be
+`-version` installs a specific release instead of the latest,
+checked the same way and asking first unless `-yes` is given. Use it to
+undo a bad update yourself without waiting for a fix to be
 published. **Settings › Account & plan › Install a specific version…** offers the
 same choice from a list of recent releases, without typing a version number:
 picking one downloads and checks it, then offers it through the same
@@ -263,8 +262,8 @@ is running from an image the operating system already holds, so the new version
 is simply what starts next time. The old file is moved aside and swept up by
 the following start.
 
-A build you made yourself — stamped `dev` by `go build` or `go install`, or by
-`git describe` when built with make — is never replaced by a release: there is
+A build you made yourself (stamped `dev` by `go build` or `go install`, or by
+`git describe` when built with make) is never replaced by a release: there is
 no sense in which it is behind one.
 
 Set `FLOCKDECK_UPDATE=off` to stop the window checking on its own, and to stop
@@ -281,17 +280,17 @@ The subcommand still works; it is the background updating that goes.
 | `FLOCKDECK_DIR`, `FLOCKDECK_START_AGENT` | The equivalents of `-C` and `-agent` |
 | `FLOCKDECK_FRESH`, `FLOCKDECK_SHELL_FIRST`, `FLOCKDECK_NO_WINDOW`, `FLOCKDECK_DETACH`, `FLOCKDECK_SOLO` | Set to `1` or `true` (any case), the equivalents of `-new`, `-shell`, `-no-window`, `-detach` and `-solo`, for a service's environment; a flag given on the command line wins |
 | `FLOCKDECK_REMOTE_INVITE`, `FLOCKDECK_REMOTE_JOIN`, `FLOCKDECK_REMOTE_NAME` | The defaults for `-invite`, `-join` and `-name` of `flockdeck remote enable` |
-| `FLOCKDECK_API` | Where Flockdeck listens for its panes — set for you |
-| `FLOCKDECK_TOKEN` | The secret that goes with it — set for you |
-| `FLOCKDECK_PANE` | The pane's id — set for you, read by `spawn`, `peer-name` and `close` |
+| `FLOCKDECK_API` | Where Flockdeck listens for its panes. Set for you |
+| `FLOCKDECK_TOKEN` | The secret that goes with it. Set for you |
+| `FLOCKDECK_PANE` | The pane's id. Set for you, read by `spawn`, `peer-name` and `close` |
 | `FLOCKDECK_PANE_NAME` | The pane's name, for a shell prompt to use |
 | `FLOCKDECK_PROJECT` | The project the pane belongs to |
 | `FLOCKDECK_AGENT` | Which agent the pane is running |
 | `FLOCKDECK_MODEL` | Which model it was asked for, if any |
-| `FLOCKDECK_LAUNCH` | Which start of the pane this is — set for you, sent back by its hooks so a late one from before a restart is dropped |
+| `FLOCKDECK_LAUNCH` | Which start of the pane this is. Set for you, sent back by its hooks so a late one from before a restart is dropped |
 
-`FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME` and `FLOCKDECK_PROJECT` are what a shell pane —
-which has no lifecycle hooks of its own — has to go on.
+`FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME` and `FLOCKDECK_PROJECT` are what a shell pane,
+which has no lifecycle hooks of its own, has to go on.
 
 `FLOCKDECK_API`, `FLOCKDECK_TOKEN`, `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME` and
 `FLOCKDECK_PROJECT` were called `PERCH_*` before the program was renamed. Panes

@@ -684,7 +684,7 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 	case rio.running != nil && rio.running():
 		fmt.Fprintln(rio.out, "state:   not connected, though flockdeck is running;\n         the Remote chip in its window says why")
 	default:
-		fmt.Fprintln(rio.out, "state:   not connected — flockdeck connects while it is running")
+		fmt.Fprintln(rio.out, "state:   not connected (flockdeck connects while it is running)")
 	}
 	// Where a paired device opens this machine, for one that has lost its
 	// bookmark, or somebody asked where to point it.
@@ -692,7 +692,7 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 		fmt.Fprintf(rio.out, "open at: %s\n", at)
 	}
 	if len(roster.Devices) == 0 {
-		fmt.Fprintln(rio.out, "devices: none paired — `flockdeck remote pair` pairs one")
+		fmt.Fprintln(rio.out, "devices: none paired; `flockdeck remote pair` pairs one")
 	} else {
 		fmt.Fprintf(rio.out, "devices: %s\n", pairedSummary(roster.Devices, 80-len("devices: ")))
 	}
@@ -800,7 +800,7 @@ func printRoster(out io.Writer, r *remote.Roster, now time.Time, idle bool) {
 			// A name may be 64 characters of several words; a row too long
 			// for the line carries on under the name, past the id.
 			id := fmt.Sprintf("  %-*s  ", width, d.ID)
-			fmt.Fprintln(out, breakAt(id, len(id), orUnnamed(d.Name)+" — last seen "+ago(d.LastSeen, now)))
+			fmt.Fprintln(out, breakAt(id, len(id), orUnnamed(d.Name)+", last seen "+ago(d.LastSeen, now)))
 		}
 	}
 	if len(r.Hosts) > 0 {
@@ -813,7 +813,7 @@ func printRoster(out io.Writer, r *remote.Roster, now time.Time, idle bool) {
 			case h.Self && idle:
 				// The one reason this side knows for itself, and the one
 				// thing to do about it.
-				state = "offline — flockdeck is not running here"
+				state = "offline, flockdeck is not running here"
 			}
 			self := ""
 			if h.Self {
@@ -821,7 +821,7 @@ func printRoster(out io.Writer, r *remote.Roster, now time.Time, idle bool) {
 			}
 			// Carried on two columns in from the name, so that the rest of a
 			// long row is not taken for the next machine.
-			fmt.Fprintln(out, breakAt("  ", 4, orUnnamed(h.Name)+self+" — "+state))
+			fmt.Fprintln(out, breakAt("  ", 4, orUnnamed(h.Name)+self+": "+state))
 		}
 	}
 }
@@ -1049,7 +1049,7 @@ func remoteDisable(args []string, rio remoteIO) error {
 		// relay until a paired device removes it, and that is the cost. A
 		// relay out of reach is most often a network down for now, so trying
 		// again is said first, as enable's refusal says it.
-		return fmt.Errorf("%v; try again once the relay can be reached, or, if it is gone for good, run again with -force to forget the enrolment here anyway — the relay will then list this machine, offline, until it is removed from the Devices page of a paired device", err)
+		return fmt.Errorf("%v; try again once the relay can be reached, or, if it is gone for good, run again with -force to forget the enrolment here anyway. The relay will then list this machine, offline, until it is removed from the Devices page of a paired device", err)
 	case err != nil:
 		return err
 	case !had:

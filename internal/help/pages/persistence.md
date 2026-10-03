@@ -18,26 +18,26 @@ the terminal size it was last drawn at. A layout saved before auto-review was
 kept per pane brings its panes back with auto-review as **Settings ›
 General › Start new panes with auto-review on** says.
 
-A project whose folder is not there when Flockdeck starts — on a USB stick
-that is not plugged in, or a network drive not yet connected — is not opened,
+A project whose folder is not there when Flockdeck starts (on a USB stick
+that is not plugged in, or a network drive not yet connected) is not opened,
 but it stays in the list for the next ten starts, so it comes back with its
 folder. Closing it, once it is back and open, takes it off the list.
 
-Started without one — from the Start menu, a shortcut, or a terminal in your
-home folder — Flockdeck opens the projects you had open last time and lands in
+Started without one (from the Start menu, a shortcut, or a terminal in your
+home folder), Flockdeck opens the projects you had open last time and lands in
 the one you were in. Your home folder opens as a project only when there were
 none; to open it on purpose, run `flockdeck -C ~`.
 
 A layout is written when the window closes or reloads, when you detach,
 restart or quit, when a project is closed, and every half minute while
-Flockdeck runs — so if it is killed or crashes, it comes back as it was at
+Flockdeck runs. If it is killed or crashes, it comes back as it was at
 most half a minute before. Which projects were open is not on that timer: it
 is written when the window closes or reloads, when you detach, and when
 Flockdeck stops, so after a crash the next start reopens the projects that
 were open at the last of those.
 
-A saved file Flockdeck cannot read — a layout, the list of open projects, your
-preferences — is never written over. It is moved aside, beside the original,
+A saved file Flockdeck cannot read (a layout, the list of open projects, your
+preferences) is never written over. It is moved aside, beside the original,
 with `.unread` on the end (or `.damaged`, when it could be read but made no
 sense, or is a layout saved by a newer version of Flockdeck), and that run goes
 on without it. The window says so, and where the file is kept, within half a
@@ -45,8 +45,7 @@ minute of opening.
 
 That works because a pane is identified by a session id handed to the agent
 when the pane is created, and handed back when it is restored. Pane identity
-and conversation identity are the same thing, which is what makes restore
-meaningful rather than cosmetic.
+and conversation identity are the same thing.
 
 Two things have to hold for a conversation to come back: the agent has to be
 able to reattach one by id, and it has to have written a transcript to
@@ -55,8 +54,7 @@ rather than dying on restore, and a pane running an agent that cannot resume
 comes back in the right place, in the right directory, with an empty
 conversation. [Agents and models](#agents) says which is which.
 
-A layout saved by a build that knew only about Claude is read without a
-murmur: its panes come back running Claude Code at whatever model the CLI is
+A layout saved by a build that knew only about Claude is read as normal: its panes come back running Claude Code at whatever model the CLI is
 set to, and nobody is asked anything.
 
 ## Detaching

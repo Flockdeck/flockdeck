@@ -150,7 +150,7 @@ through a symlink or an ordinary-looking name. Treat a transcript as being as
 sensitive as the conversation itself, assume a secret may be in it even when no
 line is marked redacted, and delete the files you do not want kept. Transcripts
 are saved on this machine (user-only on Linux and macOS; on Windows, readable by
-you and a local administrator, like any file in your profile) — "on this
+you and a local administrator, like any file in your profile), "on this
 machine", not "private to you".
 
 Nothing is sent anywhere: transcripts stay on this machine, and **Open

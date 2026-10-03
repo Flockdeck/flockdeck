@@ -1,17 +1,17 @@
 # Getting started
 
-Flockdeck runs your coding agents on hardware you control — your desk, or a
-machine that never sleeps — and reaches you wherever you are. Every agent
-pane is a real program in a genuine pseudo-terminal, so it behaves exactly as
-it does in a normal terminal — permission prompts, slash commands, plan mode,
+Flockdeck runs your coding agents on hardware you control, your desk or a
+machine that never sleeps, and reaches you wherever you are. Every agent
+pane is a real program in a pseudo-terminal, so it behaves exactly as
+it does in a normal terminal: permission prompts, slash commands, plan mode,
 colours, mouse. Claude Code is what a pane runs unless you say otherwise; any
 other coding agent, and any model API spoken to directly, is a pick away.
 
-Running several of them at once is where Flockdeck earns its keep: it
-answers one question at a glance — which agent needs you right now — and
-what follows is everything you need once there is more than one of them.
+With several agents running at once, Flockdeck answers one question at a
+glance: which agent needs you right now. The rest of this page covers what you
+need once there is more than one.
 
-## The three things to know first
+## Three things to know first
 
 **The dot in each pane header says what that agent is doing.** A filled cyan
 circle is working, an amber triangle is *waiting on you*, a hollow grey circle
@@ -46,13 +46,13 @@ remember that one.
 
 Two agents editing the same files will fight. Give each its own checkout
 instead: [[key:worktrees]] opens the worktrees, where you can create them, and
-[[key:fanout]] fans out — it turns one agent's plan into a set of agents that
+[[key:fanout]] fans out: it turns one agent's plan into a set of agents that
 each take a task in a worktree of their own. [Git worktrees](#worktrees) and
 [Fan out](#fanout) cover both.
 
 ## Which agent, which model
 
-A pane's header names what is in it — `claude · sonnet`, `codex · gpt-5.6-sol` —
+A pane's header names what is in it, such as `claude · sonnet` or `codex · gpt-5.6-sol`,
 beside its branch. [Agents and models](#agents) explains the picker, what changes when
 an agent cannot report its own status, and how to add one of your own. For the
 API agents, and for Claude Code where its status line is read, the header also
@@ -61,9 +61,9 @@ is; [Spend and limits](#spend) says how, and when Claude Code's are read.
 
 ## Finding the rest of it
 
-The rail down the left of the window has a tile for each open project — one
+The rail down the left of the window has a tile for each open project (one
 with an amber triangle badge has an agent waiting on you, and one with a cyan badge
-has agents at work — and under them the tools: Agents, Broadcast, Changes,
+has agents at work), and under them the tools: Agents, Broadcast, Changes,
 History, Worktrees, Fan-out history, Todos, GitHub and API keys, then, below a
 rule, Remote, Help and Settings. Rest the
 pointer on one, or reach it with the keyboard, and it says what it is and the

@@ -37,8 +37,8 @@ right arrows move between a row's two buttons. **Refresh**, at the top, reads
 the list again.
 
 **New worktree**, at the foot of the panel, creates one: type the branch, and
-the **Base** it starts from — filled in with the branch the repository has
-checked out, which you can change — and
+the **Base** it starts from (filled in with the branch the repository has
+checked out, which you can change), and
 press **Create**, or <kbd>Enter</kbd> in either field. It is created in a
 folder beside the repository's own, named after the repository and the
 branch; giving an existing branch name checks that branch out instead of
@@ -46,7 +46,7 @@ creating one. **Branches without a worktree** are listed above it as one-click
 buttons, up to fourteen of them; a branch further down that list is checked
 out by typing its name into the form. In a project [grouping more than one
 directory](#projects), the form also offers a choice of which repo to create
-the worktree in — defaulting to whichever is active — since a worktree always
+the worktree in (defaulting to whichever is active), since a worktree always
 belongs to exactly one repository; [Review, commit and push](#changes) has the
 same choice for reviewing one.
 
@@ -61,7 +61,7 @@ drive that is not plugged in.
 ## In the pane headers
 
 Every pane header carries the same information for the checkout it is working
-in — branch, `●n` uncommitted files, `↑n` and `↓n` against upstream —
+in (branch, `●n` uncommitted files, `↑n` and `↓n` against upstream),
 refreshed in the background while its project is on screen. That is the state
 of every agent's tree at a glance, without opening anything, and clicking the
 counts opens [Changes](#changes) on that pane's checkout. The panes of the
@@ -73,7 +73,7 @@ means running git inside every submodule on every refresh. The review panel
 still shows it, and a submodule moved to another commit is counted in both.
 
 Each checkout is read on its own. One that git does not answer for within ten
-seconds — a very large checkout, or one on a network drive gone quiet — holds
+seconds (a very large checkout, or one on a network drive gone quiet) holds
 up no other pane, and its own headers say *git timed out* in place of counts
 that may be out of date. It is asked again on the next refresh; running
 `git status` in a terminal there shows what is slow.
