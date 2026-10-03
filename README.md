@@ -15,7 +15,7 @@ each behaves exactly as it does in a normal terminal: permission prompts,
 slash commands, plan mode, colours, mouse. Around them the app adds what you
 need to run six at a time: tabs, split panes, per-agent status, layout
 persistence, git worktrees and broadcast input. Each agent is told which pane
-it is and who else is working.
+it is and who else is working, so being one of several is something it can act on.
 
 The agent and the model are chosen per pane. Claude Code is the default;
 beside it Flockdeck runs Codex, Gemini, Aider, opencode or Cursor's agent, and
@@ -1319,7 +1319,7 @@ that hasn't after a while says **Not delivered yet**, with **Retry** beside
 it. The chat header, and each row in the list below, also says what the
 agent has spent in its conversation: a token count and the tightest of its
 usage windows for one on a subscription, or a rough cost in dollars for one
-paying by the token. It is coloured once that window is close to running out.
+paying by the token. That figure is coloured once the window is close to running out.
 
 Every open pane also appears in the paired device's list with its latest
 reply, or the question it's waiting on, a time, and an unread dot, so you
@@ -1356,8 +1356,8 @@ path, the same way typing one would tell it.
 
 Most of this needs a fairly recent Flockdeck on the desktop; paired with an
 older one, a pane opens as a terminal instead. Even where a pane does
-open as a chat, a few parts are missing on a desktop too old to send
-them: no live timer, a plain "waiting for you — open
+open as a chat, a few parts fall back gracefully on a desktop too old to send
+them, rather than breaking: no live timer, a plain "waiting for you — open
 the terminal to answer" banner instead of a question or permission card, and
 no preview text in the paired device's list. **New agent**, search, and
 muting a single pane each need a newer desktop too, and don't appear
@@ -1477,8 +1477,8 @@ never sent anywhere.
 - **An agent is data, not a branch.** Which program to run, which models it
   offers, how its status is known, where its transcript is and how its briefing
   reaches it are fields on one struct. Adding an agent is a table entry, and
-  for a user it is a few lines of JSON. That is why a second agent did not
-  become a second copy of every feature.
+  for a user it is a few lines of JSON, which is the only reason a second
+  agent did not become a second copy of every feature.
 - **The API agent is the same binary.** Talking to a model API directly is a
   subcommand run in the pane's own terminal, reporting the same lifecycle
   events over the same loopback endpoint as a CLI agent's hooks. Nothing in the

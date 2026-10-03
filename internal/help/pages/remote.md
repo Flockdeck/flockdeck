@@ -190,7 +190,7 @@ Every open pane also appears in the paired device's list with its latest
 reply, or the question it's waiting on, a time, and an unread dot, so you
 can see what's happened everywhere without opening each one. Opening the
 list again after a while away leads with **Since you last looked**: new
-replies, agents that finished, and ones that started waiting since this
+replies, agents that finished, and ones that started waiting, since this
 device last had it open. A tap on any of those jumps to and
 highlights the first row it counts, opening its helper group first if that
 was folded. It says nothing once there is nothing honest left to count. One
@@ -390,9 +390,10 @@ and support, for a company whose rules don't allow a third party to read
 what passes through the relay. Terminals are end-to-end encrypted, so even the
 shared relay cannot read them, unless a side has no registered key, or the relay
 swaps or withholds the keys it hands out or tampers with the client it serves
-(see **What the relay can see**). Apart from push notification content, the
-operator can read the rest of what passes through: pane state, the chat view,
-diffs, pictures and any API key typed into a dialog. It is not generally
+(see **What the relay can see**). Apart from push notification content, and terminals (except in the cases
+above), the operator can read everything else that passes through: pane state,
+the chat view, diffs, commit and pull request data, pictures and any API key
+typed into a dialog. It is not generally
 available yet. The
 relay's own configuration is described in
 [Self-hosting the relay](https://docs.flockdeck.ai/self-hosting/overview.html).

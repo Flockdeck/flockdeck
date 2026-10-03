@@ -15,7 +15,7 @@ link to install it by hand from [cli.github.com](https://cli.github.com).
 
 Once it is installed, **Sign in with GitHub** walks through `gh auth
 login`: a one-time code appears here, to enter at github.com/login/device.
-Approve it there, in your browser, and this comes back signed in on its own. **Sign out**, in the same section,
+Approve it there, in your browser, and this comes back signed in on its own, and there is nothing more to do in Flockdeck. **Sign out**, in the same section,
 runs `gh auth logout` after asking, so it signs `gh` out everywhere on this
 machine, not only in Flockdeck.
 
