@@ -1090,3 +1090,52 @@ func TestEmitSaysWhatBackgroundWorkIs(t *testing.T) {
 		}
 	})
 }
+
+// TestAFieldOfAnUnexpectedTypeCostsOnlyItself covers the fields read only to
+// be shown: one Claude Code sends as an object or array rather than a string
+// is taken as unsaid, and the event -- its background start or end, a Stop's
+// replacing list, its prompt -- arrives as it would have without it.
+func TestAFieldOfAnUnexpectedTypeCostsOnlyItself(t *testing.T) {
+	emit := func(t *testing.T, event, stdin string) Event {
+		t.Helper()
+		srv, r := newServer(t)
+		if _, err := Emit(strings.NewReader(stdin), srv.Endpoint(), srv.Token(), "pane-bg", event); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		return r.next(t)
+	}
+	t.Run("SubagentStart", func(t *testing.T) {
+		got := emit(t, "SubagentStart", `{"cwd":"/repo","agent_id":"a7","agent_type":{"x":1},"description":["y"]}`)
+		if got.Background != BackgroundStart || got.BackgroundID != "agent:a7" || got.Cwd != "/repo" {
+			t.Errorf("event lost: %+v", got)
+		}
+		if got.BackgroundInfo != nil {
+			t.Errorf("non-strings made into info: %+v", *got.BackgroundInfo)
+		}
+	})
+	t.Run("Stop", func(t *testing.T) {
+		got := emit(t, "Stop", `{"cwd":"/repo","background_tasks":[`+
+			`{"id":"b1","type":"shell","command":["x"],"description":{"a":1}},`+
+			`{"id":"a2","type":"subagent","agent_type":7,"description":"Run tests"},`+
+			`"bare string",42,{"id":{"no":1}},`+
+			`{"id":"m1","type":"monitor"}]}`)
+		if got.Cwd != "/repo" || got.BackgroundTasks == nil {
+			t.Fatalf("event lost: %+v", got)
+		}
+		if want := []string{"shell:b1", "agent:a2", "monitor:m1"}; !reflect.DeepEqual(*got.BackgroundTasks, want) {
+			t.Errorf("tasks = %v, want %v", *got.BackgroundTasks, want)
+		}
+		want := map[string]BackgroundInfo{"agent:a2": {Type: "subagent", Description: "Run tests"}}
+		if !reflect.DeepEqual(got.BackgroundTaskInfo, want) {
+			t.Errorf("info = %+v, want %+v", got.BackgroundTaskInfo, want)
+		}
+	})
+	t.Run("a long type is clipped", func(t *testing.T) {
+		got := emit(t, "Stop", `{"background_tasks":[{"id":"x1","type":"`+strings.Repeat("k", 100)+`","description":"d"}]}`)
+		for _, b := range got.BackgroundTaskInfo {
+			if len(b.Type) > 32 {
+				t.Errorf("type of %d bytes", len(b.Type))
+			}
+		}
+	})
+}

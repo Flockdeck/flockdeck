@@ -165,7 +165,7 @@ func backgroundText(s string) string {
 // newBackgroundInfo is a BackgroundInfo from what an event said, or nil when
 // it said nothing past the kind.
 func newBackgroundInfo(typ, agentType, description, command string) *BackgroundInfo {
-	b := BackgroundInfo{Type: typ, AgentType: backgroundText(agentType), Description: backgroundText(description), Command: backgroundText(command)}
+	b := BackgroundInfo{Type: clip(typ, 32), AgentType: backgroundText(agentType), Description: backgroundText(description), Command: backgroundText(command)}
 	if b.AgentType == "" && b.Description == "" && b.Command == "" {
 		return nil
 	}
@@ -222,13 +222,18 @@ type claudePayload struct {
 	AgentID string `json:"agent_id"`
 	// AgentType is the kind of subagent a SubagentStart is about
 	// ("general-purpose"), as Claude Code puts it on a subagent's hooks.
-	AgentType string `json:"agent_type"`
 	// Description is read in case a SubagentStart carries the task it was
-	// given; no payload this has seen does, so it is usually empty.
-	Description string `json:"description"`
+	// given; no payload this has seen does, so it is usually empty. Both are
+	// only shown, so they are read as whatever they are and taken only if a
+	// string (see wireString): a value of another type must not fail the
+	// decoding of the whole payload, and the event with it.
+	AgentType   json.RawMessage `json:"agent_type"`
+	Description json.RawMessage `json:"description"`
 	// BackgroundTasks is a Stop's own list of the background work still in
-	// flight; nil when the payload has no such field at all.
-	BackgroundTasks *[]backgroundTaskWire `json:"background_tasks"`
+	// flight; nil when the payload has no such field at all. Its entries are
+	// read one by one (see backgroundTasksOf), so one of an unexpected shape
+	// costs only itself.
+	BackgroundTasks *[]json.RawMessage `json:"background_tasks"`
 	// LastAssistantMessage is what Stop and SubagentStop carry of the agent's
 	// final message of the turn. Claude Code before it sent this has none, and
 	// no hook reports the messages in between.
@@ -248,11 +253,46 @@ type claudePayload struct {
 // agent_type; a monitor's is not known to carry anything past its id, so
 // every one of these is read as optional.
 type backgroundTaskWire struct {
-	ID          string `json:"id"`
-	Type        string `json:"type"`
-	Description string `json:"description"`
-	Command     string `json:"command"`
-	AgentType   string `json:"agent_type"`
+	ID          string          `json:"id"`
+	Type        string          `json:"type"`
+	Description json.RawMessage `json:"description"`
+	Command     json.RawMessage `json:"command"`
+	AgentType   json.RawMessage `json:"agent_type"`
+}
+
+// wireString is raw as a string when it is one, and "" when it is anything
+// else or absent: a field only shown is not worth losing an event over.
+func wireString(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return ""
+	}
+	return s
+}
+
+// backgroundTasksOf reads a Stop's background_tasks entries: the ids, named
+// as backgroundKey names them, and what each says of itself. An entry that is
+// not an object with a string id is left out, as one with no id always was.
+func backgroundTasksOf(raw []json.RawMessage) (ids []string, info map[string]BackgroundInfo) {
+	ids = make([]string, 0, len(raw))
+	for _, r := range raw {
+		var t backgroundTaskWire
+		if json.Unmarshal(r, &t) != nil || t.ID == "" {
+			continue
+		}
+		key := backgroundKey(t.Type, t.ID)
+		ids = append(ids, key)
+		if len(info) >= maxBackgroundInfo {
+			continue
+		}
+		if b := newBackgroundInfo(t.Type, wireString(t.AgentType), wireString(t.Description), wireString(t.Command)); b != nil {
+			if info == nil {
+				info = map[string]BackgroundInfo{}
+			}
+			info[key] = *b
+		}
+	}
+	return ids, info
 }
 
 // backgroundKey is what a piece of background work of kind type and id is
@@ -381,7 +421,7 @@ func backgroundOf(event string, cp claudePayload) (op, id string) {
 func backgroundInfoOf(event string, cp claudePayload) *BackgroundInfo {
 	switch event {
 	case "SubagentStart":
-		return newBackgroundInfo("subagent", cp.AgentType, cp.Description, "")
+		return newBackgroundInfo("subagent", wireString(cp.AgentType), wireString(cp.Description), "")
 	case "PostToolUse":
 		if cp.ToolName != "Bash" {
 			return nil
@@ -837,24 +877,8 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (Response, 
 			p.AgentID = cp.AgentID
 			p.Detail = buildDetail(event, cp)
 			if (event == "Stop" || event == "StopFailure") && cp.BackgroundTasks != nil {
-				ids := make([]string, 0, len(*cp.BackgroundTasks))
-				for _, t := range *cp.BackgroundTasks {
-					if t.ID == "" {
-						continue
-					}
-					key := backgroundKey(t.Type, t.ID)
-					ids = append(ids, key)
-					if len(p.BackgroundTaskInfo) >= maxBackgroundInfo {
-						continue
-					}
-					if info := newBackgroundInfo(t.Type, t.AgentType, t.Description, t.Command); info != nil {
-						if p.BackgroundTaskInfo == nil {
-							p.BackgroundTaskInfo = map[string]BackgroundInfo{}
-						}
-						p.BackgroundTaskInfo[key] = *info
-					}
-				}
-				p.BackgroundTasks = &ids
+				ids, info := backgroundTasksOf(*cp.BackgroundTasks)
+				p.BackgroundTasks, p.BackgroundTaskInfo = &ids, info
 			}
 			if event == "PostToolUseFailure" && cp.IsInterrupt {
 				p.Event.Event = Interrupted

@@ -31,8 +31,11 @@ idle.
 
 Hover the "in background" count to see what the work is, up to eight pieces:
 whether it is a shell command, a subagent, a monitor or something else, the
-description or command Claude Code gave for it (shortened, with anything that
-looks like a secret redacted), and how long ago Flockdeck first saw it. A piece
+description or command Claude Code gave for it, shortened, and how long ago
+Flockdeck first saw it. Text that looks like a secret (a token, a password
+given as a value) is hidden, with the same redaction the transcript recorder
+uses. A file path is shown as typed, though, even one to a secret file. The
+same text reaches the relay and phone views. A piece
 first seen only in the list Claude Code sends when a turn ends says "seen
 since", because it was already running by then. Where Claude Code gave nothing
 but an id, the list says "details unavailable (count only)" rather than

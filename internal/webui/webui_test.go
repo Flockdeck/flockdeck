@@ -7967,6 +7967,18 @@ assert.ok(/seen since [^;]*; already running, so it may have started earlier/.te
 assert.ok(/• Background task t9 — details unavailable \(count only\)/.test(tip), "work of no known kind was not called so: " + tip);
 assert.ok(/…and 1 more not listed/.test(tip), "the work past the list is not counted: " + tip);
 
+// A cut is made by code point, never through a surrogate pair, and work first
+// seen days ago says on which day.
+const smile = String.fromCodePoint(0x1F600);
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", background: 1, backgroundWork: [
+  { id: "b3", kind: "shell", description: smile.repeat(120), since: ago(3 * 86400e3) },
+] }) } }));
+const tip2 = bg.dataset.tip || "";
+assert.ok(tip2.includes(smile.repeat(89) + "…"), "a long description was not cut to 90 characters by code point");
+assert.ok(!tip2.includes(smile.repeat(89) + smile.charAt(0) + "…"), "a cut split a surrogate pair");
+const day = new Date(Date.now() - 3 * 86400e3).toLocaleDateString([], { day: "numeric", month: "short" });
+assert.ok(tip2.includes("first seen 3 days ago (started " + day + " "), "work first seen days ago does not say the day: " + tip2);
+
 h.click(h.$("summary"));
 h.recv({ type: "agents", items: [
   { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: "one", name: "a", status: "idle", background: 1, backgroundWork: [work[0]] },

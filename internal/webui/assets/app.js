@@ -4382,15 +4382,22 @@
   /** bgShort cuts what is said of a piece of background work to a line. The
    *  server has already redacted it and bounded it; this is for the bubble. */
   function bgShort(s, n) {
-    s = String(s || "").replace(/\s+/g, " ").trim();
-    return s.length > n ? s.slice(0, n - 1) + "…" : s;
+    // By code point, so a cut never splits an emoji's surrogate pair.
+    const chars = Array.from(String(s || "").replace(/\s+/g, " ").trim());
+    return chars.length > n ? chars.slice(0, n - 1).join("") + "…" : chars.join("");
   }
 
-  /** bgClock is a time of day for a piece of background work's first sight. */
+  /** bgClock is when a piece of background work was first seen: a time of
+   *  day, with the date in front once that is more than a day ago. */
   function bgClock(when) {
     const t = Date.parse(when || "");
     if (!(t > 0)) return "";
-    try { return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
+    try {
+      const d = new Date(t);
+      const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      if (Date.now() - t < 86400e3) return time;
+      return d.toLocaleDateString([], { day: "numeric", month: "short" }) + " " + time;
+    } catch { return ""; }
   }
 
   /** backgroundItemTip is one piece of background work in the bubble: what it
@@ -4428,8 +4435,9 @@
   }
 
   /** describeBackground gives node the bubble for n pieces of background work,
-   *  worked out again whenever it is about to show so "first seen 3 minutes
-   *  ago" is never as old as the last state message. */
+   *  worked out again whenever the pointer arrives so "first seen 3 minutes
+   *  ago" is never as old as the last state message. The badge is not a
+   *  focus stop, so the pointer is the only way the bubble is asked for. */
   function describeBackground(node, n, work) {
     const say = () => {
       describe(node, backgroundDetailTip(n, work));
@@ -4437,7 +4445,6 @@
     };
     say();
     node.onpointerenter = say;
-    node.onfocus = say;
     return node;
   }
 
@@ -4449,7 +4456,7 @@
     if (!n) {
       delete p.background.dataset.tip;
       delete p.background.dataset.tipLines;
-      p.background.onpointerenter = p.background.onfocus = null;
+      p.background.onpointerenter = null;
       return;
     }
     p.background.append(glyph("◔"), document.createTextNode(" " + n + " in background"));
