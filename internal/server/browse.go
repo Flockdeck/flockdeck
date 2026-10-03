@@ -101,7 +101,7 @@ func (s *Server) browse(c *controlClient, path string) {
 			// file is looked for first: listing one fails as "not found" there.
 			switch fi, serr := os.Stat(abs); {
 			case serr == nil && !fi.IsDir():
-				msg.Error = filepath.Base(abs) + " is a file, not a folder — go up to the one it is in"
+				msg.Error = filepath.Base(abs) + " is a file, not a folder. Go up to the folder it is in"
 			case errors.Is(serr, fs.ErrNotExist):
 				msg.Error = abs + " does not exist"
 			}
@@ -167,7 +167,7 @@ func (s *Server) browse(c *controlClient, path string) {
 		c.sendJSON(msg)
 		if omitted > 0 {
 			// Said, because a list that stops looks like a folder that ends.
-			c.notify(fmt.Sprintf("Showing the first %d of %d folders in %s — type a path to reach the others",
+			c.notify(fmt.Sprintf("Showing the first %d of %d folders in %s. Type a path to reach the others",
 				len(msg.Entries), len(msg.Entries)+omitted, filepath.Base(abs)), false)
 		}
 	}()
@@ -186,7 +186,7 @@ var readDir = os.ReadDir
 // system's reason, after the folder it was about.
 func listingError(abs string, err error) string {
 	if errors.Is(err, fs.ErrPermission) {
-		return "Flockdeck is not allowed to look inside " + abs + " — go up, or choose another folder"
+		return "Flockdeck is not allowed to look inside " + abs + ". Go up, or choose another folder"
 	}
 	var pe *fs.PathError
 	if errors.As(err, &pe) {

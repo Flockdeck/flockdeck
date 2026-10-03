@@ -300,7 +300,7 @@ var panesIn = func(s *Server, paths []string) map[string]int {
 func prunedSummary(n int) string {
 	switch n {
 	case 0:
-		return "Nothing to prune — every worktree is where its record says it is"
+		return "Nothing to prune. Every worktree is where its record says it is"
 	case 1:
 		return "Pruned 1 stale worktree record"
 	default:
@@ -416,7 +416,7 @@ func (s *Server) removeWorktree(c *controlClient, root, path string, force bool)
 			if n > 1 {
 				subject, them = "panes are", "them"
 			}
-			c.notify(fmt.Sprintf("%d %s still working in %s — close %s first",
+			c.notify(fmt.Sprintf("%d %s still working in %s. Close %s first",
 				n, subject, filepath.Base(path), them), true)
 			return
 		}

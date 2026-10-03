@@ -970,7 +970,7 @@ func replace(src, target string) (undo func() error, err error) {
 		// even that fails, where the program went is the one thing they
 		// need to be told.
 		if rerr := rename(old, target); rerr != nil {
-			return nil, fmt.Errorf("put the new version in place: %w; the previous version could not be put back either and is now %s — rename it to %s to run flockdeck again", err, old, target)
+			return nil, fmt.Errorf("put the new version in place: %w; the previous version could not be put back either and is now %s. Rename it to %s to run flockdeck again", err, old, target)
 		}
 		os.Remove(next)
 		return nil, fmt.Errorf("put the new version in place: %w", err)
