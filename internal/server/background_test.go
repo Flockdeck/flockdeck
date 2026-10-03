@@ -97,7 +97,7 @@ func TestBackgroundWorkReachesTheWindow(t *testing.T) {
 		w := s.Panes[id].BackgroundWork
 		return len(w) == 3 && w[0].Unverified && w[1].Unverified && w[2].Unverified
 	})
-	if v := st.Panes[id]; v.Background != 3 || v.BackgroundWork[0].Confirmed == "" || v.BackgroundWork[0].ConfirmedBy == "" {
+	if v := st.Panes[id]; v.Background != 3 || v.BackgroundUnverified != 3 || v.BackgroundWork[0].Confirmed == "" || v.BackgroundWork[0].ConfirmedBy == "" {
 		t.Errorf("unverified work's view = %+v", v.BackgroundWork)
 	}
 

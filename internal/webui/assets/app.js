@@ -4142,7 +4142,7 @@
       }
 
       const background = v.background || 0;
-      const bgKey = background + JSON.stringify(v.backgroundWork || []) + JSON.stringify(v.backgroundEnded || []);
+      const bgKey = background + "|" + (v.backgroundUnverified || 0) + JSON.stringify(v.backgroundWork || []) + JSON.stringify(v.backgroundEnded || []);
       if (was.background !== bgKey) { was.background = bgKey; renderPaneBackground(p, v); }
 
       const git = [v.dirty, v.untracked, v.ahead, v.behind, v.gitTimedOut ? "late" : ""].join(" ");
@@ -4437,12 +4437,15 @@
   }
 
   /** backgroundCounts is a pane or agent view's background work: how much is
-   *  counted, the part of it listed, how much of that is unverified, and the
-   *  work lately ended. */
+   *  counted, the part of it listed, how much of all of it is unverified, and
+   *  the work lately ended. The list stops at eight, so the unverified count
+   *  is the server's own; one too old to send it is counted from the list. */
   function backgroundCounts(v) {
     const work = Array.isArray(v.backgroundWork) ? v.backgroundWork : [];
     const ended = Array.isArray(v.backgroundEnded) ? v.backgroundEnded : [];
-    return { n: v.background || 0, work, ended, unverified: work.filter((w) => w.unverified).length };
+    const unverified = typeof v.backgroundUnverified === "number" ? v.backgroundUnverified
+      : work.filter((w) => w.unverified).length;
+    return { n: v.background || 0, work, ended, unverified };
   }
 
   /** backgroundLabel is the badge's words: the count, and how much of it is

@@ -8015,6 +8015,13 @@ assert.ok(/no longer makes the agent read as working/.test(bg.dataset.tip), "the
 h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", background: 2, backgroundWork: [quiet, live] }) } }));
 assert.ok(bg.textContent.includes("2 in background, 1 unverified"), "the badge does not count the unverified part: " + bg.textContent);
 
+// The list stops at eight; the unverified count is the server's, of all of it.
+const eight = Array.from({ length: 8 }, (_, i) => Object.assign({}, quiet, { id: "q" + i }));
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", background: 10, backgroundWork: eight, backgroundUnverified: 10 }) } }));
+assert.ok(/10 in background, unverified$/.test(bg.textContent), "ten unverified, eight listed, is not all unverified: " + bg.textContent);
+h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", background: 10, backgroundWork: eight, backgroundUnverified: 9 }) } }));
+assert.ok(bg.textContent.includes("10 in background, 9 unverified"), "the unverified count is not the server's: " + bg.textContent);
+
 h.recv(fixture({ panes: { p1: pane("p1", { status: "idle", background: 1, backgroundWork: [live], backgroundEnded: [gone] }) } }));
 assert.ok(!/unverified/.test(bg.textContent), "verified work was called unverified: " + bg.textContent);
 assert.ok(/Lately ended:\n• Shell command: sleep 9\n   ended: its task notification is in the conversation \(just now\)/.test(bg.dataset.tip),

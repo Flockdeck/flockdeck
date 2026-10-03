@@ -403,6 +403,10 @@ type paneView struct {
 	// with what showed it had ended, for the header to say why the count
 	// went down. Left out when there is none.
 	BackgroundEnded []backgroundView `json:"backgroundEnded,omitempty"`
+	// BackgroundUnverified is how many of the Background counted are
+	// unverified, all of them and not only those BackgroundWork lists.
+	// Left out at zero.
+	BackgroundUnverified int `json:"backgroundUnverified,omitempty"`
 	// PeerName is the name another Claude session would use to address this
 	// pane, reported by the agent running inside it -- see Pane.PeerName.
 	// Empty until reported, which is every pane that never runs `flockdeck
@@ -782,6 +786,7 @@ func (s *Server) snapshot() stateMsg {
 				pv.Background = p.Sess.BackgroundTasks()
 				pv.BackgroundWork = backgroundViews(p.Sess.BackgroundWork())
 				pv.BackgroundEnded = backgroundEndedViews(p.Sess.BackgroundEnded())
+				pv.BackgroundUnverified = pv.Background - p.Sess.BackgroundVerified()
 			}
 			if p.Sess != nil {
 				pv.Cols, pv.Rows = p.Sess.Size()

@@ -438,11 +438,18 @@ func scanConversation(data []byte, scan *backgroundScan) []backgroundEvidence {
 		if line.Type == "user" {
 			handback(line.Origin, at)
 			monitorStarted(scan, line.Result, at)
-			notifications(text, at)
+			// Only a turn Claude Code itself marks as a notification is read
+			// as one. Typed or pasted text can say anything.
+			fromClaude := line.Origin != nil && line.Origin.Kind == "task-notification"
+			if fromClaude {
+				notifications(text, at)
+			}
 			for _, b := range blocks {
 				switch b.Type {
 				case "text":
-					notifications(b.Text, at)
+					if fromClaude {
+						notifications(b.Text, at)
+					}
 				case "tool_result":
 					if id, ok := scan.stops[b.ToolUseID]; ok {
 						delete(scan.stops, b.ToolUseID)
@@ -509,22 +516,23 @@ func monitorsTimedOut(scan *backgroundScan, now time.Time) []backgroundEvidence 
 // taskNotification is the id and status of one <task-notification>.
 type taskNotification struct{ id, status string }
 
-// taskNotifications reads the <task-notification> blocks a message starts
-// with: only a message that is one, not one that mentions one.
+// taskNotifications reads the one <task-notification> a message is. Its id
+// and status are the first of each, which Claude Code writes ahead of the
+// summary and result. A message holding a second opening tag is read as
+// none: the summary or a monitor's event can carry text from anywhere, and a
+// forged notification inside it must not end another task.
 func taskNotifications(text string) []taskNotification {
-	if !strings.HasPrefix(strings.TrimSpace(text), "<task-notification>") {
+	const open = "<task-notification>"
+	body, ok := strings.CutPrefix(strings.TrimSpace(text), open)
+	if !ok || strings.Contains(body, open) {
 		return nil
 	}
-	var out []taskNotification
-	for _, block := range strings.Split(text, "<task-notification>")[1:] {
-		block, _, _ = strings.Cut(block, "</task-notification>")
-		id := strings.TrimSpace(between(block, "<task-id>", "</task-id>"))
-		status := strings.ToLower(strings.TrimSpace(between(block, "<status>", "</status>")))
-		if id != "" {
-			out = append(out, taskNotification{id: id, status: status})
-		}
+	id := strings.TrimSpace(between(body, "<task-id>", "</task-id>"))
+	status := strings.ToLower(strings.TrimSpace(between(body, "<status>", "</status>")))
+	if id == "" {
+		return nil
 	}
-	return out
+	return []taskNotification{{id: id, status: status}}
 }
 
 // between is the text of s between the first open and the close after it.

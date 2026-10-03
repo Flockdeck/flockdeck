@@ -245,7 +245,7 @@ The shapes below were checked against real Claude Code 2.1.28x files, read for s
 
 | Evidence | Read from | Effect |
 |---|---|---|
-| `<task-notification>` with `<task-id>` and a stopped `<status>` (`completed`, `stopped`; also `killed`, `failed`, `cancelled`, `error`), as a user turn with `origin.kind: task-notification` or as an `attachment` of type `queued_command` with `commandMode: task-notification` | the conversation | ended, at the line's timestamp |
+| `<task-notification>` with `<task-id>` and a stopped `<status>` (`completed`, `stopped`; also `killed`, `failed`, `cancelled`, `error`), as a user turn with `origin.kind: task-notification` (checked; a typed or pasted one has no such origin) or as an `attachment` of type `queued_command` with `commandMode: task-notification`. A message with a second `<task-notification>` opening tag inside it is ignored, so a forged one in a summary or monitor event ends nothing | the conversation | ended, at the line's timestamp |
 | hand-back: `origin` with `handback: true` and `senderTaskId` (user turn or `queued_command` attachment) | the conversation | ended |
 | `TaskStop`/`KillShell` tool_use whose tool_result is not an error | the conversation | ended, at the result's timestamp |
 | last line of `<conversation>/subagents/agent-<id>.jsonl` is a user tool_result with `toolEndsTurn: true` (the subagent's hand-back) | subagent transcript tail | ended |

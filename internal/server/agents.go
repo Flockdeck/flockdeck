@@ -56,6 +56,8 @@ type agentView struct {
 	// BackgroundWork is what is known of it; see paneView.BackgroundWork.
 	BackgroundWork  []backgroundView `json:"backgroundWork,omitempty"`
 	BackgroundEnded []backgroundView `json:"backgroundEnded,omitempty"`
+	// BackgroundUnverified is paneView.BackgroundUnverified.
+	BackgroundUnverified int `json:"backgroundUnverified,omitempty"`
 }
 
 type agentsMsg struct {
@@ -136,6 +138,7 @@ func (s *Server) sendAgents(c *controlClient) {
 					av.Background = p.Sess.BackgroundTasks()
 					av.BackgroundWork = backgroundViews(p.Sess.BackgroundWork())
 					av.BackgroundEnded = backgroundEndedViews(p.Sess.BackgroundEnded())
+					av.BackgroundUnverified = av.Background - p.Sess.BackgroundVerified()
 				}
 				av.For = humanAgo(time.Since(p.Sess.StatusSince()))
 				// What a waiting pane wants, in the same words a permission
