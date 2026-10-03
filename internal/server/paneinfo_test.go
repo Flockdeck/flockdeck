@@ -230,6 +230,13 @@ func TestPaneInfoShowsAnAPIAgentsStoredConversationOnlyOnceItExists(t *testing.T
 		t.Fatal(err)
 	}
 	file := filepath.Join(dir, d.Conversation+".jsonl")
+	// A pane opened and never prompted leaves an empty file, which is not set.
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if d = details(p.ID); d.StoredPath != "" {
+		t.Errorf("an empty file shows %q", d.StoredPath)
+	}
 	if err := os.WriteFile(file, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
