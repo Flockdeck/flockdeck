@@ -28,6 +28,16 @@ type backgroundView struct {
 	// turn ends, not from its start, so Since is when it was first seen
 	// running rather than when it started.
 	Listed bool `json:"listed,omitempty"`
+	// Confirmed is when something last showed it running, RFC 3339, and
+	// ConfirmedBy what that was. Unverified says that was longer ago than
+	// session.BackgroundUnverifiedGrace.
+	Confirmed   string `json:"confirmed,omitempty"`
+	ConfirmedBy string `json:"confirmedBy,omitempty"`
+	Unverified  bool   `json:"unverified,omitempty"`
+	// Evidence and Ended are set only on a backgroundEnded entry: what showed
+	// the work had ended, and when, RFC 3339.
+	Evidence string `json:"evidence,omitempty"`
+	Ended    string `json:"ended,omitempty"`
 }
 
 // maxBackgroundShown is how many pieces of background work a view lists; the
@@ -69,9 +79,42 @@ func backgroundViews(work []session.BackgroundWork) []backgroundView {
 			Command:     cutText(w.Command),
 			Since:       w.Since.Format(time.RFC3339),
 			Listed:      w.Listed,
+			Confirmed:   timeOrEmpty(w.Confirmed),
+			ConfirmedBy: cutText(w.ConfirmedBy),
+			Unverified:  w.Unverified,
 		})
 	}
 	return out
+}
+
+// backgroundEndedViews is the work lately ended, as backgroundViews are, with
+// what showed it had ended; nil when there is none.
+func backgroundEndedViews(ended []session.BackgroundEnded) []backgroundView {
+	if len(ended) == 0 {
+		return nil
+	}
+	if len(ended) > maxBackgroundShown {
+		ended = ended[len(ended)-maxBackgroundShown:]
+	}
+	work := make([]session.BackgroundWork, len(ended))
+	for i, e := range ended {
+		work[i] = e.BackgroundWork
+	}
+	out := backgroundViews(work)
+	for i, e := range ended {
+		out[i].Unverified, out[i].Confirmed, out[i].ConfirmedBy = false, "", ""
+		out[i].Evidence = cutText(e.Evidence)
+		out[i].Ended = timeOrEmpty(e.At)
+	}
+	return out
+}
+
+// timeOrEmpty is t in RFC 3339, or "" for the zero time.
+func timeOrEmpty(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
 
 // cutText is s cut to maxBackgroundViewText bytes on a rune boundary, with an
@@ -85,4 +128,36 @@ func cutText(s string) string {
 		n--
 	}
 	return s[:n] + "…"
+}
+
+// backgroundCheckTick is how often the workspace is asked which panes'
+// background work is due a check (workspace.DueBackgroundChecks); each pane
+// keeps its own, longer interval. A variable so a test need not wait it out.
+var backgroundCheckTick = 15 * time.Second
+
+// backgroundLoop has idle agents' background work checked against their
+// stored conversations, so a count stuck on work that ended where no hook saw
+// it corrects itself. Which panes are due is worked out on the workspace
+// goroutine; the reading is done off it, one pane after another.
+func (s *Server) backgroundLoop() {
+	tick := time.NewTicker(backgroundCheckTick)
+	defer tick.Stop()
+	for {
+		select {
+		case <-s.closed:
+			return
+		case <-tick.C:
+			s.do(func() {
+				jobs := s.ws.DueBackgroundChecks(time.Now())
+				if len(jobs) == 0 {
+					return
+				}
+				go func() {
+					for _, j := range jobs {
+						s.ws.RunBackgroundCheck(j, time.Now())
+					}
+				}()
+			})
+		}
+	}
 }

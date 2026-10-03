@@ -90,8 +90,22 @@ func TestBackgroundWorkReachesTheWindow(t *testing.T) {
 		}
 	}
 
+	// Work nothing has shown running for the grace is sent as unverified,
+	// still counted, and the idle agent no longer reads as working.
+	p.Sess.RefreshBackground(time.Now().Add(session.BackgroundUnverifiedGrace + time.Minute))
+	st = nextState(t, conn, func(s stateMsg) bool {
+		w := s.Panes[id].BackgroundWork
+		return len(w) == 3 && w[0].Unverified && w[1].Unverified && w[2].Unverified
+	})
+	if v := st.Panes[id]; v.Background != 3 || v.BackgroundUnverified != 3 || v.BackgroundWork[0].Confirmed == "" || v.BackgroundWork[0].ConfirmedBy == "" {
+		t.Errorf("unverified work's view = %+v", v.BackgroundWork)
+	}
+
 	p.Sess.SetBackground(nil)
 	st = nextState(t, conn, func(s stateMsg) bool { return s.Panes[id].Background == 0 })
+	if ended := st.Panes[id].BackgroundEnded; len(ended) != 3 || ended[0].Evidence == "" || ended[0].Ended == "" {
+		t.Errorf("the work just ended is not sent with its evidence: %+v", ended)
+	}
 	if got := st.Panes[id].Background; got != 0 {
 		t.Fatalf("the pane's view still counts %d background tasks once they ended", got)
 	}

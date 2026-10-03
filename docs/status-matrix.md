@@ -218,7 +218,7 @@ The original recommendation, for reference:
 | F5 | `pushDue` (phone push) | pushes waiting and blocked after the delay; never working, idle, starting or exited | ✓ | V `TestStatusMatrixWhatIsPushed` |
 | F6 | `sendAgents` sort (All agents list) | needs-you first: `blocked` ranks with `waiting` in the rank map | ✓ | none |
 | F7 | Web UI `projectActivity`, `tabSettleInfo`, `announceStatus`, `notifyAttention`, `outcomeOf` (in `app.js`) | they mirror F1 and F3; `tabSettleInfo` treats everything except working and starting as settled | ✓ | existing webui Go+node tests (`TestTheRailMarkFollowsStatus`, `TestTheRailTileSummarisesTheProjectsActivity`, `TestFanOutHistoryListsPastJobs`, …) |
-| F8 | Background tasks in the UI | `BackgroundTasks` is sent as `background` in each pane's view (header and phone) and in the agents list, left out at zero and for an exited pane. The web UI shows "◔ N in background" in the pane header and on the agent's row in the agents list. Alongside it goes `backgroundWork` (`Session.BackgroundWork`, at most 8 entries): each piece's kind, id, the description, command or agent type its start or the Stop list gave (redacted with `record.Redact` and cut to 200 bytes by the hook), when Flockdeck first heard of it, and `listed` when that was a Stop's list rather than its start. The badge's tooltip lists these with "first seen … ago", says "seen since" for a listed one, and "details unavailable (count only)" where Claude Code gave only an id. The pane's status stays idle, but its header mark is the working mark and its tooltip says it is working in the background; its project's rail badge shows the working mark (below waiting) when the project has only that (`Project.Activity`). | ✓ | V `TestBackgroundWorkReachesTheWindow`, webui `TestAnIdleAgentWithBackgroundWorkSaysSo`, `TestTheBackgroundBadgeListsTheWork`, `TestTheBackgroundWorkCountCanBeRead`; session `TestBackgroundWorkKeepsWhatWasSaidOfIt`; H `TestEmitSaysWhatBackgroundWorkIs` |
+| F8 | Background tasks in the UI | `BackgroundTasks` is sent as `background` in each pane's view (header and phone) and in the agents list, left out at zero and for an exited pane. The web UI shows "◔ N in background" in the pane header and on the agent's row in the agents list. Alongside it goes `backgroundWork` (`Session.BackgroundWork`, at most 8 entries): each piece's kind, id, the description, command or agent type its start or the Stop list gave (redacted with `record.Redact` and cut to 200 bytes by the hook), when Flockdeck first heard of it, and `listed` when that was a Stop's list rather than its start. The badge's tooltip lists these with "first seen … ago", says "seen since" for a listed one, and "details unavailable (count only)" where Claude Code gave only an id. The pane's status stays idle, but (while any of the work is verified, G7) its header mark is the working mark and its tooltip says it is working in the background; its project's rail badge shows the working mark (below waiting) when the project has only that (`Project.Activity`). | ✓ | V `TestBackgroundWorkReachesTheWindow`, webui `TestAnIdleAgentWithBackgroundWorkSaysSo`, `TestTheBackgroundBadgeListsTheWork`, `TestTheBackgroundWorkCountCanBeRead`; session `TestBackgroundWorkKeepsWhatWasSaidOfIt`; H `TestEmitSaysWhatBackgroundWorkIs` |
 
 ## G. Background work: how an end is learned
 
@@ -236,6 +236,35 @@ The signals below were checked against real hook payloads from Claude Code 2.1.2
 | G6 | New conversation | `SessionStart` `clear` or `startup` | forget everything | ✓ | W `B14` |
 
 `SubagentStop` also carries `background_tasks`, but that list still shows the stopping subagent as running, so only Stop's list is trusted.
+
+### G7. Checking idle panes' background work against the stored conversation
+
+`server.backgroundLoop` ticks every 15 s and asks `workspace.DueBackgroundChecks`, which reads no files, which panes are due: Claude Code agents that are idle with background work counted. The first check comes `BackgroundCheckInterval` (45 s) into an idle spell, and the interval doubles up to 8 min while checks find nothing. `RunBackgroundCheck` runs off the workspace goroutine. It finds the conversation file, reads it (the last 8 MB the first time, then only appended whole lines, at most 4 MB per check; what was read is remembered while the pane is open), and stats or tails the per-item files below. Item ids must match `[A-Za-z0-9_-]{1,64}` before they are put into any path.
+
+The shapes below were checked against real Claude Code 2.1.28x files, read for structure only.
+
+| Evidence | Read from | Effect |
+|---|---|---|
+| `<task-notification>` with `<task-id>` and a stopped `<status>` (`completed`, `stopped`; also `killed`, `failed`, `cancelled`, `error`), as a user turn with `origin.kind: task-notification` (checked; a typed or pasted one has no such origin) or as an `attachment` of type `queued_command` with `commandMode: task-notification`. A message with a second `<task-notification>` opening tag inside it is ignored, so a forged one in a summary or monitor event ends nothing | the conversation | ended, at the line's timestamp |
+| hand-back: `origin` with `handback: true` and `senderTaskId` (user turn or `queued_command` attachment) | the conversation | ended |
+| `TaskStop`/`KillShell` tool_use whose tool_result is not an error | the conversation | ended, at the result's timestamp |
+| last line of `<conversation>/subagents/agent-<id>.jsonl` is a user tool_result with `toolEndsTurn: true` (the subagent's hand-back) | subagent transcript tail | ended |
+| subagent transcript modified in the last 2 min | its mtime | confirmed running |
+| `<temp>/claude/<project folder>/<conversation>/tasks/<id>.output` non-empty and modified in the last 2 min | its mtime | confirmed running |
+| a Monitor's tool_result `{persistent: false, taskId, timeoutMs}`, once `timeoutMs` past the result has gone by | the conversation | ended (strong evidence), dated when the timeout ran out |
+| start hook, or named in a Stop's `background_tasks` | hooks | confirmed running |
+
+An end is applied only if its timestamp is after the item's `Since` and after its last running sign (`Session.EndBackgroundWorkSeen`, decided under the session lock). So an old end in the history (a reused task id, a resumed subagent) is ignored, and a Stop list naming the item wins over an end read before it. An Agent call's tool_result is never an end: Claude Code answers every Agent call at once with `status: async_launched`. A drop is recorded with its evidence (`Session.BackgroundEnded`, shown for 2 min, logged with `slog.Debug`).
+
+Work with no running sign for `session.BackgroundUnverifiedGrace` (30 min) is marked `Unverified`. It stays counted, so `PaneFinished` still refuses to close the pane, but `backgroundKeepsAgentWorking` (activity.go) no longer counts the idle agent as working when all of its work is unverified.
+
+Not used:
+
+- the process tree: no command lines on Windows, no table on macOS, and Claude Code's long-lived MCP and helper processes look the same as a running command;
+- the pty screen's task bar: the server keeps only the raw byte stream;
+- `turn_duration.pendingBackgroundAgentCount`: only at turn end, which Stop already covers.
+
+Still unknowable: a quiet shell or a workflow between Stops, and anything at all on a Claude Code that writes none of the above.
 
 **Residual limitations:**
 

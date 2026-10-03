@@ -311,6 +311,10 @@ type RepoSummary struct {
 
 // Workspace is the whole application state.
 type Workspace struct {
+	// bgChecks is what is remembered of each pane's background work checks,
+	// by pane id; guarded by backgroundChecksMu. See DueBackgroundChecks.
+	bgChecks map[string]*backgroundCheck
+
 	// statusAssist is the one Jev assistant every pane shares, so its rate
 	// limits hold across the workspace. It asks nothing unless the user has
 	// turned on Prefs.JevStatus and a TypeSafe key is set (Settings or TYPESAFE_API_KEY).

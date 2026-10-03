@@ -7,9 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -211,6 +209,10 @@ type Session struct {
 	// is not. See NoteBackground. Each carries what is known of it, for
 	// the header's list of it (BackgroundWork).
 	background map[string]BackgroundWork
+	// backgroundEnded is the work that has lately stopped being counted, with
+	// what showed it had ended, kept a short while so the header can say
+	// why the count went down. See BackgroundEnded.
+	backgroundEnded []BackgroundEnded
 	// compacting records that a manual /compact is under way, said by its
 	// PreCompact and ended by its PostCompact or the SessionStart that follows
 	// it. See CompactionStatus.
@@ -1186,195 +1188,6 @@ func (s *Session) SettleWhenQuiet() {
 		s.answeredTime = time.Now()
 		go s.settleAnswered(s.hookSeq)
 	}
-}
-
-// BackgroundInfo is what was said of a piece of background work beyond its
-// id -- hooks.BackgroundInfo, which this package does not import. Every field
-// is optional and already fit to show.
-type BackgroundInfo struct {
-	Type, AgentType, Description, Command string
-}
-
-func (b BackgroundInfo) empty() bool {
-	return b.Type == "" && b.AgentType == "" && b.Description == "" && b.Command == ""
-}
-
-// merge is b with every empty field filled from older: what a later event
-// leaves unsaid does not undo what an earlier one said.
-func (b BackgroundInfo) merge(older BackgroundInfo) BackgroundInfo {
-	if b.Type == "" {
-		b.Type = older.Type
-	}
-	if b.AgentType == "" {
-		b.AgentType = older.AgentType
-	}
-	if b.Description == "" {
-		b.Description = older.Description
-	}
-	if b.Command == "" {
-		b.Command = older.Command
-	}
-	return b
-}
-
-// BackgroundWork is one piece of background work an agent has left running,
-// as far as its hooks have said.
-type BackgroundWork struct {
-	// ID is the work's name as counted, kind and id: "shell:b1".
-	ID string
-	BackgroundInfo
-	// Since is when Flockdeck first heard of it: its start, or, when Listed,
-	// the end of a turn that said it was still running.
-	Since time.Time
-	// Listed says it was first heard of in a turn end's list of what is
-	// still running rather than from its start, so Since is when it was
-	// first seen, not when it started.
-	Listed bool
-}
-
-// NoteBackground records a piece of background work starting (op "start") or
-// ending (op "end") under id, as hooks.Event reports it. A SessionStart from a
-// new or cleared conversation forgets all of it: work started in one
-// conversation is not waited on by the next. An empty op or id changes nothing.
-//
-// An id is a kind and the id Claude Code gave the work, "shell:b1" or
-// "agent:a7". An end ends whatever was counted under the same id of any kind:
-// the <task-notification> Claude Code sends when a task ends does not say
-// which kind it was in a form worth relying on, and so names none ("task:").
-func (s *Session) NoteBackground(event, op, id string) {
-	s.NoteBackgroundWork(event, op, id, BackgroundInfo{})
-}
-
-// NoteBackgroundWork is NoteBackground with what the start said of the work,
-// which is kept with it until it ends. A start heard again keeps the time of
-// the first.
-func (s *Session) NoteBackgroundWork(event, op, id string, info BackgroundInfo) {
-	s.mu.Lock()
-	changed := false
-	switch {
-	case event == "SessionStart":
-		changed = len(s.background) > 0
-		s.background = nil
-	case id == "":
-	case op == "start":
-		if s.background == nil {
-			s.background = map[string]BackgroundWork{}
-		}
-		w, had := s.background[id]
-		if !had {
-			w = BackgroundWork{ID: id, Since: time.Now()}
-		}
-		if merged := info.merge(w.BackgroundInfo); !had || merged != w.BackgroundInfo {
-			w.BackgroundInfo = merged
-			s.background[id] = w
-			changed = true
-		}
-	case op == "end":
-		bare := backgroundBareID(id)
-		for k := range s.background {
-			if k == id || backgroundBareID(k) == bare {
-				delete(s.background, k)
-				changed = true
-			}
-		}
-	}
-	s.mu.Unlock()
-	if changed {
-		s.changed()
-	}
-}
-
-// SetBackground replaces what is counted as the agent's background work with
-// ids, named the way NoteBackground's are: what Claude Code itself says is
-// still in flight at the end of a turn. It is the whole truth where the
-// starts and ends counted one at a time can miss something -- a command that
-// ended in the middle of a turn, one stopped from Claude Code's own task
-// list -- so it replaces them rather than adding to them.
-func (s *Session) SetBackground(ids []string) {
-	s.SetBackgroundWork(ids, nil)
-}
-
-// SetBackgroundWork is SetBackground with what the list says of each piece of
-// work, by id. Work already counted keeps when it was first heard of and what
-// was said of it before; work first heard of here is marked Listed.
-func (s *Session) SetBackgroundWork(ids []string, info map[string]BackgroundInfo) {
-	s.mu.Lock()
-	old := s.background
-	var next map[string]BackgroundWork
-	for _, id := range ids {
-		if id == "" {
-			continue
-		}
-		if next == nil {
-			next = map[string]BackgroundWork{}
-		}
-		w, had := old[id]
-		if !had {
-			// The same work counted under another kind: a start named by its
-			// kind, listed now with none, or the other way about.
-			bare := backgroundBareID(id)
-			for k, o := range old {
-				if backgroundBareID(k) == bare {
-					w, had = o, true
-					break
-				}
-			}
-			w.ID = id
-		}
-		if !had {
-			w = BackgroundWork{ID: id, Since: time.Now(), Listed: true}
-		}
-		w.BackgroundInfo = info[id].merge(w.BackgroundInfo)
-		next[id] = w
-	}
-	changed := len(next) != len(old)
-	if !changed {
-		for k, w := range next {
-			if o, ok := old[k]; !ok || o != w {
-				changed = true
-				break
-			}
-		}
-	}
-	s.background = next
-	s.mu.Unlock()
-	if changed {
-		s.changed()
-	}
-}
-
-// backgroundBareID is a background work id without the kind in front of it.
-func backgroundBareID(id string) string {
-	if _, bare, ok := strings.Cut(id, ":"); ok {
-		return bare
-	}
-	return id
-}
-
-// BackgroundWork is the background work the agent has left running, as far
-// as its hooks have said, oldest first.
-func (s *Session) BackgroundWork() []BackgroundWork {
-	s.mu.RLock()
-	out := make([]BackgroundWork, 0, len(s.background))
-	for _, w := range s.background {
-		out = append(out, w)
-	}
-	s.mu.RUnlock()
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].Since.Equal(out[j].Since) {
-			return out[i].Since.Before(out[j].Since)
-		}
-		return out[i].ID < out[j].ID
-	})
-	return out
-}
-
-// BackgroundTasks is how many pieces of background work the agent has left
-// running, as far as its hooks have said.
-func (s *Session) BackgroundTasks() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.background)
 }
 
 // SetStatusFull is SetStatus, additionally recording a lifecycle event's own
