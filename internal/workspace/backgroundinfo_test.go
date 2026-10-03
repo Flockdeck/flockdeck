@@ -1,7 +1,9 @@
 package workspace
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
 )
@@ -37,5 +39,40 @@ func TestWhatAHookSaysOfBackgroundWorkReachesTheSession(t *testing.T) {
 	ws.handleHook(hooks.Event{SessionID: p.ID, Event: "SessionStart", Source: "clear", Launch: p.launch})
 	if work := p.Sess.BackgroundWork(); len(work) != 0 {
 		t.Fatalf("a cleared conversation kept %+v", work)
+	}
+}
+
+// TestAStopListThatCannotBeReadLeavesTheCountAlone runs real hook payloads
+// through the hook server: a Stop whose background_tasks cannot be read whole
+// leaves what is counted as it was, rather than replacing it with nothing or
+// with part of it, while an empty list says nothing is running.
+func TestAStopListThatCannotBeReadLeavesTheCountAlone(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv(hooks.LaunchEnv, "")
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := agentPaneIn(t, ws, root, "a")
+	p.Sess.NoteBackground("PostToolUse", hooks.BackgroundStart, "shell:b1")
+	p.Sess.NoteBackground("SubagentStart", hooks.BackgroundStart, "agent:a1")
+	srv := ws.HookServer()
+	stop := func(list string) {
+		t.Helper()
+		if _, err := hooks.Emit(strings.NewReader(`{"hook_event_name":"Stop","background_tasks":`+list+`}`), srv.Endpoint(), srv.Token(), p.ID, "Stop"); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+	}
+	for _, list := range []string{`["s1","s2"]`, `[{"id":"b1","type":"shell"},7]`, `[{"id":1}]`, `null`} {
+		stop(list)
+		if n := p.Sess.BackgroundTasks(); n != 2 {
+			t.Fatalf("a Stop listing %s left %d counted, want the 2 there were", list, n)
+		}
+	}
+	stop(`[]`)
+	deadline := time.Now().Add(5 * time.Second)
+	for p.Sess.BackgroundTasks() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("an empty list left %d counted", p.Sess.BackgroundTasks())
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

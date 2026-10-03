@@ -1113,11 +1113,10 @@ func TestAFieldOfAnUnexpectedTypeCostsOnlyItself(t *testing.T) {
 			t.Errorf("non-strings made into info: %+v", *got.BackgroundInfo)
 		}
 	})
-	t.Run("Stop", func(t *testing.T) {
+	t.Run("Stop, details of the wrong type", func(t *testing.T) {
 		got := emit(t, "Stop", `{"cwd":"/repo","background_tasks":[`+
 			`{"id":"b1","type":"shell","command":["x"],"description":{"a":1}},`+
 			`{"id":"a2","type":"subagent","agent_type":7,"description":"Run tests"},`+
-			`"bare string",42,{"id":{"no":1}},`+
 			`{"id":"m1","type":"monitor"}]}`)
 		if got.Cwd != "/repo" || got.BackgroundTasks == nil {
 			t.Fatalf("event lost: %+v", got)
@@ -1128,6 +1127,36 @@ func TestAFieldOfAnUnexpectedTypeCostsOnlyItself(t *testing.T) {
 		want := map[string]BackgroundInfo{"agent:a2": {Type: "subagent", Description: "Run tests"}}
 		if !reflect.DeepEqual(got.BackgroundTaskInfo, want) {
 			t.Errorf("info = %+v, want %+v", got.BackgroundTaskInfo, want)
+		}
+	})
+	// A list that cannot be read whole says nothing of what is running: it
+	// must not replace what is counted, with nothing or with part of it.
+	// The rest of the event still arrives.
+	for name, list := range map[string]string{
+		"bare strings":        `["s1","s2"]`,
+		"numbers":             `[1,2]`,
+		"an id not a string":  `[{"id":{"no":1},"type":"shell"}]`,
+		"a type not a string": `[{"id":"b1","type":["shell"]}]`,
+		"an entry with no id": `[{"type":"shell"}]`,
+		"mixed":               `[{"id":"b1","type":"shell"},"s2"]`,
+		"not an array":        `{"id":"b1"}`,
+		"a string":            `"b1"`,
+		"null":                `null`,
+	} {
+		t.Run("Stop, a list that is "+name, func(t *testing.T) {
+			got := emit(t, "Stop", `{"cwd":"/repo","last_assistant_message":"done","background_tasks":`+list+`}`)
+			if got.Cwd != "/repo" {
+				t.Fatalf("event lost: %+v", got)
+			}
+			if got.BackgroundTasks != nil {
+				t.Errorf("a list that could not be read whole replaces the count with %v", *got.BackgroundTasks)
+			}
+		})
+	}
+	t.Run("Stop, an empty list", func(t *testing.T) {
+		got := emit(t, "Stop", `{"background_tasks":[]}`)
+		if got.BackgroundTasks == nil || len(*got.BackgroundTasks) != 0 {
+			t.Errorf("an empty list does not say nothing is running: %v", got.BackgroundTasks)
 		}
 	})
 	t.Run("a long type is clipped", func(t *testing.T) {

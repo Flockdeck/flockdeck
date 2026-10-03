@@ -230,10 +230,10 @@ type claudePayload struct {
 	AgentType   json.RawMessage `json:"agent_type"`
 	Description json.RawMessage `json:"description"`
 	// BackgroundTasks is a Stop's own list of the background work still in
-	// flight; nil when the payload has no such field at all. Its entries are
-	// read one by one (see backgroundTasksOf), so one of an unexpected shape
-	// costs only itself.
-	BackgroundTasks *[]json.RawMessage `json:"background_tasks"`
+	// flight; empty when the payload has no such field at all, or null. It
+	// is read apart from the rest (see backgroundTasksOf), so a list of an
+	// unexpected shape costs only itself.
+	BackgroundTasks json.RawMessage `json:"background_tasks"`
 	// LastAssistantMessage is what Stop and SubagentStop carry of the agent's
 	// final message of the turn. Claude Code before it sent this has none, and
 	// no hook reports the messages in between.
@@ -270,15 +270,23 @@ func wireString(raw json.RawMessage) string {
 	return s
 }
 
-// backgroundTasksOf reads a Stop's background_tasks entries: the ids, named
-// as backgroundKey names them, and what each says of itself. An entry that is
-// not an object with a string id is left out, as one with no id always was.
-func backgroundTasksOf(raw []json.RawMessage) (ids []string, info map[string]BackgroundInfo) {
-	ids = make([]string, 0, len(raw))
-	for _, r := range raw {
+// backgroundTasksOf reads a Stop's background_tasks: the ids, named as
+// backgroundKey names them, and what each entry says of itself. ok is false
+// when the list cannot be taken whole -- absent, null, not an array, or with
+// any entry that is not an object with a string id and type -- because the
+// list replaces what is counted, and a list read only in part, or not at all,
+// would say "nothing else is running" when it said no such thing. An empty
+// array is a list, and says just that.
+func backgroundTasksOf(raw json.RawMessage) (ids []string, info map[string]BackgroundInfo, ok bool) {
+	var entries []json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &entries) != nil || entries == nil {
+		return nil, nil, false
+	}
+	ids = make([]string, 0, len(entries))
+	for _, r := range entries {
 		var t backgroundTaskWire
 		if json.Unmarshal(r, &t) != nil || t.ID == "" {
-			continue
+			return nil, nil, false
 		}
 		key := backgroundKey(t.Type, t.ID)
 		ids = append(ids, key)
@@ -292,7 +300,7 @@ func backgroundTasksOf(raw []json.RawMessage) (ids []string, info map[string]Bac
 			info[key] = *b
 		}
 	}
-	return ids, info
+	return ids, info, true
 }
 
 // backgroundKey is what a piece of background work of kind type and id is
@@ -876,9 +884,10 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (Response, 
 			}
 			p.AgentID = cp.AgentID
 			p.Detail = buildDetail(event, cp)
-			if (event == "Stop" || event == "StopFailure") && cp.BackgroundTasks != nil {
-				ids, info := backgroundTasksOf(*cp.BackgroundTasks)
-				p.BackgroundTasks, p.BackgroundTaskInfo = &ids, info
+			if event == "Stop" || event == "StopFailure" {
+				if ids, info, ok := backgroundTasksOf(cp.BackgroundTasks); ok {
+					p.BackgroundTasks, p.BackgroundTaskInfo = &ids, info
+				}
 			}
 			if event == "PostToolUseFailure" && cp.IsInterrupt {
 				p.Event.Event = Interrupted
