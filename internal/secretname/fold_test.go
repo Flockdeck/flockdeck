@@ -178,39 +178,48 @@ func TestIgnorableCodePointsCannotSplitAName(t *testing.T) {
 // machine is (fifty times the work in one loop, tried, is caught).
 func TestHostileNamesAreCheap(t *testing.T) {
 	const (
-		rounds     = 9
-		perRound   = 40
-		wantAtMost = 5000 // worst-case cost / ordinary cost: about 300 when quiet, about 1000 on a machine pinned by other work
+		rounds     = 5
+		minRound   = 50 * time.Millisecond // each timing runs at least this long
+		wantAtMost = 5000                  // worst-case cost / ordinary cost: about 300 when quiet, about 1000 on a machine pinned by other work
 	)
 	worst := map[string]string{
 		"a=":      strings.Repeat("a=", MaxName/2),
 		"s=":      strings.Repeat(longS+"=", MaxName/4),
 		"=":       strings.Repeat("=", MaxName),
 		"-a.bak=": strings.Repeat("-a.bak=", MaxName/7),
-		"a":       strings.Repeat("a", MaxName),
 	}
-	// cost is the time of the quickest of several rounds of calls on name.
+	// cost is the time of one call on name: the quickest of several rounds,
+	// each as many calls as it takes to run for minRound. A round is timed
+	// over so long that the clock's grain does not matter -- Windows' ticks
+	// every 15.6ms, and a few calls on an ordinary name take microseconds, so
+	// timing a fixed handful read as zero there and every ratio as enormous.
+	// A round that long is never zero, so neither side can read as nothing.
 	cost := func(name string) time.Duration {
 		best := time.Duration(1<<63 - 1)
 		for r := 0; r < rounds; r++ {
-			start := time.Now()
-			for i := 0; i < perRound; i++ {
-				Component(name)
+			for n := 1; ; n *= 2 {
+				start := time.Now()
+				for i := 0; i < n; i++ {
+					Component(name)
+				}
+				if d := time.Since(start); d >= minRound {
+					if per := d / time.Duration(n); per < best {
+						best = per
+					}
+					break
+				}
 			}
-			if d := time.Since(start); d < best {
-				best = d
-			}
+		}
+		if best < 1 {
+			best = 1
 		}
 		return best
 	}
 	ordinary := cost(strings.Repeat("a", MaxName-1))
-	if ordinary <= 0 {
-		ordinary = 1 // a clock too coarse to see it: the ratio is then at its harshest
-	}
 	for label, name := range worst {
 		if c := cost(name); c > ordinary*wantAtMost {
-			t.Errorf("a name of %q repeated costs %v for %d calls, %dx an ordinary name's %v (at most %dx is allowed)",
-				label, c, perRound, c/ordinary, ordinary, wantAtMost)
+			t.Errorf("a name of %q repeated costs %v a call, %dx an ordinary name's %v (at most %dx is allowed)",
+				label, c, c/ordinary, ordinary, wantAtMost)
 		}
 	}
 	if !Component(strings.Repeat("a", MaxName+1)) || Component(strings.Repeat("a", MaxName)) {
