@@ -37,6 +37,10 @@ const (
 	ExportToolCall
 	// ExportToolResult is what a tool gave back.
 	ExportToolResult
+	// ExportTitle is the conversation being given a title, or a new one.
+	ExportTitle
+	// ExportCompact is earlier history being summarised to make room.
+	ExportCompact
 )
 
 // ExportEvent is one thing that happened in a stored conversation, in the
@@ -44,7 +48,8 @@ const (
 type ExportEvent struct {
 	Time time.Time
 	Kind ExportKind
-	// Text is the prompt or the message.
+	// Text is the prompt or the message, or the conversation's title for an
+	// ExportTitle.
 	Text      string
 	Tool      string
 	ToolUseID string
@@ -54,11 +59,33 @@ type ExportEvent struct {
 	// or a tool result. It is never the pane's selected model, which is not the
 	// conversation's.
 	Model string
+	// Usage is what the model's reply cost in tokens, on the first event of
+	// each reply only and so that adding it up over a conversation counts each
+	// reply once: Claude Code writes one entry per content block of a reply, each
+	// repeating the reply's usage. Nil everywhere else, and where none is stored.
+	Usage *ExportUsage
+	// StopReason is why the reply ended ("end_turn", "tool_use", ...), on the
+	// first event of the reply the stored conversation gives one for, once.
+	StopReason string
+	// GitBranch, Cwd and AgentVersion are the branch, the working directory and
+	// the agent's own version the stored entry that gave this event records.
+	// Empty where it records none, and for a title.
+	GitBranch, Cwd, AgentVersion string
+	// Trigger, TokensBefore and TokensAfter describe an ExportCompact: what
+	// started it ("auto" or "manual") and the size of the conversation, in
+	// tokens, before and after. Zero where the stored conversation says nothing.
+	Trigger                   string
+	TokensBefore, TokensAfter int
 	// Input is a tool call's input, decoded from JSON.
 	Input       any
 	Output      string
 	IsError     bool
 	Interrupted bool
+}
+
+// ExportUsage is the token counts of one model reply.
+type ExportUsage struct {
+	InputTokens, OutputTokens, CacheCreationInputTokens, CacheReadInputTokens int
 }
 
 // ExportStats says how a read of a conversation went.

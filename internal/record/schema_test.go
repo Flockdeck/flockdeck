@@ -43,7 +43,7 @@ func rawLines(t *testing.T, path string) [][]byte {
 // writtenTypes are the line types this version writes. The others are still in
 // the schema, because files made by earlier versions have them and are still
 // format 1.
-var writtenTypes = []string{TypeStarted, TypeStopped, TypeTruncated, TypePrompt, TypeAssistant, TypeToolCall, TypeToolResult}
+var writtenTypes = []string{TypeStarted, TypeStopped, TypeTruncated, TypePrompt, TypeAssistant, TypeToolCall, TypeToolResult, TypeTitle, TypeCompacted}
 
 // Every line the recorder can write, of every type and with clipping and
 // redaction in play, validates against the published schema.
@@ -58,6 +58,9 @@ func TestEmittedLinesMatchThePublishedSchema(t *testing.T) {
 	f.result("Read", "t2", "SECRET=1")
 	f.must(transcript.ExportEvent{Kind: transcript.ExportToolResult, Tool: "Bash", IsError: true, Interrupted: true, Output: "stopped"})
 	f.say("Done.")
+	f.must(transcript.ExportEvent{Kind: transcript.ExportMessage, Text: "With details.", Model: "m", Usage: &transcript.ExportUsage{InputTokens: 1, OutputTokens: 2, CacheCreationInputTokens: 3, CacheReadInputTokens: 4}, StopReason: "end_turn", GitBranch: "main", Cwd: "/work/shop", AgentVersion: "2.1.286"})
+	f.must(transcript.ExportEvent{Kind: transcript.ExportTitle, Text: "Add a retry"})
+	f.must(transcript.ExportEvent{Kind: transcript.ExportCompact, Trigger: "auto", TokensBefore: 900000, TokensAfter: 20000})
 	path := f.path()
 	f.finish()
 
@@ -152,7 +155,7 @@ func TestClippingAndRedactionAreFlagged(t *testing.T) {
 
 // The schema describes exactly the fields Entry has, and the event types
 // there are, so neither can change without the other.
-var allTypes = []string{TypeStarted, TypeStopped, TypeTruncated, TypeSession, TypePrompt, TypeAssistant, TypeToolCall, TypeToolResult, TypePermission, TypeOutcome, TypeStatus}
+var allTypes = []string{TypeStarted, TypeStopped, TypeTruncated, TypeSession, TypePrompt, TypeAssistant, TypeToolCall, TypeToolResult, TypePermission, TypeOutcome, TypeStatus, TypeTitle, TypeCompacted}
 
 func TestSchemaDescribesEveryFieldAndType(t *testing.T) {
 	schema := loadSchema(t)

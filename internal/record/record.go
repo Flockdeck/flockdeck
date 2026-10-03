@@ -42,6 +42,8 @@ const (
 	TypeAssistant  = "assistant_message"
 	TypeToolCall   = "tool_call"
 	TypeToolResult = "tool_result"
+	TypeTitle      = "conversation_title"
+	TypeCompacted  = "conversation_compacted"
 	TypePermission = "permission_prompt"
 	TypeOutcome    = "permission_outcome"
 	TypeStatus     = "status"
@@ -105,15 +107,29 @@ type Entry struct {
 	Agent        string `json:"agent,omitempty"`
 	Model        string `json:"model,omitempty"`
 	Conversation string `json:"conversation,omitempty"`
+	// GitBranch, Cwd and AgentVersion are the branch, the working directory and
+	// the agent's version the stored entry behind the line records.
+	GitBranch    string `json:"gitBranch,omitempty"`
+	Cwd          string `json:"cwd,omitempty"`
+	AgentVersion string `json:"agentVersion,omitempty"`
 	Type         string `json:"type"`
 	// Subagent names the subagent an event came from; absent for the main agent.
-	Subagent  string `json:"subagent,omitempty"`
-	Text      string `json:"text,omitempty"`
-	Tool      string `json:"tool,omitempty"`
-	ToolUseID string `json:"toolUseId,omitempty"`
-	Input     any    `json:"input,omitempty"`
-	Output    string `json:"output,omitempty"`
-	IsError   bool   `json:"isError,omitempty"`
+	Subagent string `json:"subagent,omitempty"`
+	Text     string `json:"text,omitempty"`
+	// Usage and StopReason are on the first line of a model's reply only.
+	Usage      *Usage `json:"usage,omitempty"`
+	StopReason string `json:"stopReason,omitempty"`
+	// Title is the conversation's title, on a conversation_title line.
+	Title string `json:"title,omitempty"`
+	// Trigger, TokensBefore and TokensAfter are on a conversation_compacted line.
+	Trigger      string `json:"trigger,omitempty"`
+	TokensBefore int    `json:"tokensBefore,omitempty"`
+	TokensAfter  int    `json:"tokensAfter,omitempty"`
+	Tool         string `json:"tool,omitempty"`
+	ToolUseID    string `json:"toolUseId,omitempty"`
+	Input        any    `json:"input,omitempty"`
+	Output       string `json:"output,omitempty"`
+	IsError      bool   `json:"isError,omitempty"`
 	// Interrupted says a tool ended because the user stopped it.
 	Interrupted bool   `json:"interrupted,omitempty"`
 	Outcome     string `json:"outcome,omitempty"`
@@ -131,8 +147,17 @@ type Entry struct {
 	Redacted bool `json:"redacted,omitempty"`
 	// Clipped names each field that was cut, with its length in bytes as the
 	// recorder received it, before redaction: "text", "output", "detail",
-	// "reason" or "input". The field itself ends in a marker saying how much.
+	// "reason", "input", "title", "cwd" or "gitBranch". The field itself ends in a marker saying how much.
 	Clipped map[string]int `json:"clipped,omitempty"`
+}
+
+// Usage is the tokens one model reply used. All four are always written, 0 for a
+// kind the stored conversation does not give.
+type Usage struct {
+	InputTokens              int `json:"inputTokens"`
+	OutputTokens             int `json:"outputTokens"`
+	CacheCreationInputTokens int `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int `json:"cacheReadInputTokens"`
 }
 
 // Manager owns the open transcript files, one per recording pane.
@@ -467,12 +492,26 @@ func entryOf(ev transcript.ExportEvent) Entry {
 		e.Type, e.Text = TypePrompt, ev.Text
 	case transcript.ExportMessage:
 		e.Type, e.Text, e.Model = TypeAssistant, ev.Text, ev.Model
+		e.Usage, e.StopReason = usageOf(ev.Usage), ev.StopReason
 	case transcript.ExportToolCall:
 		e.Type, e.Tool, e.ToolUseID, e.Input, e.Model = TypeToolCall, ev.Tool, ev.ToolUseID, ev.Input, ev.Model
+		e.Usage, e.StopReason = usageOf(ev.Usage), ev.StopReason
 	case transcript.ExportToolResult:
 		e.Type, e.Tool, e.ToolUseID, e.Output, e.IsError, e.Interrupted = TypeToolResult, ev.Tool, ev.ToolUseID, ev.Output, ev.IsError, ev.Interrupted
+	case transcript.ExportTitle:
+		e.Type, e.Title = TypeTitle, ev.Text
+	case transcript.ExportCompact:
+		e.Type, e.Trigger, e.TokensBefore, e.TokensAfter = TypeCompacted, ev.Trigger, ev.TokensBefore, ev.TokensAfter
 	}
+	e.GitBranch, e.Cwd, e.AgentVersion = ev.GitBranch, ev.Cwd, ev.AgentVersion
 	return e
+}
+
+func usageOf(u *transcript.ExportUsage) *Usage {
+	if u == nil {
+		return nil
+	}
+	return &Usage{u.InputTokens, u.OutputTokens, u.CacheCreationInputTokens, u.CacheReadInputTokens}
 }
 
 // openLocked creates the pane's transcript file for a conversation whose first
@@ -674,6 +713,7 @@ func (m *Manager) writeLocked(meta Meta, e Entry) error {
 	e.Pane, e.PaneName, e.Project = cutID(meta.Pane), meta.PaneName, meta.Project
 	e.Agent, e.Conversation = meta.Agent, cutID(meta.Conversation)
 	e.Tool, e.ToolUseID = cutID(e.Tool), cutID(e.ToolUseID)
+	e.AgentVersion, e.Trigger = cutID(e.AgentVersion), cutID(e.Trigger)
 	sanitise(&e)
 	line, err := json.Marshal(e)
 	if err != nil {
@@ -725,6 +765,9 @@ func sanitise(e *Entry) {
 		*v = c
 	}
 	clean("text", &e.Text, limit)
+	clean("title", &e.Title, MaxFieldBytes)
+	clean("cwd", &e.Cwd, MaxFieldBytes)
+	clean("gitBranch", &e.GitBranch, MaxFieldBytes)
 	clean("output", &e.Output, limit)
 	clean("detail", &e.Detail, MaxFieldBytes)
 	clean("reason", &e.Reason, MaxFieldBytes)
