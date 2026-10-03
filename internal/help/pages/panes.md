@@ -90,9 +90,10 @@ A value the pane does not have yet says "not set". The list has:
   status.
 - Whether the pane is recording, the path of its transcript file (the one it is
   recording to, or its latest export) and the path of the conversation file the
-  agent stores itself. That last path is shown only for Claude Code panes, the
-  one agent whose stored conversation Flockdeck reads today; for any other it
-  says "not set".
+  agent stores itself. That last path is shown for panes that run Claude Code,
+  including a second Claude account, once the agent has written the file. Until
+  then, and for every other agent, including Flockdeck's own API agents, it says
+  "not set".
 
 A shell has no agent, conversation or transcript, so those are left out for it.
 Nothing secret is listed: no keys, tokens or environment. A path can name your
