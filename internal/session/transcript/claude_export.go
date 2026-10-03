@@ -19,7 +19,7 @@ import (
 // output, an injected reminder, the note a conversation continued from a summary
 // opens with.
 func (Claude) Follow(spec agent.Spec, sessionID string) Follower {
-	return &claudeFollower{home: ClaudeHomeFor(spec), id: sessionID, names: map[string]string{}}
+	return &claudeFollower{home: ClaudeHomeFor(spec), id: sessionID, names: map[string]string{}, replies: map[string]replyDone{}}
 }
 
 // Cwd is the working directory a stored Claude Code conversation records.
@@ -46,11 +46,20 @@ type claudeFollower struct {
 	discarding bool
 
 	names map[string]string
-	last  time.Time
-	buf   []byte
+	// replies is which replies (by message id) have had their usage and stop
+	// reason given already, and title the last conversation title given.
+	replies map[string]replyDone
+	title   string
+	last    time.Time
+	buf     []byte
 	// pending is what the line last read gave that has not been handed over.
 	pending []ExportEvent
 }
+
+// replyDone says what of one model reply has been written. Claude Code stores
+// a reply as one entry per content block, all with the reply's id, usage and
+// stop reason, so each is written once, on the first line the reply gives.
+type replyDone struct{ usage, stop bool }
 
 // openTranscript opens a stored conversation. A variable so that a test can make
 // it fail the way a locked file does.
@@ -185,8 +194,20 @@ func (f *claudeFollower) line(raw []byte, yield func(ExportEvent) error, stats *
 		stats.Skipped++
 		return nil
 	}
-	if line.IsSidechain || (line.Type != "user" && line.Type != "assistant") {
+	if line.IsSidechain || (line.Type != "user" && line.Type != "assistant" && line.Type != "ai-title" && !(line.Type == "system" && line.Subtype == "compact_boundary")) {
 		return nil
+	}
+	if line.Type == "ai-title" {
+		// A title has no time of its own: it is given the previous entry's, and a
+		// title before anything else is left for the next time the file repeats
+		// it, which it does at every turn.
+		title := strings.TrimSpace(line.AITitle)
+		if title == "" || title == f.title || f.last.IsZero() {
+			return nil
+		}
+		f.title = title
+		f.pending = []ExportEvent{{Time: f.last, Kind: ExportTitle, Text: title}}
+		return f.drain(yield)
 	}
 	// An entry with no usable time is given the previous one's, and one that
 	// runs backwards is held at it: a transcript's lines are not always in the
@@ -215,29 +236,80 @@ func (f *claudeFollower) line(raw []byte, yield func(ExportEvent) error, stats *
 				f.pending[i].Model = model
 			}
 		}
+		f.replyDetails(line)
+	case "system":
+		cm := line.CompactMetadata
+		f.pending = []ExportEvent{{Time: ts, Kind: ExportCompact, Trigger: strings.TrimSpace(cm.Trigger), TokensBefore: int(max(cm.PreTokens, 0)), TokensAfter: int(max(cm.PostTokens, 0))}}
+	}
+	for i := range f.pending {
+		f.pending[i].GitBranch, f.pending[i].Cwd, f.pending[i].AgentVersion = line.GitBranch, line.Cwd, line.Version
 	}
 	return f.drain(yield)
+}
+
+// replyDetails puts the usage and stop reason an assistant entry stores on the
+// first event the reply it is part of gives, and on no other. The first entry
+// of a reply may give no event at all (a thinking block), so it is the first
+// event that carries them, not the first entry. An entry that names no reply is
+// taken to be one of its own.
+func (f *claudeFollower) replyDetails(line exportLine) {
+	if len(f.pending) == 0 {
+		return
+	}
+	id := line.Message.ID
+	done := f.replies[id]
+	first := &f.pending[0]
+	if u := line.Message.Usage; u != nil && (id == "" || !done.usage) {
+		first.Usage = &ExportUsage{u.InputTokens, u.OutputTokens, u.CacheCreationInputTokens, u.CacheReadInputTokens}
+		done.usage = true
+	}
+	if r := strings.TrimSpace(line.Message.StopReason); r != "" && (id == "" || !done.stop) {
+		first.StopReason = r
+		done.stop = true
+	}
+	if id != "" {
+		f.replies[id] = done
+	}
 }
 
 // start forgets everything read, to read the file again from its beginning.
 func (f *claudeFollower) start() {
 	f.offset, f.carry, f.discarding, f.pending = 0, nil, false, nil
 	f.names, f.last = map[string]string{}, time.Time{}
+	f.replies, f.title = map[string]replyDone{}, ""
 }
 
 // exportLine is the part of a transcript entry the export reads.
 type exportLine struct {
-	Type        string `json:"type"`
-	Timestamp   string `json:"timestamp"`
-	IsSidechain bool   `json:"isSidechain"`
-	IsMeta      bool   `json:"isMeta"`
-	Origin      struct {
+	Type            string `json:"type"`
+	Timestamp       string `json:"timestamp"`
+	IsSidechain     bool   `json:"isSidechain"`
+	Subtype         string `json:"subtype"`
+	AITitle         string `json:"aiTitle"`
+	GitBranch       string `json:"gitBranch"`
+	Cwd             string `json:"cwd"`
+	Version         string `json:"version"`
+	CompactMetadata struct {
+		Trigger    string  `json:"trigger"`
+		PreTokens  float64 `json:"preTokens"`
+		PostTokens float64 `json:"postTokens"`
+	} `json:"compactMetadata"`
+	IsMeta bool `json:"isMeta"`
+	Origin struct {
 		Kind string `json:"kind"`
 	} `json:"origin"`
 	IsCompactSummary          bool `json:"isCompactSummary"`
 	IsVisibleInTranscriptOnly bool `json:"isVisibleInTranscriptOnly"`
 	Message                   struct {
-		Model   string          `json:"model"`
+		ID         string `json:"id"`
+		Model      string `json:"model"`
+		StopReason string `json:"stop_reason"`
+		Usage      *struct {
+			InputTokens              int `json:"input_tokens"`
+			OutputTokens             int `json:"output_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+		} `json:"usage"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
 }

@@ -440,3 +440,142 @@ func TestClaudeExportWithoutStoredModelsHasNone(t *testing.T) {
 		}
 	}
 }
+
+const moreFixtureID = "33333333-4444-5555-6666-777777777777"
+
+func moreSpec(t *testing.T) agent.Spec {
+	t.Helper()
+	home, err := filepath.Abs(filepath.Join("testdata", "claude_more", "home"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return agent.Spec{ID: "claude", Exe: "claude", Env: []string{"CLAUDE_CONFIG_DIR=" + home}, Caps: agent.Caps{Transcript: true}}
+}
+
+// The usage and stop reason of a reply are on the first line it gives and on
+// no other (Claude Code repeats them on every content block's entry, and the
+// first entry is a thinking block that gives no line); the branch, folder and
+// version are each line's own entry's; a title is written when it appears and
+// when it changes; and a compaction is a line of its own with the summary
+// left out.
+func TestClaudeExportCarriesUsageDetailsTitlesAndCompaction(t *testing.T) {
+	evs, _, err := collect(t, moreSpec(t), moreFixtureID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type row struct {
+		Kind                      ExportKind
+		Text                      string
+		Usage                     ExportUsage
+		HasUsage                  bool
+		Stop                      string
+		Branch, Cwd, Version      string
+		Trigger                   string
+		TokensBefore, TokensAfter int
+		Time                      string
+	}
+	var got []row
+	for _, e := range evs {
+		r := row{Kind: e.Kind, Text: e.Text, Stop: e.StopReason, Branch: e.GitBranch, Cwd: e.Cwd, Version: e.AgentVersion, Trigger: e.Trigger, TokensBefore: e.TokensBefore, TokensAfter: e.TokensAfter, Time: e.Time.UTC().Format("15:04:05.000")}
+		if e.Usage != nil {
+			r.Usage, r.HasUsage = *e.Usage, true
+		}
+		if e.Kind == ExportToolCall {
+			r.Text = e.Tool
+		}
+		got = append(got, r)
+	}
+	u1 := ExportUsage{InputTokens: 3, OutputTokens: 100, CacheCreationInputTokens: 1000, CacheReadInputTokens: 2000}
+	u2 := ExportUsage{InputTokens: 4, OutputTokens: 50, CacheReadInputTokens: 3000}
+	want := []row{
+		{Kind: ExportPrompt, Text: "Add a retry.", Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:00.000"},
+		// The title before anything else is not written; its repeat is.
+		{Kind: ExportTitle, Text: "Add a retry", Time: "09:00:00.000"},
+		{Kind: ExportMessage, Text: "Looking.", Usage: u1, HasUsage: true, Stop: "tool_use", Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:01.100"},
+		{Kind: ExportToolCall, Text: "Read", Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:01.200"},
+		{Kind: ExportToolResult, Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:02.000"},
+		// No stop reason yet on the first entry of the reply: it is on the line
+		// whose entry has one, and the usage was already given.
+		{Kind: ExportMessage, Text: "Switching to a worktree.", Usage: u2, HasUsage: true, Branch: "feature/retry", Cwd: "/work/shop-wt", Version: "2.1.2", Time: "09:00:03.000"},
+		{Kind: ExportToolCall, Text: "Bash", Stop: "tool_use", Branch: "feature/retry", Cwd: "/work/shop-wt", Version: "2.1.2", Time: "09:00:03.100"},
+		{Kind: ExportToolResult, Branch: "feature/retry", Cwd: "/work/shop-wt", Version: "2.1.2", Time: "09:00:04.000"},
+		{Kind: ExportTitle, Text: "Retry the client", Time: "09:00:04.000"},
+		// An entry with no branch, folder or version has none.
+		{Kind: ExportPrompt, Text: "Now compact.", Time: "09:00:05.000"},
+		// Out of order in the file, so held at the time before it; the summary
+		// entry after it is not a prompt and is not here.
+		{Kind: ExportCompact, Trigger: "manual", TokensBefore: 170000, TokensAfter: 9000, Branch: "feature/retry", Cwd: "/work/shop-wt", Version: "2.1.2", Time: "09:00:05.000"},
+		// An entry with no usage and no stop reason has neither; the sidechain
+		// reply before it is left out.
+		{Kind: ExportMessage, Text: "Done.", Time: "09:00:07.000"},
+		// A boundary that names nothing still marks the place.
+		{Kind: ExportCompact, Time: "09:00:08.000"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		for i := 0; i < max(len(got), len(want)); i++ {
+			if i >= len(got) || i >= len(want) || got[i] != want[i] {
+				t.Errorf("event %d:\n got %+v\nwant %+v", i, got[min(i, len(got)-1)], want[min(i, len(want)-1)])
+				break
+			}
+		}
+		t.Fatalf("got %d events, want %d", len(got), len(want))
+	}
+	// Adding usage up over the conversation gives each reply once.
+	var in, out int
+	for _, e := range evs {
+		if e.Usage != nil {
+			in, out = in+e.Usage.InputTokens, out+e.Usage.OutputTokens
+		}
+	}
+	if in != 3+4 || out != 100+50 {
+		t.Errorf("usage sums to %d in, %d out", in, out)
+	}
+}
+
+// Read in awkward pieces, a conversation gives the same events, so a reply split
+// across two looks still has its usage once.
+func TestClaudeExportUsageIsOncePerReplyAcrossPolls(t *testing.T) {
+	whole, err := os.ReadFile(filepath.Join("testdata", "claude_more", "home", "projects", "C--work-shop", moreFixtureID+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	folder := filepath.Join(home, "projects", "C--work-shop")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	spec := agent.Spec{ID: "claude", Exe: "claude", Env: []string{"CLAUDE_CONFIG_DIR=" + home}, Caps: agent.Caps{Transcript: true}}
+	f := Claude{}.Follow(spec, moreFixtureID)
+	var got []ExportEvent
+	for at := 0; at < len(whole); at += 53 {
+		fh, err := os.OpenFile(filepath.Join(folder, moreFixtureID+".jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fh.Write(whole[at:min(at+53, len(whole))])
+		fh.Close()
+		if _, err := f.Poll(func(e ExportEvent) error { got = append(got, e); return nil }); err != nil && !errors.Is(err, ErrNoTranscript) {
+			t.Fatal(err)
+		}
+	}
+	want, _, err := collect(t, moreSpec(t), moreFixtureID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("pieces gave %d events, whole gave %d, and they differ", len(got), len(want))
+	}
+}
+
+// A conversation with none of it stored has none of it on its events.
+func TestClaudeExportWithoutTheNewDetailsHasNone(t *testing.T) {
+	evs, _, err := collect(t, exportSpec(t), exportFixtureID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range evs {
+		if e.Usage != nil || e.StopReason != "" || e.GitBranch != "" || e.AgentVersion != "" || e.Kind == ExportTitle || e.Kind == ExportCompact {
+			t.Errorf("%+v has something the conversation does not store", e)
+		}
+	}
+}

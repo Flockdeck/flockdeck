@@ -45,8 +45,14 @@ lines, nor is the model it is set to now: they are the pane's, not the
 conversation's, and an export has to match a recording of the same conversation.
 The one model a line can have is the one that produced that turn, as the agent's
 stored conversation records it (`model` on `assistant_message` and `tool_call`
-lines, left out where the conversation records none). Transcripts exported
-before this was added do not have it until they are exported again:
+lines, left out where the conversation records none). The same goes for a few
+more things the agent's stored conversation records, each left out where it does
+not: the tokens a reply used (`usage`) and why it ended (`stopReason`), once per
+reply on its first line, and on every line the branch (`gitBranch`), the folder
+(`cwd`, a full path that usually has your account name in it, so look before you
+share a transcript) and the agent's version (`agentVersion`) of the entry it came
+from. Transcripts exported before these were added do not have them until they
+are exported again:
 
 | `type` | What it holds |
 | --- | --- |
@@ -55,6 +61,8 @@ before this was added do not have it until they are exported again:
 | `assistant_message` | What the agent said (`text`): every message, including the ones between tool calls |
 | `tool_call` | The tool (`tool`) and its `input` |
 | `tool_result` | What the tool printed (`output`), and `isError` or `interrupted` where it failed or you stopped it |
+| `conversation_title` | The conversation's title (`title`), written when it appears and again when it changes |
+| `conversation_compacted` | Where earlier history was summarised, with `trigger` and `tokensBefore` / `tokensAfter` where known. The summary itself is not recorded |
 | `recording_truncated` | The file reached its size cap and ended there |
 
 `time` is when the thing happened, as the agent's own record has it. Every line

@@ -2,6 +2,7 @@ package record
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -879,5 +880,157 @@ func TestExportOfAConversationWithNoModelsHasNone(t *testing.T) {
 		if e.Model != "" {
 			t.Errorf("line %d (%s) has model %q", e.Seq, e.Type, e.Model)
 		}
+	}
+}
+
+const moreFixtureConversation = "33333333-4444-5555-6666-777777777777"
+
+var moreMeta = Meta{Pane: moreFixtureConversation, Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Conversation: moreFixtureConversation}
+
+func moreFixtureHome(t *testing.T) string {
+	t.Helper()
+	home, err := filepath.Abs("../session/transcript/testdata/claude_more/home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+// A reply's usage and stop reason, each line's branch, folder and version, the
+// title and the compaction are in the export and in a recording alike, and the
+// two are the same bytes.
+func TestExportAndRecordingCarryUsageDetailsTitlesAndCompaction(t *testing.T) {
+	whole, err := os.ReadFile(filepath.Join(moreFixtureHome(t), "projects", "C--work-shop", moreFixtureConversation+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, ex := claudeAt(t, moreFixtureHome(t))
+	dir := t.TempDir()
+	res, err := Export(func() (string, error) { return dir, nil }, moreMeta, ex.Follow(spec, moreFixtureConversation), ExportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(res.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := loadSchema(t)
+	for _, line := range rawLines(t, res.Path) {
+		if errs := schema.Validate(line); len(errs) != 0 {
+			t.Errorf("line does not match the schema: %v\n%s", errs, line)
+		}
+	}
+	es := readEntries(t, res.Path)
+	var sum Usage
+	var titles, compacts int
+	var last time.Time
+	for i, e := range es {
+		at, err := time.Parse(time.RFC3339Nano, e.Time)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if at.Before(last) {
+			t.Errorf("line %d goes back in time: %s after %s", e.Seq, e.Time, last)
+		}
+		last = at
+		if e.Seq != int64(i+1) {
+			t.Errorf("seq %d at line %d", e.Seq, i+1)
+		}
+		if e.Usage != nil {
+			sum.InputTokens += e.Usage.InputTokens
+			sum.OutputTokens += e.Usage.OutputTokens
+			sum.CacheCreationInputTokens += e.Usage.CacheCreationInputTokens
+			sum.CacheReadInputTokens += e.Usage.CacheReadInputTokens
+		}
+		switch e.Type {
+		case TypeTitle:
+			titles++
+		case TypeCompacted:
+			compacts++
+		case TypeStarted, TypeStopped:
+			if e.GitBranch != "" || e.Cwd != "" || e.AgentVersion != "" {
+				t.Errorf("a %s line has details of an entry: %+v", e.Type, e)
+			}
+		}
+	}
+	if sum != (Usage{InputTokens: 7, OutputTokens: 150, CacheCreationInputTokens: 1000, CacheReadInputTokens: 5000}) {
+		t.Errorf("usage adds up to %+v", sum)
+	}
+	if titles != 2 || compacts != 2 {
+		t.Errorf("titles = %d, compactions = %d, want 2 and 2", titles, compacts)
+	}
+	for _, e := range es {
+		if e.Type == TypeAssistant && e.Text == "Looking." {
+			if e.Usage == nil || e.Usage.OutputTokens != 100 || e.StopReason != "tool_use" || e.Cwd != "/work/shop" || e.GitBranch != "main" || e.AgentVersion != "2.1.1" {
+				t.Errorf("the first reply's line: %+v", e)
+			}
+		}
+		if e.Type == TypeToolCall && e.Tool == "Bash" && (e.Cwd != "/work/shop-wt" || e.GitBranch != "feature/retry") {
+			t.Errorf("the line after the worktree switch: %+v", e)
+		}
+		if e.Type == TypeCompacted && (e.Trigger != "" && (e.Trigger != "manual" || e.TokensBefore != 170000 || e.TokensAfter != 9000)) {
+			t.Errorf("the compaction: %+v", e)
+		}
+	}
+
+	// Recorded as it grows, cut anywhere.
+	home := t.TempDir()
+	folder := filepath.Join(home, "projects", "C--work-shop")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rspec, rex := claudeAt(t, home)
+	f := rex.Follow(rspec, moreFixtureConversation)
+	m := NewManager(func() (string, error) { return t.TempDir(), nil })
+	defer m.Close()
+	for at := 0; at < len(whole); at += 41 {
+		fh, err := os.OpenFile(filepath.Join(folder, moreFixtureConversation+".jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fh.Write(whole[at:min(at+41, len(whole))])
+		fh.Close()
+		if _, err := Sync(m, func() Meta { return moreMeta }, f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := m.Path(moreMeta.Pane)
+	m.Finish(moreMeta)
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("the recording and the export differ\nrecorded:\n%s\nexported:\n%s", got, want)
+	}
+}
+
+// A transcript from before these were written has none of them on any line, and
+// is still a valid line of the format.
+func TestExportOfAConversationWithNoneOfTheNewDetailsHasNone(t *testing.T) {
+	res, _ := exportToTemp(t, ExportOptions{})
+	for _, e := range readEntries(t, res.Path) {
+		if e.Usage != nil || e.StopReason != "" || e.GitBranch != "" || e.AgentVersion != "" || e.Title != "" || e.Type == TypeTitle || e.Type == TypeCompacted {
+			t.Errorf("line %d (%s) has %+v", e.Seq, e.Type, e)
+		}
+	}
+}
+
+// The folder is redacted and cut like any string, and flagged as such.
+func TestCwdAndBranchAreRedactedAndClipped(t *testing.T) {
+	m, _ := newTestManager(t)
+	f := newFeed(t, m)
+	f.must(transcript.ExportEvent{Kind: transcript.ExportPrompt, Text: "hi", Cwd: `C:\Users\sam\shop?token=hunter2abcdef`, GitBranch: strings.Repeat("b", MaxFieldBytes+10), AgentVersion: "2.1.1"})
+	path := f.path()
+	f.finish()
+	var e Entry
+	if err := json.Unmarshal(rawLines(t, path)[1], &e); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(e.Cwd, `C:\Users\sam\shop`) || strings.Contains(e.Cwd, "hunter2") || !e.Redacted {
+		t.Errorf("cwd = %q, redacted = %v", e.Cwd, e.Redacted)
+	}
+	if e.Clipped["gitBranch"] != MaxFieldBytes+10 || len(e.GitBranch) > MaxFieldBytes+64 {
+		t.Errorf("gitBranch clipped = %v, len %d", e.Clipped, len(e.GitBranch))
 	}
 }

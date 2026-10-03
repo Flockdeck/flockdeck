@@ -127,6 +127,9 @@ Every line has these.
 | `agent` | string | no | The agent's id (`claude`, `codex`, ...) as `flockdeck agents` lists it. |
 | `model` | string | no | The model that produced the turn, as the agent's stored conversation records it for that turn (for Claude Code, the entry's `message.model`). Written on `assistant_message` and `tool_call` lines only, so a conversation that switches model mid-way has each turn's own; never on a `user_prompt` or `tool_result`, nor on `recording_started` or `recording_stopped`. Left out when the stored turn records none, or only a placeholder such as `<synthetic>` (what Claude Code stamps on a notice it wrote itself), and for an agent whose stored conversation does not record one. It is never the model a pane is set to now, which is the pane's, not the conversation's. Files of earlier versions have the model the pane was asked for, on every line; files made since by an exporter that did not read it have none. |
 | `conversation` | string | no | The agent's own conversation id. It changes when the user runs `/clear`. |
+| `gitBranch` | string | no | The git branch the stored entry behind the line records (for Claude Code, the entry's `gitBranch`). Written on every line that comes from an entry of the stored conversation (`user_prompt`, `assistant_message`, `tool_call`, `tool_result`, `conversation_compacted`), each with the entry's own, so a conversation that changes branch has each line's; never on `recording_started`, `recording_stopped` or `conversation_title`. Left out when the entry records none. Redacted and cut at 8 KiB like other strings. |
+| `cwd` | string | no | The working directory the stored entry records, as the entry has it: **a full path, which usually contains the account's name** (`C:\Users\sam\work\shop`). Written on the same lines as `gitBranch`, each with the entry's own. It is the agent's directory at that moment, so it changes when the agent moves into a worktree or a subfolder, not only between projects, and a conversation can have several. Left out when the entry records none. Redacted and cut at 8 KiB like other strings; see section 4, *What redaction does not catch*. (`project`, by contrast, is only the last element of the directory the conversation recorded.) |
+| `agentVersion` | string | no | The agent's own version that wrote the stored entry behind the line (for Claude Code, the entry's `version`, such as `2.1.286`). Written on the same lines as `gitBranch`. Left out when the entry records none. |
 | `type` | string | yes | The event type, one of the types below. |
 | `subagent` | string | no | The id of the subagent the event came from. Absent for the main agent. |
 | `redacted` | boolean | no | `true` if anything in the line was replaced by redaction (section 4). |
@@ -138,7 +141,8 @@ transcript is made: recording, *Export transcript* and the command line all give
 the same lines for the same conversation. The pane's name, which is not in the
 stored conversation, is therefore not in the lines, and neither is the model the
 pane is set to. The `model` an assistant turn has is its own, read from the
-stored conversation.
+stored conversation, and so are `gitBranch`, `cwd` and `agentVersion`, which are
+those of the entry a line came from.
 
 ### Event types
 
@@ -209,6 +213,10 @@ some of these, since the agent counts them as prompts.)
 | --- | --- | --- | --- |
 | `text` | string | yes | The prompt. Cut at 32 KiB. |
 
+The note a conversation continued from a summary opens with is not a prompt, and
+its text, which is the summary, is not in the transcript anywhere: the
+`conversation_compacted` line marks where it happened.
+
 ```json
 {"v":1,"seq":3,"time":"2026-10-01T10:15:40.2Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"user_prompt","text":"run the tests and fix what fails"}
 ```
@@ -225,10 +233,38 @@ reported while it ran.)
 | --- | --- | --- | --- |
 | `text` | string | yes | The message. Cut at 32 KiB. |
 | `reason` | string | no | Only in files of earlier versions: `the turn ended on an error`. |
+| `usage` | object | no | The tokens the model's reply used; see *Token usage and stop reason* below. On the first line of a reply only. Its keys are `inputTokens`, `outputTokens`, `cacheCreationInputTokens` and `cacheReadInputTokens`, all integers. |
+| `stopReason` | string | no | Why the reply ended; see below. |
 
 ```json
-{"v":1,"seq":19,"time":"2026-10-01T10:16:55.9Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","model":"claude-opus-5-5","type":"assistant_message","text":"All 212 tests pass."}
+{"v":1,"seq":19,"time":"2026-10-01T10:16:55.9Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","model":"claude-opus-5-5","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","type":"assistant_message","text":"All 212 tests pass.","usage":{"inputTokens":6,"outputTokens":212,"cacheCreationInputTokens":1450,"cacheReadInputTokens":30705},"stopReason":"end_turn"}
 ```
+
+**Token usage and stop reason.** Claude Code stores one reply of the model as
+several entries, one for each content block (a thinking block, some text, a tool
+call), and repeats the whole reply's usage and stop reason on each of them. A
+transcript does not repeat them: for each reply, `usage` and `stopReason` are
+written **once**, on the first `assistant_message` or `tool_call` line the reply
+gives. (Not on the reply's first entry, which is often a thinking block and gives
+no line at all.) The rest of the reply's lines have neither. So:
+
+- **To add up what a conversation used, sum `usage` over every line that has
+  one**, key by key. Each reply is counted once, and no deduplication is needed.
+  `inputTokens` is the input that was not cached; `cacheCreationInputTokens` and
+  `cacheReadInputTokens` are the cached input written and read, and the four are
+  separate, not parts of each other. All four keys are there whenever `usage` is;
+  a kind the stored reply does not give is `0`. The numbers are the agent's, as
+  stored, and are not a bill: they say nothing of price, of the other things
+  Claude Code stores with them (service tier, speed, per-iteration breakdowns),
+  or of subagents, whose entries are left out (section 5).
+- A reply whose entries give no line at all (only thinking) is not counted, as it
+  has no line to carry it. A reply that has no id in the stored conversation is
+  counted once per entry.
+- `stopReason` is the agent's word (`end_turn`, `tool_use`, `max_tokens`, ...). It
+  is left out where the stored reply has none (`null`), and goes on the first line
+  of the reply whose entry has one: the same line as `usage`, unless the stored
+  entries gave the reason later.
+- Neither is on a `user_prompt` or a `tool_result`.
 
 #### `tool_call`
 
@@ -258,6 +294,46 @@ A tool finishing, or failing.
 
 ```json
 {"v":1,"seq":5,"time":"2026-10-01T10:15:58.4Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"tool_result","tool":"Bash","toolUseId":"toolu_01","output":"ok  \tshop/api\t0.412s"}
+```
+
+#### `conversation_title`
+
+The conversation being given a title. Claude Code names a conversation after a
+few messages (`ai-title` entries in its stored conversation, which repeat the
+current title many times). This line is written when a title first appears and
+again whenever it **changes**, never for a repeat, so the last one is the
+conversation's title as stored. The stored entry has no time of its own, so the
+line has the time of the entry before it, and it is not written before the
+transcript's first event: a title that arrives then is written the next time the
+agent repeats it. It has no `gitBranch`, `cwd` or `agentVersion`.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `title` | string | yes | The title. Redacted and cut at 8 KiB like other strings. |
+
+```json
+{"v":1,"seq":5,"time":"2026-10-01T10:15:40.2Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"conversation_title","title":"Add a retry to the client"}
+```
+
+#### `conversation_compacted`
+
+Where earlier history was summarised to make room (Claude Code's `/compact`, or
+the automatic one when the conversation gets too long). It is written where the
+stored conversation marks it (a `compact_boundary` entry). The summary itself is
+**not** recorded, here or as a `user_prompt` or `assistant_message`: the entry
+that holds it is one the agent wrote for itself, which a transcript leaves out
+(see `user_prompt`). Lines before this one are the history that was summarised,
+and the agent goes on from the summary, not from them. The numbers are the
+agent's, are not counts of lines, and are left out where the entry has none.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `trigger` | string | no | What started it, as the agent says: `auto` or `manual`. |
+| `tokensBefore` | integer | no | The conversation's size in tokens before it was summarised. |
+| `tokensAfter` | integer | no | Its size in tokens after. |
+
+```json
+{"v":1,"seq":88,"time":"2026-10-01T11:02:11.4Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","type":"conversation_compacted","trigger":"auto","tokensBefore":970192,"tokensAfter":22085}
 ```
 
 #### `permission_prompt`
@@ -389,6 +465,12 @@ particular:
   field other than `file_path`/`filePath`/`path`/`notebook_path`/`command` is not withheld;
   its contents then fall back to pattern redaction, which catches only the
   shapes and names above.
+- **Paths and branch names.** `cwd` is written as the stored entry has it, so a
+  line has the full path of the agent's directory, which usually includes the
+  account's name and can include a client's or a project's. `gitBranch` can name a
+  ticket or a person. Both go through the redaction above, which finds secrets and
+  not names, so neither is hidden. If a transcript is to be shared, `cwd` is the
+  field to strip (`jq -c 'del(.cwd)'`).
 - **A cut secret.** A value long enough to be clipped before it reaches
   redaction can leave a fragment too short to match a token pattern, and the
   fragment is kept.
@@ -406,7 +488,7 @@ is "saved on this machine", not "private to you".
 | What | Cut at |
 | --- | --- |
 | `text` of a `user_prompt` or `assistant_message` | 32 KiB (32768 bytes) |
-| any other string: `output`, `detail`, `reason`, and every string inside `input` | 8 KiB (8192 bytes) |
+| any other string: `output`, `detail`, `reason`, `title`, `cwd`, `gitBranch`, and every string inside `input` | 8 KiB (8192 bytes) |
 | a tool `input` that was over 48 KiB once its strings were cut (files made before v0.3.48 only) | replaced by `{"_omitted":"too large to record"}` |
 
 The cut is at a character boundary, and the string ends with the marker
@@ -418,7 +500,7 @@ long that field was **in bytes as the recorder received it, before redaction**:
 "output":"xxxx…[clipped 16384 bytes]","clipped":{"output":24576}
 ```
 
-`clipped` has the keys `text`, `output`, `detail`, `reason` and `input`. For
+`clipped` has the keys `text`, `output`, `detail`, `reason`, `input`, `title`, `cwd` and `gitBranch`. For
 `input` the number is the length of the input as JSON.
 
 In files made before v0.3.48 (by v0.3.47, which wrote recordings from the
@@ -457,6 +539,10 @@ For Claude Code the known gaps are:
   stepped over and left out, and so is a line that is not JSON. A `tool_call`
   may therefore have no `tool_result`.
 - **Thinking** is not recorded.
+- **The summary a `/compact` writes** is not recorded; a `conversation_compacted`
+  line says where it was made.
+- **Usage is per reply, not per line** (see `assistant_message`), covers the main
+  agent only, and is the agent's token counts, not a cost.
 - **Prompts are only what the user typed**, as described under `user_prompt`.
 - **Images** are not in it, in a prompt or in a tool's result: only text blocks
   are, so no image data (base64) is in any line.
@@ -532,6 +618,7 @@ in these ways**:
 | `time` | when Flockdeck wrote the line | when the event happened, from the agent's record |
 | `paneName` | written | not written |
 | `model` | the model the pane was asked for, on every line | the model that produced the turn, on `assistant_message` and `tool_call` lines only, where the stored conversation records it (added later in version 1; transcripts made before that have none) |
+| `usage`, `stopReason`, `gitBranch`, `cwd`, `agentVersion`, `conversation_title`, `conversation_compacted` | not written | written where the stored conversation has them (added later in version 1; transcripts made before that have none, and do not gain them unless exported again) |
 | `recording_started` / `recording_stopped` text | `turned on` or `resumed` / `turned off` or `the pane was closed` | `start of the transcript` / `end of the transcript` |
 | `session`, `permission_prompt`, `permission_outcome`, `status` | written | not written |
 | `assistant_message` | the last message of each turn | every message |
@@ -546,6 +633,15 @@ in these ways**:
 one (a later file has none). The file name cannot be told apart by its shape, as
 both are a time and eight characters. There is no field that says; a consumer
 that needs one reading should key on the first line.
+
+Among the later files, nothing says which of them were made before `model` was
+written, or before `usage`, `stopReason`, `gitBranch`, `cwd`, `agentVersion`,
+`conversation_title` and `conversation_compacted` were. A file that has a `model`
+on an `assistant_message`, or any of the others, was made after that was added.
+**Their absence proves nothing**: the stored conversation may simply lack them (a
+conversation with no title yet, one never compacted, an agent that records no
+model), and a file made earlier does not gain them unless the conversation is
+exported again.
 
 Stopping writing a line type is not itself a change to `v`: its definition stays
 here and in the schema, marked *no longer written*, so files already made are
@@ -587,6 +683,23 @@ How long the pane spent in each status, in order (earlier versions' files only):
 
 ```sh
 jq -r 'select(.type == "status") | "\(.time)  \(.previous // "-") -> \(.status)"' session.jsonl
+```
+
+Tokens the conversation used, which is the sum of every `usage` there is (each
+reply has one, on its first line; see `assistant_message`):
+
+```sh
+jq -s '[.[] | select(.usage) | .usage] | {
+  input: (map(.inputTokens) | add), output: (map(.outputTokens) | add),
+  cacheWritten: (map(.cacheCreationInputTokens) | add),
+  cacheRead: (map(.cacheReadInputTokens) | add)}' session.jsonl
+```
+
+The conversation's title (the last one), and where it was compacted:
+
+```sh
+jq -rs '[.[] | select(.type == "conversation_title")] | last | .title' session.jsonl
+jq -c 'select(.type == "conversation_compacted") | {seq, time, trigger, tokensBefore, tokensAfter}' session.jsonl
 ```
 
 Find lines where something was cut or removed:
