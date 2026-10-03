@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -59,7 +60,28 @@ type claudeFollower struct {
 // replyDone says what of one model reply has been written. Claude Code stores
 // a reply as one entry per content block, all with the reply's id, usage and
 // stop reason, so each is written once, on the first line the reply gives.
-type replyDone struct{ usage, stop bool }
+//
+// It also keeps the first usage and first stop reason the reply's entries gave
+// (whether or not they were written), to notice when a later entry gives different ones; see
+// ReplyDisagreements.
+type replyDone struct {
+	usage, stop bool
+	firstUsage  *ExportUsage
+	firstStop   string
+}
+
+// replyDisagreements counts the assistant entries whose usage, or whose stop
+// reason where they have one, differ from the first the same reply gave.
+var replyDisagreements atomic.Int64
+
+// ReplyDisagreements is how many assistant entries read so far (by every
+// follower in this process) gave a usage or a stop reason different from the
+// first the same reply's entries gave. The export writes each once, from the
+// first line the reply produces, which is exact only while a reply's entries
+// all repeat the same numbers (docs/recording-format.md, "Token usage and stop
+// reason"). Anything above zero means Claude Code stopped doing that. Counting
+// changes nothing that is written.
+func ReplyDisagreements() int64 { return replyDisagreements.Load() }
 
 // openTranscript opens a stored conversation. A variable so that a test can make
 // it fail the way a locked file does.
@@ -253,11 +275,37 @@ func (f *claudeFollower) line(raw []byte, yield func(ExportEvent) error, stats *
 // event that carries them, not the first entry. An entry that names no reply is
 // taken to be one of its own.
 func (f *claudeFollower) replyDetails(line exportLine) {
+	id := line.Message.ID
+	done := f.replies[id]
+	if id != "" {
+		var u *ExportUsage
+		if m := line.Message.Usage; m != nil {
+			u = &ExportUsage{m.InputTokens, m.OutputTokens, m.CacheCreationInputTokens, m.CacheReadInputTokens}
+		}
+		stop := strings.TrimSpace(line.Message.StopReason)
+		differs := false
+		if u != nil {
+			if done.firstUsage == nil {
+				done.firstUsage = u
+			} else if *done.firstUsage != *u {
+				differs = true
+			}
+		}
+		if stop != "" {
+			if done.firstStop == "" {
+				done.firstStop = stop
+			} else if done.firstStop != stop {
+				differs = true
+			}
+		}
+		if differs {
+			replyDisagreements.Add(1)
+		}
+		f.replies[id] = done
+	}
 	if len(f.pending) == 0 {
 		return
 	}
-	id := line.Message.ID
-	done := f.replies[id]
 	first := &f.pending[0]
 	if u := line.Message.Usage; u != nil && (id == "" || !done.usage) {
 		first.Usage = &ExportUsage{u.InputTokens, u.OutputTokens, u.CacheCreationInputTokens, u.CacheReadInputTokens}

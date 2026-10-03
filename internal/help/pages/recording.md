@@ -48,7 +48,7 @@ stored conversation records it (`model` on `assistant_message` and `tool_call`
 lines, left out where the conversation records none). The same goes for a few
 more things the agent's stored conversation records, each left out where it does
 not: the tokens a reply used (`usage`) and why it ended (`stopReason`), once per
-reply on its first line, and on every line the branch (`gitBranch`), the folder
+reply on its first line (exact as long as Claude Code repeats the same numbers on each entry of a reply, which it has in every conversation checked), and on every line the branch (`gitBranch`), the folder
 (`cwd`, a full path that usually has your account name in it, so look before you
 share a transcript) and the agent's version (`agentVersion`) of the entry it came
 from. Transcripts exported before these were added do not have them until they

@@ -233,8 +233,8 @@ reported while it ran.)
 | --- | --- | --- | --- |
 | `text` | string | yes | The message. Cut at 32 KiB. |
 | `reason` | string | no | Only in files of earlier versions: `the turn ended on an error`. |
-| `usage` | object | no | The tokens the model's reply used; see *Token usage and stop reason* below. On the first line of a reply only. Its keys are `inputTokens`, `outputTokens`, `cacheCreationInputTokens` and `cacheReadInputTokens`, all integers. |
-| `stopReason` | string | no | Why the reply ended; see below. |
+| `usage` | object | no | The tokens the model's reply used; see *Token usage and stop reason* below. On the first line of a reply only, which is exact only while the reply's entries all repeat the same numbers (see below). Its keys are `inputTokens`, `outputTokens`, `cacheCreationInputTokens` and `cacheReadInputTokens`, all integers. |
+| `stopReason` | string | no | Why the reply ended; see below. On the first line that has one, once per reply, on the same assumption as `usage`. |
 
 ```json
 {"v":1,"seq":19,"time":"2026-10-01T10:16:55.9Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","model":"claude-opus-5-5","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","type":"assistant_message","text":"All 212 tests pass.","usage":{"inputTokens":6,"outputTokens":212,"cacheCreationInputTokens":1450,"cacheReadInputTokens":30705},"stopReason":"end_turn"}
@@ -265,6 +265,20 @@ no line at all.) The rest of the reply's lines have neither. So:
   of the reply whose entry has one: the same line as `usage`, unless the stored
   entries gave the reason later.
 - Neither is on a `user_prompt` or a `tool_result`.
+- The assumption behind "once, on the first line": a line is written when its
+  entry arrives and cannot be changed afterwards, so `usage` and `stopReason` go
+  on a reply's first line, from the first entry that gives them, and later
+  entries of the reply add nothing. That is exact only while every entry of a
+  reply repeats the same numbers, which is what Claude Code does: in the
+  conversations this was checked against, no reply had entries that disagreed. If
+  Claude Code ever wrote a partial count on an early entry (while streaming) and
+  the final one on a later entry, the first line would carry the partial count
+  and the total would come out short, with nothing in the transcript to correct
+  it. So treat a per-reply or per-conversation total as exact only under that
+  assumption, and do not expect a transcript to be corrected after it is written.
+  If Claude Code stops repeating the numbers, what `usage` and `stopReason` mean
+  would have to be decided again. The tests in `internal/session/transcript`
+  fail when a fixture conversation shows a reply whose entries disagree.
 
 #### `tool_call`
 
