@@ -53,6 +53,8 @@ type agentView struct {
 	// Background counts the background work the pane's agent has left
 	// running; see paneView.Background. Left out at zero.
 	Background int `json:"background,omitempty"`
+	// BackgroundWork is what is known of it; see paneView.BackgroundWork.
+	BackgroundWork []backgroundView `json:"backgroundWork,omitempty"`
 }
 
 type agentsMsg struct {
@@ -131,6 +133,7 @@ func (s *Server) sendAgents(c *controlClient) {
 			if p.Sess != nil {
 				if p.IsAgent() && st != session.StatusExited {
 					av.Background = p.Sess.BackgroundTasks()
+					av.BackgroundWork = backgroundViews(p.Sess.BackgroundWork())
 				}
 				av.For = humanAgo(time.Since(p.Sess.StatusSince()))
 				// What a waiting pane wants, in the same words a permission

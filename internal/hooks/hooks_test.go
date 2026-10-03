@@ -1005,3 +1005,88 @@ func TestEmitCapsTheEditsOfAMultiEditTogether(t *testing.T) {
 		t.Errorf("ToolInput is %d bytes, want it bounded", len(got.ToolInput))
 	}
 }
+
+// TestEmitSaysWhatBackgroundWorkIs covers BackgroundInfo and
+// BackgroundTaskInfo: what a start of background work, and a Stop's list of
+// what is still running, say of each piece -- redacted and cut to a line, and
+// nothing at all where the payload says nothing.
+func TestEmitSaysWhatBackgroundWorkIs(t *testing.T) {
+	t.Run("a background command's start", func(t *testing.T) {
+		srv, r := newServer(t)
+		stdin := `{"hook_event_name":"PostToolUse","tool_name":"Bash",` +
+			`"tool_input":{"command":"curl -H 'Authorization: Bearer abcdefghijklmnopqrstuvwx' https://x\n  && sleep 8","description":"Fetch then sleep","run_in_background":true},` +
+			`"tool_response":{"backgroundTaskId":"b8qs3bzx9"},"tool_use_id":"toolu_1"}`
+		if _, err := Emit(strings.NewReader(stdin), srv.Endpoint(), srv.Token(), "pane-bg", "PostToolUse"); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		got := r.next(t)
+		if got.BackgroundInfo == nil {
+			t.Fatal("a background command's start says nothing of the command")
+		}
+		b := *got.BackgroundInfo
+		if b.Type != "shell" || b.Description != "Fetch then sleep" {
+			t.Errorf("info = %+v", b)
+		}
+		if strings.Contains(b.Command, "abcdefghijklmnop") || !strings.Contains(b.Command, "[redacted]") {
+			t.Errorf("the command's secret was not redacted: %q", b.Command)
+		}
+		if strings.Contains(b.Command, "\n") || !strings.Contains(b.Command, "https://x && sleep 8") {
+			t.Errorf("the command was not put on one line: %q", b.Command)
+		}
+	})
+	t.Run("a long description is cut", func(t *testing.T) {
+		srv, r := newServer(t)
+		stdin := `{"tool_name":"Bash","tool_input":{"command":"sleep 1","description":"` + strings.Repeat("é", 300) + `","run_in_background":true},"tool_response":{"shell_id":"b1"}}`
+		if _, err := Emit(strings.NewReader(stdin), srv.Endpoint(), srv.Token(), "pane-bg", "PostToolUse"); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		got := r.next(t)
+		if got.BackgroundInfo == nil {
+			t.Fatal("no info")
+		}
+		d := got.BackgroundInfo.Description
+		if len(d) > maxBackgroundText || !strings.HasSuffix(d, "…") || !utf8.ValidString(d) {
+			t.Errorf("description of %d bytes, ends %q", len(d), d[len(d)-4:])
+		}
+	})
+	t.Run("a subagent's start", func(t *testing.T) {
+		srv, r := newServer(t)
+		if _, err := Emit(strings.NewReader(`{"agent_id":"a7","agent_type":"general-purpose"}`), srv.Endpoint(), srv.Token(), "pane-bg", "SubagentStart"); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		got := r.next(t)
+		if got.BackgroundInfo == nil || got.BackgroundInfo.Type != "subagent" || got.BackgroundInfo.AgentType != "general-purpose" {
+			t.Errorf("info = %+v", got.BackgroundInfo)
+		}
+	})
+	t.Run("a start that says nothing", func(t *testing.T) {
+		srv, r := newServer(t)
+		if _, err := Emit(strings.NewReader(`{"agent_id":"a7"}`), srv.Endpoint(), srv.Token(), "pane-bg", "SubagentStart"); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		if got := r.next(t); got.BackgroundInfo != nil {
+			t.Errorf("info made up from nothing: %+v", *got.BackgroundInfo)
+		}
+	})
+	t.Run("a Stop's list", func(t *testing.T) {
+		srv, r := newServer(t)
+		stdin := `{"hook_event_name":"Stop","background_tasks":[` +
+			`{"id":"a24a75d5a81a9c58f","type":"subagent","status":"running","description":"Run sleep 6 and reply done","agent_type":"general-purpose"},` +
+			`{"id":"bmxcupw20","type":"shell","status":"running","description":"Background sleep and echo command","command":"sleep 15; echo a"},` +
+			`{"id":"m1","type":"monitor","status":"running"}]}`
+		if _, err := Emit(strings.NewReader(stdin), srv.Endpoint(), srv.Token(), "pane-bg", "Stop"); err != nil {
+			t.Fatalf("emit: %v", err)
+		}
+		got := r.next(t)
+		want := map[string]BackgroundInfo{
+			"agent:a24a75d5a81a9c58f": {Type: "subagent", AgentType: "general-purpose", Description: "Run sleep 6 and reply done"},
+			"shell:bmxcupw20":         {Type: "shell", Description: "Background sleep and echo command", Command: "sleep 15; echo a"},
+		}
+		if !reflect.DeepEqual(got.BackgroundTaskInfo, want) {
+			t.Errorf("task info = %+v, want %+v", got.BackgroundTaskInfo, want)
+		}
+		if got.BackgroundTasks == nil || len(*got.BackgroundTasks) != 3 {
+			t.Errorf("the count lost the monitor that said nothing: %v", got.BackgroundTasks)
+		}
+	})
+}

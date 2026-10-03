@@ -187,6 +187,8 @@
       tipEl.setAttribute("role", "tooltip");
     }
     tipEl.textContent = text;
+    // A bubble that is a list keeps its line breaks; every other one wraps.
+    tipEl.classList.toggle("tip-lines", node.dataset.tipLines === "1");
     // Hung off the body and positioned against the viewport, so none of the
     // containers a tip is born in - the tab strip, a pane header, the overlay
     // body - can clip it with their overflow. Measured hidden, because the
@@ -4140,7 +4142,8 @@
       }
 
       const background = v.background || 0;
-      if (was.background !== background) { was.background = background; renderPaneBackground(p, background); }
+      const bgKey = background + JSON.stringify(v.backgroundWork || []);
+      if (was.background !== bgKey) { was.background = bgKey; renderPaneBackground(p, background, v.backgroundWork); }
 
       const git = [v.dirty, v.untracked, v.ahead, v.behind, v.gitTimedOut ? "late" : ""].join(" ");
       if (was.git !== git) { was.git = git; renderPaneGit(p, v); }
@@ -4373,14 +4376,84 @@
       "not finished: closing finished panes leaves it open until they end.";
   }
 
+  /** BG_KINDS names the kinds of background work Claude Code reports. */
+  const BG_KINDS = { shell: "Shell command", subagent: "Subagent", monitor: "Monitor", workflow: "Workflow" };
+
+  /** bgShort cuts what is said of a piece of background work to a line. The
+   *  server has already redacted it and bounded it; this is for the bubble. */
+  function bgShort(s, n) {
+    s = String(s || "").replace(/\s+/g, " ").trim();
+    return s.length > n ? s.slice(0, n - 1) + "…" : s;
+  }
+
+  /** bgClock is a time of day for a piece of background work's first sight. */
+  function bgClock(when) {
+    const t = Date.parse(when || "");
+    if (!(t > 0)) return "";
+    try { return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
+  }
+
+  /** backgroundItemTip is one piece of background work in the bubble: what it
+   *  is, what Claude Code said of it, and how long ago Flockdeck first heard
+   *  of it. Only what was reported is shown: work Claude Code gave nothing
+   *  but an id for says so rather than being guessed at. */
+  function backgroundItemTip(w) {
+    const kind = BG_KINDS[w.kind] || (w.kind ? w.kind[0].toUpperCase() + w.kind.slice(1) : "Background task");
+    const what = kind + (w.agentType ? " (" + bgShort(w.agentType, 40) + ")" : "");
+    const said = w.description ? bgShort(w.description, 90) : "";
+    const cmd = w.command ? bgShort(w.command, 90) : "";
+    let line = "• " + what;
+    if (said) line += ": " + said;
+    else if (cmd) line += ": " + cmd;
+    else if (!w.agentType) line += " " + bgShort(w.id, 24) + " — details unavailable (count only)";
+    if (said && cmd) line += "\n   $ " + cmd;
+    // Heard of first in a turn end's list of what is still running, it was
+    // already going by then, for however long before that nothing said.
+    const at = bgClock(w.since);
+    line += "\n   first seen " + remoteAgo(w.since);
+    if (w.listed) line += " (seen since " + (at || "then") + "; already running, so it may have started earlier)";
+    else if (at) line += " (started " + at + ")";
+    return line;
+  }
+
+  /** backgroundDetailTip is backgroundTip followed by a list of the work,
+   *  as far as the server sent it. A server too old to send any says only
+   *  the count. */
+  function backgroundDetailTip(n, work) {
+    const items = Array.isArray(work) ? work : [];
+    if (!items.length) return backgroundTip(n);
+    const lines = items.map(backgroundItemTip);
+    if (n > items.length) lines.push("…and " + (n - items.length) + " more not listed");
+    return backgroundTip(n) + "\n\n" + lines.join("\n");
+  }
+
+  /** describeBackground gives node the bubble for n pieces of background work,
+   *  worked out again whenever it is about to show so "first seen 3 minutes
+   *  ago" is never as old as the last state message. */
+  function describeBackground(node, n, work) {
+    const say = () => {
+      describe(node, backgroundDetailTip(n, work));
+      node.dataset.tipLines = "1";
+    };
+    say();
+    node.onpointerenter = say;
+    node.onfocus = say;
+    return node;
+  }
+
   /** renderPaneBackground shows how much background work the pane's agent
    *  has left running, and nothing at all while it has none -- most panes,
-   *  most of the time. */
-  function renderPaneBackground(p, n) {
+   *  most of the time. Its bubble lists the work. */
+  function renderPaneBackground(p, n, work) {
     p.background.textContent = "";
-    if (!n) { delete p.background.dataset.tip; return; }
+    if (!n) {
+      delete p.background.dataset.tip;
+      delete p.background.dataset.tipLines;
+      p.background.onpointerenter = p.background.onfocus = null;
+      return;
+    }
     p.background.append(glyph("◔"), document.createTextNode(" " + n + " in background"));
-    describe(p.background, backgroundTip(n));
+    describeBackground(p.background, n, work);
   }
 
   /** renderPanePeerName shows the name another Claude session would use to
@@ -9652,7 +9725,7 @@
     if (a.background) {
       const bg = el("span", "agent-bg");
       bg.append(glyph("◔"), document.createTextNode(" " + a.background + " in background"));
-      meta.append(describe(bg, backgroundTip(a.background)));
+      meta.append(describeBackground(bg, a.background, a.backgroundWork));
     }
     if (a.status === "waiting" && a.waiting) {
       meta.append(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));

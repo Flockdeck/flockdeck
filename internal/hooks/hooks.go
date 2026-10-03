@@ -92,6 +92,14 @@ type Event struct {
 	// left out -- means the event did not say, which an older Claude Code's
 	// Stop never does, and is not the same as an empty list.
 	BackgroundTasks *[]string `json:"backgroundTasks,omitempty"`
+	// BackgroundInfo is what a start of background work (Background
+	// "start") says the work is: a background command's command and
+	// description, a subagent's type. Nil when the event says nothing of it.
+	BackgroundInfo *BackgroundInfo `json:"backgroundInfo,omitempty"`
+	// BackgroundTaskInfo is what BackgroundTasks' entries say of themselves,
+	// by the same names: an entry that says nothing past its id and type is
+	// left out, and so is the whole map when none says more.
+	BackgroundTaskInfo map[string]BackgroundInfo `json:"backgroundTaskInfo,omitempty"`
 	// AgentID names the subagent a tool event came from -- Claude Code's
 	// agent_id, which it puts on the hooks a subagent's own tool calls fire
 	// and leaves off the main agent's. Empty for the main agent, and for
@@ -117,6 +125,51 @@ type Detail struct {
 	Message string `json:"message,omitempty"`
 	// Prompt is a UserPromptSubmit's prompt, longer than Event.Prompt keeps.
 	Prompt string `json:"prompt,omitempty"`
+}
+
+// BackgroundInfo is what Claude Code says of a piece of background work
+// beyond its id, for the pane header's list of it. Every string has been
+// through record.Redact and is cut to maxBackgroundText on one line, so it is
+// fit to show as it is. Any field can be empty: Claude Code says what it
+// says, and nothing here is filled in by guessing.
+type BackgroundInfo struct {
+	// Type is Claude Code's own name for the kind of work: "shell",
+	// "subagent", "monitor", "workflow".
+	Type string `json:"type,omitempty"`
+	// AgentType is a subagent's type, "general-purpose" say.
+	AgentType   string `json:"agentType,omitempty"`
+	Description string `json:"description,omitempty"`
+	Command     string `json:"command,omitempty"`
+}
+
+// maxBackgroundText bounds each string of a BackgroundInfo: it is a line in
+// a tooltip, not a record of the command.
+const maxBackgroundText = 200
+
+// maxBackgroundInfo bounds how many of a Stop's background_tasks have their
+// BackgroundInfo carried on: the header lists fewer than this, and the count
+// is carried whole whatever this leaves out.
+const maxBackgroundInfo = 32
+
+// backgroundText is s made fit for a BackgroundInfo: secrets redacted,
+// whitespace run together onto one line, cut to maxBackgroundText with an
+// ellipsis where it was cut.
+func backgroundText(s string) string {
+	s = strings.Join(strings.Fields(record.Redact(s)), " ")
+	if len(s) <= maxBackgroundText {
+		return s
+	}
+	return clip(s, maxBackgroundText-len("…")) + "…"
+}
+
+// newBackgroundInfo is a BackgroundInfo from what an event said, or nil when
+// it said nothing past the kind.
+func newBackgroundInfo(typ, agentType, description, command string) *BackgroundInfo {
+	b := BackgroundInfo{Type: typ, AgentType: backgroundText(agentType), Description: backgroundText(description), Command: backgroundText(command)}
+	if b.AgentType == "" && b.Description == "" && b.Command == "" {
+		return nil
+	}
+	return &b
 }
 
 // Background work a lifecycle event can report; see Event.Background.
@@ -167,6 +220,12 @@ type claudePayload struct {
 	// AgentID names the subagent a SubagentStart or SubagentStop is about,
 	// and the subagent a tool event came from.
 	AgentID string `json:"agent_id"`
+	// AgentType is the kind of subagent a SubagentStart is about
+	// ("general-purpose"), as Claude Code puts it on a subagent's hooks.
+	AgentType string `json:"agent_type"`
+	// Description is read in case a SubagentStart carries the task it was
+	// given; no payload this has seen does, so it is usually empty.
+	Description string `json:"description"`
 	// BackgroundTasks is a Stop's own list of the background work still in
 	// flight; nil when the payload has no such field at all.
 	BackgroundTasks *[]backgroundTaskWire `json:"background_tasks"`
@@ -183,9 +242,17 @@ type claudePayload struct {
 // "status":"running",...} for a run_in_background command, and type
 // "subagent" with the agent's id for a background subagent. Its schema names
 // "monitor" and "workflow" as other types it may report.
+//
+// As 2.1.283 sent them, a shell's entry also carries the command and the
+// description its Bash call gave, and a subagent's its description and
+// agent_type; a monitor's is not known to carry anything past its id, so
+// every one of these is read as optional.
 type backgroundTaskWire struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	Command     string `json:"command"`
+	AgentType   string `json:"agent_type"`
 }
 
 // backgroundKey is what a piece of background work of kind type and id is
@@ -244,6 +311,10 @@ type backgroundWire struct {
 	BashID          string `json:"bash_id"`
 	TaskID          string `json:"task_id"`
 	BackgroundTask  string `json:"backgroundTaskId"`
+	// Command and Description are a Bash call's own, read for what the
+	// command is (see backgroundInfoOf).
+	Command     string `json:"command"`
+	Description string `json:"description"`
 }
 
 func (b backgroundWire) id() string {
@@ -302,6 +373,24 @@ func backgroundOf(event string, cp claudePayload) (op, id string) {
 		return BackgroundEnd, "shell:" + id
 	}
 	return "", ""
+}
+
+// backgroundInfoOf is what a payload that starts background work (see
+// backgroundOf) says that work is: a background command's command and
+// description, a subagent's type and, should it carry one, its description.
+func backgroundInfoOf(event string, cp claudePayload) *BackgroundInfo {
+	switch event {
+	case "SubagentStart":
+		return newBackgroundInfo("subagent", cp.AgentType, cp.Description, "")
+	case "PostToolUse":
+		if cp.ToolName != "Bash" {
+			return nil
+		}
+		var in backgroundWire
+		_ = json.Unmarshal(cp.ToolInput, &in)
+		return newBackgroundInfo("shell", "", in.Description, in.Command)
+	}
+	return nil
 }
 
 // toolEditWire and toolInputWire are the parts of a PreToolUse call's
@@ -742,13 +831,27 @@ func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (Response, 
 			}
 			p.NotificationType = cp.NotificationType
 			p.Background, p.BackgroundID = backgroundOf(event, cp)
+			if p.Background == BackgroundStart {
+				p.BackgroundInfo = backgroundInfoOf(event, cp)
+			}
 			p.AgentID = cp.AgentID
 			p.Detail = buildDetail(event, cp)
 			if (event == "Stop" || event == "StopFailure") && cp.BackgroundTasks != nil {
 				ids := make([]string, 0, len(*cp.BackgroundTasks))
 				for _, t := range *cp.BackgroundTasks {
-					if t.ID != "" {
-						ids = append(ids, backgroundKey(t.Type, t.ID))
+					if t.ID == "" {
+						continue
+					}
+					key := backgroundKey(t.Type, t.ID)
+					ids = append(ids, key)
+					if len(p.BackgroundTaskInfo) >= maxBackgroundInfo {
+						continue
+					}
+					if info := newBackgroundInfo(t.Type, t.AgentType, t.Description, t.Command); info != nil {
+						if p.BackgroundTaskInfo == nil {
+							p.BackgroundTaskInfo = map[string]BackgroundInfo{}
+						}
+						p.BackgroundTaskInfo[key] = *info
 					}
 				}
 				p.BackgroundTasks = &ids

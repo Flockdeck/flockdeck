@@ -396,6 +396,9 @@ type paneView struct {
 	// also what keeps the pane from being closed as finished. Left out at
 	// zero.
 	Background int `json:"background,omitempty"`
+	// BackgroundWork is what is known of that work, oldest first and at most
+	// maxBackgroundShown of it: see backgroundViews. Left out with the count.
+	BackgroundWork []backgroundView `json:"backgroundWork,omitempty"`
 	// PeerName is the name another Claude session would use to address this
 	// pane, reported by the agent running inside it -- see Pane.PeerName.
 	// Empty until reported, which is every pane that never runs `flockdeck
@@ -773,6 +776,7 @@ func (s *Server) snapshot() stateMsg {
 			// last counted.
 			if p.Sess != nil && p.IsAgent() && st != session.StatusExited {
 				pv.Background = p.Sess.BackgroundTasks()
+				pv.BackgroundWork = backgroundViews(p.Sess.BackgroundWork())
 			}
 			if p.Sess != nil {
 				pv.Cols, pv.Rows = p.Sess.Size()
