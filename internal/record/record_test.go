@@ -25,7 +25,7 @@ func newTestManager(t *testing.T) (*Manager, string) {
 	return m, dir
 }
 
-var testMeta = Meta{Pane: "0123456789abcdef", PaneName: "api", Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Model: "opus", Conversation: "conv-1"}
+var testMeta = Meta{Pane: "0123456789abcdef", PaneName: "api", Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Conversation: "conv-1"}
 
 // feed writes the events of a made-up conversation, a second apart.
 type feed struct {
@@ -129,7 +129,7 @@ func TestSessionFileHoldsOneObjectPerLineWithTheWhoAndWhen(t *testing.T) {
 		t.Fatalf("types = %v, want %v", got, want)
 	}
 	for i, e := range es {
-		if e.V != Version || e.Pane != testMeta.Pane || e.PaneName != "api" || e.Project != "shop" || e.Agent != "claude" || e.Model != "opus" || e.Seq != int64(i+1) {
+		if e.V != Version || e.Pane != testMeta.Pane || e.PaneName != "api" || e.Project != "shop" || e.Agent != "claude" || e.Seq != int64(i+1) {
 			t.Errorf("a line lacks who it is about: %+v", e)
 		}
 		if e.Session != "20261001T090001Z-conv-1" {

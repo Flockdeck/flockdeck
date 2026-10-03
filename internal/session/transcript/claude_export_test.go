@@ -379,3 +379,64 @@ func TestAnOpenThatFailsIsAReadErrorNotAMissingFile(t *testing.T) {
 		t.Errorf("after the lock: %v, %v", evs, err)
 	}
 }
+
+const modelFixtureID = "22222222-3333-4444-5555-666666666666"
+
+func modelSpec(t *testing.T) agent.Spec {
+	t.Helper()
+	home, err := filepath.Abs(filepath.Join("testdata", "claude_model", "home"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return agent.Spec{ID: "claude", Exe: "claude", Env: []string{"CLAUDE_CONFIG_DIR=" + home}, Caps: agent.Caps{Transcript: true}}
+}
+
+// An assistant turn carries the model its stored entry names, and only that: a
+// prompt and a tool result carry none, a placeholder or an empty or missing
+// model is no model, and a switch mid-conversation is followed turn by turn.
+func TestClaudeExportCarriesTheModelOfEachAssistantTurn(t *testing.T) {
+	evs, _, err := collect(t, modelSpec(t), modelFixtureID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type row struct {
+		Kind  ExportKind
+		Text  string
+		Tool  string
+		Model string
+	}
+	var got []row
+	for _, e := range evs {
+		got = append(got, row{e.Kind, e.Text, e.Tool, e.Model})
+	}
+	want := []row{
+		{ExportPrompt, "Add a retry.", "", ""},
+		{ExportMessage, "Looking.", "", "claude-opus-5-5"},
+		{ExportToolCall, "", "Read", "claude-opus-5-5"},
+		{ExportToolResult, "", "Read", ""},
+		{ExportPrompt, "Now switch and continue.", "", ""},
+		{ExportToolCall, "", "Bash", "claude-sonnet-5-5"},
+		{ExportToolResult, "", "Bash", ""},
+		{ExportMessage, "API Error: please run /login", "", ""},
+		{ExportMessage, "No model recorded.", "", ""},
+		{ExportMessage, "Empty model.", "", ""},
+		{ExportMessage, "Done.", "", "claude-sonnet-5-5"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %+v\nwant %+v", got, want)
+	}
+}
+
+// A conversation stored before the model was read, or by a Claude Code that
+// did not write it, has events with none.
+func TestClaudeExportWithoutStoredModelsHasNone(t *testing.T) {
+	evs, _, err := collect(t, exportSpec(t), exportFixtureID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range evs {
+		if e.Model != "" {
+			t.Errorf("%+v has a model the conversation does not name", e)
+		}
+	}
+}

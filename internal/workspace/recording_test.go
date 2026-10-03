@@ -69,9 +69,9 @@ func storeConversation(t *testing.T, home, id string, lines ...string) {
 
 const (
 	promptLine = `{"type":"user","cwd":"/work/shop","timestamp":"2026-10-01T09:00:00Z","message":{"role":"user","content":"run the tests with key sk-ant-api03-abcdefghijklmnop"}}`
-	callLine   = `{"type":"assistant","timestamp":"2026-10-01T09:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"Running them."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"go test ./..."}}]}}`
+	callLine   = `{"type":"assistant","timestamp":"2026-10-01T09:00:01Z","message":{"role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"Running them."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"go test ./..."}}]}}`
 	resultLine = `{"type":"user","timestamp":"2026-10-01T09:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok  all passed"}]},"toolUseResult":"ok  all passed"}`
-	sayLine    = `{"type":"assistant","timestamp":"2026-10-01T09:00:03Z","message":{"role":"assistant","content":[{"type":"text","text":"All green."}]}}`
+	sayLine    = `{"type":"assistant","timestamp":"2026-10-01T09:00:03Z","message":{"role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"All green."}]}}`
 	lateLine   = `{"type":"user","timestamp":"2026-10-01T09:05:00Z","message":{"role":"user","content":"after the stop"}}`
 )
 
@@ -251,6 +251,32 @@ func TestExportMatchesTheRecording(t *testing.T) {
 	exp, _ := os.ReadFile(res.Path)
 	if string(rec) != string(exp) {
 		t.Errorf("the recording and the export differ\nrecorded:\n%s\nexported:\n%s", rec, exp)
+	}
+	// The model is the one the stored conversation says produced each turn, on
+	// the agent's lines only, and not the pane's (now "sonnet").
+	var assistantLines, toolCalls int
+	for _, l := range strings.Split(strings.TrimSpace(string(exp)), "\n") {
+		var e struct{ Type, Model string }
+		if err := json.Unmarshal([]byte(l), &e); err != nil {
+			t.Fatal(err)
+		}
+		switch e.Type {
+		case "assistant_message", "tool_call":
+			assistantLines++
+			if e.Type == "tool_call" {
+				toolCalls++
+			}
+			if e.Model != "claude-opus-5-5" {
+				t.Errorf("a %s line has model %q: %s", e.Type, e.Model, l)
+			}
+		default:
+			if e.Model != "" {
+				t.Errorf("a %s line has model %q", e.Type, e.Model)
+			}
+		}
+	}
+	if assistantLines != 3 || toolCalls != 1 {
+		t.Errorf("assistant lines = %d, tool calls = %d, want 3 and 1", assistantLines, toolCalls)
 	}
 }
 

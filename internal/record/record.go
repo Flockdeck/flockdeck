@@ -88,7 +88,6 @@ type Meta struct {
 	Project      string // the project's name, as the window shows it
 	ProjectRoot  string // its directory, which names the folder
 	Agent        string
-	Model        string
 	Conversation string
 }
 
@@ -467,9 +466,9 @@ func entryOf(ev transcript.ExportEvent) Entry {
 	case transcript.ExportPrompt:
 		e.Type, e.Text = TypePrompt, ev.Text
 	case transcript.ExportMessage:
-		e.Type, e.Text = TypeAssistant, ev.Text
+		e.Type, e.Text, e.Model = TypeAssistant, ev.Text, ev.Model
 	case transcript.ExportToolCall:
-		e.Type, e.Tool, e.ToolUseID, e.Input = TypeToolCall, ev.Tool, ev.ToolUseID, ev.Input
+		e.Type, e.Tool, e.ToolUseID, e.Input, e.Model = TypeToolCall, ev.Tool, ev.ToolUseID, ev.Input, ev.Model
 	case transcript.ExportToolResult:
 		e.Type, e.Tool, e.ToolUseID, e.Output, e.IsError, e.Interrupted = TypeToolResult, ev.Tool, ev.ToolUseID, ev.Output, ev.IsError, ev.Interrupted
 	}
@@ -673,7 +672,7 @@ func (m *Manager) writeLocked(meta Meta, e Entry) error {
 	e.Seq = s.seq + 1
 	e.Session = s.id
 	e.Pane, e.PaneName, e.Project = cutID(meta.Pane), meta.PaneName, meta.Project
-	e.Agent, e.Model, e.Conversation = meta.Agent, meta.Model, cutID(meta.Conversation)
+	e.Agent, e.Conversation = meta.Agent, cutID(meta.Conversation)
 	e.Tool, e.ToolUseID = cutID(e.Tool), cutID(e.ToolUseID)
 	sanitise(&e)
 	line, err := json.Marshal(e)

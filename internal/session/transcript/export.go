@@ -48,6 +48,12 @@ type ExportEvent struct {
 	Text      string
 	Tool      string
 	ToolUseID string
+	// Model is the model that produced an assistant turn (a message, or a tool
+	// call it made), as the stored conversation records it for that turn. Empty
+	// where it records none or only a placeholder, and always empty for a prompt
+	// or a tool result. It is never the pane's selected model, which is not the
+	// conversation's.
+	Model string
 	// Input is a tool call's input, decoded from JSON.
 	Input       any
 	Output      string

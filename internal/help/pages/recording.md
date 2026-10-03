@@ -40,9 +40,13 @@ recording on in a second pane showing the same conversation is refused.
 One JSON object per line, in the order things happened. Every line has a
 timestamp (`time`), the conversation's id (`pane`) and a `type`; `conversation`,
 `project` and `agent` are there whenever they are known, and left out when
-not. A pane's name and model are not in the
-lines: they are the pane's, not the conversation's, and an export has to match a
-recording of the same conversation:
+not. A pane's name is not in the
+lines, nor is the model it is set to now: they are the pane's, not the
+conversation's, and an export has to match a recording of the same conversation.
+The one model a line can have is the one that produced that turn, as the agent's
+stored conversation records it (`model` on `assistant_message` and `tool_call`
+lines, left out where the conversation records none). Transcripts exported
+before this was added do not have it until they are exported again:
 
 | `type` | What it holds |
 | --- | --- |
