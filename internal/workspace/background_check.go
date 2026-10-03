@@ -32,7 +32,10 @@ import (
 //   - a TaskStop/KillShell naming the task that the tool answered without an
 //     error;
 //   - a subagent's own transcript ending on the turn-ending tool result
-//     (toolEndsTurn) of its hand-back.
+//     (toolEndsTurn) of its hand-back;
+//   - a non-persistent Monitor past the timeoutMs it was started with, at
+//     which Claude Code stops it (strong evidence rather than a record of the
+//     end, dated when the timeout ran out).
 //
 // Each piece carries the time Claude Code wrote it, and ends the work only
 // when that is after Flockdeck first heard of the work and after the latest
@@ -97,6 +100,10 @@ type backgroundCheck struct {
 // not yet had answered: tool use id to the task it stops.
 type backgroundScan struct {
 	stops map[string]string
+	// monitors is when each non-persistent Monitor the conversation started
+	// runs out: its result's time plus the timeoutMs it was started with,
+	// after which Claude Code stops it.
+	monitors map[string]time.Time
 }
 
 // backgroundEvidence is one thing a check found.
@@ -216,6 +223,7 @@ func (w *Workspace) RunBackgroundCheck(job BackgroundJob, now time.Time) {
 	if path != "" {
 		found, offset = scanConversationFile(path, offset, &scan)
 		found = append(found, checkWorkFiles(path, os.TempDir(), job.sess.BackgroundWork(), now)...)
+		found = append(found, monitorsTimedOut(&scan, now)...)
 	}
 
 	useful := false
@@ -321,6 +329,8 @@ type conversationLine struct {
 	Origin    *lineOrigin     `json:"origin"`
 	Message   lineMessage     `json:"message"`
 	Attach    *lineAttachment `json:"attachment"`
+	// Result is a tool result's toolUseResult; only a Monitor's is read.
+	Result json.RawMessage `json:"toolUseResult"`
 }
 
 type lineMessage struct {
@@ -374,6 +384,9 @@ func scanConversation(data []byte, scan *backgroundScan) []backgroundEvidence {
 	if scan.stops == nil {
 		scan.stops = map[string]string{}
 	}
+	if scan.monitors == nil {
+		scan.monitors = map[string]time.Time{}
+	}
 	var found []backgroundEvidence
 	ended := func(id string, at time.Time, what string) {
 		if id != "" {
@@ -424,6 +437,7 @@ func scanConversation(data []byte, scan *backgroundScan) []backgroundEvidence {
 		}
 		if line.Type == "user" {
 			handback(line.Origin, at)
+			monitorStarted(scan, line.Result, at)
 			notifications(text, at)
 			for _, b := range blocks {
 				switch b.Type {
@@ -455,6 +469,38 @@ func scanConversation(data []byte, scan *backgroundScan) []backgroundEvidence {
 			if id != "" && len(scan.stops) < maxBackgroundStops {
 				scan.stops[b.ID] = id
 			}
+		}
+	}
+	return found
+}
+
+// monitorWire is a Monitor call's toolUseResult, as Claude Code records it.
+type monitorWire struct {
+	TaskID     string `json:"taskId"`
+	Persistent *bool  `json:"persistent"`
+	TimeoutMs  int64  `json:"timeoutMs"`
+}
+
+// monitorStarted notes when a non-persistent Monitor started at at runs out.
+func monitorStarted(scan *backgroundScan, raw json.RawMessage, at time.Time) {
+	if len(raw) == 0 || at.IsZero() || len(scan.monitors) >= maxBackgroundStops {
+		return
+	}
+	var m monitorWire
+	if json.Unmarshal(raw, &m) != nil || m.TaskID == "" || m.Persistent == nil || *m.Persistent || m.TimeoutMs <= 0 {
+		return
+	}
+	scan.monitors[m.TaskID] = at.Add(time.Duration(m.TimeoutMs) * time.Millisecond)
+}
+
+// monitorsTimedOut is an end for every monitor whose timeout has passed,
+// dated when it ran out, and forgets it.
+func monitorsTimedOut(scan *backgroundScan, now time.Time) []backgroundEvidence {
+	var found []backgroundEvidence
+	for id, until := range scan.monitors {
+		if now.After(until) {
+			found = append(found, backgroundEvidence{id: id, ended: true, at: until, what: "ended: its monitor timeout ran out"})
+			delete(scan.monitors, id)
 		}
 	}
 	return found

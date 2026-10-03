@@ -48,8 +48,9 @@ reads the last 8 MB of the conversation, and later checks read only what has
 been added since. A piece is dropped only on evidence of its end, written
 after Flockdeck first saw the piece and after the last sign it was running:
 Claude Code's notice that the task completed or was stopped, a subagent's
-hand-back, a successful stop of the task, or a subagent's own transcript
-ending on its hand-back. An older end in the history is about an earlier task
+hand-back, a successful stop of the task, a subagent's own transcript ending
+on its hand-back, or a monitor running past the timeout it was started with,
+when Claude Code stops it. An older end in the history is about an earlier task
 and is ignored. For a short while afterwards the tooltip lists what ended and
 what showed it, under "Lately ended".
 

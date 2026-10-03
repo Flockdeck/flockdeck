@@ -463,3 +463,23 @@ func TestBusyOrClearedPanesAreNotChecked(t *testing.T) {
 		t.Fatal("a pane with nothing counted was checked")
 	}
 }
+
+// TestAMonitorPastItsTimeoutHasEnded covers the Monitor bound: a
+// non-persistent monitor's result names its task and timeout, and once that
+// has run out it is taken as ended, dated when it ran out; a persistent one,
+// or one still inside its timeout, is not.
+func TestAMonitorPastItsTimeoutHasEnded(t *testing.T) {
+	at := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+	monitor := func(id string, persistent bool) string {
+		return fmt.Sprintf(`{"type":"user","timestamp":%q,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_%s","content":"Monitor started"}]},"toolUseResult":{"persistent":%t,"taskId":%q,"timeoutMs":1800000}}`, ts(at), id, persistent, id)
+	}
+	var scan backgroundScan
+	scanConversation([]byte(monitor("m1", false)+"\n"+monitor("m2", true)+"\n"), &scan)
+	if got := monitorsTimedOut(&scan, at.Add(29*time.Minute)); len(got) != 0 {
+		t.Fatalf("a monitor inside its timeout ended: %+v", got)
+	}
+	got := monitorsTimedOut(&scan, at.Add(31*time.Minute))
+	if len(got) != 1 || got[0].id != "m1" || !got[0].ended || !got[0].at.Equal(at.Add(30*time.Minute)) {
+		t.Fatalf("timed out = %+v, want m1 ended at its timeout", got)
+	}
+}

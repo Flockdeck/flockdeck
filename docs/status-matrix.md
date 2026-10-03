@@ -251,6 +251,7 @@ The shapes below were checked against real Claude Code 2.1.28x files, read for s
 | last line of `<conversation>/subagents/agent-<id>.jsonl` is a user tool_result with `toolEndsTurn: true` (the subagent's hand-back) | subagent transcript tail | ended |
 | subagent transcript modified in the last 2 min | its mtime | confirmed running |
 | `<temp>/claude/<project folder>/<conversation>/tasks/<id>.output` non-empty and modified in the last 2 min | its mtime | confirmed running |
+| a Monitor's tool_result `{persistent: false, taskId, timeoutMs}`, once `timeoutMs` past the result has gone by | the conversation | ended (strong evidence), dated when the timeout ran out |
 | start hook, or named in a Stop's `background_tasks` | hooks | confirmed running |
 
 An end is applied only if its timestamp is after the item's `Since` and after its last running sign (`Session.EndBackgroundWorkSeen`, decided under the session lock). So an old end in the history (a reused task id, a resumed subagent) is ignored, and a Stop list naming the item wins over an end read before it. An Agent call's tool_result is never an end: Claude Code answers every Agent call at once with `status: async_launched`. A drop is recorded with its evidence (`Session.BackgroundEnded`, shown for 2 min, logged with `slog.Debug`).
