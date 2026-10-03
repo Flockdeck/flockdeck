@@ -266,19 +266,29 @@ no line at all.) The rest of the reply's lines have neither. So:
   entries gave the reason later.
 - Neither is on a `user_prompt` or a `tool_result`.
 - The assumption behind "once, on the first line": a line is written when its
-  entry arrives and cannot be changed afterwards, so `usage` and `stopReason` go
-  on a reply's first line, from the first entry that gives them, and later
-  entries of the reply add nothing. That is exact only while every entry of a
-  reply repeats the same numbers, which is what Claude Code does: in the
-  conversations this was checked against, no reply had entries that disagreed. If
-  Claude Code ever wrote a partial count on an early entry (while streaming) and
-  the final one on a later entry, the first line would carry the partial count
-  and the total would come out short, with nothing in the transcript to correct
-  it. So treat a per-reply or per-conversation total as exact only under that
-  assumption, and do not expect a transcript to be corrected after it is written.
-  If Claude Code stops repeating the numbers, what `usage` and `stopReason` mean
-  would have to be decided again. The tests in `internal/session/transcript`
-  fail when a fixture conversation shows a reply whose entries disagree.
+  entry arrives and cannot be changed afterwards. So `usage` goes on the reply's
+  first line, taken from the first entry that produces a line and has it (a
+  thinking-only entry produces no line, so its usage is dropped and the next
+  entry's is written), and `stopReason` goes on the first line whose entry has
+  one. Later entries of the reply add nothing. That is exact only while every
+  entry of a reply repeats the same numbers, which is what Claude Code does so
+  far as it was checked: one real Claude Code conversation (1,198 assistant
+  entries, 602 message ids, 405 of them with more than one entry, none
+  disagreeing on usage or stop reason) and the repository's fixtures. That is all
+  the data it covers. If Claude Code ever wrote a partial count on an early entry
+  (while streaming) and the final one on a later entry, the first line would
+  carry the partial count and the total would come out short, with nothing in the
+  transcript to correct it. So treat a per-reply or per-conversation total as
+  exact only under that assumption, and do not expect a transcript to be
+  corrected after it is written. If Claude Code stops repeating the numbers, what
+  `usage` and `stopReason` mean would have to be decided again.
+- The exporter counts the entries whose usage or stop reason differs from the
+  first entry seen for the same reply (which may be a thinking entry that writes
+  no line), not from the value that was written; the count is
+  `transcript.ReplyDisagreements`, and the tests in `internal/session/transcript`
+  fail when a fixture conversation has a reply whose entries disagree. Entries
+  without a message id are each counted as a reply of their own, so the count
+  cannot see disagreement there.
 
 #### `tool_call`
 

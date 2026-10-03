@@ -61,9 +61,9 @@ type claudeFollower struct {
 // a reply as one entry per content block, all with the reply's id, usage and
 // stop reason, so each is written once, on the first line the reply gives.
 //
-// It also keeps the first usage and first stop reason the reply's entries gave
-// (whether or not they were written), to notice when a later entry gives different ones; see
-// ReplyDisagreements.
+// It also keeps the usage and stop reason of the first entry seen for the reply,
+// whether or not that entry wrote a line, to notice when a later entry gives
+// different ones; see ReplyDisagreements.
 type replyDone struct {
 	usage, stop bool
 	firstUsage  *ExportUsage
@@ -71,12 +71,16 @@ type replyDone struct {
 }
 
 // replyDisagreements counts the assistant entries whose usage, or whose stop
-// reason where they have one, differ from the first the same reply gave.
+// reason where they have one, differ from those of the first entry seen for the
+// same reply (which may be a thinking entry that writes no line), not from what
+// was written. Entries with no message id are not compared.
 var replyDisagreements atomic.Int64
 
 // ReplyDisagreements is how many assistant entries read so far (by every
 // follower in this process) gave a usage or a stop reason different from the
-// first the same reply's entries gave. The export writes each once, from the
+// first entry seen for the same reply (which may be a thinking entry that writes
+// no line), not from the value written. Entries with no message id are not
+// compared. The export writes each once, from the
 // first line the reply produces, which is exact only while a reply's entries
 // all repeat the same numbers (docs/recording-format.md, "Token usage and stop
 // reason"). Anything above zero means Claude Code stopped doing that. Counting
