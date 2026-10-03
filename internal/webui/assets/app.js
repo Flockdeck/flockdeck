@@ -512,6 +512,13 @@
         const act = msg.action && msg.action.label && msg.action.send && msg.action.send.cmd
           ? { label: msg.action.label, run: () => send(msg.action.send) } : null;
         notice(msg.text, msg.error, { lead: msg.lead, action: act });
+        // Pane info asked and the pane was gone: say so where it was loading.
+        if (dialog === "paneInfo" && paneInfoLoading) {
+          paneInfoLoading = false;
+          const body = $("overlay-body");
+          body.textContent = "";
+          body.append(el("div", "dir-empty", msg.text));
+        }
       }
       else if (msg.type === "ghStatus") {
         ghStatus = msg;
@@ -2293,11 +2300,15 @@
    *  only: the ids, process id and paths are not in the state every window is
    *  sent. Every value is written with textContent, never as markup. */
   let paneInfoFor = "";
+  /** Set from asking until the answer is drawn, so a notice that comes instead
+   *  (the pane closed meanwhile) can take the place of "Loading…". */
+  let paneInfoLoading = false;
   function openPaneInfo(id) {
     const v = id && state && state.panes && state.panes[id];
     if (!v) { notice("There is no pane to show info for", true); return; }
     dialog = "paneInfo";
     paneInfoFor = id;
+    paneInfoLoading = true;
     openOverlay("Pane info", "panes");
     $("overlay-body").append(el("div", "dir-empty", "Loading…"));
     send({ cmd: "paneInfo", id });
@@ -2321,6 +2332,7 @@
 
   function renderPaneInfo(msg) {
     if (dialog !== "paneInfo" || msg.id !== paneInfoFor) return;
+    paneInfoLoading = false;
     const body = $("overlay-body");
     body.textContent = "";
     const fields = msg.fields || [];
@@ -2355,9 +2367,13 @@
    *  what the pane is called and by the ids that name it. Choosing a result
    *  goes through revealPane, the same as the Agents list does. */
   let findPaneQuery = "";
+  /** The query the results on screen answer, or null before any are drawn.
+   *  Enter acts on them only while it is what the field says. */
+  let findPaneDrawn = null;
   function openFindPane(query) {
     dialog = "findPane";
     findPaneQuery = query || "";
+    findPaneDrawn = null;
     openOverlay("Find pane", "panes");
     const body = $("overlay-body");
     const field = el("input");
@@ -2371,7 +2387,11 @@
     field.oninput = () => { findPaneQuery = field.value; send({ cmd: "findPane", text: field.value }); };
     field.onkeydown = (ev) => {
       const rows = [...body.querySelectorAll(".pf-row")];
-      if (ev.key === "Enter" && rows[0]) { ev.preventDefault(); rows[0].onclick(); }
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        // Typed ahead of the answer: the rows are for an earlier query.
+        if (rows[0] && findPaneDrawn === field.value) rows[0].onclick();
+      }
       else if (ev.key === "ArrowDown" && rows[0]) { ev.preventDefault(); rows[0].focus(); }
     };
     const results = el("div", "pf-list");
@@ -2388,6 +2408,7 @@
     // An answer to what was typed a moment ago is not this one's.
     if (!field || msg.query !== field.value) return;
     const results = $("find-pane-results");
+    findPaneDrawn = msg.query;
     results.textContent = "";
     const items = msg.items || [];
     if (!items.length) {

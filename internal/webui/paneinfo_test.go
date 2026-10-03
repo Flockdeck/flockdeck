@@ -126,3 +126,54 @@ h.key({ key: "Escape" });
 assert.ok(h.$("overlay").hidden, "Escape did not close the search");
 `)
 }
+
+// A pane closed before its info arrived is said where "Loading…" was, rather
+// than leaving the dialog on it.
+func TestPaneInfoForAPaneThatWentSaysSo(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1") } }));
+paletteRun("pane info");
+assert.ok(h.$("overlay-body").textContent.includes("Loading"), "not loading");
+h.recv({ type: "notice", text: "That pane is no longer open", error: true });
+const text = h.$("overlay-body").textContent;
+assert.ok(!text.includes("Loading"), "still loading: " + text);
+assert.ok(text.includes("That pane is no longer open"), text);
+`)
+}
+
+// Enter acts on the results of what is in the field, not on the ones still
+// drawn for the query before it.
+func TestFindPaneEnterWaitsForTheResultsOfWhatWasTyped(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1") } }));
+paletteRun("find pane");
+const input = h.$("find-pane-input");
+const item = (id) => ({ paneId: id, tabId: "t" + id, root: "C:/repo", name: id, project: "repo", tab: "one", matched: [] });
+h.recv({ type: "paneMatches", query: "", items: [item("old")] });
+input.value = "new";
+input.oninput();
+h.commands().length = 0;
+h.key({ key: "Enter", target: input });
+assert.ok(!h.commands().some((c) => c.cmd === "revealPane"), "Enter took a row drawn for the earlier query");
+assert.ok(!h.$("overlay").hidden, "the search closed on a stale Enter");
+h.recv({ type: "paneMatches", query: "new", items: [item("fresh")] });
+h.key({ key: "Enter", target: input });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "revealPane", root: "C:/repo", node: "tfresh", id: "fresh" });
+`)
+}
+
+// Both views have a key of their own, taken from the key table.
+func TestPaneInfoAndFindPaneHaveKeys(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1") } }));
+h.press("paneInfo");
+assert.strictEqual(h.$("overlay-title").textContent, "Pane info");
+assert.deepStrictEqual(h.commands().pop(), { cmd: "paneInfo", id: "p1" });
+h.key({ key: "Escape" });
+h.press("findPane");
+assert.strictEqual(h.$("overlay-title").textContent, "Find pane");
+`)
+}

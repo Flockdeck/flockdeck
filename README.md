@@ -426,7 +426,7 @@ which the command palette and the in-app help are also drawn from; run
 | Command palette | Start recording |
 | Command palette | Export transcript |
 | Command palette | Reveal transcript |
-| Command palette | Pane info |
+| `Ctrl+Shift+Y` | Pane info |
 | `Ctrl+Shift+W` | Close pane |
 
 ### Tabs
@@ -473,7 +473,7 @@ which the command palette and the in-app help are also drawn from; run
 | `F6` | Move to the next part of the window |
 | `Shift+F6` | Move to the previous part of the window |
 | `Ctrl+Shift+F` | Find in terminal |
-| Command palette | Find pane |
+| `Ctrl+Shift+L` | Find pane |
 | `Ctrl+Shift+R` | Resume a past conversation |
 | `Ctrl+Shift+O` | Projects |
 | `F1` | Help |

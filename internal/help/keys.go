@@ -70,7 +70,7 @@ var Keys = []Key{
 	{ID: "recordPane", Label: "Start recording", Section: "Panes", Page: "recording"},
 	{ID: "exportTranscript", Label: "Export transcript", Section: "Panes", Page: "recording"},
 	{ID: "revealTranscript", Label: "Reveal transcript", Section: "Panes", Page: "recording"},
-	{ID: "paneInfo", Label: "Pane info", Section: "Panes", Page: "panes"},
+	{ID: "paneInfo", Keys: "Ctrl+Shift+Y", Label: "Pane info", Section: "Panes", Page: "panes"},
 	{ID: "closePane", Keys: "Ctrl+Shift+W", Label: "Close pane", Section: "Panes", Page: "panes"},
 
 	// --- tabs --------------------------------------------------------------
@@ -109,7 +109,7 @@ var Keys = []Key{
 	{ID: "nextRegion", Keys: "F6", Label: "Move to the next part of the window", Section: "Finding your way", NoPalette: true},
 	{ID: "prevRegion", Keys: "Shift+F6", Label: "Move to the previous part of the window", Section: "Finding your way", NoPalette: true},
 	{ID: "findInTerminal", Keys: "Ctrl+Shift+F", Label: "Find in terminal", Section: "Finding your way"},
-	{ID: "findPane", Label: "Find pane", Section: "Finding your way", Page: "panes"},
+	{ID: "findPane", Keys: "Ctrl+Shift+L", Label: "Find pane", Section: "Finding your way", Page: "panes"},
 	{ID: "history", Keys: "Ctrl+Shift+R", Label: "Resume a past conversation", Short: "History", Section: "Finding your way", Page: "history"},
 	{ID: "projects", Keys: "Ctrl+Shift+O", Label: "Projects", Section: "Finding your way", Page: "projects"},
 	{ID: "help", Keys: "F1", Label: "Help", Section: "Finding your way", Page: "getting-started"},
