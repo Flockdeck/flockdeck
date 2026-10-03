@@ -153,12 +153,26 @@ const requestLimit = time.Hour
 // test need not wait it out.
 var stallTimeout = time.Minute
 
+// stallTimer is what get does with the wait for something to arrive: restart
+// it, and stop it.
+type stallTimer interface {
+	Reset(d time.Duration) bool
+	Stop() bool
+}
+
+// stallAfter starts that wait, calling f if d passes with nothing arriving. A
+// variable so a test can say when time has passed instead of waiting for it:
+// a stall decided by real time is decided by how late this machine's
+// scheduler is, which is the test's flake and nothing a person downloading
+// can be helped by.
+var stallAfter = func(d time.Duration, f func()) stallTimer { return time.AfterFunc(d, f) }
+
 func get(ctx context.Context, url string) (*http.Response, error) {
 	// The request is cancelled once stallTimeout passes with nothing arriving,
 	// and every byte of the body that does arrive starts that wait again.
 	ctx, cancel := context.WithCancel(ctx)
 	var stalled atomic.Bool
-	timer := time.AfterFunc(stallTimeout, func() { stalled.Store(true); cancel() })
+	timer := stallAfter(stallTimeout, func() { stalled.Store(true); cancel() })
 	done := func() { timer.Stop(); cancel() }
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -198,7 +212,7 @@ func get(ctx context.Context, url string) (*http.Response, error) {
 // out rather than passing on a cancelled context.
 type stallReader struct {
 	body    io.ReadCloser
-	timer   *time.Timer
+	timer   stallTimer
 	stalled *atomic.Bool
 	done    func()
 	host    string

@@ -543,19 +543,41 @@ func noteSizes(pane string, cols, rows int) {
 	diagLog(line)
 }
 
-// altScreen reports whether a pane's program is on the alternate screen. It is
-// a variable so a test need not run a full-screen program to be on one.
-var altScreen = (*session.Session).AltScreen
-
-// repaintResize applies one step of a repaint. It is a variable so a test can
-// see the steps without a program there to redraw.
-var repaintResize = func(s *Server, id string, cols, rows int) {
-	s.ws.ResizePaneTerminal(id, cols, rows)
+// repaintHooks are the parts of a repaint a test replaces. They belong to one
+// Server, set when it is made and read by its goroutines only, and are not
+// package variables: a test that swapped those while a goroutine of an earlier
+// test's server was still reading them was a data race, and a repaint that
+// goroutine made under the later test's hooks counted as that test's own.
+type repaintHooks struct {
+	// altScreen reports whether a pane's program is on the alternate screen. It
+	// is replaceable so a test need not run a full-screen program to be on one.
+	altScreen func(*session.Session) bool
+	// resize applies one step of a repaint. It is replaceable so a test can see
+	// the steps without a program there to redraw.
+	resize func(s *Server, id string, cols, rows int)
+	// gap is how long a pane is left a row short before it is put back, so its
+	// program sees a change rather than two that cancel out.
+	gap time.Duration
+	// unsizedWait is how long a fresh stream onto a full-screen program waits
+	// for its window's size before the pane is repainted without it. A test
+	// need not wait it out, or can wait for ever.
+	unsizedWait time.Duration
+	// after starts that wait. A test can say when the wait is over rather than
+	// sit through it.
+	after func(d time.Duration, f func()) *time.Timer
 }
 
-// repaintGap is how long a pane is left a row short before it is put back, so
-// its program sees a change rather than two that cancel out.
-var repaintGap = 100 * time.Millisecond
+func defaultRepaintHooks() repaintHooks {
+	return repaintHooks{
+		altScreen: (*session.Session).AltScreen,
+		resize: func(s *Server, id string, cols, rows int) {
+			s.ws.ResizePaneTerminal(id, cols, rows)
+		},
+		gap:         100 * time.Millisecond,
+		unsizedWait: 500 * time.Millisecond,
+		after:       time.AfterFunc,
+	}
+}
 
 // armRepaint readies a repaint for a stream that has just started afresh on a
 // full-screen program, and is the only one watching it.
@@ -592,7 +614,7 @@ var repaintGap = 100 * time.Millisecond
 //
 // It happens once, from whichever comes second: this, or the window's first
 // size being applied (applyResizes) -- or, for a window that has not said what
-// size it is by unsizedRepaintWait, then, at the size the pane already is.
+// size it is by rp.unsizedWait, then, at the size the pane already is.
 // The relay's phone client is one of those: it reports a size only when asked
 // to fit the pane to its screen, and without this it was left looking at the
 // garbled replay for as long as the program had nothing new to draw.
@@ -601,13 +623,13 @@ var repaintGap = 100 * time.Millisecond
 // before it is over is not repainted for: the pane would drop a row and come
 // back in every other window watching it, for a window nobody is looking at.
 func (s *Server) armRepaint(ctx context.Context, repaint *atomic.Bool, id string, viewer int64, sess *session.Session, subscribers int, fresh bool) {
-	repaint.Store(fresh && altScreen(sess) && subscribers <= 1)
+	repaint.Store(fresh && s.rp.altScreen(sess) && subscribers <= 1)
 	if viewers.sized(id, viewer) && repaint.CompareAndSwap(true, false) {
 		go s.do(func() { s.repaintPane(id) })
 		return
 	}
 	if repaint.Load() {
-		timer := repaintAfter(unsizedRepaintWait, func() {
+		timer := s.rp.after(s.rp.unsizedWait, func() {
 			if ctx.Err() == nil && repaint.CompareAndSwap(true, false) {
 				s.do(func() { s.repaintPane(id) })
 			}
@@ -616,15 +638,6 @@ func (s *Server) armRepaint(ctx context.Context, repaint *atomic.Bool, id string
 	}
 }
 
-// unsizedRepaintWait is how long a fresh stream onto a full-screen program
-// waits for its window's size before the pane is repainted without it. It is
-// a variable so a test need not wait it out, or can wait for ever.
-var unsizedRepaintWait = 500 * time.Millisecond
-
-// repaintAfter starts that wait. It is a variable so a test can say when the
-// wait is over rather than sit through it.
-var repaintAfter = time.AfterFunc
-
 // repaintPane makes a pane a row shorter and, a moment later, puts it back. It
 // must run on the workspace goroutine.
 func (s *Server) repaintPane(id string) {
@@ -632,13 +645,13 @@ func (s *Server) repaintPane(id string) {
 	if cols <= 0 || rows < 2 {
 		return
 	}
-	repaintResize(s, id, cols, rows-1)
-	time.AfterFunc(repaintGap, func() {
+	s.rp.resize(s, id, cols, rows-1)
+	time.AfterFunc(s.rp.gap, func() {
 		s.do(func() {
 			// Whatever size is right by then, in case a window has changed
 			// shape in the meantime.
 			if cols, rows := s.repaintSize(id); cols > 0 && rows > 0 {
-				repaintResize(s, id, cols, rows)
+				s.rp.resize(s, id, cols, rows)
 			}
 		})
 	})

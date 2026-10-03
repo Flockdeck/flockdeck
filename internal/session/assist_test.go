@@ -435,7 +435,16 @@ func TestASettledWaitIsAnsweredLikeAnyOther(t *testing.T) {
 	if st := r.status(); st != StatusWaiting {
 		t.Fatalf("status = %v, want waiting", st)
 	}
-	// Typing answers it, as it does for a wait the bell put there.
+	// Typing answers it, as it does for a wait the bell put there. The quiet
+	// period is lengthened first, so that the pane is still working, as typing
+	// left it, when it is looked at. At the 20ms the rig has, a pane that was
+	// not looked at for that long after the typing -- a loaded runner pausing
+	// this goroutine -- had gone quiet, been asked about again, and been told
+	// "waiting" by the fake, which says that of everything: the very thing the
+	// typing was meant to clear, put back by a second question.
+	r.s.mu.Lock()
+	r.s.idleAfter = time.Minute
+	r.s.mu.Unlock()
 	if _, err := r.s.Write([]byte("y\r")); err != nil {
 		t.Fatal(err)
 	}

@@ -33,7 +33,7 @@ func remoteHello(e2ePublicKey string) string {
 func TestARemoteWindowRegistersItsEndToEndKey(t *testing.T) {
 	runFrontEnd(t, `
 `+remoteHello("")+`
-await h.waitFor(() => h.e2eKeyPosts().length > 0, 1000);
+await h.waitFor(() => h.e2eKeyPosts().length > 0);
 
 const posts = h.e2eKeyPosts();
 assert.strictEqual(posts.length, 1, "the window did not register its own key");
@@ -92,7 +92,7 @@ ws.onopen();
 // startTerminalHandshake -- real WebCrypto work -- before sending the hello,
 // so a fixed sleep here is a race against however fast the machine running
 // it happens to be; h.waitFor exists for exactly this (see its own doc).
-await h.waitFor(() => ws.sent.length > 0, 1000);
+await h.waitFor(() => ws.sent.length > 0);
 
 assert.strictEqual(ws.sent.length, 1, "the handshake hello was not this socket's first message");
 const hello = ws.sent[0];
@@ -104,7 +104,7 @@ ws.onmessage({ data: response.buffer });
 // finishHandshake runs unawaited from ws.onmessage and itself awaits
 // handshake.finish (WebCrypto) before flushing what was queued -- the same
 // race as above.
-await h.waitFor(() => ws.sent.length > 1, 1000);
+await h.waitFor(() => ws.sent.length > 1);
 
 // The resize and focus notice connectPTY queued while the handshake was
 // under way went out sealed, once it finished -- never plain.
@@ -121,7 +121,7 @@ const sentBeforeKeystroke = ws.sent.length;
 h.terms[0]._data("echo hi\r");
 // Sealing the keystroke is WebCrypto work queued on the socket's send path
 // too -- wait for it to land rather than a fixed sleep.
-await h.waitFor(() => ws.sent.length > sentBeforeKeystroke, 1000);
+await h.waitFor(() => ws.sent.length > sentBeforeKeystroke);
 const deviceFrames = ws.sent.slice(1);
 for (const frame of deviceFrames) {
   assert.ok(!String.fromCharCode(...new Uint8Array(frame).slice(0, 20)).includes("echo"),
@@ -151,7 +151,7 @@ ws.onmessage({ data: out.buffer });
 // session.open, also WebCrypto -- before it reaches the terminal, so this
 // waits for the draw rather than sleeping a fixed amount and hoping.
 const drew = (t) => t.written.some((w) => new TextDecoder().decode(w) === "hello from the desktop");
-await h.waitFor(() => h.terms.some(drew), 1000);
+await h.waitFor(() => h.terms.some(drew));
 
 const term = h.terms.find(drew);
 assert.ok(term, "the desktop's sealed output was not drawn");
@@ -169,14 +169,16 @@ h.recv(fixture());
 
 const ws = h.sockets.find((s) => s.url.includes("/ws/pty?id=p1"));
 ws.onopen();
-await h.sleep(30);
+// The hello is sent once WebCrypto has made the handshake's key, which is
+// not a matter of 30ms on a slow machine.
+await h.waitFor(() => ws.sent.length > 0);
 assert.strictEqual(ws.sent.length, 1, "the handshake hello was not sent");
 
 let closed = false;
 const realClose = ws.close.bind(ws);
 ws.close = () => { closed = true; realClose(); };
 ws.onmessage({ data: new Uint8Array([1, 2, 3]).buffer });
-await h.sleep(30);
+await h.waitFor(() => closed);
 assert.ok(closed, "a handshake response that did not check out was not closed");
 `)
 }
