@@ -4,7 +4,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Flockdeck",
-  "description": "A desktop app that runs Claude Code, Codex, Gemini and other coding agents side by side, with a git worktree and branch for each one step away so they need not overwrite each other's files, on your desk or on hardware you own, and reaches your phone or laptop with no port opened.",
+  "description": "A desktop app that runs Claude Code, Codex, Gemini and other coding agents side by side and makes it one step to give each its own git worktree and branch, so they don't overwrite each other's files. Run it on your desk or on hardware you own, and reach it from your phone or laptop with no port opened.",
   "url": {{ .URL }},
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Windows, macOS, Linux",
@@ -25,7 +25,7 @@
   <p class="lede">Flockdeck runs Claude Code, Codex, Gemini or your own model side
      by side, and makes it one step to give each its own git worktree and
      branch, so parallel agents don't undo each other's edits. Run it on your desk, or on hardware you already
-     own — a spare machine, a NAS, a cheap VPS — and reach it from your phone
+     own (a spare machine, a NAS, a cheap VPS), and reach it from your phone
      with no port opened and no password. The app is free and source-available;
      remote access is free for 30 days, then £5 a month.</p>
   <p class="cta">
@@ -101,15 +101,14 @@
 
 <section class="band" id="why">
   <h2>One agent is easy. Five in one repo collide.</h2>
-  <p>Agents working the same checkout can undo each other's edits, or fight
+  <p>Agents working in the same checkout can undo each other's edits, or fight
      over who's on which branch. Flockdeck makes it one step to give each one
-     <strong>its own git worktree and branch</strong> — fan out does it by
+     <strong>its own git worktree and branch</strong>. Fan out does it by
      default in a git repository, and the Worktrees panel creates one and opens
-     an agent or a shell in it — so they work in parallel without touching
-     each other's files. And since they finish at
-     different times and stop for permission prompts, it shows you which
-     agent needs you right now too, instead of you flicking between terminals
-     to find out.</p>
+     an agent or a shell in it. The agents work in parallel without touching
+     each other's files. They also finish at different times and stop for
+     permission prompts, so Flockdeck shows which agent needs you right now,
+     and you don't have to flick between terminals to find out.</p>
 </section>
 
 <section class="band shot" id="app">
@@ -121,13 +120,13 @@
 </section>
 
 <section class="band" id="what">
-  <h2>What makes it worth switching to.</h2>
+  <h2>What it does.</h2>
   <div class="grid">
     <div class="card">
       <span class="g">self-hosted · remote</span>
       <h3>Runs on hardware you control</h3>
-      <p>Free to run headless on a spare machine, a home server or a VPS —
-         <code>-no-window</code> needs no browser there either — and reach it
+      <p>Free to run headless on a spare machine, a home server or a VPS
+         (<code>-no-window</code> needs no browser there either). Reach it
          from your phone or laptop through the relay: pair with a QR code, no
          port opened, no password. Remote access is free for 30 days, then
          £5 a month.</p>
@@ -142,17 +141,17 @@
     <div class="card">
       <span class="g">routing</span>
       <h3>The right model for each task</h3>
-      <p>Turn on routing for a project and fan out pre-sets tasks to a model
-         that suits them: a smaller one to run the tests, a stronger one for a
-         refactor. You see every choice before anything starts, and can change
+      <p>Turn on routing for a project and fan out pre-sets each task to a
+         model that suits it: a smaller one to run the tests, a stronger one for
+         a refactor. You see every choice before anything starts, and can change
          it.</p>
     </div>
     <div class="card">
       <span class="g">all agents</span>
       <h3>Every agent, every project</h3>
       <p>One list of every agent in every open project, each with its status,
-         and a jump to any of them — the calm overview that's the actual point,
-         not a pitch about running dozens at once.</p>
+         and a jump to any of them. The point is a calm overview, not running
+         dozens at once.</p>
     </div>
     <div class="card">
       <span class="g"><span aria-hidden="true">▲</span> waiting</span>
@@ -171,8 +170,8 @@
       <span class="g">fan out</span>
       <h3>Turn a plan into a team</h3>
       <p>Flockdeck reads the task list an agent wrote, lets you edit it, then
-         starts one agent per task, by default in a git repository each in its
-         own worktree and branch.</p>
+         starts one agent per task. In a git repository each one gets its own
+         worktree and branch by default.</p>
     </div>
     <div class="card">
       <span class="g">spend · limits</span>
@@ -267,8 +266,8 @@
      still free to change. -->
 <section class="band" id="remote">
   <h2>Check in on your agents from anywhere.</h2>
-  <p>Leave Flockdeck running at your desk — or headless, on a server you
-     own — and pick it up from your laptop, tablet or phone. See
+  <p>Leave Flockdeck running at your desk, or headless on a server you
+     own, and pick it up from your laptop, tablet or phone. See
      <strong>which agent is waiting</strong> and unblock it from wherever you
      are.</p>
   <div class="relay" role="group" aria-label="A paired device reaches the desktop through the Flockdeck relay, which the desktop connects out to">
@@ -320,18 +319,17 @@
       <span class="g">isolation</span>
       <h3>Only your desktops</h3>
       <p>Your devices reach your desktops and nobody else's. Terminal traffic
-         is end-to-end encrypted on top of the TLS connection; the rest, such
+         is end-to-end encrypted on top of the TLS connection. The rest, such
          as a pane's state, its conversation view and photos, still reaches the
-         relay decrypted. See
-         <a href="trust.html">trust &amp; privacy</a> for what is, and what
-         isn't, said plainly.</p>
+         relay decrypted. <a href="trust.html">Trust &amp; privacy</a> spells
+         out what is and isn't encrypted.</p>
     </div>
     <div class="card">
       <span class="g">no desk needed</span>
       <h3>Or run it on a server instead</h3>
       <p>Flockdeck doesn't need a desk at all: start it with
-         <code>-no-window</code> on a spare machine, a home server or a VPS —
-         no browser needed there either — and pair it the same way. Your
+         <code>-no-window</code> on a spare machine, a home server or a VPS
+         (no browser needed there either) and pair it the same way. Your
          agents run round the clock on hardware you control. The app is free;
          reaching it through the shared relay is £5 a month after a 30-day
          trial.</p>
@@ -433,13 +431,13 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
   </div>
   <p class="aside">Each archive holds the program itself. On Linux and Windows
      that is the one binary: unpack it and run it. On macOS it's a real,
-     double-clickable Flockdeck.app -- move it into Applications and open it
+     double-clickable Flockdeck.app: move it into Applications and open it
      from there, the Dock or Spotlight. Its checksum is in that release's
      <code>checksums.txt</code>, and every release is also on
      <a href="{{ .Repo }}/releases">GitHub</a>. Flockdeck is ad-hoc signed but
      not notarized by Apple (notarization needs a paid developer account), so
      opening a copy downloaded in a browser still shows a one-time "Apple
-     could not verify this app" prompt the first time -- allow it under
+     could not verify this app" prompt the first time. Allow it under
      System Settings → Privacy &amp; Security → Open Anyway, or run
      <code>xattr -d com.apple.quarantine</code> on it. Windows may show a
      similar SmartScreen prompt for a browser download; choose More info →
@@ -464,13 +462,13 @@ flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code
      <code>checksums.txt.sig</code> beside it signs, so check it there before
      you run one.</p>
   <p>The install script checks its download against the checksum written into the
-     script itself, and installs it to <code>~/.local/bin</code> --
-     <code>~/Applications</code> on macOS, as a real Flockdeck.app. On
+     script itself, and installs it to <code>~/.local/bin</code>, or to
+     <code>~/Applications</code> on macOS as a real Flockdeck.app. On
      Windows it goes to <code>%LOCALAPPDATA%\Programs\flockdeck</code> and
      adds a Start menu shortcut. With that in and checked, it moves you on to
      the latest release, if this page is older than that, by asking the copy
-     it just installed to update itself — checked by its release signature,
-     not by anything the script downloaded. No admin rights needed, now or
+     it just installed to update itself. That update is checked against its
+     release signature, not against anything the script downloaded. No admin rights needed, now or
      when Flockdeck updates itself. On macOS the command line is inside the
      app, at <code>~/Applications/Flockdeck.app/Contents/MacOS/flockdeck</code>;
      add that folder to your PATH to run <code>flockdeck</code> commands. To pick a release or a directory, set
@@ -500,14 +498,14 @@ make package    <span class="c"># archives for all six platforms</span></code></
 </section>
 
 <section class="band" id="faq">
-  <h2>Questions, answered.</h2>
+  <h2>Questions</h2>
   <div class="faq">
     <details open>
       <summary>Is Flockdeck free?</summary>
       <p>The desktop app is, for good: it's free, with its source available
          for noncommercial use, on your own computer or self-hosted on a
          server you run. Reaching it from your phone through Flockdeck's
-         shared relay is free for a 30-day trial, then £5 a month — there's no
+         shared relay is free for a 30-day trial, then £5 a month. There's no
          permanent free tier for the relay, since somebody has to pay for
          running it.</p>
       <p>If you'd like to say thank you, you can
@@ -568,7 +566,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
       <summary>Can I use it from my phone?</summary>
       <p>Yes. Turn on remote access and pair your phone with a QR code. A
          Claude Code pane, or Flockdeck's own chat client, opens as a
-         conversation rather than a raw terminal — Markdown replies, diffs,
+         conversation rather than a raw terminal: Markdown replies, diffs,
          and a question or permission prompt answered with a tap, even
          straight from the list of what's waiting. Long replies and code fold
          so you're not scrolling past them, and you can send a photo or
