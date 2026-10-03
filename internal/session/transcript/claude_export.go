@@ -210,6 +210,11 @@ func (f *claudeFollower) line(raw []byte, yield func(ExportEvent) error, stats *
 		}
 	case "assistant":
 		f.pending = assistantEvents(line, ts, f.names)
+		if model := turnModel(line.Message.Model); model != "" {
+			for i := range f.pending {
+				f.pending[i].Model = model
+			}
+		}
 	}
 	return f.drain(yield)
 }
@@ -232,6 +237,7 @@ type exportLine struct {
 	IsCompactSummary          bool `json:"isCompactSummary"`
 	IsVisibleInTranscriptOnly bool `json:"isVisibleInTranscriptOnly"`
 	Message                   struct {
+		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
 }
@@ -270,6 +276,17 @@ func humanPrompt(line exportLine) (string, bool) {
 		return "", false
 	}
 	return text, true
+}
+
+// turnModel is the model an assistant entry names, or "" if it names none that
+// produced the turn: Claude Code stamps entries it wrote itself (an error
+// notice, a stopped turn) with the placeholder "<synthetic>", which is no model.
+func turnModel(m string) string {
+	m = strings.TrimSpace(m)
+	if m == "" || (strings.HasPrefix(m, "<") && strings.HasSuffix(m, ">")) {
+		return ""
+	}
+	return m
 }
 
 // assistantEvents is the tool calls and the words in an assistant entry, in the

@@ -125,7 +125,7 @@ Every line has these.
 | `paneName` | string | no | **Not written now.** A pane's name changes, and a saved layout can have a stale one, so it cannot be in lines that must be the same however they were made. Files of earlier versions have the pane's name at the time of the line. |
 | `project` | string | no | The project's name: the last element of the directory the stored conversation recorded. Absent if it records none. |
 | `agent` | string | no | The agent's id (`claude`, `codex`, ...) as `flockdeck agents` lists it. |
-| `model` | string | no | **Not written now**, for the reason `paneName` is not: it is the pane's, not the conversation's. Files of earlier versions have the model the pane was asked for. |
+| `model` | string | no | The model that produced the turn, as the agent's stored conversation records it for that turn (for Claude Code, the entry's `message.model`). Written on `assistant_message` and `tool_call` lines only, so a conversation that switches model mid-way has each turn's own; never on a `user_prompt` or `tool_result`, nor on `recording_started` or `recording_stopped`. Left out when the stored turn records none, or only a placeholder such as `<synthetic>` (what Claude Code stamps on a notice it wrote itself), and for an agent whose stored conversation does not record one. It is never the model a pane is set to now, which is the pane's, not the conversation's. Files of earlier versions have the model the pane was asked for, on every line; files made since by an exporter that did not read it have none. |
 | `conversation` | string | no | The agent's own conversation id. It changes when the user runs `/clear`. |
 | `type` | string | yes | The event type, one of the types below. |
 | `subagent` | string | no | The id of the subagent the event came from. Absent for the main agent. |
@@ -135,8 +135,10 @@ Every line has these.
 The identity in the envelope (`pane`, `project`, `agent`, `conversation`) is
 worked out from the stored conversation alone, in one place, whichever way the
 transcript is made: recording, *Export transcript* and the command line all give
-the same lines for the same conversation. The pane's name and model, which are
-not in the stored conversation, are therefore not in the lines.
+the same lines for the same conversation. The pane's name, which is not in the
+stored conversation, is therefore not in the lines, and neither is the model the
+pane is set to. The `model` an assistant turn has is its own, read from the
+stored conversation.
 
 ### Event types
 
@@ -225,7 +227,7 @@ reported while it ran.)
 | `reason` | string | no | Only in files of earlier versions: `the turn ended on an error`. |
 
 ```json
-{"v":1,"seq":19,"time":"2026-10-01T10:16:55.9Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"assistant_message","text":"All 212 tests pass."}
+{"v":1,"seq":19,"time":"2026-10-01T10:16:55.9Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","model":"claude-opus-5-5","type":"assistant_message","text":"All 212 tests pass."}
 ```
 
 #### `tool_call`
@@ -239,7 +241,7 @@ The agent calling a tool, before it runs.
 | `input` | any JSON | no | The tool's input as the agent gave it, usually an object. Each string in it is redacted and cut at 8 KiB. |
 
 ```json
-{"v":1,"seq":4,"time":"2026-10-01T10:15:42.0Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"tool_call","tool":"Bash","toolUseId":"toolu_01","input":{"command":"go test ./...","description":"Run the tests"}}
+{"v":1,"seq":4,"time":"2026-10-01T10:15:42.0Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","model":"claude-opus-5-5","type":"tool_call","tool":"Bash","toolUseId":"toolu_01","input":{"command":"go test ./...","description":"Run the tests"}}
 ```
 
 #### `tool_result`
@@ -528,7 +530,8 @@ in these ways**:
 | --- | --- | --- |
 | `pane` | the pane's id | the conversation's id |
 | `time` | when Flockdeck wrote the line | when the event happened, from the agent's record |
-| `paneName`, `model` | written | not written |
+| `paneName` | written | not written |
+| `model` | the model the pane was asked for, on every line | the model that produced the turn, on `assistant_message` and `tool_call` lines only, where the stored conversation records it (added later in version 1; transcripts made before that have none) |
 | `recording_started` / `recording_stopped` text | `turned on` or `resumed` / `turned off` or `the pane was closed` | `start of the transcript` / `end of the transcript` |
 | `session`, `permission_prompt`, `permission_outcome`, `status` | written | not written |
 | `assistant_message` | the last message of each turn | every message |
@@ -639,7 +642,7 @@ for:
 - **Pane or conversation.** `export` takes a pane's id as the saved layouts hold
   it, or a Claude Code conversation's id. A pane is only a way to find the
   conversation: the lines are the conversation's either way, with nothing of the
-  layout's pane name or model in them.
+  layout's pane name or selected model in them.
 - **Only from the machine itself.** The window's export is refused for a window
   reached through the relay: the file is written on the host, and a path there is
   not something to send to a phone.

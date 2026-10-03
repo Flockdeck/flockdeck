@@ -79,7 +79,7 @@ func Sync(m *Manager, meta func() Meta, f transcript.Follower) (SyncResult, erro
 // did, since a transcript is of a conversation and not of a pane that may have
 // had several), the agent's id, and the directory the conversation recorded,
 // from which the project's name and folder come. Nothing about a pane, whose
-// name and model change and which a saved layout can have stale, is in it, so
+// name and selected model change and which a saved layout can have stale, is in it, so
 // the same conversation has the same lines whichever way it was reached.
 func MetaFor(spec agent.Spec, ex transcript.Exporter, conversation string) Meta {
 	cwd := ex.Cwd(spec, conversation)

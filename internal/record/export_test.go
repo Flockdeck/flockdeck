@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -16,7 +17,7 @@ import (
 
 const fixtureConversation = "11111111-2222-3333-4444-555555555555"
 
-var exportMeta = Meta{Pane: fixtureConversation, PaneName: "shop", Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Model: "opus", Conversation: fixtureConversation}
+var exportMeta = Meta{Pane: fixtureConversation, PaneName: "shop", Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Conversation: fixtureConversation}
 
 // claudeAt is Claude Code's agent, with its state directory at home and nowhere
 // else, so no test reads the real one.
@@ -303,7 +304,7 @@ func TestCheckExportPathFollowsSymbolicLinks(t *testing.T) {
 func TestMetaForIsTheConversationsAlone(t *testing.T) {
 	spec, ex := claudeAt(t, fixtureHome(t))
 	a := MetaFor(spec, ex, fixtureConversation)
-	if a.Pane != fixtureConversation || a.Conversation != fixtureConversation || a.Agent != "claude" || a.PaneName != "" || a.Model != "" {
+	if a.Pane != fixtureConversation || a.Conversation != fixtureConversation || a.Agent != "claude" || a.PaneName != "" {
 		t.Errorf("meta = %+v", a)
 	}
 	if b := MetaFor(spec, ex, fixtureConversation); b != a {
@@ -770,6 +771,113 @@ func TestInRecordingsRefusesAnythingButItsOwnFiles(t *testing.T) {
 	if err := os.Symlink(outside, link); err == nil {
 		if _, err := InRecordings(d, link); err == nil {
 			t.Error("a link out of the recordings folder was accepted")
+		}
+	}
+}
+
+const modelFixtureConversation = "22222222-3333-4444-5555-666666666666"
+
+var modelMeta = Meta{Pane: modelFixtureConversation, Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Conversation: modelFixtureConversation}
+
+func modelFixtureHome(t *testing.T) string {
+	t.Helper()
+	home, err := filepath.Abs("../session/transcript/testdata/claude_model/home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+// modelsOf is the model on each line of a transcript, by type.
+func modelsOf(es []Entry) []string {
+	var out []string
+	for _, e := range es {
+		out = append(out, e.Type+"="+e.Model)
+	}
+	return out
+}
+
+// The lines of an assistant turn name the model that produced it, in the
+// export and in a recording alike, and the two are the same bytes.
+func TestExportAndRecordingCarryTheModelOfEachAssistantTurn(t *testing.T) {
+	whole, err := os.ReadFile(filepath.Join(modelFixtureHome(t), "projects", "C--work-shop", modelFixtureConversation+".jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, ex := claudeAt(t, modelFixtureHome(t))
+	dir := t.TempDir()
+	res, err := Export(func() (string, error) { return dir, nil }, modelMeta, ex.Follow(spec, modelFixtureConversation), ExportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(res.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantModels := []string{
+		TypeStarted + "=",
+		TypePrompt + "=",
+		TypeAssistant + "=claude-opus-5-5",
+		TypeToolCall + "=claude-opus-5-5",
+		TypeToolResult + "=",
+		TypePrompt + "=",
+		TypeToolCall + "=claude-sonnet-5-5",
+		TypeToolResult + "=",
+		TypeAssistant + "=",
+		TypeAssistant + "=",
+		TypeAssistant + "=",
+		TypeAssistant + "=claude-sonnet-5-5",
+		TypeStopped + "=",
+	}
+	schema := loadSchema(t)
+	for _, line := range rawLines(t, res.Path) {
+		if errs := schema.Validate(line); len(errs) != 0 {
+			t.Errorf("line does not match the schema: %v\n%s", errs, line)
+		}
+	}
+	if got := modelsOf(readEntries(t, res.Path)); !reflect.DeepEqual(got, wantModels) {
+		t.Errorf("models = %v\nwant %v", got, wantModels)
+	}
+
+	// Recorded as it grows, cut anywhere.
+	home := t.TempDir()
+	folder := filepath.Join(home, "projects", "C--work-shop")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rspec, rex := claudeAt(t, home)
+	f := rex.Follow(rspec, modelFixtureConversation)
+	m := NewManager(func() (string, error) { return t.TempDir(), nil })
+	defer m.Close()
+	for at := 0; at < len(whole); at += 37 {
+		fh, err := os.OpenFile(filepath.Join(folder, modelFixtureConversation+".jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fh.Write(whole[at:min(at+37, len(whole))])
+		fh.Close()
+		if _, err := Sync(m, func() Meta { return modelMeta }, f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := m.Path(modelMeta.Pane)
+	m.Finish(modelMeta)
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("the recording and the export differ\nrecorded:\n%s\nexported:\n%s", got, want)
+	}
+}
+
+// A transcript from before the model was written has no model on any line,
+// and is still a valid line of the format.
+func TestExportOfAConversationWithNoModelsHasNone(t *testing.T) {
+	res, _ := exportToTemp(t, ExportOptions{})
+	for _, e := range readEntries(t, res.Path) {
+		if e.Model != "" {
+			t.Errorf("line %d (%s) has model %q", e.Seq, e.Type, e.Model)
 		}
 	}
 }

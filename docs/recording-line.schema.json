@@ -13,7 +13,7 @@
     "paneName": { "type": "string" },
     "project": { "type": "string" },
     "agent": { "type": "string" },
-    "model": { "type": "string" },
+    "model": { "type": "string", "description": "The model that produced the turn, from the agent's stored conversation: on assistant_message and tool_call lines only, absent where none is recorded. Files of earlier versions have the pane's model on every line." },
     "conversation": { "type": "string", "description": "The agent's own conversation id; changes after /clear." },
     "type": {
       "type": "string",
