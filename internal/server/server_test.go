@@ -76,6 +76,10 @@ func stateTempDir(tb testing.TB) string {
 			time.Sleep(100 * time.Millisecond)
 		}
 	})
+	// A switch between projects is written a moment after it is recorded, and
+	// the folder is not removed from under that write. Registered after the
+	// removal above, so it runs before it.
+	tb.Cleanup(store.FlushRecents)
 	return dir
 }
 

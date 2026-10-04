@@ -45,6 +45,7 @@ func TestTouchRecentsPutsProjectsFirstInTheOrderGiven(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	FlushRecents()
 	before, err := os.ReadFile(filepath.Join(dir, recentsFile))
 	if err != nil {
 		t.Fatal(err)
@@ -52,6 +53,7 @@ func TestTouchRecentsPutsProjectsFirstInTheOrderGiven(t *testing.T) {
 	if err := TouchRecents(b, c); err != nil {
 		t.Fatalf("touch: %v", err)
 	}
+	FlushRecents()
 	if after, _ := os.ReadFile(filepath.Join(dir, recentsFile)); !bytes.Equal(before, after) {
 		t.Errorf("recording projects already at the front rewrote the list")
 	}

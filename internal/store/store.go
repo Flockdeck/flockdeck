@@ -1089,13 +1089,14 @@ const (
 // maxRecents caps the remembered list.
 const maxRecents = 40
 
-// recentsMu is held from reading the list to writing it back, by everything
-// that changes it. The list is rewritten whole, so two changes made side by
-// side -- the workspace recording a switch from its own goroutine, and a
-// rename or an archive from a window -- each read the list before the other
-// had written, and whichever wrote last put back the list it had read, losing
-// the other's change. It stops that between the callers in one process. A
-// second instance is out of its reach, as it is for writeLocks.
+// recentsMu is held from reading the list to making the change the newest
+// state, by everything that changes it, and not while the file is written (see
+// recentsWriter). The list is rewritten whole, so two changes made side by side
+// -- the workspace recording a switch from its own goroutine, and a rename or an
+// archive from a window -- each read the list before the other had written, and
+// whichever wrote last put back the list it had read, losing the other's change.
+// It stops that between the callers in one process. A second instance is out of
+// its reach, as it is for writeLocks.
 var recentsMu sync.Mutex
 
 // Recents returns known projects, most recently used first.
@@ -1103,6 +1104,10 @@ func Recents() ([]Project, error) {
 	dir, err := Dir()
 	if err != nil {
 		return nil, err
+	}
+	// A change not yet written is the newest state, and what is read.
+	if list, ok := recentsOut.pendingFor(filepath.Join(dir, recentsFile)); ok {
+		return arrangeRecents(list), nil
 	}
 	data, err := readState(filepath.Join(dir, recentsFile))
 	if err != nil {
@@ -1122,6 +1127,12 @@ func Recents() ([]Project, error) {
 		quarantine(filepath.Join(dir, recentsFile), recentsWhat, KeptDamaged)
 		return nil, nil
 	}
+	return arrangeRecents(list), nil
+}
+
+// arrangeRecents puts the list read from the file, or about to be written to
+// it, in the order the picker shows, without repeats.
+func arrangeRecents(list []Project) []Project {
 	sort.SliceStable(list, func(i, j int) bool { return projectLess(list[i], list[j]) })
 
 	// Collapse entries that name the same directory, keeping the most recent.
@@ -1144,7 +1155,7 @@ func Recents() ([]Project, error) {
 			out = append(out, p)
 		}
 	}
-	return capRecents(out), nil
+	return capRecents(out)
 }
 
 // capRecents keeps the maxRecents projects used most recently, in the order
@@ -1231,56 +1242,62 @@ func TouchRecents(roots ...string) error {
 	if len(clean) == 0 {
 		return nil
 	}
-	recentsMu.Lock()
-	defer recentsMu.Unlock()
-	// The rewrite below replaces the whole file, so a list we could not read
-	// has to stop us: carrying on would quietly discard every other project
-	// the user has opened. A damaged or absent list reads as empty, which is
-	// the case where starting again is the right answer.
-	list, err := Recents()
-	if err != nil {
-		return err
-	}
-	// Projects already at the front in this order, spelled as they would be
-	// written, are where the rewrite would put them: the times only order the
-	// list, and nothing shows them. Rewriting it anyway is a file created,
-	// flushed to the device and renamed on every switch between projects,
-	// eleven milliseconds on Windows spent on the goroutine that owns the
-	// workspace -- and at every start that reopens the same projects as the
-	// one before.
-	if len(list) >= len(clean) {
-		first := true
-		for i, c := range clean {
-			if list[i].Root != c {
-				first = false
-				break
+	// Nobody waits for this one: every caller is recording that a project was
+	// switched to, and the list is on disk a moment after.
+	return modifyRecents(false, func(list []Project) ([]Project, bool) {
+		// Projects already at the front in this order, spelled as they would be
+		// written, are where the rewrite would put them: the times only order
+		// the list, and nothing shows them. Rewriting it anyway is a file
+		// created, flushed to the device and renamed on every switch between
+		// projects, and at every start that reopens the same projects as the one
+		// before.
+		if len(list) >= len(clean) {
+			first := true
+			for i, c := range clean {
+				if list[i].Root != c {
+					first = false
+					break
+				}
+			}
+			if first {
+				return nil, false
 			}
 		}
-		if first {
-			return nil
+		now := time.Now()
+		// Later than every time already in the list, by enough to give each
+		// project its own. A write used to take longer than the clock's tick,
+		// so two switches never shared a time; now one follows another at once,
+		// and one that did would leave the list in whichever order it sorted.
+		var newest time.Time
+		for _, p := range list {
+			if p.LastUsed.After(newest) {
+				newest = p.LastUsed
+			}
 		}
-	}
-	now := time.Now()
-	out := make([]Project, 0, len(list)+len(clean))
-	for i, c := range clean {
-		// A nanosecond apart, so the list comes back in the order given
-		// however it is sorted.
-		p := Project{Root: c, LastUsed: now.Add(-time.Duration(i))}
-		// A name chosen by hand, an archived flag or a position chosen by
-		// hand belongs to the project, not to the moment it was opened, so
-		// opening it again must not lose whichever of those were already
-		// recorded for it.
-		if prior, ok := findProject(list, c); ok {
-			p.Name, p.Archived, p.Order = prior.Name, prior.Archived, prior.Order
+		if floor := newest.Add(time.Duration(len(clean)+1) * time.Nanosecond); !now.After(floor) {
+			now = floor
 		}
-		out = append(out, p)
-	}
-	for _, p := range list {
-		if !containsRoot(clean, p.Root) {
+		out := make([]Project, 0, len(list)+len(clean))
+		for i, c := range clean {
+			// A nanosecond apart, so the list comes back in the order given
+			// however it is sorted.
+			p := Project{Root: c, LastUsed: now.Add(-time.Duration(i))}
+			// A name chosen by hand, an archived flag or a position chosen by
+			// hand belongs to the project, not to the moment it was opened, so
+			// opening it again must not lose whichever of those were already
+			// recorded for it.
+			if prior, ok := findProject(list, c); ok {
+				p.Name, p.Archived, p.Order = prior.Name, prior.Archived, prior.Order
+			}
 			out = append(out, p)
 		}
-	}
-	return writeRecents(capRecents(out))
+		for _, p := range list {
+			if !containsRoot(clean, p.Root) {
+				out = append(out, p)
+			}
+		}
+		return capRecents(out), true
+	})
 }
 
 // containsRoot reports whether roots names the same project as root.
@@ -1305,24 +1322,17 @@ func findProject(list []Project, root string) (Project, bool) {
 
 // ForgetRecent drops a project from the remembered list.
 func ForgetRecent(root string) error {
-	recentsMu.Lock()
-	defer recentsMu.Unlock()
-	list, err := Recents()
-	if err != nil {
-		return err
-	}
-	out := make([]Project, 0, len(list))
-	for _, p := range list {
-		if !sameRoot(p.Root, root) {
-			out = append(out, p)
+	return modifyRecents(true, func(list []Project) ([]Project, bool) {
+		out := make([]Project, 0, len(list))
+		for _, p := range list {
+			if !sameRoot(p.Root, root) {
+				out = append(out, p)
+			}
 		}
-	}
-	if len(out) == len(list) {
-		// Nothing to forget. Rewriting the file anyway would be a needless
+		// Nothing to forget: rewriting the file anyway would be a needless
 		// chance for another instance's save to be the one that loses.
-		return nil
-	}
-	return writeRecents(out)
+		return out, len(out) != len(list)
+	})
 }
 
 // SetProjectName gives a project a display name chosen by hand, which the
@@ -1351,22 +1361,18 @@ func updateProject(root string, fn func(*Project)) error {
 	if strings.TrimSpace(root) == "" {
 		return errors.New("project: empty path")
 	}
-	recentsMu.Lock()
-	defer recentsMu.Unlock()
-	list, err := Recents()
-	if err != nil {
-		return err
-	}
 	clean := filepath.Clean(root)
-	for i := range list {
-		if sameRoot(list[i].Root, clean) {
-			fn(&list[i])
-			return writeRecents(list)
+	return modifyRecents(true, func(list []Project) ([]Project, bool) {
+		for i := range list {
+			if sameRoot(list[i].Root, clean) {
+				fn(&list[i])
+				return list, true
+			}
 		}
-	}
-	p := Project{Root: clean, LastUsed: time.Now()}
-	fn(&p)
-	return writeRecents(append(list, p))
+		p := Project{Root: clean, LastUsed: time.Now()}
+		fn(&p)
+		return append(list, p), true
+	})
 }
 
 // ReorderProjects gives each named project a position ascending from one,
@@ -1378,27 +1384,20 @@ func ReorderProjects(order []string) error {
 	if len(order) == 0 {
 		return nil
 	}
-	recentsMu.Lock()
-	defer recentsMu.Unlock()
-	list, err := Recents()
-	if err != nil {
-		return err
-	}
 	pos := make(map[string]int, len(order))
 	for i, root := range order {
 		pos[normalizeRoot(root)] = i + 1
 	}
-	changed := false
-	for i := range list {
-		if p, ok := pos[normalizeRoot(list[i].Root)]; ok && list[i].Order != p {
-			list[i].Order = p
-			changed = true
+	return modifyRecents(true, func(list []Project) ([]Project, bool) {
+		changed := false
+		for i := range list {
+			if p, ok := pos[normalizeRoot(list[i].Root)]; ok && list[i].Order != p {
+				list[i].Order = p
+				changed = true
+			}
 		}
-	}
-	if !changed {
-		return nil
-	}
-	return writeRecents(list)
+		return list, changed
+	})
 }
 
 // ProjectMeta is a project's own display settings -- a name chosen by
@@ -1437,27 +1436,6 @@ func AllProjectMeta() (map[string]ProjectMeta, error) {
 // MetaKey is the key AllProjectMeta's map uses for a root, for a caller
 // that already holds the map and wants to look one project up in it.
 func MetaKey(root string) string { return normalizeRoot(root) }
-
-func writeRecents(list []Project) error {
-	dir, err := Dir()
-	if err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode projects: %w", err)
-	}
-	// A damaged list that would not move aside is recorded as unread, and this
-	// write is what it has to be kept from: every directory the user has
-	// opened, replaced by the list read from it, which is nothing.
-	if err := keepUnread(filepath.Join(dir, recentsFile), recentsWhat); err != nil {
-		return fmt.Errorf("write projects: %w", err)
-	}
-	if err := writeAtomic(filepath.Join(dir, recentsFile), data); err != nil {
-		return fmt.Errorf("write projects: %w", err)
-	}
-	return nil
-}
 
 // sameRoot compares project paths, case-insensitively on platforms whose file
 // systems are.

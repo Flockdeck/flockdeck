@@ -83,6 +83,9 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such pane", http.StatusNotFound)
 		return
 	}
+	if s.paneFound != nil {
+		s.paneFound()
+	}
 
 	// No origin patterns: the default is that the page opening this socket
 	// must have come from this server's own address, and no wider allowance
@@ -123,8 +126,16 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// internal/e2e frame -- see e2eConn.
 	var tc termConn = conn
 	encrypted := false
+	// markUse records a use of the pane from this socket, when it is one
+	// reached through the relay. See markRelayUseIfOpen for why every record
+	// goes through the workspace goroutine, and relayMarker for why not on
+	// this one. Opening is a use like the rest, noted and not waited for: the
+	// terminal is served, and the end-to-end handshake made, without asking the
+	// workspace goroutine anything more.
+	var markUse func()
 	if relay {
-		relayUse.mark(id, time.Now())
+		markUse = s.relayMarker(ctx, id)
+		markUse()
 		defer s.markRelayUseIfOpen(id)
 		// The device asking is named by this header, which the relay itself
 		// sets on the tunnel connection and strips any client-supplied copy
@@ -201,7 +212,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// armRepaint.
 	var repaint atomic.Bool
 	go s.applyResizes(ctx, id, measured, &repaint)
-	go s.readInput(ctx, cancel, tc, id, viewer, relay, measured, &live)
+	go s.readInput(ctx, cancel, tc, id, viewer, markUse, measured, &live)
 	var writes writeGauge
 	go keepalive(ctx, cancel, conn, &writes, s.pingInterval, s.pingTimeout)
 
@@ -332,7 +343,7 @@ var termReset = []byte("\x1bc")
 
 // readInput forwards what the window sends: keystrokes as binary frames,
 // everything else as JSON control messages.
-func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn termConn, id string, viewer int64, relay bool, measured chan<- struct{}, live *atomic.Pointer[session.Session]) {
+func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn termConn, id string, viewer int64, markUse func(), measured chan<- struct{}, live *atomic.Pointer[session.Session]) {
 	defer cancel()
 	// A size is recorded here and applied elsewhere. Applying it means reaching
 	// the workspace goroutine, which can be busy for seconds at a time opening
@@ -362,8 +373,8 @@ func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn 
 			if !isTerminalReply(data) && viewers.touch(id, viewer) {
 				nudge()
 			}
-			if relay && !isTerminalReply(data) {
-				relayUse.mark(id, time.Now())
+			if markUse != nil && !isTerminalReply(data) {
+				markUse()
 			}
 			continue
 		}
@@ -374,8 +385,8 @@ func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn 
 		if ctl.Focus && viewers.touch(id, viewer) {
 			nudge()
 		}
-		if ctl.Focus && relay {
-			relayUse.mark(id, time.Now())
+		if ctl.Focus && markUse != nil {
+			markUse()
 		}
 		if ctl.Resize != nil {
 			viewers.set(id, viewer, ctl.Resize.Cols, ctl.Resize.Rows)
@@ -708,14 +719,19 @@ func (s *Server) waitForRestart(ctx context.Context, id string, old *session.Ses
 }
 
 // markRelayUseIfOpen records that a pane was used from a window reached through
-// the relay, as that window's socket ends, unless the pane has been closed.
+// the relay, unless the pane has been closed. Every record of relay use is made
+// here.
 //
-// The socket of a pane that is closed under it ends after the pane has gone,
-// and marking it then put back the record PaneClosed had just removed, which
-// nothing would ever remove again. The check is made on the workspace
-// goroutine, where a pane is closed and forgotten, so it is either still open
-// here and forgotten afterwards, or already gone and not marked. When that
-// goroutine does not answer in time the pane is marked, as it was before.
+// A socket marking its pane as used after PaneClosed had removed the record put
+// it back, and nothing would ever remove it again: the pane's socket ends after
+// the pane is gone, and a frame can arrive in between. The check is made on the
+// workspace goroutine, where a pane is closed and forgotten, so the pane is
+// either still open here and forgotten afterwards, or already gone and not
+// marked. A use that could not even be handed to that goroutine within
+// paneLookup is dropped: a use left out for a few seconds of a stalled
+// workspace costs less than an entry that stays. One that was handed over and
+// is still waiting in its queue when the wait ends is not withdrawn, and runs
+// when the goroutine gets to it, with the same check.
 func (s *Server) markRelayUseIfOpen(id string) {
 	deadline := time.After(s.paneLookup)
 	done := make(chan struct{})
@@ -729,14 +745,39 @@ func (s *Server) markRelayUseIfOpen(id string) {
 	case <-s.closed:
 		return
 	case <-deadline:
-		relayUse.mark(id, time.Now())
 		return
 	}
 	select {
 	case <-done:
 	case <-s.closed:
 	case <-deadline:
-		relayUse.mark(id, time.Now())
+	}
+}
+
+// relayMarker returns what a relay socket calls on each keystroke and focus to
+// record the use, and starts the goroutine that does it.
+//
+// Reading the socket must not wait on the workspace goroutine, which can be
+// busy for seconds, so a use is only noted here and the goroutine records it
+// through markRelayUseIfOpen. Uses that arrive while it is recording are one:
+// the record is a time, and the latest is the one that counts.
+func (s *Server) relayMarker(ctx context.Context, id string) func() {
+	noted := make(chan struct{}, 1)
+	go func() {
+		for {
+			select {
+			case <-noted:
+				s.markRelayUseIfOpen(id)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return func() {
+		select {
+		case noted <- struct{}{}:
+		default:
+		}
 	}
 }
 

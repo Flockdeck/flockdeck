@@ -25,6 +25,7 @@ func TestTouchingTheFirstProjectLeavesTheListAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := filepath.Join(dir, recentsFile)
+	FlushRecents()
 	before, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
@@ -33,6 +34,7 @@ func TestTouchingTheFirstProjectLeavesTheListAlone(t *testing.T) {
 	if err := TouchRecent(a); err != nil {
 		t.Fatalf("touch first: %v", err)
 	}
+	FlushRecents()
 	if after, _ := os.ReadFile(file); !bytes.Equal(before, after) {
 		t.Errorf("touching the project already first rewrote the list:\n%s\nbecame\n%s", before, after)
 	}
