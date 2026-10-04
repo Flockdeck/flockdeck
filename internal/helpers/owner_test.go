@@ -1,7 +1,12 @@
 package helpers
 
 import (
+	"encoding/binary"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -211,5 +216,156 @@ func TestCtrlBreakOnlyReachesARecordedHelper(t *testing.T) {
 	}
 	if len(sent) != 1 || sent[0] != pid {
 		t.Fatalf("sent = %v", sent)
+	}
+}
+
+// port owner -----------------------------------------------------------------
+
+func TestParseProcNetTCP(t *testing.T) {
+	text := "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n" +
+		"   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 12345 1 0000000000000000 100 0 0 10 0\n" +
+		"   1: 0100007F:1F90 0100007F:D2F0 01 00000000:00000000 00:00000000 00000000  1000        0 22222 1 0000000000000000 100 0 0 10 0\n" +
+		"   2: 0100007F:1F91 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 33333 1 0000000000000000 100 0 0 10 0\n" +
+		"   3: 00000000:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 44444 1 0000000000000000 100 0 0 10 0\n" +
+		"   4: 00000000000000000000000001000000:1F90 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 55555 1 0000000000000000 100 0 0 10 0\n" +
+		"   5: broken line\n" +
+		"   6: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 0 1 0000000000000000 100 0 0 10 0\n"
+	got := parseProcNetTCP(text, 8080)
+	want := []uint64{12345, 44444, 55555}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("inodes = %v, want %v (a connection, another port, a broken line and inode 0 are not listeners on 8080)", got, want)
+	}
+	if got := parseProcNetTCP(text, 9); len(got) != 0 {
+		t.Fatalf("inodes for another port = %v", got)
+	}
+}
+
+func TestParseStatPgrp(t *testing.T) {
+	cases := map[string]int{
+		"4242 (lens) S 1 4242 4242 0 -1 4194560":   4242,
+		"77 (a b) S 5 99 99 0 -1":                  99,
+		"88 (name (with) parens) R 1 123 123 0 -1": 123,
+		"99 (evil) S 1 0) S 1 321 321 0 -1 ":       321,
+	}
+	for line, want := range cases {
+		got, ok := parseStatPgrp(line)
+		if !ok || got != want {
+			t.Errorf("%q: got %d, %v; want %d", line, got, ok, want)
+		}
+	}
+	for _, bad := range []string{"", "no parens", "1 (x) S", "1 (x) S 1 notnumber 3"} {
+		if _, ok := parseStatPgrp(bad); ok {
+			t.Errorf("%q was parsed", bad)
+		}
+	}
+}
+
+func TestParseWindowsTCPTables(t *testing.T) {
+	le := binary.LittleEndian
+	port := func(p int) uint32 { return uint32(p>>8) | uint32(p&0xff)<<8 }
+	t4 := make([]byte, 4+3*24)
+	le.PutUint32(t4, 3)
+	for i, row := range []struct{ port, pid int }{{8080, 111}, {9000, 222}, {8080, 333}} {
+		r := t4[4+i*24:]
+		le.PutUint32(r[8:], port(row.port))
+		le.PutUint32(r[20:], uint32(row.pid))
+	}
+	if got := parseTCPTable4(t4, 8080); fmt.Sprint(got) != "[111 333]" {
+		t.Fatalf("v4 owners = %v", got)
+	}
+	t6 := make([]byte, 4+2*56)
+	le.PutUint32(t6, 2)
+	for i, row := range []struct{ port, pid int }{{8080, 444}, {1, 555}} {
+		r := t6[4+i*56:]
+		le.PutUint32(r[20:], port(row.port))
+		le.PutUint32(r[52:], uint32(row.pid))
+	}
+	if got := parseTCPTable6(t6, 8080); fmt.Sprint(got) != "[444]" {
+		t.Fatalf("v6 owners = %v", got)
+	}
+	// A count that claims more rows than there are bytes is not read past.
+	le.PutUint32(t4, 1000)
+	if got := parseTCPTable4(t4, 8080); len(got) != 2 {
+		t.Fatalf("owners = %v", got)
+	}
+	if parseTCPTable4(nil, 1) != nil || parseTCPTable6([]byte{1}, 1) != nil {
+		t.Fatal("a short table gave owners")
+	}
+}
+
+func TestOwnersWithin(t *testing.T) {
+	cases := []struct {
+		owners []uint32
+		group  []int
+		want   ownerResult
+	}{
+		{[]uint32{5}, []int{5, 6}, ownerVerified},
+		{[]uint32{5, 6}, []int{5, 6}, ownerVerified},
+		{[]uint32{5, 9}, []int{5, 6}, ownerMismatch},
+		{[]uint32{9}, []int{5}, ownerMismatch},
+		{nil, []int{5}, ownerUnknown},
+		{[]uint32{5}, nil, ownerMismatch},
+	}
+	for _, c := range cases {
+		if got := ownersWithin(c.owners, c.group); got != c.want {
+			t.Errorf("ownersWithin(%v, %v) = %v, want %v", c.owners, c.group, got, c.want)
+		}
+	}
+}
+
+// squatter listens on a loopback port and answers every request 200, as a
+// program that took a helper's port would.
+func squatter(t *testing.T) int {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) }))
+	t.Cleanup(srv.Close)
+	port, _ := strconv.Atoi(srv.URL[strings.LastIndex(srv.URL, ":")+1:])
+	return port
+}
+
+// A program that took the port and answers /readyz and /healthz, while the
+// helper prints the right banner and never binds, is stopped, not run.
+func TestASquatterOnTheHelpersPortIsCaught(t *testing.T) {
+	if !OwnerCheckSupported() {
+		t.Skip("this platform cannot verify who owns a port")
+	}
+	port := squatter(t)
+	f := newSupFixture(t, []Entry{fakeEntry("lens", "--mode", "no-bind")}, func(c *Config) {
+		c.PickPort = func(int) (int, error) { return port, nil }
+	})
+	st := f.startAndWait("lens")
+	if st.State != StateFailed || !strings.Contains(st.Err, "held by something other than lens") {
+		t.Fatalf("status = %+v", st)
+	}
+	if st.URL != "" || st.Owner != "" {
+		t.Fatalf("a squatter's page was offered: %+v", st)
+	}
+}
+
+func TestAHelperThatHoldsItsOwnPortIsVerified(t *testing.T) {
+	f := newSupFixture(t, []Entry{fakeEntry("lens")})
+	st := f.startAndWait("lens")
+	if st.State != StateRunning {
+		t.Fatalf("status = %+v", st)
+	}
+	want := OwnerUnverified
+	if OwnerCheckSupported() {
+		want = OwnerVerified
+	}
+	if st.Owner != want {
+		t.Fatalf("owner = %q, want %q", st.Owner, want)
+	}
+}
+
+// Where the platform cannot say, the helper still runs and is shown as not
+// verified.
+func TestAnUnverifiableOwnerIsShownAsUnverified(t *testing.T) {
+	prev := checkListenerOwner
+	checkListenerOwner = func(int, []int) (ownerResult, string) { return ownerUnknown, "no" }
+	defer func() { checkListenerOwner = prev }()
+	f := newSupFixture(t, []Entry{fakeEntry("lens")})
+	st := f.startAndWait("lens")
+	if st.State != StateRunning || st.Owner != OwnerUnverified {
+		t.Fatalf("status = %+v", st)
 	}
 }

@@ -102,6 +102,12 @@ func runFakeHelper(args []string) {
 		}
 	case "silent", "sleep":
 		time.Sleep(time.Hour)
+	case "no-bind":
+		// The right banner for the port it was given, and no socket: what a
+		// helper that lost the race for its port, and carried on, would look like
+		// to something that answers on that port in its place.
+		fmt.Printf("lens 0.0.0-test at http://localhost:%d/\n", *port)
+		time.Sleep(time.Hour)
 	}
 
 	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", *host, *port))

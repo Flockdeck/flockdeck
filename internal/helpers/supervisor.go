@@ -43,6 +43,10 @@ type Status struct {
 	// Log is the last lines the helper wrote, kept for a failure.
 	Log      []string `json:"log,omitempty"`
 	Restarts int      `json:"restarts,omitempty"`
+	// Owner says whether the operating system confirmed that the helper's own
+	// process holds its port: OwnerVerified, or OwnerUnverified where the
+	// platform cannot say (macOS). Empty until the helper is running.
+	Owner string `json:"owner,omitempty"`
 }
 
 // Timings are the supervisor's clocks. Tests shorten them.
@@ -161,6 +165,7 @@ type instance struct {
 	pid      int
 	err      string
 	restarts int
+	owner    string
 	log      *lineRing
 
 	stopReq  chan struct{}
@@ -194,7 +199,7 @@ func (r *lineRing) tail() []string {
 }
 
 func (s *Supervisor) statusLocked(in *instance) Status {
-	st := Status{ID: in.id, State: in.state, Port: in.port, PID: in.pid, Err: in.err, Restarts: in.restarts}
+	st := Status{ID: in.id, State: in.state, Port: in.port, PID: in.pid, Err: in.err, Restarts: in.restarts, Owner: in.owner}
 	if in.state == StateRunning || in.state == StateUnresponsive || in.state == StateStopping {
 		if in.port > 0 {
 			st.URL = fmt.Sprintf("http://127.0.0.1:%d%s", in.port, in.entry.UIPath)
@@ -538,7 +543,7 @@ func (s *Supervisor) runOnce(in *instance, port int) (out outcome) {
 	started, _ := store.ProcessStartedAt(cmd.Process.Pid)
 	_ = st.writeRun(in.id, RunInfo{PID: cmd.Process.Pid, Started: started, Port: port, StartedAt: time.Now().UTC(),
 		OwnerPID: s.ownerPID, OwnerStarted: s.ownerStarted})
-	s.set(in, func() { in.port, in.pid = port, cmd.Process.Pid })
+	s.set(in, func() { in.port, in.pid, in.owner = port, cmd.Process.Pid, "" })
 
 	banner := make(chan string, 1)
 	var readers sync.WaitGroup
@@ -656,7 +661,18 @@ ready:
 			}
 		}
 	}
-	s.set(in, func() { in.state, in.err = StateRunning, "" })
+	// The probe above was answered by whatever holds the port. Ask the system
+	// whether that is the helper, since a program that took the port in the gap
+	// after it was chosen can answer for a helper that never bound it.
+	owner := OwnerUnverified
+	switch res, why := checkListenerOwner(port, pg.members()); res {
+	case ownerMismatch:
+		killNow()
+		return outcome{fatal: fmt.Sprintf("port %d is held by something other than %s (%s), so %s was stopped", port, e.Name, why, e.Name)}
+	case ownerVerified:
+		owner = OwnerVerified
+	}
+	s.set(in, func() { in.state, in.err, in.owner = StateRunning, "", owner })
 
 	// 3. Health, until it ends.
 	health := time.NewTicker(s.t.HealthEvery)

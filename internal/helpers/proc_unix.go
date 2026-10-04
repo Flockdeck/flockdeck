@@ -112,3 +112,6 @@ func commandMentions(pid int, dir string) bool {
 func CtrlBreak(pid int) error {
 	return errors.New("CTRL_BREAK is only used on Windows")
 }
+
+// members lists the processes in the helper's group.
+func (g *procGroup) members() []int { return groupMembers(g.pid) }
