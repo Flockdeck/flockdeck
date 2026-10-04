@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/helpers"
 	"github.com/jmwri/flockdeck/internal/spend"
 	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/webui"
@@ -184,6 +185,11 @@ type Server struct {
 	// OnLastClientGone is called when the final window closes, so the
 	// application can decide whether to shut down.
 	OnLastClientGone func()
+	// helperSup and helperInst run and install helper apps; see helpers.go.
+	// Guarded by mu.
+	helperSup  *helpers.Supervisor
+	helperInst *helpers.Installer
+
 	// OnQuit is called when a shutdown is requested from the interface or by
 	// another launch of the binary.
 	OnQuit func()
@@ -364,6 +370,9 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/open", s.handleOpen)
 	mux.HandleFunc("/quit", s.handleQuit)
+	mux.HandleFunc("/helpers/start", s.handleHelperStart)
+	mux.HandleFunc("/helpers/stop", s.handleHelperStop)
+	mux.HandleFunc("/helpers/open", s.handleHelperOpen)
 	mux.HandleFunc("/window", s.handleWindow)
 	mux.HandleFunc("/remote/reload", s.handleRemoteReload)
 	s.mux = mux

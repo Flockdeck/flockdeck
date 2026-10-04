@@ -204,6 +204,22 @@ func main() {
 		return
 	}
 
+	// `helpers` installs and runs helper apps. list, install and uninstall read
+	// the state directory; start, stop and open ask the running instance, which
+	// is what supervises them.
+	if len(os.Args) > 1 && os.Args[1] == "helpers" {
+		if err := runHelpers(os.Args[2:], os.Stdout); err != nil {
+			if errors.Is(err, errHelpAsked) {
+				return
+			}
+			if !errors.Is(err, errReported) {
+				fmt.Fprintln(os.Stderr, "flockdeck helpers:", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
+
 	var c cliFlags
 	fs := flockdeckFlagSet(&c)
 	_ = fs.Parse(os.Args[1:]) // ExitOnError: a bad flag has already ended us
@@ -288,7 +304,7 @@ func helpArgs(rest []string) (args []string, top bool) {
 	switch {
 	case len(rest) == 0:
 		return nil, true
-	case map[string]bool{"spawn": true, "peer-name": true, "close": true, "recordings": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true}[rest[0]]:
+	case map[string]bool{"spawn": true, "peer-name": true, "close": true, "recordings": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
 		return []string{rest[0], "-h"}, false
 	}
 	return nil, true
@@ -415,6 +431,9 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        move this machine to another relay; every device then pairs again\n")
 	fmt.Fprintf(out, "  update [-check] [-version=<release> [-yes]]\n")
 	fmt.Fprintf(out, "        fetch the latest release, or the one named, and put it in place\n")
+	fmt.Fprintf(out, "  helpers list [-check] | install [-version=<version>] [-allow-unsigned] [-yes] <helper>\n")
+	fmt.Fprintf(out, "  helpers start|stop|open <helper> | uninstall [-purge-data] [-yes] <helper>\n")
+	fmt.Fprintf(out, "        install, run and open helper apps such as lens; start, stop and open need Flockdeck running\n")
 	fmt.Fprintf(out, "  help [<subcommand>]\n")
 	fmt.Fprintf(out, "        this usage, or a subcommand's own\n")
 	// These are settings with no flag, so this is the only place a person
@@ -1046,6 +1065,9 @@ func run(opts options) error {
 	ws.SetWake(srv.Wake)
 	ws.SetConversationHook(srv.ConversationHookEvent)
 	ws.SetPaneClosedHook(srv.PaneClosed)
+	// Helper apps: ended if a crashed run left one, and stopped on the way out.
+	beginStoppingHelpers := startHelpers(srv)
+	waitForHelpers := func() {}
 
 	// Bring back the other projects that were open last time, too — see the
 	// comment above the project this run was started on being restored.
@@ -1191,6 +1213,7 @@ func run(opts options) error {
 	// was still at work were the races shutdown exists to avoid, so they wait
 	// for it to have finished, for as long as the shutdown is given at all.
 	stopServing := func() error {
+		waitForHelpers = beginStoppingHelpers()
 		remoteAccess.Close()
 		err := srv.Close()
 		select {
@@ -1205,6 +1228,7 @@ func run(opts options) error {
 	if err := keepOpenProjects(before, ws.Session(), ws.ClosedRoots()); err != nil {
 		shutdownFailed("could not keep the list of open projects", err)
 	}
+	waitForHelpers()
 	close(saved)
 
 	// Once the deferred closes have run, the interface is closed and the panes

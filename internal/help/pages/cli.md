@@ -272,6 +272,40 @@ Set `FLOCKDECK_UPDATE=off` to stop the window checking on its own, and to stop
 an update it has already downloaded being put in place when Flockdeck exits.
 The subcommand still works; it is the background updating that goes.
 
+## helpers
+
+| Command | What it does |
+| --- | --- |
+| `flockdeck helpers list` | Lists the helper apps, what is installed and whether it runs |
+| `flockdeck helpers list -check` | Also looks for a newer version of each |
+| `flockdeck helpers install lens` | Downloads, checks and installs a helper, after asking |
+| `flockdeck helpers install -version=0.4.0 lens` | Installs that version, forward or back |
+| `flockdeck helpers start lens` | Starts it, in the running Flockdeck |
+| `flockdeck helpers open lens` | Opens its page in your browser |
+| `flockdeck helpers stop lens` | Stops it |
+| `flockdeck helpers uninstall lens` | Removes it and keeps its data folder |
+| `flockdeck helpers uninstall -purge-data lens` | Removes it and deletes the data folder too |
+
+A helper app is a small program that Flockdeck downloads, installs in its own
+folder, starts and stops for you. The first one is lens, which reads agent
+session transcripts. A helper is not part of Flockdeck: it runs as you, listens
+on 127.0.0.1 only, gets none of Flockdeck's tokens or API keys in its
+environment, and is not sandboxed.
+
+`install` shows the name, version, source address, signature and what the helper
+may do, and asks first; `-yes` skips the question. The release's checksums are
+checked against Flockdeck's release key, and the archive against the SHA-256 in
+them, before anything is unpacked. A release with no signature is refused unless
+you pass `-allow-unsigned`, which shows the archive's SHA-256 first. That hash
+shows the download matches the checksums file and says nothing about who built
+it, and the choice applies to that one version. A signature that is present and
+wrong is always refused.
+
+`list`, `install` and `uninstall` work without Flockdeck open. `start`, `stop`
+and `open` are done by the running Flockdeck, which watches the helper, restarts
+it if it crashes (three times in five minutes, then it stays stopped) and stops
+it when Flockdeck quits.
+
 ## Environment
 
 | Variable | Effect |

@@ -132,6 +132,7 @@ func TestHelpArgs(t *testing.T) {
 		{[]string{"remote", "pair"}, []string{"remote", "-h"}, false},
 		{[]string{"spawn"}, []string{"spawn", "-h"}, false},
 		{[]string{"peer-name"}, []string{"peer-name", "-h"}, false},
+		{[]string{"helpers", "install"}, []string{"helpers", "-h"}, false},
 		{[]string{"hook"}, nil, true}, // hidden, so not something the usage offers
 		{[]string{"statusline"}, nil, true},
 		{[]string{"nonsense"}, nil, true},
@@ -510,6 +511,9 @@ func cliFlagNames() map[string]bool {
 		recordingsFlagSet(&recordingsFlags{}),
 		exportFlagSet(&exportFlags{}),
 		updateFlagSet(&updateFlags{}),
+		helpersInstallFlagSet(&helpersInstallFlags{}),
+		helpersUninstallFlagSet(&helpersUninstallFlags{}),
+		helpersListFlagSet(&helpersListFlags{}),
 		remoteEnableFlagSet(&remoteEnableFlags{}),
 		remotePairFlagSet(&remotePairFlags{}),
 		remoteDisableFlagSet(&remoteDisableFlags{}),
