@@ -75,6 +75,7 @@ func (r *helperRelease) publish(t *testing.T, version string, sign, badSig bool)
 	defer r.mu.Unlock()
 	for _, base := range []string{"/Flockdeck/lens/releases/download/v" + version + "/", "/Flockdeck/lens/releases/latest/download/"} {
 		r.files[base+"checksums.txt"] = sums
+		delete(r.files, base+"checksums.txt.sig")
 		if sign {
 			signed := sums
 			if badSig {
@@ -427,5 +428,25 @@ func TestUsageNamesEveryHelpersFlag(t *testing.T) {
 		if !strings.Contains(buf.String(), name) {
 			t.Errorf("the usage does not mention %q", name)
 		}
+	}
+}
+
+// A helper that was installed from a signed release is never downgraded to an
+// unsigned one, with or without -allow-unsigned.
+func TestHelpersInstallRefusesAnUnsignedReleaseAfterASignedOne(t *testing.T) {
+	r := newCLIRig(t)
+	r.rel.publish(t, "0.4.0", true, false)
+	if err := r.run("install", "-yes", "lens"); err != nil {
+		t.Fatal(err)
+	}
+	r.rel.publish(t, "0.5.0", false, false)
+	for _, args := range [][]string{{"install", "-yes", "lens"}, {"install", "-allow-unsigned", "-yes", "lens"}} {
+		err := r.run(args...)
+		if err == nil || !strings.Contains(err.Error(), "earlier version of it that you installed was signed") || !strings.Contains(err.Error(), "does not apply") {
+			t.Fatalf("%v: err = %v", args, err)
+		}
+	}
+	if v, _ := r.store.Current("lens"); v != "0.4.0" {
+		t.Fatalf("current = %q", v)
 	}
 }

@@ -197,6 +197,9 @@ func (in *Installer) Plan(ctx context.Context, id, version string) (*Plan, error
 		return nil, fmt.Errorf("the checksums at v%s are for %s, not for %s", version, got, version)
 	}
 	installed, _ := in.store.Current(e.ID)
+	if err := in.store.checkSignedRequired(e, got, signed); err != nil {
+		return nil, err
+	}
 	if err := checkVersion(e, got, installed, version != ""); err != nil {
 		return nil, err
 	}
@@ -270,6 +273,9 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 	if !validID(id) || !validVersion(p.Version) {
 		return nil, fmt.Errorf("refusing to install %q %q", id, p.Version)
 	}
+	if err := st.checkSignedRequired(e, p.Version, p.Signed); err != nil {
+		return nil, err
+	}
 	if in.busy != nil && in.busy(id) {
 		return nil, ErrBusy
 	}
@@ -317,7 +323,11 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 	if err := setModes(built, e.BinaryName(in.goos)); err != nil {
 		return nil, err
 	}
-	info := InstallInfo{Version: p.Version, Source: p.URL, SHA256: p.SHA256, Signed: p.Signed, InstalledAt: in.now().UTC()}
+	binSum, err := fileSHA256(filepath.Join(built, e.BinaryName(in.goos)))
+	if err != nil {
+		return nil, err
+	}
+	info := InstallInfo{Version: p.Version, Source: p.URL, SHA256: p.SHA256, BinarySHA256: binSum, Signed: p.Signed, InstalledAt: in.now().UTC()}
 	data, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
 		return nil, err
@@ -368,6 +378,11 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 		// pointer back so the failure leaves the old version current.
 		in.restoreCurrent(id, previous)
 		return nil, err
+	}
+	if info.Signed {
+		// Best effort: a signed install that cannot write this has still
+		// installed, and the record is what keeps it from being downgraded.
+		_ = st.markSigned(id, p.Version)
 	}
 	in.prune(id, p.Version, previous)
 	return &info, nil

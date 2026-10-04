@@ -271,12 +271,16 @@ func (s *site) release(t *testing.T, e Entry, r releaseSpec) (archive []byte, su
 	}
 	if sig != nil {
 		s.put(base+"checksums.txt.sig", sig)
+	} else {
+		s.remove(base + "checksums.txt.sig")
 	}
 	if r.latest {
 		latest := "/" + e.Repo + "/releases/latest/download/"
 		s.put(latest+"checksums.txt", sums)
 		if sig != nil {
 			s.put(latest+"checksums.txt.sig", sig)
+		} else {
+			s.remove(latest + "checksums.txt.sig")
 		}
 	}
 	return archive, sums

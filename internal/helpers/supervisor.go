@@ -240,6 +240,9 @@ func (s *Supervisor) Start(id string) (Status, error) {
 	if _, ok := st.Current(id); !ok {
 		return Status{}, fmt.Errorf("%s is not installed; run: flockdeck helpers install %s", e.Name, id)
 	}
+	if err := st.VerifyInstall(e, s.goos); err != nil {
+		return Status{}, err
+	}
 	s.mu.Lock()
 	if in, ok := s.insts[id]; ok {
 		switch in.state {
@@ -459,6 +462,10 @@ func (s *Supervisor) runOnce(in *instance, port int) (out outcome) {
 	st, e := s.cfg.Store, in.entry
 	bin, err := st.BinaryPath(e, s.goos)
 	if err != nil {
+		return outcome{fatal: err.Error()}
+	}
+	// Again on every run, restarts included: the files can change between.
+	if err := st.VerifyInstall(e, s.goos); err != nil {
 		return outcome{fatal: err.Error()}
 	}
 	vars := EnvVars{Port: port, Host: "127.0.0.1", DataDir: st.DataDir(in.id), AllowedHosts: "127.0.0.1"}

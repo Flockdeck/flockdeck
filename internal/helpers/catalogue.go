@@ -24,6 +24,13 @@ type Entry struct {
 	// Binary is the executable's file name inside the archive's folder, without
 	// the ".exe" Windows adds.
 	Binary string
+	// RequireSigned makes an unsigned release of this helper impossible to
+	// install, with no override. It is false for lens only while lens has no
+	// signed release. TODO(owner): set it true for lens in the release that
+	// first ships signed; until then the first unsigned install can be
+	// overridden once, and after any signed install the Store refuses unsigned
+	// releases anyway (see EverSigned).
+	RequireSigned bool
 	// MinVersion is the oldest version that is ever installed, even when
 	// signed. It is how a release found to be bad is shut out after the fact.
 	MinVersion string
@@ -92,11 +99,16 @@ func (e Entry) maxFiles() int {
 
 // lens is the one helper there is. See https://github.com/Flockdeck/lens.
 var lens = Entry{
-	ID:         "lens",
-	Name:       "lens",
-	Summary:    "Reads agent session transcripts and shows what they did, in a page on your own machine.",
-	Repo:       "Flockdeck/lens",
-	Binary:     "lens",
+	ID:      "lens",
+	Name:    "lens",
+	Summary: "Reads agent session transcripts and shows what they did, in a page on your own machine.",
+	Repo:    "Flockdeck/lens",
+	Binary:  "lens",
+	// TODO(owner): "0.1.0" is a placeholder, not a decision. Set MinVersion to
+	// the first release that is safe to run, and raise it in the same Flockdeck
+	// release as every security fix to lens. A signature proves who built a
+	// file, not that it is the newest: an old signed release with a known flaw
+	// can be served again, and MinVersion is the only thing here that refuses it.
 	MinVersion: "0.1.0",
 	Args:       []string{"serve", "--host", "127.0.0.1", "--port", "{port}"},
 	Env: map[string]string{

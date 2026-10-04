@@ -207,7 +207,8 @@ func (s *Server) helperPlan(c *controlClient, id, version string) {
 		plan, err := inst.Plan(ctx, id, version)
 		if err != nil {
 			var sig *helpers.SignatureError
-			c.sendJSON(helperPlanMsg{Type: "helperPlan", ID: id, Error: planError(err), Fatal: errors.As(err, &sig)})
+			var required *helpers.SignedRequiredError
+			c.sendJSON(helperPlanMsg{Type: "helperPlan", ID: id, Error: planError(err), Fatal: errors.As(err, &sig) || errors.As(err, &required)})
 			return
 		}
 		c.sendJSON(helperPlanMsg{

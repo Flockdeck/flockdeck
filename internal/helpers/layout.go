@@ -56,11 +56,14 @@ func (s *Store) LogFile(id string) string { return s.logFile(id) }
 
 // InstallInfo is what install.json records about a version.
 type InstallInfo struct {
-	Version     string    `json:"version"`
-	Source      string    `json:"source"`
-	SHA256      string    `json:"sha256"`
-	Signed      bool      `json:"signed"`
-	InstalledAt time.Time `json:"installedAt"`
+	Version string `json:"version"`
+	Source  string `json:"source"`
+	SHA256  string `json:"sha256"`
+	// BinarySHA256 is the unpacked program's own hash, checked before every
+	// start.
+	BinarySHA256 string    `json:"binarySha256"`
+	Signed       bool      `json:"signed"`
+	InstalledAt  time.Time `json:"installedAt"`
 }
 
 type currentFile struct {
@@ -205,7 +208,10 @@ func (s *Store) Uninstall(id string, purge bool) error {
 			}
 		}
 	}
+	// trust.json stays: an uninstall does not make an unsigned release of a
+	// helper that was signed acceptable. Deleting the data does.
 	if purge {
+		_ = os.Remove(s.trustFile(id))
 		return s.PurgeData(id)
 	}
 	// An empty folder with nothing in it is not worth leaving.

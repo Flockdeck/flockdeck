@@ -300,3 +300,26 @@ func TestHelperUninstallKeepsDataUnlessAsked(t *testing.T) {
 		t.Fatal("a purge left the data")
 	}
 }
+
+func TestHelperInstallRefusesAnUnsignedReleaseAfterASignedOne(t *testing.T) {
+	r := newUIRig(t)
+	sha := r.publish(t, "0.4.0", true, false)
+	c := &controlClient{out: make(chan []byte, 32)}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
+	notices(c, 3*time.Second)
+	sha = r.publish(t, "0.5.0", false, false)
+
+	r.send(c, command{Cmd: "helperPlan", ID: "lens"})
+	m := next(t, c, "helperPlan")
+	if m["fatal"] != true || !strings.Contains(m["error"].(string), "earlier version") {
+		t.Fatalf("plan = %v", m)
+	}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.5.0", SHA256: sha, Confirmed: true, Unsigned: true})
+	got := notices(c, 2*time.Second)
+	if !strings.Contains(strings.Join(got, "|"), "earlier version") {
+		t.Fatalf("notices = %v", got)
+	}
+	if v, _ := r.store.Current("lens"); v != "0.4.0" {
+		t.Fatalf("current = %q", v)
+	}
+}

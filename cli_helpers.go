@@ -353,11 +353,14 @@ func (c *helperCLI) install(id string, f helpersInstallFlags) error {
 // explainInstall puts an install failure in words for a person.
 func (c *helperCLI) explainInstall(e helpers.Entry, err error) error {
 	var sig *helpers.SignatureError
+	var required *helpers.SignedRequiredError
 	var arch *helpers.ArchiveError
 	var sum *helpers.ChecksumError
 	switch {
 	case errors.As(err, &sig):
 		return fmt.Errorf("%w\nNothing was installed, and this cannot be overridden: a signature that is there and wrong means the release is not what it claims to be", err)
+	case errors.As(err, &required):
+		return fmt.Errorf("%w\nNothing was installed, and -allow-unsigned does not apply to this", err)
 	case errors.As(err, &sum), errors.As(err, &arch):
 		return fmt.Errorf("%w\nNothing was installed.", err)
 	case errors.Is(err, helpers.ErrNoAsset):

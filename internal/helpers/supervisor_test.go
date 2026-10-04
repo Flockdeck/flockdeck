@@ -77,6 +77,14 @@ func installFake(t *testing.T, st *Store, e Entry, goos string) {
 			t.Fatal(err)
 		}
 	}
+	sum, err := fileSHA256(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := `{"version":"0.0.1","binarySha256":"` + sum + `","signed":true}`
+	if err := os.WriteFile(filepath.Join(dir, "install.json"), []byte(info), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(st.currentFile(e.ID), []byte(`{"version":"0.0.1"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -788,5 +796,54 @@ func TestReaperWithoutAStartTimeChecksTheCommand(t *testing.T) {
 	}
 	if processGone(other) {
 		t.Fatal("an unrelated process was killed")
+	}
+}
+
+// A program changed since it was installed is not started, and the refusal
+// says what to do. The file is replaced rather than written into, since the
+// test copy is a hard link to the test binary.
+func TestStartRefusesAChangedProgram(t *testing.T) {
+	f := newSupFixture(t, []Entry{fakeEntry("lens")})
+	bin, _ := f.store.BinaryPath(fakeEntry("lens"), runtime.GOOS)
+	if err := os.Remove(bin); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("something else"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := f.sup.Start("lens")
+	if err == nil || !strings.Contains(err.Error(), "changed since it was installed") || !strings.Contains(err.Error(), "reinstall") {
+		t.Fatalf("err = %v", err)
+	}
+	if st := f.sup.Status("lens"); st.State != StateStopped {
+		t.Fatalf("state = %s", st.State)
+	}
+}
+
+// The check is made again for every run, restarts included: a program swapped
+// while the helper was running is not what a restart starts.
+func TestARestartRefusesAProgramChangedWhileRunning(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "runs")
+	f := newSupFixture(t, []Entry{fakeEntry("lens", "--mode", "crash-once", "--after", "100ms", "--state", state)})
+	bin, _ := f.store.BinaryPath(fakeEntry("lens"), runtime.GOOS)
+	if _, err := f.sup.Start("lens"); err != nil {
+		t.Fatal(err)
+	}
+	// Replace the file as soon as the first run is up. On Windows a running
+	// program cannot be deleted, but it can be renamed away.
+	eventually(t, "the first run", 30*time.Second, func() bool { return f.sup.Status("lens").State == StateRunning })
+	moved := bin + ".old"
+	if err := os.Rename(bin, moved); err != nil {
+		t.Skipf("cannot move a running program here: %v", err)
+	}
+	if err := os.WriteFile(bin, []byte("something else"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the restart to be refused", 30*time.Second, func() bool {
+		st := f.sup.Status("lens")
+		return st.State == StateFailed && strings.Contains(st.Err, "changed since it was installed")
+	})
+	if n := countLines(state); n != 1 {
+		t.Fatalf("the helper ran %d times", n)
 	}
 }
