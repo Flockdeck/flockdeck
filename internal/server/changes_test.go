@@ -382,6 +382,7 @@ func TestPanesPerPathCreditsTheDeepestWorktree(t *testing.T) {
 // summaries alone while no window is open: opening one has to bring them up to
 // date, well inside the fifteen second polling interval.
 func TestConnectingAWindowRefreshesGit(t *testing.T) {
+	noGitPoll(t)
 	srv, _, repo := newRepoServer(t)
 
 	// Let the refresh made shortly after startup land first, so what follows
@@ -392,7 +393,6 @@ func TestConnectingAWindowRefreshesGit(t *testing.T) {
 	}
 
 	conn := dialControl(t, srv)
-	start := time.Now()
 	nextState(t, conn, func(s stateMsg) bool {
 		for _, p := range s.Panes {
 			if p.Untracked > 0 {
@@ -401,11 +401,18 @@ func TestConnectingAWindowRefreshesGit(t *testing.T) {
 		}
 		return false
 	})
-	// Anything near the polling interval means the refresh was the next tick
-	// coming round rather than the connection asking for one.
-	if elapsed := time.Since(start); elapsed > gitStatusInterval/2 {
-		t.Errorf("the window waited %v for its git summary, want a refresh on connect", elapsed)
-	}
+}
+
+// noGitPoll makes the git loop's poll too slow to come round during a test, so
+// that a summary that settles was refreshed because something asked for it. How
+// long it took is no measure of that: git on a busy runner took nine seconds
+// to commit, and a test that called anything near the polling interval a poll
+// failed on the machine and not on the code.
+func noGitPoll(t *testing.T) {
+	t.Helper()
+	old := gitStatusInterval
+	gitStatusInterval = time.Hour
+	t.Cleanup(func() { gitStatusInterval = old })
 }
 
 // TestReviewFromASubdirectoryDiffsTheRightFile covers where panes actually
@@ -458,13 +465,19 @@ func TestReviewFromASubdirectoryDiffsTheRightFile(t *testing.T) {
 // branch have to settle down once the work has been committed, without waiting
 // for the polling interval to come round.
 func TestCommitRefreshesThePaneHeaders(t *testing.T) {
+	noGitPoll(t)
 	srv, _, repo := newRepoServer(t)
+	// Let the refresh made shortly after startup land first: one that came
+	// after the commit would settle the headers by itself.
+	time.Sleep(1500 * time.Millisecond)
 	conn := dialControl(t, srv)
 	nextState(t, conn, nil)
 
 	if err := os.WriteFile(filepath.Join(repo, "added.go"), []byte("package main\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// The poll is out of reach, so the headers are read when asked to.
+	srv.RefreshGitNow()
 	dirty := func(s stateMsg) bool {
 		for _, p := range s.Panes {
 			if p.Dirty > 0 || p.Untracked > 0 {
@@ -476,11 +489,7 @@ func TestCommitRefreshesThePaneHeaders(t *testing.T) {
 	nextState(t, conn, dirty)
 
 	sendCmd(t, conn, command{Cmd: "commit", Path: repo, Text: "keep it"})
-	start := time.Now()
 	nextState(t, conn, func(s stateMsg) bool { return !dirty(s) })
-	if elapsed := time.Since(start); elapsed > gitStatusInterval/2 {
-		t.Errorf("the pane headers took %v to settle, want a refresh on commit", elapsed)
-	}
 }
 
 // TestRemovingAWorktreeWithOpenPanesIsRefused covers the destructive half of

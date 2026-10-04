@@ -132,6 +132,10 @@ type Server struct {
 	// goroutine.
 	gitShown string
 	gitAllAt time.Time
+	// gitEvery is gitStatusInterval as it was when this server was made, so
+	// that a test can set the package's and have no goroutine of an earlier
+	// server read it.
+	gitEvery time.Duration
 
 	// loopDone is closed when the workspace goroutine returns. See Stopped.
 	loopDone chan struct{}
@@ -339,6 +343,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		saveInterval:  layoutSaveInterval,
 		pingInterval:  pingInterval,
 		pingTimeout:   pingTimeout,
+		gitEvery:      gitStatusInterval,
 		conversations: allConversations,
 		book:          spend.NewBook(),
 		convos:        newConversationHub(),
@@ -646,8 +651,9 @@ func (s *Server) holdTurn(asked bool, last time.Time) bool {
 }
 
 // gitStatusInterval is how often each pane's checkout is re-examined. Git is
-// cheap here but not free, and uncommitted work does not appear that fast.
-const gitStatusInterval = 15 * time.Second
+// cheap here but not free, and uncommitted work does not appear that fast. It
+// is a variable so that a test can make the poll too slow to be what it sees.
+var gitStatusInterval = 15 * time.Second
 
 // RefreshGitNow asks the git loop to re-examine the checkouts straight away.
 // It is safe to call from any goroutine and never blocks; a request made while
@@ -668,7 +674,7 @@ func (s *Server) RefreshGitNow() {
 // checkout was stuck. The workspace does not ask about a checkout still being
 // read, so refreshes that overlap do not pile git processes onto the slow one.
 func (s *Server) gitLoop() {
-	tick := time.NewTicker(gitStatusInterval)
+	tick := time.NewTicker(s.gitEvery)
 	defer tick.Stop()
 	// Fill them in shortly after startup rather than making the first window
 	// wait fifteen seconds for a branch label.
