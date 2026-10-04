@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/selfupdate"
@@ -64,6 +65,8 @@ type Installer struct {
 	now          func() time.Time
 	hook         func(string) error
 	lookup       func(string) (Entry, bool)
+	mu           sync.Mutex
+	installing   map[string]bool
 }
 
 // NewInstaller makes an Installer from options.
@@ -95,6 +98,35 @@ func NewInstaller(o Options) *Installer {
 	}
 	in.client = newClient(in.allow)
 	return in
+}
+
+// begin marks an install of id as under way, and reports false if one already
+// is. end clears it.
+func (in *Installer) begin(id string) bool {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	if in.installing == nil {
+		in.installing = map[string]bool{}
+	}
+	if in.installing[id] {
+		return false
+	}
+	in.installing[id] = true
+	return true
+}
+
+func (in *Installer) end(id string) {
+	in.mu.Lock()
+	delete(in.installing, id)
+	in.mu.Unlock()
+}
+
+// Installing reports whether an install of the helper is under way in this
+// process. A start and an uninstall are refused while it is.
+func (in *Installer) Installing(id string) bool {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	return in.installing[id]
 }
 
 // Store is the apps directory the installer writes to.
@@ -273,9 +305,16 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 	if !validID(id) || !validVersion(p.Version) {
 		return nil, fmt.Errorf("refusing to install %q %q", id, p.Version)
 	}
+	if _, known := in.lookup(id); !known {
+		return nil, fmt.Errorf("%q is not a helper Flockdeck knows", id)
+	}
 	if err := st.checkSignedRequired(e, p.Version, p.Signed); err != nil {
 		return nil, err
 	}
+	if !in.begin(id) {
+		return nil, fmt.Errorf("%w: it is already being installed", ErrBusy)
+	}
+	defer in.end(id)
 	if in.busy != nil && in.busy(id) {
 		return nil, ErrBusy
 	}

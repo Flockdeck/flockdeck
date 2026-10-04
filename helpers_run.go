@@ -27,9 +27,14 @@ func startHelpers(srv *server.Server) (begin func() (wait func())) {
 		fmt.Fprintln(os.Stderr, "flockdeck: helper apps are off:", err)
 		return noop
 	}
+	// The supervisor refuses a start while an install is under way, and the
+	// installer refuses to install over a helper that is running, so each needs
+	// the other: the installer is filled in below.
+	var installer *helpers.Installer
 	sup := helpers.NewSupervisor(helpers.Config{
-		Store:  st,
-		Notify: func(helpers.Status) { srv.HelperChanged() },
+		Store:       st,
+		InstallBusy: func(id string) bool { return installer != nil && installer.Installing(id) },
+		Notify:      func(helpers.Status) { srv.HelperChanged() },
 		// A record naming a live process may be another Flockdeck's helper
 		// (-solo starts a second instance on purpose), so nothing is reaped
 		// while one is running.
@@ -42,7 +47,8 @@ func startHelpers(srv *server.Server) (begin func() (wait func())) {
 	for _, e := range helpers.Catalogue() {
 		st.SweepStaging(e.ID, time.Now())
 	}
-	srv.SetHelpers(sup, helpers.NewInstaller(helpers.Options{Store: st, Busy: sup.Active}))
+	installer = helpers.NewInstaller(helpers.Options{Store: st, Busy: sup.Active})
+	srv.SetHelpers(sup, installer)
 	return func() func() {
 		done := make(chan struct{})
 		go func() {

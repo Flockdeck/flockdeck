@@ -63,6 +63,10 @@ func (s *Server) helperAction(w http.ResponseWriter, r *http.Request) (*helpers.
 		http.Error(w, "no helper named", http.StatusBadRequest)
 		return nil, "", false
 	}
+	if _, known := helpers.Lookup(id); !known {
+		http.Error(w, "not a helper Flockdeck knows", http.StatusBadRequest)
+		return nil, "", false
+	}
 	return sup, id, true
 }
 
@@ -74,6 +78,10 @@ func writeStatus(w http.ResponseWriter, st helpers.Status) {
 func (s *Server) handleHelperStart(w http.ResponseWriter, r *http.Request) {
 	sup, id, ok := s.helperAction(w, r)
 	if !ok {
+		return
+	}
+	if s.helperInstalling(id) {
+		http.Error(w, "that helper is being installed; wait for that to finish", http.StatusConflict)
 		return
 	}
 	if _, err := sup.Start(id); err != nil {

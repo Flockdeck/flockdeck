@@ -158,6 +158,26 @@ func (s *Server) helperDeskOnly(c *controlClient) bool {
 	return true
 }
 
+// helperDeskOnlyFor is helperDeskOnly for a command that names a helper, which
+// has to be one in the catalogue: an id that merely looks like one is never
+// turned into a path or a process.
+func (s *Server) helperDeskOnlyFor(c *controlClient, id string) bool {
+	if !s.helperDeskOnly(c) {
+		return false
+	}
+	if _, ok := helpers.Lookup(id); !ok {
+		c.notify("That is not a helper Flockdeck knows", true)
+		return false
+	}
+	return true
+}
+
+// helperInstalling reports whether an install of a helper is under way.
+func (s *Server) helperInstalling(id string) bool {
+	_, inst := s.helperSupervisor()
+	return s.helperUI.isBusy(id) || (inst != nil && inst.Installing(id))
+}
+
 const helperNetworkWait = 30 * time.Minute
 
 // helpersList answers the dialog being opened, then looks for newer versions
@@ -196,7 +216,7 @@ func (s *Server) helpersList(c *controlClient) {
 // helperPlan fetches and checks a release and sends what installing it would
 // do. Nothing is downloaded but two small files, and nothing is written.
 func (s *Server) helperPlan(c *controlClient, id, version string) {
-	if !s.helperDeskOnly(c) {
+	if !s.helperDeskOnlyFor(c, id) {
 		return
 	}
 	_, inst := s.helperSupervisor()
@@ -238,7 +258,7 @@ func planError(err error) string {
 // version with the same archive hash. An unsigned one goes ahead only when the
 // window says the override was chosen.
 func (s *Server) helperInstall(c *controlClient, cmd command) {
-	if !s.helperDeskOnly(c) {
+	if !s.helperDeskOnlyFor(c, cmd.ID) {
 		return
 	}
 	if !cmd.Confirmed {
@@ -288,10 +308,14 @@ func (s *Server) helperInstall(c *controlClient, cmd command) {
 }
 
 func (s *Server) helperStart(c *controlClient, id string) {
-	if !s.helperDeskOnly(c) {
+	if !s.helperDeskOnlyFor(c, id) {
 		return
 	}
 	sup, _ := s.helperSupervisor()
+	if s.helperInstalling(id) {
+		c.notify("That helper is being installed; wait for that to finish", true)
+		return
+	}
 	if _, err := sup.Start(id); err != nil {
 		c.notify(err.Error(), true)
 	}
@@ -299,7 +323,7 @@ func (s *Server) helperStart(c *controlClient, id string) {
 }
 
 func (s *Server) helperStop(c *controlClient, id string) {
-	if !s.helperDeskOnly(c) {
+	if !s.helperDeskOnlyFor(c, id) {
 		return
 	}
 	sup, _ := s.helperSupervisor()
@@ -311,7 +335,7 @@ func (s *Server) helperStop(c *controlClient, id string) {
 }
 
 func (s *Server) helperOpen(c *controlClient, id string) {
-	if !s.helperDeskOnly(c) {
+	if !s.helperDeskOnlyFor(c, id) {
 		return
 	}
 	sup, _ := s.helperSupervisor()
@@ -326,10 +350,14 @@ func (s *Server) helperOpen(c *controlClient, id string) {
 }
 
 func (s *Server) helperUninstall(c *controlClient, id string, purge bool) {
-	if !s.helperDeskOnly(c) {
+	if !s.helperDeskOnlyFor(c, id) {
 		return
 	}
 	sup, inst := s.helperSupervisor()
+	if s.helperInstalling(id) {
+		c.notify("That helper is being installed; wait for that to finish", true)
+		return
+	}
 	if sup.Active(id) {
 		c.notify("Stop the helper before removing it", true)
 		return

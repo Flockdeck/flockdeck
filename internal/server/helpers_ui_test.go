@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -317,6 +318,87 @@ func TestHelperInstallRefusesAnUnsignedReleaseAfterASignedOne(t *testing.T) {
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.5.0", SHA256: sha, Confirmed: true, Unsigned: true})
 	got := notices(c, 2*time.Second)
 	if !strings.Contains(strings.Join(got, "|"), "earlier version") {
+		t.Fatalf("notices = %v", got)
+	}
+	if v, _ := r.store.Current("lens"); v != "0.4.0" {
+		t.Fatalf("current = %q", v)
+	}
+}
+
+// A helper id is one of the catalogue's, not anything that merely looks like
+// one: the others are refused before they become a path or a process.
+func TestHelperCommandsOnlyTakeCatalogueIDs(t *testing.T) {
+	r := newUIRig(t)
+	other := filepath.Join(r.store.Root, "nope")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	keep := filepath.Join(other, "data.txt")
+	if err := os.WriteFile(keep, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"nope", "../nope", "LENS", "lens/..", "lens ", "", "lens\x00"} {
+		for _, cmd := range []command{
+			{Cmd: "helperPlan", ID: id}, {Cmd: "helperInstall", ID: id, Confirmed: true}, {Cmd: "helperStart", ID: id},
+			{Cmd: "helperStop", ID: id}, {Cmd: "helperOpen", ID: id}, {Cmd: "helperUninstall", ID: id},
+			{Cmd: "helperUninstall", ID: id, Purge: true},
+		} {
+			c := &controlClient{out: make(chan []byte, 16)}
+			r.send(c, cmd)
+			got := notices(c, 150*time.Millisecond)
+			if len(got) != 1 || !strings.Contains(got[0], "not a helper Flockdeck knows") {
+				t.Errorf("%s %q: notices %v", cmd.Cmd, id, got)
+			}
+		}
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatalf("a folder that is not a helper's was touched: %v", err)
+	}
+	// And the endpoints.
+	srv := helperServer(t)
+	for _, action := range []string{"start", "stop", "open"} {
+		if code, _ := postHelper(t, srv.BaseURL()+"/helpers/"+action+"?t="+srv.Token()+"&id=..%2Fnope", nil); code != http.StatusBadRequest {
+			t.Errorf("%s with a bad id: %d", action, code)
+		}
+	}
+}
+
+// While an install is under way the helper cannot be started or removed.
+func TestAHelperBeingInstalledCannotBeStartedOrRemoved(t *testing.T) {
+	r := newUIRig(t)
+	if !r.srv.helperUI.setBusy("lens", true) {
+		t.Fatal("setBusy")
+	}
+	c := &controlClient{out: make(chan []byte, 16)}
+	for _, cmd := range []command{{Cmd: "helperStart", ID: "lens"}, {Cmd: "helperUninstall", ID: "lens"}, {Cmd: "helperUninstall", ID: "lens", Purge: true}} {
+		r.send(c, cmd)
+		got := notices(c, 150*time.Millisecond)
+		if len(got) != 1 || !strings.Contains(got[0], "being installed") {
+			t.Errorf("%s: notices %v", cmd.Cmd, got)
+		}
+	}
+	if code, body := postHelper(t, r.srv.BaseURL()+"/helpers/start?t="+r.srv.Token()+"&id=lens", nil); code != http.StatusConflict || !strings.Contains(body, "being installed") {
+		t.Errorf("the endpoint: %d %q", code, body)
+	}
+	r.srv.helperUI.setBusy("lens", false)
+}
+
+// An install is refused while the helper runs or is starting, and says to stop
+// it first.
+func TestAnInstallIsRefusedWhileTheHelperIsActive(t *testing.T) {
+	r := newUIRig(t)
+	sha := r.publish(t, "0.4.0", true, false)
+	c := &controlClient{out: make(chan []byte, 32)}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
+	notices(c, 3*time.Second)
+	// A start under way: the record exists from the first moment.
+	if err := r.store.WriteStartingForTest("lens"); err != nil {
+		t.Fatal(err)
+	}
+	sha = r.publish(t, "0.5.0", true, false)
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.5.0", SHA256: sha, Confirmed: true})
+	got := notices(c, 2*time.Second)
+	if !strings.Contains(strings.Join(got, "|"), "running") {
 		t.Fatalf("notices = %v", got)
 	}
 	if v, _ := r.store.Current("lens"); v != "0.4.0" {

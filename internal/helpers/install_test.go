@@ -500,3 +500,57 @@ func TestDefaultUnpackedLimit(t *testing.T) {
 		t.Fatalf("the default limit is %d", lens.maxUnpacked())
 	}
 }
+
+// A second install of a helper while one is under way is refused, and
+// Installing says so for the callers that must not start or remove it.
+func TestOnlyOneInstallOfAHelperAtATime(t *testing.T) {
+	hold, release := make(chan struct{}), make(chan struct{})
+	f := newFixture(t, func(o *Options) {
+		o.Hook = func(stage string) error {
+			if stage == "downloaded" {
+				close(hold)
+				<-release
+			}
+			return nil
+		}
+	})
+	f.publish("0.4.0")
+	done := make(chan error, 1)
+	go func() { _, err := f.install(""); done <- err }()
+	<-hold
+	if !f.in.Installing("lens") {
+		t.Fatal("Installing is false during an install")
+	}
+	plan := &Plan{Entry: f.entry, Version: "0.4.0", SHA256: strings.Repeat("a", 64), Signed: true}
+	if _, err := f.in.InstallPlan(t.Context(), plan); !errors.Is(err, ErrBusy) {
+		t.Fatalf("a second install: %v", err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if f.in.Installing("lens") {
+		t.Fatal("Installing is still true after the install")
+	}
+}
+
+// Ids that are not the catalogue's are never uninstalled or purged, even when
+// they look like a helper's folder name.
+func TestUninstallAndPurgeOnlyTakeCatalogueIDs(t *testing.T) {
+	s := &Store{Root: t.TempDir()}
+	other := filepath.Join(s.Root, "other-helper")
+	if err := os.MkdirAll(filepath.Join(other, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"other-helper", "../x", "", "LENS"} {
+		if err := s.Uninstall(id, true); err == nil {
+			t.Errorf("Uninstall(%q) was accepted", id)
+		}
+		if err := s.PurgeData(id); err == nil {
+			t.Errorf("PurgeData(%q) was accepted", id)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(other, "data")); err != nil {
+		t.Fatalf("a folder that is not a helper's was removed: %v", err)
+	}
+}

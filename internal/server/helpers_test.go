@@ -82,7 +82,7 @@ func TestHelperEndpointsWithTheToken(t *testing.T) {
 	if code, body := postHelper(t, url("start", "lens"), nil); code != http.StatusConflict || !strings.Contains(body, "not installed") {
 		t.Errorf("start of a helper that is not installed: %d %q", code, body)
 	}
-	if code, body := postHelper(t, url("start", "nope"), nil); code != http.StatusConflict || !strings.Contains(body, "not a helper") {
+	if code, body := postHelper(t, url("start", "nope"), nil); code != http.StatusBadRequest || !strings.Contains(body, "not a helper") {
 		t.Errorf("start of an unknown helper: %d %q", code, body)
 	}
 	if code, body := postHelper(t, url("open", "lens"), nil); code != http.StatusConflict || !strings.Contains(body, "not running") {

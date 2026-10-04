@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"testing"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/store"
@@ -112,4 +113,14 @@ func (s *Store) RunningPID(id string) (int, bool) {
 		return 0, false
 	}
 	return r.PID, true
+}
+
+// WriteStartingForTest writes the record of a start under way, owned by this
+// process, for tests of other packages that need a helper that is starting.
+func (s *Store) WriteStartingForTest(id string) error {
+	if !testing.Testing() {
+		panic("helpers: WriteStartingForTest is for tests only")
+	}
+	started, _ := store.ProcessStartedAt(os.Getpid())
+	return s.writeRun(id, RunInfo{Starting: true, OwnerPID: os.Getpid(), OwnerStarted: started})
 }

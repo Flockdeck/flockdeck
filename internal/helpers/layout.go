@@ -184,7 +184,7 @@ func (s *Store) SweepStaging(id string, now time.Time) int {
 // leaves data/. With purge it removes data/ too. It refuses while the helper
 // is running.
 func (s *Store) Uninstall(id string, purge bool) error {
-	if !validID(id) {
+	if _, known := Lookup(id); !known || !validID(id) {
 		return fmt.Errorf("%q is not a helper", id)
 	}
 	if pid, ok := s.RunningPID(id); ok {
@@ -223,7 +223,7 @@ func (s *Store) Uninstall(id string, purge bool) error {
 // is never a path the helper reported. A data folder that is a link or a
 // junction is refused: removing what it points at is not this function's job.
 func (s *Store) PurgeData(id string) error {
-	if !validID(id) {
+	if _, known := Lookup(id); !known || !validID(id) {
 		return fmt.Errorf("%q is not a helper", id)
 	}
 	if pid, ok := s.RunningPID(id); ok {
