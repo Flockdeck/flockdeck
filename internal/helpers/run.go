@@ -193,14 +193,17 @@ func (s *Store) RunningPID(id string) (int, bool) {
 	return r.PID, true
 }
 
-// WriteStartingForTest writes the record of a start under way, owned by this
-// process, for tests of other packages that need a helper that is starting.
+// WriteStartingForTest writes the record of a start under way, owned by another
+// live process (this one's parent), for tests of other packages that need a
+// helper that something else is starting. A record owned by this process would
+// not count: see bindOwner.
 func (s *Store) WriteStartingForTest(id string) error {
 	if !testing.Testing() {
 		panic("helpers: WriteStartingForTest is for tests only")
 	}
-	started, _ := store.ProcessStartedAt(os.Getpid())
-	return s.writeRun(id, RunInfo{Starting: true, OwnerPID: os.Getpid(), OwnerStarted: started})
+	owner := os.Getppid()
+	started, _ := store.ProcessStartedAt(owner)
+	return s.writeRun(id, RunInfo{Starting: true, OwnerPID: owner, OwnerStarted: started})
 }
 
 // sendCtrlBreak is CtrlBreak. A variable so a test does not send one.

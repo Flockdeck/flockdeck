@@ -18,8 +18,10 @@ type failingRemove struct {
 
 func (f *failingRemove) set(v bool) { f.mu.Lock(); f.fail = v; f.mu.Unlock() }
 
+func (f *failingRemove) attempts() int { f.mu.Lock(); defer f.mu.Unlock(); return f.n }
+
 func (f *failingRemove) install(t *testing.T) {
-	f.fail = true
+	f.set(true)
 	h := func(path string) error {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -128,7 +130,7 @@ func TestARecordThatCannotBeRemovedBlocksNothing(t *testing.T) {
 	if !left || !r.Starting {
 		t.Fatalf("the test did not leave a record behind: %+v, %v", r, left)
 	}
-	if rm.n == 0 {
+	if rm.attempts() == 0 {
 		t.Fatal("the remove was never attempted")
 	}
 	if _, running := f.store.RunningPID("lens"); running {
