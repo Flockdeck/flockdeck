@@ -127,7 +127,9 @@ func selfCtrlBreak(pid int) *exec.Cmd {
 	if err != nil {
 		exe = os.Args[0]
 	}
-	return exec.Command(exe, "helpers", "ctrl-break", strconv.Itoa(pid))
+	cmd := exec.Command(exe, "helpers", "ctrl-break", strconv.Itoa(pid))
+	sysproc.NoWindow(cmd)
+	return cmd
 }
 
 // interrupt sends CTRL_BREAK to the helper's process group. Flockdeck's GUI

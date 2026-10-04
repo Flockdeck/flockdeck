@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // A helper is started as the leader of a process group of its own, so that a
@@ -97,7 +99,9 @@ func terminateStale(pid int, grace time.Duration) error {
 // line containing dir, for a record with no start time to check. Where the
 // command cannot be read, the answer is no, and the process is left alone.
 func commandMentions(pid int, dir string) bool {
-	out, err := exec.Command("ps", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
+	cmd := exec.Command("ps", "-o", "args=", "-p", strconv.Itoa(pid))
+	sysproc.NoWindow(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return false
 	}
