@@ -44,46 +44,51 @@ func listenerTable(family uint32) ([]byte, bool) {
 	return nil, false
 }
 
-// platformListenerOwner finds every listener on the port, IPv4 and IPv6, and
-// checks each one's owning process is in the helper's group.
+// platformListenerOwner reads the IPv4 and IPv6 listener tables and gives the
+// verdict for the sockets that could have answered (see decide).
 func platformListenerOwner(port int, group []int) (ownerResult, string) {
 	t4, ok4 := listenerTable(afInet)
 	t6, ok6 := listenerTable(afInet6)
 	if !ok4 && !ok6 {
 		return ownerUnknown, "the TCP table could not be read"
 	}
-	owners := append(parseTCPTable4(t4, port), parseTCPTable6(t6, port)...)
-	res := ownersWithin(owners, group)
+	rows := append(parseTCPTable4(t4, port), parseTCPTable6(t6, port)...)
+	res := decide(rows, pidHolder(group))
 	if res == ownerMismatch {
 		return res, "a process outside the helper holds the port"
 	}
 	return res, ""
 }
 
-// members lists the processes in the helper's job, or just the launcher when
-// there is no job.
-func (g *procGroup) members() []int {
+// members lists the processes in the helper's job. It says false when it
+// cannot give the whole list, which is when there is no job (it could not be
+// made, and then only the launcher is known) or the job holds more than fits
+// the buffer: a partial list would make a socket held by a process that is the
+// helper's own look foreign.
+func (g *procGroup) members() ([]int, bool) {
 	g.mu.Lock()
 	job, released := g.job, g.released
 	g.mu.Unlock()
-	out := []int{g.pid}
 	if job == 0 || released {
-		return out
+		return nil, false
 	}
-	const room = 64
+	const room = 256
 	word := int(unsafe.Sizeof(uintptr(0)))
 	const counts = 2 * 4
 	buf := make([]uintptr, counts/word+room)
 	r, _, err := procQueryInformationJob.Call(uintptr(job), 3, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)*word), 0)
 	if r == 0 && err != syscall.Errno(234) { // ERROR_MORE_DATA still fills in what fits
-		return out
+		return nil, false
 	}
-	listed := int((*[2]uint32)(unsafe.Pointer(&buf[0]))[1])
+	counts32 := (*[2]uint32)(unsafe.Pointer(&buf[0]))
+	assigned, listed := int(counts32[0]), int(counts32[1])
 	ids := buf[counts/word:]
-	for _, id := range ids[:min(listed, len(ids))] {
-		if int(id) != g.pid {
-			out = append(out, int(id))
-		}
+	if assigned > listed || listed > len(ids) {
+		return nil, false
 	}
-	return out
+	out := make([]int, 0, listed)
+	for _, id := range ids[:listed] {
+		out = append(out, int(id))
+	}
+	return out, true
 }

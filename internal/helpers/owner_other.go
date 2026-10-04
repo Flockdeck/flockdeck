@@ -11,4 +11,4 @@ func platformListenerOwner(port int, group []int) (ownerResult, string) {
 	return ownerUnknown, "this platform cannot say who owns a port"
 }
 
-func groupMembers(pgid int) []int { return []int{pgid} }
+func groupMembers(pgid int) ([]int, bool) { return nil, false }

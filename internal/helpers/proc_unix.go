@@ -114,4 +114,4 @@ func CtrlBreak(pid int) error {
 }
 
 // members lists the processes in the helper's group.
-func (g *procGroup) members() []int { return groupMembers(g.pid) }
+func (g *procGroup) members() ([]int, bool) { return groupMembers(g.pid) }

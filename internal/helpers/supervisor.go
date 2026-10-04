@@ -665,10 +665,20 @@ ready:
 	// whether that is the helper, since a program that took the port in the gap
 	// after it was chosen can answer for a helper that never bound it.
 	owner := OwnerUnverified
-	switch res, why := checkListenerOwner(port, pg.members()); res {
+	res, why := s.portOwner(port, pg)
+	if res == ownerMismatch {
+		// Once more after a moment, since a socket can be seen mid-change. Only a
+		// verdict that holds is acted on.
+		time.Sleep(s.t.ReadyEvery)
+		res, why = s.portOwner(port, pg)
+	}
+	switch res {
 	case ownerMismatch:
+		// Not fatal: the port is contested, which is what losing the race for it
+		// looks like, so this is stopped and tried again on another port, up to
+		// the same three tries as a helper that exits before it is ready.
 		killNow()
-		return outcome{fatal: fmt.Sprintf("port %d is held by something other than %s (%s), so %s was stopped", port, e.Name, why, e.Name)}
+		return outcome{exit: fmt.Sprintf("port %d is held by something other than %s (%s)", port, e.Name, why)}
 	case ownerVerified:
 		owner = OwnerVerified
 	}
@@ -765,4 +775,14 @@ func (s *Supervisor) ReapStale() int {
 // first, a short wait, then the kill.
 func terminateGroup(pid int) error {
 	return terminateStale(pid, 10*time.Second)
+}
+
+// portOwner asks which processes hold the port. A helper's processes that
+// cannot be listed completely give "unknown", never a verdict.
+func (s *Supervisor) portOwner(port int, pg *procGroup) (ownerResult, string) {
+	pids, ok := pg.members()
+	if !ok {
+		return ownerUnknown, "the helper's processes could not be listed"
+	}
+	return checkListenerOwner(port, pids)
 }

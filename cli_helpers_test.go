@@ -544,3 +544,19 @@ func TestHelpersInstallRepairsAChangedProgram(t *testing.T) {
 		t.Fatalf("an intact install: %v", err)
 	}
 }
+
+func TestHelpersStartSaysWhenThePortOwnerIsNotVerified(t *testing.T) {
+	r := newCLIRig(t)
+	r.c.instance = func() (string, string, error) { return "http://127.0.0.1:9", "tok", nil }
+	for owner, want := range map[string]bool{helpers.OwnerUnverified: true, helpers.OwnerVerified: false, "": false} {
+		r.c.request = func(string, string, string, string) (helpers.Status, error) {
+			return helpers.Status{ID: "lens", State: helpers.StateRunning, URL: "http://127.0.0.1:5000/", Owner: owner}, nil
+		}
+		if err := r.run("start", "lens"); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(r.out.String(), "Port owner not verified"); got != want {
+			t.Errorf("owner %q: said = %v, want %v\n%s", owner, got, want, r.out)
+		}
+	}
+}

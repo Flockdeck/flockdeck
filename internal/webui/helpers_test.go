@@ -330,3 +330,18 @@ assert.ok(text.includes("Repair lens 0.4.0"), text);
 assert.ok(text.includes("replaced by a checked one"), text);
 `)
 }
+
+// A helper whose port owner the platform could not confirm says so, in words.
+func TestAnUnverifiedPortOwnerIsShown(t *testing.T) {
+	runFrontEnd(t, paletteRun+helperRows+`
+h.hello();
+h.recv(fixture());
+openHelpers();
+recvRows(row({ state: "running", installed: "0.4.0", url: "http://127.0.0.1:5000/", owner: "verified" }));
+assert.ok(!h.$("overlay-body").textContent.includes("port owner not verified"), "a verified owner is flagged");
+recvRows(row({ state: "running", installed: "0.4.0", url: "http://127.0.0.1:5000/", owner: "unverified" }));
+assert.ok(h.$("helper-owner-lens").textContent === "port owner not verified", h.$("overlay-body").textContent);
+recvRows(row({ state: "stopped", installed: "0.4.0", owner: "unverified" }));
+assert.ok(!h.$("overlay-body").textContent.includes("port owner not verified"), "a stopped helper is flagged");
+`)
+}

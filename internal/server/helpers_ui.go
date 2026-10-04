@@ -30,6 +30,9 @@ type HelperRow struct {
 	Err      string   `json:"error,omitempty"`
 	Log      []string `json:"log,omitempty"`
 	Restarts int      `json:"restarts,omitempty"`
+	// Owner is "verified" or "unverified": whether the system confirmed that the
+	// helper's own process holds its port.
+	Owner string `json:"owner,omitempty"`
 	// Update is a newer version found when the dialog was opened.
 	Update  string   `json:"update,omitempty"`
 	Allows  []string `json:"allows"`
@@ -118,7 +121,7 @@ func (s *Server) helperRows() []HelperRow {
 			row.Installed, row.Signed = info.Version, info.Signed
 			status := sup.Status(e.ID)
 			row.State = string(status.State)
-			row.URL, row.Err, row.Log, row.Restarts = status.URL, status.Err, status.Log, status.Restarts
+			row.URL, row.Err, row.Log, row.Restarts, row.Owner = status.URL, status.Err, status.Log, status.Restarts, status.Owner
 			if latest := s.helperUI.latestOf(e.ID); latest != "" && helpers.UpdateAvailable(e, latest, info.Version) {
 				row.Update = latest
 			}

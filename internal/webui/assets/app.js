@@ -10830,6 +10830,12 @@
     main.append(title);
     main.append(el("div", "wt-meta", r.summary));
     if (r.state === "running" && r.url) main.append(el("div", "wt-path", r.url));
+    if (r.state === "running" && r.owner === "unverified") {
+      const note = el("div", "wt-meta helper-owner", "port owner not verified");
+      note.id = "helper-owner-" + r.id;
+      note.title = "This platform cannot confirm which process holds the helper's port.";
+      main.append(note);
+    }
     if (r.hasData && r.state === "notinstalled") {
       main.append(el("div", "wt-path", "Its data is kept in " + r.dataDir));
     }

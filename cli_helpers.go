@@ -458,6 +458,9 @@ func (c *helperCLI) control(action, id string) error {
 			return errReported
 		}
 		fmt.Fprintf(c.out, "%s is running at %s\nOpen it with: flockdeck helpers open %s\n", e.Name, st.URL, id)
+		if st.Owner == helpers.OwnerUnverified {
+			fmt.Fprintf(c.out, "Port owner not verified: this platform cannot confirm which process holds the port.\n")
+		}
 	case "stop":
 		fmt.Fprintf(c.out, "%s is %s.\n", e.Name, st.State)
 	case "open":

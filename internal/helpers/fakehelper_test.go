@@ -92,6 +92,14 @@ func runFakeHelper(args []string) {
 		f.Close()
 	}
 
+	if *mode == "no-bind-once" {
+		// The first run is a helper that lost its port; the next is a good one.
+		if runs == 0 {
+			*mode = "no-bind"
+		} else {
+			*mode = "normal"
+		}
+	}
 	switch *mode {
 	case "exit-early":
 		fmt.Fprintln(os.Stderr, "fake helper: exiting before the banner")
