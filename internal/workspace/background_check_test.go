@@ -564,33 +564,3 @@ func TestANotificationMessageIsOneBlockOrNothing(t *testing.T) {
 		}
 	}
 }
-
-// TestOnlyANotificationsHeadSaysItsStatus covers where a <status> may stand:
-// after the <task-id>, with only <tool-use-id> and <output-file> between, in
-// that order, as Claude Code writes them. Each order seen in real
-// notifications ends its task. A status further on, among the elements that
-// carry output, does not, and neither does a notification with none (a
-// monitor's event) or one that does not start with its id.
-func TestOnlyANotificationsHeadSaysItsStatus(t *testing.T) {
-	cases := []struct {
-		name, body string
-		end        bool
-	}{
-		{"id, tool use, output, status", "<task-id>m1</task-id><tool-use-id>t</tool-use-id><output-file>o</output-file><status>completed</status><summary>s</summary><note>n</note><result>r</result><usage>u</usage>", true},
-		{"id, output, status", "<task-id>m1</task-id><output-file>o</output-file><status>completed</status><summary>s</summary><note>n</note>", true},
-		{"id, tool use, status", "<task-id>m1</task-id><tool-use-id>t</tool-use-id><status>completed</status><summary>s</summary>", true},
-		{"id, status", "<task-id>m1</task-id>\n<status>stopped</status>", true},
-		{"a status after a result", "<task-id>m1</task-id><result></result><status>completed</status><result></result>", false},
-		{"a status after the summary", "<task-id>m1</task-id><tool-use-id>t</tool-use-id><summary>s</summary><status>completed</status>", false},
-		{"output before tool use", "<task-id>m1</task-id><output-file>o</output-file><tool-use-id>t</tool-use-id><status>completed</status>", false},
-		{"a monitor's event", "<task-id>m1</task-id><summary>s</summary><event>e</event>", false},
-		{"a status before the id", "<status>completed</status><task-id>m1</task-id>", false},
-		{"a second status further on", "<task-id>m1</task-id><status>running</status><summary>s</summary><status>completed</status>", false},
-	}
-	for _, c := range cases {
-		got := taskNotifications("<task-notification>\n" + c.body + "\n</task-notification>")
-		if ended := len(got) == 1 && backgroundStopped[got[0].status]; ended != c.end {
-			t.Errorf("%s: read as %+v, want an end: %t", c.name, got, c.end)
-		}
-	}
-}

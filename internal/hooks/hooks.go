@@ -317,40 +317,6 @@ func backgroundKey(kind, id string) string {
 	return kind + ":" + id
 }
 
-// taskNotificationID reads the task a <task-notification> is about. Claude
-// Code tells the model a background task has ended -- a run_in_background
-// command finishing or being killed, a background subagent stopping -- by
-// submitting one as a prompt of its own, which fires UserPromptSubmit with it
-// as the prompt, both when it lands after the turn and when it is folded into
-// one still going. As 2.1.283 sends it:
-//
-//	<task-notification>
-//	<task-id>bmxcupw20</task-id>
-//	<tool-use-id>toolu_...</tool-use-id>
-//	<output-file>...</output-file>
-//	<status>completed</status>
-//	<summary>Background command "..." completed (exit code 0)</summary>
-//	</task-notification>
-//
-// Only the task id is read: a notification is sent once the task has stopped,
-// whatever the status says it stopped as.
-func taskNotificationID(prompt string) string {
-	const open, idOpen, idClose = "<task-notification>", "<task-id>", "</task-id>"
-	rest, ok := strings.CutPrefix(strings.TrimSpace(prompt), open)
-	if !ok {
-		return ""
-	}
-	_, rest, ok = strings.Cut(rest, idOpen)
-	if !ok {
-		return ""
-	}
-	id, _, ok := strings.Cut(rest, idClose)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(id)
-}
-
 // backgroundWire is the few fields of a tool_input or tool_response that say
 // something about background work, whichever tool's it is.
 type backgroundWire struct {
@@ -391,12 +357,15 @@ func backgroundOf(event string, cp claudePayload) (op, id string) {
 	case "SubagentStop":
 		return BackgroundEnd, "agent:" + cp.AgentID
 	case "UserPromptSubmit":
-		if id = taskNotificationID(cp.Prompt); id == "" {
+		// Only a well-formed notification that says its task has stopped
+		// (see ParseTaskNotification). Which kind of task it was, it says
+		// only in prose, so the id is named with no kind and ends whichever
+		// it was.
+		n, ok := ParseTaskNotification(cp.Prompt)
+		if !ok || !n.Ended() {
 			return "", ""
 		}
-		// Which kind of task it was, the notification says only in prose, so
-		// the id is named with no kind and ends whichever it was.
-		return BackgroundEnd, backgroundKey("", id)
+		return BackgroundEnd, backgroundKey("", n.ID)
 	case "PostToolUse":
 	default:
 		return "", ""
