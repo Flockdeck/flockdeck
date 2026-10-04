@@ -3,6 +3,7 @@ package helpers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"testing"
@@ -123,4 +124,24 @@ func (s *Store) WriteStartingForTest(id string) error {
 	}
 	started, _ := store.ProcessStartedAt(os.Getpid())
 	return s.writeRun(id, RunInfo{Starting: true, OwnerPID: os.Getpid(), OwnerStarted: started})
+}
+
+// sendCtrlBreak is CtrlBreak. A variable so a test does not send one.
+var sendCtrlBreak = CtrlBreak
+
+// CtrlBreakHelper sends CTRL_BREAK to a helper's process group, and refuses any
+// pid that is not one this Flockdeck's run.json names, with the start time it
+// recorded. The hidden subcommand that calls it can be run by any program on
+// the machine, and without this check it would send the event to any process
+// group whose pid it was handed.
+func CtrlBreakHelper(st *Store, pid int) error {
+	if pid > 0 {
+		for _, e := range Catalogue() {
+			r, ok := st.ReadRun(e.ID)
+			if ok && r.PID == pid && sameProcess(r, false) {
+				return sendCtrlBreak(pid)
+			}
+		}
+	}
+	return fmt.Errorf("process %d is not a helper that Flockdeck started, so no signal was sent to it", pid)
 }

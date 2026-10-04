@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -448,5 +449,15 @@ func TestHelpersInstallRefusesAnUnsignedReleaseAfterASignedOne(t *testing.T) {
 	}
 	if v, _ := r.store.Current("lens"); v != "0.4.0" {
 		t.Fatalf("current = %q", v)
+	}
+}
+
+// Through the real command: a pid no run.json names is refused, and nothing is
+// sent to it. (This process's own pid is the one to try: if it were not
+// refused, the test would signal itself.)
+func TestHelpersCtrlBreakRefusesAnUnrecordedPid(t *testing.T) {
+	err := runHelpers([]string{"ctrl-break", strconv.Itoa(os.Getpid())}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "not a helper that Flockdeck started") {
+		t.Fatalf("err = %v", err)
 	}
 }

@@ -109,7 +109,11 @@ func runHelpers(args []string, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("ctrl-break: %q is not a process id", args[1])
 		}
-		return helpers.CtrlBreak(pid)
+		st, err := helpers.DefaultStore()
+		if err != nil {
+			return err
+		}
+		return helpers.CtrlBreakHelper(st, pid)
 	}
 	st, err := helpers.DefaultStore()
 	if err != nil {

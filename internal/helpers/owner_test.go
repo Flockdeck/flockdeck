@@ -158,3 +158,58 @@ func TestAStartIsRefusedWhileAnInstallIsUnderWay(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The hidden ctrl-break subcommand sends to a process group only when run.json
+// names that pid, with the start time it recorded.
+func TestCtrlBreakOnlyReachesARecordedHelper(t *testing.T) {
+	var sent []int
+	prev := sendCtrlBreak
+	sendCtrlBreak = func(pid int) error { sent = append(sent, pid); return nil }
+	defer func() { sendCtrlBreak = prev }()
+
+	st := &Store{Root: t.TempDir()}
+	pid, started := spawnStale(t, "sleep")
+	if started.IsZero() {
+		t.Skip("this platform cannot say when a process started")
+	}
+	if err := CtrlBreakHelper(st, pid); err == nil {
+		t.Fatal("a pid with no record was signalled")
+	}
+	// A record with the right pid and a wrong start time: the pid was handed on.
+	if err := st.writeRun("lens", RunInfo{PID: pid, Started: started.Add(-time.Hour), Port: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := CtrlBreakHelper(st, pid); err == nil {
+		t.Fatal("a record with the wrong start time was believed")
+	}
+	// A record with no start time at all is not enough either.
+	if err := st.writeRun("lens", RunInfo{PID: pid, Port: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := CtrlBreakHelper(st, pid); err == nil {
+		t.Fatal("a record with no start time was believed")
+	}
+	// Another process, with the record naming this one.
+	other, _ := spawnStale(t, "sleep")
+	if err := st.writeRun("lens", RunInfo{PID: pid, Started: started, Port: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := CtrlBreakHelper(st, other); err == nil {
+		t.Fatal("a pid the record does not name was signalled")
+	}
+	for _, bad := range []int{0, -1, os.Getpid()} {
+		if err := CtrlBreakHelper(st, bad); err == nil {
+			t.Fatalf("pid %d was signalled", bad)
+		}
+	}
+	if len(sent) != 0 {
+		t.Fatalf("signals were sent: %v", sent)
+	}
+	// The recorded helper is.
+	if err := CtrlBreakHelper(st, pid); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 1 || sent[0] != pid {
+		t.Fatalf("sent = %v", sent)
+	}
+}
