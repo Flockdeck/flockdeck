@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -20,7 +21,11 @@ func TestRecentsCapLetsGoOfTheLeastRecentlyUsed(t *testing.T) {
 		list = append(list, Project{Root: fmt.Sprintf("/repo/placed%02d", i), LastUsed: long.Add(time.Duration(i) * time.Minute), Order: i})
 	}
 	list = append(list, Project{Root: "/repo/current", Name: "Mine", LastUsed: time.Now().Add(-time.Minute)})
-	if err := writeRecents(list); err != nil {
+	dir, err := Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRecentsFile(filepath.Join(dir, recentsFile), list); err != nil {
 		t.Fatal(err)
 	}
 

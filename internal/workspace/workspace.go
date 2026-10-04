@@ -3333,6 +3333,10 @@ func (w *Workspace) Close() {
 		<-w.recentDone
 		w.recentTouches = nil
 	}
+	// The store writes the list of recent projects on its own goroutine now, so
+	// what those switches recorded, and what the workspace goroutine recorded
+	// itself, are written before this returns for the same reasons.
+	store.FlushRecents()
 	// Quitting is not turning recording off: the files are closed with no
 	// closing line, and a pane left recording records again at the next start.
 	w.stopRecorders()

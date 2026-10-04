@@ -24,6 +24,9 @@ func isolateConfig(t *testing.T) {
 	t.Setenv("APPDATA", dir)         // Windows
 	t.Setenv("XDG_CONFIG_HOME", dir) // Linux
 	t.Setenv("HOME", dir)            // macOS and fallback
+	// A project switch is written a moment after it is recorded; the directory
+	// is not removed from under that write.
+	t.Cleanup(FlushRecents)
 }
 
 // TestSweepSessionsOnlyRemovesOldOrphans checks the sweep cannot pull settings
@@ -653,6 +656,7 @@ func TestForgetUnknownProjectLeavesTheFileAlone(t *testing.T) {
 		t.Fatalf("touch: %v", err)
 	}
 
+	FlushRecents()
 	p := filepath.Join(dir, recentsFile)
 	before, err := os.Stat(p)
 	if err != nil {
@@ -666,6 +670,7 @@ func TestForgetUnknownProjectLeavesTheFileAlone(t *testing.T) {
 	if err := ForgetRecent("/repo/never-opened"); err != nil {
 		t.Fatalf("forget: %v", err)
 	}
+	FlushRecents()
 	after, err := os.Stat(p)
 	if err != nil {
 		t.Fatalf("stat after: %v", err)
