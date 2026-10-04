@@ -476,13 +476,55 @@ func AddNewBranch(repoDir, path, branch string) error {
 	if branchExists(repoDir, branch) {
 		return &gitError{fmt.Sprintf("a branch called %s already exists, so it was not taken for a new worktree", branch)}
 	}
-	_, _, err := runCapture(context.Background(), worktreeTimeout, repoDir, "worktree", "add", "-b", branch, "--no-track", "--", path)
+	err := addWorktree(repoDir, path, branch, true, "worktree", "add", "-b", branch, "--no-track", "--", path)
 	if err != nil {
 		if uerr := undoNewBranch(repoDir, path, branch); uerr != nil {
 			return fmt.Errorf("%w (%v)", err, uerr)
 		}
 	}
 	return err
+}
+
+// worktreeAttempts is how many times a `git worktree add` is run when it
+// loses a race with another one in the same repository, and worktreeRetryPause
+// the wait before each try after the first.
+const worktreeAttempts = 5
+
+var worktreeRetryPause = 100 * time.Millisecond
+
+// lostWorktreeRace reports whether a failed `git worktree add` failed on
+// another worktree's record in the repository, not on anything of its own.
+//
+// A fan-out makes its worktrees side by side, and each `git worktree add`
+// reads the record every other worktree keeps under .git/worktrees. One that
+// reads another's while it is still being written -- a file made and not yet
+// filled -- stops with "failed to read .git/worktrees/<name>/commondir", and
+// its own worktree was never started. The same add a moment later succeeds.
+func lostWorktreeRace(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "failed to read") && strings.Contains(msg, "/worktrees/")
+}
+
+// addWorktree runs a `git worktree add` with args, again when it lost a race
+// with another add (see lostWorktreeRace). A new branch the failed attempt made
+// is taken back before the next, so that each starts from what the first did.
+func addWorktree(repoDir, path, branch string, newBranch bool, args ...string) error {
+	var err error
+	for attempt := 1; ; attempt++ {
+		_, _, err = runCapture(context.Background(), worktreeTimeout, repoDir, args...)
+		if !lostWorktreeRace(err) || attempt >= worktreeAttempts {
+			return err
+		}
+		if newBranch {
+			if uerr := undoNewBranch(repoDir, path, branch); uerr != nil {
+				return err
+			}
+		}
+		time.Sleep(time.Duration(attempt) * worktreeRetryPause)
+	}
 }
 
 // undoNewBranch takes back what a failed AddNewBranch left of its worktree and
@@ -689,7 +731,7 @@ func AddFrom(repoDir, path, branch, base string) error {
 	}
 	// Under the worktree deadline, as AddNewBranch is: this too writes out a
 	// whole working tree.
-	_, _, err := runCapture(context.Background(), worktreeTimeout, repoDir, args...)
+	err := addWorktree(repoDir, path, branch, newBranch, args...)
 	if err != nil && newBranch {
 		// As AddNewBranch's: the branch -b made before a checkout that then
 		// failed stayed, at the base first asked for, and trying again with
