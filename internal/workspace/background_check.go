@@ -516,36 +516,101 @@ func monitorsTimedOut(scan *backgroundScan, now time.Time) []backgroundEvidence 
 // taskNotification is the id and status of one <task-notification>.
 type taskNotification struct{ id, status string }
 
-// taskNotifications reads the one <task-notification> a message is. Its id
-// and status are the first of each, which Claude Code writes ahead of the
-// summary and result. A message holding a second opening tag is read as
-// none: the summary or a monitor's event can carry text from anywhere, and a
-// forged notification inside it must not end another task.
+// taskNotifications reads the <task-notification> a message is. A message
+// must be exactly one block with only whitespace around it, or nothing in it
+// is read: Claude Code does not escape the text in a <summary> or <result>,
+// so a summary can close the real block and open a forged one, and two
+// blocks in one message cannot be told from that. A message of more than one
+// block therefore ends nothing, and its tasks stay counted until a Stop's
+// list says otherwise. Within the block only its own top-level <task-id> and
+// <status> count (see notificationBlock).
 func taskNotifications(text string) []taskNotification {
-	const open = "<task-notification>"
-	body, ok := strings.CutPrefix(strings.TrimSpace(text), open)
-	if !ok || strings.Contains(body, open) {
+	const open, close = "<task-notification>", "</task-notification>"
+	after, ok := strings.CutPrefix(strings.TrimSpace(text), open)
+	if !ok {
 		return nil
 	}
-	id := strings.TrimSpace(between(body, "<task-id>", "</task-id>"))
-	status := strings.ToLower(strings.TrimSpace(between(body, "<status>", "</status>")))
-	if id == "" {
+	body, tail, ok := strings.Cut(after, close)
+	if !ok || strings.Contains(body, open) || strings.TrimSpace(tail) != "" {
 		return nil
 	}
-	return []taskNotification{{id: id, status: status}}
+	n, ok := notificationBlock(body)
+	if !ok {
+		return nil
+	}
+	return []taskNotification{n}
 }
 
-// between is the text of s between the first open and the close after it.
-func between(s, open, close string) string {
-	_, rest, ok := strings.Cut(s, open)
-	if !ok {
-		return ""
+// notificationHead is the order Claude Code writes a notification's first
+// elements in: its <task-id>, then <tool-use-id> and <output-file> where it
+// has them, then <status>. The summary, result, note and usage that follow
+// carry a command's or a monitor's output, so a <status> among them could
+// have been put there by anyone.
+var notificationHead = []string{"task-id", "tool-use-id", "output-file", "status"}
+
+// notificationBlock reads the top-level elements of one notification's body.
+// ok is false unless the body is nothing but elements, beginning with a
+// non-empty <task-id> and reaching its <status> through only the elements
+// notificationHead allows between them, each at most once. A notification
+// with no such <status>, a monitor's event say, ends nothing.
+func notificationBlock(body string) (taskNotification, bool) {
+	var n taskNotification
+	head := 0 // the next place in notificationHead an element may take
+	ids, statuses := 0, 0
+	rest := strings.TrimSpace(body)
+	for rest != "" {
+		if !strings.HasPrefix(rest, "<") {
+			return n, false
+		}
+		end := strings.IndexByte(rest, '>')
+		if end < 2 {
+			return n, false
+		}
+		name := rest[1:end]
+		if !elementName(name) {
+			return n, false
+		}
+		content, tail, ok := strings.Cut(rest[end+1:], "</"+name+">")
+		if !ok {
+			return n, false
+		}
+		if statuses == 0 {
+			// Still in the head: each element must come later in it than
+			// the one before, and the first must be the id.
+			at := -1
+			for i := head; i < len(notificationHead); i++ {
+				if notificationHead[i] == name {
+					at = i
+					break
+				}
+			}
+			if at < 0 || (head == 0 && at != 0) {
+				return n, false
+			}
+			head = at + 1
+		}
+		switch name {
+		case "task-id":
+			ids++
+			n.id = strings.TrimSpace(content)
+		case "status":
+			statuses++
+			n.status = strings.ToLower(strings.TrimSpace(content))
+		}
+		rest = strings.TrimSpace(tail)
 	}
-	in, _, ok := strings.Cut(rest, close)
-	if !ok {
-		return ""
+	return n, ids == 1 && statuses == 1 && n.id != ""
+}
+
+// elementName reports whether s is a plain tag name: lower-case letters,
+// digits, '-' and '_'.
+func elementName(s string) bool {
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+			return false
+		}
 	}
-	return in
+	return s != ""
 }
 
 // checkWorkFiles looks at the files Claude Code keeps of each piece of counted
