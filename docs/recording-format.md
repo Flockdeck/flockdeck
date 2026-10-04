@@ -61,13 +61,13 @@ across a restart of Flockdeck has the file written again from the conversation's
 beginning, which gives the same lines and the same name, so it is the same file
 and not another. A file is never added to once its transcript has ended, except
 by being made again, and a finished transcript is only replaced by one that has
-every event it had, in order (it is written beside it and moved into place when
-finished; otherwise it is left as it was). If a program has the earlier file open and it
-cannot be replaced, the new transcript is left beside it as `<name>.jsonl.<random>.new` and
-Flockdeck says so. (Each writer has a name of its own, so two writers of one
-conversation never share a file.) A `.new` file that nothing is writing and that is a day old, as
-a quit or a crash leaves, is removed the next time a transcript is made in that
-folder. If the conversation's first event is now a
+every event it had, in order (it is written beside it, under a name of its
+own, as `<name>.jsonl.<12 hex digits>.new`, synced to disk, and moved into place
+when finished; otherwise it is left as it was). If a program has the earlier file
+open and it cannot be replaced, the new transcript is removed, the earlier file is
+as it was, and Flockdeck says so. Such a `.new` file that nothing is writing and
+that is a day old, as a quit or a crash leaves, is removed the next time a
+transcript is made in that folder; no other file is. If the conversation's first event is now a
 different one, so that the name is different, the earlier finished transcript of
 the same conversation is removed when the new one is finished: a conversation is
 one file. Two panes cannot record one conversation at once, as they would
@@ -567,6 +567,10 @@ reader, this table gets a row.
 - **Durability**: each line is a single write to the file, with no `fsync`.
   A crash of Flockdeck loses nothing already written, because the operating
   system holds it; a power loss or a kernel crash can lose the most recent lines.
+  A file that replaces an earlier one is synced before it is moved into place,
+  and on Linux and macOS its folder is synced after, so a power loss leaves the
+  earlier file or the new one, not a short one. On Windows the folder is not
+  synced (it cannot be opened for that); the file's contents are.
 - **How an unclean end shows**: a file whose last line is neither
   `recording_stopped` nor `recording_truncated` was not ended by the writer:
   Flockdeck quit (quitting is not turning recording off, so the pane is

@@ -1074,10 +1074,10 @@ project with one file per conversation (exports in an `exports` folder inside it
 and never into your repository; a file is `0600` on Linux and macOS, and on
 Windows inherits the recordings folder's permissions, readable by you and by a
 local administrator: saved on this machine, not private to you. A file stops at
-16 MiB, long outputs are clipped with a marker, and the folder is tidied each time a recording starts: files older
-than 30 days go, then the oldest beyond 100 files or 256 MiB. **Open recordings
-folder** in the command palette opens the folder, and `flockdeck recordings`
-lists the recordings.
+16 MiB, long outputs are clipped with a marker, and the folder is tidied each
+time a recording starts: files older than 30 days go, then the oldest beyond 100
+files or 256 MiB. **Open recordings folder** in the command palette opens the
+folder, and `flockdeck recordings` lists the recordings.
 
 **Redaction is best effort.** Private keys, common token formats, credentials in
 URLs, values named like secrets (`API_KEY=…`, `password: …`) and what is read from

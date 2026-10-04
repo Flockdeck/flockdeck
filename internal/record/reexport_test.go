@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // An export made by a version that wrote fewer kinds of line (here, one with no
@@ -270,6 +272,129 @@ func TestConcurrentExportsOfOneConversation(t *testing.T) {
 	if len(ents) != 1 {
 		for _, e := range ents {
 			t.Errorf("in the folder: %s", e.Name())
+		}
+	}
+}
+
+// Two exports of one conversation are never between the check of the earlier file
+// and the move over it at the same time. The test makes that span long and counts
+// how many are in it, so it fails if the file's lock is not held across it.
+func TestTheFileLockIsHeldFromTheCheckToTheMove(t *testing.T) {
+	var in, most atomic.Int32
+	inCriticalSection = func() {
+		n := in.Add(1)
+		for {
+			m := most.Load()
+			if n <= m || most.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		time.Sleep(30 * time.Millisecond)
+		in.Add(-1)
+	}
+	t.Cleanup(func() { inCriticalSection = func() {} })
+	spec, ex := claudeAt(t, moreFixtureHome(t))
+	dir := t.TempDir()
+	d := func() (string, error) { return dir, nil }
+	if _, err := Export(d, moreMeta, ex.Follow(spec, moreFixtureConversation), ExportOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for g := 0; g < 4; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := Export(d, moreMeta, ex.Follow(spec, moreFixtureConversation), ExportOptions{}); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if most.Load() != 1 {
+		t.Errorf("%d exports were between the check and the move at once", most.Load())
+	}
+	fileLocksMu.Lock()
+	left := len(fileLocks)
+	fileLocksMu.Unlock()
+	if left != 0 {
+		t.Errorf("%d file locks kept after every export finished", left)
+	}
+}
+
+// When the move over the earlier export fails for good, the earlier export is as
+// it was and nothing is left beside it, however many times it is tried.
+func TestAFailedMoveLeavesTheEarlierExportAndNothingElse(t *testing.T) {
+	t.Cleanup(func() { moveInto = renameRetry })
+	spec, ex := claudeAt(t, moreFixtureHome(t))
+	dir := t.TempDir()
+	d := func() (string, error) { return dir, nil }
+	first, err := Export(d, moreMeta, ex.Follow(spec, moreFixtureConversation), ExportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An export with fewer lines than the fixture, so the next one replaces it.
+	short := []string{}
+	for _, l := range rawLines(t, first.Path) {
+		short = append(short, string(l))
+	}
+	old := strings.Join(short[:len(short)-2], "\n") + "\n" + short[len(short)-1] + "\n"
+	if err := os.WriteFile(first.Path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	moveInto = func(from, to string) error {
+		return &os.LinkError{Op: "rename", Old: from, New: to, Err: errors.New("in use")}
+	}
+	for i := 0; i < 5; i++ {
+		_, err := Export(d, moreMeta, ex.Follow(spec, moreFixtureConversation), ExportOptions{})
+		if err == nil || !strings.Contains(err.Error(), "as it was") {
+			t.Fatalf("export %d: err = %v", i, err)
+		}
+	}
+	if got, _ := os.ReadFile(first.Path); string(got) != old {
+		t.Error("the earlier export was changed")
+	}
+	if ents, _ := os.ReadDir(filepath.Dir(first.Path)); len(ents) != 1 {
+		for _, e := range ents {
+			t.Errorf("in the folder: %s", e.Name())
+		}
+	}
+}
+
+// Only the files a writer of transcripts leaves are swept: not a user's own file
+// that happens to end in .new.
+func TestOnlyTemporaryTranscriptsAreSwept(t *testing.T) {
+	for name, want := range map[string]bool{
+		"20261001T090000Z-33333333.jsonl.0123456789ab.new": true,
+		"20261001T090000Z-33333333.jsonl.new":              true,
+		"mine.jsonl.backup.new":                            false,
+		"notes.new":                                        false,
+		"a.jsonl.new.txt":                                  false,
+		"a.jsonl.0123456789ab.new.txt":                     false,
+		"a.jsonl.0123456789AB.new":                         false,
+		"a.jsonl.0123.new":                                 false,
+		"a.jsonl":                                          false,
+	} {
+		if isTemp(name) != want {
+			t.Errorf("isTemp(%q) = %v", name, !want)
+		}
+	}
+	// And a made name is one.
+	if n := tempName("/x/a.jsonl"); !isTemp(filepath.Base(n)) {
+		t.Errorf("tempName gave %q, which is not swept", n)
+	}
+	dir := t.TempDir()
+	for _, n := range []string{"mine.jsonl.backup.new", "notes.new", "a.jsonl.new.txt", "x.jsonl.0123456789ab.new"} {
+		p := filepath.Join(dir, n)
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		old := time.Now().Add(-72 * time.Hour)
+		_ = os.Chtimes(p, old, old)
+	}
+	NewManager(func() (string, error) { return t.TempDir(), nil }).sweepStale(dir)
+	for n, want := range map[string]bool{"mine.jsonl.backup.new": true, "notes.new": true, "a.jsonl.new.txt": true, "x.jsonl.0123456789ab.new": false} {
+		if _, err := os.Stat(filepath.Join(dir, n)); (err == nil) != want {
+			t.Errorf("%s survives = %v, want %v", n, err == nil, want)
 		}
 	}
 }

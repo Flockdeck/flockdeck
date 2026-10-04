@@ -329,8 +329,8 @@ var ErrFull = errors.New("the transcript is full")
 // one takes its place only if it is itself finished and has every line the
 // earlier one had. If the closing line cannot be written the replacement is
 // dropped and the earlier file stays; if the earlier file cannot be replaced (a
-// program has it open) the finished replacement is left beside it, and the error
-// says so.
+// program has it open) the replacement is removed, the earlier file is as it was,
+// and the error says so.
 func (m *Manager) Finish(meta Meta) error {
 	m.mu.Lock()
 	s := m.open[meta.Conversation]
@@ -339,7 +339,16 @@ func (m *Manager) Finish(meta Meta) error {
 		return nil
 	}
 	werr := m.writeLocked(meta, Entry{Type: TypeStopped, Text: endText, Time: stamp(s.last), GitBranch: s.ctx.GitBranch, Cwd: s.ctx.Cwd, AgentVersion: s.ctx.AgentVersion})
+	// A file that is to be moved over another is made durable first, so a power
+	// loss after the move cannot leave a short file where the earlier one was.
+	var serr error
+	if s.final != "" && werr == nil {
+		serr = s.f.Sync()
+	}
 	cerr := s.f.Close()
+	if serr != nil && cerr == nil {
+		cerr = serr
+	}
 	delete(m.open, meta.Conversation)
 	plain := m.target == "" && !m.export
 	m.mu.Unlock()
@@ -358,18 +367,24 @@ func (m *Manager) Finish(meta Meta) error {
 	if s.final != "" {
 		// One at a time per file in this process: the check reads the earlier
 		// file, and a read held open would keep the move from replacing it.
-		defer lockFile(s.final)()
+		unlock := lockFile(s.final)
+		defer unlock()
+		inCriticalSection()
 		if !finished(s.path) || !supersedes(s.final, s.path) {
 			_ = os.Remove(s.path)
 			return ErrEarlierKept
 		}
-		if err := renameRetry(s.path, s.final); err != nil {
+		if err := moveInto(s.path, s.final); err != nil {
 			var link *os.LinkError
 			if errors.As(err, &link) {
 				err = link.Err
 			}
-			return fmt.Errorf("the new one is left beside the earlier one as %s, which could not be replaced: %v", filepath.Base(s.path), err)
+			// Nothing is left beside the earlier file: a copy per failed try would
+			// fill the folder, and the earlier file is as it was.
+			_ = os.Remove(s.path)
+			return fmt.Errorf("the new transcript could not be moved over the earlier one (%v), which is as it was, and was not kept", err)
 		}
+		syncDir(filepath.Dir(s.final))
 	}
 	// A recording of a conversation is the one file of it; an export never
 	// deletes another, as nobody asked for an earlier one to go.
@@ -1023,7 +1038,7 @@ func readFirstLine(path string) ([]byte, error) {
 // replace: that file's name, a random part and ".new". It is made fresh for each
 // writer, so two never share one.
 func tempName(final string) string {
-	var b [6]byte
+	var b [6]byte // 12 hex digits
 	if _, err := rand.Read(b[:]); err != nil {
 		binary.BigEndian.PutUint32(b[:4], uint32(time.Now().UnixNano()))
 	}
@@ -1033,25 +1048,65 @@ func tempName(final string) string {
 const tempExt = ".new"
 
 // isTemp reports whether a file name is one tempName made.
-func isTemp(name string) bool {
-	return strings.HasSuffix(name, tempExt) && strings.Contains(name, sessionFileExt+".")
-}
+var tempRe = regexp.MustCompile(`.jsonl(.[0-9a-f]{12})?.new$`)
+
+// isTemp reports whether a file name is one a writer left beside a transcript: a
+// transcript's name, a token of the form tempName makes, and ".new" (or, from an
+// earlier Flockdeck, just ".new").
+func isTemp(name string) bool { return tempRe.MatchString(name) }
 
 var (
 	fileLocksMu sync.Mutex
-	fileLocks   = map[string]*sync.Mutex{}
+	fileLocks   = map[string]*fileLock{}
 )
 
 // lockFile takes the lock for a file's replacement in this process and returns
 // the function that releases it.
 func lockFile(path string) func() {
 	fileLocksMu.Lock()
-	mu := fileLocks[path]
-	if mu == nil {
-		mu = &sync.Mutex{}
-		fileLocks[path] = mu
+	l := fileLocks[path]
+	if l == nil {
+		l = &fileLock{}
+		fileLocks[path] = l
 	}
+	l.users++
 	fileLocksMu.Unlock()
-	mu.Lock()
-	return mu.Unlock
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		fileLocksMu.Lock()
+		if l.users--; l.users == 0 {
+			delete(fileLocks, path)
+		}
+		fileLocksMu.Unlock()
+	}
+}
+
+// fileLock is a lock and the number of those holding or waiting for it, so that
+// it can be dropped when nobody is.
+type fileLock struct {
+	mu    sync.Mutex
+	users int
+}
+
+// moveInto and inCriticalSection are the points a test reaches into: the move of
+// a finished transcript over the earlier one, and the span, under the file's
+// lock, from the check of the earlier one to the move.
+var (
+	moveInto          = renameRetry
+	inCriticalSection = func() {}
+)
+
+// syncDir asks the system to make a directory's entries durable, so that a move
+// into it survives a power loss. It is best effort. On Windows a directory cannot
+// be synced this way (opening it for sync fails), the call does nothing there, and
+// durability of the move rests on NTFS's own journalling; the new file's contents
+// are synced before the move on every platform.
+func syncDir(dir string) {
+	d, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	_ = d.Sync()
+	_ = d.Close()
 }
