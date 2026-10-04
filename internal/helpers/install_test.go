@@ -457,3 +457,46 @@ func TestCatalogue(t *testing.T) {
 		t.Error("the first slice has one helper")
 	}
 }
+
+// The archive is downloaded and checked, then sits in a folder other programs
+// running as the user can write to. Swapping it in that gap is caught by the
+// hash taken again from the file extraction reads.
+func TestAnArchiveSwappedAfterTheDownloadIsNotExtracted(t *testing.T) {
+	var f *fixture
+	swapped := false
+	f = newFixture(t, func(o *Options) {
+		o.Hook = func(stage string) error {
+			if stage != "downloaded" {
+				return nil
+			}
+			matches, _ := filepath.Glob(filepath.Join(f.store.appDir("lens"), "staging.new-*", "archive.tar.gz"))
+			if len(matches) != 1 {
+				t.Errorf("found %v", matches)
+				return nil
+			}
+			evil := tarGz(t, []member{
+				{name: f.entry.TopFolder("0.4.0", "linux", "amd64") + "/lens", body: "evil", mode: 0o755},
+			})
+			if err := os.WriteFile(matches[0], evil, 0o600); err != nil {
+				t.Error(err)
+			}
+			swapped = true
+			return nil
+		}
+	})
+	f.publish("0.4.0")
+	_, err := f.install("")
+	var ce *ChecksumError
+	if !swapped || !errors.As(err, &ce) {
+		t.Fatalf("swapped = %v, err = %v", swapped, err)
+	}
+	if _, ok := f.store.Current("lens"); ok {
+		t.Fatal("the swapped archive was installed")
+	}
+}
+
+func TestDefaultUnpackedLimit(t *testing.T) {
+	if lens.maxUnpacked() != 256<<20 {
+		t.Fatalf("the default limit is %d", lens.maxUnpacked())
+	}
+}

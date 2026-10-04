@@ -5,12 +5,15 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/flate"
+	"compress/gzip"
 	"errors"
+	"fmt"
 	"hash/crc32"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -108,6 +111,13 @@ func TestExtractRefusesUnsafeArchives(t *testing.T) {
 		{"trailing dot", []member{bin, {name: testTop + "/x.", body: "x"}}, false, false, "dot or a space"},
 		{"trailing space", []member{bin, {name: testTop + "/x ", body: "x"}}, false, false, "dot or a space"},
 		{"device name", []member{bin, {name: testTop + "/NUL", body: "x"}}, false, false, "reserved"},
+		{"device name with a space before the dot", []member{bin, {name: testTop + "/CON .txt", body: "x"}}, false, false, "reserved"},
+		{"console input device", []member{bin, {name: testTop + "/CONIN$", body: "x"}}, false, false, "reserved"},
+		{"console output device", []member{bin, {name: testTop + "/conout$.txt", body: "x"}}, false, false, "reserved"},
+		{"superscript device name", []member{bin, {name: testTop + "/COM¹", body: "x"}}, false, false, "ASCII"},
+		{"short name", []member{bin, {name: testTop + "/LENS~1.EXE", body: "x"}}, false, false, "short name"},
+		{"composed accent", []member{bin, {name: testTop + "/café", body: "x"}}, false, false, "ASCII"},
+		{"decomposed accent", []member{bin, {name: testTop + "/café", body: "x"}}, false, false, "ASCII"},
 		{"device name with extension", []member{bin, {name: testTop + "/con.txt", body: "x"}}, false, false, "reserved"},
 		{"control character", []member{bin, {name: testTop + "/a\x01b", body: "x"}}, false, false, "control"},
 		{"wrong top folder", []member{{name: "lens_0.4.1_linux_amd64/lens", body: "binary"}}, false, false, "not inside"},
@@ -287,18 +297,164 @@ func TestExtractZipThatLiesAboutSize(t *testing.T) {
 func TestWriteFileCapsWhatIsReadWhateverIsDeclared(t *testing.T) {
 	rules := testRules()
 	rules.MaxFile, rules.MaxTotal = 1000, 1500
-	x := newExtractor(rules, t.TempDir())
+	x := newExtractor(rules, openTestRoot(t))
 	err := x.writeFile([]string{testTop, "a"}, 10, strings.NewReader(strings.Repeat("z", 5000)))
 	var ae *ArchiveError
 	if !errors.As(err, &ae) {
 		t.Fatalf("err = %v, want an ArchiveError", err)
 	}
 	// The total cap holds across files too: 900 + 900 is over 1500.
-	x = newExtractor(rules, t.TempDir())
+	x = newExtractor(rules, openTestRoot(t))
 	if err := x.writeFile([]string{testTop, "a"}, 900, strings.NewReader(strings.Repeat("z", 900))); err != nil {
 		t.Fatal(err)
 	}
 	if err := x.writeFile([]string{testTop, "b"}, 10, strings.NewReader(strings.Repeat("z", 900))); err == nil {
 		t.Fatal("the total cap was not applied to what was read")
+	}
+}
+
+func openTestRoot(t *testing.T) *os.Root {
+	t.Helper()
+	r, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { r.Close() })
+	return r
+}
+
+// A chain of PAX headers that never reaches a file has no member to count and
+// no size to check, so only a cap on the decompressed stream sees it.
+func TestExtractRefusesAChainOfHeadersThatNeverEnds(t *testing.T) {
+	var raw bytes.Buffer
+	record := func(kv string) []byte {
+		// "<length> <key>=<value>\n", the length counting itself.
+		body := " " + kv + "\n"
+		n := len(body)
+		for {
+			text := strconv.Itoa(n) + body
+			if len(text) == n {
+				return []byte(text)
+			}
+			n = len(text)
+		}
+	}
+	block := func(name string, typ byte, size int) []byte {
+		h := make([]byte, 512)
+		copy(h, name)
+		copy(h[100:], "0000644\x00")
+		copy(h[108:], "0000000\x00")
+		copy(h[116:], "0000000\x00")
+		copy(h[124:], fmt.Sprintf("%011o\x00", size))
+		copy(h[136:], "00000000000\x00")
+		h[156] = typ
+		copy(h[257:], "ustar\x0000")
+		for i := 148; i < 156; i++ {
+			h[i] = ' '
+		}
+		sum := 0
+		for _, b := range h {
+			sum += int(b)
+		}
+		copy(h[148:], fmt.Sprintf("%06o\x00 ", sum))
+		return h
+	}
+	filler := record("comment=" + strings.Repeat("a", 900<<10))
+	for i := 0; i < 40; i++ { // about 36 MiB of headers in all
+		raw.Write(block("pax", 'x', len(filler)))
+		raw.Write(filler)
+		raw.Write(make([]byte, (512-len(filler)%512)%512))
+	}
+	// And then an honest archive, so that without a cap the whole thing is fine.
+	var honest bytes.Buffer
+	tw := tar.NewWriter(&honest)
+	for _, m := range okMembers() {
+		typ := byte(tar.TypeReg)
+		if strings.HasSuffix(m.name, "/") {
+			typ = tar.TypeDir
+		}
+		_ = tw.WriteHeader(&tar.Header{Name: m.name, Typeflag: typ, Mode: 0o644, Size: int64(len(m.body))})
+		_, _ = tw.Write([]byte(m.body))
+	}
+	_ = tw.Close()
+	raw.Write(honest.Bytes())
+	var gzbuf bytes.Buffer
+	gz := gzip.NewWriter(&gzbuf)
+	_, _ = gz.Write(raw.Bytes())
+	_ = gz.Close()
+	if gzbuf.Len() > 1<<20 {
+		t.Fatalf("the test archive is %d bytes, not the small bomb it should be", gzbuf.Len())
+	}
+	rules := testRules()
+	rules.MaxTotal = 1 << 20
+	_, err := extractInto(t, "a.tar.gz", gzbuf.Bytes(), rules)
+	if err == nil || !strings.Contains(err.Error(), "decompressed data is larger") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestExtractRefusesAnArchiveFarLargerThanItself(t *testing.T) {
+	zeros := strings.Repeat("\x00", 8<<20)
+	rules := testRules()
+	rules.MaxTotal, rules.MaxFile = 64<<20, 64<<20
+	rules.MaxRatio = 100
+	for _, format := range []string{"tar.gz", "zip"} {
+		members := []member{{name: testTop + "/lens", body: zeros}}
+		var data []byte
+		if format == "zip" {
+			data = zipBytes(t, members)
+		} else {
+			data = tarGz(t, members)
+		}
+		rules.CompressedSize = int64(len(data))
+		_, err := extractInto(t, "a."+format, data, rules)
+		if err == nil || !(strings.Contains(err.Error(), "times its own size") || strings.Contains(err.Error(), "decompressed data is larger")) {
+			t.Errorf("%s: err = %v (the archive is %d bytes)", format, err, len(data))
+		}
+		// Without the ratio the same archive is within the absolute limits.
+		rules2 := rules
+		rules2.MaxRatio = 0
+		if _, err := extractInto(t, "a."+format, data, rules2); err != nil {
+			t.Errorf("%s: without a ratio: %v", format, err)
+		}
+	}
+}
+
+func TestExtractRefusesTooManyZipMembersBeforeReadingAny(t *testing.T) {
+	var members []member
+	for i := 0; i < 30; i++ {
+		members = append(members, member{name: fmt.Sprintf("%s/f%d", testTop, i), body: "x"})
+	}
+	rules := testRules()
+	rules.MaxFiles = 10
+	if _, err := extractInto(t, "a.zip", zipBytes(t, members), rules); err == nil || !strings.Contains(err.Error(), "more than 10 members") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// Writing goes through an os.Root, which refuses a name that leaves the
+// folder even when every name check before it has been got past.
+func TestExtractWritesCannotLeaveTheirRoot(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "x")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	x := newExtractor(testRules(), root)
+	for _, elems := range [][]string{{"..", "escape.txt"}, {testTop, "..", "..", "escape.txt"}} {
+		if err := x.writeFile(elems, 1, strings.NewReader("x")); err == nil {
+			t.Errorf("%v was written", elems)
+		}
+	}
+	if err := x.mkdir([]string{"..", "dir"}); err == nil {
+		t.Error("a folder was made outside the root")
+	}
+	if entries, _ := os.ReadDir(parent); len(entries) != 1 {
+		t.Fatalf("the parent folder holds %v", entries)
 	}
 }

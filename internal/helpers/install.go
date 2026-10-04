@@ -2,10 +2,12 @@ package helpers
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -302,9 +304,9 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 	}
 	rules := ExtractRules{
 		Top: top, Binary: e.BinaryName(in.goos),
-		MaxFiles: e.maxFiles(), MaxTotal: e.maxUnpacked(), MaxFile: e.maxUnpacked(),
+		MaxFiles: e.maxFiles(), MaxTotal: e.maxUnpacked(), MaxFile: e.maxUnpacked(), MaxRatio: maxRatio,
 	}
-	if err := Extract(archive, unpacked, rules); err != nil {
+	if err := extractVerified(archive, p.SHA256, unpacked, rules); err != nil {
 		return nil, err
 	}
 	if err := in.stage("extracted"); err != nil {
@@ -413,4 +415,36 @@ func setModes(root, binary string) error {
 		}
 		return os.Chmod(path, mode)
 	})
+}
+
+// maxRatio is how many times its own size an archive may unpack to. The
+// release binaries are compressed 2 to 4 times; 100 leaves room for a very
+// different build and stops a bomb.
+const maxRatio = 100
+
+// extractVerified opens the downloaded archive once, hashes what it opened
+// against the signed line again, and extracts from that same handle. The file
+// was checked when it was downloaded, but it has sat in a folder other
+// programs running as the user can write to since; checking the handle that is
+// then read from means a swap in between is caught, and a swap after is not
+// seen at all because nothing opens the path again.
+func extractVerified(path, wantSHA, dir string, rules ExtractRules) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	n, err := io.Copy(h, f)
+	if err != nil {
+		return err
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != wantSHA {
+		return &ChecksumError{Got: got, Want: wantSHA}
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	rules.CompressedSize = n
+	return ExtractFile(f, strings.HasSuffix(path, ".zip"), dir, rules)
 }

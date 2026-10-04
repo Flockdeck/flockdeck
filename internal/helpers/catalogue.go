@@ -54,8 +54,11 @@ type Entry struct {
 
 // Defaults for the caps an Entry leaves at zero.
 const (
-	defaultMaxArchive  = 256 << 20
-	defaultMaxUnpacked = 1 << 30
+	defaultMaxArchive = 256 << 20
+	// 256 MiB: a one-file Python executable with its libraries is a hundred
+	// megabytes or less, and a limit nearer a gigabyte only lets a bad archive
+	// fill a disk. An entry that needs more says so in MaxUnpacked.
+	defaultMaxUnpacked = 256 << 20
 	defaultMaxFiles    = 2000
 )
 

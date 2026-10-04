@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -24,6 +25,12 @@ type ExtractRules struct {
 	MaxFiles int
 	MaxTotal int64
 	MaxFile  int64
+	// CompressedSize is the archive's size, and MaxRatio how many times larger
+	// than that the unpacked data may be (with a floor of 1 MiB, so a tiny
+	// archive is not held to a few bytes). Zero means no ratio. This is what
+	// stops a bomb that stays under MaxTotal by being small to start with.
+	CompressedSize int64
+	MaxRatio       int
 }
 
 // ArchiveError is what extraction fails with when the archive is not
@@ -50,7 +57,10 @@ var reservedNames = map[string]bool{
 	"CON": true, "PRN": true, "AUX": true, "NUL": true,
 	"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true, "COM6": true, "COM7": true, "COM8": true, "COM9": true,
 	"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true, "LPT5": true, "LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
+	"CONIN$": true, "CONOUT$": true, "CLOCK$": true,
 }
+
+var shortName = regexp.MustCompile(`~[0-9]`)
 
 // cleanMember checks a member's name and returns its path elements, the first
 // of which is the top folder. The rules are the strictest of the platforms
@@ -66,6 +76,13 @@ func cleanMember(name string, top string) (elems []string, isDirName bool, err e
 	for _, r := range name {
 		if r < 0x20 || r == 0x7f {
 			return nil, false, unsafef("%q contains a control character", name)
+		}
+		// ASCII only. A release has no use for anything else, and it rules out
+		// two spellings of one name (a composed and a decomposed accent are two
+		// byte strings and one file on macOS), look-alike letters, and the
+		// superscript digits Windows reads as device names.
+		if r > 0x7e {
+			return nil, false, unsafef("%q contains a character that is not plain ASCII", name)
 		}
 	}
 	if strings.Contains(name, `\`) {
@@ -92,10 +109,17 @@ func cleanMember(name string, top string) (elems []string, isDirName bool, err e
 		case strings.HasSuffix(el, ".") || strings.HasSuffix(el, " "):
 			return nil, false, unsafef("%q has an element ending in a dot or a space", name)
 		}
+		if shortName.MatchString(el) {
+			// FILEXX~1.EXE is how Windows spells a long name for programs that
+			// cannot read it, and it can stand for a name already seen.
+			return nil, false, unsafef("%q looks like a Windows short name", name)
+		}
 		stem := el
 		if i := strings.IndexByte(stem, '.'); i >= 0 {
 			stem = stem[:i]
 		}
+		// Windows drops trailing spaces from the stem, so "CON .txt" is CON.
+		stem = strings.TrimRight(stem, " ")
 		if reservedNames[strings.ToUpper(stem)] {
 			return nil, false, unsafef("%q uses the reserved name %s", name, stem)
 		}
@@ -110,7 +134,7 @@ func cleanMember(name string, top string) (elems []string, isDirName bool, err e
 // and how much has been written.
 type extractor struct {
 	rules ExtractRules
-	root  string // the folder members are written into
+	root  *os.Root // the folder members are written into, and the only place they can go
 	// seen maps a lowercased path to the name as the archive wrote it, and kind
 	// to what that path is, "dir" or "file".
 	seen  map[string]string
@@ -119,13 +143,13 @@ type extractor struct {
 	total int64
 }
 
-func newExtractor(rules ExtractRules, root string) *extractor {
+func newExtractor(rules ExtractRules, root *os.Root) *extractor {
 	return &extractor{rules: rules, root: root, seen: map[string]string{}, kind: map[string]string{}}
 }
 
 // dest returns the path for a member's elements below root.
 func (x *extractor) dest(elems []string) string {
-	return filepath.Join(append([]string{x.root}, elems...)...)
+	return filepath.Join(elems...)
 }
 
 // claim records a member's name, refusing a second one that is the same name
@@ -175,10 +199,10 @@ func (x *extractor) writeFile(elems []string, declared int64, r io.Reader) error
 		return unsafef("the archive unpacks to more than %d bytes", x.rules.MaxTotal)
 	}
 	path := x.dest(elems)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := x.root.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	f, err := x.root.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
 	}
@@ -200,53 +224,109 @@ func (x *extractor) writeFile(elems []string, declared int64, r io.Reader) error
 		return unsafef("%q unpacks to more than the limits allow", name)
 	}
 	x.total += n
+	if x.rules.MaxRatio > 0 && x.rules.CompressedSize > 0 {
+		if limit := max(int64(x.rules.MaxRatio)*x.rules.CompressedSize, 1<<20); x.total > limit {
+			return unsafef("the archive unpacks to %d bytes, more than %d times its own size", x.total, x.rules.MaxRatio)
+		}
+	}
 	return nil
 }
 
 func (x *extractor) mkdir(elems []string) error {
-	return os.MkdirAll(x.dest(elems), 0o755)
+	return x.root.MkdirAll(x.dest(elems), 0o755)
 }
 
 // finish checks the archive held what it must.
 func (x *extractor) finish() error {
-	bin := filepath.Join(x.root, x.rules.Top, x.rules.Binary)
-	fi, err := os.Lstat(bin)
+	bin := filepath.Join(x.rules.Top, x.rules.Binary)
+	fi, err := x.root.Lstat(bin)
 	if err != nil || !fi.Mode().IsRegular() {
 		return unsafef("the archive does not hold %s/%s", x.rules.Top, x.rules.Binary)
 	}
 	return nil
 }
 
-// Extract unpacks archive, a .tar.gz or a .zip by its name, into root, which
-// must be a new empty folder made for the purpose. The archive is accepted
-// only if the error is nil; on an error the caller removes root. Nothing here
-// runs anything it writes.
-func Extract(archive, root string, rules ExtractRules) error {
-	x := newExtractor(rules, root)
-	if strings.HasSuffix(archive, ".zip") {
-		return x.zip(archive)
-	}
-	return x.tar(archive)
-}
-
-func (x *extractor) tar(archive string) error {
+// Extract unpacks archive, a .tar.gz or a .zip by its name, into dir, which
+// must be a new empty folder made for the purpose.
+func Extract(archive, dir string, rules ExtractRules) error {
 	f, err := os.Open(archive)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+	return ExtractFile(f, strings.HasSuffix(archive, ".zip"), dir, rules)
+}
+
+// ExtractFile unpacks an archive that is already open, so that what was
+// checked is what is read: the caller hashes f and extracts from f, and nothing
+// is opened again by path. Every file is written through an os.Root on dir,
+// which refuses any name that would leave it, as a second line behind the name
+// checks. The archive is accepted only if the error is nil; on an error the
+// caller removes dir. Nothing here runs anything it writes.
+func ExtractFile(f *os.File, isZip bool, dir string, rules ExtractRules) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	x := newExtractor(rules, root)
+	if isZip {
+		return x.zip(f)
+	}
+	return x.tar(f)
+}
+
+// streamCap is the most the decompressed stream of a tar.gz may hold: what the
+// members may add up to, a header block each, and a floor for the special
+// headers. A chain of PAX or GNU headers that never reaches a file counts here
+// too, which the member limits do not see.
+func (x *extractor) streamCap() int64 {
+	limit := x.rules.MaxTotal + int64(x.rules.MaxFiles)*2048 + 1<<20
+	if x.rules.MaxRatio > 0 && x.rules.CompressedSize > 0 {
+		limit = min(limit, max(int64(x.rules.MaxRatio)*x.rules.CompressedSize, 1<<20)+int64(x.rules.MaxFiles)*2048)
+	}
+	return limit
+}
+
+// capReader fails once more than max bytes have been read through it.
+type capReader struct {
+	r    io.Reader
+	left int64
+}
+
+func (c *capReader) Read(p []byte) (int, error) {
+	if c.left <= 0 {
+		return 0, unsafef("the decompressed data is larger than the limits allow")
+	}
+	if int64(len(p)) > c.left {
+		p = p[:c.left]
+	}
+	n, err := c.r.Read(p)
+	c.left -= int64(n)
+	return n, err
+}
+
+func (x *extractor) tar(f *os.File) error {
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return unsafef("not a gzip file: %v", err)
 	}
 	defer gz.Close()
-	tr := tar.NewReader(gz)
+	var src io.Reader = gz
+	if x.rules.MaxTotal > 0 {
+		src = &capReader{r: gz, left: x.streamCap()}
+	}
+	tr := tar.NewReader(src)
 	for {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
+			var ae *ArchiveError
+			if errors.As(err, &ae) {
+				return ae
+			}
 			return unsafef("unreadable tar: %v", err)
 		}
 		if err := x.count(); err != nil {
@@ -302,14 +382,20 @@ func tarKind(t byte) string {
 	return fmt.Sprintf("member of type %q", string(rune(t)))
 }
 
-func (x *extractor) zip(archive string) error {
-	zr, err := zip.OpenReader(archive)
+func (x *extractor) zip(f *os.File) error {
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	zr, err := zip.NewReader(f, fi.Size())
 	// ErrInsecurePath comes with a usable reader. The checks in cleanMember are
 	// what refuse such a name, and they say why.
 	if err != nil && (zr == nil || !errors.Is(err, zip.ErrInsecurePath)) {
 		return unsafef("not a zip file: %v", err)
 	}
-	defer zr.Close()
+	if x.rules.MaxFiles > 0 && len(zr.File) > x.rules.MaxFiles {
+		return unsafef("more than %d members", x.rules.MaxFiles)
+	}
 	for _, zf := range zr.File {
 		if err := x.count(); err != nil {
 			return err
