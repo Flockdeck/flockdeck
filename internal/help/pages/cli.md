@@ -290,7 +290,12 @@ A helper app is a small program that Flockdeck downloads, installs in its own
 folder, starts and stops for you. The first one is lens, which reads agent
 session transcripts. A helper is not part of Flockdeck: it runs as you, listens
 on 127.0.0.1 only, gets none of Flockdeck's tokens or API keys in its
-environment, and is not sandboxed.
+environment, and is not sandboxed. Any program running as you can read and
+write its files, and any account on the computer can reach it on 127.0.0.1
+with no sign-in, because it has none. Its environment is built from a short
+list of names, and that list includes `HTTP_PROXY`, `HTTPS_PROXY` and
+`NO_PROXY`, passed on as they are on purpose so that it can reach the network
+the way you do; a proxy address can carry a username and password.
 
 `install` shows the name, version, source address, signature and what the helper
 may do, and asks first; `-yes` skips the question. The release's manifest is
@@ -299,7 +304,10 @@ them, before anything is unpacked. A release with no signature is refused unless
 you pass `-allow-unsigned`, which shows the archive's SHA-256 first. That hash
 shows the download matches the manifest and says nothing about who built
 it, and the choice applies to that one version. A signature that is present and
-wrong is always refused.
+wrong is always refused. Once a signed version of a helper has been installed,
+an unsigned one is never installed for it, even after an uninstall and even
+with `-allow-unsigned`, and nothing older than the newest signed version
+installed before is offered unless you name the version.
 
 `list`, `install` and `uninstall` work without Flockdeck open. `start`, `stop`
 and `open` are done by the running Flockdeck, which watches the helper, restarts

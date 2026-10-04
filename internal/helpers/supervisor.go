@@ -300,6 +300,9 @@ func (s *Supervisor) Start(id string) (Status, error) {
 	// The record that says a start is under way goes down before anything that
 	// takes time, with the port the last run used so a bookmark keeps working.
 	prev, _ := st.ReadRun(id)
+	if prev.Port == 0 {
+		prev.Port = st.lastPort(id)
+	}
 	s.writeStarting(id, prev.Port)
 	in := &instance{
 		id: id, entry: e, state: StateStarting, log: &lineRing{},
@@ -708,6 +711,7 @@ ready:
 	case ownerVerified:
 		owner = OwnerVerified
 	}
+	s.cfg.Store.saveLastPort(in.id, port)
 	s.set(in, func() { in.state, in.err, in.owner = StateRunning, "", owner })
 
 	// 3. Health, until it ends.

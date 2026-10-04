@@ -924,3 +924,39 @@ func TestProbeNeverFollowsARedirect(t *testing.T) {
 		t.Fatalf("the probe timeout is %v", probeClient.Timeout)
 	}
 }
+
+// A bookmark to a helper keeps working after it is stopped and started, not only
+// after a crash and a restart: run.json goes when it stops, so the port is kept
+// beside it.
+func TestTheLastPortIsReusedAfterAStopAndAStart(t *testing.T) {
+	f := newSupFixture(t, []Entry{fakeEntry("lens")})
+	first := f.startAndWait("lens")
+	if first.State != StateRunning {
+		t.Fatalf("status = %+v", first)
+	}
+	if err := f.sup.Stop("lens"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.store.ReadRun("lens"); ok {
+		t.Fatal("run.json survived the stop, which the test relies on it not doing")
+	}
+	second := f.startAndWait("lens")
+	if second.State != StateRunning || second.Port != first.Port {
+		t.Fatalf("the port changed from %d to %d across a stop and a start", first.Port, second.Port)
+	}
+}
+
+func TestTheLastPortFileIsReadSafely(t *testing.T) {
+	s := &Store{Root: t.TempDir()}
+	if err := os.MkdirAll(s.appDir("lens"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for content, want := range map[string]int{"8123": 8123, " 8123\n": 8123, "": 0, "abc": 0, "80": 0, "70000": 0, "-5": 0, "8123x": 0} {
+		if err := os.WriteFile(s.lastPortFile("lens"), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.lastPort("lens"); got != want {
+			t.Errorf("%q: %d, want %d", content, got, want)
+		}
+	}
+}

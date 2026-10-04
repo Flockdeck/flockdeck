@@ -132,6 +132,7 @@ var lens = Entry{
 		"Listens on 127.0.0.1 only, on a port Flockdeck picks",
 		"Reads and writes its own data folder",
 		"May contact whatever AI service you configure in its own settings",
+		"Is given your HTTP_PROXY, HTTPS_PROXY and NO_PROXY settings as they are, which can carry a username and password",
 	},
 }
 

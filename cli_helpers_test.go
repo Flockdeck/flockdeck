@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/helpers"
 	"github.com/jmwri/flockdeck/internal/selfupdate"
 )
@@ -557,6 +558,31 @@ func TestHelpersStartSaysWhenThePortOwnerIsNotVerified(t *testing.T) {
 		}
 		if got := strings.Contains(r.out.String(), "Port owner not verified"); got != want {
 			t.Errorf("owner %q: said = %v, want %v\n%s", owner, got, want, r.out)
+		}
+	}
+}
+
+// The command-line page says what it must about helpers: who can reach them,
+// what is passed on, and that a signed helper is never installed unsigned.
+func TestTheHelpersPageSaysWhatItMust(t *testing.T) {
+	pages, err := help.Pages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	for _, p := range pages {
+		if p.Slug == "cli" {
+			text = strings.Join(strings.Fields(p.Text), " ")
+		}
+	}
+	for _, want := range []string{
+		"any account on the computer can reach it on 127.0.0.1 with no sign-in",
+		"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "on purpose", "username and password",
+		"an unsigned one is never installed for it", "even after an uninstall",
+		"not sandboxed",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the page does not say %q", want)
 		}
 	}
 }

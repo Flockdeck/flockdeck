@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -201,7 +202,7 @@ func (s *Store) Uninstall(id string, purge bool) error {
 			return err
 		}
 	}
-	for _, name := range []string{"current.json", "run.json", "run.lock"} {
+	for _, name := range []string{"current.json", "run.json", "run.lock", "lastport"} {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
@@ -263,4 +264,26 @@ func (s *Store) PurgeData(id string) error {
 func (s *Store) HasData(id string) bool {
 	fi, err := os.Stat(s.DataDir(id))
 	return err == nil && fi.IsDir()
+}
+
+// The port a helper last ran on is kept apart from run.json, which is removed
+// when the helper stops, so that a bookmark to it works after a stop and a
+// start and not only after a crash and a restart.
+
+func (s *Store) lastPortFile(id string) string { return filepath.Join(s.appDir(id), "lastport") }
+
+func (s *Store) lastPort(id string) int {
+	b, err := os.ReadFile(s.lastPortFile(id))
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || n < 1024 || n > 65535 {
+		return 0
+	}
+	return n
+}
+
+func (s *Store) saveLastPort(id string, port int) {
+	_ = writeFileAtomic(s.lastPortFile(id), []byte(strconv.Itoa(port)), 0o600)
 }

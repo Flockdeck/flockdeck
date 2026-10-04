@@ -167,3 +167,52 @@ func TestOnlyRealLocaleNamesAreInherited(t *testing.T) {
 		}
 	}
 }
+
+// Names are folded to upper case in ASCII only: strings.ToUpper turns the long
+// s (U+017F) into S, which would pass ſsl_cert_file for SSL_CERT_FILE.
+func TestInheritedNamesAreFoldedInASCIIOnly(t *testing.T) {
+	parent := []string{
+		"ſsl_cert_file=/evil.pem", "SSL_CERT_FILE=/good.pem", "ssl_cert_file=/also.pem",
+		"ſystemroot=x", "pıth=x", "Key=x", "LC_ſECRET=x",
+	}
+	got, err := BuildEnv(Entry{}, parent, EnvVars{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := envMap(got)
+	for name := range m {
+		for _, r := range name {
+			if r > 0x7f {
+				t.Errorf("%q, which is not an ASCII name, was passed on", name)
+			}
+		}
+	}
+	if m["SSL_CERT_FILE"] != "/good.pem" || m["ssl_cert_file"] != "/also.pem" {
+		t.Errorf("the real names were lost: %v", m)
+	}
+	if asciiUpper("ſsl_cert_file") == "SSL_CERT_FILE" {
+		t.Error("asciiUpper folded a letter from another script")
+	}
+	if asciiUpper("abc_XYZ-1") != "ABC_XYZ-1" {
+		t.Errorf("asciiUpper = %q", asciiUpper("abc_XYZ-1"))
+	}
+}
+
+// What is passed on is said before an install, since a proxy address can carry
+// a password.
+func TestTheProxySettingsAreSaidToBePassedOn(t *testing.T) {
+	said := false
+	for _, a := range lens.Allows {
+		if strings.Contains(a, "HTTP_PROXY") && strings.Contains(a, "HTTPS_PROXY") && strings.Contains(a, "NO_PROXY") && strings.Contains(a, "password") {
+			said = true
+		}
+	}
+	if !said {
+		t.Fatalf("the permissions do not say the proxy settings are passed on: %v", lens.Allows)
+	}
+	for _, n := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"} {
+		if !inherited(n) {
+			t.Errorf("%s is not passed on, though it is said to be", n)
+		}
+	}
+}

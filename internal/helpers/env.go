@@ -32,8 +32,20 @@ var inheritedNames = map[string]bool{
 
 // inherited reports whether a variable of this name passes to a helper.
 func inherited(name string) bool {
-	up := strings.ToUpper(name)
-	return inheritedNames[up]
+	return inheritedNames[asciiUpper(name)]
+}
+
+// asciiUpper upper-cases a-z and nothing else. strings.ToUpper folds some
+// letters from other scripts onto ASCII ones (the long s onto S), so a variable
+// named with one would pass for SSL_CERT_FILE.
+func asciiUpper(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'a' && c <= 'z' {
+			b[i] = c - 'a' + 'A'
+		}
+	}
+	return string(b)
 }
 
 // EnvVars are the values the entry's templates are filled from.
@@ -84,7 +96,7 @@ func BuildEnv(e Entry, parent []string, v EnvVars) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
-		own[strings.ToUpper(name)] = val
+		own[asciiUpper(name)] = val
 	}
 	kept := map[string]string{}
 	for _, kv := range parent {
@@ -92,7 +104,7 @@ func BuildEnv(e Entry, parent []string, v EnvVars) ([]string, error) {
 		if !ok || name == "" || !inherited(name) {
 			continue
 		}
-		if _, overridden := own[strings.ToUpper(name)]; overridden {
+		if _, overridden := own[asciiUpper(name)]; overridden {
 			continue
 		}
 		kept[name] = val
