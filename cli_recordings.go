@@ -47,7 +47,7 @@ func listRecordings(args []string, out io.Writer, stateDir func() (string, error
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: flockdeck recordings [flags]\n\n")
 		fmt.Fprintf(os.Stderr, "Lists the transcripts panes have recorded, newest first: when it started, the\n")
-		fmt.Fprintf(os.Stderr, "project, the pane's name (\"-\" if the file has none), its size and the file.\n")
+		fmt.Fprintf(os.Stderr, "project, the conversation's id (its first eight characters), its size and the file.\n")
 		fmt.Fprintf(os.Stderr, "Exports are not listed: they are in each project's exports folder.\n\n")
 		fmt.Fprintf(os.Stderr, "A pane records only while recording is on for it (the record button in its\n")
 		fmt.Fprintf(os.Stderr, "header, or Start recording in the command palette), and nothing is recorded by\n")
@@ -98,15 +98,18 @@ func listRecordings(args []string, out io.Writer, stateDir func() (string, error
 		if t, err := time.Parse(time.RFC3339Nano, in.Started); err == nil {
 			when = t.Local().Format("2006-01-02 15:04")
 		}
-		name := in.PaneName
-		if name == "" {
-			name = "-"
+		conversation := in.Conversation
+		if len(conversation) > 8 {
+			conversation = conversation[:8]
+		}
+		if conversation == "" {
+			conversation = "-"
 		}
 		project := in.Project
 		if project == "" {
 			project = in.Folder
 		}
-		fmt.Fprintf(out, "%s  %-20s %-20s %8s  %s\n", when, project, name, byteSize(in.Size), in.Path)
+		fmt.Fprintf(out, "%s  %-20s %-20s %8s  %s\n", when, project, conversation, byteSize(in.Size), in.Path)
 	}
 	return nil
 }

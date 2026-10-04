@@ -11,6 +11,9 @@ package record
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,33 +31,22 @@ import (
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
-// Version is the schema version written on every line (the "v" field). It goes
-// up when a field changes meaning, never for a field added.
-const Version = 1
+// Version is the format version written on every line (the "v" field). It goes
+// up when a field is removed, renamed or changes meaning, never for a field
+// added. It is 2 since "pane" and "paneName" were removed.
+const Version = 2
 
 // Event types, the "type" field of a line.
 const (
 	TypeStarted    = "recording_started"
 	TypeStopped    = "recording_stopped"
 	TypeTruncated  = "recording_truncated"
-	TypeSession    = "session"
 	TypePrompt     = "user_prompt"
 	TypeAssistant  = "assistant_message"
 	TypeToolCall   = "tool_call"
 	TypeToolResult = "tool_result"
 	TypeTitle      = "conversation_title"
 	TypeCompacted  = "conversation_compacted"
-	TypePermission = "permission_prompt"
-	TypeOutcome    = "permission_outcome"
-	TypeStatus     = "status"
-)
-
-// Permission outcomes, the "outcome" field of a permission_outcome line.
-const (
-	OutcomeAllowed      = "allowed"
-	OutcomeAutoApproved = "auto_approved"
-	OutcomeDenied       = "denied"
-	OutcomeAbandoned    = "abandoned"
 )
 
 // Limits. A transcript is a convenience, not an archive, so every one of these
@@ -82,16 +74,18 @@ const (
 	sessionFileExt = ".jsonl"
 )
 
-// Meta says whose line it is. It is read when a line is written, so a pane
-// renamed, or one that has changed agent, is recorded as it is at the time.
+// Meta says whose line it is: the conversation's id, the agent and the project,
+// all of them worked out from the stored conversation (see MetaFor).
 type Meta struct {
-	Pane         string
-	PaneName     string
-	Project      string // the project's name, as the window shows it
+	Project      string // the last element of ProjectRoot
 	ProjectRoot  string // its directory, which names the folder
 	Agent        string
 	Conversation string
 }
+
+// lineCtx is what an entry of the stored conversation says of where it was
+// written: the git branch, the working directory and the agent's version.
+type lineCtx struct{ GitBranch, Cwd, AgentVersion string }
 
 // Entry is one line of a transcript.
 type Entry struct {
@@ -101,8 +95,6 @@ type Entry struct {
 	Time string `json:"time"`
 	// Session names the session file the line is in, without its extension.
 	Session      string `json:"session"`
-	Pane         string `json:"pane"`
-	PaneName     string `json:"paneName,omitempty"`
 	Project      string `json:"project,omitempty"`
 	Agent        string `json:"agent,omitempty"`
 	Model        string `json:"model,omitempty"`
@@ -113,9 +105,7 @@ type Entry struct {
 	Cwd          string `json:"cwd,omitempty"`
 	AgentVersion string `json:"agentVersion,omitempty"`
 	Type         string `json:"type"`
-	// Subagent names the subagent an event came from; absent for the main agent.
-	Subagent string `json:"subagent,omitempty"`
-	Text     string `json:"text,omitempty"`
+	Text         string `json:"text,omitempty"`
 	// Usage and StopReason are on the first line of a model's reply only.
 	Usage      *Usage `json:"usage,omitempty"`
 	StopReason string `json:"stopReason,omitempty"`
@@ -129,47 +119,38 @@ type Entry struct {
 	ToolUseID    string `json:"toolUseId,omitempty"`
 	Input        any    `json:"input,omitempty"`
 	Output       string `json:"output,omitempty"`
-	IsError      bool   `json:"isError,omitempty"`
-	// Interrupted says a tool ended because the user stopped it.
-	Interrupted bool   `json:"interrupted,omitempty"`
-	Outcome     string `json:"outcome,omitempty"`
-	// Inferred says Outcome was worked out from what came next, since Claude
-	// Code has no event that reports the answer to a permission prompt.
-	Inferred bool   `json:"inferred,omitempty"`
-	Reason   string `json:"reason,omitempty"`
-	// Source is how a session started, on a session line.
-	Source   string `json:"source,omitempty"`
-	Status   string `json:"status,omitempty"`
-	Previous string `json:"previous,omitempty"`
-	Detail   string `json:"detail,omitempty"`
+	IsError      *bool  `json:"isError,omitempty"`
+	// IsError and Interrupted are written on every tool_result, true or false (a
+	// pointer, so that false is not left out); Interrupted says a tool ended because
+	// the user stopped it.
+	Interrupted *bool `json:"interrupted,omitempty"`
 	// Redacted says something in the line was replaced by Redact, or withheld
 	// as the contents of a secret file.
 	Redacted bool `json:"redacted,omitempty"`
 	// Clipped names each field that was cut, with its length in bytes as the
-	// recorder received it, before redaction: "text", "output", "detail",
-	// "reason", "input", "title", "cwd" or "gitBranch". The field itself ends in a marker saying how much.
+	// recorder received it, before redaction: "text", "output", "input", "title", "cwd" or "gitBranch". The field itself ends in a marker saying how much.
 	Clipped map[string]int `json:"clipped,omitempty"`
 }
 
-// Usage is the tokens one model reply used. All four are always written, 0 for a
-// kind the stored conversation does not give.
+// Usage is the tokens one model reply used. A count the stored conversation does
+// not give is left out, never written as 0.
 type Usage struct {
-	InputTokens              int `json:"inputTokens"`
-	OutputTokens             int `json:"outputTokens"`
-	CacheCreationInputTokens int `json:"cacheCreationInputTokens"`
-	CacheReadInputTokens     int `json:"cacheReadInputTokens"`
+	InputTokens              *int `json:"inputTokens,omitempty"`
+	OutputTokens             *int `json:"outputTokens,omitempty"`
+	CacheCreationInputTokens *int `json:"cacheCreationInputTokens,omitempty"`
+	CacheReadInputTokens     *int `json:"cacheReadInputTokens,omitempty"`
 }
 
-// Manager owns the open transcript files, one per recording pane.
+// Manager owns the open transcript files, one per conversation being written.
 type Manager struct {
 	// Dir is the state directory recordings live under. It is resolved on use,
 	// so a state directory that is not available at start-up is not fatal.
 	Dir func() (string, error)
 
-	mu    sync.Mutex
-	now   func() time.Time
-	max   int64
-	panes map[string]*session
+	mu   sync.Mutex
+	now  func() time.Time
+	max  int64
+	open map[string]*session
 	// closed is set by Close, which is final: a Manager that has been closed
 	// writes nothing more, whatever is still handed to it.
 	closed bool
@@ -182,20 +163,25 @@ type Manager struct {
 	target string
 }
 
-// session is one pane's open file and what is tracked while it is open.
+// session is one conversation's open file and what is tracked while it is open.
 type session struct {
 	f    *os.File
 	path string
-	// final, when path is a file a finished transcript of this conversation is
-	// being replaced through, is the file it replaces. See openLocked.
-	final  string
-	id     string
-	seq    int64
-	size   int64
-	capped bool
+	// final, when path is a file written beside the one it is to take the place
+	// of, is that file, which may not exist yet. See openLocked.
+	final string
+	// replaces says a file was at final when this one was opened.
+	replaces bool
+	id       string
+	seq      int64
+	size     int64
+	capped   bool
 	// last is the time of the last event written, which is the time of the
 	// closing line.
 	last time.Time
+	// ctx is the branch, directory and agent version of the last event written,
+	// which the closing line has as well.
+	ctx lineCtx
 	// secret marks the tool calls that touched a secret file, by tool_use_id,
 	// so their output is withheld; lastSecret does the same for a result that
 	// does not say which call it answers.
@@ -205,7 +191,7 @@ type session struct {
 
 // NewManager returns a Manager writing under the state directory dir names.
 func NewManager(dir func() (string, error)) *Manager {
-	return &Manager{Dir: dir, now: time.Now, max: MaxFileBytes, panes: map[string]*session{}}
+	return &Manager{Dir: dir, now: time.Now, max: MaxFileBytes, open: map[string]*session{}}
 }
 
 var slugRe = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
@@ -227,18 +213,18 @@ func Folder(project, root string) string {
 	return fmt.Sprintf("%s-%08x", name, h)
 }
 
-// Active reports whether a transcript file is open for the pane.
+// Active reports whether a transcript file is open for the conversation.
 func (m *Manager) Active(pane string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.panes[pane] != nil
+	return m.open[pane] != nil
 }
 
 // Path is the open transcript's file, empty if there is none.
 func (m *Manager) Path(pane string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if s := m.panes[pane]; s != nil {
+	if s := m.open[pane]; s != nil {
 		if s.final != "" {
 			return s.final
 		}
@@ -275,11 +261,7 @@ func SessionID(first time.Time, meta Meta) string {
 // shortConversation is the part of a conversation's id its transcripts' names
 // end with.
 func shortConversation(meta Meta) string {
-	conv := meta.Conversation
-	if conv == "" {
-		conv = meta.Pane
-	}
-	short := slugRe.ReplaceAllString(conv, "")
+	short := slugRe.ReplaceAllString(meta.Conversation, "")
 	if len(short) > 8 {
 		short = short[:8]
 	}
@@ -295,17 +277,18 @@ func shortConversation(meta Meta) string {
 func (m *Manager) Write(meta Meta, ev transcript.ExportEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	ctx := lineCtx{ev.GitBranch, ev.Cwd, ev.AgentVersion}
 	if m.closed {
 		return ErrClosed
 	}
-	s := m.panes[meta.Pane]
+	s := m.open[meta.Conversation]
 	if s == nil {
 		if err := m.openLocked(meta, ev.Time); err != nil {
 			return err
 		}
-		s = m.panes[meta.Pane]
-		if err := m.writeLocked(meta, Entry{Type: TypeStarted, Text: startText, Time: stamp(ev.Time)}); err != nil {
-			m.dropLocked(meta.Pane)
+		s = m.open[meta.Conversation]
+		if err := m.writeLocked(meta, Entry{Type: TypeStarted, Text: startText, Time: stamp(ev.Time), GitBranch: ctx.GitBranch, Cwd: ctx.Cwd, AgentVersion: ctx.AgentVersion}); err != nil {
+			m.dropLocked(meta.Conversation)
 			return err
 		}
 	}
@@ -314,7 +297,7 @@ func (m *Manager) Write(meta Meta, ev transcript.ExportEvent) error {
 	if err := m.writeLocked(meta, e); err != nil {
 		return err
 	}
-	s.last = ev.Time
+	s.last, s.ctx = ev.Time, ctx
 	if s.capped {
 		return ErrFull
 	}
@@ -327,12 +310,12 @@ var ErrClosed = errors.New("the transcripts are closed")
 // dropLocked closes a pane's file after a failure and removes what was made of a
 // replacement, leaving a finished file it was to replace as it was.
 func (m *Manager) dropLocked(pane string) {
-	if s := m.panes[pane]; s != nil {
+	if s := m.open[pane]; s != nil {
 		_ = s.f.Close()
 		if s.final != "" {
 			_ = os.Remove(s.path)
 		}
-		delete(m.panes, pane)
+		delete(m.open, pane)
 	}
 }
 
@@ -346,18 +329,27 @@ var ErrFull = errors.New("the transcript is full")
 // one takes its place only if it is itself finished and has every line the
 // earlier one had. If the closing line cannot be written the replacement is
 // dropped and the earlier file stays; if the earlier file cannot be replaced (a
-// program has it open) the finished replacement is left beside it, and the error
-// says so.
+// program has it open) the replacement is removed, the earlier file is as it was,
+// and the error says so.
 func (m *Manager) Finish(meta Meta) error {
 	m.mu.Lock()
-	s := m.panes[meta.Pane]
+	s := m.open[meta.Conversation]
 	if s == nil {
 		m.mu.Unlock()
 		return nil
 	}
-	werr := m.writeLocked(meta, Entry{Type: TypeStopped, Text: endText, Time: stamp(s.last)})
+	werr := m.writeLocked(meta, Entry{Type: TypeStopped, Text: endText, Time: stamp(s.last), GitBranch: s.ctx.GitBranch, Cwd: s.ctx.Cwd, AgentVersion: s.ctx.AgentVersion})
+	// A file that is to be moved over another is made durable first, so a power
+	// loss after the move cannot leave a short file where the earlier one was.
+	var serr error
+	if s.final != "" && werr == nil {
+		serr = s.f.Sync()
+	}
 	cerr := s.f.Close()
-	delete(m.panes, meta.Pane)
+	if serr != nil && cerr == nil {
+		cerr = serr
+	}
+	delete(m.open, meta.Conversation)
 	plain := m.target == "" && !m.export
 	m.mu.Unlock()
 
@@ -373,17 +365,26 @@ func (m *Manager) Finish(meta Meta) error {
 		return fmt.Errorf("its closing line could not be written: %w", werr)
 	}
 	if s.final != "" {
+		// One at a time per file in this process: the check reads the earlier
+		// file, and a read held open would keep the move from replacing it.
+		unlock := lockFile(s.final)
+		defer unlock()
+		inCriticalSection()
 		if !finished(s.path) || !supersedes(s.final, s.path) {
 			_ = os.Remove(s.path)
 			return ErrEarlierKept
 		}
-		if err := renameRetry(s.path, s.final); err != nil {
+		if err := moveInto(s.path, s.final); err != nil {
 			var link *os.LinkError
 			if errors.As(err, &link) {
 				err = link.Err
 			}
-			return fmt.Errorf("the new one is left beside the earlier one as %s, which could not be replaced: %v", filepath.Base(s.path), err)
+			// Nothing is left beside the earlier file: a copy per failed try would
+			// fill the folder, and the earlier file is as it was.
+			_ = os.Remove(s.path)
+			return fmt.Errorf("the new transcript could not be moved over the earlier one (%v), which is as it was, and was not kept", err)
 		}
+		syncDir(filepath.Dir(s.final))
 	}
 	// A recording of a conversation is the one file of it; an export never
 	// deletes another, as nobody asked for an earlier one to go.
@@ -428,11 +429,11 @@ func (m *Manager) sweepStale(folder string) {
 		return
 	}
 	held := map[string]bool{}
-	for _, s := range m.panes {
+	for _, s := range m.open {
 		held[s.path] = true
 	}
 	for _, e := range ents {
-		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), sessionFileExt+".new") {
+		if !e.Type().IsRegular() || !isTemp(e.Name()) {
 			continue
 		}
 		p := filepath.Join(folder, e.Name())
@@ -457,7 +458,7 @@ func (m *Manager) Close() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.closed = true
-	for id := range m.panes {
+	for id := range m.open {
 		m.dropLocked(id)
 	}
 }
@@ -467,7 +468,7 @@ func (m *Manager) Close() {
 func (m *Manager) Abandon(meta Meta) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.dropLocked(meta.Pane)
+	m.dropLocked(meta.Conversation)
 }
 
 // Discard closes the pane's transcript and deletes its file, for an export
@@ -475,10 +476,10 @@ func (m *Manager) Abandon(meta Meta) {
 func (m *Manager) Discard(meta Meta) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if s := m.panes[meta.Pane]; s != nil {
+	if s := m.open[meta.Conversation]; s != nil {
 		_ = s.f.Close()
 		_ = os.Remove(s.path)
-		delete(m.panes, meta.Pane)
+		delete(m.open, meta.Conversation)
 	}
 }
 
@@ -497,7 +498,7 @@ func entryOf(ev transcript.ExportEvent) Entry {
 		e.Type, e.Tool, e.ToolUseID, e.Input, e.Model = TypeToolCall, ev.Tool, ev.ToolUseID, ev.Input, ev.Model
 		e.Usage, e.StopReason = usageOf(ev.Usage), ev.StopReason
 	case transcript.ExportToolResult:
-		e.Type, e.Tool, e.ToolUseID, e.Output, e.IsError, e.Interrupted = TypeToolResult, ev.Tool, ev.ToolUseID, ev.Output, ev.IsError, ev.Interrupted
+		e.Type, e.Tool, e.ToolUseID, e.Output, e.IsError, e.Interrupted = TypeToolResult, ev.Tool, ev.ToolUseID, ev.Output, &ev.IsError, &ev.Interrupted
 	case transcript.ExportTitle:
 		e.Type, e.Title = TypeTitle, ev.Text
 	case transcript.ExportCompact:
@@ -538,8 +539,11 @@ func (m *Manager) openLocked(meta Meta, first time.Time) error {
 	path, flags, final := filepath.Join(folder, id+sessionFileExt), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, ""
 	if m.target != "" {
 		folder, path, flags = filepath.Dir(m.target), m.target, os.O_WRONLY|os.O_CREATE|os.O_EXCL
-	} else if finished(path) {
-		final, path = path, path+".new"
+	} else if m.export || finished(path) {
+		// Written beside the file it is to take the place of, under a name of its
+		// own, so that two writers of one conversation (the window and the command
+		// line, say) never share a file, and moved into place when finished.
+		final, path = path, tempName(path)
 	}
 	if err := os.MkdirAll(folder, folderMode); err != nil {
 		return fmt.Errorf("create the recordings folder: %w", err)
@@ -548,7 +552,12 @@ func (m *Manager) openLocked(meta Meta, first time.Time) error {
 	if err != nil {
 		return fmt.Errorf("create the transcript: %w", err)
 	}
-	m.panes[meta.Pane] = &session{f: f, path: path, final: final, id: id, secret: map[string]bool{}}
+	replaces := false
+	if final != "" {
+		_, err := os.Lstat(final)
+		replaces = err == nil
+	}
+	m.open[meta.Conversation] = &session{f: f, path: path, final: final, replaces: replaces, id: id, secret: map[string]bool{}}
 	if m.target == "" {
 		// Only Flockdeck's own folders are swept, never one beside a file the user
 		// chose.
@@ -586,54 +595,90 @@ func finished(path string) bool {
 	return e.Type == TypeStopped || e.Type == TypeTruncated
 }
 
-// supersedes reports whether the transcript at next has every line the finished
-// one at old had but its closing line: whether it is the same transcript, grown.
-// Lines are the same if they are the same event -- the same place in the file,
-// the same type and the same time -- and not if they are the same bytes, so that
-// a later version of Flockdeck that redacts or clips a little differently can
-// still replace an earlier one, while a transcript that has lost an event cannot.
+// supersedes reports whether the transcript at next may take the place of the
+// finished one at old.
+//
+// It may if old is not a transcript of this format that can be trusted: a file
+// whose first line is not version 2, which an earlier Flockdeck wrote, one with a
+// line that is not JSON or a type this version does not write, or one that did not
+// end with its closing line. Such a file is worth nothing a new one lacks.
+//
+// Otherwise it may if it has every event the old one had, in the same order: if
+// it is the same transcript, grown or made by a version that writes more. An
+// event is the same if it has the same type, time and tool call id, and not if it
+// has the same place in the file or the same bytes: a later version of Flockdeck
+// can write lines the earlier one did not (a title, say) between the old ones and
+// so move every line after them, and can redact or clip a little differently, and
+// neither makes it a different transcript. One that has lost an event cannot
+// replace the old one.
 func supersedes(old, next string) bool {
-	a, err := os.Open(old)
-	if err != nil {
-		return true // nothing there to lose
+	oldLines, ok := loadFinished(old)
+	if !ok {
+		return true // nothing there to lose, or nothing there that can be trusted
 	}
-	defer a.Close()
-	b, err := os.Open(next)
-	if err != nil {
+	newLines, ok := loadFinished(next)
+	if !ok {
 		return false
 	}
-	defer b.Close()
-	ra, rb := bufio.NewReaderSize(a, 64<<10), bufio.NewReaderSize(b, 64<<10)
-	line := func(r *bufio.Reader) (Entry, bool) {
-		var out []byte
+	// oldLines ends with the closing line, which is not an event to keep.
+	j := 0
+	for _, prev := range oldLines[:len(oldLines)-1] {
+		for {
+			if j >= len(newLines) {
+				return false
+			}
+			theirs := newLines[j]
+			j++
+			if prev.Type == theirs.Type && prev.Time == theirs.Time && prev.ToolUseID == theirs.ToolUseID {
+				break
+			}
+		}
+	}
+	return true
+}
+
+// knownTypes are the line types this version writes.
+var knownTypes = map[string]bool{TypeStarted: true, TypeStopped: true, TypeTruncated: true, TypePrompt: true, TypeAssistant: true,
+	TypeToolCall: true, TypeToolResult: true, TypeTitle: true, TypeCompacted: true}
+
+// loadFinished reads a transcript file whole, and reports false if it is not one
+// this version could have written and finished: it cannot be read, is empty, has
+// a line that is not JSON or of a type unknown to it, has a first line that is
+// not of this version, or does not end with a closing line.
+func loadFinished(path string) ([]Entry, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	r := bufio.NewReaderSize(f, 64<<10)
+	var out []Entry
+	for {
+		var raw []byte
 		for {
 			part, err := r.ReadSlice('\n')
-			out = append(out, part...)
+			raw = append(raw, part...)
 			if err == bufio.ErrBufferFull {
 				continue
 			}
 			break
 		}
+		if len(raw) == 0 {
+			break
+		}
 		var e Entry
-		if len(out) == 0 {
-			return e, false
+		if json.Unmarshal(raw, &e) != nil || !knownTypes[e.Type] {
+			return nil, false
 		}
-		_ = json.Unmarshal(out, &e)
-		return e, true
+		out = append(out, e)
 	}
-	prev, ok := line(ra)
-	for ok {
-		cur, more := line(ra)
-		if !more {
-			return true // prev was the closing line
-		}
-		theirs, has := line(rb)
-		if !has || prev.Seq != theirs.Seq || prev.Type != theirs.Type || prev.Time != theirs.Time {
-			return false
-		}
-		prev = cur
+	if len(out) == 0 || out[0].V != Version {
+		return nil, false
 	}
-	return true
+	if last := out[len(out)-1].Type; last != TypeStopped && last != TypeTruncated {
+		return nil, false
+	}
+	return out, true
 }
 
 // removeSuperseded deletes the other transcripts of the same conversation in a
@@ -641,9 +686,6 @@ func supersedes(old, next string) bool {
 // file. Only files whose first line says the same conversation are touched.
 func removeSuperseded(folder string, meta Meta, keep string) {
 	conv := meta.Conversation
-	if conv == "" {
-		conv = meta.Pane
-	}
 	ents, err := os.ReadDir(folder)
 	if err != nil {
 		return
@@ -703,17 +745,17 @@ func (m *Manager) prepareLocked(s *session, e *Entry) {
 }
 
 func (m *Manager) writeLocked(meta Meta, e Entry) error {
-	s := m.panes[meta.Pane]
+	s := m.open[meta.Conversation]
 	if s == nil || s.capped {
 		return nil
 	}
 	e.V = Version
 	e.Seq = s.seq + 1
 	e.Session = s.id
-	e.Pane, e.PaneName, e.Project = cutID(meta.Pane), meta.PaneName, meta.Project
-	e.Agent, e.Conversation = meta.Agent, cutID(meta.Conversation)
+	e.Project, e.Agent, e.Conversation = meta.Project, meta.Agent, cutID(meta.Conversation)
 	e.Tool, e.ToolUseID = cutID(e.Tool), cutID(e.ToolUseID)
 	e.AgentVersion, e.Trigger = cutID(e.AgentVersion), cutID(e.Trigger)
+	ctx := lineCtx{e.GitBranch, e.Cwd, e.AgentVersion}
 	sanitise(&e)
 	line, err := json.Marshal(e)
 	if err != nil {
@@ -722,8 +764,13 @@ func (m *Manager) writeLocked(meta Meta, e Entry) error {
 	line = append(line, '\n')
 	if s.size+int64(len(line)) > m.max {
 		s.capped = true
-		end, _ := json.Marshal(Entry{V: Version, Seq: e.Seq, Session: s.id, Time: e.Time, Pane: e.Pane, PaneName: meta.PaneName, Project: meta.Project, Type: TypeTruncated,
-			Text: fmt.Sprintf("the transcript reached its size cap of %d MiB and ended here", m.max>>20)})
+		// The line that ends the file is the one that did not fit, and says whose it
+		// was and where, as the one it stands for would have.
+		stop := Entry{V: Version, Seq: e.Seq, Session: s.id, Time: e.Time, Project: e.Project, Agent: e.Agent, Conversation: e.Conversation, Type: TypeTruncated,
+			GitBranch: ctx.GitBranch, Cwd: ctx.Cwd, AgentVersion: ctx.AgentVersion,
+			Text: fmt.Sprintf("the transcript reached its size cap of %d MiB and ended here", m.max>>20)}
+		sanitise(&stop)
+		end, _ := json.Marshal(stop)
 		if _, err := s.f.Write(append(end, '\n')); err != nil {
 			return err
 		}
@@ -769,8 +816,6 @@ func sanitise(e *Entry) {
 	clean("cwd", &e.Cwd, MaxFieldBytes)
 	clean("gitBranch", &e.GitBranch, MaxFieldBytes)
 	clean("output", &e.Output, limit)
-	clean("detail", &e.Detail, MaxFieldBytes)
-	clean("reason", &e.Reason, MaxFieldBytes)
 	if e.Input != nil {
 		before, _ := json.Marshal(e.Input)
 		redacted := RedactValue(e.Input)
@@ -896,15 +941,13 @@ type Info struct {
 	Folder   string    `json:"folder"`
 	Size     int64     `json:"size"`
 	Modified time.Time `json:"modified"`
-	// Started, Project, PaneName, Pane, Agent and Model are read from the
+	// Started, Project, Conversation and Agent are read from the
 	// file's first line, and are empty for a file whose first line is not the
 	// start of a recording.
-	Started  string `json:"started,omitempty"`
-	Project  string `json:"project,omitempty"`
-	PaneName string `json:"paneName,omitempty"`
-	Pane     string `json:"pane,omitempty"`
-	Agent    string `json:"agent,omitempty"`
-	Model    string `json:"model,omitempty"`
+	Started      string `json:"started,omitempty"`
+	Project      string `json:"project,omitempty"`
+	Conversation string `json:"conversation,omitempty"`
+	Agent        string `json:"agent,omitempty"`
 }
 
 func listFolder(folder string) []Info {
@@ -968,7 +1011,7 @@ func List(dir func() (string, error)) ([]Info, error) {
 		for _, in := range listFolder(filepath.Join(root, e.Name())) {
 			var first Entry
 			if b, err := readFirstLine(in.Path); err == nil && json.Unmarshal(b, &first) == nil && first.Type == TypeStarted {
-				in.Started, in.Project, in.PaneName, in.Pane, in.Agent, in.Model = first.Time, first.Project, first.PaneName, first.Pane, first.Agent, first.Model
+				in.Started, in.Project, in.Conversation, in.Agent = first.Time, first.Project, first.Conversation, first.Agent
 			}
 			out = append(out, in)
 		}
@@ -989,4 +1032,81 @@ func readFirstLine(path string) ([]byte, error) {
 		n = i
 	}
 	return buf[:n], nil
+}
+
+// tempName is the name a transcript is written under beside the file it is to
+// replace: that file's name, a random part and ".new". It is made fresh for each
+// writer, so two never share one.
+func tempName(final string) string {
+	var b [6]byte // 12 hex digits
+	if _, err := rand.Read(b[:]); err != nil {
+		binary.BigEndian.PutUint32(b[:4], uint32(time.Now().UnixNano()))
+	}
+	return final + "." + hex.EncodeToString(b[:]) + tempExt
+}
+
+const tempExt = ".new"
+
+// isTemp reports whether a file name is one tempName made.
+var tempRe = regexp.MustCompile(`.jsonl(.[0-9a-f]{12})?.new$`)
+
+// isTemp reports whether a file name is one a writer left beside a transcript: a
+// transcript's name, a token of the form tempName makes, and ".new" (or, from an
+// earlier Flockdeck, just ".new").
+func isTemp(name string) bool { return tempRe.MatchString(name) }
+
+var (
+	fileLocksMu sync.Mutex
+	fileLocks   = map[string]*fileLock{}
+)
+
+// lockFile takes the lock for a file's replacement in this process and returns
+// the function that releases it.
+func lockFile(path string) func() {
+	fileLocksMu.Lock()
+	l := fileLocks[path]
+	if l == nil {
+		l = &fileLock{}
+		fileLocks[path] = l
+	}
+	l.users++
+	fileLocksMu.Unlock()
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		fileLocksMu.Lock()
+		if l.users--; l.users == 0 {
+			delete(fileLocks, path)
+		}
+		fileLocksMu.Unlock()
+	}
+}
+
+// fileLock is a lock and the number of those holding or waiting for it, so that
+// it can be dropped when nobody is.
+type fileLock struct {
+	mu    sync.Mutex
+	users int
+}
+
+// moveInto and inCriticalSection are the points a test reaches into: the move of
+// a finished transcript over the earlier one, and the span, under the file's
+// lock, from the check of the earlier one to the move.
+var (
+	moveInto          = renameRetry
+	inCriticalSection = func() {}
+)
+
+// syncDir asks the system to make a directory's entries durable, so that a move
+// into it survives a power loss. It is best effort. On Windows a directory cannot
+// be synced this way (opening it for sync fails), the call does nothing there, and
+// durability of the move rests on NTFS's own journalling; the new file's contents
+// are synced before the move on every platform.
+func syncDir(dir string) {
+	d, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	_ = d.Sync()
+	_ = d.Close()
 }

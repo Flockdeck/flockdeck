@@ -25,7 +25,7 @@ func newTestManager(t *testing.T) (*Manager, string) {
 	return m, dir
 }
 
-var testMeta = Meta{Pane: "0123456789abcdef", PaneName: "api", Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Conversation: "conv-1"}
+var testMeta = Meta{Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Conversation: "conv-1"}
 
 // feed writes the events of a made-up conversation, a second apart.
 type feed struct {
@@ -74,7 +74,7 @@ func (f *feed) result(tool, id, out string) {
 }
 
 // path is the file the feed has written to.
-func (f *feed) path() string { return f.m.Path(f.meta.Pane) }
+func (f *feed) path() string { return f.m.Path(f.meta.Conversation) }
 
 func (f *feed) finish() { f.m.Finish(f.meta) }
 
@@ -129,7 +129,7 @@ func TestSessionFileHoldsOneObjectPerLineWithTheWhoAndWhen(t *testing.T) {
 		t.Fatalf("types = %v, want %v", got, want)
 	}
 	for i, e := range es {
-		if e.V != Version || e.Pane != testMeta.Pane || e.PaneName != "api" || e.Project != "shop" || e.Agent != "claude" || e.Seq != int64(i+1) {
+		if e.V != Version || e.Project != "shop" || e.Agent != "claude" || e.Seq != int64(i+1) {
 			t.Errorf("a line lacks who it is about: %+v", e)
 		}
 		if e.Session != "20261001T090001Z-conv-1" {
@@ -140,7 +140,7 @@ func TestSessionFileHoldsOneObjectPerLineWithTheWhoAndWhen(t *testing.T) {
 		}
 	}
 	// A transcript says nothing of how it was made.
-	if es[0].Text != startText || es[len(es)-1].Text != endText || es[0].Source != "" {
+	if es[0].Text != startText || es[len(es)-1].Text != endText {
 		t.Errorf("first line %+v, last %+v", es[0], es[len(es)-1])
 	}
 	// The lines carry the times of the events.
@@ -150,7 +150,7 @@ func TestSessionFileHoldsOneObjectPerLineWithTheWhoAndWhen(t *testing.T) {
 	if in, _ := es[2].Input.(map[string]any); in["command"] != "go build ./..." {
 		t.Errorf("tool input = %v", es[2].Input)
 	}
-	if m.Active(testMeta.Pane) {
+	if m.Active(testMeta.Conversation) {
 		t.Error("the pane still has a file open after Finish")
 	}
 }
@@ -191,7 +191,7 @@ func TestFilesAreNotReadableByOthers(t *testing.T) {
 
 func TestNothingIsWrittenUntilTheConversationHasAnEvent(t *testing.T) {
 	m, dir := newTestManager(t)
-	if m.Active(testMeta.Pane) {
+	if m.Active(testMeta.Conversation) {
 		t.Error("a pane with nothing said is open")
 	}
 	m.Finish(testMeta)
@@ -317,7 +317,7 @@ func TestListFindsRecordingsNewestFirst(t *testing.T) {
 	a := f.path()
 	f.finish()
 	g := newFeed(t, m)
-	g.meta.Pane, g.meta.Project, g.meta.ProjectRoot, g.meta.Conversation = "ffffffffffff", "blog", "/work/blog", "conv-2"
+	g.meta.Project, g.meta.ProjectRoot, g.meta.Conversation = "blog", "/work/blog", "conv-2"
 	g.prompt("two")
 	b := g.path()
 	g.finish()
@@ -331,7 +331,7 @@ func TestListFindsRecordingsNewestFirst(t *testing.T) {
 	if len(got) != 2 || got[0].Path != b || got[1].Path != a {
 		t.Fatalf("List = %+v", got)
 	}
-	if got[0].Project != "blog" || got[1].PaneName != "api" || got[1].Agent != "claude" {
+	if got[0].Project != "blog" || got[1].Agent != "claude" {
 		t.Errorf("details not read from the first line: %+v", got)
 	}
 	if none, err := List(func() (string, error) { return t.TempDir(), nil }); err != nil || len(none) != 0 {

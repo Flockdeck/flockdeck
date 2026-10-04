@@ -139,7 +139,7 @@ func (r *paneRecorder) finish() { r.doneOnce.Do(func() { close(r.done) }) }
 // nothing is written yet, what the conversation says of itself now. It is never
 // empty once there is a follower.
 func (r *paneRecorder) metaNow(w *Workspace) record.Meta {
-	if r.meta.Pane != "" && w.rec.Active(r.meta.Pane) {
+	if r.meta.Conversation != "" && w.rec.Active(r.meta.Conversation) {
 		return r.meta
 	}
 	r.meta = r.mk()

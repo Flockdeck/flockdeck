@@ -1056,11 +1056,13 @@ same lines a recording of it would, byte for byte. The window asks every time
 before it exports. It holds every message the agent said, not permission
 prompts or status changes, which a stored conversation has no record of, and
 an entry of the stored conversation over 8 MiB, such as a pasted screenshot, is
-left out and counted. If the stored conversation has been cut or changed so
-that a new export would lack something an earlier one has, the earlier file is
-kept, nothing is written, the window says so, and the command exits with an
-error; delete the file to have a fresh one. **Reveal transcript**, in the
-command palette or **Show in folder** in Pane info, shows the file the pane is recording to,
+left out and counted. Exporting again replaces the earlier export, and says
+so; an export an older Flockdeck made is always replaced. If the stored
+conversation has been cut or changed so that a new export would lack something
+an earlier one has, the earlier file is kept, nothing is written, the window
+says so, and the command exits with an error; delete the file to have a fresh
+one. **Reveal transcript**, in the command palette or **Show in folder** in Pane
+info, shows the file the pane is recording to,
 or else its newest export, in your file manager; `recordings export -reveal`
 shows the file it has just written. Neither export nor reveal works from a
 window reached through the relay. Only Claude Code stores a conversation Flockdeck
@@ -1071,11 +1073,11 @@ Transcripts are written under Flockdeck's state directory, in a folder per
 project with one file per conversation (exports in an `exports` folder inside it),
 and never into your repository; a file is `0600` on Linux and macOS, and on
 Windows inherits the recordings folder's permissions, readable by you and by a
-local administrator: saved on this machine, not private to you. A file stops at 16 MiB, long outputs are clipped
-with a marker, and the folder is tidied each time a recording starts: files older
-than 30 days go, then the oldest beyond 100 files or 256 MiB. **Open recordings
-folder** in the command palette opens the folder, and `flockdeck recordings`
-lists the recordings.
+local administrator: saved on this machine, not private to you. A file stops at
+16 MiB, long outputs are clipped with a marker, and the folder is tidied each
+time a recording starts: files older than 30 days go, then the oldest beyond 100
+files or 256 MiB. **Open recordings folder** in the command palette opens the
+folder, and `flockdeck recordings` lists the recordings.
 
 **Redaction is best effort.** Private keys, common token formats, credentials in
 URLs, values named like secrets (`API_KEY=…`, `password: …`) and what is read from

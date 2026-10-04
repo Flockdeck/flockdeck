@@ -40,11 +40,6 @@ func rawLines(t *testing.T, path string) [][]byte {
 	return out
 }
 
-// writtenTypes are the line types this version writes. The others are still in
-// the schema, because files made by earlier versions have them and are still
-// format 1.
-var writtenTypes = []string{TypeStarted, TypeStopped, TypeTruncated, TypePrompt, TypeAssistant, TypeToolCall, TypeToolResult, TypeTitle, TypeCompacted}
-
 // Every line the recorder can write, of every type and with clipping and
 // redaction in play, validates against the published schema.
 func TestEmittedLinesMatchThePublishedSchema(t *testing.T) {
@@ -58,7 +53,7 @@ func TestEmittedLinesMatchThePublishedSchema(t *testing.T) {
 	f.result("Read", "t2", "SECRET=1")
 	f.must(transcript.ExportEvent{Kind: transcript.ExportToolResult, Tool: "Bash", IsError: true, Interrupted: true, Output: "stopped"})
 	f.say("Done.")
-	f.must(transcript.ExportEvent{Kind: transcript.ExportMessage, Text: "With details.", Model: "m", Usage: &transcript.ExportUsage{InputTokens: 1, OutputTokens: 2, CacheCreationInputTokens: 3, CacheReadInputTokens: 4}, StopReason: "end_turn", GitBranch: "main", Cwd: "/work/shop", AgentVersion: "2.1.286"})
+	f.must(transcript.ExportEvent{Kind: transcript.ExportMessage, Text: "With details.", Model: "m", Usage: &transcript.ExportUsage{InputTokens: transcript.Count(1), OutputTokens: transcript.Count(2), CacheCreationInputTokens: transcript.Count(3), CacheReadInputTokens: transcript.Count(4)}, StopReason: "end_turn", GitBranch: "main", Cwd: "/work/shop", AgentVersion: "2.1.286"})
 	f.must(transcript.ExportEvent{Kind: transcript.ExportTitle, Text: "Add a retry"})
 	f.must(transcript.ExportEvent{Kind: transcript.ExportCompact, Trigger: "auto", TokensBefore: 900000, TokensAfter: 20000})
 	path := f.path()
@@ -80,27 +75,9 @@ func TestEmittedLinesMatchThePublishedSchema(t *testing.T) {
 		}
 		seq = e.Seq
 	}
-	for _, ty := range writtenTypes {
+	for _, ty := range allTypes {
 		if ty != TypeTruncated && !seen[ty] {
 			t.Errorf("the test never emitted a %s line", ty)
-		}
-	}
-}
-
-// Lines an earlier version wrote -- from the agent's hooks, with status and
-// permission lines -- are still format 1 and still match.
-func TestLinesOfEarlierVersionsMatchThePublishedSchema(t *testing.T) {
-	schema := loadSchema(t)
-	for _, line := range []string{
-		`{"v":1,"seq":1,"time":"2026-10-01T10:15:30.1Z","session":"20261001T101530Z-0123abcd","pane":"p","type":"recording_started","text":"turned on"}`,
-		`{"v":1,"seq":2,"time":"2026-10-01T10:15:31.0Z","session":"s","pane":"p","type":"session","source":"startup","text":"start"}`,
-		`{"v":1,"seq":3,"time":"2026-10-01T10:15:31.0Z","session":"s","pane":"p","type":"permission_prompt","tool":"Bash","toolUseId":"t1","subagent":"sub-1","input":{"command":"ls"}}`,
-		`{"v":1,"seq":4,"time":"2026-10-01T10:15:31.0Z","session":"s","pane":"p","type":"permission_outcome","tool":"Bash","outcome":"allowed","inferred":true}`,
-		`{"v":1,"seq":5,"time":"2026-10-01T10:15:31.0Z","session":"s","pane":"p","type":"status","status":"idle","previous":"working","detail":"turn over"}`,
-		`{"v":1,"seq":6,"time":"2026-10-01T10:31:02.8Z","session":"s","pane":"p","type":"recording_stopped","text":"turned off"}`,
-	} {
-		if errs := schema.Validate([]byte(line)); len(errs) != 0 {
-			t.Errorf("%v: %s", errs, line)
 		}
 	}
 }
@@ -155,11 +132,34 @@ func TestClippingAndRedactionAreFlagged(t *testing.T) {
 
 // The schema describes exactly the fields Entry has, and the event types
 // there are, so neither can change without the other.
-var allTypes = []string{TypeStarted, TypeStopped, TypeTruncated, TypeSession, TypePrompt, TypeAssistant, TypeToolCall, TypeToolResult, TypePermission, TypeOutcome, TypeStatus, TypeTitle, TypeCompacted}
+var allTypes = []string{TypeStarted, TypeStopped, TypeTruncated, TypePrompt, TypeAssistant, TypeToolCall, TypeToolResult, TypeTitle, TypeCompacted}
+
+// schemaFields is every field the schema names: the envelope's, and each line
+// type's own.
+func schemaFields(schema schemacheck.Schema) map[string]any {
+	out := map[string]any{}
+	top, _ := schema["properties"].(map[string]any)
+	for k, v := range top {
+		out[k] = v
+	}
+	all, _ := schema["allOf"].([]any)
+	for _, branch := range all {
+		then, _ := branch.(map[string]any)["then"].(map[string]any)
+		props, _ := then["properties"].(map[string]any)
+		for k, v := range props {
+			// A branch may only add a constraint on a field another branch describes.
+			if _, described := out[k]; described && v.(map[string]any)["description"] == nil {
+				continue
+			}
+			out[k] = v
+		}
+	}
+	return out
+}
 
 func TestSchemaDescribesEveryFieldAndType(t *testing.T) {
 	schema := loadSchema(t)
-	props, _ := schema["properties"].(map[string]any)
+	props := schemaFields(schema)
 	var fields []string
 	rt := reflect.TypeOf(Entry{})
 	for i := 0; i < rt.NumField(); i++ {
@@ -193,21 +193,34 @@ func TestSchemaDescribesEveryFieldAndType(t *testing.T) {
 
 func TestSchemaRejectsALineThatIsWrong(t *testing.T) {
 	schema := loadSchema(t)
+	const env = `"v":2,"seq":1,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd"`
 	for name, line := range map[string]string{
-		"no seq":          `{"v":1,"time":"2026-10-01T08:00:00Z","session":"s","pane":"p","type":"status","status":"idle"}`,
-		"bad time":        `{"v":1,"seq":1,"time":"yesterday","session":"s","pane":"p","type":"status","status":"idle"}`,
-		"prompt no text":  `{"v":1,"seq":1,"time":"2026-10-01T08:00:00Z","session":"s","pane":"p","type":"user_prompt"}`,
-		"unknown outcome": `{"v":1,"seq":1,"time":"2026-10-01T08:00:00Z","session":"s","pane":"p","type":"permission_outcome","outcome":"maybe"}`,
-		"seq is a string": `{"v":1,"seq":"1","time":"2026-10-01T08:00:00Z","session":"s","pane":"p","type":"status","status":"idle"}`,
+		"no seq":                      `{"v":2,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
+		"version 1":                   `{"v":1,"seq":1,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
+		"bad time":                    `{"v":2,"seq":1,"time":"yesterday","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
+		"seq is a string":             `{"v":2,"seq":"1","time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
+		"prompt without text":         `{` + env + `,"type":"user_prompt"}`,
+		"unknown type":                `{` + env + `,"type":"status","status":"idle"}`,
+		"unknown field":               `{` + env + `,"type":"user_prompt","text":"x","future":1}`,
+		"pane is gone":                `{` + env + `,"pane":"abcd","type":"user_prompt","text":"x"}`,
+		"model on a prompt":           `{` + env + `,"type":"user_prompt","text":"x","model":"m"}`,
+		"usage on a tool result":      `{` + env + `,"type":"tool_result","usage":{"inputTokens":1,"outputTokens":1,"cacheCreationInputTokens":0,"cacheReadInputTokens":0}}`,
+		"output on a tool call":       `{` + env + `,"type":"tool_call","tool":"Bash","output":"x"}`,
+		"null model":                  `{` + env + `,"type":"assistant_message","text":"x","model":null}`,
+		"empty branch":                `{` + env + `,"type":"user_prompt","text":"x","gitBranch":""}`,
+		"result without isError":      `{` + env + `,"type":"tool_result","interrupted":false}`,
+		"result without interrupted":  `{` + env + `,"type":"tool_result","isError":false}`,
+		"isError on a call":           `{` + env + `,"type":"tool_call","tool":"Bash","isError":false}`,
+		"interrupted without isError": `{` + env + `,"type":"tool_result","isError":false,"interrupted":true}`,
+		"empty usage":                 `{` + env + `,"type":"assistant_message","text":"x","usage":{}}`,
+		"negative count":              `{` + env + `,"type":"assistant_message","text":"x","usage":{"inputTokens":-1}}`,
+		"zero-key placeholder":        `{` + env + `,"type":"assistant_message","text":"x","usage":{"inputTokens":1,"extra":2}}`,
+		"title line without one":      `{` + env + `,"type":"conversation_title"}`,
+		"unknown clipped field":       `{` + env + `,"type":"user_prompt","text":"x","clipped":{"detail":9}}`,
 	} {
 		if errs := schema.Validate([]byte(line)); len(errs) == 0 {
 			t.Errorf("%s: the schema accepted %s", name, line)
 		}
-	}
-	// A field no version of this knows is fine: consumers ignore it.
-	ok := `{"v":1,"seq":1,"time":"2026-10-01T08:00:00.5Z","session":"s","pane":"p","type":"status","status":"idle","future":1}`
-	if errs := schema.Validate([]byte(ok)); len(errs) != 0 {
-		t.Errorf("an unknown field was rejected: %v", errs)
 	}
 }
 
@@ -239,4 +252,100 @@ func TestFormatPageNamesEveryFieldAndType(t *testing.T) {
 	if MaxFileBytes != 16<<20 || MaxMessageBytes != 32<<10 || MaxFieldBytes != 8<<10 || RetainDays != 30 || RetainFiles != 100 || RetainBytes != 256<<20 {
 		t.Error("a limit changed: update docs/recording-format.md and this test")
 	}
+}
+
+// Every example line on the format page validates against the schema, and every
+// line type has one, so the page cannot show a line the writer would not write.
+func TestFormatPageExamplesMatchTheSchema(t *testing.T) {
+	b, err := os.ReadFile("../../docs/recording-format.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := loadSchema(t)
+	seen := map[string]bool{}
+	in := false
+	for _, line := range strings.Split(string(b), "\n") {
+		switch {
+		case line == "```json":
+			in = true
+		case line == "```":
+			in = false
+		case in:
+			if errs := schema.Validate([]byte(line)); len(errs) != 0 {
+				t.Errorf("example does not match the schema: %v\n%s", errs, line)
+			}
+			var e Entry
+			if err := json.Unmarshal([]byte(line), &e); err != nil {
+				t.Errorf("example is not a line: %v\n%s", err, line)
+			}
+			seen[e.Type] = true
+		}
+	}
+	for _, ty := range allTypes {
+		if !seen[ty] {
+			t.Errorf("the format page has no example of a %s line", ty)
+		}
+	}
+}
+
+// Every field a line type has is in the page's table for that type, and every
+// field the schema describes has a description saying why it can be absent or
+// where it comes from.
+func TestSchemaFieldsAreDescribed(t *testing.T) {
+	schema := loadSchema(t)
+	for name, def := range schemaFields(schema) {
+		m, _ := def.(map[string]any)
+		if _, ref := m["$ref"]; ref {
+			continue
+		}
+		if d, _ := m["description"].(string); d == "" {
+			t.Errorf("the schema gives %q no description", name)
+		}
+	}
+}
+
+// A line with only some of the usage counts, and a tool_result that did not fail,
+// are valid.
+func TestSchemaAcceptsPartialUsageAndPlainResults(t *testing.T) {
+	schema := loadSchema(t)
+	const env = `"v":2,"seq":1,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd"`
+	for _, line := range []string{
+		`{` + env + `,"type":"assistant_message","text":"x","usage":{"inputTokens":1,"outputTokens":0}}`,
+		`{` + env + `,"type":"tool_result","isError":false,"interrupted":false}`,
+		`{` + env + `,"type":"tool_result","isError":true,"interrupted":true,"output":"x"}`,
+	} {
+		if errs := schema.Validate([]byte(line)); len(errs) != 0 {
+			t.Errorf("%v: %s", errs, line)
+		}
+	}
+}
+
+// TestValidateTranscriptFile validates every line of a transcript file against
+// the schema, and checks seq has no gaps, for a reviewer to run on a real export:
+//
+//	FLOCKDECK_VALIDATE_TRANSCRIPT=/path/to/file.jsonl go test ./internal/record -run TestValidateTranscriptFile -v
+//
+// It reads the file and nothing else, and is skipped when the variable is unset.
+func TestValidateTranscriptFile(t *testing.T) {
+	path := os.Getenv("FLOCKDECK_VALIDATE_TRANSCRIPT")
+	if path == "" {
+		t.Skip("set FLOCKDECK_VALIDATE_TRANSCRIPT to a transcript file to validate it")
+	}
+	schema := loadSchema(t)
+	lines := rawLines(t, path)
+	bad := 0
+	for i, l := range lines {
+		if errs := schema.Validate(l); len(errs) != 0 {
+			if bad++; bad <= 10 {
+				t.Errorf("line %d: %v", i+1, errs)
+			}
+		}
+		var e struct{ Seq int64 }
+		_ = json.Unmarshal(l, &e)
+		if e.Seq != int64(i+1) && bad < 10 {
+			bad++
+			t.Errorf("line %d has seq %d", i+1, e.Seq)
+		}
+	}
+	t.Logf("%d lines, %d invalid", len(lines), bad)
 }

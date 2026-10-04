@@ -116,9 +116,9 @@ flockdeck recordings [-dir] [-json]
 ```
 
 Lists the transcripts panes have recorded, newest first: when it started, the
-project, the pane's name (only a recording made before v0.3.48 has one; a newer
-one shows `-`), its size and the file. Exports are not listed: they are in each
-project folder's `exports` folder. `-dir` prints the folder they are kept
+project, the conversation's id (its first eight characters), its size and the
+file. Exports are not listed: they are in each project folder's `exports`
+folder. `-dir` prints the folder they are kept
 in and nothing else, and `-json` prints one JSON object per recording for a
 script. It reads the state directory, so it works with no Flockdeck running, and
 from any terminal. Nothing is recorded unless you turn recording on for a pane,
@@ -146,7 +146,9 @@ manager, selected, when it has been written.
 
 It prints how many lines it wrote, whether the conversation was cut at the 16
 MiB cap, and how many entries it could not read (one over 8 MiB is left out).
-If an earlier export of the same conversation has events this one would lack,
+Exporting a conversation again replaces its earlier export, written beside it and
+moved into place so that a failure never loses the earlier one, and the command
+says it replaced one. If the earlier export has events the new one would lack,
 because the stored conversation was cut or changed, that file is kept, nothing
 new is written, and the command exits with an error; delete the file to have a
 fresh one. For

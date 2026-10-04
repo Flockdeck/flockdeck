@@ -52,7 +52,10 @@ type claudeFollower struct {
 	replies map[string]replyDone
 	title   string
 	last    time.Time
-	buf     []byte
+	// ctx is the branch, directory and agent version of the entry last read, which
+	// a title, having none of its own, is given as it is given that entry's time.
+	ctx struct{ gitBranch, cwd, version string }
+	buf []byte
 	// pending is what the line last read gave that has not been handed over.
 	pending []ExportEvent
 }
@@ -232,7 +235,7 @@ func (f *claudeFollower) line(raw []byte, yield func(ExportEvent) error, stats *
 			return nil
 		}
 		f.title = title
-		f.pending = []ExportEvent{{Time: f.last, Kind: ExportTitle, Text: title}}
+		f.pending = []ExportEvent{{Time: f.last, Kind: ExportTitle, Text: title, GitBranch: f.ctx.gitBranch, Cwd: f.ctx.cwd, AgentVersion: f.ctx.version}}
 		return f.drain(yield)
 	}
 	// An entry with no usable time is given the previous one's, and one that
@@ -247,6 +250,7 @@ func (f *claudeFollower) line(raw []byte, yield func(ExportEvent) error, stats *
 		return nil
 	}
 	f.last = ts
+	f.ctx.gitBranch, f.ctx.cwd, f.ctx.version = line.GitBranch, line.Cwd, line.Version
 
 	switch line.Type {
 	case "user":
@@ -282,16 +286,13 @@ func (f *claudeFollower) replyDetails(line exportLine) {
 	id := line.Message.ID
 	done := f.replies[id]
 	if id != "" {
-		var u *ExportUsage
-		if m := line.Message.Usage; m != nil {
-			u = &ExportUsage{m.InputTokens, m.OutputTokens, m.CacheCreationInputTokens, m.CacheReadInputTokens}
-		}
+		u := line.Message.Usage.export()
 		stop := strings.TrimSpace(line.Message.StopReason)
 		differs := false
 		if u != nil {
 			if done.firstUsage == nil {
 				done.firstUsage = u
-			} else if *done.firstUsage != *u {
+			} else if !done.firstUsage.Same(*u) {
 				differs = true
 			}
 		}
@@ -311,8 +312,8 @@ func (f *claudeFollower) replyDetails(line exportLine) {
 		return
 	}
 	first := &f.pending[0]
-	if u := line.Message.Usage; u != nil && (id == "" || !done.usage) {
-		first.Usage = &ExportUsage{u.InputTokens, u.OutputTokens, u.CacheCreationInputTokens, u.CacheReadInputTokens}
+	if u := line.Message.Usage.export(); u != nil && (id == "" || !done.usage) {
+		first.Usage = u
 		done.usage = true
 	}
 	if r := strings.TrimSpace(line.Message.StopReason); r != "" && (id == "" || !done.stop) {
@@ -328,6 +329,7 @@ func (f *claudeFollower) replyDetails(line exportLine) {
 func (f *claudeFollower) start() {
 	f.offset, f.carry, f.discarding, f.pending = 0, nil, false, nil
 	f.names, f.last = map[string]string{}, time.Time{}
+	f.ctx.gitBranch, f.ctx.cwd, f.ctx.version = "", "", ""
 	f.replies, f.title = map[string]replyDone{}, ""
 }
 
@@ -353,17 +355,39 @@ type exportLine struct {
 	IsCompactSummary          bool `json:"isCompactSummary"`
 	IsVisibleInTranscriptOnly bool `json:"isVisibleInTranscriptOnly"`
 	Message                   struct {
-		ID         string `json:"id"`
-		Model      string `json:"model"`
-		StopReason string `json:"stop_reason"`
-		Usage      *struct {
-			InputTokens              int `json:"input_tokens"`
-			OutputTokens             int `json:"output_tokens"`
-			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-		} `json:"usage"`
-		Content json.RawMessage `json:"content"`
+		ID         string          `json:"id"`
+		Model      string          `json:"model"`
+		StopReason string          `json:"stop_reason"`
+		Usage      *storedUsage    `json:"usage"`
+		Content    json.RawMessage `json:"content"`
 	} `json:"message"`
+}
+
+// storedUsage is the usage a stored reply gives. A count it does not give is nil.
+type storedUsage struct {
+	InputTokens              *int `json:"input_tokens"`
+	OutputTokens             *int `json:"output_tokens"`
+	CacheCreationInputTokens *int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     *int `json:"cache_read_input_tokens"`
+}
+
+// export is the usage as an export gives it: only the counts that are stored (a
+// negative one is not a count), and nil if there are none.
+func (u *storedUsage) export() *ExportUsage {
+	if u == nil {
+		return nil
+	}
+	keep := func(p *int) *int {
+		if p == nil || *p < 0 {
+			return nil
+		}
+		return p
+	}
+	out := ExportUsage{keep(u.InputTokens), keep(u.OutputTokens), keep(u.CacheCreationInputTokens), keep(u.CacheReadInputTokens)}
+	if out == (ExportUsage{}) {
+		return nil
+	}
+	return &out
 }
 
 // interruptedPrompt is the entry Claude Code writes when the user stops a turn.

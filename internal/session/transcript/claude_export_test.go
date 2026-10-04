@@ -485,12 +485,13 @@ func TestClaudeExportCarriesUsageDetailsTitlesAndCompaction(t *testing.T) {
 		}
 		got = append(got, r)
 	}
-	u1 := ExportUsage{InputTokens: 3, OutputTokens: 100, CacheCreationInputTokens: 1000, CacheReadInputTokens: 2000}
-	u2 := ExportUsage{InputTokens: 4, OutputTokens: 50, CacheReadInputTokens: 3000}
+	u1 := ExportUsage{InputTokens: Count(3), OutputTokens: Count(100), CacheCreationInputTokens: Count(1000), CacheReadInputTokens: Count(2000)}
+	u2 := ExportUsage{InputTokens: Count(4), OutputTokens: Count(50), CacheCreationInputTokens: Count(0), CacheReadInputTokens: Count(3000)}
 	want := []row{
 		{Kind: ExportPrompt, Text: "Add a retry.", Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:00.000"},
-		// The title before anything else is not written; its repeat is.
-		{Kind: ExportTitle, Text: "Add a retry", Time: "09:00:00.000"},
+		// The title before anything else is not written; its repeat is, with the
+		// branch, folder and version of the entry before it, since it has none of its own.
+		{Kind: ExportTitle, Text: "Add a retry", Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:00.000"},
 		{Kind: ExportMessage, Text: "Looking.", Usage: u1, HasUsage: true, Stop: "tool_use", Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:01.100"},
 		{Kind: ExportToolCall, Text: "Read", Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:01.200"},
 		{Kind: ExportToolResult, Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:02.000"},
@@ -499,7 +500,7 @@ func TestClaudeExportCarriesUsageDetailsTitlesAndCompaction(t *testing.T) {
 		{Kind: ExportMessage, Text: "Switching to a worktree.", Usage: u2, HasUsage: true, Branch: "feature/retry", Cwd: "/work/shop-wt", Version: "2.1.2", Time: "09:00:03.000"},
 		{Kind: ExportToolCall, Text: "Bash", Stop: "tool_use", Branch: "feature/retry", Cwd: "/work/shop-wt", Version: "2.1.2", Time: "09:00:03.100"},
 		{Kind: ExportToolResult, Branch: "feature/retry", Cwd: "/work/shop-wt", Version: "2.1.2", Time: "09:00:04.000"},
-		{Kind: ExportTitle, Text: "Retry the client", Time: "09:00:04.000"},
+		{Kind: ExportTitle, Text: "Retry the client", Branch: "feature/retry", Cwd: "/work/shop-wt", Version: "2.1.2", Time: "09:00:04.000"},
 		// An entry with no branch, folder or version has none.
 		{Kind: ExportPrompt, Text: "Now compact.", Time: "09:00:05.000"},
 		// Out of order in the file, so held at the time before it; the summary
@@ -524,7 +525,7 @@ func TestClaudeExportCarriesUsageDetailsTitlesAndCompaction(t *testing.T) {
 	var in, out int
 	for _, e := range evs {
 		if e.Usage != nil {
-			in, out = in+e.Usage.InputTokens, out+e.Usage.OutputTokens
+			in, out = in+*e.Usage.InputTokens, out+*e.Usage.OutputTokens
 		}
 	}
 	if in != 3+4 || out != 100+50 {
@@ -576,6 +577,44 @@ func TestClaudeExportWithoutTheNewDetailsHasNone(t *testing.T) {
 	for _, e := range evs {
 		if e.Usage != nil || e.StopReason != "" || e.GitBranch != "" || e.AgentVersion != "" || e.Kind == ExportTitle || e.Kind == ExportCompact {
 			t.Errorf("%+v has something the conversation does not store", e)
+		}
+	}
+}
+
+// A count the stored reply does not give is not written as 0: zero is a count.
+// A usage with none of the four gives no usage at all, and a negative count is
+// not a count.
+func TestClaudeExportLeavesOutATokenCountTheEntryLacks(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "projects", "p")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entry := func(id, ts, usage string) string {
+		return `{"type":"assistant","timestamp":"` + ts + `","message":{"id":"` + id + `","role":"assistant","content":[{"type":"text","text":"hi"}],"usage":` + usage + `}}` + "\n"
+	}
+	body := entry("m1", "2026-10-01T09:00:00.000Z", `{"input_tokens":5,"output_tokens":6}`) +
+		entry("m2", "2026-10-01T09:00:01.000Z", `{"service_tier":"standard"}`) +
+		entry("m3", "2026-10-01T09:00:02.000Z", `{"input_tokens":-1,"output_tokens":0,"cache_read_input_tokens":7}`)
+	if err := os.WriteFile(filepath.Join(dir, "c1.jsonl"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec := agent.Spec{ID: "claude", Exe: "claude", Env: []string{"CLAUDE_CONFIG_DIR=" + home}, Caps: agent.Caps{Transcript: true}}
+	evs, _, err := collect(t, spec, "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []*ExportUsage{
+		{InputTokens: Count(5), OutputTokens: Count(6)},
+		nil,
+		{OutputTokens: Count(0), CacheReadInputTokens: Count(7)},
+	}
+	if len(evs) != len(want) {
+		t.Fatalf("%d events", len(evs))
+	}
+	for i, e := range evs {
+		if (e.Usage == nil) != (want[i] == nil) || (e.Usage != nil && !e.Usage.Same(*want[i])) {
+			t.Errorf("event %d usage = %+v, want %+v", i, e.Usage, want[i])
 		}
 	}
 }

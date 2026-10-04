@@ -69,7 +69,8 @@ type ExportEvent struct {
 	StopReason string
 	// GitBranch, Cwd and AgentVersion are the branch, the working directory and
 	// the agent's own version the stored entry that gave this event records.
-	// Empty where it records none, and for a title.
+	// Empty where it records none. A title, which is not an entry of its own, has
+	// those of the entry before it.
 	GitBranch, Cwd, AgentVersion string
 	// Trigger, TokensBefore and TokensAfter describe an ExportCompact: what
 	// started it ("auto" or "manual") and the size of the conversation, in
@@ -83,9 +84,20 @@ type ExportEvent struct {
 	Interrupted bool
 }
 
-// ExportUsage is the token counts of one model reply.
+// ExportUsage is the token counts of one model reply. A count the stored
+// conversation does not give is nil, not 0: zero never stands for unknown. It is
+// never made with every count nil.
 type ExportUsage struct {
-	InputTokens, OutputTokens, CacheCreationInputTokens, CacheReadInputTokens int
+	InputTokens, OutputTokens, CacheCreationInputTokens, CacheReadInputTokens *int
+}
+
+// Count is a token count for an ExportUsage field.
+func Count(n int) *int { return &n }
+
+// Same reports whether two usages give the same counts, the same ones missing.
+func (u ExportUsage) Same(o ExportUsage) bool {
+	eq := func(a, b *int) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
+	return eq(u.InputTokens, o.InputTokens) && eq(u.OutputTokens, o.OutputTokens) && eq(u.CacheCreationInputTokens, o.CacheCreationInputTokens) && eq(u.CacheReadInputTokens, o.CacheReadInputTokens)
 }
 
 // ExportStats says how a read of a conversation went.

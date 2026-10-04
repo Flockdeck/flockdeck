@@ -50,7 +50,7 @@ func Sync(m *Manager, meta func() Meta, f transcript.Follower) (SyncResult, erro
 		if res.First.IsZero() {
 			res.First = ev.Time
 		}
-		if !res.metaSet || !m.Active(mt.Pane) {
+		if !res.metaSet || !m.Active(mt.Conversation) {
 			mt, res.metaSet = meta(), true
 		}
 		res.Last = ev.Time
@@ -75,19 +75,18 @@ func Sync(m *Manager, meta func() Meta, f transcript.Follower) (SyncResult, erro
 // MetaFor says whose lines a conversation's transcript has. It is the one place
 // a transcript's identity comes from -- recording, the window's export and the
 // command line's all call it -- and it is worked out from the stored
-// conversation alone: the conversation's id (which stands where a pane's id
-// did, since a transcript is of a conversation and not of a pane that may have
-// had several), the agent's id, and the directory the conversation recorded,
-// from which the project's name and folder come. Nothing about a pane, whose
-// name and selected model change and which a saved layout can have stale, is in it, so
-// the same conversation has the same lines whichever way it was reached.
+// conversation alone: the conversation's id (a transcript is of a conversation and not of a pane,
+// which may have had several), the agent's id, and the directory the conversation recorded,
+// from which the project's name and folder come. Nothing about a pane is in it (a
+// pane's name and model change, and a saved layout can have them stale), so the
+// same conversation has the same lines whichever way it was reached.
 func MetaFor(spec agent.Spec, ex transcript.Exporter, conversation string) Meta {
 	cwd := ex.Cwd(spec, conversation)
 	project := ""
 	if cwd != "" {
 		project = filepath.Base(cwd)
 	}
-	return Meta{Pane: conversation, Project: project, ProjectRoot: cwd, Agent: spec.ID, Conversation: conversation}
+	return Meta{Project: project, ProjectRoot: cwd, Agent: spec.ID, Conversation: conversation}
 }
 
 // ExportOptions say how a transcript is exported.
@@ -107,8 +106,12 @@ type ExportResult struct {
 	Path string
 	// Lines is the number of lines in the file.
 	Lines int
-	// Kept says an earlier, finished export of the conversation has events this
-	// one lacks, so it was left as it was and Path is that file, not a new one.
+	// Replaced says an earlier export of the conversation was there and has been
+	// replaced by this one, which has every event it had.
+	Replaced bool
+	// Kept says an earlier, finished export of the conversation has an event this
+	// one lacks (the stored conversation was cut or changed since), so it was left
+	// as it was and Path is that file, not a new one.
 	Kept bool
 }
 
@@ -138,10 +141,11 @@ func Export(dir func() (string, error), meta Meta, f transcript.Follower, opts E
 	if sync.First.IsZero() {
 		return res, ErrNothingToExport
 	}
-	res.SyncResult, res.Path = sync, m.Path(meta.Pane)
+	res.SyncResult, res.Path = sync, m.Path(meta.Conversation)
 	// A full file ends with the truncation line, which seq does not count; any
 	// other ends with the closing line Finish writes.
-	res.Lines = int(m.seqOf(meta.Pane)) + 1
+	res.Lines = int(m.seqOf(meta.Conversation)) + 1
+	replaced := m.replacing(meta.Conversation)
 	if err := m.Finish(meta); err != nil {
 		if errors.Is(err, ErrEarlierKept) {
 			// Not a failure: the file there is a fuller transcript than this one.
@@ -150,14 +154,24 @@ func Export(dir func() (string, error), meta Meta, f transcript.Follower, opts E
 		}
 		return res, err
 	}
+	res.Replaced = replaced
 	return res, nil
+}
+
+// replacing says the pane's open file is being written in place of an earlier,
+// finished one.
+func (m *Manager) replacing(pane string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s := m.open[pane]
+	return s != nil && s.replaces
 }
 
 // seqOf is how many lines the pane's open file has.
 func (m *Manager) seqOf(pane string) int64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if s := m.panes[pane]; s != nil {
+	if s := m.open[pane]; s != nil {
 		return s.seq
 	}
 	return 0
