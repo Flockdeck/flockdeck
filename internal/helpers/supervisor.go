@@ -126,8 +126,9 @@ type Supervisor struct {
 	lookup func(string) (Entry, bool)
 	goos   string
 
-	mu    sync.Mutex
-	insts map[string]*instance
+	mu       sync.Mutex
+	insts    map[string]*instance
+	activity sync.Map // id to bool, see isActive
 
 	// ownerPID and ownerStarted identify this Flockdeck in every run.json it
 	// writes.
@@ -145,6 +146,9 @@ func NewSupervisor(cfg Config) *Supervisor {
 		s.goos = runtime.GOOS
 	}
 	s.ownerPID = os.Getpid()
+	if cfg.Store != nil {
+		cfg.Store.bindOwner(s.ownerPID, s.isActive)
+	}
 	s.ownerStarted, _ = store.ProcessStartedAt(s.ownerPID)
 	if cfg.Timings != nil {
 		s.t = *cfg.Timings
@@ -216,10 +220,25 @@ func (s *Supervisor) set(in *instance, mutate func()) {
 	s.mu.Lock()
 	mutate()
 	st := s.statusLocked(in)
+	s.noteActivity(in)
 	s.mu.Unlock()
 	if s.cfg.Notify != nil {
 		s.cfg.Notify(st)
 	}
+}
+
+// noteActivity records, for isActive, whether the instance has a process or a
+// start under way. The caller holds s.mu.
+func (s *Supervisor) noteActivity(in *instance) {
+	s.activity.Store(in.id, in.state != StateStopped && in.state != StateFailed)
+}
+
+// isActive is Active without s.mu. The store asks it from inside RunningPID,
+// which Start calls while holding s.mu, so it must not take that lock.
+func (s *Supervisor) isActive(id string) bool {
+	v, ok := s.activity.Load(id)
+	active, _ := v.(bool)
+	return ok && active
 }
 
 // Status is a helper's current state. A helper that was never started is
@@ -288,6 +307,7 @@ func (s *Supervisor) Start(id string) (Status, error) {
 		logw: NewRotatingWriter(st.logFile(id)),
 	}
 	s.insts[id] = in
+	s.noteActivity(in)
 	status := s.statusLocked(in)
 	s.mu.Unlock()
 	if s.cfg.Notify != nil {
@@ -416,6 +436,7 @@ func (s *Supervisor) run(in *instance) {
 		}
 		switch {
 		case out.stopped:
+			s.cfg.Store.clearRun(in.id)
 			s.set(in, func() { in.state, in.port, in.pid, in.err = StateStopped, 0, 0, "" })
 			return
 		case out.fatal != "":
@@ -448,6 +469,7 @@ func (s *Supervisor) run(in *instance) {
 		select {
 		case <-time.After(delay):
 		case <-in.stopReq:
+			s.cfg.Store.clearRun(in.id)
 			s.set(in, func() { in.state, in.port, in.pid, in.err = StateStopped, 0, 0, "" })
 			return
 		}
@@ -455,6 +477,9 @@ func (s *Supervisor) run(in *instance) {
 }
 
 func (s *Supervisor) fail(in *instance, why string) {
+	// The record goes before the state changes, so that nobody who sees the
+	// helper stopped or failed finds a record still saying it is starting.
+	s.cfg.Store.clearRun(in.id)
 	s.set(in, func() { in.state, in.pid, in.err = StateFailed, 0, why })
 }
 
@@ -555,7 +580,8 @@ func (s *Supervisor) runOnce(in *instance, port int) (out outcome) {
 				first = nil
 			}
 			in.log.add(ringLine(line))
-			_, _ = in.logw.Write([]byte(line + "\n"))
+			// The log file holds plain text too: a person reads it in a terminal.
+			_, _ = in.logw.Write([]byte(printable(line) + "\n"))
 		})
 	}
 	readers.Add(2)

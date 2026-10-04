@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/store"
@@ -29,6 +30,10 @@ import (
 type Store struct {
 	// Root is <state>/apps.
 	Root string
+
+	ownMu     sync.Mutex
+	ownPID    int
+	ownActive func(id string) bool
 }
 
 // DefaultStore is the apps directory under the state directory.

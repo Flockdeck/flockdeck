@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -67,10 +68,82 @@ func (s *Store) writeRun(id string, r RunInfo) error {
 	return writeFileAtomic(s.runFile(id), data, 0o600)
 }
 
-func (s *Store) clearRun(id string) {
-	if err := os.Remove(s.runFile(id)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return
+// removeFile is os.Remove. A variable so a test can make it fail, as an
+// antivirus scanner holding a file open does on Windows.
+var removeHook atomic.Pointer[func(string) error]
+
+func removeFile(path string) error {
+	if h := removeHook.Load(); h != nil {
+		return (*h)(path)
 	}
+	return os.Remove(path)
+}
+
+// clearTimings is how long a record that cannot be removed is retried for in
+// the background, and how often. Atomic because a retry outlives the call that
+// started it, and a test changes it.
+var clearTimings atomic.Pointer[[2]time.Duration]
+
+func clearFor() (total, every time.Duration) {
+	if t := clearTimings.Load(); t != nil {
+		return t[0], t[1]
+	}
+	return time.Minute, time.Second
+}
+
+// clearRun removes run.json. A failed remove is retried a few times at once, and
+// then in the background, because a record that is left behind says a helper is
+// starting or running when none is, and blocks a start, an install and an
+// uninstall until something removes it. (While it is left, this process does not
+// believe it: see bindOwner.)
+func (s *Store) clearRun(id string) {
+	for try := 0; try < 5; try++ {
+		err := removeFile(s.runFile(id))
+		if err == nil || errors.Is(err, fs.ErrNotExist) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	total, every := clearFor()
+	go func() {
+		deadline := time.Now().Add(total)
+		for time.Now().Before(deadline) {
+			time.Sleep(every)
+			if s.ownerActive(id) {
+				return // a new run has written its own record
+			}
+			if err := removeFile(s.runFile(id)); err == nil || errors.Is(err, fs.ErrNotExist) {
+				return
+			}
+		}
+	}()
+}
+
+// bindOwner tells the store which process is the supervisor and how to ask it
+// whether a helper has a live instance. A starting record that names this
+// process while its supervisor has no instance for the helper is a leftover
+// (a remove that failed), not a start under way, and RunningPID does not count
+// it.
+func (s *Store) bindOwner(pid int, active func(id string) bool) {
+	s.ownMu.Lock()
+	s.ownPID, s.ownActive = pid, active
+	s.ownMu.Unlock()
+}
+
+func (s *Store) ownerActive(id string) bool {
+	s.ownMu.Lock()
+	active := s.ownActive
+	s.ownMu.Unlock()
+	return active != nil && active(id)
+}
+
+// ownLeftover reports whether a record is this process's own and no instance
+// of its supervisor stands behind it.
+func (s *Store) ownLeftover(id string, r RunInfo) bool {
+	s.ownMu.Lock()
+	pid, active := s.ownPID, s.ownActive
+	s.ownMu.Unlock()
+	return active != nil && r.OwnerPID == pid && !active(id)
 }
 
 // startSlack is how far apart two readings of one process's start time may be.
@@ -104,7 +177,11 @@ func (s *Store) RunningPID(id string) (int, bool) {
 		return 0, false
 	}
 	if r.PID == 0 {
-		// A start under way: it counts for as long as the Flockdeck doing it does.
+		// A start under way: it counts for as long as the Flockdeck doing it does,
+		// unless it is this process's own and nothing here is starting.
+		if s.ownLeftover(id, r) {
+			return 0, false
+		}
 		if ownerAlive(r) {
 			return r.OwnerPID, true
 		}
