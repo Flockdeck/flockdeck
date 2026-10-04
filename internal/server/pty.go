@@ -125,7 +125,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	encrypted := false
 	if relay {
 		relayUse.mark(id, time.Now())
-		defer func() { relayUse.mark(id, time.Now()) }()
+		defer s.markRelayUseIfOpen(id)
 		// The device asking is named by this header, which the relay itself
 		// sets on the tunnel connection and strips any client-supplied copy
 		// of first -- so a browser cannot claim to be a device it is not,
@@ -704,6 +704,39 @@ func (s *Server) waitForRestart(ctx context.Context, id string, old *session.Ses
 			return nil
 		case <-tick.C:
 		}
+	}
+}
+
+// markRelayUseIfOpen records that a pane was used from a window reached through
+// the relay, as that window's socket ends, unless the pane has been closed.
+//
+// The socket of a pane that is closed under it ends after the pane has gone,
+// and marking it then put back the record PaneClosed had just removed, which
+// nothing would ever remove again. The check is made on the workspace
+// goroutine, where a pane is closed and forgotten, so it is either still open
+// here and forgotten afterwards, or already gone and not marked. When that
+// goroutine does not answer in time the pane is marked, as it was before.
+func (s *Server) markRelayUseIfOpen(id string) {
+	deadline := time.After(s.paneLookup)
+	done := make(chan struct{})
+	select {
+	case s.cmds <- func() {
+		defer close(done)
+		if s.ws.Pane(id) != nil {
+			relayUse.mark(id, time.Now())
+		}
+	}:
+	case <-s.closed:
+		return
+	case <-deadline:
+		relayUse.mark(id, time.Now())
+		return
+	}
+	select {
+	case <-done:
+	case <-s.closed:
+	case <-deadline:
+		relayUse.mark(id, time.Now())
 	}
 }
 

@@ -824,10 +824,16 @@ func TestTunnelDropsAnOversizedMessage(t *testing.T) {
 			return
 		}
 		defer conn.CloseNow()
-		// Two megabytes of smux keepalives: frames that are harmless one by
-		// one, in a single message twice the size the tunnel allows.
-		nop := "\x02\x03\x00\x00\x00\x00\x00\x00"
-		_ = conn.Write(r.Context(), websocket.MessageBinary, []byte(strings.Repeat(nop, 2<<20/len(nop))))
+		// Two megabytes of smux data frames for a stream that does not
+		// exist, which smux reads and drops: harmless one by one, in a single
+		// message twice the size the tunnel allows. They are full frames and
+		// not keepalives because the tunnel only notices the size once it has
+		// read the first megabyte, and smux reads a keepalive in a read of its
+		// own: 131072 reads through the WebSocket library's locks took seconds
+		// on a busy runner, and the test gave up before the tunnel had
+		// finished reading.
+		frame := "\x02\x02\x00\x80\x00\x00\x00\x00" + strings.Repeat("\x00", 32768)
+		_ = conn.Write(r.Context(), websocket.MessageBinary, []byte(strings.Repeat(frame, 2<<20/len(frame)+1)))
 		for {
 			if _, _, err := conn.Read(r.Context()); err != nil {
 				return

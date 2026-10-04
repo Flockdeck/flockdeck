@@ -334,17 +334,20 @@ func dialPTY(t *testing.T, srv *Server, paneID string) *websocket.Conn {
 	return conn
 }
 
-// awaitOutput types a line into a terminal socket until its marker comes back,
-// which is the only reliable signal that the process behind the pane is
-// listening. It returns everything that arrived up to and including it.
-func awaitOutput(t *testing.T, conn *websocket.Conn, line, marker string) string {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
-	defer cancel()
-
+// keepTyping writes line to a terminal socket now and again every two
+// seconds, until the function it returns is called, so that a line typed
+// before the process was listening is not lost. The function waits for the
+// writer to be done, and has to run before ctx is cancelled: a Write that
+// returns after its context is cancelled has still armed the library's write
+// timeout, which closes the whole connection when the context ends. A caller
+// that read the echo of the line and returned straight away cancelled it in
+// that gap now and then, and the next thing the test did with the socket
+// failed with "use of closed network connection".
+func keepTyping(ctx context.Context, conn *websocket.Conn, line string) (stop func()) {
 	done := make(chan struct{})
-	defer close(done)
+	exited := make(chan struct{})
 	go func() {
+		defer close(exited)
 		for {
 			if err := conn.Write(ctx, websocket.MessageBinary, []byte(line)); err != nil {
 				return
@@ -356,6 +359,20 @@ func awaitOutput(t *testing.T, conn *websocket.Conn, line, marker string) string
 			}
 		}
 	}()
+	return func() {
+		close(done)
+		<-exited
+	}
+}
+
+// awaitOutput types a line into a terminal socket until its marker comes back,
+// which is the only reliable signal that the process behind the pane is
+// listening. It returns everything that arrived up to and including it.
+func awaitOutput(t *testing.T, conn *websocket.Conn, line, marker string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	defer keepTyping(ctx, conn, line)()
 
 	var seen strings.Builder
 	for {
@@ -428,21 +445,7 @@ func readResumable(t *testing.T, conn *websocket.Conn, line, marker string, h *s
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
-
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		for {
-			if err := conn.Write(ctx, websocket.MessageBinary, []byte(line)); err != nil {
-				return
-			}
-			select {
-			case <-done:
-				return
-			case <-time.After(2 * time.Second):
-			}
-		}
-	}()
+	defer keepTyping(ctx, conn, line)()
 
 	var seen strings.Builder
 	for !strings.Contains(seen.String(), marker) {
