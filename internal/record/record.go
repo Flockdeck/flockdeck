@@ -343,7 +343,7 @@ func (m *Manager) Finish(meta Meta) error {
 	// loss after the move cannot leave a short file where the earlier one was.
 	var serr error
 	if s.final != "" && werr == nil {
-		serr = s.f.Sync()
+		serr = syncFile(s.f)
 	}
 	cerr := s.f.Close()
 	if serr != nil && cerr == nil {
@@ -1047,12 +1047,12 @@ func tempName(final string) string {
 
 const tempExt = ".new"
 
-// isTemp reports whether a file name is one tempName made.
-var tempRe = regexp.MustCompile(`.jsonl(.[0-9a-f]{12})?.new$`)
+// tempRe matches the end of a name a writer left beside a transcript: ".jsonl", a
+// token of the form tempName makes, and ".new", or, from an earlier Flockdeck, just
+// ".jsonl.new".
+var tempRe = regexp.MustCompile(`\.jsonl(\.[0-9a-f]{12})?\.new$`)
 
-// isTemp reports whether a file name is one a writer left beside a transcript: a
-// transcript's name, a token of the form tempName makes, and ".new" (or, from an
-// earlier Flockdeck, just ".new").
+// isTemp reports whether a file name is one a writer left beside a transcript.
 func isTemp(name string) bool { return tempRe.MatchString(name) }
 
 var (
@@ -1092,6 +1092,10 @@ type fileLock struct {
 // moveInto and inCriticalSection are the points a test reaches into: the move of
 // a finished transcript over the earlier one, and the span, under the file's
 // lock, from the check of the earlier one to the move.
+// syncFile makes a finished file durable before it is moved into place; a seam
+// for tests.
+var syncFile = func(f *os.File) error { return f.Sync() }
+
 var (
 	moveInto          = renameRetry
 	inCriticalSection = func() {}
