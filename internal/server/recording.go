@@ -104,10 +104,13 @@ func (s *Server) exportTranscript(c *controlClient, cmd command) {
 		return
 	}
 	if r.res.Kept {
-		c.notify(fmt.Sprintf("Nothing new was written: the earlier export at %s has events this one would lack (the stored conversation was cut or changed), so it was kept as it was. Delete it to have a fresh one", r.res.Path), true)
+		c.notify(fmt.Sprintf("Not exported again: the earlier export at %s has events this one would lack (the stored conversation was cut or changed since), so it was kept as it was and is not up to date. Delete it to have a fresh one", r.res.Path), true)
 		return
 	}
 	msg := fmt.Sprintf("Exported %d lines to %s", r.res.Lines, r.res.Path)
+	if r.res.Replaced {
+		msg = fmt.Sprintf("Exported %d lines to %s, replacing the earlier export of this conversation, which had nothing this one lacks", r.res.Lines, r.res.Path)
+	}
 	if r.res.Full {
 		msg += fmt.Sprintf(", cut at the %d MiB size cap", record.MaxFileBytes>>20)
 	}

@@ -38,22 +38,22 @@ recording on in a second pane showing the same conversation is refused.
 ## What is recorded
 
 One JSON object per line, in the order things happened. Every line has a
-timestamp (`time`), the conversation's id (`pane`) and a `type`; `conversation`,
-`project` and `agent` are there whenever they are known, and left out when
-not. A pane's name is not in the
-lines, nor is the model it is set to now: they are the pane's, not the
-conversation's, and an export has to match a recording of the same conversation.
+timestamp (`time`), the conversation's id (`conversation`), the `agent` and a
+`type`; `project` is there unless the stored conversation records no folder. A
+pane's name is not in the lines, nor is the model it is set to now: they are the
+pane's, not the conversation's, and an export has to match a recording of the
+same conversation.
 The one model a line can have is the one that produced that turn, as the agent's
 stored conversation records it (`model` on `assistant_message` and `tool_call`
 lines, left out where the conversation records none). The same goes for a few
-more things the agent's stored conversation records, each left out where it does
-not: the tokens a reply used (`usage`) and why it ended (`stopReason`), once per
+more things the agent's stored conversation records, each left out only where it
+does not: the tokens a reply used (`usage`) and why it ended (`stopReason`), once per
 reply (on its first line, as long as Claude Code repeats the same numbers on each
 entry of a reply, which it has in every conversation checked), and on every line
 the branch (`gitBranch`), the folder (`cwd`, a full path that usually has your account name in it, so look before you
 share a transcript) and the agent's version (`agentVersion`) of the entry it came
-from. Transcripts exported before these were added do not have them until they
-are exported again:
+from. Exporting a conversation again replaces its earlier export, which is how
+an export made by an older Flockdeck gets whatever a newer one writes:
 
 | `type` | What it holds |
 | --- | --- |
@@ -69,7 +69,7 @@ are exported again:
 `time` is when the thing happened, as the agent's own record has it. Every line
 also has a `seq` number, counted from 1 in its file, and a line with anything
 removed from it says so with `redacted` or `clipped`. The format has a version,
-`v`, which goes up if a field ever changes meaning.
+`v` (2 now), which goes up if a field is ever removed, renamed or changes meaning.
 
 The complete field reference, a JSON Schema, ordering and crash behaviour, and
 `jq` examples are in
@@ -81,13 +81,7 @@ and nothing else:
 
 - **No permission prompts or their answers, no status changes, no session
   lines.** Claude Code's stored conversation does not record that a dialog was
-  shown, how you answered it, or when the pane went idle or waiting. Earlier
-  versions of Flockdeck wrote these lines from the agent's live events;
-  recordings made then still have them, and the format still defines them.
-  Those files are format 1 too: they are told apart by the text of their first
-  and last lines (`turned on`, `resumed`, `turned off`, where a transcript made
-  now says `start of the transcript` and `end of the transcript`), and in them
-  `pane` is the pane's id, not the conversation's.
+  shown, how you answered it, or when the pane went idle or waiting.
 - **Only what you typed is a prompt.** Entries Claude Code writes for itself
   (a slash command and its output, injected reminders, the note a conversation
   continued from a summary opens with) are left out, and so is a subagent's own

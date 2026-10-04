@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ import (
 
 const fixtureConversation = "11111111-2222-3333-4444-555555555555"
 
-var exportMeta = Meta{Pane: fixtureConversation, PaneName: "shop", Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Conversation: fixtureConversation}
+var exportMeta = Meta{Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Conversation: fixtureConversation}
 
 // claudeAt is Claude Code's agent, with its state directory at home and nowhere
 // else, so no test reads the real one.
@@ -85,7 +86,7 @@ func TestExportIsInTheRecordingFormat(t *testing.T) {
 	}
 
 	for i, e := range es {
-		if e.V != Version || e.Seq != int64(i+1) || e.Pane != exportMeta.Pane || e.Agent != "claude" || e.Conversation != fixtureConversation || e.Session != "20261001T090000Z-11111111" {
+		if e.V != Version || e.Seq != int64(i+1) || e.Agent != "claude" || e.Conversation != fixtureConversation || e.Session != "20261001T090000Z-11111111" {
 			t.Errorf("line %d envelope = %+v", i+1, e)
 		}
 	}
@@ -107,12 +108,8 @@ func TestExportHasOnlyWhatTheStoredConversationHolds(t *testing.T) {
 	res, _ := exportToTemp(t, ExportOptions{})
 	es := readEntries(t, res.Path)
 	for _, e := range es {
-		switch e.Type {
-		case TypePermission, TypeOutcome, TypeSession, TypeStatus:
+		if !slices.Contains(allTypes, e.Type) {
 			t.Errorf("a %s line, which the stored conversation has no record of", e.Type)
-		}
-		if e.Source != "" {
-			t.Errorf("line %d says where it came from: %q", e.Seq, e.Source)
 		}
 	}
 	if es[0].Text != startText || es[len(es)-1].Text != endText {
@@ -200,7 +197,7 @@ func TestRecordedAndExportedTranscriptsAreIdentical(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		path := m.Path(exportMeta.Pane)
+		path := m.Path(exportMeta.Conversation)
 		m.Finish(exportMeta)
 		got, err := os.ReadFile(path)
 		if err != nil {
@@ -305,7 +302,7 @@ func TestCheckExportPathFollowsSymbolicLinks(t *testing.T) {
 func TestMetaForIsTheConversationsAlone(t *testing.T) {
 	spec, ex := claudeAt(t, fixtureHome(t))
 	a := MetaFor(spec, ex, fixtureConversation)
-	if a.Pane != fixtureConversation || a.Conversation != fixtureConversation || a.Agent != "claude" || a.PaneName != "" {
+	if a.Conversation != fixtureConversation || a.Agent != "claude" {
 		t.Errorf("meta = %+v", a)
 	}
 	if b := MetaFor(spec, ex, fixtureConversation); b != a {
@@ -507,7 +504,7 @@ func TestAConversationWhoseFirstEventMovedIsOneFile(t *testing.T) {
 	}
 	// Another conversation's file is not touched.
 	h := newFeed(t, m)
-	h.meta.Pane, h.meta.Conversation = "ffffffff-0000", "ffffffff-0000"
+	h.meta.Conversation = "ffffffff-0000"
 	h.prompt("other")
 	other := h.path()
 	h.finish()
@@ -532,7 +529,7 @@ func TestAWriteThatCannotBeOpenedIsReported(t *testing.T) {
 	if err := f.send(transcript.ExportEvent{Kind: transcript.ExportPrompt, Text: "x"}); err == nil || errors.Is(err, ErrFull) {
 		t.Errorf("err = %v", err)
 	}
-	if m.Active(f.meta.Pane) {
+	if m.Active(f.meta.Conversation) {
 		t.Error("a file is open for a transcript that could not be made")
 	}
 }
@@ -559,13 +556,13 @@ func TestMetaIsAskedForAtTheFirstEvent(t *testing.T) {
 	cwd := ""
 	fol := lateFollower{before: func() { cwd = "/work/late" }}
 	meta := func() Meta {
-		return Meta{Pane: "conv-late", Conversation: "conv-late", ProjectRoot: cwd, Project: filepath.Base(cwd)}
+		return Meta{Conversation: "conv-late", ProjectRoot: cwd, Project: filepath.Base(cwd)}
 	}
 	if _, err := Sync(m, meta, fol); err != nil {
 		t.Fatal(err)
 	}
 	path := m.Path("conv-late")
-	m.Finish(Meta{Pane: "conv-late"})
+	m.Finish(Meta{Conversation: "conv-late"})
 	if es := readEntries(t, path); es[0].Project != "late" {
 		t.Errorf("project = %q, want the directory known by the first event", es[0].Project)
 	}
@@ -778,7 +775,7 @@ func TestInRecordingsRefusesAnythingButItsOwnFiles(t *testing.T) {
 
 const modelFixtureConversation = "22222222-3333-4444-5555-666666666666"
 
-var modelMeta = Meta{Pane: modelFixtureConversation, Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Conversation: modelFixtureConversation}
+var modelMeta = Meta{Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Conversation: modelFixtureConversation}
 
 func modelFixtureHome(t *testing.T) string {
 	t.Helper()
@@ -861,7 +858,7 @@ func TestExportAndRecordingCarryTheModelOfEachAssistantTurn(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	path := m.Path(modelMeta.Pane)
+	path := m.Path(modelMeta.Conversation)
 	m.Finish(modelMeta)
 	got, err := os.ReadFile(path)
 	if err != nil {
@@ -885,7 +882,7 @@ func TestExportOfAConversationWithNoModelsHasNone(t *testing.T) {
 
 const moreFixtureConversation = "33333333-4444-5555-6666-777777777777"
 
-var moreMeta = Meta{Pane: moreFixtureConversation, Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Conversation: moreFixtureConversation}
+var moreMeta = Meta{Project: "shop", ProjectRoot: "/work/shop", Agent: "claude", Conversation: moreFixtureConversation}
 
 func moreFixtureHome(t *testing.T) string {
 	t.Helper()
@@ -947,11 +944,17 @@ func TestExportAndRecordingCarryUsageDetailsTitlesAndCompaction(t *testing.T) {
 			titles++
 		case TypeCompacted:
 			compacts++
-		case TypeStarted, TypeStopped:
-			if e.GitBranch != "" || e.Cwd != "" || e.AgentVersion != "" {
-				t.Errorf("a %s line has details of an entry: %+v", e.Type, e)
-			}
 		}
+	}
+	// The lines that open and close the file say where the first and the last event
+	// were, as the entry behind each does, so that none has less than the lines
+	// between them.
+	where := func(e Entry) [3]string { return [3]string{e.GitBranch, e.Cwd, e.AgentVersion} }
+	if where(es[0]) != where(es[1]) || where(es[0]) == ([3]string{}) {
+		t.Errorf("the first line is at %v, the first event at %v", where(es[0]), where(es[1]))
+	}
+	if n := len(es); where(es[n-1]) != where(es[n-2]) {
+		t.Errorf("the last line is at %v, the last event at %v", where(es[n-1]), where(es[n-2]))
 	}
 	if sum != (Usage{InputTokens: 7, OutputTokens: 150, CacheCreationInputTokens: 1000, CacheReadInputTokens: 5000}) {
 		t.Errorf("usage adds up to %+v", sum)
@@ -994,7 +997,7 @@ func TestExportAndRecordingCarryUsageDetailsTitlesAndCompaction(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	path := m.Path(moreMeta.Pane)
+	path := m.Path(moreMeta.Conversation)
 	m.Finish(moreMeta)
 	got, err := os.ReadFile(path)
 	if err != nil {
@@ -1005,8 +1008,8 @@ func TestExportAndRecordingCarryUsageDetailsTitlesAndCompaction(t *testing.T) {
 	}
 }
 
-// A transcript from before these were written has none of them on any line, and
-// is still a valid line of the format.
+// A conversation that records none of these has none of them on any line: nothing
+// is made up.
 func TestExportOfAConversationWithNoneOfTheNewDetailsHasNone(t *testing.T) {
 	res, _ := exportToTemp(t, ExportOptions{})
 	for _, e := range readEntries(t, res.Path) {

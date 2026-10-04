@@ -169,9 +169,12 @@ func exportRecording(args []string, out io.Writer, env exportEnv) error {
 		return err
 	}
 	if res.Kept {
-		return fmt.Errorf("nothing new was written: the earlier export at %s has events this one would lack (the stored conversation was cut or changed), so it was kept as it was; delete it to have a fresh one", res.Path)
+		return fmt.Errorf("not exported again: the earlier export at %s has events this one would lack (the stored conversation was cut or changed since), so it was kept as it was and is not up to date; delete it to have a fresh one", res.Path)
 	}
 	fmt.Fprintf(out, "exported %d lines (%d prompts, %d messages, %d tool calls) to %s\n", res.Lines, res.Prompts, res.Messages, res.ToolCalls, res.Path)
+	if res.Replaced {
+		fmt.Fprintln(out, "replaced the earlier export of this conversation, which had nothing this one lacks")
+	}
 	if res.Full {
 		fmt.Fprintf(out, "the conversation is longer than a transcript can be, so it was cut at its %d MiB cap\n", record.MaxFileBytes>>20)
 	}

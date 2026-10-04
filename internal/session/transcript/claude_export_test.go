@@ -489,8 +489,9 @@ func TestClaudeExportCarriesUsageDetailsTitlesAndCompaction(t *testing.T) {
 	u2 := ExportUsage{InputTokens: 4, OutputTokens: 50, CacheReadInputTokens: 3000}
 	want := []row{
 		{Kind: ExportPrompt, Text: "Add a retry.", Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:00.000"},
-		// The title before anything else is not written; its repeat is.
-		{Kind: ExportTitle, Text: "Add a retry", Time: "09:00:00.000"},
+		// The title before anything else is not written; its repeat is, with the
+		// branch, folder and version of the entry before it, since it has none of its own.
+		{Kind: ExportTitle, Text: "Add a retry", Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:00.000"},
 		{Kind: ExportMessage, Text: "Looking.", Usage: u1, HasUsage: true, Stop: "tool_use", Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:01.100"},
 		{Kind: ExportToolCall, Text: "Read", Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:01.200"},
 		{Kind: ExportToolResult, Branch: "main", Cwd: "/work/shop", Version: "2.1.1", Time: "09:00:02.000"},
@@ -499,7 +500,7 @@ func TestClaudeExportCarriesUsageDetailsTitlesAndCompaction(t *testing.T) {
 		{Kind: ExportMessage, Text: "Switching to a worktree.", Usage: u2, HasUsage: true, Branch: "feature/retry", Cwd: "/work/shop-wt", Version: "2.1.2", Time: "09:00:03.000"},
 		{Kind: ExportToolCall, Text: "Bash", Stop: "tool_use", Branch: "feature/retry", Cwd: "/work/shop-wt", Version: "2.1.2", Time: "09:00:03.100"},
 		{Kind: ExportToolResult, Branch: "feature/retry", Cwd: "/work/shop-wt", Version: "2.1.2", Time: "09:00:04.000"},
-		{Kind: ExportTitle, Text: "Retry the client", Time: "09:00:04.000"},
+		{Kind: ExportTitle, Text: "Retry the client", Branch: "feature/retry", Cwd: "/work/shop-wt", Version: "2.1.2", Time: "09:00:04.000"},
 		// An entry with no branch, folder or version has none.
 		{Kind: ExportPrompt, Text: "Now compact.", Time: "09:00:05.000"},
 		// Out of order in the file, so held at the time before it; the summary

@@ -35,18 +35,18 @@ func TestRecordingsCommandListsAndNamesTheFolder(t *testing.T) {
 
 	m := record.NewManager(state)
 	t.Cleanup(m.Close)
-	meta := record.Meta{Pane: "abcdef0123456789", PaneName: "api", Project: "shop", ProjectRoot: "/work/shop", Agent: "claude"}
+	meta := record.Meta{Conversation: "abcdef0123456789", Project: "shop", ProjectRoot: "/work/shop", Agent: "claude"}
 	if err := m.Write(meta, transcript.ExportEvent{Time: time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC), Kind: transcript.ExportPrompt, Text: "hello"}); err != nil {
 		t.Fatal(err)
 	}
-	path := m.Path(meta.Pane)
+	path := m.Path(meta.Conversation)
 	m.Finish(meta)
 
 	out.Reset()
 	if err := listRecordings(nil, &out, state); err != nil {
 		t.Fatal(err)
 	}
-	if got := out.String(); !strings.Contains(got, "shop") || !strings.Contains(got, "api") || !strings.Contains(got, path) {
+	if got := out.String(); !strings.Contains(got, "shop") || !strings.Contains(got, "abcdef01") || !strings.Contains(got, path) {
 		t.Errorf("list = %q", got)
 	}
 
@@ -155,16 +155,17 @@ func TestExportCommandTakesAPaneAndAPathAfterTheId(t *testing.T) {
 	}
 	first := strings.SplitN(string(raw), "\n", 2)[0]
 	// The conversation's, as a recording has it: not the saved layout's pane
-	// name or model, which can be stale, and the pane's id is the conversation's.
-	for _, want := range []string{`"pane":"` + exportFixtureID + `"`, `"conversation":"` + exportFixtureID + `"`, `"agent":"claude"`} {
+	// name or model, which can be stale, and no `pane` field.
+	for _, want := range []string{`"conversation":"` + exportFixtureID + `"`, `"agent":"claude"`} {
 		if !strings.Contains(first, want) {
 			t.Errorf("first line lacks %s: %s", want, first)
 		}
 	}
-	for _, not := range []string{"paneName", `"model"`} {
-		if strings.Contains(first, not) {
-			t.Errorf("first line has %s, which is the saved layout's and not the conversation's: %s", not, first)
-		}
+	if strings.Contains(first, `"pane"`) {
+		t.Errorf("first line has a pane: %s", first)
+	}
+	if strings.Contains(first, `"model"`) {
+		t.Errorf("first line has a model, which is the saved layout's and not the conversation's: %s", first)
 	}
 	// Byte for byte what the same conversation exports as with another saved name
 	// and model, and as by its id alone.

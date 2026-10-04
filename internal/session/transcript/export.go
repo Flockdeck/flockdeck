@@ -69,7 +69,8 @@ type ExportEvent struct {
 	StopReason string
 	// GitBranch, Cwd and AgentVersion are the branch, the working directory and
 	// the agent's own version the stored entry that gave this event records.
-	// Empty where it records none, and for a title.
+	// Empty where it records none. A title, which is not an entry of its own, has
+	// those of the entry before it.
 	GitBranch, Cwd, AgentVersion string
 	// Trigger, TokensBefore and TokensAfter describe an ExportCompact: what
 	// started it ("auto" or "manual") and the size of the conversation, in

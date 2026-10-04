@@ -3,7 +3,7 @@
 // real recording lines against the published schema without a dependency.
 //
 // The subset: type, const, enum, pattern, minimum, minLength, required,
-// properties, items, allOf and if/then. Anything else in a schema is ignored,
+// properties, additionalProperties and unevaluatedProperties (false only), $ref to #/$defs, items, allOf and if/then. Anything else in a schema is ignored,
 // which is why the schema sticks to these.
 package schemacheck
 
@@ -38,11 +38,23 @@ func (s Schema) Validate(doc []byte) []string {
 	if err := json.Unmarshal(doc, &v); err != nil {
 		return []string{"not JSON: " + err.Error()}
 	}
-	return check(map[string]any(s), v, "$")
+	val := validator{root: map[string]any(s)}
+	return val.check(map[string]any(s), v, "$")
 }
 
-func check(schema map[string]any, v any, path string) []string {
+type validator struct{ root map[string]any }
+
+func (val validator) check(schema map[string]any, v any, path string) []string {
 	var errs []string
+	if ref, ok := schema["$ref"].(string); ok {
+		name, found := strings.CutPrefix(ref, "#/$defs/")
+		defs, _ := val.root["$defs"].(map[string]any)
+		target, _ := defs[name].(map[string]any)
+		if !found || target == nil {
+			return []string{path + ": unresolved $ref " + ref}
+		}
+		return val.check(target, v, path)
+	}
 	add := func(format string, a ...any) { errs = append(errs, path+": "+fmt.Sprintf(format, a...)) }
 
 	if t, ok := schema["type"].(string); ok && !isType(v, t) {
@@ -76,7 +88,7 @@ func check(schema map[string]any, v any, path string) []string {
 	case []any:
 		if items, ok := schema["items"].(map[string]any); ok {
 			for i, e := range x {
-				errs = append(errs, check(items, e, fmt.Sprintf("%s[%d]", path, i))...)
+				errs = append(errs, val.check(items, e, fmt.Sprintf("%s[%d]", path, i))...)
 			}
 		}
 	case map[string]any:
@@ -89,20 +101,36 @@ func check(schema map[string]any, v any, path string) []string {
 		}
 		if props, ok := schema["properties"].(map[string]any); ok {
 			for name, sub := range props {
-				if val, there := x[name]; there {
-					errs = append(errs, check(sub.(map[string]any), val, path+"."+name)...)
+				if member, there := x[name]; there {
+					errs = append(errs, val.check(sub.(map[string]any), member, path+"."+name)...)
+				}
+			}
+		}
+		if un, ok := schema["unevaluatedProperties"].(bool); ok && !un {
+			seen := val.evaluated(schema, x)
+			for name := range x {
+				if !seen[name] {
+					add("field %q is not allowed on this line", name)
+				}
+			}
+		}
+		if extra, ok := schema["additionalProperties"].(bool); ok && !extra {
+			props, _ := schema["properties"].(map[string]any)
+			for name := range x {
+				if _, known := props[name]; !known {
+					add("unknown field %q", name)
 				}
 			}
 		}
 	}
 	if all, ok := schema["allOf"].([]any); ok {
 		for _, sub := range all {
-			errs = append(errs, check(sub.(map[string]any), v, path)...)
+			errs = append(errs, val.check(sub.(map[string]any), v, path)...)
 		}
 	}
-	if cond, ok := schema["if"].(map[string]any); ok && len(check(cond, v, path)) == 0 {
+	if cond, ok := schema["if"].(map[string]any); ok && len(val.check(cond, v, path)) == 0 {
 		if then, ok := schema["then"].(map[string]any); ok {
-			errs = append(errs, check(then, v, path)...)
+			errs = append(errs, val.check(then, v, path)...)
 		}
 	}
 	return errs
@@ -136,4 +164,40 @@ func equal(a, b any) bool {
 	x, _ := json.Marshal(a)
 	y, _ := json.Marshal(b)
 	return strings.TrimSpace(string(x)) == strings.TrimSpace(string(y))
+}
+
+// evaluated is the names of the members of an object that the schema, and the
+// subschemas that apply to it (allOf, and the then of an if that holds), give a
+// definition: what unevaluatedProperties false measures against.
+func (val validator) evaluated(schema map[string]any, obj map[string]any) map[string]bool {
+	out := map[string]bool{}
+	if ref, ok := schema["$ref"].(string); ok {
+		name, _ := strings.CutPrefix(ref, "#/$defs/")
+		defs, _ := val.root["$defs"].(map[string]any)
+		if target, ok := defs[name].(map[string]any); ok {
+			for k := range val.evaluated(target, obj) {
+				out[k] = true
+			}
+		}
+	}
+	if props, ok := schema["properties"].(map[string]any); ok {
+		for k := range props {
+			out[k] = true
+		}
+	}
+	if all, ok := schema["allOf"].([]any); ok {
+		for _, sub := range all {
+			for k := range val.evaluated(sub.(map[string]any), obj) {
+				out[k] = true
+			}
+		}
+	}
+	if cond, ok := schema["if"].(map[string]any); ok && len(val.check(cond, obj, "$")) == 0 {
+		if then, ok := schema["then"].(map[string]any); ok {
+			for k := range val.evaluated(then, obj) {
+				out[k] = true
+			}
+		}
+	}
+	return out
 }

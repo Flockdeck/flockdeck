@@ -191,7 +191,7 @@ func TestRecordingFollowsTheStoredConversation(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("types = %v\nwant    %v", got, want)
 	}
-	if es[0].Agent != "claude" || es[0].Model != "" || es[0].PaneName != "" || es[0].Project != "shop" || es[0].Pane != p.ID || es[0].Conversation != p.ID {
+	if es[0].Agent != "claude" || es[0].Model != "" || es[0].Project != "shop" || es[0].Conversation != p.ID {
 		t.Errorf("the first line does not say whose it is: %+v", es[0])
 	}
 	raw, _ := os.ReadFile(files[0])

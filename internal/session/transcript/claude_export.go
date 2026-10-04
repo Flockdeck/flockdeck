@@ -52,7 +52,10 @@ type claudeFollower struct {
 	replies map[string]replyDone
 	title   string
 	last    time.Time
-	buf     []byte
+	// ctx is the branch, directory and agent version of the entry last read, which
+	// a title, having none of its own, is given as it is given that entry's time.
+	ctx struct{ gitBranch, cwd, version string }
+	buf []byte
 	// pending is what the line last read gave that has not been handed over.
 	pending []ExportEvent
 }
@@ -232,7 +235,7 @@ func (f *claudeFollower) line(raw []byte, yield func(ExportEvent) error, stats *
 			return nil
 		}
 		f.title = title
-		f.pending = []ExportEvent{{Time: f.last, Kind: ExportTitle, Text: title}}
+		f.pending = []ExportEvent{{Time: f.last, Kind: ExportTitle, Text: title, GitBranch: f.ctx.gitBranch, Cwd: f.ctx.cwd, AgentVersion: f.ctx.version}}
 		return f.drain(yield)
 	}
 	// An entry with no usable time is given the previous one's, and one that
@@ -247,6 +250,7 @@ func (f *claudeFollower) line(raw []byte, yield func(ExportEvent) error, stats *
 		return nil
 	}
 	f.last = ts
+	f.ctx.gitBranch, f.ctx.cwd, f.ctx.version = line.GitBranch, line.Cwd, line.Version
 
 	switch line.Type {
 	case "user":
@@ -328,6 +332,7 @@ func (f *claudeFollower) replyDetails(line exportLine) {
 func (f *claudeFollower) start() {
 	f.offset, f.carry, f.discarding, f.pending = 0, nil, false, nil
 	f.names, f.last = map[string]string{}, time.Time{}
+	f.ctx.gitBranch, f.ctx.cwd, f.ctx.version = "", "", ""
 	f.replies, f.title = map[string]replyDone{}, ""
 }
 

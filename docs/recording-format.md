@@ -11,16 +11,19 @@ Claude Code, `~/.claude/projects/<folder>/<conversation>.jsonl`), by one piece o
 code, whether the conversation is still going and the pane is being recorded, or
 is over and it is exported. A recording of a conversation and an export of it are
 therefore the same bytes (section 8). Anything the agent only tells Flockdeck
-while it runs, such as a permission dialog opening, is not in a transcript;
-earlier versions of Flockdeck wrote some of those lines, and the format keeps
-them so that those files are still readable (see *Lines earlier versions wrote*).
+while it runs, such as a permission dialog opening or the pane's status, is not
+in the stored conversation and so is not in a transcript.
 
-The machine-readable definition is [`recording-line.schema.json`](recording-line.schema.json)
-(JSON Schema, draft 2020-12). A test validates lines the recorder really writes
-against it, and checks that it names every field and event type the code has,
-so this page and the schema are kept level with the code by the build.
+The definition of the format is [`recording-line.schema.json`](recording-line.schema.json)
+(JSON Schema, draft 2020-12). It is strict: it names the fields each line type
+has and which are required, nothing else is allowed, and every field's
+description says where its value comes from and why it can be missing. This page
+explains it. Tests validate every line the writer produces, for the export and
+the recording alike, and every example on this page, against the schema, and
+check that the schema and this page name every field and line type the code
+has, so the three cannot drift apart.
 
-Format version: **1**.
+Format version: **2**.
 
 ## 1. Where the files are
 
@@ -41,8 +44,7 @@ Format version: **1**.
   with one name get two folders.
 - `<start>` is the time of the conversation's first event, UTC, as
   `20261001T101530Z`, and `<conversation>` is the first eight characters of the
-  conversation's id (the pane's id for a conversation that has not been told
-  apart from it). That name is the line's `session`.
+  conversation's id. That name is the line's `session`.
 - A recording is in the project's folder, and an export, unless it was given a
   path of its own, in its `exports` folder.
 - On Linux and macOS the folder is created `0700` and files `0600`. On Windows
@@ -59,8 +61,8 @@ across a restart of Flockdeck has the file written again from the conversation's
 beginning, which gives the same lines and the same name, so it is the same file
 and not another. A file is never added to once its transcript has ended, except
 by being made again, and a finished transcript is only replaced by one that has
-every event it had (it is written beside it and moved into place when finished;
-otherwise it is left as it was). If a program has the earlier file open and it
+every event it had, in order (it is written beside it and moved into place when
+finished; otherwise it is left as it was). If a program has the earlier file open and it
 cannot be replaced, the new transcript is left beside it as `<name>.jsonl.new` and
 Flockdeck says so. A `.jsonl.new` that nothing is writing and that is a day old, as
 a quit or a crash leaves, is removed the next time a transcript is made in that
@@ -90,24 +92,28 @@ folder that do not end in `.jsonl` are left alone. **Exports are kept until you
 delete them by hand**: retention does not count them, and making one deletes
 nothing. Nothing else deletes transcripts: delete the files you do not want kept.
 
+
 ## 2. The line format
 
 - JSON Lines: one JSON object per line, separated by `\n`, no blank lines, no
-  trailing comma, UTF-8.
-- Every line is a complete, self-contained object with the envelope below.
-- Each line is written with a single write call.
-
-**How consumers must read it:**
-
-- **Unknown fields: ignore them.** New optional fields may be added in any
-  release without changing `v`.
-- **Unknown `type` values: skip the line**, and carry on. Do not stop reading.
-  Use `seq` to notice that you skipped something, if you care.
-- **A different `v`: do not guess.** `v` changes only if a field's meaning or
-  type changes, or a field is removed. A reader that knows version 1 should
-  refuse, or warn about, a file with another `v`.
-- **A last line that is not valid JSON: ignore it.** It is a line cut off by a
-  crash (see section 6).
+  trailing comma, UTF-8. Each line is written with a single write call.
+- Every line is a complete, self-contained object with the envelope below, so a
+  line can be read, filtered and validated without the lines around it.
+- **`v` is 2.** Version 1 had a `pane` field (the same as `conversation`) and
+  lines for permissions and status; version 2 has neither. A reader of this page
+  must **refuse a file whose `v` is not 2** and not guess: `v` changes when a
+  field is removed, renamed or changes meaning, never when one is added.
+- **Fields and line types may be added** within version 2, in the schema and on
+  this page in the same change. A reader should therefore **skip a line whose
+  `type` it does not know** and **ignore a field it does not know**. The schema
+  is strict because it describes what this version writes; that is not a reason
+  for a reader to reject more.
+- **A last line that is not valid JSON: ignore it.** A crash can cut the last
+  line off (section 6).
+- **No field is ever `null`**, an empty string standing for "unknown", or a zero
+  standing for "unknown". A field is written, or it is absent, and the reason it
+  is absent is in the tables below and in the schema. Where an absent boolean has
+  a meaning (`isError`, `interrupted`, `redacted`), it means `false`.
 
 ## 3. Fields
 
@@ -117,37 +123,58 @@ Every line has these.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `v` | integer | yes | Format version. `1`. |
+| `v` | integer | yes | Format version: `2`. |
 | `seq` | integer | yes | The line's number within its file: 1 for the first, then 2, 3, with no gaps. |
-| `time` | string | yes | When the event **happened**, as the agent's own record has it: RFC 3339 in UTC with a `Z` and up to nanosecond precision (`2026-10-01T10:15:30.123456789Z`). It never goes back from one line to the next: an entry the agent's record has out of order is given the time of the one before. In files made by earlier versions it is the time Flockdeck wrote the line. |
+| `time` | string | yes | When the event **happened**, as the agent's own record has it (stored by the agent): RFC 3339 in UTC with a `Z` and up to nanosecond precision (`2026-10-01T10:15:30.123456789Z`). It never goes back from one line to the next (see *Time* in section 6). |
 | `session` | string | yes | The transcript's id: `<start>-<conversation>` (section 1), which is the file's name without `.jsonl` where Flockdeck named it. The same wherever the file is put. |
-| `pane` | string | yes | In a transcript made now, the conversation's id: a transcript is of a conversation, which a pane can have several of, and the same conversation must give the same lines whichever pane, layout or command reached it. In files of earlier versions, the pane's id. |
-| `paneName` | string | no | **Not written now.** A pane's name changes, and a saved layout can have a stale one, so it cannot be in lines that must be the same however they were made. Files of earlier versions have the pane's name at the time of the line. |
-| `project` | string | no | The project's name: the last element of the directory the stored conversation recorded. Absent if it records none. |
-| `agent` | string | no | The agent's id (`claude`, `codex`, ...) as `flockdeck agents` lists it. |
-| `model` | string | no | The model that produced the turn, as the agent's stored conversation records it for that turn (for Claude Code, the entry's `message.model`). Written on `assistant_message` and `tool_call` lines only, so a conversation that switches model mid-way has each turn's own; never on a `user_prompt` or `tool_result`, nor on `recording_started` or `recording_stopped`. Left out when the stored turn records none, or only a placeholder such as `<synthetic>` (what Claude Code stamps on a notice it wrote itself), and for an agent whose stored conversation does not record one. It is never the model a pane is set to now, which is the pane's, not the conversation's. Files of earlier versions have the model the pane was asked for, on every line; files made since by an exporter that did not read it have none. |
-| `conversation` | string | no | The agent's own conversation id. It changes when the user runs `/clear`. |
-| `gitBranch` | string | no | The git branch the stored entry behind the line records (for Claude Code, the entry's `gitBranch`). Written on every line that comes from an entry of the stored conversation (`user_prompt`, `assistant_message`, `tool_call`, `tool_result`, `conversation_compacted`), each with the entry's own, so a conversation that changes branch has each line's; never on `recording_started`, `recording_stopped` or `conversation_title`. Left out when the entry records none. Redacted and cut at 8 KiB like other strings. |
-| `cwd` | string | no | The working directory the stored entry records, as the entry has it: **a full path, which usually contains the account's name** (`C:\Users\sam\work\shop`). Written on the same lines as `gitBranch`, each with the entry's own. It is the agent's directory at that moment, so it changes when the agent moves into a worktree or a subfolder, not only between projects, and a conversation can have several. Left out when the entry records none. Redacted and cut at 8 KiB like other strings; see section 4, *What redaction does not catch*. (`project`, by contrast, is only the last element of the directory the conversation recorded.) |
-| `agentVersion` | string | no | The agent's own version that wrote the stored entry behind the line (for Claude Code, the entry's `version`, such as `2.1.286`). Written on the same lines as `gitBranch`. Left out when the entry records none. |
-| `type` | string | yes | The event type, one of the types below. |
-| `subagent` | string | no | The id of the subagent the event came from. Absent for the main agent. |
-| `redacted` | boolean | no | `true` if anything in the line was replaced by redaction (section 4). |
-| `clipped` | object | no | For each field that was cut, its length in bytes before cutting (section 4). |
+| `conversation` | string | yes | The agent's own id of the conversation the transcript is of (stored by the agent). A transcript is of one conversation, so it is the same on every line of a file. It changes when the user runs `/clear`, which starts a file of its own. (Version 1 also had `pane`, with the same value; it is gone.) |
+| `agent` | string | yes | The agent's id (`claude`, ...) as `flockdeck agents` lists it. Known to Flockdeck, not stored in the conversation. |
+| `project` | string | no | The project's name: the last element of the first directory the stored conversation records (derived by Flockdeck). Absent only when the stored conversation records no directory at all. |
+| `gitBranch` | string | no | The git branch the stored entry behind the line records (for Claude Code, the entry's `gitBranch`). On **every** line type, each with the entry's own, so a conversation that changes branch has each line's: `recording_started` has that of the first event, `recording_stopped` that of the last, `recording_truncated` that of the event that did not fit, and `conversation_title` that of the entry before it (a stored title has none of its own). Absent only where that entry records none. Redacted and cut at 8 KiB like other strings. |
+| `cwd` | string | no | The working directory the stored entry records: **a full path, which usually contains the account's name** (`C:\Users\sam\work\shop`). On the same lines as `gitBranch` and absent for the same reason. It is the agent's directory at that moment, so it changes when the agent moves into a worktree or a subfolder, and a conversation can have several. Redacted and cut at 8 KiB; see section 4, *What redaction does not catch*. (`project`, by contrast, is only the last element of the first one.) |
+| `agentVersion` | string | no | The agent's own version that wrote the stored entry behind the line (for Claude Code, the entry's `version`, such as `2.1.286`). On the same lines as `gitBranch` and absent for the same reason. |
+| `type` | string | yes | The line type, one of the types below. |
+| `redacted` | boolean | no | `true` if anything in the line was replaced by redaction (section 4). Absent means nothing was. |
+| `clipped` | object | no | For each field that was cut, its length in bytes before cutting (section 4). Absent means nothing was. |
 
-The identity in the envelope (`pane`, `project`, `agent`, `conversation`) is
-worked out from the stored conversation alone, in one place, whichever way the
-transcript is made: recording, *Export transcript* and the command line all give
-the same lines for the same conversation. The pane's name, which is not in the
-stored conversation, is therefore not in the lines, and neither is the model the
-pane is set to. The `model` an assistant turn has is its own, read from the
-stored conversation, and so are `gitBranch`, `cwd` and `agentVersion`, which are
-those of the entry a line came from.
+The identity in the envelope (`conversation`, `agent`, `project`) is worked out
+from the stored conversation alone, in one place, whichever way the transcript is
+made: recording, *Export transcript* and the command line all give the same
+lines for the same conversation. Nothing about a pane is in them. A pane's name
+changes, and a saved layout can have it and the pane's model stale, so a line
+that carried them could not be the same however it was made; there is no pane
+name in a transcript for that reason, and the `model` an assistant turn has is its
+own, read from the stored conversation.
 
-### Event types
+**Why there is no header line.** What is the same on every line (`agent`,
+`conversation`, `project`) is repeated on each, so a line can be used alone, and
+`agentVersion`, `cwd` and `gitBranch` as the conversation began are on
+`recording_started`. What a header could add and a line may not carry is how the
+transcript was made (live or exported), Flockdeck's own version, and when it was
+made: all of those differ between two transcripts of one conversation, and the
+two must be the same bytes.
 
-`Required` below is in addition to the envelope. Every field named is
-optional unless it says required.
+### Which fields are on which line
+
+`●` is a field the line type always has. `○` is one it has unless the *reason it
+is absent* in the type's section applies. A blank is a field the type never has.
+The envelope's fields are not repeated.
+
+| Field | started, stopped | truncated | user_prompt | assistant_message | tool_call | tool_result | conversation_title | conversation_compacted |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `text` | ● | ● | ● | ● |  |  |  |  |
+| `model` |  |  |  | ○ | ○ |  |  |  |
+| `usage` |  |  |  | ○ | ○ |  |  |  |
+| `stopReason` |  |  |  | ○ | ○ |  |  |  |
+| `tool` |  |  |  |  | ● | ○ |  |  |
+| `toolUseId` |  |  |  |  | ○ | ○ |  |  |
+| `input` |  |  |  |  | ○ |  |  |  |
+| `output` |  |  |  |  |  | ○ |  |  |
+| `isError`, `interrupted` |  |  |  |  |  | ○ |  |  |
+| `title` |  |  |  |  |  |  | ● |  |
+| `trigger`, `tokensBefore`, `tokensAfter` |  |  |  |  |  |  |  | ○ |
+
+### Line types
 
 #### `recording_started`
 
@@ -155,10 +182,10 @@ First line of every file, at the time of the conversation's first event.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `text` | string | yes | `start of the transcript`. It says nothing of how the transcript was made, which is the same however it was. Files of earlier versions have `turned on` or `resumed` here. |
+| `text` | string | yes | `start of the transcript`. It says nothing of how the transcript was made, which is the same however it was. |
 
 ```json
-{"v":1,"seq":1,"time":"2026-10-01T10:15:30.1Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"recording_started","text":"start of the transcript"}
+{"v":2,"seq":1,"time":"2026-10-01T10:15:30.1Z","session":"20261001T101530Z-0123abcd","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","project":"shop","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","type":"recording_started","text":"start of the transcript"}
 ```
 
 #### `recording_stopped`
@@ -167,37 +194,24 @@ Last line of a file that was ended deliberately, at the time of the last event.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `text` | string | yes | `end of the transcript`. Files of earlier versions have `turned off` or `the pane was closed`. |
+| `text` | string | yes | `end of the transcript`. |
 
 ```json
-{"v":1,"seq":41,"time":"2026-10-01T10:31:02.8Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"recording_stopped","text":"end of the transcript"}
+{"v":2,"seq":41,"time":"2026-10-01T10:31:02.8Z","session":"20261001T101530Z-0123abcd","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","project":"shop","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","type":"recording_stopped","text":"end of the transcript"}
 ```
 
 #### `recording_truncated`
 
 Last line of a file that reached the size cap. There is no `recording_stopped`
-after it.
+after it. Its `seq` is that of the line that did not fit, which is not written,
+so `seq` still has no gap.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `text` | string | yes | What happened, in words. |
+| `text` | string | yes | What happened, in words, with the cap. |
 
 ```json
-{"v":1,"seq":9120,"time":"2026-10-01T11:02:44.0Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","type":"recording_truncated","text":"the transcript reached its size cap of 16 MiB and ended here"}
-```
-
-#### `session`
-
-**No longer written** (see *Lines earlier versions wrote*). The agent's own
-session starting or ending (Claude Code's `SessionStart` and `SessionEnd`).
-
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `text` | string | yes | `start` or `end`. |
-| `source` | string | no | On `start`: why it began: `startup`, `resume`, `clear`, `compact` or `fork`. |
-
-```json
-{"v":1,"seq":2,"time":"2026-10-01T10:15:31.0Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","conversation":"c1","type":"session","source":"startup","text":"start"}
+{"v":2,"seq":9120,"time":"2026-10-01T11:02:44.0Z","session":"20261001T101530Z-0123abcd","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","project":"shop","type":"recording_truncated","text":"the transcript reached its size cap of 16 MiB and ended here"}
 ```
 
 #### `user_prompt`
@@ -206,38 +220,34 @@ What the user typed. The entries Claude Code writes into the conversation for
 itself are not prompts and are left out: a slash command and its output, an
 injected `<system-reminder>`, a background task's `<task-notification>`, the
 note a conversation continued from a summary opens with, "Request interrupted by
-user". (Files of earlier versions, written from the agent's live events, hold
-some of these, since the agent counts them as prompts.)
+user".
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `text` | string | yes | The prompt. Cut at 32 KiB. |
 
-The note a conversation continued from a summary opens with is not a prompt, and
-its text, which is the summary, is not in the transcript anywhere: the
-`conversation_compacted` line marks where it happened.
+A `user_prompt` has no `model`: the person wrote it, not a model, and the model
+that answers it is not known when it is written.
 
 ```json
-{"v":1,"seq":3,"time":"2026-10-01T10:15:40.2Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"user_prompt","text":"run the tests and fix what fails"}
+{"v":2,"seq":3,"time":"2026-10-01T10:15:40.2Z","session":"20261001T101530Z-0123abcd","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","project":"shop","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","type":"user_prompt","text":"run the tests and fix what fails"}
 ```
 
 #### `assistant_message`
 
 A message the agent said: **every** text message in the conversation, including
 the ones between tool calls ("Let me look at the client first"), in order. A
-message that came with tool calls is written before them. (Files of earlier
-versions have only the last message of each turn, since that was all the agent
-reported while it ran.)
+message that came with tool calls is written before them.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `text` | string | yes | The message. Cut at 32 KiB. |
-| `reason` | string | no | Only in files of earlier versions: `the turn ended on an error`. |
-| `usage` | object | no | The tokens the model's reply used; see *Token usage and stop reason* below. On the first line of a reply only, which is exact only while the reply's entries all repeat the same numbers (see below). Its keys are `inputTokens`, `outputTokens`, `cacheCreationInputTokens` and `cacheReadInputTokens`, all integers. |
-| `stopReason` | string | no | Why the reply ended; see below. On the first line that has one, once per reply, on the same assumption as `usage`. |
+| `model` | string | no | The model that produced the turn (stored by the agent; for Claude Code, the entry's `message.model`). Written on `assistant_message` and `tool_call` lines only, so a conversation that switches model mid-way has each turn's own. Absent when the stored turn names no model, or only a placeholder such as `<synthetic>` (what Claude Code stamps on a notice it wrote itself). Never the model a pane is set to now. |
+| `usage` | object | no | The tokens the model's reply used; see *Token usage and stop reason* below. Its keys are `inputTokens`, `outputTokens`, `cacheCreationInputTokens` and `cacheReadInputTokens`, all integers. On the first line of a reply only. |
+| `stopReason` | string | no | Why the reply ended, in the agent's word; see below. Once per reply. |
 
 ```json
-{"v":1,"seq":19,"time":"2026-10-01T10:16:55.9Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","model":"claude-opus-5-5","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","type":"assistant_message","text":"All 212 tests pass.","usage":{"inputTokens":6,"outputTokens":212,"cacheCreationInputTokens":1450,"cacheReadInputTokens":30705},"stopReason":"end_turn"}
+{"v":2,"seq":19,"time":"2026-10-01T10:16:55.9Z","session":"20261001T101530Z-0123abcd","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","project":"shop","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","model":"claude-opus-5-5","type":"assistant_message","text":"All 212 tests pass.","usage":{"inputTokens":6,"outputTokens":212,"cacheCreationInputTokens":1450,"cacheReadInputTokens":30705},"stopReason":"end_turn"}
 ```
 
 **Token usage and stop reason.** Claude Code stores one reply of the model as
@@ -290,6 +300,7 @@ no line at all.) The rest of the reply's lines have neither. So:
   without a message id are each counted as a reply of their own, so the count
   cannot see disagreement there.
 
+
 #### `tool_call`
 
 The agent calling a tool, before it runs.
@@ -297,27 +308,32 @@ The agent calling a tool, before it runs.
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `tool` | string | yes | The tool's name: `Bash`, `Edit`, `Read`, an MCP tool's full name. |
-| `toolUseId` | string | no | The agent's id for this call, to pair it with its `tool_result`. |
-| `input` | any JSON | no | The tool's input as the agent gave it, usually an object. Each string in it is redacted and cut at 8 KiB. |
+| `toolUseId` | string | no | The agent's id for this call, to pair it with its `tool_result`. Absent only where the stored block gives none. |
+| `input` | any JSON | no | The tool's input as the agent gave it, usually an object. Each string in it is redacted and cut at 8 KiB. Absent only where the stored call has none. |
+
+A `tool_call` has `model`, `usage` and `stopReason` as an `assistant_message` does:
+the turn's own `model`, and `usage` and `stopReason` on the first line of the
+reply.
 
 ```json
-{"v":1,"seq":4,"time":"2026-10-01T10:15:42.0Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","model":"claude-opus-5-5","type":"tool_call","tool":"Bash","toolUseId":"toolu_01","input":{"command":"go test ./...","description":"Run the tests"}}
+{"v":2,"seq":4,"time":"2026-10-01T10:15:42.0Z","session":"20261001T101530Z-0123abcd","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","project":"shop","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","model":"claude-opus-5-5","type":"tool_call","tool":"Bash","toolUseId":"toolu_01","input":{"command":"go test ./...","description":"Run the tests"}}
 ```
 
 #### `tool_result`
 
-A tool finishing, or failing.
+A tool finishing, or failing. It has no `model`: a tool made it, not a model. The
+call it answers has the model, and `toolUseId` joins the two.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `tool` | string | yes | The tool's name. |
-| `toolUseId` | string | no | The id of the call it answers. |
-| `output` | string | no | What the tool returned: the text the agent was shown. (The tool's own structured result, which can hold a whole file an edit was made to or an image as base64, is not used.) Cut at 8 KiB. For a failure, the error. |
-| `isError` | boolean | no | `true` if the tool failed. |
-| `interrupted` | boolean | no | `true` if it failed because the user stopped it (the error says so). Always with `isError`. |
+| `tool` | string | no | The name of the call it answers. **Derived by Flockdeck**: the stored result does not name the tool, so it is looked up by `toolUseId` among the calls already read. Absent only when that call is not in the transcript. |
+| `toolUseId` | string | no | The id of the call it answers (stored by the agent). Absent only where the stored result gives none. |
+| `output` | string | no | What the tool returned: the text the agent was shown. (The tool's own structured result, which can hold a whole file an edit was made to or an image as base64, is not used.) Cut at 8 KiB. For a failure, the error. Absent where the tool returned no text. |
+| `isError` | boolean | no | `true` if the tool failed (stored by the agent). Absent means it did not. |
+| `interrupted` | boolean | no | `true` if it failed because the user stopped it. **Derived by Flockdeck** from the stored error text, which says it was interrupted by the user: the agent stores no flag for it. Always with `isError`. Absent means it was not. |
 
 ```json
-{"v":1,"seq":5,"time":"2026-10-01T10:15:58.4Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"tool_result","tool":"Bash","toolUseId":"toolu_01","output":"ok  \tshop/api\t0.412s"}
+{"v":2,"seq":5,"time":"2026-10-01T10:15:58.4Z","session":"20261001T101530Z-0123abcd","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","project":"shop","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","type":"tool_result","tool":"Bash","toolUseId":"toolu_01","output":"ok  \tshop/api\t0.412s"}
 ```
 
 #### `conversation_title`
@@ -326,17 +342,17 @@ The conversation being given a title. Claude Code names a conversation after a
 few messages (`ai-title` entries in its stored conversation, which repeat the
 current title many times). This line is written when a title first appears and
 again whenever it **changes**, never for a repeat, so the last one is the
-conversation's title as stored. The stored entry has no time of its own, so the
-line has the time of the entry before it, and it is not written before the
-transcript's first event: a title that arrives then is written the next time the
-agent repeats it. It has no `gitBranch`, `cwd` or `agentVersion`.
+conversation's title as stored. The stored entry has no time of its own and no
+branch, directory or version, so the line has those of the entry before it, and
+it is not written before the transcript's first event: a title that arrives then
+is written the next time the agent repeats it.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `title` | string | yes | The title. Redacted and cut at 8 KiB like other strings. |
 
 ```json
-{"v":1,"seq":5,"time":"2026-10-01T10:15:40.2Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","type":"conversation_title","title":"Add a retry to the client"}
+{"v":2,"seq":5,"time":"2026-10-01T10:15:40.2Z","session":"20261001T101530Z-0123abcd","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","project":"shop","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","type":"conversation_title","title":"Add a retry to the client"}
 ```
 
 #### `conversation_compacted`
@@ -352,84 +368,13 @@ agent's, are not counts of lines, and are left out where the entry has none.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `trigger` | string | no | What started it, as the agent says: `auto` or `manual`. |
-| `tokensBefore` | integer | no | The conversation's size in tokens before it was summarised. |
-| `tokensAfter` | integer | no | Its size in tokens after. |
+| `trigger` | string | no | What started it, in the agent's word: `auto` or `manual`. Absent where the entry records none. |
+| `tokensBefore` | integer | no | The conversation's size in tokens before it was summarised. Absent where the entry records none. |
+| `tokensAfter` | integer | no | Its size in tokens after. Absent where the entry records none. |
 
 ```json
-{"v":1,"seq":88,"time":"2026-10-01T11:02:11.4Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","project":"shop","agent":"claude","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","type":"conversation_compacted","trigger":"auto","tokensBefore":970192,"tokensAfter":22085}
+{"v":2,"seq":88,"time":"2026-10-01T11:02:11.4Z","session":"20261001T101530Z-0123abcd","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","project":"shop","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","type":"conversation_compacted","trigger":"auto","tokensBefore":970192,"tokensAfter":22085}
 ```
-
-#### `permission_prompt`
-
-**No longer written.** A permission dialog opening for a tool (Claude Code's
-`PermissionRequest`).
-
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `tool` | string | yes | The tool asking. |
-| `toolUseId` | string | no | The call's id, when the agent says it. |
-| `input` | any JSON | no | What it wants to do, as for `tool_call`. |
-
-```json
-{"v":1,"seq":6,"time":"2026-10-01T10:16:01.0Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","type":"permission_prompt","tool":"Bash","input":{"command":"rm -rf build"}}
-```
-
-#### `permission_outcome`
-
-**No longer written.** How a permission question was answered.
-
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `outcome` | string | yes | `allowed`, `denied`, `abandoned` or `auto_approved`. |
-| `inferred` | boolean | no | `true` if the outcome was worked out from what came next rather than reported. |
-| `tool` | string | no | The tool the question was about. |
-| `toolUseId` | string | no | The call's id, when known. |
-| `reason` | string | no | For `auto_approved`, why auto-review let it through. |
-
-There is **no event for the user's answer** to a permission dialog, so for a
-prompt the recorder infers it: the tool then ran (`allowed`), it failed or was
-interrupted (`denied`), the user submitted a new prompt or the turn ended
-without it running (`denied`), or the next permission dialog opened, or the
-recording ended, with it still unanswered (`abandoned`). All of those have
-`"inferred":true`. `auto_approved` is reported by Flockdeck's auto-review
-itself and is not inferred. A `denied` that Claude Code reports through its
-`PermissionDenied` event is not inferred either.
-
-```json
-{"v":1,"seq":7,"time":"2026-10-01T10:16:03.5Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","type":"permission_outcome","tool":"Bash","outcome":"allowed","inferred":true}
-```
-
-#### `status`
-
-**No longer written.** The pane's status changing as a result of an agent event.
-
-| Field | Type | Required | Meaning |
-| --- | --- | --- | --- |
-| `status` | string | yes | The new status: `starting`, `working`, `waiting`, `blocked`, `idle`, `exited` or `unknown`. |
-| `previous` | string | no | The status before. |
-| `detail` | string | no | What the status says it is doing, such as the tool running. |
-
-```json
-{"v":1,"seq":8,"time":"2026-10-01T10:16:03.5Z","session":"20261001T101530Z-0123abcd","pane":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","type":"status","status":"working","previous":"waiting","detail":"Bash"}
-```
-
-The agent's stored conversation does not say when a pane went working, waiting
-or idle, so a transcript made from it has no `status` lines.
-
-### Lines earlier versions wrote
-
-Versions of Flockdeck before the one that made transcripts from the agent's
-stored conversation wrote a recording from the events the agent reported to it
-while it ran. Those files are still format 1 and are still valid: they have
-`session`, `permission_prompt`, `permission_outcome` and `status` lines, the
-last assistant message of each turn only, `time` as the time Flockdeck wrote the
-line, and `turned on` / `turned off` / `resumed` in their first and last lines.
-The schema and this page keep describing all of them, marked *no longer
-written*. Removing the writing of a line type does not change the meaning of any
-field or type, which is the only thing that changes `v`, and a reader that
-follows section 2 already skips a type it does not see. A consumer should not
-rely on any of those four types being present.
 
 ## 4. Redaction and clipping
 
@@ -512,28 +457,22 @@ is "saved on this machine", not "private to you".
 | What | Cut at |
 | --- | --- |
 | `text` of a `user_prompt` or `assistant_message` | 32 KiB (32768 bytes) |
-| any other string: `output`, `detail`, `reason`, `title`, `cwd`, `gitBranch`, and every string inside `input` | 8 KiB (8192 bytes) |
-| a tool `input` that was over 48 KiB once its strings were cut (files made before v0.3.48 only) | replaced by `{"_omitted":"too large to record"}` |
+| any other string: `output`, `title`, `cwd`, `gitBranch`, and every string inside `input` | 8 KiB (8192 bytes) |
 
 The cut is at a character boundary, and the string ends with the marker
 `…[clipped N bytes]` (a single `…` character), where **N is the number of bytes
 removed**. The line's `clipped` object then says which field it was and how
 long that field was **in bytes as the recorder received it, before redaction**:
 
-```json
+```text
 "output":"xxxx…[clipped 16384 bytes]","clipped":{"output":24576}
 ```
 
-`clipped` has the keys `text`, `output`, `detail`, `reason`, `input`, `title`, `cwd` and `gitBranch`. For
-`input` the number is the length of the input as JSON.
+`clipped` has the keys `text`, `output`, `input`, `title`, `cwd` and `gitBranch`. For
+`input` the number is the length of the input as JSON. Nothing clips a value
+before the recorder sees it: the transcript is read from the agent's stored
+conversation.
 
-In files made before v0.3.48 (by v0.3.47, which wrote recordings from the
-events the agent reported), Flockdeck's hook also clipped very large values (16
-KiB per string; 48 KiB for a message or prompt) before the recorder saw them,
-using the same marker: where it did, `clipped` still gives the original length
-for `text`, `output`, `detail` and `reason`, and for `input` it is the length
-received, so a lower bound. From v0.3.48 a transcript is read from the agent's
-stored conversation, which nothing clips before the recorder.
 
 ## 5. Which agents have a transcript
 
@@ -543,7 +482,7 @@ code (`internal/session/transcript`):
 
 | Agent | Stores a conversation Flockdeck can read? | What a transcript holds |
 | --- | --- | --- |
-| **Claude Code** | Yes: `<claude home>/projects/<folder>/<conversation>.jsonl`, under `CLAUDE_CONFIG_DIR` if the agent's catalog entry sets it | Everything in section 3 that is not marked *no longer written*. Gaps below. |
+| **Claude Code** | Yes: `<claude home>/projects/<folder>/<conversation>.jsonl`, under `CLAUDE_CONFIG_DIR` if the agent's catalog entry sets it | Everything in section 3. Gaps below. |
 | **Claude API**, **OpenAI API** (and the other built-in chat client agents) | Flockdeck's own chat client keeps its conversations itself, but no transcript can be made from them yet | Nothing: recording and export say so, and write no file. |
 | **Codex**, **Gemini CLI**, **Aider**, **opencode**, **Cursor Agent** | No: nothing Flockdeck has a reader for | Nothing: recording and export say so, and write no file. |
 
@@ -554,10 +493,10 @@ refused, and says so; a pane that came back recording (from a saved layout or
 For Claude Code the known gaps are:
 
 - **No permission dialogs, status or session lines**: the stored conversation
-  has no record of them. A tool the user refused has an error `tool_result`;
+  has no record of them, so a transcript has no such line type. A tool the user refused has an error `tool_result`;
   one that ran has a result; nothing says a dialog was shown in between.
-- **Subagents** (Claude Code's `isSidechain` entries) are left out, so there are
-  no lines with `subagent` set. Their result to the main agent is in the main
+- **Subagents** (Claude Code's `isSidechain` entries) are left out, and no line says
+  which subagent did what. Their result to the main agent is in the main
   agent's tool results.
 - **An entry over 8 MiB** (a pasted screenshot, a very large tool result) is
   stepped over and left out, and so is a line that is not JSON. A `tool_call`
@@ -582,27 +521,43 @@ For Claude Code the known gaps are:
 Nothing is claimed here about what the other agents *could* store; if one gains a
 reader, this table gets a row.
 
+
 ## 6. Ordering, delivery and crashes
 
 - **Order**: lines are in the order the agent's record has the events, and
-  `seq` is the order of writing. `time` does not go back (section 3). Where
-  one message of the agent holds words and tool calls, the words come first.
+  `seq` is the order of writing. Where one message of the agent holds words and
+  tool calls, the words come first.
+- **Time.** `time` is the event's time as the agent stored it, with one rule that
+  makes it monotonic: if an entry has no `timestamp`, an unreadable one, or one
+  earlier than the time of the entry before it, the line is given the time of the
+  entry before it (the previous entry the writer read, of any kind it reads: a
+  prompt, a message, a tool call or result, a compaction). The first entry with no
+  usable time is skipped. So `time` never decreases from one line to the next, an
+  equal `time` does not mean the events were simultaneous, and a line's `time` is
+  not always the agent's own. A `conversation_title` has the time of the entry
+  before it (its stored form has none), and `recording_stopped` that of the last
+  event.
+- **Sizes.** A file is at most 16 MiB (section 1). A string is cut at 8 KiB, or
+  32 KiB for a prompt or message (section 4), but a line has no other limit: a
+  tool call with many strings in its `input` can be long. Do not read a transcript
+  with a fixed line buffer.
+- **`seq`** starts at 1 and has no gaps within a file; a missing number means the
+  file was edited.
 - **A transcript is a function of the stored conversation** alone, its identity
   included (section 3): the same conversation gives the same bytes, however it
-  was made, whatever the pane is called or runs. A recording is written
-  as the agent's file grows, a piece at a time, and only whole lines are read; the
-  last line of the file, if it has no line break yet, is read once it is
-  complete JSON. Recording lags the agent by a moment: Flockdeck looks at the
-  agent's record, off the goroutines that handle the agent's events, when the
-  agent reports one and again shortly after, each look that finds nothing new
-  waiting twice as long as the last. After three such looks it stops until the
-  agent reports another event, so a quiet conversation costs nothing. If what is
-  stored is replaced by something shorter, or turns up in another folder, the
-  transcript is written again from the start.
+  was made, whatever the pane is called or runs. A recording is written as the
+  agent's file grows, a piece at a time, and only whole lines are read; the last
+  line of the file, if it has no line break yet, is read once it is complete JSON.
+  Recording lags the agent by a moment: Flockdeck looks at the agent's record, off
+  the goroutines that handle the agent's events, when the agent reports one and
+  again shortly after, each look that finds nothing new waiting twice as long as
+  the last. After three such looks it stops until the agent reports another event,
+  so a quiet conversation costs nothing. If what is stored is replaced by
+  something shorter, or turns up in another folder, the transcript is written
+  again from the start.
 - **Delivery**: nothing is lost between the agent's record and the transcript
   except what section 5 lists. A `tool_call` whose process was killed has no
   `tool_result`; use `toolUseId` to pair them and treat a missing one as normal.
-- **No gaps in `seq`** within a file: a missing number means the file was edited.
 - **Durability**: each line is a single write to the file, with no `fsync`.
   A crash of Flockdeck loses nothing already written, because the operating
   system holds it; a power loss or a kernel crash can lose the most recent lines.
@@ -616,60 +571,32 @@ reader, this table gets a row.
   transcript. (It is in the agent's own stored conversation, which Flockdeck
   does not change.)
 
+### What is stored and what is worked out
+
+Nearly every field is read from the agent's stored conversation. These are not,
+and a consumer that depends on them should know:
+
+| Field | How it is known |
+| --- | --- |
+| `agent` | Known to Flockdeck: the agent whose conversation was read. |
+| `project` | The last element of the first directory the conversation records: a guess at a name from a path, not a stored project name. |
+| `session`, `seq` | Made by Flockdeck. |
+| `time` | Stored, except where the clamp above applies. |
+| `tool` on a `tool_result` | Looked up from the call with the same `toolUseId`. |
+| `interrupted` | Read from the words of the stored error. |
+| `usage`, `stopReason` | Stored, but written once per reply from the first entry that gives a line, which assumes a reply's entries repeat the same numbers (see *Token usage and stop reason*). |
+| `gitBranch`, `cwd`, `agentVersion` on `recording_started`, `recording_stopped`, `recording_truncated` and `conversation_title` | Those of a neighbouring entry, since these lines have no entry of their own. |
+| `redacted`, `clipped` | Made by Flockdeck while writing. |
+
 ### Compatibility policy
 
-- Within `v: 1`, fields and event types may be **added**; existing ones keep their
+- Within `v: 2`, fields and line types may be **added**; existing ones keep their
   meaning and type. Readers follow the rules in section 2.
-- `v` is increased for a change of how lines are separated, or a field removed,
-  renamed or changed in type, where the change is not one of the amendments
-  below. Flockdeck then writes the new version in new files.
-- Event types are never reused with a different meaning.
-- A new version's release notes say so, and this page and the schema are updated in
-  the same change as the code (the build checks the schema against the code).
-
-**What changed within version 1, and what that means for a reader.** The release
-that made transcripts from the agent's stored conversation (section 8) changed
-some things while staying at `v: 1`. That is a departure from the policy above,
-which would have increased `v` for a field that changes meaning, and it was
-decided on purpose: the shape of a line is the same, and a reader written for the
-files of Flockdeck 0.3.47 reads the new ones, but it can no longer assume what it
-could. So **files of 0.3.47 and files of later versions share `v: 1` and differ
-in these ways**:
-
-| | 0.3.47 | Later |
-| --- | --- | --- |
-| `pane` | the pane's id | the conversation's id |
-| `time` | when Flockdeck wrote the line | when the event happened, from the agent's record |
-| `paneName` | written | not written |
-| `model` | the model the pane was asked for, on every line | the model that produced the turn, on `assistant_message` and `tool_call` lines only, where the stored conversation records it (added later in version 1; transcripts made before that have none) |
-| `usage`, `stopReason`, `gitBranch`, `cwd`, `agentVersion`, `conversation_title`, `conversation_compacted` | not written | written where the stored conversation has them (added later in version 1; transcripts made before that have none, and do not gain them unless exported again) |
-| `recording_started` / `recording_stopped` text | `turned on` or `resumed` / `turned off` or `the pane was closed` | `start of the transcript` / `end of the transcript` |
-| `session`, `permission_prompt`, `permission_outcome`, `status` | written | not written |
-| `assistant_message` | the last message of each turn | every message |
-| `user_prompt` | includes what the agent counts as prompts but a person did not type | only what the person typed |
-| `output` of a `tool_result` | the hook's result text | the text the agent was shown |
-| file name | `<start of recording>-<pane>.jsonl` | `<first event>-<conversation>.jsonl` |
-
-**How to tell them apart.** The reliable sign is the first line: a
-`recording_started` whose `text` is `start of the transcript` is a later file, and
-`turned on` or `resumed` is a 0.3.47 one. A file that has any `status`, `session`,
-`permission_prompt` or `permission_outcome` line, or a `paneName`, is a 0.3.47
-one (a later file has none). The file name cannot be told apart by its shape, as
-both are a time and eight characters. There is no field that says; a consumer
-that needs one reading should key on the first line.
-
-Among the later files, nothing says which of them were made before `model` was
-written, or before `usage`, `stopReason`, `gitBranch`, `cwd`, `agentVersion`,
-`conversation_title` and `conversation_compacted` were. A file that has a `model`
-on an `assistant_message`, or any of the others, was made after that was added.
-**Their absence proves nothing**: the stored conversation may simply lack them (a
-conversation with no title yet, one never compacted, an agent that records no
-model), and a file made earlier does not gain them unless the conversation is
-exported again.
-
-Stopping writing a line type is not itself a change to `v`: its definition stays
-here and in the schema, marked *no longer written*, so files already made are
-still described.
+- `v` is increased when a field is removed, renamed or changes meaning or type.
+  Flockdeck then writes the new version in new files.
+- Line types are never reused with a different meaning.
+- A new version's release notes say so, and this page and the schema are updated
+  in the same change as the code (the build checks the schema against the code).
 
 ## 7. Reading a transcript
 
@@ -693,20 +620,6 @@ jq -sr '
   | ($calls[.toolUseId]) as $c
   | "\(((.time | sub("\\.[0-9]+Z$"; "Z") | fromdate) - ($c.time | sub("\\.[0-9]+Z$"; "Z") | fromdate)))s  \($c.input.command)"
 ' session.jsonl
-```
-
-Permission prompts and what happened to them (only in files made by earlier
-versions; a current transcript has none):
-
-```sh
-jq -r 'select(.type == "permission_outcome")
-       | "\(.time)  \(.tool)  \(.outcome)\(if .inferred then " (inferred)" else "" end)"' session.jsonl
-```
-
-How long the pane spent in each status, in order (earlier versions' files only):
-
-```sh
-jq -r 'select(.type == "status") | "\(.time)  \(.previous // "-") -> \(.status)"' session.jsonl
 ```
 
 Tokens the conversation used, which is the sum of every `usage` there is (each
@@ -735,7 +648,7 @@ jq -c 'select(.redacted or .clipped) | {seq, type, redacted, clipped}' session.j
 Read it safely, skipping a last line cut off by a crash and any type you do not know:
 
 ```sh
-jq -R 'fromjson? | select(.v == 1)' session.jsonl
+jq -R 'fromjson? | select(.v == 2)' session.jsonl
 ```
 
 In Python:
@@ -749,11 +662,12 @@ with open("session.jsonl", encoding="utf-8") as f:
             event = json.loads(line)
         except json.JSONDecodeError:
             continue  # a line cut off by a crash
-        if event.get("v") != 1:
+        if event.get("v") != 2:
             raise SystemExit("a format version this script does not know")
         if event["type"] == "user_prompt":
             print(event["time"], event["text"])
 ```
+
 
 ## 8. Recording and exporting give the same file
 
@@ -763,14 +677,25 @@ conversation an agent has stored, whether or not the pane was ever recorded. The
 go through the same writer as a recording, so redaction and clipping (section 4),
 the withholding of what a secret file held, and the 16 MiB cap are the same, and
 so are the lines: **an export of a conversation is byte for byte what a
-recording of it from the start would be**. A test holds the two together by making one transcript both
-ways, the recording from a conversation's file as it grows in awkward pieces.
+recording of it from the start would be**. A test holds the two together by
+making one transcript both ways, the recording from a conversation's file as it
+grows in awkward pieces.
 
 An export differs from a recording only in where it goes and how it is asked
 for:
 
 - **Where.** By default, the `exports` folder of the project's folder (section
-  1); made again if it is exported again, **unless the new one would lack an event the earlier one had** (the stored conversation was cut or changed since; events are compared by their place, type and time, not their bytes). Then the earlier file is kept as it was, the window says so, and the command exits with an error, so that a script does not mistake the old file for a fresh one; delete the file to have a fresh export. With `-o`, a file of your own, which
+  1). **Exporting again replaces the earlier export** of the conversation: the new
+  file is written beside it and moved into place only when it is finished and has
+  every event the earlier one had, so a failure never loses the earlier one, and
+  the window and the command say they replaced it. That is how an export made by
+  an older Flockdeck gains what a newer one writes. If the earlier export has an
+  event the new one would lack (the stored conversation was cut or changed since;
+  events are compared by type, time and tool call id, in order, not by their
+  bytes or their place in the file), the earlier file is kept as it was, the
+  window says it is not up to date, and the command exits with an error, so that
+  a script does not mistake the old file for a fresh one; delete the file to have
+  a fresh export. With `-o`, a file of your own, which
   must not exist, and must not be inside the pane's project or any git
   repository: a transcript can hold secrets, and is never written into a
   project. Files are `0600` on Linux and macOS; on Windows a file inherits the
@@ -779,7 +704,7 @@ for:
 - **Pane or conversation.** `export` takes a pane's id as the saved layouts hold
   it, or a Claude Code conversation's id. A pane is only a way to find the
   conversation: the lines are the conversation's either way, with nothing of the
-  layout's pane name or selected model in them.
+  layout's pane name or model in them.
 - **Only from the machine itself.** The window's export is refused for a window
   reached through the relay: the file is written on the host, and a path there is
   not something to send to a phone.
