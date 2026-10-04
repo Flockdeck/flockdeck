@@ -63,8 +63,9 @@ and not another. A file is never added to once its transcript has ended, except
 by being made again, and a finished transcript is only replaced by one that has
 every event it had, in order (it is written beside it and moved into place when
 finished; otherwise it is left as it was). If a program has the earlier file open and it
-cannot be replaced, the new transcript is left beside it as `<name>.jsonl.new` and
-Flockdeck says so. A `.jsonl.new` that nothing is writing and that is a day old, as
+cannot be replaced, the new transcript is left beside it as `<name>.jsonl.<random>.new` and
+Flockdeck says so. (Each writer has a name of its own, so two writers of one
+conversation never share a file.) A `.new` file that nothing is writing and that is a day old, as
 a quit or a crash leaves, is removed the next time a transcript is made in that
 folder. If the conversation's first event is now a
 different one, so that the name is different, the earlier finished transcript of
@@ -89,8 +90,9 @@ it: files with a modification time older than **30 days** are deleted; then, if
 more than **100** files or **256 MiB** remain, the oldest are deleted until
 neither is exceeded. The file just opened is never deleted, and files in the
 folder that do not end in `.jsonl` are left alone. **Exports are kept until you
-delete them by hand**: retention does not count them, and making one deletes
-nothing. Nothing else deletes transcripts: delete the files you do not want kept.
+delete them by hand**: retention does not count them, and making one never
+deletes another file (exporting a conversation again replaces its earlier
+export, and nothing else). Nothing else deletes transcripts: delete the files you do not want kept.
 
 
 ## 2. The line format
@@ -99,10 +101,9 @@ nothing. Nothing else deletes transcripts: delete the files you do not want kept
   trailing comma, UTF-8. Each line is written with a single write call.
 - Every line is a complete, self-contained object with the envelope below, so a
   line can be read, filtered and validated without the lines around it.
-- **`v` is 2.** Version 1 had a `pane` field (the same as `conversation`) and
-  lines for permissions and status; version 2 has neither. A reader of this page
-  must **refuse a file whose `v` is not 2** and not guess: `v` changes when a
-  field is removed, renamed or changes meaning, never when one is added.
+- **`v` is 2.** A reader of this page must **refuse a file whose `v` is not 2**
+  and not guess: `v` changes when a field is removed, renamed or changes
+  meaning, never when one is added.
 - **Fields and line types may be added** within version 2, in the schema and on
   this page in the same change. A reader should therefore **skip a line whose
   `type` it does not know** and **ignore a field it does not know**. The schema
@@ -129,7 +130,7 @@ Every line has these.
 | `seq` | integer | yes | The line's number within its file: 1 for the first, then 2, 3, with no gaps. |
 | `time` | string | yes | When the event **happened**, as the agent's own record has it (stored by the agent): RFC 3339 in UTC with a `Z` and up to nanosecond precision (`2026-10-01T10:15:30.123456789Z`). It never goes back from one line to the next (see *Time* in section 6). |
 | `session` | string | yes | The transcript's id: `<start>-<conversation>` (section 1), which is the file's name without `.jsonl` where Flockdeck named it. The same wherever the file is put. |
-| `conversation` | string | yes | The agent's own id of the conversation the transcript is of (stored by the agent). A transcript is of one conversation, so it is the same on every line of a file. It changes when the user runs `/clear`, which starts a file of its own. (Version 1 also had `pane`, with the same value; it is gone.) |
+| `conversation` | string | yes | The agent's own id of the conversation the transcript is of (stored by the agent). A transcript is of one conversation, so it is the same on every line of a file. It changes when the user runs `/clear`, which starts a file of its own. |
 | `agent` | string | yes | The agent's id (`claude`, ...) as `flockdeck agents` lists it. Known to Flockdeck, not stored in the conversation. |
 | `project` | string | no | The project's name: the last element of the first directory the stored conversation records (derived by Flockdeck). Absent only when the stored conversation records no directory at all. |
 | `gitBranch` | string | no | The git branch the stored entry behind the line records (for Claude Code, the entry's `gitBranch`). On **every** line type, each with the entry's own, so a conversation that changes branch has each line's: `recording_started` has that of the first event, `recording_stopped` that of the last, `recording_truncated` that of the event that did not fit, and `conversation_title` that of the entry before it (a stored title has none of its own). Absent only where that entry records none. Redacted and cut at 8 KiB like other strings. |
@@ -650,10 +651,17 @@ Find lines where something was cut or removed:
 jq -c 'select(.redacted or .clipped) | {seq, type, redacted, clipped}' session.jsonl
 ```
 
-Read it safely, skipping a last line cut off by a crash and any type you do not know:
+Read it safely, skipping a line that is not JSON (a last line cut off by a crash)
+and any line that is not version 2:
 
 ```sh
 jq -R 'fromjson? | select(.v == 2)' session.jsonl
+```
+
+To skip line types you do not know as well, name the ones you read:
+
+```sh
+jq -R 'fromjson? | select(.v == 2 and (.type | IN("user_prompt", "assistant_message", "tool_call", "tool_result")))' session.jsonl
 ```
 
 In Python:
@@ -700,7 +708,9 @@ for:
   bytes or their place in the file), the earlier file is kept as it was, the
   window says it is not up to date, and the command exits with an error, so that
   a script does not mistake the old file for a fresh one; delete the file to have
-  a fresh export. With `-o`, a file of your own, which
+  a fresh export. A file that is not a version 2 transcript, or is damaged, is
+  always replaced, since it has nothing a new one lacks. With `-o`, a file of
+  your own, which
   must not exist, and must not be inside the pane's project or any git
   repository: a transcript can hold secrets, and is never written into a
   project. Files are `0600` on Linux and macOS; on Windows a file inherits the
@@ -725,4 +735,5 @@ for:
   and not from a window reached through the relay. `recordings export -reveal`
   shows the file it has just written.
 
-Retention (section 1) does not touch exports and an export deletes nothing.
+Retention (section 1) does not touch exports, and an export never deletes another
+file; an export of the same conversation replaces its earlier export.

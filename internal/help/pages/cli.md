@@ -116,8 +116,9 @@ flockdeck recordings [-dir] [-json]
 ```
 
 Lists the transcripts panes have recorded, newest first: when it started, the
-project, the conversation's id (its first eight characters), its size and the file. Exports are not listed: they are in each
-project folder's `exports` folder. `-dir` prints the folder they are kept
+project, the conversation's id (its first eight characters), its size and the
+file. Exports are not listed: they are in each project folder's `exports`
+folder. `-dir` prints the folder they are kept
 in and nothing else, and `-json` prints one JSON object per recording for a
 script. It reads the state directory, so it works with no Flockdeck running, and
 from any terminal. Nothing is recorded unless you turn recording on for a pane,

@@ -96,6 +96,8 @@
       "then": { "properties": {
         "trigger": { "type": "string", "minLength": 1, "description": "What started the compaction, in the agent's word (stored by the agent): auto or manual. Absent where the stored entry records none." },
         "tokensBefore": { "type": "integer", "minimum": 1, "description": "The conversation's size in tokens before it was summarised (stored by the agent). Absent where the stored entry records none." },
-        "tokensAfter": { "type": "integer", "minimum": 1, "description": "Its size in tokens after (stored by the agent). Absent where the stored entry records none." } } } }
+        "tokensAfter": { "type": "integer", "minimum": 1, "description": "Its size in tokens after (stored by the agent). Absent where the stored entry records none." } } } },
+    { "if": { "properties": { "type": { "const": "tool_result" }, "interrupted": { "const": true } }, "required": ["type", "interrupted"] },
+      "then": { "required": ["isError"], "properties": { "isError": { "const": true } } } }
   ]
 }

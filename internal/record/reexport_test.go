@@ -2,10 +2,12 @@ package record
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -159,5 +161,115 @@ func TestToolResultsAlwaysSayIfTheyFailedAndUsageLeavesOutWhatIsMissing(t *testi
 	}
 	if results != 2 {
 		t.Errorf("%d tool results", results)
+	}
+}
+
+// exportThenPlace exports the "more" fixture, then replaces the file with body,
+// and exports again.
+func exportOverOld(t *testing.T, body string) (ExportResult, []byte, []byte) {
+	t.Helper()
+	spec, ex := claudeAt(t, moreFixtureHome(t))
+	dir := t.TempDir()
+	d := func() (string, error) { return dir, nil }
+	fresh, err := Export(d, moreMeta, ex.Follow(spec, moreFixtureConversation), ExportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := os.ReadFile(fresh.Path)
+	if err := os.WriteFile(fresh.Path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Export(d, moreMeta, ex.Follow(spec, moreFixtureConversation), ExportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(fresh.Path)
+	return res, got, want
+}
+
+// A file an earlier format wrote, or a damaged one, is always replaced by a fresh
+// export, whatever it holds.
+func TestAnOldFormatOrDamagedExportIsAlwaysReplaced(t *testing.T) {
+	const env = `"session":"20261001T090000Z-33333333","pane":"p","agent":"claude","conversation":"33333333-4444-5555-6666-777777777777"`
+	// An event the new export lacks, which would keep a version 2 file.
+	extra := `{"v":2,"seq":2,"time":"2026-10-01T09:00:00.5Z",` + env + `,"type":"user_prompt","text":"lost"}`
+	start := func(v string) string {
+		return `{"v":` + v + `,"seq":1,"time":"2026-10-01T09:00:00Z",` + env + `,"type":"recording_started","text":"start of the transcript"}`
+	}
+	end := `{"v":2,"seq":9,"time":"2026-10-01T09:00:09Z",` + env + `,"type":"recording_stopped","text":"end of the transcript"}`
+	for name, body := range map[string]string{
+		"version 1 with a status line": start("1") + "\n" + `{"v":1,"seq":2,"time":"2026-10-01T09:00:01Z",` + env + `,"type":"status","status":"idle"}` + "\n" + strings.Replace(end, `"v":2`, `"v":1`, 1) + "\n",
+		"version 1 with lost events":   start("1") + "\n" + extra + "\n" + end + "\n",
+		"a line that is not JSON":      start("2") + "\n" + "not json\n" + extra + "\n" + end + "\n",
+		"a type no version writes":     start("2") + "\n" + `{"v":2,"seq":2,"time":"2026-10-01T09:00:01Z",` + env + `,"type":"permission_prompt","tool":"Bash"}` + "\n" + end + "\n",
+		"no closing line":              start("2") + "\n" + extra + "\n",
+		"an empty file":                "",
+	} {
+		res, got, want := exportOverOld(t, body)
+		if res.Kept || !res.Replaced {
+			t.Errorf("%s: result = %+v, want it replaced", name, res)
+		}
+		if string(got) != string(want) {
+			t.Errorf("%s: the file is not a fresh export", name)
+		}
+	}
+}
+
+// A version 2 file that has an event the new export lacks is kept.
+func TestAVersionTwoExportThatWouldLoseAnEventIsKept(t *testing.T) {
+	const env = `"session":"20261001T090000Z-33333333","agent":"claude","conversation":"33333333-4444-5555-6666-777777777777"`
+	old := `{"v":2,"seq":1,"time":"2026-10-01T09:00:00Z",` + env + `,"type":"recording_started","text":"start of the transcript"}` + "\n" +
+		`{"v":2,"seq":2,"time":"2026-10-01T09:00:00.5Z",` + env + `,"type":"user_prompt","text":"lost"}` + "\n" +
+		`{"v":2,"seq":3,"time":"2026-10-01T09:00:09Z",` + env + `,"type":"recording_stopped","text":"end of the transcript"}` + "\n"
+	res, got, _ := exportOverOld(t, old)
+	if !res.Kept || res.Replaced {
+		t.Errorf("result = %+v, want the earlier file kept", res)
+	}
+	if string(got) != old {
+		t.Error("the earlier file was changed")
+	}
+}
+
+// Several writers exporting one conversation at once, in one process, give no
+// error, leave no file beside the export, and leave the export whole.
+func TestConcurrentExportsOfOneConversation(t *testing.T) {
+	spec, ex := claudeAt(t, moreFixtureHome(t))
+	dir := t.TempDir()
+	d := func() (string, error) { return dir, nil }
+	first, err := Export(d, moreMeta, ex.Follow(spec, moreFixtureConversation), ExportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := os.ReadFile(first.Path)
+	var wg sync.WaitGroup
+	errs := make(chan error, 4*40)
+	for g := 0; g < 4; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 40; i++ {
+				res, err := Export(d, moreMeta, ex.Follow(spec, moreFixtureConversation), ExportOptions{})
+				if err == nil && res.Kept {
+					err = errors.New("kept the earlier export of a conversation that has not changed")
+				}
+				if err != nil {
+					errs <- err
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+	if got, _ := os.ReadFile(first.Path); string(got) != string(want) {
+		t.Error("the export is not whole")
+	}
+	ents, _ := os.ReadDir(filepath.Dir(first.Path))
+	if len(ents) != 1 {
+		for _, e := range ents {
+			t.Errorf("in the folder: %s", e.Name())
+		}
 	}
 }

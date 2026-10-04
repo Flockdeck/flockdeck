@@ -11,6 +11,9 @@ package record
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -164,13 +167,15 @@ type Manager struct {
 type session struct {
 	f    *os.File
 	path string
-	// final, when path is a file a finished transcript of this conversation is
-	// being replaced through, is the file it replaces. See openLocked.
-	final  string
-	id     string
-	seq    int64
-	size   int64
-	capped bool
+	// final, when path is a file written beside the one it is to take the place
+	// of, is that file, which may not exist yet. See openLocked.
+	final string
+	// replaces says a file was at final when this one was opened.
+	replaces bool
+	id       string
+	seq      int64
+	size     int64
+	capped   bool
 	// last is the time of the last event written, which is the time of the
 	// closing line.
 	last time.Time
@@ -351,6 +356,9 @@ func (m *Manager) Finish(meta Meta) error {
 		return fmt.Errorf("its closing line could not be written: %w", werr)
 	}
 	if s.final != "" {
+		// One at a time per file in this process: the check reads the earlier
+		// file, and a read held open would keep the move from replacing it.
+		defer lockFile(s.final)()
 		if !finished(s.path) || !supersedes(s.final, s.path) {
 			_ = os.Remove(s.path)
 			return ErrEarlierKept
@@ -410,7 +418,7 @@ func (m *Manager) sweepStale(folder string) {
 		held[s.path] = true
 	}
 	for _, e := range ents {
-		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), sessionFileExt+".new") {
+		if !e.Type().IsRegular() || !isTemp(e.Name()) {
 			continue
 		}
 		p := filepath.Join(folder, e.Name())
@@ -516,8 +524,11 @@ func (m *Manager) openLocked(meta Meta, first time.Time) error {
 	path, flags, final := filepath.Join(folder, id+sessionFileExt), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, ""
 	if m.target != "" {
 		folder, path, flags = filepath.Dir(m.target), m.target, os.O_WRONLY|os.O_CREATE|os.O_EXCL
-	} else if finished(path) {
-		final, path = path, path+".new"
+	} else if m.export || finished(path) {
+		// Written beside the file it is to take the place of, under a name of its
+		// own, so that two writers of one conversation (the window and the command
+		// line, say) never share a file, and moved into place when finished.
+		final, path = path, tempName(path)
 	}
 	if err := os.MkdirAll(folder, folderMode); err != nil {
 		return fmt.Errorf("create the recordings folder: %w", err)
@@ -526,7 +537,12 @@ func (m *Manager) openLocked(meta Meta, first time.Time) error {
 	if err != nil {
 		return fmt.Errorf("create the transcript: %w", err)
 	}
-	m.open[meta.Conversation] = &session{f: f, path: path, final: final, id: id, secret: map[string]bool{}}
+	replaces := false
+	if final != "" {
+		_, err := os.Lstat(final)
+		replaces = err == nil
+	}
+	m.open[meta.Conversation] = &session{f: f, path: path, final: final, replaces: replaces, id: id, secret: map[string]bool{}}
 	if m.target == "" {
 		// Only Flockdeck's own folders are swept, never one beside a file the user
 		// chose.
@@ -564,61 +580,90 @@ func finished(path string) bool {
 	return e.Type == TypeStopped || e.Type == TypeTruncated
 }
 
-// supersedes reports whether the transcript at next has every event the finished
-// one at old had, in the same order: whether it is the same transcript, grown or
-// made by a version that writes more. An event is the same if it has the same
-// type, time and tool call id, and not if it has the same place in the file or
-// the same bytes: a later version of Flockdeck can write lines the earlier one
-// did not (a title, say) between the old ones and so move every line after them,
-// and can redact or clip a little differently, and neither makes it a different
-// transcript. One that has lost an event cannot replace the old one.
+// supersedes reports whether the transcript at next may take the place of the
+// finished one at old.
+//
+// It may if old is not a transcript of this format that can be trusted: a file
+// whose first line is not version 2, which an earlier Flockdeck wrote, one with a
+// line that is not JSON or a type this version does not write, or one that did not
+// end with its closing line. Such a file is worth nothing a new one lacks.
+//
+// Otherwise it may if it has every event the old one had, in the same order: if
+// it is the same transcript, grown or made by a version that writes more. An
+// event is the same if it has the same type, time and tool call id, and not if it
+// has the same place in the file or the same bytes: a later version of Flockdeck
+// can write lines the earlier one did not (a title, say) between the old ones and
+// so move every line after them, and can redact or clip a little differently, and
+// neither makes it a different transcript. One that has lost an event cannot
+// replace the old one.
 func supersedes(old, next string) bool {
-	a, err := os.Open(old)
-	if err != nil {
-		return true // nothing there to lose
+	oldLines, ok := loadFinished(old)
+	if !ok {
+		return true // nothing there to lose, or nothing there that can be trusted
 	}
-	defer a.Close()
-	b, err := os.Open(next)
-	if err != nil {
+	newLines, ok := loadFinished(next)
+	if !ok {
 		return false
 	}
-	defer b.Close()
-	ra, rb := bufio.NewReaderSize(a, 64<<10), bufio.NewReaderSize(b, 64<<10)
-	line := func(r *bufio.Reader) (Entry, bool) {
-		var out []byte
+	// oldLines ends with the closing line, which is not an event to keep.
+	j := 0
+	for _, prev := range oldLines[:len(oldLines)-1] {
+		for {
+			if j >= len(newLines) {
+				return false
+			}
+			theirs := newLines[j]
+			j++
+			if prev.Type == theirs.Type && prev.Time == theirs.Time && prev.ToolUseID == theirs.ToolUseID {
+				break
+			}
+		}
+	}
+	return true
+}
+
+// knownTypes are the line types this version writes.
+var knownTypes = map[string]bool{TypeStarted: true, TypeStopped: true, TypeTruncated: true, TypePrompt: true, TypeAssistant: true,
+	TypeToolCall: true, TypeToolResult: true, TypeTitle: true, TypeCompacted: true}
+
+// loadFinished reads a transcript file whole, and reports false if it is not one
+// this version could have written and finished: it cannot be read, is empty, has
+// a line that is not JSON or of a type unknown to it, has a first line that is
+// not of this version, or does not end with a closing line.
+func loadFinished(path string) ([]Entry, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	r := bufio.NewReaderSize(f, 64<<10)
+	var out []Entry
+	for {
+		var raw []byte
 		for {
 			part, err := r.ReadSlice('\n')
-			out = append(out, part...)
+			raw = append(raw, part...)
 			if err == bufio.ErrBufferFull {
 				continue
 			}
 			break
 		}
+		if len(raw) == 0 {
+			break
+		}
 		var e Entry
-		if len(out) == 0 {
-			return e, false
+		if json.Unmarshal(raw, &e) != nil || !knownTypes[e.Type] {
+			return nil, false
 		}
-		_ = json.Unmarshal(out, &e)
-		return e, true
+		out = append(out, e)
 	}
-	prev, ok := line(ra)
-	for ok {
-		cur, more := line(ra)
-		if !more {
-			return true // prev was the closing line
-		}
-		for {
-			theirs, has := line(rb)
-			if !has {
-				return false
-			}
-			if prev.Type == theirs.Type && prev.Time == theirs.Time && prev.ToolUseID == theirs.ToolUseID {
-				break
-			}
-		}
-		prev = cur
+	if len(out) == 0 || out[0].V != Version {
+		return nil, false
 	}
-	return true
+	if last := out[len(out)-1].Type; last != TypeStopped && last != TypeTruncated {
+		return nil, false
+	}
+	return out, true
 }
 
 // removeSuperseded deletes the other transcripts of the same conversation in a
@@ -972,4 +1017,41 @@ func readFirstLine(path string) ([]byte, error) {
 		n = i
 	}
 	return buf[:n], nil
+}
+
+// tempName is the name a transcript is written under beside the file it is to
+// replace: that file's name, a random part and ".new". It is made fresh for each
+// writer, so two never share one.
+func tempName(final string) string {
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		binary.BigEndian.PutUint32(b[:4], uint32(time.Now().UnixNano()))
+	}
+	return final + "." + hex.EncodeToString(b[:]) + tempExt
+}
+
+const tempExt = ".new"
+
+// isTemp reports whether a file name is one tempName made.
+func isTemp(name string) bool {
+	return strings.HasSuffix(name, tempExt) && strings.Contains(name, sessionFileExt+".")
+}
+
+var (
+	fileLocksMu sync.Mutex
+	fileLocks   = map[string]*sync.Mutex{}
+)
+
+// lockFile takes the lock for a file's replacement in this process and returns
+// the function that releases it.
+func lockFile(path string) func() {
+	fileLocksMu.Lock()
+	mu := fileLocks[path]
+	if mu == nil {
+		mu = &sync.Mutex{}
+		fileLocks[path] = mu
+	}
+	fileLocksMu.Unlock()
+	mu.Lock()
+	return mu.Unlock
 }

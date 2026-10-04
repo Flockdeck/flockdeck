@@ -147,6 +147,10 @@ func schemaFields(schema schemacheck.Schema) map[string]any {
 		then, _ := branch.(map[string]any)["then"].(map[string]any)
 		props, _ := then["properties"].(map[string]any)
 		for k, v := range props {
+			// A branch may only add a constraint on a field another branch describes.
+			if _, described := out[k]; described && v.(map[string]any)["description"] == nil {
+				continue
+			}
 			out[k] = v
 		}
 	}
@@ -191,27 +195,28 @@ func TestSchemaRejectsALineThatIsWrong(t *testing.T) {
 	schema := loadSchema(t)
 	const env = `"v":2,"seq":1,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd"`
 	for name, line := range map[string]string{
-		"no seq":                     `{"v":2,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
-		"version 1":                  `{"v":1,"seq":1,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
-		"bad time":                   `{"v":2,"seq":1,"time":"yesterday","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
-		"seq is a string":            `{"v":2,"seq":"1","time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
-		"prompt without text":        `{` + env + `,"type":"user_prompt"}`,
-		"unknown type":               `{` + env + `,"type":"status","status":"idle"}`,
-		"unknown field":              `{` + env + `,"type":"user_prompt","text":"x","future":1}`,
-		"pane is gone":               `{` + env + `,"pane":"abcd","type":"user_prompt","text":"x"}`,
-		"model on a prompt":          `{` + env + `,"type":"user_prompt","text":"x","model":"m"}`,
-		"usage on a tool result":     `{` + env + `,"type":"tool_result","usage":{"inputTokens":1,"outputTokens":1,"cacheCreationInputTokens":0,"cacheReadInputTokens":0}}`,
-		"output on a tool call":      `{` + env + `,"type":"tool_call","tool":"Bash","output":"x"}`,
-		"null model":                 `{` + env + `,"type":"assistant_message","text":"x","model":null}`,
-		"empty branch":               `{` + env + `,"type":"user_prompt","text":"x","gitBranch":""}`,
-		"result without isError":     `{` + env + `,"type":"tool_result","interrupted":false}`,
-		"result without interrupted": `{` + env + `,"type":"tool_result","isError":false}`,
-		"isError on a call":          `{` + env + `,"type":"tool_call","tool":"Bash","isError":false}`,
-		"empty usage":                `{` + env + `,"type":"assistant_message","text":"x","usage":{}}`,
-		"negative count":             `{` + env + `,"type":"assistant_message","text":"x","usage":{"inputTokens":-1}}`,
-		"zero-key placeholder":       `{` + env + `,"type":"assistant_message","text":"x","usage":{"inputTokens":1,"extra":2}}`,
-		"title line without one":     `{` + env + `,"type":"conversation_title"}`,
-		"unknown clipped field":      `{` + env + `,"type":"user_prompt","text":"x","clipped":{"detail":9}}`,
+		"no seq":                      `{"v":2,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
+		"version 1":                   `{"v":1,"seq":1,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
+		"bad time":                    `{"v":2,"seq":1,"time":"yesterday","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
+		"seq is a string":             `{"v":2,"seq":"1","time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
+		"prompt without text":         `{` + env + `,"type":"user_prompt"}`,
+		"unknown type":                `{` + env + `,"type":"status","status":"idle"}`,
+		"unknown field":               `{` + env + `,"type":"user_prompt","text":"x","future":1}`,
+		"pane is gone":                `{` + env + `,"pane":"abcd","type":"user_prompt","text":"x"}`,
+		"model on a prompt":           `{` + env + `,"type":"user_prompt","text":"x","model":"m"}`,
+		"usage on a tool result":      `{` + env + `,"type":"tool_result","usage":{"inputTokens":1,"outputTokens":1,"cacheCreationInputTokens":0,"cacheReadInputTokens":0}}`,
+		"output on a tool call":       `{` + env + `,"type":"tool_call","tool":"Bash","output":"x"}`,
+		"null model":                  `{` + env + `,"type":"assistant_message","text":"x","model":null}`,
+		"empty branch":                `{` + env + `,"type":"user_prompt","text":"x","gitBranch":""}`,
+		"result without isError":      `{` + env + `,"type":"tool_result","interrupted":false}`,
+		"result without interrupted":  `{` + env + `,"type":"tool_result","isError":false}`,
+		"isError on a call":           `{` + env + `,"type":"tool_call","tool":"Bash","isError":false}`,
+		"interrupted without isError": `{` + env + `,"type":"tool_result","isError":false,"interrupted":true}`,
+		"empty usage":                 `{` + env + `,"type":"assistant_message","text":"x","usage":{}}`,
+		"negative count":              `{` + env + `,"type":"assistant_message","text":"x","usage":{"inputTokens":-1}}`,
+		"zero-key placeholder":        `{` + env + `,"type":"assistant_message","text":"x","usage":{"inputTokens":1,"extra":2}}`,
+		"title line without one":      `{` + env + `,"type":"conversation_title"}`,
+		"unknown clipped field":       `{` + env + `,"type":"user_prompt","text":"x","clipped":{"detail":9}}`,
 	} {
 		if errs := schema.Validate([]byte(line)); len(errs) == 0 {
 			t.Errorf("%s: the schema accepted %s", name, line)

@@ -164,7 +164,7 @@ func (m *Manager) replacing(pane string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := m.open[pane]
-	return s != nil && s.final != ""
+	return s != nil && s.replaces
 }
 
 // seqOf is how many lines the pane's open file has.
