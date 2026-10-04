@@ -25,14 +25,28 @@ type recentsWriter struct {
 	mu   sync.Mutex
 	cond *sync.Cond
 	// pending is the newest state of each list not yet confirmed on disk,
-	// keyed by the file's path. gen counts the states made for a path, written
-	// the newest the writer has finished with, and result how that write went.
+	// keyed by the file's path. gen counts the states made for a path and
+	// written is the newest the writer has settled, one way or the other.
+	// results says how each stretch of states was settled, oldest first: a
+	// write that succeeded settles every state up to the one it wrote, and
+	// one that failed settles every state made so far (see run).
 	pending map[string][]Project
 	gen     map[string]uint64
 	written map[string]uint64
-	result  map[string]error
+	results map[string][]recentsResult
 	running bool
 }
+
+// recentsResult is how the states up to and including upTo, back to the last
+// result's, were settled.
+type recentsResult struct {
+	upTo uint64
+	err  error
+}
+
+// recentsResultsKept bounds the results kept for a path. A caller reads its own
+// as soon as it is settled, so only a very late one could find it gone.
+const recentsResultsKept = 4096
 
 var recentsOut = newRecentsWriter()
 
@@ -41,7 +55,7 @@ func newRecentsWriter() *recentsWriter {
 		pending: map[string][]Project{},
 		gen:     map[string]uint64{},
 		written: map[string]uint64{},
-		result:  map[string]error{},
+		results: map[string][]recentsResult{},
 	}
 	w.cond = sync.NewCond(&w.mu)
 	return w
@@ -76,15 +90,21 @@ func (w *recentsWriter) enqueue(path string, list []Project) uint64 {
 	return w.gen[path]
 }
 
-// wait returns once the state numbered g of path, or a later one, has been
-// written, with how that write went.
+// wait returns once the state numbered g of path has been settled, with how: the
+// result of the first write that includes it, which is the write that put it on
+// disk or the one that failed and took it back. It is never another write's.
 func (w *recentsWriter) wait(path string, g uint64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for w.written[path] < g {
 		w.cond.Wait()
 	}
-	return w.result[path]
+	for _, r := range w.results[path] {
+		if r.upTo >= g {
+			return r.err
+		}
+	}
+	return nil
 }
 
 // flush returns once nothing is waiting to be written or being written.
@@ -97,6 +117,18 @@ func (w *recentsWriter) flush() {
 }
 
 // run writes what is pending until nothing is.
+//
+// A write that succeeds settles the states up to the one it wrote with success,
+// and what was made while it wrote is written next, having been built on it.
+//
+// A write that fails settles every state made so far with its error, those made
+// while it wrote included, and drops them: the list is what the file holds
+// again. The states made while it wrote were built on the one that failed and
+// would put its change on disk if they were written, after its caller had been
+// told it had not happened. So what is told to have failed is not on disk, and
+// what is told to have succeeded is. A change made after that starts from the
+// file. recentsMu is held while this is done, so no change that read the
+// failed state is on its way to being made the newest after it.
 func (w *recentsWriter) run() {
 	for {
 		w.mu.Lock()
@@ -118,18 +150,28 @@ func (w *recentsWriter) run() {
 
 		err := recentsFileWriter(path, list)
 
+		if err != nil {
+			recentsMu.Lock()
+		}
 		w.mu.Lock()
-		w.written[path] = g
-		w.result[path] = err
-		// A state made while this was written is written next. One that was
-		// not is on disk, or, when the write failed, did not happen: the list
-		// goes back to what the file holds, as it did when the failure was
-		// returned to the caller and nothing was kept.
-		if w.gen[path] == g {
+		upTo := g
+		if err != nil {
+			upTo = w.gen[path]
+			delete(w.pending, path)
+		} else if w.gen[path] == g {
 			delete(w.pending, path)
 		}
+		w.written[path] = upTo
+		rs := append(w.results[path], recentsResult{upTo: upTo, err: err})
+		if len(rs) > recentsResultsKept {
+			rs = rs[len(rs)-recentsResultsKept:]
+		}
+		w.results[path] = rs
 		w.cond.Broadcast()
 		w.mu.Unlock()
+		if err != nil {
+			recentsMu.Unlock()
+		}
 	}
 }
 
