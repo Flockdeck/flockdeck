@@ -308,20 +308,44 @@ var lockWait = 3 * time.Second
 // last line -- the one saying what to do -- was cut from the toast. Their git
 // commands are brief, so the lock is waited for and the command tried once
 // more; a lock that stays is one to say so about, in the reader's terms.
+//
+// A lock gone is not a lock the command will get: another brief git, an agent's
+// next command or the machine's own virus scan of the file just deleted, can
+// have it again by the time the command is tried. So the command is tried up to
+// lockAttempts times, waiting out the lock before each, and fails on the lock
+// only when it is the lock that was met every time.
 func writingIndex(dir, input string, args ...string) error {
-	_, _, err := runWithInput(networkTimeout, dir, input, args...)
-	if err == nil {
-		return nil
+	for attempt := 1; ; attempt++ {
+		_, _, err := runWithInput(networkTimeout, dir, input, args...)
+		if err == nil {
+			return nil
+		}
+		if lockStep != nil {
+			lockStep("failed")
+		}
+		switch lock, held := waitForIndex(dir, err); {
+		case lock == "":
+			return err
+		case held:
+			return indexHeld(lock)
+		case attempt >= lockAttempts:
+			return err
+		}
+		if lockStep != nil {
+			lockStep("waited")
+		}
 	}
-	switch lock, held := waitForIndex(dir, err); {
-	case lock == "":
-		return err
-	case held:
-		return indexHeld(lock)
-	}
-	_, _, err = runWithInput(networkTimeout, dir, input, args...)
-	return err
 }
+
+// lockAttempts is how many times writingIndex runs its command when it keeps
+// meeting another git's lock.
+const lockAttempts = 3
+
+// lockStep, when set, is called by writingIndex with "failed" when its command
+// has failed, before it looks for a lock, and with "waited" when it has waited
+// a lock out and is about to try again, so that a test can let go of the lock
+// and take it again at exactly those moments.
+var lockStep func(stage string)
 
 // waitForIndex is asked after a command that writes the index has failed with
 // failure. lock is empty when no other git process held the index, so the

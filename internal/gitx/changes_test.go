@@ -1774,3 +1774,48 @@ func TestALongCommitMessageIsCommitted(t *testing.T) {
 		t.Errorf("committed message is %d bytes, want the %d written", len(got), len(msg))
 	}
 }
+
+// TestCommitWaitsOutALockTakenAgainAtOnce covers the lock being let go of and
+// another git taking it again before the command was tried: a second agent's
+// command right behind the first, or on Windows the file just deleted still
+// held open for a moment by a virus scanner. The command waits for that one
+// too.
+func TestCommitWaitsOutALockTakenAgainAtOnce(t *testing.T) {
+	restoreWait, restoreStep := lockWait, lockStep
+	t.Cleanup(func() { lockWait, lockStep = restoreWait, restoreStep })
+
+	repo := newRepo(t)
+	lock := filepath.Join(repo, ".git", "index.lock")
+	write(t, repo, "a.txt", "a\n")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lockWait = 5 * time.Second
+
+	// The lock is let go of when the command has failed on it, and taken again
+	// when that has been seen, so that the second try is the one that meets it.
+	// Nothing here depends on how long git takes to start.
+	failed, again := 0, 0
+	lockStep = func(stage string) {
+		switch {
+		case stage == "failed" && failed == 0:
+			failed++
+			if err := os.Remove(lock); err != nil {
+				t.Error(err)
+			}
+		case stage == "waited" && again == 0:
+			again++
+			if err := os.WriteFile(lock, nil, 0o600); err != nil {
+				t.Error(err)
+				return
+			}
+			go func() { time.Sleep(300 * time.Millisecond); os.Remove(lock) }()
+		}
+	}
+	if err := CommitAll(repo, "behind two others"); err != nil {
+		t.Fatalf("a lock taken again as it was let go of should be waited out too: %v", err)
+	}
+	if failed == 0 || again == 0 {
+		t.Errorf("the steps were failed %d, waited %d times; want both, or this did not test waiting for a second lock", failed, again)
+	}
+}
