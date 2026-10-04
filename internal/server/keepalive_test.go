@@ -65,8 +65,15 @@ func (l gatedListener) Accept() (net.Conn, error) {
 //
 // Here the window takes nothing at all until the test lets it, which is many
 // times what a ping is given to be answered in.
+//
+// A ping is also sent in any moment between two frames when nothing is being
+// written, and that one has to be answered in timeout like any other. At 10ms
+// a runner that kept either end of the socket off the processor for that long
+// had the window dropped part way through the replay, which is this test's own
+// failure and not the keepalive's, so the ping is given a tenth of a second
+// and the stall lasts for ten of those.
 func TestAWindowStillTakingItsReplayIsNotPingedAway(t *testing.T) {
-	const interval, timeout = 10 * time.Millisecond, 10 * time.Millisecond
+	const interval, timeout = 100 * time.Millisecond, 100 * time.Millisecond
 	replay := bytes.Repeat([]byte("history "), 64<<10)
 	gate := make(chan struct{})
 	var shut atomic.Bool
@@ -122,7 +129,7 @@ func TestAWindowStillTakingItsReplayIsNotPingedAway(t *testing.T) {
 	defer conn.CloseNow()
 	conn.SetReadLimit(16 << 20)
 
-	time.Sleep(50 * (interval + timeout))
+	time.Sleep(5 * (interval + timeout))
 	close(gate)
 
 	var got []byte

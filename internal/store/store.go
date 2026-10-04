@@ -1089,6 +1089,15 @@ const (
 // maxRecents caps the remembered list.
 const maxRecents = 40
 
+// recentsMu is held from reading the list to writing it back, by everything
+// that changes it. The list is rewritten whole, so two changes made side by
+// side -- the workspace recording a switch from its own goroutine, and a
+// rename or an archive from a window -- each read the list before the other
+// had written, and whichever wrote last put back the list it had read, losing
+// the other's change. It stops that between the callers in one process. A
+// second instance is out of its reach, as it is for writeLocks.
+var recentsMu sync.Mutex
+
 // Recents returns known projects, most recently used first.
 func Recents() ([]Project, error) {
 	dir, err := Dir()
@@ -1222,6 +1231,8 @@ func TouchRecents(roots ...string) error {
 	if len(clean) == 0 {
 		return nil
 	}
+	recentsMu.Lock()
+	defer recentsMu.Unlock()
 	// The rewrite below replaces the whole file, so a list we could not read
 	// has to stop us: carrying on would quietly discard every other project
 	// the user has opened. A damaged or absent list reads as empty, which is
@@ -1294,6 +1305,8 @@ func findProject(list []Project, root string) (Project, bool) {
 
 // ForgetRecent drops a project from the remembered list.
 func ForgetRecent(root string) error {
+	recentsMu.Lock()
+	defer recentsMu.Unlock()
 	list, err := Recents()
 	if err != nil {
 		return err
@@ -1338,6 +1351,8 @@ func updateProject(root string, fn func(*Project)) error {
 	if strings.TrimSpace(root) == "" {
 		return errors.New("project: empty path")
 	}
+	recentsMu.Lock()
+	defer recentsMu.Unlock()
 	list, err := Recents()
 	if err != nil {
 		return err
@@ -1363,6 +1378,8 @@ func ReorderProjects(order []string) error {
 	if len(order) == 0 {
 		return nil
 	}
+	recentsMu.Lock()
+	defer recentsMu.Unlock()
 	list, err := Recents()
 	if err != nil {
 		return err

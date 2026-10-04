@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"debug/pe"
 	"encoding/xml"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -470,6 +471,12 @@ func TestNoticesNameEveryLinkedModule(t *testing.T) {
 		cmd.Env = append(os.Environ(), "GOOS="+p.OS, "GOARCH="+p.Arch, "CGO_ENABLED=0")
 		out, err := cmd.Output()
 		if err != nil {
+			// What the go command said is in the error, and was dropped: one
+			// run on Windows failed here with only "exit status 1".
+			var exit *exec.ExitError
+			if errors.As(err, &exit) {
+				t.Fatalf("go list for %s/%s: %v\n%s", p.OS, p.Arch, err, exit.Stderr)
+			}
 			t.Fatalf("go list for %s/%s: %v", p.OS, p.Arch, err)
 		}
 		seen := map[string]bool{}

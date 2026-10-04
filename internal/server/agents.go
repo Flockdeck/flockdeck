@@ -78,7 +78,7 @@ func (s *Server) listAgents(c *controlClient) {
 		// again with what they said. Not more often than the loop goes round,
 		// though: the window asks for the list again whenever an agent
 		// anywhere changes what it is doing.
-		if time.Since(s.gitAllAt) < gitStatusInterval {
+		if time.Since(s.gitAllAt) < s.gitEvery {
 			return
 		}
 		s.gitAllAt = time.Now()

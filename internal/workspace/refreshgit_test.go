@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -295,8 +296,101 @@ func TestRefreshGitLeavesACheckoutBeingReadToTheRefreshReadingIt(t *testing.T) {
 
 	close(release)
 	<-first
-	w.RefreshGit(ignore)
+	// The second refresh was asked for while the slow checkout was being read,
+	// so it is read once more as that read ends (see
+	// TestRefreshGitAskedWhileReadingReadsAgain), and then not again.
+	slowBusy := func() bool {
+		w.gitMu.Lock()
+		defer w.gitMu.Unlock()
+		return w.gitBusy[pathKey("/stuck")]
+	}
+	for deadline := time.Now().Add(5 * time.Second); stuck.Load() < 2 || slowBusy(); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the slow checkout was asked about %d times, want it read again once the first read ended", stuck.Load())
+		}
+	}
 	if n := stuck.Load(); n != 2 {
+		t.Errorf("the slow checkout was asked about %d times, want 2: the read that was running and one for the refresh asked during it", n)
+	}
+	w.RefreshGit(ignore)
+	if n := stuck.Load(); n != 3 {
 		t.Errorf("the slow checkout was asked about %d times after it answered, want it asked again", n)
+	}
+	awaitNoGitRead(t, w)
+}
+
+// TestRefreshGitAskedWhileReadingReadsAgain covers a commit made while the
+// checkout's headers were being refreshed. The refresh the commit asked for
+// found the checkout busy and was dropped, and the read that was already
+// running answered with the files as they were before the commit, so the
+// header went on showing them as changed until the next poll.
+func TestRefreshGitAskedWhileReadingReadsAgain(t *testing.T) {
+	if !gitx.Available() {
+		t.Skip("git is not installed, so nothing is refreshed")
+	}
+	w := &Workspace{panes: map[string]*Pane{
+		"p": {ID: "p", Cwd: "/checkout"},
+	}, BroadcastSet: map[string]bool{}}
+
+	var calls atomic.Int32
+	started, release := make(chan struct{}), make(chan struct{})
+	status := gitStatus
+	gitStatus = func(string, time.Duration) (gitx.Status, error) {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-release
+			return gitx.Status{Branch: "before"}, nil
+		}
+		return gitx.Status{Branch: "after"}, nil
+	}
+	t.Cleanup(func() { gitStatus = status })
+
+	var mu sync.Mutex
+	apply := func(f func()) {
+		mu.Lock()
+		defer mu.Unlock()
+		f()
+	}
+	branch := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return w.panes["p"].Branch
+	}
+
+	first := make(chan struct{})
+	go func() { w.RefreshGit(apply); close(first) }()
+	<-started
+	w.RefreshGit(apply) // asked for while the first is still reading
+	close(release)
+	<-first
+
+	deadline := time.Now().Add(10 * time.Second)
+	for branch() != "after" && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := branch(); got != "after" {
+		t.Errorf("the pane shows %q, want the read made after the second request, \"after\"", got)
+	}
+	awaitNoGitRead(t, w)
+	if n := calls.Load(); n != 2 {
+		t.Errorf("git was asked %d times, want 2: the read that was running and one more", n)
+	}
+}
+
+// awaitNoGitRead waits until no checkout is being read, which includes the
+// read a refresh asked for during another one is owed (see refreshGit). A test
+// that replaces gitStatus has to wait for that before it puts it back, or the
+// read it started goes on using the one the test is restoring.
+func awaitNoGitRead(t *testing.T, w *Workspace) {
+	t.Helper()
+	busy := func() bool {
+		w.gitMu.Lock()
+		defer w.gitMu.Unlock()
+		return len(w.gitBusy) > 0 || len(w.gitAgain) > 0
+	}
+	for deadline := time.Now().Add(10 * time.Second); busy(); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("a git read was still going on at the end of the test")
+		}
 	}
 }

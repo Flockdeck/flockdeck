@@ -1774,3 +1774,38 @@ func TestALongCommitMessageIsCommitted(t *testing.T) {
 		t.Errorf("committed message is %d bytes, want the %d written", len(got), len(msg))
 	}
 }
+
+// TestCommitKeepsTryingWhileTheLockIsHeld covers a commit that meets the lock
+// more than once: it was let go of and another git took it again before the
+// command was tried, a second agent's command right behind the first. The
+// command used to be tried once more after the first lock, and failed on the
+// second. The lock is let go of on the third try, so nothing here depends on
+// how long git takes to start.
+func TestCommitKeepsTryingWhileTheLockIsHeld(t *testing.T) {
+	restoreWait, restoreHook := lockWait, afterLockedAttempt
+	t.Cleanup(func() { lockWait, afterLockedAttempt = restoreWait, restoreHook })
+
+	repo := newRepo(t)
+	lock := filepath.Join(repo, ".git", "index.lock")
+	write(t, repo, "a.txt", "a\n")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lockWait = 30 * time.Second
+
+	tries := 0
+	afterLockedAttempt = func(attempt int) {
+		tries = attempt
+		if attempt == 2 {
+			if err := os.Remove(lock); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	if err := CommitAll(repo, "behind two others"); err != nil {
+		t.Fatalf("a lock met twice should be waited out: %v", err)
+	}
+	if tries != 2 {
+		t.Errorf("the lock was met %d times, want 2", tries)
+	}
+}

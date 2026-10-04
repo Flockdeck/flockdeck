@@ -67,4 +67,5 @@ func TestRefreshGitDoesNotAskAgainUntilTheGitGivenUpOnHasGone(t *testing.T) {
 		}
 		refresh()
 	}
+	awaitNoGitRead(t, w)
 }

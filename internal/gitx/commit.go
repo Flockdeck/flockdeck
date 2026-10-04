@@ -306,21 +306,65 @@ var lockWait = 3 * time.Second
 // Agents commit in their own panes all the time, and the panel's Commit
 // pressed at that moment failed on git's index.lock with an explanation whose
 // last line -- the one saying what to do -- was cut from the toast. Their git
-// commands are brief, so the lock is waited for and the command tried once
-// more; a lock that stays is one to say so about, in the reader's terms.
+// commands are brief, so the command is tried again, every lockPoll, for as
+// long as lockWait; a lock that stays is one to say so about, in the reader's
+// terms.
+//
+// The command is tried, not the lock looked at. It used to wait until the lock
+// file was gone and then try once more, and a lock gone is not a lock the
+// command gets: another brief git, an agent's next command, can have it again
+// by then, and on Windows a file just deleted can still be refused to git for
+// a moment. The commit then failed on a lock it had already waited for.
 func writingIndex(dir, input string, args ...string) error {
-	_, _, err := runWithInput(networkTimeout, dir, input, args...)
-	if err == nil {
-		return nil
+	deadline := time.Now().Add(lockWait)
+	for attempt := 1; ; attempt++ {
+		_, _, err := runWithInput(networkTimeout, dir, input, args...)
+		if err == nil {
+			return nil
+		}
+		lock := indexLockOf(dir, err)
+		if lock == "" {
+			return err
+		}
+		if afterLockedAttempt != nil {
+			afterLockedAttempt(attempt)
+		}
+		if !time.Now().Before(deadline) {
+			if _, serr := os.Lstat(lock); serr == nil {
+				return indexHeld(lock)
+			}
+			return err
+		}
+		time.Sleep(lockPoll)
 	}
-	switch lock, held := waitForIndex(dir, err); {
-	case lock == "":
-		return err
-	case held:
-		return indexHeld(lock)
+}
+
+// lockPoll is how long writingIndex waits between tries while another git
+// holds the index.
+const lockPoll = 100 * time.Millisecond
+
+// afterLockedAttempt, when set, is called by writingIndex after each try that
+// met a lock, with the number of the try, so that a test can let go of the
+// lock at a chosen try and not at a chosen time.
+var afterLockedAttempt func(attempt int)
+
+// indexLockOf is asked after a command that writes the index has failed with
+// failure. It is the lock's path when another git process held the index --
+// the failure names the lock, or the lock is there -- and empty when the
+// failure was something else.
+func indexLockOf(dir string, failure error) string {
+	out, err := run(dir, "rev-parse", "--git-path", "index.lock")
+	if err != nil {
+		return ""
 	}
-	_, _, err = runWithInput(networkTimeout, dir, input, args...)
-	return err
+	lock := strings.TrimSpace(out)
+	if !filepath.IsAbs(lock) {
+		lock = filepath.Join(dir, lock)
+	}
+	if _, serr := os.Lstat(lock); serr != nil && !strings.Contains(failure.Error(), "index.lock") {
+		return ""
+	}
+	return lock
 }
 
 // waitForIndex is asked after a command that writes the index has failed with
