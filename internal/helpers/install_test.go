@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -373,7 +374,12 @@ func TestPurgeRefusesADataFolderThatIsALink(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(target, f.store.DataDir("lens")); err != nil {
-		t.Skipf("cannot make links here: %v", err)
+		// Windows asks for a privilege to make a symbolic link, and not for a
+		// junction, which is the other way a folder can stand for another.
+		out, jerr := exec.Command("cmd", "/c", "mklink", "/J", f.store.DataDir("lens"), target).CombinedOutput()
+		if jerr != nil {
+			t.Skipf("cannot make links here: %v, %v %s", err, jerr, out)
+		}
 	}
 	if err := f.store.PurgeData("lens"); err == nil {
 		t.Fatal("purged through a link")
