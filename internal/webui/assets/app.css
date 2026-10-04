@@ -2857,3 +2857,23 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .pf-name { font-weight: 600; }
 .pf-where { color: var(--fg-dim); font-size: 12px; }
 .pf-why { color: var(--fg-faint); font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Helper apps */
+.helper-row { align-items: flex-start; }
+.helper-row .wt-actions { flex-wrap: wrap; justify-content: flex-end; }
+.helper-status { white-space: nowrap; }
+.helper-error { color: var(--waiting); }
+.helper-log {
+  margin: 6px 0 0; padding: 6px 8px; max-height: 9em; overflow: auto;
+  font: 11px/1.4 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--bg-hover); border-radius: 4px;
+}
+.helper-facts { margin: 8px 0 12px; }
+.helper-fact { display: flex; gap: 12px; padding: 3px 0; }
+.helper-fact dt { flex: 0 0 84px; color: var(--fg-dim); }
+.helper-fact dd, .helper-code { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.helper-code { font: 12px/1.4 var(--mono); }
+.helper-sub { font-weight: 600; margin: 10px 0 4px; }
+.helper-allows { margin: 0 0 8px 18px; padding: 0; }
+.helper-warning { border: 1px solid var(--waiting); border-radius: 4px; padding: 8px 10px; margin: 10px 0; }
+.helper-override { display: block; margin: 8px 0 12px; }

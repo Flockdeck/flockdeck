@@ -570,6 +570,13 @@ type command struct {
 	// phone calls the file. See imageattach.go.
 	MediaType string `json:"mediaType"`
 	Data      string `json:"data"`
+	// SHA256, Unsigned and Purge are the Helpers dialog's own: the archive hash
+	// that was shown for an install, whether the unsigned override was chosen,
+	// and whether an uninstall also deletes the helper's data folder. See
+	// helpers_ui.go.
+	SHA256   string `json:"sha256"`
+	Unsigned bool   `json:"unsigned"`
+	Purge    bool   `json:"purge"`
 	// Task and Worktree are startAgent's own: the opening prompt for the agent
 	// it starts, and whether it should run in a fresh worktree cut from Root
 	// rather than in the project itself. See startAgent.
@@ -1588,6 +1595,27 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			return
 		}
 		go s.checkForUpdates(c)
+		return
+	case "helpers":
+		s.helpersList(c)
+		return
+	case "helperPlan":
+		s.helperPlan(c, cmd.ID, cmd.Text)
+		return
+	case "helperInstall":
+		s.helperInstall(c, cmd)
+		return
+	case "helperStart":
+		s.helperStart(c, cmd.ID)
+		return
+	case "helperStop":
+		s.helperStop(c, cmd.ID)
+		return
+	case "helperOpen":
+		s.helperOpen(c, cmd.ID)
+		return
+	case "helperUninstall":
+		s.helperUninstall(c, cmd.ID, cmd.Purge)
 		return
 	case "listVersions":
 		s.listVersions(c)

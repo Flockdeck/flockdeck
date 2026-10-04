@@ -306,6 +306,11 @@ and `open` are done by the running Flockdeck, which watches the helper, restarts
 it if it crashes (three times in five minutes, then it stays stopped) and stops
 it when Flockdeck quits.
 
+The same actions are in the window: [[action:helpers]] in the command palette
+lists each helper with its status, written as a word as well as a symbol, and a
+button for what can be done next. Installing there shows the same details as the
+command line and asks before it downloads anything.
+
 ## Environment
 
 | Variable | Effect |

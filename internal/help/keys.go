@@ -123,6 +123,7 @@ var Keys = []Key{
 	{ID: "fontDown", Keys: "Ctrl+-", Label: "Decrease font size", Section: "The window"},
 	{ID: "fontReset", Keys: "Ctrl+0", Label: "Reset font size", Section: "The window"},
 	{ID: "remote", Label: "Remote access…", Short: "Remote", Section: "The window", Page: "remote"},
+	{ID: "helpers", Label: "Helper apps…", Short: "Helpers", Section: "The window", Page: "cli"},
 	{ID: "openRecordings", Label: "Open recordings folder", Section: "The window", Page: "recording"},
 	{ID: "detach", Label: "Detach — close the window, leave agents running", Section: "The window", Page: "persistence"},
 	{ID: "quit", Label: "Quit — stop every agent in every project", Section: "The window",

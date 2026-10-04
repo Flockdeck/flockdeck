@@ -188,6 +188,7 @@ type Server struct {
 	// helperSup and helperInst run and install helper apps; see helpers.go.
 	// Guarded by mu.
 	helperSup  *helpers.Supervisor
+	helperUI   helperState
 	helperInst *helpers.Installer
 
 	// OnQuit is called when a shutdown is requested from the interface or by

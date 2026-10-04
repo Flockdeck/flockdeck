@@ -29,7 +29,7 @@ func startHelpers(srv *server.Server) (begin func() (wait func())) {
 	}
 	sup := helpers.NewSupervisor(helpers.Config{
 		Store:  st,
-		Notify: func(helpers.Status) { srv.Wake() },
+		Notify: func(helpers.Status) { srv.HelperChanged() },
 		// A record naming a live process may be another Flockdeck's helper
 		// (-solo starts a second instance on purpose), so nothing is reaped
 		// while one is running.
