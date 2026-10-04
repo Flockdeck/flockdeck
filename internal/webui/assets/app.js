@@ -2344,6 +2344,18 @@
       row.dataset.key = f.label;
       const head = el("div", "pi-head");
       head.append(el("span", "pi-label", f.label));
+      // The transcript file is the one value with an action beyond copying:
+      // showing it in the file manager, which used to be a button in every
+      // pane's header. With no file there is nothing to show, so the button is
+      // off and the reason is written under it.
+      const reveal = f.label === "Transcript file" ? el("button", "chip", "Show in folder") : null;
+      if (reveal) {
+        reveal.setAttribute("aria-label", "Show the transcript file in your file manager");
+        describe(reveal, TIPS.revealTranscript);
+        if (f.value) reveal.onclick = () => send({ cmd: "revealTranscript", id: msg.id });
+        else reveal.disabled = true;
+        head.append(reveal);
+      }
       if (f.value) {
         const copy = el("button", "chip", "Copy");
         copy.setAttribute("aria-label", "Copy " + f.label.toLowerCase());
@@ -2352,6 +2364,9 @@
       }
       row.append(head, el("div", f.value ? "pi-value" : "pi-value unset", f.value || "not set"));
       if (f.note) row.append(el("div", "pi-note", f.note));
+      if (reveal && !f.value) {
+        row.append(el("div", "pi-note", "Nothing to show yet: this pane has not been recorded or exported. Start recording or Export transcript makes a file, for an agent that stores a conversation Flockdeck can read."));
+      }
       list.append(row);
     });
     body.append(list);
@@ -3200,8 +3215,6 @@
     // Works whether or not the pane is recording, and is hidden for a shell,
     // which has no conversation. renderPaneRecording keeps it so.
     const exportBtn = btn("⤓", TIPS.exportTranscript, () => exportTranscript(id));
-    // Shows the pane's transcript file in the file manager. Hidden for a shell.
-    const revealBtn = btn("🗂", TIPS.revealTranscript, () => send({ cmd: "revealTranscript", id }));
     // Opens the Pane info view: the ids and files that identify this pane. On
     // every pane, a shell included, since a shell has an id and a process too.
     const infoBtn = btn("ⓘ", TIPS.paneInfo, () => openPaneInfo(id));
@@ -3220,7 +3233,6 @@
       btn("⟳", TIPS.restart, () => send({ cmd: "restartPane", id })),
       zoomBtn,
       exportBtn,
-      revealBtn,
       recBtn,
       infoBtn,
       lockBtn,
@@ -3335,7 +3347,7 @@
     // see drawWithWebgl.
 
     p = { id, wrap, header, dot, name, project, branch, agent, peerName, remote, git, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
-          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, recBtn, exportBtn, revealBtn, recMark, search, dropZone,
+          nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, recBtn, exportBtn, recMark, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
           shown: {} };
@@ -4422,7 +4434,6 @@
   function renderPaneRecording(p, on, shell) {
     p.recBtn.hidden = shell;
     p.exportBtn.hidden = shell;
-    p.revealBtn.hidden = shell;
     p.recMark.hidden = !on;
     p.recMark.textContent = on ? "● Recording" : "";
     if (on) describe(p.recMark, "Recording - this pane's agent interaction is being saved as a transcript on this machine. Secrets are removed on a best-effort basis only.");

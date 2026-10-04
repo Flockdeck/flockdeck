@@ -177,3 +177,41 @@ h.press("findPane");
 assert.strictEqual(h.$("overlay-title").textContent, "Find pane");
 `)
 }
+
+// The transcript file row carries the action the pane header used to: it sends
+// the existing reveal command for this pane, and with no file it is off and
+// says why rather than being left on to fail.
+func TestPaneInfoShowsTheTranscriptFileInTheFolder(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1") } }));
+paletteRun("pane info");
+const withFile = [
+  { label: "Pane id", value: "p1" },
+  { label: "Transcript file", value: "C:/rec/2026-10-01-0a1b2c3d.jsonl" },
+];
+h.recv({ type: "paneInfo", id: "p1", name: "shop", fields: withFile });
+const row = () => [...h.$("overlay-body").querySelectorAll(".pi-row")].find((r) => r.dataset.key === "Transcript file");
+const show = [...row().querySelectorAll("button")].find((b) => b.textContent === "Show in folder");
+assert.ok(show, "the transcript row has no Show in folder button");
+assert.ok(!show.disabled);
+assert.ok(/file manager/.test(show.dataset.tip), show.dataset.tip);
+assert.strictEqual([...h.$("overlay-body").querySelectorAll("button")].filter((b) => b.textContent === "Show in folder").length, 1,
+  "another row has the button");
+h.click(show);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "revealTranscript", id: "p1" });
+
+// No file yet: off, with the reason in the row, and nothing sent.
+h.recv({ type: "paneInfo", id: "p1", name: "shop", fields: [{ label: "Transcript file", value: "" }] });
+const off = [...row().querySelectorAll("button")].find((b) => b.textContent === "Show in folder");
+assert.ok(off.disabled, "the button is on with nothing to show");
+assert.ok(row().textContent.includes("Nothing to show yet"), row().textContent);
+const sent = h.commands().length;
+h.click(off);
+assert.strictEqual(h.commands().length, sent, "a disabled button sent a command");
+
+// A shell has no transcript row, so no button.
+h.recv({ type: "paneInfo", id: "p1", name: "sh", fields: [{ label: "Pane id", value: "p1" }] });
+assert.ok(![...h.$("overlay-body").querySelectorAll("button")].some((b) => b.textContent === "Show in folder"));
+`)
+}

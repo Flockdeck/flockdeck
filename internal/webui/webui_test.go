@@ -1763,7 +1763,7 @@ assert.strictEqual(list().length, pages, "clearing the search did not bring the 
 }
 
 // The buttons in a pane header sit between the top bar and the terminals, and
-// there are twelve of them per pane.
+// there are eleven of them per pane.
 func TestThePaneButtonsAreOneStopEach(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
@@ -1782,7 +1782,7 @@ assert.ok(bars.every((b) => b.getAttribute("aria-label")), "the rows have no nam
 const stops = (bar) => bar.children.filter((b) => b.tabIndex !== -1).length;
 assert.deepStrictEqual(bars.map(stops), [1, 1, 1, 1, 1, 1],
   "each row of buttons is more than one stop on the way through the window");
-assert.strictEqual(bars[0].children.length, 12, "twelve things to do with a pane");
+assert.strictEqual(bars[0].children.length, 11, "eleven things to do with a pane");
 
 // The arrows walk the row and take the stop with them.
 const buttons = bars[0].children;
@@ -1792,7 +1792,7 @@ assert.ok(h.doc.activeElement === buttons[1], "the right arrow did not move alon
 assert.strictEqual(buttons[1].tabIndex, 0, "the stop did not move with the focus");
 assert.strictEqual(buttons[0].tabIndex, -1);
 h.key({ key: "End" });
-assert.ok(h.doc.activeElement === buttons[11], "End did not go to the last button");
+assert.ok(h.doc.activeElement === buttons[10], "End did not go to the last button");
 h.key({ key: "ArrowRight" });
 assert.ok(h.doc.activeElement === buttons[0], "the row does not wrap");
 
@@ -1802,13 +1802,13 @@ h.doc.body.focus();
 h.key({ key: "Tab" });
 h.key({ key: "Tab" });
 assert.strictEqual(stops(bars[0]), 1, "the row grew a second stop");
-assert.strictEqual(buttons[11].tabIndex, 0, "the stop did not stay where it was left");
+assert.strictEqual(buttons[10].tabIndex, 0, "the stop did not stay where it was left");
 
 // And they still do what they say.
-buttons[11].focus();
+buttons[10].focus();
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "closePane", id: "p0" });
-buttons[10].focus();
+buttons[9].focus();
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "lockPane", id: "p0", locked: true });
 buttons[5].focus();
@@ -9793,21 +9793,22 @@ assert.ok(exp.hidden, "a shell offers an export");
 }
 
 // Reveal transcript sends only which pane: the file is the server's to find.
-// It is in the palette and the pane header, and not offered for a shell.
+// It is in the palette and in Pane info, not in the pane header, and the palette
+// does not offer it for a shell.
 func TestRevealTranscriptSendsOnlyThePane(t *testing.T) {
 	runFrontEnd(t, paletteRun+`
 h.hello();
 h.recv(fixture({ panes: { p1: pane("p1") } }));
 const header = h.doc.querySelector("div.pane-header");
 const buttons = [...header.querySelector("div.pane-actions").children];
-const rev = buttons.find((b) => /transcript file in your file manager/.test(b.getAttribute("aria-label") || ""));
-assert.ok(rev, "the pane header has no reveal button");
-h.click(rev);
-assert.deepStrictEqual(h.commands().pop(), { cmd: "revealTranscript", id: "p1" });
+assert.ok(!buttons.some((b) => /file manager/.test(b.getAttribute("aria-label") || "")),
+  "the pane header still has a reveal button");
 paletteRun("reveal transcript");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "revealTranscript", id: "p1" });
 h.recv(fixture({ panes: { p1: pane("p1", { kind: "shell" }) } }));
-assert.ok(rev.hidden, "a shell offers a reveal");
+const sent = h.commands().length;
+paletteRun("reveal transcript");
+assert.strictEqual(h.commands().length, sent, "the palette revealed a shell's transcript");
 `)
 }
 
