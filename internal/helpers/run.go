@@ -20,6 +20,16 @@ type RunInfo struct {
 	Started   time.Time `json:"started,omitempty"`
 	Port      int       `json:"port"`
 	StartedAt time.Time `json:"startedAt"`
+	// OwnerPID and OwnerStarted name the Flockdeck that started the helper, with
+	// its start time, so a later Flockdeck can tell a helper that belongs to a
+	// Flockdeck still running (a -solo instance, say) from one left by a crash.
+	OwnerPID     int       `json:"ownerPid,omitempty"`
+	OwnerStarted time.Time `json:"ownerStarted,omitempty"`
+	// Starting marks a record written before there is a process to name: from
+	// the moment a start is asked for, through every restart delay, so an
+	// uninstall or an install cannot slip in while the program is being checked
+	// and launched. PID is 0 in it.
+	Starting bool `json:"starting,omitempty"`
 }
 
 // ReadRun reads run.json.
@@ -32,10 +42,16 @@ func (s *Store) ReadRun(id string) (RunInfo, bool) {
 		return RunInfo{}, false
 	}
 	var r RunInfo
-	if json.Unmarshal(data, &r) != nil || r.PID <= 0 {
+	if json.Unmarshal(data, &r) != nil || (r.PID <= 0 && !(r.Starting && r.OwnerPID > 0)) {
 		return RunInfo{}, false
 	}
 	return r, true
+}
+
+// ownerAlive reports whether the Flockdeck that wrote a record is still the
+// process it was. Where its start time was not recorded, a live pid counts.
+func ownerAlive(r RunInfo) bool {
+	return r.OwnerPID > 0 && sameProcess(RunInfo{PID: r.OwnerPID, Started: r.OwnerStarted}, true)
 }
 
 func (s *Store) writeRun(id string, r RunInfo) error {
@@ -82,7 +98,17 @@ func sameProcess(r RunInfo, lenient bool) bool {
 // was written for. It is conservative: when that cannot be told, it says yes.
 func (s *Store) RunningPID(id string) (int, bool) {
 	r, ok := s.ReadRun(id)
-	if !ok || !sameProcess(r, true) {
+	if !ok {
+		return 0, false
+	}
+	if r.PID == 0 {
+		// A start under way: it counts for as long as the Flockdeck doing it does.
+		if ownerAlive(r) {
+			return r.OwnerPID, true
+		}
+		return 0, false
+	}
+	if !sameProcess(r, true) {
 		return 0, false
 	}
 	return r.PID, true

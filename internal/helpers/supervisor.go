@@ -105,6 +105,9 @@ type Config struct {
 	// PickPort chooses the port for a start. Nil means ChoosePort. Tests use it
 	// to lose the race for a port on purpose.
 	PickPort func(preferred int) (int, error)
+	// InstallBusy, when set, says an install of a helper is under way in this
+	// process, and a start is refused while it is.
+	InstallBusy func(id string) bool
 	// OtherInstance, when set, reports that another Flockdeck is running, in
 	// which case the startup reaper leaves everything alone: a record that
 	// names a live process may be that instance's helper.
@@ -121,6 +124,11 @@ type Supervisor struct {
 
 	mu    sync.Mutex
 	insts map[string]*instance
+
+	// ownerPID and ownerStarted identify this Flockdeck in every run.json it
+	// writes.
+	ownerPID     int
+	ownerStarted time.Time
 }
 
 // NewSupervisor makes a supervisor. It starts nothing.
@@ -132,6 +140,8 @@ func NewSupervisor(cfg Config) *Supervisor {
 	if s.goos == "" {
 		s.goos = runtime.GOOS
 	}
+	s.ownerPID = os.Getpid()
+	s.ownerStarted, _ = store.ProcessStartedAt(s.ownerPID)
 	if cfg.Timings != nil {
 		s.t = *cfg.Timings
 	} else {
@@ -239,6 +249,9 @@ func (s *Supervisor) Start(id string) (Status, error) {
 	if _, ok := st.Current(id); !ok {
 		return Status{}, fmt.Errorf("%s is not installed; run: flockdeck helpers install %s", e.Name, id)
 	}
+	if s.cfg.InstallBusy != nil && s.cfg.InstallBusy(id) {
+		return Status{}, fmt.Errorf("%s is being installed; wait for that to finish", e.Name)
+	}
 	if err := st.VerifyInstall(e, s.goos); err != nil {
 		return Status{}, err
 	}
@@ -260,6 +273,10 @@ func (s *Supervisor) Start(id string) (Status, error) {
 		s.mu.Unlock()
 		return Status{}, fmt.Errorf("%s is already running (process %d), started by another Flockdeck", e.Name, pid)
 	}
+	// The record that says a start is under way goes down before anything that
+	// takes time, with the port the last run used so a bookmark keeps working.
+	prev, _ := st.ReadRun(id)
+	s.writeStarting(id, prev.Port)
 	in := &instance{
 		id: id, entry: e, state: StateStarting, log: &lineRing{},
 		stopReq: make(chan struct{}), done: make(chan struct{}),
@@ -273,6 +290,11 @@ func (s *Supervisor) Start(id string) (Status, error) {
 	}
 	go s.run(in)
 	return status, nil
+}
+
+// writeStarting writes the record of a start under way.
+func (s *Supervisor) writeStarting(id string, port int) {
+	_ = s.cfg.Store.writeRun(id, RunInfo{Starting: true, Port: port, OwnerPID: s.ownerPID, OwnerStarted: s.ownerStarted, StartedAt: time.Now().UTC()})
 }
 
 // Wait blocks until a helper is no longer Starting, or ctx ends, and returns
@@ -514,7 +536,8 @@ func (s *Supervisor) runOnce(in *instance, port int) (out outcome) {
 	errW.Close()
 	pg := attachProc(cmd, s.cfg.BreakCmd)
 	started, _ := store.ProcessStartedAt(cmd.Process.Pid)
-	_ = st.writeRun(in.id, RunInfo{PID: cmd.Process.Pid, Started: started, Port: port, StartedAt: time.Now().UTC()})
+	_ = st.writeRun(in.id, RunInfo{PID: cmd.Process.Pid, Started: started, Port: port, StartedAt: time.Now().UTC(),
+		OwnerPID: s.ownerPID, OwnerStarted: s.ownerStarted})
 	s.set(in, func() { in.port, in.pid = port, cmd.Process.Pid })
 
 	banner := make(chan string, 1)
@@ -549,7 +572,8 @@ func (s *Supervisor) runOnce(in *instance, port int) (out outcome) {
 		}
 		outR.Close()
 		errR.Close()
-		s.cfg.Store.clearRun(in.id)
+		// Between runs the start is still under way.
+		s.writeStarting(in.id, port)
 	}()
 
 	// ended takes the process's exit and ends whatever it started, which a
@@ -692,6 +716,17 @@ func (s *Supervisor) ReapStale() int {
 		}
 		r, ok := s.cfg.Store.ReadRun(id)
 		if !ok {
+			continue
+		}
+		// A helper whose owner is a Flockdeck that is still running belongs to
+		// it, whatever else is true of the record. OtherInstance cannot say so for
+		// a Flockdeck that has not been recorded as the instance.
+		if r.OwnerPID != os.Getpid() && ownerAlive(r) {
+			continue
+		}
+		if r.PID == 0 {
+			// A start under way whose owner has gone: nothing to end.
+			s.cfg.Store.clearRun(id)
 			continue
 		}
 		same := func(p sysproc.StaleProc) bool {
