@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -845,5 +846,81 @@ func TestARestartRefusesAProgramChangedWhileRunning(t *testing.T) {
 	})
 	if n := countLines(state); n != 1 {
 		t.Fatalf("the helper ran %d times", n)
+	}
+}
+
+// A helper that writes a 2 MiB line and then a great deal more must not be
+// left blocked on a pipe nobody reads, and what is kept for the status stays
+// small and free of escape sequences.
+func TestAHelperThatFloodsItsOutputKeepsRunning(t *testing.T) {
+	done := filepath.Join(t.TempDir(), "flooded")
+	f := newSupFixture(t, []Entry{fakeEntry("lens", "--mode", "flood", "--flood-done", done)})
+	st := f.startAndWait("lens")
+	if st.State != StateRunning {
+		t.Fatalf("status = %+v", st)
+	}
+	eventually(t, "the helper to finish writing its output", 60*time.Second, func() bool {
+		_, err := os.Stat(done)
+		return err == nil
+	})
+	// Still answering.
+	if !f.sup.probe(st.Port, "/healthz") {
+		t.Fatal("the helper stopped answering")
+	}
+	// What the status carries is small and printable.
+	f.sup.mu.Lock()
+	in := f.sup.insts["lens"]
+	f.sup.mu.Unlock()
+	log := in.log.tail()
+	if len(log) == 0 || len(log) > 20 {
+		t.Fatalf("%d log lines", len(log))
+	}
+	total := 0
+	for _, l := range log {
+		total += len(l)
+		if len(l) > maxRingLine+len(" [cut off]") {
+			t.Errorf("a status line is %d bytes", len(l))
+		}
+		if strings.ContainsRune(l, 0x1b) {
+			t.Errorf("an escape sequence reached the status: %q", l)
+		}
+	}
+	if total > 20*(maxRingLine+16) {
+		t.Errorf("the status log is %d bytes", total)
+	}
+	// The log file has the lines, each cut to a bounded size.
+	fi, err := os.Stat(f.store.LogFile("lens"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Size() < 1<<20 {
+		t.Errorf("the log file is only %d bytes", fi.Size())
+	}
+}
+
+// A redirect from the helper's port is not an answer from the helper, and the
+// probe does not go where it points.
+func TestProbeNeverFollowsARedirect(t *testing.T) {
+	reached := 0
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached++ }))
+	defer elsewhere.Close()
+	squatter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+"/readyz", http.StatusFound)
+	}))
+	defer squatter.Close()
+	port, _ := strconv.Atoi(squatter.URL[strings.LastIndex(squatter.URL, ":")+1:])
+	s := NewSupervisor(Config{Store: &Store{Root: t.TempDir()}})
+	if s.probe(port, "/readyz") {
+		t.Fatal("a redirect counted as ready")
+	}
+	if reached != 0 {
+		t.Fatal("the probe followed the redirect")
+	}
+	tr, ok := probeClient.Transport.(*http.Transport)
+	if !ok || tr.Proxy != nil {
+		t.Fatal("the probe may use a proxy")
+	}
+	if probeClient.Timeout == 0 || probeClient.Timeout > 5*time.Second {
+		t.Fatalf("the probe timeout is %v", probeClient.Timeout)
 	}
 }

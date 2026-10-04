@@ -1,7 +1,6 @@
 package helpers
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -440,7 +439,7 @@ func (s *Supervisor) probe(port int, path string) bool {
 	if err != nil {
 		return false
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := probeClient.Do(req)
 	if err != nil {
 		return false
 	}
@@ -522,17 +521,14 @@ func (s *Supervisor) runOnce(in *instance, port int) (out outcome) {
 	var readers sync.WaitGroup
 	pump := func(r *os.File, first chan<- string) {
 		defer readers.Done()
-		sc := bufio.NewScanner(r)
-		sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
-		for sc.Scan() {
-			line := sc.Text()
+		readLines(r, func(line string) {
 			if first != nil {
 				first <- line
 				first = nil
 			}
-			in.log.add(line)
+			in.log.add(ringLine(line))
 			_, _ = in.logw.Write([]byte(line + "\n"))
-		}
+		})
 	}
 	readers.Add(2)
 	go pump(outR, banner)

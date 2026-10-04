@@ -75,6 +75,7 @@ func runFakeHelper(args []string) {
 	after := fs.Duration("after", 0, "when a mode needs a delay")
 	readyAfter := fs.Duration("ready-after", 0, "how long /readyz says 503")
 	childPID := fs.String("child-pid", "", "file a grandchild's pid is written to")
+	floodDone := fs.String("flood-done", "", "file written when the flood of output has been written")
 	drain := fs.Duration("drain", 0, "how long it takes to drain after being asked to stop")
 	// TestMain writes the environment out, before the test harness adds
 	// variables of its own; the flag is only here so the parser accepts it.
@@ -153,6 +154,20 @@ func runFakeHelper(args []string) {
 		})
 	}
 	switch *mode {
+	case "flood":
+		// A line far longer than any reader should hold, then a great many
+		// ordinary ones, after the banner. A reader that gives up on the long
+		// line leaves this blocked on a full pipe, and the marker never appears.
+		go func() {
+			fmt.Println(strings.Repeat("x", 2<<20))
+			for i := 0; i < 20000; i++ {
+				fmt.Printf("flood line %d \x1b[31mred\x1b[0m %s\n", i, strings.Repeat("y", 80))
+			}
+			fmt.Fprintln(os.Stderr, strings.Repeat("e", 3<<20))
+			if *floodDone != "" {
+				_ = os.WriteFile(*floodDone, []byte("done"), 0o600)
+			}
+		}()
 	case "crash":
 		arm = crash
 	case "crash-once":
