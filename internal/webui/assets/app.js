@@ -10760,7 +10760,7 @@
     openOverlay("Helper apps", "cli");
     $("overlay-body").textContent = "";
     $("overlay-body").append(el("div", "dir-empty", "Loading…"));
-    send({ cmd: "helpers" });
+    send({ cmd: "helpers", force: true });
   }
 
   /** announceHelpers tells a screen reader when a helper changes state. */

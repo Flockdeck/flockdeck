@@ -68,9 +68,10 @@ type helperPlanMsg struct {
 
 // helperState is what the dialog needs beyond the supervisor and the disk.
 type helperState struct {
-	mu     sync.Mutex
-	latest map[string]string // newest version found, by helper id
-	busy   map[string]bool   // installing
+	mu      sync.Mutex
+	latest  map[string]string    // newest version found, by helper id
+	checked map[string]time.Time // when each was last looked up
+	busy    map[string]bool      // installing
 }
 
 func (h *helperState) setBusy(id string, v bool) bool {
@@ -90,6 +91,25 @@ func (h *helperState) isBusy(id string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.busy[id]
+}
+
+// helperCheckTTL is how long a lookup for a newer version is trusted.
+var helperCheckTTL = 30 * time.Second
+
+func (h *helperState) dueForCheck(id string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	at, ok := h.checked[id]
+	return !ok || time.Since(at) >= helperCheckTTL
+}
+
+func (h *helperState) markChecked(id string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.checked == nil {
+		h.checked = map[string]time.Time{}
+	}
+	h.checked[id] = time.Now()
 }
 
 func (h *helperState) setLatest(id, v string) {
@@ -189,7 +209,7 @@ const helperNetworkWait = 30 * time.Minute
 // helpersList answers the dialog being opened, then looks for newer versions
 // of what is installed, which is the only time Flockdeck asks the source anything
 // about helpers unless a person installs one.
-func (s *Server) helpersList(c *controlClient) {
+func (s *Server) helpersList(c *controlClient, force bool) {
 	if !s.helperDeskOnly(c) {
 		return
 	}
@@ -204,7 +224,15 @@ func (s *Server) helpersList(c *controlClient) {
 			if _, ok := inst.Store().Current(e.ID); !ok {
 				continue
 			}
+			// What was found a moment ago stands: the dialog asks again on every
+			// Back, Cancel and reconnect, and none of those is a request to hit the
+			// CDN again. Opening the dialog is, and sets force. A failure counts as
+			// a check too, so a source that is down is not asked every time.
+			if !force && !s.helperUI.dueForCheck(e.ID) {
+				continue
+			}
 			newer, err := inst.CheckUpdate(ctx, e.ID)
+			s.helperUI.markChecked(e.ID)
 			if err != nil {
 				continue
 			}

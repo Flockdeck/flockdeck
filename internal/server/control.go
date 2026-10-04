@@ -1597,7 +1597,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		go s.checkForUpdates(c)
 		return
 	case "helpers":
-		s.helpersList(c)
+		s.helpersList(c, cmd.Force)
 		return
 	case "helperPlan":
 		s.helperPlan(c, cmd.ID, cmd.Text)

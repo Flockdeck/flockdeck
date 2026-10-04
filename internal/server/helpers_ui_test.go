@@ -31,6 +31,9 @@ type uiRig struct {
 	mu     sync.Mutex
 	key    ed25519.PrivateKey
 	origin string
+	// pointerHits counts reads of latest.json, which is what a check for a newer
+	// version starts with.
+	pointerHits int
 }
 
 func newUIRig(t *testing.T) *uiRig {
@@ -42,6 +45,9 @@ func newUIRig(t *testing.T) *uiRig {
 	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		r.mu.Lock()
 		b, ok := r.files[req.URL.Path]
+		if req.URL.Path == "/lens/latest.json" {
+			r.pointerHits++
+		}
 		r.mu.Unlock()
 		if !ok {
 			http.NotFound(w, req)
@@ -487,5 +493,80 @@ func TestThePlanOfATamperedInstallIsARepair(t *testing.T) {
 	got := notices(c, 3*time.Second)
 	if !strings.Contains(strings.Join(got, "|"), "Installed lens 0.4.0") {
 		t.Fatalf("notices = %v", got)
+	}
+}
+
+func (r *uiRig) hits() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pointerHits
+}
+
+// The dialog asks for the helpers on every Back, Cancel and reconnect; none of
+// those goes to the CDN again within the TTL, and opening the dialog does.
+func TestRepeatedHelperListingsDoNotHitTheCDN(t *testing.T) {
+	r := newUIRig(t)
+	sha := r.publish(t, "0.4.0", true, false)
+	c := &controlClient{out: make(chan []byte, 256)}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
+	notices(c, 3*time.Second)
+
+	r.mu.Lock()
+	r.pointerHits = 0
+	r.mu.Unlock()
+	settle := func() { time.Sleep(400 * time.Millisecond) }
+	r.send(c, command{Cmd: "helpers", Force: true})
+	settle()
+	if got := r.hits(); got != 1 {
+		t.Fatalf("opening the dialog made %d lookups, want 1", got)
+	}
+	for i := 0; i < 6; i++ {
+		r.send(c, command{Cmd: "helpers"})
+	}
+	settle()
+	if got := r.hits(); got != 1 {
+		t.Fatalf("six more listings made the lookups %d", got)
+	}
+	// A new release is found by the next explicit listing, not before.
+	r.publish(t, "0.5.0", true, false)
+	r.send(c, command{Cmd: "helpers"})
+	settle()
+	if got := r.hits(); got != 1 {
+		t.Fatalf("a listing inside the TTL looked again (%d)", got)
+	}
+	r.send(c, command{Cmd: "helpers", Force: true})
+	settle()
+	if got := r.hits(); got != 2 {
+		t.Fatalf("an explicit refresh made %d lookups in all, want 2", got)
+	}
+	// And the TTL runs out.
+	prev := helperCheckTTL
+	helperCheckTTL = 50 * time.Millisecond
+	defer func() { helperCheckTTL = prev }()
+	time.Sleep(100 * time.Millisecond)
+	r.send(c, command{Cmd: "helpers"})
+	settle()
+	if got := r.hits(); got != 3 {
+		t.Fatalf("after the TTL there were %d lookups, want 3", got)
+	}
+}
+
+// A source that is down is not asked every time either.
+func TestAFailedLookupIsNotRepeatedWithinTheTTL(t *testing.T) {
+	r := newUIRig(t)
+	sha := r.publish(t, "0.4.0", true, false)
+	c := &controlClient{out: make(chan []byte, 256)}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
+	notices(c, 3*time.Second)
+	r.mu.Lock()
+	delete(r.files, "/lens/latest.json")
+	r.pointerHits = 0
+	r.mu.Unlock()
+	for i := 0; i < 4; i++ {
+		r.send(c, command{Cmd: "helpers"})
+		time.Sleep(150 * time.Millisecond)
+	}
+	if got := r.hits(); got != 1 {
+		t.Fatalf("%d lookups of a source that is down, want 1", got)
 	}
 }

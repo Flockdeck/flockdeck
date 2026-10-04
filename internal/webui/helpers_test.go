@@ -25,7 +25,7 @@ h.recv(fixture());
 openHelpers();
 assert.ok(!h.$("overlay").hidden, "the palette did not open the helpers dialog");
 assert.strictEqual(h.$("overlay-title").textContent, "Helper apps");
-assert.deepStrictEqual(h.commands().pop(), { cmd: "helpers" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "helpers", force: true });
 assert.ok(h.$("overlay-body").textContent.includes("Loading"));
 recvRows(row());
 const hint = h.$("overlay-body").textContent;
