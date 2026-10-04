@@ -137,6 +137,16 @@ func CheckManifest(keys []ed25519.PublicKey, data, sig []byte) (*Manifest, error
 	if err := VerifyAny(keys, data, sig); err != nil {
 		return nil, signatureError{manifestName, siteHost(), err}
 	}
+	return ParseManifest(data)
+}
+
+// ParseManifest reads a manifest.json and refuses one the updater could not act
+// on, without checking a signature. CheckManifest is this after the signature
+// has checked. It exists for a caller that has to read an unsigned manifest
+// (internal/helpers, for the one case where a helper's release is installed
+// unsigned on the user's explicit say-so) with exactly the same structural
+// checks, rather than a copy of them.
+func ParseManifest(data []byte) (*Manifest, error) {
 	var m Manifest
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("%s is not a manifest: %w", manifestName, err)
