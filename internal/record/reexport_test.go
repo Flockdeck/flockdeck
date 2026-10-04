@@ -373,6 +373,10 @@ func TestOnlyTemporaryTranscriptsAreSwept(t *testing.T) {
 		"a.jsonl.0123456789AB.new":                         false,
 		"a.jsonl.0123.new":                                 false,
 		"a.jsonl":                                          false,
+		"notes.jsonl-new":                                  false,
+		"xjsonlXnew":                                       false,
+		"a.jsonlX0123456789abXnew":                         false,
+		"a.jsonl.0123456789abXnew":                         false,
 	} {
 		if isTemp(name) != want {
 			t.Errorf("isTemp(%q) = %v", name, !want)
@@ -383,7 +387,7 @@ func TestOnlyTemporaryTranscriptsAreSwept(t *testing.T) {
 		t.Errorf("tempName gave %q, which is not swept", n)
 	}
 	dir := t.TempDir()
-	for _, n := range []string{"mine.jsonl.backup.new", "notes.new", "a.jsonl.new.txt", "x.jsonl.0123456789ab.new"} {
+	for _, n := range []string{"notes.jsonl-new", "xjsonlXnew", "mine.jsonl.backup.new", "notes.new", "a.jsonl.new.txt", "x.jsonl.0123456789ab.new"} {
 		p := filepath.Join(dir, n)
 		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
@@ -392,9 +396,81 @@ func TestOnlyTemporaryTranscriptsAreSwept(t *testing.T) {
 		_ = os.Chtimes(p, old, old)
 	}
 	NewManager(func() (string, error) { return t.TempDir(), nil }).sweepStale(dir)
-	for n, want := range map[string]bool{"mine.jsonl.backup.new": true, "notes.new": true, "a.jsonl.new.txt": true, "x.jsonl.0123456789ab.new": false} {
+	for n, want := range map[string]bool{"notes.jsonl-new": true, "xjsonlXnew": true, "mine.jsonl.backup.new": true, "notes.new": true, "a.jsonl.new.txt": true, "x.jsonl.0123456789ab.new": false} {
 		if _, err := os.Stat(filepath.Join(dir, n)); (err == nil) != want {
 			t.Errorf("%s survives = %v, want %v", n, err == nil, want)
+		}
+	}
+}
+
+// exportReplacing makes an export, shortens it so the next export replaces it,
+// and returns what is needed to export again and the shortened bytes.
+func exportReplacing(t *testing.T) (func() (ExportResult, error), string, string) {
+	t.Helper()
+	spec, ex := claudeAt(t, moreFixtureHome(t))
+	dir := t.TempDir()
+	d := func() (string, error) { return dir, nil }
+	first, err := Export(d, moreMeta, ex.Follow(spec, moreFixtureConversation), ExportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, l := range rawLines(t, first.Path) {
+		lines = append(lines, string(l))
+	}
+	old := strings.Join(lines[:len(lines)-2], "\n") + "\n" + lines[len(lines)-1] + "\n"
+	if err := os.WriteFile(first.Path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	again := func() (ExportResult, error) {
+		return Export(d, moreMeta, ex.Follow(spec, moreFixtureConversation), ExportOptions{})
+	}
+	return again, first.Path, old
+}
+
+// The new file is synced after its closing line is written and before it is
+// closed and moved over the earlier one.
+func TestTheNewExportIsSyncedBeforeItIsMovedIntoPlace(t *testing.T) {
+	again, final, old := exportReplacing(t)
+	var calls int
+	syncFile = func(f *os.File) error {
+		calls++
+		if b, _ := os.ReadFile(final); string(b) != old {
+			t.Error("the earlier file was already replaced when the new one was synced")
+		}
+		if _, err := f.Write(nil); err != nil {
+			t.Errorf("the new file was already closed when it was synced: %v", err)
+		}
+		if b, _ := os.ReadFile(f.Name()); !strings.Contains(string(b), endText) {
+			t.Error("the new file had no closing line when it was synced")
+		}
+		return f.Sync()
+	}
+	t.Cleanup(func() { syncFile = func(f *os.File) error { return f.Sync() } })
+	res, err := again()
+	if err != nil || !res.Replaced {
+		t.Fatalf("export = %+v, %v", res, err)
+	}
+	if calls != 1 {
+		t.Errorf("synced %d times, want once", calls)
+	}
+}
+
+// A sync that fails leaves no new file and the earlier export as it was.
+func TestAFailedSyncLeavesTheEarlierExportAndNoTempFile(t *testing.T) {
+	again, final, old := exportReplacing(t)
+	syncFile = func(*os.File) error { return errors.New("disk full") }
+	t.Cleanup(func() { syncFile = func(f *os.File) error { return f.Sync() } })
+	_, err := again()
+	if err == nil || !strings.Contains(err.Error(), "disk full") {
+		t.Fatalf("err = %v, want the sync error", err)
+	}
+	if b, _ := os.ReadFile(final); string(b) != old {
+		t.Error("the earlier export was changed")
+	}
+	if ents, _ := os.ReadDir(filepath.Dir(final)); len(ents) != 1 {
+		for _, e := range ents {
+			t.Errorf("in the folder: %s", e.Name())
 		}
 	}
 }
