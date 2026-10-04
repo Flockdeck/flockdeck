@@ -10857,6 +10857,7 @@
       case "failed":
         actions.append(helperButton(r, "start", r.state === "failed" ? "Try again" : "Start", start, true));
         if (r.update) actions.append(helperButton(r, "update", "Update…", () => helperLookup(r.id, r.update)));
+        actions.append(helperButton(r, "repair", "Repair…", () => helperLookup(r.id, r.installed)));
         actions.append(helperButton(r, "remove", "Remove…", () => helperRemoval(r, false, false)));
         break;
       case "starting":
@@ -10916,7 +10917,7 @@
   /** renderHelperPlan is the confirmation: name, version, where it comes from,
    *  how it was checked, what it may do. */
   function renderHelperPlan(body, p) {
-    const wrap = section(p.error ? "Not installed" : "Install " + p.name + " " + p.version);
+    const wrap = section(p.error ? "Not installed" : (p.repair ? "Repair " : "Install ") + p.name + " " + p.version);
     body.append(wrap);
     if (p.error) {
       const msg = el("div", "dir-empty helper-error", p.error);
@@ -10931,7 +10932,7 @@
     wrap.append(el("div", "fan-hint", p.summary));
     const facts = el("dl", "helper-facts");
     helperFact(facts, "Name", p.name);
-    helperFact(facts, "Version", p.version + (p.installed ? " (replaces " + p.installed + ")" : ""));
+    helperFact(facts, "Version", p.version + (p.repair ? " (the installed copy is replaced by a checked one)" : p.installed ? " (replaces " + p.installed + ")" : ""));
     helperFact(facts, "Source", p.url, true);
     helperFact(facts, "Signature", p.signed
       ? "manifest.json is signed with the Flockdeck release key; the archive is checked against it when it is downloaded"

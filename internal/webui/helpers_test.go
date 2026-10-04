@@ -85,13 +85,13 @@ const expect = (state, want, extra) => {
 recvRows(row());
 assert.deepStrictEqual(buttons(), ["install"]);
 expect("installing", [], { installed: "" });
-expect("stopped", ["start", "remove"]);
-expect("stopped", ["start", "update", "remove"], { update: "0.5.0" });
+expect("stopped", ["start", "repair", "remove"]);
+expect("stopped", ["start", "update", "repair", "remove"], { update: "0.5.0" });
 expect("starting", ["stop"]);
 expect("running", ["open", "stop"]);
 expect("stopping", []);
 expect("unresponsive", ["stop"]);
-expect("failed", ["start", "remove"], { error: "x", log: ["boom"] });
+expect("failed", ["start", "repair", "remove"], { error: "x", log: ["boom"] });
 assert.ok(h.$("overlay-body").textContent.includes("boom"), "the log tail of a failure is not shown");
 assert.ok(h.$("helper-start-lens").textContent === "Try again");
 
@@ -311,5 +311,22 @@ const before = h.commands().length;
 paletteRun("helper apps");
 assert.ok(h.$("overlay").hidden, "the dialog opened in a relay window");
 assert.strictEqual(h.commands().length, before, "a relay window asked the server for helpers");
+`)
+}
+
+// A repair is the installed version again, and says so before anything is
+// downloaded.
+func TestARepairIsShownAsOne(t *testing.T) {
+	runFrontEnd(t, paletteRun+helperRows+`
+h.hello();
+h.recv(fixture());
+openHelpers();
+recvRows(row({ state: "stopped", installed: "0.4.0" }));
+h.click(h.$("helper-repair-lens"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "helperPlan", id: "lens", text: "0.4.0" });
+h.recv({ type: "helperPlan", id: "lens", name: "lens", summary: "s", version: "0.4.0", url: "u", sha256: "d".repeat(64), signed: true, repair: true, installed: "0.4.0", allows: [] });
+const text = h.$("overlay-body").textContent;
+assert.ok(text.includes("Repair lens 0.4.0"), text);
+assert.ok(text.includes("replaced by a checked one"), text);
 `)
 }

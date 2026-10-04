@@ -228,3 +228,245 @@ func TestVerifyInstallRefusesALinkedVersionsFolder(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// the high-water mark ---------------------------------------------------------
+
+func TestAReplayBelowTheHighWaterMarkIsRefusedEvenAfterAnUninstall(t *testing.T) {
+	f := newFixture(t)
+	f.publish("0.5.0")
+	if _, err := f.install(""); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.Uninstall("lens", false); err != nil {
+		t.Fatal(err)
+	}
+	// latest.json is rewound to a genuinely signed, older, still above-minimum
+	// release, and nothing is installed to compare it with.
+	f.publish("0.2.0")
+	f.site.put("/lens/latest.json", []byte(`{"version":"v0.2.0"}`))
+	if _, err := f.install(""); !errors.Is(err, ErrBelowHighWater) {
+		t.Fatalf("err = %v, want ErrBelowHighWater", err)
+	}
+	if _, ok := f.store.Current("lens"); ok {
+		t.Fatal("installed")
+	}
+	// The window names the version it was shown, which is not a request to go
+	// backwards.
+	if _, err := f.in.PlanVersion(t.Context(), "lens", "0.2.0", false); !errors.Is(err, ErrBelowHighWater) {
+		t.Fatalf("a pinned plan from the window: %v", err)
+	}
+	// On the command line a version can be named.
+	if _, err := f.install("0.2.0"); err != nil {
+		t.Fatalf("a named version: %v", err)
+	}
+	// But never below MinVersion.
+	f.publish("0.1.0")
+	if _, err := f.install("0.1.0"); !errors.Is(err, ErrBelowMinimum) {
+		t.Fatalf("below the minimum: %v", err)
+	}
+}
+
+func TestTheHighWaterMarkOnlyRises(t *testing.T) {
+	f := newFixture(t)
+	f.publish("0.5.0")
+	f.publish("0.3.0")
+	if _, err := f.install("0.5.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.install("0.3.0"); err != nil { // named, allowed
+		t.Fatal(err)
+	}
+	if hw := f.store.HighWater("lens"); hw != "0.5.0" {
+		t.Fatalf("high-water = %q after installing a lower version by name", hw)
+	}
+	if err := checkHighWater("0.5.0", "0.5.0", false); err != nil {
+		t.Fatalf("the mark itself is allowed: %v", err)
+	}
+	if err := checkHighWater("0.5.1", "0.5.0", false); err != nil {
+		t.Fatalf("above the mark: %v", err)
+	}
+	if err := checkHighWater("0.4.9", "", false); err != nil {
+		t.Fatalf("no mark: %v", err)
+	}
+}
+
+// trust record shapes -------------------------------------------------------------
+
+func TestEverSignedFailsClosed(t *testing.T) {
+	s := &Store{Root: t.TempDir()}
+	if s.EverSigned("lens") {
+		t.Fatal("a fresh helper with no history counts as signed")
+	}
+	if err := os.MkdirAll(s.appDir("lens"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"corrupt":           "{",
+		"empty":             "",
+		"null":              "null",
+		"false":             `{"everSigned":false}`,
+		"false with a mark": `{"everSigned":false,"highWater":"0.5.0"}`,
+		"an array":          "[]",
+		"a number":          "7",
+		"true":              `{"everSigned":true,"highWater":"0.5.0"}`,
+	} {
+		if err := os.WriteFile(s.trustFile("lens"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if !s.EverSigned("lens") {
+			t.Errorf("%s: a trust record that is there counts as no history", name)
+		}
+	}
+	// A record that is a folder, which cannot be read as a file.
+	_ = os.Remove(s.trustFile("lens"))
+	if err := os.Mkdir(s.trustFile("lens"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !s.EverSigned("lens") {
+		t.Error("a trust record that cannot be read counts as no history")
+	}
+}
+
+func TestADeletedTrustRecordIsNotForgottenWhileTheSignedInstallStands(t *testing.T) {
+	f := installedFixture(t)
+	if err := os.Remove(f.store.trustFile("lens")); err != nil {
+		t.Fatal(err)
+	}
+	if !f.store.EverSigned("lens") {
+		t.Fatal("deleting trust.json made a signed install count as never signed")
+	}
+	if hw := f.store.HighWater("lens"); hw != "0.4.0" {
+		t.Fatalf("high-water = %q", hw)
+	}
+	f.site.release(t, f.entry, releaseSpec{version: "0.5.0", noSig: true, latest: true})
+	if _, err := f.in.Install(t.Context(), "lens", "", true); !isSignedRequired(err) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAnUnsignedInstallLeavesNoSignedHistory(t *testing.T) {
+	f := newFixture(t)
+	f.site.release(t, f.entry, releaseSpec{version: "0.4.0", noSig: true, latest: true})
+	if _, err := f.in.Install(t.Context(), "lens", "", true); err != nil {
+		t.Fatal(err)
+	}
+	if f.store.EverSigned("lens") {
+		t.Fatal("an unsigned install counts as signed history")
+	}
+	if hw := f.store.HighWater("lens"); hw != "" {
+		t.Fatalf("high-water = %q", hw)
+	}
+}
+
+// The record is written before the pointer moves, and an install that cannot
+// write it does not happen.
+func TestASignedInstallThatCannotRecordItselfFails(t *testing.T) {
+	f := newFixture(t)
+	f.publish("0.4.0")
+	f.publish("0.5.0")
+	if _, err := f.install("0.4.0"); err != nil {
+		t.Fatal(err)
+	}
+	// The record cannot be written: a folder is where the file goes.
+	if err := os.Remove(f.store.trustFile("lens")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(f.store.trustFile("lens"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.store.trustFile("lens"), "x"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := f.install("0.5.0")
+	if err == nil || !strings.Contains(err.Error(), "could not record the signed install") {
+		t.Fatalf("err = %v", err)
+	}
+	if v, _ := f.store.Current("lens"); v != "0.4.0" {
+		t.Fatalf("current = %q after a failed install", v)
+	}
+	if _, err := os.Stat(f.store.versionDir("lens", "0.5.0")); err == nil {
+		t.Fatal("the version that could not be recorded was left in versions/")
+	}
+}
+
+// The record goes only once the data has: a purge that is refused keeps it.
+func TestAPurgeRefusedForALinkedDataFolderKeepsTheTrustRecord(t *testing.T) {
+	f := installedFixture(t)
+	target := t.TempDir()
+	if err := os.RemoveAll(f.store.DataDir("lens")); err != nil {
+		t.Fatal(err)
+	}
+	makeLink(t, f.store.DataDir("lens"), target, true)
+	if err := f.store.Uninstall("lens", true); err == nil {
+		t.Fatal("a purge went ahead through a link")
+	}
+	if _, err := os.Stat(f.store.trustFile("lens")); err != nil {
+		t.Fatalf("the trust record was removed by a refused purge: %v", err)
+	}
+	if !f.store.EverSigned("lens") {
+		t.Fatal("EverSigned is false after a refused purge")
+	}
+}
+
+// repair ----------------------------------------------------------------------------
+
+func TestATamperedInstallIsRepairedByInstallingTheSameVersionAgain(t *testing.T) {
+	f := installedFixture(t)
+	bin := filepath.Join(f.store.versionDir("lens", "0.4.0"), "lens")
+	if err := os.WriteFile(bin, []byte("not what was installed"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.VerifyInstall(f.entry, "linux"); err == nil {
+		t.Fatal("the tamper was not seen")
+	}
+	plan, err := f.in.Plan(t.Context(), "lens", "")
+	if err != nil {
+		t.Fatalf("plan for a repair: %v", err)
+	}
+	if !plan.Repair || plan.Version != "0.4.0" {
+		t.Fatalf("plan = %+v", plan)
+	}
+	if _, err := f.install(""); err != nil {
+		t.Fatalf("the repair: %v", err)
+	}
+	if err := f.store.VerifyInstall(f.entry, "linux"); err != nil {
+		t.Fatalf("still refused after a repair: %v", err)
+	}
+	// And now it is installed, not in need of repair.
+	if _, err := f.install(""); !errors.Is(err, ErrAlreadyInstalled) {
+		t.Fatalf("err = %v", err)
+	}
+	if plan, _ := f.in.PlanVersion(t.Context(), "lens", "0.4.0", false); plan != nil {
+		t.Fatalf("a pinned plan for an intact install: %+v", plan)
+	}
+}
+
+func TestAFailedRepairLeavesWhatWasThere(t *testing.T) {
+	var failAt string
+	f := newFixture(t, func(o *Options) {
+		o.Hook = func(s string) error {
+			if s == failAt {
+				return errors.New("simulated")
+			}
+			return nil
+		}
+	})
+	f.publish("0.4.0")
+	if _, err := f.install(""); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(f.store.versionDir("lens", "0.4.0"), "lens")
+	if err := os.WriteFile(bin, []byte("changed"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	failAt = "current"
+	if _, err := f.install(""); err == nil {
+		t.Fatal("the repair did not fail")
+	}
+	if b, err := os.ReadFile(bin); err != nil || string(b) != "changed" {
+		t.Fatalf("what was there was not put back: %q, %v", b, err)
+	}
+	if v, ok := f.store.Current("lens"); !ok || v != "0.4.0" {
+		t.Fatalf("current = %q, %v", v, ok)
+	}
+}

@@ -192,8 +192,10 @@ type Plan struct {
 	Signed bool
 	// Installed is the installed version, or "" when there is none.
 	Installed string
-	// Explicit is true when the version was named, not "the latest".
-	Explicit bool
+	// Repair is true when this is the installed version again, because what is
+	// on disk no longer passes VerifyInstall. The folder is replaced by a
+	// checked copy.
+	Repair bool
 }
 
 const (
@@ -231,6 +233,17 @@ func (in *Installer) latestVersion(ctx context.Context, e Entry) (string, error)
 // rules. version is "" for the latest release. It downloads no archive and
 // writes nothing.
 func (in *Installer) Plan(ctx context.Context, id, version string) (*Plan, error) {
+	return in.PlanVersion(ctx, id, version, version != "")
+}
+
+// PlanVersion is Plan with the downgrade rules chosen by the caller instead of
+// by whether a version was named. The command line lets a person name an older
+// version; the window does not, and it names the version it was shown (so the
+// release cannot change under the confirmation) without that being a request
+// to go backwards. mayDowngrade lifts the "older than installed" and "older
+// than the newest signed version ever installed here" refusals, never
+// MinVersion.
+func (in *Installer) PlanVersion(ctx context.Context, id, version string, mayDowngrade bool) (*Plan, error) {
 	e, ok := in.lookup(id)
 	if !ok {
 		return nil, fmt.Errorf("%q is not a helper Flockdeck knows", id)
@@ -238,15 +251,14 @@ func (in *Installer) Plan(ctx context.Context, id, version string) (*Plan, error
 	if version != "" && !validVersion(version) {
 		return nil, fmt.Errorf("%q is not a version like 1.2.3", version)
 	}
-	explicit := version != ""
-	if !explicit {
+	if version == "" {
 		v, err := in.latestVersion(ctx, e)
 		if err != nil {
 			return nil, err
 		}
-		version = v
+		version, mayDowngrade = v, false
 	}
-	return in.plan(ctx, e, version, explicit)
+	return in.plan(ctx, e, version, mayDowngrade)
 }
 
 // CheckUpdate says which version an install of the helper would give if it were
@@ -276,7 +288,7 @@ func (in *Installer) CheckUpdate(ctx context.Context, id string) (string, error)
 
 // plan is Plan for a version that has been settled, by name or through
 // latest.json.
-func (in *Installer) plan(ctx context.Context, e Entry, version string, explicit bool) (*Plan, error) {
+func (in *Installer) plan(ctx context.Context, e Entry, version string, mayDowngrade bool) (*Plan, error) {
 	allow := in.allowFor(e)
 	tag := "v" + version
 	base := e.Source + "/" + tag + "/"
@@ -314,8 +326,8 @@ func (in *Installer) plan(ctx context.Context, e Entry, version string, explicit
 	if m.Date.IsZero() {
 		return nil, mismatchf("the manifest for %s has no date", tag)
 	}
-	if m.Date.After(in.now().Add(futureSkew)) {
-		return nil, mismatchf("the manifest for %s is dated %s, which is in the future", tag, m.Date.Format(time.RFC3339))
+	if now := in.now(); m.Date.After(now.Add(futureSkew)) {
+		return nil, mismatchf("the manifest for %s is dated %s, more than a day ahead of this machine's clock (%s). Either the clock is wrong, which is the usual cause, or the manifest is not what it says", tag, m.Date.Format(time.RFC3339), now.Format(time.RFC3339))
 	}
 
 	file, err := in.findFile(e, m, tag)
@@ -330,20 +342,22 @@ func (in *Installer) plan(ctx context.Context, e Entry, version string, explicit
 	if err := in.store.checkSignedRequired(e, version, signed); err != nil {
 		return nil, err
 	}
-	if err := checkVersion(e, version, installed, explicit); err != nil {
+	// The installed version again, because it no longer passes the check made
+	// before a start, is a repair and not "already installed".
+	repair := installed != "" && installed == version && in.store.VerifyInstall(e, in.goos) != nil
+	against := installed
+	if repair {
+		against = ""
+	}
+	if err := checkVersion(e, version, against, mayDowngrade); err != nil {
 		return nil, err
 	}
-	if !explicit {
-		// A newer version with an older date than the one installed is a signed
-		// manifest that has been re-labelled, not a later release.
-		if info, ok := in.store.Info(e.ID); ok && !info.ManifestDate.IsZero() && m.Date.Before(info.ManifestDate) {
-			return nil, mismatchf("%s is dated %s, earlier than the installed %s (%s), so it is not offered as an update",
-				tag, m.Date.Format(time.RFC3339), info.Version, info.ManifestDate.Format(time.RFC3339))
-		}
+	if err := checkHighWater(version, in.store.HighWater(e.ID), mayDowngrade); err != nil {
+		return nil, err
 	}
 	return &Plan{
 		Entry: e, Version: version, Archive: file.Name, URL: file.URL, SHA256: strings.ToLower(file.SHA256), Size: file.Size, Date: m.Date,
-		Signed: signed, Installed: installed, Explicit: explicit,
+		Signed: signed, Installed: installed, Repair: repair,
 	}, nil
 }
 
@@ -473,7 +487,7 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 	if _, running := st.RunningPID(id); running {
 		return nil, ErrBusy
 	}
-	if cur, _ := st.Current(id); cur == p.Version {
+	if cur, _ := st.Current(id); cur == p.Version && !p.Repair {
 		return nil, fmt.Errorf("%w: %s", ErrAlreadyInstalled, p.Version)
 	}
 	if err := os.MkdirAll(st.appDir(id), 0o700); err != nil {
@@ -518,7 +532,7 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 	if err != nil {
 		return nil, err
 	}
-	info := InstallInfo{Version: p.Version, Source: p.URL, SHA256: p.SHA256, BinarySHA256: binSum, Signed: p.Signed, ManifestDate: p.Date, InstalledAt: in.now().UTC()}
+	info := InstallInfo{Version: p.Version, Source: p.URL, SHA256: p.SHA256, BinarySHA256: binSum, Signed: p.Signed, InstalledAt: in.now().UTC()}
 	data, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
 		return nil, err
@@ -534,30 +548,48 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 	}
 
 	previous, _ := st.Current(id)
-	if previous == p.Version {
+	if previous == p.Version && !p.Repair {
 		return nil, fmt.Errorf("%w: %s", ErrAlreadyInstalled, p.Version)
 	}
 	final := st.versionDir(id, p.Version)
-	// What is already at the final name is not the installed version (an
-	// install of that version was refused earlier), so it is what an
-	// interrupted install left. It is replaced.
+	// Whatever is at the final name is either what an interrupted install left
+	// or, for a repair, the version being replaced. It is moved aside inside the
+	// staging folder, which is removed at the end, and put back if the install
+	// fails, so a failed repair leaves what was there.
+	aside := ""
 	if _, statErr := os.Lstat(final); statErr == nil {
-		if err := os.RemoveAll(final); err != nil {
+		aside = filepath.Join(staging, "aside")
+		if err := store.RenameWithRetry(final, aside); err != nil {
 			return nil, err
 		}
 	}
 	if err := store.RenameWithRetry(built, final); err != nil {
+		if aside != "" {
+			_ = store.RenameWithRetry(aside, final)
+		}
 		return nil, err
 	}
 	defer func() {
-		// A version that was swapped in and not made current is not wanted,
-		// and the old one is still current.
+		// A version that was swapped in and not made current is not wanted, and
+		// the old one is still current.
 		if err != nil {
 			os.RemoveAll(final)
+			if aside != "" {
+				_ = store.RenameWithRetry(aside, final)
+			}
 		}
 	}()
 	if err := in.stage("renamed"); err != nil {
 		return nil, err
+	}
+	// The record that a signed version was installed goes down before the
+	// pointer moves, and an install that cannot write it fails: with the pointer
+	// first, a failure here would leave a signed install that nothing remembers,
+	// and the next unsigned release would be accepted for it.
+	if info.Signed {
+		if err := st.markSigned(id, p.Version); err != nil {
+			return nil, fmt.Errorf("could not record the signed install, so it was not made current: %w", err)
+		}
 	}
 	cur, _ := json.Marshal(currentFile{Version: p.Version})
 	if err := writeFileAtomic(st.currentFile(id), cur, 0o644); err != nil {
@@ -569,11 +601,6 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 		// pointer back so the failure leaves the old version current.
 		in.restoreCurrent(id, previous)
 		return nil, err
-	}
-	if info.Signed {
-		// Best effort: a signed install that cannot write this has still
-		// installed, and the record is what keeps it from being downgraded.
-		_ = st.markSigned(id, p.Version)
 	}
 	in.prune(id, p.Version, previous)
 	return &info, nil

@@ -304,7 +304,12 @@ func (c *helperCLI) install(id string, f helpersInstallFlags) error {
 		return c.explainInstall(e, err)
 	}
 
-	fmt.Fprintf(c.out, "\nInstall %s %s\n", e.Name, plan.Version)
+	if plan.Repair {
+		fmt.Fprintf(c.out, "\nRepair %s %s\n", e.Name, plan.Version)
+		fmt.Fprintf(c.out, "  The installed copy no longer matches what was installed. It is replaced by a\n  checked copy of the same version.\n")
+	} else {
+		fmt.Fprintf(c.out, "\nInstall %s %s\n", e.Name, plan.Version)
+	}
 	fmt.Fprintf(c.out, "  %s\n", e.Summary)
 	fmt.Fprintf(c.out, "  From:       %s\n", plan.URL)
 	if plan.Signed {

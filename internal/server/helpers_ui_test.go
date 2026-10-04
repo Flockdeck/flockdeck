@@ -441,3 +441,51 @@ func TestAnInstallIsRefusedWhileTheHelperIsActive(t *testing.T) {
 		t.Fatalf("current = %q", v)
 	}
 }
+
+// The window never goes backwards: a release below the newest signed version
+// installed here is refused for it, though the command line could name it.
+func TestTheWindowRefusesAReleaseBelowTheHighWaterMark(t *testing.T) {
+	r := newUIRig(t)
+	sha := r.publish(t, "0.5.0", true, false)
+	c := &controlClient{out: make(chan []byte, 32)}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.5.0", SHA256: sha, Confirmed: true})
+	notices(c, 3*time.Second)
+	if err := r.store.Uninstall("lens", false); err != nil {
+		t.Fatal(err)
+	}
+	old := r.publish(t, "0.3.0", true, false)
+	r.send(c, command{Cmd: "helperPlan", ID: "lens", Text: "0.3.0"})
+	m := next(t, c, "helperPlan")
+	if !strings.Contains(m["error"].(string), "older than a signed version") {
+		t.Fatalf("plan = %v", m)
+	}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.3.0", SHA256: old, Confirmed: true})
+	got := notices(c, 2*time.Second)
+	if !strings.Contains(strings.Join(got, "|"), "older than a signed version") {
+		t.Fatalf("notices = %v", got)
+	}
+	if _, ok := r.store.Current("lens"); ok {
+		t.Fatal("installed below the mark from the window")
+	}
+}
+
+func TestThePlanOfATamperedInstallIsARepair(t *testing.T) {
+	r := newUIRig(t)
+	sha := r.publish(t, "0.4.0", true, false)
+	c := &controlClient{out: make(chan []byte, 32)}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
+	notices(c, 3*time.Second)
+	if err := os.WriteFile(filepath.Join(r.store.Root, "lens", "versions", "0.4.0", "lens"), []byte("changed"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r.send(c, command{Cmd: "helperPlan", ID: "lens", Text: "0.4.0"})
+	m := next(t, c, "helperPlan")
+	if m["repair"] != true {
+		t.Fatalf("plan = %v", m)
+	}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
+	got := notices(c, 3*time.Second)
+	if !strings.Contains(strings.Join(got, "|"), "Installed lens 0.4.0") {
+		t.Fatalf("notices = %v", got)
+	}
+}

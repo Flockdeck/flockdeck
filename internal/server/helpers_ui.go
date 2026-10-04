@@ -46,18 +46,21 @@ type helpersMsg struct {
 // helperPlanMsg is what an install would do, shown before anything is
 // downloaded. Error, with Fatal set, is a refusal that has no override.
 type helperPlanMsg struct {
-	Type      string   `json:"type"`
-	ID        string   `json:"id"`
-	Name      string   `json:"name,omitempty"`
-	Summary   string   `json:"summary,omitempty"`
-	Version   string   `json:"version,omitempty"`
-	URL       string   `json:"url,omitempty"`
-	SHA256    string   `json:"sha256,omitempty"`
-	Signed    bool     `json:"signed"`
-	Installed string   `json:"installed,omitempty"`
-	Allows    []string `json:"allows,omitempty"`
-	Error     string   `json:"error,omitempty"`
-	Fatal     bool     `json:"fatal,omitempty"`
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	Name      string `json:"name,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+	Version   string `json:"version,omitempty"`
+	URL       string `json:"url,omitempty"`
+	SHA256    string `json:"sha256,omitempty"`
+	Signed    bool   `json:"signed"`
+	Installed string `json:"installed,omitempty"`
+	// Repair says the installed version no longer matches what was installed,
+	// and this puts a checked copy of it back.
+	Repair bool     `json:"repair,omitempty"`
+	Allows []string `json:"allows,omitempty"`
+	Error  string   `json:"error,omitempty"`
+	Fatal  bool     `json:"fatal,omitempty"`
 }
 
 // helperState is what the dialog needs beyond the supervisor and the disk.
@@ -224,7 +227,7 @@ func (s *Server) helperPlan(c *controlClient, id, version string) {
 		defer s.surviveFor(c, "looking up a helper")
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		plan, err := inst.Plan(ctx, id, version)
+		plan, err := inst.PlanVersion(ctx, id, version, false)
 		if err != nil {
 			var sig *helpers.SignatureError
 			var required *helpers.SignedRequiredError
@@ -233,7 +236,7 @@ func (s *Server) helperPlan(c *controlClient, id, version string) {
 		}
 		c.sendJSON(helperPlanMsg{
 			Type: "helperPlan", ID: id, Name: plan.Entry.Name, Summary: plan.Entry.Summary, Version: plan.Version, URL: plan.URL,
-			SHA256: plan.SHA256, Signed: plan.Signed, Installed: plan.Installed, Allows: plan.Entry.Allows,
+			SHA256: plan.SHA256, Signed: plan.Signed, Installed: plan.Installed, Repair: plan.Repair, Allows: plan.Entry.Allows,
 		})
 	}()
 }
@@ -245,6 +248,8 @@ func planError(err error) string {
 		return "There is no build of this helper for this platform."
 	case errors.Is(err, helpers.ErrAlreadyInstalled):
 		return err.Error()
+	case errors.Is(err, helpers.ErrBelowHighWater):
+		return "This release is older than a signed version that was installed here before, so it is not offered. It can be installed by naming the version on the command line."
 	}
 	var sig *helpers.SignatureError
 	if errors.As(err, &sig) {
@@ -280,12 +285,12 @@ func (s *Server) helperInstall(c *controlClient, cmd command) {
 			c.notify("Stop the helper before installing over it", true)
 			return
 		}
-		plan, err := inst.Plan(ctx, id, version)
+		plan, err := inst.PlanVersion(ctx, id, version, false)
 		if err != nil {
 			c.notify("Not installed: "+planError(err), true)
 			return
 		}
-		if plan.SHA256 != cmd.SHA256 {
+		if plan.SHA256 != cmd.SHA256 || plan.Version != version {
 			c.notify("Not installed: the release changed since it was shown. Look again before installing.", true)
 			return
 		}

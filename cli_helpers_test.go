@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -515,5 +516,31 @@ func TestHelpersStartShowsALogWithoutControlCharacters(t *testing.T) {
 	}
 	if !strings.Contains(r.out.String(), "boom") || !strings.Contains(r.out.String(), "overwrite") {
 		t.Fatalf("the text was lost: %q", r.out.String())
+	}
+}
+
+// A program changed since it was installed is put back by installing the same
+// version again, which the refusal to start says to do.
+func TestHelpersInstallRepairsAChangedProgram(t *testing.T) {
+	r := newCLIRig(t)
+	r.rel.publish(t, "0.4.0", true, false)
+	if err := r.run("install", "-yes", "lens"); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(r.store.Root, "lens", "versions", "0.4.0", "lens")
+	if err := os.WriteFile(bin, []byte("changed"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.run("install", "-yes", "lens"); err != nil {
+		t.Fatalf("repair: %v\n%s", err, r.out)
+	}
+	if !strings.Contains(r.out.String(), "Repair lens 0.4.0") || !strings.Contains(r.out.String(), "Installed lens 0.4.0.") {
+		t.Fatalf("output = %s", r.out)
+	}
+	if b, _ := os.ReadFile(bin); string(b) != "a program" {
+		t.Fatalf("the program is %q", b)
+	}
+	if err := r.run("install", "-yes", "lens"); err == nil || !strings.Contains(err.Error(), "already installed") {
+		t.Fatalf("an intact install: %v", err)
 	}
 }

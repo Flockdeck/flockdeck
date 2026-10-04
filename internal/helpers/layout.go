@@ -61,10 +61,7 @@ type InstallInfo struct {
 	SHA256  string `json:"sha256"`
 	// BinarySHA256 is the unpacked program's own hash, checked before every
 	// start.
-	BinarySHA256 string `json:"binarySha256"`
-	// ManifestDate is the signed manifest's date, kept so a later "update" with
-	// an earlier date is seen for what it is.
-	ManifestDate time.Time `json:"manifestDate,omitempty"`
+	BinarySHA256 string    `json:"binarySha256"`
 	Signed       bool      `json:"signed"`
 	InstalledAt  time.Time `json:"installedAt"`
 }
@@ -214,8 +211,14 @@ func (s *Store) Uninstall(id string, purge bool) error {
 	// trust.json stays: an uninstall does not make an unsigned release of a
 	// helper that was signed acceptable. Deleting the data does.
 	if purge {
+		// The record goes only once the data has, so a purge that is refused
+		// (a data folder that is a link) leaves it.
+		if err := s.PurgeData(id); err != nil {
+			return err
+		}
 		_ = os.Remove(s.trustFile(id))
-		return s.PurgeData(id)
+		_ = os.Remove(s.appDir(id))
+		return nil
 	}
 	// An empty folder with nothing in it is not worth leaving.
 	_ = os.Remove(dir)

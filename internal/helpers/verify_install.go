@@ -4,11 +4,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/jmwri/flockdeck/internal/selfupdate"
 )
 
 // Checks made before a helper is started, because what is on disk now is not
@@ -87,37 +90,103 @@ func fileSHA256(path string) (string, error) {
 }
 
 // The trust record: once a helper has been installed from a signed release,
-// an unsigned one is never accepted for it. Without this, anyone who can
-// make the signature file disappear (a CDN, a proxy, a bucket) turns a signed
-// helper into one that asks the user to click through an override.
+// an unsigned one is never accepted for it, and nothing older than the newest
+// signed version installed is accepted without being asked for by name on the
+// command line. Without the first, anyone who can make the signature file
+// disappear turns a signed helper into one that asks to be clicked through; and
+// without the second, a signed release from before a fix can be served again
+// after an uninstall, when nothing installed is left to compare it with.
 
 type trustRecord struct {
-	EverSigned bool   `json:"everSigned"`
-	Version    string `json:"version"`
+	EverSigned bool `json:"everSigned"`
+	// HighWater is the newest signed version ever installed.
+	HighWater string `json:"highWater,omitempty"`
 }
 
 func (s *Store) trustFile(id string) string { return filepath.Join(s.appDir(id), "trust.json") }
 
+func (s *Store) readTrust(id string) (rec trustRecord, exists, readable bool) {
+	data, err := os.ReadFile(s.trustFile(id))
+	if errors.Is(err, fs.ErrNotExist) {
+		return rec, false, true
+	}
+	if err != nil {
+		return rec, true, false
+	}
+	if json.Unmarshal(data, &rec) != nil {
+		return trustRecord{}, true, false
+	}
+	return rec, true, true
+}
+
 // EverSigned reports whether a signed version of the helper was ever installed
-// here. An uninstall keeps the record; deleting the helper's data does not.
+// here, and it fails closed. Flockdeck writes trust.json only to say yes, so a
+// file that is there but does not say yes (corrupt, empty, null, `{"everSigned":false}`, a
+// folder, unreadable) is damage or tampering and counts as yes. With no file at
+// all, the installed version's own install.json is asked, which covers a
+// deleted record; and with neither, there is no signed history and this is a
+// fresh install. An uninstall keeps the record; deleting the data clears it.
 func (s *Store) EverSigned(id string) bool {
 	if !validID(id) {
 		return false
 	}
-	data, err := os.ReadFile(s.trustFile(id))
-	if err != nil {
-		return false
+	if _, exists, _ := s.readTrust(id); exists {
+		return true
 	}
-	var t trustRecord
-	return json.Unmarshal(data, &t) == nil && t.EverSigned
+	info, ok := s.Info(id)
+	return ok && info.Signed
 }
 
+// HighWater is the newest signed version known to have been installed here: the
+// record's, or the installed version's if that is signed and newer. Empty when
+// none is known.
+func (s *Store) HighWater(id string) string {
+	if !validID(id) {
+		return ""
+	}
+	hw := ""
+	if rec, _, ok := s.readTrust(id); ok && validVersion(rec.HighWater) {
+		hw = rec.HighWater
+	}
+	if info, ok := s.Info(id); ok && info.Signed && validVersion(info.Version) {
+		if hw == "" || selfupdate.Newer(info.Version, hw) {
+			hw = info.Version
+		}
+	}
+	return hw
+}
+
+// markSigned records a signed install, keeping the higher of the version and
+// what was recorded before.
 func (s *Store) markSigned(id, version string) error {
-	data, err := json.Marshal(trustRecord{EverSigned: true, Version: version})
+	hw := s.HighWater(id)
+	if hw == "" || selfupdate.Newer(version, hw) {
+		hw = version
+	}
+	data, err := json.Marshal(trustRecord{EverSigned: true, HighWater: hw})
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(s.appDir(id), 0o700); err != nil {
+		return err
+	}
 	return writeFileAtomic(s.trustFile(id), data, 0o644)
+}
+
+// ErrBelowHighWater is a release older than the newest signed version ever
+// installed here. Only a version named on the command line gets past it.
+var ErrBelowHighWater = errors.New("version is older than the newest signed version installed here before")
+
+// checkHighWater refuses a version below the high-water mark unless the caller
+// may downgrade.
+func checkHighWater(version, highWater string, mayDowngrade bool) error {
+	if mayDowngrade || highWater == "" || version == highWater {
+		return nil
+	}
+	if selfupdate.Newer(highWater, version) {
+		return fmt.Errorf("%w: %s is older than %s, which was installed before; name the version on the command line to install it anyway", ErrBelowHighWater, version, highWater)
+	}
+	return nil
 }
 
 // SignedRequiredError is an unsigned release of a helper that has to be

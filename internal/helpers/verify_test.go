@@ -42,7 +42,7 @@ func TestInstallFromTheCDN(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !info.Signed || info.Version != "0.4.0" || info.ManifestDate.IsZero() {
+	if !info.Signed || info.Version != "0.4.0" {
 		t.Fatalf("info = %+v", info)
 	}
 	if v, ok := f.store.Current("lens"); !ok || v != "0.4.0" {
@@ -726,28 +726,37 @@ func TestManifestDateRules(t *testing.T) {
 		t.Fatalf("no date: %v", err)
 	}
 	f.site.release(t, f.entry, releaseSpec{version: "0.4.0", key: f.key, latest: true, date: time.Now().Add(72 * time.Hour)})
-	if _, err := f.install(""); err == nil || !strings.Contains(err.Error(), "in the future") {
+	if _, err := f.install(""); err == nil || !strings.Contains(err.Error(), "ahead of this machine's clock") {
 		t.Fatalf("future date: %v", err)
 	}
 }
 
-func TestANewerVersionWithAnOlderDateIsNotAnUpdate(t *testing.T) {
+// The manifest's date is not compared with the installed version's: a hotfix
+// can be dated after a release that is numbered above it and was made first,
+// and refusing the later release for it would be a false refusal that protects
+// nothing (the version in the same signed manifest already carries replay
+// protection).
+func TestAnUpdateDatedBeforeTheInstalledVersionIsAccepted(t *testing.T) {
 	f := newFixture(t)
 	now := time.Now()
-	f.site.release(t, f.entry, releaseSpec{version: "0.4.0", key: f.key, latest: true, date: now.Add(-time.Hour)})
+	f.site.release(t, f.entry, releaseSpec{version: "0.4.1", key: f.key, latest: true, date: now.Add(-time.Hour)})
 	if _, err := f.install(""); err != nil {
 		t.Fatal(err)
 	}
-	// 0.5.0 is signed and newer by number, and dated before 0.4.0: an old
-	// release relabelled.
 	f.site.release(t, f.entry, releaseSpec{version: "0.5.0", key: f.key, latest: true, date: now.Add(-48 * time.Hour)})
-	_, err := f.install("")
-	if _, ok := asErr[*MismatchError](err); !ok || !strings.Contains(err.Error(), "earlier than the installed") {
-		t.Fatalf("err = %v", err)
+	if _, err := f.install(""); err != nil {
+		t.Fatalf("a legitimately earlier-dated 0.5.0 was refused after a later-dated hotfix: %v", err)
 	}
-	// Named by hand, it is the person's choice.
-	if _, err := f.install("0.5.0"); err != nil {
-		t.Fatalf("named: %v", err)
+}
+
+// A clock that is a day or more behind makes every manifest look future-dated.
+// The refusal names the clock, which is the usual cause.
+func TestAClockThatIsBehindIsNamedInTheRefusal(t *testing.T) {
+	f := newFixture(t, func(o *Options) { o.Now = func() time.Time { return time.Now().Add(-72 * time.Hour) } })
+	f.publish("0.4.0")
+	_, err := f.install("")
+	if err == nil || !strings.Contains(err.Error(), "machine's clock") || !strings.Contains(err.Error(), "clock is wrong") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
