@@ -199,6 +199,34 @@ func TestChatPathFindsTheStoredChat(t *testing.T) {
 	}
 }
 
+// An empty chat file is what a pane opened and never prompted leaves behind, and
+// is not a conversation. A session id is not a path either: one with a separator
+// in it, as a hook payload could carry, finds nothing, and Replies reads nothing.
+func TestChatPathIgnoresAnEmptyFileAndAnIdWithASeparator(t *testing.T) {
+	const id = "33333333-3333-3333-3333-333333333333"
+	dir := writeChats(t, map[string][]string{})
+	if err := os.WriteFile(filepath.Join(dir, id+".jsonl"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := (Chat{}).Path(chatSpec, id); got != "" {
+		t.Errorf("Path of an empty chat = %q, want nothing", got)
+	}
+
+	// A real chat file one folder up, which a traversing id would reach.
+	outside := filepath.Join(filepath.Dir(dir), "outside.jsonl")
+	if err := os.WriteFile(outside, []byte(`{"type":"assistant","text":"secret"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"../outside", `..\outside`, "a/b", `a\b`} {
+		if got := (Chat{}).Path(chatSpec, bad); got != "" {
+			t.Errorf("Path(%q) = %q, want nothing", bad, got)
+		}
+		if got := (Chat{}).Replies(chatSpec, bad, 3); len(got) != 0 {
+			t.Errorf("Replies(%q) = %v, want nothing", bad, got)
+		}
+	}
+}
+
 // BenchmarkChatRows measures listing one project's chats from a folder shared
 // with every other project's, which is what opening the history overlay costs
 // an API agent's pane: two hundred chats of a quarter of a megabyte each, ten

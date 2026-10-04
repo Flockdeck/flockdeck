@@ -47,8 +47,12 @@ type chatRow struct {
 	model, agent string
 }
 
+// Path is the chat's file, or "" when there is nothing to read: no id, an id
+// that is not a plain file name (a session id can arrive in a hook payload, and
+// claudePath refuses the same), no file, or an empty one. A pane opened and
+// never prompted leaves an empty file behind, which is not a conversation.
 func (Chat) Path(_ agent.Spec, sessionID string) string {
-	if sessionID == "" {
+	if sessionID == "" || strings.ContainsAny(sessionID, `/\`) {
 		return ""
 	}
 	dir, err := chatsDir()
@@ -56,7 +60,7 @@ func (Chat) Path(_ agent.Spec, sessionID string) string {
 		return ""
 	}
 	path := filepath.Join(dir, sessionID+".jsonl")
-	if _, err := os.Stat(path); err != nil {
+	if fi, err := os.Stat(path); err != nil || fi.Size() == 0 {
 		return ""
 	}
 	return path

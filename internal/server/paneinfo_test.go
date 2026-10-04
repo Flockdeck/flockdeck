@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
@@ -193,5 +194,63 @@ func TestPaneInfoNamesTheStoredConversationOfAnAgentPane(t *testing.T) {
 	}
 	if d = details(); d.StoredPath != file {
 		t.Errorf("stored path = %q, want %q", d.StoredPath, file)
+	}
+}
+
+// A Flockdeck API agent keeps its conversation in a file of its own, which Pane
+// info shows once it exists and not before. It has no exporter, so it still has
+// no transcript file; a shell has neither.
+func TestPaneInfoShowsAnAPIAgentsStoredConversationOnlyOnceItExists(t *testing.T) {
+	srv, ws := newTestServer(t)
+	p, _ := ask(srv, func() *workspace.Pane {
+		p := ws.Pane(ws.NewTab(session.KindShell, ws.ActiveRoot(), "api").Tree.Panes()[0])
+		p.Kind, p.Agent = session.KindAgent, "anthropic"
+		return p
+	})
+	details := func(id string) workspace.PaneDetails {
+		d, _ := ask(srv, func() workspace.PaneDetails { d, _ := ws.PaneDetailsOf(id, true); return d })
+		return d
+	}
+	d := details(p.ID)
+	if d.Conversation == "" || d.StoredPath != "" || d.TranscriptPath != "" {
+		t.Fatalf("before the file exists: %+v", d)
+	}
+	for _, f := range paneInfoFields(d, "Shop") {
+		if (f.Label == "Stored conversation file" || f.Label == "Transcript file") && f.Value != "" {
+			t.Errorf("%s shows %q before there is a file", f.Label, f.Value)
+		}
+	}
+
+	state, err := store.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(state, "chats")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, d.Conversation+".jsonl")
+	// A pane opened and never prompted leaves an empty file, which is not set.
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if d = details(p.ID); d.StoredPath != "" {
+		t.Errorf("an empty file shows %q", d.StoredPath)
+	}
+	if err := os.WriteFile(file, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d = details(p.ID)
+	if d.StoredPath != file {
+		t.Errorf("stored path = %q, want %q", d.StoredPath, file)
+	}
+	if d.TranscriptPath != "" {
+		t.Errorf("an API agent has a transcript path %q", d.TranscriptPath)
+	}
+
+	// A shell has no agent, so nothing is looked up for it.
+	shell := details(addPane(t, srv, ws, "shell"))
+	if shell.Agent || shell.StoredPath != "" || shell.Conversation != "" {
+		t.Errorf("a shell: %+v", shell)
 	}
 }
