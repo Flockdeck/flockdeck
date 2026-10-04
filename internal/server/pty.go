@@ -83,6 +83,9 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such pane", http.StatusNotFound)
 		return
 	}
+	if s.paneFound != nil {
+		s.paneFound()
+	}
 
 	// No origin patterns: the default is that the page opening this socket
 	// must have come from this server's own address, and no wider allowance
@@ -126,12 +129,14 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// markUse records a use of the pane from this socket, when it is one
 	// reached through the relay. See markRelayUseIfOpen for why every record
 	// goes through the workspace goroutine, and relayMarker for why not on
-	// this one.
+	// this one. Opening is a use like the rest, noted and not waited for: the
+	// terminal is served, and the end-to-end handshake made, without asking the
+	// workspace goroutine anything more.
 	var markUse func()
 	if relay {
-		s.markRelayUseIfOpen(id)
-		defer s.markRelayUseIfOpen(id)
 		markUse = s.relayMarker(ctx, id)
+		markUse()
+		defer s.markRelayUseIfOpen(id)
 		// The device asking is named by this header, which the relay itself
 		// sets on the tunnel connection and strips any client-supplied copy
 		// of first -- so a browser cannot claim to be a device it is not,
@@ -722,9 +727,11 @@ func (s *Server) waitForRestart(ctx context.Context, id string, old *session.Ses
 // the pane is gone, and a frame can arrive in between. The check is made on the
 // workspace goroutine, where a pane is closed and forgotten, so the pane is
 // either still open here and forgotten afterwards, or already gone and not
-// marked. When that goroutine does not answer in time nothing is recorded: a
-// use left out for a few seconds of a stalled workspace costs less than an entry
-// that stays.
+// marked. A use that could not even be handed to that goroutine within
+// paneLookup is dropped: a use left out for a few seconds of a stalled
+// workspace costs less than an entry that stays. One that was handed over and
+// is still waiting in its queue when the wait ends is not withdrawn, and runs
+// when the goroutine gets to it, with the same check.
 func (s *Server) markRelayUseIfOpen(id string) {
 	deadline := time.After(s.paneLookup)
 	done := make(chan struct{})

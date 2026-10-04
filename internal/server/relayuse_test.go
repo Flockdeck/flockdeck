@@ -165,3 +165,45 @@ func TestTypedInputAndFocusAfterAPaneClosedLeaveNoRelayUse(t *testing.T) {
 		}
 	}
 }
+
+// TestOpeningARelaySocketDoesNotWaitOnTheWorkspace covers a phone opening a
+// pane's terminal while the workspace goroutine is busy. Finding the pane is
+// the one question it has to ask; recording the open as a use waited for the
+// goroutine a second time, up to paneLookup, before the terminal was served.
+// The workspace is stalled the moment the pane has been found, and the first
+// frame has to arrive well inside the wait the open used to have.
+func TestOpeningARelaySocketDoesNotWaitOnTheWorkspace(t *testing.T) {
+	srv, ws := newTestServer(t)
+	id := addPane(t, srv, ws, "second")
+	srv.paneLookup = 3 * time.Second
+
+	release := make(chan struct{})
+	var once sync.Once
+	free := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(free)
+	srv.paneFound = func() {
+		// Queued, not waited for: the workspace goroutine is held from here.
+		srv.cmds <- func() { <-release }
+	}
+	ts := remoteServer(t, srv)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	h := http.Header{}
+	h.Set("Origin", ts.URL)
+	began := time.Now()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/pty?id="+id, &websocket.DialOptions{HTTPHeader: h})
+	if err != nil {
+		t.Fatalf("open the pane through the relay: %v", err)
+	}
+	defer conn.CloseNow()
+	readCtx, stop := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer stop()
+	if _, _, err := conn.Read(readCtx); err != nil {
+		t.Fatalf("no frame within %v of opening with the workspace stalled (opened in %v): %v",
+			1500*time.Millisecond, time.Since(began), err)
+	}
+	free()
+	// The open is still recorded, once the workspace is free.
+	waitFor(t, func() bool { return relayUse.has(id) })
+}

@@ -78,6 +78,11 @@ type Server struct {
 	// rp is what a repaint does at each step; see repaintHooks.
 	rp repaintHooks
 
+	// paneFound, when set, is called by a terminal socket once it has found
+	// its pane and before it does anything else, so that a test can stall the
+	// workspace goroutine at exactly that point.
+	paneFound func()
+
 	// links are the one-time links a window may be opened with, each with
 	// when it stops working and, where the caller has said (see SetLinkFile),
 	// the file on this machine it was written into as a local redirect --
