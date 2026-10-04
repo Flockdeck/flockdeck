@@ -2,7 +2,7 @@
 // Schema that docs/recording-line.schema.json uses, so that tests can check
 // real recording lines against the published schema without a dependency.
 //
-// The subset: type, const, enum, pattern, minimum, minLength, required,
+// The subset: type, const, enum, pattern, minimum, minLength, minProperties, required,
 // properties, additionalProperties and unevaluatedProperties (false only), $ref to #/$defs, items, allOf and if/then. Anything else in a schema is ignored,
 // which is why the schema sticks to these.
 package schemacheck
@@ -92,6 +92,9 @@ func (val validator) check(schema map[string]any, v any, path string) []string {
 			}
 		}
 	case map[string]any:
+		if n, ok := schema["minProperties"].(float64); ok && float64(len(x)) < n {
+			add("has %d members, want at least %v", len(x), n)
+		}
 		if req, ok := schema["required"].([]any); ok {
 			for _, r := range req {
 				if _, there := x[r.(string)]; !there {

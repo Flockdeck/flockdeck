@@ -2,6 +2,7 @@ package record
 
 import (
 	"encoding/json"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,10 +103,61 @@ func TestEveryFixtureExportsToLinesTheSchemaAccepts(t *testing.T) {
 				if errs := schema.Validate(l); len(errs) != 0 {
 					t.Errorf("%s (cap %d) line %d: %v\n%s", name, max, i+1, errs, l)
 				}
+				var e struct {
+					Type        string
+					IsError     *bool `json:"isError"`
+					Interrupted *bool `json:"interrupted"`
+				}
+				_ = json.Unmarshal(l, &e)
+				if e.Type == TypeToolResult && *e.Interrupted && !*e.IsError {
+					t.Errorf("%s line %d: interrupted without isError", name, i+1)
+				}
 			}
 			if max > 0 && !res.Full {
 				t.Errorf("%s: the cap of %d did not cut the export", name, max)
 			}
 		}
+	}
+}
+
+// A tool_result always says whether it failed and whether the user stopped it,
+// true or false, so that a consumer never has to read absence as false; a usage
+// with a count missing is written without that key, not with 0.
+func TestToolResultsAlwaysSayIfTheyFailedAndUsageLeavesOutWhatIsMissing(t *testing.T) {
+	m, _ := newTestManager(t)
+	f := newFeed(t, m)
+	f.must(transcript.ExportEvent{Kind: transcript.ExportMessage, Text: "x", Usage: &transcript.ExportUsage{InputTokens: transcript.Count(1), OutputTokens: transcript.Count(2)}})
+	f.result("Bash", "t1", "ok")
+	f.must(transcript.ExportEvent{Kind: transcript.ExportToolResult, Tool: "Bash", ToolUseID: "t2", IsError: true, Interrupted: true, Output: "stopped"})
+	path := f.path()
+	f.finish()
+	var results int
+	for _, l := range rawLines(t, path) {
+		var m map[string]any
+		if err := json.Unmarshal(l, &m); err != nil {
+			t.Fatal(err)
+		}
+		switch m["type"] {
+		case TypeToolResult:
+			results++
+			if _, ok := m["isError"].(bool); !ok {
+				t.Errorf("no isError: %s", l)
+			}
+			if _, ok := m["interrupted"].(bool); !ok {
+				t.Errorf("no interrupted: %s", l)
+			}
+		case TypeAssistant:
+			u, _ := m["usage"].(map[string]any)
+			if len(u) != 2 || u["inputTokens"] != float64(1) || u["outputTokens"] != float64(2) {
+				t.Errorf("usage = %v", u)
+			}
+		default:
+			if _, ok := m["isError"]; ok {
+				t.Errorf("isError on a %v line", m["type"])
+			}
+		}
+	}
+	if results != 2 {
+		t.Errorf("%d tool results", results)
 	}
 }

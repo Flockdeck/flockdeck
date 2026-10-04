@@ -53,7 +53,7 @@ func TestClaudeExportTakesUsageFromFirstLineWhenEntriesDisagree(t *testing.T) {
 			t.Errorf("tool call carries %+v %q, but its reply's first line already did", e.Usage, e.StopReason)
 		}
 	}
-	wantUsage := []ExportUsage{{InputTokens: 3, OutputTokens: 50, CacheReadInputTokens: 2000}, {InputTokens: 4, OutputTokens: 7, CacheReadInputTokens: 3000}}
+	wantUsage := []ExportUsage{{InputTokens: Count(3), OutputTokens: Count(50), CacheCreationInputTokens: Count(0), CacheReadInputTokens: Count(2000)}, {InputTokens: Count(4), OutputTokens: Count(7), CacheCreationInputTokens: Count(0), CacheReadInputTokens: Count(3000)}}
 	if !reflect.DeepEqual(usages, wantUsage) {
 		t.Errorf("usage written %+v, want one per reply from its first line %+v", usages, wantUsage)
 	}

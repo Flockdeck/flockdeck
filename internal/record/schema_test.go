@@ -53,7 +53,7 @@ func TestEmittedLinesMatchThePublishedSchema(t *testing.T) {
 	f.result("Read", "t2", "SECRET=1")
 	f.must(transcript.ExportEvent{Kind: transcript.ExportToolResult, Tool: "Bash", IsError: true, Interrupted: true, Output: "stopped"})
 	f.say("Done.")
-	f.must(transcript.ExportEvent{Kind: transcript.ExportMessage, Text: "With details.", Model: "m", Usage: &transcript.ExportUsage{InputTokens: 1, OutputTokens: 2, CacheCreationInputTokens: 3, CacheReadInputTokens: 4}, StopReason: "end_turn", GitBranch: "main", Cwd: "/work/shop", AgentVersion: "2.1.286"})
+	f.must(transcript.ExportEvent{Kind: transcript.ExportMessage, Text: "With details.", Model: "m", Usage: &transcript.ExportUsage{InputTokens: transcript.Count(1), OutputTokens: transcript.Count(2), CacheCreationInputTokens: transcript.Count(3), CacheReadInputTokens: transcript.Count(4)}, StopReason: "end_turn", GitBranch: "main", Cwd: "/work/shop", AgentVersion: "2.1.286"})
 	f.must(transcript.ExportEvent{Kind: transcript.ExportTitle, Text: "Add a retry"})
 	f.must(transcript.ExportEvent{Kind: transcript.ExportCompact, Trigger: "auto", TokensBefore: 900000, TokensAfter: 20000})
 	path := f.path()
@@ -191,23 +191,27 @@ func TestSchemaRejectsALineThatIsWrong(t *testing.T) {
 	schema := loadSchema(t)
 	const env = `"v":2,"seq":1,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd"`
 	for name, line := range map[string]string{
-		"no seq":                 `{"v":2,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
-		"version 1":              `{"v":1,"seq":1,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
-		"bad time":               `{"v":2,"seq":1,"time":"yesterday","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
-		"seq is a string":        `{"v":2,"seq":"1","time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
-		"prompt without text":    `{` + env + `,"type":"user_prompt"}`,
-		"unknown type":           `{` + env + `,"type":"status","status":"idle"}`,
-		"unknown field":          `{` + env + `,"type":"user_prompt","text":"x","future":1}`,
-		"pane is gone":           `{` + env + `,"pane":"abcd","type":"user_prompt","text":"x"}`,
-		"model on a prompt":      `{` + env + `,"type":"user_prompt","text":"x","model":"m"}`,
-		"usage on a tool result": `{` + env + `,"type":"tool_result","usage":{"inputTokens":1,"outputTokens":1,"cacheCreationInputTokens":0,"cacheReadInputTokens":0}}`,
-		"output on a tool call":  `{` + env + `,"type":"tool_call","tool":"Bash","output":"x"}`,
-		"null model":             `{` + env + `,"type":"assistant_message","text":"x","model":null}`,
-		"empty branch":           `{` + env + `,"type":"user_prompt","text":"x","gitBranch":""}`,
-		"false isError":          `{` + env + `,"type":"tool_result","isError":false}`,
-		"usage missing a key":    `{` + env + `,"type":"assistant_message","text":"x","usage":{"inputTokens":1}}`,
-		"title line without one": `{` + env + `,"type":"conversation_title"}`,
-		"unknown clipped field":  `{` + env + `,"type":"user_prompt","text":"x","clipped":{"detail":9}}`,
+		"no seq":                     `{"v":2,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
+		"version 1":                  `{"v":1,"seq":1,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
+		"bad time":                   `{"v":2,"seq":1,"time":"yesterday","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
+		"seq is a string":            `{"v":2,"seq":"1","time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd","type":"user_prompt","text":"x"}`,
+		"prompt without text":        `{` + env + `,"type":"user_prompt"}`,
+		"unknown type":               `{` + env + `,"type":"status","status":"idle"}`,
+		"unknown field":              `{` + env + `,"type":"user_prompt","text":"x","future":1}`,
+		"pane is gone":               `{` + env + `,"pane":"abcd","type":"user_prompt","text":"x"}`,
+		"model on a prompt":          `{` + env + `,"type":"user_prompt","text":"x","model":"m"}`,
+		"usage on a tool result":     `{` + env + `,"type":"tool_result","usage":{"inputTokens":1,"outputTokens":1,"cacheCreationInputTokens":0,"cacheReadInputTokens":0}}`,
+		"output on a tool call":      `{` + env + `,"type":"tool_call","tool":"Bash","output":"x"}`,
+		"null model":                 `{` + env + `,"type":"assistant_message","text":"x","model":null}`,
+		"empty branch":               `{` + env + `,"type":"user_prompt","text":"x","gitBranch":""}`,
+		"result without isError":     `{` + env + `,"type":"tool_result","interrupted":false}`,
+		"result without interrupted": `{` + env + `,"type":"tool_result","isError":false}`,
+		"isError on a call":          `{` + env + `,"type":"tool_call","tool":"Bash","isError":false}`,
+		"empty usage":                `{` + env + `,"type":"assistant_message","text":"x","usage":{}}`,
+		"negative count":             `{` + env + `,"type":"assistant_message","text":"x","usage":{"inputTokens":-1}}`,
+		"zero-key placeholder":       `{` + env + `,"type":"assistant_message","text":"x","usage":{"inputTokens":1,"extra":2}}`,
+		"title line without one":     `{` + env + `,"type":"conversation_title"}`,
+		"unknown clipped field":      `{` + env + `,"type":"user_prompt","text":"x","clipped":{"detail":9}}`,
 	} {
 		if errs := schema.Validate([]byte(line)); len(errs) == 0 {
 			t.Errorf("%s: the schema accepted %s", name, line)
@@ -293,4 +297,50 @@ func TestSchemaFieldsAreDescribed(t *testing.T) {
 			t.Errorf("the schema gives %q no description", name)
 		}
 	}
+}
+
+// A line with only some of the usage counts, and a tool_result that did not fail,
+// are valid.
+func TestSchemaAcceptsPartialUsageAndPlainResults(t *testing.T) {
+	schema := loadSchema(t)
+	const env = `"v":2,"seq":1,"time":"2026-10-01T08:00:00Z","session":"20261001T080000Z-abcd","agent":"claude","conversation":"abcd"`
+	for _, line := range []string{
+		`{` + env + `,"type":"assistant_message","text":"x","usage":{"inputTokens":1,"outputTokens":0}}`,
+		`{` + env + `,"type":"tool_result","isError":false,"interrupted":false}`,
+		`{` + env + `,"type":"tool_result","isError":true,"interrupted":true,"output":"x"}`,
+	} {
+		if errs := schema.Validate([]byte(line)); len(errs) != 0 {
+			t.Errorf("%v: %s", errs, line)
+		}
+	}
+}
+
+// TestValidateTranscriptFile validates every line of a transcript file against
+// the schema, and checks seq has no gaps, for a reviewer to run on a real export:
+//
+//	FLOCKDECK_VALIDATE_TRANSCRIPT=/path/to/file.jsonl go test ./internal/record -run TestValidateTranscriptFile -v
+//
+// It reads the file and nothing else, and is skipped when the variable is unset.
+func TestValidateTranscriptFile(t *testing.T) {
+	path := os.Getenv("FLOCKDECK_VALIDATE_TRANSCRIPT")
+	if path == "" {
+		t.Skip("set FLOCKDECK_VALIDATE_TRANSCRIPT to a transcript file to validate it")
+	}
+	schema := loadSchema(t)
+	lines := rawLines(t, path)
+	bad := 0
+	for i, l := range lines {
+		if errs := schema.Validate(l); len(errs) != 0 {
+			if bad++; bad <= 10 {
+				t.Errorf("line %d: %v", i+1, errs)
+			}
+		}
+		var e struct{ Seq int64 }
+		_ = json.Unmarshal(l, &e)
+		if e.Seq != int64(i+1) && bad < 10 {
+			bad++
+			t.Errorf("line %d has seq %d", i+1, e.Seq)
+		}
+	}
+	t.Logf("%d lines, %d invalid", len(lines), bad)
 }

@@ -112,8 +112,10 @@ nothing. Nothing else deletes transcripts: delete the files you do not want kept
   line off (section 6).
 - **No field is ever `null`**, an empty string standing for "unknown", or a zero
   standing for "unknown". A field is written, or it is absent, and the reason it
-  is absent is in the tables below and in the schema. Where an absent boolean has
-  a meaning (`isError`, `interrupted`, `redacted`), it means `false`.
+  is absent is in the tables below and in the schema. `isError` and `interrupted`
+  are written on every `tool_result`, true or false. `redacted` and `clipped` are
+  flags that appear only when something was redacted or cut, so their absence
+  means nothing was.
 
 ## 3. Fields
 
@@ -170,7 +172,7 @@ The envelope's fields are not repeated.
 | `toolUseId` |  |  |  |  | ○ | ○ |  |  |
 | `input` |  |  |  |  | ○ |  |  |  |
 | `output` |  |  |  |  |  | ○ |  |  |
-| `isError`, `interrupted` |  |  |  |  |  | ○ |  |  |
+| `isError`, `interrupted` |  |  |  |  |  | ● |  |  |
 | `title` |  |  |  |  |  |  | ● |  |
 | `trigger`, `tokensBefore`, `tokensAfter` |  |  |  |  |  |  |  | ○ |
 
@@ -243,7 +245,7 @@ message that came with tool calls is written before them.
 | --- | --- | --- | --- |
 | `text` | string | yes | The message. Cut at 32 KiB. |
 | `model` | string | no | The model that produced the turn (stored by the agent; for Claude Code, the entry's `message.model`). Written on `assistant_message` and `tool_call` lines only, so a conversation that switches model mid-way has each turn's own. Absent when the stored turn names no model, or only a placeholder such as `<synthetic>` (what Claude Code stamps on a notice it wrote itself). Never the model a pane is set to now. |
-| `usage` | object | no | The tokens the model's reply used; see *Token usage and stop reason* below. Its keys are `inputTokens`, `outputTokens`, `cacheCreationInputTokens` and `cacheReadInputTokens`, all integers. On the first line of a reply only. |
+| `usage` | object | no | The tokens the model's reply used; see *Token usage and stop reason* below. Its keys are `inputTokens`, `outputTokens`, `cacheCreationInputTokens` and `cacheReadInputTokens`, all integers, each written only if the stored reply gives it. On the first line of a reply only. |
 | `stopReason` | string | no | Why the reply ended, in the agent's word; see below. Once per reply. |
 
 ```json
@@ -262,8 +264,11 @@ no line at all.) The rest of the reply's lines have neither. So:
   one**, key by key. Each reply is counted once, and no deduplication is needed.
   `inputTokens` is the input that was not cached; `cacheCreationInputTokens` and
   `cacheReadInputTokens` are the cached input written and read, and the four are
-  separate, not parts of each other. All four keys are there whenever `usage` is;
-  a kind the stored reply does not give is `0`. The numbers are the agent's, as
+  separate, not parts of each other. Each key is
+  there only if the stored reply gives that count, and a missing key means the
+  count is unknown, never `0`: a consumer adding up usage should treat a missing
+  key as adding nothing and not as a zero it was told, and should know a total
+  with a key missing on some replies is a lower bound for that kind. The numbers are the agent's, as
   stored, and are not a bill: they say nothing of price, of the other things
   Claude Code stores with them (service tier, speed, per-iteration breakdowns),
   or of subagents, whose entries are left out (section 5).
@@ -329,11 +334,11 @@ call it answers has the model, and `toolUseId` joins the two.
 | `tool` | string | no | The name of the call it answers. **Derived by Flockdeck**: the stored result does not name the tool, so it is looked up by `toolUseId` among the calls already read. Absent only when that call is not in the transcript. |
 | `toolUseId` | string | no | The id of the call it answers (stored by the agent). Absent only where the stored result gives none. |
 | `output` | string | no | What the tool returned: the text the agent was shown. (The tool's own structured result, which can hold a whole file an edit was made to or an image as base64, is not used.) Cut at 8 KiB. For a failure, the error. Absent where the tool returned no text. |
-| `isError` | boolean | no | `true` if the tool failed (stored by the agent). Absent means it did not. |
-| `interrupted` | boolean | no | `true` if it failed because the user stopped it. **Derived by Flockdeck** from the stored error text, which says it was interrupted by the user: the agent stores no flag for it. Always with `isError`. Absent means it was not. |
+| `isError` | boolean | yes | Whether the tool failed (stored by the agent). Written on every `tool_result`, `true` or `false`. |
+| `interrupted` | boolean | yes | Whether it failed because the user stopped it. **Derived by Flockdeck** from the stored error text, which says it was interrupted by the user: the agent stores no flag for it. `true` only with `isError` `true`. Written on every `tool_result`. |
 
 ```json
-{"v":2,"seq":5,"time":"2026-10-01T10:15:58.4Z","session":"20261001T101530Z-0123abcd","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","project":"shop","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","type":"tool_result","tool":"Bash","toolUseId":"toolu_01","output":"ok  \tshop/api\t0.412s"}
+{"v":2,"seq":5,"time":"2026-10-01T10:15:58.4Z","session":"20261001T101530Z-0123abcd","conversation":"0123abcd-5e6f-4a7b-8c9d-0e1f2a3b4c5d","agent":"claude","project":"shop","gitBranch":"main","cwd":"/home/sam/shop","agentVersion":"2.1.286","type":"tool_result","tool":"Bash","toolUseId":"toolu_01","output":"ok  \tshop/api\t0.412s","isError":false,"interrupted":false}
 ```
 
 #### `conversation_title`
@@ -623,13 +628,13 @@ jq -sr '
 ```
 
 Tokens the conversation used, which is the sum of every `usage` there is (each
-reply has one, on its first line; see `assistant_message`):
+reply has one, on its first line; see `assistant_message`). A missing key counts as 0 here only to add; it is unknown, not zero (see *Token usage and stop reason*):
 
 ```sh
 jq -s '[.[] | select(.usage) | .usage] | {
-  input: (map(.inputTokens) | add), output: (map(.outputTokens) | add),
-  cacheWritten: (map(.cacheCreationInputTokens) | add),
-  cacheRead: (map(.cacheReadInputTokens) | add)}' session.jsonl
+  input: (map(.inputTokens // 0) | add), output: (map(.outputTokens // 0) | add),
+  cacheWritten: (map(.cacheCreationInputTokens // 0) | add),
+  cacheRead: (map(.cacheReadInputTokens // 0) | add)}' session.jsonl
 ```
 
 The conversation's title (the last one), and where it was compacted:

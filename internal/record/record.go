@@ -116,9 +116,11 @@ type Entry struct {
 	ToolUseID    string `json:"toolUseId,omitempty"`
 	Input        any    `json:"input,omitempty"`
 	Output       string `json:"output,omitempty"`
-	IsError      bool   `json:"isError,omitempty"`
-	// Interrupted says a tool ended because the user stopped it.
-	Interrupted bool `json:"interrupted,omitempty"`
+	IsError      *bool  `json:"isError,omitempty"`
+	// IsError and Interrupted are written on every tool_result, true or false (a
+	// pointer, so that false is not left out); Interrupted says a tool ended because
+	// the user stopped it.
+	Interrupted *bool `json:"interrupted,omitempty"`
 	// Redacted says something in the line was replaced by Redact, or withheld
 	// as the contents of a secret file.
 	Redacted bool `json:"redacted,omitempty"`
@@ -127,13 +129,13 @@ type Entry struct {
 	Clipped map[string]int `json:"clipped,omitempty"`
 }
 
-// Usage is the tokens one model reply used. All four are always written, 0 for a
-// kind the stored conversation does not give.
+// Usage is the tokens one model reply used. A count the stored conversation does
+// not give is left out, never written as 0.
 type Usage struct {
-	InputTokens              int `json:"inputTokens"`
-	OutputTokens             int `json:"outputTokens"`
-	CacheCreationInputTokens int `json:"cacheCreationInputTokens"`
-	CacheReadInputTokens     int `json:"cacheReadInputTokens"`
+	InputTokens              *int `json:"inputTokens,omitempty"`
+	OutputTokens             *int `json:"outputTokens,omitempty"`
+	CacheCreationInputTokens *int `json:"cacheCreationInputTokens,omitempty"`
+	CacheReadInputTokens     *int `json:"cacheReadInputTokens,omitempty"`
 }
 
 // Manager owns the open transcript files, one per conversation being written.
@@ -473,7 +475,7 @@ func entryOf(ev transcript.ExportEvent) Entry {
 		e.Type, e.Tool, e.ToolUseID, e.Input, e.Model = TypeToolCall, ev.Tool, ev.ToolUseID, ev.Input, ev.Model
 		e.Usage, e.StopReason = usageOf(ev.Usage), ev.StopReason
 	case transcript.ExportToolResult:
-		e.Type, e.Tool, e.ToolUseID, e.Output, e.IsError, e.Interrupted = TypeToolResult, ev.Tool, ev.ToolUseID, ev.Output, ev.IsError, ev.Interrupted
+		e.Type, e.Tool, e.ToolUseID, e.Output, e.IsError, e.Interrupted = TypeToolResult, ev.Tool, ev.ToolUseID, ev.Output, &ev.IsError, &ev.Interrupted
 	case transcript.ExportTitle:
 		e.Type, e.Title = TypeTitle, ev.Text
 	case transcript.ExportCompact:

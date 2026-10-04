@@ -61,7 +61,7 @@ an export made by an older Flockdeck gets whatever a newer one writes:
 | `user_prompt` | What you asked (`text`) |
 | `assistant_message` | What the agent said (`text`): every message, including the ones between tool calls |
 | `tool_call` | The tool (`tool`) and its `input` |
-| `tool_result` | What the tool printed (`output`), and `isError` or `interrupted` where it failed or you stopped it |
+| `tool_result` | What the tool printed (`output`), and `isError` and `interrupted`, always, true when it failed or you stopped it |
 | `conversation_title` | The conversation's title (`title`), written when it appears and again when it changes |
 | `conversation_compacted` | Where earlier history was summarised, with `trigger` and `tokensBefore` / `tokensAfter` where known. The summary itself is not recorded |
 | `recording_truncated` | The file reached its size cap and ended there |

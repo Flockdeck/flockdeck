@@ -47,13 +47,13 @@
     "usage": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Tokens a model reply used (stored by the agent), on the first assistant_message or tool_call line of each reply only, so that adding usage up over a transcript counts every reply once: Claude Code repeats a reply's usage on each of the reply's entries, and Flockdeck takes it from the first entry that gives a line. Absent on the reply's other lines, and on a reply whose stored entries give no usage.",
-      "required": ["inputTokens", "outputTokens", "cacheCreationInputTokens", "cacheReadInputTokens"],
+      "description": "Tokens a model reply used (stored by the agent), on the first assistant_message or tool_call line of each reply only, so that adding usage up over a transcript counts every reply once: Claude Code repeats a reply's usage on each of the reply's entries, and Flockdeck takes it from the first entry that gives a line. Absent on the reply's other lines, and on a reply whose stored entries give no usage. Each of its four counts is written only if the stored entry gives it, so a missing key means unknown, never 0.",
+      "minProperties": 1,
       "properties": {
-        "inputTokens": { "type": "integer", "minimum": 0, "description": "Input tokens that were not cached." },
-        "outputTokens": { "type": "integer", "minimum": 0 },
-        "cacheCreationInputTokens": { "type": "integer", "minimum": 0, "description": "Input tokens written to the cache. 0 where the stored usage does not give the figure." },
-        "cacheReadInputTokens": { "type": "integer", "minimum": 0, "description": "Input tokens read from the cache. 0 where the stored usage does not give the figure." }
+        "inputTokens": { "type": "integer", "minimum": 0, "description": "Input tokens that were not cached (stored by the agent). Absent where the stored usage has no such count." },
+        "outputTokens": { "type": "integer", "minimum": 0, "description": "Output tokens (stored by the agent). Absent where the stored usage has no such count." },
+        "cacheCreationInputTokens": { "type": "integer", "minimum": 0, "description": "Input tokens written to the cache (stored by the agent). Absent where the stored usage has no such count." },
+        "cacheReadInputTokens": { "type": "integer", "minimum": 0, "description": "Input tokens read from the cache (stored by the agent). Absent where the stored usage has no such count." }
       }
     },
     "stopReason": { "type": "string", "minLength": 1, "description": "Why a model reply ended, in the agent's own word (stored by the agent; for Claude Code end_turn, tool_use, max_tokens, and so on, not a closed set, so consumers must accept others). Once per reply, on the first assistant_message or tool_call line whose stored entry gives one, which is not always the line that has the usage. Absent on the reply's other lines, and on a reply whose stored entries all have none." },
@@ -84,12 +84,12 @@
         "usage": { "$ref": "#/$defs/usage" },
         "stopReason": { "$ref": "#/$defs/stopReason" } } } },
     { "if": { "properties": { "type": { "const": "tool_result" } }, "required": ["type"] },
-      "then": { "properties": {
+      "then": { "required": ["isError", "interrupted"], "properties": {
         "tool": { "type": "string", "minLength": 1, "description": "The name of the call this answers (derived by Flockdeck from the stored call with the same id). Absent only when that call is not in the transcript." },
         "toolUseId": { "$ref": "#/$defs/toolUseId" },
         "output": { "type": "string", "minLength": 1, "description": "The text the agent was shown (stored by the agent), redacted and cut at 8 KiB; for a failure, the error. Absent where the tool returned no text. The tool's own structured result is not used." },
-        "isError": { "const": true, "description": "Present, and true, when the tool failed (stored by the agent). Absent means it did not fail." },
-        "interrupted": { "const": true, "description": "Present, and true, when it failed because the user stopped it. Derived by Flockdeck from the stored error text, which says so; always with isError. Absent means it was not." } } } },
+        "isError": { "type": "boolean", "description": "Whether the tool failed (stored by the agent). Written on every tool_result, true or false, so absence never has to be read as false." },
+        "interrupted": { "type": "boolean", "description": "Whether it failed because the user stopped it. Derived by Flockdeck from the stored error text, which says so, so true only with isError true. Written on every tool_result, true or false." } } } },
     { "if": { "properties": { "type": { "const": "conversation_title" } }, "required": ["type"] },
       "then": { "required": ["title"], "properties": { "title": { "type": "string", "minLength": 1, "description": "The conversation's title (stored by the agent), redacted and cut at 8 KiB. Written when a title first appears and whenever it changes, never for a repeat." } } } },
     { "if": { "properties": { "type": { "const": "conversation_compacted" } }, "required": ["type"] },

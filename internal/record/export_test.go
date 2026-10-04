@@ -918,7 +918,7 @@ func TestExportAndRecordingCarryUsageDetailsTitlesAndCompaction(t *testing.T) {
 		}
 	}
 	es := readEntries(t, res.Path)
-	var sum Usage
+	sum := map[string]int{}
 	var titles, compacts int
 	var last time.Time
 	for i, e := range es {
@@ -934,10 +934,12 @@ func TestExportAndRecordingCarryUsageDetailsTitlesAndCompaction(t *testing.T) {
 			t.Errorf("seq %d at line %d", e.Seq, i+1)
 		}
 		if e.Usage != nil {
-			sum.InputTokens += e.Usage.InputTokens
-			sum.OutputTokens += e.Usage.OutputTokens
-			sum.CacheCreationInputTokens += e.Usage.CacheCreationInputTokens
-			sum.CacheReadInputTokens += e.Usage.CacheReadInputTokens
+			// A key that is not there adds nothing.
+			for k, p := range map[string]*int{"in": e.Usage.InputTokens, "out": e.Usage.OutputTokens, "create": e.Usage.CacheCreationInputTokens, "read": e.Usage.CacheReadInputTokens} {
+				if p != nil {
+					sum[k] += *p
+				}
+			}
 		}
 		switch e.Type {
 		case TypeTitle:
@@ -956,7 +958,7 @@ func TestExportAndRecordingCarryUsageDetailsTitlesAndCompaction(t *testing.T) {
 	if n := len(es); where(es[n-1]) != where(es[n-2]) {
 		t.Errorf("the last line is at %v, the last event at %v", where(es[n-1]), where(es[n-2]))
 	}
-	if sum != (Usage{InputTokens: 7, OutputTokens: 150, CacheCreationInputTokens: 1000, CacheReadInputTokens: 5000}) {
+	if want := map[string]int{"in": 7, "out": 150, "create": 1000, "read": 5000}; !reflect.DeepEqual(sum, want) {
 		t.Errorf("usage adds up to %+v", sum)
 	}
 	if titles != 2 || compacts != 2 {
@@ -964,7 +966,7 @@ func TestExportAndRecordingCarryUsageDetailsTitlesAndCompaction(t *testing.T) {
 	}
 	for _, e := range es {
 		if e.Type == TypeAssistant && e.Text == "Looking." {
-			if e.Usage == nil || e.Usage.OutputTokens != 100 || e.StopReason != "tool_use" || e.Cwd != "/work/shop" || e.GitBranch != "main" || e.AgentVersion != "2.1.1" {
+			if e.Usage == nil || e.Usage.OutputTokens == nil || *e.Usage.OutputTokens != 100 || e.StopReason != "tool_use" || e.Cwd != "/work/shop" || e.GitBranch != "main" || e.AgentVersion != "2.1.1" {
 				t.Errorf("the first reply's line: %+v", e)
 			}
 		}
