@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -115,13 +116,47 @@ func (s *Server) handleHelperOpen(w http.ResponseWriter, r *http.Request) {
 
 // HelperRequest asks the running instance to start, stop or open a helper, and
 // returns the helper's status afterwards. It is what the CLI calls.
+//
+// The token travels in the URL, as /quit's does, and net/http puts the URL in
+// the error it returns for a failed connection, which the caller prints. So
+// every error that leaves here has the token taken out of it.
 func HelperRequest(baseURL, token, action, id string) (helpers.Status, error) {
-	if action != "start" && action != "stop" && action != "open" {
-		return helpers.Status{}, fmt.Errorf("unknown helper action %q", action)
-	}
 	timeout := 30 * time.Second
 	if action == "start" {
 		timeout = helperStartWait + 15*time.Second
+	}
+	return helperRequest(baseURL, token, action, id, timeout)
+}
+
+func helperRequest(baseURL, token, action, id string, timeout time.Duration) (helpers.Status, error) {
+	st, err := doHelperRequest(baseURL, token, action, id, timeout)
+	if err != nil {
+		err = errors.New(redactHelperToken(err.Error(), token))
+	}
+	return st, err
+}
+
+// redactHelperToken removes the token from a message, in the form it is sent
+// in and in the escaped form a URL error shows.
+func redactHelperToken(msg, token string) string {
+	if token == "" {
+		return msg
+	}
+	for _, form := range []string{token, url.QueryEscape(token), url.PathEscape(token)} {
+		msg = strings.ReplaceAll(msg, form, "...")
+	}
+	return msg
+}
+
+// helperClient never follows a redirect: the instance does not send one, and
+// following one would send the token on to wherever it pointed.
+var helperClient = &http.Client{
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
+
+func doHelperRequest(baseURL, token, action, id string, timeout time.Duration) (helpers.Status, error) {
+	if action != "start" && action != "stop" && action != "open" {
+		return helpers.Status{}, fmt.Errorf("unknown helper action %q", action)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -130,7 +165,7 @@ func HelperRequest(baseURL, token, action, id string) (helpers.Status, error) {
 	if err != nil {
 		return helpers.Status{}, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := helperClient.Do(req)
 	if err != nil {
 		return helpers.Status{}, err
 	}

@@ -3,8 +3,10 @@ package server
 import (
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/helpers"
 )
@@ -119,5 +121,57 @@ func TestHelperRequestReportsTheInstancesAnswer(t *testing.T) {
 	}
 	if _, err := HelperRequest(srv.BaseURL(), srv.Token(), "format", "lens"); err == nil {
 		t.Fatal("an unknown action was sent")
+	}
+}
+
+// The token is in the URL, and net/http quotes the URL in the error for a
+// failed connection. The CLI prints that error, so no error out of a helper
+// request may contain the token, whether it failed to connect, timed out or
+// got an answer that was not 200.
+func TestHelperRequestErrorsNeverContainTheToken(t *testing.T) {
+	const token = "tok-secret-0123456789abcdef"
+
+	// Dial failure: nothing listens.
+	dead := httptest.NewServer(http.NotFoundHandler())
+	deadURL := dead.URL
+	dead.Close()
+
+	// Timeout: the server never answers.
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	defer slow.Close()
+	defer close(release)
+
+	// Non-200: the server answers with an error that quotes the request, as a
+	// proxy or a careless handler might.
+	echo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "bad request: "+r.URL.String(), http.StatusBadGateway)
+	}))
+	defer echo.Close()
+
+	// A redirect is not followed, and its target is not reached.
+	reached := false
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = true }))
+	defer target.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/?"+r.URL.RawQuery, http.StatusFound)
+	}))
+	defer redirect.Close()
+
+	cases := map[string]string{"dial": deadURL, "timeout": slow.URL, "non-200": echo.URL, "redirect": redirect.URL}
+	for name, base := range cases {
+		for _, action := range []string{"start", "stop", "open"} {
+			_, err := helperRequest(base, token, action, "lens", 300*time.Millisecond)
+			if err == nil {
+				t.Errorf("%s %s: no error", name, action)
+				continue
+			}
+			if strings.Contains(err.Error(), token) || strings.Contains(err.Error(), "tok-secret") {
+				t.Errorf("%s %s: the error contains the token: %v", name, action, err)
+			}
+		}
+	}
+	if reached {
+		t.Error("a redirect was followed, with the token on it")
 	}
 }
