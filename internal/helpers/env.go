@@ -20,7 +20,10 @@ var inheritedNames = map[string]bool{
 	"HOME": true, "USERPROFILE": true, "APPDATA": true, "LOCALAPPDATA": true,
 	"TEMP": true, "TMP": true, "TMPDIR": true,
 	"SYSTEMROOT": true, "SYSTEMDRIVE": true, "WINDIR": true, "COMSPEC": true,
-	"LANG": true,
+	// The locale names POSIX defines, and nothing that merely starts with LC_:
+	// a prefix would pass LC_SECRET_TOKEN.
+	"LANG": true, "LANGUAGE": true, "LC_ALL": true, "LC_CTYPE": true, "LC_COLLATE": true,
+	"LC_MESSAGES": true, "LC_MONETARY": true, "LC_NUMERIC": true, "LC_TIME": true,
 	// Proxy settings can carry credentials in the URL. They are the person's
 	// own for this machine and a helper that reaches the network needs them.
 	"HTTP_PROXY": true, "HTTPS_PROXY": true, "NO_PROXY": true,
@@ -30,7 +33,7 @@ var inheritedNames = map[string]bool{
 // inherited reports whether a variable of this name passes to a helper.
 func inherited(name string) bool {
 	up := strings.ToUpper(name)
-	return inheritedNames[up] || strings.HasPrefix(up, "LC_")
+	return inheritedNames[up]
 }
 
 // EnvVars are the values the entry's templates are filled from.

@@ -15,11 +15,22 @@ import (
 	"time"
 )
 
+// allowedHosts are the only hosts a request or redirect may go to: github.com,
+// and the exact hosts GitHub serves release assets from. A suffix rule such as
+// *.githubusercontent.com would also take every other service GitHub runs on
+// that domain, including ones that serve content users upload, so each host is
+// named. A new asset host GitHub starts using is added here, in a release.
+var allowedHosts = map[string]bool{
+	"github.com":                            true,
+	"objects.githubusercontent.com":         true,
+	"release-assets.githubusercontent.com":  true,
+	"github-releases.githubusercontent.com": true,
+}
+
 // DefaultAllowURL is the rule every request and every redirect is held to:
-// https, to github.com or a subdomain of githubusercontent.com (where GitHub
-// serves release assets from). Anything else, including plain http, another
-// port on github.com, a name that merely ends in those words and a URL with
-// credentials in it, is refused.
+// https, to one of allowedHosts. Anything else, including plain http, another
+// port, a name that merely ends in those words and a URL with credentials in
+// it, is refused.
 func DefaultAllowURL(u *url.URL) bool {
 	if u == nil || u.Scheme != "https" || u.User != nil || u.Opaque != "" {
 		return false
@@ -28,7 +39,7 @@ func DefaultAllowURL(u *url.URL) bool {
 		return false
 	}
 	host := strings.ToLower(u.Hostname())
-	return host == "github.com" || strings.HasSuffix(host, ".githubusercontent.com")
+	return allowedHosts[host]
 }
 
 const (

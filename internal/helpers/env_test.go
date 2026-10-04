@@ -142,3 +142,28 @@ func TestEntryVariablesBeatInheritedOnes(t *testing.T) {
 		t.Fatalf("env = %v", got)
 	}
 }
+
+// Only the locale names POSIX defines pass, not anything that starts with LC_.
+func TestOnlyRealLocaleNamesAreInherited(t *testing.T) {
+	good := []string{"LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE", "LC_COLLATE", "LC_MESSAGES", "LC_MONETARY", "LC_NUMERIC", "LC_TIME", "lc_all"}
+	bad := []string{"LC_SECRET_TOKEN", "LC_API_KEY", "LC_", "LC_FOO", "LCALL", "LANGX", "LC_PAPER_PASSWORD"}
+	var parent []string
+	for _, n := range append(append([]string(nil), good...), bad...) {
+		parent = append(parent, n+"=v")
+	}
+	env, err := BuildEnv(Entry{}, parent, EnvVars{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := envMap(env)
+	for _, n := range good {
+		if _, ok := m[n]; !ok {
+			t.Errorf("%s was not passed on", n)
+		}
+	}
+	for _, n := range bad {
+		if _, ok := m[n]; ok {
+			t.Errorf("%s was passed on", n)
+		}
+	}
+}
