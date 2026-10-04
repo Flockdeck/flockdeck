@@ -191,6 +191,7 @@ func TestConcurrentSavesLeaveValidState(t *testing.T) {
 	if got == nil {
 		t.Fatal("concurrent writers left the session file unreadable")
 	}
+	FlushRecents()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read dir: %v", err)
@@ -226,6 +227,7 @@ func TestSaveLeavesNoTemporaryFiles(t *testing.T) {
 		}
 	}
 
+	FlushRecents()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read dir: %v", err)
@@ -1007,6 +1009,7 @@ func TestWriteAtomicReplacesRatherThanOverwrites(t *testing.T) {
 	if err := writeAtomic(filepath.Join(dir, "no-such-dir", "state.json"), short); err == nil {
 		t.Error("writing into a directory that does not exist should have failed")
 	}
+	FlushRecents()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read dir: %v", err)
@@ -2040,6 +2043,7 @@ func TestEverythingAtOnceLeavesEveryFileReadable(t *testing.T) {
 	if sess, err := LoadSession(); err != nil || sess == nil {
 		t.Errorf("session afterwards: %v, %v", sess, err)
 	}
+	FlushRecents()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read dir: %v", err)

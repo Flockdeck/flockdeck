@@ -71,6 +71,7 @@ func TestADamagedRecentListThatWillNotMoveIsStillKept(t *testing.T) {
 	if err := TouchRecent("/repo/d"); err != nil {
 		t.Fatalf("second touch: %v", err)
 	}
+	FlushRecents()
 	if again, err := os.ReadFile(file + unreadSuffix); err != nil || string(again) != string(damaged) {
 		t.Errorf("a later touch replaced the kept list: %q, %v", again, err)
 	}
