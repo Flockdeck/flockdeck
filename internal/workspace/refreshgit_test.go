@@ -316,6 +316,7 @@ func TestRefreshGitLeavesACheckoutBeingReadToTheRefreshReadingIt(t *testing.T) {
 	if n := stuck.Load(); n != 3 {
 		t.Errorf("the slow checkout was asked about %d times after it answered, want it asked again", n)
 	}
+	awaitNoGitRead(t, w)
 }
 
 // TestRefreshGitAskedWhileReadingReadsAgain covers a commit made while the
@@ -370,7 +371,26 @@ func TestRefreshGitAskedWhileReadingReadsAgain(t *testing.T) {
 	if got := branch(); got != "after" {
 		t.Errorf("the pane shows %q, want the read made after the second request, \"after\"", got)
 	}
+	awaitNoGitRead(t, w)
 	if n := calls.Load(); n != 2 {
 		t.Errorf("git was asked %d times, want 2: the read that was running and one more", n)
+	}
+}
+
+// awaitNoGitRead waits until no checkout is being read, which includes the
+// read a refresh asked for during another one is owed (see refreshGit). A test
+// that replaces gitStatus has to wait for that before it puts it back, or the
+// read it started goes on using the one the test is restoring.
+func awaitNoGitRead(t *testing.T, w *Workspace) {
+	t.Helper()
+	busy := func() bool {
+		w.gitMu.Lock()
+		defer w.gitMu.Unlock()
+		return len(w.gitBusy) > 0 || len(w.gitAgain) > 0
+	}
+	for deadline := time.Now().Add(10 * time.Second); busy(); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("a git read was still going on at the end of the test")
+		}
 	}
 }
