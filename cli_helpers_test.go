@@ -139,7 +139,7 @@ func TestHelpersInstallAndList(t *testing.T) {
 		t.Fatalf("install: %v\n%s", err, r.out)
 	}
 	for _, want := range []string{"Install lens 0.4.0", "From:", "/Flockdeck/lens/releases/download/v0.4.0/lens_0.4.0_linux_amd64.tar.gz",
-		"checked against Flockdeck's release key", "SHA-256:", "It may:", "Listens on 127.0.0.1 only", "not a sandbox", "Installed lens 0.4.0.", "flockdeck helpers start lens"} {
+		"is checked against it when it is downloaded", "any account on this", "Any program running as you", "SHA-256:", "It may:", "Listens on 127.0.0.1 only", "It is not sandboxed", "Installed lens 0.4.0.", "flockdeck helpers start lens"} {
 		if !strings.Contains(r.out.String(), want) {
 			t.Errorf("the install output is missing %q:\n%s", want, r.out)
 		}
@@ -459,5 +459,26 @@ func TestHelpersCtrlBreakRefusesAnUnrecordedPid(t *testing.T) {
 	err := runHelpers([]string{"ctrl-break", strconv.Itoa(os.Getpid())}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "not a helper that Flockdeck started") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// What a helper wrote may hold escape sequences; the CLI shows it as text.
+func TestHelpersStartShowsALogWithoutControlCharacters(t *testing.T) {
+	r := newCLIRig(t)
+	r.c.instance = func() (string, string, error) { return "http://127.0.0.1:9", "tok", nil }
+	r.c.request = func(string, string, string, string) (helpers.Status, error) {
+		return helpers.Status{ID: "lens", State: helpers.StateFailed, Err: "exit \x1b[31mred",
+			Log: []string{"\x1b]0;owned\x07boom\x1b[2J", "bell\x07 and \r overwrite"}}, nil
+	}
+	if err := r.run("start", "lens"); !errors.Is(err, errReported) {
+		t.Fatalf("err = %v", err)
+	}
+	for _, c := range r.out.String() {
+		if c == 0x1b || c == 0x07 || c == '\r' {
+			t.Fatalf("a control character reached the terminal: %q", r.out.String())
+		}
+	}
+	if !strings.Contains(r.out.String(), "boom") || !strings.Contains(r.out.String(), "overwrite") {
+		t.Fatalf("the text was lost: %q", r.out.String())
 	}
 }

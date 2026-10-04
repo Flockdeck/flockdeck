@@ -308,7 +308,7 @@ func (c *helperCLI) install(id string, f helpersInstallFlags) error {
 	fmt.Fprintf(c.out, "  %s\n", e.Summary)
 	fmt.Fprintf(c.out, "  From:       %s\n", plan.URL)
 	if plan.Signed {
-		fmt.Fprintf(c.out, "  Signature:  checked against Flockdeck's release key\n")
+		fmt.Fprintf(c.out, "  Signature:  checksums.txt is signed with Flockdeck's release key; the archive\n              is checked against it when it is downloaded\n")
 	} else {
 		fmt.Fprintf(c.out, "  Signature:  NONE\n")
 	}
@@ -317,7 +317,7 @@ func (c *helperCLI) install(id string, f helpersInstallFlags) error {
 	for _, a := range e.Allows {
 		fmt.Fprintf(c.out, "    - %s\n", a)
 	}
-	fmt.Fprintf(c.out, "  This describes what it does by design. It is not a sandbox: a helper can do\n  anything you can.\n")
+	fmt.Fprintf(c.out, "  This describes what it does by design. Any program running as you can read and\n  write a helper's files and reach it on this computer, and any account on this\n  computer can reach it with no sign-in. It is not sandboxed.\n")
 	if plan.Installed != "" {
 		fmt.Fprintf(c.out, "  Replaces:   %s\n", plan.Installed)
 	}
@@ -443,10 +443,12 @@ func (c *helperCLI) control(action, id string) error {
 		if st.State != helpers.StateRunning {
 			fmt.Fprintf(c.out, "%s is %s.\n", e.Name, st.State)
 			if st.Err != "" {
-				fmt.Fprintf(c.out, "  %s\n", st.Err)
+				fmt.Fprintf(c.out, "  %s\n", helpers.Printable(st.Err))
 			}
+			// What a helper wrote is shown as plain text: an escape sequence in it
+			// could move the cursor, change the title or hide the line above.
 			for _, l := range st.Log {
-				fmt.Fprintf(c.out, "  | %s\n", l)
+				fmt.Fprintf(c.out, "  | %s\n", helpers.Printable(l))
 			}
 			return errReported
 		}

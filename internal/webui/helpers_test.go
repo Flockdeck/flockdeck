@@ -28,7 +28,8 @@ assert.strictEqual(h.$("overlay-title").textContent, "Helper apps");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "helpers" });
 assert.ok(h.$("overlay-body").textContent.includes("Loading"));
 recvRows(row());
-assert.ok(h.$("overlay-body").textContent.includes("not sandboxed"), "the dialog does not say a helper is not sandboxed");
+const hint = h.$("overlay-body").textContent;
+assert.ok(hint.includes("not sandboxed") && hint.includes("no sign-in") && hint.includes("Any program running as you"), "the dialog does not give the threat model: " + hint);
 assert.ok(h.$("helper-install-lens"), "a helper that is not installed has no Install button");
 `)
 }
@@ -141,10 +142,11 @@ const before = h.commands().length;
 h.recv({ type: "helperPlan", id: "lens", name: "lens", summary: "Reads transcripts.", version: "0.4.0", url, sha256: sha, signed: true,
   allows: ["Runs as your user", "Listens on 127.0.0.1 only"] });
 const text = h.$("overlay-body").textContent;
-for (const want of ["Install lens 0.4.0", "lens", "0.4.0", url, sha, "Verified", "What it may do", "Runs as your user", "Listens on 127.0.0.1 only", "not a sandbox"]) {
+for (const want of ["Install lens 0.4.0", "lens", "0.4.0", url, sha, "is checked against it when it is downloaded", "What it may do", "Runs as your user", "Listens on 127.0.0.1 only", "not sandboxed", "no sign-in"]) {
   assert.ok(text.includes(want), "the confirmation does not show " + want + ": " + text);
 }
 assert.strictEqual(h.commands().length, before, "something was sent before the install was confirmed");
+assert.ok(!text.includes("archive matches it"), "the plan claims the archive matches before it is downloaded");
 assert.ok(!h.$("helper-unsigned"), "a signed release offers the unsigned override");
 assert.ok(!h.$("helper-confirm").disabled);
 
@@ -289,4 +291,25 @@ func TestHelpersDialogSource(t *testing.T) {
 			t.Errorf("app.css has no %s", class)
 		}
 	}
+}
+
+// A window reached through the relay is not offered the dialog at all, and
+// is not left on "Loading..." by a server that refuses it.
+func TestARelayWindowHasNoHelperAppsEntry(t *testing.T) {
+	runFrontEnd(t, paletteRun+helperRows+`
+h.recv({ type: "hello", keys: h.keyTable().filter((k) => k.id !== "helpers"), prefs: { helpSeen: true, dismissedTips: [] }, remote: true });
+h.recv(fixture());
+h.press("palette");
+const input = h.$("palette-input");
+input.value = "helper";
+input.oninput();
+const labels = h.$("palette-list").children.filter((r) => r.classList.contains("pal-row")).map((r) => r.querySelector(".pal-label").textContent);
+assert.ok(!labels.some((l) => l.includes("Helper")), "a relay window is offered Helper apps: " + labels.join(", "));
+h.key({ key: "Escape" });
+// And if the action is reached anyway it says why, rather than waiting for an answer.
+const before = h.commands().length;
+paletteRun("helper apps");
+assert.ok(h.$("overlay").hidden, "the dialog opened in a relay window");
+assert.strictEqual(h.commands().length, before, "a relay window asked the server for helpers");
+`)
 }

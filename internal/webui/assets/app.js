@@ -10747,6 +10747,12 @@
   function helperState(state) { return HELPER_STATES[state] || ["○", state]; }
 
   function openHelpers() {
+    // The palette does not offer this to a window reached through the relay,
+    // and the server refuses it there; this is for a key bound some other way.
+    if (remoteWindow) {
+      notice("Helper apps are managed on the machine Flockdeck runs on, not from a window reached through the relay", true);
+      return;
+    }
     dialog = "helpers";
     helperRows = null;
     helperView = { kind: "list" };
@@ -10785,7 +10791,7 @@
     if (!helperRows) { body.append(el("div", "dir-empty", "Loading…")); return; }
     body.append(el("div", "fan-hint",
       "Helpers are small programs Flockdeck downloads, checks, starts and stops for you. " +
-      "They run as you and are not sandboxed. Each one is opened in your browser."));
+      "Any program running as you can read and write a helper's files and reach it on this computer, and any account on this computer can reach it with no sign-in. It is not sandboxed. Each one is opened in your browser."));
     const wrap = section(helperRows.length === 1 ? "1 helper" : helperRows.length + " helpers");
     helperRows.forEach((r) => wrap.append(helperRow(r)));
     body.append(wrap);
@@ -10928,7 +10934,7 @@
     helperFact(facts, "Version", p.version + (p.installed ? " (replaces " + p.installed + ")" : ""));
     helperFact(facts, "Source", p.url, true);
     helperFact(facts, "Signature", p.signed
-      ? "Verified: checksums.txt is signed with the Flockdeck release key, and the archive matches it"
+      ? "checksums.txt is signed with the Flockdeck release key; the archive is checked against it when it is downloaded"
       : "Not signed");
     helperFact(facts, "SHA-256", p.sha256, true);
     wrap.append(facts);
@@ -10938,7 +10944,8 @@
     (p.allows || []).forEach((a) => list.append(el("li", null, a)));
     wrap.append(list);
     wrap.append(el("div", "fan-hint",
-      "This describes what it does by design. It is not a sandbox: a helper can do anything you can."));
+      "This describes what it does by design. "+
+      "Any program running as you can read and write a helper's files and reach it on this computer, and any account on this computer can reach it with no sign-in. It is not sandboxed."));
 
     let override = null;
     if (!p.signed) {
