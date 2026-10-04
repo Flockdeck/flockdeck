@@ -339,8 +339,13 @@ type Workspace struct {
 	// checkouts git is being asked about, and gitSlots bounds how many it is
 	// asked about at once. Both are made on first use, as is gitIndexAt,
 	// which holds when each checkout's index was last refreshed.
+	//
+	// gitAgain holds the checkouts a refresh was asked for while they were
+	// being read: what that read says may be from before whatever made the
+	// refresh wanted, so they are read once more when it ends.
 	gitMu      sync.Mutex
 	gitBusy    map[string]bool
+	gitAgain   map[string]bool
 	gitSlots   chan struct{}
 	gitIndexAt map[string]time.Time
 
@@ -3168,10 +3173,15 @@ func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 
 	// A checkout still being read from an earlier refresh is left to that
 	// one. Asking again would only queue a second git process behind the
-	// first in the one checkout that is already slow.
+	// first in the one checkout that is already slow. It is read once more
+	// when that read ends, though: a refresh is asked for because something
+	// changed, a commit say, and a read that began before the change answers
+	// with the checkout as it was. Dropped, the request left the pane headers
+	// showing a commit's files as changed until the next poll.
 	w.gitMu.Lock()
 	if w.gitBusy == nil {
 		w.gitBusy = map[string]bool{}
+		w.gitAgain = map[string]bool{}
 		// No more git processes at once than a restore asks for branches
 		// with. A fan-out leaves a dozen worktrees open, and starting a git
 		// process for every one of them in the same instant, every refresh,
@@ -3186,6 +3196,8 @@ func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 		if key := pathKey(cwd); !w.gitBusy[key] {
 			w.gitBusy[key] = true
 			asking = append(asking, cwd)
+		} else {
+			w.gitAgain[key] = true
 		}
 	}
 	w.gitMu.Unlock()
@@ -3224,7 +3236,12 @@ func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 			done := func() {
 				w.gitMu.Lock()
 				delete(w.gitBusy, key)
+				again := w.gitAgain[key]
+				delete(w.gitAgain, key)
 				w.gitMu.Unlock()
+				if again {
+					go w.refreshGit(apply, func(p *Pane) bool { return pathKey(p.Cwd) == key })
+				}
 			}
 			select {
 			case <-gitExited(err):
