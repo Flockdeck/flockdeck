@@ -7,13 +7,13 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
@@ -70,16 +70,6 @@ const (
 	// waiting for an answer to; past it, one is not taken as evidence.
 	maxBackgroundStops = 1024
 )
-
-// backgroundTaskID is the shape of an id Claude Code gives a background task
-// or subagent. Anything else is never put into a path.
-var backgroundTaskID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
-
-// backgroundStopped are the <status> values of a task notification that say
-// the task is no longer running.
-var backgroundStopped = map[string]bool{
-	"completed": true, "stopped": true, "killed": true, "failed": true, "cancelled": true, "canceled": true, "error": true,
-}
 
 // backgroundCheck is what is remembered of one pane's checks. It is kept for
 // as long as the pane is open, so a pane that goes busy and idle again goes on
@@ -394,10 +384,8 @@ func scanConversation(data []byte, scan *backgroundScan) []backgroundEvidence {
 		}
 	}
 	notifications := func(text string, at time.Time) {
-		for _, n := range taskNotifications(text) {
-			if backgroundStopped[n.status] {
-				ended(n.id, at, "ended: its task notification ("+n.status+") is in the conversation")
-			}
+		if n, ok := hooks.ParseTaskNotification(text); ok && n.Ended() {
+			ended(n.ID, at, "ended: its task notification ("+n.Status+") is in the conversation")
 		}
 	}
 	handback := func(o *lineOrigin, at time.Time) {
@@ -513,106 +501,6 @@ func monitorsTimedOut(scan *backgroundScan, now time.Time) []backgroundEvidence 
 	return found
 }
 
-// taskNotification is the id and status of one <task-notification>.
-type taskNotification struct{ id, status string }
-
-// taskNotifications reads the <task-notification> a message is. A message
-// must be exactly one block with only whitespace around it, or nothing in it
-// is read: Claude Code does not escape the text in a <summary> or <result>,
-// so a summary can close the real block and open a forged one, and two
-// blocks in one message cannot be told from that. A message of more than one
-// block therefore ends nothing, and its tasks stay counted until a Stop's
-// list says otherwise. Within the block only its own top-level <task-id> and
-// <status> count (see notificationBlock).
-func taskNotifications(text string) []taskNotification {
-	const open, close = "<task-notification>", "</task-notification>"
-	after, ok := strings.CutPrefix(strings.TrimSpace(text), open)
-	if !ok {
-		return nil
-	}
-	body, tail, ok := strings.Cut(after, close)
-	if !ok || strings.Contains(body, open) || strings.TrimSpace(tail) != "" {
-		return nil
-	}
-	n, ok := notificationBlock(body)
-	if !ok {
-		return nil
-	}
-	return []taskNotification{n}
-}
-
-// notificationHead is the order Claude Code writes a notification's first
-// elements in: its <task-id>, then <tool-use-id> and <output-file> where it
-// has them, then <status>. The summary, result, note and usage that follow
-// carry a command's or a monitor's output, so a <status> among them could
-// have been put there by anyone.
-var notificationHead = []string{"task-id", "tool-use-id", "output-file", "status"}
-
-// notificationBlock reads the top-level elements of one notification's body.
-// ok is false unless the body is nothing but elements, beginning with a
-// non-empty <task-id> and reaching its <status> through only the elements
-// notificationHead allows between them, each at most once. A notification
-// with no such <status>, a monitor's event say, ends nothing.
-func notificationBlock(body string) (taskNotification, bool) {
-	var n taskNotification
-	head := 0 // the next place in notificationHead an element may take
-	ids, statuses := 0, 0
-	rest := strings.TrimSpace(body)
-	for rest != "" {
-		if !strings.HasPrefix(rest, "<") {
-			return n, false
-		}
-		end := strings.IndexByte(rest, '>')
-		if end < 2 {
-			return n, false
-		}
-		name := rest[1:end]
-		if !elementName(name) {
-			return n, false
-		}
-		content, tail, ok := strings.Cut(rest[end+1:], "</"+name+">")
-		if !ok {
-			return n, false
-		}
-		if statuses == 0 {
-			// Still in the head: each element must come later in it than
-			// the one before, and the first must be the id.
-			at := -1
-			for i := head; i < len(notificationHead); i++ {
-				if notificationHead[i] == name {
-					at = i
-					break
-				}
-			}
-			if at < 0 || (head == 0 && at != 0) {
-				return n, false
-			}
-			head = at + 1
-		}
-		switch name {
-		case "task-id":
-			ids++
-			n.id = strings.TrimSpace(content)
-		case "status":
-			statuses++
-			n.status = strings.ToLower(strings.TrimSpace(content))
-		}
-		rest = strings.TrimSpace(tail)
-	}
-	return n, ids == 1 && statuses == 1 && n.id != ""
-}
-
-// elementName reports whether s is a plain tag name: lower-case letters,
-// digits, '-' and '_'.
-func elementName(s string) bool {
-	for _, r := range s {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
-			return false
-		}
-	}
-	return s != ""
-}
-
 // checkWorkFiles looks at the files Claude Code keeps of each piece of counted
 // work, by its id and nowhere else:
 //
@@ -632,7 +520,7 @@ func checkWorkFiles(conversation, temp string, work []session.BackgroundWork, no
 	var found []backgroundEvidence
 	for _, b := range work {
 		kind, id, _ := strings.Cut(b.ID, ":")
-		if !backgroundTaskID.MatchString(id) {
+		if !hooks.ValidTaskID(id) {
 			continue
 		}
 		if kind == "agent" || kind == "task" {
