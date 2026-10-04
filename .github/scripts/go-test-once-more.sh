@@ -4,11 +4,12 @@
 #
 #   bash .github/scripts/go-test-once-more.sh LOG [go test flags...]
 #
-# A package that fails twice fails the run. One that passes the second time
-# does not, but is named in a warning annotation with the tests that failed
-# the first time, so that a test that depends on the runner's timing is seen
-# and fixed rather than quietly passed. The output of both runs goes to LOG,
-# where the step that names the failures reads it.
+# A package that fails fails the run, whether or not it passes the second
+# time. The second run is kept for what it shows: it tells a flaky test from a
+# broken one, and the annotation names the tests that failed the first time,
+# so that a test that depends on the runner's timing is fixed and not passed
+# over. The output of both runs goes to LOG, where the step that names the
+# failures reads it.
 #
 # Six release candidates of v0.3.4 in a row were each stopped by a different
 # test that had passed everywhere else and passed again when run on its own.
@@ -38,7 +39,8 @@ status=${PIPESTATUS[0]}
 echo "::endgroup::"
 
 if [ "$status" -eq 0 ]; then
-	body=$(printf 'Failed, then passed when run again:\n%s\n\n%s\n' "$failed" "$first" | sed -e 's/%/%25/g' | awk 'BEGIN { ORS = "%0A" } { print }')
-	echo "::warning title=Tests that passed only when run again on ${RUNNER_OS:-this runner}::$body"
+	body=$(printf 'Failed, then passed when run again, which fails the run:\n%s\n\n%s\n' "$failed" "$first" | sed -e 's/%/%25/g' | awk 'BEGIN { ORS = "%0A" } { print }')
+	echo "::error title=Tests that passed only when run again on ${RUNNER_OS:-this runner}::$body"
+	exit 1
 fi
 exit "$status"
