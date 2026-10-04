@@ -789,8 +789,8 @@ for:
   that the agent stores no conversation Flockdeck can read, and write nothing.
 - **It can contain secrets.** Redaction is best effort (section 4); the window
   says so every time, and the command after it has run.
-- **Finding the file.** *Reveal transcript* (the command palette and the pane's
-  header) shows the file the pane is recording to, or else its newest export, in
+- **Finding the file.** *Reveal transcript* (the command palette, and Show in
+  folder in Pane info) shows the file the pane is recording to, or else its newest export, in
   the file manager, selected; it shows only a file inside the recordings folder,
   and not from a window reached through the relay. `recordings export -reveal`
   shows the file it has just written.

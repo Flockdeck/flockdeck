@@ -51,13 +51,15 @@ shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
 
 The buttons in a pane header, in order: fan out (`⑂`), save the plan as a
 todo (`☑`), include in broadcast (`⇉`), auto-review (`✓`), restart, zoom,
-export transcript, reveal transcript, record, pane info (`ⓘ`), lock, close. Auto-review is off
+export transcript, record, pane info (`ⓘ`), lock, close. Auto-review is off
 until you turn it on, pane by pane (the ✓'s tooltip counts the commands it has
 let through unasked so far), and the pane keeps the setting across a
 restart of Flockdeck: see [Knowing who needs you](#status). Record is off
-until you turn it on too; export, reveal and record are not shown on a shell
-pane, which has no conversation, and reveal works only in a window on the
-machine Flockdeck runs on: see [Recording a pane](#recording).
+until you turn it on too; export and record are not shown on a shell pane,
+which has no conversation. Showing the transcript file in your file manager is
+in [[action:paneInfo]] and the command palette rather than the header, and works
+only in a window on the machine Flockdeck runs on: see
+[Recording a pane](#recording).
 
 ## One pane, several windows
 
@@ -89,7 +91,8 @@ A value the pane does not have yet says "not set". The list has:
 - The process id, the peer name set by `flockdeck peer-name`, and the pane's
   status.
 - Whether the pane is recording, the path of its transcript file (the one it is
-  recording to, or its latest export) and the path of the conversation file the
+  recording to, or its latest export, with a **Show in folder** button that
+  selects it in your file manager) and the path of the conversation file the
   agent stores itself. That last path is shown for panes that run Claude Code
   (including a second Claude account) and for Flockdeck's own API agents, once
   the agent has written the file. Until then, and for every other agent, it says
