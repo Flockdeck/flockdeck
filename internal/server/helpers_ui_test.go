@@ -25,11 +25,12 @@ import (
 // uiRig is a server whose helper installer talks to a fake GitHub, and a
 // window to send commands from.
 type uiRig struct {
-	srv   *Server
-	store *helpers.Store
-	files map[string][]byte
-	mu    sync.Mutex
-	key   ed25519.PrivateKey
+	srv    *Server
+	store  *helpers.Store
+	files  map[string][]byte
+	mu     sync.Mutex
+	key    ed25519.PrivateKey
+	origin string
 }
 
 func newUIRig(t *testing.T) *uiRig {
@@ -49,10 +50,11 @@ func newUIRig(t *testing.T) *uiRig {
 		_, _ = w.Write(b)
 	}))
 	t.Cleanup(fake.Close)
+	r.origin = fake.URL
 	srv.SetHelpers(
 		helpers.NewSupervisor(helpers.Config{Store: r.store}),
 		helpers.NewInstaller(helpers.Options{
-			Store: r.store, Base: fake.URL, GOOS: "linux", GOARCH: "amd64",
+			Store: r.store, Lookup: lensAt(fake.URL), GOOS: "linux", GOARCH: "amd64",
 			AllowURL: func(u *url.URL) bool { return u.Hostname() == "127.0.0.1" },
 		}),
 	)
@@ -63,32 +65,66 @@ func newUIRig(t *testing.T) *uiRig {
 // archive's SHA-256.
 func (r *uiRig) publish(t *testing.T, version string, signed, badSig bool) string {
 	t.Helper()
-	top := "lens_" + version + "_linux_amd64"
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return publishCDN(r.files, r.origin, r.key, version, signed, badSig)
+}
+
+// publishCDN lays a lens release out as the CDN does: latest.json, and under
+// /lens/<tag>/ the archive, checksums.txt(.sig) and manifest.json(.sig). sign
+// picks whether the signatures are served, and badSig whether they are wrong.
+// It returns the archive's SHA-256.
+func publishCDN(files map[string][]byte, origin string, key ed25519.PrivateKey, version string, sign, badSig bool) string {
+	tag := "v" + version
+	top := "lens_" + tag + "_linux_amd64"
+	name := top + ".tar.gz"
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	_ = tw.WriteHeader(&tar.Header{Name: top + "/lens", Typeflag: tar.TypeReg, Mode: 0o755, Size: 3})
-	_, _ = tw.Write([]byte("bin"))
+	for _, f := range []struct{ name, body string }{{top + "/lens", "a program"}, {top + "/README.md", "readme"}} {
+		_ = tw.WriteHeader(&tar.Header{Name: f.name, Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len(f.body))})
+		_, _ = tw.Write([]byte(f.body))
+	}
 	_ = tw.Close()
 	_ = gz.Close()
 	sum := sha256.Sum256(buf.Bytes())
 	hexsum := hex.EncodeToString(sum[:])
-	sums := []byte(hexsum + "  " + top + ".tar.gz\n")
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, base := range []string{"/Flockdeck/lens/releases/download/v" + version + "/", "/Flockdeck/lens/releases/latest/download/"} {
-		r.files[base+"checksums.txt"] = sums
-		delete(r.files, base+"checksums.txt.sig")
-		if signed {
-			over := sums
-			if badSig {
-				over = append([]byte("x"), sums...)
-			}
-			r.files[base+"checksums.txt.sig"] = selfupdate.Sign(r.key, over)
-		}
+	sums := []byte(hexsum + "  " + name + "\n")
+	sumsSig := selfupdate.Sign(key, sums)
+	base := "/lens/" + tag + "/"
+	m := selfupdate.Manifest{Version: tag, Date: time.Now().Add(-time.Hour), NotesURL: "https://example.invalid/notes", Files: []selfupdate.ManifestFile{
+		{Name: name, URL: origin + base + name, SHA256: hexsum, Size: int64(buf.Len())},
+		{Name: "checksums.txt", URL: origin + base + "checksums.txt", SHA256: hexsum, Size: int64(len(sums))},
+		{Name: "checksums.txt.sig", URL: origin + base + "checksums.txt.sig", SHA256: hexsum, Size: int64(len(sumsSig))},
+	}}
+	manifest, _ := json.Marshal(m)
+	signed := manifest
+	if badSig {
+		signed = append([]byte("tampered "), manifest...)
 	}
-	r.files["/Flockdeck/lens/releases/download/v"+version+"/"+top+".tar.gz"] = buf.Bytes()
+	files[base+name] = buf.Bytes()
+	files[base+"checksums.txt"] = sums
+	files[base+"manifest.json"] = manifest
+	delete(files, base+"manifest.json.sig")
+	delete(files, base+"checksums.txt.sig")
+	if sign {
+		files[base+"manifest.json.sig"] = selfupdate.Sign(key, signed)
+		files[base+"checksums.txt.sig"] = sumsSig
+	}
+	files["/lens/latest.json"] = []byte("{\"version\":\"" + tag + "\"}")
 	return hexsum
+}
+
+// lensAt is the catalogue's lens, fetched from a fake CDN.
+func lensAt(origin string) func(string) (helpers.Entry, bool) {
+	e, _ := helpers.Lookup("lens")
+	e.Source = origin + "/lens"
+	return func(id string) (helpers.Entry, bool) {
+		if id == e.ID {
+			return e, true
+		}
+		return helpers.Entry{}, false
+	}
 }
 
 func (r *uiRig) send(c *controlClient, cmd command) { r.srv.handleCommand(c, cmd) }
@@ -170,7 +206,7 @@ func TestHelperPlanShowsTheReleaseWithoutInstalling(t *testing.T) {
 	c := &controlClient{out: make(chan []byte, 16)}
 	r.send(c, command{Cmd: "helperPlan", ID: "lens"})
 	m := next(t, c, "helperPlan")
-	if m["version"] != "0.4.0" || m["sha256"] != sha || m["signed"] != true || !strings.Contains(m["url"].(string), "/v0.4.0/lens_0.4.0_linux_amd64.tar.gz") {
+	if m["version"] != "0.4.0" || m["sha256"] != sha || m["signed"] != true || !strings.Contains(m["url"].(string), "/lens/v0.4.0/lens_v0.4.0_linux_amd64.tar.gz") {
 		t.Fatalf("plan = %v", m)
 	}
 	if _, ok := r.store.Current("lens"); ok {

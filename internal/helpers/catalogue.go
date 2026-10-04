@@ -18,9 +18,12 @@ type Entry struct {
 	Name string
 	// Summary is one sentence for the dialog.
 	Summary string
-	// Repo is "owner/name" on github.com. Releases are fetched from there and
-	// nowhere else.
-	Repo string
+	// Source is the one place this helper's releases are fetched from, an https
+	// URL without a trailing slash: <Source>/latest.json names the latest
+	// version and <Source>/<tag>/ holds that release's signed manifest, its
+	// checksums and its archives, laid out as Flockdeck's own releases are. Only
+	// this exact host is ever contacted for the helper.
+	Source string
 	// Binary is the executable's file name inside the archive's folder, without
 	// the ".exe" Windows adds.
 	Binary string
@@ -102,7 +105,7 @@ var lens = Entry{
 	ID:      "lens",
 	Name:    "lens",
 	Summary: "Reads agent session transcripts and shows what they did, in a page on your own machine.",
-	Repo:    "Flockdeck/lens",
+	Source:  "https://dl.flockdeck.ai/lens",
 	Binary:  "lens",
 	// TODO(owner): "0.1.0" is a placeholder, not a decision. Set MinVersion to
 	// the first release that is safe to run, and raise it in the same Flockdeck
@@ -166,22 +169,15 @@ func (e Entry) BinaryName(goos string) string {
 	return e.Binary
 }
 
-// TopFolder is the folder an archive holds everything in: id_version_os_arch.
+// TopFolder is the folder an archive holds everything in: id_tag_os_arch, the
+// tag being the version with a "v", as the release is published.
 func (e Entry) TopFolder(version, goos, goarch string) string {
-	return fmt.Sprintf("%s_%s_%s_%s", e.ID, version, goos, goarch)
+	return fmt.Sprintf("%s_v%s_%s_%s", e.ID, version, goos, goarch)
 }
 
 // ArchiveName is the release asset for a version on a platform.
 func (e Entry) ArchiveName(version, goos, goarch string) string {
 	return e.TopFolder(version, goos, goarch) + archiveExt(goos)
-}
-
-// assetPattern finds this helper's archive for a platform in checksums.txt
-// and reads the version out of the name. The version is what the signature
-// covers, so it is taken from here and from nowhere else.
-func (e Entry) assetPattern(goos, goarch string) *regexp.Regexp {
-	return regexp.MustCompile("^" + regexp.QuoteMeta(e.ID+"_") + "(" + versionPattern + ")" +
-		regexp.QuoteMeta("_"+goos+"_"+goarch+archiveExt(goos)) + "$")
 }
 
 // Platform is the operating system and architecture this build runs on.

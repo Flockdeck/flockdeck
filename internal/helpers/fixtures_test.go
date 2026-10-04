@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -42,7 +43,7 @@ func lookupTest(e Entry) func(string) (Entry, bool) {
 // loopbackOnly allows plain http to 127.0.0.1, which is all a test server is.
 func loopbackOnly(u *url.URL) bool { return u.Scheme == "http" && u.Hostname() == "127.0.0.1" }
 
-// site is a fake GitHub: paths to bodies, with the odd redirect, status and
+// site is a fake CDN: paths to bodies, with the odd redirect, status and
 // hang for the tests that need one.
 type site struct {
 	*httptest.Server
@@ -78,7 +79,7 @@ func newSite(t *testing.T) *site {
 		case code != 0:
 			http.Error(w, "status", code)
 		case hang:
-			w.Header().Set("Content-Length", "1000")
+			w.Header().Set("Content-Length", fmt.Sprint(max(len(body), 1)))
 			w.WriteHeader(http.StatusOK)
 			w.(http.Flusher).Flush()
 			<-r.Context().Done()
@@ -223,22 +224,39 @@ func sumHex(b []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-// releaseSpec describes one release a site serves.
+// releaseSpec describes one release a fake CDN serves, laid out as the lens
+// publish script lays it out: /lens/latest.json, and under /lens/<tag>/ the
+// archive, checksums.txt(.sig) and manifest.json(.sig).
 type releaseSpec struct {
-	version      string
+	version      string // without the "v"
 	goos, goarch string
 	members      []member // nil means goodMembers
 	archive      []byte   // overrides members when set
-	sumOverride  string   // a hash to put in checksums.txt instead of the archive's
-	extraLines   string   // appended to checksums.txt
-	key          ed25519.PrivateKey
-	noSig        bool
-	sigOverride  []byte
-	latest       bool // also serve at releases/latest/download
-	skipArchive  bool
+	// sumOverride is the hash put in the manifest AND checksums.txt in place of
+	// the archive's (a download that does not match what was signed); sumsHash
+	// is for checksums.txt alone (the two files disagree).
+	sumOverride, sumsHash string
+	extraLines            string // appended to checksums.txt
+	key                   ed25519.PrivateKey
+	noSig                 bool   // no manifest.json.sig at all
+	noSumsSig             bool   // no checksums.txt.sig
+	sigOverride           []byte // the manifest's signature, as served
+	sumsSigOverride       []byte
+	date                  time.Time // zero means an hour ago
+	latest                bool      // serve latest.json naming this version
+	pointerTo             string    // latest.json names this tag instead (it lies)
+	mutate                func(*selfupdate.Manifest)
+	manifestBytes         []byte // served (and signed) instead of the manifest built
+	size                  int64  // the size put in the manifest, when not 0
+	url                   string // the URL put in the manifest, when not ""
+	extraFiles            []selfupdate.ManifestFile
+	skipArchive           bool
 }
 
-func (s *site) release(t *testing.T, e Entry, r releaseSpec) (archive []byte, sums []byte) {
+// cdnBase is where a release's files are, below the site's /lens.
+func cdnBase(version string) string { return "/lens/v" + version + "/" }
+
+func (s *site) release(t *testing.T, e Entry, r releaseSpec) (archive []byte, manifest []byte) {
 	t.Helper()
 	if r.goos == "" {
 		r.goos = "linux"
@@ -255,35 +273,84 @@ func (s *site) release(t *testing.T, e Entry, r releaseSpec) (archive []byte, su
 		archive = archiveFor(t, r.goos, members)
 	}
 	name := e.ArchiveName(r.version, r.goos, r.goarch)
-	sum := r.sumOverride
-	if sum == "" {
-		sum = sumHex(archive)
+	tag := "v" + r.version
+	base := cdnBase(r.version)
+	hash := sumHex(archive)
+	if r.sumOverride != "" {
+		hash = r.sumOverride
 	}
-	sums = []byte(fmt.Sprintf("%s  %s\n%s", sum, name, r.extraLines))
-	base := "/" + e.Repo + "/releases/download/v" + r.version + "/"
+	sumsHash := hash
+	if r.sumsHash != "" {
+		sumsHash = r.sumsHash
+	}
+	sums := []byte(fmt.Sprintf("%s  %s\n%s", sumsHash, name, r.extraLines))
+	var sumsSig []byte
+	switch {
+	case r.sumsSigOverride != nil:
+		sumsSig = r.sumsSigOverride
+	case r.key != nil && !r.noSumsSig:
+		sumsSig = selfupdate.Sign(r.key, sums)
+	}
+
+	size := int64(len(archive))
+	if r.size != 0 {
+		size = r.size
+	}
+	fileURL := s.URL + base + name
+	if r.url != "" {
+		fileURL = r.url
+	}
+	date := r.date
+	if date.IsZero() {
+		date = time.Now().Add(-time.Hour)
+	}
+	m := selfupdate.Manifest{
+		Version: tag, Date: date, NotesURL: "https://example.invalid/notes",
+		Files: []selfupdate.ManifestFile{
+			{Name: name, URL: fileURL, SHA256: hash, Size: size},
+			{Name: "checksums.txt", URL: s.URL + base + "checksums.txt", SHA256: sumHex(sums), Size: int64(len(sums))},
+			{Name: "checksums.txt.sig", URL: s.URL + base + "checksums.txt.sig", SHA256: sumHex(sumsSig), Size: int64(len(sumsSig))},
+		},
+	}
+	m.Files = append(m.Files, r.extraFiles...)
+	if r.mutate != nil {
+		r.mutate(&m)
+	}
+	manifest = r.manifestBytes
+	if manifest == nil {
+		var err error
+		if manifest, err = json.Marshal(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var sig []byte
+	switch {
+	case r.sigOverride != nil:
+		sig = r.sigOverride
+	case r.key != nil && !r.noSig:
+		sig = selfupdate.Sign(r.key, manifest)
+	}
+
+	s.put(base+"manifest.json", manifest)
 	s.put(base+"checksums.txt", sums)
 	if !r.skipArchive {
 		s.put(base+name, archive)
 	}
-	sig := r.sigOverride
-	if sig == nil && r.key != nil && !r.noSig {
-		sig = selfupdate.Sign(r.key, sums)
-	}
-	if sig != nil {
-		s.put(base+"checksums.txt.sig", sig)
-	} else {
-		s.remove(base + "checksums.txt.sig")
-	}
-	if r.latest {
-		latest := "/" + e.Repo + "/releases/latest/download/"
-		s.put(latest+"checksums.txt", sums)
-		if sig != nil {
-			s.put(latest+"checksums.txt.sig", sig)
+	for path, content := range map[string][]byte{base + "manifest.json.sig": sig, base + "checksums.txt.sig": sumsSig} {
+		if content != nil {
+			s.put(path, content)
 		} else {
-			s.remove(latest + "checksums.txt.sig")
+			s.remove(path)
 		}
 	}
-	return archive, sums
+	if r.latest || r.pointerTo != "" {
+		to := tag
+		if r.pointerTo != "" {
+			to = r.pointerTo
+		}
+		s.put("/lens/latest.json", []byte(`{"version":"`+to+`"}`))
+	}
+	return archive, manifest
 }
 
 // keys generates a signing key and trusts its public half for the test.
@@ -297,7 +364,7 @@ func trustNewKey(t *testing.T) ed25519.PrivateKey {
 	return priv
 }
 
-// fixture is a store in a temp dir, a fake site and an installer between them.
+// fixture is a store in a temp dir, a fake CDN and an installer between them.
 type fixture struct {
 	t     *testing.T
 	store *Store
@@ -315,19 +382,26 @@ func newFixture(t *testing.T, mutate ...func(*Options)) *fixture {
 	f.key = trustNewKey(t)
 	f.store = &Store{Root: t.TempDir()}
 	f.site = newSite(t)
+	f.entry.Source = f.site.URL + "/lens"
 	f.rebuild(mutate...)
 	return f
 }
 
 func (f *fixture) rebuild(mutate ...func(*Options)) {
 	o := Options{
-		Store: f.store, Base: f.site.URL, AllowURL: loopbackOnly, Stall: 5 * time.Second,
+		Store: f.store, AllowURL: loopbackOnly, Stall: 5 * time.Second,
 		GOOS: f.goos, GOARCH: f.arch, Lookup: lookupTest(f.entry),
 	}
 	for _, m := range mutate {
 		m(&o)
 	}
 	f.in = NewInstaller(o)
+}
+
+// archivePath is where a release's archive is served, for tests that tamper
+// with how it is served.
+func (f *fixture) archivePath(version string) string {
+	return cdnBase(version) + f.entry.ArchiveName(version, f.goos, f.arch)
 }
 
 // publish serves a signed release at its own tag and as the latest.

@@ -47,7 +47,7 @@ func TestInstallLayout(t *testing.T) {
 			if err := json.Unmarshal(data, &recorded); err != nil {
 				t.Fatal(err)
 			}
-			wantSource := f.site.URL + "/Flockdeck/lens/releases/download/v0.4.0/" + f.entry.ArchiveName("0.4.0", goos, "amd64")
+			wantSource := f.site.URL + cdnBase("0.4.0") + f.entry.ArchiveName("0.4.0", goos, "amd64")
 			if recorded.Source != wantSource || recorded.SHA256 != info.SHA256 || !recorded.Signed || recorded.InstalledAt.IsZero() {
 				t.Errorf("install.json = %+v", recorded)
 			}
@@ -422,7 +422,7 @@ func TestUninstallNotInstalled(t *testing.T) {
 
 func TestCatalogue(t *testing.T) {
 	e, ok := Lookup("lens")
-	if !ok || e.Repo != "Flockdeck/lens" || e.Name != "lens" {
+	if !ok || e.Source != "https://dl.flockdeck.ai/lens" || e.Name != "lens" {
 		t.Fatalf("lens = %+v, %v", e, ok)
 	}
 	if _, ok := Lookup("nope"); ok {
@@ -431,10 +431,10 @@ func TestCatalogue(t *testing.T) {
 	if !validVersion(e.MinVersion) {
 		t.Fatalf("the catalogue's minimum version %q is not a version", e.MinVersion)
 	}
-	if got := e.ArchiveName("0.4.0", "windows", "arm64"); got != "lens_0.4.0_windows_arm64.zip" {
+	if got := e.ArchiveName("0.4.0", "windows", "arm64"); got != "lens_v0.4.0_windows_arm64.zip" {
 		t.Errorf("windows archive = %s", got)
 	}
-	if got := e.ArchiveName("0.4.0", "darwin", "arm64"); got != "lens_0.4.0_darwin_arm64.tar.gz" {
+	if got := e.ArchiveName("0.4.0", "darwin", "arm64"); got != "lens_v0.4.0_darwin_arm64.tar.gz" {
 		t.Errorf("darwin archive = %s", got)
 	}
 	if e.BinaryName("windows") != "lens.exe" || e.BinaryName("linux") != "lens" {

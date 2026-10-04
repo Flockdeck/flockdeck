@@ -15,58 +15,47 @@ import (
 	"time"
 )
 
-// allowedHosts are the only hosts a request or redirect may go to: github.com,
-// and the exact hosts GitHub serves release assets from. A suffix rule such as
-// *.githubusercontent.com would also take every other service GitHub runs on
-// that domain, including ones that serve content users upload, so each host is
-// named. A new asset host GitHub starts using is added here, in a release.
-var allowedHosts = map[string]bool{
-	"github.com":                            true,
-	"objects.githubusercontent.com":         true,
-	"release-assets.githubusercontent.com":  true,
-	"github-releases.githubusercontent.com": true,
+// SourceAllowURL is the rule every request to a helper's source is held to:
+// https, the exact host of the catalogue's Source, no credentials in the URL,
+// and port 443. A host that merely ends in the same words, another port and
+// plain http are refused. There is no list of other hosts, and redirects are not
+// followed at all (see newClient), so the one host a helper's release comes
+// from is the one host Flockdeck talks to about it.
+func SourceAllowURL(source string) func(*url.URL) bool {
+	su, err := url.Parse(source)
+	if err != nil || su.Scheme != "https" || su.Hostname() == "" {
+		return func(*url.URL) bool { return false }
+	}
+	host := strings.ToLower(su.Hostname())
+	return func(u *url.URL) bool {
+		if u == nil || u.Scheme != "https" || u.User != nil || u.Opaque != "" {
+			return false
+		}
+		if u.Port() != "" && u.Port() != "443" {
+			return false
+		}
+		return strings.ToLower(u.Hostname()) == host
+	}
 }
 
-// DefaultAllowURL is the rule every request and every redirect is held to:
-// https, to one of allowedHosts. Anything else, including plain http, another
-// port, a name that merely ends in those words and a URL with credentials in
-// it, is refused.
-func DefaultAllowURL(u *url.URL) bool {
-	if u == nil || u.Scheme != "https" || u.User != nil || u.Opaque != "" {
-		return false
-	}
-	if u.Port() != "" && u.Port() != "443" {
-		return false
-	}
-	host := strings.ToLower(u.Hostname())
-	return allowedHosts[host]
-}
-
-const (
-	maxRedirects = 5
-	// requestLimit is the longest one request, body included, may take. The
-	// stall timeout is what ends a download that has stopped; this ends one that
-	// trickles.
-	requestLimit = time.Hour
-)
+// requestLimit is the longest one request, body included, may take. The stall
+// timeout is what ends a download that has stopped; this ends one that
+// trickles.
+const requestLimit = time.Hour
 
 // errNotFound is a 404, which for the signature file means "not signed" and
 // for anything else means there is no such release.
 var errNotFound = errors.New("not found")
 
-// newClient builds the HTTP client: no credentials, no cookies, and a redirect
-// check that applies the allowlist to every hop.
-func newClient(allow func(*url.URL) bool) *http.Client {
+// newClient builds the HTTP client: no credentials, no cookies, and no
+// redirects. The main updater follows whatever a CDN redirects to; a helper's
+// source is one host that serves its files itself, and a redirect off it is
+// the thing the allowlist is there to refuse, so none is followed and a 3xx is
+// an error. If the CDN ever needs one, it can be allowed to the same host and
+// no other.
+func newClient() *http.Client {
 	return &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= maxRedirects {
-				return fmt.Errorf("stopped after %d redirects", maxRedirects)
-			}
-			if !allow(req.URL) {
-				return fmt.Errorf("refused a redirect to %s: helpers are only downloaded from github.com", describeURL(req.URL))
-			}
-			return nil
-		},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 }
 
@@ -113,13 +102,13 @@ func (r *response) Close() error {
 
 // get opens a URL. The caller closes the response. The allowlist is applied to
 // the first URL here and to every redirect by the client.
-func (in *Installer) get(ctx context.Context, rawURL string) (*response, error) {
+func (in *Installer) get(ctx context.Context, allow func(*url.URL) bool, rawURL string) (*response, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, err
 	}
-	if !in.allow(u) {
-		return nil, fmt.Errorf("refused to fetch %s: helpers are only downloaded from github.com", describeURL(u))
+	if !allow(u) {
+		return nil, fmt.Errorf("refused to fetch %s: a helper is only fetched from its own source over https", describeURL(u))
 	}
 	ctx, cancel := context.WithTimeout(ctx, requestLimit)
 	var stalled atomic.Bool
@@ -145,6 +134,9 @@ func (in *Installer) get(ctx context.Context, rawURL string) (*response, error) 
 	case resp.StatusCode == http.StatusNotFound:
 		r.Close()
 		return nil, fmt.Errorf("%s: %w", describeURL(u)+u.Path, errNotFound)
+	case resp.StatusCode >= 300 && resp.StatusCode < 400:
+		r.Close()
+		return nil, fmt.Errorf("refused a redirect from %s: %s", describeURL(u)+u.Path, resp.Status)
 	case resp.StatusCode != http.StatusOK:
 		r.Close()
 		return nil, fmt.Errorf("%s: %s", describeURL(u)+u.Path, resp.Status)
@@ -154,8 +146,8 @@ func (in *Installer) get(ctx context.Context, rawURL string) (*response, error) 
 
 // fetchSmall reads a whole small file, and fails if it is larger than limit,
 // without reading past limit+1 bytes.
-func (in *Installer) fetchSmall(ctx context.Context, rawURL string, limit int64) ([]byte, error) {
-	r, err := in.get(ctx, rawURL)
+func (in *Installer) fetchSmall(ctx context.Context, allow func(*url.URL) bool, rawURL string, limit int64) ([]byte, error) {
+	r, err := in.get(ctx, allow, rawURL)
 	if err != nil {
 		return nil, err
 	}
@@ -176,8 +168,12 @@ func (in *Installer) fetchSmall(ctx context.Context, rawURL string, limit int64)
 // download writes a URL to dest, reading at most limit bytes, and checks it
 // against the SHA-256 the signed checksums give. A file that is too large, or
 // does not match, is deleted. The hash is of exactly the bytes written.
-func (in *Installer) download(ctx context.Context, rawURL, dest string, limit int64, want string) error {
-	r, err := in.get(ctx, rawURL)
+func (in *Installer) download(ctx context.Context, allow func(*url.URL) bool, rawURL, dest string, limit int64, want string, size int64) error {
+	if size > 0 && size < limit {
+		// The signed size is the size: not a byte more is read.
+		limit = size
+	}
+	r, err := in.get(ctx, allow, rawURL)
 	if err != nil {
 		return err
 	}
@@ -201,6 +197,10 @@ func (in *Installer) download(ctx context.Context, rawURL, dest string, limit in
 	if n > limit {
 		os.Remove(dest)
 		return fmt.Errorf("the download is larger than the %d byte limit", limit)
+	}
+	if size > 0 && n != size {
+		os.Remove(dest)
+		return mismatchf("the download is %d bytes, not the %d the signed manifest gives", n, size)
 	}
 	if got := hex.EncodeToString(h.Sum(nil)); got != want {
 		os.Remove(dest)

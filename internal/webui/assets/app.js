@@ -10934,7 +10934,7 @@
     helperFact(facts, "Version", p.version + (p.installed ? " (replaces " + p.installed + ")" : ""));
     helperFact(facts, "Source", p.url, true);
     helperFact(facts, "Signature", p.signed
-      ? "checksums.txt is signed with the Flockdeck release key; the archive is checked against it when it is downloaded"
+      ? "manifest.json is signed with the Flockdeck release key; the archive is checked against it when it is downloaded"
       : "Not signed");
     helperFact(facts, "SHA-256", p.sha256, true);
     wrap.append(facts);
@@ -10950,7 +10950,7 @@
     let override = null;
     if (!p.signed) {
       const warn = el("div", "helper-warning",
-        "This release has no signature. The SHA-256 above shows the download matches its checksums file. " +
+        "This release has no signature. The SHA-256 above shows the download matches its manifest. " +
         "It does not show who built it, because anyone who can change the release can change both. " +
         "This applies to this version only, and you are asked again for the next.");
       warn.setAttribute("role", "alert");

@@ -61,7 +61,10 @@ type InstallInfo struct {
 	SHA256  string `json:"sha256"`
 	// BinarySHA256 is the unpacked program's own hash, checked before every
 	// start.
-	BinarySHA256 string    `json:"binarySha256"`
+	BinarySHA256 string `json:"binarySha256"`
+	// ManifestDate is the signed manifest's date, kept so a later "update" with
+	// an earlier date is seen for what it is.
+	ManifestDate time.Time `json:"manifestDate,omitempty"`
 	Signed       bool      `json:"signed"`
 	InstalledAt  time.Time `json:"installedAt"`
 }

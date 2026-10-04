@@ -181,7 +181,7 @@ func (s *Server) helperInstalling(id string) bool {
 const helperNetworkWait = 30 * time.Minute
 
 // helpersList answers the dialog being opened, then looks for newer versions
-// of what is installed, which is the only time Flockdeck asks GitHub anything
+// of what is installed, which is the only time Flockdeck asks the source anything
 // about helpers unless a person installs one.
 func (s *Server) helpersList(c *controlClient) {
 	if !s.helperDeskOnly(c) {
@@ -198,12 +198,12 @@ func (s *Server) helpersList(c *controlClient) {
 			if _, ok := inst.Store().Current(e.ID); !ok {
 				continue
 			}
-			plan, err := inst.Plan(ctx, e.ID, "")
+			newer, err := inst.CheckUpdate(ctx, e.ID)
 			if err != nil {
 				continue
 			}
-			if s.helperUI.latestOf(e.ID) != plan.Version {
-				s.helperUI.setLatest(e.ID, plan.Version)
+			if s.helperUI.latestOf(e.ID) != newer {
+				s.helperUI.setLatest(e.ID, newer)
 				changed = true
 			}
 		}

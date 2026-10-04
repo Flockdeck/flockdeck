@@ -293,11 +293,11 @@ on 127.0.0.1 only, gets none of Flockdeck's tokens or API keys in its
 environment, and is not sandboxed.
 
 `install` shows the name, version, source address, signature and what the helper
-may do, and asks first; `-yes` skips the question. The release's checksums are
-checked against Flockdeck's release key, and the archive against the SHA-256 in
+may do, and asks first; `-yes` skips the question. The release's manifest is
+checked against Flockdeck's release key, and the archive against the SHA-256 and size in
 them, before anything is unpacked. A release with no signature is refused unless
 you pass `-allow-unsigned`, which shows the archive's SHA-256 first. That hash
-shows the download matches the checksums file and says nothing about who built
+shows the download matches the manifest and says nothing about who built
 it, and the choice applies to that one version. A signature that is present and
 wrong is always refused.
 

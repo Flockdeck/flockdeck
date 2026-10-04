@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/helpers"
 	"github.com/jmwri/flockdeck/internal/selfupdate"
@@ -56,11 +58,22 @@ func newHelperRelease(t *testing.T) *helperRelease {
 	return r
 }
 
-// publish serves version as the latest and at its own tag. sign picks whether
-// checksums.txt.sig is served, and badSig whether it is wrong.
+// publish serves version as the latest and at its own tag.
 func (r *helperRelease) publish(t *testing.T, version string, sign, badSig bool) {
 	t.Helper()
-	top := fmt.Sprintf("lens_%s_linux_amd64", version)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	publishCDN(r.files, r.srv.URL, r.key, version, sign, badSig)
+}
+
+// publishCDN lays a lens release out as the CDN does: latest.json, and under
+// /lens/<tag>/ the archive, checksums.txt(.sig) and manifest.json(.sig). sign
+// picks whether the signatures are served, and badSig whether they are wrong.
+// It returns the archive's SHA-256.
+func publishCDN(files map[string][]byte, origin string, key ed25519.PrivateKey, version string, sign, badSig bool) string {
+	tag := "v" + version
+	top := "lens_" + tag + "_linux_amd64"
+	name := top + ".tar.gz"
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
@@ -71,21 +84,43 @@ func (r *helperRelease) publish(t *testing.T, version string, sign, badSig bool)
 	_ = tw.Close()
 	_ = gz.Close()
 	sum := sha256.Sum256(buf.Bytes())
-	sums := []byte(hex.EncodeToString(sum[:]) + "  " + top + ".tar.gz\n")
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, base := range []string{"/Flockdeck/lens/releases/download/v" + version + "/", "/Flockdeck/lens/releases/latest/download/"} {
-		r.files[base+"checksums.txt"] = sums
-		delete(r.files, base+"checksums.txt.sig")
-		if sign {
-			signed := sums
-			if badSig {
-				signed = append([]byte("tampered "), sums...)
-			}
-			r.files[base+"checksums.txt.sig"] = selfupdate.Sign(r.key, signed)
-		}
+	hexsum := hex.EncodeToString(sum[:])
+	sums := []byte(hexsum + "  " + name + "\n")
+	sumsSig := selfupdate.Sign(key, sums)
+	base := "/lens/" + tag + "/"
+	m := selfupdate.Manifest{Version: tag, Date: time.Now().Add(-time.Hour), NotesURL: "https://example.invalid/notes", Files: []selfupdate.ManifestFile{
+		{Name: name, URL: origin + base + name, SHA256: hexsum, Size: int64(buf.Len())},
+		{Name: "checksums.txt", URL: origin + base + "checksums.txt", SHA256: hexsum, Size: int64(len(sums))},
+		{Name: "checksums.txt.sig", URL: origin + base + "checksums.txt.sig", SHA256: hexsum, Size: int64(len(sumsSig))},
+	}}
+	manifest, _ := json.Marshal(m)
+	signed := manifest
+	if badSig {
+		signed = append([]byte("tampered "), manifest...)
 	}
-	r.files["/Flockdeck/lens/releases/download/v"+version+"/"+top+".tar.gz"] = buf.Bytes()
+	files[base+name] = buf.Bytes()
+	files[base+"checksums.txt"] = sums
+	files[base+"manifest.json"] = manifest
+	delete(files, base+"manifest.json.sig")
+	delete(files, base+"checksums.txt.sig")
+	if sign {
+		files[base+"manifest.json.sig"] = selfupdate.Sign(key, signed)
+		files[base+"checksums.txt.sig"] = sumsSig
+	}
+	files["/lens/latest.json"] = []byte("{\"version\":\"" + tag + "\"}")
+	return hexsum
+}
+
+// lensAt is the catalogue's lens, fetched from a fake CDN.
+func lensAt(origin string) func(string) (helpers.Entry, bool) {
+	e, _ := helpers.Lookup("lens")
+	e.Source = origin + "/lens"
+	return func(id string) (helpers.Entry, bool) {
+		if id == e.ID {
+			return e, true
+		}
+		return helpers.Entry{}, false
+	}
 }
 
 type cliRig struct {
@@ -106,7 +141,7 @@ func newCLIRig(t *testing.T) *cliRig {
 	c := &helperCLI{
 		out: out, errOut: errOut, in: strings.NewReader(""), store: st,
 		installer: helpers.NewInstaller(helpers.Options{
-			Store: st, Base: rel.srv.URL, GOOS: "linux", GOARCH: "amd64",
+			Store: st, Lookup: lensAt(rel.srv.URL), GOOS: "linux", GOARCH: "amd64",
 			AllowURL: func(u *url.URL) bool { return u.Hostname() == "127.0.0.1" },
 		}),
 		instance: func() (string, string, error) { return "", "", nil },
@@ -138,7 +173,7 @@ func TestHelpersInstallAndList(t *testing.T) {
 	if err := r.run("install", "-yes", "lens"); err != nil {
 		t.Fatalf("install: %v\n%s", err, r.out)
 	}
-	for _, want := range []string{"Install lens 0.4.0", "From:", "/Flockdeck/lens/releases/download/v0.4.0/lens_0.4.0_linux_amd64.tar.gz",
+	for _, want := range []string{"Install lens 0.4.0", "From:", "/lens/v0.4.0/lens_v0.4.0_linux_amd64.tar.gz",
 		"is checked against it when it is downloaded", "any account on this", "Any program running as you", "SHA-256:", "It may:", "Listens on 127.0.0.1 only", "It is not sandboxed", "Installed lens 0.4.0.", "flockdeck helpers start lens"} {
 		if !strings.Contains(r.out.String(), want) {
 			t.Errorf("the install output is missing %q:\n%s", want, r.out)

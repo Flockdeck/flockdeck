@@ -44,7 +44,7 @@ func helpersUsage(out io.Writer) {
   flockdeck helpers uninstall [-purge-data] [-yes] <helper>
 
 A helper app is a small program Flockdeck downloads, checks against its release
-key and the SHA-256 in the signed checksums, installs under its own folder, and
+key and the SHA-256 in the signed manifest, installs under its own folder, and
 runs for you. It is not part of Flockdeck and runs with your access.
 
 list, install and uninstall work without Flockdeck running. start, stop and open
@@ -54,7 +54,7 @@ open. open shows the helper's page in your browser.
 install shows what it is going to download and asks first; -yes skips the
 question. A release with no signature is refused unless -allow-unsigned is
 given, and then the SHA-256 of the archive is shown, which proves the download
-matches checksums.txt and not who built it. A signature that is there and
+matches the manifest and not who built it. A signature that is there and
 wrong is always refused.
 
 uninstall keeps the helper's data folder and says where it is; -purge-data
@@ -94,7 +94,7 @@ type helpersListFlags struct{ check bool }
 
 func helpersListFlagSet(f *helpersListFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("flockdeck helpers list", flag.ContinueOnError)
-	fs.BoolVar(&f.check, "check", false, "also look on GitHub for a newer version of each installed helper")
+	fs.BoolVar(&f.check, "check", false, "also ask each helper's source for a newer version")
 	fs.Usage = func() { helpersUsage(fs.Output()) }
 	return fs
 }
@@ -253,17 +253,17 @@ func (c *helperCLI) list(f helpersListFlags) error {
 				notes = "Unsigned"
 			}
 			if f.check {
-				plan, err := c.installer.Plan(ctx, e.ID, "")
+				newer, err := c.installer.CheckUpdate(ctx, e.ID)
 				switch {
 				case err != nil:
 					notes = joinNotes(notes, "could not check: "+shortError(err))
-				case helpers.UpdateAvailable(e, plan.Version, info.Version):
-					notes = joinNotes(notes, "Update available "+plan.Version)
+				case newer != "" && helpers.UpdateAvailable(e, newer, info.Version):
+					notes = joinNotes(notes, "Update available "+newer)
 				}
 			}
 		} else if f.check {
-			if plan, err := c.installer.Plan(ctx, e.ID, ""); err == nil {
-				notes = "Available " + plan.Version
+			if newer, err := c.installer.CheckUpdate(ctx, e.ID); err == nil {
+				notes = "Available " + newer
 			} else {
 				notes = "could not check: " + shortError(err)
 			}
@@ -308,7 +308,7 @@ func (c *helperCLI) install(id string, f helpersInstallFlags) error {
 	fmt.Fprintf(c.out, "  %s\n", e.Summary)
 	fmt.Fprintf(c.out, "  From:       %s\n", plan.URL)
 	if plan.Signed {
-		fmt.Fprintf(c.out, "  Signature:  checksums.txt is signed with Flockdeck's release key; the archive\n              is checked against it when it is downloaded\n")
+		fmt.Fprintf(c.out, "  Signature:  manifest.json is signed with Flockdeck's release key; the archive\n              is checked against it when it is downloaded\n")
 	} else {
 		fmt.Fprintf(c.out, "  Signature:  NONE\n")
 	}
@@ -324,7 +324,7 @@ func (c *helperCLI) install(id string, f helpersInstallFlags) error {
 
 	if !plan.Signed {
 		fmt.Fprintf(c.out, "\nWARNING: this release is not signed.\n")
-		fmt.Fprintf(c.out, "The SHA-256 above is from its checksums.txt. It proves the download matches that\n")
+		fmt.Fprintf(c.out, "The SHA-256 above is from its manifest. It proves the download matches that\n")
 		fmt.Fprintf(c.out, "file. It does not prove who built it: anyone who can change the release can\n")
 		fmt.Fprintf(c.out, "change both. This applies to this version only and is asked again for the next.\n")
 		if !f.allowUnsigned {

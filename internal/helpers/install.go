@@ -22,17 +22,15 @@ import (
 	"github.com/jmwri/flockdeck/internal/store"
 )
 
-// githubBase is where releases are fetched from.
-const githubBase = "https://github.com"
-
 // Options configure an Installer. The zero value, with a Store, is the
-// production setup: github.com, the compiled-in keys, this platform.
+// production setup: each helper's own catalogue source, the compiled-in keys,
+// this platform.
 type Options struct {
 	Store *Store
-	// Base is the site releases are fetched from. Tests point it at a fake.
-	Base string
-	// AllowURL decides which URLs may be fetched or redirected to. Nil means
-	// DefaultAllowURL.
+	// AllowURL, when set, decides which URLs may be fetched in place of the
+	// rule the catalogue's Source gives (https, that exact host, no
+	// credentials, port 443). Tests use it to allow a plain-http loopback
+	// server; nothing in the program sets it.
 	AllowURL func(*url.URL) bool
 	// Stall is how long a request may go with nothing arriving. Zero means a
 	// minute.
@@ -56,7 +54,6 @@ type Options struct {
 // Installer downloads, verifies and installs helpers.
 type Installer struct {
 	store        *Store
-	base         string
 	allow        func(*url.URL) bool
 	client       *http.Client
 	stall        time.Duration
@@ -72,14 +69,8 @@ type Installer struct {
 // NewInstaller makes an Installer from options.
 func NewInstaller(o Options) *Installer {
 	in := &Installer{
-		store: o.Store, base: strings.TrimRight(o.Base, "/"), allow: o.AllowURL, stall: o.Stall,
+		store: o.Store, allow: o.AllowURL, stall: o.Stall,
 		goos: o.GOOS, goarch: o.GOARCH, busy: o.Busy, now: o.Now, hook: o.Hook, lookup: o.Lookup,
-	}
-	if in.base == "" {
-		in.base = githubBase
-	}
-	if in.allow == nil {
-		in.allow = DefaultAllowURL
 	}
 	if in.stall <= 0 {
 		in.stall = time.Minute
@@ -96,8 +87,16 @@ func NewInstaller(o Options) *Installer {
 	if in.now == nil {
 		in.now = time.Now
 	}
-	in.client = newClient(in.allow)
+	in.client = newClient()
 	return in
+}
+
+// allowFor is the rule for what an entry's downloads may fetch.
+func (in *Installer) allowFor(e Entry) func(*url.URL) bool {
+	if in.allow != nil {
+		return in.allow
+	}
+	return SourceAllowURL(e.Source)
 }
 
 // begin marks an install of id as under way, and reports false if one already
@@ -142,22 +141,39 @@ var (
 
 // SignatureError is a signature that is there and wrong. It can never be
 // overridden: only a missing signature can.
-type SignatureError struct{ Err error }
+type SignatureError struct {
+	// File is what failed, "manifest.json" or "checksums.txt".
+	File string
+	Err  error
+}
 
 func (e *SignatureError) Error() string {
-	return "checksums.txt does not carry a valid signature: " + e.Err.Error()
+	return e.File + " does not carry a valid signature: " + e.Err.Error()
 }
 func (e *SignatureError) Unwrap() error { return e.Err }
+
+// MismatchError is something the source served that disagrees with what was
+// signed, or with the rest of what it served: a manifest signed for another
+// version than the one asked for, a checksums.txt that gives another hash, a
+// URL that is not the file's own, an entry that is listed twice. It is never
+// overridable.
+type MismatchError struct{ Msg string }
+
+func (e *MismatchError) Error() string { return e.Msg }
+
+func mismatchf(format string, args ...any) error {
+	return &MismatchError{fmt.Sprintf(format, args...)}
+}
 
 // UnsignedError is a release with no signature. It carries the plan, so the
 // person is shown the archive's hash before they choose to go on.
 type UnsignedError struct{ Plan *Plan }
 
 func (e *UnsignedError) Error() string {
-	return fmt.Sprintf("%s %s is not signed (no checksums.txt.sig), so nothing proves who built it", e.Plan.Entry.Name, e.Plan.Version)
+	return fmt.Sprintf("%s %s is not signed (no manifest.json.sig), so nothing proves who built it", e.Plan.Entry.Name, e.Plan.Version)
 }
 
-// Plan is what an install would do, worked out from the signed checksums and
+// Plan is what an install would do, worked out from the signed manifest and
 // before the archive is downloaded.
 type Plan struct {
 	Entry   Entry
@@ -165,9 +181,13 @@ type Plan struct {
 	// Archive is the asset's file name and URL its address.
 	Archive string
 	URL     string
-	// SHA256 is the archive's hash as checksums.txt gives it.
+	// SHA256 and Size are the archive's hash and size as the manifest gives
+	// them.
 	SHA256 string
-	// Signed is true when checksums.txt carried a signature that checked out
+	Size   int64
+	// Date is when the manifest says the release was made.
+	Date time.Time
+	// Signed is true when manifest.json carried a signature that checked out
 	// against the keys compiled into Flockdeck.
 	Signed bool
 	// Installed is the installed version, or "" when there is none.
@@ -176,16 +196,40 @@ type Plan struct {
 	Explicit bool
 }
 
-func (in *Installer) releaseURL(e Entry, version, file string) string {
-	if version == "" {
-		return fmt.Sprintf("%s/%s/releases/latest/download/%s", in.base, e.Repo, file)
+const (
+	maxPointer  = 1 << 10
+	maxManifest = 1 << 20
+	// futureSkew is how far ahead of this machine's clock a manifest's date may
+	// be before it is not believed.
+	futureSkew = 24 * time.Hour
+)
+
+// latestVersion resolves "the latest" through latest.json. The file is not
+// signed, so all it does is say which version's manifest to read; nothing else
+// is taken from it, and the manifest must be signed for the version it names.
+func (in *Installer) latestVersion(ctx context.Context, e Entry) (string, error) {
+	data, err := in.fetchSmall(ctx, in.allowFor(e), e.Source+"/latest.json", maxPointer)
+	if err != nil {
+		return "", fmt.Errorf("fetch latest.json: %w", err)
 	}
-	return fmt.Sprintf("%s/%s/releases/download/v%s/%s", in.base, e.Repo, version, file)
+	tag, err := selfupdate.CheckPointer(data)
+	if err != nil {
+		return "", err
+	}
+	version := strings.TrimPrefix(tag, "v")
+	if !strings.HasPrefix(tag, "v") || !validVersion(version) {
+		return "", fmt.Errorf("latest.json names %q, which is not a release tag like v1.2.3", tag)
+	}
+	if strings.Contains(version, "-") {
+		// A candidate is never the latest.
+		return "", fmt.Errorf("latest.json names %s, a pre-release, which is never the latest", tag)
+	}
+	return version, nil
 }
 
-// Plan fetches and checks a release's checksums and applies the version rules.
-// version is "" for the latest release. It downloads no archive and writes
-// nothing.
+// Plan fetches and checks a release's signed manifest and applies the version
+// rules. version is "" for the latest release. It downloads no archive and
+// writes nothing.
 func (in *Installer) Plan(ctx context.Context, id, version string) (*Plan, error) {
 	e, ok := in.lookup(id)
 	if !ok {
@@ -194,85 +238,193 @@ func (in *Installer) Plan(ctx context.Context, id, version string) (*Plan, error
 	if version != "" && !validVersion(version) {
 		return nil, fmt.Errorf("%q is not a version like 1.2.3", version)
 	}
-	sumsURL := in.releaseURL(e, version, "checksums.txt")
-	body, err := in.fetchSmall(ctx, sumsURL, maxChecksums)
+	explicit := version != ""
+	if !explicit {
+		v, err := in.latestVersion(ctx, e)
+		if err != nil {
+			return nil, err
+		}
+		version = v
+	}
+	return in.plan(ctx, e, version, explicit)
+}
+
+// CheckUpdate says which version an install of the helper would give if it were
+// run now, and "" when that is not newer than what is installed. It reads
+// latest.json first and fetches and verifies the signed manifest only when the
+// version named is newer, so asking costs one small request when there is
+// nothing new. Nothing is shown from a manifest that has not passed every check
+// Plan makes.
+func (in *Installer) CheckUpdate(ctx context.Context, id string) (string, error) {
+	e, ok := in.lookup(id)
+	if !ok {
+		return "", fmt.Errorf("%q is not a helper Flockdeck knows", id)
+	}
+	v, err := in.latestVersion(ctx, e)
 	if err != nil {
-		return nil, fmt.Errorf("fetch checksums.txt: %w", err)
+		return "", err
+	}
+	if installed, ok := in.store.Current(e.ID); ok && !selfupdate.Newer("v"+v, "v"+installed) {
+		return "", nil
+	}
+	p, err := in.plan(ctx, e, v, false)
+	if err != nil {
+		return "", err
+	}
+	return p.Version, nil
+}
+
+// plan is Plan for a version that has been settled, by name or through
+// latest.json.
+func (in *Installer) plan(ctx context.Context, e Entry, version string, explicit bool) (*Plan, error) {
+	allow := in.allowFor(e)
+	tag := "v" + version
+	base := e.Source + "/" + tag + "/"
+
+	mdata, err := in.fetchSmall(ctx, allow, base+"manifest.json", maxManifest)
+	if err != nil {
+		return nil, fmt.Errorf("fetch manifest.json: %w", err)
 	}
 	signed := false
-	sig, err := in.fetchSmall(ctx, sumsURL+".sig", maxSignature)
+	msig, err := in.fetchSmall(ctx, allow, base+"manifest.json.sig", maxSignature)
 	switch {
 	case err == nil:
-		// Fails closed: no trusted keys, a bad signature, a short one and one
-		// over other bytes all end here, and none of them can be overridden.
-		if err := selfupdate.VerifyAny(selfupdate.TrustedKeys(), body, sig); err != nil {
-			return nil, &SignatureError{err}
+		// Fails closed, over the exact bytes fetched: no trusted keys, a bad
+		// signature, a short or empty one and one over other bytes all end
+		// here, and none of them can be overridden.
+		if err := selfupdate.VerifyAny(selfupdate.TrustedKeys(), mdata, msig); err != nil {
+			return nil, &SignatureError{File: "manifest.json", Err: err}
 		}
 		signed = true
 	case errors.Is(err, errNotFound):
 		// The one case with a way forward: no signature at all.
 	default:
-		return nil, fmt.Errorf("fetch checksums.txt.sig: %w", err)
+		return nil, fmt.Errorf("fetch manifest.json.sig: %w", err)
 	}
-
-	name, sum, found, err := in.findAsset(e, body)
+	m, err := selfupdate.ParseManifest(mdata)
 	if err != nil {
 		return nil, err
 	}
-	if !found {
-		return nil, fmt.Errorf("%s: %w", e.Name, ErrNoAsset)
+	if m.Version != tag {
+		// A signed manifest for another release served at this release's
+		// address is a replay, and a latest.json that names a release whose
+		// manifest says another is lying.
+		return nil, mismatchf("the manifest served as %s is for %s", tag, m.Version)
 	}
-	got := in.versionOf(e, name)
-	if version != "" && got != version {
-		// A signed file for another release served at this release's address
-		// is a replay, not the release that was asked for.
-		return nil, fmt.Errorf("the checksums at v%s are for %s, not for %s", version, got, version)
+	if m.Date.IsZero() {
+		return nil, mismatchf("the manifest for %s has no date", tag)
 	}
+	if m.Date.After(in.now().Add(futureSkew)) {
+		return nil, mismatchf("the manifest for %s is dated %s, which is in the future", tag, m.Date.Format(time.RFC3339))
+	}
+
+	file, err := in.findFile(e, m, tag)
+	if err != nil {
+		return nil, err
+	}
+	if err := in.crossCheck(ctx, e, base, file, signed); err != nil {
+		return nil, err
+	}
+
 	installed, _ := in.store.Current(e.ID)
-	if err := in.store.checkSignedRequired(e, got, signed); err != nil {
+	if err := in.store.checkSignedRequired(e, version, signed); err != nil {
 		return nil, err
 	}
-	if err := checkVersion(e, got, installed, version != ""); err != nil {
+	if err := checkVersion(e, version, installed, explicit); err != nil {
 		return nil, err
+	}
+	if !explicit {
+		// A newer version with an older date than the one installed is a signed
+		// manifest that has been re-labelled, not a later release.
+		if info, ok := in.store.Info(e.ID); ok && !info.ManifestDate.IsZero() && m.Date.Before(info.ManifestDate) {
+			return nil, mismatchf("%s is dated %s, earlier than the installed %s (%s), so it is not offered as an update",
+				tag, m.Date.Format(time.RFC3339), info.Version, info.ManifestDate.Format(time.RFC3339))
+		}
 	}
 	return &Plan{
-		Entry: e, Version: got, Archive: name, URL: in.releaseURL(e, got, name), SHA256: sum,
-		Signed: signed, Installed: installed, Explicit: version != "",
+		Entry: e, Version: version, Archive: file.Name, URL: file.URL, SHA256: strings.ToLower(file.SHA256), Size: file.Size, Date: m.Date,
+		Signed: signed, Installed: installed, Explicit: explicit,
 	}, nil
 }
 
-// versionOf reads the version out of an archive name that findAsset matched.
-func (in *Installer) versionOf(e Entry, name string) string {
-	m := e.assetPattern(in.goos, in.goarch).FindStringSubmatch(name)
-	if m == nil {
-		return ""
+// findFile finds this platform's archive in the manifest, which has to list it
+// exactly once, at the address the source serves it from, with a size that is
+// within the entry's limit. A name listed twice anywhere in the manifest is
+// refused, since which of two entries is meant is not something to guess.
+func (in *Installer) findFile(e Entry, m *selfupdate.Manifest, tag string) (selfupdate.ManifestFile, error) {
+	seen := map[string]bool{}
+	for _, f := range m.Files {
+		if seen[f.Name] {
+			return selfupdate.ManifestFile{}, mismatchf("the manifest lists %s more than once", f.Name)
+		}
+		seen[f.Name] = true
 	}
-	return m[1]
-}
-
-// findAsset finds this platform's archive in checksums.txt. It insists on
-// exactly one: a file that lists two versions for one platform is not one to
-// guess from.
-func (in *Installer) findAsset(e Entry, body []byte) (name, sum string, found bool, err error) {
-	re := e.assetPattern(in.goos, in.goarch)
-	for _, line := range strings.Split(string(body), "\n") {
-		f := strings.Fields(line)
-		if len(f) != 2 || !re.MatchString(f[1]) {
+	want := e.ArchiveName(strings.TrimPrefix(tag, "v"), in.goos, in.goarch)
+	for _, f := range m.Files {
+		if f.Name != want {
 			continue
 		}
-		if found {
-			return "", "", false, fmt.Errorf("checksums.txt lists more than one %s archive for %s/%s", e.Name, in.goos, in.goarch)
+		if f.URL != e.Source+"/"+tag+"/"+want {
+			return f, mismatchf("the manifest lists %s at %s, not at %s/%s/%s", want, describeURLString(f.URL), e.Source, tag, want)
 		}
-		sum = strings.ToLower(f[0])
-		if b, derr := hex.DecodeString(sum); derr != nil || len(b) != 32 {
-			return "", "", false, fmt.Errorf("checksums.txt lists %s without a SHA-256", f[1])
+		if f.Size <= 0 || f.Size > e.maxArchive() {
+			return f, mismatchf("the manifest gives %s a size of %d bytes, outside the 1 to %d allowed", want, f.Size, e.maxArchive())
 		}
-		name, found = f[1], true
+		return f, nil
 	}
-	if found && !validVersion(in.versionOf(e, name)) {
-		return "", "", false, fmt.Errorf("%s does not carry a version", name)
+	return selfupdate.ManifestFile{}, fmt.Errorf("%s %s: %w", e.Name, tag, ErrNoAsset)
+}
+
+// describeURLString is a URL for a message, without its query.
+func describeURLString(raw string) string {
+	if u, err := url.Parse(raw); err == nil {
+		return u.Scheme + "://" + u.Host + u.Path
 	}
-	return name, sum, found, nil
+	return "an address that is not a URL"
+}
+
+// crossCheck reads checksums.txt, which is signed separately, and requires it
+// to give the archive the same hash as the manifest. When the manifest is
+// signed the checksums must be too, and their signature is held to the same
+// rule: both are signed, so a disagreement or a missing signature means
+// something served is not what was released.
+func (in *Installer) crossCheck(ctx context.Context, e Entry, base string, file selfupdate.ManifestFile, signed bool) error {
+	allow := in.allowFor(e)
+	sums, err := in.fetchSmall(ctx, allow, base+"checksums.txt", maxChecksums)
+	if err != nil {
+		return fmt.Errorf("fetch checksums.txt: %w", err)
+	}
+	sig, err := in.fetchSmall(ctx, allow, base+"checksums.txt.sig", maxSignature)
+	switch {
+	case err == nil:
+		if verr := selfupdate.VerifyAny(selfupdate.TrustedKeys(), sums, sig); verr != nil && signed {
+			return &SignatureError{File: "checksums.txt", Err: verr}
+		}
+	case errors.Is(err, errNotFound):
+		if signed {
+			return &SignatureError{File: "checksums.txt", Err: errors.New("the manifest is signed, but checksums.txt.sig is missing")}
+		}
+	default:
+		return fmt.Errorf("fetch checksums.txt.sig: %w", err)
+	}
+	got := ""
+	count := 0
+	for _, line := range strings.Split(string(sums), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 2 && f[1] == file.Name {
+			got = strings.ToLower(f[0])
+			count++
+		}
+	}
+	switch {
+	case count == 0:
+		return mismatchf("checksums.txt does not list %s", file.Name)
+	case count > 1:
+		return mismatchf("checksums.txt lists %s more than once", file.Name)
+	case got != strings.ToLower(file.SHA256):
+		return mismatchf("checksums.txt gives %s a SHA-256 other than the manifest does", file.Name)
+	}
+	return nil
 }
 
 // Install installs a helper: version "" is the latest. An unsigned release is
@@ -335,7 +487,7 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 	defer os.RemoveAll(staging)
 
 	archive := filepath.Join(staging, "archive"+archiveExt(in.goos))
-	if err := in.download(ctx, p.URL, archive, e.maxArchive(), p.SHA256); err != nil {
+	if err := in.download(ctx, in.allowFor(e), p.URL, archive, e.maxArchive(), p.SHA256, p.Size); err != nil {
 		return nil, err
 	}
 	if err := in.stage("downloaded"); err != nil {
@@ -366,7 +518,7 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 	if err != nil {
 		return nil, err
 	}
-	info := InstallInfo{Version: p.Version, Source: p.URL, SHA256: p.SHA256, BinarySHA256: binSum, Signed: p.Signed, InstalledAt: in.now().UTC()}
+	info := InstallInfo{Version: p.Version, Source: p.URL, SHA256: p.SHA256, BinarySHA256: binSum, Signed: p.Signed, ManifestDate: p.Date, InstalledAt: in.now().UTC()}
 	data, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
 		return nil, err
