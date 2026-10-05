@@ -48,7 +48,7 @@ func TestInstallLayout(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantSource := f.site.URL + cdnBase("0.4.0") + f.entry.ArchiveName("0.4.0", goos, "amd64")
-			if recorded.Source != wantSource || recorded.SHA256 != info.SHA256 || !recorded.Signed || recorded.InstalledAt.IsZero() {
+			if recorded.Source != wantSource || recorded.SHA256 != info.SHA256 || recorded.InstalledAt.IsZero() {
 				t.Errorf("install.json = %+v", recorded)
 			}
 			if fi, err := os.Stat(f.store.DataDir("lens")); err != nil || !fi.IsDir() {
@@ -521,7 +521,7 @@ func TestOnlyOneInstallOfAHelperAtATime(t *testing.T) {
 	if !f.in.Installing("lens") {
 		t.Fatal("Installing is false during an install")
 	}
-	plan := &Plan{Entry: f.entry, Version: "0.4.0", SHA256: strings.Repeat("a", 64), Signed: true}
+	plan := f.in.sealPlan(&Plan{Entry: f.entry, Version: "0.4.0", SHA256: strings.Repeat("a", 64)})
 	if _, err := f.in.InstallPlan(t.Context(), plan); !errors.Is(err, ErrBusy) {
 		t.Fatalf("a second install: %v", err)
 	}

@@ -120,7 +120,7 @@ func TestCrashBackoffBlocksAnUninstallAndAnInstall(t *testing.T) {
 		t.Fatal("an uninstall during a restart delay")
 	}
 	in := NewInstaller(Options{Store: f.store, Lookup: lookupTest(fakeEntry("lens")), Busy: f.sup.Active})
-	if _, err := in.InstallPlan(t.Context(), &Plan{Entry: fakeEntry("lens"), Version: "0.9.0", SHA256: strings.Repeat("a", 64), Signed: true}); err == nil || !strings.Contains(err.Error(), "running") {
+	if _, err := in.InstallPlan(t.Context(), in.sealPlan(&Plan{Entry: fakeEntry("lens"), Version: "0.9.0", SHA256: strings.Repeat("a", 64)})); err == nil || !strings.Contains(err.Error(), "running") {
 		t.Fatalf("an install during a restart delay: %v", err)
 	}
 	if !f.sup.Active("lens") {

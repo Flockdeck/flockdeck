@@ -38,11 +38,7 @@ type uiRig struct {
 
 // newUIRig serves lens exactly as the catalogue lists it, apart from where it
 // is fetched from.
-func newUIRig(t *testing.T) *uiRig { return newUIRigWith(t) }
-
-// newUIRigWith changes the catalogue's entry first, for a test of what a
-// different entry would do.
-func newUIRigWith(t *testing.T, change ...func(*helpers.Entry)) *uiRig {
+func newUIRig(t *testing.T) *uiRig {
 	t.Helper()
 	srv, _ := newTestServer(t)
 	pub, priv, _ := ed25519.GenerateKey(nil)
@@ -66,7 +62,7 @@ func newUIRigWith(t *testing.T, change ...func(*helpers.Entry)) *uiRig {
 	srv.SetHelpers(
 		helpers.NewSupervisor(helpers.Config{Store: r.store, GOOS: "linux"}),
 		helpers.NewInstaller(helpers.Options{
-			Store: r.store, Lookup: lensAt(fake.URL, change...), GOOS: "linux", GOARCH: "amd64",
+			Store: r.store, Lookup: lensAt(fake.URL), GOOS: "linux", GOARCH: "amd64",
 			AllowURL: func(u *url.URL) bool { return u.Hostname() == "127.0.0.1" },
 		}),
 	)
@@ -131,12 +127,9 @@ func publishCDN(files map[string][]byte, origin string, key ed25519.PrivateKey, 
 }
 
 // lensAt is the catalogue's lens, fetched from a fake CDN.
-func lensAt(origin string, change ...func(*helpers.Entry)) func(string) (helpers.Entry, bool) {
+func lensAt(origin string) func(string) (helpers.Entry, bool) {
 	e, _ := helpers.Lookup("lens")
 	e.Source = origin + "/lens"
-	for _, f := range change {
-		f(&e)
-	}
 	return func(id string) (helpers.Entry, bool) {
 		if id == e.ID {
 			return e, true
@@ -224,7 +217,7 @@ func TestHelperPlanShowsTheReleaseWithoutInstalling(t *testing.T) {
 	c := &controlClient{out: make(chan []byte, 16)}
 	r.send(c, command{Cmd: "helperPlan", ID: "lens"})
 	m := next(t, c, "helperPlan")
-	if m["version"] != "0.4.0" || m["sha256"] != sha || m["signed"] != true || !strings.Contains(m["url"].(string), "/lens/v0.4.0/lens_v0.4.0_linux_amd64.tar.gz") {
+	if m["version"] != "0.4.0" || m["sha256"] != sha || !strings.Contains(m["url"].(string), "/lens/v0.4.0/lens_v0.4.0_linux_amd64.tar.gz") {
 		t.Fatalf("plan = %v", m)
 	}
 	if _, ok := r.store.Current("lens"); ok {
@@ -610,7 +603,7 @@ func TestARepairBelowTheMarkWorksFromTheDialog(t *testing.T) {
 	notices(c, 3*time.Second)
 	// Down to 0.3.0 by naming it, as the command line can.
 	_, inst := r.srv.helperSupervisor()
-	if _, err := inst.Install(t.Context(), "lens", "0.3.0", false); err != nil {
+	if _, err := inst.Install(t.Context(), "lens", "0.3.0"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(r.store.Root, "lens", "versions", "0.3.0", "lens"), []byte("changed"), 0o755); err != nil {
@@ -653,21 +646,5 @@ func TestAStartRefusedForATamperedProgramOffersTheRepair(t *testing.T) {
 	row := next(t, c, "helpers")["rows"].([]any)[0].(map[string]any)
 	if row["needsRepair"] != true {
 		t.Fatalf("the row does not offer the repair: %v", row)
-	}
-}
-
-// An entry that did not require signatures would still never be installed
-// unsigned from the dialog: there is no override to choose.
-func TestAnUnsignedReleaseOfALooserEntryIsStillRefused(t *testing.T) {
-	r := newUIRigWith(t, func(e *helpers.Entry) { e.RequireSigned = false })
-	sha := r.publish(t, "0.4.0", false, false)
-	c := &controlClient{out: make(chan []byte, 32)}
-	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	got := notices(c, 2*time.Second)
-	if !strings.Contains(strings.Join(got, "|"), "is not signed") {
-		t.Fatalf("notices = %v", got)
-	}
-	if _, ok := r.store.Current("lens"); ok {
-		t.Fatal("installed an unsigned release")
 	}
 }

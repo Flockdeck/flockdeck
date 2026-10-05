@@ -22,9 +22,6 @@ type HelperRow struct {
 	Summary string `json:"summary"`
 	// Installed is the installed version, "" when there is none.
 	Installed string `json:"installed,omitempty"`
-	// Signed is false when the installed version's record does not say it was
-	// signed.
-	Signed bool `json:"signed"`
 	// State is "notinstalled", "installing", or a helpers.State.
 	State    string   `json:"state"`
 	URL      string   `json:"url,omitempty"`
@@ -61,7 +58,6 @@ type helperPlanMsg struct {
 	Version   string `json:"version,omitempty"`
 	URL       string `json:"url,omitempty"`
 	SHA256    string `json:"sha256,omitempty"`
-	Signed    bool   `json:"signed"`
 	Installed string `json:"installed,omitempty"`
 	// Repair says the installed version no longer matches what was installed,
 	// and this puts a checked copy of it back.
@@ -157,9 +153,9 @@ func (s *Server) helperRows() []HelperRow {
 	st := inst.Store()
 	var rows []HelperRow
 	for _, e := range helpers.Catalogue() {
-		row := HelperRow{ID: e.ID, Name: e.Name, Summary: e.Summary, Allows: e.Allows, State: "notinstalled", Signed: true}
+		row := HelperRow{ID: e.ID, Name: e.Name, Summary: e.Summary, Allows: e.Allows, State: "notinstalled"}
 		if info, ok := st.Info(e.ID); ok {
-			row.Installed, row.Signed = info.Version, info.Signed
+			row.Installed = info.Version
 			status := sup.Status(e.ID)
 			row.State = string(status.State)
 			row.URL, row.Err, row.Log, row.Restarts, row.Owner = status.URL, status.Err, status.Log, status.Restarts, status.Owner
@@ -305,7 +301,7 @@ func (s *Server) helperPlan(c *controlClient, id, version string) {
 		}
 		c.sendJSON(helperPlanMsg{
 			Type: "helperPlan", ID: id, Name: plan.Entry.Name, Summary: plan.Entry.Summary, Version: plan.Version, URL: plan.URL,
-			SHA256: plan.SHA256, Signed: plan.Signed, Installed: plan.Installed, Repair: plan.Repair, Allows: plan.Entry.Allows,
+			SHA256: plan.SHA256, Installed: plan.Installed, Repair: plan.Repair, Allows: plan.Entry.Allows,
 		})
 	}()
 }
@@ -329,7 +325,7 @@ func planError(err error) string {
 
 // helperInstall carries out an install the person confirmed in the dialog. The
 // release is looked up again, and has to be the one that was shown: the same
-// version with the same archive hash. A release that is not signed is refused.
+// version with the same archive hash.
 func (s *Server) helperInstall(c *controlClient, cmd command) {
 	if !s.helperDeskOnlyFor(c, cmd.ID) {
 		return
@@ -362,10 +358,6 @@ func (s *Server) helperInstall(c *controlClient, cmd command) {
 		}
 		if plan.SHA256 != cmd.SHA256 || plan.Version != version {
 			c.notify("Not installed: the release changed since it was shown. Look again before installing.", true)
-			return
-		}
-		if !plan.Signed {
-			c.notify("Not installed: the release is not signed, and an unsigned release is never installed.", true)
 			return
 		}
 		info, err := inst.InstallPlan(ctx, plan)

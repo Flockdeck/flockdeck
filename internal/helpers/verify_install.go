@@ -102,16 +102,12 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// The trust record: once a helper has been installed from a signed release,
-// an unsigned one is never accepted for it, and nothing older than the newest
-// signed version installed is accepted without being asked for by name on the
-// command line. Without the first, anyone who can make the signature file
-// disappear turns a signed helper into one that asks to be clicked through; and
-// without the second, a signed release from before a fix can be served again
-// after an uninstall, when nothing installed is left to compare it with.
+// The trust record: nothing older than the newest signed version installed is
+// accepted without being asked for by name on the command line. Without it, a
+// signed release from before a fix can be served again after an uninstall,
+// when nothing installed is left to compare it with.
 
 type trustRecord struct {
-	EverSigned bool `json:"everSigned"`
 	// HighWater is the newest signed version ever installed.
 	HighWater string `json:"highWater,omitempty"`
 }
@@ -132,27 +128,9 @@ func (s *Store) readTrust(id string) (rec trustRecord, exists, readable bool) {
 	return rec, true, true
 }
 
-// EverSigned reports whether a signed version of the helper was ever installed
-// here, and it fails closed. Flockdeck writes trust.json only to say yes, so a
-// file that is there but does not say yes (corrupt, empty, null, `{"everSigned":false}`, a
-// folder, unreadable) is damage or tampering and counts as yes. With no file at
-// all, the installed version's own install.json is asked, which covers a
-// deleted record; and with neither, there is no signed history and this is a
-// fresh install. An uninstall keeps the record; deleting the data clears it.
-func (s *Store) EverSigned(id string) bool {
-	if !validID(id) {
-		return false
-	}
-	if _, exists, _ := s.readTrust(id); exists {
-		return true
-	}
-	info, ok := s.Info(id)
-	return ok && info.Signed
-}
-
 // HighWater is the newest signed version known to have been installed here: the
-// record's, or the installed version's if that is signed and newer. Empty when
-// none is known.
+// record's, or the installed version's if that is newer. Empty when none is
+// known.
 func (s *Store) HighWater(id string) string {
 	if !validID(id) {
 		return ""
@@ -161,7 +139,7 @@ func (s *Store) HighWater(id string) string {
 	if rec, _, ok := s.readTrust(id); ok && validVersion(rec.HighWater) {
 		hw = rec.HighWater
 	}
-	if info, ok := s.Info(id); ok && info.Signed && validVersion(info.Version) {
+	if info, ok := s.Info(id); ok && validVersion(info.Version) {
 		if hw == "" || selfupdate.Newer(info.Version, hw) {
 			hw = info.Version
 		}
@@ -210,17 +188,6 @@ func (s *Store) writeTrust(id string, rec trustRecord) error {
 	return nil
 }
 
-// recordSigned writes down, before the pointer moves, that a signed version is
-// being installed, leaving the high-water mark as it was: the mark rises only
-// once the install has taken effect (see raiseHighWater).
-func (s *Store) recordSigned(id string) error {
-	rec, _, ok := s.readTrust(id)
-	if !ok {
-		rec = trustRecord{}
-	}
-	return s.writeTrust(id, trustRecord{EverSigned: true, HighWater: rec.HighWater})
-}
-
 // raiseHighWater lifts the mark to version once it is the installed one, and
 // leaves it alone if it is already higher.
 func (s *Store) raiseHighWater(id, version string) error {
@@ -231,14 +198,7 @@ func (s *Store) raiseHighWater(id, version string) error {
 	if validVersion(rec.HighWater) && !selfupdate.Newer(version, rec.HighWater) {
 		return nil
 	}
-	return s.writeTrust(id, trustRecord{EverSigned: true, HighWater: version})
-}
-
-// trustDamaged reports a trust record that is there and is not one Flockdeck
-// wrote.
-func (s *Store) trustDamaged(id string) bool {
-	rec, exists, ok := s.readTrust(id)
-	return exists && (!ok || !rec.EverSigned)
+	return s.writeTrust(id, trustRecord{HighWater: version})
 }
 
 // ErrBelowHighWater is a release older than the newest signed version ever
@@ -257,44 +217,12 @@ func checkHighWater(version, highWater string, mayDowngrade bool) error {
 	return nil
 }
 
-// SignedRequiredError is an unsigned release of a helper that has to be
-// signed, either because its catalogue entry says so or because a signed
-// version was installed before. Unlike UnsignedError it has no override.
+// SignedRequiredError is a release that is not signed. Every helper's releases
+// have to be, and nothing overrides that.
 type SignedRequiredError struct {
 	Name, Version string
-	// Earlier is true when the reason is a signed version installed before,
-	// false when the catalogue requires signatures.
-	Earlier bool
-	// Damaged is true when the trust record is there and unreadable, so it
-	// cannot be told whether an earlier version was signed; Path is the record.
-	Damaged bool
-	Path    string
 }
 
 func (e *SignedRequiredError) Error() string {
-	switch {
-	case e.Damaged:
-		return fmt.Sprintf("%s %s is not signed, and %s is damaged, so it cannot be told whether an earlier version was signed. It was refused. If %s never had a signed release here, delete %s to reset it", e.Name, e.Version, e.Path, e.Name, e.Path)
-	case e.Earlier:
-		return fmt.Sprintf("%s %s is not signed, but an earlier version of it that you installed was. It was refused and cannot be overridden: a release that loses its signature is not the one that was signed", e.Name, e.Version)
-	}
 	return fmt.Sprintf("%s %s is not signed, and %s requires every release to be signed. It was refused and cannot be overridden", e.Name, e.Version, e.Name)
-}
-
-// checkSignedRequired refuses an unsigned plan for a helper that has to be
-// signed.
-func (s *Store) checkSignedRequired(e Entry, version string, signed bool) error {
-	if signed {
-		return nil
-	}
-	if e.RequireSigned {
-		return &SignedRequiredError{Name: e.Name, Version: version}
-	}
-	if s.EverSigned(e.ID) {
-		if s.trustDamaged(e.ID) {
-			return &SignedRequiredError{Name: e.Name, Version: version, Damaged: true, Path: s.trustFile(e.ID)}
-		}
-		return &SignedRequiredError{Name: e.Name, Version: version, Earlier: true}
-	}
-	return nil
 }
