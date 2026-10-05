@@ -176,7 +176,10 @@ index that remembers them points at objects that folder held, so keeping one
 means keeping the other, which grows without a limit that is safe to prune while
 a refresh may be reading it. The cost is bounded by the limit of a thousand
 changed files. Each pair that shares a file adds a merge, and the same two copies
-are not merged twice. On a very large checkout this is noticeable, which is
+are not merged twice (the last 4,096 merges are remembered, the one asked for least
+recently going first). One refresh runs at most 50 merges: with more pairs than
+that the rest are left as they were until the next refresh, which goes on from the
+ones already done. On a very large checkout this is noticeable, which is
 why it is off by default.
 
 The base. Work is measured from the nearest of these branches that shares
