@@ -251,16 +251,15 @@ func TestASignedInstallThatCannotRecordItselfFails(t *testing.T) {
 	if _, err := f.install("0.4.0"); err != nil {
 		t.Fatal(err)
 	}
-	// The record cannot be written: a folder is where the file goes.
-	if err := os.Remove(f.store.trustFile("lens")); err != nil {
-		t.Fatal(err)
+	// The record cannot be written.
+	prev := atomicWrite
+	atomicWrite = func(path string, data []byte, perm os.FileMode) error {
+		if strings.HasSuffix(path, "trust.json") {
+			return errors.New("simulated")
+		}
+		return prev(path, data, perm)
 	}
-	if err := os.Mkdir(f.store.trustFile("lens"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(f.store.trustFile("lens"), "x"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	defer func() { atomicWrite = prev }()
 	_, err := f.install("0.5.0")
 	if _, ok := asErr[*TrustWriteError](err); !ok || !strings.Contains(err.Error(), f.store.trustFile("lens")) || !strings.Contains(err.Error(), "Delete it or make it writable") {
 		t.Fatalf("err = %v", err)
