@@ -53,6 +53,11 @@ The footer has three choices:
   same checkout. The old conversation stays in the history.
 - **Save only** keeps it for later.
 
+A phone or other window reached through the relay has the same three choices, and can
+also make a baton, so a paired device can make, save, start and send batons. What it
+makes is built and kept on this computer and scrubbed here like any other. Its tick
+box does not count for a different company: see the approval step below.
+
 The new agent's first prompt is the baton, with a note that it is claims to check,
 then your task. A baton over the prompt's size budget loses list lines, then whole
 sections, and the full text goes to a file in the checkout's git folder, which
@@ -100,7 +105,10 @@ unknown when a gateway or cloud setting sends it elsewhere.
 With the flag the agent only asks. A notice in a window on this machine names the
 pane, the destination and where the baton came from, and has a **Send it** button.
 Nothing starts until you press it. With no such window open, or no answer within 45
-seconds, it is not sent. A window reached through the relay cannot approve. What was
+seconds, it is not sent. A window reached through the relay cannot approve. It cannot
+skip the approval either: a **New pane** from a relay window that would go to a
+different or unknown company waits for the same notice on this machine, whether or not
+the box was ticked, and is refused when no window here is open. What was
 approved is checked again where the helper really runs. If the agent or its company
 changed meanwhile, nothing starts, and the worktree and branch this request made are
 removed (kept, with a message, if they hold anything beyond the checked-out files,

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -430,14 +431,29 @@ func (s *Server) batonCommand(c *controlClient, cmd command) {
 		fail(in.agentErr)
 		return
 	}
-	if cmd.Cmd == "startFromBaton" && !cmd.Confirmed {
-		// The window asks for a tick before it sends this; a window that does
-		// not, or a command sent by hand, is refused here as well.
-		from, _ := workspace.BatonProviderDetail(in.src.Spec, in.src.Pane.Cwd)
-		to, _ := workspace.BatonProviderDetail(in.target, in.src.Pane.Cwd)
+	// A start that would send the baton to another company, or to one that is not
+	// known, needs the person to say so. In a window on this machine that is the
+	// tick the dialog asks for: a window that does not send it, or a command sent
+	// by hand, is refused here as well. In a window reached through the relay the
+	// tick is not enough, since it is only a field the phone fills in: the start
+	// then waits for the approval notice in a window on this machine, the same one
+	// `spawn -baton-send-elsewhere` waits for, and for nothing else.
+	var approve *approvalInfo
+	if cmd.Cmd == "startFromBaton" {
+		from, fromWhy := workspace.BatonProviderDetail(in.src.Spec, in.src.Pane.Cwd)
+		to, toWhy := workspace.BatonProviderDetail(in.target, in.src.Pane.Cwd)
 		if change := providerChange(in.src.Spec.ID, from, in.target.ID, to); change != "" {
-			fail(errors.New("this baton would be sent to a different company (" + change + "); tick Send it there to do it"))
-			return
+			switch {
+			case c.remote:
+				approve = &approvalInfo{
+					Asker:  "A phone or other window reached through the relay",
+					Dest:   in.target.Name + " (" + providerText(to, toWhy) + ")",
+					Source: "came from " + in.src.Spec.Name + " (" + providerText(from, fromWhy) + ")",
+				}
+			case !cmd.Confirmed:
+				fail(errors.New("this baton would be sent to a different company (" + change + "); tick Send it there to do it"))
+				return
+			}
 		}
 	}
 	go func() {
@@ -449,6 +465,13 @@ func (s *Server) batonCommand(c *controlClient, cmd command) {
 		if err != nil {
 			fail(err)
 			return
+		}
+		if approve != nil {
+			c.notify("Waiting for you to allow this in the Flockdeck window on the computer.", false)
+			if err := s.approveElsewhere(context.Background(), *approve); err != nil {
+				fail(err)
+				return
+			}
 		}
 		saved := batonSavedMsg{Type: "batonSaved", PaneID: in.id, Req: cmd.Req, Cmd: cmd.Cmd, ID: b.ID, Scrubbed: baton.RedactionCount(b.Redactions)}
 		task := strings.TrimSpace(cmd.Task)
