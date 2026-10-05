@@ -19,6 +19,7 @@ import (
 // dialWindow is dialControl as a browser does it: with an Origin header.
 func dialWindow(t *testing.T, srv *Server) *websocket.Conn {
 	t.Helper()
+	before := countWindows(srv)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	conn, _, err := websocket.Dial(ctx, "ws://"+srv.Addr()+"/ws/control?t="+srv.Token(),
@@ -27,7 +28,27 @@ func dialWindow(t *testing.T, srv *Server) *websocket.Conn {
 		t.Fatalf("dial window: %v", err)
 	}
 	t.Cleanup(func() { _ = conn.CloseNow() })
+	// The handshake is answered before the server has counted the window, and a
+	// request for approval made in that gap finds no window to ask and is refused
+	// without a notice. Wait until the server has it.
+	for deadline := time.Now().Add(30 * time.Second); countWindows(srv) <= before; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the server never counted the window that was dialled")
+		}
+	}
 	return conn
+}
+
+// countWindows is how many windows on this machine, which opened with an Origin, the
+// server has: the ones a request for approval is sent to.
+func countWindows(srv *Server) int {
+	n := 0
+	for _, c := range srv.clientList() {
+		if c.page && !c.remote {
+			n++
+		}
+	}
+	return n
 }
 
 // nextApproval reads until a notice that asks for approval arrives.
