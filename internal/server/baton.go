@@ -137,6 +137,10 @@ func providerChange(fromAgent, fromProvider, toAgent, toProvider string) string 
 type handoff struct {
 	baton.Baton
 	Source string
+	// Dir is the folder the source pane works in, which is where its company is
+	// judged from. Empty when the source is not a pane (a stored baton, a file),
+	// and the folder of the pane that spawns is used.
+	Dir string
 	// Scrubber is the calling pane's, for the last scrub before the baton is
 	// used.
 	Scrubber *baton.Scrubber
@@ -204,8 +208,13 @@ func (s *Server) batonChange(h *handoff, parent, cwd, source, branch, agentID, m
 	fromProvider, fromWhy, fromName := "", "", ""
 	if h.Source != "" {
 		if sp, err := s.ws.AgentSpecByID(h.Source); err == nil {
-			// Where the baton came from: the folder the source pane works in.
-			fromProvider, fromWhy = workspace.BatonProviderDetail(sp, source)
+			// Where the baton came from: the folder the source pane works in, which for
+			// a pane named by its id is not the folder of the pane that spawns.
+			fromDir := source
+			if h.Dir != "" {
+				fromDir = h.Dir
+			}
+			fromProvider, fromWhy = workspace.BatonProviderDetail(sp, fromDir)
 			fromName = sp.Name
 		}
 	}
@@ -239,6 +248,19 @@ func (s *Server) batonChange(h *handoff, parent, cwd, source, branch, agentID, m
 	}
 	info.Gist = batonGist(h.Baton)
 	return change, info, &workspace.ApprovedTarget{Agent: target.ID, Provider: toProvider, SourceProvider: fromProvider, From: alsoFrom(source, cwd)}
+}
+
+// targetProvider is the company of the agent target when it runs in the folder cwd,
+// or in the worktree branch asks for when branch is not empty: the settings there,
+// those of the checkout the worktree is cut from, and what the branch itself
+// commits. Nothing is made.
+func (s *Server) targetProvider(target agent.Spec, cwd, branch string) (provider, why string) {
+	if branch == "" {
+		return workspace.BatonProviderDetail(target, cwd)
+	}
+	blobs, unknown := s.ws.BranchSettings(cwd, branch)
+	run := s.ws.PlannedWorktree(cwd, branch)
+	return workspace.BatonProviderWith(target, run, workspace.Sources{Dirs: alsoFrom(cwd, run), Settings: blobs, Unknown: unknown})
 }
 
 // alsoFrom is the checkout a worktree will be cut from, whose project settings the
@@ -442,7 +464,9 @@ func (s *Server) batonCommand(c *controlClient, cmd command) {
 	var approve *approvalInfo
 	if cmd.Cmd == "startFromBaton" {
 		from, fromWhy := workspace.BatonProviderDetail(in.src.Spec, in.src.Pane.Cwd)
-		to, toWhy := workspace.BatonProviderDetail(in.target, in.src.Pane.Cwd)
+		// The company of the agent that will run is judged where it will run: in the
+		// worktree a branch asks for, with the settings of the checkout it is cut from.
+		to, toWhy := s.targetProvider(in.target, in.cwd, strings.TrimSpace(cmd.Branch))
 		if change := providerChange(in.src.Spec.ID, from, in.target.ID, to); change != "" {
 			switch {
 			case c.remote:
@@ -744,9 +768,9 @@ func (s *Server) resolveBaton(parent, ref string) (*handoff, error) {
 	}
 	switch {
 	case ref == "self":
-		h.Baton, h.Source = in.own.Make(true), in.own.Spec.ID
+		h.Baton, h.Source, h.Dir = in.own.Make(true), in.own.Spec.ID, in.own.Pane.Cwd
 	case in.haveNamed:
-		h.Baton, h.Source = in.named.Make(true), in.named.Spec.ID
+		h.Baton, h.Source, h.Dir = in.named.Make(true), in.named.Spec.ID, in.named.Pane.Cwd
 	case baton.ValidID(ref):
 		st, err := baton.Open()
 		if err != nil {

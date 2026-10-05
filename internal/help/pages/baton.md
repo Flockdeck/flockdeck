@@ -102,7 +102,10 @@ becomes a new baton. The helper is told the baton's id, and `flockdeck baton sho
 A baton that would go to a different company than it came from, or to one Flockdeck
 does not know, is refused unless the command has `-baton-send-elsewhere`. The company
 is worked out for the agent the helper will really run, in the folder it will work in
-(for `-worktree`, with the settings of the checkout it is cut from). A CLI counts as
+(for `-worktree`, with the settings of the checkout it is cut from). The company the
+baton came from is worked out in the folder of the pane it was made from, so a pane named by
+its id is judged by its own settings and not those of the pane that asks. The New pane
+button in a window judges the target the same way, in the worktree a branch asks for. A CLI counts as
 unknown when a gateway or cloud setting sends it elsewhere.
 
 With the flag the agent only asks. A notice in a window on this machine names the
