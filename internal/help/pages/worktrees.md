@@ -207,6 +207,12 @@ Limits, plainly:
   about every 15. A repository whose real base is none of these is measured from
   the wrong one, or not at all. `origin`'s default is as it was last recorded,
   and is only passed over, never refreshed.
+- A pane whose untracked and modified files add up to more than 100 MB, or include
+  one file over 25 MB (a build output, a dump, a video), is not copied. The sizes are
+  added up first, with a stat of each file and nothing read, so the copy is never
+  started. That counts as a refresh that could not read the pane: what was shown
+  about its pairs is kept, and it is looked at again each refresh, so the chip works
+  again once the file is gone or ignored.
 - A partial clone fetches the objects it lacks from its remote when git needs
   them. From git 2.44 the radar tells git not to. On 2.38 to 2.43 it cannot, so
   it is not run in a partial clone there, and says so in the log.

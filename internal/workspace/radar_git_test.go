@@ -1311,3 +1311,18 @@ func TestStrikesExpireAndAreDroppedWithTheCheckout(t *testing.T) {
 		t.Errorf("%d strike records for a checkout no pane is in", left)
 	}
 }
+
+// A checkout whose changed files are too large to copy is unknown, not clean: it
+// is looked at again each refresh, so the chip comes back when the file is gone.
+func TestRadarTooBigACheckoutIsUnknownNotClean(t *testing.T) {
+	r := newRadarRig(t)
+	r.setUp()
+	r.fail["/repo/c"] = fmt.Errorf("%w: dump.bin is 30 MB", gitx.ErrTooBig)
+	w := radarWorkspace()
+	r.refresh(w)
+	r.refresh(w)
+	r.refresh(w)
+	if got := r.count("/repo/c"); got != 3 {
+		t.Errorf("the checkout was snapshotted %d times in three refreshes, want every refresh", got)
+	}
+}
