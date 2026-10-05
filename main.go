@@ -115,6 +115,17 @@ func main() {
 		}
 		return
 	}
+	// `baton` shows and lists the handoffs agents have made. It reads the state
+	// directory and needs no running instance.
+	if len(os.Args) > 1 && os.Args[1] == "baton" {
+		if err := runBaton(os.Args[2:], os.Stdout); err != nil {
+			if !errors.Is(err, errReported) {
+				fmt.Fprintln(os.Stderr, "flockdeck baton:", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
 	// `peer-name` is how an agent hands Flockdeck the name another Claude
 	// session would address it by, once it has learned that name itself --
 	// typically by calling its own ListAgents tool. Flockdeck has no way to
@@ -304,7 +315,7 @@ func helpArgs(rest []string) (args []string, top bool) {
 	switch {
 	case len(rest) == 0:
 		return nil, true
-	case map[string]bool{"spawn": true, "peer-name": true, "close": true, "recordings": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
+	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "close": true, "recordings": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
 		return []string{rest[0], "-h"}, false
 	}
 	return nil, true
@@ -403,9 +414,11 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
-	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-shell] [-record] [-agent <id>] [-model <model>] <task>\n")
+	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-shell] [-record] [-agent <id>] [-model <model>] [-baton <ref> [-baton-send-elsewhere]] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
+	fmt.Fprintf(out, "  baton list | baton show [-path] <baton-id>\n")
+	fmt.Fprintf(out, "        the handoffs agents have made, which spawn -baton starts a helper from\n")
 	fmt.Fprintf(out, "  peer-name <name>\n")
 	fmt.Fprintf(out, "        report the name another Claude session would address this pane by; run from inside a pane\n")
 	fmt.Fprintf(out, "  close [-force] <pane-id> | close -finished\n")
@@ -1647,9 +1660,14 @@ func runSpawn(args []string) error {
 	// a helper has no way to go and look at what the helper did.
 	if res.Cwd != "" {
 		fmt.Println("started agent", res.PaneID, "in", res.Cwd)
-		return nil
+	} else {
+		fmt.Println("started agent", res.PaneID)
 	}
-	fmt.Println("started agent", res.PaneID)
+	// The baton is saved before the helper starts, and where is worth saying
+	// back: the caller can read what the helper was told.
+	if res.BatonID != "" {
+		fmt.Println("from baton", res.BatonID, "kept at", res.BatonPath+"; flockdeck baton show", res.BatonID, "prints it")
+	}
 	return nil
 }
 
@@ -1684,9 +1702,15 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	}
 
 	task := strings.TrimSpace(strings.Join(fs.Args(), " "))
-	if task == "" && !f.shell {
+	if task == "" && !f.shell && f.baton == "" {
 		fs.Usage()
 		return hooks.SpawnRequest{}, fmt.Errorf("a task is required")
+	}
+	if f.batonElsewhere && f.baton == "" {
+		return hooks.SpawnRequest{}, fmt.Errorf("-baton-send-elsewhere is for -baton, and no -baton was given")
+	}
+	if f.shell && f.baton != "" {
+		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, which a baton has nothing to brief, so it cannot also take -baton")
 	}
 	// A shell pane runs no agent, so an agent named alongside -shell is a
 	// contradiction rather than a choice, and dropping it quietly would leave
@@ -1708,6 +1732,9 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 		Agent:  f.agent,
 		Model:  f.model,
 		Record: f.record,
+		Baton:  batonRef(f.baton),
+
+		BatonElsewhere: f.batonElsewhere,
 	}, nil
 }
 
@@ -1719,6 +1746,9 @@ type spawnFlags struct {
 	split    bool
 	shell    bool
 	record   bool
+	baton    string
+	// batonElsewhere agrees to the baton going to an agent of another company.
+	batonElsewhere bool
 }
 
 // spawnFlagSet defines the command line of `flockdeck spawn`. It is built here
@@ -1733,6 +1763,11 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	fs.BoolVar(&f.record, "record", false, "record the helper's agent interaction as a transcript; off unless given, and only once recording has been turned on in the window")
 	fs.StringVar(&f.agent, "agent", "", "`id` of the agent to start; flockdeck agents lists them")
 	fs.StringVar(&f.model, "model", "", "which of that agent's `model`s to ask for")
+	// A value flag, never one with an optional value: a flag that may or may
+	// not take the next word would be ambiguous with the first word of the
+	// task, which is the class of mistake orderSpawnArgs exists to prevent.
+	fs.StringVar(&f.baton, "baton", "", "start the helper from a handoff: `self` makes one from this conversation, or give a pane id, a baton id (flockdeck baton list) or a notes file")
+	fs.BoolVar(&f.batonElsewhere, "baton-send-elsewhere", false, "ask the user to let -baton go to an agent of a different company than the one it came from, or of one whose company is not known; refused without it, and sent only once the user allows it in a window")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: flockdeck spawn [flags] <task>\n\n")
 		fmt.Fprintf(os.Stderr, "Starts another agent, working on <task>.\n\nFlags:\n")

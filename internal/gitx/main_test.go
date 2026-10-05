@@ -22,6 +22,9 @@ func TestMain(m *testing.M) {
 }
 
 func runTests(m *testing.M) int {
+	if os.Getenv("GITX_FAKE_GIT") == "1" {
+		return fakeGit() // this binary, copied to a file named git (see indexrefresh_test.go)
+	}
 	dir, err := os.MkdirTemp("", "gitx-config-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "gitx tests:", err)

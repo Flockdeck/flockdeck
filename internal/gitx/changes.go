@@ -55,7 +55,16 @@ func changes(dir string, limit int) ([]FileChange, error) {
 	// "café.txt" arrives as "caf\303\251.txt" and no longer names a real file.
 	// It also puts a rename's old name in its own record rather than writing
 	// "old -> new", which a file genuinely called "a -> b" was mistaken for.
-	out, err := run(dir, "status", "--porcelain", "--untracked-files=all", "-z")
+	var out string
+	done, lerr := readIndex(context.Background(), dir)
+	if lerr != nil {
+		return nil, lerr
+	}
+	err := retryIndex(func() (e error) {
+		out, e = run(dir, "status", "--porcelain", "--untracked-files=all", "-z")
+		return e
+	})
+	done()
 	// One record per entry, plus one more for each rename's old name, so this
 	// runs a little ahead of the true count -- which is the safe direction for
 	// deciding that there are too many to bother counting.
@@ -171,6 +180,11 @@ type lineCount struct{ added, removed int }
 // was counted twice. Before the first commit there is no HEAD to compare with,
 // so there the two are still added up.
 func lineCounts(ctx context.Context, dir string) map[string]lineCount {
+	release, lerr := readIndex(ctx, dir)
+	if lerr != nil {
+		return nil
+	}
+	defer release()
 	counts, err := numstat(ctx, dir, "HEAD")
 	if err == nil || ctx.Err() != nil {
 		return counts
@@ -197,7 +211,11 @@ func numstat(ctx context.Context, dir string, against ...string) (map[string]lin
 	// says: with "copies" set there, a copied file was counted against the
 	// file it came from, 0/0, though the commit adds all of it.
 	args := append([]string{"diff", "--numstat", "-z", "--find-renames"}, against...)
-	out, err := runUntil(ctx, dir, args...)
+	var out string
+	err := retryIndex(func() (e error) {
+		out, e = runUntil(ctx, dir, args...)
+		return e
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -510,8 +528,18 @@ func gitDiff(dir string, args ...string) (string, error) {
 	argv = append(argv, "diff")
 	argv = append(argv, diffFlags...)
 	argv = append(argv, args...)
-	out := &headWriter{limit: maxDiffBytes + 1}
-	if _, err := runTo(context.Background(), commandTimeout, dir, nil, out, argv...); err != nil {
+	release, lerr := readIndex(context.Background(), dir)
+	if lerr != nil {
+		return "", lerr
+	}
+	defer release()
+	var out *headWriter
+	err := retryIndex(func() error {
+		out = &headWriter{limit: maxDiffBytes + 1}
+		_, e := runTo(context.Background(), commandTimeout, dir, nil, out, argv...)
+		return e
+	})
+	if err != nil {
 		return "", err
 	}
 	return truncateDiff(out.String(), out.total), nil

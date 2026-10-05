@@ -203,14 +203,14 @@ func TestNothingIsWrittenUntilTheConversationHasAnEvent(t *testing.T) {
 func TestSecretsAreRedactedAndLongOutputClipped(t *testing.T) {
 	m, _ := newTestManager(t)
 	f := newFeed(t, m)
-	f.prompt("use key sk-ant-api03-abcdefghijklmnopqrstuvwxyz and ghp_" + strings.Repeat("a", 36))
+	f.prompt("use key sk" + "-ant-api03-abcdefghijklmnopqrstuvwxyz and ghp_" + strings.Repeat("a", 36))
 	f.call("Bash", "", map[string]any{"command": "curl -H 'Authorization: Bearer abcdefghijklmnopqrstuv' https://x", "env": map[string]any{"DB_PASSWORD": "hunter2"}})
 	f.result("Bash", "", strings.Repeat("x", MaxFieldBytes*3))
 	path := f.path()
 	f.finish()
 
 	raw, _ := os.ReadFile(path)
-	for _, leak := range []string{"sk-ant-api03", "ghp_aaaa", "abcdefghijklmnopqrstuv", "hunter2"} {
+	for _, leak := range []string{"sk" + "-ant-api03", "gh" + "p_aaaa", "abcdefghijklmnopqrstuv", "hunter2"} {
 		if strings.Contains(string(raw), leak) {
 			t.Errorf("the transcript still holds %q:\n%s", leak, raw)
 		}
@@ -350,17 +350,17 @@ func TestFolderSeparatesProjectsOfOneName(t *testing.T) {
 
 func TestRedactPatterns(t *testing.T) {
 	for _, secret := range []string{
-		"AKIAIOSFODNN7EXAMPLE",
-		"xoxb-123456789012-abcdefghij",
-		"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnop",
-		"-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----",
-		"postgres://admin:s3cretpw@db.internal/app",
+		"AK" + "IAIOSFODNN7EXAMPLE",
+		"xo" + "xb-123456789012-abcdefghij",
+		"ey" + "JhbGciOiJIUzI1NiJ9.ey" + "JzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnop",
+		"-----BEGIN " + "RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----",
+		"postgres:" + "//admin:s3cretpw@db.internal/app",
 		"export API_KEY=abc123def",
 		`{"client_secret": "zzz999"}`,
 		"password: correcthorse",
 	} {
 		got := Redact("before " + secret + " after")
-		for _, frag := range []string{"AKIAIOSFODNN7EXAMPLE", "123456789012-abcdefghij", "abcdefghijklmnop", "MIIabc", "s3cretpw", "abc123def", "zzz999", "correcthorse"} {
+		for _, frag := range []string{"AK" + "IAIOSFODNN7EXAMPLE", "123456789012-abcdefghij", "abcdefghijklmnop", "MIIabc", "s3cretpw", "abc123def", "zzz999", "correcthorse"} {
 			if strings.Contains(got, frag) {
 				t.Errorf("Redact(%q) = %q, still has %q", secret, got, frag)
 			}
@@ -410,5 +410,82 @@ func TestClipKeepsRunesWhole(t *testing.T) {
 	}
 	if body, _, _ := strings.Cut(got, "…"); strings.ContainsRune(body, '\uFFFD') || len(body)%2 != 0 {
 		t.Errorf("a rune was cut in half: %q", got)
+	}
+}
+
+func TestFindReportsSpansAndKinds(t *testing.T) {
+	s := "key AK" + "IAIOSFODNN7EXAMPLE and Authorization: Bearer abcdefghijklmnop123456 end"
+	spans := Find(s)
+	if len(spans) != 2 {
+		t.Fatalf("spans = %+v", spans)
+	}
+	if got := s[spans[0].Start:spans[0].End]; got != "AK"+"IAIOSFODNN7EXAMPLE" || spans[0].Kind != "aws-key" {
+		t.Errorf("first span = %q (%s)", got, spans[0].Kind)
+	}
+	// The scheme word stays, and is not taken for the secret.
+	if got := s[spans[1].Start:spans[1].End]; got != "abcdefghijklmnop123456" || spans[1].Kind != "bearer-token" {
+		t.Errorf("second span = %q (%s)", got, spans[1].Kind)
+	}
+	if got := Redact(s); got != "key [redacted] and Authorization: Bearer [redacted] end" {
+		t.Errorf("Redact = %q", got)
+	}
+}
+
+func TestFindTokensIgnoresNamesThatOnlySuggestASecret(t *testing.T) {
+	if got := FindTokens("password=hunter2 token: abc"); len(got) != 0 {
+		t.Errorf("FindTokens = %+v", got)
+	}
+	if !SecretName("db_password") || SecretName("hostname") {
+		t.Error("SecretName is wrong")
+	}
+}
+
+// The scheme word is skipped only under an Authorization header's own name. Under
+// any other name the same word is the value, and so the secret.
+func TestASchemeWordUnderAnotherNameIsStillASecret(t *testing.T) {
+	for in, want := range map[string]string{
+		"password=basic":                         "password=[redacted]",
+		"client_secret=Bearer":                   "client_secret=[redacted]",
+		`{"api_key": "basic"}`:                   `{"api_key": [redacted]}`,
+		"Authorization: Basic":                   "Authorization: Basic",
+		"authorization=Bearer":                   "authorization=Bearer",
+		"Proxy-Authorization: Bearer":            "Proxy-Authorization: Bearer",
+		"Authorization: Bearer abcdefghijkl1234": "Authorization: Bearer [redacted]",
+	} {
+		if got := Redact(in); got != want {
+			t.Errorf("Redact(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSendGridKeysAreRedactedWhole(t *testing.T) {
+	key := "SG" + ".abcdefghijklmnopqrstuv.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq"
+	if got := Redact("key " + key + " end"); got != "key [redacted] end" {
+		t.Errorf("Redact = %q", got)
+	}
+}
+
+// Kinds is the closed set of what Find can call a span, which a caller that marks
+// what it removes depends on to know its own marks.
+func TestFindOnlyUsesTheKindsItLists(t *testing.T) {
+	known := map[string]bool{}
+	for _, k := range Kinds() {
+		known[k] = true
+	}
+	for _, in := range []string{
+		"sk" + "-ant-abcdefghijkl", "sk" + "-abcdefghijklmnopqrstuvwx", "gh" + "p_0123456789abcdefghijklmnopqrstuvwxyz",
+		"gl" + "pat-abcdefghijklmnopqrstu", "AK" + "IAIOSFODNN7EXAMPLE", "xo" + "xb-1234567890-abcdef", "np" + "m_0123456789abcdefghijklmnopqrstuvwxyz",
+		"ey" + "JhbGciOiJIUzI1NiJ9.ey" + "JzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnop", "SG" + ".abcdefghijklmnopqrstuv.ABCDEFGHIJKLMNOPQRSTUV",
+		"-----BEGIN " + "RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----", "Bearer abcdefghijkl1234", "https:" + "//u:pw@host/", "password=abc",
+	} {
+		spans := Find(in)
+		if len(spans) == 0 {
+			t.Errorf("Find(%q) found nothing", in)
+		}
+		for _, sp := range spans {
+			if !known[sp.Kind] {
+				t.Errorf("Find(%q) named a span %q, which Kinds does not list", in, sp.Kind)
+			}
+		}
 	}
 }

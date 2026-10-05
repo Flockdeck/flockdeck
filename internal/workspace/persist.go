@@ -124,13 +124,15 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 			return nil
 		}
 		out.Pane = &store.Pane{
-			ID:    p.ID,
-			Kind:  kindName(p.Kind),
-			Cwd:   p.Cwd,
-			Name:  p.Name,
-			Task:  p.Task,
-			Agent: p.Agent,
-			Model: p.Model,
+			ID:   p.ID,
+			Kind: kindName(p.Kind),
+			Cwd:  p.Cwd,
+			Name: p.Name,
+			Task: p.Task,
+			// Empty, and so left out, for a pane that began without a baton.
+			BatonID: p.BatonID,
+			Agent:   p.Agent,
+			Model:   p.Model,
 			// Written only for a routed pane, like Root below.
 			Routed:          p.Routed,
 			RoutedFrom:      p.RoutedFrom,
@@ -535,6 +537,7 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 			Cwd:             n.Pane.Cwd,
 			Name:            n.Pane.Name,
 			Task:            n.Pane.Task,
+			BatonID:         n.Pane.BatonID,
 			Root:            n.Pane.Root,
 			Agent:           n.Pane.Agent,
 			Model:           n.Pane.Model,

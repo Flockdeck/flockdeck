@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -921,6 +922,19 @@ type SpawnOptions struct {
 	// Record starts the child with Pane.Recording on. Only the spawn handler
 	// sets it, and only once the user has agreed to recording in the window.
 	Record bool
+	// Approved is the agent and company a baton was approved to go to. Spawn
+	// resolves the agent itself, and refuses to start when it would now run another
+	// or another company's (the catalog or a default changed while the user was
+	// being asked), so what was approved is what runs.
+	Approved *ApprovedTarget
+	// Baton is a handoff the child starts from. It is a baton the caller has
+	// already resolved and scrubbed, not text from the request: an agent
+	// naming a baton in `flockdeck spawn --baton` hands the server a reference,
+	// and the server resolves it (see internal/server), so a task string
+	// cannot be used to carry unscrubbed text past the scrubber. It is made by
+	// PrepareBaton, off the workspace goroutine, from the baton and Task; Spawn
+	// starts the agent with its prompt and records its id on the pane.
+	Baton *BatonPrompt
 }
 
 // Spawn starts a child agent, optionally in a worktree of its own.
@@ -928,8 +942,291 @@ type SpawnOptions struct {
 // The task is handed to the agent as its opening argument rather than typed into
 // the terminal: typing into a TUI means guessing when it is ready, while an
 // argument is submitted by the agent itself the moment it starts.
+// spawnPlace is where a helper spawned by a pane runs, and the project its parent
+// is in: the folder asked for, or the parent's, or the active project's. A
+// worktree sits beside its repository, under no open project, and a helper working
+// in one belongs to the agent that asked for it rather than to whichever project
+// happens to be on screen. It must run on the workspace goroutine.
+func (w *Workspace) spawnPlace(parentPaneID, askedCwd string) (cwd, home string) {
+	parent := w.Pane(parentPaneID)
+	cwd = askedCwd
+	if cwd == "" && parent != nil {
+		cwd = parent.Cwd
+	}
+	if cwd == "" {
+		cwd = w.activeRoot
+	}
+	home = w.activeRoot
+	if parent != nil {
+		home = w.rootOf(parentPaneID)
+	}
+	return cwd, home
+}
+
+// SpawnTarget is the agent and model Spawn starts a helper with, for a pane that
+// spawns it with the agent and model asked for (either may be empty): the same
+// project and the same resolution, in one place, so that what is checked before a
+// spawn and what the spawn runs cannot differ. It must run on the workspace
+// goroutine.
+func (w *Workspace) SpawnTarget(parentPaneID, askedCwd, agentID, model string) (string, string) {
+	cwd, home := w.spawnPlace(parentPaneID, askedCwd)
+	return w.resolveChoice(w.helperProject(cwd, home), agentID, model)
+}
+
+// ApprovedTarget is the agent, and the company it sends what it is given to, that a
+// baton was approved for.
+type ApprovedTarget struct {
+	Agent string
+	// Provider is the company of the agent the helper was to run, as it was worked out
+	// before it started; "" is not known.
+	Provider string
+	// SourceProvider is the company the baton came from; "" is not known.
+	SourceProvider string
+	// ApprovalRequired says the user was asked about this pair of companies and allowed
+	// it. Without it nothing was asked, and the helper must run for the company the baton
+	// came from.
+	ApprovalRequired bool
+	// From are the folders the company was judged from besides the one the helper runs
+	// in: the checkout a worktree is cut from, whose project settings it will have. The
+	// check at the start reads the same ones.
+	From []string
+}
+
+// checkApproved refuses a spawn that would run a different agent, or the same agent
+// for a different company, than the one a baton was approved for.
+func (w *Workspace) checkApproved(a *ApprovedTarget, agentID, cwd string) error {
+	if a == nil {
+		return nil
+	}
+	spec, ok := w.agents().Find(agentID)
+	if !ok {
+		return fmt.Errorf("there is no agent called %q any more, so the baton that was approved for %q was not sent", agentID, a.Agent)
+	}
+	// Worked out again, now that the folder it runs in is really there: what it holds
+	// can differ from what was read to decide.
+	provider, _ := BatonProviderDetail(spec, cwd, a.From...)
+	if spec.ID != a.Agent {
+		return fmt.Errorf("the helper would now run %s, not the agent the baton was approved for (%s): the settings changed while it was being decided. Nothing was started; ask again", spec.Name, a.Agent)
+	}
+	if a.ApprovalRequired {
+		// The user saw one company going to another: it is that company, whichever settings
+		// said so.
+		if provider != a.Provider {
+			return fmt.Errorf("the helper would now run for %s, not the company the baton was approved for (%s): the settings changed while it was being decided. Nothing was started; ask again", companyWord(provider), companyWord(a.Provider))
+		}
+		return nil
+	}
+	if provider != a.SourceProvider {
+		return fmt.Errorf("the helper would run for %s, and the baton came from %s, with nothing approved for that: the folder it works in holds settings that change it. Nothing was started", companyWord(provider), companyWord(a.SourceProvider))
+	}
+	return nil
+}
+
+// companyWord says a company for a message, never empty.
+func companyWord(p string) string {
+	if p == "" {
+		return "a company that is not known"
+	}
+	return ProviderHost(p)
+}
+
+// BranchSettings are the settings files that the worktree for a branch will hold that Claude
+// Code reads, from the object store: .claude/settings.json and .claude/settings.local.json as
+// committed (the second is usually not tracked, but a repository may commit it). For a branch
+// that exists it is the branch's; for one that does not it is the commit the new branch is cut
+// from, which is the HEAD of the checkout cwd is in. The checkout's own working copy is read
+// besides, by the folders beside the worktree, and what either says counts. Names are matched
+// without regard to case (.Claude/Settings.json), and a .claude committed as a link to a folder
+// in the same commit is followed; a link that leaves the repository or cannot be resolved,
+// a settings file that is a link, over the limit, or that git cannot give, make unknown not
+// empty: it is the reason, and the company is not known.
+func (w *Workspace) BranchSettings(cwd, branch string) (blobs [][]byte, unknown string) {
+	repo, err := gitx.Root(cwd)
+	if err != nil {
+		return nil, ""
+	}
+	rev := "HEAD"
+	if gitx.BranchExists(repo, branch) {
+		// The branch itself: a tag of the same name would come first for a plain name.
+		rev = "refs/heads/" + branch
+	}
+	fail := func(why string) ([][]byte, string) {
+		return nil, "the settings the commit " + rev + " holds could not be read: " + why
+	}
+	top, err := gitx.TreeEntries(repo, rev)
+	if err != nil {
+		return fail(err.Error())
+	}
+	for _, e := range top {
+		if !strings.EqualFold(e.Name, ".claude") {
+			continue
+		}
+		treeish := ""
+		switch {
+		case e.Type == "tree":
+			treeish = rev + ":" + e.Name
+		case e.Mode == "160000":
+			return fail(".claude is a submodule in the commit")
+		case e.Mode == "120000":
+			target, err := gitx.BlobLimited(repo, e.Sha, 4096)
+			if err != nil {
+				return fail(".claude is a link that cannot be read: " + err.Error())
+			}
+			sha, why := resolveClaudeLink(repo, rev, target)
+			if why != "" {
+				return fail(why)
+			}
+			treeish = sha
+		default:
+			continue // a file called .claude holds no settings
+		}
+		files, err := gitx.TreeEntries(repo, treeish)
+		if err != nil {
+			return fail(err.Error())
+		}
+		for _, f := range files {
+			if !strings.EqualFold(f.Name, "settings.json") && !strings.EqualFold(f.Name, "settings.local.json") {
+				continue
+			}
+			if f.Mode != "100644" && f.Mode != "100755" {
+				return fail(f.Name + " is not a regular file in the commit")
+			}
+			data, err := gitx.BlobLimited(repo, f.Sha, settingsFileMax)
+			if err != nil {
+				return fail(f.Name + ": " + err.Error())
+			}
+			blobs = append(blobs, data)
+		}
+	}
+	return blobs, ""
+}
+
+// PlannedWorktree is where a worktree for branch of the repository cwd is in will
+// be, or is: the one the branch already has, or the one that would be made. Nothing
+// is made. It is for working out where a helper will run before it is started.
+func (w *Workspace) PlannedWorktree(cwd, branch string) string {
+	repo, err := gitx.Root(cwd)
+	if err != nil {
+		return cwd
+	}
+	if path, ok := existingWorktree(repo, branch); ok {
+		return path
+	}
+	return gitx.DefaultWorktreePath(repo, branch)
+}
+
+// existingWorktree is the worktree a branch already has, other than the checkout itself.
+func existingWorktree(repo, branch string) (string, bool) {
+	if wts, err := gitx.List(repo); err == nil {
+		for _, wt := range wts {
+			if wt.Branch == branch && !wt.Prunable && filepath.Clean(wt.Path) != filepath.Clean(repo) {
+				return wt.Path, true
+			}
+		}
+	}
+	return "", false
+}
+
+// MadeWorktree is what PrepareWorktreeNew did, exactly: the worktree's path, whether this
+// call made the worktree, whether it made the branch (the branch did not exist before),
+// and the commit the branch and the worktree were at when the call finished. Only what
+// the call made is the caller's to take away again, and only if it is as it was left.
+type MadeWorktree struct {
+	Path            string
+	WorktreeCreated bool
+	BranchCreated   bool
+	Branch          string
+	Start           string
+}
+
+// PrepareWorktreeNew is PrepareWorktree that also says what this call made. A branch
+// that existed with no worktree is checked out by it, which makes a worktree and not a
+// branch; one that has a worktree is used as it is and nothing is made.
+func (w *Workspace) PrepareWorktreeNew(cwd, branch string) (MadeWorktree, error) {
+	repo, rerr := gitx.Root(cwd)
+	if rerr != nil {
+		path, err := w.worktreeFor(cwd, branch)
+		return MadeWorktree{Path: path}, err
+	}
+	// Looked at before anything that could make either.
+	branchExisted := gitx.BranchExists(repo, branch)
+	_, hadWorktree := existingWorktree(repo, branch)
+	path, err := w.worktreeFor(cwd, branch)
+	m := MadeWorktree{Path: path, Branch: branch}
+	if err != nil {
+		return m, err
+	}
+	m.WorktreeCreated = !hadWorktree
+	m.BranchCreated = !branchExisted && !hadWorktree
+	if m.WorktreeCreated {
+		m.Start, _ = gitx.Head(path)
+	}
+	return m, nil
+}
+
+// DiscardMade takes away what PrepareWorktreeNew made, for a helper that then did not
+// start, and returns cause with what became of it said. A worktree is removed only if
+// the call made it and nothing has changed in it since (no changed or new files, still
+// at the commit it was made at); a branch only if the call made it and it is still at
+// that commit, deleted only if so, with git told the commit it expects. Anything else is
+// kept, and said to be kept. A branch that existed before is never touched.
+func (w *Workspace) DiscardMade(repo string, m MadeWorktree, cause error) error {
+	if repo == "" || !m.WorktreeCreated {
+		return cause
+	}
+	name := filepath.Base(m.Path)
+	// Two looks, and either one is enough to keep it. git status (ignored files
+	// included) finds changes to what was checked out and files git knows of. A walk of the
+	// files against the ones git checked out finds the rest, from the user, a hook or a
+	// tool: empty folders too, which git does not show at all, and which a removal that is
+	// not forced deletes.
+	extra, total, xerr := extrasOf(m.Path, 5)
+	clean, cerr := gitx.IsClean(m.Path)
+	hidden, herr := hiddenOf(m.Path, 5)
+	if err := errors.Join(xerr, cerr, herr); err != nil {
+		return fmt.Errorf("%w (its worktree %s was kept: it could not be checked for files that came since: %v)", cause, name, err)
+	}
+	// A file marked assume-unchanged reads as clean to git status whatever was done to it.
+	if len(hidden) > 0 {
+		return fmt.Errorf("%w (its worktree %s was kept: git is told not to look at %s (assume-unchanged or skip-worktree))", cause, name, strings.Join(hidden, ", "))
+	}
+	if total > 0 {
+		more := ""
+		if total > len(extra) {
+			more = fmt.Sprintf(" and %d more", total-len(extra))
+		}
+		return fmt.Errorf("%w (its worktree %s was kept: it holds files that were not checked out, %s%s)", cause, name, strings.Join(extra, ", "), more)
+	}
+	if !clean {
+		return fmt.Errorf("%w (its worktree %s was kept: it has changes in it that were made since)", cause, name)
+	}
+	if head, err := gitx.Head(m.Path); err != nil || head != m.Start {
+		return fmt.Errorf("%w (its worktree %s was kept: it has moved on from where it was made)", cause, name)
+	}
+	if err := gitx.Remove(repo, m.Path, false); err != nil {
+		return fmt.Errorf("%w (its worktree %s could not be removed: %v)", cause, name, err)
+	}
+	if !m.BranchCreated {
+		return fmt.Errorf("%w (the worktree %s that was made for it was removed; the branch %s was there before and was kept)", cause, name, m.Branch)
+	}
+	// The look is for a clear message; what protects the branch is that git is told the
+	// commit it must still be at when it deletes the ref, since the branch can move
+	// between the look and the delete (another process committing to it).
+	if tip, err := gitx.Tip(repo, m.Branch); err != nil || tip != m.Start {
+		return fmt.Errorf("%w (the worktree %s was removed; the branch %s was kept: it has moved since it was made)", cause, name, m.Branch)
+	}
+	beforeBranchDelete(repo, m)
+	if err := gitx.DeleteBranchAt(repo, m.Branch, m.Start); err != nil {
+		return fmt.Errorf("%w (the worktree %s was removed; the branch %s was kept: it moved just now, or could not be deleted: %v)", cause, name, m.Branch, err)
+	}
+	return fmt.Errorf("%w (the worktree and branch %s that were made for it were removed)", cause, m.Branch)
+}
+
 func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
-	if strings.TrimSpace(o.Task) == "" && o.Kind != session.KindShell {
+	if o.Baton != nil && o.Kind == session.KindShell {
+		return "", fmt.Errorf("a baton starts an agent, and a shell is not one")
+	}
+	if strings.TrimSpace(o.Task) == "" && o.Kind != session.KindShell && o.Baton == nil {
 		return "", fmt.Errorf("a task is required")
 	}
 	if len(o.Task) > maxTaskBytes {
@@ -940,20 +1237,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 			utf8.RuneCountInString(o.Task))
 	}
 	parent := w.Pane(parentPaneID)
-	cwd := o.Cwd
-	if cwd == "" && parent != nil {
-		cwd = parent.Cwd
-	}
-	if cwd == "" {
-		cwd = w.activeRoot
-	}
-	// A worktree sits beside its repository, under no open project, and a
-	// helper working in one belongs to the agent that asked for it rather
-	// than to whichever project happens to be on screen.
-	home := w.activeRoot
-	if parent != nil {
-		home = w.rootOf(parentPaneID)
-	}
+	cwd, home := w.spawnPlace(parentPaneID, o.Cwd)
 
 	// Asked about the agent this pane will actually run rather than about
 	// Claude, because a fan-out may now hand half its tasks to one agent and
@@ -964,8 +1248,11 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	// helper that could not start in it.
 	agentID, model := o.Agent, o.Model
 	if o.Kind != session.KindShell {
-		agentID, model = w.resolveChoice(w.helperProject(cwd, home), o.Agent, o.Model)
+		agentID, model = w.SpawnTarget(parentPaneID, o.Cwd, o.Agent, o.Model)
 		if _, err := w.AgentSpec(agentID); err != nil {
+			return "", err
+		}
+		if err := w.checkApproved(o.Approved, agentID, cwd); err != nil {
 			return "", err
 		}
 	}
@@ -982,8 +1269,18 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	if title == "" {
 		title = summarisePrompt(o.Task)
 	}
+	if title == "" && o.Baton != nil {
+		title = o.Baton.Title
+	}
 	if title == "" {
 		title = filepath.Base(cwd)
+	}
+
+	// With a baton the opening prompt is the baton and then the task; Task
+	// stays what the pane was asked, which is what its header and briefing say.
+	initial, batonID, batonPrompt := o.Task, "", ""
+	if o.Baton != nil {
+		initial, batonID, batonPrompt = o.Baton.Prompt, o.Baton.ID, o.Baton.Prompt
 	}
 
 	p := &Pane{
@@ -993,8 +1290,11 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		Name:    filepath.Base(cwd),
 		Root:    w.helperProject(cwd, home),
 		Branch:  branchOf(cwd),
-		initial: o.Task,
+		initial: initial,
 		Task:    o.Task,
+		BatonID: batonID,
+		// Kept in memory so a restart before the first turn asks the same thing.
+		batonPrompt: batonPrompt,
 		// A child inherits the pane it was started from trusting auto-review
 		// or not. Trust the boss has already extended to one pane -- by
 		// turning auto-review on for it -- carries to the fan-out or the
@@ -1368,3 +1668,13 @@ func (s PlanSource) Tasks() ([]string, bool) {
 	}
 	return ExtractTasks(s.Screen), false
 }
+
+// hiddenOf is gitx.AssumeUnchanged; a test replaces it to make the look fail.
+var hiddenOf = gitx.AssumeUnchanged
+
+// extrasOf is gitx.Extras; a test replaces it to make the look at the files fail.
+var extrasOf = gitx.Extras
+
+// beforeBranchDelete runs between looking at a made branch and deleting it; a test moves
+// the branch there, as another process could.
+var beforeBranchDelete = func(repo string, m MadeWorktree) {}

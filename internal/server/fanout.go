@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -1177,6 +1178,8 @@ var errShuttingDown = errors.New("the workspace is shutting down")
 // installSpawnHandler lets an agent start helpers of its own by running
 // `flockdeck spawn` inside its pane.
 func (s *Server) installSpawnHandler() {
+	// Trouble with a baton's housekeeping goes where the server's other trouble goes.
+	workspace.SetBatonLogf(func(format string, args ...any) { logf(format, args...) })
 	hookSrv := s.ws.HookServer()
 	if hookSrv == nil {
 		return
@@ -1216,6 +1219,19 @@ func (s *Server) installSpawnHandler() {
 		}
 		cwd := in.cwd
 
+		// Resolved before a worktree is cut, so a reference that does not
+		// resolve is refused without leaving a checkout behind.
+		var handoff *handoff
+		if req.Baton != "" {
+			if req.Shell {
+				return hooks.SpawnResult{}, errors.New("a baton starts an agent, and -shell does not")
+			}
+			var err error
+			if handoff, err = s.resolveBaton(req.Parent, req.Baton); err != nil {
+				return hooks.SpawnResult{}, err
+			}
+		}
+
 		// A helper asked for neither --agent nor --model can be routed, only
 		// ever in "auto" mode -- see routeSpawnChoice -- and decided here,
 		// before the worktree below, on the project the helper is starting
@@ -1226,22 +1242,101 @@ func (s *Server) installSpawnHandler() {
 			routed, baseAgent, baseModel = routeSpawnChoice(s.ws.Catalog(), cwd, req.Task)
 		}
 
+		// A baton goes to the agent it starts. When that is a different company the
+		// agent has to ask for it with -baton-send-elsewhere, and asking is all it
+		// does: the user is shown a notice in the window and has to allow it there.
+		// That stops a mistake and a request nobody saw. It does not stop a hostile
+		// process running as the same user, which can do what the window does (see
+		// approval.go). Asked before a worktree is cut.
+		// cleanup says what became of a worktree made for a helper that did not start,
+		// and is nil when none was made.
+		cleanup := func(cause error) error { return cause }
+		var approved *workspace.ApprovedTarget
+		if handoff != nil {
+			// Where Spawn will be given to run the helper, which with -worktree is the
+			// worktree and not the folder the agent is in: the project, and so the
+			// default agent, can differ. It is worked out, not made.
+			spawnCwd := cwd
+			if req.Branch != "" {
+				spawnCwd = s.ws.PlannedWorktree(cwd, req.Branch)
+			}
+			// The agent and model Spawn will be given, routing included.
+			agentID, modelID := req.Agent, req.Model
+			if routed.Routed {
+				modelID = routed.Model
+				if routed.Agent != "" {
+					agentID = routed.Agent
+				}
+			}
+			type verdict struct {
+				change   string
+				info     approvalInfo
+				approved *workspace.ApprovedTarget
+			}
+			v, ok := ask(s, func() verdict {
+				change, info, ap := s.batonChange(handoff, req.Parent, spawnCwd, cwd, req.Branch, agentID, modelID)
+				return verdict{change, info, ap}
+			})
+			if !ok {
+				return hooks.SpawnResult{}, errShuttingDown
+			}
+			// Every baton spawn carries what was worked out into Spawn, which works it out
+			// again where the helper really is. Whether the user was asked is said in it.
+			approved = v.approved
+			if change := v.change; change != "" {
+				if !req.BatonElsewhere {
+					return hooks.SpawnResult{}, errors.New(batonRefusal(change))
+				}
+				ctx := req.Ctx
+				if ctx == nil {
+					ctx = context.Background()
+				}
+				if err := s.approveElsewhere(ctx, v.info); err != nil {
+					return hooks.SpawnResult{}, err
+				}
+				// What the user was asked about is what must run.
+				if approved != nil {
+					approved.ApprovalRequired = true
+				}
+			}
+			spawnApproved(approved)
+		}
+
 		if req.Branch != "" {
 			// Held until the helper is running in the worktree, which may be
 			// one a fan-out has just made. A fan-out whose own agent there
 			// fails to start discards the worktree under the same lock, and
 			// has to find this helper in it when it does; see discardWorktree.
 			defer lockRepo(cwd)()
-			path, err := s.ws.PrepareWorktree(cwd, req.Branch)
+			repo, _ := gitx.Root(cwd)
+			made, err := s.ws.PrepareWorktreeNew(cwd, req.Branch)
 			if err != nil {
 				return hooks.SpawnResult{}, err
 			}
-			cwd = path
+			cwd = made.Path
+			// Only what this request made is this request's to take away again if the
+			// helper then does not start (the lock above is held, so nothing else is in
+			// it), and only if it is as it was left: see DiscardMade.
+			if made.WorktreeCreated && repo != "" {
+				cleanup = func(cause error) error { return s.ws.DiscardMade(repo, made, cause) }
+			}
 		}
 
 		kind := session.KindClaude
 		if req.Shell {
 			kind = session.KindShell
+		}
+
+		// Scrubbed once more, saved and framed here, off the workspace goroutine;
+		// Spawn only starts the agent with the prompt.
+		var prepared *workspace.BatonPrompt
+		if handoff != nil {
+			bp, err := s.ws.PrepareBaton(cwd, handoff.Baton, req.Task, handoff.Scrubber)
+			if err != nil {
+				return hooks.SpawnResult{}, cleanup(err)
+			}
+			prepared = &bp
+			_ = recordSource(bp.ID, handoff.Source)
 		}
 
 		type result struct {
@@ -1258,6 +1353,8 @@ func (s *Server) installSpawnHandler() {
 				Model:          req.Model,
 				SpawnedByAgent: true,
 				Record:         req.Record,
+				Baton:          prepared,
+				Approved:       approved,
 			}
 			if routed.Routed {
 				opts.Model, opts.Routed, opts.RoutedFrom = routed.Model, routed.Rule, baseModel
@@ -1272,10 +1369,14 @@ func (s *Server) installSpawnHandler() {
 			return hooks.SpawnResult{}, errShuttingDown
 		}
 		if r.err != nil {
-			return hooks.SpawnResult{}, r.err
+			return hooks.SpawnResult{}, cleanup(r.err)
 		}
 		s.Wake()
-		return hooks.SpawnResult{PaneID: r.id, Cwd: cwd}, nil
+		res := hooks.SpawnResult{PaneID: r.id, Cwd: cwd}
+		if prepared != nil {
+			res.BatonID, res.BatonPath = prepared.ID, workspace.BatonPath(prepared.ID)
+		}
+		return res, nil
 	})
 }
 
@@ -1299,3 +1400,6 @@ func short(task string) string {
 	}
 	return task
 }
+
+// spawnApproved is told what every baton spawn carries into Spawn: a test looks at it.
+var spawnApproved = func(*workspace.ApprovedTarget) {}

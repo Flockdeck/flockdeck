@@ -90,6 +90,11 @@ func fit(args []string, limit int, length func([]string) int) []string {
 		for length(out) > limit {
 			shorter, ok := shortenBriefing(out[i])
 			if !ok {
+				// With the briefing gone, a baton in front of the task gives
+				// way, a section at a time, before the task is cut.
+				shorter, ok = shortenBaton(out[i])
+			}
+			if !ok {
 				break
 			}
 			out[i] = shorter
@@ -140,6 +145,46 @@ func shortenBriefing(prompt string) (string, bool) {
 		return contextOpen + strings.TrimRight(body[:cut], "\n") + shortenedNote + contextClose + rest, true
 	}
 	return strings.TrimLeft(rest, "\n"), true
+}
+
+const (
+	batonOpen  = "<baton id="
+	batonClose = "</baton>"
+)
+
+// shortenBaton takes one step off a baton at the front of a prompt: its last
+// section other than the goal, with a line in the baton saying it was left out.
+// The task follows the baton's closing tag and is never touched here, which is
+// the point: the baton is background, and the task is why the pane exists. It
+// reports false when there is no baton, or nothing but its goal is left.
+//
+// The baton is the one internal/baton frames. Should that ever change, nothing
+// here breaks: the prompt is read as having no baton, and the task is cut.
+func shortenBaton(prompt string) (string, bool) {
+	if !strings.HasPrefix(prompt, batonOpen) {
+		return prompt, false
+	}
+	end := strings.Index(prompt, batonClose)
+	if end < 0 {
+		return prompt, false
+	}
+	block, rest := prompt[:end], prompt[end:]
+	// What follows the last section is the line of what was left out and the
+	// pointer to the whole baton, after a blank line.
+	tailAt := strings.LastIndex(block, "\n\n")
+	if tailAt < 0 {
+		return prompt, false
+	}
+	head, tail := block[:tailAt], block[tailAt+2:]
+	cut := strings.LastIndex(head, "\n## ")
+	if cut < 0 {
+		return prompt, false
+	}
+	name, _, _ := strings.Cut(head[cut+4:], "\n")
+	if name == "Goal" {
+		return prompt, false
+	}
+	return head[:cut] + "\n\nLeft out to fit this agent's command line: " + name + ".\n" + tail + rest, true
 }
 
 // cutTask cuts at least over bytes, and the note saying so, off the end of a

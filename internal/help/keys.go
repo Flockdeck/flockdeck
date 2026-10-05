@@ -91,6 +91,7 @@ var Keys = []Key{
 	{ID: "toggleBroadcastMember", Label: "Add this pane to broadcast, or take it out", Section: "Agents", Page: "broadcast"},
 	{ID: "promptAll", Keys: "Ctrl+Shift+P", Label: "Prompt all panes", Section: "Agents", Page: "broadcast"},
 	{ID: "fanout", Keys: "Ctrl+Shift+X", Label: "Fan out — turn this pane's plan into agents", Section: "Agents", Page: "fanout"},
+	{ID: "makeBaton", Label: "Make baton: hand this pane's work to another agent", Short: "Make baton", Section: "Agents", Page: "baton"},
 	{ID: "fanoutHistory", Label: "Fan-out history — past jobs in this project", Section: "Agents", Page: "fanout"},
 	{ID: "newTodo", Label: "New todo — save this pane's plan as a checklist", Section: "Agents", Page: "todo"},
 	{ID: "todos", Label: "Todos — this project's saved checklists", Section: "Agents", Page: "todo"},

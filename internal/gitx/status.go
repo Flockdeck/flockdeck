@@ -12,8 +12,12 @@ import (
 // Status summarises a working tree: what is checked out, whether it has
 // uncommitted work, and how it stands against its upstream.
 type Status struct {
-	Branch   string
-	Head     string // short commit id
+	Branch string
+	Head   string // short commit id
+	// Commit is the full id of the commit HEAD is on, empty before the first
+	// commit. Head is its short form, which is all two different commits can
+	// share a start of.
+	Commit   string
 	Detached bool
 	Upstream string
 	Ahead    int
@@ -61,25 +65,6 @@ func StatusWithin(dir string, timeout time.Duration) (Status, error) {
 	return statusWithin(dir, timeout, "--ignore-submodules=dirty")
 }
 
-// RefreshIndex writes down what git found about files that were touched
-// without changing, which the pane headers' status never does.
-//
-// That status takes no lock (GIT_OPTIONAL_LOCKS=0), so that polling the
-// headers never holds the index lock an agent's commit needs, and so it never
-// writes back what it learned either. A checkout whose files were all touched
-// at once -- by a build, or by a checkout another tool made -- had every one
-// of them read again by every status after, five and a half seconds a time on
-// a checkout of sixty thousand files, until something else refreshed the
-// index. This refreshes it. git takes the lock only when nobody holds it, and
-// refuses rather than waits when somebody does.
-//
-// It has the long deadline, not the short one: git killed while writing the
-// index leaves its lock behind, and every git after it then fails.
-func RefreshIndex(dir string) error {
-	_, _, err := runCapture(context.Background(), networkTimeout, dir, "update-index", "-q", "--refresh")
-	return err
-}
-
 // statusWithin is StatusWithin with extra options for git status.
 func statusWithin(dir string, timeout time.Duration, opts ...string) (Status, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -90,7 +75,11 @@ func statusWithin(dir string, timeout time.Duration, opts ...string) (Status, er
 	// untracked file sat above a review panel -- which asks for "all" --
 	// listing the thirty inside it.
 	args := append([]string{"status", "--porcelain=v2", "--branch", "--untracked-files=all"}, opts...)
-	out, _, err := runCapture(ctx, timeout, dir, args...)
+	var out string
+	err := retryIndex(func() (e error) {
+		out, _, e = runCapture(ctx, timeout, dir, args...)
+		return e
+	})
 	if err != nil {
 		return st, err
 	}
@@ -110,6 +99,7 @@ func statusWithin(dir string, timeout time.Duration, opts ...string) (Status, er
 				st.Unborn = true
 				break
 			}
+			st.Commit = oid
 			if len(oid) > 7 {
 				oid = oid[:7]
 			}

@@ -87,6 +87,12 @@ type Pane struct {
 	// for when git answers again but must not be shown as though it were
 	// current: nothing says it still is.
 	GitTimedOut bool
+	// Conflicts are the other panes in this pane's repository whose work, as
+	// far as git can tell from a merge it does in memory, would conflict with
+	// this pane's: committed or not. Empty while the conflict radar is off, as
+	// it is until it is turned on, and until a pair has been seen to conflict
+	// twice. See internal/radar.
+	Conflicts []PaneConflict
 
 	// Cols and Rows are the terminal size the viewer last measured for this
 	// pane. They are remembered so a restart comes back at the size the pane
@@ -106,6 +112,16 @@ type Pane struct {
 	// has been spent so the agent can still be told why it exists — after a
 	// restart, or after its context has been compacted away.
 	Task string
+	// batonPrompt is the opening prompt a pane started from a baton was given,
+	// kept so that a restart before its first turn asks the same thing. It is
+	// not saved with the layout: a restored pane is pointed at its baton by
+	// BatonID instead. See resendTask.
+	batonPrompt string
+	// BatonID is the baton the pane was started from, kept so a restored pane
+	// and its briefing still say where its work came from. It is empty for a
+	// pane that began without one. The baton is in the baton store under this
+	// id; see internal/baton.
+	BatonID string
 	// Conversation is the agent's own id for the conversation the pane is in,
 	// once that is no longer the pane's id; empty means the pane's id. It is
 	// set from the hook goroutine, so it is only touched under the lock — read
@@ -348,6 +364,12 @@ type Workspace struct {
 	gitAgain   map[string]bool
 	gitSlots   chan struct{}
 	gitIndexAt map[string]time.Time
+	// refreshCtx is what this workspace's index refreshes run under, and
+	// refreshStop ends them when it is closed.
+	refreshCtx  context.Context
+	refreshStop context.CancelFunc
+	// radar is what the conflict radar keeps between refreshes; see radar.go.
+	radar radarState
 
 	mu    sync.RWMutex
 	panes map[string]*Pane
@@ -1837,7 +1859,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 				// question, or before it began — so the task it was spawned
 				// with has not been done. It is asked again rather than
 				// brought back idle with its task gone.
-				task = p.Task
+				task = w.resendTask(p)
 			}
 			tokens.Prompt = w.OpeningPrompt(p.ID, task, spec.Caps.Context)
 		}
@@ -3107,7 +3129,7 @@ var gitDeadline = 10 * time.Second
 var (
 	slowStatus        = 2 * time.Second
 	indexRefreshEvery = 10 * time.Minute
-	indexRefresh      = gitx.RefreshIndex
+	indexRefresh      = gitx.RefreshIndexCtx
 )
 
 // RefreshGit updates every pane's git summary.
@@ -3148,6 +3170,15 @@ func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 	if !gitx.Available() {
 		return
 	}
+	// The conflict radar is off unless the user has turned it on. Switching it
+	// off takes its chips down at the next refresh, whichever panes that is of.
+	radarOn := radarEnabled()
+	gen := 0
+	if radarOn {
+		gen = w.radarEnable()
+	} else {
+		w.radarOff(apply)
+	}
 	// One status call per distinct directory, not per pane: several panes
 	// commonly share a checkout. Distinct by pathKey rather than by string,
 	// since one checkout reaches panes spelt more than one way — a trailing
@@ -3168,6 +3199,11 @@ func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 	}
 	w.mu.RUnlock()
 	if len(cwds) == 0 {
+		// No pane is left to read, and what the radar kept of closed panes goes
+		// with them: this is the refresh that sees the last one close.
+		if radarOn {
+			w.pruneRadar(gen)
+		}
 		return
 	}
 
@@ -3202,6 +3238,10 @@ func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 	}
 	w.gitMu.Unlock()
 
+	var (
+		seenMu sync.Mutex
+		seen   []radarCheckout
+	)
 	var wg sync.WaitGroup
 	for _, cwd := range asking {
 		wg.Add(1)
@@ -3217,6 +3257,14 @@ func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 			key := pathKey(cwd)
 			late := errors.Is(err, context.DeadlineExceeded)
 			apply(func() { w.applyGit(key, st, late) })
+			if radarOn && err == nil {
+				seenMu.Lock()
+				seen = append(seen, radarCheckout{key: key, cwd: cwd, st: st, dirKey: key})
+				seenMu.Unlock()
+				w.radarSeen(key)
+			} else if radarOn && !late && radarDirMissing(cwd) {
+				w.radarMissing(apply, gen, key)
+			}
 			// A status that answered, but slowly, is most often one looking
 			// again at files touched since the index last recorded them,
 			// which it cannot record itself (see gitx.RefreshIndex). Its
@@ -3225,36 +3273,63 @@ func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 			// not again for a while: a checkout slow for some other reason
 			// gains nothing, and the refresh holds the lock an agent's commit
 			// needs for as long as it runs.
-			if slow && w.indexDue(key) {
-				_ = indexRefresh(cwd)
-			}
 			// A git given up on is answered for at once, but the checkout
 			// stays busy until it has really gone. Ending one stuck on a
 			// drive that has gone away takes as long as the drive does, and
 			// asking again sooner started another git beside it every
 			// refresh. That wait is not this refresh's: its slot is free.
-			done := func() {
-				w.gitMu.Lock()
-				delete(w.gitBusy, key)
-				again := w.gitAgain[key]
-				delete(w.gitAgain, key)
-				w.gitMu.Unlock()
-				if again {
-					go w.refreshGit(apply, func(p *Pane) bool { return pathKey(p.Cwd) == key })
+			release := func() {
+				done := func() {
+					w.gitMu.Lock()
+					delete(w.gitBusy, key)
+					again := w.gitAgain[key]
+					delete(w.gitAgain, key)
+					w.gitMu.Unlock()
+					if again {
+						go w.refreshGit(apply, func(p *Pane) bool { return pathKey(p.Cwd) == key })
+					}
+				}
+				select {
+				case <-gitExited(err):
+					done()
+				default:
+					go func() {
+						<-gitExited(err)
+						done()
+					}()
 				}
 			}
-			select {
-			case <-gitExited(err):
-				done()
-			default:
+			if slow && w.indexDue(key) {
+				// The refresh may take a minute, and this goroutine is one that
+				// every other checkout's refresh waits for. It is waited for here
+				// for indexRefreshHold at most; the checkout stays busy until it
+				// has ended, wherever it is waited for, and the next refresh asks
+				// the checkout again after that. One that found the index in use
+				// did nothing, and is tried again at the next slow answer.
+				refreshed := make(chan struct{})
 				go func() {
-					<-gitExited(err)
-					done()
+					defer close(refreshed)
+					if rerr := indexRefresh(w.refreshContext(), cwd); errors.Is(rerr, gitx.ErrIndexBusy) {
+						w.indexUndue(key)
+					}
 				}()
+				select {
+				case <-refreshed:
+				case <-time.After(indexRefreshHold):
+				}
+				go func() {
+					<-refreshed
+					release()
+				}()
+				return
 			}
+			release()
 		}(cwd)
 	}
 	wg.Wait()
+	if radarOn {
+		w.refreshRadar(apply, seen, gen)
+	}
 }
 
 // indexDue reports whether the index of the checkout key names may be
@@ -3317,6 +3392,9 @@ func (w *Workspace) applyGit(key string, st gitx.Status, late bool) {
 
 // Close terminates every session and stops the hook server.
 func (w *Workspace) Close() {
+	// Close stops waiting for a running index refresh; git finishes it by itself. Only
+	// this workspace's: each has a context of its own.
+	w.stopRefreshes()
 	// touchRecent's writer can still be working through queued switches;
 	// closing its queue and waiting for it to let go of recentDone blocks
 	// until the last of them is written, rather than leaving it to land on
@@ -3476,6 +3554,39 @@ func (w *Workspace) OpenConversationAs(id, cwd, title, agentID string) error {
 	w.activeTab = t.ID
 	w.wake()
 	return nil
+}
+
+// refreshContext is the context of this workspace's index refreshes.
+func (w *Workspace) refreshContext() context.Context {
+	w.gitMu.Lock()
+	defer w.gitMu.Unlock()
+	if w.refreshCtx == nil {
+		w.refreshCtx, w.refreshStop = context.WithCancel(context.Background())
+	}
+	return w.refreshCtx
+}
+
+// stopRefreshes ends this workspace's index refreshes, now and later.
+func (w *Workspace) stopRefreshes() {
+	w.refreshContext()
+	w.gitMu.Lock()
+	stop := w.refreshStop
+	w.gitMu.Unlock()
+	stop()
+}
+
+// indexRefreshHold is how long a refresh of every checkout waits for one checkout's
+// index to be refreshed, which can take a minute where the index is huge: past it
+// the others are not held up. A variable so a test need not wait.
+var indexRefreshHold = 3 * time.Second
+
+// indexUndue forgets that the checkout key names had its index refreshed, so that
+// the next slow answer asks again. For a refresh that did nothing because the
+// index was in use.
+func (w *Workspace) indexUndue(key string) {
+	w.gitMu.Lock()
+	delete(w.gitIndexAt, key)
+	w.gitMu.Unlock()
 }
 
 // backgroundInfo is what a hook said of a piece of background work, in the

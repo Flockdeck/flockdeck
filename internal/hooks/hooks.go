@@ -920,8 +920,24 @@ type SpawnRequest struct {
 	// workspace.Pane.Recording. Only honoured once the user has turned
 	// recording on in the window and read what it stores, so an agent cannot
 	// be the first to switch it on.
-	Record bool   `json:"record,omitempty"`
-	Token  string `json:"token"`
+	Record bool `json:"record,omitempty"`
+	// Baton is a reference to the handoff the helper starts from: "self" for a
+	// baton made from the caller's own conversation, a pane id, a baton id, or
+	// "path:" and the absolute path of a notes file. It is a reference and
+	// never text, so that the application resolves it and scrubs it; see
+	// internal/server's resolveBaton.
+	Baton string `json:"baton,omitempty"`
+	// BatonElsewhere asks for the baton to be sent to an agent of a different
+	// company than the one it came from, or of one whose company is not known.
+	// Without it such a spawn is refused; with it the user is asked in a window,
+	// and the spawn waits for the answer.
+	BatonElsewhere bool   `json:"batonElsewhere,omitempty"`
+	Token          string `json:"token"`
+
+	// Ctx is the request the spawn came in on, so that a handler that waits (for
+	// the user to allow a baton) stops waiting when the agent's command is
+	// cancelled or times out. It is set by the server and never read from the body.
+	Ctx context.Context `json:"-"`
 }
 
 // SpawnResult is what the application answers a spawn with.
@@ -931,6 +947,11 @@ type SpawnResult struct {
 	// the caller cannot work it out: --worktree asks for a branch, and which
 	// directory that becomes is the application's decision, not the caller's.
 	Cwd string `json:"cwd,omitempty"`
+	// BatonID and BatonPath say which baton the helper was started from and
+	// where it is kept, when it was started from one, so the caller can read it
+	// with `flockdeck baton show`.
+	BatonID   string `json:"batonId,omitempty"`
+	BatonPath string `json:"batonPath,omitempty"`
 }
 
 // BaseURL is the address panes call back on.
@@ -966,6 +987,7 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "spawning is not available", http.StatusServiceUnavailable)
 		return
 	}
+	req.Ctx = r.Context()
 	res, err := fn(req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -979,6 +1001,21 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 // answer. It is a variable so a test does not have to wait that long.
 var spawnTimeout = 60 * time.Second
 
+// BatonApprovalWait is how long the application waits for the user to allow a baton
+// to go to another company. A spawn that asks for that is waited for that long on
+// top of spawnTimeout, so approving at the last moment does not time the command
+// out, and an agent that was told it failed does not ask again and start a second
+// helper.
+var BatonApprovalWait = 45 * time.Second
+
+// spawnWait is how long a spawn waits for its answer.
+func spawnWait(req SpawnRequest) time.Duration {
+	if req.BatonElsewhere {
+		return spawnTimeout + BatonApprovalWait
+	}
+	return spawnTimeout
+}
+
 // spawnFailure says what a spawn that got no answer means, for the agent that
 // asked, which acts on what it reads.
 //
@@ -989,11 +1026,11 @@ var spawnTimeout = 60 * time.Second
 // and one dropped before any answer is the same thing seen a step later: the
 // application closing as the request reached it, which Linux reports as a
 // reset and Windows as a failed read.
-func spawnFailure(err error, api string) error {
+func spawnFailure(err error, api string, wait time.Duration) error {
 	var op *net.OpError
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
-		return fmt.Errorf("Flockdeck did not answer within %s; the helper may still be starting, so look for its pane before asking again", spawnTimeout)
+		return fmt.Errorf("Flockdeck did not answer within %s; the helper may still be starting, so look for its pane before asking again", wait)
 	case errors.As(err, &op) && (op.Op == "dial" || op.Op == "read"):
 		return fmt.Errorf("Flockdeck is not answering at %s; it may have been closed since this pane started", api)
 	}
@@ -1009,7 +1046,8 @@ func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 	if err != nil {
 		return none, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), spawnTimeout)
+	wait := spawnWait(req)
+	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	defer cancel()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, api+"/spawn", bytes.NewReader(body))
 	if err != nil {
@@ -1018,7 +1056,7 @@ func Spawn(api, token, parent string, req SpawnRequest) (SpawnResult, error) {
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		return none, spawnFailure(err, api)
+		return none, spawnFailure(err, api, wait)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
