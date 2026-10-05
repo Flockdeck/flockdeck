@@ -15,6 +15,9 @@ func newRepo(t testing.TB) string {
 		t.Skip("git is not installed")
 	}
 	dir := t.TempDir()
+	// Registered after the folder, so it runs before the folder is removed: a refresh
+	// of this checkout that outlives its caller is still writing into .git.
+	t.Cleanup(func() { waitRepoQuiet(t, dir) })
 
 	steps := [][]string{
 		{"init", "--initial-branch=main"},

@@ -359,7 +359,13 @@ type Workspace struct {
 	// gitAgain holds the checkouts a refresh was asked for while they were
 	// being read: what that read says may be from before whatever made the
 	// refresh wanted, so they are read once more when it ends.
-	gitMu      sync.Mutex
+	gitMu sync.Mutex
+	// gitBG counts the goroutines a refresh leaves running after RefreshGit has
+	// returned: the one that reads a checkout again when it was asked for during
+	// a read, and those that wait for an index refresh or a git to end. They read
+	// package-level settings a test replaces, so a test waits for them (see
+	// waitGitIdle) before it puts those back.
+	gitBG      sync.WaitGroup
 	gitBusy    map[string]bool
 	gitAgain   map[string]bool
 	gitSlots   chan struct{}
@@ -3293,17 +3299,17 @@ func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 					delete(w.gitAgain, key)
 					w.gitMu.Unlock()
 					if again {
-						go w.refreshGit(apply, func(p *Pane) bool { return pathKey(p.Cwd) == key })
+						w.goGit(func() { w.refreshGit(apply, func(p *Pane) bool { return pathKey(p.Cwd) == key }) })
 					}
 				}
 				select {
 				case <-gitExited(err):
 					done()
 				default:
-					go func() {
+					w.goGit(func() {
 						<-gitExited(err)
 						done()
-					}()
+					})
 				}
 			}
 			if slow && w.indexDue(key) {
@@ -3314,20 +3320,20 @@ func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 				// the checkout again after that. One that found the index in use
 				// did nothing, and is tried again at the next slow answer.
 				refreshed := make(chan struct{})
-				go func() {
+				w.goGit(func() {
 					defer close(refreshed)
 					if rerr := indexRefresh(w.refreshContext(), cwd); errors.Is(rerr, gitx.ErrIndexBusy) {
 						w.indexUndue(key)
 					}
-				}()
+				})
 				select {
 				case <-refreshed:
 				case <-time.After(indexRefreshHold):
 				}
-				go func() {
+				w.goGit(func() {
 					<-refreshed
 					release()
-				}()
+				})
 				return
 			}
 			release()
@@ -3338,6 +3344,21 @@ func (w *Workspace) refreshGit(apply func(func()), keep func(*Pane) bool) {
 		w.refreshRadar(apply, seen, gen)
 	}
 }
+
+// goGit runs f on a goroutine that outlives the refresh that started it, and is
+// counted in gitBG. It is called while the refresh that starts it has not returned,
+// which is what lets waitGitIdle be called once that has.
+func (w *Workspace) goGit(f func()) {
+	w.gitBG.Add(1)
+	go func() {
+		defer w.gitBG.Done()
+		f()
+	}()
+}
+
+// waitGitIdle waits until nothing a refresh left running is. It is for tests, which
+// replace the package-level settings those goroutines read.
+func (w *Workspace) waitGitIdle() { w.gitBG.Wait() }
 
 // indexDue reports whether the index of the checkout key names may be
 // refreshed now, and notes that it is being.

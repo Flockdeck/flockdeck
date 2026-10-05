@@ -93,6 +93,7 @@ func TestRadarEndToEndWithRealGit(t *testing.T) {
 		"pb": {ID: "pb", Cwd: dirs[1], Name: "b"},
 	}, BroadcastSet: map[string]bool{}}
 
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	w.RefreshGit(func(apply func()) { apply() })
 	if got := conflictsOf(w, "pa"); len(got) != 0 {
 		t.Fatalf("the first refresh showed %v", got)
@@ -649,6 +650,7 @@ func TestRadarLooksUpBasesAgainWhenAHiddenRefMovesRealGit(t *testing.T) {
 		"pa": {ID: "pa", Cwd: dirs[0], Name: "a"},
 		"pb": {ID: "pb", Cwd: dirs[1], Name: "b"},
 	}, BroadcastSet: map[string]bool{}}
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	for i := 0; i < 3; i++ {
 		w.RefreshGit(func(apply func()) { apply() })
 	}
@@ -897,6 +899,7 @@ func TestRadarEndToEndWithAnEmptyNestedRepository(t *testing.T) {
 		"pa": {ID: "pa", Cwd: dirs[0], Name: "a"},
 		"pb": {ID: "pb", Cwd: dirs[1], Name: "b"},
 	}, BroadcastSet: map[string]bool{}}
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	w.RefreshGit(func(apply func()) { apply() })
 	time.Sleep(20 * time.Millisecond)
 	w.RefreshGit(func(apply func()) { apply() })

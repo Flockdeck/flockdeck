@@ -33,6 +33,22 @@ func TestRemovingAWorktreeWithoutACountRemovesNothing(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("removing the worktree was never answered")
 	}
+	// The notice is followed by the refreshed listing, which asks panesIn again from a
+	// goroutine nothing else waits for. Reading it here keeps that read before the
+	// restore of panesIn, which runs when the test returns.
+	for listed := false; !listed; {
+		select {
+		case raw := <-c.out:
+			var m struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(raw, &m) == nil && m.Type == "worktrees" {
+				listed = true
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("the worktree listing never followed the refusal")
+		}
+	}
 	if _, err := os.Stat(wt); err != nil {
 		t.Fatalf("the worktree was removed without knowing whether an agent was working in it (told %q): %v", note.Text, err)
 	}
