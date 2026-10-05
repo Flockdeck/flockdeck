@@ -65,6 +65,18 @@ slash, colon or dot in it under a name that does not say it is a place. A URL's 
 goes and its scheme, user and host stay, whatever the user is called
 (`x-access-token`).
 
+## Hidden characters
+
+Every baton is cleaned of terminal escape sequences and control characters. It is also
+cleaned of characters that draw nothing and can carry text a person does not see: the
+Unicode tag characters (U+E0000 to U+E007F) and the variation selector supplement
+(U+E0100 to U+E01EF), zero width spaces, bidi controls, the word joiner and the
+invisible operators, soft hyphens, and the Hangul and Khmer fillers. A zero width joiner
+or non-joiner, or a variation selector, next to an ASCII character is removed too. Between
+non-ASCII characters they stay, because emoji, Persian and Hindi are written with them.
+The `<baton>` fence is escaped in its ASCII form and in forms that look like it: with
+no-break or ideographic spaces inside, or in full-width letters.
+
 ## What it misses or takes wrongly
 
 - Bare 32 and 40 character hex strings, UUIDs, and hex of 41 to 63 characters are kept,
