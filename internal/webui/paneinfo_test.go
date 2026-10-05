@@ -258,3 +258,23 @@ const why = h.$(off.getAttribute("aria-describedby"));
 assert.ok(off.disabled && why && why.textContent.includes("Nothing to show yet"), "the reason is not tied to the button");
 `)
 }
+
+// With no transcript, the reason is the server's where it gave one (an agent
+// that cannot be recorded or exported) and the usual one where it did not.
+func TestShowInFolderReasonIsTrueForEachKindOfAgent(t *testing.T) {
+	runFrontEnd(t, paletteRun+`
+h.hello();
+h.recv(fixture({ panes: { p1: pane("p1") } }));
+paletteRun("pane info");
+const reason = () => {
+  const off = [...h.$("overlay-body").querySelectorAll("button")].find((b) => b.textContent === "Show in folder");
+  assert.ok(off.disabled);
+  return h.$(off.getAttribute("aria-describedby")).textContent;
+};
+h.recv({ type: "paneInfo", id: "p1", name: "a", fields: [{ label: "Transcript file", value: "" }] });
+assert.ok(/Start recording or Export transcript makes one/.test(reason()), reason());
+h.recv({ type: "paneInfo", id: "p1", name: "a", fields: [{ label: "Transcript file", value: "" }],
+  transcriptOff: "This agent stores no conversation Flockdeck can read, so it cannot be recorded or exported." });
+assert.ok(/cannot be recorded or exported/.test(reason()) && !/makes one/.test(reason()), reason());
+`)
+}
