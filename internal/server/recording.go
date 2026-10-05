@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/jmwri/flockdeck/internal/appwindow"
 	"github.com/jmwri/flockdeck/internal/record"
@@ -88,37 +89,129 @@ func (s *Server) exportTranscript(c *controlClient, cmd command) {
 		c.notify(exportConfirmNotice, true)
 		return
 	}
-	type result struct {
-		res record.ExportResult
+	// Only the quick part runs on the workspace goroutine: finding the pane's
+	// conversation. Reading it and writing the file, which takes about a second
+	// for a large one and longer where another program holds the old export open,
+	// is done on a goroutine of its own, so the window, the others and the
+	// workspace carry on meanwhile.
+	type prepared struct {
+		job *workspace.ExportJob
 		err error
 	}
-	r, ok := ask(s, func() result {
-		res, err := s.ws.ExportTranscript(paneIDFor(s.ws, cmd.ID), "")
-		return result{res, err}
+	p, ok := ask(s, func() prepared {
+		job, err := exportPrepare(s.ws, paneIDFor(s.ws, cmd.ID))
+		return prepared{job, err}
 	})
 	if !ok {
 		return
 	}
-	if r.err != nil {
-		c.notify("Could not export the transcript: "+r.err.Error(), true)
+	if p.err != nil {
+		c.notify("Could not export the transcript: "+p.err.Error(), true)
 		return
 	}
-	if r.res.Kept {
-		c.notify(fmt.Sprintf("Not exported again: the earlier export at %s has events this one would lack (the stored conversation was cut or changed since), so it was kept as it was and is not up to date. Delete it to have a fresh one", r.res.Path), true)
+	// One export of a conversation at a time. A window that asks while another
+	// export of it is running waits for that one and gets its answer.
+	if first, ok := s.joinExport(p.job.Conversation, c); ok && first {
+		go s.runExport(p.job, c)
+	}
+}
+
+// exportPrepare and exportRun are what an export does on the workspace goroutine
+// and off it. Variables so that a test can make the slow part wait.
+var (
+	exportPrepare = func(ws *workspace.Workspace, id string) (*workspace.ExportJob, error) { return ws.PrepareExport(id) }
+	exportRun     = func(j *workspace.ExportJob, cancel <-chan struct{}) (record.ExportResult, error) {
+		return j.Run("", cancel)
+	}
+)
+
+// exports is the exports of conversations under way, and the windows waiting on
+// each: the first to ask runs it.
+type exports struct {
+	mu      sync.Mutex
+	waiting map[string][]*controlClient
+}
+
+// joinExport adds c to the windows waiting for the export of a conversation, and
+// reports whether c is the first, which runs it. ok is false once the server is
+// closing, when nothing is started: the goroutine is counted in connWG under the
+// same lock Close takes, so Close never waits on one it did not see.
+func (s *Server) joinExport(conv string, c *controlClient) (first, ok bool) {
+	s.mu.Lock()
+	select {
+	case <-s.closed:
+		s.mu.Unlock()
+		return false, false
+	default:
+	}
+	s.exports.mu.Lock()
+	waiters, running := s.exports.waiting[conv]
+	if s.exports.waiting == nil {
+		s.exports.waiting = map[string][]*controlClient{}
+	}
+	s.exports.waiting[conv] = append(waiters, c)
+	s.exports.mu.Unlock()
+	if !running {
+		s.connWG.Add(1)
+	}
+	s.mu.Unlock()
+	return !running, true
+}
+
+// runExport runs an export on its own goroutine and tells every window that was
+// waiting for it. A pane closed or changed meanwhile does not matter: the job
+// holds the conversation's id, and the export is of that conversation. If the
+// server closes first the export stops between events, removes what it made, and
+// says nothing, since there is nobody to say it to.
+func (s *Server) runExport(job *workspace.ExportJob, c *controlClient) {
+	defer s.connWG.Done()
+	var res record.ExportResult
+	var err error
+	done := false
+	defer func() {
+		s.exports.mu.Lock()
+		waiters := s.exports.waiting[job.Conversation]
+		delete(s.exports.waiting, job.Conversation)
+		s.exports.mu.Unlock()
+		if !done {
+			err = errors.New("something went wrong, and nothing was exported")
+		}
+		select {
+		case <-s.closed:
+			return
+		default:
+		}
+		for _, w := range waiters {
+			exportNotice(w, res, err)
+		}
+	}()
+	defer s.surviveFor(c, "exporting a transcript")
+	res, err = exportRun(job, s.closed)
+	done = true
+}
+
+// exportNotice tells a window how an export went.
+func exportNotice(c *controlClient, res record.ExportResult, err error) {
+	if err != nil {
+		c.notify("Could not export the transcript: "+err.Error(), true)
 		return
 	}
-	msg := fmt.Sprintf("Exported %d lines to %s", r.res.Lines, r.res.Path)
-	if r.res.Replaced {
-		msg = fmt.Sprintf("Exported %d lines to %s, replacing the earlier export of this conversation, which had nothing this one lacks", r.res.Lines, r.res.Path)
+	if res.Kept {
+		c.notify(fmt.Sprintf("Not exported again: the earlier export at %s has events this one would lack (the stored conversation was cut or changed since), so it was kept as it was and is not up to date. Delete it to have a fresh one", res.Path), true)
+		return
 	}
-	if r.res.Full {
+	msg := fmt.Sprintf("Exported %d lines to %s", res.Lines, res.Path)
+	if res.Replaced {
+		msg = fmt.Sprintf("Exported %d lines to %s, replacing the earlier export of this conversation, which had nothing this one lacks", res.Lines, res.Path)
+	}
+	if res.Full {
 		msg += fmt.Sprintf(", cut at the %d MiB size cap", record.MaxFileBytes>>20)
 	}
 	switch {
-	case r.res.Skipped == 1:
+	case res.Skipped == 1:
 		msg += "; 1 entry of the stored conversation could not be read and is left out"
-	case r.res.Skipped > 1:
-		msg += fmt.Sprintf("; %d entries of the stored conversation could not be read and are left out", r.res.Skipped)
+	case res.Skipped > 1:
+		msg += fmt.Sprintf("; %d entries of the stored conversation could not be read and are left out", res.Skipped)
 	}
 	msg += ". It may contain secrets. Reveal transcript shows it in your file manager"
 	c.notify(msg, false)

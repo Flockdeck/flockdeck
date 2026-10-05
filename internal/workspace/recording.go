@@ -814,17 +814,28 @@ func (w *Workspace) recordingCapped(id, why string) {
 	}
 }
 
-// ExportTranscript writes the conversation a pane's agent has stored as a
-// transcript in the recording format, whether or not the pane is being
-// recorded, and returns what it wrote. path is where, or empty for the
-// exports folder of the pane's project under the recordings folder. It never
-// writes into the project: that is refused, as is a file that exists.
-func (w *Workspace) ExportTranscript(id, path string) (record.ExportResult, error) {
+// ExportJob is an export of one pane's conversation, worked out on the workspace
+// goroutine by PrepareExport and run by Run on any other: it holds what it
+// needs, and reads nothing of the workspace.
+type ExportJob struct {
+	// Conversation is the stored conversation's id, which names what is exported.
+	Conversation string
+	meta         record.Meta
+	spec         agent.Spec
+	ex           transcript.Exporter
+	root         string
+	max          int64
+}
+
+// PrepareExport works out what exporting a pane's conversation needs. It reads
+// the workspace and touches no file, so it is quick and is called on the
+// workspace goroutine; the export itself is ExportJob.Run.
+func (w *Workspace) PrepareExport(id string) (*ExportJob, error) {
 	w.mu.RLock()
 	p := w.panes[id]
 	if p == nil || !p.IsAgent() {
 		w.mu.RUnlock()
-		return record.ExportResult{}, errors.New("only an agent pane has a conversation to export, and that pane is not one or is no longer open")
+		return nil, errors.New("only an agent pane has a conversation to export, and that pane is not one or is no longer open")
 	}
 	conv := paneConversation(p)
 	root := p.Root
@@ -832,26 +843,70 @@ func (w *Workspace) ExportTranscript(id, path string) (record.ExportResult, erro
 		root = p.Cwd
 	}
 	spec, ex, ok := w.transcriptSourceLocked(p)
+	max := w.recMax
 	w.mu.RUnlock()
 	if !ok {
-		return record.ExportResult{}, fmt.Errorf("%s stores no conversation Flockdeck can read, so there is nothing to export", specLabel(spec))
+		return nil, fmt.Errorf("%s stores no conversation Flockdeck can read, so there is nothing to export", specLabel(spec))
 	}
-	meta := record.MetaFor(spec, ex, conv)
+	return &ExportJob{Conversation: conv, spec: spec, ex: ex, root: root, max: max}, nil
+}
+
+// Run writes the conversation as a transcript in the recording format, whether
+// or not the pane is being recorded, and returns what it wrote. path is where,
+// or empty for the exports folder of the pane's project under the recordings
+// folder. It never writes into the project: that is refused, as is a file that
+// exists. It reads and writes files, can take a while, and so is not for the
+// workspace goroutine. cancel, if closed, stops it, and nothing is left behind.
+func (j *ExportJob) Run(path string, cancel <-chan struct{}) (record.ExportResult, error) {
+	meta := record.MetaFor(j.spec, j.ex, j.Conversation)
 	if path != "" {
-		for _, project := range []string{meta.ProjectRoot, root} {
+		for _, project := range []string{meta.ProjectRoot, j.root} {
 			if err := record.CheckExportPath(path, project); err != nil {
 				return record.ExportResult{}, err
 			}
 		}
 	}
-	res, err := record.Export(store.Dir, meta, ex.Follow(spec, conv), record.ExportOptions{Path: path, MaxBytes: w.recMax})
+	f := cancellable{j.ex.Follow(j.spec, j.Conversation), cancel}
+	res, err := record.Export(store.Dir, meta, f, record.ExportOptions{Path: path, MaxBytes: j.max})
 	switch {
+	case errors.Is(err, ErrExportCancelled):
+		return res, ErrExportCancelled
 	case errors.Is(err, transcript.ErrNoTranscript):
 		return res, errors.New("the agent has stored no conversation for this pane yet, so there is nothing to export")
 	case errors.Is(err, record.ErrNothingToExport):
 		return res, errors.New("the stored conversation has nothing in it to export yet")
 	}
 	return res, err
+}
+
+// ErrExportCancelled is what Run returns when its cancel channel closed first.
+var ErrExportCancelled = errors.New("the export was stopped")
+
+// cancellable is a Follower that stops when a channel closes, between events.
+type cancellable struct {
+	transcript.Follower
+	cancel <-chan struct{}
+}
+
+func (c cancellable) Poll(yield func(transcript.ExportEvent) error) (transcript.ExportStats, error) {
+	return c.Follower.Poll(func(ev transcript.ExportEvent) error {
+		select {
+		case <-c.cancel:
+			return ErrExportCancelled
+		default:
+		}
+		return yield(ev)
+	})
+}
+
+// ExportTranscript is PrepareExport and Run together, for a caller that is not
+// on the workspace goroutine.
+func (w *Workspace) ExportTranscript(id, path string) (record.ExportResult, error) {
+	j, err := w.PrepareExport(id)
+	if err != nil {
+		return record.ExportResult{}, err
+	}
+	return j.Run(path, nil)
 }
 
 // ErrNoTranscriptFile says a pane has no transcript file to show: it is not
