@@ -105,8 +105,10 @@ How it works:
   copied, whether or not it shares a file with another, since that is what finds
   out: what the checkout holds, committed or not, untracked files included, goes
   into a scratch folder in the system's temporary folder, which is deleted when
-  the refresh is done. A folder left by a run that was killed is removed the
-  first time the radar runs after the next start, if it is over an hour old. Only
+  the refresh is done, or when Flockdeck is closed (quitting waits, for ten seconds
+  at most, for a refresh in flight to stop its git and remove it). A folder left by a
+  run that was killed is removed when Flockdeck next starts, whether or not the
+  radar is on, if it is over an hour old. Only
   panes that share a file, a file and a directory of one name, or a directory a
   file was moved out of and a file added to it, are then compared. git merges the copies of two panes
   in memory (`git merge-tree`), so the answer is the one a real merge would

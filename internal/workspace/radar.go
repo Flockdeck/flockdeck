@@ -130,6 +130,7 @@ type radarState struct {
 	timeouts  map[string]*timeoutMark // checkouts whose git commands keep timing out
 	errLogged map[string]time.Time    // when a checkout's snapshot failure was last logged
 	clean     map[string]cleanMark
+	closed    bool // Close was called: no refresh starts the radar again
 }
 
 // radarEnable notes that a refresh is running with the radar on, and returns
@@ -169,6 +170,10 @@ func radarWorthy(st gitx.Status) bool {
 // radar.Engine.Update). The snapshots take the same slots as the status reads,
 // so the radar does not add to how many git processes run at once.
 func (w *Workspace) refreshRadar(apply func(func()), seen []radarCheckout, gen int) {
+	if !w.radarStart() {
+		return
+	}
+	defer w.radarRun.Done()
 	sweepScratchOnce.Do(radarSweep)
 	groups := map[string][]radarCheckout{}
 	done := map[string]bool{}
@@ -402,7 +407,9 @@ func (w *Workspace) radarOf(gen int, common string, members []radarCheckout) (re
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), radarDeadline)
+	// Under the workspace's own context, which Close cancels: git then stops, and the
+	// deferred removal of the scratch directory runs before Close returns.
+	ctx, cancel := context.WithTimeout(w.refreshContext(), radarDeadline)
 	defer cancel()
 	// Whatever the merge does, it does under this recover: it runs git and a
 	// parser on data from outside.
@@ -1001,4 +1008,34 @@ func (w *Workspace) radarLogUnknown(ctx context.Context, c radarCheckout, err er
 		return
 	}
 	radarLogf("conflict radar: could not snapshot %s, so it is not compared this time: %s", c.cwd, first)
+}
+
+// radarStart notes that a radar refresh is beginning, and says false when Close
+// has been called and none may.
+func (w *Workspace) radarStart() bool {
+	w.gitMu.Lock()
+	defer w.gitMu.Unlock()
+	if w.radar.closed {
+		return false
+	}
+	w.radarRun.Add(1)
+	return true
+}
+
+// radarCloseWait is how long Close waits for the radar refreshes in flight to
+// take down their scratch directories after cancelling them. Git is killed when
+// its context ends, so this is short; it is bounded because a refresh waiting on
+// the window (apply) must not keep a quitting Flockdeck from quitting.
+var radarCloseWait = 10 * time.Second
+
+// stopRadar waits for the radar refreshes in flight, which stopRefreshes has
+// cancelled, to end.
+func (w *Workspace) stopRadar() {
+	done := make(chan struct{})
+	go func() { w.radarRun.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(radarCloseWait):
+		radarLogf("conflict radar: a refresh was still running %v after Flockdeck was closed", radarCloseWait)
+	}
 }
