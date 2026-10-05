@@ -454,7 +454,7 @@ func TestCatalogue(t *testing.T) {
 		t.Error("the entry is missing its permissions or probes")
 	}
 	if len(Catalogue()) != 1 {
-		t.Error("the first slice has one helper")
+		t.Error("the catalogue lists one helper")
 	}
 }
 

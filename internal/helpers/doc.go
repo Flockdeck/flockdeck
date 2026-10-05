@@ -4,8 +4,8 @@
 //
 // A helper is not a plugin. It runs as its own process with an environment
 // built from an allowlist, and gets no access to the control server, the hooks
-// server or the instance token. The design, and what each check is for, is in
-// docs/plans/helper-apps.md.
+// server or the instance token. Each check below exists to keep a downloaded
+// program from doing more than the user asked for.
 //
 // Nothing from a downloaded archive is executed until the user starts the
 // helper, and nothing is installed that has not passed, in order: the

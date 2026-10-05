@@ -21,7 +21,7 @@ import (
 // Flockdeck downloads, checks, starts and opens in the browser. list, install
 // and uninstall work from the state directory and need no running instance.
 // start, stop and open ask the running instance, which is the one that
-// supervises the process (see internal/helpers and docs/plans/helper-apps.md).
+// supervises the process (see internal/helpers).
 
 // helperCLI is what the helpers subcommand talks to, so a test can give it
 // fakes.

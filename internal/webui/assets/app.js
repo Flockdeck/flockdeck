@@ -10715,7 +10715,7 @@
   // ---------------------------------------------------------------- helpers
 
   /* Helper apps: small local programs Flockdeck installs, starts and opens in
-   * the browser (internal/helpers, docs/plans/helper-apps.md). This is the
+   * the browser (internal/helpers). This is the
    * dialog for them, from "Helper apps…" in the command palette. A status is
    * always a glyph and a word, never colour alone, and every control is a real
    * button. A change of status is said to the screen reader through the same

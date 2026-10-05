@@ -72,7 +72,7 @@ type Timings struct {
 	PortTries int
 }
 
-// DefaultTimings are the design's values.
+// DefaultTimings are the restart and shutdown timings used outside tests.
 func DefaultTimings() Timings {
 	return Timings{
 		BannerWait: 20 * time.Second,

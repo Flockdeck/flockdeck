@@ -105,7 +105,7 @@ var lens = Entry{
 	Summary: "Reads agent session transcripts and shows what they did, in a page on your own machine.",
 	Source:  "https://dl.flockdeck.ai/lens",
 	Binary:  "lens",
-	// TODO(owner): "0.1.0" is a placeholder, not a decision. Set MinVersion to
+	// TODO: "0.1.0" is a placeholder, not a decision made yet. Set MinVersion to
 	// the first release that is safe to run, and raise it in the same Flockdeck
 	// release as every security fix to lens. A signature proves who built a
 	// file, not that it is the newest: an old signed release with a known flaw
