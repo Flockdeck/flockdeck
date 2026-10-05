@@ -143,15 +143,16 @@ func (s BatonSource) Readable() bool {
 // the chat client's stream, with the lines as its labels keep them.
 func (s BatonSource) activity() baton.Activity {
 	if ex, ok := transcript.ExporterFor(s.Spec); ok {
-		var evs []transcript.ExportEvent
-		// A conversation not stored yet, or one that cannot be read right now,
-		// gives whatever was read before the error: the baton is still built
+		// Reduced as the events arrive, so a long session is not held in memory
+		// whole. A conversation not stored yet, or one that cannot be read right
+		// now, gives whatever was read before the error: the baton is still built
 		// from git.
+		ab := baton.NewActivityBuilder()
 		_, _ = ex.Follow(s.Spec, s.Conversation).Poll(func(e transcript.ExportEvent) error {
-			evs = append(evs, e)
+			ab.Add(e)
 			return nil
 		})
-		return baton.ActivityFromEvents(evs)
+		return ab.Activity()
 	}
 	if st, ok := transcript.StreamFor(s.Spec, s.Conversation); ok {
 		st.Refresh()

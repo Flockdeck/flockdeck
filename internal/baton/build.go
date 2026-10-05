@@ -51,56 +51,123 @@ type Activity struct {
 	// LastReply is the last thing the agent said.
 	LastReply string
 	Commands  []Command
+	// Refs are the ids of earlier batons that prompts carried, when the builder of
+	// the conversation noted them as it read (ActivityBuilder). Prompts that carry
+	// one are also noted by Build, for an Activity made another way.
+	Refs []string
 }
 
 // shellTools names the tools that run a command, across the agents that have a
 // transcript reader.
 var shellTools = map[string]bool{"bash": true, "powershell": true, "shell": true, "run_command": true}
 
-// ActivityFromEvents reads Activity out of a followed conversation. Full
-// command lines come from here, which is why it is preferred where the agent
-// can be followed.
-func ActivityFromEvents(evs []transcript.ExportEvent) Activity {
-	var a Activity
-	byCall := map[string]int{}
-	for _, e := range evs {
-		switch e.Kind {
-		case transcript.ExportPrompt:
-			if t := strings.TrimSpace(e.Text); t != "" {
-				a.Prompts = append(a.Prompts, t)
+// What an ActivityBuilder keeps of a conversation however long it is: the first
+// few prompts (the goal is the first), the last reply, the references to earlier
+// batons that prompts carried, and the newest commands.
+const (
+	keepPrompts  = 5
+	keepRefs     = 50
+	keepCommands = 2000
+	// maxCommandText cuts a command as it arrives. commandLine takes only the
+	// first line of it and cuts that at rawLine, so what is left past this is never
+	// read.
+	maxCommandText = 32 << 10
+)
+
+// ActivityBuilder reduces a conversation to an Activity as its events arrive,
+// without keeping the events: a long session is hundreds of thousands of
+// them, with their tool output. Use Add for each event and Activity at the end.
+type ActivityBuilder struct {
+	a      Activity
+	byCall map[string]int
+}
+
+// NewActivityBuilder makes an empty builder.
+func NewActivityBuilder() *ActivityBuilder {
+	return &ActivityBuilder{byCall: map[string]int{}}
+}
+
+// Add takes one event of the conversation.
+func (b *ActivityBuilder) Add(e transcript.ExportEvent) {
+	a := &b.a
+	switch e.Kind {
+	case transcript.ExportPrompt:
+		t := strings.TrimSpace(e.Text)
+		if t == "" {
+			return
+		}
+		// A prompt that carries an earlier baton is noted as lineage by the builder
+		// of the baton, and is not a thing to take a goal from.
+		if m := batonRef.FindStringSubmatch(t); m != nil {
+			if len(a.Refs) < keepRefs && !contains(a.Refs, m[1]) {
+				a.Refs = append(a.Refs, m[1])
 			}
-		case transcript.ExportMessage:
-			if t := strings.TrimSpace(e.Text); t != "" {
-				a.LastReply = t
-			}
-		case transcript.ExportToolCall:
-			if !shellTools[strings.ToLower(e.Tool)] {
-				continue
-			}
-			in, _ := e.Input.(map[string]any)
-			cmd, _ := in["command"].(string)
-			if strings.TrimSpace(cmd) == "" {
-				continue
-			}
-			byCall[e.ToolUseID] = len(a.Commands)
-			a.Commands = append(a.Commands, Command{Text: cmd})
-		case transcript.ExportToolResult:
-			i, ok := byCall[e.ToolUseID]
-			if !ok {
-				continue
-			}
-			switch {
-			case e.Interrupted:
-				a.Commands[i].Outcome = "interrupted"
-			case e.IsError:
-				a.Commands[i].Outcome = "failed"
-				a.Commands[i].Detail = firstLine(e.Output)
-			default:
-				a.Commands[i].Outcome = "ok"
-			}
+			return
+		}
+		if len(a.Prompts) < keepPrompts {
+			// The goal is cut to its bound and a margin before it is scrubbed.
+			a.Prompts = append(a.Prompts, clipRaw(t, maxGoal+rawMargin))
+		}
+	case transcript.ExportMessage:
+		if t := strings.TrimSpace(e.Text); t != "" {
+			a.LastReply = clipRaw(t, maxReply+rawMargin)
+		}
+	case transcript.ExportToolCall:
+		if !shellTools[strings.ToLower(e.Tool)] {
+			return
+		}
+		in, _ := e.Input.(map[string]any)
+		cmd, _ := in["command"].(string)
+		if strings.TrimSpace(cmd) == "" {
+			return
+		}
+		if len(a.Commands) >= 2*keepCommands {
+			b.dropOldest(len(a.Commands) - keepCommands)
+		}
+		b.byCall[e.ToolUseID] = len(a.Commands)
+		a.Commands = append(a.Commands, Command{Text: clipRaw(cmd, maxCommandText)})
+	case transcript.ExportToolResult:
+		i, ok := b.byCall[e.ToolUseID]
+		if !ok {
+			return
+		}
+		switch {
+		case e.Interrupted:
+			a.Commands[i].Outcome = "interrupted"
+		case e.IsError:
+			a.Commands[i].Outcome = "failed"
+			a.Commands[i].Detail = firstLine(e.Output)
+		default:
+			a.Commands[i].Outcome = "ok"
 		}
 	}
-	return a
+}
+
+// dropOldest forgets the n oldest commands, and the results still waiting for them.
+func (b *ActivityBuilder) dropOldest(n int) {
+	b.a.Commands = append([]Command(nil), b.a.Commands[n:]...)
+	for id, i := range b.byCall {
+		if i < n {
+			delete(b.byCall, id)
+		} else {
+			b.byCall[id] = i - n
+		}
+	}
+}
+
+// Activity is what was added.
+func (b *ActivityBuilder) Activity() Activity { return b.a }
+
+// ActivityFromEvents reads Activity out of a followed conversation. Full
+// command lines come from here, which is why it is preferred where the agent
+// can be followed. A caller that has the events one at a time uses
+// ActivityBuilder, and need not hold them all.
+func ActivityFromEvents(evs []transcript.ExportEvent) Activity {
+	b := NewActivityBuilder()
+	for _, e := range evs {
+		b.Add(e)
+	}
+	return b.Activity()
 }
 
 // ActivityFromEntries reads Activity out of a conversation's stream entries,
@@ -299,6 +366,11 @@ func Build(in BuildInput) Baton {
 
 	// A baton an earlier prompt carried is one quoted input, not a thing to
 	// pull a goal out of: it is noted as lineage and left out of the prompts.
+	for _, id := range in.Activity.Refs {
+		if !contains(b.Derived, id) {
+			b.Derived = append(b.Derived, id)
+		}
+	}
 	var prompts []string
 	for _, p := range in.Activity.Prompts {
 		if m := batonRef.FindStringSubmatch(p); m != nil {
