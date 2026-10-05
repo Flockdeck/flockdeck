@@ -260,6 +260,13 @@ func (s *Store) PurgeData(id string) error {
 	return nil
 }
 
+// HasTrustRecord reports whether the helper has a trust record, which an
+// uninstall keeps and a purge removes.
+func (s *Store) HasTrustRecord(id string) bool {
+	_, err := os.Lstat(s.trustFile(id))
+	return err == nil
+}
+
 // HasData reports whether the helper has a data folder, for the message after an uninstall.
 func (s *Store) HasData(id string) bool {
 	fi, err := os.Stat(s.DataDir(id))

@@ -65,7 +65,7 @@ func (s *Store) writeRun(id string, r RunInfo) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(s.runFile(id), data, 0o600)
+	return atomicWrite(s.runFile(id), data, 0o600)
 }
 
 // removeFile is os.Remove. A variable so a test can make it fail, as an

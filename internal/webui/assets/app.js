@@ -10830,6 +10830,11 @@
     main.append(title);
     main.append(el("div", "wt-meta", r.summary));
     if (r.state === "running" && r.url) main.append(el("div", "wt-path", r.url));
+    if (r.needsRepair && r.state !== "running") {
+      const bad = el("div", "wt-meta helper-error", "the installed program no longer matches what was installed");
+      bad.id = "helper-repair-note-" + r.id;
+      main.append(bad);
+    }
     if (r.state === "running" && r.owner === "unverified") {
       const note = el("div", "wt-meta helper-owner", "port owner not verified");
       note.id = "helper-owner-" + r.id;
@@ -10863,7 +10868,7 @@
       case "failed":
         actions.append(helperButton(r, "start", r.state === "failed" ? "Try again" : "Start", start, true));
         if (r.update) actions.append(helperButton(r, "update", "Update…", () => helperLookup(r.id, r.update)));
-        actions.append(helperButton(r, "repair", "Repair…", () => helperLookup(r.id, r.installed)));
+        if (r.needsRepair) actions.append(helperButton(r, "repair", "Repair…", () => helperLookup(r.id, r.installed), true));
         actions.append(helperButton(r, "remove", "Remove…", () => helperRemoval(r, false, false)));
         break;
       case "starting":

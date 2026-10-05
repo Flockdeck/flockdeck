@@ -85,13 +85,15 @@ const expect = (state, want, extra) => {
 recvRows(row());
 assert.deepStrictEqual(buttons(), ["install"]);
 expect("installing", [], { installed: "" });
-expect("stopped", ["start", "repair", "remove"]);
-expect("stopped", ["start", "update", "repair", "remove"], { update: "0.5.0" });
+expect("stopped", ["start", "remove"]);
+expect("stopped", ["start", "repair", "remove"], { needsRepair: true });
+assert.ok(h.$("overlay-body").textContent.includes("no longer matches what was installed"), "the reason for the repair is not given");
+expect("stopped", ["start", "update", "remove"], { update: "0.5.0" });
 expect("starting", ["stop"]);
 expect("running", ["open", "stop"]);
 expect("stopping", []);
 expect("unresponsive", ["stop"]);
-expect("failed", ["start", "repair", "remove"], { error: "x", log: ["boom"] });
+expect("failed", ["start", "remove"], { error: "x", log: ["boom"] });
 assert.ok(h.$("overlay-body").textContent.includes("boom"), "the log tail of a failure is not shown");
 assert.ok(h.$("helper-start-lens").textContent === "Try again");
 
@@ -321,7 +323,7 @@ func TestARepairIsShownAsOne(t *testing.T) {
 h.hello();
 h.recv(fixture());
 openHelpers();
-recvRows(row({ state: "stopped", installed: "0.4.0" }));
+recvRows(row({ state: "stopped", installed: "0.4.0", needsRepair: true }));
 h.click(h.$("helper-repair-lens"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "helperPlan", id: "lens", text: "0.4.0" });
 h.recv({ type: "helperPlan", id: "lens", name: "lens", summary: "s", version: "0.4.0", url: "u", sha256: "d".repeat(64), signed: true, repair: true, installed: "0.4.0", allows: [] });

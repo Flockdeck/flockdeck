@@ -114,9 +114,12 @@ func publishCDN(files map[string][]byte, origin string, key ed25519.PrivateKey, 
 }
 
 // lensAt is the catalogue's lens, fetched from a fake CDN.
-func lensAt(origin string) func(string) (helpers.Entry, bool) {
+func lensAt(origin string, requireSigned bool) func(string) (helpers.Entry, bool) {
 	e, _ := helpers.Lookup("lens")
 	e.Source = origin + "/lens"
+	// The override machinery is for an entry that does not require signatures;
+	// the tests of it set this false. The default is lens as it is catalogued.
+	e.RequireSigned = requireSigned
 	return func(id string) (helpers.Entry, bool) {
 		if id == e.ID {
 			return e, true
@@ -134,7 +137,11 @@ type cliRig struct {
 	asked  *[][]string
 }
 
-func newCLIRig(t *testing.T) *cliRig {
+func newCLIRig(t *testing.T) *cliRig { return newCLIRigWith(t, true) }
+
+// newCLIRigWith is a rig whose helper does or does not require signed
+// releases.
+func newCLIRigWith(t *testing.T, requireSigned bool) *cliRig {
 	t.Helper()
 	rel := newHelperRelease(t)
 	st := &helpers.Store{Root: t.TempDir()}
@@ -143,7 +150,7 @@ func newCLIRig(t *testing.T) *cliRig {
 	c := &helperCLI{
 		out: out, errOut: errOut, in: strings.NewReader(""), store: st,
 		installer: helpers.NewInstaller(helpers.Options{
-			Store: st, Lookup: lensAt(rel.srv.URL), GOOS: "linux", GOARCH: "amd64",
+			Store: st, Lookup: lensAt(rel.srv.URL, requireSigned), GOOS: "linux", GOARCH: "amd64",
 			AllowURL: func(u *url.URL) bool { return u.Hostname() == "127.0.0.1" },
 		}),
 		instance: func() (string, string, error) { return "", "", nil },
@@ -233,7 +240,7 @@ func TestHelpersInstallNeedsAnAnswer(t *testing.T) {
 }
 
 func TestHelpersInstallRefusesUnsignedUnlessOverridden(t *testing.T) {
-	r := newCLIRig(t)
+	r := newCLIRigWith(t, false)
 	r.rel.publish(t, "0.4.0", false, false)
 	err := r.run("install", "-yes", "lens")
 	if err == nil || !strings.Contains(err.Error(), "-allow-unsigned") {
@@ -472,7 +479,7 @@ func TestUsageNamesEveryHelpersFlag(t *testing.T) {
 // A helper that was installed from a signed release is never downgraded to an
 // unsigned one, with or without -allow-unsigned.
 func TestHelpersInstallRefusesAnUnsignedReleaseAfterASignedOne(t *testing.T) {
-	r := newCLIRig(t)
+	r := newCLIRigWith(t, false)
 	r.rel.publish(t, "0.4.0", true, false)
 	if err := r.run("install", "-yes", "lens"); err != nil {
 		t.Fatal(err)
@@ -480,7 +487,7 @@ func TestHelpersInstallRefusesAnUnsignedReleaseAfterASignedOne(t *testing.T) {
 	r.rel.publish(t, "0.5.0", false, false)
 	for _, args := range [][]string{{"install", "-yes", "lens"}, {"install", "-allow-unsigned", "-yes", "lens"}} {
 		err := r.run(args...)
-		if err == nil || !strings.Contains(err.Error(), "earlier version of it that you installed was signed") || !strings.Contains(err.Error(), "does not apply") {
+		if err == nil || !strings.Contains(err.Error(), "earlier version of it that you installed was") || !strings.Contains(err.Error(), "does not apply") {
 			t.Fatalf("%v: err = %v", args, err)
 		}
 	}
@@ -580,6 +587,89 @@ func TestTheHelpersPageSaysWhatItMust(t *testing.T) {
 		"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "on purpose", "username and password",
 		"an unsigned one is never installed for it", "even after an uninstall",
 		"not sandboxed",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the page does not say %q", want)
+		}
+	}
+}
+
+// lens requires every release to be signed: an unsigned one is refused with
+// the reason, with or without the flag, and no override is shown.
+func TestHelpersInstallRefusesAnUnsignedLensWhateverTheFlags(t *testing.T) {
+	r := newCLIRig(t)
+	r.rel.publish(t, "0.4.0", false, false)
+	for _, args := range [][]string{{"install", "-yes", "lens"}, {"install", "-allow-unsigned", "-yes", "lens"}} {
+		err := r.run(args...)
+		if err == nil || !strings.Contains(err.Error(), "is not signed, and lens requires every release to be signed") || !strings.Contains(err.Error(), "-allow-unsigned does not apply") {
+			t.Fatalf("%v: err = %v", args, err)
+		}
+		if strings.Contains(r.out.String(), "WARNING") || strings.Contains(r.out.String(), "Install lens 0.4.0") {
+			t.Fatalf("%v: an override screen was shown:\n%s", args, r.out)
+		}
+	}
+	if _, ok := r.store.Current("lens"); ok {
+		t.Fatal("installed")
+	}
+	r.rel.publish(t, "0.4.0", true, false)
+	if err := r.run("install", "-yes", "lens"); err != nil {
+		t.Fatalf("a signed release: %v", err)
+	}
+}
+
+// With nothing installed, a purge still clears what is left, the record of
+// signed installs included.
+func TestHelpersUninstallPurgeClearsAStaleRecord(t *testing.T) {
+	r := newCLIRig(t)
+	r.rel.publish(t, "0.4.0", true, false)
+	if err := r.run("install", "-yes", "lens"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.run("uninstall", "-yes", "lens"); err != nil {
+		t.Fatal(err)
+	}
+	record := filepath.Join(r.store.Root, "lens", "trust.json")
+	if _, err := os.Stat(record); err != nil {
+		t.Fatalf("an uninstall removed the record: %v", err)
+	}
+	// The data is gone by hand, and nothing is installed.
+	if err := os.RemoveAll(r.store.DataDir("lens")); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.run("uninstall", "-yes", "lens"); err != nil || !strings.Contains(r.out.String(), "not installed") {
+		t.Fatalf("a plain uninstall of nothing: %v %s", err, r.out)
+	}
+	if _, err := os.Stat(record); err != nil {
+		t.Fatal("a plain uninstall of nothing removed the record")
+	}
+	if err := r.run("uninstall", "-purge-data", "-yes", "lens"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(record); err == nil {
+		t.Fatal("-purge-data left the stale record")
+	}
+	if r.store.EverSigned("lens") {
+		t.Fatal("the record still counts after a purge")
+	}
+}
+
+// The page says that lens needs signed releases, where the record is and how
+// to reset it.
+func TestTheHelpersPageSaysHowToRecover(t *testing.T) {
+	pages, err := help.Pages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	for _, p := range pages {
+		if p.Slug == "cli" {
+			text = strings.Join(strings.Fields(p.Text), " ")
+		}
+	}
+	for _, want := range []string{
+		"lens requires every release to be signed", "no flag installs it",
+		"apps/lens/trust.json", "delete that file", "uninstall -purge-data lens", "even when nothing is installed",
+		"puts a checked copy of the same version back",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the page does not say %q", want)

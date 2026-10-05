@@ -211,3 +211,81 @@ func TestTheLogFileHoldsNoControlCharacters(t *testing.T) {
 		t.Fatal("the text was lost")
 	}
 }
+
+// A start that comes in the moment a run has failed must keep its record: the
+// run that failed has nothing left to remove once the state has changed, so it
+// cannot take the new start's record with it.
+func TestAStartAfterAFailureKeepsItsRecord(t *testing.T) {
+	var f *supFixture
+	var once sync.Once
+	oldDone := make(chan chan struct{}, 1)
+	startErr := make(chan error, 1)
+	f = newSupFixture(t, []Entry{fakeEntry("lens", "--mode", "wrong-banner")}, func(c *Config) {
+		c.Notify = func(s Status) {
+			if s.State != StateFailed {
+				return
+			}
+			once.Do(func() {
+				// Called from the failing run's own goroutine, as the state
+				// changes: the earliest a start can come in.
+				f.sup.mu.Lock()
+				old := f.sup.insts["lens"]
+				f.sup.mu.Unlock()
+				_, err := f.sup.Start("lens")
+				oldDone <- old.done
+				startErr <- err
+			})
+		}
+	})
+	if _, err := f.sup.Start("lens"); err != nil {
+		t.Fatal(err)
+	}
+	var done chan struct{}
+	select {
+	case done = <-oldDone:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the first run never failed")
+	}
+	if err := <-startErr; err != nil {
+		t.Fatalf("a start right after a failure: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the failed run never finished")
+	}
+	if _, ok := f.store.ReadRun("lens"); !ok {
+		t.Fatal("the failed run removed the new start's record")
+	}
+}
+
+// The helper is active before its first record is written, so that a reader
+// that sees a record naming this process never also sees nothing active.
+func TestTheHelperIsActiveBeforeItsFirstRecordIsWritten(t *testing.T) {
+	f := newSupFixture(t, []Entry{fakeEntry("lens")})
+	var mu sync.Mutex
+	var activeAtWrite []bool
+	prev := atomicWrite
+	atomicWrite = func(path string, data []byte, perm os.FileMode) error {
+		if strings.HasSuffix(path, "run.json") {
+			mu.Lock()
+			activeAtWrite = append(activeAtWrite, f.sup.isActive("lens"))
+			mu.Unlock()
+		}
+		return prev(path, data, perm)
+	}
+	defer func() { atomicWrite = prev }()
+	if st := f.startAndWait("lens"); st.State != StateRunning {
+		t.Fatalf("status = %+v", st)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(activeAtWrite) == 0 {
+		t.Fatal("no record was written")
+	}
+	for i, a := range activeAtWrite {
+		if !a {
+			t.Errorf("write %d of run.json happened while nothing was active", i)
+		}
+	}
+}

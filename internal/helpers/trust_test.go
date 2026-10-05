@@ -86,15 +86,52 @@ func TestACatalogueThatRequiresSignaturesHasNoOverride(t *testing.T) {
 	if !errors.As(err, &sr) || sr.Earlier {
 		t.Fatalf("err = %v", err)
 	}
-	if !strings.Contains(err.Error(), "catalogue requires") {
+	if !strings.Contains(err.Error(), "requires every release to be signed") {
 		t.Fatalf("the message does not say why: %v", err)
 	}
 }
 
-func TestLensDoesNotYetRequireSignatures(t *testing.T) {
-	// TODO(owner): flip this, and the catalogue, when lens ships signed.
-	if lens.RequireSigned {
-		t.Fatal("lens requires signatures; update this test with the catalogue")
+func TestLensRequiresSignedReleases(t *testing.T) {
+	if !lens.RequireSigned {
+		t.Fatal("lens does not require its releases to be signed")
+	}
+}
+
+// With the real catalogue entry, an unsigned release cannot be installed, with
+// or without the flag, and nothing is downloaded for it.
+func TestLensRefusesAnUnsignedRelease(t *testing.T) {
+	f := newFixture(t)
+	f.entry = lens
+	f.entry.MinVersion = "0.2.0"
+	f.entry.Source = f.site.URL + "/lens"
+	f.rebuild()
+	if !f.entry.RequireSigned {
+		t.Fatal("the test entry is not the catalogue's")
+	}
+	f.site.release(t, f.entry, releaseSpec{version: "0.4.0", noSig: true, latest: true})
+	for _, allow := range []bool{false, true} {
+		_, err := f.in.Install(t.Context(), "lens", "", allow)
+		sr, ok := asErr[*SignedRequiredError](err)
+		if !ok || sr.Earlier || sr.Damaged {
+			t.Fatalf("allowUnsigned=%v: err = %v", allow, err)
+		}
+		if !strings.Contains(err.Error(), "not signed") || !strings.Contains(err.Error(), "requires every release to be signed") {
+			t.Fatalf("the message: %v", err)
+		}
+		if _, ok := asErr[*UnsignedError](err); ok {
+			t.Fatal("an override was offered")
+		}
+	}
+	if f.site.hitCount(f.archivePath("0.4.0")) != 0 {
+		t.Fatal("the archive was fetched")
+	}
+	if _, ok := f.store.Current("lens"); ok {
+		t.Fatal("installed")
+	}
+	// And a signed one installs.
+	f.publish("0.4.0")
+	if _, err := f.install(""); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -378,7 +415,7 @@ func TestASignedInstallThatCannotRecordItselfFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := f.install("0.5.0")
-	if err == nil || !strings.Contains(err.Error(), "could not record the signed install") {
+	if _, ok := asErr[*TrustWriteError](err); !ok || !strings.Contains(err.Error(), f.store.trustFile("lens")) || !strings.Contains(err.Error(), "Delete it or make it writable") {
 		t.Fatalf("err = %v", err)
 	}
 	if v, _ := f.store.Current("lens"); v != "0.4.0" {
@@ -468,5 +505,140 @@ func TestAFailedRepairLeavesWhatWasThere(t *testing.T) {
 	}
 	if v, ok := f.store.Current("lens"); !ok || v != "0.4.0" {
 		t.Fatalf("current = %q, %v", v, ok)
+	}
+}
+
+// A trust record that is read-only has the attribute cleared and is written
+// once more; the install goes ahead.
+func TestAReadOnlyTrustRecordIsWrittenAnyway(t *testing.T) {
+	f := newFixture(t)
+	f.publish("0.4.0")
+	f.publish("0.5.0")
+	if _, err := f.install("0.4.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(f.store.trustFile("lens"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.install("0.5.0"); err != nil {
+		t.Fatalf("a read-only trust record stopped an install: %v", err)
+	}
+	if hw := f.store.HighWater("lens"); hw != "0.5.0" {
+		t.Fatalf("high-water = %q", hw)
+	}
+}
+
+// A damaged record is said to be damaged, with where it is and how to reset it,
+// and is not blamed on an earlier signed version.
+func TestADamagedTrustRecordIsNamedAsSuch(t *testing.T) {
+	f := newFixture(t)
+	if err := os.MkdirAll(f.store.appDir("lens"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.store.trustFile("lens"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.site.release(t, f.entry, releaseSpec{version: "0.4.0", noSig: true, latest: true})
+	_, err := f.in.Install(t.Context(), "lens", "", true)
+	sr, ok := asErr[*SignedRequiredError](err)
+	if !ok || !sr.Damaged || sr.Earlier {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "damaged") || !strings.Contains(err.Error(), f.store.trustFile("lens")) || !strings.Contains(err.Error(), "delete") {
+		t.Fatalf("the message does not say how to recover: %v", err)
+	}
+	if strings.Contains(err.Error(), "an earlier version of it that you installed was") {
+		t.Fatalf("a damaged record was blamed on a signed install: %v", err)
+	}
+	// Deleting it is the way out.
+	if err := os.Remove(f.store.trustFile("lens")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.in.Install(t.Context(), "lens", "", true); err != nil {
+		t.Fatalf("after deleting the record: %v", err)
+	}
+}
+
+// The mark rises once the pointer has moved, and a failure to raise it puts the
+// old version back instead of leaving a new one the record knows nothing of.
+func TestTheHighWaterMarkRisesAfterThePointerMoves(t *testing.T) {
+	f := newFixture(t)
+	f.publish("0.4.0")
+	f.publish("0.5.0")
+	if _, err := f.install("0.4.0"); err != nil {
+		t.Fatal(err)
+	}
+	rec, _, _ := f.store.readTrust("lens")
+	if rec.HighWater != "0.4.0" {
+		t.Fatalf("record = %+v", rec)
+	}
+	writes := 0
+	prev := atomicWrite
+	atomicWrite = func(path string, data []byte, perm os.FileMode) error {
+		if strings.HasSuffix(path, "trust.json") {
+			writes++
+			if writes >= 2 { // the raise, after the pointer moved (and its retry)
+				return errors.New("simulated")
+			}
+		}
+		return prev(path, data, perm)
+	}
+	defer func() { atomicWrite = prev }()
+	if _, err := f.install("0.5.0"); err == nil {
+		t.Fatal("an install whose mark could not be raised went ahead")
+	}
+	if writes < 2 {
+		t.Fatalf("the record was written %d times", writes)
+	}
+	if v, _ := f.store.Current("lens"); v != "0.4.0" {
+		t.Fatalf("current = %q", v)
+	}
+	if rec, _, _ := f.store.readTrust("lens"); rec.HighWater != "0.4.0" {
+		t.Fatalf("the mark was raised without the install: %+v", rec)
+	}
+	atomicWrite = prev
+	if _, err := f.install("0.5.0"); err != nil {
+		t.Fatal(err)
+	}
+	if rec, _, _ := f.store.readTrust("lens"); rec.HighWater != "0.5.0" {
+		t.Fatalf("record = %+v", rec)
+	}
+}
+
+// A repair puts back the installed version: that is not a downgrade, even with
+// the mark above it, and it leaves the folder kept for a rollback alone.
+func TestARepairBelowTheMarkWorksAndKeepsTheRollbackFolder(t *testing.T) {
+	f := newFixture(t)
+	f.publish("0.3.0")
+	f.publish("0.5.0")
+	if _, err := f.install("0.5.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.install("0.3.0"); err != nil { // named: below the mark
+		t.Fatal(err)
+	}
+	if hw := f.store.HighWater("lens"); hw != "0.5.0" {
+		t.Fatalf("high-water = %q", hw)
+	}
+	bin := filepath.Join(f.store.versionDir("lens", "0.3.0"), "lens")
+	if err := os.WriteFile(bin, []byte("changed"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := f.in.PlanVersion(t.Context(), "lens", "0.3.0", false)
+	if err != nil || !plan.Repair {
+		t.Fatalf("the plan for a repair below the mark: %+v, %v", plan, err)
+	}
+	if _, err := f.in.InstallPlan(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.VerifyInstall(f.entry, "linux"); err != nil {
+		t.Fatalf("not repaired: %v", err)
+	}
+	if _, err := os.Stat(f.store.versionDir("lens", "0.5.0")); err != nil {
+		t.Fatalf("the rollback folder was pruned by a repair: %v", err)
+	}
+	// An intact install below the mark is still a downgrade for the window.
+	if _, err := f.in.PlanVersion(t.Context(), "lens", "0.3.0", false); err == nil {
+		t.Fatal("an intact install was planned again")
 	}
 }

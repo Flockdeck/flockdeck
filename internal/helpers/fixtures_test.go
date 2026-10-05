@@ -25,6 +25,10 @@ import (
 func testEntry() Entry {
 	e := lens
 	e.MinVersion = "0.2.0"
+	// The override machinery is for an entry that does not require signatures;
+	// lens does, so the tests of it use an entry that does not. Tests of what a
+	// required signature refuses set it back.
+	e.RequireSigned = false
 	e.MaxArchive = 1 << 20
 	e.MaxUnpacked = 1 << 20
 	e.MaxFiles = 50

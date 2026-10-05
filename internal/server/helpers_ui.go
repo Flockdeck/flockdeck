@@ -38,6 +38,10 @@ type HelperRow struct {
 	Allows  []string `json:"allows"`
 	DataDir string   `json:"dataDir,omitempty"`
 	HasData bool     `json:"hasData,omitempty"`
+	// NeedsRepair is true when the installed program no longer matches what was
+	// installed, so a start would be refused; the dialog offers a repair then and
+	// not before.
+	NeedsRepair bool `json:"needsRepair,omitempty"`
 }
 
 type helpersMsg struct {
@@ -71,6 +75,7 @@ type helperState struct {
 	mu      sync.Mutex
 	latest  map[string]string    // newest version found, by helper id
 	checked map[string]time.Time // when each was last looked up
+	repair  map[string]bool      // installed copies that fail their check
 	busy    map[string]bool      // installing
 }
 
@@ -112,6 +117,21 @@ func (h *helperState) markChecked(id string) {
 	h.checked[id] = time.Now()
 }
 
+func (h *helperState) setRepair(id string, v bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.repair == nil {
+		h.repair = map[string]bool{}
+	}
+	h.repair[id] = v
+}
+
+func (h *helperState) needsRepair(id string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.repair[id]
+}
+
 func (h *helperState) setLatest(id, v string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -149,6 +169,7 @@ func (s *Server) helperRows() []HelperRow {
 		if s.helperUI.isBusy(e.ID) {
 			row.State = "installing"
 		}
+		row.NeedsRepair = row.Installed != "" && s.helperUI.needsRepair(e.ID)
 		if st.HasData(e.ID) {
 			row.HasData, row.DataDir = true, st.DataDir(e.ID)
 		}
@@ -220,9 +241,21 @@ func (s *Server) helpersList(c *controlClient, force bool) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		changed := false
+		sup, _ := s.helperSupervisor()
+		goos := inst.GOOS()
 		for _, e := range helpers.Catalogue() {
 			if _, ok := inst.Store().Current(e.ID); !ok {
 				continue
+			}
+			// Opening the dialog also checks that what is installed is still what
+			// was installed, which hashes the program, so it is not done on a
+			// refresh and not for a helper that is running.
+			if force && !sup.Active(e.ID) {
+				bad := inst.Store().VerifyInstall(e, goos) != nil
+				if bad != s.helperUI.needsRepair(e.ID) {
+					s.helperUI.setRepair(e.ID, bad)
+					changed = true
+				}
 			}
 			// What was found a moment ago stands: the dialog asks again on every
 			// Back, Cancel and reconnect, and none of those is a request to hit the
@@ -334,6 +367,7 @@ func (s *Server) helperInstall(c *controlClient, cmd command) {
 			c.notify("Not installed: "+err.Error(), true)
 			return
 		}
+		s.helperUI.setRepair(id, false)
 		s.helperUI.setLatest(id, "")
 		note := fmt.Sprintf("Installed %s %s", plan.Entry.Name, info.Version)
 		if !info.Signed {
@@ -353,6 +387,12 @@ func (s *Server) helperStart(c *controlClient, id string) {
 		return
 	}
 	if _, err := sup.Start(id); err != nil {
+		// A refusal because the installed program changed is what the repair is
+		// for, so the dialog is told to offer it.
+		var bad *helpers.IntegrityError
+		if errors.As(err, &bad) {
+			s.helperUI.setRepair(id, true)
+		}
 		c.notify(err.Error(), true)
 	}
 	s.HelperChanged()

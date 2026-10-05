@@ -352,8 +352,12 @@ func (in *Installer) plan(ctx context.Context, e Entry, version string, mayDowng
 	if err := checkVersion(e, version, against, mayDowngrade); err != nil {
 		return nil, err
 	}
-	if err := checkHighWater(version, in.store.HighWater(e.ID), mayDowngrade); err != nil {
-		return nil, err
+	// A repair puts back the version that is installed, which is not a downgrade
+	// whatever the mark is.
+	if !repair {
+		if err := checkHighWater(version, in.store.HighWater(e.ID), mayDowngrade); err != nil {
+			return nil, err
+		}
 	}
 	return &Plan{
 		Entry: e, Version: version, Archive: file.Name, URL: file.URL, SHA256: strings.ToLower(file.SHA256), Size: file.Size, Date: m.Date,
@@ -585,15 +589,22 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 	// The record that a signed version was installed goes down before the
 	// pointer moves, and an install that cannot write it fails: with the pointer
 	// first, a failure here would leave a signed install that nothing remembers,
-	// and the next unsigned release would be accepted for it.
+	// and the next unsigned release would be accepted for it. The high-water mark
+	// rises only once the pointer has moved.
 	if info.Signed {
-		if err := st.markSigned(id, p.Version); err != nil {
-			return nil, fmt.Errorf("could not record the signed install, so it was not made current: %w", err)
+		if err := st.recordSigned(id); err != nil {
+			return nil, err
 		}
 	}
 	cur, _ := json.Marshal(currentFile{Version: p.Version})
 	if err := writeFileAtomic(st.currentFile(id), cur, 0o644); err != nil {
 		return nil, err
+	}
+	if info.Signed {
+		if err := st.raiseHighWater(id, p.Version); err != nil {
+			in.restoreCurrent(id, previous)
+			return nil, err
+		}
 	}
 	if err := in.stage("current"); err != nil {
 		// current.json is already written when a hook fails here, which is a
@@ -602,7 +613,12 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 		in.restoreCurrent(id, previous)
 		return nil, err
 	}
-	in.prune(id, p.Version, previous)
+	// A repair replaces the installed version in place: nothing is older than
+	// it that this install made, and the folder kept for a rollback is not its
+	// to remove.
+	if !p.Repair {
+		in.prune(id, p.Version, previous)
+	}
 	return &info, nil
 }
 
@@ -681,3 +697,7 @@ func extractVerified(path, wantSHA, dir string, rules ExtractRules) error {
 	rules.CompressedSize = n
 	return ExtractFile(f, strings.HasSuffix(path, ".zip"), dir, rules)
 }
+
+// GOOS is the operating system whose archive and program name this installer
+// uses.
+func (in *Installer) GOOS() string { return in.goos }

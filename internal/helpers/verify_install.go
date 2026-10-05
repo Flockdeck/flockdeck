@@ -40,6 +40,19 @@ func plainDir(path string) error {
 // the binary's SHA-256 is the one install.json recorded when it was unpacked.
 // The error says to reinstall, which puts a checked copy back.
 func (s *Store) VerifyInstall(e Entry, goos string) error {
+	if err := s.verifyInstall(e, goos); err != nil {
+		return &IntegrityError{err.Error()}
+	}
+	return nil
+}
+
+// IntegrityError is an installed version that no longer passes the check made
+// before a start. Installing the same version again repairs it.
+type IntegrityError struct{ Msg string }
+
+func (e *IntegrityError) Error() string { return e.Msg }
+
+func (s *Store) verifyInstall(e Entry, goos string) error {
 	v, ok := s.Current(e.ID)
 	if !ok {
 		return fmt.Errorf("%s is not installed", e.Name)
@@ -156,21 +169,76 @@ func (s *Store) HighWater(id string) string {
 	return hw
 }
 
-// markSigned records a signed install, keeping the higher of the version and
-// what was recorded before.
-func (s *Store) markSigned(id, version string) error {
-	hw := s.HighWater(id)
-	if hw == "" || selfupdate.Newer(version, hw) {
-		hw = version
-	}
-	data, err := json.Marshal(trustRecord{EverSigned: true, HighWater: hw})
+// atomicWrite is writeFileAtomic. A variable so a test can make a write fail.
+var atomicWrite = writeFileAtomic
+
+// TrustWriteError is a trust record that could not be written. An install that
+// cannot record itself does not happen, so this says where and what to do.
+type TrustWriteError struct {
+	Path string
+	Err  error
+}
+
+func (e *TrustWriteError) Error() string {
+	return fmt.Sprintf("could not write %s (%v), so the install was not made current. Delete it or make it writable, then try again", e.Path, e.Err)
+}
+func (e *TrustWriteError) Unwrap() error { return e.Err }
+
+// writeTrust writes the record. A file that is read-only (an attribute a person
+// or a scanner may have set) has it cleared and is tried once more; a folder or
+// anything else is left for the person to deal with.
+func (s *Store) writeTrust(id string, rec trustRecord) error {
+	data, err := json.Marshal(rec)
 	if err != nil {
 		return err
 	}
+	path := s.trustFile(id)
 	if err := os.MkdirAll(s.appDir(id), 0o700); err != nil {
-		return err
+		return &TrustWriteError{path, err}
 	}
-	return writeFileAtomic(s.trustFile(id), data, 0o644)
+	err = atomicWrite(path, data, 0o644)
+	if err != nil {
+		if fi, statErr := os.Lstat(path); statErr == nil && fi.Mode().IsRegular() {
+			if os.Chmod(path, 0o644) == nil {
+				err = atomicWrite(path, data, 0o644)
+			}
+		}
+	}
+	if err != nil {
+		return &TrustWriteError{path, err}
+	}
+	return nil
+}
+
+// recordSigned writes down, before the pointer moves, that a signed version is
+// being installed, leaving the high-water mark as it was: the mark rises only
+// once the install has taken effect (see raiseHighWater).
+func (s *Store) recordSigned(id string) error {
+	rec, _, ok := s.readTrust(id)
+	if !ok {
+		rec = trustRecord{}
+	}
+	return s.writeTrust(id, trustRecord{EverSigned: true, HighWater: rec.HighWater})
+}
+
+// raiseHighWater lifts the mark to version once it is the installed one, and
+// leaves it alone if it is already higher.
+func (s *Store) raiseHighWater(id, version string) error {
+	rec, _, ok := s.readTrust(id)
+	if !ok {
+		rec = trustRecord{}
+	}
+	if validVersion(rec.HighWater) && !selfupdate.Newer(version, rec.HighWater) {
+		return nil
+	}
+	return s.writeTrust(id, trustRecord{EverSigned: true, HighWater: version})
+}
+
+// trustDamaged reports a trust record that is there and is not one Flockdeck
+// wrote.
+func (s *Store) trustDamaged(id string) bool {
+	rec, exists, ok := s.readTrust(id)
+	return exists && (!ok || !rec.EverSigned)
 }
 
 // ErrBelowHighWater is a release older than the newest signed version ever
@@ -197,14 +265,20 @@ type SignedRequiredError struct {
 	// Earlier is true when the reason is a signed version installed before,
 	// false when the catalogue requires signatures.
 	Earlier bool
+	// Damaged is true when the trust record is there and unreadable, so it
+	// cannot be told whether an earlier version was signed; Path is the record.
+	Damaged bool
+	Path    string
 }
 
 func (e *SignedRequiredError) Error() string {
-	why := "the catalogue requires every release of it to be signed"
-	if e.Earlier {
-		why = "an earlier version of it that you installed was signed"
+	switch {
+	case e.Damaged:
+		return fmt.Sprintf("%s %s is not signed, and %s is damaged, so it cannot be told whether an earlier version was signed. It was refused. If %s never had a signed release here, delete %s to reset it", e.Name, e.Version, e.Path, e.Name, e.Path)
+	case e.Earlier:
+		return fmt.Sprintf("%s %s is not signed, but an earlier version of it that you installed was. It was refused and cannot be overridden: a release that loses its signature is not the one that was signed", e.Name, e.Version)
 	}
-	return fmt.Sprintf("%s %s has no signature, but %s. It was refused and cannot be overridden: a release that loses its signature is not the one that was signed", e.Name, e.Version, why)
+	return fmt.Sprintf("%s %s is not signed, and %s requires every release to be signed. It was refused and cannot be overridden", e.Name, e.Version, e.Name)
 }
 
 // checkSignedRequired refuses an unsigned plan for a helper that has to be
@@ -217,6 +291,9 @@ func (s *Store) checkSignedRequired(e Entry, version string, signed bool) error 
 		return &SignedRequiredError{Name: e.Name, Version: version}
 	}
 	if s.EverSigned(e.ID) {
+		if s.trustDamaged(e.ID) {
+			return &SignedRequiredError{Name: e.Name, Version: version, Damaged: true, Path: s.trustFile(e.ID)}
+		}
 		return &SignedRequiredError{Name: e.Name, Version: version, Earlier: true}
 	}
 	return nil

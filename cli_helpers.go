@@ -394,13 +394,16 @@ func (c *helperCLI) uninstall(id string, f helpersUninstallFlags) error {
 		return fmt.Errorf("%s is running (process %d); stop it first with: flockdeck helpers stop %s", e.Name, pid, id)
 	}
 	_, installed := c.store.Current(id)
-	if !installed && !(f.purge && c.store.HasData(id)) {
+	// With nothing installed, a purge still clears what is left: the data folder
+	// and the record of signed installs, which is how a record that is damaged or
+	// no longer wanted is got rid of.
+	if !installed && !(f.purge && (c.store.HasData(id) || c.store.HasTrustRecord(id))) {
 		fmt.Fprintf(c.out, "%s is not installed.\n", e.Name)
 		return nil
 	}
 	question := fmt.Sprintf("Remove %s?", e.Name)
 	if f.purge {
-		question = fmt.Sprintf("Remove %s and DELETE its data folder %s?", e.Name, c.store.DataDir(id))
+		question = fmt.Sprintf("Remove %s and DELETE its data folder %s, and its record of signed installs?", e.Name, c.store.DataDir(id))
 	}
 	ok, err := c.confirm(question, f.yes, "-yes")
 	if err != nil {

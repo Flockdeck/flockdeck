@@ -303,14 +303,17 @@ func (s *Supervisor) Start(id string) (Status, error) {
 	if prev.Port == 0 {
 		prev.Port = st.lastPort(id)
 	}
-	s.writeStarting(id, prev.Port)
 	in := &instance{
 		id: id, entry: e, state: StateStarting, log: &lineRing{},
 		stopReq: make(chan struct{}), done: make(chan struct{}),
 		logw: NewRotatingWriter(st.logFile(id)),
 	}
 	s.insts[id] = in
+	// Active before the record exists: a record that names this process while
+	// nothing here is active for the helper is read as a leftover, and must not be
+	// seen as one in the moment between being written and being claimed.
 	s.noteActivity(in)
+	s.writeStarting(id, prev.Port)
 	status := s.statusLocked(in)
 	s.mu.Unlock()
 	if s.cfg.Notify != nil {
@@ -408,7 +411,6 @@ type outcome struct {
 func (s *Supervisor) run(in *instance) {
 	defer close(in.done)
 	defer in.logw.Close()
-	defer s.cfg.Store.clearRun(in.id)
 
 	preferred := 0
 	if r, ok := s.cfg.Store.ReadRun(in.id); ok {

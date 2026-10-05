@@ -36,7 +36,10 @@ type uiRig struct {
 	pointerHits int
 }
 
-func newUIRig(t *testing.T) *uiRig {
+func newUIRig(t *testing.T) *uiRig { return newUIRigWith(t, true) }
+
+// newUIRigWith is a rig whose helper does or does not require signed releases.
+func newUIRigWith(t *testing.T, requireSigned bool) *uiRig {
 	t.Helper()
 	srv, _ := newTestServer(t)
 	pub, priv, _ := ed25519.GenerateKey(nil)
@@ -60,7 +63,7 @@ func newUIRig(t *testing.T) *uiRig {
 	srv.SetHelpers(
 		helpers.NewSupervisor(helpers.Config{Store: r.store}),
 		helpers.NewInstaller(helpers.Options{
-			Store: r.store, Lookup: lensAt(fake.URL), GOOS: "linux", GOARCH: "amd64",
+			Store: r.store, Lookup: lensAt(fake.URL, requireSigned), GOOS: "linux", GOARCH: "amd64",
 			AllowURL: func(u *url.URL) bool { return u.Hostname() == "127.0.0.1" },
 		}),
 	)
@@ -122,9 +125,12 @@ func publishCDN(files map[string][]byte, origin string, key ed25519.PrivateKey, 
 }
 
 // lensAt is the catalogue's lens, fetched from a fake CDN.
-func lensAt(origin string) func(string) (helpers.Entry, bool) {
+func lensAt(origin string, requireSigned bool) func(string) (helpers.Entry, bool) {
 	e, _ := helpers.Lookup("lens")
 	e.Source = origin + "/lens"
+	// The tests of the unsigned override use an entry that does not require
+	// signatures; the default is lens as it is catalogued.
+	e.RequireSigned = requireSigned
 	return func(id string) (helpers.Entry, bool) {
 		if id == e.ID {
 			return e, true
@@ -269,7 +275,7 @@ func TestHelperInstallNeedsConfirmationAndTheShownHash(t *testing.T) {
 }
 
 func TestHelperInstallRefusesUnsignedWithoutTheOverride(t *testing.T) {
-	r := newUIRig(t)
+	r := newUIRigWith(t, false)
 	sha := r.publish(t, "0.4.0", false, false)
 	c := &controlClient{out: make(chan []byte, 32)}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
@@ -345,7 +351,7 @@ func TestHelperUninstallKeepsDataUnlessAsked(t *testing.T) {
 }
 
 func TestHelperInstallRefusesAnUnsignedReleaseAfterASignedOne(t *testing.T) {
-	r := newUIRig(t)
+	r := newUIRigWith(t, false)
 	sha := r.publish(t, "0.4.0", true, false)
 	c := &controlClient{out: make(chan []byte, 32)}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
@@ -568,5 +574,101 @@ func TestAFailedLookupIsNotRepeatedWithinTheTTL(t *testing.T) {
 	}
 	if got := r.hits(); got != 1 {
 		t.Fatalf("%d lookups of a source that is down, want 1", got)
+	}
+}
+
+// lens requires signed releases: the plan is a refusal with no override, and an
+// install is refused even if the window says the override was chosen.
+func TestAnUnsignedLensHasNoOverrideInTheDialog(t *testing.T) {
+	r := newUIRig(t)
+	sha := r.publish(t, "0.4.0", false, false)
+	c := &controlClient{out: make(chan []byte, 32)}
+	r.send(c, command{Cmd: "helperPlan", ID: "lens"})
+	m := next(t, c, "helperPlan")
+	if m["fatal"] != true || !strings.Contains(m["error"].(string), "requires every release to be signed") {
+		t.Fatalf("plan = %v", m)
+	}
+	if m["sha256"] != nil && m["sha256"] != "" {
+		t.Fatalf("an override screen's hash was sent: %v", m)
+	}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true, Unsigned: true})
+	got := notices(c, 2*time.Second)
+	if !strings.Contains(strings.Join(got, "|"), "requires every release to be signed") {
+		t.Fatalf("notices = %v", got)
+	}
+	if _, ok := r.store.Current("lens"); ok {
+		t.Fatal("installed")
+	}
+}
+
+// The repair is offered when the installed program fails its check, learned
+// when the dialog opens and when a start is refused for it, and not before.
+func TestTheRepairIsOfferedOnlyWhenTheProgramFailsItsCheck(t *testing.T) {
+	r := newUIRig(t)
+	sha := r.publish(t, "0.4.0", true, false)
+	c := &controlClient{out: make(chan []byte, 64)}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
+	notices(c, 3*time.Second)
+	rowOf := func(force bool) map[string]any {
+		r.send(c, command{Cmd: "helpers", Force: force})
+		time.Sleep(600 * time.Millisecond)
+		var last map[string]any
+		for {
+			select {
+			case raw := <-c.out:
+				var m map[string]any
+				if json.Unmarshal(raw, &m) == nil && m["type"] == "helpers" {
+					last = m["rows"].([]any)[0].(map[string]any)
+				}
+			default:
+				return last
+			}
+		}
+	}
+	if row := rowOf(true); row["needsRepair"] == true {
+		t.Fatalf("an intact install needs repair: %v", row)
+	}
+	bin := filepath.Join(r.store.Root, "lens", "versions", "0.4.0", "lens")
+	if err := os.WriteFile(bin, []byte("changed"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if row := rowOf(true); row["needsRepair"] != true {
+		t.Fatalf("a changed program does not need repair: %v", row)
+	}
+	// A repair clears it.
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
+	notices(c, 3*time.Second)
+	// Without a new look: the repair itself clears it.
+	if row := rowOf(false); row["needsRepair"] == true {
+		t.Fatalf("a repaired install needs repair: %v", row)
+	}
+}
+
+// A repair below the high-water mark works from the dialog: it is the installed
+// version again, not a downgrade.
+func TestARepairBelowTheMarkWorksFromTheDialog(t *testing.T) {
+	r := newUIRig(t)
+	shaHigh := r.publish(t, "0.5.0", true, false)
+	shaLow := r.publish(t, "0.3.0", true, false)
+	c := &controlClient{out: make(chan []byte, 64)}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.5.0", SHA256: shaHigh, Confirmed: true})
+	notices(c, 3*time.Second)
+	// Down to 0.3.0 by naming it, as the command line can.
+	_, inst := r.srv.helperSupervisor()
+	if _, err := inst.Install(t.Context(), "lens", "0.3.0", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.store.Root, "lens", "versions", "0.3.0", "lens"), []byte("changed"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r.send(c, command{Cmd: "helperPlan", ID: "lens", Text: "0.3.0"})
+	m := next(t, c, "helperPlan")
+	if m["repair"] != true || m["error"] != nil {
+		t.Fatalf("plan = %v", m)
+	}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.3.0", SHA256: shaLow, Confirmed: true})
+	got := notices(c, 3*time.Second)
+	if !strings.Contains(strings.Join(got, "|"), "Installed lens 0.3.0") {
+		t.Fatalf("notices = %v", got)
 	}
 }
