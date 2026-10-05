@@ -681,7 +681,7 @@ func checkBatonPath(path string) error {
 // looking at the file and reading it are done under a deadline. The file is
 // checked again once it is open, in baton.ReadFile, so a path swapped for a link
 // between the two is refused.
-func readBatonFile(path string, inScope func(string) error) (baton.Baton, error) {
+func readBatonFile(path string, inScope func(string) (string, error)) (baton.Baton, error) {
 	if err := checkBatonPathName(path); err != nil {
 		return baton.Baton{}, err
 	}
@@ -696,13 +696,18 @@ func readBatonFile(path string, inScope func(string) error) (baton.Baton, error)
 			return
 		}
 		// Inside the project of the pane that asked, and only then read.
+		// What is read is the path as it was judged, with its links followed, so
+		// that a folder swapped for a link after the check is not followed.
+		target := path
 		if inScope != nil {
-			if err := inScope(path); err != nil {
+			real, err := inScope(path)
+			if err != nil {
 				done <- result{err: err}
 				return
 			}
+			target = real
 		}
-		b, err := baton.ReadFileVerified(path, verifyOpened)
+		b, err := baton.ReadFileVerified(target, verifyOpened)
 		done <- result{b, err}
 	}()
 	select {
@@ -786,7 +791,7 @@ func (s *Server) resolveBaton(parent, ref string) (*handoff, error) {
 		h.Source = st.Source(ref)
 		h.Baton = hardened(b, h.Scrubber)
 	default:
-		b, err := readBatonFile(strings.TrimPrefix(ref, "path:"), func(p string) error { return s.ws.BatonPathInScope(parent, p) })
+		b, err := readBatonFile(strings.TrimPrefix(ref, "path:"), func(p string) (string, error) { return s.ws.BatonPathInScope(parent, p) })
 		if err != nil {
 			return nil, err
 		}
