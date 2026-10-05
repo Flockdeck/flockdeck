@@ -110,10 +110,10 @@ so, and `flockdeck recordings export` exits with an error. Delete the file to ha
 a fresh one. The files are readable by you only, and the setting moves with the
 pane when you drag it to another tab.
 
-[[action:revealTranscript]], from the command palette, or **Show in folder** in [[action:paneInfo]], opens
-your file manager with that pane's transcript file selected: the file it is
-recording to if it is recording, otherwise its latest export, and a notice if it
-has neither. Like opening the folder it only works from the machine Flockdeck
+[[action:revealTranscript]], from the command palette, or **Show in folder** in
+[[action:paneInfo]], opens your file manager with that pane's transcript file
+selected: the file it is recording to if it is recording, otherwise its latest
+export, and a notice if it has neither. Like opening the folder it only works from the machine Flockdeck
 runs on, and only for a file in the recordings folder. `flockdeck recordings
 export -reveal` does it for the file it has just written.
 

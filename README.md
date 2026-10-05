@@ -1063,9 +1063,9 @@ so; an export an older Flockdeck made is always replaced. If the stored
 conversation has been cut or changed so that a new export would lack something
 an earlier one has, the earlier file is kept, nothing is written, the window
 says so, and the command exits with an error; delete the file to have a fresh
-one. **Reveal transcript**, in the command palette or **Show in folder** in Pane
-info, shows the file the pane is recording to,
-or else its newest export, in your file manager; `recordings export -reveal`
+one. **Reveal transcript**, in the command palette, or **Show in folder** in Pane
+info, shows the file the pane is recording to, or else its newest export, in
+your file manager; `recordings export -reveal`
 shows the file it has just written. Neither export nor reveal works from a
 window reached through the relay. Only Claude Code stores a conversation Flockdeck
 can read: for any other agent there is nothing to export, and recording cannot be

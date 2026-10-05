@@ -563,7 +563,7 @@ func TestHelpersInstallRefusesAnUnsignedLens(t *testing.T) {
 	}
 }
 
-// With nothing installed, a purge still clears what is left, the record of
+// record of the newest version installed included.
 // signed installs included.
 func TestHelpersUninstallPurgeClearsAStaleRecord(t *testing.T) {
 	r := newCLIRig(t)
@@ -594,8 +594,8 @@ func TestHelpersUninstallPurgeClearsAStaleRecord(t *testing.T) {
 	if _, err := os.Stat(record); err == nil {
 		t.Fatal("-purge-data left the stale record")
 	}
-	if r.store.EverSigned("lens") {
-		t.Fatal("the record still counts after a purge")
+	if r.store.HasTrustRecord("lens") {
+		t.Fatal("the record is still there after a purge")
 	}
 }
 
@@ -614,7 +614,7 @@ func TestTheHelpersPageSaysHowToRecover(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Every lens release must be signed", "is refused, with that reason",
-		"apps/lens/trust.json", "delete that file", "uninstall -purge-data lens", "even when nothing is installed",
+		"apps/lens/trust.json", "delete it", "uninstall -purge-data lens", "even when nothing is installed",
 		"puts a checked copy back when the installed version is also the latest", "install -version=<installed version> lens",
 	} {
 		if !strings.Contains(text, want) {

@@ -314,13 +314,14 @@ may do, and asks first; `-yes` skips the question. The release's manifest is
 checked against Flockdeck's release key, and the archive against the SHA-256 and size in
 them, before anything is unpacked. Every lens release must be signed: a release
 that is not signed is refused, with that reason, and so is one whose signature
-is wrong. Nothing overrides either, and there is no flag for it. Once a signed
-version of a helper has been installed, nothing older than the newest signed
-version installed before is offered unless you name it with `-version`.
+is wrong. Nothing overrides either, and there is no flag for it. Nothing
+older than the newest version installed before is offered unless you name it
+with `-version`.
 
-Flockdeck keeps what it needs for that in `trust.json` in the helper's folder
-under its state folder (`apps/lens/trust.json`). If an install says the record
-is damaged, or you want a helper's history forgotten, delete that file;
+Flockdeck keeps the newest version it has installed in `trust.json` in the
+helper's folder under its state folder (`apps/lens/trust.json`). If an install
+says it cannot write that file, or you want older versions to be accepted again,
+delete it;
 `flockdeck helpers uninstall -purge-data lens` also removes it, together with the
 data, even when nothing is installed. If a helper's program was changed after it
 was installed, a start is refused. `flockdeck helpers install lens` puts a

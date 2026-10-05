@@ -42,7 +42,7 @@ func TestInstallFromTheCDN(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !info.Signed || info.Version != "0.4.0" {
+	if info.Version != "0.4.0" {
 		t.Fatalf("info = %+v", info)
 	}
 	if v, ok := f.store.Current("lens"); !ok || v != "0.4.0" {
@@ -99,9 +99,9 @@ func TestBadSignatureCannotBeOverridden(t *testing.T) {
 	f := newFixture(t)
 	_, other, _ := ed25519.GenerateKey(nil)
 	f.site.release(t, f.entry, releaseSpec{version: "0.4.0", key: other, latest: true})
-	_, err := f.in.Install(t.Context(), "lens", "", true)
+	_, err := f.in.Install(t.Context(), "lens", "")
 	if _, ok := asErr[*SignatureError](err); !ok {
-		t.Fatalf("allowUnsigned let a bad signature through: %v", err)
+		t.Fatalf("a bad signature got through: %v", err)
 	}
 	if _, ok := f.store.Current("lens"); ok {
 		t.Fatal("installed")
@@ -132,11 +132,9 @@ func TestManifestSignatureFailures(t *testing.T) {
 				sig = []byte{}
 			}
 			f.site.release(t, f.entry, releaseSpec{version: "0.4.0", sigOverride: sig, key: f.key, latest: true})
-			for _, allow := range []bool{false, true} {
-				_, err := f.in.Install(t.Context(), "lens", "", allow)
-				if _, ok := asErr[*SignatureError](err); !ok {
-					t.Fatalf("allowUnsigned=%v: err = %v, want a SignatureError", allow, err)
-				}
+			_, err := f.in.Install(t.Context(), "lens", "")
+			if _, ok := asErr[*SignatureError](err); !ok {
+				t.Fatalf("err = %v, want a SignatureError", err)
 			}
 			if _, ok := f.store.Current("lens"); ok {
 				t.Fatal("installed")
@@ -171,7 +169,7 @@ func TestNoTrustedKeysRefusesEverything(t *testing.T) {
 	f.publish("0.4.0")
 	restore := selfupdate.TrustKeysForTest(nil, nil)
 	defer restore()
-	_, err := f.in.Install(t.Context(), "lens", "", true)
+	_, err := f.in.Install(t.Context(), "lens", "")
 	if _, ok := asErr[*SignatureError](err); !ok {
 		t.Fatalf("err = %v, want a SignatureError with no trusted keys", err)
 	}
@@ -193,12 +191,12 @@ func TestManifestSignatureServerErrorFailsClosed(t *testing.T) {
 	f := newFixture(t)
 	f.publish("0.4.0")
 	f.setStatus(cdnBase("0.4.0")+"manifest.json.sig", 500)
-	_, err := f.in.Install(t.Context(), "lens", "", true)
+	_, err := f.in.Install(t.Context(), "lens", "")
 	if err == nil {
 		t.Fatal("a 500 on the signature was treated as unsigned")
 	}
-	if _, ok := asErr[*UnsignedError](err); ok {
-		t.Fatalf("a 500 on the signature offered the unsigned override: %v", err)
+	if isSignedRequired(err) {
+		t.Fatalf("a 500 on the signature was read as no signature: %v", err)
 	}
 }
 
@@ -215,50 +213,6 @@ func TestChecksumsSignatureIsRequiredWhenTheManifestIsSigned(t *testing.T) {
 	_, err = f.install("")
 	if se, ok := asErr[*SignatureError](err); !ok || se.File != "checksums.txt" {
 		t.Fatalf("a wrong checksums signature: %v", err)
-	}
-}
-
-func TestUnsignedIsRefusedUntilOverridden(t *testing.T) {
-	f := newFixture(t)
-	archive, _ := f.site.release(t, f.entry, releaseSpec{version: "0.4.0", noSig: true, latest: true})
-	_, err := f.install("")
-	ue, ok := asErr[*UnsignedError](err)
-	if !ok {
-		t.Fatalf("err = %v, want an UnsignedError", err)
-	}
-	if ue.Plan.SHA256 != sumHex(archive) || ue.Plan.Signed {
-		t.Fatalf("plan = %+v", ue.Plan)
-	}
-	if n := f.site.hitCount(f.archivePath("0.4.0")); n != 0 {
-		t.Fatalf("the archive was fetched %d times before the override", n)
-	}
-	if _, ok := f.store.Current("lens"); ok {
-		t.Fatal("installed without the override")
-	}
-	info, err := f.in.Install(t.Context(), "lens", "", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Signed {
-		t.Fatal("an unsigned install was recorded as signed")
-	}
-	got, _ := f.store.Info("lens")
-	if got.Signed || got.SHA256 != sumHex(archive) {
-		t.Fatalf("install.json = %+v", got)
-	}
-}
-
-func TestOverrideAppliesToOneVersion(t *testing.T) {
-	f := newFixture(t)
-	f.site.release(t, f.entry, releaseSpec{version: "0.4.0", noSig: true, latest: true})
-	if _, err := f.in.Install(t.Context(), "lens", "", true); err != nil {
-		t.Fatal(err)
-	}
-	f.site.release(t, f.entry, releaseSpec{version: "0.5.0", noSig: true, latest: true})
-	if _, err := f.in.Install(t.Context(), "lens", "", false); err == nil {
-		t.Fatal("the update did not ask again")
-	} else if _, ok := asErr[*UnsignedError](err); !ok {
-		t.Fatalf("err = %v", err)
 	}
 }
 
@@ -436,7 +390,7 @@ func TestOversizeFilesAreRefused(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "larger") {
 			t.Errorf("%s: err = %v", path, err)
 		}
-		if _, ok := asErr[*UnsignedError](err); ok {
+		if isSignedRequired(err) {
 			t.Errorf("%s: an oversize signature was treated as no signature", path)
 		}
 	}
@@ -886,7 +840,7 @@ func TestExplicitDowngradeIsAllowed(t *testing.T) {
 
 func TestUnknownHelper(t *testing.T) {
 	f := newFixture(t)
-	if _, err := f.in.Install(t.Context(), "nope", "", false); err == nil {
+	if _, err := f.in.Install(t.Context(), "nope", ""); err == nil {
 		t.Fatal("installed a helper that is not in the catalogue")
 	}
 	if _, err := f.in.Plan(t.Context(), "../lens", ""); err == nil {

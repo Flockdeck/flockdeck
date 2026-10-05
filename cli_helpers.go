@@ -306,12 +306,6 @@ func (c *helperCLI) install(id string, f helpersInstallFlags) error {
 	}
 	fmt.Fprintf(c.out, "  %s\n", e.Summary)
 	fmt.Fprintf(c.out, "  From:       %s\n", plan.URL)
-	// A release that is not signed is refused before a plan exists for a helper
-	// that requires signatures, which is every helper in the catalogue; this is
-	// the same refusal for one that did not.
-	if !plan.Signed {
-		return fmt.Errorf("%s %s is not signed, so it was not installed; there is no way to install an unsigned release", e.Name, plan.Version)
-	}
 	fmt.Fprintf(c.out, "  Signature:  manifest.json is signed with Flockdeck's release key; the archive\n              is checked against it when it is downloaded\n")
 	fmt.Fprintf(c.out, "  SHA-256:    %s\n", plan.SHA256)
 	fmt.Fprintf(c.out, "  It may:\n")
@@ -378,15 +372,15 @@ func (c *helperCLI) uninstall(id string, f helpersUninstallFlags) error {
 	}
 	_, installed := c.store.Current(id)
 	// With nothing installed, a purge still clears what is left: the data folder
-	// and the record of signed installs, which is how a record that is damaged or
-	// no longer wanted is got rid of.
+	// and the record of the newest version installed, which is how a record that
+	// is no longer wanted is got rid of.
 	if !installed && !(f.purge && (c.store.HasData(id) || c.store.HasTrustRecord(id))) {
 		fmt.Fprintf(c.out, "%s is not installed.\n", e.Name)
 		return nil
 	}
 	question := fmt.Sprintf("Remove %s?", e.Name)
 	if f.purge {
-		question = fmt.Sprintf("Remove %s and DELETE its data folder %s, and its record of signed installs?", e.Name, c.store.DataDir(id))
+		question = fmt.Sprintf("Remove %s and DELETE its data folder %s, and its record of the newest version installed?", e.Name, c.store.DataDir(id))
 	}
 	ok, err := c.confirm(question, f.yes, "-yes")
 	if err != nil {
