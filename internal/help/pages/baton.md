@@ -64,6 +64,11 @@ sections, and the full text goes to a file in the checkout's git folder, which
 `git status` does not show; the prompt says where. A new worktree lacks uncommitted
 changes, and the dialog warns when there are any.
 
+A baton's header has the folder the pane works in (`cwd`), which for most people has their
+user name in it, the branch and the pane's name, so they go to whichever agent gets the
+baton. A stored baton over 1 MB cannot be loaded again: scrubbing can make a text longer,
+since a mark is longer than a short value, so keep a baton well under that.
+
 Batons are kept in Flockdeck's state directory, on this machine, and are not
 changed once saved: an edit is a new baton that remembers the first. When the next
 baton is saved, batons not made, shown or used for 30 days are removed, with their

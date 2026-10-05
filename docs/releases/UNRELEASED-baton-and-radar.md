@@ -55,7 +55,12 @@ Flockdeck window on this machine names the pane, the destination and where the
 baton came from, and has a Send it button. Nothing starts until you press it. If
 no such window is open, or nobody answers within 45 seconds, the baton is not
 sent, and the spawn command waits that long on top of its usual minute. A window
-reached through the relay is never asked.
+reached through the relay is never asked, and cannot approve.
+
+A paired phone or other relay window can make, save, start and send batons. What
+it cannot do is skip the approval: a start from a relay window that would go to a
+different or unknown company waits for the same notice on this machine whether or not
+the tick box was ticked, and is refused when no window here is open.
 
 The company is judged for the agent that will really run, in the folder it will
 run in, and judged again where it runs once its worktree exists. If the agent or
@@ -168,10 +173,20 @@ needs git 2.38 or newer, and on an older git the switch is dimmed and says so.
 
 It copies each checkout (committed, uncommitted and untracked files) into a
 throwaway object store in the system's temporary folder and has git merge the
-copies in memory with `git merge-tree`. Nothing in a checkout is changed. A chip
+copies in memory with `git merge-tree`. The radar writes no file, index, lock or
+branch of a checkout. Git itself may set the modification time of an object file it
+finds already stored, and of a split index's shared file in a linked worktree. A
+clean filter such as Git LFS, which git runs on the copies, may write its own files
+into the repository; that has not been checked. A chip
 appears after the same pair has conflicted on two refreshes at least five seconds
 apart. The check runs with the git refresh, about every 15 seconds, for the panes
 on screen.
+
+A pane whose untracked and modified files add up to more than 100 MB, or include one
+file over 25 MB, is not copied (it keeps what it showed). One refresh runs at most 50
+merges, and the rest follow on the next. Closing Flockdeck stops a refresh in flight and
+removes its scratch folder, and a scratch folder left by a killed run is removed at the
+next start whether or not the radar is on.
 
 The copy costs git processes: 11 for a pane with uncommitted or new files, 4 for a
 pane with only commits, and 14 when the checkout's index cannot be copied and is
@@ -210,8 +225,11 @@ Before git 2.44 the radar does not run in a partial clone, because it could
 contact the remote. A submodule moved to another commit counts as a changed path,
 so two panes that move it differently are compared.
 
-Pane names, branches and file paths go to every open window, including one
-reached through the relay. File contents are not sent.
+Pane names, branches and file paths go to every open window, including a paired
+phone or other window reached through the relay, which sees the other pane's name
+and branch and up to 20 file paths for each pair and can turn the radar on and off.
+File contents are not sent. A pane with over 100 MB of changed files, or one file over
+25 MB, is not copied.
 
 ## Recording redaction
 The scrubber that recordings and exports use is now built from spans, which
@@ -278,7 +296,10 @@ for (a heredoc body, a request body that is not under a secret-looking key, a
 32-character and 40-character hex strings and UUIDs, and removes hex strings of 64
 characters and more. It also takes some text that is not a secret: long
 identifiers and base64 in paths, and code such as `const tokenKey = "auth-token"`.
-On source code the rate is high and deliberate. Of the lines that contain the letters `key`,
+On source code the rate is deliberate. Counted against every line, the scrubber changes
+0.3% (405 of 163,613) of the non-test Go source of net and crypto in the Go 1.27 standard
+library and 0.9% (134 of 15,243) of this repository's `internal/webui/assets/app.js`. Of
+the lines that contain the letters `key`,
 `pass`, `pw` or `pwd` anywhere, in any case (so `monkey` and `passport` count), the
 scrubber changes 2.6% (157 of 5958) in the non-test Go source of net and crypto in
 the Go 1.27 standard library, and 14.2% (119 of 839) in this repository's
