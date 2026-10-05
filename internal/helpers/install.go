@@ -194,6 +194,10 @@ type Plan struct {
 	// checked copy.
 	Repair bool
 
+	// mayDowngrade is whether the caller lifted the downgrade rules when it
+	// planned. It is sealed, and InstallPlan applies the same rules again.
+	mayDowngrade bool
+
 	// seal is the installer's MAC over the fields above, set when it makes the
 	// plan. A plan is read from outside the package but can only be carried out
 	// as planned: see InstallPlan.
@@ -207,8 +211,8 @@ func (in *Installer) planMAC(p *Plan) []byte {
 		ID, Version, Archive, URL, SHA256, Installed string
 		Size                                         int64
 		Date                                         time.Time
-		Repair                                       bool
-	}{p.Entry.ID, p.Version, p.Archive, p.URL, p.SHA256, p.Installed, p.Size, p.Date, p.Repair})
+		Repair, MayDowngrade                         bool
+	}{p.Entry.ID, p.Version, p.Archive, p.URL, p.SHA256, p.Installed, p.Size, p.Date, p.Repair, p.mayDowngrade})
 	h := hmac.New(sha256.New, in.sealKey[:])
 	h.Write(body)
 	return h.Sum(nil)
@@ -378,13 +382,17 @@ func (in *Installer) plan(ctx context.Context, e Entry, version string, mayDowng
 	// A repair puts back the version that is installed, which is not a downgrade
 	// whatever the mark is.
 	if !repair {
-		if err := checkHighWater(version, in.store.HighWater(e.ID), mayDowngrade); err != nil {
+		hw, err := in.store.highWaterChecked(e.ID)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkHighWater(version, hw, mayDowngrade); err != nil {
 			return nil, err
 		}
 	}
 	return in.sealPlan(&Plan{
 		Entry: e, Version: version, Archive: file.Name, URL: file.URL, SHA256: strings.ToLower(file.SHA256), Size: file.Size, Date: m.Date,
-		Installed: installed, Repair: repair,
+		Installed: installed, Repair: repair, mayDowngrade: mayDowngrade,
 	}), nil
 }
 
@@ -484,12 +492,21 @@ func (in *Installer) stage(name string) error {
 	return in.hook(name)
 }
 
+func describeInstalled(v string) string {
+	if v == "" {
+		return "nothing"
+	}
+	return v
+}
+
 // InstallPlan carries out a plan that came from Plan or PlanVersion of this
 // installer: download, verify, extract into a staging folder, then swap in. A
 // plan made any other way, or changed after it was made, is refused. The
-// catalogue entry is looked up again rather than taken from the plan, and the
-// archive is held to the size and SHA-256 the signed manifest gave, so nothing
-// about what is installed is taken on the caller's word.
+// catalogue entry is looked up again rather than taken from the plan, the
+// version rules, the minimum version and the high-water mark are applied again
+// to what is installed now, and the archive is held to the size and SHA-256 the
+// signed manifest gave, so nothing about what is installed is taken on the
+// caller's word.
 func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, err error) {
 	if !in.sealed(p) {
 		return nil, errors.New("refusing to install a plan that this installer did not make, or that has been changed since")
@@ -516,6 +533,29 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 	}
 	if cur, _ := st.Current(id); cur == p.Version && !p.Repair {
 		return nil, fmt.Errorf("%w: %s", ErrAlreadyInstalled, p.Version)
+	}
+	// The state may have moved since the plan was made, and the rules are
+	// applied again to what is installed now: a plan made when another version
+	// was installed is stale, the minimum and the version rules hold, and so does
+	// the mark, which may have risen.
+	if cur, _ := st.Current(id); cur != p.Installed {
+		return nil, fmt.Errorf("%s %s was planned when %s was installed, and %s is now, so it was not installed; plan it again", e.Name, p.Version, describeInstalled(p.Installed), describeInstalled(cur))
+	}
+	against := p.Installed
+	if p.Repair {
+		against = ""
+	}
+	if err := checkVersion(e, p.Version, against, p.mayDowngrade); err != nil {
+		return nil, err
+	}
+	if !p.Repair {
+		hw, err := st.highWaterChecked(id)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkHighWater(p.Version, hw, p.mayDowngrade); err != nil {
+			return nil, err
+		}
 	}
 	if err := os.MkdirAll(st.appDir(id), 0o700); err != nil {
 		return nil, err
