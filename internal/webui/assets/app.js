@@ -10959,29 +10959,19 @@
       "This describes what it does by design. "+
       "Any program running as you can read and write a helper's files and reach it on this computer, and any account on this computer can reach it with no sign-in. It is not sandboxed."));
 
-    let override = null;
     if (!p.signed) {
       const warn = el("div", "helper-warning",
-        "This release has no signature. The SHA-256 above shows the download matches its manifest. " +
-        "It does not show who built it, because anyone who can change the release can change both. " +
-        "This applies to this version only, and you are asked again for the next.");
+        "This release is not signed, and an unsigned release is never installed.");
       warn.setAttribute("role", "alert");
       wrap.append(warn);
-      const label = el("label", "helper-override");
-      override = document.createElement("input");
-      override.type = "checkbox";
-      override.id = "helper-unsigned";
-      label.append(override, el("span", null, " Install this unsigned release anyway"));
-      wrap.append(label);
     }
 
     const go = el("button", "chip primary", "Install");
     go.id = "helper-confirm";
     go.disabled = !p.signed;
-    if (override) override.onchange = () => { go.disabled = !override.checked; };
     go.onclick = () => {
       if (go.disabled) return;
-      send({ cmd: "helperInstall", id: p.id, text: p.version, sha256: p.sha256, unsigned: !p.signed, confirmed: true });
+      send({ cmd: "helperInstall", id: p.id, text: p.version, sha256: p.sha256, confirmed: true });
       helperView = { kind: "list" };
       renderHelpers();
     };

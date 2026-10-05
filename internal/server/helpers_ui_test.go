@@ -36,10 +36,13 @@ type uiRig struct {
 	pointerHits int
 }
 
-func newUIRig(t *testing.T) *uiRig { return newUIRigWith(t, true) }
+// newUIRig serves lens exactly as the catalogue lists it, apart from where it
+// is fetched from.
+func newUIRig(t *testing.T) *uiRig { return newUIRigWith(t) }
 
-// newUIRigWith is a rig whose helper does or does not require signed releases.
-func newUIRigWith(t *testing.T, requireSigned bool) *uiRig {
+// newUIRigWith changes the catalogue's entry first, for a test of what a
+// different entry would do.
+func newUIRigWith(t *testing.T, change ...func(*helpers.Entry)) *uiRig {
 	t.Helper()
 	srv, _ := newTestServer(t)
 	pub, priv, _ := ed25519.GenerateKey(nil)
@@ -63,7 +66,7 @@ func newUIRigWith(t *testing.T, requireSigned bool) *uiRig {
 	srv.SetHelpers(
 		helpers.NewSupervisor(helpers.Config{Store: r.store, GOOS: "linux"}),
 		helpers.NewInstaller(helpers.Options{
-			Store: r.store, Lookup: lensAt(fake.URL, requireSigned), GOOS: "linux", GOARCH: "amd64",
+			Store: r.store, Lookup: lensAt(fake.URL, change...), GOOS: "linux", GOARCH: "amd64",
 			AllowURL: func(u *url.URL) bool { return u.Hostname() == "127.0.0.1" },
 		}),
 	)
@@ -128,12 +131,12 @@ func publishCDN(files map[string][]byte, origin string, key ed25519.PrivateKey, 
 }
 
 // lensAt is the catalogue's lens, fetched from a fake CDN.
-func lensAt(origin string, requireSigned bool) func(string) (helpers.Entry, bool) {
+func lensAt(origin string, change ...func(*helpers.Entry)) func(string) (helpers.Entry, bool) {
 	e, _ := helpers.Lookup("lens")
 	e.Source = origin + "/lens"
-	// The tests of the unsigned override use an entry that does not require
-	// signatures; the default is lens as it is catalogued.
-	e.RequireSigned = requireSigned
+	for _, f := range change {
+		f(&e)
+	}
 	return func(id string) (helpers.Entry, bool) {
 		if id == e.ID {
 			return e, true
@@ -231,12 +234,6 @@ func TestHelperPlanShowsTheReleaseWithoutInstalling(t *testing.T) {
 		t.Fatalf("plan = %v", m)
 	}
 
-	r.publish(t, "0.4.0", false, false)
-	r.send(c, command{Cmd: "helperPlan", ID: "lens"})
-	if m := next(t, c, "helperPlan"); m["signed"] != false {
-		t.Fatalf("an unsigned release is shown as signed: %v", m)
-	}
-
 	r.publish(t, "0.4.0", true, true)
 	r.send(c, command{Cmd: "helperPlan", ID: "lens"})
 	m = next(t, c, "helperPlan")
@@ -277,33 +274,11 @@ func TestHelperInstallNeedsConfirmationAndTheShownHash(t *testing.T) {
 	}
 }
 
-func TestHelperInstallRefusesUnsignedWithoutTheOverride(t *testing.T) {
-	r := newUIRigWith(t, false)
-	sha := r.publish(t, "0.4.0", false, false)
-	c := &controlClient{out: make(chan []byte, 32)}
-	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	got := notices(c, 2*time.Second)
-	if !strings.Contains(strings.Join(got, "|"), "unsigned override was not chosen") {
-		t.Fatalf("notices = %v", got)
-	}
-	if _, ok := r.store.Current("lens"); ok {
-		t.Fatal("installed an unsigned release without the override")
-	}
-	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true, Unsigned: true})
-	got = notices(c, 3*time.Second)
-	if !strings.Contains(strings.Join(got, "|"), "(unsigned)") {
-		t.Fatalf("notices = %v", got)
-	}
-	if info, _ := r.store.Info("lens"); info.Signed {
-		t.Fatal("recorded as signed")
-	}
-}
-
 func TestHelperInstallNeverOverridesABadSignature(t *testing.T) {
 	r := newUIRig(t)
 	sha := r.publish(t, "0.4.0", true, true)
 	c := &controlClient{out: make(chan []byte, 32)}
-	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true, Unsigned: true})
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
 	got := notices(c, 2*time.Second)
 	if !strings.Contains(strings.Join(got, "|"), "cannot be overridden") {
 		t.Fatalf("notices = %v", got)
@@ -350,29 +325,6 @@ func TestHelperUninstallKeepsDataUnlessAsked(t *testing.T) {
 	notices(c, 500*time.Millisecond)
 	if _, err := os.Stat(note); err == nil {
 		t.Fatal("a purge left the data")
-	}
-}
-
-func TestHelperInstallRefusesAnUnsignedReleaseAfterASignedOne(t *testing.T) {
-	r := newUIRigWith(t, false)
-	sha := r.publish(t, "0.4.0", true, false)
-	c := &controlClient{out: make(chan []byte, 32)}
-	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	notices(c, 3*time.Second)
-	sha = r.publish(t, "0.5.0", false, false)
-
-	r.send(c, command{Cmd: "helperPlan", ID: "lens"})
-	m := next(t, c, "helperPlan")
-	if m["fatal"] != true || !strings.Contains(m["error"].(string), "earlier version") {
-		t.Fatalf("plan = %v", m)
-	}
-	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.5.0", SHA256: sha, Confirmed: true, Unsigned: true})
-	got := notices(c, 2*time.Second)
-	if !strings.Contains(strings.Join(got, "|"), "earlier version") {
-		t.Fatalf("notices = %v", got)
-	}
-	if v, _ := r.store.Current("lens"); v != "0.4.0" {
-		t.Fatalf("current = %q", v)
 	}
 }
 
@@ -580,8 +532,8 @@ func TestAFailedLookupIsNotRepeatedWithinTheTTL(t *testing.T) {
 	}
 }
 
-// lens requires signed releases: the plan is a refusal with no override, and an
-// install is refused even if the window says the override was chosen.
+// lens requires signed releases, as catalogued: the plan is a refusal with no
+// override, and an install of it is refused as well.
 func TestAnUnsignedLensHasNoOverrideInTheDialog(t *testing.T) {
 	r := newUIRig(t)
 	sha := r.publish(t, "0.4.0", false, false)
@@ -594,7 +546,7 @@ func TestAnUnsignedLensHasNoOverrideInTheDialog(t *testing.T) {
 	if m["sha256"] != nil && m["sha256"] != "" {
 		t.Fatalf("an override screen's hash was sent: %v", m)
 	}
-	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true, Unsigned: true})
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
 	got := notices(c, 2*time.Second)
 	if !strings.Contains(strings.Join(got, "|"), "requires every release to be signed") {
 		t.Fatalf("notices = %v", got)
@@ -701,5 +653,21 @@ func TestAStartRefusedForATamperedProgramOffersTheRepair(t *testing.T) {
 	row := next(t, c, "helpers")["rows"].([]any)[0].(map[string]any)
 	if row["needsRepair"] != true {
 		t.Fatalf("the row does not offer the repair: %v", row)
+	}
+}
+
+// An entry that did not require signatures would still never be installed
+// unsigned from the dialog: there is no override to choose.
+func TestAnUnsignedReleaseOfALooserEntryIsStillRefused(t *testing.T) {
+	r := newUIRigWith(t, func(e *helpers.Entry) { e.RequireSigned = false })
+	sha := r.publish(t, "0.4.0", false, false)
+	c := &controlClient{out: make(chan []byte, 32)}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
+	got := notices(c, 2*time.Second)
+	if !strings.Contains(strings.Join(got, "|"), "is not signed") {
+		t.Fatalf("notices = %v", got)
+	}
+	if _, ok := r.store.Current("lens"); ok {
+		t.Fatal("installed an unsigned release")
 	}
 }

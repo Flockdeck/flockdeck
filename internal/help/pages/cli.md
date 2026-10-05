@@ -300,24 +300,20 @@ the way you do; a proxy address can carry a username and password.
 `install` shows the name, version, source address, signature and what the helper
 may do, and asks first; `-yes` skips the question. The release's manifest is
 checked against Flockdeck's release key, and the archive against the SHA-256 and size in
-them, before anything is unpacked. lens requires every release to be signed: an
-unsigned release is refused, with that reason, and no flag installs it.
-`-allow-unsigned` is for a helper whose entry does not require signatures (there
-is none today); it shows the archive's SHA-256 first, which shows the download
-matches the manifest and says nothing about who built it, and applies to that one
-version. A signature that is present and wrong is always refused. Once a signed
-version of a helper has been installed, an unsigned one is never installed for
-it, even after an uninstall and even with `-allow-unsigned`, and nothing older
-than the newest signed version installed before is offered unless you name the
-version.
+them, before anything is unpacked. Every lens release must be signed: a release
+that is not signed is refused, with that reason, and so is one whose signature
+is wrong. Nothing overrides either, and there is no flag for it. Once a signed
+version of a helper has been installed, nothing older than the newest signed
+version installed before is offered unless you name it with `-version`.
 
-Flockdeck keeps a record of that in `trust.json` in the helper's folder under its
-state folder (`apps/lens/trust.json`). If an install says the record is damaged,
-or you want a helper's history forgotten, delete that file;
+Flockdeck keeps what it needs for that in `trust.json` in the helper's folder
+under its state folder (`apps/lens/trust.json`). If an install says the record
+is damaged, or you want a helper's history forgotten, delete that file;
 `flockdeck helpers uninstall -purge-data lens` also removes it, together with the
 data, even when nothing is installed. If a helper's program was changed after it
-was installed, a start is refused, and `flockdeck helpers install lens` puts a
-checked copy of the same version back.
+was installed, a start is refused. `flockdeck helpers install lens` puts a
+checked copy back when the installed version is also the latest; otherwise run
+`flockdeck helpers install -version=<installed version> lens`.
 
 `list`, `install` and `uninstall` work without Flockdeck open. `start`, `stop`
 and `open` are done by the running Flockdeck, which watches the helper, restarts

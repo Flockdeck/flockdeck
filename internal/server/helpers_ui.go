@@ -22,7 +22,8 @@ type HelperRow struct {
 	Summary string `json:"summary"`
 	// Installed is the installed version, "" when there is none.
 	Installed string `json:"installed,omitempty"`
-	// Signed is false for a version installed through the unsigned override.
+	// Signed is false when the installed version's record does not say it was
+	// signed.
 	Signed bool `json:"signed"`
 	// State is "notinstalled", "installing", or a helpers.State.
 	State    string   `json:"state"`
@@ -328,8 +329,7 @@ func planError(err error) string {
 
 // helperInstall carries out an install the person confirmed in the dialog. The
 // release is looked up again, and has to be the one that was shown: the same
-// version with the same archive hash. An unsigned one goes ahead only when the
-// window says the override was chosen.
+// version with the same archive hash. A release that is not signed is refused.
 func (s *Server) helperInstall(c *controlClient, cmd command) {
 	if !s.helperDeskOnlyFor(c, cmd.ID) {
 		return
@@ -364,8 +364,8 @@ func (s *Server) helperInstall(c *controlClient, cmd command) {
 			c.notify("Not installed: the release changed since it was shown. Look again before installing.", true)
 			return
 		}
-		if !plan.Signed && !cmd.Unsigned {
-			c.notify("Not installed: the release has no signature, and the unsigned override was not chosen.", true)
+		if !plan.Signed {
+			c.notify("Not installed: the release is not signed, and an unsigned release is never installed.", true)
 			return
 		}
 		info, err := inst.InstallPlan(ctx, plan)
@@ -375,11 +375,7 @@ func (s *Server) helperInstall(c *controlClient, cmd command) {
 		}
 		s.helperUI.setRepair(id, false)
 		s.helperUI.setLatest(id, "")
-		note := fmt.Sprintf("Installed %s %s", plan.Entry.Name, info.Version)
-		if !info.Signed {
-			note += " (unsigned)"
-		}
-		c.notify(note, false)
+		c.notify(fmt.Sprintf("Installed %s %s", plan.Entry.Name, info.Version), false)
 	}()
 }
 

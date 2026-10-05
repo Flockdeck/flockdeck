@@ -153,7 +153,7 @@ assert.ok(!h.$("helper-unsigned"), "a signed release offers the unsigned overrid
 assert.ok(!h.$("helper-confirm").disabled);
 
 h.click(h.$("helper-confirm"));
-assert.deepStrictEqual(h.commands().pop(), { cmd: "helperInstall", id: "lens", text: "0.4.0", sha256: sha, unsigned: false, confirmed: true });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "helperInstall", id: "lens", text: "0.4.0", sha256: sha, confirmed: true });
 assert.ok(h.$("helper-status-lens"), "the dialog did not return to the list");
 `)
 }
@@ -172,7 +172,9 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "helpers" });
 `)
 }
 
-func TestUnsignedReleaseNeedsTheOverrideChosen(t *testing.T) {
+// A plan that is not signed (the server refuses these for lens, so this is the
+// dialog's own second line) offers no way to install it.
+func TestUnsignedReleaseOffersNoWayToInstall(t *testing.T) {
 	runFrontEnd(t, paletteRun+helperRows+`
 h.hello();
 h.recv(fixture());
@@ -183,19 +185,12 @@ const sha = "c".repeat(64);
 h.recv({ type: "helperPlan", id: "lens", name: "lens", summary: "s", version: "0.4.0", url: "u", sha256: sha, signed: false, allows: ["x"] });
 const text = h.$("overlay-body").textContent;
 assert.ok(text.includes("Not signed"), "the signature state is not shown");
-assert.ok(text.includes("does not show who built it"), "the override does not say what the hash proves");
-assert.ok(text.includes(sha), "the override screen does not show the hash");
-const box = h.$("helper-unsigned");
-assert.ok(box, "no override checkbox");
-assert.ok(h.$("helper-confirm").disabled, "Install is available before the override is chosen");
+assert.ok(text.includes("never installed"), "the refusal is not explained");
+assert.ok(!h.$("helper-unsigned"), "an override checkbox is offered");
+assert.ok(h.$("helper-confirm").disabled, "Install is available for an unsigned release");
 const sent = h.commands().length;
 h.click(h.$("helper-confirm"));
 assert.strictEqual(h.commands().length, sent, "a disabled Install sent something");
-box.checked = true;
-box.onchange();
-assert.ok(!h.$("helper-confirm").disabled, "choosing the override did not enable Install");
-h.click(h.$("helper-confirm"));
-assert.deepStrictEqual(h.commands().pop(), { cmd: "helperInstall", id: "lens", text: "0.4.0", sha256: sha, unsigned: true, confirmed: true });
 `)
 }
 

@@ -39,7 +39,7 @@ type helperCLI struct {
 func helpersUsage(out io.Writer) {
 	fmt.Fprint(out, `Usage:
   flockdeck helpers list [-check]
-  flockdeck helpers install [-version=<version>] [-allow-unsigned] [-yes] <helper>
+  flockdeck helpers install [-version=<version>] [-yes] <helper>
   flockdeck helpers start|stop|open <helper>
   flockdeck helpers uninstall [-purge-data] [-yes] <helper>
 
@@ -52,10 +52,9 @@ are done by the running Flockdeck, which supervises the helper, so it has to be
 open. open shows the helper's page in your browser.
 
 install shows what it is going to download and asks first; -yes skips the
-question. A release with no signature is refused unless -allow-unsigned is
-given, and then the SHA-256 of the archive is shown, which proves the download
-matches the manifest and not who built it. A signature that is there and
-wrong is always refused.
+question. A release that is not signed is refused, and so is one whose
+signature is wrong; nothing overrides either. lens requires every release to be
+signed.
 
 uninstall keeps the helper's data folder and says where it is; -purge-data
 deletes it too.
@@ -63,15 +62,13 @@ deletes it too.
 }
 
 type helpersInstallFlags struct {
-	version       string
-	allowUnsigned bool
-	yes           bool
+	version string
+	yes     bool
 }
 
 func helpersInstallFlagSet(f *helpersInstallFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("flockdeck helpers install", flag.ContinueOnError)
 	fs.StringVar(&f.version, "version", "", "install this `version` (like 0.4.0) instead of the latest, forward or back")
-	fs.BoolVar(&f.allowUnsigned, "allow-unsigned", false, "go on with a release that has no signature, once its hash has been shown")
 	fs.BoolVar(&f.yes, "yes", false, "do not ask before installing")
 	fs.Usage = func() { helpersUsage(fs.Output()) }
 	return fs
@@ -249,9 +246,6 @@ func (c *helperCLI) list(f helpersListFlags) error {
 			if pid, running := c.store.RunningPID(e.ID); running {
 				status = fmt.Sprintf("running (process %d)", pid)
 			}
-			if !info.Signed {
-				notes = "Unsigned"
-			}
 			if f.check {
 				newer, err := c.installer.CheckUpdate(ctx, e.ID)
 				switch {
@@ -312,11 +306,13 @@ func (c *helperCLI) install(id string, f helpersInstallFlags) error {
 	}
 	fmt.Fprintf(c.out, "  %s\n", e.Summary)
 	fmt.Fprintf(c.out, "  From:       %s\n", plan.URL)
-	if plan.Signed {
-		fmt.Fprintf(c.out, "  Signature:  manifest.json is signed with Flockdeck's release key; the archive\n              is checked against it when it is downloaded\n")
-	} else {
-		fmt.Fprintf(c.out, "  Signature:  NONE\n")
+	// A release that is not signed is refused before a plan exists for a helper
+	// that requires signatures, which is every helper in the catalogue; this is
+	// the same refusal for one that did not.
+	if !plan.Signed {
+		return fmt.Errorf("%s %s is not signed, so it was not installed; there is no way to install an unsigned release", e.Name, plan.Version)
 	}
+	fmt.Fprintf(c.out, "  Signature:  manifest.json is signed with Flockdeck's release key; the archive\n              is checked against it when it is downloaded\n")
 	fmt.Fprintf(c.out, "  SHA-256:    %s\n", plan.SHA256)
 	fmt.Fprintf(c.out, "  It may:\n")
 	for _, a := range e.Allows {
@@ -327,15 +323,6 @@ func (c *helperCLI) install(id string, f helpersInstallFlags) error {
 		fmt.Fprintf(c.out, "  Replaces:   %s\n", plan.Installed)
 	}
 
-	if !plan.Signed {
-		fmt.Fprintf(c.out, "\nWARNING: this release is not signed.\n")
-		fmt.Fprintf(c.out, "The SHA-256 above is from its manifest. It proves the download matches that\n")
-		fmt.Fprintf(c.out, "file. It does not prove who built it: anyone who can change the release can\n")
-		fmt.Fprintf(c.out, "change both. This applies to this version only and is asked again for the next.\n")
-		if !f.allowUnsigned {
-			return fmt.Errorf("%s %s has no signature, so it was not installed; run again with -allow-unsigned to install it anyway", e.Name, plan.Version)
-		}
-	}
 	fmt.Fprintln(c.out)
 	ok, err := c.confirm(fmt.Sprintf("Install %s %s?", e.Name, plan.Version), f.yes, "-yes")
 	if err != nil {
@@ -350,11 +337,7 @@ func (c *helperCLI) install(id string, f helpersInstallFlags) error {
 	if err != nil {
 		return c.explainInstall(e, err)
 	}
-	note := ""
-	if !info.Signed {
-		note = " (unsigned)"
-	}
-	fmt.Fprintf(c.out, "Installed %s %s%s.\n", e.Name, info.Version, note)
+	fmt.Fprintf(c.out, "Installed %s %s.\n", e.Name, info.Version)
 	fmt.Fprintf(c.out, "Start it with: flockdeck helpers start %s\n", e.ID)
 	return nil
 }
@@ -369,7 +352,7 @@ func (c *helperCLI) explainInstall(e helpers.Entry, err error) error {
 	case errors.As(err, &sig):
 		return fmt.Errorf("%w\nNothing was installed, and this cannot be overridden: a signature that is there and wrong means the release is not what it claims to be", err)
 	case errors.As(err, &required):
-		return fmt.Errorf("%w\nNothing was installed, and -allow-unsigned does not apply to this", err)
+		return fmt.Errorf("%w\nNothing was installed, and nothing overrides this", err)
 	case errors.As(err, &sum), errors.As(err, &arch):
 		return fmt.Errorf("%w\nNothing was installed.", err)
 	case errors.Is(err, helpers.ErrNoAsset):

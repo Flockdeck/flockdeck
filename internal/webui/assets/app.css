@@ -2876,4 +2876,3 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .helper-sub { font-weight: 600; margin: 10px 0 4px; }
 .helper-allows { margin: 0 0 8px 18px; padding: 0; }
 .helper-warning { border: 1px solid var(--waiting); border-radius: 4px; padding: 8px 10px; margin: 10px 0; }
-.helper-override { display: block; margin: 8px 0 12px; }
