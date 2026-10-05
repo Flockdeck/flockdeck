@@ -428,21 +428,31 @@ func TestCrashOnceThenRecovers(t *testing.T) {
 	})
 }
 
+// The delays before the first, second and third restart are 1, 2 and 4 seconds
+// and stay at the last. The schedule is checked as a computation: comparing
+// wall-clock gaps between restarts fails when the machine is busy.
 func TestRestartDelaysAreOneTwoFour(t *testing.T) {
+	d := DefaultTimings().Backoff
+	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 4 * time.Second, 4 * time.Second}
+	for n, w := range want {
+		if got := restartDelay(d, n+1); got != w {
+			t.Errorf("the delay before restart %d is %v, want %v", n+1, got, w)
+		}
+	}
+}
+
+// The supervisor restarts a crashing helper three times, announcing each
+// restart, and then gives up.
+func TestACrashingHelperIsRestartedThreeTimes(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "runs")
-	var starts []time.Time
+	var announced []int
 	var mu sync.Mutex
 	f := newSupFixture(t, []Entry{fakeEntry("lens", "--mode", "crash", "--after", "100ms", "--state", state)}, func(c *Config) {
-		tm := *fastTimings()
-		tm.Backoff = []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond}
-		c.Timings = &tm
-		last := 0
 		c.Notify = func(s Status) {
 			mu.Lock()
 			defer mu.Unlock()
-			if s.State == StateStarting && strings.Contains(s.Err, "restarting") && s.Restarts != last {
-				last = s.Restarts
-				starts = append(starts, time.Now())
+			if s.State == StateStarting && strings.Contains(s.Err, "restarting") && (len(announced) == 0 || announced[len(announced)-1] != s.Restarts) {
+				announced = append(announced, s.Restarts)
 			}
 		}
 	})
@@ -452,13 +462,8 @@ func TestRestartDelaysAreOneTwoFour(t *testing.T) {
 	eventually(t, "failure", 60*time.Second, func() bool { return f.sup.Status("lens").State == StateFailed })
 	mu.Lock()
 	defer mu.Unlock()
-	if len(starts) != 3 {
-		t.Fatalf("saw %d restarts, want 3", len(starts))
-	}
-	// Each restart is announced when its delay begins, so the gap between
-	// announcements is the delay plus a run, and has to grow.
-	if g1, g2 := starts[1].Sub(starts[0]), starts[2].Sub(starts[1]); g2 <= g1 {
-		t.Errorf("the delays did not grow: %v then %v", g1, g2)
+	if len(announced) != 3 || announced[0] != 1 || announced[1] != 2 || announced[2] != 3 {
+		t.Fatalf("restarts announced: %v, want 1, 2, 3", announced)
 	}
 }
 

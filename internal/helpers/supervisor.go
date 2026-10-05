@@ -466,7 +466,7 @@ func (s *Supervisor) run(in *instance) {
 			s.fail(in, fmt.Sprintf("it stopped %d times in %s (last: %s)", len(crashes), s.t.CrashWindow, out.exit))
 			return
 		}
-		delay := s.t.Backoff[min(len(crashes)-1, len(s.t.Backoff)-1)]
+		delay := restartDelay(s.t.Backoff, len(crashes))
 		s.set(in, func() {
 			in.state, in.pid, in.err = StateStarting, 0, "stopped unexpectedly ("+out.exit+"); restarting"
 			in.restarts = len(crashes)
@@ -479,6 +479,12 @@ func (s *Supervisor) run(in *instance) {
 			return
 		}
 	}
+}
+
+// restartDelay is the wait before restart number crashes (1 for the first),
+// which stays at the last backoff once they run out.
+func restartDelay(backoff []time.Duration, crashes int) time.Duration {
+	return backoff[min(crashes-1, len(backoff)-1)]
 }
 
 func (s *Supervisor) fail(in *instance, why string) {

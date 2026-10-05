@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Every catalogued helper refuses an unsigned release with the reason, and
@@ -518,6 +519,11 @@ func TestAPlanIsOnlyCarriedOutAsItsInstallerMadeIt(t *testing.T) {
 		"repair":    func(p *Plan) { p.Repair = true },
 		"installed": func(p *Plan) { p.Installed = "0.1.0" },
 		"entry id":  func(p *Plan) { p.Entry.ID = "other" },
+		"date":      func(p *Plan) { p.Date = p.Date.Add(time.Hour) },
+		"archive and its address": func(p *Plan) {
+			p.Archive = "other.tar.gz"
+			p.URL = f.site.URL + "/lens/v0.4.0/other.tar.gz"
+		},
 	}
 	for name, mutate := range changed {
 		c := *good
@@ -536,5 +542,149 @@ func TestAPlanIsOnlyCarriedOutAsItsInstallerMadeIt(t *testing.T) {
 	// And the plan itself, untouched, installs.
 	if _, err := f.in.InstallPlan(t.Context(), good); err != nil {
 		t.Fatalf("the installer's own plan: %v", err)
+	}
+}
+
+// A missing manifest signature is refused as such even when checksums.txt is
+// signed correctly: the manifest is what binds the archive, so it has to be
+// signed itself.
+func TestAMissingManifestSignatureIsRefusedWhateverTheChecksumsSay(t *testing.T) {
+	f := newFixture(t)
+	f.site.release(t, f.entry, releaseSpec{version: "0.4.0", key: f.key, noSig: true, latest: true})
+	_, err := f.in.Install(t.Context(), "lens", "")
+	if !isSignedRequired(err) {
+		t.Fatalf("err = %v, want a SignedRequiredError", err)
+	}
+	if f.site.hitCount(f.archivePath("0.4.0")) != 0 {
+		t.Fatal("the archive was fetched")
+	}
+}
+
+// A trust record that is there but is not a valid one fails closed after an
+// uninstall: the install is refused with the path and how to reset it. A
+// record in the older format with a valid mark still reads as a mark, and no
+// record at all is a fresh install.
+func TestADamagedTrustRecordRefusesTheInstall(t *testing.T) {
+	shapes := map[string]string{
+		"corrupt":           "{{{",
+		"empty":             "",
+		"an array":          "[]",
+		"null":              "null",
+		"an empty object":   "{}",
+		"a bad version":     `{"highWater":"zzz"}`,
+		"a number":          `{"highWater":5}`,
+		"an old format one": "", // replaced below with a valid one
+		"a folder":          "",
+	}
+	for name, content := range shapes {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.publish("0.3.0")
+			f.publish("0.5.0")
+			if _, err := f.install("0.5.0"); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.store.Uninstall("lens", false); err != nil {
+				t.Fatal(err)
+			}
+			path := f.store.trustFile("lens")
+			_ = os.Remove(path)
+			switch name {
+			case "a folder":
+				if err := os.Mkdir(path, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			case "an old format one":
+				content = `{"everSigned":true,"highWater":"0.5.0"}`
+				fallthrough
+			default:
+				if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err := f.in.PlanVersion(t.Context(), "lens", "0.3.0", false)
+			if name == "an old format one" {
+				if !errors.Is(err, ErrBelowHighWater) {
+					t.Fatalf("a valid old record: err = %v, want ErrBelowHighWater", err)
+				}
+				return
+			}
+			tr, ok := asErr[*TrustReadError](err)
+			if !ok || tr.Path != path || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "Delete it to reset it") {
+				t.Fatalf("err = %v", err)
+			}
+			if _, ok := f.store.Current("lens"); ok {
+				t.Fatal("installed")
+			}
+			// Deleting it is the way out, and it is a fresh start.
+			_ = os.RemoveAll(path)
+			if _, err := f.in.PlanVersion(t.Context(), "lens", "0.3.0", false); err != nil {
+				t.Fatalf("after deleting the record: %v", err)
+			}
+		})
+	}
+}
+
+// A plan is stale once what is installed has changed: planned for 0.3.0 (a
+// named downgrade) while 0.4.0 was installed, then 0.5.0 installed, it is not
+// installed, and 0.5.0 stays current.
+func TestAStalePlanIsRefusedAfterTheInstalledVersionMoves(t *testing.T) {
+	f := newFixture(t)
+	f.publish("0.3.0")
+	f.publish("0.4.0")
+	f.publish("0.5.0")
+	if _, err := f.install("0.4.0"); err != nil {
+		t.Fatal(err)
+	}
+	old, err := f.in.Plan(t.Context(), "lens", "0.3.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.install("0.5.0"); err != nil {
+		t.Fatal(err)
+	}
+	replay := *old
+	if _, err := f.in.InstallPlan(t.Context(), &replay); err == nil || !strings.Contains(err.Error(), "plan it again") {
+		t.Fatalf("err = %v", err)
+	}
+	if v, _ := f.store.Current("lens"); v != "0.5.0" {
+		t.Fatalf("current = %q", v)
+	}
+	if hw := f.store.HighWater("lens"); hw != "0.5.0" {
+		t.Fatalf("high-water = %q", hw)
+	}
+}
+
+// The minimum version and the mark are applied again when the plan is carried
+// out: a minimum raised, or a mark that rose, since the plan was made.
+func TestTheMinimumAndTheMarkAreAppliedAgainAtInstall(t *testing.T) {
+	f := newFixture(t)
+	cur := f.entry
+	f.rebuild(func(o *Options) {
+		o.Lookup = func(id string) (Entry, bool) { return cur, id == cur.ID }
+	})
+	f.publish("0.3.0")
+	f.publish("0.4.0")
+	plan, err := f.in.PlanVersion(t.Context(), "lens", "0.3.0", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur.MinVersion = "0.4.0"
+	if _, err := f.in.InstallPlan(t.Context(), plan); !errors.Is(err, ErrBelowMinimum) {
+		t.Fatalf("a minimum raised after the plan: err = %v", err)
+	}
+	cur.MinVersion = "0.2.0"
+	plan, err = f.in.PlanVersion(t.Context(), "lens", "0.3.0", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.writeTrust("lens", trustRecord{HighWater: "0.6.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.in.InstallPlan(t.Context(), plan); !errors.Is(err, ErrBelowHighWater) {
+		t.Fatalf("a mark raised after the plan: err = %v", err)
+	}
+	if _, ok := f.store.Current("lens"); ok {
+		t.Fatal("installed")
 	}
 }
