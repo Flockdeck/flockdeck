@@ -296,6 +296,12 @@ func (w *Workspace) PrepareBaton(cwd string, b baton.Baton, task string, sc *bat
 		vals = append(vals, baton.EnvFileValues(cwd)...)
 		sc = baton.NewScrubber(vals...)
 	}
+	// The task goes after the baton in the same prompt, so it is cleaned and
+	// scrubbed like the baton: an agent's own task text is no exception.
+	task, _ = sc.Scrub(baton.CleanText(task))
+	if len(task) > maxTaskBytes {
+		return BatonPrompt{}, errTaskTooLong(task)
+	}
 	final := sc.ScrubBaton(b)
 	if err := w.SaveBaton(final); err != nil {
 		return BatonPrompt{}, fmt.Errorf("the baton could not be saved: %w", err)

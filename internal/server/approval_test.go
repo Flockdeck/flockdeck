@@ -132,7 +132,7 @@ func TestSendingABatonElsewhereNeedsTheUserToAllowItInTheWindow(t *testing.T) {
 		t.Fatalf("the notice does not ask for approval: %+v", n)
 	}
 	// It says where the baton would go and where it came from.
-	for _, want := range []string{"Git as an agent", "(git)", "unknown source"} {
+	for _, want := range []string{"Git as an agent", "(git)", "unknown source", "It is ", " bytes", `begins: "finish the thing"`} {
 		if !strings.Contains(n.Text, want) {
 			t.Errorf("the notice does not say %q: %s", want, n.Text)
 		}

@@ -237,6 +237,7 @@ func (s *Server) batonChange(h *handoff, parent, cwd, source, branch, agentID, m
 	if p := s.ws.Pane(parent); p != nil {
 		info.Asker = "The pane \"" + p.Name + "\""
 	}
+	info.Gist = batonGist(h.Baton)
 	return change, info, &workspace.ApprovedTarget{Agent: target.ID, Provider: toProvider, SourceProvider: fromProvider, From: alsoFrom(source, cwd)}
 }
 
@@ -467,6 +468,7 @@ func (s *Server) batonCommand(c *controlClient, cmd command) {
 			return
 		}
 		if approve != nil {
+			approve.Gist = batonGist(b)
 			c.notify("Waiting for you to allow this in the Flockdeck window on the computer.", false)
 			if err := s.approveElsewhere(context.Background(), *approve); err != nil {
 				fail(err)

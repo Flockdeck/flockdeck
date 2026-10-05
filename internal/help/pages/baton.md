@@ -106,7 +106,9 @@ is worked out for the agent the helper will really run, in the folder it will wo
 unknown when a gateway or cloud setting sends it elsewhere.
 
 With the flag the agent only asks. A notice in a window on this machine names the
-pane, the destination and where the baton came from, and has a **Send it** button.
+pane, the destination and where the baton came from, says how big the baton is and
+shows the first line of it (scrubbed, plain text, cut at 100 characters), and has a
+**Send it** button.
 Nothing starts until you press it. With no such window open, or no answer within 45
 seconds, it is not sent. A window reached through the relay cannot approve. It cannot
 skip the approval either: a **New pane** from a relay window that would go to a
