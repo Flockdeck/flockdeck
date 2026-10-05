@@ -60,8 +60,9 @@ of them take, and a name neither the catalog nor the agent has is answered here
 rather than becoming a pane that never starts.
 
 `-baton` starts the helper from a handoff instead of a blank conversation: `self`
-makes one from your own conversation, or give a pane id, a baton id (`flockdeck
-baton list` shows them) or the path of a notes file. The task is then optional.
+makes one from your own conversation, or give the id of a pane in your own project, a baton id (`flockdeck
+baton list` shows them) or the path of a notes file inside your project or checkout.
+The task is then optional.
 Nothing reviews a baton an agent asks for, so command arguments are dropped from
 it. A baton is sent to the agent the helper runs, so one that would go to a
 different company than the baton came from, or to an agent whose company

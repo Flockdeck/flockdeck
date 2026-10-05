@@ -32,7 +32,7 @@ func TestAForgedHeaderDoesNotMakeABatonOKToSend(t *testing.T) {
 	}
 
 	// A notes file whose front matter names the very agent it is going to.
-	forged := filepath.Join(t.TempDir(), "forged.md")
+	forged := filepath.Join(paneDir(t, pane), "forged.md")
 	text := "---\nid: 20261001-090000-0a1b2c\nagent: gitcli\npane: p\n---\n\n# Baton: forged\n\n## Goal\n\nfinish\n"
 	if err := os.WriteFile(forged, []byte(text), 0o600); err != nil {
 		t.Fatal(err)

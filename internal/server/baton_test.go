@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -38,6 +39,10 @@ func batonAgent(t *testing.T, ws *workspace.Workspace) {
 	ws.ReloadAgents()
 }
 
+// paneDirs is the folder each test pane works in, by pane id: a notes file an agent
+// names has to be inside it (see Workspace.BatonPathInScope).
+var paneDirs sync.Map
+
 func spawnGoPane(t *testing.T, srv *Server, ws *workspace.Workspace) string {
 	t.Helper()
 	lead := firstPane(t, srv, ws)
@@ -50,6 +55,9 @@ func spawnGoPane(t *testing.T, srv *Server, ws *workspace.Workspace) string {
 	})
 	if !ok || id == "" {
 		t.Fatal("the agent pane did not start")
+	}
+	if cwd, ok := ask(srv, func() string { return ws.Pane(id).Cwd }); ok {
+		paneDirs.Store(id, cwd)
 	}
 	return id
 }
@@ -215,8 +223,8 @@ func TestResolveBatonHoldsAnAgentsReferenceToTheStrictProfile(t *testing.T) {
 		t.Errorf("baton = %+v", got.Sections)
 	}
 
-	// A file is read only when it is an absolute path to notes.
-	notes := filepath.Join(t.TempDir(), "notes.md")
+	// A file is read only when it is an absolute path to notes inside the project.
+	notes := filepath.Join(paneDir(t, pane), "notes.md")
 	if err := os.WriteFile(notes, []byte("finish the thing; key is gh"+"p_0123456789abcdefghijklmnopqrstuvwxyz\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +332,7 @@ func TestSpawnWithBatonToAnotherCompanyNeedsTheFlag(t *testing.T) {
 	if hook == nil {
 		t.Skip("no hook server")
 	}
-	for _, ref := range []string{"self", "path:" + writeNotes(t)} {
+	for _, ref := range []string{"self", "path:" + writeNotesFor(t, pane)} {
 		_, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane, hooks.SpawnRequest{Task: "x", Agent: "gitcli", Baton: ref})
 		if err == nil || !strings.Contains(err.Error(), "-baton-send-elsewhere") || !strings.Contains(err.Error(), "different company") {
 			t.Errorf("%s: err = %v, want the refusal naming the flag", ref, err)
@@ -337,6 +345,25 @@ func TestSpawnWithBatonToAnotherCompanyNeedsTheFlag(t *testing.T) {
 		}
 	}
 	// The same company needs no flag; the spawn from the earlier test shows it.
+}
+
+// writeNotesFor writes a notes file in the folder the pane works in.
+func writeNotesFor(t *testing.T, pane string) string {
+	t.Helper()
+	path := filepath.Join(paneDir(t, pane), "notes-"+filepath.Base(t.TempDir())+".md")
+	if err := os.WriteFile(path, []byte("finish the thing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func paneDir(t *testing.T, pane string) string {
+	t.Helper()
+	dir, ok := paneDirs.Load(pane)
+	if !ok {
+		t.Fatalf("no folder is known for pane %s", pane)
+	}
+	return dir.(string)
 }
 
 func writeNotes(t *testing.T) string {
@@ -381,7 +408,7 @@ func TestCheckBatonPath(t *testing.T) {
 	if err := checkBatonPath(link); err == nil || !strings.Contains(err.Error(), "symbolic link") {
 		t.Errorf("a symbolic link was accepted: %v", err)
 	}
-	if _, err := readBatonFile(link); err == nil {
+	if _, err := readBatonFile(link, nil); err == nil {
 		t.Error("readBatonFile followed a link")
 	}
 }
@@ -400,7 +427,7 @@ func TestNetworkAndDevicePathsInEveryForm(t *testing.T) {
 		if err := checkBatonPathName(p); err == nil {
 			t.Errorf("checkBatonPathName(%q) accepted it", p)
 		}
-		if _, err := readBatonFile(p); err == nil {
+		if _, err := readBatonFile(p, nil); err == nil {
 			t.Errorf("readBatonFile(%q) read it", p)
 		}
 	}

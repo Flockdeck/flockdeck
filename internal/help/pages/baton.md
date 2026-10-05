@@ -80,9 +80,12 @@ flockdeck spawn -worktree fix-auth -baton self "Finish the auth middleware"
 ```
 
 `-baton` takes `self` (the caller's own conversation), a **pane id**, a **baton id**,
-or `path:` and the path of a notes file (`.md`, `.markdown`, `.txt`). Any pane can
-be the source, in any project, so an agent that knows a pane id can read what that
-pane did. A notes file is read from anywhere on a local drive. A symbolic link, a
+or `path:` and the path of a notes file (`.md`, `.markdown`, `.txt`). A pane id has to
+be a pane of the caller's own project, and a notes file has to be inside the caller's
+project folder, the folder it works in, or its git checkout (links are followed on both
+sides), because Flockdeck reads them as you and an agent could not read them itself.
+A baton id is not limited: it names something you saved. A file outside, or a pane of
+another project, is refused. A notes file is read from a local drive only. A symbolic link, a
 pipe, a network or device path, and a file that is a reparse point (a cloud
 placeholder that may not be on this disk) are refused, and so are a mapped or `subst`
 drive on Windows and a network file system on Linux. On macOS only the name and the

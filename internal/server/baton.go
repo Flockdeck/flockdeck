@@ -655,7 +655,7 @@ func checkBatonPath(path string) error {
 // looking at the file and reading it are done under a deadline. The file is
 // checked again once it is open, in baton.ReadFile, so a path swapped for a link
 // between the two is refused.
-func readBatonFile(path string) (baton.Baton, error) {
+func readBatonFile(path string, inScope func(string) error) (baton.Baton, error) {
 	if err := checkBatonPathName(path); err != nil {
 		return baton.Baton{}, err
 	}
@@ -668,6 +668,13 @@ func readBatonFile(path string) (baton.Baton, error) {
 		if err := lstatBatonPath(path); err != nil {
 			done <- result{err: err}
 			return
+		}
+		// Inside the project of the pane that asked, and only then read.
+		if inScope != nil {
+			if err := inScope(path); err != nil {
+				done <- result{err: err}
+				return
+			}
 		}
 		b, err := baton.ReadFileVerified(path, verifyOpened)
 		done <- result{b, err}
@@ -688,8 +695,10 @@ func readBatonFile(path string) (baton.Baton, error) {
 // listed by program, and a baton or file named by id or path is scrubbed with
 // the calling pane's own secrets and rewritten the same way.
 //
-// A pane id may name any pane, in any project: there is deliberately no check
-// that it is the caller's own, and the help page says so.
+// A pane id may name a pane of the caller's own project, and no other: Flockdeck
+// would be reading another project's conversation as the user. A notes file has
+// to be inside the caller's project or checkout, for the same reason. A baton id
+// names something the user saved, and is not limited.
 //
 // parent is the pane that is spawning.
 func (s *Server) resolveBaton(parent, ref string) (*handoff, error) {
@@ -717,6 +726,10 @@ func (s *Server) resolveBaton(parent, ref string) (*handoff, error) {
 		src, err := s.ws.BatonSource(ref)
 		if err != nil {
 			in.err = fmt.Errorf("%q is not self, a pane, a baton id or a file: %v", ref, err)
+		}
+		if err == nil && !s.ws.BatonPaneInScope(parent, ref) {
+			in.err = fmt.Errorf("pane %q is in another project. An agent may only have a baton made from a pane of its own project; ask the user to make and save one, and name its id", ref)
+			src, err = workspace.BatonSource{}, errors.New("out of scope")
 		}
 		in.named, in.haveNamed = src, err == nil
 	}
@@ -747,7 +760,7 @@ func (s *Server) resolveBaton(parent, ref string) (*handoff, error) {
 		h.Source = st.Source(ref)
 		h.Baton = hardened(b, h.Scrubber)
 	default:
-		b, err := readBatonFile(strings.TrimPrefix(ref, "path:"))
+		b, err := readBatonFile(strings.TrimPrefix(ref, "path:"), func(p string) error { return s.ws.BatonPathInScope(parent, p) })
 		if err != nil {
 			return nil, err
 		}

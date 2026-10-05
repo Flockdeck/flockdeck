@@ -113,7 +113,9 @@ deleted only if it was made by that request and is still at the commit it was ma
 at.
 
 ### Notes files and drives
-A notes file is read only from a local drive. Symbolic links, pipes, UNC and
+A notes file is read only from a local drive, and only from inside the project or
+checkout of the pane that asked. A pane id an agent names has to be a pane of its own
+project. Symbolic links, pipes, UNC and
 device paths, and reparse points (a cloud placeholder that may not be on the
 disk) are refused. On Windows a mapped network drive and a `subst` drive are
 refused too, after the drive's type is asked of the system, and on Linux so are
@@ -286,8 +288,7 @@ brackets or dots in it looks like code, and under those names nothing is left al
 for that. Above 64 KB a text gets one pass and little second checking. Read a draft
 before you send it.
 
-Any pane can be the source of a baton an agent asks for, in any project, with no
-check that it is the caller's own. The record of where a baton came from is
+The record of where a baton came from is
 `sources.json`, which any process of yours can change, so it stops mistakes and
 not an agent that means to send a baton on. Settings that a macOS configuration
 profile delivers are not read when the company of a Claude Code agent is decided,
