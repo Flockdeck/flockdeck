@@ -138,9 +138,11 @@ How it works:
   or one of the two panes has nothing left to compare. A refresh that could not
   read a pane (git failed, or ran out of time) changes nothing about the pairs
   that pane is in.
-- Pane names, branches and file paths go to every open window, including one
-  reached through the relay, as the rest of a pane's header does. File contents
-  are never sent.
+- Pane names, branches and file paths go to every open window, including a paired
+  phone or other window reached through the relay, as the rest of a pane's header
+  does. For each pair that is the other pane's name and branch and up to twenty file
+  paths. File contents are never sent. A window reached through the relay can also
+  turn the radar on and off.
 
 No chip is not a promise. The pane may have been skipped for one of the reasons
 above, or the pair may not have conflicted on two refreshes yet, or its project

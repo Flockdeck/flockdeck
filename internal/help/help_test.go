@@ -366,3 +366,32 @@ func TestKeysKeepTheirLabelAndNameTheSurfaces(t *testing.T) {
 		}
 	}
 }
+
+// The Settings row for the conflict radar is three sentences. What it used to
+// spell out lives on the Worktrees page, and has to stay there.
+func TestWorktreesPageHoldsTheConflictRadarDetail(t *testing.T) {
+	pages, err := Pages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	for _, p := range pages {
+		if p.Slug == "worktrees" {
+			text = strings.Join(strings.Fields(p.Text), " ")
+		}
+	}
+	if text == "" {
+		t.Fatal("no worktrees page")
+	}
+	for _, want := range []string{
+		"15 seconds", "scratch folder", "relay", "up to five panes and twenty files each", "No chip is not a promise",
+		"100 MB", "25 MB", "shallow clone", "bare repository", "submodule", "partial clone", "2.44", "2.38",
+		"three refreshes", "Git LFS", "merge driver", "ten minutes", "split index", "main worktree's HEAD",
+		"Every untracked file is read again", "a thousand changed files", "modification time",
+		"never write to a checkout", "whether or not the radar is on", "paired phone", "at most 50 merges",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the worktrees page no longer says %q", want)
+		}
+	}
+}
