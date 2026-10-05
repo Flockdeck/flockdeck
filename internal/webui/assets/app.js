@@ -2368,7 +2368,7 @@
       if (f.note) row.append(el("div", "pi-note", f.note));
       if (reveal && !f.value) {
         // Tied to the button, so it is read out as the reason it is off.
-        const why = el("div", "pi-note", "Nothing to show yet. This pane has no recording or export. Start recording or Export transcript makes one.");
+        const why = el("div", "pi-note", msg.transcriptOff || "Nothing to show yet. This pane has no recording or export. Start recording or Export transcript makes one.");
         why.id = "pane-info-reveal-why";
         reveal.setAttribute("aria-describedby", why.id);
         row.append(why);

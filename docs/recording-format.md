@@ -735,8 +735,8 @@ for:
   says so every time, and the command after it has run.
 - **Finding the file.** *Reveal transcript* (the command palette, and *Show in
   folder* in Pane info) shows the file the pane is recording to, or else its
-  newest export, in the file manager, selected; it shows only a file inside the recordings folder,
-  and not from a window reached through the relay. `recordings export -reveal`
+  newest export, in the file manager, selected; it shows only a file inside
+  the recordings folder, and not from a window reached through the relay. `recordings export -reveal`
   shows the file it has just written.
 
 Retention (section 1) does not touch exports, and an export never deletes another

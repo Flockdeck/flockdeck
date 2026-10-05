@@ -254,3 +254,41 @@ func TestPaneInfoShowsAnAPIAgentsStoredConversationOnlyOnceItExists(t *testing.T
 		t.Errorf("a shell: %+v", shell)
 	}
 }
+
+// The transcript row says why it is empty only where the usual way of making a
+// file is not open: an agent whose conversation Flockdeck can read has none
+// to say, and one whose conversation it cannot read can neither record nor
+// export.
+func TestTranscriptRowSaysWhyOnlyForAnAgentThatCannotBeRecorded(t *testing.T) {
+	if off := transcriptOff(workspace.PaneDetails{Agent: true, Transcribable: true}); off != "" {
+		t.Errorf("an agent that can be recorded has the reason %q", off)
+	}
+	if off := transcriptOff(workspace.PaneDetails{}); off != "" {
+		t.Errorf("a shell has the reason %q", off)
+	}
+	if off := transcriptOff(workspace.PaneDetails{Agent: true}); !strings.Contains(off, "cannot be recorded or exported") {
+		t.Errorf("an agent that cannot be recorded says %q", off)
+	}
+
+	// And the two kinds of real pane are told apart by the workspace.
+	srv, ws := newTestServer(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	paneOf := func(agentID string) string {
+		p, _ := ask(srv, func() *workspace.Pane {
+			p := ws.Pane(ws.NewTab(session.KindShell, ws.ActiveRoot(), agentID).Tree.Panes()[0])
+			p.Kind, p.Agent = session.KindAgent, agentID
+			return p
+		})
+		return p.ID
+	}
+	transcribable := func(id string) bool {
+		d, _ := ask(srv, func() workspace.PaneDetails { d, _ := ws.PaneDetailsOf(id, false); return d })
+		return d.Transcribable
+	}
+	if !transcribable(paneOf("claude")) {
+		t.Error("a Claude Code pane is not transcribable")
+	}
+	if transcribable(paneOf("anthropic")) {
+		t.Error("an API agent pane is transcribable")
+	}
+}

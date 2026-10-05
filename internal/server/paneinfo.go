@@ -28,6 +28,9 @@ type paneInfoMsg struct {
 	ID     string          `json:"id"`
 	Name   string          `json:"name"`
 	Fields []paneInfoField `json:"fields"`
+	// TranscriptOff is the reason the transcript file cannot be made, if the
+	// usual way is not open to this pane. See transcriptOff.
+	TranscriptOff string `json:"transcriptOff,omitempty"`
 }
 
 // paneInfoFields lays a pane's identifiers out in the order the window shows
@@ -70,6 +73,17 @@ func paneInfoFields(d workspace.PaneDetails, project string) []paneInfoField {
 	return f
 }
 
+// transcriptOff says why a pane's transcript file cannot be made, where the
+// usual way of making one is not open to it: an agent that stores no
+// conversation Flockdeck can read can be neither recorded nor exported. It is
+// empty for an agent that can, and for a shell, which has no transcript row.
+func transcriptOff(d workspace.PaneDetails) string {
+	if !d.Agent || d.Transcribable {
+		return ""
+	}
+	return "This agent stores no conversation Flockdeck can read, so it cannot be recorded or exported."
+}
+
 func pidText(pid int) string {
 	if pid <= 0 {
 		return ""
@@ -100,7 +114,7 @@ func (s *Server) paneInfo(c *controlClient, cmd command) {
 			return
 		}
 		c.sendJSON(paneInfoMsg{Type: "paneInfo", ID: d.ID, Name: d.Name,
-			Fields: paneInfoFields(d, projectLabel(s.projectNames(), d.Root))})
+			Fields: paneInfoFields(d, projectLabel(s.projectNames(), d.Root)), TranscriptOff: transcriptOff(d)})
 	})
 }
 
