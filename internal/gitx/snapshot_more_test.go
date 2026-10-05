@@ -623,7 +623,7 @@ func TestSnapshotRefusesWhatOnlyTheGitDirectoryShows(t *testing.T) {
 			commitAll(t, dir, "two")
 			cmd := exec.Command("git", "rebase", "-i", "main")
 			cmd.Dir = dir
-			cmd.Env = append(os.Environ(), "GIT_SEQUENCE_EDITOR=sed -i 1s/pick/edit/")
+			cmd.Env = append(os.Environ(), "GIT_SEQUENCE_EDITOR=sed -i.bak 1s/pick/edit/")
 			if out, err := cmd.CombinedOutput(); err != nil {
 				t.Logf("%s: rebase said %v %s", how, err, out)
 			}
