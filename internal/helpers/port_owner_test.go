@@ -265,6 +265,9 @@ func TestAnUnverifiableOwnerIsShownAsUnverified(t *testing.T) {
 // A mismatch has to hold on a second look before it is acted on: a verdict
 // that goes away is not one.
 func TestAMismatchThatGoesAwayIsNotActedOn(t *testing.T) {
+	if !OwnerCheckSupported() {
+		t.Skip("this platform has no owner check to fake; the unverified case is TestAnUnverifiableOwnerIsShownAsUnverified")
+	}
 	prev := checkListenerOwner
 	calls := 0
 	checkListenerOwner = func(int, []int) (ownerResult, string) {
