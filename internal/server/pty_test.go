@@ -955,13 +955,17 @@ func TestSteadyOutputIsPacedIntoFewerFrames(t *testing.T) {
 // prints next straight away. This is the keystroke echo, and holding it for
 // even a frame gap would be felt in the typing.
 func TestAQuietPaneIsNotPaced(t *testing.T) {
-	const echoes = 5
+	const echoes = 8
 	out := make(chan []byte)
 	conn := streamPair(t, nil, out)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	var spent time.Duration
+	// A paced echo is held a frame gap, every one of them. So the fastest of
+	// several is what shows whether the pane is paced, and not the total: on a
+	// busy Windows runner five echoes took 43 ms together with the gap at 8 ms,
+	// because one or two of them were scheduled late.
+	fastest := time.Hour
 	for range echoes {
 		time.Sleep(2 * minFrameGap)
 		out <- []byte("x")
@@ -969,11 +973,11 @@ func TestAQuietPaneIsNotPaced(t *testing.T) {
 		if _, _, err := conn.Read(ctx); err != nil {
 			t.Fatalf("read: %v", err)
 		}
-		spent += time.Since(start)
+		fastest = min(fastest, time.Since(start))
 	}
-	if spent >= echoes*minFrameGap {
-		t.Errorf("%d echoes into a quiet pane took %v in total, which is a frame gap (%v) each",
-			echoes, spent, minFrameGap)
+	if fastest >= minFrameGap/2 {
+		t.Errorf("the fastest of %d echoes into a quiet pane took %v, which is half the frame gap (%v) or more: the echo was held",
+			echoes, fastest, minFrameGap)
 	}
 }
 

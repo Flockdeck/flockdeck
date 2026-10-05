@@ -212,16 +212,22 @@ func TestSetLinkFileIsRemovedOnRedeem(t *testing.T) {
 // file behind for the rest of the run.
 func TestSetLinkFileIsRemovedOnExpiry(t *testing.T) {
 	srv, _ := newTestServer(t)
-	srv.linkLife = 20 * time.Millisecond
-	_, link := srv.NewWindowLink()
+	// The link's life starts when it is made, and what comes before the file is
+	// handed over is writing it. At 20 ms a slow write on a Windows runner left
+	// the link gone before SetLinkFile was called (the soak, once), which the
+	// test reported as a failure. The file is written first and the life is long
+	// next to the two calls that follow; the wait for the removal is made longer
+	// to match.
+	srv.linkLife = 300 * time.Millisecond
 	path := filepath.Join(t.TempDir(), "redirect.html")
 	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	_, link := srv.NewWindowLink()
 	if !srv.SetLinkFile(link, path) {
 		t.Fatal("SetLinkFile reported the link as already gone")
 	}
-	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			break
 		}

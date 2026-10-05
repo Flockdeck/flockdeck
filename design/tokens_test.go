@@ -1,6 +1,8 @@
 package design
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -159,24 +161,82 @@ func TestContrastScriptPasses(t *testing.T) {
 		}
 		t.Skip("node is not on PATH, so the contrast check cannot run")
 	}
-	cmd := exec.Command(node, filepath.Join(dir(t), "check-contrast.mjs"), "--check-report")
-	type result struct {
-		out []byte
-		err error
+	// The script reads two small files and takes a third of a second. A run on
+	// a busy Windows runner once made no progress at all in a minute, node not
+	// getting as far as running it, so a run that has not finished in 20
+	// seconds is ended and made again, three times, and it is the last
+	// attempt's word that counts. A script that fails says so at once and is
+	// not made again.
+	script := filepath.Join(dir(t), "check-contrast.mjs")
+	out, err, hung := runUnlessHung(contrastAttempts, contrastAttempt, func(ctx context.Context) ([]byte, error) {
+		return exec.CommandContext(ctx, node, script, "--check-report").CombinedOutput()
+	})
+	if hung {
+		t.Fatalf("check-contrast.mjs did not finish in %v, %d times in a row", contrastAttempt, contrastAttempts)
 	}
-	done := make(chan result, 1)
-	go func() {
-		out, err := cmd.CombinedOutput()
-		done <- result{out, err}
-	}()
-	select {
-	case r := <-done:
-		if r.err != nil {
-			t.Fatalf("check-contrast.mjs failed: %v\n%s", r.err, r.out)
+	if err != nil {
+		t.Fatalf("check-contrast.mjs failed: %v\n%s", err, out)
+	}
+}
+
+const (
+	contrastAttempt  = 20 * time.Second
+	contrastAttempts = 3
+)
+
+// runUnlessHung runs run, and runs it again if it has not returned within
+// perAttempt, up to attempts times. A run that returns, with an error or not, is
+// the answer: only one that made no progress is made again. hung is true when
+// every attempt did not finish.
+func runUnlessHung(attempts int, perAttempt time.Duration, run func(ctx context.Context) ([]byte, error)) (out []byte, err error, hung bool) {
+	for range attempts {
+		ctx, cancel := context.WithTimeout(context.Background(), perAttempt)
+		out, err = run(ctx)
+		timedOut := ctx.Err() != nil
+		cancel()
+		if !timedOut {
+			return out, err, false
 		}
-	case <-time.After(60 * time.Second):
-		_ = cmd.Process.Kill()
-		t.Fatal("check-contrast.mjs did not finish in 60s")
+	}
+	return nil, nil, true
+}
+
+func TestARunThatMadeNoProgressIsMadeAgain(t *testing.T) {
+	calls := 0
+	out, err, hung := runUnlessHung(3, 50*time.Millisecond, func(ctx context.Context) ([]byte, error) {
+		calls++
+		if calls < 3 {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return []byte("all contrast checks pass"), nil
+	})
+	if hung || err != nil || string(out) != "all contrast checks pass" || calls != 3 {
+		t.Errorf("after %d calls: %q, %v, hung %v; want the third call's answer", calls, out, err, hung)
+	}
+}
+
+func TestARunThatNeverMakesProgressIsHung(t *testing.T) {
+	calls := 0
+	_, _, hung := runUnlessHung(3, 20*time.Millisecond, func(ctx context.Context) ([]byte, error) {
+		calls++
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	if !hung || calls != 3 {
+		t.Errorf("hung = %v after %d calls, want hung after 3", hung, calls)
+	}
+}
+
+func TestARunThatFailsIsNotMadeAgain(t *testing.T) {
+	calls := 0
+	boom := errors.New("a ratio is below 4.5")
+	_, err, hung := runUnlessHung(3, time.Second, func(context.Context) ([]byte, error) {
+		calls++
+		return []byte("fails"), boom
+	})
+	if hung || !errors.Is(err, boom) || calls != 1 {
+		t.Errorf("err = %v, hung %v after %d calls, want its own error after one", err, hung, calls)
 	}
 }
 

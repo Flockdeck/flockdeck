@@ -43,12 +43,12 @@ func TestReleaseBuildPrintsToTheTerminal(t *testing.T) {
 // the run.
 func TestReleaseBuildDetachesFromTheTerminal(t *testing.T) {
 	exe := releaseBuild(t)
-	state := t.TempDir()
+	state := heldTempDir(t)
 	t.Setenv("APPDATA", state)
 	t.Setenv("LOCALAPPDATA", state)
 	t.Setenv(updateEnv, "off")
 
-	got, ok := inTerminal(t, "Running detached", exe, "-solo", "-detach", "-shell", "-C", t.TempDir())
+	got, ok := inTerminal(t, "Running detached", exe, "-solo", "-detach", "-shell", "-C", heldTempDir(t))
 	holdRecordedInstance(t)
 	if !ok {
 		t.Errorf("flockdeck -detach in a terminal showed %q, want its address and how to stop it", got)
@@ -65,12 +65,12 @@ func TestReleaseBuildDetachesFromTheTerminal(t *testing.T) {
 // every agent in it: detached, and gone with the terminal all the same.
 func TestReleaseBuildDetachedWithoutAWindowOutlivesItsTerminal(t *testing.T) {
 	exe := releaseBuild(t)
-	state := t.TempDir()
+	state := heldTempDir(t)
 	t.Setenv("APPDATA", state)
 	t.Setenv("LOCALAPPDATA", state)
 	t.Setenv(updateEnv, "off")
 
-	got, ok := inTerminal(t, "Running detached", exe, "-solo", "-detach", "-no-window", "-shell", "-C", t.TempDir())
+	got, ok := inTerminal(t, "Running detached", exe, "-solo", "-detach", "-no-window", "-shell", "-C", heldTempDir(t))
 	holdRecordedInstance(t)
 	if !ok {
 		t.Errorf("flockdeck -detach -no-window in a terminal showed %q, want its address and how to stop it", got)
@@ -87,12 +87,12 @@ func TestReleaseBuildDetachedWithoutAWindowOutlivesItsTerminal(t *testing.T) {
 // to run `flockdeck -quit`, the way that works.
 func TestReleaseBuildOffersAStopThatWorks(t *testing.T) {
 	exe := releaseBuild(t)
-	state := t.TempDir()
+	state := heldTempDir(t)
 	t.Setenv("APPDATA", state)
 	t.Setenv("LOCALAPPDATA", state)
 	t.Setenv(updateEnv, "off")
 
-	got, ok := inTerminal(t, "to stop.", exe, "-solo", "-no-window", "-shell", "-C", t.TempDir())
+	got, ok := inTerminal(t, "to stop.", exe, "-solo", "-no-window", "-shell", "-C", heldTempDir(t))
 	holdRecordedInstance(t)
 	if !ok || strings.Contains(got, "Ctrl+C") || !strings.Contains(got, "flockdeck -quit") {
 		t.Errorf("flockdeck -no-window in a terminal showed %q, want it to say to run `flockdeck -quit`, and nothing of Ctrl+C", got)
@@ -197,7 +197,7 @@ func releaseBuild(t *testing.T) string {
 	if testing.Short() {
 		t.Skip("builds the program")
 	}
-	exe := filepath.Join(t.TempDir(), "flockdeck.exe")
+	exe := filepath.Join(heldTempDir(t), "flockdeck.exe")
 	build := exec.Command("go", "build", "-ldflags", "-X main.version=v9.9.9 -H=windowsgui", "-o", exe, ".")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
@@ -249,4 +249,56 @@ func inTerminal(t *testing.T, want, exe string, args ...string) (string, bool) {
 		}
 	}
 	return shown(), false
+}
+
+// heldTempDir is t.TempDir for a folder a program started by the test has been
+// working in, or was run from. The program, and the shells it started in its
+// panes, end when the console they were started from is closed, but not at
+// that instant, and on Windows a folder is not removed while a process has it
+// as its working folder or is still running an executable from it. t.TempDir
+// gives that up after about two seconds, and the release-build tests failed
+// at random in their cleanup with "being used by another process" and
+// "Access is denied" on flockdeck.exe, after every assertion had passed. The
+// folder is given up to half a minute to come free; one still held after that
+// fails the test, as a leak.
+func heldTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "flockdeck-console-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			err := os.RemoveAll(dir)
+			if err == nil {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Errorf("%s was still held 30 seconds after the test ended: %v", dir, err)
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	})
+	return dir
+}
+
+// TestAHeldTempDirWaitsForTheFolderToComeFree holds a file in the folder without
+// letting it be deleted, as a process running from it does, for longer than
+// t.TempDir would wait, and checks the test still passes once it is let go.
+func TestAHeldTempDirWaitsForTheFolderToComeFree(t *testing.T) {
+	t.Run("holder", func(t *testing.T) {
+		dir := heldTempDir(t)
+		p, err := syscall.UTF16PtrFromString(filepath.Join(dir, "held.exe"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		h, err := syscall.CreateFile(p, syscall.GENERIC_READ|syscall.GENERIC_WRITE, syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE,
+			nil, syscall.CREATE_ALWAYS, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.AfterFunc(4*time.Second, func() { _ = syscall.CloseHandle(h) })
+	})
 }

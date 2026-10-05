@@ -128,6 +128,28 @@ func (s *Store) readTrust(id string) (rec trustRecord, exists, readable bool) {
 	return rec, true, true
 }
 
+// TrustReadError is a trust record that is there and is not one Flockdeck
+// wrote: unreadable, empty, the wrong shape, a folder, or without a version.
+// Without it nothing can be said about which versions are too old, so an
+// install is refused rather than allowed.
+type TrustReadError struct{ Path string }
+
+func (e *TrustReadError) Error() string {
+	return fmt.Sprintf("%s is damaged, so it cannot be told which versions are older than the newest one installed here before, and the install was refused. Delete it to reset it, then try again", e.Path)
+}
+
+// highWaterChecked is HighWater, except that a trust record that is there and
+// is not valid is an error and not "no mark". A missing record is a fresh
+// install and means no mark.
+func (s *Store) highWaterChecked(id string) (string, error) {
+	if validID(id) {
+		if rec, exists, ok := s.readTrust(id); exists && (!ok || !validVersion(rec.HighWater)) {
+			return "", &TrustReadError{Path: s.trustFile(id)}
+		}
+	}
+	return s.HighWater(id), nil
+}
+
 // HighWater is the newest signed version known to have been installed here: the
 // record's, or the installed version's if that is newer. Empty when none is
 // known.

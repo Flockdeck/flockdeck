@@ -320,7 +320,7 @@ with `-version`.
 
 Flockdeck keeps the newest version it has installed in `trust.json` in the
 helper's folder under its state folder (`apps/lens/trust.json`). If an install
-says it cannot write that file, or you want older versions to be accepted again,
+says it cannot write that file or that it is damaged, or you want older versions to be accepted again,
 delete it;
 `flockdeck helpers uninstall -purge-data lens` also removes it, together with the
 data, even when nothing is installed. If a helper's program was changed after it

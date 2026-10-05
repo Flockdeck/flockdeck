@@ -1408,7 +1408,10 @@ func TestARefusedPermissionPromptGoesBackToIdle(t *testing.T) {
 	s := fakeSession(f)
 	s.Kind = KindClaude
 	s.sawInput = true
-	s.answerQuiet = 60 * time.Millisecond
+	// Long next to the 10 ms between the writes below, which a busy runner can
+	// stretch: at 60 ms a pause of that size read as the drawing having stopped,
+	// and the pane went idle while the test was still drawing (macOS, once).
+	s.answerQuiet = 250 * time.Millisecond
 	report := func(event, tool string) {
 		if st, detail, ok := StatusForEvent(event, tool, ""); ok {
 			s.SetStatus(st, detail)

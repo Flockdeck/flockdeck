@@ -445,7 +445,14 @@ func TestASlowDownloadIsKeptAndAStalledOneIsNot(t *testing.T) {
 			}
 		}
 	}))
-	t.Cleanup(srv.Close)
+	// A handler waits for the test to release the next byte, and a client that
+	// never got to read one is not going to hang up: srv.Close would wait for
+	// the handler as long as the test binary's timeout. The connections are cut
+	// first, so a failure here is a failure and not twenty minutes of nothing.
+	t.Cleanup(func() {
+		srv.CloseClientConnections()
+		srv.Close()
+	})
 	t.Cleanup(sync.OnceFunc(func() { close(hold) }))
 
 	h := sha256.Sum256(body)
@@ -517,6 +524,7 @@ type fakeStall struct {
 	armed  bool
 	f      func()
 	resets chan struct{} // one for each Reset, so a test can tell the client has read a byte
+	total  int           // every Reset there has been, for saying what happened when one is missing
 }
 
 func (c *fakeStall) after(d time.Duration, f func()) stallTimer {
@@ -530,6 +538,7 @@ func (c *fakeStall) Reset(d time.Duration) bool {
 	c.mu.Lock()
 	was := c.armed
 	c.fireAt, c.armed = c.now+d, true
+	c.total++
 	c.mu.Unlock()
 	select {
 	case c.resets <- struct{}{}:
@@ -553,7 +562,9 @@ func (c *fakeStall) afterNextReset(t *testing.T) {
 	select {
 	case <-c.resets:
 	case <-time.After(30 * time.Second):
-		t.Fatal("the client never read the byte it was sent")
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		t.Fatalf("the client never read the byte it was sent: %d resets in all, timer armed %v, now %v, fires at %v", c.total, c.armed, c.now, c.fireAt)
 	}
 	c.forgetResets()
 }

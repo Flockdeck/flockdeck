@@ -35,6 +35,10 @@ type PaneDetails struct {
 	Status    string
 	Recording bool
 	Locked    bool
+	// Transcribable says the agent stores a conversation Flockdeck can read, so
+	// the pane can be recorded and exported. False for a shell, and for an agent
+	// that stores none Flockdeck can read.
+	Transcribable bool
 	// StoredPath is the file the agent keeps the conversation in, empty when
 	// the agent stores none Flockdeck can find or the file is not there yet.
 	StoredPath string
@@ -83,6 +87,7 @@ func (w *Workspace) PaneDetailsOf(id string, files bool) (PaneDetails, bool) {
 	spec, ex, ok := w.transcriptSourceLocked(p)
 	w.mu.RUnlock()
 	d.Conversation = conv
+	d.Transcribable = ok
 	if d.AgentID == "" {
 		d.AgentID = spec.ID
 	}

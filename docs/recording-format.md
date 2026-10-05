@@ -735,14 +735,18 @@ for:
   not something to send to a phone.
 - **It says what it did.** How many lines, and how many entries of the
   conversation could not be read; whether it was cut at the size cap.
+  The window asks for it and goes on working while it runs, and is told when it
+  is done. Two windows asking for one conversation at once share one export and
+  both get its answer. A Flockdeck that quits during an export stops it and
+  leaves nothing behind.
 - **Nothing for an agent with nothing stored.** The command and the window say
   that the agent stores no conversation Flockdeck can read, and write nothing.
 - **It can contain secrets.** Redaction is best effort (section 4); the window
   says so every time, and the command after it has run.
 - **Finding the file.** *Reveal transcript* (the command palette, and *Show in
   folder* in Pane info) shows the file the pane is recording to, or else its
-  newest export, in the file manager, selected; it shows only a file inside the recordings folder,
-  and not from a window reached through the relay. `recordings export -reveal`
+  newest export, in the file manager, selected; it shows only a file inside
+  the recordings folder, and not from a window reached through the relay. `recordings export -reveal`
   shows the file it has just written.
 
 Retention (section 1) does not touch exports, and an export never deletes another
