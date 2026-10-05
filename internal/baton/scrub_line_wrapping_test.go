@@ -56,7 +56,7 @@ func TestUnclosedOpenersDoNotGrowAText(t *testing.T) {
 // The four inputs of a megabyte whose time doubled when marks were looked at again:
 // each is within a few times what one pass takes.
 func TestMarkHeavyInputsStayNearOnePass(t *testing.T) {
-	if raceEnabled {
+	if slowRun() {
 		t.Skip("wall-clock limits do not hold under the race detector")
 	}
 	rep := func(s string, n int) string { return strings.Repeat(s, n) }

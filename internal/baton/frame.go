@@ -245,7 +245,10 @@ func WriteOverflow(path, text string) error {
 		return fmt.Errorf("%s is not a folder", dir)
 	}
 	if fi, err := os.Lstat(path); err == nil {
-		if !fi.Mode().IsRegular() {
+		// A link planted at the name is removed, not followed: os.Remove takes
+		// away the link itself and leaves whatever it pointed at. Anything else
+		// that is not a plain file (a folder, a device, a pipe) is refused.
+		if !fi.Mode().IsRegular() && fi.Mode()&os.ModeSymlink == 0 {
 			return fmt.Errorf("%s is not a regular file", path)
 		}
 		if err := os.Remove(path); err != nil {

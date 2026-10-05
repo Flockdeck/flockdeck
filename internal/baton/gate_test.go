@@ -241,7 +241,7 @@ func TestDifferentialGate(t *testing.T) {
 		t.Errorf("%d of %d lines that were scrubbed before now leak", leaks, total)
 	}
 	// The time limit is for a build without the race detector, which slows this several times.
-	if d := time.Since(start); !raceEnabled && d > 5*time.Second {
+	if d := time.Since(start); !slowRun() && d > 5*time.Second {
 		t.Errorf("the gate took %s", d)
 	}
 }

@@ -11,7 +11,7 @@ import (
 // Chains of a name and a value that never ends took time that grew with the square of the
 // text: each name read to the end of the text.
 func TestChainsOfBareNamesAreLinear(t *testing.T) {
-	if raceEnabled {
+	if slowRun() {
 		t.Skip("wall-clock limits do not hold under the race detector")
 	}
 	for _, unit := range []string{"{key=", "?key=", "(pw:", "[pass=", "<key:", "&pwd=", `"key":`} {
@@ -27,7 +27,7 @@ func TestChainsOfBareNamesAreLinear(t *testing.T) {
 // A value that ends in a backslash was looked at against the whole rest of the text, white
 // space trimmed from its far end, for each match.
 func TestManyTrailingBackslashValuesBeforeALongTailOfSpacesAreLinear(t *testing.T) {
-	if raceEnabled {
+	if slowRun() {
 		t.Skip("wall-clock limits do not hold under the race detector")
 	}
 	in := strings.Repeat("pass=Hunter2abcdefgh\\ \n", 40000) + strings.Repeat(" ", 1<<20)
@@ -48,7 +48,7 @@ func TestAHostileBlobIsBoundedAndNothingUnscrubbedIsPassedOn(t *testing.T) {
 	start := time.Now()
 	sc := NewScrubber().WithDeadline(time.Now().Add(300 * time.Millisecond))
 	got, _ := sc.Scrub(blob)
-	if d := time.Since(start); !raceEnabled && d > 6*time.Second {
+	if d := time.Since(start); !slowRun() && d > 6*time.Second {
 		t.Errorf("took %s", d)
 	}
 	if strings.Contains(got, secret) {

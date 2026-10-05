@@ -23,10 +23,11 @@ func readSettingsFile(p string) (data []byte, absent bool, why string) {
 	}
 	fi := li
 	if li.Mode()&os.ModeSymlink != 0 {
+		// A link whose target cannot be reached is not an absent file: the name is
+		// there, and what a program that follows it would read is not known. That
+		// includes a link to a device such as NUL, which some systems report as a
+		// missing path.
 		if fi, err = os.Stat(p); err != nil {
-			if absentErr(err) {
-				return nil, true, ""
-			}
 			return nil, false, "is a link that could not be followed"
 		}
 	}

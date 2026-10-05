@@ -33,7 +33,7 @@ func timed(t *testing.T, name, in string, limit time.Duration) {
 }
 
 func TestPathologicalInputsStayFast(t *testing.T) {
-	if raceEnabled {
+	if slowRun() {
 		t.Skip("wall-clock limits do not hold under the race detector")
 	}
 	timed(t, "one long line of mysql -p", strings.Repeat("mysql -pabc ", 80000), 3*time.Second)
@@ -57,7 +57,7 @@ func TestPathologicalInputsStayFast(t *testing.T) {
 // Twice the input must cost about twice as much: a ratio past 3.5 is the quadratic
 // work that a linear scan avoids.
 func TestPathologicalInputsScaleLinearly(t *testing.T) {
-	if raceEnabled {
+	if slowRun() {
 		t.Skip("wall-clock limits do not hold under the race detector")
 	}
 	for name, f := range map[string]func(n int) string{
@@ -81,7 +81,7 @@ func TestPathologicalInputsScaleLinearly(t *testing.T) {
 // A text of many URLs with credentials is read in time that grows with its length: the
 // credentials are found once and looked up by position for each span.
 func TestManyURLCredentialsAreLinear(t *testing.T) {
-	if raceEnabled {
+	if slowRun() {
 		t.Skip("wall-clock limits do not hold under the race detector")
 	}
 	url := func(n int) string { return strings.Repeat("https:"+"//u:p@h/ ", n) }
@@ -95,7 +95,7 @@ func TestManyURLCredentialsAreLinear(t *testing.T) {
 // A long line of many names and values costs time that grows with its length: what is read
 // after a value to decide it is code is a bounded window, not the rest of the line.
 func TestLongLinesOfNamesAndValuesScaleLinearly(t *testing.T) {
-	if raceEnabled {
+	if slowRun() {
 		t.Skip("wall-clock limits do not hold under the race detector")
 	}
 	for name, unit := range map[string]string{
