@@ -12,6 +12,7 @@ import (
 // the log, and then pruning goes on with it taken as empty: nothing is removed inside the
 // retention window, and removals resume.
 func TestAnUnreadableRecordStopsPruningForThirtyDaysThenItGoesOn(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	recordSleep = func(time.Duration) {}
 	t.Cleanup(func() { recordSleep = time.Sleep })

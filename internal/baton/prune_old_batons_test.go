@@ -24,6 +24,7 @@ func capture(t *testing.T) *[]string {
 // replaced by a function that says so. It stops pruning for thirty days and after that the
 // rest is pruned, with the batons only that layout names no longer protected.
 func TestALayoutThatStaysUnreadableStopsPruningForThirtyDaysOnly(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))
@@ -58,6 +59,7 @@ func TestALayoutThatStaysUnreadableStopsPruningForThirtyDaysOnly(t *testing.T) {
 // wrong. Two batons: one named and years old, one old; if the named one were counted as
 // looking too old, half of them would, and the run would not be written down.
 func TestAReferencedSixYearOldBatonDoesNotMakeTheClockLookWrong(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))
@@ -90,6 +92,7 @@ func TestAReferencedSixYearOldBatonDoesNotMakeTheClockLookWrong(t *testing.T) {
 // A baton that looks over five years old and is named by nothing is skipped by itself:
 // the others are pruned, nothing returns ErrClock for it, and it is said once a day.
 func TestAnAbsurdlyOldBatonIsLeftAloneAndTheOthersArePruned(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	b := sample()
@@ -126,6 +129,7 @@ func TestAnAbsurdlyOldBatonIsLeftAloneAndTheOthersArePruned(t *testing.T) {
 // A prune record that is empty or damaged is started again, not a reason to stop for good:
 // it is kept as prune.json.bad, pruning goes on from the next run.
 func TestADamagedOrEmptyPruneRecordIsStartedAgain(t *testing.T) {
+	quietCleanups(t)
 	for name, content := range map[string]string{"empty": "", "damaged": "{\"seen\": "} {
 		t.Run(name, func(t *testing.T) {
 			withClock(t)
@@ -186,6 +190,7 @@ func TestAFailedInPlaceWriteRestoresWhatWasThere(t *testing.T) {
 // When half of the batons that nothing names look over five years old the clock is the
 // likelier fault: the run still prunes what it can, and is not written down.
 func TestWhenHalfTheBatonsLookAbsurdlyOldTheRunIsNotWrittenDown(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	b := sample()

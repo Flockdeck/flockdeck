@@ -13,6 +13,7 @@ import (
 // unused: the run that finds it removes nothing, nothing is removed for a day after, and the
 // record is kept aside and started again.
 func TestADamagedUsedRecordStopsPruningForADay(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	recordSleep = func(time.Duration) {}
 	t.Cleanup(func() { recordSleep = time.Sleep })
@@ -121,6 +122,7 @@ func TestADamagedRecordCostsTheWaitOnceAndOnlyWhereItIsRead(t *testing.T) {
 
 // Five runs of Prune with a record that cannot be set aside (so it stays damaged) are quick.
 func TestPruneWithARecordThatStaysDamagedIsQuick(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	oldBaton(t, s, 2)

@@ -28,6 +28,7 @@ func overflowFor(t *testing.T, root string, s *Store, id string) string {
 // first removal is stuck, and only one removal is ever started: the cleanup is
 // single-flight, so a hung share cannot collect goroutines.
 func TestAnOverflowRemovalThatNeverAnswersDoesNotHoldUpAPrune(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))
@@ -68,6 +69,7 @@ func TestAnOverflowRemovalThatNeverAnswersDoesNotHoldUpAPrune(t *testing.T) {
 // A path that cannot be removed is kept with a count, and forgotten with a line in
 // the log after maxOverflowFailures.
 func TestAnOverflowFileThatCannotBeRemovedIsGivenUpOn(t *testing.T) {
+	quietCleanups(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))
 	id := oldBaton(t, s, 2)
@@ -112,6 +114,7 @@ func TestAStuckRemovalIsNotStartedAgain(t *testing.T) {
 // A layout of any size is searched for the batons it names, and one is not skipped
 // for being large.
 func TestALargeLayoutIsStillSearchedForBatons(t *testing.T) {
+	quietCleanups(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))
 	id := oldBaton(t, s, 2)

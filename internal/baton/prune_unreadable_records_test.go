@@ -20,6 +20,7 @@ func quickRecords(t *testing.T) {
 // A read that fails (a lock held by a scanner, a refusal) is not damage: nothing is moved aside,
 // there is no hold, and nothing is pruned in that run. One that works the second time is fine.
 func TestARecordThatCannotBeReadIsNotMovedAsideAndPruningStopsThatRun(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	quickRecords(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
@@ -62,6 +63,7 @@ func TestARecordThatCannotBeReadIsNotMovedAsideAndPruningStopsThatRun(t *testing
 
 // A record found damaged that is whole when the records are locked is not moved aside.
 func TestARecordThatWasMendedBeforeTheLockIsNotMovedAside(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	quickRecords(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
@@ -139,6 +141,7 @@ func TestTheHundredthCopyKeptAsideIsNotWrittenOver(t *testing.T) {
 
 // The hold on pruning survives a prune record that is lost.
 func TestAHoldOnPruningSurvivesAPruneRecordThatIsLost(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	quickRecords(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
@@ -169,6 +172,7 @@ func TestAHoldOnPruningSurvivesAPruneRecordThatIsLost(t *testing.T) {
 
 // Records of the wrong shape are damaged: a list, numbers where text is, text where times are.
 func TestRecordsOfTheWrongShapeAreDamaged(t *testing.T) {
+	quietCleanups(t)
 	for name, content := range map[string]string{
 		usedName:      `[]`,
 		sourcesName:   `{"id": 5}`,
@@ -203,6 +207,7 @@ func TestRecordsOfTheWrongShapeAreDamaged(t *testing.T) {
 // A record that is cut short with a complete copy beside it is read from the copy and is not
 // moved aside; a copy that is not complete is taken away when the record starts again.
 func TestARecordWithACompleteCopyBesideItIsNotMovedAside(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	quickRecords(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))

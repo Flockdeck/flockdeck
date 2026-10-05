@@ -14,6 +14,7 @@ func simDay(start time.Time, d int) time.Time { return start.Add(time.Duration(d
 // file's time, which the age rule reads. Created on day 0, the record a folder from day 10,
 // used on day 39, readable again on day 50: it is not removed before day 69 (39 + 30).
 func TestABatonUsedWhileTheUsedRecordWasUnreadableIsNotPrunedForThirtyDaysAfter(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	recordSleep = func(time.Duration) {}
 	t.Cleanup(func() { recordSleep = time.Sleep })
@@ -64,6 +65,7 @@ func TestABatonUsedWhileTheUsedRecordWasUnreadableIsNotPrunedForThirtyDaysAfter(
 // A record's own time of being unreadable is forgotten as soon as that record reads fine, even
 // while another stays unreadable: when it fails again its thirty days start again.
 func TestARecordsUnreadableTimeIsForgottenWhenItReadsFineWhateverTheOthersDo(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	recordSleep = func(time.Duration) {}
 	t.Cleanup(func() { recordSleep = time.Sleep })

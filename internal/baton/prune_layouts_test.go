@@ -29,6 +29,7 @@ func has(s *Store, id string) bool {
 // A layout that names a baton protects it, for any project, whether or not it is
 // open, and a damaged one kept under another name does too.
 func TestPruneKeepsWhatAnySavedLayoutNames(t *testing.T) {
+	quietCleanups(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))
 	named, damaged, plain := oldBaton(t, s, 2), oldBaton(t, s, 3), oldBaton(t, s, 4)
@@ -52,6 +53,7 @@ func TestPruneKeepsWhatAnySavedLayoutNames(t *testing.T) {
 // A pane another Flockdeck has just started from a baton, not yet in a saved
 // layout, protects it for an hour and no longer.
 func TestPruneKeepsABatonAPaneWasJustStartedFrom(t *testing.T) {
+	quietCleanups(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	fresh, stale := oldBaton(t, s, 2), oldBaton(t, s, 3)
 	s.MarkInUse(fresh)
@@ -69,6 +71,7 @@ func TestPruneKeepsABatonAPaneWasJustStartedFrom(t *testing.T) {
 }
 
 func TestPruneDoesNothingWhenTheClockWentBackward(t *testing.T) {
+	quietCleanups(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	id := oldBaton(t, s, 2)
 	if _, err := s.Prune(RetainFor, time.Now().Add(-48*time.Hour), nil); err != nil && !errors.Is(err, ErrClock) {
@@ -84,6 +87,7 @@ func TestPruneDoesNothingWhenTheClockWentBackward(t *testing.T) {
 }
 
 func TestPruneDoesNothingWhenABatonIsDatedInTheFuture(t *testing.T) {
+	quietCleanups(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	old := oldBaton(t, s, 2)
 	b := sample()
@@ -104,6 +108,7 @@ func TestPruneDoesNothingWhenABatonIsDatedInTheFuture(t *testing.T) {
 // A machine that saves a baton less often than weekly still prunes: a long gap is
 // not a clock that went wrong, and each run takes half of what is old.
 func TestPruningGoesOnAfterLongGapsBetweenSaves(t *testing.T) {
+	quietCleanups(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	var ids []string
 	for d := 2; d <= 7; d++ {
@@ -132,6 +137,7 @@ func TestPruningGoesOnAfterLongGapsBetweenSaves(t *testing.T) {
 // Marks that no longer protect anything are removed: old ones, and those of batons
 // that are gone.
 func TestPruneRemovesStartedFromMarksThatAreStale(t *testing.T) {
+	quietCleanups(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	fresh := oldBaton(t, s, 2)
 	stale := oldBaton(t, s, 3)
@@ -153,6 +159,7 @@ func TestPruneRemovesStartedFromMarksThatAreStale(t *testing.T) {
 
 // At most half the batons go in one run, the oldest first.
 func TestPruneRemovesAtMostHalfInOneRun(t *testing.T) {
+	quietCleanups(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	var ids []string
 	for d := 2; d <= 9; d++ {
@@ -180,6 +187,7 @@ func TestPruneRemovesAtMostHalfInOneRun(t *testing.T) {
 // A baton restored from a backup has an old modified time. Its id says when it was
 // made, and a record says when it was last used: either keeps it.
 func TestPruneReadsTheIDAndTheUsedRecordNotOnlyTheModifiedTime(t *testing.T) {
+	quietCleanups(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	restored := sample()
 	restored.ID = NewID(time.Now().Add(-3 * 24 * time.Hour))
@@ -224,6 +232,7 @@ func TestTouchRecordsTheUse(t *testing.T) {
 // overflow files are still noted; the run that finds one removes nothing (see
 // TestADamagedUsedRecord...) and says what it did.
 func TestADamagedOverflowRecordIsRepairedNotLeftToFailEveryTime(t *testing.T) {
+	quietCleanups(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
@@ -256,6 +265,7 @@ func TestADamagedOverflowRecordIsRepairedNotLeftToFailEveryTime(t *testing.T) {
 // The lock the records share is not held while the files in checkouts are looked
 // at, since one on a share that has stopped answering would hold every save.
 func TestPruneDoesNotHoldTheRecordsLockWhileItLooksAtOverflowFiles(t *testing.T) {
+	quietCleanups(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))
 	id := oldBaton(t, s, 2)

@@ -18,6 +18,7 @@ func unreadableLayouts(t *testing.T) {
 
 // A layout that can be read again clears the count.
 func TestALayoutReadableAgainResetsTheUnreadableCount(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))
@@ -43,6 +44,7 @@ func TestALayoutReadableAgainResetsTheUnreadableCount(t *testing.T) {
 
 // A state folder that cannot be listed stops that run, and is said once a day.
 func TestAStateFolderThatCannotBeListedStopsTheRunAndIsSaidOnceADay(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	id := oldBaton(t, s, 2)
@@ -68,6 +70,7 @@ func TestAStateFolderThatCannotBeListedStopsTheRunAndIsSaidOnceADay(t *testing.T
 
 // Noting what pruning has seen does not drop the other entries of the record.
 func TestNotingWhatPruningSawKeepsTheRecordsOtherEntries(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	oldBaton(t, s, 2)

@@ -69,6 +69,7 @@ func TestTheClockWatchSeesAJumpBetweenTwoLooksAndThenStartsAgain(t *testing.T) {
 // A clock set while Flockdeck runs stops pruning for that run, through the real
 // logic and a clock that is moved: not a stub of the detector.
 func TestPruneDoesNothingWhenTheClockWasSetWhileRunning(t *testing.T) {
+	quietCleanups(t)
 	c := withClock(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	oldBaton(t, s, 2)
@@ -91,6 +92,7 @@ func TestPruneDoesNothingWhenTheClockWasSetWhileRunning(t *testing.T) {
 // A clock seventy years ahead, while Flockdeck was not running, must not wipe the
 // store or poison the record of what pruning has seen.
 func TestAClockSeventyYearsAheadWipesNothingAndPoisonsNothing(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	var ids []string
@@ -118,6 +120,7 @@ func TestAClockSeventyYearsAheadWipesNothingAndPoisonsNothing(t *testing.T) {
 
 // A time written down that is ahead of now by more than a day is not believed.
 func TestARecordedTimeInTheFutureDoesNotStopPruningForEver(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	id := oldBaton(t, s, 2)
@@ -136,6 +139,7 @@ func TestARecordedTimeInTheFutureDoesNotStopPruningForEver(t *testing.T) {
 
 // With fewer than four batons, one goes in a run; with more, half.
 func TestPruneTakesOneAtATimeFromAFewAndHalfFromMany(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	for _, tc := range []struct{ n, first int }{{1, 1}, {2, 1}, {3, 1}, {4, 2}, {5, 2}, {10, 5}} {
 		s := NewStore(filepath.Join(t.TempDir(), "batons"))
@@ -152,6 +156,7 @@ func TestPruneTakesOneAtATimeFromAFewAndHalfFromMany(t *testing.T) {
 // The age is also checked against the folder's own files: a clock a year or more past
 // everything in it is wrong, whatever the batons say.
 func TestAClockMoreThanAYearPastTheNewestFileIsNotTrusted(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))
@@ -212,6 +217,7 @@ func TestARecordIsWrittenInPlaceWhenTheRenameIsRefusedForGood(t *testing.T) {
 }
 
 func TestPruneSweepsStaleTemporaryRecords(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	oldBaton(t, s, 2)
@@ -256,6 +262,7 @@ func TestMarkInUseSurvivesTheFolderBeingRemovedAndSweepKeepsIt(t *testing.T) {
 
 // A layout that cannot be read may name a baton: nothing is pruned that run.
 func TestAnUnreadableLayoutStopsPruningThatRun(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))
@@ -281,6 +288,7 @@ func TestAnUnreadableLayoutStopsPruningThatRun(t *testing.T) {
 // A path noted while the cleanup was looking at files is not lost when it writes the
 // record back.
 func TestAPathNotedDuringACleanupIsNotLost(t *testing.T) {
+	quietCleanups(t)
 	withClock(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))

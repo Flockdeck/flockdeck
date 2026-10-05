@@ -16,6 +16,7 @@ func ageFile(t *testing.T, path string, age time.Duration) {
 }
 
 func TestPruneRemovesOldBatonsTheirSourcesAndOverflowFiles(t *testing.T) {
+	quietCleanups(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))
 	oldB, keepB, usedB := sample(), sample(), sample()
@@ -70,6 +71,7 @@ func TestPruneRemovesOldBatonsTheirSourcesAndOverflowFiles(t *testing.T) {
 }
 
 func TestPruneLeavesWhatIsNotAnOverflowFile(t *testing.T) {
+	quietCleanups(t)
 	root := t.TempDir()
 	s := NewStore(filepath.Join(root, "batons"))
 	b := sample()
@@ -96,6 +98,7 @@ func TestPruneLeavesWhatIsNotAnOverflowFile(t *testing.T) {
 }
 
 func TestTouchKeepsABatonThatIsStillUsed(t *testing.T) {
+	quietCleanups(t)
 	s := NewStore(filepath.Join(t.TempDir(), "batons"))
 	b := sample()
 	if err := s.Save(b); err != nil {
@@ -109,6 +112,7 @@ func TestTouchKeepsABatonThatIsStillUsed(t *testing.T) {
 }
 
 func TestPruneOnAMissingFolderIsNothing(t *testing.T) {
+	quietCleanups(t)
 	s := NewStore(filepath.Join(t.TempDir(), "none"))
 	if removed, err := s.Prune(RetainFor, time.Now(), nil); err != nil || len(removed) != 0 {
 		t.Errorf("Prune = %v, %v", removed, err)
