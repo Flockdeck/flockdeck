@@ -19,7 +19,7 @@ func TestTheSourceCompanyIsJudgedInTheSourcePanesOwnFolder(t *testing.T) {
 	change := func(dir string) string {
 		h := &handoff{Baton: baton.Baton{ID: "20261001-090000-0a1b2c"}, Source: "claude-a", Dir: dir, Scrubber: baton.NewScrubber()}
 		got, _ := ask(srv, func() string {
-			c, _, _ := srv.batonChange(h, parent, clean, clean, "", "claude-b", "")
+			c, _, _ := srv.batonChange(h, parent, clean, clean, "", "claude-b", "", "")
 			return c
 		})
 		return got

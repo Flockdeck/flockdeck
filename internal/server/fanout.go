@@ -1274,7 +1274,7 @@ func (s *Server) installSpawnHandler() {
 				approved *workspace.ApprovedTarget
 			}
 			v, ok := ask(s, func() verdict {
-				change, info, ap := s.batonChange(handoff, req.Parent, spawnCwd, cwd, req.Branch, agentID, modelID)
+				change, info, ap := s.batonChange(handoff, req.Parent, spawnCwd, cwd, req.Branch, agentID, modelID, req.Task)
 				return verdict{change, info, ap}
 			})
 			if !ok {

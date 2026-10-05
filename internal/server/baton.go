@@ -195,7 +195,7 @@ var logf = func(format string, args ...any) {
 // The source is the one the application recorded, never the baton's header; where
 // none is recorded (a notes file, a baton the application did not record) the
 // company is not known. It must run on the workspace goroutine.
-func (s *Server) batonChange(h *handoff, parent, cwd, source, branch, agentID, model string) (string, approvalInfo, *workspace.ApprovedTarget) {
+func (s *Server) batonChange(h *handoff, parent, cwd, source, branch, agentID, model, task string) (string, approvalInfo, *workspace.ApprovedTarget) {
 	// The agent the helper will run, worked out as Spawn works it out: for the
 	// project of the pane that spawns it, which is not the one on screen.
 	resolved, _ := s.ws.SpawnTarget(parent, cwd, agentID, model)
@@ -246,7 +246,7 @@ func (s *Server) batonChange(h *handoff, parent, cwd, source, branch, agentID, m
 	if p := s.ws.Pane(parent); p != nil {
 		info.Asker = "The pane \"" + p.Name + "\""
 	}
-	info.Gist = batonGist(h.Baton)
+	info.Gist = batonGist(h.Baton, task)
 	return change, info, &workspace.ApprovedTarget{Agent: target.ID, Provider: toProvider, SourceProvider: fromProvider, From: alsoFrom(source, cwd)}
 }
 
@@ -492,7 +492,7 @@ func (s *Server) batonCommand(c *controlClient, cmd command) {
 			return
 		}
 		if approve != nil {
-			approve.Gist = batonGist(b)
+			approve.Gist = batonGist(b, cmd.Task)
 			c.notify("Waiting for you to allow this in the Flockdeck window on the computer.", false)
 			if err := s.approveElsewhere(context.Background(), *approve); err != nil {
 				fail(err)
