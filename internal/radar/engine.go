@@ -1,6 +1,7 @@
 package radar
 
 import (
+	"container/list"
 	"context"
 	"sort"
 	"strings"
@@ -55,7 +56,8 @@ type Engine struct {
 	run sync.Mutex
 
 	mu    sync.Mutex
-	cache map[treePair]verdict
+	cache map[treePair]*list.Element // of *entry, newest merge asked for at the front
+	order *list.List
 	pairs map[pair]*streak
 	// last is the latest ready Input of each checkout, so that a pair whose
 	// other half is not in a refresh can still be dropped once the paths of
@@ -71,11 +73,19 @@ type Engine struct {
 	// commit or a pane opening, and two of them a moment apart are the same
 	// moment as far as an edit in progress is concerned.
 	minGap time.Duration
+	// maxCached is how many merges are kept: maxCached unless a test says less.
+	maxCached int
 }
 
 type pair struct{ a, b string }
 
 type treePair struct{ a, b string }
+
+// entry is a merge in the cache.
+type entry struct {
+	key treePair
+	v   verdict
+}
 
 type verdict struct {
 	paths    []string
@@ -91,8 +101,17 @@ type streak struct {
 }
 
 // maxCached bounds the cache of merges done. Tree ids are content addressed,
-// so an entry is never wrong, only unlikely to be asked for again.
-const maxCached = 1024
+// so an entry is never wrong, only unlikely to be asked for again. When it is
+// full the one asked for least recently goes, not the whole cache: forty panes
+// that all touch a file are 780 pairs, and wiping the cache at the limit would
+// have them merged again from nothing.
+const maxCached = 4096
+
+// maxMergesPerRefresh bounds how many merges one refresh runs. Sixty panes on one
+// file are 1,770 pairs, and a refresh that ran them all would hold the repository
+// for as long as git takes. What is not reached is left as it was (Report.Behind),
+// and the merges done are cached, so the next refresh goes on from there.
+const maxMergesPerRefresh = 50
 
 // Predictor is how an Engine merges two snapshots; Predict is the one that asks
 // git.
@@ -105,6 +124,8 @@ type Options struct {
 	Predict Predictor
 	Now     func() time.Time
 	MinGap  time.Duration
+	// MaxCached is how many merges the engine keeps; zero is the default.
+	MaxCached int
 }
 
 // NewEngine makes an Engine for one repository.
@@ -113,12 +134,17 @@ func NewEngine() *Engine { return NewEngineWith(Options{}) }
 // NewEngineWith is NewEngine with o.
 func NewEngineWith(o Options) *Engine {
 	e := &Engine{
-		cache:   map[treePair]verdict{},
-		pairs:   map[pair]*streak{},
-		last:    map[string]Input{},
-		predict: o.Predict,
-		now:     o.Now,
-		minGap:  o.MinGap,
+		cache:     map[treePair]*list.Element{},
+		order:     list.New(),
+		pairs:     map[pair]*streak{},
+		last:      map[string]Input{},
+		predict:   o.Predict,
+		now:       o.Now,
+		minGap:    o.MinGap,
+		maxCached: o.MaxCached,
+	}
+	if e.maxCached == 0 {
+		e.maxCached = maxCached
 	}
 	if e.predict == nil {
 		e.predict = Predict
@@ -138,8 +164,9 @@ type Report struct {
 	// confirmAfter refreshes in a row, whether or not this one asked about
 	// them again.
 	Conflicts []Conflict
-	// Behind says ctx ran out before every pair was looked at. What is
-	// reported is then the last that was found for those left.
+	// Behind says ctx ran out, or the refresh reached its limit of merges
+	// (maxMergesPerRefresh), before every pair was looked at. What is reported
+	// is then the last that was found for those left.
 	Behind bool
 	// Merges is how many merge-trees this refresh ran.
 	Merges int
@@ -203,7 +230,7 @@ func (e *Engine) Update(ctx context.Context, dir string, s *gitx.Scratch, in []I
 			}
 			v, cached := e.cached(key)
 			if !cached {
-				if ctx.Err() != nil {
+				if ctx.Err() != nil || r.Merges >= maxMergesPerRefresh {
 					r.Behind = true
 					continue
 				}
@@ -308,17 +335,28 @@ func (e *Engine) drop(p pair) {
 func (e *Engine) cached(key treePair) (verdict, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	v, ok := e.cache[key]
-	return v, ok
+	el, ok := e.cache[key]
+	if !ok {
+		return verdict{}, false
+	}
+	e.order.MoveToFront(el)
+	return el.Value.(*entry).v, true
 }
 
 func (e *Engine) remember(key treePair, v verdict) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if len(e.cache) >= maxCached {
-		e.cache = map[treePair]verdict{}
+	if el, ok := e.cache[key]; ok {
+		el.Value.(*entry).v = v
+		e.order.MoveToFront(el)
+		return
 	}
-	e.cache[key] = v
+	e.cache[key] = e.order.PushFront(&entry{key, v})
+	for len(e.cache) > e.maxCached {
+		oldest := e.order.Back()
+		e.order.Remove(oldest)
+		delete(e.cache, oldest.Value.(*entry).key)
+	}
 }
 
 // sighted notes that this refresh found p conflicting over paths.

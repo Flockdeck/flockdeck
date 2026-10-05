@@ -3,6 +3,7 @@ package radar
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -406,5 +407,58 @@ func TestForgetWaitsForNoUpdateAndSaysSoWhenBusy(t *testing.T) {
 	end()
 	if !f.Forget("b") || len(f.Conflicts()) != 0 {
 		t.Error("Forget did not drop the pair once the engine was free")
+	}
+}
+
+// Sixty panes on one file are 1,770 pairs. A refresh runs at most 50 of the merges,
+// says it is behind, and the next goes on from the cache until all are done.
+func TestAtMostFiftyMergesARefreshAndTheRestFollow(t *testing.T) {
+	f := newFake()
+	var in []Input
+	for i := 0; i < 60; i++ {
+		in = append(in, ready(fmt.Sprintf("p%02d", i), fmt.Sprintf("t%02d", i), "shared.go"))
+	}
+	first := f.cycle(t, in...)
+	if first.Merges != 50 || !first.Behind {
+		t.Errorf("first refresh: %d merges, behind %v, want 50 and behind", first.Merges, first.Behind)
+	}
+	total := first.Merges
+	refreshes := 1
+	for ; refreshes < 100; refreshes++ {
+		r := f.cycle(t, in...)
+		if r.Merges > 50 {
+			t.Fatalf("refresh %d ran %d merges", refreshes+1, r.Merges)
+		}
+		total += r.Merges
+		if !r.Behind {
+			break
+		}
+	}
+	if total != 60*59/2 {
+		t.Errorf("%d merges in all after %d refreshes, want each of the 1770 pairs once", total, refreshes+1)
+	}
+	if again := f.cycle(t, in...); again.Merges != 0 || again.Behind {
+		t.Errorf("once all are cached a refresh did %d merges (behind %v)", again.Merges, again.Behind)
+	}
+}
+
+// A full cache drops the merge asked for least recently, not everything.
+func TestAFullCacheDropsTheLeastRecentlyUsedNotEverything(t *testing.T) {
+	e := NewEngineWith(Options{MaxCached: 4})
+	key := func(i int) treePair { return treePair{fmt.Sprint("a", i), fmt.Sprint("b", i)} }
+	for i := 1; i <= 4; i++ {
+		e.remember(key(i), verdict{conflict: true})
+	}
+	if _, ok := e.cached(key(1)); !ok { // 1 is the newest asked for now; 2 is the oldest
+		t.Fatal("an entry in the cache was not found")
+	}
+	e.remember(key(5), verdict{})
+	for i, want := range map[int]bool{1: true, 2: false, 3: true, 4: true, 5: true} {
+		if _, ok := e.cached(key(i)); ok != want {
+			t.Errorf("entry %d cached = %v, want %v", i, ok, want)
+		}
+	}
+	if len(e.cache) != 4 || e.order.Len() != 4 {
+		t.Errorf("%d entries (%d in order), want 4", len(e.cache), e.order.Len())
 	}
 }

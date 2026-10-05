@@ -119,6 +119,12 @@ func FindTokens(s string) []Span {
 // Find reports what Redact would replace in s, as spans of s, without
 // replacing it. Spans that overlap are merged into one.
 func Find(s string) []Span {
+	return merge(append(findOthers(s), FindTokens(s)...))
+}
+
+// findOthers is Find without the shaped tokens: private keys, credentials after
+// Bearer and Basic and in URLs, and values assigned to a secret's name.
+func findOthers(s string) []Span {
 	if s == "" {
 		return nil
 	}
@@ -140,7 +146,6 @@ func Find(s string) []Span {
 		}
 		out = append(out, Span{m[4], m[5], "secret-value"})
 	}
-	out = append(out, FindTokens(s)...)
 	return merge(out)
 }
 
@@ -185,19 +190,28 @@ func merge(spans []Span) []Span {
 // patterns: a secret with no recognisable shape, in text that does not name it
 // as one, is kept as it was said.
 func Redact(s string) string {
-	spans := Find(s)
-	if len(spans) == 0 {
-		return s
+	spans := findOthers(s)
+	if len(spans) > 0 {
+		var b strings.Builder
+		at := 0
+		for _, sp := range spans {
+			b.WriteString(s[at:sp.Start])
+			b.WriteString(Redacted)
+			at = sp.End
+		}
+		b.WriteString(s[at:])
+		s = b.String()
 	}
-	var b strings.Builder
-	at := 0
-	for _, sp := range spans {
-		b.WriteString(s[at:sp.Start])
-		b.WriteString(Redacted)
-		at = sp.End
+	// The shaped tokens go one shape after another on what is left, as they always
+	// have. Finding them all on the original text and merging (Find does that, for
+	// callers that need spans of the text they have) is not the same: a shape that
+	// starts or ends at a word boundary, an AWS key or a JWT, sees a boundary where
+	// another token that was replaced before it stood glued to it, and does not on
+	// the original.
+	for _, t := range tokenShapes {
+		s = t.re.ReplaceAllString(s, Redacted)
 	}
-	b.WriteString(s[at:])
-	return b.String()
+	return s
 }
 
 // RedactValue is Redact for a decoded JSON value: every string in it is

@@ -79,16 +79,16 @@ func noApproval(conn *websocket.Conn, d time.Duration) bool {
 	return true
 }
 
-func writeNotesIn() string {
-	dir, _ := os.MkdirTemp("", "notes")
-	path := filepath.Join(dir, "notes.md")
+func writeNotesIn(pane string) string {
+	dir, _ := paneDirs.Load(pane)
+	path := filepath.Join(dir.(string), "notes-"+pane+".md")
 	_ = os.WriteFile(path, []byte("finish the thing"), 0o600)
 	return path
 }
 
 func spawnElsewhere(hook *hooks.Server, pane string) chan error {
 	result := make(chan error, 1)
-	notes := writeNotesIn()
+	notes := writeNotesIn(pane)
 	go func() {
 		_, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane,
 			hooks.SpawnRequest{Task: "x", Agent: "gitcli", Baton: "path:" + notes, BatonElsewhere: true})
@@ -132,7 +132,7 @@ func TestSendingABatonElsewhereNeedsTheUserToAllowItInTheWindow(t *testing.T) {
 		t.Fatalf("the notice does not ask for approval: %+v", n)
 	}
 	// It says where the baton would go and where it came from.
-	for _, want := range []string{"Git as an agent", "(git)", "unknown source"} {
+	for _, want := range []string{"Git as an agent", "(git)", "unknown source", "It is ", " bytes", `begins: "finish the thing"`} {
 		if !strings.Contains(n.Text, want) {
 			t.Errorf("the notice does not say %q: %s", want, n.Text)
 		}

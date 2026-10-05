@@ -1766,8 +1766,8 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	// A value flag, never one with an optional value: a flag that may or may
 	// not take the next word would be ambiguous with the first word of the
 	// task, which is the class of mistake orderSpawnArgs exists to prevent.
-	fs.StringVar(&f.baton, "baton", "", "start the helper from a handoff: `self` makes one from this conversation, or give a pane id, a baton id (flockdeck baton list) or a notes file")
-	fs.BoolVar(&f.batonElsewhere, "baton-send-elsewhere", false, "ask the user to let -baton go to an agent of a different company than the one it came from, or of one whose company is not known; refused without it, and sent only once the user allows it in a window")
+	fs.StringVar(&f.baton, "baton", "", "start the helper from a handoff: `self` makes one from this conversation, or give a pane id of this project, a baton id (flockdeck baton list) or a notes file inside this project")
+	fs.BoolVar(&f.batonElsewhere, "baton-send-elsewhere", false, "ask the user to let -baton go to an agent of a different company than the one it came from, or of one whose company is not known; refused without it, and sent only once the user allows it in a window. That stops a mistake, not a program running as the same user")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: flockdeck spawn [flags] <task>\n\n")
 		fmt.Fprintf(os.Stderr, "Starts another agent, working on <task>.\n\nFlags:\n")

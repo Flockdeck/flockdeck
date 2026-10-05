@@ -75,24 +75,15 @@ assert.ok(sw, "no conflict radar switch in General");
 assert.strictEqual(sw.getAttribute("aria-checked"), "false", "the radar starts on");
 const row = sw.closest(".set-row").textContent;
 assert.ok(/off by default/i.test(row), "the row does not say it is off by default: " + row);
+assert.ok(row.length < 1100, "the row is " + row.length + " characters; the detail belongs on the Worktrees help page");
 assert.ok(!/no textual conflicts predicted/i.test(row) && !/safe to merge/i.test(row), "the wording promises that no chip means no conflict: " + row);
-assert.ok(/skipped/i.test(row) && /timed out/i.test(row), "the row does not say what no chip can also mean: " + row);
-assert.ok(/relay/i.test(row), "the row does not say names and paths reach windows through the relay: " + row);
-assert.ok(/every pane that has uncommitted or new files/i.test(row), "the row does not say every such pane is copied, not only those sharing files: " + row);
-assert.ok(!/only panes (sharing|that share)/i.test(row), "the row says only panes sharing files are copied: " + row);
-assert.ok(/split index/i.test(row), "the row does not name the shared index file whose time git may set: " + row);
-for (const word of ["shallow clone whose history does not reach the base", "bare repository", "submodule", "folder was deleted", "limit of a thousand", "partial clone", "2.44", "nearest", "looked up again when", "three refreshes", "read again each refresh", "checked out in both", "untracked folder holding a repository", "main worktree's HEAD"]) {
-  assert.ok(row.includes(word), "the row does not state the limit: " + word);
-}
-assert.ok(!/every few seconds/i.test(row) && /15 seconds/.test(row), "the row's timing is wrong: " + row);
-const counts = "Copying a pane takes eleven git processes when it has uncommitted or new files, four when it has only commits, and fourteen when its index cannot be copied and is rebuilt (a sparse checkout is not copied then, and costs four before it is left out); choosing the base again adds a few. On top of that come the status of each checkout the refresh runs anyway, one process per repository asking whether the bases moved, and a merge for each pair of panes that share a path. Every untracked file is read again each time, which a very large checkout may feel. A checkout whose git commands keep running past 20 seconds, or whose copy was itself running for at least 15 seconds when the radar's 30 seconds ran out, is skipped after three such refreshes in a row: for 10, then 20, 40, 80 and at most 120 minutes while it stays quiet. A checkout whose commit or counts of changed and new files keep changing is tried again at every refresh and pays up to the radar's 30 seconds each time; its strikes are kept and raise the step, which matters only while it stays quiet. Strikes are forgotten after a snapshot that works, when the radar is turned off and on, and after a day without one. Nothing in the window shows a skipped checkout; only the log says so.";
-assert.ok(row.includes("The radar's own copies change nothing in a checkout") && row.includes("The separate index refresh, which runs whether or not the radar is on, rewrites the index as git does and never removes a lock or stops a git."), "the row does not scope the claim of no change to the radar's copies: " + row);
-assert.ok(row.includes(counts), "the row's sentence on the cost of copying a pane is not the one that was counted: " + row);
-assert.ok(!/is reads|Every new file is/.test(row) && !/exactly/.test(row), "the row has the garbled sentence or an exact count: " + row);
-assert.ok(/Git LFS/.test(row) && /merge driver/.test(row), "the row lacks the filter and merge driver caveat: " + row);
-assert.ok(/ten minutes/.test(row), "the row does not bound how long a new branch goes unnoticed: " + row);
-assert.ok(!/75 seconds/.test(row) && !/once a minute/.test(row), "the row still says the base is read on a timer: " + row);
-assert.ok(!/is not compared/.test(row), "the row says submodule bumps are not compared: " + row);
+assert.ok(/no chip is not a promise/i.test(row), "the row does not say what no chip can mean: " + row);
+assert.ok(/relay/i.test(row) && /branches/i.test(row) && /20 file paths/.test(row) && /never file contents/.test(row), "the row does not say what reaches windows through the relay: " + row);
+assert.ok(/phone/i.test(row), "the row does not say a paired phone sees them: " + row);
+assert.ok(/100 MB/.test(row) && /25 MB/.test(row), "the row does not say which panes are skipped for size: " + row);
+assert.ok(/15 seconds/.test(row) && !/every few seconds/i.test(row), "the row's timing is wrong: " + row);
+assert.ok(/2\.38/.test(row), "the row does not say which git it needs: " + row);
+assert.ok(/Worktrees/.test(row), "the row does not point at the help page that has the detail: " + row);
 
 const before = h.commands().length;
 h.click(sw);

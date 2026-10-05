@@ -103,8 +103,22 @@ func TestRetryIndexAsksAgainOnlyForARefusedIndex(t *testing.T) {
 	if err == nil || calls != 4 {
 		t.Errorf("an index that stays refused: %d calls, %v, want the first and three more", calls, err)
 	}
-	if !transientIndexError(errors.New("fatal: Unable to create '.git/index.lock': Permission denied")) {
-		t.Error("a refused index.lock is not taken as transient")
+	for msg, want := range map[string]bool{
+		"fatal: .git/index: index file open failed: Permission denied": true,
+		"error: C:/repo/.git/index: Permission denied":                 true,
+		"index file open failed: Permission denied":                    true,
+		// A path with "index" in it is not the index.
+		"error: open(\"src/index.js\"): Permission denied":                   false,
+		"fatal: unable to read C:/work/index-notes/a.txt: Permission denied": false,
+		"fatal: Unable to create '.git/index.lock': Permission denied":       false,
+		"fatal: cannot open C:/Users/me/index/pack: Permission denied":       false,
+		"warning: could not index the repository: Operation not permitted":   false,
+		"fatal: unable to access 'index.html': Permission denied":            false,
+		"fatal: bad object index: No such file":                              false,
+	} {
+		if got := transientIndexError(errors.New(msg)); got != want {
+			t.Errorf("transientIndexError(%q) = %v, want %v", msg, got, want)
+		}
 	}
 }
 

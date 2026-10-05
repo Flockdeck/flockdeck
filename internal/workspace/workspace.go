@@ -376,6 +376,9 @@ type Workspace struct {
 	refreshStop context.CancelFunc
 	// radar is what the conflict radar keeps between refreshes; see radar.go.
 	radar radarState
+	// radarRun counts the radar refreshes in flight, so that Close can wait for
+	// them to take down their scratch directories.
+	radarRun sync.WaitGroup
 
 	mu    sync.RWMutex
 	panes map[string]*Pane
@@ -578,6 +581,10 @@ func New(opts Options) (*Workspace, error) {
 		rec:          record.NewManager(store.Dir),
 		statusAssist: &session.StatusAssist{Enabled: func() bool { return store.LoadPrefs().JevStatus }},
 	}
+	// Scratch directories a killed run left behind are removed once per process,
+	// whether or not the radar is on: it may have been on in the run that left them.
+	once, sweep := sweepScratchOnce, radarSweep
+	go once.Do(sweep)
 	w.savedGroups = loadSavedGroups()
 	w.ensureGroup(root)
 	w.todos = loadSavedTodos()
@@ -3416,6 +3423,9 @@ func (w *Workspace) Close() {
 	// Close stops waiting for a running index refresh; git finishes it by itself. Only
 	// this workspace's: each has a context of its own.
 	w.stopRefreshes()
+	// The radar runs under the same context, and its scratch directory is removed by
+	// the refresh that made it: wait for that, so a quit leaves none behind.
+	w.stopRadar()
 	// touchRecent's writer can still be working through queued switches;
 	// closing its queue and waiting for it to let go of recentDone blocks
 	// until the last of them is written, rather than leaving it to land on
@@ -3592,6 +3602,7 @@ func (w *Workspace) stopRefreshes() {
 	w.refreshContext()
 	w.gitMu.Lock()
 	stop := w.refreshStop
+	w.radar.closed = true
 	w.gitMu.Unlock()
 	stop()
 }

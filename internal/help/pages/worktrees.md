@@ -105,8 +105,10 @@ How it works:
   copied, whether or not it shares a file with another, since that is what finds
   out: what the checkout holds, committed or not, untracked files included, goes
   into a scratch folder in the system's temporary folder, which is deleted when
-  the refresh is done. A folder left by a run that was killed is removed the
-  first time the radar runs after the next start, if it is over an hour old. Only
+  the refresh is done, or when Flockdeck is closed (quitting waits, for ten seconds
+  at most, for a refresh in flight to stop its git and remove it). A folder left by a
+  run that was killed is removed when Flockdeck next starts, whether or not the
+  radar is on, if it is over an hour old. Only
   panes that share a file, a file and a directory of one name, or a directory a
   file was moved out of and a file added to it, are then compared. git merges the copies of two panes
   in memory (`git merge-tree`), so the answer is the one a real merge would
@@ -136,9 +138,11 @@ How it works:
   or one of the two panes has nothing left to compare. A refresh that could not
   read a pane (git failed, or ran out of time) changes nothing about the pairs
   that pane is in.
-- Pane names, branches and file paths go to every open window, including one
-  reached through the relay, as the rest of a pane's header does. File contents
-  are never sent.
+- Pane names, branches and file paths go to every open window, including a paired
+  phone or other window reached through the relay, as the rest of a pane's header
+  does. For each pair that is the other pane's name and branch and up to twenty file
+  paths. File contents are never sent. A window reached through the relay can also
+  turn the radar on and off.
 
 No chip is not a promise. The pane may have been skipped for one of the reasons
 above, or the pair may not have conflicted on two refreshes yet, or its project
@@ -174,7 +178,10 @@ index that remembers them points at objects that folder held, so keeping one
 means keeping the other, which grows without a limit that is safe to prune while
 a refresh may be reading it. The cost is bounded by the limit of a thousand
 changed files. Each pair that shares a file adds a merge, and the same two copies
-are not merged twice. On a very large checkout this is noticeable, which is
+are not merged twice (the last 4,096 merges are remembered, the one asked for least
+recently going first). One refresh runs at most 50 merges: with more pairs than
+that the rest are left as they were until the next refresh, which goes on from the
+ones already done. On a very large checkout this is noticeable, which is
 why it is off by default.
 
 The base. Work is measured from the nearest of these branches that shares
@@ -207,6 +214,12 @@ Limits, plainly:
   about every 15. A repository whose real base is none of these is measured from
   the wrong one, or not at all. `origin`'s default is as it was last recorded,
   and is only passed over, never refreshed.
+- A pane whose untracked and modified files add up to more than 100 MB, or include
+  one file over 25 MB (a build output, a dump, a video), is not copied. The sizes are
+  added up first, with a stat of each file and nothing read, so the copy is never
+  started. That counts as a refresh that could not read the pane: what was shown
+  about its pairs is kept, and it is looked at again each refresh, so the chip works
+  again once the file is gone or ignored.
 - A partial clone fetches the objects it lacks from its remote when git needs
   them. From git 2.44 the radar tells git not to. On 2.38 to 2.43 it cannot, so
   it is not run in a partial clone there, and says so in the log.

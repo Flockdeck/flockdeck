@@ -71,6 +71,13 @@ them from one:
   detection with Jev;
 - detaching from the agents.
 
+Batons and the conflict radar are not on that list. A paired phone or other relay window can
+make, save, start and send batons (see [Handing work to another agent](#baton)), and
+it sees what the radar finds: for each predicted conflict the other pane's name and branch and up
+to twenty file paths. It can also turn the radar on and off. A baton for a different or
+unknown company is the one exception: a relay window's tick box does not count, and the
+start waits for the approval notice in a window on this machine.
+
 These keep a phone in a pocket from doing any of them by accident. They are
 not a security boundary: a remote window can open a shell pane, and from a
 shell it can do anything you can at this machine, `flockdeck remote disable`

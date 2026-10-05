@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/baton"
 	"github.com/jmwri/flockdeck/internal/creds"
+	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
@@ -141,15 +143,16 @@ func (s BatonSource) Readable() bool {
 // the chat client's stream, with the lines as its labels keep them.
 func (s BatonSource) activity() baton.Activity {
 	if ex, ok := transcript.ExporterFor(s.Spec); ok {
-		var evs []transcript.ExportEvent
-		// A conversation not stored yet, or one that cannot be read right now,
-		// gives whatever was read before the error: the baton is still built
+		// Reduced as the events arrive, so a long session is not held in memory
+		// whole. A conversation not stored yet, or one that cannot be read right
+		// now, gives whatever was read before the error: the baton is still built
 		// from git.
+		ab := baton.NewActivityBuilder()
 		_, _ = ex.Follow(s.Spec, s.Conversation).Poll(func(e transcript.ExportEvent) error {
-			evs = append(evs, e)
+			ab.Add(e)
 			return nil
 		})
-		return baton.ActivityFromEvents(evs)
+		return ab.Activity()
 	}
 	if st, ok := transcript.StreamFor(s.Spec, s.Conversation); ok {
 		st.Refresh()
@@ -294,6 +297,12 @@ func (w *Workspace) PrepareBaton(cwd string, b baton.Baton, task string, sc *bat
 		vals = append(vals, baton.EnvFileValues(cwd)...)
 		sc = baton.NewScrubber(vals...)
 	}
+	// The task goes after the baton in the same prompt, so it is cleaned and
+	// scrubbed like the baton: an agent's own task text is no exception.
+	task, _ = sc.Scrub(baton.CleanText(task))
+	if len(task) > maxTaskBytes {
+		return BatonPrompt{}, errTaskTooLong(task)
+	}
 	final := sc.ScrubBaton(b)
 	if err := w.SaveBaton(final); err != nil {
 		return BatonPrompt{}, fmt.Errorf("the baton could not be saved: %w", err)
@@ -400,4 +409,74 @@ func (w *Workspace) RestartWithBaton(paneID string, bp BatonPrompt, task string)
 	}
 	w.wake()
 	return nil
+}
+
+// batonRoots are the folders a baton file named by a pane may be read from: the
+// pane's own project, the folder it works in, and the top level of the checkout
+// it is in. A pane in a worktree beside its repository has the last of these.
+func (w *Workspace) batonRoots(paneID string) (roots []string, ok bool) {
+	w.mu.RLock()
+	p := w.panes[paneID]
+	var root, cwd string
+	if p != nil {
+		root, cwd = p.Root, p.Cwd
+	}
+	w.mu.RUnlock()
+	if p == nil {
+		return nil, false
+	}
+	for _, d := range []string{root, cwd} {
+		if d != "" {
+			roots = append(roots, d)
+		}
+	}
+	if cwd != "" && gitx.Available() {
+		if top, err := gitx.Root(cwd); err == nil && top != "" {
+			roots = append(roots, top)
+		}
+	}
+	return roots, len(roots) > 0
+}
+
+// BatonPathInScope says whether a notes file may be read for a baton on behalf of
+// the pane: it has to be inside the pane's project, the folder it works in or its
+// checkout, with symbolic links in the path followed on both sides. An agent that
+// names a file outside them is asking Flockdeck to read it as the user, which the
+// agent could not do itself.
+func (w *Workspace) BatonPathInScope(paneID, path string) error {
+	roots, ok := w.batonRoots(paneID)
+	if !ok {
+		return errors.New("a notes file is read only for a pane that is open, and the pane is gone")
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return fmt.Errorf("cannot resolve %s: %w", path, err)
+	}
+	for _, r := range roots {
+		if rr, err := filepath.EvalSymlinks(r); err == nil && underDir(real, rr) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s is outside this pane's project and checkout. Copy it into the project, or name a pane or a baton id", path)
+}
+
+// BatonPaneInScope says whether the pane other is in the same project as the
+// pane parent, which is the only kind of pane an agent may have a baton made
+// from by naming it.
+func (w *Workspace) BatonPaneInScope(parent, other string) bool {
+	if parent == other {
+		return true
+	}
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	a, b := w.panes[parent], w.panes[other]
+	if a == nil || b == nil {
+		return false
+	}
+	if a.Root != "" && b.Root != "" {
+		return sameDir(a.Root, b.Root)
+	}
+	// A pane restored from a layout from before panes recorded a project: its
+	// folder is judged against the other's.
+	return (a.Root != "" && underDir(b.Cwd, a.Root)) || (b.Root != "" && underDir(a.Cwd, b.Root))
 }

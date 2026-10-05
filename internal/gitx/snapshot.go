@@ -806,21 +806,68 @@ func realGitlinks(ctx context.Context, dir string, env []string) map[string]bool
 	return links
 }
 
-// untrackedRepos lists the folders holding a repository of their own that nobody
-// registered: git lists an untracked nested repository as one entry ending in a
-// slash. Those in keep are the checkout's own, and are not in the list.
-func untrackedRepos(ctx context.Context, dir string, env []string, keep map[string]bool) ([]string, error) {
+// listWork lists what differs from the scratch index in the working tree: the
+// files that are modified (or gone) and those that are untracked, and an
+// untracked nested repository as one entry ending in a slash.
+func listWork(ctx context.Context, dir string, env []string) ([]string, error) {
 	var listed bytes.Buffer
-	if _, err := runToEnv(ctx, commandTimeout, dir, env, nil, &listed, "ls-files", "--others", "--exclude-standard", "-z"); err != nil {
+	if _, err := runToEnv(ctx, commandTimeout, dir, env, nil, &listed, "ls-files", "--modified", "--others", "--exclude-standard", "-z"); err != nil {
 		return nil, err
 	}
+	return strings.Split(listed.String(), "\x00"), nil
+}
+
+// maxSnapshotBytes and maxSnapshotFileBytes bound what a snapshot copies into
+// the scratch object store: the untracked and modified files of a checkout may
+// total 100 MB, and none may be larger than 25 MB. A build's output, a database
+// dump or a video left in a checkout is not the few files two agents are
+// fighting over, and git add would hash and write all of it into the scratch
+// store every poll. Past either the checkout is not read (ErrTooBig).
+const (
+	maxSnapshotBytes     int64 = 100 << 20
+	maxSnapshotFileBytes int64 = 25 << 20
+)
+
+// ErrTooBig is what Snapshot returns for a checkout whose untracked and modified
+// files are too large to copy every refresh.
+var ErrTooBig = errors.New("the changed files are too large to compare")
+
+// checkSize adds up the sizes of the listed files, with a stat each and nothing
+// read, and fails with ErrTooBig past the limits. A path that cannot be examined
+// (gone since the listing), a folder and a link do not count: git add stores a
+// link as its target's name.
+func checkSize(dir string, listed []string, perFile, all int64) error {
+	var total int64
+	for _, p := range listed {
+		if p == "" || strings.HasSuffix(p, "/") {
+			continue
+		}
+		info, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(p)))
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if info.Size() > perFile {
+			return fmt.Errorf("%w: %s is %d MB", ErrTooBig, p, info.Size()>>20)
+		}
+		if total += info.Size(); total > all {
+			return fmt.Errorf("%w: more than %d MB in all", ErrTooBig, all>>20)
+		}
+	}
+	return nil
+}
+
+// reposIn picks the folders holding a repository of their own that nobody
+// registered out of what listWork says: git lists an untracked nested repository
+// as one entry ending in a slash. Those in keep are the checkout's own, and are
+// not in the list.
+func reposIn(listed []string, keep map[string]bool) []string {
 	var nested []string
-	for _, p := range strings.Split(listed.String(), "\x00") {
+	for _, p := range listed {
 		if strings.HasSuffix(p, "/") && !keep[strings.TrimSuffix(p, "/")] {
 			nested = append(nested, strings.TrimSuffix(p, "/"))
 		}
 	}
-	return nested, nil
+	return nested
 }
 
 // addAll stages everything in the scratch index, and fails on any error git makes.
@@ -828,7 +875,7 @@ func untrackedRepos(ctx context.Context, dir string, env []string, keep map[stri
 // A folder holding a repository of its own that nobody registered cannot be
 // staged: with commits git adds it as a gitlink, which is no change of this
 // checkout's to share, and with none git refuses the whole add and stages nothing,
-// exit 128. Such folders are found first (see untrackedRepos) and left out of what
+// exit 128. Such folders are found first (see reposIn) and left out of what
 // is staged by pathspec, except the ones in keep, which the checkout's own index
 // holds. What is staged is then staged with no allowance for errors: a file git
 // cannot read, or a path it cannot add, makes the snapshot fail, and the radar
@@ -847,10 +894,14 @@ func untrackedRepos(ctx context.Context, dir string, env []string, keep map[stri
 //
 // dir is the checkout's top level.
 func addAll(ctx context.Context, dir string, env []string, keep map[string]bool) error {
-	nested, err := untrackedRepos(ctx, dir, env, keep)
+	listed, err := listWork(ctx, dir, env)
 	if err != nil {
 		return err
 	}
+	if err := checkSize(dir, listed, maxSnapshotFileBytes, maxSnapshotBytes); err != nil {
+		return err
+	}
+	nested := reposIn(listed, keep)
 	for attempt := 0; ; attempt++ {
 		beforeAdd()
 		var err error
@@ -870,8 +921,8 @@ func addAll(ctx context.Context, dir string, env []string, keep map[string]bool)
 			break
 		}
 		if attempt == 0 && ctx.Err() == nil {
-			if again, lerr := untrackedRepos(ctx, dir, env, keep); lerr == nil && grew(again, nested) {
-				nested = again
+			if again, lerr := listWork(ctx, dir, env); lerr == nil && grew(reposIn(again, keep), nested) {
+				nested = reposIn(again, keep)
 				continue
 			}
 		}
