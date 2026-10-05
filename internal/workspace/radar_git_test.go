@@ -971,9 +971,12 @@ func TestRadarsOwnDeadlineInASnapshotIsCountedAndBacksOffTheCheckout(t *testing.
 	r := newRadarRig(t)
 	r.setUp()
 	r.slow["/repo/b"] = true
-	radarDeadline = 60 * time.Millisecond
+	// The checkout has to have been running for radarMinRun when the deadline runs
+	// out, so the deadline is long enough that a slow start of the refresh on a
+	// loaded machine does not leave it less than that.
+	radarDeadline = 300 * time.Millisecond
 	radarBackoffStart = time.Hour
-	radarMinRun = 20 * time.Millisecond
+	radarMinRun = 10 * time.Millisecond
 	t.Cleanup(func() {
 		radarDeadline = 30 * time.Second
 		radarBackoffStart = 10 * time.Minute
@@ -1123,9 +1126,18 @@ func TestRadarBacksOffACheckoutWhoseGitCommandsKeepTimingOut(t *testing.T) {
 	r := newRadarRig(t)
 	r.setUp()
 	r.fail["/repo/b"] = fmt.Errorf("git add: gave up after 20s: %w", context.DeadlineExceeded)
-	radarBackoffStart = 150 * time.Millisecond
+	// An hour, which no slow test can outlast; the back-off is ended by hand below, not by
+	// waiting for it, since waiting for a fraction of a second is a race on a slow machine.
+	radarBackoffStart = time.Hour
 	t.Cleanup(func() { radarBackoffStart = 10 * time.Minute })
 	w := radarWorkspace()
+	endBackoff := func() {
+		w.gitMu.Lock()
+		defer w.gitMu.Unlock()
+		for _, m := range w.radar.timeouts {
+			m.until = time.Now().Add(-time.Second)
+		}
+	}
 	for i := 0; i < 3; i++ {
 		r.refresh(w)
 	}
@@ -1139,14 +1151,14 @@ func TestRadarBacksOffACheckoutWhoseGitCommandsKeepTimingOut(t *testing.T) {
 	if got := r.count("/repo/b"); got != asked {
 		t.Errorf("the checkout was snapshotted %d more times while backed off", got-asked)
 	}
-	time.Sleep(200 * time.Millisecond)
+	endBackoff()
 	r.refresh(w)
 	if got := r.count("/repo/b"); got != asked+1 {
 		t.Errorf("the checkout was snapshotted %d times after the back-off, want one more", got-asked)
 	}
 	// It gets through: the count starts over.
 	delete(r.fail, "/repo/b")
-	time.Sleep(450 * time.Millisecond)
+	endBackoff()
 	r.refresh(w)
 	r.refresh(w)
 	w.gitMu.Lock()
@@ -1197,8 +1209,8 @@ func TestACheckoutThatNeverHadASlotBeforeTheDeadlineIsNotStruck(t *testing.T) {
 	r.setUp()
 	r.slow["/repo/a"] = true
 	r.slow["/repo/b"] = true
-	radarDeadline = 150 * time.Millisecond
-	radarMinRun = 80 * time.Millisecond
+	radarDeadline = 500 * time.Millisecond
+	radarMinRun = 100 * time.Millisecond
 	t.Cleanup(func() { radarDeadline = 30 * time.Second; radarMinRun = 15 * time.Second })
 	w := radarWorkspace()
 	noCommit := func(b string) gitx.Status { st := dirty(b); st.Commit = ""; return st } // no base to key
