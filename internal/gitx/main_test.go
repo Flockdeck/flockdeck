@@ -32,7 +32,11 @@ func runTests(m *testing.M) int {
 	}
 	defer os.RemoveAll(dir)
 	global := filepath.Join(dir, "gitconfig")
-	config := "[user]\n\tname = Test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n"
+	// Nothing may go on writing into a repository after the test that made it has
+	// ended: a gc started in the background by the commits of a test was still at
+	// work in the objects folder when the temporary folder was removed.
+	config := "[user]\n\tname = Test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n" +
+		"[gc]\n\tauto = 0\n\tautoDetach = false\n[maintenance]\n\tauto = false\n"
 	if err := os.WriteFile(global, []byte(config), 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, "gitx tests:", err)
 		return 1

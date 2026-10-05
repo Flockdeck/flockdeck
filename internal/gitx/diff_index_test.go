@@ -113,7 +113,7 @@ func withHook(t *testing.T, hook func(ctx context.Context, args []string) error)
 	t.Helper()
 	old := gitHook
 	gitHook = hook
-	t.Cleanup(func() { gitHook = old })
+	restoreAfterRefreshes(t, func() { gitHook = old })
 }
 
 // The retry is wired into every command that reads the index: Changes' status and

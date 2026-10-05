@@ -20,14 +20,51 @@ func captureLog(t *testing.T) func() string {
 	t.Helper()
 	var mu sync.Mutex
 	var lines []string
-	old := logf
-	logf = func(format string, args ...any) {
+	old := setLogf(func(format string, args ...any) {
 		mu.Lock()
 		defer mu.Unlock()
 		lines = append(lines, fmt.Sprintf(format, args...))
-	}
-	t.Cleanup(func() { logf = old })
+	})
+	restoreAfterRefreshes(t, func() { setLogf(old) })
 	return func() string { mu.Lock(); defer mu.Unlock(); return strings.Join(lines, "\n") }
+}
+
+// restoreAfterRefreshes puts back what a test swapped, once every refresh the test
+// started has ended. The goroutine that waits for update-index outlives the call that
+// started it, and reads these (the log function, the clock, the long-run limit, the
+// hook): restoring them while it is alive is a race the test must not make. Cleanups
+// run last in first out, so a test that hangs its refreshes lets them go (in
+// hangRefreshes, which is called after the others) before this waits.
+func restoreAfterRefreshes(t *testing.T, restore func()) {
+	t.Helper()
+	t.Cleanup(func() {
+		waitRefreshesEnded(t)
+		restore()
+	})
+}
+
+// waitRefreshesEnded waits until no checkout has a refresh process live.
+func waitRefreshesEnded(t testing.TB) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		live := 0
+		gatesMu.Lock()
+		for _, g := range gates {
+			g.mu.Lock()
+			live += g.live
+			g.mu.Unlock()
+		}
+		gatesMu.Unlock()
+		if live == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("%d refreshes were still live 30 s after the test ended", live)
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 func lockOf(repo string) string { return filepath.Join(repo, ".git", "index.lock") }
@@ -44,7 +81,7 @@ func newFakeClock(t *testing.T) *fakeClock {
 	t.Helper()
 	c := &fakeClock{at: time.Now()}
 	old := setNow(func() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.at })
-	t.Cleanup(func() { setNow(old) })
+	restoreAfterRefreshes(t, func() { setNow(old) })
 	return c
 }
 
@@ -115,7 +152,7 @@ func shortStop(t *testing.T) {
 	t.Helper()
 	old := indexStopWaiting
 	indexStopWaiting = 150 * time.Millisecond
-	t.Cleanup(func() { indexStopWaiting = old })
+	restoreAfterRefreshes(t, func() { indexStopWaiting = old })
 }
 
 // Waiting for the refresh stops at its bound, with the gate given back and the
@@ -282,7 +319,7 @@ func TestARefreshThatRunsLongIsSaidAfterTheCallerStoppedWaiting(t *testing.T) {
 	got := captureLog(t)
 	oldLong, oldRepeat, oldStop := indexLongRun, indexLongRepeat, indexStopWaiting
 	indexStopWaiting, indexLongRun, indexLongRepeat = 100*time.Millisecond, 300*time.Millisecond, 150*time.Millisecond
-	t.Cleanup(func() { indexLongRun, indexLongRepeat, indexStopWaiting = oldLong, oldRepeat, oldStop })
+	restoreAfterRefreshes(t, func() { indexLongRun, indexLongRepeat, indexStopWaiting = oldLong, oldRepeat, oldStop })
 	repo, _ := staleRepo(t, 3)
 	b := hangRefreshes(t)
 	if err := RefreshIndex(repo); !errors.Is(err, ErrRefreshRunning) {
@@ -722,7 +759,7 @@ func TestARealLongRefreshIsLeftToFinishByItself(t *testing.T) {
 	}
 	old := indexStopWaiting
 	indexStopWaiting = 1500 * time.Millisecond
-	t.Cleanup(func() { indexStopWaiting = old })
+	restoreAfterRefreshes(t, func() { indexStopWaiting = old })
 	repo := staleBig(t, 20000)
 	began := time.Now()
 	err := RefreshIndex(repo)

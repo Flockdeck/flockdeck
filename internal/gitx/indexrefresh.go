@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/sysproc"
@@ -325,6 +326,20 @@ func indexLockPath(ctx context.Context, dir string) string {
 	return out
 }
 
-// logf logs what the index refresh did that nobody asked it for; a variable so a
-// test can read it.
-var logf = log.Printf
+// logf logs what the index refresh did that nobody asked it for. The function that
+// does is replaced by a test (setLogf) so that it can read what was said; it is read
+// by goroutines that outlive a call, so it is not a plain variable.
+func logf(format string, args ...any) { (*logger.Load())(format, args...) }
+
+var logger atomic.Pointer[func(string, ...any)]
+
+func init() { setLogf(log.Printf) }
+
+// setLogf replaces the function logf says things with, and returns the one it replaced.
+func setLogf(f func(string, ...any)) func(string, ...any) {
+	old := logger.Swap(&f)
+	if old == nil {
+		return log.Printf
+	}
+	return *old
+}
