@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -34,6 +35,8 @@ type recentsWriter struct {
 	gen     map[string]uint64
 	written map[string]uint64
 	results map[string][]recentsResult
+	// trimmed is the newest state whose result was dropped, per path.
+	trimmed map[string]uint64
 	running bool
 }
 
@@ -45,8 +48,14 @@ type recentsResult struct {
 }
 
 // recentsResultsKept bounds the results kept for a path. A caller reads its own
-// as soon as it is settled, so only a very late one could find it gone.
-const recentsResultsKept = 4096
+// as soon as it is settled, so only a very late one could find it gone, and
+// that one is told so (errRecentsResultLost) and not that its change succeeded.
+// A variable so that a test can make it small.
+var recentsResultsKept = 4096
+
+// errRecentsResultLost is what a caller is told when how its change was settled
+// is no longer kept. Whether it reached the disk is not known from here.
+var errRecentsResultLost = errors.New("how the change to the recent projects was written is no longer known")
 
 var recentsOut = newRecentsWriter()
 
@@ -56,6 +65,7 @@ func newRecentsWriter() *recentsWriter {
 		gen:     map[string]uint64{},
 		written: map[string]uint64{},
 		results: map[string][]recentsResult{},
+		trimmed: map[string]uint64{},
 	}
 	w.cond = sync.NewCond(&w.mu)
 	return w
@@ -99,12 +109,15 @@ func (w *recentsWriter) wait(path string, g uint64) error {
 	for w.written[path] < g {
 		w.cond.Wait()
 	}
+	if g <= w.trimmed[path] {
+		return errRecentsResultLost
+	}
 	for _, r := range w.results[path] {
 		if r.upTo >= g {
 			return r.err
 		}
 	}
-	return nil
+	return errRecentsResultLost
 }
 
 // flush returns once nothing is waiting to be written or being written.
@@ -164,7 +177,9 @@ func (w *recentsWriter) run() {
 		w.written[path] = upTo
 		rs := append(w.results[path], recentsResult{upTo: upTo, err: err})
 		if len(rs) > recentsResultsKept {
-			rs = rs[len(rs)-recentsResultsKept:]
+			drop := len(rs) - recentsResultsKept
+			w.trimmed[path] = rs[drop-1].upTo
+			rs = rs[drop:]
 		}
 		w.results[path] = rs
 		w.cond.Broadcast()

@@ -371,3 +371,94 @@ func TestAnEarlierWriteThatSucceededIsNotReportedAsTheLaterOneThatFailed(t *test
 		t.Errorf("the list is %+v, want what the file holds", list)
 	}
 }
+
+// scriptedWriter replaces the writer of the recent projects file with one whose
+// i-th write waits for gate[i] and returns errs[i], and says when each starts.
+func scriptedWriter(t *testing.T, gate []chan struct{}, errs []error) (started chan int) {
+	t.Helper()
+	real := recentsFileWriter
+	started = make(chan int, 16)
+	var mu sync.Mutex
+	n := 0
+	recentsFileWriter = func(string, []Project) error {
+		mu.Lock()
+		i := n
+		n++
+		mu.Unlock()
+		started <- i
+		if i < len(gate) && gate[i] != nil {
+			<-gate[i]
+		}
+		if i < len(errs) {
+			return errs[i]
+		}
+		return nil
+	}
+	t.Cleanup(func() { recentsFileWriter = real })
+	return started
+}
+
+// TestWaitReturnsTheResultOfTheCallersOwnWrite reads the results after a later
+// write has failed. A wait that returned the latest write's result would give
+// the caller of the first, whose change was written, the failure of the second.
+// The callers here come for their results only once both writes are settled,
+// so the order they wake in cannot hide it.
+func TestWaitReturnsTheResultOfTheCallersOwnWrite(t *testing.T) {
+	gate := []chan struct{}{make(chan struct{}), make(chan struct{})}
+	started := scriptedWriter(t, gate, []error{nil, errors.New("the second write failed")})
+	w := newRecentsWriter()
+	path := filepath.Join(t.TempDir(), "projects.json")
+
+	g1 := w.enqueue(path, []Project{{Root: "/a"}})
+	<-started // the first write is under way
+	g2 := w.enqueue(path, []Project{{Root: "/a"}, {Root: "/b"}})
+	close(gate[0])
+	<-started // the second
+	close(gate[1])
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		w.mu.Lock()
+		settled := w.written[path] >= g2
+		w.mu.Unlock()
+		if settled {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the second write was never settled")
+		}
+	}
+
+	if err := w.wait(path, g1); err != nil {
+		t.Errorf("the caller of the first write, which succeeded, was told: %v", err)
+	}
+	if err := w.wait(path, g2); err == nil {
+		t.Error("the caller of the second write, which failed, was told it succeeded")
+	}
+}
+
+// TestAResultThatIsNoLongerKeptIsNotReportedAsSuccess covers a caller that comes
+// for its result after more than recentsResultsKept later ones have been
+// settled. It is told the result is gone, not that its change was written.
+func TestAResultThatIsNoLongerKeptIsNotReportedAsSuccess(t *testing.T) {
+	scriptedWriter(t, nil, []error{errors.New("the first write failed")})
+	old := recentsResultsKept
+	recentsResultsKept = 2
+	t.Cleanup(func() { recentsResultsKept = old })
+	w := newRecentsWriter()
+	path := filepath.Join(t.TempDir(), "projects.json")
+
+	var gens []uint64
+	for i := range 5 {
+		g := w.enqueue(path, []Project{{Root: fmt.Sprint("/p", i)}})
+		gens = append(gens, g)
+		_ = w.wait(path, g) // settled before the next is made, so each is its own write
+	}
+	if err := w.wait(path, gens[0]); !errors.Is(err, errRecentsResultLost) {
+		t.Errorf("a result dropped long ago gave %v, want errRecentsResultLost", err)
+	}
+	if err := w.wait(path, gens[4]); err != nil {
+		t.Errorf("the newest result gave %v, want it kept and a success", err)
+	}
+	if err := w.wait(path, gens[3]); err != nil {
+		t.Errorf("a result still kept gave %v", err)
+	}
+}
