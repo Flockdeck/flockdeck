@@ -642,3 +642,64 @@ func TestARepairBelowTheMarkWorksAndKeepsTheRollbackFolder(t *testing.T) {
 		t.Fatal("an intact install was planned again")
 	}
 }
+
+// The rules come from the catalogue entry the installer looks up, not from the
+// copy a plan carries: a plan built by hand with RequireSigned cleared does not
+// install an unsigned release of a helper that requires signatures.
+func TestAPlansOwnEntryDoesNotChangeTheRules(t *testing.T) {
+	f := newFixture(t)
+	f.entry = lens
+	f.entry.MinVersion = "0.2.0"
+	f.entry.Source = f.site.URL + "/lens"
+	f.rebuild()
+	archive, _ := f.site.release(t, f.entry, releaseSpec{version: "0.4.0", noSig: true, latest: true})
+	loose := f.entry
+	loose.RequireSigned = false
+	plan := &Plan{
+		Entry: loose, Version: "0.4.0", Signed: false,
+		Archive: f.entry.ArchiveName("0.4.0", f.goos, f.arch),
+		URL:     f.site.URL + f.archivePath("0.4.0"),
+		SHA256:  sumHex(archive), Size: int64(len(archive)),
+	}
+	_, err := f.in.InstallPlan(t.Context(), plan)
+	if _, ok := asErr[*SignedRequiredError](err); !ok {
+		t.Fatalf("err = %v", err)
+	}
+	if _, ok := f.store.Current("lens"); ok {
+		t.Fatal("installed")
+	}
+	if f.site.hitCount(f.archivePath("0.4.0")) != 0 {
+		t.Fatal("the archive was fetched")
+	}
+}
+
+// If current.json cannot be written the mark is not raised and the old version
+// stays current: the mark only follows a pointer that moved.
+func TestAFailedPointerWriteLeavesTheMarkAlone(t *testing.T) {
+	f := newFixture(t)
+	f.publish("0.4.0")
+	f.publish("0.5.0")
+	if _, err := f.install("0.4.0"); err != nil {
+		t.Fatal(err)
+	}
+	prev := atomicWrite
+	atomicWrite = func(path string, data []byte, perm os.FileMode) error {
+		if strings.HasSuffix(path, "current.json") {
+			return errors.New("simulated")
+		}
+		return prev(path, data, perm)
+	}
+	defer func() { atomicWrite = prev }()
+	if _, err := f.install("0.5.0"); err == nil {
+		t.Fatal("an install whose pointer could not be written went ahead")
+	}
+	if hw := f.store.HighWater("lens"); hw != "0.4.0" {
+		t.Fatalf("the mark moved to %q", hw)
+	}
+	if v, _ := f.store.Current("lens"); v != "0.4.0" {
+		t.Fatalf("current = %q", v)
+	}
+	if _, err := os.Stat(f.store.versionDir("lens", "0.5.0")); err == nil {
+		t.Fatal("the new version's folder was left behind")
+	}
+}

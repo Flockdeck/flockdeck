@@ -471,11 +471,14 @@ func (in *Installer) stage(name string) error {
 // folder, then swap in. A plan that is not signed is carried out as an
 // override, so the caller has to have asked for that.
 func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, err error) {
-	e, id, st := p.Entry, p.Entry.ID, in.store
+	id, st := p.Entry.ID, in.store
 	if !validID(id) || !validVersion(p.Version) {
 		return nil, fmt.Errorf("refusing to install %q %q", id, p.Version)
 	}
-	if _, known := in.lookup(id); !known {
+	// The entry is the catalogue's, never the plan's own copy: a plan built by
+	// hand with RequireSigned cleared or another Source must not change the rules.
+	e, known := in.lookup(id)
+	if !known {
 		return nil, fmt.Errorf("%q is not a helper Flockdeck knows", id)
 	}
 	if err := st.checkSignedRequired(e, p.Version, p.Signed); err != nil {
@@ -597,7 +600,7 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 		}
 	}
 	cur, _ := json.Marshal(currentFile{Version: p.Version})
-	if err := writeFileAtomic(st.currentFile(id), cur, 0o644); err != nil {
+	if err := atomicWrite(st.currentFile(id), cur, 0o644); err != nil {
 		return nil, err
 	}
 	if info.Signed {
