@@ -2367,7 +2367,11 @@
       row.append(head, el("div", f.value ? "pi-value" : "pi-value unset", f.value || "not set"));
       if (f.note) row.append(el("div", "pi-note", f.note));
       if (reveal && !f.value) {
-        row.append(el("div", "pi-note", "Nothing to show yet: this pane has not been recorded or exported. Start recording or Export transcript makes a file, for an agent that stores a conversation Flockdeck can read."));
+        // Tied to the button, so it is read out as the reason it is off.
+        const why = el("div", "pi-note", "Nothing to show yet. This pane has no recording or export. Start recording or Export transcript makes one.");
+        why.id = "pane-info-reveal-why";
+        reveal.setAttribute("aria-describedby", why.id);
+        row.append(why);
       }
       list.append(row);
     });

@@ -215,3 +215,46 @@ h.recv({ type: "paneInfo", id: "p1", name: "sh", fields: [{ label: "Pane id", va
 assert.ok(![...h.$("overlay-body").querySelectorAll("button")].some((b) => b.textContent === "Show in folder"));
 `)
 }
+
+// With two panes, Show in folder is for the pane the dialog was opened for, not
+// the one with the keyboard, and an answer for a pane the dialog has since left
+// is not drawn, so a reopened dialog never reveals the earlier pane's file.
+func TestShowInFolderIsForThePaneTheDialogWasOpenedFor(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture({ tabs: [{ id: "t1", title: "two", focus: "pA", root: split("h", [leaf("n0", "pA"), leaf("n1", "pB")]) }],
+  panes: { pA: pane("pA", { name: "a" }), pB: pane("pB", { name: "b" }) } }));
+const infoOf = (n) => [...h.doc.querySelectorAll("div.pane-header")[n].querySelector("div.pane-actions").children]
+  .find((b) => b.getAttribute("aria-label") === "Pane info");
+const answer = (id) => h.recv({ type: "paneInfo", id, name: id, fields: [
+  { label: "Pane id", value: id }, { label: "Transcript file", value: "C:/rec/" + id + ".jsonl" }] });
+const show = () => [...h.$("overlay-body").querySelectorAll("button")].find((b) => b.textContent === "Show in folder");
+
+// Opened for B while A is the focused pane.
+h.click(infoOf(1));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "paneInfo", id: "pB" });
+answer("pB");
+h.click(show());
+assert.deepStrictEqual(h.commands().pop(), { cmd: "revealTranscript", id: "pB" }, "it sent another pane's id");
+h.key({ key: "Escape" });
+
+// Opened for A, then reopened for B.
+h.click(infoOf(0));
+answer("pA");
+h.key({ key: "Escape" });
+h.click(infoOf(1));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "paneInfo", id: "pB" });
+// A's late answer is not drawn, and gives the dialog no button.
+answer("pA");
+assert.ok(!show(), "an answer for the pane left behind was drawn");
+answer("pB");
+h.click(show());
+assert.deepStrictEqual(h.commands().pop(), { cmd: "revealTranscript", id: "pB" }, "the button was wired to the earlier pane");
+
+// The reason it is off is tied to the button.
+h.recv({ type: "paneInfo", id: "pB", name: "b", fields: [{ label: "Transcript file", value: "" }] });
+const off = show();
+const why = h.$(off.getAttribute("aria-describedby"));
+assert.ok(off.disabled && why && why.textContent.includes("Nothing to show yet"), "the reason is not tied to the button");
+`)
+}
