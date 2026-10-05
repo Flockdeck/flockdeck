@@ -542,7 +542,9 @@ func addWorktree(repoDir, path, branch string, newBranch bool, args ...string) e
 // time, so that worktree is the one this call made; anything else at path is
 // somebody else's.
 func undoNewBranch(repoDir, path, branch string) error {
-	if wts, err := List(repoDir); err == nil {
+	var wts []Worktree
+	err := retryWorktreeRace(func() (err error) { wts, err = List(repoDir); return })
+	if err == nil {
 		for _, wt := range wts {
 			if wt.Branch != branch || !samePath(wt.Path, path) {
 				continue
@@ -556,9 +558,28 @@ func undoNewBranch(repoDir, path, branch string) error {
 	if branchExists(repoDir, branch) {
 		// git will not delete a branch some worktree has checked out, so one
 		// that another checkout has taken in the moment since is left alone.
-		_ = DeleteBranch(repoDir, branch)
+		//
+		// Deleting a branch looks at every worktree's record, and so loses the
+		// same race as an add does when it reads one that is being written. It
+		// was then left behind, and the next try at the same branch was refused
+		// as one that already exists: a failure of the stress test on macOS,
+		// "a branch named 'agent/r3-0' already exists".
+		_ = retryWorktreeRace(func() error { return DeleteBranch(repoDir, branch) })
 	}
 	return nil
+}
+
+// retryWorktreeRace runs fn again, up to worktreeAttempts times, while it fails
+// on another worktree's record being written (see lostWorktreeRace).
+func retryWorktreeRace(fn func() error) error {
+	var err error
+	for attempt := 1; ; attempt++ {
+		err = fn()
+		if !lostWorktreeRace(err) || attempt >= worktreeAttempts {
+			return err
+		}
+		time.Sleep(time.Duration(attempt) * worktreeRetryPause)
+	}
 }
 
 // DeleteBranch deletes a local branch whether or not it has been merged. git

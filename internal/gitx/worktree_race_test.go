@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 // TestWorktreesAddedAtTheSameTimeDoNotFailEachOther covers a fan-out, which
@@ -53,5 +54,41 @@ func TestALostWorktreeRaceIsToldFromAnyOtherFailure(t *testing.T) {
 		if got := lostWorktreeRace(tc.err); got != tc.want {
 			t.Errorf("lostWorktreeRace(%v) = %v, want %v", tc.err, got, tc.want)
 		}
+	}
+}
+
+// TestAStepThatLostTheWorktreeRaceIsTriedAgain covers what undoing a failed add
+// does: listing the worktrees and deleting the branch read every worktree's
+// record, and met the race as the add had, so the branch stayed and the next
+// try at it was refused as already existing.
+func TestAStepThatLostTheWorktreeRaceIsTriedAgain(t *testing.T) {
+	old := worktreeRetryPause
+	worktreeRetryPause = time.Millisecond
+	t.Cleanup(func() { worktreeRetryPause = old })
+	lost := errors.New("git branch: failed to read .git/worktrees/001-agent-fix-2-2/commondir: Undefined error: 0")
+
+	calls := 0
+	err := retryWorktreeRace(func() error {
+		calls++
+		if calls < 3 {
+			return lost
+		}
+		return nil
+	})
+	if err != nil || calls != 3 {
+		t.Errorf("err = %v after %d calls, want success on the third", err, calls)
+	}
+
+	calls = 0
+	err = retryWorktreeRace(func() error { calls++; return lost })
+	if !lostWorktreeRace(err) || calls != worktreeAttempts {
+		t.Errorf("err = %v after %d calls, want the race reported after %d", err, calls, worktreeAttempts)
+	}
+
+	calls = 0
+	other := errors.New("fatal: not a git repository")
+	err = retryWorktreeRace(func() error { calls++; return other })
+	if err != other || calls != 1 {
+		t.Errorf("err = %v after %d calls, want its own error after one", err, calls)
 	}
 }
