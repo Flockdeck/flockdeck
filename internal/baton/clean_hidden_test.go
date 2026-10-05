@@ -139,3 +139,54 @@ func TestFenceEscapesCannotBeWrittenInOtherSpaces(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanTextKeepsRealJoinerUsesAfterTheRunCap(t *testing.T) {
+	for name, s := range map[string]string{
+		"family of four":   "\U0001F468‍\U0001F469‍\U0001F467‍\U0001F466",
+		"rainbow flag":     "\U0001F3F3️‍\U0001F308",
+		"technologist":     "\U0001F469\U0001F3FD‍\U0001F4BB",
+		"flag":             "\U0001F1EC\U0001F1E7",
+		"keycap":           "#️⃣ and 9️⃣",
+		"persian":          "می‌خواهم نمی‌دانم",
+		"hindi":            "क्‍ष क्‌ष",
+		"arabic":           "ل‍ا ب‍ب",
+		"two in a row":     "❤️‍\U0001F525",
+		"heart and spaces": "❤️ ❤️",
+	} {
+		if got := CleanText(s); got != s {
+			t.Errorf("%s changed: %+q -> %+q", name, s, got)
+		}
+	}
+}
+
+// A run of joiners between two characters that are not ASCII carries one bit
+// each, so no more than two are kept after any character.
+func TestCleanTextCapsALongRunOfJoinersBetweenNonASCII(t *testing.T) {
+	long := strings.Repeat("‍‌", 32)
+	in := "م" + long + "ن" + strings.Repeat("️", 40) + "❤"
+	want := "م‍‌ن️️❤"
+	if got := CleanText(in); got != want {
+		t.Errorf("CleanText = %+q, want %+q", got, want)
+	}
+}
+
+// A character taken out can leave a joiner next to ASCII that was between two
+// others a moment before; cleaning goes on until nothing changes.
+func TestCleanTextIsIdempotent(t *testing.T) {
+	in := "g​‍​hp_abcdef"
+	got := CleanText(in)
+	if got != "ghp_abcdef" {
+		t.Errorf("CleanText = %+q", got)
+	}
+	for _, s := range []string{
+		in,
+		"a​‌​‍​b",
+		"م​‍​ن",
+		"x‍​️​z",
+	} {
+		once := CleanText(s)
+		if twice := CleanText(once); twice != once {
+			t.Errorf("CleanText(%+q) = %+q, and again %+q", s, once, twice)
+		}
+	}
+}
