@@ -3,6 +3,7 @@ package radar
 import (
 	"container/list"
 	"context"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -75,7 +76,23 @@ type Engine struct {
 	minGap time.Duration
 	// maxCached is how many merges are kept: maxCached unless a test says less.
 	maxCached int
+
+	// cursor is where the next refresh starts walking the pairs: at the first one
+	// the last refresh left unmerged for want of its merge limit. With more
+	// uncached pairs than the limit, a walk that always began at the same pair
+	// would never reach the ones at the end. Only Update, which holds run, reads
+	// or writes it.
+	cursor int
+	// behindLogged is when Report.Behind was last said in the log.
+	behindLogged time.Time
 }
+
+// behindLogEvery is the least time between two log lines about a refresh that
+// was behind.
+const behindLogEvery = time.Minute
+
+// logf is where the engine logs; a variable so a test can read it.
+var logf = log.Printf
 
 type pair struct{ a, b string }
 
@@ -214,47 +231,70 @@ func (e *Engine) Update(ctx context.Context, dir string, s *gitx.Scratch, in []I
 	}
 	sort.Slice(ready, func(i, j int) bool { return ready[i].ID < ready[j].ID })
 
-	for i := range ready {
-		for j := i + 1; j < len(ready); j++ {
-			a, b := ready[i], ready[j]
-			p := pair{a.ID, b.ID}
-			if !meetInputs(a, b) {
-				e.drop(p)
+	// The pairs are walked from e.cursor round to the start and on, not always
+	// from the first: see cursor.
+	n := len(ready)
+	total := n * (n - 1) / 2
+	start := 0
+	if total > 0 {
+		start = e.cursor % total
+	}
+	next := -1 // the first pair left behind, where the next refresh starts
+	for step := 0; step < total; step++ {
+		k := (start + step) % total
+		i, j := pairAt(n, k)
+		a, b := ready[i], ready[j]
+		p := pair{a.ID, b.ID}
+		if !meetInputs(a, b) {
+			e.drop(p)
+			continue
+		}
+		// Two snapshots are the same merge only when their trees and the
+		// commits they stand on are: the merge base comes from the latter.
+		key := treePair{a.Tree + " " + a.Head, b.Tree + " " + b.Head}
+		if key.a > key.b {
+			key.a, key.b = key.b, key.a
+		}
+		v, cached := e.cached(key)
+		if !cached {
+			if ctx.Err() != nil || r.Merges >= maxMergesPerRefresh {
+				r.Behind = true
+				if next < 0 {
+					next = k
+				}
 				continue
 			}
-			// Two snapshots are the same merge only when their trees and the
-			// commits they stand on are: the merge base comes from the latter.
-			key := treePair{a.Tree + " " + a.Head, b.Tree + " " + b.Head}
-			if key.a > key.b {
-				key.a, key.b = key.b, key.a
-			}
-			v, cached := e.cached(key)
-			if !cached {
-				if ctx.Err() != nil || r.Merges >= maxMergesPerRefresh {
+			// Not under e.mu: a merge takes as long as git does, and
+			// Conflicts is read from the window's own goroutine.
+			paths, clean, err := e.predict(ctx, dir, s, a.Commit, b.Commit)
+			if err != nil {
+				// Not an answer. The pair stays as it was, and is
+				// asked about again next time.
+				if ctx.Err() != nil {
 					r.Behind = true
-					continue
 				}
-				// Not under e.mu: a merge takes as long as git does, and
-				// Conflicts is read from the window's own goroutine.
-				paths, clean, err := e.predict(ctx, dir, s, a.Commit, b.Commit)
-				if err != nil {
-					// Not an answer. The pair stays as it was, and is
-					// asked about again next time.
-					if ctx.Err() != nil {
-						r.Behind = true
-					}
-					continue
+				if next < 0 {
+					next = k
 				}
-				r.Merges++
-				v = verdict{paths: paths, conflict: !clean}
-				e.remember(key, v)
+				continue
 			}
-			if v.conflict {
-				e.sighted(p, v.paths)
-			} else {
-				e.drop(p)
-			}
+			r.Merges++
+			v = verdict{paths: paths, conflict: !clean}
+			e.remember(key, v)
 		}
+		if v.conflict {
+			e.sighted(p, v.paths)
+		} else {
+			e.drop(p)
+		}
+	}
+	if next >= 0 {
+		e.cursor = next
+	} else {
+		e.cursor = 0
+	}
+	if r.Behind {
+		e.logBehind(n, r.Merges)
 	}
 	e.dropSeparated(ready)
 	return Report{Conflicts: e.Conflicts(), Behind: r.Behind, Merges: r.Merges}
@@ -459,4 +499,28 @@ func (e *Engine) Forget(id string) bool {
 		}
 	}
 	return true
+}
+
+// pairAt is the k-th pair of n checkouts in the order i, then j above i: (0,1),
+// (0,2) ... (0,n-1), (1,2) and so on.
+func pairAt(n, k int) (i, j int) {
+	for i = 0; i < n-1; i++ {
+		if row := n - 1 - i; k < row {
+			return i, i + 1 + k
+		} else {
+			k -= row
+		}
+	}
+	return n - 2, n - 1
+}
+
+// logBehind says that a refresh left pairs unmerged, at most once in
+// behindLogEvery: with sixty panes that is every refresh for minutes together.
+func (e *Engine) logBehind(checkouts, merges int) {
+	t := e.now()
+	if !e.behindLogged.IsZero() && t.Sub(e.behindLogged) < behindLogEvery {
+		return
+	}
+	e.behindLogged = t
+	logf("radar: refresh of %d checkouts left pairs unmerged after %d merges; the next goes on from there", checkouts, merges)
 }

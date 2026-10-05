@@ -462,3 +462,75 @@ func TestAFullCacheDropsTheLeastRecentlyUsedNotEverything(t *testing.T) {
 		t.Errorf("%d entries (%d in order), want 4", len(e.cache), e.order.Len())
 	}
 }
+
+// With more uncached pairs than one refresh may merge, and a cache too small to
+// remember them, a walk that always began at the same pair would never reach the
+// last ones. The walk starts where the last stopped, so over a few rounds every
+// pair is merged.
+func TestEveryPairIsMergedEventuallyWhenTheCacheCannotHoldThem(t *testing.T) {
+	seen := map[[2]string]bool{}
+	e := NewEngineWith(Options{
+		MaxCached: 2,
+		Predict: func(_ context.Context, _ string, _ *gitx.Scratch, a, b string) ([]string, bool, error) {
+			if a > b {
+				a, b = b, a
+			}
+			seen[[2]string{a, b}] = true
+			return nil, true, nil
+		},
+	})
+	var in []Input
+	for i := 0; i < 20; i++ { // 190 pairs, four rounds of 50
+		in = append(in, ready(fmt.Sprintf("p%02d", i), fmt.Sprintf("t%02d", i), "shared.go"))
+	}
+	for round := 0; round < 8 && len(seen) < 190; round++ {
+		end, ok := e.Begin()
+		if !ok {
+			t.Fatal("Begin was refused")
+		}
+		r := e.Update(context.Background(), "repo", nil, in)
+		end()
+		if r.Merges > maxMergesPerRefresh {
+			t.Fatalf("round %d ran %d merges", round, r.Merges)
+		}
+	}
+	if len(seen) != 190 {
+		t.Errorf("%d of 190 pairs were merged over the rounds", len(seen))
+	}
+}
+
+func TestPairAtWalksEveryPairOnce(t *testing.T) {
+	const n = 7
+	got := map[[2]int]bool{}
+	for k := 0; k < n*(n-1)/2; k++ {
+		i, j := pairAt(n, k)
+		if i >= j || j >= n || got[[2]int{i, j}] {
+			t.Fatalf("pairAt(%d, %d) = %d, %d", n, k, i, j)
+		}
+		got[[2]int{i, j}] = true
+	}
+}
+
+// A refresh that is behind says so in the log, and says it once a minute and not
+// on every refresh.
+func TestBehindIsLoggedAtMostOnceAMinute(t *testing.T) {
+	var lines int
+	old := logf
+	logf = func(string, ...any) { lines++ }
+	t.Cleanup(func() { logf = old })
+
+	f := newFake() // each cycle moves its clock on 15 seconds
+	var in []Input
+	for i := 0; i < 20; i++ {
+		in = append(in, ready(fmt.Sprintf("p%02d", i), fmt.Sprintf("t%02d", i), "shared.go"))
+	}
+	f.Engine.maxCached = 2
+	for i := 0; i < 8; i++ { // two minutes
+		if r := f.cycle(t, in...); !r.Behind {
+			t.Fatalf("refresh %d was not behind", i+1)
+		}
+	}
+	if lines != 2 {
+		t.Errorf("%d log lines over two minutes of refreshes that were behind, want 2", lines)
+	}
+}
