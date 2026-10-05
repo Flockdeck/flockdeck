@@ -68,7 +68,6 @@ type InstallInfo struct {
 	// BinarySHA256 is the unpacked program's own hash, checked before every
 	// start.
 	BinarySHA256 string    `json:"binarySha256"`
-	Signed       bool      `json:"signed"`
 	InstalledAt  time.Time `json:"installedAt"`
 }
 
@@ -214,8 +213,8 @@ func (s *Store) Uninstall(id string, purge bool) error {
 			}
 		}
 	}
-	// trust.json stays: an uninstall does not make an unsigned release of a
-	// helper that was signed acceptable. Deleting the data does.
+	// trust.json stays: an uninstall does not make an older release acceptable
+	// again. Deleting the data does.
 	if purge {
 		// The record goes only once the data has, so a purge that is refused
 		// (a data folder that is a link) leaves it.

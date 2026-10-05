@@ -120,10 +120,9 @@ func TestHelperNotesBesideTheStatus(t *testing.T) {
 h.hello();
 h.recv(fixture());
 openHelpers();
-recvRows(row({ state: "stopped", installed: "0.4.0", update: "0.5.0", signed: false }));
+recvRows(row({ state: "stopped", installed: "0.4.0", update: "0.5.0" }));
 const text = h.$("overlay-body").textContent;
 assert.ok(text.includes("Update available 0.5.0"), "no update note");
-assert.ok(text.includes("Unsigned"), "no unsigned note");
 assert.ok(text.includes("0.4.0"));
 `)
 }
@@ -169,28 +168,6 @@ h.recv({ type: "helperPlan", id: "lens", name: "lens", summary: "s", version: "0
 h.click(h.$("helper-cancel"));
 assert.ok(!h.commands().some((c) => c.cmd === "helperInstall"), "cancel installed");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "helpers" });
-`)
-}
-
-// A plan that is not signed (the server refuses these for lens, so this is the
-// dialog's own second line) offers no way to install it.
-func TestUnsignedReleaseOffersNoWayToInstall(t *testing.T) {
-	runFrontEnd(t, paletteRun+helperRows+`
-h.hello();
-h.recv(fixture());
-openHelpers();
-recvRows(row());
-h.click(h.$("helper-install-lens"));
-const sha = "c".repeat(64);
-h.recv({ type: "helperPlan", id: "lens", name: "lens", summary: "s", version: "0.4.0", url: "u", sha256: sha, signed: false, allows: ["x"] });
-const text = h.$("overlay-body").textContent;
-assert.ok(text.includes("Not signed"), "the signature state is not shown");
-assert.ok(text.includes("never installed"), "the refusal is not explained");
-assert.ok(!h.$("helper-unsigned"), "an override checkbox is offered");
-assert.ok(h.$("helper-confirm").disabled, "Install is available for an unsigned release");
-const sent = h.commands().length;
-h.click(h.$("helper-confirm"));
-assert.strictEqual(h.commands().length, sent, "a disabled Install sent something");
 `)
 }
 

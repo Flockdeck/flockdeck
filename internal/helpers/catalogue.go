@@ -27,11 +27,6 @@ type Entry struct {
 	// Binary is the executable's file name inside the archive's folder, without
 	// the ".exe" Windows adds.
 	Binary string
-	// RequireSigned makes an unsigned release of this helper impossible to
-	// install, with no override. For an entry without it, an unsigned release can
-	// still be installed once, on the person's explicit say-so, until a signed
-	// version has been installed (see EverSigned).
-	RequireSigned bool
 	// MinVersion is the oldest version that is ever installed, even when
 	// signed. It is how a release found to be bad is shut out after the fact.
 	MinVersion string
@@ -110,10 +105,8 @@ var lens = Entry{
 	// release as every security fix to lens. A signature proves who built a
 	// file, not that it is the newest: an old signed release with a known flaw
 	// can be served again, and MinVersion is the only thing here that refuses it.
-	// Every lens release is signed, so an unsigned one is refused outright.
-	RequireSigned: true,
-	MinVersion:    "0.1.0",
-	Args:          []string{"serve", "--host", "127.0.0.1", "--port", "{port}"},
+	MinVersion: "0.1.0",
+	Args:       []string{"serve", "--host", "127.0.0.1", "--port", "{port}"},
 	Env: map[string]string{
 		"PORT":          "{port}",
 		"HOST":          "{host}",

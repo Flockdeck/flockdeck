@@ -10826,7 +10826,6 @@
     status.id = "helper-status-" + r.id;
     title.append(status);
     if (r.update) title.append(el("span", "wt-flag", "Update available " + r.update));
-    if (r.installed && !r.signed) title.append(el("span", "wt-flag", "Unsigned"));
     main.append(title);
     main.append(el("div", "wt-meta", r.summary));
     if (r.state === "running" && r.url) main.append(el("div", "wt-path", r.url));
@@ -10945,9 +10944,7 @@
     helperFact(facts, "Name", p.name);
     helperFact(facts, "Version", p.version + (p.repair ? " (the installed copy is replaced by a checked one)" : p.installed ? " (replaces " + p.installed + ")" : ""));
     helperFact(facts, "Source", p.url, true);
-    helperFact(facts, "Signature", p.signed
-      ? "manifest.json is signed with the Flockdeck release key; the archive is checked against it when it is downloaded"
-      : "Not signed");
+    helperFact(facts, "Signature", "manifest.json is signed with the Flockdeck release key; the archive is checked against it when it is downloaded");
     helperFact(facts, "SHA-256", p.sha256, true);
     wrap.append(facts);
 
@@ -10959,18 +10956,9 @@
       "This describes what it does by design. "+
       "Any program running as you can read and write a helper's files and reach it on this computer, and any account on this computer can reach it with no sign-in. It is not sandboxed."));
 
-    if (!p.signed) {
-      const warn = el("div", "helper-warning",
-        "This release is not signed, and an unsigned release is never installed.");
-      warn.setAttribute("role", "alert");
-      wrap.append(warn);
-    }
-
     const go = el("button", "chip primary", "Install");
     go.id = "helper-confirm";
-    go.disabled = !p.signed;
     go.onclick = () => {
-      if (go.disabled) return;
       send({ cmd: "helperInstall", id: p.id, text: p.version, sha256: p.sha256, confirmed: true });
       helperView = { kind: "list" };
       renderHelpers();

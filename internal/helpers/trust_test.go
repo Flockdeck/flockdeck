@@ -10,129 +10,41 @@ import (
 	"testing"
 )
 
-func TestUnsignedAfterSignedIsRefusedWithNoOverride(t *testing.T) {
-	f := newFixture(t)
-	f.publish("0.4.0")
-	if _, err := f.install(""); err != nil {
-		t.Fatal(err)
+// Every catalogued helper refuses an unsigned release with the reason, and
+// nothing is downloaded for it. A signed one installs.
+func TestEveryCataloguedHelperRefusesAnUnsignedRelease(t *testing.T) {
+	if len(Catalogue()) == 0 {
+		t.Fatal("the catalogue is empty")
 	}
-	if !f.store.EverSigned("lens") {
-		t.Fatal("a signed install left no record")
-	}
-	// The next release arrives with its signature gone.
-	f.site.release(t, f.entry, releaseSpec{version: "0.5.0", noSig: true, latest: true})
-	for _, allow := range []bool{false, true} {
-		_, err := f.in.Install(t.Context(), "lens", "", allow)
-		var sr *SignedRequiredError
-		if !errors.As(err, &sr) || !sr.Earlier {
-			t.Fatalf("allowUnsigned=%v: err = %v, want a SignedRequiredError about an earlier signed version", allow, err)
-		}
-		var ue *UnsignedError
-		if errors.As(err, &ue) {
-			t.Fatal("an overridable error was offered")
-		}
-	}
-	if !strings.Contains((&SignedRequiredError{Name: "lens", Version: "0.5.0", Earlier: true}).Error(), "earlier version") {
-		t.Error("the message does not say earlier versions were signed")
-	}
-	if v, _ := f.store.Current("lens"); v != "0.4.0" {
-		t.Fatalf("current = %q", v)
-	}
-	// The record survives an uninstall.
-	if err := f.store.Uninstall("lens", false); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.in.Install(t.Context(), "lens", "", true); !isSignedRequired(err) {
-		t.Fatalf("after an uninstall: %v", err)
-	}
-	// Deleting the data clears it, as a person starting over.
-	if err := f.store.Uninstall("lens", true); err != nil {
-		t.Fatal(err)
-	}
-	if f.store.EverSigned("lens") {
-		t.Fatal("a purge left the record")
-	}
-	if _, err := f.in.Install(t.Context(), "lens", "", true); err != nil {
-		t.Fatalf("after a purge: %v", err)
+	for _, e := range Catalogue() {
+		t.Run(e.ID, func(t *testing.T) {
+			f := newFixture(t)
+			f.entry = e
+			f.entry.MinVersion = "0.2.0"
+			f.entry.Source = f.site.URL + "/lens"
+			f.rebuild()
+			f.site.release(t, f.entry, releaseSpec{version: "0.4.0", noSig: true, latest: true})
+			_, err := f.in.Install(t.Context(), e.ID, "")
+			if !isSignedRequired(err) || !strings.Contains(err.Error(), "requires every release to be signed") {
+				t.Fatalf("err = %v", err)
+			}
+			if f.site.hitCount(f.archivePath("0.4.0")) != 0 {
+				t.Fatal("the archive was fetched")
+			}
+			if _, ok := f.store.Current(e.ID); ok {
+				t.Fatal("installed")
+			}
+			f.publish("0.4.0")
+			if _, err := f.install(""); err != nil {
+				t.Fatalf("a signed release: %v", err)
+			}
+		})
 	}
 }
 
 func isSignedRequired(err error) bool {
 	var sr *SignedRequiredError
 	return errors.As(err, &sr)
-}
-
-func TestInstallPlanRefusesAnUnsignedPlanForASignedHelper(t *testing.T) {
-	f := newFixture(t)
-	f.publish("0.4.0")
-	if _, err := f.install(""); err != nil {
-		t.Fatal(err)
-	}
-	// A plan built by hand, as a caller that skipped Plan might.
-	f.site.release(t, f.entry, releaseSpec{version: "0.5.0", noSig: true, latest: true})
-	plan := &Plan{Entry: f.entry, Version: "0.5.0", Archive: f.entry.ArchiveName("0.5.0", "linux", "amd64"), SHA256: strings.Repeat("a", 64), Signed: false}
-	if _, err := f.in.InstallPlan(t.Context(), plan); !isSignedRequired(err) {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestACatalogueThatRequiresSignaturesHasNoOverride(t *testing.T) {
-	f := newFixture(t)
-	f.entry.RequireSigned = true
-	f.rebuild()
-	f.site.release(t, f.entry, releaseSpec{version: "0.4.0", noSig: true, latest: true})
-	_, err := f.in.Install(t.Context(), "lens", "", true)
-	var sr *SignedRequiredError
-	if !errors.As(err, &sr) || sr.Earlier {
-		t.Fatalf("err = %v", err)
-	}
-	if !strings.Contains(err.Error(), "requires every release to be signed") {
-		t.Fatalf("the message does not say why: %v", err)
-	}
-}
-
-func TestLensRequiresSignedReleases(t *testing.T) {
-	if !lens.RequireSigned {
-		t.Fatal("lens does not require its releases to be signed")
-	}
-}
-
-// With the real catalogue entry, an unsigned release cannot be installed, with
-// or without the flag, and nothing is downloaded for it.
-func TestLensRefusesAnUnsignedRelease(t *testing.T) {
-	f := newFixture(t)
-	f.entry = lens
-	f.entry.MinVersion = "0.2.0"
-	f.entry.Source = f.site.URL + "/lens"
-	f.rebuild()
-	if !f.entry.RequireSigned {
-		t.Fatal("the test entry is not the catalogue's")
-	}
-	f.site.release(t, f.entry, releaseSpec{version: "0.4.0", noSig: true, latest: true})
-	for _, allow := range []bool{false, true} {
-		_, err := f.in.Install(t.Context(), "lens", "", allow)
-		sr, ok := asErr[*SignedRequiredError](err)
-		if !ok || sr.Earlier || sr.Damaged {
-			t.Fatalf("allowUnsigned=%v: err = %v", allow, err)
-		}
-		if !strings.Contains(err.Error(), "not signed") || !strings.Contains(err.Error(), "requires every release to be signed") {
-			t.Fatalf("the message: %v", err)
-		}
-		if _, ok := asErr[*UnsignedError](err); ok {
-			t.Fatal("an override was offered")
-		}
-	}
-	if f.site.hitCount(f.archivePath("0.4.0")) != 0 {
-		t.Fatal("the archive was fetched")
-	}
-	if _, ok := f.store.Current("lens"); ok {
-		t.Fatal("installed")
-	}
-	// And a signed one installs.
-	f.publish("0.4.0")
-	if _, err := f.install(""); err != nil {
-		t.Fatal(err)
-	}
 }
 
 // start-time integrity -----------------------------------------------------
@@ -329,74 +241,8 @@ func TestTheHighWaterMarkOnlyRises(t *testing.T) {
 
 // trust record shapes -------------------------------------------------------------
 
-func TestEverSignedFailsClosed(t *testing.T) {
-	s := &Store{Root: t.TempDir()}
-	if s.EverSigned("lens") {
-		t.Fatal("a fresh helper with no history counts as signed")
-	}
-	if err := os.MkdirAll(s.appDir("lens"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for name, content := range map[string]string{
-		"corrupt":           "{",
-		"empty":             "",
-		"null":              "null",
-		"false":             `{"everSigned":false}`,
-		"false with a mark": `{"everSigned":false,"highWater":"0.5.0"}`,
-		"an array":          "[]",
-		"a number":          "7",
-		"true":              `{"everSigned":true,"highWater":"0.5.0"}`,
-	} {
-		if err := os.WriteFile(s.trustFile("lens"), []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if !s.EverSigned("lens") {
-			t.Errorf("%s: a trust record that is there counts as no history", name)
-		}
-	}
-	// A record that is a folder, which cannot be read as a file.
-	_ = os.Remove(s.trustFile("lens"))
-	if err := os.Mkdir(s.trustFile("lens"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if !s.EverSigned("lens") {
-		t.Error("a trust record that cannot be read counts as no history")
-	}
-}
-
-func TestADeletedTrustRecordIsNotForgottenWhileTheSignedInstallStands(t *testing.T) {
-	f := installedFixture(t)
-	if err := os.Remove(f.store.trustFile("lens")); err != nil {
-		t.Fatal(err)
-	}
-	if !f.store.EverSigned("lens") {
-		t.Fatal("deleting trust.json made a signed install count as never signed")
-	}
-	if hw := f.store.HighWater("lens"); hw != "0.4.0" {
-		t.Fatalf("high-water = %q", hw)
-	}
-	f.site.release(t, f.entry, releaseSpec{version: "0.5.0", noSig: true, latest: true})
-	if _, err := f.in.Install(t.Context(), "lens", "", true); !isSignedRequired(err) {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestAnUnsignedInstallLeavesNoSignedHistory(t *testing.T) {
-	f := newFixture(t)
-	f.site.release(t, f.entry, releaseSpec{version: "0.4.0", noSig: true, latest: true})
-	if _, err := f.in.Install(t.Context(), "lens", "", true); err != nil {
-		t.Fatal(err)
-	}
-	if f.store.EverSigned("lens") {
-		t.Fatal("an unsigned install counts as signed history")
-	}
-	if hw := f.store.HighWater("lens"); hw != "" {
-		t.Fatalf("high-water = %q", hw)
-	}
-}
-
-// The record is written before the pointer moves, and an install that cannot
-// write it does not happen.
+// An install whose record cannot be written does not stay: the pointer is put
+// back and the message says where the record is.
 func TestASignedInstallThatCannotRecordItselfFails(t *testing.T) {
 	f := newFixture(t)
 	f.publish("0.4.0")
@@ -440,8 +286,8 @@ func TestAPurgeRefusedForALinkedDataFolderKeepsTheTrustRecord(t *testing.T) {
 	if _, err := os.Stat(f.store.trustFile("lens")); err != nil {
 		t.Fatalf("the trust record was removed by a refused purge: %v", err)
 	}
-	if !f.store.EverSigned("lens") {
-		t.Fatal("EverSigned is false after a refused purge")
+	if hw := f.store.HighWater("lens"); hw == "" {
+		t.Fatal("the mark is gone after a refused purge")
 	}
 }
 
@@ -528,37 +374,6 @@ func TestAReadOnlyTrustRecordIsWrittenAnyway(t *testing.T) {
 	}
 }
 
-// A damaged record is said to be damaged, with where it is and how to reset it,
-// and is not blamed on an earlier signed version.
-func TestADamagedTrustRecordIsNamedAsSuch(t *testing.T) {
-	f := newFixture(t)
-	if err := os.MkdirAll(f.store.appDir("lens"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(f.store.trustFile("lens"), []byte("{"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	f.site.release(t, f.entry, releaseSpec{version: "0.4.0", noSig: true, latest: true})
-	_, err := f.in.Install(t.Context(), "lens", "", true)
-	sr, ok := asErr[*SignedRequiredError](err)
-	if !ok || !sr.Damaged || sr.Earlier {
-		t.Fatalf("err = %v", err)
-	}
-	if !strings.Contains(err.Error(), "damaged") || !strings.Contains(err.Error(), f.store.trustFile("lens")) || !strings.Contains(err.Error(), "delete") {
-		t.Fatalf("the message does not say how to recover: %v", err)
-	}
-	if strings.Contains(err.Error(), "an earlier version of it that you installed was") {
-		t.Fatalf("a damaged record was blamed on a signed install: %v", err)
-	}
-	// Deleting it is the way out.
-	if err := os.Remove(f.store.trustFile("lens")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.in.Install(t.Context(), "lens", "", true); err != nil {
-		t.Fatalf("after deleting the record: %v", err)
-	}
-}
-
 // The mark rises once the pointer has moved, and a failure to raise it puts the
 // old version back instead of leaving a new one the record knows nothing of.
 func TestTheHighWaterMarkRisesAfterThePointerMoves(t *testing.T) {
@@ -577,9 +392,8 @@ func TestTheHighWaterMarkRisesAfterThePointerMoves(t *testing.T) {
 	atomicWrite = func(path string, data []byte, perm os.FileMode) error {
 		if strings.HasSuffix(path, "trust.json") {
 			writes++
-			if writes >= 2 { // the raise, after the pointer moved (and its retry)
-				return errors.New("simulated")
-			}
+			return errors.New("simulated") // the raise, after the pointer moved
+
 		}
 		return prev(path, data, perm)
 	}
@@ -587,7 +401,7 @@ func TestTheHighWaterMarkRisesAfterThePointerMoves(t *testing.T) {
 	if _, err := f.install("0.5.0"); err == nil {
 		t.Fatal("an install whose mark could not be raised went ahead")
 	}
-	if writes < 2 {
+	if writes < 1 {
 		t.Fatalf("the record was written %d times", writes)
 	}
 	if v, _ := f.store.Current("lens"); v != "0.4.0" {
@@ -643,36 +457,6 @@ func TestARepairBelowTheMarkWorksAndKeepsTheRollbackFolder(t *testing.T) {
 	}
 }
 
-// The rules come from the catalogue entry the installer looks up, not from the
-// copy a plan carries: a plan built by hand with RequireSigned cleared does not
-// install an unsigned release of a helper that requires signatures.
-func TestAPlansOwnEntryDoesNotChangeTheRules(t *testing.T) {
-	f := newFixture(t)
-	f.entry = lens
-	f.entry.MinVersion = "0.2.0"
-	f.entry.Source = f.site.URL + "/lens"
-	f.rebuild()
-	archive, _ := f.site.release(t, f.entry, releaseSpec{version: "0.4.0", noSig: true, latest: true})
-	loose := f.entry
-	loose.RequireSigned = false
-	plan := &Plan{
-		Entry: loose, Version: "0.4.0", Signed: false,
-		Archive: f.entry.ArchiveName("0.4.0", f.goos, f.arch),
-		URL:     f.site.URL + f.archivePath("0.4.0"),
-		SHA256:  sumHex(archive), Size: int64(len(archive)),
-	}
-	_, err := f.in.InstallPlan(t.Context(), plan)
-	if _, ok := asErr[*SignedRequiredError](err); !ok {
-		t.Fatalf("err = %v", err)
-	}
-	if _, ok := f.store.Current("lens"); ok {
-		t.Fatal("installed")
-	}
-	if f.site.hitCount(f.archivePath("0.4.0")) != 0 {
-		t.Fatal("the archive was fetched")
-	}
-}
-
 // If current.json cannot be written the mark is not raised and the old version
 // stays current: the mark only follows a pointer that moved.
 func TestAFailedPointerWriteLeavesTheMarkAlone(t *testing.T) {
@@ -701,5 +485,56 @@ func TestAFailedPointerWriteLeavesTheMarkAlone(t *testing.T) {
 	}
 	if _, err := os.Stat(f.store.versionDir("lens", "0.5.0")); err == nil {
 		t.Fatal("the new version's folder was left behind")
+	}
+}
+
+// A plan can only be carried out as this installer made it: one built by hand,
+// a zero one, one with a field changed afterwards, and one from another
+// installer are all refused before anything is fetched.
+func TestAPlanIsOnlyCarriedOutAsItsInstallerMadeIt(t *testing.T) {
+	f := newFixture(t)
+	archive := f.publish("0.4.0")
+	good, err := f.in.Plan(t.Context(), "lens", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := func(name string, p *Plan, in *Installer) {
+		t.Helper()
+		if _, err := in.InstallPlan(t.Context(), p); err == nil || !strings.Contains(err.Error(), "did not make") {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+	refused("a nil plan", nil, f.in)
+	refused("a zero plan", &Plan{}, f.in)
+	refused("a plan built by hand", &Plan{
+		Entry: f.entry, Version: "0.4.0", Archive: good.Archive, URL: good.URL, SHA256: sumHex(archive), Size: int64(len(archive)),
+	}, f.in)
+	changed := map[string]func(p *Plan){
+		"version":   func(p *Plan) { p.Version = "0.9.0" },
+		"url":       func(p *Plan) { p.URL = f.site.URL + "/lens/v0.4.0/other" },
+		"sha256":    func(p *Plan) { p.SHA256 = strings.Repeat("b", 64) },
+		"size":      func(p *Plan) { p.Size++ },
+		"archive":   func(p *Plan) { p.Archive = "other.tar.gz" },
+		"repair":    func(p *Plan) { p.Repair = true },
+		"installed": func(p *Plan) { p.Installed = "0.1.0" },
+		"entry id":  func(p *Plan) { p.Entry.ID = "other" },
+	}
+	for name, mutate := range changed {
+		c := *good
+		mutate(&c)
+		refused("a changed "+name, &c, f.in)
+	}
+	other := newFixture(t)
+	other.publish("0.4.0")
+	refused("a plan from another installer", good, other.in)
+	if f.site.hitCount(f.archivePath("0.4.0")) != 0 {
+		t.Fatal("the archive was fetched for a plan that was refused")
+	}
+	if _, ok := f.store.Current("lens"); ok {
+		t.Fatal("installed")
+	}
+	// And the plan itself, untouched, installs.
+	if _, err := f.in.InstallPlan(t.Context(), good); err != nil {
+		t.Fatalf("the installer's own plan: %v", err)
 	}
 }

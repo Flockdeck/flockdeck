@@ -2,6 +2,8 @@ package helpers
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -64,6 +66,9 @@ type Installer struct {
 	lookup       func(string) (Entry, bool)
 	mu           sync.Mutex
 	installing   map[string]bool
+	// sealKey signs the plans this installer makes, so InstallPlan can tell its
+	// own plans, unchanged, from anything else.
+	sealKey [32]byte
 }
 
 // NewInstaller makes an Installer from options.
@@ -88,6 +93,9 @@ func NewInstaller(o Options) *Installer {
 		in.now = time.Now
 	}
 	in.client = newClient()
+	if _, err := rand.Read(in.sealKey[:]); err != nil {
+		panic("helpers: no randomness for the plan seal: " + err.Error())
+	}
 	return in
 }
 
@@ -165,14 +173,6 @@ func mismatchf(format string, args ...any) error {
 	return &MismatchError{fmt.Sprintf(format, args...)}
 }
 
-// UnsignedError is a release with no signature. It carries the plan, so the
-// person is shown the archive's hash before they choose to go on.
-type UnsignedError struct{ Plan *Plan }
-
-func (e *UnsignedError) Error() string {
-	return fmt.Sprintf("%s %s is not signed (no manifest.json.sig), so nothing proves who built it", e.Plan.Entry.Name, e.Plan.Version)
-}
-
 // Plan is what an install would do, worked out from the signed manifest and
 // before the archive is downloaded.
 type Plan struct {
@@ -187,15 +187,42 @@ type Plan struct {
 	Size   int64
 	// Date is when the manifest says the release was made.
 	Date time.Time
-	// Signed is true when manifest.json carried a signature that checked out
-	// against the keys compiled into Flockdeck.
-	Signed bool
 	// Installed is the installed version, or "" when there is none.
 	Installed string
 	// Repair is true when this is the installed version again, because what is
 	// on disk no longer passes VerifyInstall. The folder is replaced by a
 	// checked copy.
 	Repair bool
+
+	// seal is the installer's MAC over the fields above, set when it makes the
+	// plan. A plan is read from outside the package but can only be carried out
+	// as planned: see InstallPlan.
+	seal []byte
+}
+
+// planMAC is the seal for p's contents under this installer's key. Every field
+// InstallPlan acts on is in it.
+func (in *Installer) planMAC(p *Plan) []byte {
+	body, _ := json.Marshal(struct {
+		ID, Version, Archive, URL, SHA256, Installed string
+		Size                                         int64
+		Date                                         time.Time
+		Repair                                       bool
+	}{p.Entry.ID, p.Version, p.Archive, p.URL, p.SHA256, p.Installed, p.Size, p.Date, p.Repair})
+	h := hmac.New(sha256.New, in.sealKey[:])
+	h.Write(body)
+	return h.Sum(nil)
+}
+
+// sealed reports whether p was made by this installer and is unchanged.
+func (in *Installer) sealed(p *Plan) bool {
+	return p != nil && len(p.seal) > 0 && hmac.Equal(p.seal, in.planMAC(p))
+}
+
+// seal returns p with its seal set.
+func (in *Installer) sealPlan(p *Plan) *Plan {
+	p.seal = in.planMAC(p)
+	return p
 }
 
 const (
@@ -297,7 +324,6 @@ func (in *Installer) plan(ctx context.Context, e Entry, version string, mayDowng
 	if err != nil {
 		return nil, fmt.Errorf("fetch manifest.json: %w", err)
 	}
-	signed := false
 	msig, err := in.fetchSmall(ctx, allow, base+"manifest.json.sig", maxSignature)
 	switch {
 	case err == nil:
@@ -307,9 +333,9 @@ func (in *Installer) plan(ctx context.Context, e Entry, version string, mayDowng
 		if err := selfupdate.VerifyAny(selfupdate.TrustedKeys(), mdata, msig); err != nil {
 			return nil, &SignatureError{File: "manifest.json", Err: err}
 		}
-		signed = true
 	case errors.Is(err, errNotFound):
-		// The one case with a way forward: no signature at all.
+		// No signature at all is refused too: every helper's releases are signed.
+		return nil, &SignedRequiredError{Name: e.Name, Version: version}
 	default:
 		return nil, fmt.Errorf("fetch manifest.json.sig: %w", err)
 	}
@@ -334,14 +360,11 @@ func (in *Installer) plan(ctx context.Context, e Entry, version string, mayDowng
 	if err != nil {
 		return nil, err
 	}
-	if err := in.crossCheck(ctx, e, base, file, signed); err != nil {
+	if err := in.crossCheck(ctx, e, base, file); err != nil {
 		return nil, err
 	}
 
 	installed, _ := in.store.Current(e.ID)
-	if err := in.store.checkSignedRequired(e, version, signed); err != nil {
-		return nil, err
-	}
 	// The installed version again, because it no longer passes the check made
 	// before a start, is a repair and not "already installed".
 	repair := installed != "" && installed == version && in.store.VerifyInstall(e, in.goos) != nil
@@ -359,10 +382,10 @@ func (in *Installer) plan(ctx context.Context, e Entry, version string, mayDowng
 			return nil, err
 		}
 	}
-	return &Plan{
+	return in.sealPlan(&Plan{
 		Entry: e, Version: version, Archive: file.Name, URL: file.URL, SHA256: strings.ToLower(file.SHA256), Size: file.Size, Date: m.Date,
-		Signed: signed, Installed: installed, Repair: repair,
-	}, nil
+		Installed: installed, Repair: repair,
+	}), nil
 }
 
 // findFile finds this platform's archive in the manifest, which has to list it
@@ -406,7 +429,7 @@ func describeURLString(raw string) string {
 // signed the checksums must be too, and their signature is held to the same
 // rule: both are signed, so a disagreement or a missing signature means
 // something served is not what was released.
-func (in *Installer) crossCheck(ctx context.Context, e Entry, base string, file selfupdate.ManifestFile, signed bool) error {
+func (in *Installer) crossCheck(ctx context.Context, e Entry, base string, file selfupdate.ManifestFile) error {
 	allow := in.allowFor(e)
 	sums, err := in.fetchSmall(ctx, allow, base+"checksums.txt", maxChecksums)
 	if err != nil {
@@ -415,13 +438,11 @@ func (in *Installer) crossCheck(ctx context.Context, e Entry, base string, file 
 	sig, err := in.fetchSmall(ctx, allow, base+"checksums.txt.sig", maxSignature)
 	switch {
 	case err == nil:
-		if verr := selfupdate.VerifyAny(selfupdate.TrustedKeys(), sums, sig); verr != nil && signed {
+		if verr := selfupdate.VerifyAny(selfupdate.TrustedKeys(), sums, sig); verr != nil {
 			return &SignatureError{File: "checksums.txt", Err: verr}
 		}
 	case errors.Is(err, errNotFound):
-		if signed {
-			return &SignatureError{File: "checksums.txt", Err: errors.New("the manifest is signed, but checksums.txt.sig is missing")}
-		}
+		return &SignatureError{File: "checksums.txt", Err: errors.New("the manifest is signed, but checksums.txt.sig is missing")}
 	default:
 		return fmt.Errorf("fetch checksums.txt.sig: %w", err)
 	}
@@ -445,16 +466,12 @@ func (in *Installer) crossCheck(ctx context.Context, e Entry, base string, file 
 	return nil
 }
 
-// Install installs a helper: version "" is the latest. An unsigned release is
-// installed only when allowUnsigned is true, and then it is recorded as
-// unsigned. Nothing from the archive is run.
-func (in *Installer) Install(ctx context.Context, id, version string, allowUnsigned bool) (*InstallInfo, error) {
+// Install installs a helper: version "" is the latest. A release that is not
+// signed is never installed. Nothing from the archive is run.
+func (in *Installer) Install(ctx context.Context, id, version string) (*InstallInfo, error) {
 	plan, err := in.Plan(ctx, id, version)
 	if err != nil {
 		return nil, err
-	}
-	if !plan.Signed && !allowUnsigned {
-		return nil, &UnsignedError{plan}
 	}
 	return in.InstallPlan(ctx, plan)
 }
@@ -467,22 +484,25 @@ func (in *Installer) stage(name string) error {
 	return in.hook(name)
 }
 
-// InstallPlan carries out a plan: download, verify, extract into a staging
-// folder, then swap in. A plan that is not signed is carried out as an
-// override, so the caller has to have asked for that.
+// InstallPlan carries out a plan that came from Plan or PlanVersion of this
+// installer: download, verify, extract into a staging folder, then swap in. A
+// plan made any other way, or changed after it was made, is refused. The
+// catalogue entry is looked up again rather than taken from the plan, and the
+// archive is held to the size and SHA-256 the signed manifest gave, so nothing
+// about what is installed is taken on the caller's word.
 func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, err error) {
+	if !in.sealed(p) {
+		return nil, errors.New("refusing to install a plan that this installer did not make, or that has been changed since")
+	}
 	id, st := p.Entry.ID, in.store
 	if !validID(id) || !validVersion(p.Version) {
 		return nil, fmt.Errorf("refusing to install %q %q", id, p.Version)
 	}
-	// The entry is the catalogue's, never the plan's own copy: a plan built by
-	// hand with RequireSigned cleared or another Source must not change the rules.
+	// The entry is the catalogue's, never the plan's own copy, so what the plan
+	// carries cannot change the rules or the source.
 	e, known := in.lookup(id)
 	if !known {
 		return nil, fmt.Errorf("%q is not a helper Flockdeck knows", id)
-	}
-	if err := st.checkSignedRequired(e, p.Version, p.Signed); err != nil {
-		return nil, err
 	}
 	if !in.begin(id) {
 		return nil, fmt.Errorf("%w: it is already being installed", ErrBusy)
@@ -539,7 +559,7 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 	if err != nil {
 		return nil, err
 	}
-	info := InstallInfo{Version: p.Version, Source: p.URL, SHA256: p.SHA256, BinarySHA256: binSum, Signed: p.Signed, InstalledAt: in.now().UTC()}
+	info := InstallInfo{Version: p.Version, Source: p.URL, SHA256: p.SHA256, BinarySHA256: binSum, InstalledAt: in.now().UTC()}
 	data, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
 		return nil, err
@@ -589,25 +609,15 @@ func (in *Installer) InstallPlan(ctx context.Context, p *Plan) (_ *InstallInfo, 
 	if err := in.stage("renamed"); err != nil {
 		return nil, err
 	}
-	// The record that a signed version was installed goes down before the
-	// pointer moves, and an install that cannot write it fails: with the pointer
-	// first, a failure here would leave a signed install that nothing remembers,
-	// and the next unsigned release would be accepted for it. The high-water mark
-	// rises only once the pointer has moved.
-	if info.Signed {
-		if err := st.recordSigned(id); err != nil {
-			return nil, err
-		}
-	}
+	// The high-water mark rises only once the pointer has moved, and the install
+	// is undone if it cannot be written.
 	cur, _ := json.Marshal(currentFile{Version: p.Version})
 	if err := atomicWrite(st.currentFile(id), cur, 0o644); err != nil {
 		return nil, err
 	}
-	if info.Signed {
-		if err := st.raiseHighWater(id, p.Version); err != nil {
-			in.restoreCurrent(id, previous)
-			return nil, err
-		}
+	if err := st.raiseHighWater(id, p.Version); err != nil {
+		in.restoreCurrent(id, previous)
+		return nil, err
 	}
 	if err := in.stage("current"); err != nil {
 		// current.json is already written when a hook fails here, which is a
