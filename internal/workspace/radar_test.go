@@ -19,6 +19,7 @@ import (
 // Nothing here starts a git process, and nothing reads the real configuration:
 // whether the radar is on is the rig's to say, not the preferences'.
 type radarRig struct {
+	t           *testing.T
 	mu          sync.Mutex
 	on          bool
 	status      map[string]gitx.Status
@@ -52,6 +53,7 @@ func newRadarRig(t *testing.T) *radarRig {
 		t.Skip("git is not installed, so nothing is refreshed")
 	}
 	r := &radarRig{
+		t:         t,
 		on:        true,
 		status:    map[string]gitx.Status{},
 		paths:     map[string][]string{},
@@ -186,6 +188,7 @@ func newRadarRig(t *testing.T) *radarRig {
 
 // refresh runs one refresh and moves the clock on past the engine's gap.
 func (r *radarRig) refresh(w *Workspace) {
+	r.t.Cleanup(w.waitGitIdle) // after the rig's restores, so it runs before them
 	w.RefreshGit(func(apply func()) { apply() })
 	r.mu.Lock()
 	r.now = r.now.Add(15 * time.Second)
@@ -370,6 +373,7 @@ func TestRadarKeepsAPairWhoseOtherPaneWasNotRefreshed(t *testing.T) {
 	r.refresh(w)
 	r.refresh(w)
 
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	w.RefreshGitOf(func(apply func()) { apply() }, []string{"pa"})
 	if got := conflictsOf(w, "pa"); len(got) != 1 || got[0].With != "pb" {
 		t.Errorf("pane a after refreshing only a: %v, want the pair with b kept", got)
@@ -511,6 +515,7 @@ func TestRadarTurnedOffLeavesNoChipsWhateverTheOrder(t *testing.T) {
 		}
 		var late, off []func()
 		// A refresh begins with the radar on, and its results are held back...
+		t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 		w.RefreshGit(hold(&late))
 		// ...the radar is turned off, and the refresh after it takes the chips down.
 		r.setOn(false)
@@ -615,6 +620,7 @@ func TestRadarLateResultFromBeforeAnOffAndOnLeavesNoChips(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var late []func()
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	w.RefreshGit(func(f func()) { mu.Lock(); late = append(late, f); mu.Unlock() })
 	r.setOn(false)
 	r.refresh(w) // takes the chips down

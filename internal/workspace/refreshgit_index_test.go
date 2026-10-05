@@ -45,6 +45,7 @@ func TestRefreshGitRefreshesTheIndexOfASlowCheckoutOnce(t *testing.T) {
 	}
 	t.Cleanup(func() { gitStatus, indexRefresh, slowStatus = status, refresh, threshold })
 
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	w.RefreshGit(func(apply func()) { apply() })
 	w.RefreshGit(func(apply func()) { apply() })
 
@@ -79,6 +80,8 @@ func TestAnIndexRefreshThatTakesLongDoesNotHoldUpRefreshGit(t *testing.T) {
 		return gitx.Status{Branch: "trunk"}, nil
 	}
 	release := make(chan struct{})
+	var releaseOnce sync.Once
+	letGo := func() { releaseOnce.Do(func() { close(release) }) }
 	started := make(chan struct{}, 4)
 	var calls atomic.Int32
 	indexRefresh = func(_ context.Context, dir string) error {
@@ -89,6 +92,8 @@ func TestAnIndexRefreshThatTakesLongDoesNotHoldUpRefreshGit(t *testing.T) {
 	}
 
 	began := time.Now()
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
+	t.Cleanup(letGo)         // and the refresh is let go first, whatever way the test ends
 	w.RefreshGit(func(apply func()) { apply() })
 	if took := time.Since(began); took > 3*time.Second {
 		t.Fatalf("RefreshGit took %v behind one checkout's index refresh, want about the hold of 100ms", took)
@@ -101,7 +106,7 @@ func TestAnIndexRefreshThatTakesLongDoesNotHoldUpRefreshGit(t *testing.T) {
 	if !busy {
 		t.Error("the checkout was released while its index was still being refreshed")
 	}
-	close(release)
+	letGo()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		w.gitMu.Lock()
@@ -138,6 +143,7 @@ func TestAnIndexRefreshThatFoundTheIndexBusyIsTriedAgain(t *testing.T) {
 		}
 		return nil
 	}
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	for i := 0; i < 4; i++ {
 		w.RefreshGit(func(apply func()) { apply() })
 		time.Sleep(20 * time.Millisecond) // for the checkout to be released
@@ -176,6 +182,10 @@ func TestClosingAWorkspaceEndsItsIndexRefreshAndNotAnothers(t *testing.T) {
 		return &Workspace{panes: map[string]*Pane{"p": {ID: "p", Cwd: cwd}}, BroadcastSet: map[string]bool{}, rec: record.NewManager(func() (string, error) { return t.TempDir(), nil })}
 	}
 	one, two := mk("/one"), mk("/two")
+	t.Cleanup(one.waitGitIdle) // after the restores above, so it runs before them
+	t.Cleanup(two.waitGitIdle)
+	t.Cleanup(one.stopRefreshes) // run first, so a refresh the test left waiting is ended
+	t.Cleanup(two.stopRefreshes)
 	one.RefreshGit(func(apply func()) { apply() })
 	two.RefreshGit(func(apply func()) { apply() })
 	for i := 0; i < 2; i++ {
