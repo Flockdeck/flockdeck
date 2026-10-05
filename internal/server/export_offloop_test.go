@@ -59,7 +59,12 @@ func TestAnExportDoesNotBlockTheServerLoop(t *testing.T) {
 	started := make(chan struct{})
 	stubExport(t, func(*workspace.ExportJob, <-chan struct{}) (record.ExportResult, error) {
 		close(started)
-		<-release
+		// A stub that cannot be released (the export was run on the loop) gives up
+		// so that a failure ends the test instead of hanging it.
+		select {
+		case <-release:
+		case <-time.After(2 * time.Second):
+		}
 		return record.ExportResult{Path: "/x/y.jsonl", Lines: 7}, nil
 	})
 	c := &controlClient{out: make(chan []byte, 8)}
@@ -73,7 +78,11 @@ func TestAnExportDoesNotBlockTheServerLoop(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("asking for an export waited for the export")
 	}
-	<-started
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the export never started")
+	}
 	// The loop answers while the export is stalled.
 	got := make(chan bool, 1)
 	go func() { _, ok := ask(srv, func() int { return 1 }); got <- ok }()
@@ -205,5 +214,30 @@ func TestAnExportFromARemoteWindowIsRefused(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if runs.Load() != 0 {
 		t.Error("an export ran")
+	}
+}
+
+// Once the server is closed an export is not joined or counted, so Close, which
+// has already looked at the count, is never left waiting on one.
+func TestNoExportIsJoinedAfterTheServerClosed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.Close()
+	c := &controlClient{out: make(chan []byte, 8)}
+	first, ok := srv.joinExport("conv-1", c)
+	if first || ok {
+		t.Errorf("joinExport = %v, %v after Close, want false, false", first, ok)
+	}
+	srv.exports.mu.Lock()
+	waiting := len(srv.exports.waiting)
+	srv.exports.mu.Unlock()
+	if waiting != 0 {
+		t.Errorf("%d conversations waiting after Close", waiting)
+	}
+	counted := make(chan struct{})
+	go func() { srv.connWG.Wait(); close(counted) }()
+	select {
+	case <-counted:
+	case <-time.After(2 * time.Second):
+		t.Error("an export was counted after Close and nothing will finish it")
 	}
 }

@@ -374,11 +374,7 @@ func (m *Manager) Finish(meta Meta) error {
 			_ = os.Remove(s.path)
 			return ErrEarlierKept
 		}
-		tries := 1
-		if m.export {
-			tries = moveTries
-		}
-		if err := moveInto(s.path, s.final, tries); err != nil {
+		if err := moveInto(s.path, s.final, moveTries); err != nil {
 			var link *os.LinkError
 			if errors.As(err, &link) {
 				err = link.Err
@@ -406,10 +402,11 @@ var ErrEarlierKept = errors.New("an earlier, finished transcript of this convers
 
 // renameRetry moves a file over another, trying again for a moment: on Windows
 // a program with the old one open (a viewer, a scanner) makes it fail until it
-// lets go. It does not wait after the last try. It sleeps, so it is only called
-// with more than one try from an export, which runs on a goroutine of its own and
-// not on the workspace goroutine or the server's loop; a recording ending on the
-// workspace goroutine tries once.
+// lets go. It does not wait after the last try. It sleeps, up to about 0.75 s: an
+// export runs it on a goroutine of its own, but a recording ending on the
+// workspace goroutine also does, as it always has, so that a fresh recording
+// survives a brief lock. Moving that off the workspace goroutine is a separate
+// change.
 func renameRetry(from, to string, tries int) error {
 	var err error
 	for i := 0; i < tries; i++ {
@@ -1099,8 +1096,8 @@ type fileLock struct {
 // moveInto and inCriticalSection are the points a test reaches into: the move of
 // a finished transcript over the earlier one, and the span, under the file's
 // lock, from the check of the earlier one to the move.
-// moveTries is how many times an export tries to move its file over the earlier
-// one, which a program with that open (on Windows) can keep it from doing.
+// moveTries is how many times a finished transcript is tried to be moved over the
+// earlier one, which a program with that open (on Windows) can keep it from doing.
 const moveTries = 6
 
 // syncFile makes a finished file durable before it is moved into place; a seam
