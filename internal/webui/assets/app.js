@@ -11765,32 +11765,13 @@
       : radarChecking ? el("div", "set-desc", "Checking the version of git.") : null;
     if (why) why.id = "set-radar-why";
     pane.append(settingRow("Show when two panes' work would conflict",
-      "Off by default. On, about every 15 seconds (and sooner after a commit or a pane opening) Flockdeck looks at the panes " +
-      "on screen. In a repository with two or more of them, every pane that has uncommitted or new files, or commits the base " +
-      "branch lacks, is copied before git can tell whether any two touch the same files: its changed files go into a scratch " +
-      "folder in the system's temporary folder, which is deleted afterwards. For two that share files, or a file and a " +
-      "directory of one name, git merges the copies in memory and asks whether their work would merge, counting changes that " +
-      "are not committed yet; a pane in a predicted conflict shows a warning chip with the other pane's name and the files. " +
-      "The radar's own copies change nothing in a checkout, though git may set the modification time of objects it finds already stored, and of a " +
-      "split index's shared file in a linked worktree. The separate index refresh, which runs whether or not the radar is on, rewrites the index as git does and never removes a lock or stops a git. Copying a pane takes eleven git processes when it has uncommitted or new files, four when it has only commits, and fourteen when its index cannot be copied and is rebuilt (a sparse checkout is not copied then, and costs four before it is left out); choosing the base again adds a few. On top of that come the status of each checkout the refresh runs anyway, one process per repository asking whether the bases moved, and a merge for each pair of panes that share a path. Every untracked file is read again each time, which a very large checkout may feel. A checkout whose git commands keep running past 20 seconds, or whose copy was itself running for at least 15 seconds when the radar's 30 seconds ran out, is skipped after three such refreshes in a row: for 10, then 20, 40, 80 and at most 120 minutes while it stays quiet. A checkout whose commit or counts of changed and new files keep changing is tried again at every refresh and pays up to the radar's 30 seconds each time; its strikes are kept and raise the step, which matters only while it stays quiet. Strikes are forgotten after a snapshot that works, when the radar is turned off and on, and after a day without one. Nothing in the window shows a skipped checkout; only the log says so. " +
-      "Pane names, branches and file paths " +
-      "(never file contents) go to every open window, including one reached through the relay. No chip is not a promise: " +
-      "the pane may have been skipped (clean, on a detached commit, in the middle of a merge, rebase or similar, or with over " +
-      "a thousand changed files), a conflict may not have been seen on two checks in a row yet, its project may not be on " +
-      "screen, or a check may have failed or timed out. A chip is a prediction for one pair, and says nothing about " +
-      "whether merged code builds or passes its tests. The base is the nearest, of the main worktree's branch, a bare " +
-      "repository's HEAD, origin's default and main and master, that shares history with the pane, looked up again when " +
-      "any of them, the main worktree's HEAD or a bare repository's HEAD moves, which is checked at every refresh, and at " +
-      "the latest after ten minutes, so a branch created later waits for that; a pane that shares history with none, a shallow clone whose history does not reach the base, and a " +
-      "repository with no such branch are not checked. On git 2.38 to 2.43 a partial clone is not checked, because git " +
-      "cannot be told not to fetch from its remote until 2.44. A submodule moved to another commit is compared: where it is not " +
-      "checked out in the panes' folders merge-tree calls any two different moves a conflict, and where it is checked out " +
-      "in both, a pair where one commit descends from the other gives no chip. An untracked folder holding a repository " +
-      "of its own, with commits or none, is not a changed path. A clean filter such as Git LFS, which git runs on the copies, " +
-      "may write its own files into the repository, and a merge driver a .gitattributes names is run by the merge; neither " +
-      "has been checked. A pane whose folder was deleted drops its peer's chip after three refreshes in " +
-      "a row. Every untracked file is read again each refresh, because the copies cannot be kept without keeping the " +
-      "scratch folder; the limit of a thousand changed files bounds that. Needs git 2.38 or newer.",
+      "Off by default. On, about every 15 seconds Flockdeck copies the changed files of the panes on screen that share a " +
+      "repository into a scratch folder in the system's temporary folder, and git merges the copies in memory to predict " +
+      "whether two panes' work would conflict (a pane with over 100 MB of changed files, or one file over 25 MB, is skipped). " +
+      "A pane in a predicted conflict shows a chip with the other pane's name; pressing it lists that pane's branch and up to " +
+      "20 file paths, and these names, branches and paths, never file contents, go to every open window, including a paired " +
+      "phone or relay window. It is a prediction and no chip is not a promise, it needs git 2.38 or newer, and Help, under " +
+      "Worktrees, says what it costs, what it skips and what git may still touch in the repository.",
       sw, why));
   }
 

@@ -60,15 +60,17 @@ of them take, and a name neither the catalog nor the agent has is answered here
 rather than becoming a pane that never starts.
 
 `-baton` starts the helper from a handoff instead of a blank conversation: `self`
-makes one from your own conversation, or give a pane id, a baton id (`flockdeck
-baton list` shows them) or the path of a notes file. The task is then optional.
+makes one from your own conversation, or give the id of a pane in your own project, a baton id (`flockdeck
+baton list` shows them) or the path of a notes file inside your project or checkout.
+The task is then optional.
 Nothing reviews a baton an agent asks for, so command arguments are dropped from
 it. A baton is sent to the agent the helper runs, so one that would go to a
 different company than the baton came from, or to an agent whose company
 Flockdeck does not know, is refused unless you add `-baton-send-elsewhere`. With
 it the agent only asks: your window shows a notice with a **Send it** button, and
-the baton is not sent until you press it (or at all, after 45 seconds). See
-[Handing work to another agent](#baton).
+the baton is not sent until you press it (or at all, after 45 seconds). That stops a
+mistake and a request nobody saw; it is not a boundary against a program running as
+you, which can press the button itself. See [Handing work to another agent](#baton).
 
 The address and token come from the environment the pane was started with
 (`FLOCKDECK_API` and `FLOCKDECK_TOKEN` below), so only processes running inside a pane

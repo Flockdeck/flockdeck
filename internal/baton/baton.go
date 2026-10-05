@@ -129,17 +129,28 @@ func knownHeading(line string) (Section, bool) {
 	return "", false
 }
 
+// tagGap is what may sit between the "<", the slash and the name of the tag that
+// fences a baton: spaces and line breaks of any kind (no-break and ideographic
+// too), and format characters that draw nothing. A reader that is not strict
+// about them would take "< /baton>" or "＜／ｂａｔｏｎ＞" for the tag.
+const tagGap = `[\s\p{Z}\p{Cf}\x{3164}\x{115F}\x{1160}\x{FFA0}\x{034F}\x{2800}]*`
+
+// tagRest is what follows the "<": the gap, an optional slash (ASCII or
+// full-width) and the name in ASCII or full-width letters, in either case.
+const tagRest = `(` + tagGap + `[/\x{FF0F}\x{2215}\x{2044}\x{29F8}]?` + tagGap +
+	`[bB\x{FF42}\x{FF22}][aA\x{FF41}\x{FF21}][tT\x{FF54}\x{FF34}][oO\x{FF4F}\x{FF2F}][nN\x{FF4E}\x{FF2E}])`
+
 // tagRe finds the start of the tag that fences a baton in a prompt, or the end
-// of it.
-// Spaces and line breaks around the slash and the name are allowed, since a
-// reader that is not strict about them would take "< /baton>" for the tag.
-var tagRe = regexp.MustCompile(`(?i)<(\s*/?\s*baton)`)
-var escapedTagRe = regexp.MustCompile(`(?i)&lt;(\s*/?\s*baton)`)
+// of it, with a "<" or a character that looks like one.
+var tagRe = regexp.MustCompile(`[<\x{FF1C}\x{FE64}\x{2039}\x{3008}\x{27E8}]` + tagRest)
+var escapedTagRe = regexp.MustCompile(`&lt;` + tagRest)
 
 // escapeTags keeps text from opening or closing the <baton> fence a baton is
 // put in. Text that came out of a file, a web page or a command can say
 // anything, including that the baton has ended and an instruction follows.
-func escapeTags(s string) string { return tagRe.ReplaceAllString(s, "&lt;$1") }
+// Characters that draw nothing are taken out first (CleanText), so they cannot
+// be put inside the name.
+func escapeTags(s string) string { return tagRe.ReplaceAllString(CleanText(s), "&lt;$1") }
 
 // escapeBody keeps a line of a section's text that looks like a section
 // heading from being read as one, and the text from naming the baton fence.
@@ -175,7 +186,7 @@ func unescapeBody(text string) string {
 
 // oneLine collapses a value for the front matter, which is one line a key.
 func oneLine(s string) string {
-	return strings.Join(strings.Fields(s), " ")
+	return strings.Join(strings.Fields(CleanText(s)), " ")
 }
 
 // Render writes a baton as markdown: a front matter block, then the title and

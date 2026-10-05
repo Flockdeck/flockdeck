@@ -376,14 +376,17 @@ func findCheckoutTop(abs string) string {
 }
 
 // transientIndexError reports whether err is git being refused the index because
-// something was replacing it at that moment, which is over in a moment.
+// something was replacing it at that moment, which is over in a moment. It is
+// the two messages git gives for the index file itself: "index file open failed"
+// and "<path>/index: Permission denied". A Permission denied about some other
+// path that has "index" in its name (src/index.js, an index-notes folder) is a
+// real failure, and is not retried.
 func transientIndexError(err error) bool {
 	if err == nil {
 		return false
 	}
 	msg := err.Error()
-	return strings.Contains(msg, "index file open failed") ||
-		(strings.Contains(msg, "Permission denied") && strings.Contains(msg, "index"))
+	return strings.Contains(msg, "index file open failed") || strings.Contains(msg, "index: Permission denied")
 }
 
 // indexRetryWait is how long a command refused the index waits before asking

@@ -6,9 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/baton"
 	"github.com/jmwri/flockdeck/internal/hooks"
 )
 
@@ -81,6 +84,60 @@ type approvalInfo struct {
 	Asker  string // the pane that asked, and its agent
 	Dest   string // the agent the helper would run and its company
 	Source string // where the baton came from, or that it is not known
+	// Gist is how big the baton is and how it begins, so that what is being
+	// approved is something the user can see. Empty when there is no baton text.
+	Gist string
+}
+
+// batonGist says how big a baton is and how it begins: its size, and the first
+// line of its goal as plain text, cut short. The text is already scrubbed; it is
+// cleaned of control and hidden characters here as well, since it is shown in a
+// notice a person decides on.
+func batonGist(b baton.Baton) string {
+	size := len(baton.Render(b))
+	// The goal, or for a notes file the notes, or whatever section has text first.
+	first := ""
+	for _, sec := range append([]baton.Section{baton.Goal, baton.Standing}, baton.Sections...) {
+		for _, line := range strings.Split(baton.CleanText(b.Section(sec)), "\n") {
+			if line = strings.TrimSpace(strings.Trim(strings.TrimSpace(line), "#>*-` ")); line != "" && line != baton.Placeholder {
+				first = line
+				break
+			}
+		}
+		if first != "" {
+			break
+		}
+	}
+	if first == "" {
+		first = strings.TrimSpace(baton.CleanText(b.Title))
+	}
+	if r := []rune(first); len(r) > 100 {
+		first = string(r[:100]) + "..."
+	}
+	text := "It is " + humanSize(size)
+	if first != "" {
+		text += " and begins: \"" + first + "\""
+	}
+	return text
+}
+
+// humanSize is a size in bytes as a person reads it.
+func humanSize(n int) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%d bytes", n)
+	case n < 10<<20:
+		return fmt.Sprintf("%.1f KB", float64(n)/1024)
+	}
+	return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+}
+
+// gistSentence is the gist as a sentence of the notice, or nothing.
+func gistSentence(g string) string {
+	if g == "" {
+		return ""
+	}
+	return g + ". "
 }
 
 func randomHex(n int) (string, error) {
@@ -120,7 +177,7 @@ func (s *Server) approveElsewhere(ctx context.Context, info approvalInfo) error 
 		data, err := json.Marshal(approvalNotice{
 			Type: "notice",
 			Text: info.Asker + " asked to start " + info.Dest + " from a baton that " + info.Source +
-				". It holds what an agent worked out. Allow it only if you asked for this.",
+				". " + gistSentence(info.Gist) + "It holds what an agent worked out. Allow it only if you asked for this.",
 			Lead:   "Baton leaving its provider.",
 			Action: &noticeAction{Label: "Send it", Send: map[string]string{"cmd": "approveBaton", "text": token}},
 			LifeMS: int(batonApprovalWait / time.Millisecond),

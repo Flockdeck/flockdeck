@@ -66,7 +66,7 @@ var dropOrder = []Section{Standing, Decisions, Questions, Constraints}
 // order, and if only the goal is left it is cut at a line. The prompt says what
 // is missing and where the rest is. Nothing is ever cut inside a line.
 func Frame(b Baton, o FrameOptions) Framed {
-	task := strings.TrimSpace(o.Task)
+	task := CleanText(strings.TrimSpace(o.Task))
 	room := min(BudgetBaton, BudgetTotal-len(task))
 	room = max(room, minRoom)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -495,4 +496,66 @@ func lineDiff(a, b string) string {
 	}
 	sort.Strings(out)
 	return strings.Join(out, "\n")
+}
+
+// A checkout holding one file past the size limit is not copied into the
+// scratch store: Snapshot says ErrTooBig before git add reads it.
+func TestSnapshotRefusesAFileOverTheSizeLimit(t *testing.T) {
+	t.Parallel()
+	repo, wt := radarRepo(t, "wa")
+	big := make([]byte, maxSnapshotFileBytes+1)
+	if err := os.WriteFile(filepath.Join(wt["wa"], "dump.bin"), big, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snap, s, err := snapOf(t, repo, wt["wa"], true)
+	if !errors.Is(err, ErrTooBig) {
+		t.Fatalf("err = %v, want ErrTooBig", err)
+	}
+	if snap.Commit != "" {
+		t.Errorf("a snapshot was made: %+v", snap)
+	}
+	// Nothing was written to the scratch object store.
+	if n := countFiles(t, filepath.Join(s.Root(), "obj")); n > 1 {
+		t.Errorf("%d files in the scratch object store, want only the alternates file", n)
+	}
+	// The same name with a small file in it is copied as usual.
+	if err := os.WriteFile(filepath.Join(wt["wa"], "dump.bin"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := snapOf(t, repo, wt["wa"], true); err != nil {
+		t.Errorf("a small file: %v", err)
+	}
+}
+
+func countFiles(t *testing.T, root string) int {
+	t.Helper()
+	n := 0
+	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			n++
+		}
+		return nil
+	})
+	return n
+}
+
+func TestCheckSizeAddsUpTheFilesAndSkipsWhatIsNotOne(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, f := range []string{"a", "b", "c"} {
+		write(t, dir, f, strings.Repeat("x", 10))
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	listed := []string{"a", "b", "c", "gone", "sub", "nested/", ""}
+	if err := checkSize(dir, listed, 10, 30); err != nil {
+		t.Errorf("30 bytes against 30: %v", err)
+	}
+	if err := checkSize(dir, listed, 10, 29); !errors.Is(err, ErrTooBig) {
+		t.Errorf("30 bytes against 29: %v, want ErrTooBig", err)
+	}
+	if err := checkSize(dir, listed, 9, 1000); !errors.Is(err, ErrTooBig) {
+		t.Errorf("a 10 byte file against 9: %v, want ErrTooBig", err)
+	}
 }

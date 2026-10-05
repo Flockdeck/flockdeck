@@ -53,11 +53,21 @@ The footer has three choices:
   same checkout. The old conversation stays in the history.
 - **Save only** keeps it for later.
 
+A phone or other window reached through the relay has the same three choices, and can
+also make a baton, so a paired device can make, save, start and send batons. What it
+makes is built and kept on this computer and scrubbed here like any other. Its tick
+box does not count for a different company: see the approval step below.
+
 The new agent's first prompt is the baton, with a note that it is claims to check,
 then your task. A baton over the prompt's size budget loses list lines, then whole
 sections, and the full text goes to a file in the checkout's git folder, which
 `git status` does not show; the prompt says where. A new worktree lacks uncommitted
 changes, and the dialog warns when there are any.
+
+A baton's header has the folder the pane works in (`cwd`), which for most people has their
+user name in it, the branch and the pane's name, so they go to whichever agent gets the
+baton. A stored baton over 1 MB cannot be loaded again: scrubbing can make a text longer,
+since a mark is longer than a short value, so keep a baton well under that.
 
 Batons are kept in Flockdeck's state directory, on this machine, and are not
 changed once saved: an edit is a new baton that remembers the first. When the next
@@ -75,9 +85,12 @@ flockdeck spawn -worktree fix-auth -baton self "Finish the auth middleware"
 ```
 
 `-baton` takes `self` (the caller's own conversation), a **pane id**, a **baton id**,
-or `path:` and the path of a notes file (`.md`, `.markdown`, `.txt`). Any pane can
-be the source, in any project, so an agent that knows a pane id can read what that
-pane did. A notes file is read from anywhere on a local drive. A symbolic link, a
+or `path:` and the path of a notes file (`.md`, `.markdown`, `.txt`). A pane id has to
+be a pane of the caller's own project, and a notes file has to be inside the caller's
+project folder, the folder it works in, or its git checkout (links are followed on both
+sides), because Flockdeck reads them as you and an agent could not read them itself.
+A baton id is not limited: it names something you saved. A file outside, or a pane of
+another project, is refused. A notes file is read from a local drive only. A symbolic link, a
 pipe, a network or device path, and a file that is a reparse point (a cloud
 placeholder that may not be on this disk) are refused, and so are a mapped or `subst`
 drive on Windows and a network file system on Linux. On macOS only the name and the
@@ -94,13 +107,21 @@ becomes a new baton. The helper is told the baton's id, and `flockdeck baton sho
 A baton that would go to a different company than it came from, or to one Flockdeck
 does not know, is refused unless the command has `-baton-send-elsewhere`. The company
 is worked out for the agent the helper will really run, in the folder it will work in
-(for `-worktree`, with the settings of the checkout it is cut from). A CLI counts as
+(for `-worktree`, with the settings of the checkout it is cut from). The company the
+baton came from is worked out in the folder of the pane it was made from, so a pane named by
+its id is judged by its own settings and not those of the pane that asks. The New pane
+button in a window judges the target the same way, in the worktree a branch asks for. A CLI counts as
 unknown when a gateway or cloud setting sends it elsewhere.
 
 With the flag the agent only asks. A notice in a window on this machine names the
-pane, the destination and where the baton came from, and has a **Send it** button.
+pane, the destination and where the baton came from, says how big the baton is and
+shows the first line of it (scrubbed, plain text, cut at 100 characters), and has a
+**Send it** button.
 Nothing starts until you press it. With no such window open, or no answer within 45
-seconds, it is not sent. A window reached through the relay cannot approve. What was
+seconds, it is not sent. A window reached through the relay cannot approve. It cannot
+skip the approval either: a **New pane** from a relay window that would go to a
+different or unknown company waits for the same notice on this machine, whether or not
+the box was ticked, and is refused when no window here is open. What was
 approved is checked again where the helper really runs. If the agent or its company
 changed meanwhile, nothing starts, and the worktree and branch this request made are
 removed (kept, with a message, if they hold anything beyond the checked-out files,
