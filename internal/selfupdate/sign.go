@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -30,6 +31,11 @@ import (
 // decoded, or nil while releaseKey is still the placeholder or not a key at
 // all. Tests put a key of their own here.
 var trustedKey = parsePublicKey(releaseKey)
+
+// keyMu guards trustedKey and trustedStandbyKey where they are read or swapped
+// by TrustedKeys and TrustKeysForTest, so a signature check running in the
+// background (a helper lookup, say) cannot race a test that swaps the keys.
+var keyMu sync.RWMutex
 
 // trustedStandbyKey is the standby key signatures are checked against as
 // well: releaseKeyStandby decoded, or nil while it is still the placeholder.
@@ -57,6 +63,8 @@ func StandbyKey() (ed25519.PublicKey, bool) {
 // key" is checked against all of these, so that a release signed with the
 // standby is accepted exactly as one signed with the primary is.
 func TrustedKeys() []ed25519.PublicKey {
+	keyMu.RLock()
+	defer keyMu.RUnlock()
 	var keys []ed25519.PublicKey
 	if trustedKey != nil {
 		keys = append(keys, trustedKey)
@@ -81,9 +89,15 @@ func TrustKeysForTest(primary, standby ed25519.PublicKey) func() {
 	if !testing.Testing() {
 		panic("selfupdate: TrustKeysForTest is for tests only")
 	}
+	keyMu.Lock()
 	oldPrimary, oldStandby := trustedKey, trustedStandbyKey
 	trustedKey, trustedStandbyKey = primary, standby
-	return func() { trustedKey, trustedStandbyKey = oldPrimary, oldStandby }
+	keyMu.Unlock()
+	return func() {
+		keyMu.Lock()
+		trustedKey, trustedStandbyKey = oldPrimary, oldStandby
+		keyMu.Unlock()
+	}
 }
 
 // parsePublicKey decodes a public key as Terraform's public_key_pem gives it,

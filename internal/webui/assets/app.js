@@ -464,6 +464,8 @@
       else if (msg.type === "jevKey") { jevKeyInfo = { set: !!msg.set, env: !!msg.env }; settingsChanged(); }
       else if (msg.type === "keys") keepFocus(() => renderKeys(msg), () => keySetButton(keyActed));
       else if (msg.type === "versions") renderVersions(msg);
+      else if (msg.type === "helpers") keepFocus(() => renderHelpers(msg));
+      else if (msg.type === "helperPlan") helperPlanArrived(msg);
       else if (msg.type === "agentAddress") addressAnswered(msg);
       // An unpaired device's row goes with its Unpair button, and the
       // keyboard with it: to Pair a device, rather than out of the dialog.
@@ -5317,6 +5319,7 @@
       again: () => { const at = todoAsked; return () => openNewTodo(at); } },
     update: { present: "dialog-m", again: () => openUpdate },
     versions: { present: "dialog-m", again: () => openVersions },
+    helpers: { present: "dialog-m", act: "helpers", again: () => openHelpers },
     agentPicker: { present: "picker",
       again: () => {
         const p = picker;
@@ -5621,6 +5624,7 @@
     else if (dialog === "todos") send({ cmd: "todos", root: state ? state.root : "" });
     else if (dialog === "keys") send({ cmd: "keys" });
     else if (dialog === "versions") send({ cmd: "listVersions" });
+    else if (dialog === "helpers" && helperView.kind === "list") send({ cmd: "helpers" });
     else if (dialog === "remote") send({ cmd: "remoteDevices" });
     else if (dialog === "settings" && settingsSection === "keys") send({ cmd: "keys" });
     else if (dialog === "settings" && settingsSection === "remote") send({ cmd: "remoteDevices" });
@@ -7879,6 +7883,7 @@
     agents: () => openAgents(),
     closeFinishedPanes: () => send({ cmd: "closeFinishedPanes" }),
     apiKeys: () => openKeys(),
+    helpers: () => openHelpers(),
     github: () => openGithub(),
     // The palette narrowed to the surfaces, by name: what the "Go to…" chip
     // in every dialog's header was, now one more thing the palette does.
@@ -10705,6 +10710,308 @@
       wrap.append(row);
     });
     body.append(wrap);
+  }
+
+  // ---------------------------------------------------------------- helpers
+
+  /* Helper apps: small local programs Flockdeck installs, starts and opens in
+   * the browser (internal/helpers). This is the
+   * dialog for them, from "Helper apps…" in the command palette. A status is
+   * always a glyph and a word, never colour alone, and every control is a real
+   * button. A change of status is said to the screen reader through the same
+   * announcer an agent's change is. Installing shows what is about to be
+   * downloaded, from where, and how it was checked, and nothing is downloaded
+   * until it is confirmed. */
+
+  /** The rows the server last sent, or null until the first answer. */
+  let helperRows = null;
+  /** What the dialog is showing: the list, a plan to confirm, or a removal. */
+  let helperView = { kind: "list" };
+  /** The helper a lookup was asked for and has not answered, or "". */
+  let helperPending = "";
+  /** What was last said about each helper, to say only what changed. */
+  const helperHeard = new Map();
+
+  /** The glyph and the word for every state the server reports. */
+  const HELPER_STATES = {
+    notinstalled: ["○", "Not installed"],
+    installing: ["◐", "Installing"],
+    stopped: ["○", "Stopped"],
+    starting: ["◐", "Starting"],
+    running: ["●", "Running"],
+    stopping: ["◐", "Stopping"],
+    unresponsive: ["▲", "Unresponsive"],
+    failed: ["▲", "Failed"],
+  };
+
+  function helperState(state) { return HELPER_STATES[state] || ["○", state]; }
+
+  function openHelpers() {
+    // The palette does not offer this to a window reached through the relay,
+    // and the server refuses it there; this is for a key bound some other way.
+    if (remoteWindow) {
+      notice("Helper apps are managed on the machine Flockdeck runs on, not from a window reached through the relay", true);
+      return;
+    }
+    dialog = "helpers";
+    helperRows = null;
+    helperView = { kind: "list" };
+    helperPending = "";
+    openOverlay("Helper apps", "cli");
+    $("overlay-body").textContent = "";
+    $("overlay-body").append(el("div", "dir-empty", "Loading…"));
+    send({ cmd: "helpers", force: true });
+  }
+
+  /** announceHelpers tells a screen reader when a helper changes state. */
+  function announceHelpers(rows) {
+    const said = [];
+    for (const r of rows) {
+      const word = helperState(r.state)[1].toLowerCase();
+      const before = helperHeard.get(r.id);
+      helperHeard.set(r.id, word);
+      if (before === undefined || before === word) continue;
+      said.push(r.name + " is " + word + (r.state === "failed" && r.error ? ": " + r.error : ""));
+    }
+    if (said.length) $("announcer").append(el("div", null, said.join(". ")));
+  }
+
+  /** renderHelpers draws the dialog, from the rows a "helpers" message carries
+   *  when one has just arrived. */
+  function renderHelpers(msg) {
+    if (msg) {
+      helperRows = msg.rows || [];
+      announceHelpers(helperRows);
+    }
+    if (dialog !== "helpers") return;
+    const body = $("overlay-body");
+    body.textContent = "";
+    if (helperView.kind === "plan") return renderHelperPlan(body, helperView.plan);
+    if (helperView.kind === "remove") return renderHelperRemove(body, helperView);
+    if (!helperRows) { body.append(el("div", "dir-empty", "Loading…")); return; }
+    body.append(el("div", "fan-hint",
+      "Helpers are small programs Flockdeck downloads, checks, starts and stops for you. " +
+      "Any program running as you can read and write a helper's files and reach it on this computer, and any account on this computer can reach it with no sign-in. It is not sandboxed. Each one is opened in your browser."));
+    const wrap = section(helperRows.length === 1 ? "1 helper" : helperRows.length + " helpers");
+    helperRows.forEach((r) => wrap.append(helperRow(r)));
+    body.append(wrap);
+  }
+
+  /** helperButton is one real button on a row, with an id a test and a
+   *  stable keyboard position can name. */
+  function helperButton(r, verb, label, run, primary) {
+    const b = el("button", primary ? "chip primary" : "chip", label);
+    b.id = "helper-" + verb + "-" + r.id;
+    b.onclick = run;
+    return b;
+  }
+
+  function helperRemoval(r, purge, dataOnly) {
+    helperView = { kind: "remove", id: r.id, name: r.name, dataDir: r.dataDir, hasData: r.hasData, purge, dataOnly };
+    renderHelpers();
+    focusHelperView();
+  }
+
+  function helperRow(r) {
+    const row = el("div", "wt-row helper-row");
+    row.dataset.key = "helper:" + r.id;
+    row.dataset.state = r.state;
+    const main = el("div", "wt-main");
+
+    const title = el("div", "wt-title");
+    title.append(el("span", "wt-label", r.name));
+    if (r.installed) title.append(el("span", "wt-meta", r.installed));
+    const [glyph, word] = helperState(r.state);
+    const status = el("span", "wt-flag helper-status", glyph + " " + word);
+    status.id = "helper-status-" + r.id;
+    title.append(status);
+    if (r.update) title.append(el("span", "wt-flag", "Update available " + r.update));
+    if (r.installed && !r.signed) title.append(el("span", "wt-flag", "Unsigned"));
+    main.append(title);
+    main.append(el("div", "wt-meta", r.summary));
+    if (r.state === "running" && r.url) main.append(el("div", "wt-path", r.url));
+    if (r.needsRepair && r.state !== "running") {
+      const bad = el("div", "wt-meta helper-error", "the installed program no longer matches what was installed");
+      bad.id = "helper-repair-note-" + r.id;
+      main.append(bad);
+    }
+    if (r.state === "running" && r.owner === "unverified") {
+      const note = el("div", "wt-meta helper-owner", "port owner not verified");
+      note.id = "helper-owner-" + r.id;
+      note.title = "This platform cannot confirm which process holds the helper's port.";
+      main.append(note);
+    }
+    if (r.hasData && r.state === "notinstalled") {
+      main.append(el("div", "wt-path", "Its data is kept in " + r.dataDir));
+    }
+    if (r.error && (r.state === "failed" || r.state === "starting")) {
+      const why = el("div", "wt-meta helper-error", r.error);
+      why.setAttribute("role", "status");
+      main.append(why);
+    }
+    if (r.state === "failed" && r.log && r.log.length) {
+      const log = el("pre", "helper-log", r.log.join("\n"));
+      log.setAttribute("aria-label", "The last lines " + r.name + " wrote");
+      main.append(log);
+    }
+    row.append(main);
+
+    const actions = el("div", "wt-actions");
+    const start = () => send({ cmd: "helperStart", id: r.id });
+    const stop = () => send({ cmd: "helperStop", id: r.id });
+    switch (r.state) {
+      case "notinstalled":
+        actions.append(helperButton(r, "install", "Install…", () => helperLookup(r.id, ""), true));
+        if (r.hasData) actions.append(helperButton(r, "delete", "Delete data…", () => helperRemoval(r, true, true)));
+        break;
+      case "stopped":
+      case "failed":
+        actions.append(helperButton(r, "start", r.state === "failed" ? "Try again" : "Start", start, true));
+        if (r.update) actions.append(helperButton(r, "update", "Update…", () => helperLookup(r.id, r.update)));
+        if (r.needsRepair) actions.append(helperButton(r, "repair", "Repair…", () => helperLookup(r.id, r.installed), true));
+        actions.append(helperButton(r, "remove", "Remove…", () => helperRemoval(r, false, false)));
+        break;
+      case "starting":
+      case "unresponsive":
+        actions.append(helperButton(r, "stop", "Stop", stop));
+        break;
+      case "running":
+        actions.append(helperButton(r, "open", "Open", () => send({ cmd: "helperOpen", id: r.id }), true));
+        actions.append(helperButton(r, "stop", "Stop", stop));
+        break;
+      default: // installing, stopping: nothing to press until it settles
+        break;
+    }
+    if (helperPending === r.id) {
+      for (const b of actions.children) b.disabled = true;
+    }
+    row.append(actions);
+    return row;
+  }
+
+  /** helperLookup asks what an install would do, which downloads nothing. */
+  function helperLookup(id, version) {
+    helperPending = id;
+    renderHelpers();
+    send({ cmd: "helperPlan", id, text: version });
+  }
+
+  /** helperPlanArrived shows the answer to a lookup. */
+  function helperPlanArrived(msg) {
+    helperPending = "";
+    if (dialog !== "helpers") return;
+    helperView = { kind: "plan", plan: msg };
+    renderHelpers();
+    focusHelperView();
+  }
+
+  /** focusHelperView puts the keyboard on the heading of the view just drawn,
+   *  so a screen reader starts reading it from the top. */
+  function focusHelperView() {
+    const head = $("overlay-body").querySelector("h3");
+    if (head) { head.tabIndex = -1; head.focus(); }
+  }
+
+  function helperBack() {
+    helperView = { kind: "list" };
+    renderHelpers();
+    send({ cmd: "helpers" });
+  }
+
+  function helperFact(list, label, value, code) {
+    const row = el("div", "helper-fact");
+    row.append(el("dt", null, label));
+    row.append(el(code ? "code" : "dd", code ? "helper-code" : null, value));
+    list.append(row);
+  }
+
+  /** renderHelperPlan is the confirmation: name, version, where it comes from,
+   *  how it was checked, what it may do. */
+  function renderHelperPlan(body, p) {
+    const wrap = section(p.error ? "Not installed" : (p.repair ? "Repair " : "Install ") + p.name + " " + p.version);
+    body.append(wrap);
+    if (p.error) {
+      const msg = el("div", "dir-empty helper-error", p.error);
+      msg.setAttribute("role", "alert");
+      wrap.append(msg);
+      const back = el("button", "chip", "Back");
+      back.id = "helper-back";
+      back.onclick = helperBack;
+      wrap.append(back);
+      return;
+    }
+    wrap.append(el("div", "fan-hint", p.summary));
+    const facts = el("dl", "helper-facts");
+    helperFact(facts, "Name", p.name);
+    helperFact(facts, "Version", p.version + (p.repair ? " (the installed copy is replaced by a checked one)" : p.installed ? " (replaces " + p.installed + ")" : ""));
+    helperFact(facts, "Source", p.url, true);
+    helperFact(facts, "Signature", p.signed
+      ? "manifest.json is signed with the Flockdeck release key; the archive is checked against it when it is downloaded"
+      : "Not signed");
+    helperFact(facts, "SHA-256", p.sha256, true);
+    wrap.append(facts);
+
+    wrap.append(el("div", "helper-sub", "What it may do"));
+    const list = el("ul", "helper-allows");
+    (p.allows || []).forEach((a) => list.append(el("li", null, a)));
+    wrap.append(list);
+    wrap.append(el("div", "fan-hint",
+      "This describes what it does by design. "+
+      "Any program running as you can read and write a helper's files and reach it on this computer, and any account on this computer can reach it with no sign-in. It is not sandboxed."));
+
+    if (!p.signed) {
+      const warn = el("div", "helper-warning",
+        "This release is not signed, and an unsigned release is never installed.");
+      warn.setAttribute("role", "alert");
+      wrap.append(warn);
+    }
+
+    const go = el("button", "chip primary", "Install");
+    go.id = "helper-confirm";
+    go.disabled = !p.signed;
+    go.onclick = () => {
+      if (go.disabled) return;
+      send({ cmd: "helperInstall", id: p.id, text: p.version, sha256: p.sha256, confirmed: true });
+      helperView = { kind: "list" };
+      renderHelpers();
+    };
+    const cancel = el("button", "chip", "Cancel");
+    cancel.id = "helper-cancel";
+    cancel.onclick = helperBack;
+    wrap.append(go, cancel);
+  }
+
+  /** renderHelperRemove asks before removing, and asks separately before
+   *  deleting the data, which a plain removal keeps. */
+  function renderHelperRemove(body, v) {
+    const title = v.dataOnly ? "Delete " + v.name + " data" : v.purge ? "Delete " + v.name + " data too" : "Remove " + v.name;
+    const wrap = section(title);
+    body.append(wrap);
+    if (v.purge) {
+      const warn = el("div", "helper-warning",
+        "This deletes the folder " + v.dataDir + " and everything in it. It cannot be undone.");
+      warn.setAttribute("role", "alert");
+      wrap.append(warn);
+    } else {
+      wrap.append(el("div", "fan-hint", "The program is removed. Its data folder " + (v.dataDir || "") + " is kept, so installing it again finds it."));
+    }
+    const go = el("button", "chip primary", v.purge ? "Delete data" : "Remove");
+    go.id = "helper-remove-confirm";
+    go.onclick = () => {
+      send({ cmd: "helperUninstall", id: v.id, purge: !!v.purge });
+      helperView = { kind: "list" };
+      renderHelpers();
+    };
+    const cancel = el("button", "chip", "Cancel");
+    cancel.id = "helper-cancel";
+    cancel.onclick = helperBack;
+    wrap.append(go, cancel);
+    if (!v.purge && v.hasData) {
+      const more = el("button", "chip", "Remove and delete its data…");
+      more.id = "helper-remove-purge";
+      more.onclick = () => { helperView = { ...v, purge: true }; renderHelpers(); focusHelperView(); };
+      wrap.append(more);
+    }
   }
 
   // --------------------------------------------------------------- settings

@@ -272,6 +272,59 @@ Set `FLOCKDECK_UPDATE=off` to stop the window checking on its own, and to stop
 an update it has already downloaded being put in place when Flockdeck exits.
 The subcommand still works; it is the background updating that goes.
 
+## helpers
+
+| Command | What it does |
+| --- | --- |
+| `flockdeck helpers list` | Lists the helper apps, what is installed and whether it runs |
+| `flockdeck helpers list -check` | Also looks for a newer version of each |
+| `flockdeck helpers install lens` | Downloads, checks and installs a helper, after asking |
+| `flockdeck helpers install -version=0.4.0 lens` | Installs that version, forward or back |
+| `flockdeck helpers start lens` | Starts it, in the running Flockdeck |
+| `flockdeck helpers open lens` | Opens its page in your browser |
+| `flockdeck helpers stop lens` | Stops it |
+| `flockdeck helpers uninstall lens` | Removes it and keeps its data folder |
+| `flockdeck helpers uninstall -purge-data lens` | Removes it and deletes the data folder too |
+
+A helper app is a small program that Flockdeck downloads, installs in its own
+folder, starts and stops for you. The first one is lens, which reads agent
+session transcripts. A helper is not part of Flockdeck: it runs as you, listens
+on 127.0.0.1 only, gets none of Flockdeck's tokens or API keys in its
+environment, and is not sandboxed. Any program running as you can read and
+write its files, and any account on the computer can reach it on 127.0.0.1
+with no sign-in, because it has none. Its environment is built from a short
+list of names, and that list includes `HTTP_PROXY`, `HTTPS_PROXY` and
+`NO_PROXY`, passed on as they are on purpose so that it can reach the network
+the way you do; a proxy address can carry a username and password.
+
+`install` shows the name, version, source address, signature and what the helper
+may do, and asks first; `-yes` skips the question. The release's manifest is
+checked against Flockdeck's release key, and the archive against the SHA-256 and size in
+them, before anything is unpacked. Every lens release must be signed: a release
+that is not signed is refused, with that reason, and so is one whose signature
+is wrong. Nothing overrides either, and there is no flag for it. Once a signed
+version of a helper has been installed, nothing older than the newest signed
+version installed before is offered unless you name it with `-version`.
+
+Flockdeck keeps what it needs for that in `trust.json` in the helper's folder
+under its state folder (`apps/lens/trust.json`). If an install says the record
+is damaged, or you want a helper's history forgotten, delete that file;
+`flockdeck helpers uninstall -purge-data lens` also removes it, together with the
+data, even when nothing is installed. If a helper's program was changed after it
+was installed, a start is refused. `flockdeck helpers install lens` puts a
+checked copy back when the installed version is also the latest; otherwise run
+`flockdeck helpers install -version=<installed version> lens`.
+
+`list`, `install` and `uninstall` work without Flockdeck open. `start`, `stop`
+and `open` are done by the running Flockdeck, which watches the helper, restarts
+it if it crashes (three times in five minutes, then it stays stopped) and stops
+it when Flockdeck quits.
+
+The same actions are in the window: [[action:helpers]] in the command palette
+lists each helper with its status, written as a word as well as a symbol, and a
+button for what can be done next. Installing there shows the same details as the
+command line and asks before it downloads anything.
+
 ## Environment
 
 | Variable | Effect |

@@ -28,13 +28,16 @@ func TestARemoteWindowIsNotOfferedQuitOrDetach(t *testing.T) {
 	if got["quit"] || got["detach"] {
 		t.Errorf("a window through the relay was offered quit=%v detach=%v; want neither", got["quit"], got["detach"])
 	}
+	if got["helpers"] {
+		t.Error("a window through the relay was offered the Helper apps dialog, which the server refuses it")
+	}
 	if !got["help"] {
 		t.Error("the relayed window's table lost more than Quit and Detach")
 	}
 
 	var local helloMsg
 	readUntil(t, dialControl(t, srv), "hello", &local)
-	if got := offered(local); !got["quit"] || !got["detach"] {
+	if got := offered(local); !got["quit"] || !got["detach"] || !got["helpers"] {
 		t.Errorf("a window on this machine was offered quit=%v detach=%v; want both", got["quit"], got["detach"])
 	}
 }

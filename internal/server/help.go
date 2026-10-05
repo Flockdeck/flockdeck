@@ -93,13 +93,16 @@ func effectiveKeys(remote bool) []keyView {
 // remoteFiltered is keys without what a window reached through the relay
 // cannot do. Detach and Quit are the desk's to choose -- a phone's window
 // closing never stopped anything, and nothing on the phone could start the
-// agents again -- and the server refuses both from there. Offered anyway, Quit
+// agents again -- and the server refuses both from there. Helper apps are the
+// same: they install a program on, and open a browser on, the desk's machine.
+//
+// The two above go on being said as they were: Offered anyway, Quit
 // asked whether to stop every agent only for the answer to be no.
 func remoteFiltered(keys []keyView) []keyView {
 	out := make([]keyView, 0, len(keys))
 	for _, k := range keys {
 		switch k.ID {
-		case "detach", "quit":
+		case "detach", "quit", "helpers":
 			continue
 		}
 		out = append(out, k)
