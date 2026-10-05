@@ -272,9 +272,9 @@ func (e *Engine) Update(ctx context.Context, dir string, s *gitx.Scratch, in []I
 				// asked about again next time.
 				if ctx.Err() != nil {
 					r.Behind = true
-				}
-				if next < 0 {
-					next = k
+					if next < 0 {
+						next = k
+					}
 				}
 				continue
 			}

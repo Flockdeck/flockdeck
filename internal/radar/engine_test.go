@@ -534,3 +534,38 @@ func TestBehindIsLoggedAtMostOnceAMinute(t *testing.T) {
 		t.Errorf("%d log lines over two minutes of refreshes that were behind, want 2", lines)
 	}
 }
+
+// A pair whose merge keeps failing for a reason other than the deadline does not
+// count toward the merge limit, so it must not be where the next refresh starts
+// either: the pairs past it would never be reached.
+func TestAPairThatAlwaysFailsDoesNotPinTheWalk(t *testing.T) {
+	seen := map[[2]string]bool{}
+	e := NewEngineWith(Options{
+		MaxCached: 2,
+		Predict: func(_ context.Context, _ string, _ *gitx.Scratch, a, b string) ([]string, bool, error) {
+			if a > b {
+				a, b = b, a
+			}
+			if a == "c-t00" && b == "c-t01" {
+				return nil, false, errors.New("merge failed")
+			}
+			seen[[2]string{a, b}] = true
+			return nil, true, nil
+		},
+	})
+	var in []Input
+	for i := 0; i < 20; i++ {
+		in = append(in, ready(fmt.Sprintf("p%02d", i), fmt.Sprintf("t%02d", i), "shared.go"))
+	}
+	for round := 0; round < 20; round++ {
+		end, ok := e.Begin()
+		if !ok {
+			t.Fatal("Begin was refused")
+		}
+		e.Update(context.Background(), "repo", nil, in)
+		end()
+	}
+	if len(seen) != 189 {
+		t.Errorf("%d of 189 pairs were merged around the failing one", len(seen))
+	}
+}
