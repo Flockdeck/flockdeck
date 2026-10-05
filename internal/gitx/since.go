@@ -14,9 +14,12 @@ import (
 // is not counted as the branch's.
 //
 // A file's Status and Label are left empty: only the line counts are read.
+//
+// base is a branch name an agent or a repository chose, so it is passed after
+// --end-of-options: one that starts with a dash is a name, never an option.
 func Since(dir, base string) (files []FileChange, commits int, err error) {
 	ctx := context.Background()
-	counts, err := numstat(ctx, dir, base+"...HEAD")
+	counts, err := numstat(ctx, dir, "--end-of-options", base+"...HEAD")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -24,7 +27,7 @@ func Since(dir, base string) (files []FileChange, commits int, err error) {
 		files = append(files, FileChange{Path: path, Added: n.added, Removed: n.removed})
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	out, err := runUntil(ctx, dir, "rev-list", "--count", base+"..HEAD")
+	out, err := runUntil(ctx, dir, "rev-list", "--count", "--end-of-options", base+"..HEAD")
 	if err != nil {
 		return files, 0, err
 	}
