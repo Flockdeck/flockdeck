@@ -61,7 +61,7 @@ func newUIRigWith(t *testing.T, requireSigned bool) *uiRig {
 	t.Cleanup(fake.Close)
 	r.origin = fake.URL
 	srv.SetHelpers(
-		helpers.NewSupervisor(helpers.Config{Store: r.store}),
+		helpers.NewSupervisor(helpers.Config{Store: r.store, GOOS: "linux"}),
 		helpers.NewInstaller(helpers.Options{
 			Store: r.store, Lookup: lensAt(fake.URL, requireSigned), GOOS: "linux", GOARCH: "amd64",
 			AllowURL: func(u *url.URL) bool { return u.Hostname() == "127.0.0.1" },
@@ -673,5 +673,33 @@ func TestARepairBelowTheMarkWorksFromTheDialog(t *testing.T) {
 	got := notices(c, 3*time.Second)
 	if !strings.Contains(strings.Join(got, "|"), "Installed lens 0.3.0") {
 		t.Fatalf("notices = %v", got)
+	}
+}
+
+// A start that is refused because the installed program changed tells the
+// dialog to offer the repair, without the dialog having been reopened.
+func TestAStartRefusedForATamperedProgramOffersTheRepair(t *testing.T) {
+	r := newUIRig(t)
+	sha := r.publish(t, "0.4.0", true, false)
+	c := &controlClient{out: make(chan []byte, 64)}
+	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
+	notices(c, 3*time.Second)
+	if err := os.WriteFile(filepath.Join(r.store.Root, "lens", "versions", "0.4.0", "lens"), []byte("changed"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r.send(c, command{Cmd: "helperStart", ID: "lens"})
+	var refused bool
+	for _, n := range notices(c, time.Second) {
+		t.Log("notice:", n)
+		refused = refused || strings.Contains(n, "changed") || strings.Contains(n, "no longer")
+	}
+	if !refused {
+		t.Fatal("the start was not refused for the changed program")
+	}
+	// A plain listing, which does not look at the program again.
+	r.send(c, command{Cmd: "helpers"})
+	row := next(t, c, "helpers")["rows"].([]any)[0].(map[string]any)
+	if row["needsRepair"] != true {
+		t.Fatalf("the row does not offer the repair: %v", row)
 	}
 }
