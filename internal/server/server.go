@@ -189,6 +189,7 @@ type Server struct {
 	// Guarded by mu.
 	helperSup  *helpers.Supervisor
 	helperUI   helperState
+	helperWG   sync.WaitGroup // background helper work (lookups, installs), so a test can wait for it
 	helperInst *helpers.Installer
 
 	// OnQuit is called when a shutdown is requested from the interface or by

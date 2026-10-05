@@ -67,6 +67,9 @@ func newUIRigWith(t *testing.T, requireSigned bool) *uiRig {
 			AllowURL: func(u *url.URL) bool { return u.Hostname() == "127.0.0.1" },
 		}),
 	)
+	// Last registered, so first run: background lookups finish before the keys
+	// and the fake CDN they use are put away.
+	t.Cleanup(srv.waitHelperWork)
 	return r
 }
 

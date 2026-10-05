@@ -236,7 +236,9 @@ func (s *Server) helpersList(c *controlClient, force bool) {
 	}
 	c.sendJSON(helpersMsg{Type: "helpers", Rows: s.helperRows()})
 	_, inst := s.helperSupervisor()
+	s.helperWG.Add(1)
 	go func() {
+		defer s.helperWG.Done()
 		defer s.surviveFor(c, "checking helpers for updates")
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
@@ -287,7 +289,9 @@ func (s *Server) helperPlan(c *controlClient, id, version string) {
 		return
 	}
 	_, inst := s.helperSupervisor()
+	s.helperWG.Add(1)
 	go func() {
+		defer s.helperWG.Done()
 		defer s.surviveFor(c, "looking up a helper")
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
@@ -340,7 +344,9 @@ func (s *Server) helperInstall(c *controlClient, cmd command) {
 		return
 	}
 	s.HelperChanged()
+	s.helperWG.Add(1)
 	go func() {
+		defer s.helperWG.Done()
 		defer s.surviveFor(c, "installing a helper")
 		defer func() { s.helperUI.setBusy(id, false); s.HelperChanged() }()
 		ctx, cancel := context.WithTimeout(context.Background(), helperNetworkWait)
@@ -403,7 +409,9 @@ func (s *Server) helperStop(c *controlClient, id string) {
 		return
 	}
 	sup, _ := s.helperSupervisor()
+	s.helperWG.Add(1)
 	go func() {
+		defer s.helperWG.Done()
 		defer s.surviveFor(c, "stopping a helper")
 		_ = sup.Stop(id)
 		s.HelperChanged()
@@ -447,3 +455,7 @@ func (s *Server) helperUninstall(c *controlClient, id string, purge bool) {
 	}
 	s.HelperChanged()
 }
+
+// waitHelperWork returns when the background helper work started so far has
+// finished. Tests use it so nothing from one test is still running in the next.
+func (s *Server) waitHelperWork() { s.helperWG.Wait() }
