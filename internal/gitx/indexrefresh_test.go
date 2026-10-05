@@ -67,6 +67,38 @@ func waitRefreshesEnded(t testing.TB) {
 	}
 }
 
+// waitRepoQuiet waits until nothing started by RefreshIndex is running or waiting for
+// the checkout's index: no update-index process alive, and no refresh holding or
+// waiting for the gate. A refresh whose caller has gone, and git finishing it by
+// itself, writes index.lock and the index into the checkout's .git, so removing the
+// checkout while it runs fails with "directory not empty". newRepo registers it right
+// after t.TempDir, and cleanups run last in first out, so it runs before the removal
+// and after everything the test registered later (a hung stand-in being let go).
+func waitRepoQuiet(t testing.TB, dir string) {
+	t.Helper()
+	key := indexKey(dir)
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		gatesMu.Lock()
+		g := gates[key]
+		gatesMu.Unlock()
+		if g == nil {
+			return
+		}
+		g.mu.Lock()
+		busy := g.live > 0 || g.active || g.pending != nil
+		g.mu.Unlock()
+		if !busy {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("a refresh of %s was still running or waiting 30 s after the test ended", dir)
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func lockOf(repo string) string { return filepath.Join(repo, ".git", "index.lock") }
 
 func exists(path string) bool { _, err := os.Lstat(path); return err == nil }

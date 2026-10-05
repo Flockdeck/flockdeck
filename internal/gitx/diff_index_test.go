@@ -311,7 +311,15 @@ func TestReadersAreBoundedAndNeverWaitBehindAPendingWriter(t *testing.T) {
 
 	held, _ := readIndex(context.Background(), repo)
 	pending := make(chan error, 1)
-	go func() { _, err := tryWriteIndex(context.Background(), repo, 500*time.Millisecond); pending <- err }()
+	go func() {
+		// It gets the index once held lets go, and gives it back: left holding it, the
+		// checkout's gate stays busy for ever.
+		rel, err := tryWriteIndex(context.Background(), repo, 500*time.Millisecond)
+		if err == nil {
+			rel()
+		}
+		pending <- err
+	}()
 	time.Sleep(100 * time.Millisecond)
 	started = time.Now()
 	r2, err := readIndex(context.Background(), repo)
@@ -380,7 +388,12 @@ func TestChangesStopsCountingWhileARefreshIsPending(t *testing.T) {
 	repo, _ := staleRepo(t, 5)
 	write(t, repo, "second.txt", "another change\n")
 	held, _ := readIndex(context.Background(), repo)
-	go func() { _ = RefreshIndex(repo) }()
+	refreshDone := make(chan struct{})
+	go func() { defer close(refreshDone); _ = RefreshIndex(repo) }()
+	// The refresh goes on to run git once the held index is let go, below, after this
+	// test's own work: the test waits for it, so that git has stopped writing into
+	// the checkout before its folder is removed.
+	t.Cleanup(func() { <-refreshDone })
 	time.Sleep(100 * time.Millisecond)
 
 	started := time.Now()
