@@ -729,6 +729,10 @@ for:
   not something to send to a phone.
 - **It says what it did.** How many lines, and how many entries of the
   conversation could not be read; whether it was cut at the size cap.
+  The window asks for it and goes on working while it runs, and is told when it
+  is done. Two windows asking for one conversation at once share one export and
+  both get its answer. A Flockdeck that quits during an export stops it and
+  leaves nothing behind.
 - **Nothing for an agent with nothing stored.** The command and the window say
   that the agent stores no conversation Flockdeck can read, and write nothing.
 - **It can contain secrets.** Redaction is best effort (section 4); the window

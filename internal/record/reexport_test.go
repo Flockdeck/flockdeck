@@ -341,7 +341,7 @@ func TestAFailedMoveLeavesTheEarlierExportAndNothingElse(t *testing.T) {
 	if err := os.WriteFile(first.Path, []byte(old), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	moveInto = func(from, to string) error {
+	moveInto = func(from, to string, _ int) error {
 		return &os.LinkError{Op: "rename", Old: from, New: to, Err: errors.New("in use")}
 	}
 	for i := 0; i < 5; i++ {
@@ -472,5 +472,39 @@ func TestAFailedSyncLeavesTheEarlierExportAndNoTempFile(t *testing.T) {
 		for _, e := range ents {
 			t.Errorf("in the folder: %s", e.Name())
 		}
+	}
+}
+
+// Only an export, which runs on a goroutine of its own, waits and tries again to
+// move its file over the earlier one. A recording ending on the workspace
+// goroutine tries once.
+func TestOnlyAnExportRetriesTheMove(t *testing.T) {
+	var tries []int
+	moveInto = func(from, to string, n int) error {
+		tries = append(tries, n)
+		return renameRetry(from, to, 1)
+	}
+	t.Cleanup(func() { moveInto = renameRetry })
+
+	again, _, _ := exportReplacing(t)
+	tries = nil
+	if _, err := again(); err != nil {
+		t.Fatal(err)
+	}
+	if len(tries) != 1 || tries[0] != moveTries {
+		t.Errorf("an export tried %v, want [%d]", tries, moveTries)
+	}
+
+	m, _ := newTestManager(t)
+	f := newFeed(t, m)
+	f.prompt("one")
+	f.finish()
+	g := newFeed(t, m)
+	g.prompt("one")
+	g.say("two")
+	tries = nil
+	g.finish()
+	if len(tries) != 1 || tries[0] != 1 {
+		t.Errorf("a recording tried %v, want [1]", tries)
 	}
 }

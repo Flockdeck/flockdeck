@@ -192,6 +192,9 @@ type Server struct {
 	helperWG   sync.WaitGroup // background helper work (lookups, installs), so a test can wait for it
 	helperInst *helpers.Installer
 
+	// exports are the transcript exports under way; see recording.go.
+	exports exports
+
 	// OnQuit is called when a shutdown is requested from the interface or by
 	// another launch of the binary.
 	OnQuit func()
