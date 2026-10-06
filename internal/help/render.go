@@ -187,8 +187,8 @@ func keyTableWith(rows []Key, wrap func(string) string) string {
 	return b.String()
 }
 
-// ShortcutsMarkdown renders the whole key table as the README carries it. The
-// README is the one copy of this that is not rendered at run time, so a test
+// ShortcutsMarkdown renders the whole key table as docs/keys.md carries it.
+// That file is the one copy of this that is not rendered at run time, so a test
 // compares the two and can rewrite it.
 func ShortcutsMarkdown() string {
 	var b strings.Builder
@@ -196,7 +196,7 @@ func ShortcutsMarkdown() string {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString("### " + s + "\n\n")
+		b.WriteString("## " + s + "\n\n")
 		b.WriteString(keyTableWith(InSection(s), func(keys string) string { return "`" + keys + "`" }))
 	}
 	return b.String()

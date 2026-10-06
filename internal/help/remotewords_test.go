@@ -2,12 +2,37 @@ package help
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-const appJSPath = "../webui/assets/app.js"
+const (
+	appJSPath  = "../webui/assets/app.js"
+	readmePath = "../../README.md"
+	// docsDir holds the repository's own Markdown pages. Past release notes
+	// are under docs/releases and are not read here.
+	docsDir = "../../docs"
+)
+
+// docPages returns the name and text of each Markdown page directly in docs/.
+func docPages(t *testing.T) map[string]string {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(docsDir, "*.md"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no Markdown pages found in %s: %v", docsDir, err)
+	}
+	out := map[string]string{}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out["docs/"+filepath.Base(f)] = string(b)
+	}
+	return out
+}
 
 // remoteBanned are words that describe Flockdeck Remote as something it is not.
 // A payment reviewer classed it as a VPN or proxy, and a paired device opening
@@ -58,6 +83,9 @@ func TestRemoteIsNotNamedOrDescribedAsAccessOrATunnel(t *testing.T) {
 		t.Fatalf("read README: %v", err)
 	}
 	check("the README", string(readme))
+	for name, text := range docPages(t) {
+		check(name, text)
+	}
 
 	js, err := os.ReadFile(appJSPath)
 	if err != nil {
