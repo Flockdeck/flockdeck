@@ -1240,6 +1240,37 @@ func TestThePrivacyPolicyDisclosesDownloadAccessLogs(t *testing.T) {
 	}
 }
 
+// A relay that asks for a verified email keeps the address on the account and
+// sends it to Postmark. The policy used to say the relay keeps no email address
+// at all, and that an account is not linked to one, so a test fails if either
+// comes back or the disclosure goes.
+func TestThePrivacyPolicyDisclosesTheVerifiedEmail(t *testing.T) {
+	_, pages := generate(t)
+	policy := strings.Join(strings.Fields(pages["privacy.html"]), " ")
+	for _, want := range []string{
+		"it also keeps the address that confirmed the account",
+		"the email address that confirmed it",
+		"Postmark",
+		"DigitalOcean, GitHub and Postmark are United States companies",
+		"To confirm an email address when a relay asks for one",
+		"for an account made with a confirmed email address",
+	} {
+		if !strings.Contains(policy, want) {
+			t.Errorf("privacy.html does not say %q", want)
+		}
+	}
+	for _, gone := range []string{
+		"It keeps no email address",
+		"the relay keeps none even for those who do",
+		"The account is not linked to an email address",
+		"Because relay accounts carry no email address",
+	} {
+		if strings.Contains(policy, gone) {
+			t.Errorf("privacy.html still says %q, which is false for an account made with a verified email", gone)
+		}
+	}
+}
+
 // The site describes Flockdeck Remote as opening your own Flockdeck window
 // from a paired device through the relay. A payment reviewer reading the home
 // page, or a visitor reading the terms, must not find it described as a
