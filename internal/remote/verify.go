@@ -83,22 +83,21 @@ type verifyRefusal struct {
 func (e *verifyRefusal) Error() string { return e.msg }
 func (e *verifyRefusal) Unwrap() error { return e.api }
 
-// verifyError words the refusals of the verification steps that are the person's to act on:
-// 422, the address was rejected or is blocked by the relay's email provider (use another, or
-// ask for help); 502, the email provider failed (try later); 429, too many tries (try later).
-// Any other error is returned as it is.
+// verifyError words the two refusals that starting a registration can answer with: 429, the
+// relay's rate limit (wait), and 500, the relay failing (try later). The address is typed on
+// the relay's own page in the browser, so a rejected or blocked address (422) and a failed
+// email send (502) are shown there and never reach this machine. Any other error is returned
+// as it is.
 func verifyError(err error) error {
 	var api *APIError
 	if !errors.As(err, &api) {
 		return err
 	}
 	switch api.Status {
-	case http.StatusUnprocessableEntity:
-		return &verifyRefusal{"the relay could not send a verification email to that address, because it was rejected or is blocked by the email provider. Use another address, or email privacy@flockdeck.ai for help", api}
-	case http.StatusBadGateway:
-		return &verifyRefusal{"the relay's email provider failed, so no verification email was sent. Nothing is wrong with your address; try again later", api}
 	case http.StatusTooManyRequests:
 		return &verifyRefusal{"too many verification attempts from here. Wait a while, then try again", api}
+	case http.StatusInternalServerError:
+		return &verifyRefusal{"the relay could not start registration. Try again later", api}
 	}
 	return err
 }
@@ -158,13 +157,6 @@ func VerifyEmail(ctx context.Context, relay, version string, onEvent func(Verify
 				// end of the wait, and is worth trying again for.
 				var api *APIError
 				if errors.As(err, &api) && (api.Status == http.StatusNotFound || api.Status == http.StatusGone) {
-					onEvent(VerifyEvent{Err: err})
-					return "", err
-				}
-				// An address the email provider turned down is not accepted
-				// by waiting longer.
-				if errors.As(err, &api) && api.Status == http.StatusUnprocessableEntity {
-					err = verifyError(err)
 					onEvent(VerifyEvent{Err: err})
 					return "", err
 				}
