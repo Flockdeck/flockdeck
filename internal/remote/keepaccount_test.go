@@ -185,6 +185,34 @@ func TestEnableOfAKeptEnrolmentTheRelayForgotEnrolsAgain(t *testing.T) {
 	}
 }
 
+// A dead kept enrolment, asked to turn on with no relay named, enrols afresh
+// with the relay it was on and not the default one, so that somebody on a
+// company's relay is not quietly registered on the public one. The same for an
+// enabled enrolment the relay has forgotten.
+func TestEnableAgainStaysOnTheRelayItWasOn(t *testing.T) {
+	for _, off := range []bool{true, false} {
+		_, f := keepAccountManager(t)
+		t.Setenv(RelayEnv, "")
+		ctx := context.Background()
+		cfg, _, err := Enable(ctx, "v", EnableRequest{Relay: f.URL, Name: "desk"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Token, cfg.Disabled = "fdh_forgotten", off
+		if err := cfg.Save(); err != nil {
+			t.Fatal(err)
+		}
+		f.forgetCalls()
+		got, replaced, err := Enable(ctx, "v", EnableRequest{})
+		if err != nil || !replaced || got.Relay != f.URL {
+			t.Errorf("disabled %v: Enable with no relay named = %+v, replaced %v, %v; want it on %s", off, got, replaced, err, f.URL)
+		}
+		if n := f.callsTo("POST /api/v1/hosts"); n != 1 {
+			t.Errorf("disabled %v: registered %d times on the relay it was on, want 1", off, n)
+		}
+	}
+}
+
 // Remove is what Disable used to be: the relay is told, and the enrolment is
 // cleared, even from a machine that was turned off first.
 func TestRemoveTellsTheRelayAndClears(t *testing.T) {

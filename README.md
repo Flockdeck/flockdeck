@@ -1242,7 +1242,9 @@ its verified email stay on the relay, this machine shows as offline on them, and
 `enable` turns it back on to the same account. If this machine is not seen for 30
 days and the account has no subscription, the relay removes the account. `remove`
 is the one that leaves the account: the relay deletes this machine, and the
-account too if it was the last one.
+account too if it was the last one. An older Flockdeck ignores the off setting
+in `remote.json` and reconnects, so turn it off with the version you turned it
+off with.
 `remote move` (or **Move to another relay…** in the dialog) is for a company
 taking its machines onto a relay of its own: it enrols with the new relay
 first and leaves the old one only once the new one answers, and every paired
@@ -1426,8 +1428,8 @@ ends its session at once, on the next request, with nothing left open behind
 it: the cookie that a window holds carries no permission of its own, only
 which device and desktop it was issued for, and both are checked again every
 time. A desktop not heard from in 30 days is removed from the relay on its
-own, with its account if it was the last one, unless the account has a running
-subscription.
+own, with its account if it was the last one, unless the account is subscribed
+or its subscription ended less than the grace period (90 days by default) ago.
 
 A remote window needs Flockdeck running here. Closing the window on this
 machine still quits it, remote window or not; detach instead to leave the

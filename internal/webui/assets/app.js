@@ -1324,7 +1324,7 @@
           (devices.length === 1 ? "its paired device is unpaired, " : devices.length > 1 ? "its " + devices.length + " paired devices are unpaired, " : "") +
           "and its plan, trial and verified email are lost.";
       }
-      q += " A subscription is not cancelled by this, so cancel it first from the Devices page of a paired device. " +
+      q += " If you pay for Flockdeck Remote, cancel it first from the Devices page of a paired device: removing the desktop does not cancel it. " +
         "To keep the account, choose Turn off remote access instead.";
       if (!window.confirm(q)) return;
       remoteRemove(false);

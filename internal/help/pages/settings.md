@@ -232,9 +232,9 @@ in `%APPDATA%\flockdeck.exe`.
 To uninstall Flockdeck, quit it and delete the `flockdeck` binary (on Windows,
 the `%LOCALAPPDATA%\Programs\flockdeck` folder the installer made, its Start
 menu shortcut and its entry in your PATH), then this directory and, on
-Windows, `%APPDATA%\flockdeck.exe`; turn remote
-access off first if it is on, so the relay forgets the
-machine. Worktrees it made are ordinary git worktrees, and stay beside their
+Windows, `%APPDATA%\flockdeck.exe`; run `flockdeck remote remove` first if
+remote access is on, so the relay forgets the machine (turning it off keeps the
+account on the relay). Worktrees it made are ordinary git worktrees, and stay beside their
 repositories until you remove them.
 
 ## In the environment

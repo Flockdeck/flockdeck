@@ -1109,7 +1109,7 @@ func remoteRemoveCmd(args []string, rio remoteIO) error {
 		default:
 			fmt.Fprintln(rio.out, fitted("If it is the account's only machine, the account is deleted too, with its paired devices, plan, trial and verified email."))
 		}
-		fmt.Fprintln(rio.out, fitted("Enabling again starts a new account, with a new trial and a new email check, unless it joins one with a join code; `flockdeck remote pair -desktop` prints one, and works before this is done. A subscription is not cancelled by this, so cancel it first from the Devices page of a paired device. To keep the account and only turn remote access off, run `flockdeck remote disable` instead."))
+		fmt.Fprintln(rio.out, fitted("Enabling again starts a new account, with a new trial and a new email check, unless it joins one with a join code; `flockdeck remote pair -desktop` prints one, and works before this is done. If you pay for Flockdeck Remote, cancel it first from the Devices page of a paired device: removing the desktop does not cancel it. To keep the account and only turn remote access off, run `flockdeck remote disable` instead."))
 		if !f.yes {
 			if rio.confirm == nil {
 				return errors.New("nothing has changed; run it again with -yes to remove without being asked, as a script has to")

@@ -259,8 +259,9 @@ in memory.
   remove`) or from another of your devices. Turning Flockdeck Remote off on it
   keeps it. One that never connects to the relay is removed after seven days,
   and one not heard from for 30 days is removed the same way, whether or not it
-  ever connected, except the last desktop of an account with a running
-  subscription, which is kept. When the last desktop in an account is removed,
+  ever connected, except the last desktop of an account that is subscribed or
+  whose subscription ended less than the grace period ago (90 days), which is
+  kept. When the last desktop in an account is removed,
   the account and all its devices go with it.
 - **An account whose free trial has ended, or whose subscription has
   lapsed,** can no longer be used for Flockdeck Remote. It is kept as it was for

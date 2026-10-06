@@ -103,6 +103,7 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 				return existing, false, nil
 			}
 			replaced = true
+			relay = againRelay(req, relay, existing)
 			existing = nil
 		}
 	}
@@ -111,6 +112,7 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 			return nil, false, &AlreadyEnabledError{Relay: existing.Relay, Err: err}
 		}
 		replaced = true
+		relay = againRelay(req, relay, existing)
 	}
 
 	name := enrolName(req.Name, "")
@@ -143,6 +145,18 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 		return nil, false, err
 	}
 	return cfg, replaced, nil
+}
+
+// againRelay is the relay to enrol afresh with, when the relay has forgotten an
+// enrolment. A request that names no relay enrols with the relay the old
+// enrolment was on, not the default one: somebody on a company's relay must not
+// quietly end up registered on the public one. settled is what RelayURL made of
+// the request.
+func againRelay(req EnableRequest, settled string, old *Config) string {
+	if strings.TrimSpace(req.Relay) == "" {
+		return old.Relay
+	}
+	return settled
 }
 
 // DisabledEnrolmentError is what turning remote access on again with options
