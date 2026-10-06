@@ -272,8 +272,8 @@ var pages = []struct {
 }{
 	{Path: "", Template: "index.html.tmpl",
 		Title:       "Flockdeck | Coding agents, a git worktree for each",
-		Description: "Flockdeck runs Claude Code, Codex, Gemini or your own model side by side and makes it one step to give each its own git worktree, so parallel agents don't overwrite each other's files. Free, with its source available, for Windows, macOS and Linux. An optional hosted relay lets you answer your agents from your phone.",
-		Social:      "Run several coding agents in one repo, a git worktree for each, and answer them from your phone."},
+		Description: "Flockdeck runs Claude Code, Codex, Gemini or your own model side by side and makes it one step to give each its own git worktree, so parallel agents don't overwrite each other's files. Free, with its source available, for Windows, macOS and Linux. An optional hosted relay lets you use your own Flockdeck from your phone.",
+		Social:      "Run several coding agents in one repo, a git worktree for each, and use them from your phone."},
 	{Path: "trust.html", Template: "doc.html.tmpl", Source: "trust.md",
 		Title:       "Trust & privacy | Flockdeck",
 		Description: "What Flockdeck collects (almost nothing, structurally, not as a paid mode), what isn't end-to-end encrypted yet, and how that compares to the rest of the market.",
