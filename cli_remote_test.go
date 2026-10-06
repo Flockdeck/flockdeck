@@ -44,6 +44,24 @@ type fakeRelayAPI struct {
 	requireVerify bool
 	verifyCode    string
 	verified      bool
+
+	// matchCode, when set, is the match code register/start hands back, as a
+	// relay that makes them does. startStatus and startError make it refuse,
+	// and hostsReply, hostsStatus and hostsError shape the answer to a
+	// registration: a join, or a refusal.
+	matchCode   string
+	startStatus int
+	startError  string
+	hostsReply  string
+	hostsStatus int
+	hostsError  string
+	// account is the relay's GET /api/v1/host/account answer, accountStatus and
+	// accountError make the account calls refuse, and deletes counts the
+	// DELETEs that went through.
+	account       string
+	accountStatus int
+	accountError  string
+	deletes       int
 }
 
 func (f *fakeRelayAPI) setVerified(v bool) {
@@ -102,8 +120,20 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 			_, _ = io.WriteString(w, `{"error":"this relay does not require a verified email to register; register directly with `+"`flockdeck remote enable`"+`"}`)
 			return
 		}
+		f.mu.Lock()
+		matchCode, startStatus, startError := f.matchCode, f.startStatus, f.startError
+		f.mu.Unlock()
+		if startStatus != 0 {
+			w.WriteHeader(startStatus)
+			_, _ = io.WriteString(w, `{"error":"`+startError+`"}`)
+			return
+		}
+		match := ""
+		if matchCode != "" {
+			match = `,"matchCode":"` + matchCode + `"`
+		}
 		w.WriteHeader(http.StatusCreated)
-		_, _ = io.WriteString(w, `{"code":"`+verifyCode+`","verifyUrl":"`+f.URL+`/auth/verify#`+verifyCode+`","expiresAt":"2030-01-01T00:30:00Z"}`)
+		_, _ = io.WriteString(w, `{"code":"`+verifyCode+`","verifyUrl":"`+f.URL+`/auth/verify#`+verifyCode+`"`+match+`,"expiresAt":"2030-01-01T00:30:00Z"}`)
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/v1/register/status" {
@@ -121,6 +151,19 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 		if requireVerify && req.Join == "" && (req.VerificationCode != verifyCode || !verified) {
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = io.WriteString(w, `{"error":"that email has not been verified yet; open the link the relay emailed you, then try again"}`)
+			return
+		}
+		f.mu.Lock()
+		reply, hostsStatus, hostsError := f.hostsReply, f.hostsStatus, f.hostsError
+		f.mu.Unlock()
+		if hostsStatus != 0 {
+			w.WriteHeader(hostsStatus)
+			_, _ = io.WriteString(w, `{"error":"`+hostsError+`"}`)
+			return
+		}
+		if reply != "" {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, strings.ReplaceAll(reply, "NAME", req.Name))
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
@@ -147,6 +190,24 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/host/devices":
 		_, _ = io.WriteString(w, `{"devices":`+devices+`,`+
 			`"hosts":[{"id":"h-desk","name":"`+selfName+`","online":true,"self":true,"url":"`+f.URL+`/h/h-desk/"}]}`)
+	case r.URL.Path == "/api/v1/host/account" && (r.Method == http.MethodGet || r.Method == http.MethodDelete):
+		f.mu.Lock()
+		account, status, msg := f.account, f.accountStatus, f.accountError
+		if status == 0 && r.Method == http.MethodDelete {
+			f.deletes++
+		}
+		f.mu.Unlock()
+		switch {
+		case status != 0:
+			w.WriteHeader(status)
+			_, _ = io.WriteString(w, `{"error":"`+msg+`"}`)
+		case r.Method == http.MethodDelete:
+			_, _ = io.WriteString(w, `{"deleted":true,"desktops":2,"devices":1}`)
+		case account != "":
+			_, _ = io.WriteString(w, account)
+		default:
+			_, _ = io.WriteString(w, `{"desktops":2,"devices":1,"subscribed":false,"email":"a***@example.com"}`)
+		}
 	case r.Method == http.MethodPatch && noRename:
 		// As a relay from before renaming answers: the path is one it has,
 		// for another method.

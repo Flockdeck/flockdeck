@@ -393,7 +393,13 @@ func verifyEventPrinter(out io.Writer) func(remote.VerifyEvent) {
 	return func(ev remote.VerifyEvent) {
 		switch {
 		case ev.URL != "":
-			fmt.Fprintln(out, fitted("This relay needs a verified email before it will register a new machine."))
+			fmt.Fprintln(out, fitted("This relay needs a verified email before it will add a machine."))
+			if ev.MatchCode != "" {
+				// The code is shown before the browser opens, so it is on screen when the
+				// page asks for it. It is never in the email: the page that opens from the
+				// email link asks for it, and only whoever started this has it.
+				fmt.Fprintln(out, fitted(fmt.Sprintf("Your confirmation code is %s. Enter it on the page that opens from the email link. It is not in the email, so enter it only if you started this just now.", ev.MatchCode)))
+			}
 			if err := openBrowser(ev.URL); err == nil {
 				fmt.Fprintln(out, "Opened in your default browser. If nothing opened, or you'd rather use\nanother device, open this link there instead:")
 			} else {
@@ -426,9 +432,11 @@ func remoteEnable(args []string, rio remoteIO) error {
 	wasOff := kept != nil && kept.Disabled
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	var joined *remote.Registration
 	cfg, replaced, err := remote.Enable(ctx, version, remote.EnableRequest{
 		Relay: f.relay, Name: f.name, Join: f.join, Invite: f.invite,
 		OnVerify: verifyEventPrinter(rio.out),
+		OnJoined: func(r remote.Registration) { joined = &r },
 	})
 	if err != nil {
 		return enableAdvice(f, err)
@@ -442,6 +450,9 @@ func remoteEnable(args []string, rio remoteIO) error {
 		return nil
 	}
 	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("Flockdeck Remote enabled: this machine is %q on %s", cfg.Name, cfg.Relay)))
+	if joined != nil {
+		printJoined(rio.out, *joined)
+	}
 	if f.join != "" {
 		// Joining puts this machine in another's account rather than a new
 		// one, which is the whole point of the code, and worth confirming.
@@ -450,6 +461,48 @@ func remoteEnable(args []string, rio remoteIO) error {
 	reportReload(rio, "flockdeck will connect to the relay when it next starts")
 	fmt.Fprintln(rio.out, "Pair a device with `flockdeck remote pair`, or Flockdeck Remote… in the window.")
 	return nil
+}
+
+// printJoined says that the relay added this machine to an account the verified
+// email already had, which enrolling by email now does instead of making a
+// second one: how big the account is and what plan it is on, when the relay
+// says, and that devices already paired with it reach this machine.
+func printJoined(out io.Writer, reg remote.Registration) {
+	var parts []string
+	if reg.Desktops > 0 {
+		parts = append(parts, fmt.Sprintf("%d desktops", reg.Desktops))
+	}
+	if p := planPhrase(reg.Plan); p != "" {
+		parts = append(parts, p)
+	}
+	line := "That email already had a Flockdeck Remote account, so this machine joined it"
+	if len(parts) > 0 {
+		line += ": " + strings.Join(parts, ", ")
+	}
+	fmt.Fprintln(out, fitted(line+"."))
+	fmt.Fprintln(out, fitted("Devices already paired with the account reach this machine too."))
+}
+
+// planPhrase is a plan in a few words, "Subscription until 12 March 2027", from
+// what the relay called it and when it ends. A plan that has run out, or has no
+// end, is said that way. "" when the relay sent no plan.
+func planPhrase(p *remote.Plan) string {
+	if p == nil {
+		return ""
+	}
+	name := strings.TrimSpace(p.Name)
+	if name == "" {
+		name = p.Plan
+	}
+	switch {
+	case !p.Active && p.Plan == "lapsed":
+		return "its plan has run out"
+	case name == "":
+		return ""
+	case p.Ends.IsZero():
+		return name
+	}
+	return name + " until " + p.Ends.Local().Format("2 January 2006")
 }
 
 // enableAdvice words a refusal to enable for the command line: what
@@ -532,9 +585,15 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 		// join code given, the relay's 400 is about the code; its other one
 		// is for a body this client never sends.
 		return withAdvice(err, "remote pair -desktop", "`flockdeck remote pair -desktop` on the other machine makes a new one")
-	case f.join != "" && errors.As(err, &refused) && refused.Status == http.StatusConflict:
-		// An account with all the machines it may have.
+	case errors.As(err, &refused) && refused.Status == http.StatusConflict && !remote.IsVerifyRefusal(err):
+		// An account with all the machines it may have, whether this machine was joining
+		// it with a code or by its verified email. The relay's words for it already say
+		// what to do, and are left as they are when they do.
 		return withAdvice(err, "remote remove", "running `flockdeck remote remove` on one of that account's machines does that")
+	case errors.As(err, &refused) && refused.Status == http.StatusTooManyRequests && refused.Message == "" && !remote.IsVerifyRefusal(err):
+		// Too many machines have joined this account lately. A relay says so in its own
+		// words and when to try again; one that said nothing is given these.
+		return fmt.Errorf("%v; the relay is limiting how fast machines can be added to an account, so try again later", err)
 	}
 	return err
 }
@@ -1215,8 +1274,12 @@ func remoteMoveCmd(args []string, rio remoteIO) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	var joined *remote.Registration
 	moved, untold, err := remote.Move(ctx, version,
-		remote.EnableRequest{Relay: want, Name: f.name, Join: f.join, Invite: f.invite, OnVerify: verifyEventPrinter(rio.out)},
+		remote.EnableRequest{
+			Relay: want, Name: f.name, Join: f.join, Invite: f.invite, OnVerify: verifyEventPrinter(rio.out),
+			OnJoined: func(r remote.Registration) { joined = &r },
+		},
 		// The running instance moves its tunnel across before the old relay
 		// is told, rather than seeing it cut by the old relay first.
 		func() { reportReload(rio, "flockdeck will connect to the new relay when it next starts") })
@@ -1227,6 +1290,9 @@ func remoteMoveCmd(args []string, rio remoteIO) error {
 		return fmt.Errorf("%v (this machine is still on %s)", advised, cfg.Relay)
 	}
 	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("moved: this machine is %q on %s", moved.Name, moved.Relay)))
+	if joined != nil {
+		printJoined(rio.out, *joined)
+	}
 	if untold != nil {
 		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("%s could not be told (%v), so it will go on listing this machine, offline, until a device paired there removes it", cfg.Relay, untold)))
 	}
