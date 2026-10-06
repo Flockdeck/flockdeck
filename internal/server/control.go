@@ -2065,6 +2065,10 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 			s.wakeAsked()
 		case "autoReview":
+			if p := ws.Pane(cmd.ID); p != nil && !p.IsAgent() {
+				c.notify(autoReviewShellNotice, true)
+				return
+			}
 			if !ws.SetPaneAutoReview(cmd.ID, cmd.AutoReview) {
 				c.notify(paneGone, true)
 				return
@@ -2265,6 +2269,10 @@ func cmdName(cmd string) string {
 // paneGone is what a window is told when it acts on a pane that has since
 // been closed, most often because another window closed it first.
 const paneGone = "That pane is no longer open"
+
+// autoReviewShellNotice answers an autoReview command for a shell pane.
+// Auto-review works on the agent's PreToolUse calls, and a shell makes none.
+const autoReviewShellNotice = "Auto-review is for agent panes. A shell makes no tool calls to review"
 
 // tabGone is paneGone for a tab, renamed or switched to from a tab bar or a
 // dialog drawn before another window closed it.

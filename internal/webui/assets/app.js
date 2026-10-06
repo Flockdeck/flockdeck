@@ -2453,7 +2453,9 @@
       // showing it in the file manager, which used to be a button in every
       // pane's header. With no file there is nothing to show, so the button is
       // off and the reason is written under it.
-      const reveal = f.label === "Transcript file" ? el("button", "chip", "Show in folder") : null;
+      // Not offered in a window reached through the relay: the server shows
+      // the file on its own machine only, and refuses it from here.
+      const reveal = f.label === "Transcript file" && !remoteWindow ? el("button", "chip", "Show in folder") : null;
       if (reveal) {
         reveal.setAttribute("aria-label", "Show the transcript file in your file manager");
         describe(reveal, TIPS.revealTranscript);
@@ -4461,13 +4463,13 @@
       const zoom = zoomed.has(id) ? String(zoomed.get(id)) : "";
       if (was.zoom !== zoom) { was.zoom = zoom; renderPaneZoom(p, zoomed.get(id)); }
 
-      const review = (v.autoReview ? "1" : "0") + ":" + (v.autoApproved || 0);
+      const review = (v.autoReview ? "1" : "0") + ":" + (v.autoApproved || 0) + (v.kind === "shell" ? "s" : "");
       if (was.review !== review) { was.review = review; renderPaneReview(p, v); }
 
       const locked = v.locked ? "1" : "";
       if (was.locked !== locked) { was.locked = locked; renderPaneLock(p, !!v.locked); }
 
-      const recording = (v.recording ? "1" : "") + (v.kind === "shell" ? "s" : "");
+      const recording = (v.recording ? "1" : "") + (v.kind === "shell" ? "s" : "") + (remoteWindow ? "r" : "");
       if (was.recording !== recording) { was.recording = recording; renderPaneRecording(p, !!v.recording, v.kind === "shell"); }
 
       const focused = !!tab && tab.focus === id;
@@ -4523,6 +4525,9 @@
    *  or by its own `flockdeck spawn`, comes up already showing whatever its
    *  parent had, since it inherits the same setting. */
   function renderPaneReview(p, v) {
+    // A shell makes no PreToolUse calls, so there is nothing for the toggle to
+    // act on and the server refuses it. See renderPaneRecording.
+    p.reviewBtn.hidden = v.kind === "shell";
     const on = !!v.autoReview;
     p.reviewBtn.classList.toggle("reviewing", on);
     p.reviewBtn.setAttribute("aria-pressed", String(on));
@@ -4562,7 +4567,9 @@
    *  is hidden. See Pane.Recording. */
   function renderPaneRecording(p, on, shell) {
     p.recBtn.hidden = shell;
-    p.exportBtn.hidden = shell;
+    // The export is written on the machine Flockdeck runs on, and the server
+    // refuses it from a window reached through the relay (see remoteWindow).
+    p.exportBtn.hidden = shell || remoteWindow;
     p.recMark.hidden = !on;
     p.recMark.textContent = on ? "● Recording" : "";
     if (on) describe(p.recMark, "Recording - this pane's agent interaction is being saved as a transcript on this machine. Secrets are removed on a best-effort basis only.");
