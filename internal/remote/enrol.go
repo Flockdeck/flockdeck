@@ -28,7 +28,7 @@ type EnableRequest struct {
 	// Enable and Move fail fast with ErrNeedsInteractiveVerify rather than
 	// wait with nobody able to show the URL to open. The command line always
 	// gives one; a caller with no way yet to show a URL and wait -- today,
-	// the window's own Remote access… dialog -- leaves it nil and gets that
+	// the window's own Flockdeck Remote… dialog -- leaves it nil and gets that
 	// error instead.
 	OnVerify func(VerifyEvent)
 }
@@ -45,9 +45,9 @@ type AlreadyEnabledError struct {
 
 func (e *AlreadyEnabledError) Error() string {
 	if e.Err == nil {
-		return "remote access is already enabled, with " + e.Relay
+		return "Flockdeck Remote is already enabled, with " + e.Relay
 	}
-	return fmt.Sprintf("remote access is already enabled with %s, which could not be asked whether it still is (%v)", e.Relay, e.Err)
+	return fmt.Sprintf("Flockdeck Remote is already enabled with %s, which could not be asked whether it still is (%v)", e.Relay, e.Err)
 }
 
 func (e *AlreadyEnabledError) Unwrap() error { return e.Err }

@@ -225,7 +225,7 @@ func (c *Connector) set(state State, detail string, retryAt time.Time) {
 // errReplaced is the relay saying another connection has taken this host's
 // place. This one does not come back of its own accord, even once the other
 // has gone, so it says what does bring it back.
-var errReplaced = errors.New("another Flockdeck has connected to the relay as this machine, so this one has stepped aside; press Try again here to take remote access back")
+var errReplaced = errors.New("another Flockdeck has connected to the relay as this machine, so this one has stepped aside; press Try again here to take Flockdeck Remote back")
 
 // run is the life of the tunnel: connect, serve, and on losing it, wait and
 // connect again — longer each time it keeps failing, and not at all once the
@@ -310,14 +310,14 @@ func lapsedMessage(err error) (string, bool) {
 		return "", false
 	}
 	if api.Message == "" {
-		return "The relay has stopped remote access for this account until it is paid for. Subscribe from Devices on a paired phone or browser.", true
+		return "The relay has stopped Flockdeck Remote for this account until it is paid for. Subscribe from Devices on a paired phone or browser.", true
 	}
 	return api.Message, true
 }
 
 // revokedDetail says what a revoked host means, and what to do about it.
 func revokedDetail(err error) string {
-	return RevokedReason(err) + "; enrol it again from Remote access… in the command palette, or with `flockdeck remote enable`"
+	return RevokedReason(err) + "; enrol it again from Flockdeck Remote… in the command palette, or with `flockdeck remote enable`"
 }
 
 // jitter spreads retries between half and all of d, so that every desktop that
