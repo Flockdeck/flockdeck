@@ -51,10 +51,11 @@ proxy. The desktop app itself is free, and never needs the relay.
 - **When it ends,** Flockdeck Remote stops until you subscribe. The desktop app
   goes on working exactly as before; only reaching it through the relay
   stops.
-- **Nothing is deleted straight away.** Your account, desktops and devices
-  are kept as they were for 90 days, and subscribing in that time restores
-  them. After 90 days they are deleted, as the [privacy
-  policy](privacy.html) describes.
+- **Nothing is deleted straight away.** An account is kept while anything on
+  it has been used in the last 90 days, and for 90 days after a subscription
+  ends. Subscribing in that time restores it as it was. An account that has
+  not been used for 90 days, and has no subscription, is deleted with its
+  desktops and devices, as the [privacy policy](privacy.html) describes.
 
 ## The subscription
 
@@ -75,8 +76,9 @@ proxy. The desktop app itself is free, and never needs the relay.
 - **Cancelling.** You can cancel at any time from Devices on a paired phone
   or browser, with Manage subscription, which opens Paddle's customer portal.
   Flockdeck Remote carries on until the end of the period you have paid for, and
-  then stops as it does at the end of a trial: nothing is deleted for 90 days,
-  and then everything is.
+  then stops as it does at the end of a trial. The account is kept for 90 days
+  after that, and deleted then if nothing on it has been used in the last 90
+  days.
 - **A payment that fails.** Paddle tries again for a while. Flockdeck Remote
   carries on for up to 14 days after the renewal date while it does; if the
   payment is never made, the subscription ends.
