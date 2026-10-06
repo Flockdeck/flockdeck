@@ -76,6 +76,26 @@ func runUntil(ctx context.Context, dir string, args ...string) (string, error) {
 	return out, err
 }
 
+// englishEnv makes git write its messages in English. transientIndexError reads
+// git's own words, and a translated git says "Konnte Index-Datei nicht
+// oeffnen" instead, which would never match and so never be retried.
+var englishEnv = []string{"LANGUAGE=C", "LC_MESSAGES=C"}
+
+// envHook, when set by a test, is given the arguments and the environment of each
+// git command just before it starts.
+var envHook func(args, env []string)
+
+// runIndex is runUntil for the commands that retryIndex asks again: it runs git
+// with englishEnv.
+func runIndex(ctx context.Context, dir string, args ...string) (string, error) {
+	var out bytes.Buffer
+	_, err := runToEnv(ctx, commandTimeout, dir, englishEnv, nil, &out, args...)
+	if err != nil {
+		return "", err
+	}
+	return out.String(), nil
+}
+
 // runVerbose returns what git said on both streams, under the network deadline.
 //
 // push, pull and fetch write their progress and their summary to stderr, so a
@@ -261,6 +281,9 @@ func runToEnv(parent context.Context, timeout time.Duration, dir string, env []s
 	// up the optional index lock also keeps the status polling of several
 	// panes from colliding with an agent's own commit.
 	cmd.Env = gitEnv(env)
+	if envHook != nil {
+		envHook(args, cmd.Env)
+	}
 	var errb bytes.Buffer
 	cmd.Stdin = in
 	cmd.Stdout = out

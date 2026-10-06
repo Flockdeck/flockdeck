@@ -195,7 +195,7 @@ var logf = func(format string, args ...any) {
 // The source is the one the application recorded, never the baton's header; where
 // none is recorded (a notes file, a baton the application did not record) the
 // company is not known. It must run on the workspace goroutine.
-func (s *Server) batonChange(h *handoff, parent, cwd, source, branch, agentID, model string) (string, approvalInfo, *workspace.ApprovedTarget) {
+func (s *Server) batonChange(h *handoff, parent, cwd, source, branch, agentID, model, task string) (string, approvalInfo, *workspace.ApprovedTarget) {
 	// The agent the helper will run, worked out as Spawn works it out: for the
 	// project of the pane that spawns it, which is not the one on screen.
 	resolved, _ := s.ws.SpawnTarget(parent, cwd, agentID, model)
@@ -246,7 +246,7 @@ func (s *Server) batonChange(h *handoff, parent, cwd, source, branch, agentID, m
 	if p := s.ws.Pane(parent); p != nil {
 		info.Asker = "The pane \"" + p.Name + "\""
 	}
-	info.Gist = batonGist(h.Baton)
+	info.Gist = batonGist(h.Baton, task)
 	return change, info, &workspace.ApprovedTarget{Agent: target.ID, Provider: toProvider, SourceProvider: fromProvider, From: alsoFrom(source, cwd)}
 }
 
@@ -492,7 +492,7 @@ func (s *Server) batonCommand(c *controlClient, cmd command) {
 			return
 		}
 		if approve != nil {
-			approve.Gist = batonGist(b)
+			approve.Gist = batonGist(b, cmd.Task)
 			c.notify("Waiting for you to allow this in the Flockdeck window on the computer.", false)
 			if err := s.approveElsewhere(context.Background(), *approve); err != nil {
 				fail(err)
@@ -681,7 +681,7 @@ func checkBatonPath(path string) error {
 // looking at the file and reading it are done under a deadline. The file is
 // checked again once it is open, in baton.ReadFile, so a path swapped for a link
 // between the two is refused.
-func readBatonFile(path string, inScope func(string) error) (baton.Baton, error) {
+func readBatonFile(path string, inScope func(string) (string, error)) (baton.Baton, error) {
 	if err := checkBatonPathName(path); err != nil {
 		return baton.Baton{}, err
 	}
@@ -696,13 +696,18 @@ func readBatonFile(path string, inScope func(string) error) (baton.Baton, error)
 			return
 		}
 		// Inside the project of the pane that asked, and only then read.
+		// What is read is the path as it was judged, with its links followed, so
+		// that a folder swapped for a link after the check is not followed.
+		target := path
 		if inScope != nil {
-			if err := inScope(path); err != nil {
+			real, err := inScope(path)
+			if err != nil {
 				done <- result{err: err}
 				return
 			}
+			target = real
 		}
-		b, err := baton.ReadFileVerified(path, verifyOpened)
+		b, err := baton.ReadFileVerified(target, verifyOpened)
 		done <- result{b, err}
 	}()
 	select {
@@ -786,7 +791,7 @@ func (s *Server) resolveBaton(parent, ref string) (*handoff, error) {
 		h.Source = st.Source(ref)
 		h.Baton = hardened(b, h.Scrubber)
 	default:
-		b, err := readBatonFile(strings.TrimPrefix(ref, "path:"), func(p string) error { return s.ws.BatonPathInScope(parent, p) })
+		b, err := readBatonFile(strings.TrimPrefix(ref, "path:"), func(p string) (string, error) { return s.ws.BatonPathInScope(parent, p) })
 		if err != nil {
 			return nil, err
 		}

@@ -61,7 +61,7 @@ func changes(dir string, limit int) ([]FileChange, error) {
 		return nil, lerr
 	}
 	err := retryIndex(func() (e error) {
-		out, e = run(dir, "status", "--porcelain", "--untracked-files=all", "-z")
+		out, e = runIndex(context.Background(), dir, "status", "--porcelain", "--untracked-files=all", "-z")
 		return e
 	})
 	done()
@@ -213,7 +213,7 @@ func numstat(ctx context.Context, dir string, against ...string) (map[string]lin
 	args := append([]string{"diff", "--numstat", "-z", "--find-renames"}, against...)
 	var out string
 	err := retryIndex(func() (e error) {
-		out, e = runUntil(ctx, dir, args...)
+		out, e = runIndex(ctx, dir, args...)
 		return e
 	})
 	if err != nil {
@@ -536,7 +536,7 @@ func gitDiff(dir string, args ...string) (string, error) {
 	var out *headWriter
 	err := retryIndex(func() error {
 		out = &headWriter{limit: maxDiffBytes + 1}
-		_, e := runTo(context.Background(), commandTimeout, dir, nil, out, argv...)
+		_, e := runToEnv(context.Background(), commandTimeout, dir, englishEnv, nil, out, argv...)
 		return e
 	})
 	if err != nil {

@@ -74,6 +74,7 @@ Unicode tag characters (U+E0000 to U+E007F) and the variation selector supplemen
 invisible operators, soft hyphens, and the Hangul and Khmer fillers. A zero width joiner
 or non-joiner, or a variation selector, next to an ASCII character is removed too. Between
 non-ASCII characters they stay, because emoji, Persian and Hindi are written with them.
+A run of them is cut to two, but each gap between non-ASCII characters can still carry up to two.
 The `<baton>` fence is escaped in its ASCII form and in forms that look like it: with
 no-break or ideographic spaces inside, or in full-width letters.
 

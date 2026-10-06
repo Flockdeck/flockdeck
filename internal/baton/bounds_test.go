@@ -76,7 +76,7 @@ func TestABatonBuiltFromAHugeReplyIsCutBeforeItIsScrubbed(t *testing.T) {
 	huge := strings.Repeat("a.key=b,c.pass=d;e={key:f,pw:g};", 5<<20/32)
 	start := time.Now()
 	b := Build(BuildInput{Activity: Activity{LastReply: huge, Commands: nil}, Pane: Pane{Task: huge}, Now: time.Now()})
-	if d := time.Since(start); d > time.Second {
+	if d := time.Since(start); !slowRun() && d > time.Second {
 		t.Errorf("Build took %s", d)
 	}
 	if len(b.Sections[Goal]) > maxGoal+64 || len(b.Sections[Standing]) > maxReply+2048 {

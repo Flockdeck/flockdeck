@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jmwri/flockdeck/internal/baton"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
@@ -85,5 +86,26 @@ func TestABatonFromANamedPaneHasToBeOfTheSameProject(t *testing.T) {
 	})
 	if _, err := srv.resolveBaton(parent, sibling); err != nil {
 		t.Errorf("a pane of its own project was refused: %v", err)
+	}
+}
+
+// The file that is read is the one the scope check judged, with its links followed,
+// not the name it was given: a folder swapped for a link between the check and the
+// read cannot send the read somewhere the check did not look.
+func TestBatonFileIsReadFromThePathTheScopeCheckResolved(t *testing.T) {
+	dir := t.TempDir()
+	judged := filepath.Join(dir, "judged.md")
+	swapped := filepath.Join(dir, "swapped.md")
+	for p, text := range map[string]string{judged: "the judged notes", swapped: "the swapped notes"} {
+		if err := os.WriteFile(p, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, err := readBatonFile(swapped, func(string) (string, error) { return judged, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := b.Section(baton.Standing); !strings.Contains(got, "the judged notes") {
+		t.Errorf("read %q, want the file the check resolved", got)
 	}
 }

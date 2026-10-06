@@ -443,21 +443,26 @@ func (w *Workspace) batonRoots(paneID string) (roots []string, ok bool) {
 // checkout, with symbolic links in the path followed on both sides. An agent that
 // names a file outside them is asking Flockdeck to read it as the user, which the
 // agent could not do itself.
-func (w *Workspace) BatonPathInScope(paneID, path string) error {
+//
+// It returns the path with its links followed, which is what was judged. The
+// caller reads that path and not the one it was given: a folder above the file
+// swapped for a link between this check and the read would otherwise send the
+// read outside the project.
+func (w *Workspace) BatonPathInScope(paneID, path string) (string, error) {
 	roots, ok := w.batonRoots(paneID)
 	if !ok {
-		return errors.New("a notes file is read only for a pane that is open, and the pane is gone")
+		return "", errors.New("a notes file is read only for a pane that is open, and the pane is gone")
 	}
 	real, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		return fmt.Errorf("cannot resolve %s: %w", path, err)
+		return "", fmt.Errorf("cannot resolve %s: %w", path, err)
 	}
 	for _, r := range roots {
 		if rr, err := filepath.EvalSymlinks(r); err == nil && underDir(real, rr) {
-			return nil
+			return real, nil
 		}
 	}
-	return fmt.Errorf("%s is outside this pane's project and checkout. Copy it into the project, or name a pane or a baton id", path)
+	return "", fmt.Errorf("%s is outside this pane's project and checkout. Copy it into the project, or name a pane or a baton id", path)
 }
 
 // BatonPaneInScope says whether the pane other is in the same project as the

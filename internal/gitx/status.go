@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -77,7 +78,9 @@ func statusWithin(dir string, timeout time.Duration, opts ...string) (Status, er
 	args := append([]string{"status", "--porcelain=v2", "--branch", "--untracked-files=all"}, opts...)
 	var out string
 	err := retryIndex(func() (e error) {
-		out, _, e = runCapture(ctx, timeout, dir, args...)
+		var buf bytes.Buffer
+		_, e = runToEnv(ctx, timeout, dir, englishEnv, nil, &buf, args...)
+		out = buf.String()
 		return e
 	})
 	if err != nil {

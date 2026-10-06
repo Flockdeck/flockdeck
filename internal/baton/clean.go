@@ -17,6 +17,32 @@ var ansiRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:
 // joiners and selectors that sit next to an ASCII character (see stripped and
 // joinerStripped).
 func CleanText(s string) string {
+	// One pass can leave text the next would change: a joiner that had a
+	// zero width space on one side was kept, and has an ASCII letter beside it
+	// once the space is gone. So it goes on until nothing changes.
+	for i := 0; i < maxCleanPasses; i++ {
+		t := cleanOnce(s)
+		if t == s {
+			break
+		}
+		s = t
+	}
+	return s
+}
+
+// maxCleanPasses bounds the passes of CleanText. Each pass that changes anything
+// makes the text shorter, and what one pass leaves for the next is a joiner run
+// that a removed character had been guarding, so a few passes settle any text
+// that is not built to take as many.
+const maxCleanPasses = 4
+
+// maxJoinerRun is the most joiners and variation selectors kept in a row. A
+// legitimate sequence has two at most between characters (an emoji, U+FE0F, then
+// U+200D), and a longer run is a place to hide bits.
+const maxJoinerRun = 2
+
+// cleanOnce is one pass of CleanText.
+func cleanOnce(s string) string {
 	s = ansiRe.ReplaceAllString(s, "")
 	if isPlainClean(s) {
 		return s
@@ -54,7 +80,7 @@ func CleanText(s string) string {
 				next = rs[k]
 			}
 			if !joinerStripped(r, prev, next) {
-				out = append(out, rs[i:k]...)
+				out = append(out, rs[i:min(k, i+maxJoinerRun)]...)
 			}
 			i = k - 1
 			continue

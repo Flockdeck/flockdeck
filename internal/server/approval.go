@@ -92,8 +92,8 @@ type approvalInfo struct {
 // batonGist says how big a baton is and how it begins: its size, and the first
 // line of its goal as plain text, cut short. The text is already scrubbed; it is
 // cleaned of control and hidden characters here as well, since it is shown in a
-// notice a person decides on.
-func batonGist(b baton.Baton) string {
+// notice a person decides on. A task that goes with it is counted too, by its size.
+func batonGist(b baton.Baton, task string) string {
 	size := len(baton.Render(b))
 	// The goal, or for a notes file the notes, or whatever section has text first.
 	first := ""
@@ -117,6 +117,9 @@ func batonGist(b baton.Baton) string {
 	text := "It is " + humanSize(size)
 	if first != "" {
 		text += " and begins: \"" + first + "\""
+	}
+	if task = strings.TrimSpace(task); task != "" {
+		text += ", plus a task of " + humanSize(len(task))
 	}
 	return text
 }
