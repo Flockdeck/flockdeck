@@ -54,14 +54,22 @@ type startRequest struct {
 
 // FormatMatchCode is a match code as it is shown to a person: an eight
 // character code in two groups of four, so that it is easier to read out and
-// to copy by eye. A code that is another length, or already has a separator,
-// is shown as the relay sent it.
+// to copy by eye. Dashes the relay put in are dropped and put back in the middle.
+// Anything that is not then eight characters of A to Z and 0 to 9, which is all
+// a match code is made of, is not shown at all: it is text from the relay that
+// is not a code, and it is not printed into a terminal as one.
 func FormatMatchCode(code string) string {
-	code = strings.TrimSpace(code)
-	if len(code) == 8 && !strings.ContainsAny(code, "- ") {
-		return code[:4] + "-" + code[4:]
+	code = strings.ReplaceAll(strings.TrimSpace(code), "-", "")
+	runes := []rune(code)
+	if len(runes) != 8 {
+		return ""
 	}
-	return code
+	for _, r := range runes {
+		if !(r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			return ""
+		}
+	}
+	return string(runes[:4]) + "-" + string(runes[4:])
 }
 
 // verificationStatus is what polling answers with.
@@ -117,10 +125,9 @@ type verifyRefusal struct {
 func (e *verifyRefusal) Error() string { return e.msg }
 func (e *verifyRefusal) Unwrap() error { return e.api }
 
-// oldFlockdeckAdvice is said after a relay's 409 on starting a registration, which a relay
-// that requires the match code answers to a desktop that did not ask for one. This version
-// does ask, so it is only met from a relay that says 409 for some other reason; the way out
-// is the same either way.
+// oldFlockdeckAdvice is added after a relay's 409 on starting a registration that says it
+// wants the match code, which a relay that requires it answers to a desktop that did not
+// ask for one. This version does ask, so that is not expected here.
 const oldFlockdeckAdvice = "Update Flockdeck and run `flockdeck remote enable` again, or run `flockdeck remote pair -desktop` on a machine already on your account and pass the code it prints with -join"
 
 // verifyError words the refusals that starting a registration can answer with: 429, the
@@ -140,13 +147,15 @@ func verifyError(err error) error {
 	case http.StatusInternalServerError:
 		return &verifyRefusal{"the relay could not start registration. Try again later", api}
 	case http.StatusConflict:
-		// The relay's words say what it wants, when it says; they are followed by what to
-		// do unless they already say it.
-		msg := strings.TrimSpace(api.Message)
-		if msg == "" {
-			msg = "this relay will not enrol this version of Flockdeck by email"
-		}
-		if !strings.Contains(msg, "-join") {
+		// The relay's words are shown as they are. This version always asks for a match
+		// code, so a 409 is not the relay's "this version cannot do that" unless its words
+		// say so (the design's text begins "This relay now checks that you are the one who
+		// asked"), and only then, if they do not already say what to do, is the way out added.
+		msg := strings.TrimSpace(Plain(api.Message))
+		switch {
+		case msg == "":
+			msg = "the relay refused to start a registration (409 Conflict)"
+		case strings.Contains(msg, "checks that you are the one who asked") && !strings.Contains(msg, "-join"):
 			msg = strings.TrimRight(msg, ".") + ". " + oldFlockdeckAdvice
 		}
 		return &verifyRefusal{msg, api}
@@ -203,9 +212,9 @@ func VerifyEmail(ctx context.Context, relay, version string, onEvent func(Verify
 		return "", ErrNeedsInteractiveVerify
 	}
 	ev := VerifyEvent{URL: started.VerifyURL, Line: "Verify your email: " + started.VerifyURL}
-	if started.MatchCode != "" {
-		ev.MatchCode = FormatMatchCode(started.MatchCode)
-		ev.Line += " (confirmation code " + ev.MatchCode + ")"
+	if m := FormatMatchCode(started.MatchCode); m != "" {
+		ev.MatchCode = m
+		ev.Line += " (confirmation code " + m + ")"
 	}
 	onEvent(ev)
 
@@ -259,6 +268,7 @@ func beginVerification(ctx context.Context, relay, version string) (*startVerifi
 	if err != nil {
 		return nil, verifyError(err)
 	}
+	out.VerifyURL = Plain(out.VerifyURL)
 	if out.Code == "" || out.VerifyURL == "" {
 		return nil, errors.New("the relay started a registration but sent back no code or no verification URL")
 	}

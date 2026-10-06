@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 )
 
 // requestTimeout bounds one call to the relay's API. Every one of them is a
@@ -61,10 +62,26 @@ type APIError struct {
 	Message string
 }
 
+// Plain is s without anything that could act on a terminal or hide text in one:
+// control characters (ESC, so CSI and OSC sequences lose their introducer, and
+// newlines and carriage returns), and every rune that is not printable, which
+// takes the bidirectional overrides and isolates and the other invisible
+// formatting characters. Everything the relay sends that is then printed, in a
+// message, a name, a link or a plan, goes through it, since a relay, or anything
+// in front of one, chooses those words and a terminal obeys what it is sent.
+func Plain(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || !unicode.IsPrint(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 func (e *APIError) Error() string {
 	switch {
-	case e.Message != "":
-		return "the relay said: " + e.Message
+	case Plain(e.Message) != "":
+		return "the relay said: " + Plain(e.Message)
 	case e.Status == http.StatusNotFound:
 		// Nothing at the address knows the relay's API, which most likely
 		// means it is not a relay's address at all.
@@ -110,7 +127,9 @@ func RevokedReason(err error) string {
 	reason := "this machine is no longer paired with the relay. It may have been removed from another device, or its account may have been deleted"
 	var api *APIError
 	if errors.As(err, &api) && api.Message != "" && api.Message != hostGoneMessage {
-		reason += " (" + api.Message + ")"
+		if m := Plain(api.Message); m != "" {
+			reason += " (" + m + ")"
+		}
 	}
 	return reason
 }
@@ -240,6 +259,15 @@ type Plan struct {
 	Message string `json:"message,omitempty"`
 }
 
+// clean makes the words of a plan Plain, as every string the relay sends that
+// is later printed is. It is safe on nil.
+func (p *Plan) clean() {
+	if p == nil {
+		return
+	}
+	p.Plan, p.Name, p.Was, p.Message = Plain(p.Plan), Plain(p.Name), Plain(p.Was), Plain(p.Message)
+}
+
 // Pairing kinds.
 const (
 	KindDevice = "device"
@@ -258,6 +286,7 @@ func Register(ctx context.Context, relay, version string, req RegisterRequest) (
 	if out.HostID == "" || out.Token == "" {
 		return nil, errors.New("the relay accepted the registration but sent back no host or no token")
 	}
+	out.Plan.clean()
 	return &out, nil
 }
 
@@ -301,6 +330,7 @@ func (c *Client) Pair(ctx context.Context, kind string) (*Pairing, error) {
 	if err := c.call(ctx, http.MethodPost, "/api/v1/host/pairings", map[string]string{"kind": kind}, &out, relayDate(&relayNow)); err != nil {
 		return nil, err
 	}
+	out.Code, out.URL = Plain(out.Code), Plain(out.URL)
 	if out.Code == "" {
 		return nil, errors.New("the relay sent back no pairing code")
 	}
@@ -321,6 +351,14 @@ func (c *Client) Devices(ctx context.Context) (*Roster, error) {
 	if err := c.call(ctx, http.MethodGet, "/api/v1/host/devices", nil, &out, relayDate(&relayNow)); err != nil {
 		return nil, err
 	}
+	for i := range out.Devices {
+		out.Devices[i].ID, out.Devices[i].Name = Plain(out.Devices[i].ID), Plain(out.Devices[i].Name)
+	}
+	for i := range out.Hosts {
+		h := &out.Hosts[i]
+		h.ID, h.Name, h.URL = Plain(h.ID), Plain(h.Name), Plain(h.URL)
+	}
+	out.Plan.clean()
 	// The times are by the relay's clock, as a pairing code's expiry is, and
 	// are given back by this machine's for the same reason: "last seen just
 	// now" is to be said of a device the relay saw just now.
@@ -397,6 +435,8 @@ func (c *Client) AccountPreview(ctx context.Context) (*AccountPreview, error) {
 	if err := c.call(ctx, http.MethodGet, "/api/v1/host/account", nil, &out); err != nil {
 		return nil, err
 	}
+	out.Email = Plain(out.Email)
+	out.Plan.clean()
 	return &out, nil
 }
 
@@ -494,7 +534,7 @@ func decodeError(status int, data []byte) error {
 	}
 	msg := ""
 	if json.Unmarshal(data, &e) == nil {
-		msg = strings.TrimSpace(e.Error)
+		msg = strings.TrimSpace(Plain(e.Error))
 	}
 	return &APIError{Status: status, Message: msg}
 }

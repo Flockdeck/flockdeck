@@ -263,7 +263,7 @@ var remoteSynopses = map[string][2]string{
 	"move": {" [flags] <relay>",
 		"Move this machine to another relay: enrol it there first, and take it off\nthe relay it is on only once the new one answers. Every device paired with\nit has to pair again afterwards, with the new relay, because a device's\npairing belongs to the relay it was made on."},
 	"delete-account": {" [-yes -confirm TEXT]",
-		"Erase this machine's whole account on the relay: every machine in it, every\npaired device, the plan and the verified email's link to it. It shows what goes,\nthen asks you to type " + deleteAccountPhrase + ". An account with a\nsubscription is not deleted until the subscription has ended."},
+		"Erase this machine's whole account on the relay: every machine in it, every\npaired device, the plan and the verified email's link to it. It shows what goes,\nthen asks you to type " + deleteAccountPhrase + " exactly. An account with a\nsubscription is not deleted until the subscription has ended."},
 }
 
 // remoteFlags is a flag set for one of the subcommands, reporting to stderr
@@ -526,9 +526,9 @@ func planPhrase(p *remote.Plan) string {
 	if p == nil {
 		return ""
 	}
-	name := strings.TrimSpace(p.Name)
+	name := strings.TrimSpace(remote.Plain(p.Name))
 	if name == "" {
-		name = p.Plan
+		name = remote.Plain(p.Plan)
 	}
 	switch {
 	case !p.Active && p.Plan == "lapsed":
@@ -1252,8 +1252,8 @@ func remoteDeleteAccountCmd(args []string, rio remoteIO) error {
 	}
 
 	who := ""
-	if preview.Email != "" {
-		who = " for " + preview.Email
+	if email := remote.Plain(preview.Email); email != "" {
+		who = " for " + email
 	}
 	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("This deletes the Flockdeck Remote account%s on %s, and everything in it:", who, cfg.Relay)))
 	fmt.Fprintln(rio.out, breakAt("  - ", 4, countOf(preview.Desktops, "machine")+", this one included, which lose their enrolment"))
@@ -1274,8 +1274,8 @@ func remoteDeleteAccountCmd(args []string, rio remoteIO) error {
 			return fmt.Errorf("nothing has been deleted; there is no terminal to type %s in. A script gives -yes -confirm %q", deleteAccountPhrase, deleteAccountWords)
 		}
 		if !phraseTyped(rio.typed("Type " + deleteAccountPhrase + " to delete the account: ")) {
-			fmt.Fprintln(rio.out, "that is not the phrase, so nothing has been deleted")
-			return nil
+			// An error, so that the exit status says nothing was deleted to whatever ran this.
+			return fmt.Errorf("that is not the phrase %s, typed exactly, so nothing has been deleted", deleteAccountPhrase)
 		}
 	}
 
@@ -1298,10 +1298,10 @@ func remoteDeleteAccountCmd(args []string, rio remoteIO) error {
 	return nil
 }
 
-// phraseTyped reports whether text is the phrase that confirms deleting an
-// account, ignoring case and the spaces around and between its words.
+// phraseTyped reports whether text is exactly the phrase that confirms deleting
+// an account, apart from whitespace around it.
 func phraseTyped(text string) bool {
-	return strings.EqualFold(strings.Join(strings.Fields(text), " "), deleteAccountWords)
+	return strings.TrimSpace(text) == deleteAccountWords
 }
 
 // countOf is n of a thing, with its plural.
@@ -1331,7 +1331,7 @@ func deleteAccountRefusal(cfg *remote.Config, err error, deleting bool) error {
 		return relayRefusal(err)
 	}
 	if deleting {
-		return fmt.Errorf("%v; the relay may not have deleted the account, so run this again once it answers", err)
+		return fmt.Errorf("%v; the account may already be gone, since the relay's answer may have been lost. If it is, `flockdeck remote remove` clears this machine's enrolment; if not, run this again once the relay answers", err)
 	}
 	return fmt.Errorf("%v; nothing has been deleted", err)
 }
@@ -1513,6 +1513,7 @@ func plainDuration(d time.Duration) string {
 }
 
 func orUnnamed(s string) string {
+	s = remote.Plain(s)
 	if strings.TrimSpace(s) == "" {
 		return "(unnamed)"
 	}

@@ -122,7 +122,16 @@ func TestRemoteEnableWordsTheNewRefusals(t *testing.T) {
 		{
 			name:  "start 409, no words",
 			setup: func(f *fakeRelayAPI) { f.requireVerify, f.startStatus = true, 409 },
-			want:  []string{"Update Flockdeck", "-join"},
+			want:  []string{"refused to start a registration"},
+			not:   []string{"Update Flockdeck"},
+		},
+		{
+			name: "start 409, the relay wants the match code",
+			setup: func(f *fakeRelayAPI) {
+				f.requireVerify, f.startStatus = true, 409
+				f.startError = "This relay now checks that you are the one who asked for the verification email"
+			},
+			want: []string{"checks that you are the one who asked", "Update Flockdeck", "-join"},
 		},
 		{
 			name:  "start 429",

@@ -15,9 +15,18 @@ func TestFormatMatchCode(t *testing.T) {
 		{"K7QM42XD", "K7QM-42XD"},
 		{"  K7QM42XD\n", "K7QM-42XD"},
 		{"K7QM-42XD", "K7QM-42XD"},
-		{"K7QM 42XD", "K7QM 42XD"},
-		{"K7QM42X", "K7QM42X"},
-		{"K7QM42XDE", "K7QM42XDE"},
+		{"K7-QM42-XD", "K7QM-42XD"},
+		// Not a code: shown as nothing rather than printed into a terminal.
+		{"K7QM 42XD", ""},
+		{"K7QM42X", ""},
+		{"K7QM42XDE", ""},
+		{"k7qm42xd", ""},
+		{"K7QM42XÉ", ""},
+		{"K7QM42Xéé", ""},
+		{"\x1b[31mK7QM42XD", ""},
+		{"K7QM\x1b]0;x\x07" + "42XD", ""},
+		{"K7QM" + string(rune(0x202e)) + "42XD", ""},
+		{"K7QM42XD\x1b[2J", ""},
 		{"", ""},
 	} {
 		if got := FormatMatchCode(tc.in); got != tc.want {
@@ -76,17 +85,21 @@ func TestStartShowsTheRelaysMatchCode(t *testing.T) {
 	}
 }
 
-// A relay that refuses to start for want of the match code says so in its own
-// words, followed by what to do, whichever way it phrases it.
+// A 409 on starting is shown in the relay's own words. The update advice is
+// added only to the relay's "checks that you are the one who asked" text when it
+// leaves out the way out; this version sends the match code, so any other 409 is
+// not that and is not told to update.
 func TestStartConflictSaysUpdateOrJoin(t *testing.T) {
+	const missing = "This relay now checks that you are the one who asked for the verification email before it adds a machine"
 	for _, tc := range []struct {
 		name, relaySays string
 		want            []string
 		notWant         []string
 	}{
-		{"no words", "", []string{"will not enrol this version", "Update Flockdeck", "-join"}, nil},
-		{"words without a way out", "this relay checks who asked", []string{"this relay checks who asked", "Update Flockdeck", "-join"}, nil},
-		{"words with a way out", "update Flockdeck or use -join", []string{"update Flockdeck or use -join"}, []string{"Update Flockdeck and run"}},
+		{"no words", "", []string{"refused to start a registration"}, []string{"Update Flockdeck"}},
+		{"another cause", "this relay is full", []string{"this relay is full"}, []string{"Update Flockdeck", "-join"}},
+		{"missing code, no way out", missing, []string{missing, "Update Flockdeck", "-join"}, nil},
+		{"missing code, with a way out", missing + ". Update Flockdeck or use -join", []string{"Update Flockdeck or use -join"}, []string{"Update Flockdeck and run"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeRelay(t)

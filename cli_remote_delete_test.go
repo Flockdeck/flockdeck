@@ -52,7 +52,7 @@ func TestRemoteDeleteAccountAsksForThePhraseThenDeletes(t *testing.T) {
 	var prompts []string
 	out, reloads, err := runRemoteTyped(t, func(p string) string {
 		prompts = append(prompts, p)
-		return "  Delete   My Account "
+		return "  delete my account \n"
 	}, "delete-account")
 	if err != nil {
 		t.Fatalf("delete-account: %v\n%s", err, out)
@@ -96,12 +96,16 @@ func TestRemoteDeleteAccountAsksForThePhraseThenDeletes(t *testing.T) {
 
 func TestRemoteDeleteAccountWithoutTheRightPhraseDeletesNothing(t *testing.T) {
 	f := enrolledOn(t)
-	out, reloads, err := runRemoteTyped(t, func(string) string { return "yes" }, "delete-account")
-	if err != nil || !strings.Contains(out, "nothing has been deleted") {
-		t.Errorf("a wrong phrase = %q, %v; want it said nothing was deleted", out, err)
-	}
-	if f.deleted() != 0 || !stillEnrolled(t) || reloads != 0 {
-		t.Errorf("a wrong phrase deleted %d accounts, enrolled=%v, reloads=%d", f.deleted(), stillEnrolled(t), reloads)
+	// Anything but the exact phrase is an error, so a script's exit status says
+	// nothing was deleted, including the right words in another case or spacing.
+	for _, typed := range []string{"yes", "Delete My Account", "delete  my account", "delete my account now", ""} {
+		_, reloads, err := runRemoteTyped(t, func(string) string { return typed }, "delete-account")
+		if err == nil || !strings.Contains(err.Error(), "nothing has been deleted") {
+			t.Errorf("typing %q = %v; want an error saying nothing was deleted", typed, err)
+		}
+		if f.deleted() != 0 || !stillEnrolled(t) || reloads != 0 {
+			t.Errorf("typing %q deleted %d accounts, enrolled=%v, reloads=%d", typed, f.deleted(), stillEnrolled(t), reloads)
+		}
 	}
 }
 
@@ -197,7 +201,7 @@ func TestRemoteDeleteAccountShowsTheRelays409(t *testing.T) {
 	f.deleteStatus, f.deleteError = 500, "the relay could not delete"
 	f.mu.Unlock()
 	_, _, err = runRemoteTyped(t, func(string) string { return deleteAccountWords }, "delete-account")
-	if err == nil || !strings.Contains(err.Error(), "may not have deleted the account") || !stillEnrolled(t) {
+	if err == nil || !strings.Contains(err.Error(), "may already be gone") || !strings.Contains(err.Error(), "flockdeck remote remove") || !stillEnrolled(t) {
 		t.Errorf("a 500 on the delete = %v, enrolled=%v", err, stillEnrolled(t))
 	}
 }
@@ -230,12 +234,14 @@ func TestRemoteDeleteAccountNeedsAnEnrolment(t *testing.T) {
 
 func TestPhraseTyped(t *testing.T) {
 	for in, want := range map[string]bool{
-		"delete my account":       true,
-		"  DELETE my   account\n": true,
-		"delete my":               false,
-		"delete my account now":   false,
-		"yes":                     false,
-		"":                        false,
+		"delete my account":     true,
+		"  delete my account\n": true,
+		"DELETE my account":     false,
+		"delete  my account":    false,
+		"delete my":             false,
+		"delete my account now": false,
+		"yes":                   false,
+		"":                      false,
 	} {
 		if got := phraseTyped(in); got != want {
 			t.Errorf("phraseTyped(%q) = %v, want %v", in, got, want)
