@@ -2453,7 +2453,9 @@
       // showing it in the file manager, which used to be a button in every
       // pane's header. With no file there is nothing to show, so the button is
       // off and the reason is written under it.
-      const reveal = f.label === "Transcript file" ? el("button", "chip", "Show in folder") : null;
+      // Not offered in a window reached through the relay: the server shows
+      // the file on its own machine only, and refuses it from here.
+      const reveal = f.label === "Transcript file" && !remoteWindow ? el("button", "chip", "Show in folder") : null;
       if (reveal) {
         reveal.setAttribute("aria-label", "Show the transcript file in your file manager");
         describe(reveal, TIPS.revealTranscript);
@@ -4467,7 +4469,7 @@
       const locked = v.locked ? "1" : "";
       if (was.locked !== locked) { was.locked = locked; renderPaneLock(p, !!v.locked); }
 
-      const recording = (v.recording ? "1" : "") + (v.kind === "shell" ? "s" : "");
+      const recording = (v.recording ? "1" : "") + (v.kind === "shell" ? "s" : "") + (remoteWindow ? "r" : "");
       if (was.recording !== recording) { was.recording = recording; renderPaneRecording(p, !!v.recording, v.kind === "shell"); }
 
       const focused = !!tab && tab.focus === id;
@@ -4565,7 +4567,9 @@
    *  is hidden. See Pane.Recording. */
   function renderPaneRecording(p, on, shell) {
     p.recBtn.hidden = shell;
-    p.exportBtn.hidden = shell;
+    // The export is written on the machine Flockdeck runs on, and the server
+    // refuses it from a window reached through the relay (see remoteWindow).
+    p.exportBtn.hidden = shell || remoteWindow;
     p.recMark.hidden = !on;
     p.recMark.textContent = on ? "● Recording" : "";
     if (on) describe(p.recMark, "Recording - this pane's agent interaction is being saved as a transcript on this machine. Secrets are removed on a best-effort basis only.");
