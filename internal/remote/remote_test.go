@@ -239,6 +239,26 @@ type fakeRelay struct {
 	// all, as if the registration Start just handed back had already
 	// vanished -- expired, or somehow spent -- the moment anyone asks.
 	goneAfterStart bool
+
+	// matchCode, when set, is what /api/v1/register/start hands back as the
+	// match code, as a relay from after match codes does. startBody is the last
+	// body it was sent. startStatus and startError, when set, make it refuse.
+	matchCode   string
+	startBody   string
+	startStatus int
+	startError  string
+	// hostsReply, when set, is the body /api/v1/hosts answers a registration
+	// with; hostsStatus and hostsError make it refuse instead.
+	hostsReply  string
+	hostsStatus int
+	hostsError  string
+	// accountPreview is the body GET /api/v1/host/account answers, accountStatus
+	// and accountError make the account calls refuse, and deleted counts the
+	// DELETEs that went through.
+	accountPreview string
+	accountStatus  int
+	accountError   string
+	deleted        int
 }
 
 func (f *fakeRelay) setVerified(v bool) {
@@ -313,13 +333,27 @@ func (f *fakeRelay) api(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	if r.URL.Path == "/api/v1/register/start" && r.Method == http.MethodPost {
+		body, _ := io.ReadAll(r.Body)
+		f.mu.Lock()
+		f.startBody = string(body)
+		matchCode, startStatus, startError := f.matchCode, f.startStatus, f.startError
+		f.mu.Unlock()
 		if !requireVerify {
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = io.WriteString(w, `{"error":"this relay does not require a verified email to register; register directly with `+"`flockdeck remote enable`"+`"}`)
 			return
 		}
+		if startStatus != 0 {
+			w.WriteHeader(startStatus)
+			_, _ = io.WriteString(w, `{"error":"`+startError+`"}`)
+			return
+		}
 		w.WriteHeader(http.StatusCreated)
-		_, _ = io.WriteString(w, `{"code":"`+verifyCode+`","verifyUrl":"`+f.URL+`/auth/verify#`+verifyCode+`","expiresAt":"2030-01-01T00:30:00Z"}`)
+		match := ""
+		if matchCode != "" {
+			match = `,"matchCode":"` + matchCode + `"`
+		}
+		_, _ = io.WriteString(w, `{"code":"`+verifyCode+`","verifyUrl":"`+f.URL+`/auth/verify#`+verifyCode+`"`+match+`,"expiresAt":"2030-01-01T00:30:00Z"}`)
 		return
 	}
 	if r.URL.Path == "/api/v1/register/status" && r.Method == http.MethodGet {
@@ -344,8 +378,19 @@ func (f *fakeRelay) api(w http.ResponseWriter, r *http.Request) {
 			_, _ = io.WriteString(w, `{"error":"that email has not been verified yet; open the link the relay emailed you, then try again"}`)
 			return
 		}
+		f.mu.Lock()
+		reply, hostsStatus, hostsError := f.hostsReply, f.hostsStatus, f.hostsError
+		f.mu.Unlock()
+		if hostsStatus != 0 {
+			w.WriteHeader(hostsStatus)
+			_, _ = io.WriteString(w, `{"error":"`+hostsError+`"}`)
+			return
+		}
+		if reply == "" {
+			reply = `{"hostId":"h1","accountId":"a1","token":"fdh_test"}`
+		}
 		w.WriteHeader(http.StatusCreated)
-		_, _ = io.WriteString(w, `{"hostId":"h1","accountId":"a1","token":"fdh_test"}`)
+		_, _ = io.WriteString(w, reply)
 		return
 	}
 	if r.Header.Get("Authorization") != "Bearer "+f.token {
@@ -366,6 +411,26 @@ func (f *fakeRelay) api(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/host":
 		w.WriteHeader(http.StatusNoContent)
+	case r.URL.Path == "/api/v1/host/account" && (r.Method == http.MethodGet || r.Method == http.MethodDelete):
+		f.mu.Lock()
+		preview, status, msg := f.accountPreview, f.accountStatus, f.accountError
+		if status == 0 && r.Method == http.MethodDelete {
+			f.deleted++
+		}
+		f.mu.Unlock()
+		if status != 0 {
+			w.WriteHeader(status)
+			_, _ = io.WriteString(w, `{"error":"`+msg+`"}`)
+			return
+		}
+		if r.Method == http.MethodDelete {
+			_, _ = io.WriteString(w, `{"deleted":true,"desktops":2,"devices":1}`)
+			return
+		}
+		if preview == "" {
+			preview = `{"desktops":2,"devices":1,"subscribed":false,"email":"a***@example.com"}`
+		}
+		_, _ = io.WriteString(w, preview)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = io.WriteString(w, `{"error":"no such thing"}`)
@@ -608,7 +673,7 @@ func TestRevokedReasonSaysWhatItMeans(t *testing.T) {
 		{
 			name: "the relay just does not know this token any more",
 			err:  decodeError(http.StatusUnauthorized, []byte(`{"error":"this desktop is no longer registered with the relay"}`)),
-			want: []string{"no longer paired with the relay", "30 days offline", "another device"},
+			want: []string{"no longer paired with the relay", "another device", "account may have been deleted"},
 			not:  "no longer registered with the relay)",
 		},
 		{

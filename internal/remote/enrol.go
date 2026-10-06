@@ -31,6 +31,11 @@ type EnableRequest struct {
 	// the window's own Flockdeck Remote… dialog -- leaves it nil and gets that
 	// error instead.
 	OnVerify func(VerifyEvent)
+	// OnJoined is called once, after registering, when the relay says the
+	// verified email already had an account and this machine was added to it,
+	// with what the relay said about that account. A relay that makes a new
+	// account, or none that says anything, never calls it.
+	OnJoined func(Registration)
 }
 
 // AlreadyEnabledError refuses to enrol over an enrolment the relay may still
@@ -131,6 +136,9 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 	})
 	if err != nil {
 		return nil, false, err
+	}
+	if reg.Joined && req.OnJoined != nil {
+		req.OnJoined(*reg)
 	}
 	cfg = &Config{Relay: relay, HostID: reg.HostID, AccountID: reg.AccountID, Token: reg.Token, Name: name}
 	if err := saveConfig(cfg); err != nil {
@@ -301,6 +309,9 @@ func Move(ctx context.Context, version string, req EnableRequest, switched func(
 	if err != nil {
 		return nil, nil, err
 	}
+	if reg.Joined && req.OnJoined != nil {
+		req.OnJoined(*reg)
+	}
 	next := &Config{Relay: relay, HostID: reg.HostID, AccountID: reg.AccountID, Token: reg.Token, Name: name}
 	// Registering is the new relay answering once. Answering to the new
 	// credential is what the tunnel will ask of it, and a relay behind a proxy
@@ -425,12 +436,11 @@ func Disable() (had bool, err error) {
 	return true, saveConfig(cfg)
 }
 
-// Remove takes this machine off its relay for good and forgets the enrolment,
-// and reports whether there was one: what Disable used to do. The relay
-// deletes this host, and if it was the account's last desktop, the account
-// with it: its devices, its plan and trial, and its verified email. Turning
-// remote access back on afterwards enrols a new account, with a new trial and
-// a new email verification, unless a join code is given.
+// Remove takes this machine off its relay and forgets the enrolment, and
+// reports whether there was one. The relay deletes this host and nothing else:
+// the account, with its other desktops, paired devices, plan, trial and
+// verified email, stays, even when this was its last desktop. DeleteAccount
+// is what erases an account.
 //
 // A relay that cannot be told stops it with a *RelayUntoldError, and an
 // enrolment that cannot be read with Load's error, unless force says to forget

@@ -95,8 +95,8 @@ func IsRevoked(err error) bool {
 
 // hostGoneMessage is what the relay answers a token whose host it no longer
 // has any record of at all -- which it says the same way whether the host
-// went for having never connected, gone unheard from for 30 days, or been
-// removed from another device: nothing is kept to tell those apart. It is
+// went for having never connected, been removed from another device, or gone
+// with its account: nothing is kept to tell those apart. It is
 // mirrored here only so RevokedReason does not repeat it in parentheses when
 // it would add nothing past its own sentence.
 const hostGoneMessage = "this desktop is no longer registered with the relay"
@@ -107,7 +107,7 @@ const hostGoneMessage = "this desktop is no longer registered with the relay"
 // because it still had the tunnel open, and so knew, or the token was refused
 // with a reason of its own -- that is passed on too.
 func RevokedReason(err error) string {
-	reason := "this machine is no longer paired with the relay. It may have been removed after 30 days offline, or removed from another device"
+	reason := "this machine is no longer paired with the relay. It may have been removed from another device, or its account may have been deleted"
 	var api *APIError
 	if errors.As(err, &api) && api.Message != "" && api.Message != hostGoneMessage {
 		reason += " (" + api.Message + ")"
@@ -130,10 +130,41 @@ type RegisterRequest struct {
 }
 
 // Registration is what the relay hands back for a new host.
+//
+// Joined, Desktops and Plan are sent by a relay that adds a machine to the
+// account a verified email already has, instead of making a new one. A relay
+// that does not do that sends none of them, and Joined is then false.
 type Registration struct {
 	HostID    string `json:"hostId"`
 	AccountID string `json:"accountId"`
 	Token     string `json:"token"`
+	// Joined is true when the email already had an account and this machine
+	// was added to it.
+	Joined bool `json:"joined,omitempty"`
+	// Desktops is how many machines the account has now, this one included.
+	Desktops int `json:"desktops,omitempty"`
+	// Plan is the account's plan, on a relay that asks for a subscription.
+	Plan *Plan `json:"plan,omitempty"`
+}
+
+// AccountPreview is what deleting the account would remove, as the relay
+// describes it before anything is deleted. The relay never sends the whole
+// email address: Email is the first letter of it, then the domain.
+type AccountPreview struct {
+	Desktops int `json:"desktops"`
+	Devices  int `json:"devices"`
+	// Subscribed is whether the account has a running subscription, which
+	// has to be cancelled, and run out, before the relay will delete it.
+	Subscribed bool   `json:"subscribed"`
+	Plan       *Plan  `json:"plan,omitempty"`
+	Email      string `json:"email,omitempty"`
+}
+
+// AccountDeleted is what deleting the account removed.
+type AccountDeleted struct {
+	Deleted  bool `json:"deleted"`
+	Desktops int  `json:"desktops"`
+	Devices  int  `json:"devices"`
 }
 
 // Pairing is a one-time code, and for a device the link that redeems it.
@@ -357,6 +388,28 @@ func (c *Client) RenameDevice(ctx context.Context, deviceID, name string) error 
 // Unregister removes this host from the relay, which spends its token.
 func (c *Client) Unregister(ctx context.Context) error {
 	return c.call(ctx, http.MethodDelete, "/api/v1/host", nil, nil)
+}
+
+// AccountPreview asks the relay what deleting this machine's account would
+// remove. It changes nothing.
+func (c *Client) AccountPreview(ctx context.Context) (*AccountPreview, error) {
+	var out AccountPreview
+	if err := c.call(ctx, http.MethodGet, "/api/v1/host/account", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DeleteAccount deletes this machine's account on the relay: every desktop in
+// it, every paired device, and the email's link to it. The relay refuses with
+// 409, in its own words, while the account has a running subscription. This
+// machine's enrolment is not touched; the caller clears it once this succeeds.
+func (c *Client) DeleteAccount(ctx context.Context) (*AccountDeleted, error) {
+	var out AccountDeleted
+	if err := c.call(ctx, http.MethodDelete, "/api/v1/host/account", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // e2eKeyRequest is a device's or a host's long-term public key for

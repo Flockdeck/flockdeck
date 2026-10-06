@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -13,9 +14,13 @@ import (
 // -- the same "open a browser, or print something, and wait" shape
 // internal/ghcli/auth.go's Login already uses for `gh auth login`, except
 // what is waited on is flockdeck-relay's own HTTP API, polled, rather than a
-// subprocess's output read as it streams, and there is no code for anyone to
-// type anywhere: the URL a relay hands back already carries it, in a
-// fragment, for its own verification page to read.
+// subprocess's output read as it streams. The poll code is never typed: the
+// URL a relay hands back already carries it, in a fragment, for its own
+// verification page to read. What a person does type, on that page, is the
+// match code a relay may hand back as well. It is shown here and never
+// emailed, so that someone who only receives the emailed link, and did not
+// start this, has no code to enter. The email address is typed there too, and
+// never reaches this machine.
 //
 // Starting a registration and registering it, once verified, are still two
 // separate calls to the relay (StartVerification is folded into VerifyEmail
@@ -32,6 +37,31 @@ type startVerification struct {
 	Code      string    `json:"code"`
 	VerifyURL string    `json:"verifyUrl"`
 	ExpiresAt time.Time `json:"expiresAt"`
+	// MatchCode is the short code the person enters on the verification page
+	// once they open the emailed link. A relay from before match codes sends
+	// none, and there is then nothing to show.
+	MatchCode string `json:"matchCode,omitempty"`
+}
+
+// startRequest is what starting a registration sends. MatchCode asks the
+// relay to make a match code. A relay that has none ignores the field, as it
+// ignores every JSON field it does not know, so it is always sent rather than
+// only to relays known to want it: no relay version refuses it, and a relay
+// that requires the code answers 409 without it.
+type startRequest struct {
+	MatchCode bool `json:"matchCode"`
+}
+
+// FormatMatchCode is a match code as it is shown to a person: an eight
+// character code in two groups of four, so that it is easier to read out and
+// to copy by eye. A code that is another length, or already has a separator,
+// is shown as the relay sent it.
+func FormatMatchCode(code string) string {
+	code = strings.TrimSpace(code)
+	if len(code) == 8 && !strings.ContainsAny(code, "- ") {
+		return code[:4] + "-" + code[4:]
+	}
+	return code
 }
 
 // verificationStatus is what polling answers with.
@@ -47,10 +77,14 @@ type verificationStatus struct {
 // adapted rather than built from scratch.
 //
 // Exactly one of URL, Line, Done or Err is set on any event but URL, which
-// also carries the Line it was announced in.
+// also carries the Line it was announced in, and the MatchCode if there is one.
 type VerifyEvent struct {
 	// URL is the address to open, or print, once, at the very start.
 	URL string
+	// MatchCode is, on the URL event, the code the person enters on the page
+	// that opens from the emailed link, already formatted for showing. Empty
+	// from a relay that makes none.
+	MatchCode string
 	// Line is one line of commentary, kept for a log a person can read if
 	// something goes wrong partway through.
 	Line string
@@ -83,8 +117,15 @@ type verifyRefusal struct {
 func (e *verifyRefusal) Error() string { return e.msg }
 func (e *verifyRefusal) Unwrap() error { return e.api }
 
-// verifyError words the two refusals that starting a registration can answer with: 429, the
-// relay's rate limit (wait), and 500, the relay failing (try later). The address is typed on
+// oldFlockdeckAdvice is said after a relay's 409 on starting a registration, which a relay
+// that requires the match code answers to a desktop that did not ask for one. This version
+// does ask, so it is only met from a relay that says 409 for some other reason; the way out
+// is the same either way.
+const oldFlockdeckAdvice = "Update Flockdeck and run `flockdeck remote enable` again, or run `flockdeck remote pair -desktop` on a machine already on your account and pass the code it prints with -join"
+
+// verifyError words the refusals that starting a registration can answer with: 429, the
+// relay's rate limit (wait), 500, the relay failing (try later), and 409, a relay that will
+// not enrol this version of Flockdeck (update, or join with a code). The address is typed on
 // the relay's own page in the browser, so a rejected or blocked address (422) and a failed
 // email send (502) are shown there and never reach this machine. Any other error is returned
 // as it is.
@@ -98,8 +139,36 @@ func verifyError(err error) error {
 		return &verifyRefusal{"too many verification attempts from here. Wait a while, then try again", api}
 	case http.StatusInternalServerError:
 		return &verifyRefusal{"the relay could not start registration. Try again later", api}
+	case http.StatusConflict:
+		// The relay's words say what it wants, when it says; they are followed by what to
+		// do unless they already say it.
+		msg := strings.TrimSpace(api.Message)
+		if msg == "" {
+			msg = "this relay will not enrol this version of Flockdeck by email"
+		}
+		if !strings.Contains(msg, "-join") {
+			msg = strings.TrimRight(msg, ".") + ". " + oldFlockdeckAdvice
+		}
+		return &verifyRefusal{msg, api}
 	}
 	return err
+}
+
+// IsVerifyRefusal reports whether err is the relay refusing a step of the
+// email verification, already said in words for a person, rather than the
+// registration after it. A caller that adds advice to the relay's refusals
+// leaves these alone.
+func IsVerifyRefusal(err error) bool {
+	var v *verifyRefusal
+	return errors.As(err, &v)
+}
+
+// registrationGone is what is said when the relay no longer has the registration being waited
+// on. It has expired, or the match code was entered wrongly too many times on the relay's page,
+// which deletes the registration; the relay does not say which, and either way the answer is to
+// start again.
+func registrationGone(api *APIError) error {
+	return &verifyRefusal{"the relay no longer has this registration. It may have expired, or the confirmation code may have been entered wrongly too many times. Run `flockdeck remote enable` again", api}
 }
 
 // verifyPollInterval is how often VerifyEmail checks whether the email has
@@ -133,7 +202,12 @@ func VerifyEmail(ctx context.Context, relay, version string, onEvent func(Verify
 	if onEvent == nil {
 		return "", ErrNeedsInteractiveVerify
 	}
-	onEvent(VerifyEvent{URL: started.VerifyURL, Line: "Verify your email: " + started.VerifyURL})
+	ev := VerifyEvent{URL: started.VerifyURL, Line: "Verify your email: " + started.VerifyURL}
+	if started.MatchCode != "" {
+		ev.MatchCode = FormatMatchCode(started.MatchCode)
+		ev.Line += " (confirmation code " + ev.MatchCode + ")"
+	}
+	onEvent(ev)
 
 	ctx, cancel := context.WithDeadline(ctx, started.ExpiresAt)
 	defer cancel()
@@ -157,6 +231,7 @@ func VerifyEmail(ctx context.Context, relay, version string, onEvent func(Verify
 				// end of the wait, and is worth trying again for.
 				var api *APIError
 				if errors.As(err, &api) && (api.Status == http.StatusNotFound || api.Status == http.StatusGone) {
+					err = registrationGone(api)
 					onEvent(VerifyEvent{Err: err})
 					return "", err
 				}
@@ -176,7 +251,7 @@ func beginVerification(ctx context.Context, relay, version string) (*startVerifi
 	c := &Client{Relay: relay, Version: version}
 	var out startVerification
 	var relayNow time.Time
-	err := c.call(ctx, http.MethodPost, "/api/v1/register/start", struct{}{}, &out, relayDate(&relayNow))
+	err := c.call(ctx, http.MethodPost, "/api/v1/register/start", startRequest{MatchCode: true}, &out, relayDate(&relayNow))
 	var api *APIError
 	if errors.As(err, &api) && api.Status == http.StatusNotFound {
 		return nil, nil
