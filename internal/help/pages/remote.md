@@ -129,8 +129,11 @@ up for another time. Until then, whoever opens it can drive every agent on every
 desktop on this account, and open a shell on any of them, so treat it like a
 password.
 
-A phone paired with just one desktop opens straight into it; paired with more
-than one, it shows a list to choose from first. At 900px and wider (a
+A paired browser opens the relay's own client first, built for a small screen. A
+phone paired with just one desktop opens straight into it; paired with more
+than one, it shows a list to choose from first. **Full interface**, in the
+client's top bar, opens this window through the same connection. The client
+resizes a pane only when you ask it to fit the pane to the screen. At 900px and wider (a
 tablet, or a browser window that wide) a desktop's list of panes sits in its
 own column beside whichever one is open, instead of swapping the whole
 screen for it; tapping another row swaps only that side, so the list keeps
@@ -259,7 +262,7 @@ Here, Settings › **Flockdeck Remote** says what is sent:
 
 - **Notify paired devices** turns notifications off for every device at once.
 - **After waiting** is how long an agent has to have been waiting first: 30
-  seconds, unless you choose otherwise. Each wait is told once, and an agent
+  seconds, unless you choose otherwise, from 15 seconds to 10 minutes. Each wait is told once, and an agent
   that is answered and then asks again is a new wait. However many agents are
   waiting, the phone is sent one notification that says how many, which
   replaces the one before it, and no more than one a minute. It is sent once
@@ -279,8 +282,8 @@ while it goes on showing as waiting everywhere, including here. Muting lives
 on the pane, not the device that asked, and is forgotten on close: it does
 not survive a restart of Flockdeck.
 
-Each notification is encrypted here, on this machine, for the device it goes to,
-and the relay only passes it on: neither the relay nor the push service that
+Each notification is encrypted here, on this machine, for the device it goes to
+(Web Push, RFC 8291), and the relay only passes it on: neither the relay nor the push service that
 carries it (Apple's, Google's, Mozilla's or Microsoft's, which is the browser's
 to choose) can read what it says, since the key that opens it never leaves the
 phone (see the limit on that in **What the relay can see**). They see that one

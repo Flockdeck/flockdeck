@@ -76,4 +76,5 @@ rail, with your panes still in view. While one is open the keyboard stays in
 it, and a click on the panes puts it away; so does <kbd>Esc</kbd>, or the
 shortcut that opened it.
 
-[[key:help]] brings this page back from anywhere.
+The first run opens this page once, unasked, and never again. [[key:help]] brings
+it back from anywhere.
