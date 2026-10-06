@@ -40,10 +40,13 @@ jobs:
         with:
           args: lint --strict deploy/helm/flockdeck
 
+      # Each docker action runs in its own container, so only the job
+      # workspace (mounted at /github/workspace, the working directory) is
+      # shared between steps. Render into it, not /tmp.
       - name: helm template
         uses: docker://alpine/helm:3.15.3
         with:
-          args: template flockdeck deploy/helm/flockdeck --output-dir /tmp/rendered
+          args: template flockdeck deploy/helm/flockdeck --output-dir rendered/default
 
       # Also with persistence and remote enrolment turned on, so the
       # templates that only render conditionally are checked too, not only
@@ -57,7 +60,7 @@ jobs:
             --set remote.url=https://relay.example.com
             --set remote.join=example-join-code
             --set apiKey.value=example-key
-            --output-dir /tmp/rendered-full
+            --output-dir rendered/full
 
       - name: kubeconform
         uses: docker://ghcr.io/yannh/kubeconform:latest-alpine
@@ -65,4 +68,4 @@ jobs:
           args: >-
             -strict -summary
             -kubernetes-version 1.30.0
-            /tmp/rendered /tmp/rendered-full
+            rendered/default rendered/full
