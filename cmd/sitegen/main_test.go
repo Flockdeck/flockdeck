@@ -1247,12 +1247,14 @@ func TestThePrivacyPolicyDisclosesDownloadAccessLogs(t *testing.T) {
 // say once what the relay is not, and are the only page allowed to.
 func TestRemoteIsDescribedAsAnAddOnNotATunnel(t *testing.T) {
 	_, pages := generate(t)
-	banned := []string{"from anywhere", "no ports", "no port ", "vpn", "tunnel", "terminal traffic", "reaches only flockdeck", "no remote control", "no shell access"}
+	banned := []string{"from anywhere", "no ports", "no port ", "vpn", "tunnel", "terminal traffic", "reaches only flockdeck", "no remote control", "no shell access",
+		"remote desktop", "remote support", "remote assistance", "remote-assistance", "bypass"}
 	for _, name := range []string{"index.html", "trust.html", "privacy.html", "refunds.html", "terms.html"} {
 		l := strings.ToLower(strings.Join(strings.Fields(pages[name]), " "))
 		if name == "terms.html" {
 			// The one negating sentence.
 			l = strings.Replace(l, "work as a vpn or proxy", "", 1)
+			l = strings.Replace(l, "flockdeck is software, not a support or remote-assistance service", "", 1)
 		}
 		for _, b := range banned {
 			if strings.Contains(l, b) {
