@@ -1199,8 +1199,8 @@ func PeerName(api, token, pane, name string) error {
 // asking to close itself; see handleClose.
 //
 // A single pane is named in Target. Finished asks for a different thing
-// entirely -- close every idle or exited pane across every open project, the
-// same as the "Close finished panes" command -- and Target is left empty for
+// entirely -- close every idle agent and cleanly exited pane across every open
+// project, the same as the "Close finished panes" command -- and Target is left empty for
 // it.
 type CloseRequest struct {
 	Pane     string `json:"pane"`

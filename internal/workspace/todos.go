@@ -188,11 +188,12 @@ func (w *Workspace) StartTodoStepAttempt(todoID, stepID, paneID string) error {
 // pane regardless (see captureTodoStepOutcome), it costs nothing to call
 // for one that never started from a todo at all.
 //
-// A step already ticked, or unticked, by hand is left exactly as the user
-// left it: only a step with no Done of its own yet -- because this is its
-// first attempt to finish -- picks up the outcome. That is deliberately
-// asymmetric with SetTodoStepDone, whose whole point is to be the last
-// word; recording an attempt's end must not undo it.
+// An outcome only ever ticks a step, never unticks one: a step already
+// ticked stays ticked whatever the outcome. Done is a plain flag, so a step
+// the user unticked by hand is indistinguishable from one never ticked, and
+// a later attempt that ends "done" ticks it again. That is intended: the
+// attempt is newer than the untick. SetTodoStepDone is the last word only
+// until the next attempt finishes.
 func (w *Workspace) RecordTodoStepAttemptEnd(paneID, outcome string) {
 	for ti := range w.todos {
 		for si := range w.todos[ti].Steps {

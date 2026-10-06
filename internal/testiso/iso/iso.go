@@ -131,6 +131,10 @@ func redirect(dir string) {
 	} {
 		os.Setenv(k, v)
 	}
+	// Claude Code's own config directory is wherever CLAUDE_CONFIG_DIR says,
+	// and under the home directory only when it is unset. Left alone, a
+	// developer's value would send tests to their real one.
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
 	if runtime.GOOS == "windows" {
 		os.Unsetenv("HOMEDRIVE")
 		os.Unsetenv("HOMEPATH")

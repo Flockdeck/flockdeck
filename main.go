@@ -1903,15 +1903,16 @@ func closeFlagSet(f *closeFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("close", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.BoolVar(&f.force, "force", false, "close the pane even while it is still working")
-	fs.BoolVar(&f.finished, "finished", false, "close every idle or exited pane instead of naming one")
+	fs.BoolVar(&f.finished, "finished", false, "close every idle agent and cleanly exited pane instead of naming one")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: flockdeck close [-force] <pane-id>\n"+
 			"       flockdeck close -finished\n\n"+
 			"Closes another pane -- the same as Ctrl+Shift+W on it. Refuses a pane that\n"+
 			"is still working unless -force is given, and a locked pane whatever the\n"+
-			"flags say. -finished closes every idle or exited pane across every open\n"+
-			"project instead of naming one, the same as the \"Close finished panes\"\n"+
-			"command, and leaves locked panes open.\n\nFlags:\n")
+			"flags say. -finished closes every idle agent and cleanly exited pane across\n"+
+			"every open project instead of naming one, the same as the \"Close finished\n"+
+			"panes\" command. It leaves locked panes, idle shells and agents with\n"+
+			"background work open.\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
 	return fs
