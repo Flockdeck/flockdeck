@@ -395,16 +395,18 @@ add more. A paused or cancelled subscription ends when it was paused or
 cancelled, never later than it had already paid until. A refund alone changes
 nothing; access follows the subscription.
 
-Nothing is deleted straight away. The account, its machines and its paired
-devices are kept, by default, for 90 days after a trial or subscription ends,
-and deleted after that if nothing on the account has been used since;
-subscribing before then puts everything back as it was.
+Nothing is deleted straight away. When a subscription ends, the account, its
+machines and its paired devices are kept, by default, for 90 days, and deleted
+after that if nothing on the account has been used since; subscribing before
+then puts everything back as it was.
 
 An account is kept while it is paid for (subscribed, or lapsed less than the
 grace period ago, 90 days by default) or while anything on it has been used in
 the last 90 days: a machine connecting, a paired device making a request, a
-registration, or a machine being removed. Otherwise it is deleted, with its
-machines and devices, without a warning. Removing a machine never deletes the
+registration, a machine joining, or a machine being removed. Otherwise it is
+deleted, with its machines and devices, without a warning. A free trial that
+has ended is not paid for, so an account that never subscribed is deleted once
+nothing on it has been used for 90 days. Removing a machine never deletes the
 account, and a machine that connected is never removed for being quiet. One that
 enrolled and never connected is removed after 7 days, and only that machine.
 Separately, by default, a paired device that goes 30 days without being used has

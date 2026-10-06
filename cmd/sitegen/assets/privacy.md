@@ -22,8 +22,9 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
   keeps what it needs to connect your devices to your desktops: names, random
   identifiers, timestamps, public encryption keys, and your
   account's plan. When a relay asks you to confirm an email address before it
-  adds a desktop, it also keeps the address that confirmed the account. It
-  keeps no password, real name or IP address.
+  adds a desktop, it also keeps the address that confirmed the account, and
+  uses it to find that account when the same address is confirmed on another
+  desktop. It keeps no password, real name or IP address.
 - **If you pay for Flockdeck Remote,** a separate billing service keeps the
   email address and country you give Paddle's checkout, your plan and a
   record of each payment, for as long as UK tax records must be kept. The relay
@@ -156,6 +157,8 @@ For each account:
 
 - a random account identifier;
 - the date it was created;
+- when anything on it was last used: a desktop connecting, a paired device
+  being used, a registration, a desktop joining it, or a desktop being removed;
 - its plan (a free trial, a subscription, or lapsed once either has run
   out), and the date the trial or the time paid for runs until;
 - the email address that confirmed it, if the relay asked for one when the
@@ -163,9 +166,10 @@ For each account:
 
 The account has no name or password. The email address is the one you typed
 on the relay's confirmation page, never in Flockdeck itself. It is kept for as
-long as the account is and deleted with it, and is sent once to Postmark to
-mail you the confirmation link, as [Who else is involved](#who-else-is-involved)
-describes. An account made before the relay asked for an address has none. When
+long as the account is and deleted with it, and is sent to Postmark to mail you
+the confirmation link and the notices described under [Joining an account by
+email](#joining-an-account-by-email), as [Who else is
+involved](#who-else-is-involved) describes. An account made before the relay asked for an address has none. When
 you pay, the relay learns only your plan and its date from the billing service,
 as [Paying for Flockdeck Remote](#paying-for-flockdeck-remote) describes, and
 not the address you give Paddle.
@@ -190,6 +194,10 @@ For each device you pair:
 
 The relay also stores pairing codes, as hashes, until they are used. One that
 is never used expires after ten minutes, and is deleted within ten more.
+
+While a desktop's email confirmation is waiting, the relay keeps the address
+typed for it, with hashes of the codes involved, until the account is made or
+joined, five wrong match codes cancel it, or it expires (30 minutes by default).
 
 ### What passes through
 
@@ -259,32 +267,77 @@ in memory.
   temporarily, for security and troubleshooting. The web server behind it
   that serves this website keeps no access logs.
 
+### Joining an account by email
+
+On a relay that asks you to confirm an email address, one address belongs to one
+account. If you confirm an address that already has an account, the new desktop
+is added to that account, and no second account is made. It does not start a
+second trial or a second subscription, and the account's plan, paired devices
+and other desktops are untouched. Phones and browsers do not join this way: they
+pair with a code from a desktop already on the account.
+
+Because the address is how the relay finds the account, anyone who can read that
+mailbox can add a desktop of theirs to the account. Two things limit that. The
+desktop prints a match code that is never emailed, and
+the page the emailed link opens asks for it before anything is confirmed. The
+relay never stores the match code in readable form, only a one-way hash, and
+cancels the registration after five wrong codes. And the account is told:
+
+- **An email to the confirmed address** says that a desktop joined, with the
+  name that desktop was given, how many desktops the account now has and, on a
+  relay that has plans, its plan. When an account is first made, it says that an
+  account was made with the address and by which desktop. Neither email has a
+  link in it.
+- **A push notice to your paired devices** that have notifications turned on,
+  titled "A desktop joined your Flockdeck account", with the desktop's name and
+  the new number of desktops. The relay writes this message itself and encrypts
+  it to each device's keys before sending it to the device's push service.
+
+If either cannot be sent, the join still goes ahead.
+
 ### How long it is kept
 
 - **A paired device** is deleted when you remove it, when it signs out, or 30
   days after it was last used.
 - **A desktop** is kept until you remove it from the account (`flockdeck remote
   remove`) or from another of your devices. Turning Flockdeck Remote off on it
-  keeps it. One that never connects to the relay is removed after seven days,
-  and one not heard from for 30 days is removed the same way, whether or not it
-  ever connected, except the last desktop of an account that is subscribed or
-  whose subscription ended less than the grace period ago (90 days), which is
-  kept. When the last desktop in an account is removed,
-  the account and all its devices go with it.
+  keeps it. A desktop that enrolled and never connected is removed after seven
+  days, and only that desktop. One that has connected is not removed for being
+  quiet. The one exception is a desktop that joins an account already at its
+  limit of desktops: it takes the place of the desktop that has been quiet
+  longest, if that one has been quiet for 30 days or more. Removing a desktop,
+  the last one included, removes only that desktop. It never deletes the
+  account.
+- **An account** is kept while it is paid for, or while anything on it has been
+  used in the last 90 days. Paid for means its plan is a subscription, or a
+  subscription ended less than the grace period ago (90 days). Used means a
+  desktop connecting, a paired device being used, a registration, a desktop
+  joining, or a desktop being removed. Otherwise the account is deleted, with
+  its desktops and devices and the confirmed email address, and we do not
+  warn you by email first. Taking the last desktop off an account starts those
+  90 days from that day. A free trial that has ended is not paid for, so an
+  account that never subscribed is deleted once nothing on it has been used for
+  90 days.
 - **An account whose free trial has ended, or whose subscription has
-  lapsed,** can no longer be used for Flockdeck Remote. It is kept as it was for
-  90 days, so that subscribing restores it; after that, the account, its
-  desktops, its devices and its codes are deleted.
+  lapsed,** can no longer be used for Flockdeck Remote. A lapsed subscription
+  keeps the account as it was for 90 days, so that subscribing restores it.
+  After that it is kept only for as long as it is in use, as the previous
+  bullet says.
 - **Pairing codes** expire after ten minutes.
 - **A device's notification subscription** is deleted when the device is
   removed or signs out, when its browser's push service says it no longer
   exists, or when the relay's notification key changes. Turning
   notifications off on the device deletes it too.
 
-To delete everything the relay holds about you, remove each of your desktops
-from the account (`flockdeck remote remove`). Turning Flockdeck Remote off
-(`flockdeck remote disable`) keeps your account on the relay. If a desktop can no longer be
-reached, remove it from one of your paired devices, or email us.
+To delete everything the relay holds about you, run `flockdeck remote
+delete-account` on a desktop on the account. It shows what will go, asks you to
+type `delete my account`, and then erases the account, its desktops, its
+devices and the confirmed email address. It refuses while a subscription is
+running, because deleting the account does not cancel it: cancel the
+subscription in the Paddle customer portal first. Removing a desktop
+(`flockdeck remote remove`) takes only that desktop off the account, and turning
+Flockdeck Remote off (`flockdeck remote disable`) keeps the desktop enrolled; both
+keep the account. If you have no desktop left on the account, email us.
 
 ### Cookies
 
@@ -412,9 +465,19 @@ Sponsoring buys no features, support or priority.
   contract (the relay's [terms](terms.html)).
 - **To confirm an email address when a relay asks for one:** the address you
   type on the confirmation page, which is sent to Postmark to mail you a link and
-  then kept on the account it confirmed. The purpose is to check that whoever
-  enrols a desktop can read that address before an account is made. The basis is
+  then kept on the account it confirmed. The purposes are to check that whoever
+  enrols a desktop can read that address before an account is made, to find the
+  account again when the same address is confirmed on another desktop, and to
+  mail you a notice when a desktop joins or an account is made. The basis is
   performance of a contract.
+- **To tell you when a desktop joins your account:** the notice emailed to the
+  confirmed address and the push notice to your paired devices, both described
+  under [Joining an account by email](#joining-an-account-by-email). The basis
+  is our legitimate interest in keeping your account secure.
+- **To delete accounts that are not in use:** the last-used time kept on each
+  account, which decides when an unpaid, unused account is deleted, as [How long
+  it is kept](#how-long-it-is-kept) describes. The basis is our legitimate
+  interest in not keeping data we no longer need.
 - **To provide a subscription you have bought:** your plan, the identifiers
   that connect it to your relay account, and your email address for receipts,
   notices and recovery. The basis is performance of a contract.
@@ -448,10 +511,11 @@ push address, and when it was sent, and it cannot read the notification. You
 chose that service when you chose your browser, and it works under its own
 terms.
 
-When a relay asks you to confirm an email address, the address goes once to
-Postmark, our email provider, for each confirmation email, so that Postmark can
-send you the link. Postmark sees the address and the message. It works under its
-own terms.
+When a relay asks you to confirm an email address, the address goes to
+Postmark, our email provider, once for each confirmation email and once for
+each notice that a desktop joined or an account was made, so that Postmark can
+send you the message. Postmark sees the address and the message. It works under
+its own terms.
 
 If you turn on one of the optional TypeSafe features, what it sends goes to
 TypeSafe AI, as [The desktop app](#the-desktop-app) describes. It works under
@@ -479,7 +543,8 @@ Under UK data protection law you have the right to:
 - take it elsewhere.
 
 Most of this you can do yourself, by renaming or removing desktops and devices
-in Flockdeck. For anything else, email **privacy@flockdeck.ai**. An account made
+in Flockdeck, or by erasing the whole relay account with `flockdeck remote
+delete-account`. For anything else, email **privacy@flockdeck.ai**. An account made
 before the relay asked for an address has none, so we may ask you to prove a
 desktop or device is yours, for example from the desktop itself. For an account
 made with a confirmed email address, we may ask you to confirm that address

@@ -1273,6 +1273,65 @@ func TestThePrivacyPolicyDisclosesTheVerifiedEmail(t *testing.T) {
 	}
 }
 
+// The relay keeps an account while it is paid for or used, deletes it
+// otherwise, and no longer deletes one with its last desktop or sweeps quiet
+// desktops after 30 days. The policy once said all three, so a test fails if
+// the old statements come back or the new ones go. The wording is checked
+// against what flockdeck-relay v0.2.55 does: internal/store DeleteUnused and
+// Protected, the 7-day SweepHosts, DeleteAccount and the join notices.
+func TestThePrivacyPolicyStatesTheRelaysRetention(t *testing.T) {
+	_, pages := generate(t)
+	policy := strings.Join(strings.Fields(pages["privacy.html"]), " ")
+	for _, want := range []string{
+		"An account</strong> is kept while it is paid for, or while anything on it has been used in the last 90 days",
+		"a desktop connecting, a paired device being used, a registration, a desktop joining, or a desktop being removed",
+		"Otherwise the account is deleted, with its desktops and devices and the confirmed email address, and we do not warn you by email first",
+		"A desktop that enrolled and never connected is removed after seven days, and only that desktop",
+		"One that has connected is not removed for being quiet",
+		"Removing a desktop, the last one included, removes only that desktop. It never deletes the account",
+		"an account that never subscribed is deleted once nothing on it has been used for 90 days",
+		"flockdeck remote delete-account",
+		"It refuses while a subscription is running",
+		"cancel the subscription in the Paddle customer portal first",
+		"keep the account",
+		"The relay never stores the match code in readable form, only a one-way hash",
+		"If you confirm an address that already has an account, the new desktop is added to that account",
+		"A desktop joined your Flockdeck account",
+		"A push notice to your paired devices",
+		"once for each notice that a desktop joined or an account was made",
+	} {
+		if !strings.Contains(policy, want) {
+			t.Errorf("privacy.html does not say %q", want)
+		}
+	}
+	for _, gone := range []string{
+		"and one not heard from for 30 days is removed",
+		"except the last desktop of an account that is subscribed",
+		"When the last desktop in an account is removed",
+		"the account and all its devices go with it",
+		"remove each of your desktops from the account",
+		"after that, the account, its desktops, its devices and its codes are deleted",
+	} {
+		if strings.Contains(policy, gone) {
+			t.Errorf("privacy.html still says %q, which the relay no longer does", gone)
+		}
+	}
+	terms := strings.Join(strings.Fields(pages["terms.html"]), " ")
+	for _, want := range []string{
+		"An account is kept while anything on it has been used in the last 90 days",
+		"deleted then if nothing on it has been used in the last 90 days",
+	} {
+		if !strings.Contains(terms, want) {
+			t.Errorf("terms.html does not say %q", want)
+		}
+	}
+	for _, gone := range []string{"After 90 days they are deleted", "and then everything is"} {
+		if strings.Contains(terms, gone) {
+			t.Errorf("terms.html still says %q, which is false for an account in use", gone)
+		}
+	}
+}
+
 // The site describes Flockdeck Remote as opening your own Flockdeck window
 // from a paired device through the relay. A payment reviewer reading the home
 // page, or a visitor reading the terms, must not find it described as a
