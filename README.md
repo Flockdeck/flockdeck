@@ -1219,8 +1219,8 @@ in the tab on screen. What you type into a pane still goes to that pane alone.
 ### Flockdeck Remote
 
 The agents are on the desktop; you are not always at it. Flockdeck Remote is an
-optional add-on, £5 a month after a 30-day trial run by Flockdeck. It lets you
-use your own Flockdeck from a paired phone, tablet or browser, through
+optional add-on, £5 a month after a 30-day trial. Flockdeck runs the relay. It
+lets you use your own Flockdeck from a paired phone, tablet or browser, through
 Flockdeck's optional relay. A paired device opens the full Flockdeck window,
 agent terminals and shell panes included, and can do anything you can do in it.
 This machine connects out to the relay and listens for nothing from the network.
