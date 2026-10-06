@@ -322,7 +322,7 @@ func TestRemoteLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enable: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, `"desk"`) || reloads != 1 || !strings.Contains(out, "picked this up") || !strings.Contains(out, "Remote access… in the window") {
+	if !strings.Contains(out, `"desk"`) || reloads != 1 || !strings.Contains(out, "picked this up") || !strings.Contains(out, "Flockdeck Remote… in the window") {
 		t.Errorf("enable printed %q and told the instance %d times", out, reloads)
 	}
 	cfg, err := remote.Load()
@@ -373,7 +373,7 @@ func TestRemoteLifecycle(t *testing.T) {
 	}
 	// A light terminal draws the code inverted, so it says where one that
 	// scans can be had.
-	if !strings.Contains(out, "Remote access… in the window shows it dark on white") {
+	if !strings.Contains(out, "Flockdeck Remote… in the window shows it dark on white") {
 		t.Errorf("pair does not say where a code that scans can be had: %q", out)
 	}
 	// It is read in a terminal, which is often 80 columns wide.
@@ -592,12 +592,12 @@ func TestRemoteCommandsOnAnUnusableEnrolment(t *testing.T) {
 }
 
 // disable -force with nothing enrolled has nothing to turn off, and says so
-// rather than that remote access has been disabled.
+// rather than that Flockdeck Remote has been disabled.
 func TestRemoteDisableForceWithNothingEnrolled(t *testing.T) {
 	isolateKeys(t)
 	out, reloads, err := runRemoteCmd(t, "disable", "-force")
-	if err != nil || !strings.Contains(out, "remote access is not enabled") || strings.Contains(out, "disabled") || reloads != 0 {
-		t.Errorf("disable -force with nothing enrolled = %q, %v, telling the instance %d times; want it to say remote access is not enabled", out, err, reloads)
+	if err != nil || !strings.Contains(out, "Flockdeck Remote is not enabled") || strings.Contains(out, "disabled") || reloads != 0 {
+		t.Errorf("disable -force with nothing enrolled = %q, %v, telling the instance %d times; want it to say Flockdeck Remote is not enabled", out, err, reloads)
 	}
 }
 
@@ -879,7 +879,7 @@ func TestRemoteOutputFitsATerminal(t *testing.T) {
 		t.Helper()
 		var out bytes.Buffer
 		_ = remoteCmd(args, remoteIO{out: &out, running: func() bool { return true }, reload: func() (bool, error) {
-			return true, errors.New(`reload remote access: Post "http://127.0.0.1:52110/remote/reload?t=…": dial tcp 127.0.0.1:52110: connectex: No connection could be made because the target machine actively refused it.`)
+			return true, errors.New(`reload Flockdeck Remote: Post "http://127.0.0.1:52110/remote/reload?t=…": dial tcp 127.0.0.1:52110: connectex: No connection could be made because the target machine actively refused it.`)
 		}})
 		for _, l := range strings.Split(out.String(), "\n") {
 			if n := len([]rune(l)); n > 80 {
@@ -1347,7 +1347,7 @@ func TestRedactToken(t *testing.T) {
 	if got := redactToken(msg, ""); got != msg {
 		t.Errorf("redactToken with no token = %q, want the message as it was", got)
 	}
-	if got := redactToken("reload remote access: 500 Internal Server Error", token); got != "reload remote access: 500 Internal Server Error" {
+	if got := redactToken("reload Flockdeck Remote: 500 Internal Server Error", token); got != "reload Flockdeck Remote: 500 Internal Server Error" {
 		t.Errorf("redactToken of a message without the token = %q", got)
 	}
 }

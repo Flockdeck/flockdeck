@@ -488,7 +488,7 @@ which the command palette and the in-app help are also drawn from; run
 | `Ctrl+=` | Increase font size |
 | `Ctrl+-` | Decrease font size |
 | `Ctrl+0` | Reset font size |
-| Command palette | Remote access… |
+| Command palette | Flockdeck Remote… |
 | Command palette | Helper apps… |
 | Command palette | Open recordings folder |
 | Command palette | Detach — close the window, leave agents running |

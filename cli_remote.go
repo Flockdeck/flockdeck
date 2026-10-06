@@ -20,7 +20,7 @@ import (
 // `flockdeck remote` enrols this machine with a relay, and manages what is
 // paired with it.
 //
-// The window's Remote access dialog does the same jobs. The work of enrolling
+// The window's Flockdeck Remote dialog does the same jobs. The work of enrolling
 // and of taking the machine off again is remote.Enable and remote.Disable,
 // which both use; what is here is the command line's wording of it, which can
 // point at flags the window does not have.
@@ -197,7 +197,7 @@ Commands:
                  enrol this machine with a relay
   pair [-desktop]  print a one-time link (and QR code) that pairs a device;
                  -desktop prints a code for enrolling another machine instead
-  status         say whether remote access is on, and connected
+  status         say whether Flockdeck Remote is on, and connected
   devices        list the paired devices and enrolled machines
   revoke <id>    unpair a device, named by its id or its name
   rename <name>  rename this machine; -device <id or name> renames a device
@@ -208,7 +208,7 @@ Run flockdeck remote help <command> for more about one of them.
 The relay is %s unless -relay or %s
 says otherwise.
 To move to another relay, run move; every device then has to pair again.
-In the window, Remote access… in the command palette does the same things.
+In the window, Flockdeck Remote… in the command palette does the same things.
 Traffic is TLS to and from the relay. A terminal is also end-to-end encrypted
 between this machine and the paired browser, unless either side has no
 registered key. The chat view, pane state and dialogs are not, and the relay
@@ -224,7 +224,7 @@ var remoteSynopses = map[string][2]string{
 	"pair": {" [-desktop]",
 		"Print a one-time link, and a QR code of it, that pairs a device with this\nmachine."},
 	"status": {"",
-		"Say whether remote access is on, whether this machine is connected to its\nrelay, the address a paired device opens it at, and which devices are paired."},
+		"Say whether Flockdeck Remote is on, whether this machine is connected to its\nrelay, the address a paired device opens it at, and which devices are paired."},
 	"devices": {"",
 		"List the paired devices, with the ids and names revoke takes, and the\naccount's machines."},
 	"revoke": {" <device id or name>",
@@ -415,14 +415,14 @@ func remoteEnable(args []string, rio remoteIO) error {
 	if replaced {
 		fmt.Fprintln(rio.out, "the relay no longer knew this machine, so it has been enrolled again")
 	}
-	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("remote access enabled: this machine is %q on %s", cfg.Name, cfg.Relay)))
+	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("Flockdeck Remote enabled: this machine is %q on %s", cfg.Name, cfg.Relay)))
 	if f.join != "" {
 		// Joining puts this machine in another's account rather than a new
 		// one, which is the whole point of the code, and worth confirming.
 		fmt.Fprintln(rio.out, "Joined the other machine's account: a device paired with either reaches both.")
 	}
 	reportReload(rio, "flockdeck will connect to the relay when it next starts")
-	fmt.Fprintln(rio.out, "Pair a device with `flockdeck remote pair`, or Remote access… in the window.")
+	fmt.Fprintln(rio.out, "Pair a device with `flockdeck remote pair`, or Flockdeck Remote… in the window.")
 	return nil
 }
 
@@ -614,7 +614,7 @@ func remotePairCmd(args []string, rio remoteIO) error {
 	// The code is drawn in the terminal's own colours, which on a light
 	// background comes out inverted, and a phone's camera is not reliably
 	// able to read that. The window draws it dark on white whatever the theme.
-	fmt.Fprintf(rio.out, "If the code will not scan, Remote access… in the window shows it dark on white.\n")
+	fmt.Fprintf(rio.out, "If it will not scan, Flockdeck Remote… in the window shows it dark on white.\n")
 	// The code comes last: all of this is taller than a 24-row terminal, and
 	// what is printed last is what stays in view, at the bottom, to be scanned.
 	if code, err := remote.QRTerminal(p.URL); err == nil {
@@ -633,7 +633,7 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 		return loadAdvice(err)
 	}
 	if cfg == nil {
-		fmt.Fprintln(rio.out, "remote access is not enabled; `flockdeck remote enable` turns it on")
+		fmt.Fprintln(rio.out, "Flockdeck Remote is not enabled; `flockdeck remote enable` turns it on")
 		// Which relay is the one choice enabling makes, so it is said before
 		// it is made, along with where it would come from.
 		relay, err := remote.RelayURL("")
@@ -1055,12 +1055,12 @@ func remoteDisable(args []string, rio remoteIO) error {
 	case !had:
 		// Nothing was there, readable or not, -force or no: there was
 		// nothing to turn off, and nothing to tell a running instance.
-		fmt.Fprintln(rio.out, "remote access is not enabled")
+		fmt.Fprintln(rio.out, "Flockdeck Remote is not enabled")
 		return nil
 	case untold != nil:
 		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("could not tell the relay (%v); forgetting the enrolment here anyway", untold)))
 	}
-	fmt.Fprintln(rio.out, "remote access disabled")
+	fmt.Fprintln(rio.out, "Flockdeck Remote disabled")
 	// The account goes with its last machine, and its devices with it, which
 	// somebody switching this one machine off may not have expected. A relay
 	// that was not told has removed nothing.
@@ -1096,7 +1096,7 @@ func remoteMoveCmd(args []string, rio remoteIO) error {
 	}
 	cfg, err := enrolled()
 	if errors.Is(err, remote.ErrNotEnabled) {
-		return fmt.Errorf("remote access is not enabled here, so there is nothing to move; `flockdeck remote enable -relay %s` enrols this machine there", fs.Arg(0))
+		return fmt.Errorf("Flockdeck Remote is not enabled here, so there is nothing to move; `flockdeck remote enable -relay %s` enrols this machine there", fs.Arg(0))
 	}
 	if err != nil {
 		return err
@@ -1151,7 +1151,7 @@ func remoteMoveCmd(args []string, rio remoteIO) error {
 	if untold != nil {
 		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("%s could not be told (%v), so it will go on listing this machine, offline, until a device paired there removes it", cfg.Relay, untold)))
 	}
-	fmt.Fprintln(rio.out, "Pair each device again with `flockdeck remote pair`, or Remote access… in the\nwindow.")
+	fmt.Fprintln(rio.out, "Pair each device again with `flockdeck remote pair`, or Flockdeck Remote… in the\nwindow.")
 	return nil
 }
 

@@ -342,7 +342,7 @@ func TestKeysKeepTheirLabelAndNameTheSurfaces(t *testing.T) {
 		"agents":  "All agents across projects",
 		"changes": "Review changes, commit and push",
 		"history": "Resume a past conversation",
-		"remote":  "Remote access…",
+		"remote":  "Flockdeck Remote…",
 		"apiKeys": "API keys…",
 	}
 	short := map[string]string{

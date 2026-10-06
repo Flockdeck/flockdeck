@@ -102,7 +102,7 @@ const labels = palLabels();
 for (const short of ["Agents", "Changes", "History", "Worktrees", "Remote", "API keys", "Fan out", "Todos"]) {
   assert.ok(labels.includes(short), short + " is not a name in the palette: " + labels.join(", "));
 }
-for (const long of ["All agents across projects", "Review changes, commit and push", "Resume a past conversation", "Remote access…", "API keys…"]) {
+for (const long of ["All agents across projects", "Review changes, commit and push", "Resume a past conversation", "Flockdeck Remote…", "API keys…"]) {
   assert.ok(!labels.includes(long), long + " is still what the row is called");
 }
 const history = palRowsNow().find((r) => r.querySelector(".pal-label").textContent === "History");

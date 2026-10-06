@@ -5533,7 +5533,7 @@ h.click(h.$("btn-settings"));
 assert.ok(shown(), "the rail's Settings button did not open the settings");
 assert.deepStrictEqual(groups(), ["[Window]", "General", "Appearance", "Terminal", "Keyboard",
   "[Agents]", "Agents & models", "Routing", "API keys", "Status detection",
-  "[Connections]", "Remote access", "GitHub", "[Account]", "Account & plan"]);
+  "[Connections]", "Flockdeck Remote", "GitHub", "[Account]", "Account & plan"]);
 for (const g of h.$("settings-tabs").querySelectorAll(".settings-group")) {
   assert.strictEqual(g.getAttribute("aria-hidden"), "true", "the group heading " + g.textContent + " is read out as part of the list");
   assert.ok(!g.hasAttribute("tabindex") && !g.getAttribute("role"), "the group heading " + g.textContent + " is a stop or a tab");
@@ -5569,8 +5569,8 @@ assert.strictEqual(h.$("settings-tab-appearance").getAttribute("aria-selected"),
 const find = h.$("settings-find");
 find.value = "relay";
 find.oninput();
-assert.deepStrictEqual(sections(), ["Remote access", "Account & plan"], "Find a setting did not narrow the sections");
-assert.deepStrictEqual(groups(), ["[Connections]", "Remote access", "[Account]", "Account & plan"],
+assert.deepStrictEqual(sections(), ["Flockdeck Remote", "Account & plan"], "Find a setting did not narrow the sections");
+assert.deepStrictEqual(groups(), ["[Connections]", "Flockdeck Remote", "[Account]", "Account & plan"],
   "a group with no section found is still headed");
 assert.strictEqual(h.$("settings-tab-remote").getAttribute("aria-selected"), "true", "the first section found is not shown");
 `)
@@ -5845,7 +5845,7 @@ const text = pane.textContent;
 assert.ok(text.includes("Free") && text.includes("Current plan"), "the free plan is not shown as the one you are on");
 // What the shared relay will cost is not settled, so the free plan says what
 // it covers today and promises nothing about tomorrow.
-assert.ok(text.includes("Every part of the desktop app, and remote access to your panes through the shared relay."),
+assert.ok(text.includes("Every part of the desktop app, and Flockdeck Remote through the shared relay."),
   "the free plan does not say what it covers: " + text);
 assert.ok(!relayPromise(text), "the plan promises what the shared relay will cost: " + relayPromise(text));
 // Enterprise is for companies and not here yet: individuals keep the shared
