@@ -33,7 +33,8 @@ func TestRemoteAccessIsTurnedOffOrMovedOnlyAtTheDesk(t *testing.T) {
 	type outcome struct{ Type, Action, Error string }
 	for _, cmd := range []command{
 		{Cmd: "remoteDisable"},
-		{Cmd: "remoteDisable", Force: true},
+		{Cmd: "remoteRemove"},
+		{Cmd: "remoteRemove", Force: true},
 		{Cmd: "remoteEnable", Relay: "https://elsewhere.example"},
 	} {
 		sendCmd(t, phone, cmd)
@@ -49,8 +50,8 @@ func TestRemoteAccessIsTurnedOffOrMovedOnlyAtTheDesk(t *testing.T) {
 			t.Errorf("%s through the relay was told %+v, want to do it on the machine itself", cmd.Cmd, note)
 		}
 	}
-	if len(fake.disabled) != 0 || len(fake.enabled) != 0 {
-		t.Errorf("a window through the relay reached remote access: disable %v, enable %+v", fake.disabled, fake.enabled)
+	if fake.disables != 0 || len(fake.removed) != 0 || len(fake.enabled) != 0 {
+		t.Errorf("a window through the relay reached remote access: disable %d, remove %v, enable %+v", fake.disables, fake.removed, fake.enabled)
 	}
 
 	// The desk still can.
@@ -58,8 +59,8 @@ func TestRemoteAccessIsTurnedOffOrMovedOnlyAtTheDesk(t *testing.T) {
 	sendCmd(t, desk, command{Cmd: "remoteDisable"})
 	var out outcome
 	readUntil(t, desk, "remoteOutcome", &out)
-	if out.Error != "" || len(fake.disabled) != 1 {
-		t.Errorf("the desk turning remote access off was answered %+v, with disable %v", out, fake.disabled)
+	if out.Error != "" || fake.disables != 1 {
+		t.Errorf("the desk turning remote access off was answered %+v, with %d disables", out, fake.disables)
 	}
 }
 

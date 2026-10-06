@@ -41,9 +41,13 @@ const (
 	StateOff        State = "off"
 	StateConnecting State = "connecting"
 	StateConnected  State = "connected"
-	StateRevoked    State = "revoked"
-	StateReplaced   State = "replaced"
-	StateError      State = "error"
+	// StateDisabled is remote access turned off on this machine with the
+	// enrolment kept. There is no tunnel; Manager.Status reports it so the
+	// window can offer to turn it on again, to the same account.
+	StateDisabled State = "disabled"
+	StateRevoked  State = "revoked"
+	StateReplaced State = "replaced"
+	StateError    State = "error"
 	// StateLapsed is the relay refusing remote access because the account's
 	// trial or subscription has run out. Detail is the relay's own sentence:
 	// Flockdeck decides nothing by a plan, and only shows what the relay says.

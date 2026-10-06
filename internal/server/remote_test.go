@@ -34,7 +34,8 @@ type fakeRemote struct {
 	// enrolling is refused with, and untoldErr why the relay cannot be told
 	// of a disable.
 	enabled   []remote.EnableRequest
-	disabled  []bool
+	removed   []bool
+	disables  int
 	enableErr error
 	untoldErr error
 	// renamed is each name this machine was given, and renameErr what
@@ -92,8 +93,13 @@ func (f *fakeRemote) Enable(_ context.Context, req remote.EnableRequest) (bool, 
 	return false, f.enableErr
 }
 
-func (f *fakeRemote) Disable(_ context.Context, force bool) (error, error) {
-	f.disabled = append(f.disabled, force)
+func (f *fakeRemote) Disable() error {
+	f.disables++
+	return f.err
+}
+
+func (f *fakeRemote) Remove(_ context.Context, force bool) (error, error) {
+	f.removed = append(f.removed, force)
 	if f.untoldErr != nil && !force {
 		return nil, &remote.RelayUntoldError{Err: f.untoldErr}
 	}
@@ -139,18 +145,30 @@ func TestTheDialogTurnsRemoteAccessOnAndOff(t *testing.T) {
 	}
 
 	fake.untoldErr = errors.New("dial tcp: no route to host")
-	sendCmd(t, conn, command{Cmd: "remoteDisable"})
+	sendCmd(t, conn, command{Cmd: "remoteRemove"})
 	read()
-	if !out.Untold || out.Error == "" {
-		t.Errorf("a disable the relay never heard of was answered %+v, want it offered again", out)
+	if out.Action != "remove" || !out.Untold || out.Error == "" {
+		t.Errorf("a removal the relay never heard of was answered %+v, want it offered again", out)
 	}
-	sendCmd(t, conn, command{Cmd: "remoteDisable", Force: true})
+	sendCmd(t, conn, command{Cmd: "remoteRemove", Force: true})
 	read()
 	if out.Untold || out.Error != "" || !strings.Contains(out.Warning, "no route to host") {
 		t.Errorf("forgetting the enrolment anyway was answered %+v, want a warning saying why", out)
 	}
-	if len(fake.disabled) != 2 || fake.disabled[0] || !fake.disabled[1] {
-		t.Errorf("remote access was asked to disable with force %v", fake.disabled)
+	if len(fake.removed) != 2 || fake.removed[0] || !fake.removed[1] {
+		t.Errorf("remote access was asked to remove with force %v", fake.removed)
+	}
+	if fake.disables != 0 {
+		t.Errorf("removing the machine also turned remote access off %d times", fake.disables)
+	}
+
+	// Turning it off keeps the account: there is no force and no relay to be
+	// untold, and nothing is removed.
+	fake.untoldErr = nil
+	sendCmd(t, conn, command{Cmd: "remoteDisable"})
+	read()
+	if out.Action != "disable" || out.Error != "" || out.Untold || out.Warning != "" || fake.disables != 1 || len(fake.removed) != 2 {
+		t.Errorf("turning remote access off was answered %+v, with %d disables and removals %v", out, fake.disables, fake.removed)
 	}
 }
 

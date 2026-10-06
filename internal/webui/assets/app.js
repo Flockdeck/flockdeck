@@ -908,6 +908,9 @@
       case "connecting": return r.retryAt ? "Reconnecting to " + where + "." + remoteRetryClock(r.retryAt) :
         "Connecting to " + where + "…";
       case "error": return "Cannot reach " + where + (r.detail ? ": " + r.detail : "") + "." + remoteRetryClock(r.retryAt);
+      // Off here, with the account kept: say what a paired device sees, and
+      // that turning it on again is the same account.
+      case "disabled": return "Remote access is off on this machine. Its account is kept: paired devices see this machine as offline, and turning it on again reconnects to the same account.";
       case "revoked":
       case "replaced": return r.detail || "Remote access has stopped.";
       // The relay's own words: it is the relay that stopped remote access,
@@ -1012,6 +1015,8 @@
       body.append(remoteWindow ? el("p", "fan-hint", DESK_ONLY_REMOTE) : remoteEnableForm());
       return;
     }
+    // Remote access turned off, with this machine's account kept on the relay.
+    const off = !!r && r.state === "disabled";
     if (r) body.append(el("div", "remote-status " + r.state, remoteSummary(r)));
     // Only a relay that asks for a subscription reports a plan.
     if (remoteRoster && remoteRoster.plan) body.append(remotePlanSection(remoteRoster.plan));
@@ -1066,7 +1071,9 @@
     };
     row.append(go);
     pair.append(row);
-    body.append(pair);
+    // Turned off with the account kept: a device paired now would find this
+    // machine offline, so nothing here offers to pair one until it is on.
+    if (!off) body.append(pair);
 
     const roster = remoteRoster;
     if (!roster) { body.append(el("div", "dir-empty", "Loading…")); return; }
@@ -1248,7 +1255,8 @@
     const box = section("This machine");
     const o = remoteOutcome;
     const row = el("div", "update-row");
-    if (r && r.state !== "connected") {
+    const kept = !!r && r.state === "disabled";
+    if (r && r.state !== "connected" && !kept) {
       const retry = el("button", "chip", remoteBusy === "reconnect" ? "Trying…" : "Try again");
       retry.id = "remote-retry";
       retry.disabled = !!remoteBusy;
@@ -1266,56 +1274,119 @@
       box.append(row, el("p", "fan-hint", DESK_ONLY_REMOTE), enterpriseNote());
       return box;
     }
-    const off = el("button", "chip danger", remoteBusy === "disable" ? "Turning it off…" : "Turn off remote access");
-    off.id = "remote-disable";
-    off.disabled = !!remoteBusy;
-    off.onclick = () => {
-      const where = String((r && r.relay) || "the relay").replace(/^https?:\/\//, "");
-      const hosts = roster.hosts || [];
-      const devices = roster.devices || [];
-      let q = "Turn off remote access? This machine is taken off " + where +
-        " and no paired device can reach it. Turning it on again enrols it afresh: devices are paired again unless it rejoins the account with a join code.";
+    const where = String((r && r.relay) || "the relay").replace(/^https?:\/\//, "");
+    const hosts = roster.hosts || [];
+    const devices = roster.devices || [];
+
+    // Turning it off keeps the account, and is the button in front. Nothing
+    // is deleted, so its question says what stays and what a device sees.
+    // Off already, the same place offers turning it back on, to that account.
+    if (kept) {
+      const on = el("button", "chip primary", remoteBusy === "enable" ? "Turning it on…" : "Turn on remote access");
+      on.id = "remote-resume";
+      on.disabled = !!remoteBusy;
+      on.onclick = () => {
+        remoteBusy = "enable";
+        remoteOutcome = null;
+        send({ cmd: "remoteEnable", relay: "", name: "", join: "", invite: "" });
+        keepFocus(renderRemote);
+      };
+      row.append(on);
+    } else {
+      const off = el("button", "chip", remoteBusy === "disable" ? "Turning it off…" : "Turn off remote access");
+      off.id = "remote-disable";
+      off.disabled = !!remoteBusy;
+      off.onclick = () => {
+        const q = "Turn off remote access? This machine stops connecting to " + where +
+          ", and your paired devices see it as offline. Nothing is deleted: the account, its paired devices and its plan stay, " +
+          "and turning it on again reconnects to the same account with no new sign-up. " +
+          "If this machine is not seen for 30 days and the account has no subscription, the relay removes the account.";
+        if (!window.confirm(q)) return;
+        remoteDisable();
+      };
+      row.append(off);
+    }
+
+    // Leaving the account is a separate, plainly named button, which says
+    // what it deletes. The join code comes first for anybody who would rather
+    // hand the account to another machine than lose it.
+    const remove = el("button", "chip danger", remoteBusy === "remove" ? "Removing…" : "Remove this desktop from the account…");
+    remove.id = "remote-remove";
+    remove.disabled = !!remoteBusy;
+    remove.onclick = () => {
+      let q = "Remove this desktop from the account? " + where + " is told to delete this machine for good. " +
+        "Turning remote access on again afterwards starts a new account, with a new trial and a new email check, " +
+        "unless this machine joins one with a join code.";
       // Taking the account's only machine off deletes the account on the
-      // relay, and every device paired with it, which nothing else here says.
-      if (hosts.length === 1 && devices.length) {
-        q += " It is the only machine on the account, so the account goes too, and " +
-          (devices.length === 1 ? "its paired device is" : "its " + devices.length + " paired devices are") + " unpaired.";
+      // relay, and every device paired with it.
+      if (hosts.length === 1) {
+        q += " It is the only machine on the account, so the account is deleted too: " +
+          (devices.length === 1 ? "its paired device is unpaired, " : devices.length > 1 ? "its " + devices.length + " paired devices are unpaired, " : "") +
+          "and its plan, trial and verified email are lost.";
       }
+      q += " If you pay for Flockdeck Remote, cancel it first from the Devices page of a paired device: removing the desktop does not cancel it. " +
+        "To keep the account, choose Turn off remote access instead.";
       if (!window.confirm(q)) return;
-      remoteDisable(false);
+      remoteRemove(false);
     };
     // Moving is for a company taking its machines onto a relay of its own,
-    // so it is offered beside turning it off, and its form folded away.
-    const move = el("button", "chip", remoteMoveDraft.open ? "Keep it here" : "Move to another relay…");
-    move.id = "remote-move";
-    move.disabled = !!remoteBusy;
-    move.onclick = () => {
-      remoteMoveDraft.open = !remoteMoveDraft.open;
-      remoteOutcome = null;
-      keepFocus(renderRemote);
-      const f = $("remote-move-relay");
-      if (f && f.focus) f.focus();
-    };
-    row.append(move, off);
+    // so it is offered beside these, and its form folded away. It is not
+    // offered while this machine is off.
+    if (!kept) {
+      const move = el("button", "chip", remoteMoveDraft.open ? "Keep it here" : "Move to another relay…");
+      move.id = "remote-move";
+      move.disabled = !!remoteBusy;
+      move.onclick = () => {
+        remoteMoveDraft.open = !remoteMoveDraft.open;
+        remoteOutcome = null;
+        keepFocus(renderRemote);
+        const f = $("remote-move-relay");
+        if (f && f.focus) f.focus();
+      };
+      row.append(move);
+    }
+    row.append(remove);
     box.append(row);
-    if (remoteMoveDraft.open) box.append(remoteMoveForm(r, roster));
-    if (o && o.action !== "enable" && o.action !== "move" && o.error) box.append(el("p", "remote-error", o.error));
+    box.append(el("p", "fan-hint", kept
+      ? "Turned off here, this machine shows as offline on your devices. If it is not seen for 30 days and the account has no subscription, the relay removes the account."
+      : "Turning it off keeps the account. If this machine is not seen for 30 days and the account has no subscription, the relay removes the account."));
+    // The join code is the way to keep an account that would otherwise go
+    // with its last machine, so it is offered next to the button that deletes
+    // it.
+    const jp = remotePairing && remotePairing.kind === "host" ? remotePairing : null;
+    const code = el("button", "chip", jp && jp.pending ? "Asking the relay…" : "Show a join code first");
+    code.id = "remote-joincode";
+    code.disabled = !!remoteBusy || !!(jp && jp.pending);
+    code.onclick = () => {
+      remotePairing = { pending: true, kind: "host" };
+      keepFocus(renderRemote);
+      send({ cmd: "remotePair", kind: "host" });
+    };
+    box.append(code);
+    if (jp && jp.error) box.append(el("p", "remote-error", jp.error));
+    if (jp && jp.code) {
+      box.append(el("p", "fan-hint", "On the other machine, run flockdeck remote enable -relay " +
+        String((r && r.relay) || "") + " -join " + jp.code + ". It works once" + remoteUntil(jp.expiresAt) +
+        ". That machine then shares this account, so removing this one no longer deletes it."));
+    }
+    if (remoteMoveDraft.open && !kept) box.append(remoteMoveForm(r, roster));
+    if (o && (o.action !== "enable" || kept) && o.action !== "move" && o.error) box.append(el("p", "remote-error", o.error));
     if (o && o.action === "move" && o.warning) box.append(el("p", "remote-error", o.warning));
     if (o && o.untold) {
       box.append(el("p", "fan-hint", "Try again first: a relay that cannot be reached is most often the " +
-        "network, for now. Forgetting it here anyway turns remote access off on this machine, but the " +
+        "network, for now. Forgetting it here anyway removes this machine from remote access here, but the " +
         "relay keeps listing it, offline, until it is removed from a paired device's Devices page or has gone 30 days without being heard from."));
       const again = el("div", "update-row");
       const retry = el("button", "chip primary", "Try again");
-      retry.id = "remote-disable-again";
+      retry.id = "remote-remove-again";
       retry.disabled = !!remoteBusy;
-      retry.onclick = () => remoteDisable(false);
+      retry.onclick = () => remoteRemove(false);
       const forget = el("button", "chip danger", "Forget it here anyway");
       forget.id = "remote-forget";
       forget.disabled = !!remoteBusy;
       forget.onclick = () => {
         if (!window.confirm("Forget remote access here without telling the relay? It will keep listing this machine, offline, until it is removed from a paired device or 30 days pass.")) return;
-        remoteDisable(true);
+        remoteRemove(true);
       };
       again.append(retry, forget);
       box.append(again);
@@ -1419,10 +1490,23 @@
     send(kind === "host" ? { cmd: "remoteRename", kind, name: next } : { cmd: "remoteRename", kind, id, name: next });
   }
 
-  function remoteDisable(force) {
+  /** remoteDisable turns remote access off and keeps the account: the relay
+   *  is not told, so there is nothing to retry or force. */
+  function remoteDisable() {
     remoteBusy = "disable";
     remoteOutcome = null;
-    send({ cmd: "remoteDisable", force });
+    send({ cmd: "remoteDisable" });
+    keepFocus(renderRemote);
+  }
+
+  /** remoteRemove takes this machine off the account for good, which is what
+   *  turning remote access off used to do. A relay that cannot be told is
+   *  answered with untold, and the window offers to forget it here anyway,
+   *  which is force. */
+  function remoteRemove(force) {
+    remoteBusy = "remove";
+    remoteOutcome = null;
+    send({ cmd: "remoteRemove", force });
     keepFocus(renderRemote);
   }
 
@@ -11513,7 +11597,7 @@
       b.tabIndex = on ? 0 : -1;
       // Remote access says it is on, where it is: drawn by CSS from this, so
       // the section's name stays the tab's text.
-      if (s.id === "remote" && state && state.remote) b.setAttribute("data-tag", "on");
+      if (s.id === "remote" && state && state.remote && state.remote.state !== "disabled") b.setAttribute("data-tag", "on");
       b.onclick = () => {
         settingsAtPage(true);
         showSettingsSection(s.id);

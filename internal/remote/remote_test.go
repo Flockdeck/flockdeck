@@ -1280,7 +1280,7 @@ func TestARegistrationThatCannotBeSavedIsTakenBackWhenTimeHasRunOut(t *testing.T
 
 // Enabling and disabling, which the command line and the window both do
 // through these.
-func TestEnableAndDisable(t *testing.T) {
+func TestEnableAndRemove(t *testing.T) {
 	isolate(t)
 	f := newFakeRelay(t)
 	ctx := context.Background()
@@ -1310,14 +1310,14 @@ func TestEnableAndDisable(t *testing.T) {
 		t.Errorf("enabling over a forgotten enrolment = %v, replaced %v", err, replaced)
 	}
 
-	if had, untold, err := Disable(ctx, "v", false); !had || untold != nil || err != nil {
-		t.Errorf("Disable = %v, %v, %v", had, untold, err)
+	if had, untold, err := Remove(ctx, "v", false); !had || untold != nil || err != nil {
+		t.Errorf("Remove = %v, %v, %v", had, untold, err)
 	}
 	if c, _ := Load(); c != nil {
-		t.Error("Disable left the enrolment behind")
+		t.Error("Remove left the enrolment behind")
 	}
-	if had, _, err := Disable(ctx, "v", false); had || err != nil {
-		t.Errorf("Disable with nothing enrolled = %v, %v", had, err)
+	if had, _, err := Remove(ctx, "v", false); had || err != nil {
+		t.Errorf("Remove with nothing enrolled = %v, %v", had, err)
 	}
 
 	// A relay that cannot be told keeps the enrolment, unless forced.
@@ -1326,17 +1326,17 @@ func TestEnableAndDisable(t *testing.T) {
 	}
 	f.Close()
 	var untoldErr *RelayUntoldError
-	if _, _, err := Disable(ctx, "v", false); !errors.As(err, &untoldErr) {
-		t.Errorf("Disable with the relay gone = %v, want a RelayUntoldError", err)
+	if _, _, err := Remove(ctx, "v", false); !errors.As(err, &untoldErr) {
+		t.Errorf("Remove with the relay gone = %v, want a RelayUntoldError", err)
 	}
 	if c, _ := Load(); c == nil {
-		t.Fatal("a Disable that could not tell the relay forgot the enrolment")
+		t.Fatal("a Remove that could not tell the relay forgot the enrolment")
 	}
-	if had, untold, err := Disable(ctx, "v", true); !had || untold == nil || err != nil {
-		t.Errorf("forced Disable = %v, %v, %v; want it done, saying why the relay was not told", had, untold, err)
+	if had, untold, err := Remove(ctx, "v", true); !had || untold == nil || err != nil {
+		t.Errorf("forced Remove = %v, %v, %v; want it done, saying why the relay was not told", had, untold, err)
 	}
 	if c, _ := Load(); c != nil {
-		t.Error("a forced Disable left the enrolment behind")
+		t.Error("a forced Remove left the enrolment behind")
 	}
 }
 
@@ -1420,7 +1420,7 @@ func TestReconnectDoesNotWaitOutTheBackoff(t *testing.T) {
 
 // The window enables and disables through the manager, which brings the
 // tunnel up and down to match.
-func TestManagerEnablesAndDisables(t *testing.T) {
+func TestManagerEnablesAndRemoves(t *testing.T) {
 	isolate(t)
 	quick(t)
 	f := newFakeRelay(t)
@@ -1434,11 +1434,11 @@ func TestManagerEnablesAndDisables(t *testing.T) {
 	if _, err := m.Client(); err != nil {
 		t.Errorf("Client after Enable = %v", err)
 	}
-	if _, err := m.Disable(context.Background(), false); err != nil {
+	if _, err := m.Remove(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := m.Status(); ok {
-		t.Error("the tunnel outlived disabling")
+		t.Error("the tunnel outlived removing")
 	}
 }
 
@@ -1786,7 +1786,7 @@ func TestHostName(t *testing.T) {
 // leaving. Disabling from the window must not show that — the relay no
 // longer accepting this machine — to somebody who has just switched it off,
 // and a disable the relay refuses must leave the tunnel as it was.
-func TestManagerDisableDoesNotShowRevoked(t *testing.T) {
+func TestManagerRemoveDoesNotShowRevoked(t *testing.T) {
 	isolate(t)
 	quick(t)
 	var mu sync.Mutex
@@ -1851,7 +1851,7 @@ func TestManagerDisableDoesNotShowRevoked(t *testing.T) {
 	waitFor(t, "connected", connected)
 
 	var untold *RelayUntoldError
-	if _, err := m.Disable(context.Background(), false); !errors.As(err, &untold) {
+	if _, err := m.Remove(context.Background(), false); !errors.As(err, &untold) {
 		t.Fatalf("a disable the relay refused = %v, want a RelayUntoldError", err)
 	}
 	waitFor(t, "the tunnel back after a refused disable", connected)
@@ -1859,7 +1859,7 @@ func TestManagerDisableDoesNotShowRevoked(t *testing.T) {
 	mu.Lock()
 	refuse, seen = false, nil
 	mu.Unlock()
-	if _, err := m.Disable(context.Background(), false); err != nil {
+	if _, err := m.Remove(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond)
@@ -1875,7 +1875,7 @@ func TestManagerDisableDoesNotShowRevoked(t *testing.T) {
 
 // A disable that cannot even read the enrolment leaves the tunnel alone:
 // had it been closed, Reload could not open it again, for the same reason.
-func TestManagerDisableOfAnUnreadableEnrolmentLeavesTheTunnel(t *testing.T) {
+func TestManagerRemoveOfAnUnreadableEnrolmentLeavesTheTunnel(t *testing.T) {
 	isolate(t)
 	quick(t)
 	f := newFakeRelay(t)
@@ -1893,7 +1893,7 @@ func TestManagerDisableOfAnUnreadableEnrolmentLeavesTheTunnel(t *testing.T) {
 	if err := os.WriteFile(p, []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Disable(context.Background(), false); err == nil {
+	if _, err := m.Remove(context.Background(), false); err == nil {
 		t.Fatal("disabling with an unreadable enrolment succeeded")
 	}
 	time.Sleep(50 * time.Millisecond)

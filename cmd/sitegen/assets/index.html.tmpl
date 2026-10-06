@@ -348,7 +348,8 @@
   <pre><code>flockdeck remote enable
 flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code></pre>
   <p class="aside">Flockdeck Remote is off until you
-     turn it on. Turn it off and your desktop is removed from the relay.</p>
+     turn it on. Turning it off keeps your account, and
+     <code>flockdeck remote remove</code> removes the desktop from the relay.</p>
   <!-- Announced, not shipped: it says what is coming, that it is for companies
        and under licence, and nothing about price or date, which are not
        settled. Nobody can run a relay today, individuals are not offered one,
@@ -600,7 +601,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
     </details>
     <details>
       <summary>How do I uninstall it?</summary>
-      <p>If you turned on Flockdeck Remote, run <code>flockdeck remote disable</code>
+      <p>If you turned on Flockdeck Remote, run <code>flockdeck remote remove</code>
          first so the relay forgets this machine. Then quit Flockdeck and remove it
          the way you installed it: through Installed apps for the Windows
          installer, or with <code>apt</code> or <code>dnf</code> for the Linux

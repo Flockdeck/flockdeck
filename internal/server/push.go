@@ -278,7 +278,8 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 		return nil
 	}
 	st, ok := ra.Status()
-	if !ok {
+	// Turned off with the enrolment kept: nothing is sent to the relay.
+	if !ok || st.State == remote.StateDisabled {
 		return nil
 	}
 	delay := pushDelay(s.prefs.Push)

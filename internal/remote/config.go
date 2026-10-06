@@ -71,6 +71,44 @@ type Config struct {
 	AccountID string `json:"accountId"`
 	Token     string `json:"token"`
 	Name      string `json:"name,omitempty"`
+	// Disabled is remote access turned off on this machine while the
+	// enrolment is kept: the tunnel stays closed, and the token, host id,
+	// account id and end-to-end key stay put, so turning it on again is the
+	// same host on the same account. It is written to remote.json as
+	// "enabled": false; a file without that field, which is every file an
+	// earlier version wrote, is read as enabled (see UnmarshalJSON).
+	Disabled bool `json:"-"`
+}
+
+// configFile is Config as remote.json holds it. Enabled is a pointer so that a
+// file without the field can be told from one that says false.
+type configFile struct {
+	Relay     string `json:"relay"`
+	HostID    string `json:"hostId"`
+	AccountID string `json:"accountId"`
+	Token     string `json:"token"`
+	Name      string `json:"name,omitempty"`
+	Enabled   *bool  `json:"enabled"`
+}
+
+// MarshalJSON always writes the "enabled" field, true or false, so that the
+// file says in so many words whether this machine is to connect.
+func (c Config) MarshalJSON() ([]byte, error) {
+	enabled := !c.Disabled
+	return json.Marshal(configFile{Relay: c.Relay, HostID: c.HostID, AccountID: c.AccountID, Token: c.Token, Name: c.Name, Enabled: &enabled})
+}
+
+// UnmarshalJSON reads remote.json. The migration is that a file with no
+// "enabled" field, written before it existed, is an enabled machine: every
+// enrolment made until then was one, since turning remote access off used to
+// delete it. The field appears the next time the file is saved.
+func (c *Config) UnmarshalJSON(data []byte) error {
+	var f configFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return err
+	}
+	*c = Config{Relay: f.Relay, HostID: f.HostID, AccountID: f.AccountID, Token: f.Token, Name: f.Name, Disabled: f.Enabled != nil && !*f.Enabled}
+	return nil
 }
 
 // path is where the enrolment is kept.
@@ -146,7 +184,8 @@ func (c *Config) Save() error {
 	return nil
 }
 
-// Clear forgets the enrolment. It is not an error for there to be none.
+// Clear forgets the enrolment, and with it the host, the account and the token
+// that reach them: Remove is what calls it, and nothing else should. It is not an error for there to be none.
 func Clear() error {
 	p, err := path()
 	if err != nil {

@@ -412,12 +412,51 @@ h.click(h.$("remote-disable"));
 assert.strictEqual(h.commands().length, before, "remote access was turned off without asking");
 h.win._confirm = true;
 h.click(h.$("remote-disable"));
-assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteDisable", force: false });
-h.recv({ type: "remoteOutcome", action: "disable", untold: true, error: "could not reach the relay" });
-assert.ok(h.$("overlay-body").textContent.includes("could not reach the relay"), "why it was not turned off is shown");
+// Turning it off keeps the account, and the question says so, and when the
+// relay would remove the account anyway.
+for (const want of [/Nothing is deleted/, /same account/, /offline/, /30 days/, /no subscription/]) {
+  assert.ok(want.test(h.win._confirmed), "the turn-off question does not say " + want + ": " + h.win._confirmed);
+}
+assert.ok(!/only machine|deleted too/.test(h.win._confirmed), "the turn-off question warns of a deletion it does not make: " + h.win._confirmed);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteDisable" });
+h.recv({ type: "remoteOutcome", action: "disable" });
+
+// Off, with the account kept: it says so, offers turning it on again (to the
+// same account, so with nothing to fill in) and no pairing, and Remove stays.
+h.recv(fixture({ remote: { state: "disabled", relay: "https://relay.example", hostId: "h1", viewers: 0, since: "0001-01-01T00:00:00Z" } }));
+h.recv({ type: "remoteDevices", enabled: true,
+  devices: [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" }],
+  hosts: [{ id: "h1", name: "desk", online: false, self: true }] });
+assert.ok(h.$("overlay-body").textContent.includes("Its account is kept"), "the window does not say the account is kept");
+assert.ok(!h.$("overlay-body").textContent.includes("Pair a device"), "a device can be paired with a machine that is off");
+const offText = h.$("overlay-body").textContent;
+assert.ok(!offText.includes("Turn off remote access") && !offText.includes("Try again") && !offText.includes("Move to another relay"), "the buttons for a machine that is on are offered while it is off");
+h.click(h.$("remote-joincode"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remotePair", kind: "host" });
+h.recv({ type: "remotePair", kind: "host", code: "fdp_join", expiresAt: "2999-01-01T00:00:00Z" });
+assert.ok(h.$("overlay-body").textContent.includes("-join fdp_join"), "the join code is not shown before removing");
+h.click(h.$("remote-resume"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteEnable", relay: "", name: "", join: "", invite: "" });
+h.recv({ type: "remoteOutcome", action: "enable", error: "the relay said no" });
+assert.ok(h.$("overlay-body").textContent.includes("the relay said no"), "why it was not turned on is not shown");
+h.recv({ type: "remoteOutcome", action: "enable" });
+
+// Removing the machine from the account is its own button, and says what it
+// deletes, the account too when it is the only machine.
+h.win._confirm = false;
+h.click(h.$("remote-remove"));
+for (const want of [/Remove this desktop from the account/, /delete this machine for good/, /new trial/, /only machine on the account/, /plan, trial and verified email are lost/, /paired device is unpaired/, /Turn off remote access instead/]) {
+  assert.ok(want.test(h.win._confirmed), "the remove question does not say " + want + ": " + h.win._confirmed);
+}
+assert.ok(!h.commands().some((c) => c.cmd === "remoteRemove"), "the machine was removed without asking");
+h.win._confirm = true;
+h.click(h.$("remote-remove"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteRemove", force: false });
+h.recv({ type: "remoteOutcome", action: "remove", untold: true, error: "could not reach the relay" });
+assert.ok(h.$("overlay-body").textContent.includes("could not reach the relay"), "why it was not removed is shown");
 h.click(h.$("remote-forget"));
-assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteDisable", force: true });
-h.recv({ type: "remoteOutcome", action: "disable", warning: "The relay could not be told, so it will go on listing this machine" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteRemove", force: true });
+h.recv({ type: "remoteOutcome", action: "remove", warning: "The relay could not be told, so it will go on listing this machine" });
 
 h.recv(fixture());
 h.recv({ type: "remoteDevices", enabled: false, devices: [], hosts: [] });
