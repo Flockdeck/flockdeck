@@ -8786,7 +8786,7 @@
         row.append(label);
         if (palOnly && c.kind) row.append(el("span", "pal-kind", c.kind));
         // Where there is no key to show, what a short name leaves out -- "every
-        // idle or exited pane, in every open project" -- is the hint.
+        // idle agents and cleanly exited panes, in every open project" -- is the hint.
         const hint = c.hint || (!palOnly && !c.keys && !c.now && c.gloss) || "";
         // In Go to every row has a hint, empty or not, so the kind is one column.
         if (hint || c.keys || c.now || palOnly) {
@@ -12687,7 +12687,7 @@
     const relayPlan = remoteRoster && remoteRoster.plan;
     pane.append(card("Free", "Current plan", false, relayPlan
       ? "Every part of the desktop app, for good. Flockdeck Remote through the relay has a plan of its own."
-      : "Every part of the desktop app, and Flockdeck Remote through the shared relay."));
+      : "Every part of the desktop app, for good. Flockdeck Remote through the shared relay is a subscription after a 30-day free trial."));
     if (relayPlan) {
       const remote = card("Flockdeck Remote", relayPlan.name || relayPlan.plan, false, remotePlanText(relayPlan));
       remote.id = "set-remote-plan";

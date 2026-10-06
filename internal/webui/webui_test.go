@@ -5882,9 +5882,9 @@ assert.ok(pane.contains(h.$("remote-disable")), "remote access cannot be turned 
 h.click(h.$("settings-tab-plan"));
 const text = pane.textContent;
 assert.ok(text.includes("Free") && text.includes("Current plan"), "the free plan is not shown as the one you are on");
-// What the shared relay will cost is not settled, so the free plan says what
-// it covers today and promises nothing about tomorrow.
-assert.ok(text.includes("Every part of the desktop app, and Flockdeck Remote through the shared relay."),
+// The desktop app is free; the shared relay is a subscription after a 30-day
+// trial, and the card must not say otherwise.
+assert.ok(text.includes("Every part of the desktop app, for good. Flockdeck Remote through the shared relay is a subscription after a 30-day free trial."),
   "the free plan does not say what it covers: " + text);
 assert.ok(!relayPromise(text), "the plan promises what the shared relay will cost: " + relayPromise(text));
 // Enterprise is for companies and not here yet: individuals keep the shared
