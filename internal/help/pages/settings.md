@@ -182,7 +182,8 @@ set).
   exported in the environment is used first, except for the TypeSafe key, where
   the one set in Settings is.
 - `remote.json`: this machine's enrolment with the relay.
-  `flockdeck remote disable` removes it.
+  `flockdeck remote disable` keeps it and marks it off; `flockdeck remote remove`
+  removes it.
 - `routing.jsonl`: what routing chose for each routed fan-out row, and
   whether you kept it: the rule's name and the models, never the task. It
   keeps the last 10,000 lines, and **Clear routing history** empties it.

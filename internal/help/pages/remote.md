@@ -80,7 +80,7 @@ start waits for the approval notice in a window on this machine.
 
 These keep a phone in a pocket from doing any of them by accident. They are
 not a security boundary: a remote window can open a shell pane, and from a
-shell it can do anything you can at this machine, `flockdeck remote disable`
+shell it can do anything you can at this machine, `flockdeck remote remove`
 included. A paired device has everything your user account here has.
 
 ## Turning it on
@@ -384,8 +384,14 @@ and deleted after that; subscribing before then puts everything back as it was.
 Separately from a plan, by default, a paired device that goes 30 days without
 being used has to pair again, and a machine is removed from its account after
 30 days without being heard from, or after 7 if it enrolled and never
-connected. A relay that is not the shared one can set any of these figures
-otherwise.
+connected. If that is the account's last machine, the account goes with it,
+except on a running subscription: the relay keeps the last machine of an
+account that is paying, so switching a machine off or turning remote access off
+on it never deletes a paid account. A trial, or an account with no
+subscription, is not covered by that, which is why the Remote dialog says that
+if this machine is not seen for 30 days and there is no subscription, the
+account is removed. A relay that is not the shared one can set any of these
+figures otherwise.
 
 A relay other than the shared one may have no plans at all, and then none of
 this applies: nothing is shown, and nothing stops.
@@ -440,28 +446,48 @@ Machines set up from scratch point at a company's relay with `-relay`, or with
 ## Unpairing, and turning it off
 
 The dialog lists every paired device with an **Unpair** button; unpairing ends
-that device's session at once, including any window it has open. **Turn off
-remote access**, at its foot, takes this machine off the relay; if it is the
-only machine on the account, the account and its paired devices go with it,
-and the dialog says so before it asks. A relay that cannot be reached is not
-taken for one that was told: you are offered **Try again**, and only then to
-forget it here anyway, which leaves the relay listing this machine, offline.
-From a terminal:
+that device's session at once, including any window it has open.
+
+There are two ways to stop using remote access on a machine, and they are
+different.
+
+**Turn off remote access**, at the foot of the dialog, only stops this machine
+connecting. Nothing is deleted: the account, its paired devices, its plan or
+trial and its verified email stay on the relay, and a paired device shows this
+machine as offline. **Turn on remote access** reconnects to the same account and
+the same address, with no new sign-up, no email check and no new trial. If this
+machine is not seen for 30 days and the account has no subscription, the relay
+removes the account. An account with a running subscription is never removed
+this way, and the relay keeps its last machine.
+
+**Remove this desktop from the account** leaves it for good. The relay deletes
+this machine; if it is the only machine on the account, the account goes too,
+with its paired devices, its plan or trial and its verified email, and the
+dialog says so before it asks. Turning remote access on again afterwards starts
+a new account, with a new trial and a new email check, unless the machine joins
+one with a join code. **Show a join code first** makes one for another machine to
+join with, which keeps the account alive. Removing does not cancel a
+subscription, so cancel it first from the **Devices** page of a paired device.
+A relay that cannot be reached is not taken for one that was told: you are
+offered **Try again**, and only then to forget it here anyway, which leaves the
+relay listing this machine, offline. From a terminal:
 
 | Command | What it does |
 | --- | --- |
 | `flockdeck remote devices` | What is paired, and each device's id |
 | `flockdeck remote revoke <id or name>` | Unpairs one |
 | `flockdeck remote rename <name>` | Renames this machine; `-device <id or name>` renames a device |
-| `flockdeck remote disable` | Removes this machine from the relay |
+| `flockdeck remote disable` | Turns remote access off here and keeps the account |
+| `flockdeck remote remove` | Removes this machine from the account for good; asks first, `-yes` skips the question |
 | `flockdeck remote move <relay>` | Moves this machine to another relay; every device then pairs again |
 
-A machine that was wiped or lost before remote access was turned off on it
+A machine that was wiped or lost without being removed from the account
 cannot take itself off. Remove it from the **Devices** page of a paired device
 instead, rather than wait: no device can reach it after that, and its
 credential stops working, so a copy of Flockdeck restored from a backup cannot
 connect with it either. Left alone, the relay removes it on its own, by default,
-once it has gone 30 days without being heard from.
+once it has gone 30 days without being heard from, unless it is the last machine
+of an account on a running subscription.
 
 ## If a device is lost
 

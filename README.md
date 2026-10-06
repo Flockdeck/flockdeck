@@ -245,7 +245,7 @@ exits; the subcommand still works.
 
 ### Uninstalling
 
-Turn remote access off first if it is on (`flockdeck remote disable`), so the
+Remove this machine from its relay first if remote access is on (`flockdeck remote remove`), so the
 relay forgets this machine. Then quit Flockdeck and delete it:
 `~/.local/bin/flockdeck` on Linux, with `flockdeck.desktop` and `flockdeck.png`
 under `~/.local/share/applications` and `~/.local/share/icons`;
@@ -1228,14 +1228,21 @@ flockdeck remote devices          # what is paired
 flockdeck remote revoke <id>      # unpair one, by its id or its name
 flockdeck remote rename <name>    # what every paired device calls this machine
 flockdeck remote rename -device <id> <name>   # what a paired device is called
-flockdeck remote disable          # remove this machine from the relay
+flockdeck remote disable          # turn it off here and keep the account; enable turns it back on
+flockdeck remote remove           # leave the account for good: the relay deletes this machine
 flockdeck remote move <relay>     # move to another relay; every device pairs again
 ```
 
 `remote pair -desktop` prints a code that `remote enable -join <code>` on
 another machine uses to join the same account, so one paired device reaches
 both. `enable -invite <code>` is for a relay that asks for an invitation, and
-`disable -force` forgets the enrolment here when the relay cannot be told.
+`remove -force` forgets the enrolment here when the relay cannot be told, and `remove -yes` skips its question.
+`disable` only turns the tunnel off. The account, its paired devices, its plan and
+its verified email stay on the relay, this machine shows as offline on them, and
+`enable` turns it back on to the same account. If this machine is not seen for 30
+days and the account has no subscription, the relay removes the account. `remove`
+is the one that leaves the account: the relay deletes this machine, and the
+account too if it was the last one.
 `remote move` (or **Move to another relay…** in the dialog) is for a company
 taking its machines onto a relay of its own: it enrols with the new relay
 first and leaves the old one only once the new one answers, and every paired
@@ -1386,7 +1393,7 @@ dialog or from the command line, which ends its session at once.
 
 A machine or a device is renamed with **Rename** in that dialog, or
 `flockdeck remote rename`; a paired device can rename either from its Devices
-page. A machine wiped before remote access was turned off on it can no longer
+page. A machine wiped without being removed from the account can no longer
 take itself off the relay, so that page removes it too.
 
 What the relay can see: traffic is TLS between the browser
@@ -1419,7 +1426,8 @@ ends its session at once, on the next request, with nothing left open behind
 it: the cookie that a window holds carries no permission of its own, only
 which device and desktop it was issued for, and both are checked again every
 time. A desktop not heard from in 30 days is removed from the relay on its
-own.
+own, with its account if it was the last one, unless the account has a running
+subscription.
 
 A remote window needs Flockdeck running here. Closing the window on this
 machine still quits it, remote window or not; detach instead to leave the
