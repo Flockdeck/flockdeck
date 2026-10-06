@@ -1242,7 +1242,7 @@ flockdeck remote move <relay>     # move to another relay; every device pairs ag
 another machine uses to join the same account, so one paired device reaches
 both. `enable -invite <code>` is for a relay that asks for an invitation, and
 `remove -force` forgets the enrolment here when the relay cannot be told, and `remove -yes` skips its question.
-`disable` only turns the tunnel off. The account, its paired devices, its plan and
+`disable` only turns Flockdeck Remote off. The account, its paired devices, its plan and
 its verified email stay on the relay, this machine shows as offline on them, and
 `enable` turns it back on to the same account. If this machine is not seen for 30
 days and the account has no subscription, the relay removes the account. `remove`

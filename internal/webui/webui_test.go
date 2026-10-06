@@ -445,7 +445,7 @@ h.recv({ type: "remoteOutcome", action: "enable" });
 // deletes, the account too when it is the only machine.
 h.win._confirm = false;
 h.click(h.$("remote-remove"));
-for (const want of [/Remove this desktop from the account/, /delete this machine for good/, /new trial/, /only machine on the account/, /plan, trial and verified email are lost/, /paired device is unpaired/, /Turn off remote access instead/]) {
+for (const want of [/Remove this desktop from the account/, /delete this machine for good/, /new trial/, /only machine on the account/, /plan, trial and verified email are lost/, /paired device is unpaired/, /Turn off Flockdeck Remote instead/]) {
   assert.ok(want.test(h.win._confirmed), "the remove question does not say " + want + ": " + h.win._confirmed);
 }
 assert.ok(!h.commands().some((c) => c.cmd === "remoteRemove"), "the machine was removed without asking");
