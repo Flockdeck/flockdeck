@@ -4461,7 +4461,7 @@
       const zoom = zoomed.has(id) ? String(zoomed.get(id)) : "";
       if (was.zoom !== zoom) { was.zoom = zoom; renderPaneZoom(p, zoomed.get(id)); }
 
-      const review = (v.autoReview ? "1" : "0") + ":" + (v.autoApproved || 0);
+      const review = (v.autoReview ? "1" : "0") + ":" + (v.autoApproved || 0) + (v.kind === "shell" ? "s" : "");
       if (was.review !== review) { was.review = review; renderPaneReview(p, v); }
 
       const locked = v.locked ? "1" : "";
@@ -4523,6 +4523,9 @@
    *  or by its own `flockdeck spawn`, comes up already showing whatever its
    *  parent had, since it inherits the same setting. */
   function renderPaneReview(p, v) {
+    // A shell makes no PreToolUse calls, so there is nothing for the toggle to
+    // act on and the server refuses it. See renderPaneRecording.
+    p.reviewBtn.hidden = v.kind === "shell";
     const on = !!v.autoReview;
     p.reviewBtn.classList.toggle("reviewing", on);
     p.reviewBtn.setAttribute("aria-pressed", String(on));

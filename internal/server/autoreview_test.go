@@ -16,7 +16,7 @@ func TestAutoReviewCommandSetsStateAndCapability(t *testing.T) {
 	if !st.CanAutoReview {
 		t.Error("the state does not say autoReview is understood")
 	}
-	id := firstPane(t, srv, ws)
+	id := agentFirstPane(t, srv, ws)
 	if st.Panes[id].AutoReview {
 		t.Fatal("a pane started out with auto-review on")
 	}
@@ -56,7 +56,7 @@ func TestAutoReviewToggleSavesTheLayout(t *testing.T) {
 	srv, ws := newTestServer(t)
 	conn := dialControl(t, srv)
 	nextState(t, conn, nil)
-	id := firstPane(t, srv, ws)
+	id := agentFirstPane(t, srv, ws)
 
 	saved := func() *bool {
 		st, err := store.Peek(ws.ActiveRoot())
@@ -101,7 +101,7 @@ func TestAutoReviewDefaultDoesNotChangeASavedLayout(t *testing.T) {
 	srv, ws := newTestServer(t)
 	conn := dialControl(t, srv)
 	nextState(t, conn, nil)
-	id := firstPane(t, srv, ws)
+	id := agentFirstPane(t, srv, ws)
 
 	sendCmd(t, conn, command{Cmd: "autoReview", ID: id, AutoReview: false})
 	if err := ws.SaveLayouts(); err != nil {
