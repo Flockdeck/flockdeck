@@ -126,7 +126,7 @@ ENV FLOCKDECK_UPDATE=off
 #      FLOCKDECK_REMOTE_INVITE, FLOCKDECK_REMOTE_NAME below) enrols this
 #      instance with a relay it dials out to, which is the real answer for
 #      reaching it from a phone or a browser off this machine -- no inbound
-#      port needed at all. README.md's "Self-hosted" section covers this.
+#      port needed at all. docs/self-hosting.md covers this.
 #   4. On Kubernetes, the Helm chart's flockdeck-portproxy sidecar (this same
 #      image, run as a second container in flockdeck's own pod -- see
 #      cmd/portproxy and deploy/helm/flockdeck) actually listens on this

@@ -173,7 +173,7 @@ func expandPlaceholders(src, open string, render func(id string) (string, error)
 func keyTable(rows []Key) string { return keyTableWith(rows, kbd) }
 
 // keyTableWith renders the same table with the binding wrapped however the
-// destination wants it: <kbd> for the help pages, backticks for the README.
+// destination wants it: <kbd> for the help pages, backticks for docs/keys.md.
 func keyTableWith(rows []Key, wrap func(string) string) string {
 	var b strings.Builder
 	b.WriteString("| Keys | Action |\n| --- | --- |\n")

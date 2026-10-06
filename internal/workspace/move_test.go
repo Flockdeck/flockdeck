@@ -718,7 +718,7 @@ func TestTabDropSaysWhatWentWrong(t *testing.T) {
 
 // TestRearrangedLayoutComesBack joins the two halves of this area: a layout the
 // user dragged into shape is saved like any other and comes back on the next
-// run. Every move here is one the README describes, and none of them is worth
+// run. Every move here is one the help describes, and none of them is worth
 // making if the arrangement is lost at the next restart.
 func TestRearrangedLayoutComesBack(t *testing.T) {
 	isolateConfig(t)

@@ -3,8 +3,8 @@ package help
 import "strings"
 
 // Every action the interface offers is described exactly once, here. The
-// command palette, the shortcut tables in the help pages and the README table
-// are all rendered from this list, so a binding cannot be changed in one of
+// command palette, the shortcut tables in the help pages and the table in
+// docs/keys.md are all rendered from this list, so a binding cannot be changed in one of
 // them and left stale in the others.
 
 // Key is one action, its binding if it has one, and where it belongs in the
@@ -21,7 +21,7 @@ type Key struct {
 	// Short is the one name the action goes by where a surface is named --
 	// the rail, the palette's rows, Go to: "History" for a label that reads
 	// "Resume a past conversation". The label stays, and stays searchable,
-	// because the README table and the help pages are written from it.
+	// because the docs/keys.md table and the help pages are written from it.
 	// Empty where the label's own name (the part before its dash) will do.
 	Short string `json:"short,omitempty"`
 	// Section groups the action in the shortcut tables.
