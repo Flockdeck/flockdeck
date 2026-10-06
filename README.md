@@ -451,6 +451,7 @@ which the command palette and the in-app help are also drawn from; run
 | Command palette | Add this pane to broadcast, or take it out |
 | `Ctrl+Shift+P` | Prompt all panes |
 | `Ctrl+Shift+X` | Fan out — turn this pane's plan into agents |
+| Command palette | Make baton: hand this pane's work to another agent |
 | Command palette | Fan-out history — past jobs in this project |
 | Command palette | New todo — save this pane's plan as a checklist |
 | Command palette | Todos — this project's saved checklists |

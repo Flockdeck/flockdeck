@@ -397,7 +397,10 @@ Replaced with the string `[redacted]`:
   to the end of the text if it is cut off);
 - the password in a URL: `scheme://user:pw@host` becomes `scheme://user:[redacted]@host`;
 - the credential in an `Authorization`-style header: `Bearer x` and `Basic x`
-  keep the scheme, and the credential becomes `[redacted]`;
+  keep the scheme, and the credential becomes `[redacted]`. The word `bearer` or
+  `basic` on its own is skipped only under an `authorization` or
+  `proxy-authorization` name; under any other name (`password=basic`) it is a
+  value like any other and is redacted;
 - the value in `NAME=value`, `NAME: value` and `"name": "value"` where the
   name contains `secret`, `token`, `password`, `passwd`, `pwd`, `api_key` or
   `apikey` (with `_` or `-` allowed), `access_key`, `private_key`, `credential`,
@@ -405,8 +408,11 @@ Replaced with the string `[redacted]`:
 - every value under a key with such a name inside a tool's `input` object;
 - tokens by shape: `sk-ant-...`, `sk-...`, GitHub (`ghp_`, `gho_`, `ghu_`,
   `ghs_`, `ghr_`, `github_pat_`), GitLab `glpat-`, AWS access key ids (`AKIA` or
-  `ASIA` and 16 characters), Slack `xox?-`, Google `AIza...`, npm `npm_...` and
-  JSON Web Tokens.
+  `ASIA` and 16 characters), Slack `xox?-`, Google `AIza...`, npm `npm_...`,
+  SendGrid `SG.x.y` and JSON Web Tokens.
+
+Where two of these match overlapping text, the whole stretch is one `[redacted]`
+and not several.
 
 Replaced with `[withheld: a secret file]`:
 

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/baton"
 )
 
 // TestHelperPrintArgs is not a test of its own. Run by the batch file below, it
@@ -329,5 +331,51 @@ func TestATaskReachesAnAgentBehindABatchShim(t *testing.T) {
 		if strings.HasPrefix(strings.TrimSpace(line), "INJECTED") {
 			t.Errorf("text from a task ran as a command: %q", line)
 		}
+	}
+}
+
+// A baton in front of a task is what gives way to a command line cmd.exe will
+// not take: its last sections go first, with a line saying so, and the task
+// arrives whole. Cutting the end of the prompt, as a task alone is cut, would
+// have cut the user's own words and left the baton.
+func TestABatonGivesWayBeforeTheTask(t *testing.T) {
+	var files, cmds strings.Builder
+	for i := 0; i < 200; i++ {
+		files.WriteString("- `internal/pkg/file_" + strings.Repeat("x", 20) + ".go` (modified, +10 -2)\n")
+		cmds.WriteString("- `go test ./internal/pkg -run TestSomething` - FAILED: \"assertion\" failed\n")
+	}
+	b := baton.Baton{
+		ID: "20261001-090000-0a1b2c", Title: "t", FromAgent: "claude", Created: time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC),
+		Sections: map[baton.Section]string{
+			baton.Goal:        "Finish the retry work.",
+			baton.Files:       strings.TrimSpace(files.String()),
+			baton.Commands:    strings.TrimSpace(cmds.String()),
+			baton.Constraints: "- Do not touch the migration.",
+		},
+	}
+	task := `fix the parser & say "done", 100% of it, then ` + strings.TrimSpace(strings.Repeat("keep going. ", 500))
+	framed := baton.Frame(b, baton.FrameOptions{Task: task}).Prompt
+	// With a briefing in front as well, as an agent without hooks has.
+	prompt := contextOpen + "# Where you are running\n\n## This pane\n\n" + strings.Repeat("words ", 300) + contextClose + "\n" + framed
+
+	exe := `C:\tools\agent.cmd`
+	length := func(a []string) int { return len(batchCommandLine(exe, a)) }
+	if length([]string{prompt}) <= maxBatchLine {
+		t.Fatalf("the prompt is only %d characters, so nothing has to give way", length([]string{prompt}))
+	}
+	got := fit([]string{prompt}, maxBatchLine, length)
+	if n := length(got); n > maxBatchLine {
+		t.Fatalf("the command line is %d characters, over %d", n, maxBatchLine)
+	}
+	if !strings.HasSuffix(got[0], task+"\n") && !strings.HasSuffix(got[0], task) {
+		t.Errorf("the task was cut; the prompt ends %q", tail(got[0], 100))
+	}
+	for _, want := range []string{"## Goal", "Finish the retry work.", "</baton>", "Left out to fit this agent's command line", "flockdeck baton show"} {
+		if !strings.Contains(got[0], want) {
+			t.Errorf("the prompt lacks %q", want)
+		}
+	}
+	if strings.Contains(got[0], "<flockdeck-context>") && strings.Contains(got[0], strings.Repeat("words ", 300)) {
+		t.Error("the briefing was kept whole while the baton gave way")
 	}
 }

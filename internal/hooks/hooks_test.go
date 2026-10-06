@@ -602,7 +602,7 @@ func TestSpawnSaysWhatAFailureMeans(t *testing.T) {
 		{"dropped", &url.Error{Op: "Post", URL: api, Err: &net.OpError{Op: "read", Net: "tcp", Err: errors.New("wsarecv: an existing connection was forcibly closed")}}, "not answering"},
 		{"slow", &url.Error{Op: "Post", URL: api, Err: context.DeadlineExceeded}, "may still be starting"},
 	} {
-		if got := spawnFailure(c.err, api); !strings.Contains(got.Error(), c.want) {
+		if got := spawnFailure(c.err, api, spawnTimeout); !strings.Contains(got.Error(), c.want) {
 			t.Errorf("a spawn that was %s said %q; want it to say %q", c.what, got, c.want)
 		}
 	}
@@ -1003,6 +1003,28 @@ func TestEmitCapsTheEditsOfAMultiEditTogether(t *testing.T) {
 	}
 	if len(got.ToolInput) > 4*maxToolInputFieldBytes {
 		t.Errorf("ToolInput is %d bytes, want it bounded", len(got.ToolInput))
+	}
+}
+
+// A spawn that asks for a baton to go to another company is waited for as long as
+// the user may take to decide, on top of the usual time: approving at the last
+// moment must not time the command out and invite a second helper.
+func TestASpawnAwaitingApprovalIsWaitedForLongerThanOtherSpawns(t *testing.T) {
+	srv, _ := newServer(t)
+	srv.SetSpawnHandler(func(req SpawnRequest) (SpawnResult, error) {
+		time.Sleep(250 * time.Millisecond)
+		return SpawnResult{PaneID: "slow"}, nil
+	})
+	oldTimeout, oldWait := spawnTimeout, BatonApprovalWait
+	spawnTimeout, BatonApprovalWait = 100*time.Millisecond, 400*time.Millisecond
+	t.Cleanup(func() { spawnTimeout, BatonApprovalWait = oldTimeout, oldWait })
+
+	if _, err := Spawn(srv.BaseURL(), srv.Token(), "pane-1", SpawnRequest{Task: "x"}); err == nil {
+		t.Error("an ordinary spawn was waited for longer than the usual time")
+	}
+	res, err := Spawn(srv.BaseURL(), srv.Token(), "pane-1", SpawnRequest{Task: "x", Baton: "self", BatonElsewhere: true})
+	if err != nil || res.PaneID != "slow" {
+		t.Errorf("a spawn awaiting approval timed out: %v %+v", err, res)
 	}
 }
 

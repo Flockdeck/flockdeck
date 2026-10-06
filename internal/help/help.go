@@ -39,6 +39,8 @@ var order = []string{
 	"changes",
 	"github",
 	"history",
+	"baton",
+	"baton-details",
 	"recording",
 	"projects",
 	"persistence",

@@ -208,6 +208,23 @@ func runTo(parent context.Context, timeout time.Duration, dir string, in io.Read
 	return runToEnv(parent, timeout, dir, nil, in, out, args...)
 }
 
+// gitEnv is the environment every git command is started with: this process's,
+// without GIT_INDEX_FILE, then extra. A GIT_INDEX_FILE that Flockdeck was itself
+// started under would point every status, diff and refresh at an index that is not
+// the checkout's, and the lock this code looks for at the wrong file; the scratch
+// index of a snapshot is given by extra, deliberately.
+func gitEnv(extra []string) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if len(kv) >= 15 && strings.EqualFold(kv[:15], "GIT_INDEX_FILE=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env, "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
+	return append(env, extra...)
+}
+
 // runToEnv is runTo with env added to what git is given, for the commands
 // that go out to the network (see batchSSH).
 func runToEnv(parent context.Context, timeout time.Duration, dir string, env []string, in io.Reader, out output, args ...string) (string, error) {
@@ -224,6 +241,14 @@ func runToEnv(parent context.Context, timeout time.Duration, dir string, env []s
 
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
+	if gitHook != nil {
+		if err := gitHook(ctx, args); err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return "", &timeoutError{msg: fmt.Sprintf("%s: gave up after %s", gitLabel(args), timeout)}
+			}
+			return "", &commandError{msg: gitLabel(args) + ": " + err.Error(), err: err, full: err.Error()}
+		}
+	}
 
 	cmd := exec.CommandContext(ctx, "git", append(append([]string{}, ownConfig...), args...)...)
 	cmd.Dir = dir
@@ -235,11 +260,7 @@ func runToEnv(parent context.Context, timeout time.Duration, dir string, env []s
 	// for a password has to fail instead of sitting until the timeout. Giving
 	// up the optional index lock also keeps the status polling of several
 	// panes from colliding with an agent's own commit.
-	cmd.Env = append(os.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_OPTIONAL_LOCKS=0",
-	)
-	cmd.Env = append(cmd.Env, env...)
+	cmd.Env = gitEnv(env)
 	var errb bytes.Buffer
 	cmd.Stdin = in
 	cmd.Stdout = out
@@ -280,7 +301,9 @@ func runToEnv(parent context.Context, timeout time.Duration, dir string, env []s
 			return "", &timeoutError{msg: fmt.Sprintf("%s: gave up after %s", gitLabel(args), timeout), gone: gone}
 		}
 		if parent.Err() != nil {
-			return "", parent.Err()
+			// Which command was running when the caller's own time ran out is said, for
+			// the caller that logs it; errors.Is still finds the context's error.
+			return "", fmt.Errorf("%s: %w", gitLabel(args), parent.Err())
 		}
 		// Some git subcommands explain themselves on stdout rather than
 		// stderr -- "nothing to commit" is the one people hit -- so fall back
@@ -292,10 +315,24 @@ func runToEnv(parent context.Context, timeout time.Duration, dir string, env []s
 		if msg == "" {
 			msg = err.Error()
 		}
-		return "", fmt.Errorf("%s: %s", gitLabel(args), firstLines(withoutHints(msg), 5))
+		return "", &commandError{msg: fmt.Sprintf("%s: %s", gitLabel(args), firstLines(withoutHints(msg), 5)), err: err, full: msg}
 	}
 	return errb.String(), nil
 }
+
+// commandError is a git command that ran and failed, with the message the
+// callers have always been given. Unwrap finds the *exec.ExitError under it,
+// for the caller whose answer is in the exit code: merge-tree exits 1 for
+// "conflicts", which is a result and not a failure.
+type commandError struct {
+	msg string
+	err error
+	// full is everything git said, where msg has only its first lines.
+	full string
+}
+
+func (e *commandError) Error() string { return e.msg }
+func (e *commandError) Unwrap() error { return e.err }
 
 // gitLabel names a command for an error message by its subcommand -- "git
 // worktree add", "git push" -- rather than by its whole argument list. The
@@ -419,3 +456,9 @@ func Exited(err error) <-chan struct{} {
 	}
 	return alreadyGone
 }
+
+// gitHook, when set, is called before each git command is started, with the
+// command's own context and arguments. An error it returns is the command's
+// failure, and git is not run. It is for tests that need a command to fail the way
+// a real one rarely does, or to hang until its deadline; nothing sets it otherwise.
+var gitHook func(ctx context.Context, args []string) error

@@ -106,6 +106,9 @@
     changed:     "Tracked files with edits that have not been committed yet.",
     untracked:   "New files git is not tracking yet - they are in no commit, and a push leaves them behind.",
     clean:       "Nothing to commit - this working tree matches its last commit.",
+    // The conflict chip beside the git marks. It says what was predicted and how,
+    // and that a prediction is all it is.
+    conflict:    "Git predicts a merge conflict between this pane's work and the pane named, counting changes that are not committed yet. It is a prediction from the last time both checkouts were read: copies of their files are made in a scratch folder and git merges the copies in memory, so the radar changes no file, index or branch of either checkout (the separate index refresh, which runs whether or not the radar is on, rewrites the index as git does and never removes a lock or stops a git); git may only set the modification time of objects it finds already stored, and of a split index's shared file in a linked worktree. It covers lines git cannot merge, not whether the merged code builds or passes its tests. The chip goes when a later check finds the pair no longer conflicting. A clean filter such as Git LFS, which git runs on the copies, may write its own files into the repository, and a merge driver a .gitattributes names is run by the merge; neither has been checked. A pane whose history does not reach the base, or whose base cannot be found, is not checked.",
     gitLate:     "Git did not finish reading this checkout in time, so its changed files and ahead and behind counts are not shown: the last ones read may be out of date. It is asked again on the next refresh. A very large checkout, or one on a slow or network drive, can do this - running git status in a terminal there shows how long it takes.",
     folderGone:  "This worktree's folder was deleted outside git, so there is nothing in it to open or review - only git's record of it is left. Prune clears that record.",
     branch:      "The branch this checkout has in its working tree.",
@@ -302,6 +305,12 @@
    *  setting API keys or an API agent's address. The server refuses each of
    *  them from here anyway. */
   let remoteWindow = false;
+  /** Why the conflict radar cannot be turned on here -- git missing, or older
+   *  than merge-tree needs -- as the hello says; empty when it can. */
+  let radarUnavailable = "";
+  /** True from a hello sent before the version of git had been read, until the
+   *  radarSupport message that says what it was. */
+  let radarChecking = false;
   /** What the machine last said about the TypeSafe key: {set, env}, never the
    *  key. Null until asked; a window reached through the relay never asks. */
   let jevKeyInfo = null;
@@ -401,6 +410,12 @@
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === "state") applyState(msg);
       else if (msg.type === "hello") applyHello(msg);
+      else if (msg.type === "radarSupport") {
+        // What the version of git came to, for a window whose hello came before.
+        radarChecking = false;
+        radarUnavailable = msg.unavailable || "";
+        settingsChanged();
+      }
       else if (msg.type === "prefs") { prefs = msg.prefs ? keepPending(msg.prefs) : prefs; applyPrefs(); applyTheme(); renderHints(); settingsChanged(); }
       // A remap saved here, or by another window, redraws the palette, the
       // tooltips and Settings › Keyboard in one go: they all read keyTable
@@ -493,6 +508,9 @@
         if (remoteShown()) keepFocus(renderRemote);
       }
       else if (msg.type === "fanoutPreview") renderFanout(msg);
+      else if (msg.type === "batonDraft") renderBaton(msg);
+      else if (msg.type === "batonSaved") batonSaved(msg);
+      else if (msg.type === "batonError") batonFailed(msg);
       else if (msg.type === "routes") fanoutRoutes(msg);
       else if (msg.type === "diff") showDiff(msg);
       else if (msg.type === "detached") {
@@ -501,7 +519,9 @@
         window.close();
       }
       else if (msg.type === "notice") {
-        commitAnswered(msg.error);
+        // A request for an answer, and what is said of it, is not the answer to a
+        // commit that is waiting: it must not drop the message typed for one.
+        if (msg.kind !== "approval" && !msg.id) commitAnswered(msg.error);
         // A manual update check answers with a notice alone when nothing new
         // is found; when it did, the state carrying it settles this too, but
         // resetting it here as well costs nothing and covers both.
@@ -513,13 +533,19 @@
         // button sending that command back, as the window would itself.
         const act = msg.action && msg.action.label && msg.action.send && msg.action.send.cmd
           ? { label: msg.action.label, run: () => send(msg.action.send) } : null;
-        notice(msg.text, msg.error, { lead: msg.lead, action: act });
+        notice(msg.text, msg.error, { lead: msg.lead, action: act, life: msg.lifeMs, pin: msg.pin, id: msg.id });
         // Pane info asked and the pane was gone: say so where it was loading.
         if (dialog === "paneInfo" && paneInfoLoading) {
           paneInfoLoading = false;
           const body = $("overlay-body");
           body.textContent = "";
           body.append(el("div", "dir-empty", msg.text));
+        }
+      }
+      else if (msg.type === "noticeWithdraw") {
+        // The request a notice asked an answer to has ended: it is taken away.
+        for (const t of Array.from($("notice").children)) {
+          if (t.dataset && t.dataset.noticeId === msg.id) dropToast(t);
         }
       }
       else if (msg.type === "ghStatus") {
@@ -591,6 +617,8 @@
     ws.onclose = () => {
       if (control !== ws) return; // an attempt that was given up on
       if (detaching) return; // the window is on its way out
+      batonConnectionLost();
+      dropApprovalToasts();
       // Where the keyboard was, for the first failure only: the attempts
       // after it find the panel already up with the keyboard on its button.
       if ($("disconnected").hidden) beforeDisconnect = document.activeElement;
@@ -1451,7 +1479,13 @@
     }
     const rebuilt = rebuildChangedTabs(s);
     applyWeights(s);
+    const tabBefore = shownTab;
     showActiveTab(s, rebuilt);
+    // The list of a pane's conflicts belongs to the tab the pane is on: another
+    // tab, or another project's, comes with none, and a pane taken off the screen
+    // takes it with it.
+    if (conflictPopAnchor && (shownTab !== tabBefore || !conflictPopAnchor.isConnected ||
+        (conflictPopAnchor.closest && conflictPopAnchor.closest(".tab-page-off")))) closeConflictPop("terminal");
     renderTabs(s);
     renderRail(s);
     renderRailToggle(s);
@@ -3172,6 +3206,21 @@
     // See renderPaneBackground.
     const background = el("span", "pane-bg");
     const git = el("span", "pane-git");
+    // Names a pane in the same repository whose work git would not merge with
+    // this pane's, when the conflict radar is on and has seen it twice. See
+    // renderPaneConflicts.
+    const conflict = el("span", "pane-conflict");
+    // Pressed, or Enter or Space on it, it opens the list of what is predicted:
+    // the pair, the files, and what the prediction is. See openConflictPop.
+    const openConflicts = (ev) => {
+      ev.stopPropagation();
+      const v = state && state.panes && state.panes[id];
+      if (v && v.conflicts && v.conflicts.length) toggleConflictPop(conflict, v);
+    };
+    conflict.onclick = openConflicts;
+    conflict.onkeydown = (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openConflicts(ev); }
+    };
     // The counts say something changed, and nothing went from them to what
     // did: the review was a trip to the top bar, and for the focused pane
     // only. The checkout is read at the click, so a pane that moved is
@@ -3245,7 +3294,7 @@
       closeBtn,
     );
     makeToolbar(actions, "What to do with this pane");
-    header.append(dot, project, name, branch, agent, peerName, remote, git, detail, background, spend, limit, usage, cast, recMark, lockMark, actions);
+    header.append(dot, project, name, branch, agent, peerName, remote, git, conflict, detail, background, spend, limit, usage, cast, recMark, lockMark, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -3262,7 +3311,7 @@
     // buttons, which have their own business.
     header.addEventListener("dblclick", (ev) => {
       // Nor on the change counts, whose click opens the review over the pane.
-      if (ev.target.closest && (ev.target.closest("button") || ev.target.closest(".pane-git"))) return;
+      if (ev.target.closest && (ev.target.closest("button") || ev.target.closest(".pane-git") || ev.target.closest(".pane-conflict"))) return;
       send({ cmd: "toggleZoom", id });
     });
 
@@ -3352,7 +3401,7 @@
     // The WebGL renderer is loaded when the pane comes on screen, not here:
     // see drawWithWebgl.
 
-    p = { id, wrap, header, dot, name, project, branch, agent, peerName, remote, git, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
+    p = { id, wrap, header, dot, name, project, branch, agent, peerName, remote, git, conflict, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, recBtn, exportBtn, recMark, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
@@ -4322,6 +4371,11 @@
       const git = [v.dirty, v.untracked, v.ahead, v.behind, v.gitTimedOut ? "late" : ""].join(" ");
       if (was.git !== git) { was.git = git; renderPaneGit(p, v); }
 
+      // Keyed on everything the chip and its tip say, so a conflict that moves
+      // to other files, or to another pane, redraws it.
+      const conflicts = (v.conflicts || []).map((c) => [c.id, c.name, c.branch || "", (c.paths || []).join("\u0001"), c.more || 0].join("\u0000")).join("\u0002") + "\u0003" + (v.conflictsMore || 0);
+      if (was.conflicts !== conflicts) { was.conflicts = conflicts; renderPaneConflicts(p, v); }
+
       // Keyed on what is actually displayed — the processor figure is drawn
       // rounded — so a pane whose usage is merely jittering does not redraw
       // its header on every sample.
@@ -4979,6 +5033,9 @@
       clearTimeout(p.retryTimer);
       clearTimeout(p.fitTimer);
       clearTimeout(p.flingTimer);
+      // The list of its conflicts is on the page, not in its pane, and would be
+      // left pointing at a pane that is gone.
+      if (conflictPopAnchor && conflictPopAnchor === p.conflict) closeConflictPop("terminal");
       panes.delete(id); // stop the close handler from reconnecting
       // The find bar searches the pane it was opened for, and with that pane
       // gone it stayed open, still naming it, while Enter and F3 did nothing.
@@ -5319,6 +5376,18 @@
       again: () => { const at = helpSlug; return () => openHelp(at); } },
     fanout: { present: "dialog-m", act: "fanout",
       again: () => { const at = fanoutAsked; return () => openFanout(at); } },
+    baton: { present: "dialog-l", act: "makeBaton",
+      again: () => {
+        // Drawn again from what is held, not asked for afresh: asking again
+        // replaced the text with a new draft and lost every edit.
+        const at = batonAsked;
+        return () => {
+          if (!batonDraft) { openBaton(at); return; }
+          dialog = "baton";
+          openOverlay("Make baton", "baton");
+          renderBaton();
+        };
+      } },
     todoPlan: { present: "dialog-m", act: "newTodo",
       again: () => { const at = todoAsked; return () => openNewTodo(at); } },
     update: { present: "dialog-m", again: () => openUpdate },
@@ -7089,6 +7158,241 @@
     describe(p.git, text + " Click to review them.");
   }
 
+  /** renderPaneConflicts shows the conflict radar's chip: a warning glyph and
+   *  the name of the other pane whose work would conflict with this pane's, and
+   *  for more than one, how many more. The tip lists each pair and its files.
+   *  It is drawn in the plain text colour and never the pane's status colour,
+   *  which keeps meaning what the agent is doing. Nothing is drawn when there is
+   *  nothing predicted, as the radar being off or finding nothing look alike. */
+  function renderPaneConflicts(p, v) {
+    p.conflict.textContent = "";
+    const list = v.conflicts || [];
+    if (!list.length) {
+      if (conflictPopAnchor === p.conflict) closeConflictPop("terminal");
+      p.conflict.removeAttribute("aria-haspopup");
+      p.conflict.removeAttribute("aria-expanded");
+      p.conflict.removeAttribute("aria-controls");
+      p.conflict.removeAttribute("role");
+      p.conflict.removeAttribute("aria-label");
+      p.conflict.removeAttribute("tabindex");
+      delete p.conflict.dataset.tip;
+      return;
+    }
+    const nameOf = (c) => c.name || c.branch || "another pane";
+    // The server lists the first few; conflictsMore is how many it left out.
+    const total = list.length + (v.conflictsMore || 0);
+    const label = nameOf(list[0]) + (total > 1 ? " +" + (total - 1) : "");
+    p.conflict.append(glyph("⚠"), document.createTextNode(" " + label));
+    const lines = list.map((c) => {
+      const paths = c.paths || [];
+      const files = paths.join(", ") + (c.more ? " and " + c.more + " more" : "");
+      return nameOf(c) + (c.branch ? " (" + c.branch + ")" : "") + ": git reports a conflict in " + files + ".";
+    });
+    if (v.conflictsMore) lines.push(v.conflictsMore + " more " + (v.conflictsMore === 1 ? "pane is" : "panes are") + " not listed.");
+    const text = "Conflicts predicted with " + (total === 1 ? "another pane" : total + " other panes") + ". " +
+      lines.join(" ") + " " + TIPS.conflict;
+    p.conflict.setAttribute("role", "button");
+    p.conflict.setAttribute("aria-haspopup", "dialog");
+    p.conflict.setAttribute("aria-expanded", String(conflictPopAnchor === p.conflict));
+    p.conflict.setAttribute("aria-controls", "conflict-pop");
+    // The label is the short form: how many panes and the first one's name. The
+    // files, and what the prediction is, are in the list that Enter opens, and in
+    // the bubble.
+    p.conflict.setAttribute("aria-label", "Predicted conflicts with " + (total === 1 ? "1 pane" : total + " panes") + ": " +
+      shortName(nameOf(list[0])) + (total > 1 ? " and " + (total - 1) + " more" : "") + ". Press Enter to list the files.");
+    // Reachable from the keyboard, so its aria-label is read to someone who
+    // cannot hover it.
+    p.conflict.setAttribute("tabindex", "0");
+    describe(p.conflict, text);
+    // Open already, it follows what the push now says.
+    if (conflictPopAnchor === p.conflict) {
+      fillConflictPop(conflictPop, v);
+      // The chip's label may have changed width, and the list its height, with what
+      // was refreshed. That is the list following the push, and not the layout moving
+      // under it: it is placed again from where the chip is now, and the sizes it
+      // is compared with are taken again.
+      placeConflictPop(conflictPop, p.conflict);
+      try { conflictPopBase = conflictPopMeasure(p.conflict); } catch (e) { /* kept */ }
+    }
+  }
+
+  /* ---- The list behind the conflict chip -------------------------------------
+   *
+   * Pressing the chip lists, for each pane it names, its branch and the files git
+   * stops on, and says what the prediction is and is not. It is a dialog of its
+   * own beside the chip, not the hover bubble, so the files can be read and
+   * copied, and the keyboard goes into it. Escape, or a press anywhere else, puts
+   * it away, and Escape gives the keyboard back to the chip. */
+  let conflictPop = null;
+  let conflictPopAnchor = null;
+  /** Watches the chip and its pane while the list is open: either changing size
+   *  has moved the chip, which the list was placed against once. */
+  let conflictPopWatch = null;
+  /** Where the chip, and the pane it is in, were when the list was placed or last
+   *  refreshed: the rect of the chip, and the size of each of the two. */
+  let conflictPopBase = null;
+
+  /** conflictPopMeasure reads the chip and its pane. */
+  function conflictPopMeasure(anchor) {
+    const wrap = anchor.closest && anchor.closest(".pane");
+    const rect = (n) => { const r = n.getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; };
+    return { anchor, wrap, a: rect(anchor), w: wrap ? rect(wrap) : null };
+  }
+
+  /** conflictPopMoved says whether the chip is not where the list was placed
+   *  against it: it moved more than 2 px, or it or its pane changed size. */
+  function conflictPopMoved(sizesToo) {
+    if (!conflictPopBase || !conflictPopAnchor) return false;
+    try {
+      const now = conflictPopMeasure(conflictPopAnchor);
+      const b = conflictPopBase;
+      if (Math.abs(now.a.l - b.a.l) > 2 || Math.abs(now.a.t - b.a.t) > 2) return true;
+      if (!sizesToo) return false;
+      const differs = (x, y) => !!x && !!y && (Math.abs(x.w - y.w) > 0.5 || Math.abs(x.h - y.h) > 0.5);
+      return differs(now.a, b.a) || differs(now.w, b.w);
+    } catch (e) { return false; }
+  }
+
+  /** closeConflictPop puts the list away. refocus true gives the keyboard back
+   *  to the chip, which is right when the person put the list away or the window
+   *  changed size. "terminal" is for when the chip itself is gone -- its conflict
+   *  cleared, its pane closed or hidden, its tab left: if the keyboard was in the
+   *  list it goes to the focused pane's terminal, which is where it would have
+   *  gone had the list never been open. "ifInside" gives the keyboard back to the
+   *  chip only if it was in the list, so that putting the list away because the
+   *  layout moved never takes the keyboard from a terminal. Otherwise the keyboard
+   *  is left where it is. */
+  function closeConflictPop(refocus) {
+    if (!conflictPop) return false;
+    const node = conflictPop;
+    const anchor = conflictPopAnchor;
+    const inside = node.contains(document.activeElement);
+    conflictPop = null;
+    conflictPopAnchor = null;
+    conflictPopBase = null;
+    if (conflictPopWatch) { conflictPopWatch.disconnect(); conflictPopWatch = null; }
+    node.remove();
+    if (anchor) anchor.setAttribute("aria-expanded", "false");
+    if (refocus === "terminal") {
+      if (inside) focusTerminal();
+    } else if (refocus === "ifInside") {
+      if (inside && anchor && anchor.isConnected) anchor.focus();
+    } else if (refocus && anchor && anchor.isConnected) {
+      anchor.focus();
+    }
+    return true;
+  }
+
+  /** shortName cuts a name to what a label can carry. */
+  function shortName(name) {
+    return name.length > 60 ? name.slice(0, 57) + "..." : name;
+  }
+
+  /** fillConflictPop writes what the pane's conflicts say into the list. */
+  function fillConflictPop(node, v) {
+    node.textContent = "";
+    const list = v.conflicts || [];
+    const total = list.length + (v.conflictsMore || 0);
+    node.append(el("div", "cp-head", "Predicted conflicts with " + (total === 1 ? "another pane" : total + " other panes")));
+    for (const c of list) {
+      const item = el("div", "cp-item");
+      item.append(el("div", "cp-name", (c.name || c.branch || "another pane") + (c.branch && c.name ? " (" + c.branch + ")" : "")));
+      const files = el("ul", "cp-files");
+      for (const path of c.paths || []) files.append(el("li", null, path));
+      if (c.more) files.append(el("li", "cp-more", "and " + c.more + " more"));
+      item.append(files);
+      node.append(item);
+    }
+    if (v.conflictsMore) node.append(el("div", "cp-note", v.conflictsMore + " more " + (v.conflictsMore === 1 ? "pane is" : "panes are") + " not listed."));
+    node.append(el("div", "cp-note", "git reports a conflict in these files when this pane's work and that pane's, committed or not, are merged. " + TIPS.conflict));
+  }
+
+  /** placeConflictPop puts the list under the chip, or over it when there is no
+   *  room, from where the chip is now. */
+  function placeConflictPop(node, anchor) {
+    try {
+      const a = anchor.getBoundingClientRect();
+      const w = node.offsetWidth || 320;
+      const h = node.offsetHeight || 0;
+      let top = a.bottom + 4;
+      if (h && top + h > window.innerHeight - 8) top = Math.max(8, a.top - h - 4);
+      node.style.top = Math.round(top) + "px";
+      node.style.left = Math.round(Math.max(8, Math.min(a.left, window.innerWidth - w - 8))) + "px";
+    } catch (e) { /* placed by its stylesheet */ }
+  }
+
+  /** openConflictPop draws the list under the chip, or over it when there is no
+   *  room, and puts the keyboard in it. */
+  function openConflictPop(anchor, v) {
+    closeConflictPop(false);
+    const node = el("div", "conflict-pop");
+    node.id = "conflict-pop";
+    node.setAttribute("role", "dialog");
+    node.setAttribute("aria-label", "Predicted conflicts");
+    node.tabIndex = -1;
+    fillConflictPop(node, v);
+    document.body.append(node);
+    conflictPop = node;
+    conflictPopAnchor = anchor;
+    anchor.setAttribute("aria-expanded", "true");
+    placeConflictPop(node, anchor);
+    // The chip and its pane changing size -- the rail toggled, a split dragged, a
+    // zoom, the window -- move the chip away from where the list was put. The
+    // observer reports once when it starts watching, and a browser may batch what
+    // it reports, so what it says is not read: the sizes are compared with the ones
+    // taken when the list was placed or last refreshed, which makes the first
+    // report no change, and a chip that had no size yet a change when it has one.
+    try { conflictPopBase = conflictPopMeasure(anchor); } catch (e) { conflictPopBase = null; }
+    if (window.ResizeObserver) {
+      conflictPopWatch = new ResizeObserver(() => {
+        if (conflictPopMoved(true)) closeConflictPop("ifInside");
+      });
+      conflictPopWatch.observe(anchor);
+      const wrap = anchor.closest && anchor.closest(".pane");
+      if (wrap) conflictPopWatch.observe(wrap);
+    }
+    node.focus();
+    return node;
+  }
+
+  function toggleConflictPop(anchor, v) {
+    if (conflictPopAnchor === anchor) closeConflictPop(true);
+    else openConflictPop(anchor, v);
+  }
+
+  // Escape puts it away from wherever the keyboard is, and gives it back to the
+  // chip. In the capture phase, so that a terminal or a dialog under it is not
+  // handed the key as well.
+  document.addEventListener("keydown", (ev) => {
+    if (!conflictPop || ev.key !== "Escape") return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    closeConflictPop(true);
+  }, true);
+
+  // The list is placed once, against the chip as it was; a window that changed size
+  // has moved the chip, so it is put away and the keyboard goes back to the chip.
+  window.addEventListener("resize", () => { if (conflictPop) closeConflictPop("ifInside"); });
+  // So does a scroll that carries the chip: one in an element that holds the chip, or
+  // in the page, when the chip is no longer where the list was put. A terminal
+  // streaming output, or any other scrolling that does not hold the chip, leaves it,
+  // as does the list's own.
+  document.addEventListener("scroll", (ev) => {
+    if (!conflictPop || !conflictPopAnchor) return;
+    const t = ev.target;
+    if (t && conflictPop.contains && conflictPop.contains(t)) return;
+    const carriesChip = !t || t.nodeType === 9 || (t.contains && t.contains(conflictPopAnchor));
+    if (carriesChip && conflictPopMoved(false)) closeConflictPop("ifInside");
+  }, true);
+
+  // A press anywhere but on the list and the chip that opened it puts it away.
+  document.addEventListener("pointerdown", (ev) => {
+    if (!conflictPop) return;
+    const t = ev.target;
+    if (t && t.closest && (t.closest("#conflict-pop") || (conflictPopAnchor && conflictPopAnchor.contains(t)))) return;
+    closeConflictPop(false);
+  }, true);
+
   /** mark is one git marker: a glyph the row's description explains, and a
    *  count that reads as text on its own. */
   function mark(cls, sym, n) {
@@ -7836,6 +8140,11 @@
     focusNextPane: () => focusNeighbour(1),
     focusPrevPane: () => focusNeighbour(-1),
     restartPane: () => send({ cmd: "restartPane", id: focusedPaneId() }),
+    makeBaton: () => {
+      const id = focusedPaneId();
+      const v = id && state && state.panes && state.panes[id];
+      if (v && v.kind !== "shell") openBaton(id);
+    },
     closePane: () => send({ cmd: "closePane", id: focusedPaneId() }),
     recordPane: () => {
       const id = focusedPaneId();
@@ -7923,6 +8232,8 @@
   function applyHello(msg) {
     applyKeyTable(msg.keys || []);
     remoteWindow = !!msg.remote;
+    radarUnavailable = msg.radarUnavailable || "";
+    radarChecking = !!msg.radarChecking;
     hostE2EPublicKey = msg.e2ePublicKey || null;
     // A window reached through the relay registers its own end-to-end key
     // with it (FlockdeckE2E.ensureRegistered, POST /.flockdeck-e2e-key)
@@ -11433,8 +11744,35 @@
     pane.append(el("div", "set-sub", "New panes"));
     settingsNewPanes(pane);
 
+    pane.append(el("div", "set-sub", "Conflict radar"));
+    settingsRadar(pane);
+
     pane.append(el("div", "set-sub", "Hints"));
     settingsHints(pane);
+  }
+
+  /** settingsRadar is General's Conflict radar: the one switch, off until
+   *  turned on, and what turning it on costs and shows. Where git is missing or
+   *  too old the switch is dead and the reason is written beside it. */
+  function settingsRadar(pane) {
+    const sw = switchControl("set-radar", !!prefs.conflictRadar && !radarUnavailable && !radarChecking, (on) => setConflictRadar(on));
+    // Neither on nor off to press until the version of git is known.
+    if (radarUnavailable || radarChecking) {
+      sw.disabled = true;
+      sw.setAttribute("aria-disabled", "true");
+    }
+    const why = radarUnavailable ? el("div", "set-desc", "Not available on this machine: " + radarUnavailable + ".")
+      : radarChecking ? el("div", "set-desc", "Checking the version of git.") : null;
+    if (why) why.id = "set-radar-why";
+    pane.append(settingRow("Show when two panes' work would conflict",
+      "Off by default. On, about every 15 seconds Flockdeck copies the changed files of the panes on screen that share a " +
+      "repository into a scratch folder in the system's temporary folder, and git merges the copies in memory to predict " +
+      "whether two panes' work would conflict (a pane with over 100 MB of changed files, or one file over 25 MB, is skipped). " +
+      "A pane in a predicted conflict shows a chip with the other pane's name; pressing it lists that pane's branch and up to " +
+      "20 file paths, and these names, branches and paths, never file contents, go to every open window, including a paired " +
+      "phone or relay window. It is a prediction and no chip is not a promise, it needs git 2.38 or newer, and Help, under " +
+      "Worktrees, says what it costs, what it skips and what git may still touch in the repository.",
+      sw, why));
   }
 
   /** settingsVersion is Account & plan's Version: whether it looks for new
@@ -11834,6 +12172,15 @@
     send({ cmd: "jevStatus", kind: on ? "on" : "off" });
     notice(on ? "Recent terminal output may now be sent to TypeSafe to help read pane status"
       : "Terminal output is no longer sent to TypeSafe", false);
+    settingsChanged();
+  }
+
+  function setConflictRadar(on) {
+    prefs.conflictRadar = on;
+    sentPref("conflictRadar");
+    send({ cmd: "conflictRadar", kind: on ? "on" : "off" });
+    notice(on ? "Panes whose work would conflict are now marked in their headers"
+      : "Conflict marks are turned off", false);
     settingsChanged();
   }
 
@@ -12325,6 +12672,386 @@
    *  The tasks are only ever a suggestion: they are extracted from the pane's
    *  output, shown in an editable box, and nothing starts until the user says
    *  so. */
+  /* The baton dialog, top to bottom: anything the draft could not be built from;
+   * the baton itself, as text to edit; what the scrubber removed, and that it is
+   * a filter and not a guarantee; where the work goes (a new agent, with its own
+   * choices, or this pane started over); and the footer that does it.
+   *
+   * The text is what is sent back, whole: the server reads the baton out of it,
+   * scrubs it once more, and keeps what it made of it. Nothing here edits it. */
+  let batonAsked = "";
+  let batonDraft = null;
+  /** Set while a command is out, and lets the dialog back to being used when
+   *  the command's own answer is a refusal, or none comes. */
+  let batonBusyOff = null;
+  /** The timer that gives the dialog back if no answer comes. */
+  let batonTimer = 0;
+  /** The commands that have been sent and not answered, by request id. Each
+   *  command carries an id of its own, which the server's answer repeats, so an
+   *  answer is matched to the one command it is for and not to a pane. A command
+   *  stays here after the dialog was given back by the timer or closed, until
+   *  the server says it is done or failed (or the connection drops, which ends
+   *  the wait): a slow worktree can still be starting an agent, and sending the
+   *  same command again would start another. */
+  const batonInflight = new Map();
+  let batonReqCount = 0;
+  const batonReq = () => "b" + (++batonReqCount);
+  /** The id of the makeBaton the dialog on screen is waiting on. */
+  let batonDraftReq = "";
+  /** What has been done to the dialog: the text, the task, and the choices.
+   *  Kept outside the dialog so that going to Help and back, which draws it
+   *  again, brings it back as it was left rather than as a fresh draft. */
+  let batonEdit = null;
+  /** How long to wait for the server's answer before giving the dialog back.
+   *  A page can set window.batonWaitMs; a test does. */
+  const batonWait = () => window.batonWaitMs || 60000;
+  /** A removed value in the text, as the scrubber marks it. */
+  const BATON_MARK = /\[REDACTED: [a-z0-9-]+\]/g;
+
+  function openBaton(paneID) {
+    dialog = "baton";
+    batonDraft = null;
+    batonEdit = null;
+    batonBusyOff = null;
+    clearTimeout(batonTimer);
+    openOverlay("Make baton", "baton");
+    $("overlay-body").textContent = "";
+    $("overlay-body").append(el("div", "dir-empty", "Reading this pane's work…"));
+    batonAsked = paneID || focusedPaneId();
+    batonDraftReq = batonReq();
+    batonInflight.set(batonDraftReq, { cmd: "makeBaton", paneId: batonAsked });
+    send({ cmd: "makeBaton", id: batonAsked, req: batonDraftReq });
+    // Like a command from the footer, the draft is waited for only so long. The
+    // request stays recorded, so a draft that comes late is still drawn.
+    const asked = batonDraftReq;
+    batonTimer = setTimeout(() => {
+      if (dialog === "baton" && !batonDraft && batonDraftReq === asked) {
+        batonReadingFailed("Flockdeck did not send the draft. Close this and try again.");
+      }
+    }, batonWait());
+  }
+
+  /** batonReadingFailed puts words where "Reading this pane's work…" was. */
+  function batonReadingFailed(text) {
+    if (dialog !== "baton" || batonDraft) return;
+    $("overlay-body").textContent = "";
+    $("overlay-body").append(el("div", "dir-empty", text));
+  }
+
+  function renderBaton(msg) {
+    if (msg) {
+      // Only the answer to what the open dialog asked, and only the first:
+      // another would replace the text under whatever was being edited.
+      if (dialog !== "baton" || batonDraft || (batonAsked && msg.paneId !== batonAsked)) return;
+      if (msg.req && msg.req !== batonDraftReq) return;
+      batonInflight.delete(batonDraftReq);
+      clearTimeout(batonTimer);
+      batonDraft = msg;
+    }
+    if (dialog !== "baton") return;
+    // A command finished while Help was open over the dialog: there is nothing
+    // left to show, so it is closed now that it is back.
+    if (batonEdit && batonEdit.done) {
+      batonEdit = null;
+      batonDraft = null;
+      dismissOverlay();
+      return;
+    }
+    const m = batonDraft || {};
+    const ed = batonEdit = batonEdit || {};
+    const body = $("overlay-body");
+    body.textContent = "";
+
+    const catalog = m.agents || [];
+    const picks = catalog.reduce((n, a) => n + Math.max(1, (a.models || []).length), 0);
+    const choosable = catalog.length > 0 && picks > 1;
+    const providerOf = (id) => (catalog.find((a) => a.id === id) || {}).provider || "";
+    const sourceName = (catalog.find((a) => a.id === m.agent) || {}).name || m.agent;
+    const from = [m.name, sourceName].filter(Boolean).join(" · ");
+    $("overlay-scope").textContent = from ? "from " + from : "";
+    $("overlay-scope").hidden = !from;
+
+    (m.notes || []).forEach((text) => body.append(el("div", "fan-note", text)));
+
+    const box = el("textarea", "fan-tasks bt-text");
+    box.value = ed.text != null ? ed.text : (m.text || "");
+    box.spellcheck = false;
+    box.setAttribute("aria-label", "The baton, as text to edit");
+    body.append(box);
+
+    const scrub = el("div", "fan-note bt-scrub");
+    const scrubCount = el("b");
+    scrub.append(scrubCount, el("span", null,
+      " Scrubbing is a filter, not a guarantee: a secret it does not know and that does not look like one gets through. Read the whole baton before you use it."));
+    body.append(scrub);
+
+    const head = el("div", "fan-sec");
+    head.append(el("h3", null, "Start from it"));
+    body.append(head);
+
+    // What the new agent should do first, after the baton.
+    const task = el("input", "ask-field bt-task");
+    task.type = "text";
+    task.value = ed.task || "";
+    task.placeholder = "What should it do first? (optional)";
+    task.setAttribute("aria-label", "What the agent should do first");
+    body.append(task);
+
+    let runSel = null;
+    if (choosable) {
+      runSel = agentSelect(catalog, ed.sel || (m.agent || "") + "\n" + (m.model || ""));
+      runSel.classList.add("fo-sel");
+      runSel.setAttribute("aria-label", "Agent and model for the new pane");
+      const row = el("div", "fan-agent fo-model");
+      row.append(el("span", "fo-model-label", "New pane runs"), runSel);
+      body.append(row);
+    }
+    const chosenAgent = () => (runSel ? pickParts(runSel.value)[0] : m.agent) || "";
+    const chosenModel = () => (runSel ? pickParts(runSel.value)[1] : m.model) || "";
+
+    // The baton goes to the agent's company, and a person who chose another
+    // agent for its price may not have thought about whose it is.
+    const provider = el("div", "fan-note warn");
+    provider.hidden = true;
+    const providerAck = el("input");
+    providerAck.type = "checkbox";
+    const providerLabel = el("label", "fan-opt fo-opt");
+    providerLabel.append(providerAck, el("span", null, "Send it there"));
+    body.append(provider);
+
+    const opts = el("div", "fan-opts");
+    const toggle = (text, on, disabled) => {
+      const label = el("label", "fan-opt fo-opt");
+      const sw = el("button", "switch" + (on ? " on" : ""));
+      sw.type = "button";
+      sw.setAttribute("role", "switch");
+      sw.setAttribute("aria-checked", String(on));
+      sw.setAttribute("aria-label", text);
+      sw.append(el("span", "knob"));
+      sw.disabled = !!disabled;
+      const st = { on: !!on, sw };
+      sw.onclick = () => {
+        st.on = !st.on;
+        sw.classList.toggle("on", st.on);
+        sw.setAttribute("aria-checked", String(st.on));
+        update();
+      };
+      label.append(sw, el("span", null, text));
+      opts.append(label);
+      return st;
+    };
+    const worktree = toggle(m.isRepo ? "In a new git worktree" : "Not a git repository, so no worktree", !!ed.worktree && !!m.isRepo, !m.isRepo);
+    const branch = el("input", "ask-field bt-branch");
+    branch.type = "text";
+    branch.value = ed.branch || "";
+    branch.placeholder = "Branch for the worktree, for example fix-auth";
+    branch.setAttribute("aria-label", "Branch for the worktree");
+    branch.hidden = true;
+    opts.append(branch);
+    const beside = toggle("Beside this pane, not in a new tab", !!ed.beside, false);
+    body.append(opts);
+    branch.oninput = () => update();
+
+    const dirty = el("div", "fan-note warn");
+    dirty.append(el("b", null, "This pane has uncommitted changes."),
+      el("span", null, " A new worktree starts from the branch and does not have them. The baton lists them under Not in your checkout."));
+    dirty.hidden = true;
+    body.append(dirty);
+
+    const foot = el("div", "ov-foot");
+    const meta = el("span", "ov-meta bt-count");
+    const cancel = el("button", "chip", "Cancel");
+    cancel.onclick = () => dismissOverlay();
+    const save = el("button", "chip", "Save only");
+    const restart = el("button", "chip", "Restart this pane");
+    const start = el("button", "chip primary", "New pane");
+    describe(save, "Keep it for later. An agent can start from it with spawn -baton and its id.");
+    describe(restart, "End this pane's conversation and start a new one here from the baton. The old one stays in the history.");
+    foot.append(meta, el("span", "ov-spacer"), cancel, save, restart, start);
+    body.append(foot);
+
+    // Whether a command is out lives in what the dialog holds (ed.busy), not in
+    // this drawing of it: Help and back draws it again, and a local flag would
+    // start that drawing with the buttons free to send the command twice.
+    // A mark is one of the kinds the server's scrubber makes, as the draft says.
+    const markRe = m.markKinds && m.markKinds.length
+      ? new RegExp("\\[REDACTED: (?:" + m.markKinds.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\]", "g")
+      : BATON_MARK;
+    const marks = () => (box.value.match(markRe) || []).length;
+    function update() {
+      ed.text = box.value;
+      ed.task = task.value;
+      ed.sel = runSel ? runSel.value : "";
+      ed.worktree = worktree.on;
+      ed.branch = branch.value;
+      ed.beside = beside.on;
+      const n = marks();
+      scrubCount.textContent = n === 1 ? "1 secret removed." : n + " secrets removed.";
+      meta.textContent = n === 1 ? "1 secret removed" : n + " secrets removed";
+      branch.hidden = !worktree.on;
+      dirty.hidden = !(m.dirty && worktree.on);
+      // A different agent whose company is not known is treated as another
+      // company: it is asked about rather than let through.
+      const there = providerOf(chosenAgent());
+      const unknown = !there || !m.provider;
+      const differs = chosenAgent() !== m.agent && (unknown || there !== m.provider);
+      provider.hidden = !differs;
+      if (differs) {
+        provider.textContent = "";
+        provider.append(el("b", null, unknown
+            ? "This sends the baton to an agent whose company Flockdeck does not know."
+            : "This sends the baton to " + there + ", not " + m.provider + "."),
+          el("span", null, " It holds what this agent worked out, and the new agent's company receives it. "), providerLabel);
+      } else {
+        provider.textContent = "";
+        providerAck.checked = false;
+      }
+      const needsBranch = worktree.on && !branch.value.trim();
+      const blocked = !!ed.busy || !box.value.trim();
+      save.disabled = blocked;
+      restart.disabled = blocked;
+      start.disabled = blocked || needsBranch || (differs && !providerAck.checked);
+      describe(start, needsBranch ? "Name a branch for the worktree first" : differs && !providerAck.checked ? "Tick Send it there first" : "Start a new agent from the baton");
+    }
+    batonBusyOff = () => { ed.busy = false; update(); };
+    const run = (cmd, extra) => {
+      if (ed.busy) return;
+      // The same command, still out from before the dialog was given back.
+      for (const f of batonInflight.values()) {
+        if (f.cmd === cmd && f.paneId === m.paneId) {
+          notice("That is still being done. Wait for Flockdeck's answer, then try again.", true);
+          return;
+        }
+      }
+      const req = batonReq();
+      ed.busy = true;
+      ed.req = req;
+      batonInflight.set(req, { cmd, paneId: m.paneId });
+      update();
+      send(Object.assign({ cmd, id: m.paneId, req, text: box.value, task: task.value.trim() }, extra || {}));
+      // The answer is batonSaved or batonError for this command. If neither
+      // comes the dialog is given back, with the edits, rather than left
+      // disabled for good.
+      clearTimeout(batonTimer);
+      batonTimer = setTimeout(() => {
+        // Not if the dialog has been closed or opened again since. What is given
+        // back is the held state, whatever is on screen: with Help open over the
+        // dialog nothing is drawn to give back, and the dialog must still come
+        // back usable. If it is on screen it is the drawing now, not the one
+        // that sent the command, that is redrawn.
+        if (ed !== batonEdit || !ed.busy || ed.req !== req) return;
+        ed.busy = false;
+        if (dialog === "baton" && batonBusyOff) batonBusyOff();
+        notice("Flockdeck has not answered. The baton may still be saving, so the same command is refused until it answers; check flockdeck baton list.", true);
+      }, batonWait());
+    };
+    save.onclick = () => run("saveBaton");
+    restart.onclick = () => run("restartWithBaton");
+    start.onclick = () => run("startFromBaton", {
+      agent: chosenAgent(), model: chosenModel(), split: beside.on,
+      branch: worktree.on ? branch.value.trim() : "", confirmed: providerAck.checked,
+    });
+    box.oninput = update;
+    task.oninput = update;
+    if (runSel) runSel.onchange = update;
+    providerAck.onchange = update;
+    update();
+  }
+
+  /** The server's answer to a baton command it refused or could not do. The
+   *  notice that says why is shown as well; this is the dialog's own word that
+   *  its request is over, so an unrelated notice cannot stand in for it. */
+  function batonFailed(msg) {
+    // Matched by the id of the command it answers. One that is not out (it was
+    // answered, or the connection dropped since) is not anyone's.
+    const sent = batonInflight.get(msg.req);
+    if (!sent) return;
+    batonInflight.delete(msg.req);
+    if (sent.cmd === "makeBaton") {
+      // A draft that could not be made leaves nothing to edit. Only the request
+      // the dialog on screen is waiting on says so: a late refusal of an earlier
+      // one, for the same pane, is not about a dialog opened again since.
+      if (msg.req !== batonDraftReq || batonDraft) return;
+      batonDraftReq = "";
+      if (dialog === "baton") dismissOverlay();
+      return;
+    }
+    // The command the dialog was waiting on: it is free again. This is held
+    // state, so it holds with Help open over the dialog, and the dialog is
+    // usable when it comes back.
+    if (!batonEdit || batonEdit.req !== msg.req) return;
+    clearTimeout(batonTimer);
+    batonEdit.busy = false;
+    batonEdit.req = "";
+    if (dialog === "baton" && batonBusyOff) batonBusyOff();
+  }
+
+  /** The server's answer to saving, restarting or starting from a baton. It is
+   *  always said, whether or not the dialog is still there to close. */
+  function batonSaved(msg) {
+    // Only an answer to a command that was sent, matched by its id. One that
+    // was not, or was answered already, is not this dialog's, and must not close
+    // it or throw away what is in it.
+    const sent = batonInflight.get(msg.req);
+    if (!sent) return;
+    batonInflight.delete(msg.req);
+    let after = "";
+    if (batonEdit && batonEdit.req === msg.req) {
+      if (batonEdit.busy) {
+        // Still waiting for exactly this: the work is done, the dialog is too.
+        clearTimeout(batonTimer);
+        if (dialog === "baton") {
+          batonBusyOff = null;
+          batonEdit = null;
+          batonDraft = null;
+          dismissOverlay();
+        } else {
+          // Help is open over it: it is closed when it comes back.
+          batonEdit.done = true;
+        }
+      } else {
+        // The dialog was given back after a timeout and may hold edits made
+        // since; they are kept, and the answer is only said.
+        batonEdit.req = "";
+        after = " Your dialog is still open with its edits.";
+      }
+    }
+    const what = sent.cmd === "restartWithBaton" ? "Restarted this pane from baton "
+      : sent.cmd === "startFromBaton" ? "Started a new pane from baton " : "Saved baton ";
+    notice(what + msg.id + (msg.scrubbed ? " (" + msg.scrubbed + (msg.scrubbed === 1 ? " secret" : " secrets") + " removed)" : "") + "." + after, false);
+  }
+
+  /** The control connection dropped. A command that was out may or may not have
+   *  been done, and its answer would have come down the connection that has gone,
+   *  so nothing is waited for any more: the dialog is given back and the person
+   *  is told to look before sending it again. */
+  /** dropApprovalToasts takes away the requests for an answer: the token each
+   *  carries belongs to the connection that has gone, so pressing the button would
+   *  do nothing. If one was waiting, the person is told to ask again. */
+  function dropApprovalToasts() {
+    let any = false;
+    for (const t of Array.from($("notice").children)) {
+      if (t.dataset && t.dataset.noticeId) { any = true; dropToast(t); }
+    }
+    if (any) notice("Connection lost: a baton request was waiting for you. Ask the agent again.", true);
+  }
+
+  function batonConnectionLost() {
+    if (!batonInflight.size) return;
+    // A draft that was being made will not come: the dialog says so, and its timer
+    // goes with it.
+    const reading = dialog === "baton" && !batonDraft && batonInflight.has(batonDraftReq);
+    batonInflight.clear();
+    clearTimeout(batonTimer);
+    if (reading) batonReadingFailed("The connection to Flockdeck dropped before the draft came. Close this and open it again.");
+    if (batonEdit && batonEdit.busy) {
+      batonEdit.busy = false;
+      batonEdit.req = "";
+      if (dialog === "baton" && batonBusyOff) batonBusyOff();
+    }
+    notice("The connection to Flockdeck dropped while a baton command was out. It may have finished; check flockdeck baton list before trying again.", true);
+  }
+
   function openFanout(paneID) {
     dialog = "fanout";
     fanout = null;
@@ -14035,6 +14762,8 @@
 
   /** The most toasts on screen at once. A fourth takes the oldest away. */
   const NOTICE_MAX = 3;
+  /** The most requests for an answer on screen at once. */
+  const NOTICE_PINNED_MAX = 6;
 
   /** notice says something that already happened and needs no decision.
    *
@@ -14042,7 +14771,10 @@
    *  opts.action {label, run} a button beside the words ("Undo"): it runs
    *              then puts the toast away, and the toast stays for as long
    *              as an error does, since it is offering a way back;
-   *  opts.close  force (or with false, leave out) the × an error has.
+   *  opts.close  force (or with false, leave out) the × an error has;
+   *  opts.life   how long it stays, in milliseconds, instead of the usual;
+   *  opts.pin    it is not taken away to make room for another;
+   *  opts.id     what a noticeWithdraw names it by.
    *
    *  #notice is the place, a transparent column at the bottom centre; each
    *  message is a .toast inside it, the newest last and nearest the bottom.
@@ -14100,11 +14832,33 @@
     // error interrupts: waiting for a pause to mention that a push was
     // rejected is waiting for the moment it stops mattering.
     n.setAttribute("aria-live", isError ? "assertive" : "polite");
+    // What the toast is, before it is put in with the others, so that making room
+    // for it never takes it, or one like it, away.
+    //
+    // Asked to stay that long (a request that something is waiting on), it stays
+    // for exactly that: a pointer on it does not shorten it, and does not make it
+    // outlast the request.
+    t.keep = opts.life > 0;
+    t.pinned = !!opts.pin;
+    if (opts.id) t.dataset.noticeId = opts.id;
+    t.life = opts.life > 0 ? opts.life : isError ? ERROR_MS : action ? ACTION_MS : NOTICE_MS;
+    t.until = Date.now() + t.life;
     n.append(t);
-    while (n.children.length > NOTICE_MAX) dropToast(n.children[0]);
+    // A request for an answer is not put away to make room: it is the one thing
+    // here that something is waiting on, and it is not counted against the cap, which
+    // is of the others. Of those the oldest goes, and the newest never does while an
+    // older one is there.
+    const loose = () => Array.from(n.children).filter((c) => !c.pinned);
+    while (loose().length > NOTICE_MAX) dropToast(loose()[0]);
+    // Only requests are left, and too many of them: the oldest is put away, and
+    // what became of it is said.
+    const waiting = Array.from(n.children).filter((c) => c.pinned);
+    if (waiting.length > NOTICE_PINNED_MAX) {
+      dropToast(waiting[0]);
+      notice("Several baton requests are waiting for an answer; the oldest was put away and its agent will be told it timed out.", true);
+    }
     n.hidden = false;
-    t.life = isError ? ERROR_MS : action ? ACTION_MS : NOTICE_MS;
-    t.timer = setTimeout(() => dropToast(t), held ? NOTICE_HELD_MS : t.life);
+    t.timer = setTimeout(() => dropToast(t), held && !t.keep ? NOTICE_HELD_MS : t.life);
     noticeHeld = held;
     noticeSettled();
   }
@@ -14148,7 +14902,7 @@
     noticeHeld = true;
     for (const t of noticeTargets(e)) {
       clearTimeout(t.timer);
-      t.timer = setTimeout(() => dropToast(t), NOTICE_HELD_MS);
+      t.timer = setTimeout(() => dropToast(t), t.keep ? Math.max(t.until - Date.now(), 0) : NOTICE_HELD_MS);
     }
   }
 
@@ -14156,7 +14910,7 @@
     noticeHeld = false;
     for (const t of noticeTargets(e)) {
       clearTimeout(t.timer);
-      t.timer = setTimeout(() => dropToast(t), NOTICE_AFTER_MS);
+      t.timer = setTimeout(() => dropToast(t), t.keep ? Math.max(t.until - Date.now(), 0) : NOTICE_AFTER_MS);
     }
   }
 

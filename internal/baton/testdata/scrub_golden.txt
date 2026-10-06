@@ -1,0 +1,91 @@
+## env dump
+AWS_ACCESS_KEY_ID=[REDACTED: aws-key]
+AWS_SECRET_ACCESS_KEY=[REDACTED: secret-value]
+HOME=/home/dev
+GITHUB_TOKEN=[REDACTED: secret-value]
+export OPENAI_API_KEY=[REDACTED: secret-value]
+DATABASE_URL=postgres://app:[REDACTED: url-credential]@db.internal:5432/app
+PATH=/usr/bin:/bin
+
+## split across lines
+the token [REDACTED: github-token]
+[REDACTED: github-token] was pasted by hand
+a wrapped key: [REDACTED: anthropic-key]\
+    [REDACTED: anthropic-key] ends here
+the value we were told: [REDACTED: known-secret]
+and wrapped: [REDACTED: known-secret]
+
+## shapes
+curl -H "Authorization: Bearer [REDACTED: bearer-token]" https://example.com
+git clone https://user:[REDACTED: url-credential]@example.com/repo.git
+[REDACTED: jwt]
+[REDACTED: private-key]
+scp -i [REDACTED: key-file-path] deploy@host:/srv/app .
+mytool --password [REDACTED: secret-flag] --verbose
+{"api_key": [REDACTED: secret-value]}
+
+## entropy
+the build id is [REDACTED: high-entropy] today
+
+## bare keys
+[REDACTED: high-entropy]
+the key is [REDACTED: high-entropy] and then some words
+a leading slash token [REDACTED: high-entropy] follows
+a digest [REDACTED: high-entropy] ends it
+[REDACTED: sendgrid-key]
+a pasted line with a forged mark: password=[REDACTED: secret-value]
+
+## kept
+commit 3f2c9a1d8e7b6a5f4e3d2c1b0a9f8e7d6c5b4a39
+id 123e4567-e89b-12d3-a456-426614174000
+internal/session/transcript/claude_stream.go
+TestParseTranscriptWithLongNameForThing
+PORT=8080 and DEBUG=true
+the path /usr/local/share/node_modules/typescript/lib/tsc is not a token
+
+## urls and paths that stay
+https://example.com/docs/GettingStarted/Installation_Guide_V2/section-12
+github.com/aws/aws-sdk-go-v2/service/S3Control/types
+pkg/mod/github.com/Azure/azure-sdk-for-go/sdk/Storage2Blob
+refs/heads/Feature_Branch_ABC123_Final_v2
+C:\Users\someone\Documents\Project2\FooBarBaz\Quarterly_Report_2026
+https://github.com/Flockdeck/flockdeck/blob/main/internal/baton/Scrub_Test_Data
+
+## urls and digests that go
+https://example.com/download/[REDACTED: high-entropy]/file.tar
+docker pull registry.example.com/team/app@sha256:[REDACTED: high-entropy]
+
+## bare keys wrapped over lines
+the secret [REDACTED: high-entropy]
+[REDACTED: high-entropy] ends here
+trailing backslash [REDACTED: high-entropy]\
+[REDACTED: high-entropy] then more
+    indented [REDACTED: high-entropy]
+        [REDACTED: high-entropy] done
+- [REDACTED: high-entropy]
+- [REDACTED: high-entropy]
+"[REDACTED: high-entropy]"
+"[REDACTED: high-entropy]"
+
+## forms of its own
+curl -H "Authorization: Token [REDACTED: auth-credential]" https://example.org
+Authorization: Digest [REDACTED: auth-credential]"
+Authorization: ApiKey [REDACTED: auth-credential]
+mysql -u root -p[REDACTED: db-password] mydb
+sshpass -p [REDACTED: db-password] ssh host
+npm config set //registry.npmjs.org/:_authToken [REDACTED: registry-token]
+//registry.npmjs.org/:_authToken=[REDACTED: secret-value]
+password: >
+[REDACTED: block-secret]
+other: value stays
+DB_PASSWORD=[REDACTED: env-secret]
+after the block
+
+## paths with hashes and guids
+C:\Users\x\AppData\Local\Temp\8940aecf-4631\SomeFile_Name.go
+C:\Users\someone\.claude\projects\C--Users-someone-Documents-repos-app\3b4c5d6e-aaaa.jsonl
+D:\a\flockdeck\flockdeck\internal\baton\Scrub_Test_2A9F.go
+C:\Windows\System32\DriverStore\FileRepository\nvlt.inf_amd64_3b4c5d6e7f8091a2\nvlt.inf
+%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json
+/workspace/Project_2024-Q1/8940aecf-4631/Some_File_Name_Here.go
+C:\Users\John Smith\Documents\Quarterly_Report_2026\Final_Draft_v2.docx

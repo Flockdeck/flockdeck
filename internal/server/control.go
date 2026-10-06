@@ -467,6 +467,17 @@ type paneView struct {
 	// answered, so the four counts above are the ones read before that and may
 	// no longer be true. The header says so instead of showing them.
 	GitTimedOut bool `json:"gitTimedOut,omitempty"`
+	// Conflicts are the other panes in this pane's repository whose work git
+	// would not merge with this pane's, for the chip beside the git marks, at
+	// most maxConflictPanes of them, with ConflictsMore the number left out.
+	// Left out while the conflict radar is off, which it is until it is turned
+	// on in Settings, and while nothing is predicted.
+	//
+	// These are pane names, branches and file paths, and they go where the rest
+	// of this push goes: to every window, including one reached through the
+	// relay. The radar is not private from them. No file contents are in it.
+	Conflicts     []conflictView `json:"conflicts,omitempty"`
+	ConflictsMore int            `json:"conflictsMore,omitempty"`
 
 	// What the pane's process and everything it has spawned are costing the
 	// machine. Left out when there is nothing to report -- a pane with no
@@ -486,6 +497,9 @@ type noticeMsg struct {
 	Type  string `json:"type"`
 	Text  string `json:"text"`
 	Error bool   `json:"error"`
+	// Kind is "approval" for what is said of a request for the user's answer, which
+	// is not the answer to anything else the window is waiting on.
+	Kind string `json:"kind,omitempty"`
 }
 
 // command is a request from the front end.
@@ -580,6 +594,13 @@ type command struct {
 	// rather than in the project itself. See startAgent.
 	Task     string `json:"task"`
 	Worktree bool   `json:"worktree"`
+	// Req is the id the window gave a baton command (makeBaton, saveBaton,
+	// startFromBaton, restartWithBaton), repeated in the answer so the window can
+	// tell which command it is for.
+	Req string `json:"req"`
+	// Branch is startFromBaton's own: the branch of the worktree to start the
+	// agent in, made for it, or empty to work in the pane's own checkout.
+	Branch string `json:"branch"`
 	// Muted is mutePane's own: whether the named pane should stop, or resume,
 	// being pushed to the phone about. See Workspace.SetPaneMuted.
 	Muted bool `json:"muted"`
@@ -592,6 +613,8 @@ type command struct {
 	// lets the first pane be switched on; see Server.recordPane. It is also
 	// exportTranscript's, which is always put to the user.
 	Recording bool `json:"recording"`
+	// Confirmed is also startFromBaton's: the person has ticked that the baton
+	// may go to an agent of another company.
 	Confirmed bool `json:"confirmed"`
 	// AutoReview is autoReview's own: whether the named pane should start, or
 	// stop, having its PreToolUse calls put to auto-review approvals. See
@@ -803,11 +826,56 @@ func (s *Server) snapshot() stateMsg {
 			pv.Dirty, pv.Untracked = p.Git.Dirty, p.Git.Untracked
 			pv.Ahead, pv.Behind = p.Git.Ahead, p.Git.Behind
 			pv.GitTimedOut = p.GitTimedOut
+			pv.Conflicts, pv.ConflictsMore = conflictViews(ws, p)
 			pv.Spend = s.book.Pane(p.ID, spendNow)
 			msg.Panes[p.ID] = pv
 		}
 	}
 	return msg
+}
+
+// conflictView is one pane the conflict radar says this one conflicts with.
+// Names, branches and paths ride the push, to every window and through the
+// relay to a remote one; file contents never do.
+type conflictView struct {
+	// ID, Name and Branch are the other pane's.
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Branch string `json:"branch,omitempty"`
+	// Paths are the files git stops on, at most maxConflictPaths of them, and
+	// More is how many more there were.
+	Paths []string `json:"paths"`
+	More  int      `json:"more,omitempty"`
+}
+
+// maxConflictPaths bounds the files listed for one pair, and maxConflictPanes
+// the panes listed for one. A push goes to every window about every pane, and
+// the chip has room for a handful.
+const (
+	maxConflictPaths = 20
+	maxConflictPanes = 5
+)
+
+// conflictViews is what a pane is told of its conflicts, and how many more
+// there were than it is told. A pane that has since closed is left out.
+func conflictViews(ws *workspace.Workspace, p *workspace.Pane) (views []conflictView, more int) {
+	for _, c := range p.Conflicts {
+		other := ws.Pane(c.With)
+		if other == nil {
+			continue
+		}
+		if len(views) == maxConflictPanes {
+			more++
+			continue
+		}
+		v := conflictView{ID: other.ID, Name: other.Name, Branch: other.Branch, Paths: c.Paths}
+		if len(v.Paths) > maxConflictPaths {
+			v.More = len(v.Paths) - maxConflictPaths
+			v.Paths = v.Paths[:maxConflictPaths]
+		}
+		views = append(views, v)
+	}
+	return views, more
 }
 
 // projectLabel names a project the way the project switcher does, given the
@@ -997,6 +1065,12 @@ type controlClient struct {
 	remote bool
 	device string
 
+	// page marks a connection that opened with an Origin header, as a browser or
+	// a webview always does and a command-line client does not. Only such a
+	// connection is asked to approve a baton; see approval.go for what that does and
+	// does not stop.
+	page bool
+
 	// pending is the newest snapshot not yet written, held apart from out
 	// because snapshots supersede one another. See sendState.
 	mu      sync.Mutex
@@ -1124,6 +1198,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		out:    make(chan []byte, 64),
 		ready:  make(chan struct{}, 1),
 		remote: isRemote,
+		page:   r.Header.Get("Origin") != "",
 	}
 	if isRemote {
 		c.device = r.Header.Get("Flockdeck-Remote-Device")
@@ -1388,6 +1463,15 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "startAgent":
 		s.startAgent(c, cmd)
+		return
+	case "makeBaton":
+		s.makeBaton(c, cmd.ID, cmd.Req)
+		return
+	case "saveBaton", "startFromBaton", "restartWithBaton":
+		s.batonCommand(c, cmd)
+		return
+	case "approveBaton":
+		s.approveBaton(c, cmd.Text)
 		return
 	case "routeTasks":
 		s.routeTasks(c, cmd)
@@ -1682,6 +1766,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			return
 		}
 		s.setJevStatus(c, cmd.Kind == "on")
+		return
+	case "conflictRadar":
+		s.setConflictRadar(c, cmd.Kind == "on")
 		return
 	case "recordPane":
 		s.recordPane(c, cmd)

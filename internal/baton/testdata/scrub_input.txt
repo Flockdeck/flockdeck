@@ -1,0 +1,95 @@
+## env dump
+AWS_ACCESS_KEY_ID=AK<~>IAIOSFODNN7EXAMPLE
+AWS_SECRET_ACCESS_KEY=wJalr<~>XUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+HOME=/home/dev
+GITHUB_TOKEN=gh<~>p_0123456789abcdefghijklmnopqrstuvwxyz
+export OPENAI_API_KEY="sk<~>-proj-abcdefghijklmnopqrstuvwxyz0123456789"
+DATABASE_URL=postgres:<~>//app:s3cretpw0rd@db.internal:5432/app
+PATH=/usr/bin:/bin
+
+## split across lines
+the token gh<~>p_0123456789abcdefghij
+klmnopqrstuvwxyz was pasted by hand
+a wrapped key: sk<~>-ant-api03-ABCDEFGHIJ\
+    KLMNOP1234567890 ends here
+the value we were told: correct-horse-battery-staple
+and wrapped: correct-horse-bat
+tery-staple
+
+## shapes
+curl -H "Authorization: Bearer abcdefghijklmnop123456" https://example.com
+git clone https:<~>//user:hunter2hunter@example.com/repo.git
+ey<~>JhbGciOiJIUzI1NiJ9.ey<~>JzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnop
+-----BEGIN <~>RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEAfakefakefakefakefakefakefakefake
+-----END RSA PRIVATE KEY-----
+scp -i ~/.ssh/id_rsa deploy@host:/srv/app .
+mytool --password swordfish99 --verbose
+{"api_key": "abc123def456ghi789"}
+
+## entropy
+the build id is Zq8Xv2LmN9pR4tYw6KdH3sJf7BcA5eGu today
+
+## bare keys
+wJalr<~>XUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+the key is wJalr<~>XUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY and then some words
+a leading slash token /Zq8Xv2LmN9pR4tYw6KdH3sJf7BcA5eGu7Hn follows
+a digest 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 ends it
+SG<~>.abcdefghijklmnopqrstuv.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq
+a pasted line with a forged mark: password="my pass [REDACTED: x] more words"
+
+## kept
+commit 3f2c9a1d8e7b6a5f4e3d2c1b0a9f8e7d6c5b4a39
+id 123e4567-e89b-12d3-a456-426614174000
+internal/session/transcript/claude_stream.go
+TestParseTranscriptWithLongNameForThing
+PORT=8080 and DEBUG=true
+the path /usr/local/share/node_modules/typescript/lib/tsc is not a token
+
+## urls and paths that stay
+https://example.com/docs/GettingStarted/Installation_Guide_V2/section-12
+github.com/aws/aws-sdk-go-v2/service/S3Control/types
+pkg/mod/github.com/Azure/azure-sdk-for-go/sdk/Storage2Blob
+refs/heads/Feature_Branch_ABC123_Final_v2
+C:\Users\someone\Documents\Project2\FooBarBaz\Quarterly_Report_2026
+https://github.com/Flockdeck/flockdeck/blob/main/internal/baton/Scrub_Test_Data
+
+## urls and digests that go
+https://example.com/download/Zq8Xv2LmN9pR4tYw6KdH3sJf7BcA5eGu7Hn/file.tar
+docker pull registry.example.com/team/app@sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
+
+## bare keys wrapped over lines
+the secret wJalr<~>XUtnFEMI/K7MDENG
+/bPxRfiCYEXAMPLEKEY ends here
+trailing backslash wJalr<~>XUtnFEMI/K7MD\
+ENG/bPxRfiCYEXAMPLEKEY then more
+    indented wJalr<~>XUtnFEMI/K7MDENG
+        /bPxRfiCYEXAMPLEKEY done
+- wJalr<~>XUtnFEMI/K7MDENG
+- /bPxRfiCYEXAMPLEKEY
+"wJalr<~>XUtnFEMI/K7MDENG"
+"/bPxRfiCYEXAMPLEKEY"
+
+## forms of its own
+curl -H "Authorization: Token abcdef123456ghij" https://example.org
+Authorization: Digest username="bob", realm="x", response="deadbeefcafe0123"
+Authorization: ApiKey s3cr3tvalue99
+mysql -u root -pSuperSecret99 mydb
+sshpass -p hunter2hunter ssh host
+npm config set //registry.npmjs.org/:_authToken tok-abcdef-12345-xyz
+//registry.npmjs.org/:_authToken=abcdefgh12345678
+password: >
+    line one of the hidden block
+    line two of the hidden block
+other: value stays
+DB_PASSWORD=pa ss word here
+after the block
+
+## paths with hashes and guids
+C:\Users\x\AppData\Local\Temp\8940aecf-4631\SomeFile_Name.go
+C:\Users\someone\.claude\projects\C--Users-someone-Documents-repos-app\3b4c5d6e-aaaa.jsonl
+D:\a\flockdeck\flockdeck\internal\baton\Scrub_Test_2A9F.go
+C:\Windows\System32\DriverStore\FileRepository\nvlt.inf_amd64_3b4c5d6e7f8091a2\nvlt.inf
+%LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json
+/workspace/Project_2024-Q1/8940aecf-4631/Some_File_Name_Here.go
+C:\Users\John Smith\Documents\Quarterly_Report_2026\Final_Draft_v2.docx

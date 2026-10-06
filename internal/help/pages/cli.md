@@ -17,6 +17,7 @@ switched from inside the window. These are what is left.
 | `flockdeck -version` | Print the version |
 | `flockdeck recordings` | List the transcripts panes have recorded, newest first; `-dir` prints the folder, `-json` prints one JSON object per recording |
 | `flockdeck recordings export` | Write an agent's stored conversation as a transcript, whether or not the pane was recorded; `-o` chooses the file, `-reveal` shows it in your file manager |
+| `flockdeck baton` | List the handoffs agents have made (`list`), or print one (`show <baton-id>`; `-path` prints the file instead) |
 | `flockdeck agents` | List the agents and models that `-agent` and `spawn` accept, and which are installed here |
 | `flockdeck help` | Print the usage; `flockdeck help spawn` (or any subcommand below) prints that subcommand's usage instead |
 
@@ -43,7 +44,7 @@ Run from inside a pane, this starts another agent:
 
 ```sh
 flockdeck spawn [-worktree <branch>] [-split] [-shell] [-record]
-                [-agent <id>] [-model <model>] <task>
+                [-agent <id>] [-model <model>] [-baton <ref>] [-baton-send-elsewhere] <task>
 ```
 
 `-record` starts the helper with its agent interaction recorded as a
@@ -57,6 +58,19 @@ combined with `-shell`, which has no conversation to record.
 whatever the project runs by default. `flockdeck agents` lists the names both
 of them take, and a name neither the catalog nor the agent has is answered here
 rather than becoming a pane that never starts.
+
+`-baton` starts the helper from a handoff instead of a blank conversation: `self`
+makes one from your own conversation, or give the id of a pane in your own project, a baton id (`flockdeck
+baton list` shows them) or the path of a notes file inside your project or checkout.
+The task is then optional.
+Nothing reviews a baton an agent asks for, so command arguments are dropped from
+it. A baton is sent to the agent the helper runs, so one that would go to a
+different company than the baton came from, or to an agent whose company
+Flockdeck does not know, is refused unless you add `-baton-send-elsewhere`. With
+it the agent only asks: your window shows a notice with a **Send it** button, and
+the baton is not sent until you press it (or at all, after 45 seconds). That stops a
+mistake and a request nobody saw; it is not a boundary against a program running as
+you, which can press the button itself. See [Handing work to another agent](#baton).
 
 The address and token come from the environment the pane was started with
 (`FLOCKDECK_API` and `FLOCKDECK_TOKEN` below), so only processes running inside a pane

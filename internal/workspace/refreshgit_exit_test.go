@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,6 +28,8 @@ func TestRefreshGitDoesNotAskAgainUntilTheGitGivenUpOnHasGone(t *testing.T) {
 	}, BroadcastSet: map[string]bool{}}
 
 	gone := make(chan struct{})
+	var goneOnce sync.Once
+	letGo := func() { goneOnce.Do(func() { close(gone) }) }
 	var asked atomic.Int32
 	status, exited := gitStatus, gitExited
 	gitStatus = func(string, time.Duration) (gitx.Status, error) {
@@ -35,6 +38,11 @@ func TestRefreshGitDoesNotAskAgainUntilTheGitGivenUpOnHasGone(t *testing.T) {
 	}
 	gitExited = func(error) <-chan struct{} { return gone }
 	t.Cleanup(func() { gitStatus, gitExited = status, exited })
+
+	// Registered last, so it runs first: the git given up on is let go even when the
+	// test ends early, and waitGitIdle, which runs next, has nothing to wait for.
+	t.Cleanup(w.waitGitIdle)
+	t.Cleanup(letGo)
 
 	refresh := func() {
 		t.Helper()
@@ -46,7 +54,7 @@ func TestRefreshGitDoesNotAskAgainUntilTheGitGivenUpOnHasGone(t *testing.T) {
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):
-			close(gone)
+			letGo()
 			t.Fatal("a refresh waited for a git it had given up on to finish ending")
 		}
 	}
@@ -60,7 +68,7 @@ func TestRefreshGitDoesNotAskAgainUntilTheGitGivenUpOnHasGone(t *testing.T) {
 		t.Errorf("the checkout was asked about %d times while the git given up on was still ending, want once", n)
 	}
 
-	close(gone)
+	letGo()
 	for deadline := time.Now().Add(5 * time.Second); asked.Load() < 2; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the checkout was never asked about again once its git had gone")

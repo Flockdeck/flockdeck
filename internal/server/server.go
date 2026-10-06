@@ -327,6 +327,9 @@ func (s *Server) Recall() *RecallView { return s.recall.Load() }
 
 // New starts a server for the workspace on a free loopback port.
 func New(ws *workspace.Workspace) (*Server, error) {
+	// Starts the read of git's version in the background; windows are told what
+	// it came to (announceRadarSupport).
+	radarSupport()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("listen on loopback: %w", err)
@@ -387,6 +390,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	go s.runLoop()
 	go s.pushLoop()
 	go s.gitLoop()
+	go s.announceRadarSupport()
 	go s.usageLoop()
 	go s.backgroundLoop()
 	go s.saveLoop()

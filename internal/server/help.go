@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/keybindings"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -28,6 +29,13 @@ type helloMsg struct {
 	// remote access off or on, set an API key. The snapshot cannot say it,
 	// being one message broadcast to every window alike.
 	Remote bool `json:"remote,omitempty"`
+	// RadarUnavailable is why the conflict radar cannot be turned on on this
+	// machine -- git is missing, or older than merge-tree needs -- or empty
+	// when it can. Settings says it beside the switch.
+	RadarUnavailable string `json:"radarUnavailable,omitempty"`
+	// RadarChecking says the version of git has not been read yet. The switch is
+	// shown as checking until radarSupportMsg says what it found.
+	RadarChecking bool `json:"radarChecking,omitempty"`
 	// E2EPublicKey is this machine's own end-to-end public key (internal/e2e),
 	// base64url, given only to a window reached through the relay: the "host"
 	// side of the StartDeviceHandshake it runs for each terminal socket it
@@ -35,6 +43,53 @@ type helloMsg struct {
 	// encrypt against itself, and for a remote one before this machine has
 	// made an identity of its own yet.
 	E2EPublicKey string `json:"e2ePublicKey,omitempty"`
+}
+
+// radarSupport and radarWatch are gitx's answers about merge-tree, as variables
+// for the tests that connect a window before git has been asked and that make a
+// failed probe mend.
+var (
+	radarSupport = gitx.MergeTreeSupport
+	radarWatch   = gitx.WatchMergeTreeSupport
+)
+
+// radarSupportMsg tells every window what the version of git came to, for the
+// ones that were sent a hello before it was read, and again whenever the answer
+// changes.
+type radarSupportMsg struct {
+	Type        string `json:"type"`
+	Unavailable string `json:"unavailable,omitempty"`
+}
+
+// announceRadarSupport tells every window each answer about the version of git,
+// as it changes, until one is final or the server closes. A probe that failed
+// is asked again after a minute (gitx.MergeTreeSupport), and may come out
+// differently; a hello built later reads the current answer, and a window
+// already open is sent this. It is sent whether or not the radar can run, so
+// that a switch shown as checking is settled either way.
+func (s *Server) announceRadarSupport() {
+	var since uint64
+	for {
+		ok, why, gen, final, known := radarWatch(since, s.closed)
+		if !known {
+			return
+		}
+		since = gen
+		msg := radarSupportMsg{Type: "radarSupport"}
+		if !ok {
+			msg.Unavailable = why
+		}
+		if data, err := json.Marshal(msg); err == nil {
+			s.do(func() {
+				for _, cl := range s.clientList() {
+					cl.send(data)
+				}
+			})
+		}
+		if final {
+			return
+		}
+	}
 }
 
 // keyView is one action as a window is told of it: help.Key, with whether
@@ -52,6 +107,14 @@ type keyView struct {
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
 	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: s.prefs, Remote: c.remote}
+	// Asked without waiting: the version of git is read in the background. Until
+	// it has been, the window is told it is being checked, and is sent the answer
+	// when there is one (announceRadarSupport).
+	if ok, why, known := radarSupport(); !known {
+		msg.RadarChecking = true
+	} else if !ok {
+		msg.RadarUnavailable = why
+	}
 	if c.remote {
 		if ra := s.remoteAccess(); ra != nil {
 			msg.E2EPublicKey = ra.E2EPublicKey()
@@ -385,6 +448,19 @@ func (s *Server) setAutoReviewDefault(c *controlClient, on bool) {
 // Prefs.JevStatus: the default is off, and only an explicit "on" turns it on.
 func (s *Server) setJevStatus(c *controlClient, on bool) {
 	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.JevStatus, on) })
+}
+
+// setConflictRadar records whether the header may name another pane whose work
+// would conflict with this one's. See Prefs.ConflictRadar: the default is off,
+// only an explicit "on" turns it on, and it sends no terminal output
+// anywhere, unlike the Jev setting, so a window reached through the relay may
+// change it too. Turning it on does put pane names, branches and file paths in
+// the state push to every window. It kicks a refresh at once, rather than
+// waiting for the next one, so that the chips come down as soon as it is
+// turned off.
+func (s *Server) setConflictRadar(c *controlClient, on bool) {
+	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.ConflictRadar, on) })
+	s.RefreshGitNow()
 }
 
 // setStatusLine records when a Claude pane's status line is routed through

@@ -87,6 +87,14 @@ type Prefs struct {
 	// without a TypeSafe key (Settings or TYPESAFE_API_KEY) as well. See
 	// session.StatusAssist.
 	JevStatus bool `json:"jevStatus,omitempty"`
+	// ConflictRadar turns on the header chip that names another pane in the
+	// same repository whose work, committed or not, git would not merge with
+	// this pane's. Off by default: it copies every pane with changes into a
+	// scratch directory each refresh, which costs git processes, and what that
+	// costs on a large checkout is not yet measured. No file contents leave the
+	// machine, but pane names, branches and file paths go to every window,
+	// remote ones included. Needs git 2.38 or newer. See internal/radar.
+	ConflictRadar bool `json:"conflictRadar,omitempty"`
 	// RecordingAcknowledged records that the user has been told what turning on
 	// a pane's recording stores, and agreed once. Until it is set the window
 	// asks before the first pane is recorded, and `flockdeck spawn -record`

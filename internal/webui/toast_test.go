@@ -114,3 +114,131 @@ func TestToastStyle(t *testing.T) {
 		}
 	}
 }
+
+// A request for the user to allow a baton to go to another company is a notice
+// with a lead, a button that sends the token back, and a life of its own.
+func TestABatonApprovalNoticeSendsItsTokenBack(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const n = h.$("notice");
+h.recv({ type: "notice", text: "An agent asked to send a baton to a different company.", error: false,
+  lead: "Baton leaving its provider.", lifeMs: 45000,
+  action: { label: "Send it", send: { cmd: "approveBaton", text: "tok123" } } });
+assert.ok(n.textContent.includes("Baton leaving its provider."), "no lead");
+const act = n.querySelector(".toast-act");
+assert.ok(act && act.textContent === "Send it", "no button");
+h.click(act);
+assert.deepStrictEqual(h.commands().pop(), { cmd: "approveBaton", text: "tok123" }, "the token was not sent back");
+`)
+}
+
+// An approval's notice stays for the whole of the wait whatever the pointer does,
+// is not pushed out by other notices, and is taken away when the request ends.
+func TestAnApprovalNoticeIsPinnedLongLivedAndWithdrawn(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const n = h.$("notice");
+const toasts = () => n.children.filter((c) => c.classList.contains("toast"));
+h.recv({ type: "notice", text: "An agent asked to send a baton.", error: false, lead: "Baton leaving its provider.",
+  lifeMs: 3000, pin: true, id: "ap1", action: { label: "Send it", send: { cmd: "approveBaton", text: "tok" } } });
+// Other news does not push it out, however much of it there is.
+for (let i = 0; i < 6; i++) h.recv({ type: "notice", text: "Error " + i, error: true });
+assert.ok(toasts().some((c) => c.textContent.includes("Send it")), "a pinned approval was evicted by other notices");
+// The pointer moving on it and leaving it does not shorten it.
+const toast = toasts().find((c) => c.textContent.includes("Send it"));
+h.dispatch(n, new h.Ev("pointermove", { target: toast }));
+h.dispatch(n, new h.Ev("pointerleave", { target: toast }));
+await h.sleep(1700);
+assert.ok(toasts().includes(toast), "the pointer leaving shortened the approval notice");
+// A withdrawal names it by id and takes it away.
+h.recv({ type: "noticeWithdraw", id: "ap1" });
+assert.ok(!toasts().some((c) => c.textContent.includes("Send it")), "a withdrawn approval is still on screen");
+`)
+}
+
+// Approval toasts: pinned before room is made, so none is taken away by the ones
+// after it; a pointer neither shortens nor stretches them; they go with the
+// connection they were sent on; and what is said of them is not the answer to a
+// commit that is waiting.
+func TestApprovalToastsAreNotEvictedAndAFourthStacks(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const n = h.$("notice");
+const toasts = () => n.children.filter((c) => c.classList.contains("toast"));
+const ask = (id) => h.recv({ type: "notice", text: "Request " + id, error: false, lead: "Baton leaving its provider.", lifeMs: 45000,
+  pin: true, id, kind: "approval", action: { label: "Send it " + id, send: { cmd: "approveBaton", text: "tok" + id } } });
+ask("a1"); ask("a2"); ask("a3"); ask("a4");
+for (let i = 0; i < 5; i++) h.recv({ type: "notice", text: "Error " + i, error: true });
+const left = toasts().filter((c) => c.textContent.includes("Send it"));
+assert.strictEqual(left.length, 4, "a fourth request, or the errors after them, took a request away: " + left.length);
+// The later toasts are visible too: the newest error is on screen, and so are the two before it.
+for (const i of [2, 3, 4]) assert.ok(toasts().some((c) => c.textContent.includes("Error " + i)), "Error " + i + " was dropped to make room");
+assert.ok(!toasts().some((c) => c.textContent.includes("Error 0")), "the oldest error was kept past the cap");
+// More requests than can be shown: the oldest is put away and that is said, visibly.
+ask("a5"); ask("a6"); ask("a7");
+assert.ok(toasts().some((c) => c.textContent.includes("Several baton requests are waiting")), "the notice that a request was put away is not on screen");
+assert.strictEqual(toasts().filter((c) => c.textContent.includes("Send it")).length, 6, "more than six requests are on screen");
+assert.ok(toasts().some((c) => c.textContent.includes("Send it a7")), "the newest request is not on screen");
+`)
+}
+
+func TestAPointerNeitherShortensNorStretchesAnApprovalToast(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const n = h.$("notice");
+const toasts = () => n.children.filter((c) => c.classList.contains("toast"));
+const ask = (id, life) => h.recv({ type: "notice", text: "Request " + id, error: false, lifeMs: life, pin: true, id, kind: "approval",
+  action: { label: "Send it " + id, send: { cmd: "approveBaton", text: "tok" + id } } });
+const find = (id) => toasts().find((c) => c.textContent.includes("Request " + id));
+ask("short", 700);
+ask("long", 3000);
+// Held on the short one: it still ends with its own life, and does not go on for 30 seconds.
+h.dispatch(n, new h.Ev("pointermove", { target: find("short") }));
+// Left from the long one: it is not cut to the 1.5 seconds a plain notice gets.
+h.dispatch(n, new h.Ev("pointerleave", { target: find("long") }));
+await h.sleep(1700);
+assert.ok(!find("short"), "a pointer held on a request made it outlast the request");
+assert.ok(find("long"), "a pointer leaving a request cut it short");
+`)
+}
+
+func TestAnApprovalNoticeIsTakenAwayWithItsConnection(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const n = h.$("notice");
+h.recv({ type: "notice", text: "Request", error: false, lifeMs: 45000, pin: true, id: "x", kind: "approval",
+  action: { label: "Send it", send: { cmd: "approveBaton", text: "tok" } } });
+assert.ok(n.textContent.includes("Send it"));
+h.controls().pop().onclose();
+assert.ok(!n.textContent.includes("Send it"), "a request stayed after the connection it was sent on went");
+assert.ok(n.textContent.includes("Connection lost") && n.textContent.includes("Ask the agent again"), n.textContent);
+`)
+}
+
+func TestAnApprovalNoticeDoesNotAnswerAWaitingCommit(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-changes"));
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+const box = () => h.$("commit-message");
+box().value = "webui: something";
+box().oninput();
+const commit = h.$("overlay-body").querySelectorAll("button").find((b) => /^Commit/.test(b.textContent));
+h.click(commit);
+// What is said of a request for the user's answer is not the commit's answer.
+h.recv({ type: "notice", text: "Approved. Sending the baton.", error: false, kind: "approval" });
+h.recv({ type: "notice", text: "Another window allowed that baton.", error: false, kind: "approval" });
+// The commit fails, and the message that was typed is still there to try again.
+h.recv({ type: "notice", text: "commit failed", error: true });
+h.recv({ type: "changes", cwd: "C:/repo", branch: "main", hasRemote: false,
+  files: [{ path: "a.go", label: "M", added: 1, removed: 0 }] });
+assert.strictEqual(box().value, "webui: something", "an approval notice dropped the commit message that was typed");
+`)
+}

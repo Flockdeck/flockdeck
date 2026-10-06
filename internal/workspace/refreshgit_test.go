@@ -41,6 +41,7 @@ func TestRefreshGitBoundsTheProcessesItStarts(t *testing.T) {
 	}
 	t.Cleanup(func() { gitStatus = status })
 
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	w.RefreshGit(func(apply func()) { apply() })
 
 	if got := most.Load(); got > branchLookups {
@@ -80,6 +81,7 @@ func TestRefreshGitAsksOncePerCheckoutHoweverItIsSpelt(t *testing.T) {
 	}
 	t.Cleanup(func() { gitStatus = status })
 
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	w.RefreshGit(func(apply func()) { apply() })
 
 	if n := calls.Load(); n != 1 {
@@ -114,6 +116,7 @@ func TestRefreshGitNamesADetachedCheckout(t *testing.T) {
 	}
 	t.Cleanup(func() { gitStatus = status })
 
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	w.RefreshGit(func(apply func()) { apply() })
 
 	if got := w.panes["p"].Branch; got != "detached@abc1234" {
@@ -148,6 +151,7 @@ func TestRefreshGitShowsEachCheckoutAsItAnswers(t *testing.T) {
 	t.Cleanup(func() { gitStatus = status })
 
 	applied := make(chan func(), 2)
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	done := make(chan struct{})
 	go func() {
 		w.RefreshGit(func(apply func()) { applied <- apply })
@@ -205,6 +209,7 @@ func TestRefreshGitMarksACheckoutThatTimedOut(t *testing.T) {
 	}
 	t.Cleanup(func() { gitStatus = status })
 
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	w.RefreshGit(func(apply func()) { apply() })
 
 	if got := time.Duration(given.Load()); got != gitDeadline {
@@ -260,6 +265,7 @@ func TestRefreshGitLeavesACheckoutBeingReadToTheRefreshReadingIt(t *testing.T) {
 
 	ignore := func(func()) {}
 	first := make(chan struct{})
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	go func() { w.RefreshGit(ignore); close(first) }()
 	// The first refresh reads both checkouts at once, so the slow one being
 	// asked about says nothing of the fast one: its goroutine may not have
@@ -358,6 +364,7 @@ func TestRefreshGitAskedWhileReadingReadsAgain(t *testing.T) {
 	}
 
 	first := make(chan struct{})
+	t.Cleanup(w.waitGitIdle) // after the restores above, so it runs before them
 	go func() { w.RefreshGit(apply); close(first) }()
 	<-started
 	w.RefreshGit(apply) // asked for while the first is still reading

@@ -155,8 +155,11 @@ func CurrentBranch(dir string) string {
 }
 
 // List returns every worktree of the repository containing dir.
-func List(dir string) ([]Worktree, error) {
-	out, err := run(dir, "worktree", "list", "--porcelain")
+func List(dir string) ([]Worktree, error) { return listCtx(context.Background(), dir) }
+
+// listCtx is List under ctx: cancelling it ends the git process.
+func listCtx(ctx context.Context, dir string) ([]Worktree, error) {
+	out, err := runUntil(ctx, dir, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, err
 	}

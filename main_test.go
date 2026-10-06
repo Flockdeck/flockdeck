@@ -507,6 +507,7 @@ func cliFlagNames() map[string]bool {
 	for _, fs := range []*flag.FlagSet{
 		flockdeckFlagSet(&cliFlags{}),
 		spawnFlagSet(&spawnFlags{}),
+		batonShowFlagSet(&batonFlags{}),
 		closeFlagSet(&closeFlags{}),
 		recordingsFlagSet(&recordingsFlags{}),
 		exportFlagSet(&exportFlags{}),

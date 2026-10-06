@@ -16,7 +16,11 @@ it.
   lets through a command it is confident only reads, and never says "deny".
   Then **Fan out**'s own default for its "Put fanned-out agents in this tab,
   beside the agent that planned them" checkbox, which can still be changed for
-  one run from the dialog itself. Under **Hints**, **Show them again** brings
+  one run from the dialog itself. Under **Conflict radar**, the switch that
+  marks a pane whose work git predicts would conflict with another pane's; it is
+  off until you turn it on, and [Git worktrees](#worktrees) says what it does and
+  costs, including that a checkout git is too slow for is skipped for a while and
+  that only the log says so. Under **Hints**, **Show them again** brings
   back every hint you sent away.
 - **Appearance**: **Theme**: **Dark**, the palette this window has always
   drawn in; **Light**; or **Follow system**, which changes with this

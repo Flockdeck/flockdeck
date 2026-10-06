@@ -954,6 +954,37 @@ textarea:focus-visible {
 .pane-git .ahead { color: var(--ok); }
 .pane-git .behind { color: var(--exited); }
 .pane-git .late { color: var(--fg-dim); font-style: italic; }
+/* The conflict radar's chip. In the plain text colour on a quiet outline: the
+ * status colours keep meaning what the agent is doing, so a conflict does not
+ * borrow one. It gives way to the pane name as the header narrows, as the
+ * detail does. */
+.pane-conflict {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0 5px;
+  background: var(--bg-active);
+}
+.pane-conflict:empty { display: none; }
+.pane-conflict[role="button"] { cursor: pointer; }
+.pane-conflict:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The list behind the chip: beside it, over whatever is there, above the tips. */
+.conflict-pop {
+  position: fixed; z-index: 80; max-width: min(420px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto;
+  padding: 10px 12px; background: var(--bg-overlay); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow-2); color: var(--fg); font-size: 12px; line-height: 1.45;
+}
+.conflict-pop:focus { outline: none; }
+.cp-head { font-weight: 600; margin-bottom: 6px; }
+.cp-name { font-weight: 600; }
+.cp-files { margin: 2px 0 8px 16px; padding: 0; font: 11px var(--mono); overflow-wrap: anywhere; }
+.cp-more { color: var(--fg-dim); list-style: none; margin-left: -16px; }
+.cp-note { color: var(--fg-dim); margin-top: 6px; }
 /* What the pane is costing the machine. It is glanceable detail rather than
  * identity, so it is the first thing in the header to give up its width: a
  * high shrink factor lets it clip away in a three-way split while the pane
@@ -1539,6 +1570,11 @@ textarea:focus-visible {
 .fan-note b { color: var(--fg); font-weight: 600; }
 .fan-note.warn { border-color: var(--waiting-line); background: var(--waiting-subtle); }
 .fan-note.warn b { color: var(--waiting); }
+
+/* The baton dialog: the baton as text to edit, then where it goes. */
+.bt-text { min-height: 280px; margin-bottom: 12px; }
+.bt-task, .bt-branch { margin: 0 0 10px; }
+.bt-scrub { margin-bottom: 16px; }
 
 /* The model for every task, and on its right what routing made of them. */
 .fo-model { flex-wrap: wrap; margin: 0 0 4px; font-size: inherit; }
