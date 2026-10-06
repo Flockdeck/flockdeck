@@ -1239,3 +1239,41 @@ func TestThePrivacyPolicyDisclosesDownloadAccessLogs(t *testing.T) {
 		t.Error("trust.html does not mention the download access logs")
 	}
 }
+
+// The site describes Flockdeck Remote as opening your own Flockdeck window
+// from a paired device through the relay. A payment reviewer reading the home
+// page, or a visitor reading the terms, must not find it described as a
+// tunnel, a proxy or a VPN, so those words stay out of the pages. The terms
+// say once what the relay is not, and are the only page allowed to.
+func TestRemoteIsDescribedAsAnAddOnNotATunnel(t *testing.T) {
+	_, pages := generate(t)
+	banned := []string{"from anywhere", "no ports", "no port ", "vpn", "tunnel", "terminal traffic", "reaches only flockdeck", "no remote control", "no shell access"}
+	for _, name := range []string{"index.html", "trust.html", "privacy.html", "refunds.html", "terms.html"} {
+		l := strings.ToLower(strings.Join(strings.Fields(pages[name]), " "))
+		if name == "terms.html" {
+			// The one negating sentence.
+			l = strings.Replace(l, "work as a vpn or proxy", "", 1)
+		}
+		for _, b := range banned {
+			if strings.Contains(l, b) {
+				t.Errorf("%s contains %q", name, b)
+			}
+		}
+		if strings.Contains(l, "proxy") {
+			t.Errorf("%s contains \"proxy\"", name)
+		}
+	}
+	terms := strings.Join(strings.Fields(pages["terms.html"]), " ")
+	for _, want := range []string{
+		"open your own Flockdeck window from a paired phone, tablet or browser, through Flockdeck's relay",
+		"Flockdeck is software, not a support or remote-assistance service",
+		"the relay does not route anyone's general internet traffic, hide IP addresses, or work as a VPN or proxy",
+	} {
+		if !strings.Contains(terms, want) {
+			t.Errorf("the terms no longer say %q", want)
+		}
+	}
+	if !strings.Contains(strings.Join(strings.Fields(pages["refunds.html"]), " "), "the Flockdeck Remote subscription") {
+		t.Error("the refund policy does not name the Flockdeck Remote subscription")
+	}
+}
