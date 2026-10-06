@@ -37,8 +37,9 @@ it.
   [Keyboard shortcuts](#shortcuts) groups them, each with a button that
   records the next key you press as its new binding; **Reset** puts one back,
   and **Reset every shortcut to its default** puts all of them back. Two
-  actions can never share a chord: giving one an action's binding takes it
-  from whichever had it. This is a different thing from your terminal tool's
+  actions can never share a chord: recording a chord another action has is
+  refused, with a message naming that action, and the old binding stays until
+  you clear or change it. This is a different thing from your terminal tool's
   own keybindings (Claude Code's `~/.claude/keybindings.json`, say), which
   remaps keystrokes inside a pane; this remaps the window around it, before a
   pane ever sees the keystroke.
