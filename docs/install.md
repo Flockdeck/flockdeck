@@ -129,8 +129,9 @@ loaded. A build you made yourself (stamped `dev` by `go build`, or by
 ## Uninstalling
 
 If Flockdeck Remote is on, remove this machine from its relay first with
-`flockdeck remote remove`, so the relay forgets it. Then quit Flockdeck and
-delete it:
+`flockdeck remote remove`, so the relay forgets it. That leaves your account on
+the relay; `flockdeck remote delete-account` erases it instead. Then quit
+Flockdeck and delete it:
 
 - Linux: `~/.local/bin/flockdeck`, with `flockdeck.desktop` and `flockdeck.png`
   under `~/.local/share/applications` and `~/.local/share/icons`.

@@ -48,13 +48,17 @@ full Flockdeck window, terminals included, through Flockdeck's relay. It costs Â
 month after a 30-day trial. The desktop app is free and never needs it.
 
 ```sh
-flockdeck remote enable   # enrol this machine with the relay
-flockdeck remote pair     # a one-time link and QR code for a device
+flockdeck remote enable          # enrol this machine with the relay
+flockdeck remote pair            # a one-time link and QR code for a device
+flockdeck remote remove          # take this machine off; the account stays
+flockdeck remote delete-account  # erase the account, its machines and devices
 ```
 
 This machine connects out to the relay and listens for nothing from the network.
 The [Flockdeck Remote page](internal/help/pages/remote.md) says what the relay can
-see and how pairing, notifications and unpairing work.
+see and how pairing, notifications, unpairing and deleting an account work. A
+relay that checks email prints a confirmation code that `flockdeck remote enable`
+asks you to enter on the page opened from the emailed link.
 
 ## Documentation
 
