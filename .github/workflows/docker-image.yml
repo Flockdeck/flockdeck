@@ -106,7 +106,7 @@ jobs:
           echo "tags=$tags" >> "$GITHUB_OUTPUT"
 
       # Multi-arch: amd64 and arm64, so a self-hoster on a Pi or an arm64
-      # VPS (the README's "a NAS or a cheap VPS" self-hosting pitch) gets a
+      # VPS (docs/self-hosting.md's "a NAS or a cheap VPS" case) gets a
       # native image rather than emulation.
       - name: Build and push
         id: build

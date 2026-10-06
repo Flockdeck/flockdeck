@@ -29,6 +29,11 @@ func TestNothingPromisesTheSharedRelayStaysFree(t *testing.T) {
 	for _, s := range promisesTheRelayStaysFree(string(readme)) {
 		t.Errorf("the README promises what the shared relay will cost: %q", s)
 	}
+	for name, text := range docPages(t) {
+		for _, s := range promisesTheRelayStaysFree(text) {
+			t.Errorf("%s promises what the shared relay will cost: %q", name, s)
+		}
+	}
 }
 
 // pricePromises are the ways a sentence can promise what something will cost

@@ -3,7 +3,8 @@
 This is the reference for the transcript files Flockdeck writes: when a pane's
 **Record** toggle is on, and when a pane's transcript is exported with *Export
 transcript* or `flockdeck recordings export`. For turning it on and what it is
-for, see *Recording a pane* in the in-app help (`F1`) or the README. This page
+for, see *Recording a pane* in the in-app help (`F1`), whose source is
+[internal/help/pages/recording.md](../internal/help/pages/recording.md). This page
 is about the files.
 
 **A transcript is made from the conversation the agent stored itself** (for

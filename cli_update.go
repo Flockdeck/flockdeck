@@ -377,7 +377,7 @@ func shownVersion() string {
 // recorded in the build.
 //
 // A release is stamped by its build, but `go install
-// github.com/jmwri/flockdeck@latest`, the README's first way to install, stamps
+// github.com/jmwri/flockdeck@latest`, one of the ways docs/install.md gives to install, stamps
 // nothing, and so does a plain go build: the program called itself `dev`,
 // which is no use in a bug report, although Go records the version it was
 // built from — the module's, or since Go 1.24 a pseudo-version taken from the

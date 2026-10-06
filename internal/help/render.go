@@ -173,7 +173,7 @@ func expandPlaceholders(src, open string, render func(id string) (string, error)
 func keyTable(rows []Key) string { return keyTableWith(rows, kbd) }
 
 // keyTableWith renders the same table with the binding wrapped however the
-// destination wants it: <kbd> for the help pages, backticks for the README.
+// destination wants it: <kbd> for the help pages, backticks for docs/keys.md.
 func keyTableWith(rows []Key, wrap func(string) string) string {
 	var b strings.Builder
 	b.WriteString("| Keys | Action |\n| --- | --- |\n")
@@ -187,8 +187,8 @@ func keyTableWith(rows []Key, wrap func(string) string) string {
 	return b.String()
 }
 
-// ShortcutsMarkdown renders the whole key table as the README carries it. The
-// README is the one copy of this that is not rendered at run time, so a test
+// ShortcutsMarkdown renders the whole key table as docs/keys.md carries it.
+// That file is the one copy of this that is not rendered at run time, so a test
 // compares the two and can rewrite it.
 func ShortcutsMarkdown() string {
 	var b strings.Builder
@@ -196,7 +196,7 @@ func ShortcutsMarkdown() string {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString("### " + s + "\n\n")
+		b.WriteString("## " + s + "\n\n")
 		b.WriteString(keyTableWith(InSection(s), func(keys string) string { return "`" + keys + "`" }))
 	}
 	return b.String()
