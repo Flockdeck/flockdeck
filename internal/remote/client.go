@@ -222,6 +222,9 @@ func Register(ctx context.Context, relay, version string, req RegisterRequest) (
 	c := &Client{Relay: relay, Version: version}
 	var out Registration
 	if err := c.call(ctx, http.MethodPost, "/api/v1/hosts", req, &out); err != nil {
+		if req.VerificationCode != "" {
+			err = verifyError(err)
+		}
 		return nil, err
 	}
 	if out.HostID == "" || out.Token == "" {

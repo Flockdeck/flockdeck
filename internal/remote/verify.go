@@ -72,6 +72,37 @@ type VerifyEvent struct {
 // hanging.
 var ErrNeedsInteractiveVerify = errors.New("this relay needs a verified email before registering a new machine; run `flockdeck remote enable` from a terminal, which opens a browser for it")
 
+// verifyRefusal is the relay refusing a step of the email verification for a reason a person
+// can act on, said in words for them instead of as a status or the relay's JSON. It keeps the
+// APIError it came from, for errors.As.
+type verifyRefusal struct {
+	msg string
+	api *APIError
+}
+
+func (e *verifyRefusal) Error() string { return e.msg }
+func (e *verifyRefusal) Unwrap() error { return e.api }
+
+// verifyError words the refusals of the verification steps that are the person's to act on:
+// 422, the address was rejected or is blocked by the relay's email provider (use another, or
+// ask for help); 502, the email provider failed (try later); 429, too many tries (try later).
+// Any other error is returned as it is.
+func verifyError(err error) error {
+	var api *APIError
+	if !errors.As(err, &api) {
+		return err
+	}
+	switch api.Status {
+	case http.StatusUnprocessableEntity:
+		return &verifyRefusal{"the relay could not send a verification email to that address, because it was rejected or is blocked by the email provider. Use another address, or email privacy@flockdeck.ai for help", api}
+	case http.StatusBadGateway:
+		return &verifyRefusal{"the relay's email provider failed, so no verification email was sent. Nothing is wrong with your address; try again later", api}
+	case http.StatusTooManyRequests:
+		return &verifyRefusal{"too many verification attempts from here. Wait a while, then try again", api}
+	}
+	return err
+}
+
 // verifyPollInterval is how often VerifyEmail checks whether the email has
 // been confirmed yet. A person clicking a link in their inbox is not
 // bothered by a couple of seconds' delay in noticing it, and it is a small,
@@ -130,6 +161,13 @@ func VerifyEmail(ctx context.Context, relay, version string, onEvent func(Verify
 					onEvent(VerifyEvent{Err: err})
 					return "", err
 				}
+				// An address the email provider turned down is not accepted
+				// by waiting longer.
+				if errors.As(err, &api) && api.Status == http.StatusUnprocessableEntity {
+					err = verifyError(err)
+					onEvent(VerifyEvent{Err: err})
+					return "", err
+				}
 				continue
 			}
 			if st.Verified {
@@ -152,7 +190,7 @@ func beginVerification(ctx context.Context, relay, version string) (*startVerifi
 		return nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, verifyError(err)
 	}
 	if out.Code == "" || out.VerifyURL == "" {
 		return nil, errors.New("the relay started a registration but sent back no code or no verification URL")
