@@ -1008,7 +1008,8 @@
     if (!r && remoteRoster && !remoteRoster.enabled) {
       body.append(el("div", "fan-hint",
         "Flockdeck Remote opens this window from a paired phone, tablet or browser, through " +
-        "Flockdeck's optional relay. This machine connects out to the relay and listens for nothing from the network."));
+        "Flockdeck's optional relay. A paired device gets the full window with full control, terminals included. " +
+        "This machine connects out to the relay and listens for nothing from the network."));
       body.append(remoteWindow ? el("p", "fan-hint", DESK_ONLY_REMOTE) : remoteEnableForm());
       return;
     }
@@ -14260,7 +14261,7 @@
     },
     {
       id: "remote-access",
-      text: "Flockdeck Remote…, in the command palette, pairs a phone or another desktop through a relay, so you can see or answer a waiting agent away from this machine.",
+      text: "Flockdeck Remote…, in the command palette, pairs a phone or another desktop through a relay. The paired device gets the full window with full control, terminals included, so you can answer a waiting agent away from this machine.",
       page: "remote",
       when: () => !remoteWindow,
     },
