@@ -1,10 +1,10 @@
 # Terms of service
 
-*Last updated: 30 September 2026*
+*Last updated: 6 October 2026*
 
 These terms cover the Flockdeck relay at remote.flockdeck.ai and this website.
 They are an agreement between you and Jim Wright, an individual based in the
-United Kingdom ("we"). By turning on remote access with the shared relay, you
+United Kingdom ("we"). By turning on Flockdeck Remote with the shared relay, you
 agree to them. If you subscribe, [The subscription](#the-subscription) applies
 to you as well.
 
@@ -18,18 +18,22 @@ these terms.
 
 ## The shared relay
 
-Remote access through the shared relay starts with a free trial, and after it
-is a subscription. The relay connects your devices to Flockdeck running on
-your own desktops, so that you can use your desktops from anywhere. The
-desktop app itself is free, and never needs the relay.
+Flockdeck Remote through the shared relay starts with a free trial, and after it
+is a subscription. Flockdeck Remote lets you open your own Flockdeck window from
+a paired phone, tablet or browser, through Flockdeck's relay. Flockdeck is
+software, not a support or remote-assistance service, and the relay does not
+route anyone's general internet traffic, hide IP addresses, or work as a VPN or
+proxy. The desktop app itself is free, and never needs the relay.
 
 - **Your desktops, your responsibility.** You are responsible for what runs on
   your desktops, for the devices you pair, and for keeping them secure. Anyone
-  holding one of your paired devices can reach your desktops through it. If a
-  device is lost, remove it.
-- **Terminal traffic is end-to-end encrypted; the rest isn't.** The relay
-  carries your keystrokes and a terminal's output without being able to read
-  them. It does decrypt, to route them, the state of your panes (status,
+  holding one of your paired devices can reach your desktops through it. A
+  paired device can do anything you can do in Flockdeck, including open
+  terminals and shell panes. If a device is lost, remove it.
+- **Terminal input and output are end-to-end encrypted once the device and
+  the desktop have each registered a key; the rest isn't.** From then on the
+  relay carries your keystrokes and a terminal's output without being able to
+  read them. Until then a terminal is protected by TLS only. It does decrypt, to route them, the state of your panes (status,
   spend, usage limits, which model routing chose), the conversation view of a
   pane and what you search in it, and photos you attach, as the
   [privacy policy](privacy.html) explains. Don't send anything through it you
@@ -40,11 +44,11 @@ desktop app itself is free, and never needs the relay.
 ## The free trial
 
 - **Thirty days,** from when your account is made: when the first of your
-  desktops turns remote access on. An account made before subscriptions began
+  desktops turns Flockdeck Remote on. An account made before subscriptions began
   has its thirty days from then.
 - **No payment details** are needed to start it, and **one trial** comes
   with each account.
-- **When it ends,** remote access stops until you subscribe. The desktop app
+- **When it ends,** Flockdeck Remote stops until you subscribe. The desktop app
   goes on working exactly as before; only reaching it through the relay
   stops.
 - **Nothing is deleted straight away.** Your account, desktops and devices
@@ -54,7 +58,7 @@ desktop app itself is free, and never needs the relay.
 
 ## The subscription
 
-- **What it includes.** Remote access through the shared relay for your
+- **What it includes.** Flockdeck Remote through the shared relay for your
   account's desktops and devices, up to the limits the relay shows, and
   notifications to your devices when an agent is waiting on you. One price
   covers the whole account.
@@ -70,10 +74,10 @@ desktop app itself is free, and never needs the relay.
   then.
 - **Cancelling.** You can cancel at any time from Devices on a paired phone
   or browser, with Manage subscription, which opens Paddle's customer portal.
-  Remote access carries on until the end of the period you have paid for, and
+  Flockdeck Remote carries on until the end of the period you have paid for, and
   then stops as it does at the end of a trial: nothing is deleted for 90 days,
   and then everything is.
-- **A payment that fails.** Paddle tries again for a while. Remote access
+- **A payment that fails.** Paddle tries again for a while. Flockdeck Remote
   carries on for up to 14 days after the renewal date while it does; if the
   payment is never made, the subscription ends.
 - **Your right to cancel.** Anyone can cancel within 14 days of first
@@ -100,15 +104,15 @@ Don't use the relay to:
 - reach, or try to reach, a desktop, device or account that isn't yours;
 - attack, probe, overload or disrupt the relay or its hosting, or anyone
   else's use of it;
-- carry traffic that has nothing to do with using Flockdeck, such as using the
-  relay as a general-purpose proxy or tunnel.
+- use the relay for anything other than reaching your own Flockdeck desktops,
+  for example to carry other applications' network traffic.
 
 ## Suspension and removal
 
 We may limit, suspend or remove an account, desktop or device that breaks
 these terms or that puts the relay or its users at risk. Where it's
 reasonable, we'll say why. You can stop using the relay at any time by turning
-remote access off, which deletes your data from it.
+Flockdeck Remote off, which deletes your data from it.
 
 ## Availability and changes
 

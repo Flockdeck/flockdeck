@@ -4,12 +4,15 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Flockdeck",
-  "description": "A desktop app that runs Claude Code, Codex, Gemini and other coding agents side by side and makes it one step to give each its own git worktree and branch, so they don't overwrite each other's files. Run it on your desk or on hardware you own, and reach it from your phone or laptop with no port opened.",
+  "description": "A desktop app that runs Claude Code, Codex, Gemini and other coding agents side by side and makes it one step to give each its own git worktree and branch, so they don't overwrite each other's files. Free, with its source available. An optional hosted relay lets you use your own Flockdeck from your phone.",
   "url": {{ .URL }},
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Windows, macOS, Linux",
   "license": "https://polyformproject.org/licenses/noncommercial/1.0.0",
-  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  "offers": [
+    { "@type": "Offer", "name": "Flockdeck app", "price": "0", "priceCurrency": "USD" },
+    { "@type": "Offer", "name": "Flockdeck Remote, an optional hosted relay", "description": "Free for 30 days, then 5 GBP a month.", "price": "5", "priceCurrency": "GBP" }
+  ]
 }
 </script>
 </head>
@@ -25,9 +28,9 @@
   <p class="lede">Flockdeck runs Claude Code, Codex, Gemini or your own model side
      by side, and makes it one step to give each its own git worktree and
      branch, so parallel agents don't undo each other's edits. Run it on your desk, or on hardware you already
-     own (a spare machine, a NAS, a cheap VPS), and reach it from your phone
-     with no port opened and no password. The app is free and source-available;
-     remote access is free for 30 days, then £5 a month.</p>
+     own (a spare machine, a NAS, a cheap VPS), and use your own Flockdeck from your phone
+     through an optional hosted relay (free for 30 days, then £5 a month).
+     Pair with a QR code. The app is free and source-available.</p>
   <p class="cta">
     <a class="button" href="#install">Install Flockdeck</a>
     <a class="button ghost" href="{{ .Repo }}">Source on GitHub</a>
@@ -126,10 +129,9 @@
       <span class="g">self-hosted · remote</span>
       <h3>Runs on hardware you control</h3>
       <p>Free to run headless on a spare machine, a home server or a VPS
-         (<code>-no-window</code> needs no browser there either). Reach it
-         from your phone or laptop through the relay: pair with a QR code, no
-         port opened, no password. Remote access is free for 30 days, then
-         £5 a month.</p>
+         (<code>-no-window</code> needs no browser there either). Use it
+         from your phone or laptop through the optional relay: pair with a QR
+         code. Flockdeck Remote is free for 30 days, then £5 a month.</p>
     </div>
     <div class="card">
       <span class="g">agents · models</span>
@@ -265,12 +267,12 @@
      commands that turn it on. The relay's address is left out, since it is
      still free to change. -->
 <section class="band" id="remote">
-  <h2>Check in on your agents from anywhere.</h2>
+  <h2>Open your Flockdeck from your phone or browser.</h2>
   <p>Leave Flockdeck running at your desk, or headless on a server you
-     own, and pick it up from your laptop, tablet or phone. See
-     <strong>which agent is waiting</strong> and unblock it from wherever you
-     are.</p>
-  <div class="relay" role="group" aria-label="A paired device reaches the desktop through the Flockdeck relay, which the desktop connects out to">
+     own. Pick it up from a paired phone, tablet or browser: the same window,
+     panes and terminals as at your desk. See <strong>which agent is
+     waiting</strong> and unblock it there.</p>
+  <div class="relay" role="group" aria-label="Your phone, Flockdeck's relay and your desktop">
     <div class="relay-node">
       <span class="g">phone · tablet · laptop</span>
       <div class="relay-tally"><span><span aria-hidden="true" class="dot waiting">▲</span> 1 waiting</span> <span><span aria-hidden="true" class="dot working">●</span> 2 working</span></div>
@@ -279,7 +281,7 @@
     <div class="relay-link" aria-hidden="true"><span class="arrow">⟷</span><span class="t">TLS</span></div>
     <div class="relay-node hub">
       <span class="g">Flockdeck relay</span>
-      <div class="relay-tally">TLS in, TLS out; terminals end-to-end encrypted</div>
+      <div class="relay-tally">TLS in, TLS out; terminals end-to-end encrypted once keys are registered</div>
       <span class="t">hosted for you</span>
     </div>
     <div class="relay-link" aria-hidden="true"><span class="arrow">⟵</span><span class="t">outbound · TLS</span></div>
@@ -296,9 +298,9 @@
   <div class="grid">
     <div class="card">
       <span class="g">outbound only</span>
-      <h3>No ports. No VPN.</h3>
-      <p>Your desktop connects out to the relay, so there's nothing to open on
-         your router and nothing exposed to the internet.</p>
+      <h3>Outbound only</h3>
+      <p>Your desktop connects out to the relay, so you open nothing on your
+         router, and your machine listens for nothing from the network.</p>
     </div>
     <div class="card">
       <span class="g">link · QR code</span>
@@ -318,8 +320,9 @@
     <div class="card">
       <span class="g">isolation</span>
       <h3>Only your desktops</h3>
-      <p>Your devices reach your desktops and nobody else's. Terminal traffic
-         is end-to-end encrypted on top of the TLS connection. The rest, such
+      <p>Your devices open your own Flockdeck and nobody else's. Terminal input
+         and output are end-to-end encrypted on top of the TLS connection once
+         the device and the desktop have each registered a key. The rest, such
          as a pane's state, its conversation view and photos, still reaches the
          relay decrypted. <a href="trust.html">Trust &amp; privacy</a> spells
          out what is and isn't encrypted.</p>
@@ -344,7 +347,7 @@
      or from any terminal, then pair your phone:</p>
   <pre><code>flockdeck remote enable
 flockdeck remote pair     <span class="c"># shows a QR code to scan</span></code></pre>
-  <p class="aside">Remote access is off until you
+  <p class="aside">Flockdeck Remote is off until you
      turn it on. Turn it off and your desktop is removed from the relay.</p>
   <!-- Announced, not shipped: it says what is coming, that it is for companies
        and under licence, and nothing about price or date, which are not
@@ -533,7 +536,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
       <p>Flockdeck runs on your computer and doesn't collect your code. Your
          agents talk to their own providers, just as they would in a terminal.
          Flockdeck's own connections are dl.flockdeck.ai to check for updates,
-         with GitHub as a mirror; the relay, if you turn on remote access;
+         with GitHub as a mirror; the relay, if you turn on Flockdeck Remote;
          your git remotes, when you push, pull or fetch, and GitHub through the
          <code>gh</code> command if you use its features; each model provider
          you've given a key, to check the key and list its models; and
@@ -560,11 +563,11 @@ make package    <span class="c"># archives for all six platforms</span></code></
          a subscription the pane leads with your five-hour and weekly limits
          instead. Flockdeck works all of it out on your machine and sends it
          nowhere, except to your own paired devices with the rest of your
-         panes if you turn on remote access.</p>
+         panes if you turn on Flockdeck Remote.</p>
     </details>
     <details>
       <summary>Can I use it from my phone?</summary>
-      <p>Yes. Turn on remote access and pair your phone with a QR code. A
+      <p>Yes. Turn on Flockdeck Remote and pair your phone with a QR code. A
          Claude Code pane, or Flockdeck's own chat client, opens as a
          conversation rather than a raw terminal: Markdown replies, diffs,
          and a question or permission prompt answered with a tap, even
@@ -574,8 +577,9 @@ make package    <span class="c"># archives for all six platforms</span></code></
          conversation, and start a new agent without going to the desk.
          Everything goes over TLS. On top of that, what you type into a
          terminal and what the agent prints back is end-to-end encrypted
-         between your desktop and your device, so the relay passes it on
-         without being able to read it. The rest is not: the chat view of a
+         between your desktop and your device once both have registered a
+         key, so the relay passes it on without being able to read it. Until
+         then it is protected by TLS only. The rest is not: the chat view of a
          conversation, what you search for, photos you attach, and each pane's
          status, spend and usage all reach the relay decrypted. You can also
          turn on notifications, so your phone tells you when an agent needs
@@ -596,7 +600,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
     </details>
     <details>
       <summary>How do I uninstall it?</summary>
-      <p>If you turned on remote access, run <code>flockdeck remote disable</code>
+      <p>If you turned on Flockdeck Remote, run <code>flockdeck remote disable</code>
          first so the relay forgets this machine. Then quit Flockdeck and remove it
          the way you installed it: through Installed apps for the Windows
          installer, or with <code>apt</code> or <code>dnf</code> for the Linux

@@ -1,6 +1,6 @@
 # Trust & privacy
 
-*Last updated: 2 October 2026*
+*Last updated: 6 October 2026*
 
 This is the plain-language version of Flockdeck's privacy story: what's
 collected, what isn't, and how that compares to what else is on the market.
@@ -16,9 +16,9 @@ because there is nothing to turn off:
   desktop app, on the free tier or any other.
 - **Spend and usage estimates are worked out on your own machine**, from what
   your agents report about their own usage, and go no further than your own
-  paired devices, and only if you turn on remote access.
+  paired devices, and only if you turn on Flockdeck Remote.
 - **The relay never sees your API keys**, unless you type one in yourself
-  through remote access, and never sees the local token the app uses on your
+  through Flockdeck Remote, and never sees the local token the app uses on your
   own machine.
 - **Push notifications are end-to-end encrypted.** Your desktop encrypts each
   one with the receiving device's own keys before it leaves your computer;
@@ -59,11 +59,12 @@ is available, so you can read it and check.
 
 ## What is, and isn't, end-to-end encrypted, said plainly
 
-Your terminal traffic through remote access is now
-end-to-end encrypted the way push notifications are: your terminal output and
-what you type are encrypted with keys the relay hands out but never holds, so
-the relay carries that traffic to your other devices without being able to
-read it, even on a relay you run yourself.
+Your terminal input and output through Flockdeck Remote are
+end-to-end encrypted, once the device and the desktop have each registered a
+key. Your terminal output and what you type are then encrypted with keys the
+relay hands out but never holds, so the relay carries them to your other
+devices without being able to read them, even on a relay you run yourself.
+Until both have registered, they are protected by TLS only.
 
 The rest still isn't: what each pane's agent has spent, its usage limits,
 which model routing chose for it, the conversation view of a pane, what you
@@ -82,7 +83,7 @@ own infrastructure: see [Enterprise](./#enterprise).
 
 ## The billing service
 
-Remote access through the shared relay is a subscription after a 30-day free
+Flockdeck Remote through the shared relay is a subscription after a 30-day free
 trial, sold through Paddle (see the [FAQ](./#faq)). The relay learns only an
 account's plan and the date it's paid until, through the billing service's own
 connection to it, never an email address, a name or a country. That data

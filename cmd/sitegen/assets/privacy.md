@@ -1,6 +1,6 @@
 # Privacy policy
 
-*Last updated: 2 October 2026*
+*Last updated: 6 October 2026*
 
 Flockdeck is made by Jim Wright, an individual based in the United Kingdom.
 This policy explains what personal data is involved when you use the
@@ -18,12 +18,12 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
   keys stay on your machine, unless you use a built-in API agent, remote
   access, or turn on one of the two optional TypeSafe features, as described
   below.
-- **The relay is optional.** It is used only if you turn on remote access. It
+- **The relay is optional.** It is used only if you turn on Flockdeck Remote. It
   keeps what it needs to connect your devices to your desktops: names, random
   identifiers, timestamps, public encryption keys, and your
   account's plan. It keeps no email address, password, real name or IP
   address.
-- **If you pay for remote access,** a separate billing service keeps the
+- **If you pay for Flockdeck Remote,** a separate billing service keeps the
   email address and country you give Paddle's checkout, your plan and a
   record of each payment, for as long as UK tax records must be kept. No
   email address is kept for anyone who does not pay, and the relay keeps
@@ -55,7 +55,7 @@ The same folder also holds:
   again joins it;
 - the settings it hands each Claude Code pane, which name that address;
 - updates it has downloaded and not yet installed;
-- if you turn on remote access, the relay's address, the random identifiers
+- if you turn on Flockdeck Remote, the relay's address, the random identifiers
   of this desktop and its account, the name you gave the desktop, and the
   token it signs in to the relay with;
 - a photo you attach to a message from a paired phone, removed after about a
@@ -82,7 +82,7 @@ To show what each agent has spent, the app reads what the agents report about
 their own usage on your computer: the tokens, cost estimate and usage limits
 Claude Code hands its status line, and the token counts of the built-in API
 agents. It keeps those figures in memory only. Flockdeck sends them nowhere
-itself; if you turn on remote access, they are part of the state of your
+itself; if you turn on Flockdeck Remote, they are part of the state of your
 panes that your own paired devices receive through the relay, as
 [What passes through](#what-passes-through) describes.
 
@@ -99,7 +99,7 @@ The app makes these network connections of its own.
   dl.flockdeck.ai keeps access logs, as [Downloads and update
   checks](#downloads-and-update-checks) describes. You can turn update checks
   off in Settings or with `FLOCKDECK_UPDATE=off`.
-- **The relay**, only after you turn on remote access. See below.
+- **The relay**, only after you turn on Flockdeck Remote. See below.
 - **Your git remotes**, when you push, pull or fetch from the review panel.
   These are the remotes your repository already has.
 - **Model providers**, only if you use a built-in API agent (Claude API,
@@ -143,9 +143,9 @@ Gemini CLI, and opens its window in a browser already installed on your
 computer. Those programs make their own connections under their own terms and
 privacy policies. Flockdeck does not control them.
 
-## The relay (remote access)
+## The relay (Flockdeck Remote)
 
-Remote access lets you use your desktop's Flockdeck from another device, such
+Flockdeck Remote lets you use your desktop's Flockdeck from another device, such
 as a phone, tablet or laptop, through the relay. It is off until you turn it
 on.
 
@@ -160,7 +160,7 @@ For each account:
 
 The account is not linked to an email address, a name or a password, even
 when you pay: the relay learns only your plan and its date from the billing
-service, as [Paying for remote access](#paying-for-remote-access) describes.
+service, as [Paying for Flockdeck Remote](#paying-for-flockdeck-remote) describes.
 
 For each desktop you connect:
 
@@ -186,9 +186,10 @@ is never used expires after ten minutes, and is deleted within ten more.
 ### What passes through
 
 Your devices and your desktop reach the relay over encrypted connections
-(TLS). Terminal traffic (what you type and what an agent prints back) is
-also **end-to-end encrypted** on top of that: the relay carries it but
-cannot read it. The state of your panes still passes through the relay in
+(TLS). Terminal input and output (what you type and what an agent prints back) are
+also **end-to-end encrypted** on top of that, once the device and the desktop
+have each registered a key: the relay then carries them but cannot read them.
+Until both have, they are protected by TLS only. The state of your panes still passes through the relay in
 the clear, so it can be seen there: what each pane's agent has spent, its
 usage limits, and which model routing chose for it. End-to-end encryption
 protects your terminal's contents from an honestly-run relay, including one
@@ -199,7 +200,7 @@ phone and in the desktop's Remote access settings), and comparing them by eye
 catches a swapped key.
 
 The relay does not record, store or log the content of that traffic.
-It never receives your API keys, unless you type one in through remote access.
+It never receives your API keys, unless you type one in through Flockdeck Remote.
 Where a pane opens as a conversation rather than a terminal (a Claude Code
 pane, or Flockdeck's own chat client), the conversation view is **not**
 end-to-end encrypted: its messages, what you search it for and the matches it
@@ -254,13 +255,13 @@ in memory.
 
 - **A paired device** is deleted when you remove it, when it signs out, or 30
   days after it was last used.
-- **A desktop** is kept until you turn remote access off on it or remove it
+- **A desktop** is kept until you turn Flockdeck Remote off on it or remove it
   from another of your devices. One that never connects to the relay
   is removed after seven days, and one not heard from for 30 days is removed
   the same way, whether or not it ever connected. When the last desktop in
   an account is removed, the account and all its devices go with it.
 - **An account whose free trial has ended, or whose subscription has
-  lapsed,** can no longer be used for remote access. It is kept as it was for
+  lapsed,** can no longer be used for Flockdeck Remote. It is kept as it was for
   90 days, so that subscribing restores it; after that, the account, its
   desktops, its devices and its codes are deleted.
 - **Pairing codes** expire after ten minutes.
@@ -269,14 +270,14 @@ in memory.
   exists, or when the relay's notification key changes. Turning
   notifications off on the device deletes it too.
 
-To delete everything the relay holds about you, turn remote access off on each
+To delete everything the relay holds about you, turn Flockdeck Remote off on each
 of your desktops (`flockdeck remote disable`). If a desktop can no longer be
 reached, remove it from one of your paired devices, or email us.
 
 ### Cookies
 
 The relay sets a cookie on a device you pair, that keeps it signed in. It is
-strictly necessary for remote access to work, lasts up to 30 days, and is
+strictly necessary for Flockdeck Remote to work, lasts up to 30 days, and is
 removed when you sign out. Opening a desktop's own window (**Full
 interface**) sets a second cookie, `__Host-fdr_desk`, scoped to that
 desktop's own address alone, so a page from one desktop cannot use another's
@@ -299,9 +300,9 @@ it. None of this is used for tracking, or shared with anyone. The
 billing service sets no cookies; Paddle's checkout and customer portal are on
 Paddle's own site, under Paddle's policy.
 
-## Paying for remote access
+## Paying for Flockdeck Remote
 
-Remote access through the shared relay comes with a free trial, and after it
+Flockdeck Remote through the shared relay comes with a free trial, and after it
 is a subscription. Nothing below applies until you subscribe: an account on
 its free trial is known only to the relay, as described above.
 
@@ -393,7 +394,7 @@ Sponsoring buys no features, support or priority.
 
 ## Why this data is used (lawful basis)
 
-- **To provide remote access,** which you asked for: the account, desktop and
+- **To provide Flockdeck Remote,** which you asked for: the account, desktop and
   device records, the sign-in cookie, and the notification subscription of a
   device you turned notifications on for. The basis is performance of a
   contract (the relay's [terms](terms.html)).
