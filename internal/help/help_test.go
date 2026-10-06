@@ -367,6 +367,27 @@ func TestKeysKeepTheirLabelAndNameTheSurfaces(t *testing.T) {
 	}
 }
 
+// Someone who remembers the old name types it into the help search, which
+// matches every word against a page's title and text. The sentence on the
+// Remote page that names the old name is what makes that work.
+func TestSearchingTheOldNameFindsTheRemotePage(t *testing.T) {
+	pages, err := Pages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pages {
+		if p.Slug != "remote" {
+			continue
+		}
+		hay := strings.ToLower(strings.Join(strings.Fields(p.Title+" "+p.Text), " "))
+		if !strings.Contains(hay, "remote access") {
+			t.Error("searching the help for \"remote access\" does not find the Remote page")
+		}
+		return
+	}
+	t.Fatal("no remote page")
+}
+
 // The Settings row for the conflict radar is three sentences. What it used to
 // spell out lives on the Worktrees page, and has to stay there.
 func TestWorktreesPageHoldsTheConflictRadarDetail(t *testing.T) {
