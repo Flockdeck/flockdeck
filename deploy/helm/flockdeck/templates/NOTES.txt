@@ -39,8 +39,8 @@ token both change on every restart of flockdeck itself; the Service's own
 address above does not.
 
 To reach it from a paired phone or browser without a port-forward, use
-Flockdeck Remote, the optional add-on. The pod connects out to the relay and
-listens for nothing from the network, so the cluster needs no inbound access.
+Flockdeck Remote, the optional add-on. The pod connects out to the relay, so
+this way needs no Ingress and no port-forward.
 Enrol this instance with a relay once, the same way you would run any other
 one-off admin command against a pod:
 
