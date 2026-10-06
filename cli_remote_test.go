@@ -44,6 +44,28 @@ type fakeRelayAPI struct {
 	requireVerify bool
 	verifyCode    string
 	verified      bool
+
+	// matchCode, when set, is the match code register/start hands back, as a
+	// relay that makes them does. startStatus and startError make it refuse,
+	// and hostsReply, hostsStatus and hostsError shape the answer to a
+	// registration: a join, or a refusal.
+	matchCode   string
+	startStatus int
+	startError  string
+	hostsReply  string
+	hostsStatus int
+	hostsError  string
+	// account is the relay's GET /api/v1/host/account answer, accountStatus and
+	// accountError make the account calls refuse, and deletes counts the
+	// DELETEs that went through.
+	account       string
+	accountStatus int
+	accountError  string
+	deletes       int
+	// deleteStatus and deleteError make only the DELETE refuse, as a relay does
+	// for a subscription taken out after the preview.
+	deleteStatus int
+	deleteError  string
 }
 
 func (f *fakeRelayAPI) setVerified(v bool) {
@@ -102,8 +124,20 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 			_, _ = io.WriteString(w, `{"error":"this relay does not require a verified email to register; register directly with `+"`flockdeck remote enable`"+`"}`)
 			return
 		}
+		f.mu.Lock()
+		matchCode, startStatus, startError := f.matchCode, f.startStatus, f.startError
+		f.mu.Unlock()
+		if startStatus != 0 {
+			w.WriteHeader(startStatus)
+			_, _ = io.WriteString(w, `{"error":"`+startError+`"}`)
+			return
+		}
+		match := ""
+		if matchCode != "" {
+			match = `,"matchCode":"` + matchCode + `"`
+		}
 		w.WriteHeader(http.StatusCreated)
-		_, _ = io.WriteString(w, `{"code":"`+verifyCode+`","verifyUrl":"`+f.URL+`/auth/verify#`+verifyCode+`","expiresAt":"2030-01-01T00:30:00Z"}`)
+		_, _ = io.WriteString(w, `{"code":"`+verifyCode+`","verifyUrl":"`+f.URL+`/auth/verify#`+verifyCode+`"`+match+`,"expiresAt":"2030-01-01T00:30:00Z"}`)
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/v1/register/status" {
@@ -121,6 +155,19 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 		if requireVerify && req.Join == "" && (req.VerificationCode != verifyCode || !verified) {
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = io.WriteString(w, `{"error":"that email has not been verified yet; open the link the relay emailed you, then try again"}`)
+			return
+		}
+		f.mu.Lock()
+		reply, hostsStatus, hostsError := f.hostsReply, f.hostsStatus, f.hostsError
+		f.mu.Unlock()
+		if hostsStatus != 0 {
+			w.WriteHeader(hostsStatus)
+			_, _ = io.WriteString(w, `{"error":"`+hostsError+`"}`)
+			return
+		}
+		if reply != "" {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, strings.ReplaceAll(reply, "NAME", req.Name))
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
@@ -147,6 +194,28 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/host/devices":
 		_, _ = io.WriteString(w, `{"devices":`+devices+`,`+
 			`"hosts":[{"id":"h-desk","name":"`+selfName+`","online":true,"self":true,"url":"`+f.URL+`/h/h-desk/"}]}`)
+	case r.URL.Path == "/api/v1/host/account" && (r.Method == http.MethodGet || r.Method == http.MethodDelete):
+		f.mu.Lock()
+		account, status, msg := f.account, f.accountStatus, f.accountError
+		if status == 0 && r.Method == http.MethodDelete {
+			if f.deleteStatus != 0 {
+				status, msg = f.deleteStatus, f.deleteError
+			} else {
+				f.deletes++
+			}
+		}
+		f.mu.Unlock()
+		switch {
+		case status != 0:
+			w.WriteHeader(status)
+			_, _ = io.WriteString(w, `{"error":"`+msg+`"}`)
+		case r.Method == http.MethodDelete:
+			_, _ = io.WriteString(w, `{"deleted":true,"desktops":2,"devices":1}`)
+		case account != "":
+			_, _ = io.WriteString(w, account)
+		default:
+			_, _ = io.WriteString(w, `{"desktops":2,"devices":1,"subscribed":false,"email":"a***@example.com"}`)
+		}
 	case r.Method == http.MethodPatch && noRename:
 		// As a relay from before renaming answers: the path is one it has,
 		// for another method.
@@ -337,8 +406,8 @@ func TestRemoteLifecycle(t *testing.T) {
 	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "other"); err == nil ||
 		!strings.Contains(err.Error(), "already enabled") {
 		t.Errorf("enabling twice = %v, want it refused", err)
-	} else if !strings.Contains(err.Error(), "unpairs its devices if it is the account's only machine") {
-		t.Errorf("enabling twice = %v, want it to say what enrolling again costs", err)
+	} else if !strings.Contains(err.Error(), "which leaves the account") || strings.Contains(err.Error(), "unpairs") {
+		t.Errorf("enabling twice = %v, want it to say that removing leaves the account, and nothing of unpairing", err)
 	}
 	// A join code on an enrolled machine is asking for another account, not
 	// something with nothing to do.
@@ -439,10 +508,13 @@ func TestRemoteLifecycle(t *testing.T) {
 	if err != nil || f.saw("DELETE /api/v1/host") || reloads != 1 {
 		t.Errorf("disable = %q, %v, %d reloads, relay saw %v", out, err, reloads, f.calls)
 	}
-	for _, want := range []string{"keeps its account", "same account", "flockdeck remote remove", "30 days", "no subscription"} {
-		if !strings.Contains(strings.ReplaceAll(out, "\n", " "), want) {
+	for _, want := range []string{"stays enrolled", "same account", "flockdeck remote remove", "90 days", "no subscription", "kept while anything on it is in use"} {
+		if !strings.Contains(strings.Join(strings.Fields(out), " "), want) {
 			t.Errorf("disable does not say %q: %q", want, out)
 		}
+	}
+	if strings.Contains(out, "30 days") {
+		t.Errorf("disable still speaks of the 30-day rule, which the relay no longer has: %q", out)
 	}
 	if cfg, _ := remote.Load(); cfg == nil || !cfg.Disabled || cfg.HostID != before.HostID || cfg.Token != before.Token {
 		t.Errorf("disable left %+v, want the same enrolment turned off", cfg)
@@ -485,12 +557,25 @@ func TestRemoteLifecycle(t *testing.T) {
 	if err != nil || !f.saw("DELETE /api/v1/host") || reloads != 1 {
 		t.Errorf("remove = %q, %v, %d reloads", out, err, reloads)
 	}
-	// The account's only machine takes its devices with it, and says so, before
-	// and after.
+	// Only the machine goes, even when it is the account's only one: before and
+	// after, the account is said to stay, and nothing is said of it being
+	// deleted or of devices being unpaired.
 	flat := strings.Join(strings.Fields(out), " ")
-	if !strings.Contains(flat, "its paired device is unpaired") || !strings.Contains(flat, "plan, trial and verified email are lost") ||
-		!strings.Contains(flat, "its paired device has been unpaired too") || !strings.Contains(flat, "remote pair -desktop") {
-		t.Errorf("remove of the account's only machine does not say what goes: %q", out)
+	for _, want := range []string{
+		"It removes only this machine.",
+		"plan, trial, verified email and any subscription stay, even if this is the last machine",
+		"90 days",
+		"flockdeck remote delete-account",
+		"The account is still there, with its plan and paired devices.",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("remove does not say %q: %q", want, out)
+		}
+	}
+	for _, not := range []string{"deleted too", "unpaired too", "is unpaired", "are lost", "for good", "new trial", "new account"} {
+		if strings.Contains(flat, not) {
+			t.Errorf("remove still says %q, which is no longer true: %q", not, out)
+		}
 	}
 	if cfg, _ := remote.Load(); cfg != nil {
 		t.Error("remove left the enrolment behind")
@@ -867,12 +952,12 @@ func TestRemoteEnableAddsAdviceTheRelayLeftOut(t *testing.T) {
 // help does, rather than the general usage again.
 func TestRemoteHelpForOneCommand(t *testing.T) {
 	out, _, err := runRemoteCmd(t, "help", "disable")
-	if err != nil || !strings.HasPrefix(out, "Usage: flockdeck remote disable") || strings.Contains(out, "-force") || !strings.Contains(out, "keep the enrolment") || !strings.Contains(out, "30 days") {
+	if err != nil || !strings.HasPrefix(out, "Usage: flockdeck remote disable") || strings.Contains(out, "-force") || !strings.Contains(out, "keep it enrolled") || !strings.Contains(out, "90 days") || strings.Contains(out, "30 days") {
 		t.Errorf("remote help disable = %q, %v; want disable's own help, which says it keeps the account and has no -force", out, err)
 	}
 	out, _, err = runRemoteCmd(t, "help", "remove")
-	if err != nil || !strings.HasPrefix(out, "Usage: flockdeck remote remove") || !strings.Contains(out, "-force") || !strings.Contains(out, "-yes") || !strings.Contains(out, "verified email are lost") {
-		t.Errorf("remote help remove = %q, %v; want remove's own help, which says what it deletes", out, err)
+	if err != nil || !strings.HasPrefix(out, "Usage: flockdeck remote remove") || !strings.Contains(out, "-force") || !strings.Contains(out, "-yes") || !strings.Contains(out, "even when this was its last machine") || !strings.Contains(out, "delete-account") || strings.Contains(out, "are lost") {
+		t.Errorf("remote help remove = %q, %v; want remove's own help, which says the account stays", out, err)
 	}
 	// Each says what the command shows and takes now: status the address and
 	// the devices' names (172, 193), devices that revoke takes names (157).
@@ -1108,7 +1193,7 @@ func TestRemoteEnableWithANewName(t *testing.T) {
 	// The name is quoted so the command pastes as it stands: unquoted, "new
 	// desk" renamed the machine "new", and "Jim's desk" left the shell waiting
 	// on a closing quote.
-	if _, _, err := runRemoteCmd(t, "enable", "-name", "new desk"); err == nil || !strings.Contains(err.Error(), "; to give this machine a new name, run `flockdeck remote rename \"new desk\"`, which keeps what is paired") {
+	if _, _, err := runRemoteCmd(t, "enable", "-name", "new desk"); err == nil || !strings.Contains(err.Error(), "; to give this machine a new name, run `flockdeck remote rename \"new desk\"`, which keeps this machine enrolled") {
 		t.Errorf("enable with a new name = %v, want it to name the rename that does it", err)
 	}
 	if _, _, err := runRemoteCmd(t, "enable", "-name", "Jim's desk"); err == nil || !strings.Contains(err.Error(), "run `flockdeck remote rename \"Jim's desk\"`") {
@@ -1329,9 +1414,11 @@ func TestRemoteMove(t *testing.T) {
 	if !strings.Contains(saidFirst, "have to pair again") || !strings.Contains(saidFirst, f.URL) || !strings.Contains(saidFirst, other.URL) {
 		t.Errorf("before asking, move said %q; want where from, where to, and that every device pairs again", saidFirst)
 	}
-	// The one paired device goes with the account, the machine being its only one.
-	if !strings.Contains(saidFirst, "its paired device with it") {
-		t.Errorf("before asking, move said %q; want the account's paired device said to go with it", saidFirst)
+	// Only the machine leaves the old relay, the account there staying, even when
+	// it was the account's only machine.
+	if flat := strings.Join(strings.Fields(saidFirst), " "); !strings.Contains(flat, "Only this machine leaves "+f.URL+". Its account there stays") ||
+		strings.Contains(flat, "goes too") {
+		t.Errorf("before asking, move said %q; want the account said to stay on the old relay", saidFirst)
 	}
 	if other.saw("POST /api/v1/hosts") || f.saw("DELETE /api/v1/host") {
 		t.Fatal("a move that was not agreed to reached a relay")

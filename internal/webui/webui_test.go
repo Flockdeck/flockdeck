@@ -414,10 +414,11 @@ h.win._confirm = true;
 h.click(h.$("remote-disable"));
 // Turning it off keeps the account, and the question says so, and when the
 // relay would remove the account anyway.
-for (const want of [/Nothing is deleted/, /same account/, /offline/, /30 days/, /no subscription/]) {
+for (const want of [/Nothing is deleted/, /same account/, /offline/, /90 days/, /no subscription/, /kept while anything on it is in use/]) {
   assert.ok(want.test(h.win._confirmed), "the turn-off question does not say " + want + ": " + h.win._confirmed);
 }
-assert.ok(!/only machine|deleted too/.test(h.win._confirmed), "the turn-off question warns of a deletion it does not make: " + h.win._confirmed);
+assert.ok(!/30 days/.test(h.win._confirmed), "the turn-off question still speaks of the 30-day rule: " + h.win._confirmed);
+assert.ok(!/only machine|deleted too/.test(h.win._confirmed),"the turn-off question warns of a deletion it does not make: " + h.win._confirmed);
 assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteDisable" });
 h.recv({ type: "remoteOutcome", action: "disable" });
 
@@ -441,12 +442,16 @@ h.recv({ type: "remoteOutcome", action: "enable", error: "the relay said no" });
 assert.ok(h.$("overlay-body").textContent.includes("the relay said no"), "why it was not turned on is not shown");
 h.recv({ type: "remoteOutcome", action: "enable" });
 
-// Removing the machine from the account is its own button, and says what it
-// deletes, the account too when it is the only machine.
+// Removing the machine from the account is its own button. It removes only
+// this machine, and the question says the account stays, even when this is
+// the only machine, and says nothing of a deletion or of devices unpairing.
 h.win._confirm = false;
 h.click(h.$("remote-remove"));
-for (const want of [/Remove this desktop from the account/, /delete this machine for good/, /new trial/, /only machine on the account/, /plan, trial and verified email are lost/, /paired device is unpaired/, /Turn off Flockdeck Remote instead/]) {
+for (const want of [/Remove this desktop from the account/, /delete this machine\./, /The account, its plan, trial, verified email and paired devices stay/, /even if this is the last machine/, /flockdeck remote delete-account/, /Turn off Flockdeck Remote instead/]) {
   assert.ok(want.test(h.win._confirmed), "the remove question does not say " + want + ": " + h.win._confirmed);
+}
+for (const not of [/for good/, /new trial/, /only machine on the account/, /are lost/, /is unpaired/, /deleted too/]) {
+  assert.ok(!not.test(h.win._confirmed), "the remove question still says " + not + ": " + h.win._confirmed);
 }
 assert.ok(!h.commands().some((c) => c.cmd === "remoteRemove"), "the machine was removed without asking");
 h.win._confirm = true;
@@ -509,7 +514,8 @@ h.win._confirm = false;
 h.click(h.$("remote-move-go"));
 assert.strictEqual(h.commands().length, before, "the machine was moved without asking");
 assert.ok(/pair again/.test(h.win._confirmed), "the question does not say every device pairs again: " + h.win._confirmed);
-assert.ok(/only machine/.test(h.win._confirmed), "the question does not say the account on the old relay goes: " + h.win._confirmed);
+assert.ok(/Only this machine leaves .*its account there stays/.test(h.win._confirmed), "the question does not say the account on the old relay stays: " + h.win._confirmed);
+assert.ok(!/only machine|goes too/.test(h.win._confirmed), "the question says the account on the old relay goes: " + h.win._confirmed);
 h.win._confirm = true;
 h.click(h.$("remote-move-go"));
 assert.deepStrictEqual(h.commands().pop(),

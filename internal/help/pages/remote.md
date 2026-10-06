@@ -100,11 +100,18 @@ A relay set up with `-require-verified-registration` (see
 [Configuration](https://docs.flockdeck.ai/self-hosting/configuration.html))
 won't create an account this way until the email doing so is verified.
 `flockdeck remote enable` and `flockdeck remote move` handle that themselves:
-each opens the verification link in a browser, or prints it if none opens,
-and waits for it to be clicked. Ctrl+C cancels, and nothing is created until
-then. The dialog does not yet support this: opened against a relay that
-requires it, it fails at once and says to run the command from a terminal
-instead.
+each opens the verification page in a browser, or prints the link if none opens,
+and waits for the email to be confirmed. The email address is typed on that page,
+never in the terminal. Ctrl+C cancels, and nothing is created until then.
+
+A relay that checks who asked also makes a confirmation code, and the command
+prints it before the page opens. The page that opens from the emailed link asks
+for it. The code is never in the email, so enter it only if you started this
+just now: if you did not, ignore the email. Too many wrong tries delete the
+registration, and the command then says to run it again.
+
+The dialog does not yet support this: opened against a relay that requires it,
+it fails at once and says to run the command from a terminal instead.
 
 The relay is `https://remote.flockdeck.ai` unless `-relay` or `FLOCKDECK_RELAY`
 names another. `flockdeck remote enable` also reads `FLOCKDECK_REMOTE_NAME`,
@@ -115,6 +122,13 @@ account with a code from `flockdeck remote pair -desktop` on the first, given to
 the second, in the dialog under **Joining an account, or invited?**, or as
 `flockdeck remote enable -join <code>`. Every device paired with the account
 then reaches every desktop on it: pairing with one is pairing with them all.
+
+A relay that keeps one account for each verified email adds a machine to that
+account, instead of making a second, when `flockdeck remote enable` verifies an
+email that already has one. The command then says that the email already had an
+account, how many desktops it has now and its plan, and that devices already
+paired with it reach this machine too. A relay that does not do this makes a new
+account, as before.
 
 ## Pairing a device
 
@@ -383,19 +397,19 @@ nothing; access follows the subscription.
 
 Nothing is deleted straight away. The account, its machines and its paired
 devices are kept, by default, for 90 days after a trial or subscription ends,
-and deleted after that; subscribing before then puts everything back as it was.
-Separately from a plan, by default, a paired device that goes 30 days without
-being used has to pair again, and a machine is removed from its account after
-30 days without being heard from, or after 7 if it enrolled and never
-connected. If that is the account's last machine, the account goes with it,
-except for an account that is subscribed, or whose subscription ended less than
-the grace period ago (90 days by default): the relay keeps that account's last
-machine, so a quiet machine, or one with Flockdeck Remote turned off, does not
-delete a paid account. Once the grace period has run out the account is deleted
-as described above. A trial, or an account with no subscription, is not covered
-by that, which is why the Remote dialog says that if this machine is not seen
-for 30 days and there is no subscription, the account is removed. A relay that is not the shared one can set any of these
-figures otherwise.
+and deleted after that if nothing on the account has been used since;
+subscribing before then puts everything back as it was.
+
+An account is kept while it is paid for (subscribed, or lapsed less than the
+grace period ago, 90 days by default) or while anything on it has been used in
+the last 90 days: a machine connecting, a paired device making a request, a
+registration, or a machine being removed. Otherwise it is deleted, with its
+machines and devices, without a warning. Removing a machine never deletes the
+account, and a machine that connected is never removed for being quiet. One that
+enrolled and never connected is removed after 7 days, and only that machine.
+Separately, by default, a paired device that goes 30 days without being used has
+to pair again. A relay that is not the shared one can set these figures
+otherwise, or keep accounts for good.
 
 A relay other than the shared one may have no plans at all, and then none of
 this applies: nothing is shown, and nothing stops.
@@ -439,10 +453,10 @@ only once the new one answers, so a relay that is mistyped, down or refusing
 leaves everything as it was. **Every paired device has to pair again**
 afterwards, with the new relay: a device's pairing is kept by the relay it was
 made on, and no other relay can use it. The dialog and the command both say so,
-and ask, before anything is done; a script passes `-yes`. If this is the only
-machine on its account on the old relay, the account and its devices there go
-with it. An old relay that cannot be reached does not stop the move: it goes
-on listing this machine, offline, until a device paired there removes it.
+and ask, before anything is done; a script passes `-yes`. Only this machine
+leaves the old relay: its account there stays, with its other machines and
+paired devices. An old relay that cannot be reached does not stop the move: it
+goes on listing this machine, offline, until a device paired there removes it.
 
 Machines set up from scratch point at a company's relay with `-relay`, or with
 `FLOCKDECK_RELAY` set on managed machines, and need no move.
@@ -459,43 +473,52 @@ different.
 connecting. Nothing is deleted: the account, its paired devices, its plan or
 trial and its verified email stay on the relay, and a paired device shows this
 machine as offline. **Turn on Flockdeck Remote** reconnects to the same account and
-the same address, with no new sign-up, no email check and no new trial. If this
-machine is not seen for 30 days and the account has no subscription, the relay
-removes the account. An account that is subscribed, or whose subscription
-ended less than the grace period ago, is not removed this way: the relay keeps
-its last machine. An older Flockdeck that reads the same `remote.json` ignores
-the off setting and reconnects, so turn it off with the version you turned it
-off with.
+the same address, with no new sign-up, no email check and no new trial. The
+account is kept while anything on it is in use, and deleted if nothing on it is
+used for 90 days and it has no subscription. An older Flockdeck that reads the
+same `remote.json` ignores the off setting and reconnects, so turn it off with
+the version you turned it off with.
 
-**Remove this desktop from the account** leaves it for good. The relay deletes
-this machine; if it is the only machine on the account, the account goes too,
-with its paired devices, its plan or trial and its verified email, and the
-dialog says so before it asks. Turning Flockdeck Remote on again afterwards starts
-a new account, with a new trial and a new email check, unless the machine joins
-one with a join code. **Show a join code first** makes one for another machine to
-join with, which keeps the account alive. If you pay for Flockdeck Remote,
-cancel it first from the **Devices** page of a paired device: removing the
-desktop does not cancel it.
+**Remove this desktop from the account** takes this machine off it. The relay
+deletes this machine and nothing else: the account, its plan, trial, verified
+email, paired devices and any subscription stay, even if this was its last
+machine, and the dialog says so before it asks. **Show a join code** makes a
+code for another machine to join the account with. To erase the account, run
+`flockdeck remote delete-account` from a terminal.
 A relay that cannot be reached is not taken for one that was told: you are
 offered **Try again**, and only then to forget it here anyway, which leaves the
-relay listing this machine, offline. From a terminal:
+relay listing this machine, offline.
+
+`flockdeck remote delete-account` erases the whole account on the relay: every
+machine in it, every paired device, the plan and the link between the verified
+email and the account. It asks the relay what would go, shows the masked email
+address, the machines and devices and the plan, and asks you to type `delete my
+account` exactly, in lower case; anything else deletes nothing and exits with an
+error. A script gives `-yes -confirm "delete my account"`, both together. An
+account with a subscription is refused, because deleting the account does not
+cancel the subscription: cancel it first from the **Devices** page of a paired
+device, and run the command again once the period you paid for has ended. Once
+it succeeds the enrolment on this machine is cleared. Records of payments are
+kept for tax. The window does not offer this; it is a command.
+
+From a terminal:
 
 | Command | What it does |
 | --- | --- |
 | `flockdeck remote devices` | What is paired, and each device's id |
 | `flockdeck remote revoke <id or name>` | Unpairs one |
 | `flockdeck remote rename <name>` | Renames this machine; `-device <id or name>` renames a device |
-| `flockdeck remote disable` | Turns Flockdeck Remote off here and keeps the account |
-| `flockdeck remote remove` | Removes this machine from the account for good; asks first, `-yes` skips the question |
+| `flockdeck remote disable` | Turns Flockdeck Remote off here and keeps this machine enrolled and the account |
+| `flockdeck remote remove` | Takes this machine off the account; the account stays. Asks first, `-yes` skips the question |
+| `flockdeck remote delete-account` | Erases the account, its machines and its devices; asks you to type `delete my account` |
 | `flockdeck remote move <relay>` | Moves this machine to another relay; every device then pairs again |
 
 A machine that was wiped or lost without being removed from the account
 cannot take itself off. Remove it from the **Devices** page of a paired device
 instead, rather than wait: no device can reach it after that, and its
 credential stops working, so a copy of Flockdeck restored from a backup cannot
-connect with it either. Left alone, the relay removes it on its own, by default,
-once it has gone 30 days without being heard from, unless it is the last machine
-of an account that is subscribed or within the grace period after a subscription.
+connect with it either. Left alone, a machine that connected stays listed,
+offline, until someone removes it.
 
 ## If a device is lost
 
@@ -510,12 +533,12 @@ of an account that is subscribed or within the grace period after a subscription
 3. If the device could have opened a shell here, it could have copied this
    machine's credential out of `remote.json`. Turning Flockdeck Remote off and on
    again keeps that credential, so it does not help. Run `flockdeck remote
-   remove` and enrol again: the old credential stops working. If this is the
-   account's only desktop, removing it also deletes the account and unpairs
-   every device, and each of them pairs again with a new link. To keep the
-   account, run `flockdeck remote pair -desktop` on another machine of it
-   first, and join with the code it prints: `flockdeck remote enable -join
-   <code>`.
+   remove` and enrol again: the old credential stops working. Removing leaves the
+   account and its paired devices as they are, so unpair any you do not trust
+   first. To enrol this machine back into the same account, run `flockdeck
+   remote pair -desktop` on another machine of it first, and join with the code
+   it prints: `flockdeck remote enable -join <code>`. To start over completely,
+   `flockdeck remote delete-account` erases the account and every device with it.
 
 A pairing link or join code that was made and not used stops working on its
 own, after ten minutes by default.

@@ -1276,8 +1276,6 @@
       return box;
     }
     const where = String((r && r.relay) || "the relay").replace(/^https?:\/\//, "");
-    const hosts = roster.hosts || [];
-    const devices = roster.devices || [];
 
     // Turning it off keeps the account, and is the button in front. Nothing
     // is deleted, so its question says what stays and what a device sees.
@@ -1301,32 +1299,24 @@
         const q = "Turn off Flockdeck Remote? This machine stops connecting to " + where +
           ", and your paired devices see it as offline. Nothing is deleted: the account, its paired devices and its plan stay, " +
           "and turning it on again reconnects to the same account with no new sign-up. " +
-          "If this machine is not seen for 30 days and the account has no subscription, the relay removes the account.";
+          "The account is kept while anything on it is in use, and deleted if nothing on it is used for 90 days and it has no subscription.";
         if (!window.confirm(q)) return;
         remoteDisable();
       };
       row.append(off);
     }
 
-    // Leaving the account is a separate, plainly named button, which says
-    // what it deletes. The join code comes first for anybody who would rather
-    // hand the account to another machine than lose it.
+    // Leaving the account is a separate, plainly named button. It removes
+    // only this machine, and its question says what stays. Erasing the
+    // account is the command line's: `flockdeck remote delete-account`.
     const remove = el("button", "chip danger", remoteBusy === "remove" ? "Removing…" : "Remove this desktop from the account…");
     remove.id = "remote-remove";
     remove.disabled = !!remoteBusy;
     remove.onclick = () => {
-      let q = "Remove this desktop from the account? " + where + " is told to delete this machine for good. " +
-        "Turning Flockdeck Remote on again afterwards starts a new account, with a new trial and a new email check, " +
-        "unless this machine joins one with a join code.";
-      // Taking the account's only machine off deletes the account on the
-      // relay, and every device paired with it.
-      if (hosts.length === 1) {
-        q += " It is the only machine on the account, so the account is deleted too: " +
-          (devices.length === 1 ? "its paired device is unpaired, " : devices.length > 1 ? "its " + devices.length + " paired devices are unpaired, " : "") +
-          "and its plan, trial and verified email are lost.";
-      }
-      q += " If you pay for Flockdeck Remote, cancel it first from the Devices page of a paired device: removing the desktop does not cancel it. " +
-        "To keep the account, choose Turn off Flockdeck Remote instead.";
+      const q = "Remove this desktop from the account? " + where + " is told to delete this machine. " +
+        "The account, its plan, trial, verified email and paired devices stay, even if this is the last machine. " +
+        "To erase the account, run flockdeck remote delete-account in a terminal. " +
+        "To keep this machine enrolled, choose Turn off Flockdeck Remote instead.";
       if (!window.confirm(q)) return;
       remoteRemove(false);
     };
@@ -1349,13 +1339,12 @@
     row.append(remove);
     box.append(row);
     box.append(el("p", "fan-hint", kept
-      ? "Turned off here, this machine shows as offline on your devices. If it is not seen for 30 days and the account has no subscription, the relay removes the account."
-      : "Turning it off keeps the account. If this machine is not seen for 30 days and the account has no subscription, the relay removes the account."));
-    // The join code is the way to keep an account that would otherwise go
-    // with its last machine, so it is offered next to the button that deletes
-    // it.
+      ? "Turned off here, this machine shows as offline on your devices. The account is kept while anything on it is in use, and deleted if nothing on it is used for 90 days and it has no subscription."
+      : "Turning it off keeps this machine enrolled and the account as it is. The account is kept while anything on it is in use, and deleted if nothing on it is used for 90 days and it has no subscription."));
+    // A join code takes another machine into this account, which is how a
+    // machine that was removed, or a new one, gets back in.
     const jp = remotePairing && remotePairing.kind === "host" ? remotePairing : null;
-    const code = el("button", "chip", jp && jp.pending ? "Asking the relay…" : "Show a join code first");
+    const code = el("button", "chip", jp && jp.pending ? "Asking the relay…" : "Show a join code");
     code.id = "remote-joincode";
     code.disabled = !!remoteBusy || !!(jp && jp.pending);
     code.onclick = () => {
@@ -1368,7 +1357,7 @@
     if (jp && jp.code) {
       box.append(el("p", "fan-hint", "On the other machine, run flockdeck remote enable -relay " +
         String((r && r.relay) || "") + " -join " + jp.code + ". It works once" + remoteUntil(jp.expiresAt) +
-        ". That machine then shares this account, so removing this one no longer deletes it."));
+        ". That machine then shares this account, and devices paired with either reach both."));
     }
     if (remoteMoveDraft.open && !kept) box.append(remoteMoveForm(r, roster));
     if (o && (o.action !== "enable" || kept) && o.action !== "move" && o.error) box.append(el("p", "remote-error", o.error));
@@ -1376,7 +1365,7 @@
     if (o && o.untold) {
       box.append(el("p", "fan-hint", "Try again first: a relay that cannot be reached is most often the " +
         "network, for now. Forgetting it here anyway removes this machine from Flockdeck Remote here, but the " +
-        "relay keeps listing it, offline, until it is removed from a paired device's Devices page or has gone 30 days without being heard from."));
+        "relay keeps listing it, offline, until it is removed from a paired device's Devices page."));
       const again = el("div", "update-row");
       const retry = el("button", "chip primary", "Try again");
       retry.id = "remote-remove-again";
@@ -1386,7 +1375,7 @@
       forget.id = "remote-forget";
       forget.disabled = !!remoteBusy;
       forget.onclick = () => {
-        if (!window.confirm("Forget Flockdeck Remote here without telling the relay? It will keep listing this machine, offline, until it is removed from a paired device or 30 days pass.")) return;
+        if (!window.confirm("Forget Flockdeck Remote here without telling the relay? It will keep listing this machine, offline, until it is removed from a paired device.")) return;
         remoteRemove(true);
       };
       again.append(retry, forget);
@@ -1451,16 +1440,11 @@
         keepFocus(renderRemote);
         return;
       }
-      const hosts = (roster && roster.hosts) || [];
-      const devices = (roster && roster.devices) || [];
-      let q = "Move this machine from " + from + " to " + to.replace(/^https?:\/\//, "") + "? " +
-        "Every device paired with it will have to pair again, with the new relay.";
-      // Leaving is taking the account's only machine off the old relay,
-      // which takes the account and its devices there with it.
-      if (hosts.length === 1 && devices.length) {
-        q += " It is the only machine on its account on " + from + ", so the account goes too, and " +
-          (devices.length === 1 ? "its paired device is" : "its " + devices.length + " paired devices are") + " unpaired there.";
-      }
+      // Leaving takes only this machine off the old relay: the account there
+      // stays, with its other machines and paired devices.
+      const q = "Move this machine from " + from + " to " + to.replace(/^https?:\/\//, "") + "? " +
+        "Every device paired with it will have to pair again, with the new relay. " +
+        "Only this machine leaves " + from + ": its account there stays.";
       if (!window.confirm(q)) return;
       remoteBusy = "move";
       remoteOutcome = null;
@@ -1500,8 +1484,8 @@
     keepFocus(renderRemote);
   }
 
-  /** remoteRemove takes this machine off the account for good, which is what
-   *  turning remote access off used to do. A relay that cannot be told is
+  /** remoteRemove takes this machine off the account. The account stays on
+   *  the relay. A relay that cannot be told is
    *  answered with untold, and the window offers to forget it here anyway,
    *  which is force. */
   function remoteRemove(force) {

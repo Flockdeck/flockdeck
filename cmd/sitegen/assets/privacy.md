@@ -21,14 +21,15 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
 - **The relay is optional.** It is used only if you turn on Flockdeck Remote. It
   keeps what it needs to connect your devices to your desktops: names, random
   identifiers, timestamps, public encryption keys, and your
-  account's plan. It keeps no email address, password, real name or IP
-  address.
+  account's plan. When a relay asks you to confirm an email address before it
+  adds a desktop, it also keeps the address that confirmed the account. It
+  keeps no password, real name or IP address.
 - **If you pay for Flockdeck Remote,** a separate billing service keeps the
   email address and country you give Paddle's checkout, your plan and a
-  record of each payment, for as long as UK tax records must be kept. No
-  email address is kept for anyone who does not pay, and the relay keeps
-  none even for those who do. Paddle, which takes the payment, keeps its own
-  records under its own policy.
+  record of each payment, for as long as UK tax records must be kept. The relay
+  never receives that address. It keeps an email address of its own only if you
+  confirmed one to add a desktop, whether or not you pay. Paddle, which takes
+  the payment, keeps its own records under its own policy.
 - **This website** sets no cookies, runs no analytics, and loads nothing from
   anyone else.
 - **Downloads keep short-lived access logs.** The app, the installer scripts
@@ -156,11 +157,18 @@ For each account:
 - a random account identifier;
 - the date it was created;
 - its plan (a free trial, a subscription, or lapsed once either has run
-  out), and the date the trial or the time paid for runs until.
+  out), and the date the trial or the time paid for runs until;
+- the email address that confirmed it, if the relay asked for one when the
+  account was made, and a record that the address belongs to the account.
 
-The account is not linked to an email address, a name or a password, even
-when you pay: the relay learns only your plan and its date from the billing
-service, as [Paying for Flockdeck Remote](#paying-for-flockdeck-remote) describes.
+The account has no name or password. The email address is the one you typed
+on the relay's confirmation page, never in Flockdeck itself. It is kept for as
+long as the account is and deleted with it, and is sent once to Postmark to
+mail you the confirmation link, as [Who else is involved](#who-else-is-involved)
+describes. An account made before the relay asked for an address has none. When
+you pay, the relay learns only your plan and its date from the billing service,
+as [Paying for Flockdeck Remote](#paying-for-flockdeck-remote) describes, and
+not the address you give Paddle.
 
 For each desktop you connect:
 
@@ -402,6 +410,11 @@ Sponsoring buys no features, support or priority.
   device records, the sign-in cookie, and the notification subscription of a
   device you turned notifications on for. The basis is performance of a
   contract (the relay's [terms](terms.html)).
+- **To confirm an email address when a relay asks for one:** the address you
+  type on the confirmation page, which is sent to Postmark to mail you a link and
+  then kept on the account it confirmed. The purpose is to check that whoever
+  enrols a desktop can read that address before an account is made. The basis is
+  performance of a contract.
 - **To provide a subscription you have bought:** your plan, the identifiers
   that connect it to your relay account, and your email address for receipts,
   notices and recovery. The basis is performance of a contract.
@@ -435,6 +448,11 @@ push address, and when it was sent, and it cannot read the notification. You
 chose that service when you chose your browser, and it works under its own
 terms.
 
+When a relay asks you to confirm an email address, the address goes once to
+Postmark, our email provider, for each confirmation email, so that Postmark can
+send you the link. Postmark sees the address and the message. It works under its
+own terms.
+
 If you turn on one of the optional TypeSafe features, what it sends goes to
 TypeSafe AI, as [The desktop app](#the-desktop-app) describes. It works under
 its own terms.
@@ -444,7 +462,7 @@ relay. Paddle sells the subscription as the merchant of record and is a
 separate controller of what its checkout collects, as [Who takes the
 payment](#who-takes-the-payment) describes.
 
-DigitalOcean and GitHub are United States companies. Where your data is
+DigitalOcean, GitHub and Postmark are United States companies. Where your data is
 handled outside the UK, it is protected by the safeguards UK law requires,
 such as the UK International Data Transfer Addendum or the UK–US data bridge.
 
@@ -461,9 +479,11 @@ Under UK data protection law you have the right to:
 - take it elsewhere.
 
 Most of this you can do yourself, by renaming or removing desktops and devices
-in Flockdeck. For anything else, email **privacy@flockdeck.ai**. Because
-relay accounts carry no email address, we may ask you to prove a desktop or
-device is yours, for example from the desktop itself. Records of payments
+in Flockdeck. For anything else, email **privacy@flockdeck.ai**. An account made
+before the relay asked for an address has none, so we may ask you to prove a
+desktop or device is yours, for example from the desktop itself. For an account
+made with a confirmed email address, we may ask you to confirm that address
+again. Records of payments
 cannot be deleted before the law allows, but everything else about a
 subscription can be. For what Paddle holds, ask Paddle.
 

@@ -281,10 +281,10 @@ func (m *Manager) Disable() error {
 	return m.Reload()
 }
 
-// Remove takes this machine off its relay for good and closes the tunnel: what
-// `flockdeck remote remove` does, for the window, and what turning remote
-// access off used to do. untold is why the relay could not be told, when
-// force had the enrolment forgotten regardless.
+// Remove takes this machine off its relay and closes the tunnel: what
+// `flockdeck remote remove` does, for the window. The account stays on the
+// relay. untold is why the relay could not be told, when force had the
+// enrolment forgotten regardless.
 func (m *Manager) Remove(ctx context.Context, force bool) (untold error, err error) {
 	m.enrolling.Lock()
 	defer m.enrolling.Unlock()
