@@ -85,11 +85,8 @@ type Server struct {
 	paneFound func()
 
 	// links are the one-time links a window may be opened with, each with
-	// when it stops working and, where the caller has said (see SetLinkFile),
-	// the file on this machine it was written into as a local redirect --
-	// removed the moment the link stops being any good, rather than left for
-	// somebody to come across later. linkLife is windowLinkLife, read once as
-	// the server is made. See WindowURL.
+	// when it stops working. linkLife is windowLinkLife, read once as the
+	// server is made. See WindowURL.
 	linkMu   sync.Mutex
 	links    map[string]linkEntry
 	linkLife time.Duration
@@ -435,61 +432,27 @@ var windowLinkLife = time.Minute
 // browser sends no Origin to be turned away for. A link that has been used, or
 // has run out, opens nothing.
 //
-// A link is no safer to leave on a command line than the token was --
-// anybody quick enough to read it there could redeem it first -- so
-// appwindow writes it into a private local file instead, and starts the
-// browser at that. NewWindowLink is WindowURL for a caller in a position to
-// have that file removed the moment the link stops being any good, rather
-// than left for appwindow's own backstop timer to find; a second launch
-// asking over /window (see handleWindow) has no such moment to hand it, and
-// its file relies on that timer alone.
+// The link is not put on a command line: the desktop window loads it
+// directly (see appwindow), and a second launch asking over /window (see
+// handleWindow) is handed it in the reply.
 func (s *Server) WindowURL() string {
-	url, _ := s.NewWindowLink()
-	return url
-}
-
-// NewWindowLink is WindowURL, together with the link's own token -- not the
-// full URL -- for SetLinkFile.
-func (s *Server) NewWindowLink() (url, link string) {
-	link = rand.Text()
+	link := rand.Text()
 	until := time.Now().Add(s.linkLife)
 	s.linkMu.Lock()
 	s.links[link] = linkEntry{until: until}
 	s.linkMu.Unlock()
 	time.AfterFunc(s.linkLife, func() { s.expireLink(link) })
-	return fmt.Sprintf("http://%s/?%s=%s", s.ln.Addr().String(), linkParam, link), link
-}
-
-// SetLinkFile records that link's one-time link was written into a local
-// redirect file at path (see appwindow), so that file is removed the moment
-// the link is redeemed or runs out, instead of left for somebody to come
-// across later. It reports whether link was still outstanding to record
-// this against; where it was not -- redeemed or expired already, in the
-// moment between the file being written and this being called -- the caller
-// should remove path itself, since nothing will do it on its behalf.
-func (s *Server) SetLinkFile(link, path string) bool {
-	s.linkMu.Lock()
-	defer s.linkMu.Unlock()
-	e, ok := s.links[link]
-	if !ok {
-		return false
-	}
-	e.file = path
-	s.links[link] = e
-	return true
+	return fmt.Sprintf("http://%s/?%s=%s", s.ln.Addr().String(), linkParam, link)
 }
 
 // linkEntry is what a link from WindowURL is worth until it is redeemed or
-// runs out: when that happens, and where it was written into a local
-// redirect file, if anywhere (see SetLinkFile).
+// runs out: when that happens.
 type linkEntry struct {
 	until time.Time
-	file  string
 }
 
 // redeemLink reports whether link is one WindowURL made that has been
-// neither used nor run out, uses it up, and removes the file it was written
-// into, if any.
+// neither used nor run out, and uses it up.
 func (s *Server) redeemLink(link string) bool {
 	s.linkMu.Lock()
 	e, ok := s.links[link]
@@ -506,20 +469,15 @@ func (s *Server) redeemLink(link string) bool {
 	} else {
 		s.recordFate(link, fateExpired)
 	}
-	if e.file != "" {
-		_ = os.Remove(e.file)
-	}
 	return valid
 }
 
-// expireLink removes link once it has run out, for a link nobody ever loaded
-// -- so its file, if it has one, is not left behind for as long as this
-// instance keeps running. It does nothing where link has already been
-// redeemed: that path has already recorded its fate and removed its file,
-// and the two must not race each other over which.
+// expireLink removes link once it has run out, for a link nobody ever
+// loaded. It does nothing where link has already been redeemed: that path has
+// already recorded its fate, and the two must not race each other over which.
 func (s *Server) expireLink(link string) {
 	s.linkMu.Lock()
-	e, ok := s.links[link]
+	_, ok := s.links[link]
 	if ok {
 		delete(s.links, link)
 	}
@@ -528,25 +486,13 @@ func (s *Server) expireLink(link string) {
 		return
 	}
 	s.recordFate(link, fateExpired)
-	if e.file != "" {
-		_ = os.Remove(e.file)
-	}
 }
 
-// clearLinkFiles removes the redirect file of every link still outstanding,
-// as the server closes: a window never opened, or a second one asked for and
-// never used, should not leave its file behind once nothing can use it
-// either way.
-func (s *Server) clearLinkFiles() {
+// clearLinks forgets every link still outstanding, as the server closes.
+func (s *Server) clearLinks() {
 	s.linkMu.Lock()
-	links := s.links
 	s.links = map[string]linkEntry{}
 	s.linkMu.Unlock()
-	for _, e := range links {
-		if e.file != "" {
-			_ = os.Remove(e.file)
-		}
-	}
 }
 
 // Addr returns the listening address.
@@ -1028,7 +974,7 @@ func (s *Server) Close() error {
 	s.mu.Lock()
 	s.once.Do(func() { close(s.closed) })
 	s.mu.Unlock()
-	s.clearLinkFiles()
+	s.clearLinks()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	err := s.http.Shutdown(ctx)
