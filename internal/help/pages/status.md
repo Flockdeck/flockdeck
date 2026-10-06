@@ -163,6 +163,37 @@ run a program or reach the network, and `git status`, `git diff` or `git
 describe` never in a repository with a submodule in it. A command too long to
 be judged whole is always left to ask.
 
+The details of that policy:
+
+- The commands let through are a short list of ones that only read (`git status`,
+  `git log`, `cat`, `grep` and the like). A flag that makes one of them write or
+  run something, such as `git diff --output`, sends the call back to ask.
+- No `go` command is let through, because `go env` writes and any `go` command
+  may download the toolchain `go.mod` names.
+- A command over 4 KiB is asked about whatever it says, so it is never judged by
+  its beginning alone.
+- No argument may name a path outside the project: an absolute path, one under
+  `~`, or one that climbs out with `..`. Claude Code would have asked before
+  reading there. The shell rewrites quotes, backslashes and globs before a command
+  sees them, so a command holding any of those is asked about too.
+- No argument may name a file whose contents are a secret in their own right: a
+  `.env` file, a private key, an `.npmrc`, `.netrc` or `.pgpass` file, or a
+  credentials file. A read of one would otherwise reach the transcript unseen. The
+  public half of a key pair (`id_rsa.pub`) is left alone.
+- A `git` command is let through only once git itself, asked in the directory the
+  command will run in, reports nothing configured that would run a program or
+  reach the network: no `core.fsmonitor` command, external diff, textconv or
+  filter driver (Git LFS's own is excepted), gpg program, trace2 target or
+  partial-clone remote. That holds whether the setting comes from the repository,
+  a file it includes, or your own global configuration.
+- `git status`, `git diff` and `git describe` are asked about in any repository
+  with a submodule in it, since each runs git again inside the submodule under
+  that submodule's own configuration, which two ordinary files an agent writes
+  into the project are enough to supply.
+- Anything that changes a file (`Edit`, `Write`, `MultiEdit`) is left to ask every
+  time, on purpose. That is the kind of call a person is meant to see before it
+  happens.
+
 These path checks read the command as text, not the filesystem. Auto-review
 is not a sandbox. A symlink inside the project that points outside it reads as
 an ordinary in-project name and is let through, and the secret-file check
