@@ -41,6 +41,11 @@ may be written into the front end by hand, and the table in
 [docs/keys.md](keys.md) has to match the key table. [docs/testing.md](testing.md)
 explains how tests are kept away from your own config directory and keys.
 
+One table in `internal/pricing` holds every price the app states, each rate dated
+with the day it was read from the provider's own pricing page. The table is never
+fetched at run time. A release build's tests fail when any rate is more than 120
+days old, so the pages are read again for each release.
+
 ## Adding an agent
 
 Add a `Spec` to the built-in catalog under `internal/agent`. Verify its flags
