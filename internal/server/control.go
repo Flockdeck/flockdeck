@@ -1631,7 +1631,10 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.remoteEnable(c, cmd)
 		return
 	case "remoteDisable":
-		s.remoteDisable(c, cmd.Force)
+		s.remoteDisable(c)
+		return
+	case "remoteRemove":
+		s.remoteRemove(c, cmd.Force)
 		return
 	case "remoteMove":
 		s.remoteMove(c, cmd)

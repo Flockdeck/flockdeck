@@ -13,6 +13,10 @@ import (
 // none.
 var ErrNotEnabled = errors.New("remote access is not enabled on this machine; turn it on from Remote access… in the command palette, or with `flockdeck remote enable`")
 
+// errTurnedOff is what a request to reach the relay is told while remote
+// access is turned off with its enrolment kept.
+var errTurnedOff = errors.New("remote access is turned off on this machine; turn it on again first, or run `flockdeck remote enable`")
+
 // Manager is remote access as a running instance has it: the enrolment on
 // disk, and the tunnel that goes with it.
 //
@@ -92,7 +96,11 @@ func (m *Manager) Reload() error {
 	if err != nil {
 		return err
 	}
-	if cfg != nil {
+	// Turned off with the enrolment kept: the tunnel is closed and nothing
+	// is opened or registered, but the enrolment stays known, for Status to
+	// say so and Client to reach the account's roster with.
+	off := cfg != nil && cfg.Disabled
+	if cfg != nil && !off {
 		// Best-effort, and never blocks bringing the tunnel up: a relay that
 		// cannot be reached right now for this leaves terminals unencrypted
 		// until the next Reload -- an app restart, or the dialog's "try
@@ -120,7 +128,7 @@ func (m *Manager) Reload() error {
 
 	m.mu.Lock()
 	old := m.conn
-	if cfg != nil && m.cfg != nil && sameTunnel(*cfg, *m.cfg) && old != nil {
+	if !off && cfg != nil && m.cfg != nil && sameTunnel(*cfg, *m.cfg) && old != nil {
 		switch old.Status().State {
 		case StateConnecting, StateConnected, StateError:
 			renamed := cfg.Name != m.cfg.Name
@@ -136,7 +144,7 @@ func (m *Manager) Reload() error {
 		}
 	}
 	var next *Connector
-	if cfg != nil {
+	if cfg != nil && !off {
 		next = NewConnector(*cfg, m.version, m.serve, m.changed)
 	}
 	m.cfg, m.conn = cfg, next
@@ -187,6 +195,12 @@ func (m *Manager) Reconnect() error {
 	c := m.conn
 	m.mu.Unlock()
 	if c == nil {
+		m.mu.Lock()
+		off := m.cfg != nil && m.cfg.Disabled
+		m.mu.Unlock()
+		if off {
+			return errTurnedOff
+		}
 		return ErrNotEnabled
 	}
 	switch c.Status().State {
@@ -203,9 +217,12 @@ func (m *Manager) Reconnect() error {
 // all.
 func (m *Manager) Status() (Status, bool) {
 	m.mu.Lock()
-	c := m.conn
+	c, cfg := m.conn, m.cfg
 	m.mu.Unlock()
 	if c == nil {
+		if cfg != nil && cfg.Disabled {
+			return Status{State: StateDisabled, Relay: cfg.Relay, HostID: cfg.HostID, Name: cfg.Name}, true
+		}
 		return Status{}, false
 	}
 	return c.Status(), true
@@ -250,10 +267,25 @@ func (m *Manager) Move(ctx context.Context, req EnableRequest) (untold error, er
 	return untold, rerr
 }
 
-// Disable takes this machine off its relay and closes the tunnel: what
-// `flockdeck remote disable` does, for the window. untold is why the relay
-// could not be told, when force had the enrolment forgotten regardless.
-func (m *Manager) Disable(ctx context.Context, force bool) (untold error, err error) {
+// Disable turns remote access off and closes the tunnel, keeping the
+// enrolment: what `flockdeck remote disable` does, for the window. The relay
+// is not told, so the account, its devices and its plan are as they were, and
+// this machine shows there as offline. Enable turns it on again, to the same
+// account.
+func (m *Manager) Disable() error {
+	m.enrolling.Lock()
+	defer m.enrolling.Unlock()
+	if _, err := Disable(); err != nil {
+		return err
+	}
+	return m.Reload()
+}
+
+// Remove takes this machine off its relay for good and closes the tunnel: what
+// `flockdeck remote remove` does, for the window, and what turning remote
+// access off used to do. untold is why the relay could not be told, when
+// force had the enrolment forgotten regardless.
+func (m *Manager) Remove(ctx context.Context, force bool) (untold error, err error) {
 	m.enrolling.Lock()
 	defer m.enrolling.Unlock()
 	// An enrolment that cannot be read is refused before the tunnel is
@@ -273,7 +305,7 @@ func (m *Manager) Disable(ctx context.Context, force bool) (untold error, err er
 		c.Stop()
 	}
 	m.reloading.Unlock()
-	_, untold, err = Disable(ctx, m.version, force)
+	_, untold, err = Remove(ctx, m.version, force)
 	rerr := m.Reload()
 	if err != nil {
 		return nil, err

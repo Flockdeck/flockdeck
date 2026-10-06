@@ -40,7 +40,8 @@ type RemoteAccess interface {
 	Client() (*remote.Client, error)
 	Reload() error
 	Enable(ctx context.Context, req remote.EnableRequest) (replaced bool, err error)
-	Disable(ctx context.Context, force bool) (untold error, err error)
+	Disable() error
+	Remove(ctx context.Context, force bool) (untold error, err error)
 	Move(ctx context.Context, req remote.EnableRequest) (untold error, err error)
 	Rename(ctx context.Context, name string) error
 	Reconnect() error
@@ -158,7 +159,7 @@ func (s *Server) remoteClientCount() int {
 }
 
 // handleRemoteReload tells the instance that the enrolment on disk has
-// changed, which is how `flockdeck remote enable` and `disable` reach a running
+// changed, which is how `flockdeck remote enable`, `disable` and `remove` reach a running
 // one. Like /open it acts rather than reports, so it wants a POST and the
 // token in the URL.
 func (s *Server) handleRemoteReload(w http.ResponseWriter, r *http.Request) {
@@ -505,15 +506,31 @@ func (s *Server) remoteEnable(c *controlClient, cmd command) {
 	})
 }
 
-// remoteDisable takes this machine off its relay from the dialog. A relay that
-// cannot be told is not taken for one that was: the window is asked whether to
-// forget the enrolment regardless, which leaves the machine listed there.
-func (s *Server) remoteDisable(c *controlClient, force bool) {
+// remoteDisable turns remote access off from the dialog and keeps the
+// enrolment: the relay is not told, and the account stays.
+func (s *Server) remoteDisable(c *controlClient) {
 	if refusedThroughRelay(c, "disable") {
 		return
 	}
-	s.remoteCall(c, "disable", "turning remote access off", func(ctx context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
-		untold, err := ra.Disable(ctx, force)
+	s.remoteCall(c, "disable", "turning remote access off", func(_ context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
+		if err := ra.Disable(); err != nil {
+			msg.Error = err.Error()
+			return
+		}
+		c.notify("Remote access is off. This machine shows as offline on your devices, and turning it on again uses the same account", false)
+	})
+}
+
+// remoteRemove takes this machine off its relay for good from the dialog, and
+// with the account's last machine the account goes too. A relay that cannot be
+// told is not taken for one that was: the window is asked whether to forget
+// the enrolment regardless, which leaves the machine listed there.
+func (s *Server) remoteRemove(c *controlClient, force bool) {
+	if refusedThroughRelay(c, "remove") {
+		return
+	}
+	s.remoteCall(c, "remove", "removing this machine", func(ctx context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
+		untold, err := ra.Remove(ctx, force)
 		var notTold *remote.RelayUntoldError
 		switch {
 		case errors.As(err, &notTold):
@@ -524,7 +541,7 @@ func (s *Server) remoteDisable(c *controlClient, force bool) {
 			if untold != nil {
 				msg.Warning = "The relay could not be told, so it will go on listing this machine, offline: " + untold.Error()
 			}
-			c.notify("Remote access is off", false)
+			c.notify("This machine was removed from the account", false)
 		}
 	})
 }

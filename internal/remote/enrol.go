@@ -69,6 +69,15 @@ func (e *RelayUntoldError) Unwrap() error { return e.Err }
 // An enrolment already here is an *AlreadyEnabledError, except when its relay
 // has forgotten it: that is exactly when enrolling again is right, and replaced
 // says it happened.
+//
+// An enrolment that Disable turned off is turned on again, and that is all:
+// it is the same host on the same account, with the same token and
+// end-to-end key, so nothing is registered and no email is verified. A
+// request that asks for something else of it (a join code, an invitation,
+// another relay or another name) is refused rather than quietly ignored, and
+// points at Remove, which leaves the account, and Move. If the relay has
+// forgotten the host in the meantime, though, the enrolment is dead, and
+// enrolling afresh is right as it is for an enabled one.
 func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config, replaced bool, err error) {
 	if err := checkCodes(req); err != nil {
 		return nil, false, err
@@ -80,6 +89,22 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 	existing, err := Load()
 	if err != nil {
 		return nil, false, err
+	}
+	if existing != nil {
+		if existing.Disabled {
+			if _, err := NewClient(existing, version).Devices(ctx); !IsRevoked(err) {
+				if err := resumable(existing, req); err != nil {
+					return nil, false, err
+				}
+				existing.Disabled = false
+				if err := saveConfig(existing); err != nil {
+					return nil, false, err
+				}
+				return existing, false, nil
+			}
+			replaced = true
+			existing = nil
+		}
 	}
 	if existing != nil {
 		if _, err := NewClient(existing, version).Devices(ctx); !IsRevoked(err) {
@@ -118,6 +143,31 @@ func Enable(ctx context.Context, version string, req EnableRequest) (cfg *Config
 		return nil, false, err
 	}
 	return cfg, replaced, nil
+}
+
+// DisabledEnrolmentError is what turning remote access on again with options
+// that belong to a different enrolment is told. The enrolment that is kept is
+// for one host on one account on one relay, and none of these change it.
+type DisabledEnrolmentError struct{ Relay, What string }
+
+func (e *DisabledEnrolmentError) Error() string {
+	return fmt.Sprintf("remote access is turned off here but this machine is still enrolled with %s, and %s would not change that; turn it on without options to use the same account again, run `flockdeck remote remove` first to leave the account and enrol afresh, or `flockdeck remote move` to go to another relay", e.Relay, e.What)
+}
+
+// resumable refuses a request to turn a kept enrolment back on that asks for
+// something other than turning it back on.
+func resumable(existing *Config, req EnableRequest) error {
+	switch {
+	case strings.TrimSpace(req.Join) != "":
+		return &DisabledEnrolmentError{Relay: existing.Relay, What: "a join code"}
+	case strings.TrimSpace(req.Invite) != "":
+		return &DisabledEnrolmentError{Relay: existing.Relay, What: "an invitation code"}
+	case strings.TrimSpace(req.Relay) != "" && !SameRelay(req.Relay, existing.Relay):
+		return &DisabledEnrolmentError{Relay: existing.Relay, What: "naming another relay"}
+	case cleanName(req.Name) != "" && cleanName(req.Name) != existing.Name:
+		return &DisabledEnrolmentError{Relay: existing.Relay, What: "a different name (`flockdeck remote rename` changes it)"}
+	}
+	return nil
 }
 
 // checkCodes refuses, before anything reaches a relay, a request whose codes
@@ -340,14 +390,39 @@ func Rename(ctx context.Context, version, name string) (*Config, error) {
 	return cfg, nil
 }
 
-// Disable takes this machine off its relay and forgets the enrolment, and
-// reports whether there was one.
+// Disable turns remote access off on this machine and keeps the enrolment: the
+// tunnel closes and stays closed, and the relay is not told anything. Its
+// account, with its devices, plan, trial and verified email, is untouched,
+// and the host stays listed on the relay as offline. Enable turns it on again,
+// to the same account and host. It reports whether there was an enrolment, and
+// is not an error when it was already off.
+func Disable() (had bool, err error) {
+	cfg, err := Load()
+	if err != nil {
+		return true, err
+	}
+	if cfg == nil {
+		return false, nil
+	}
+	if cfg.Disabled {
+		return true, nil
+	}
+	cfg.Disabled = true
+	return true, saveConfig(cfg)
+}
+
+// Remove takes this machine off its relay for good and forgets the enrolment,
+// and reports whether there was one: what Disable used to do. The relay
+// deletes this host, and if it was the account's last desktop, the account
+// with it: its devices, its plan and trial, and its verified email. Turning
+// remote access back on afterwards enrols a new account, with a new trial and
+// a new email verification, unless a join code is given.
 //
 // A relay that cannot be told stops it with a *RelayUntoldError, and an
 // enrolment that cannot be read with Load's error, unless force says to forget
 // the enrolment here regardless. Then why the relay could not be told comes
 // back as untold, for the caller to pass on.
-func Disable(ctx context.Context, version string, force bool) (had bool, untold error, err error) {
+func Remove(ctx context.Context, version string, force bool) (had bool, untold error, err error) {
 	cfg, err := Load()
 	if err != nil && !force {
 		return true, nil, err
