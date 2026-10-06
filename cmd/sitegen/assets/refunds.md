@@ -2,8 +2,7 @@
 
 *Last updated: 29 September 2026*
 
-This policy covers the one thing Flockdeck sells: the subscription for remote
-access through the shared relay at remote.flockdeck.ai. It sits beside the
+This policy covers the one thing Flockdeck sells: the Flockdeck Remote subscription. It sits beside the
 [terms of service](terms.html) and the [privacy policy](privacy.html).
 
 ## What is sold
@@ -16,7 +15,7 @@ sends your receipts and handles refunds. Flockdeck provides the service itself.
 
 Each account has a free trial of 30 days. No payment details are needed to
 start it and nothing is charged during it, so there is nothing to refund.
-When it ends, remote access stops until you subscribe.
+When it ends, Flockdeck Remote stops until you subscribe.
 
 ## Refunds
 
@@ -30,7 +29,7 @@ When it ends, remote access stops until you subscribe.
 ## Cancelling
 
 You can cancel at any time. Cancelling stops future charges. It takes effect at
-the end of the period you have already paid for, and remote access carries on
+the end of the period you have already paid for, and Flockdeck Remote carries on
 until then. To cancel, use Manage subscription in Devices on a paired phone or
 browser, which opens Paddle's customer portal.
 
