@@ -5,6 +5,22 @@ covers how to work on the code.
 
 ## The window
 
+```
+┌ flockdeck ───────────────────────────────────────────────────────────── ─ □ × ┐
+│ ◭  │ api ▾ │ [ main ] [ fix-auth ▲ ] + ˅  ▲ 1 waiting │ Commands Ctrl+Shift+K │
+│ AP ├──────────────────────────────┬───────────────────────────────────────────┤
+│ WB▲│ ● api ⎇ main ●3  Read        │ ▲ api ⎇ fix-auth ↑2                       │
+│ ▭  │   claude · sonnet  5h 72%    │   codex · gpt-5.6-sol                     │
+│    │  (live agent terminal)       │  (live agent terminal)                    │
+│ ⇉  ├──────────────────────────────┴───────────────────────────────────────────┤
+│ ±  │ ○ shell ⎇ main                                                           │
+│ ⚙  │                                                                          │
+└────┴──────────────────────────────────────────────────────────────────────────┘
+   AP WB = open projects   ▭ = Open a project   ⇉ ± ⚙ = tools, Settings last
+   ▲ = blocked on you   ●3 = uncommitted files   ↑2 = ahead
+   5h 72% = how much of Claude's five-hour limit is used
+```
+
 The interface is a local web app. The binary serves it on the loopback interface
 and shows it in a native window with no tabs and no address bar, built with
 [Wails](https://wails.io), which embeds the platform's own webview (WebView2 on
