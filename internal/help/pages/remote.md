@@ -1,8 +1,8 @@
-# Remote access
+# Flockdeck Remote
 
-Open this window from another device (a laptop away from your desk, a tablet,
-a phone) through a relay, without opening a port on this machine or setting up
-a VPN.
+Flockdeck Remote lets you use your own Flockdeck from a paired phone, tablet or
+browser, through Flockdeck's optional relay. It is an add-on to the desktop app,
+which is free and never needs it. Earlier versions called this page Remote access.
 
 ## How it works
 
@@ -42,7 +42,7 @@ cheap VPS as it does on the machine in front of you. Pair it the same way
 (`flockdeck remote enable` then `flockdeck remote pair`) and it's a desktop
 in every way that matters here: full interface, chat on a phone, fan out, the
 lot. That puts the app itself on hardware you already control, for free;
-reaching it from a phone through the shared relay is the same Remote access
+reaching it from a phone through the shared relay is the same Flockdeck Remote
 subscription as from any desktop.
 
 `-detach` also releases the terminal that started it, so an SSH session can
@@ -57,7 +57,7 @@ A window reached through the relay is not offered these, and Flockdeck refuses
 them from one:
 
 - quitting Flockdeck, or restarting it, including to install an update;
-- turning remote access off, or on again against another relay;
+- turning Flockdeck Remote off, or on again against another relay;
 - making a code for another desktop to join this account;
 - setting or clearing an API key (one typed on a phone would pass through
   the relay, which can read it);
@@ -88,13 +88,13 @@ included. A paired device has everything your user account here has.
 [[action:remote]] in the command palette opens a dialog that turns it on: leave
 the relay empty for `https://remote.flockdeck.ai`, or name another, give this
 machine a name if its host name is not the one you want, and press **Turn on
-remote access**. The same can be done from a terminal:
+Flockdeck Remote**. The same can be done from a terminal:
 
 | Command | What it does |
 | --- | --- |
 | `flockdeck remote enable` | Enrols this machine with the relay |
 | `flockdeck remote pair` | A one-time link and QR code for a device |
-| `flockdeck remote status` | Whether remote access is on and connected, the address a paired device opens it at, and which devices are paired |
+| `flockdeck remote status` | Whether Flockdeck Remote is on and connected, the address a paired device opens it at, and which devices are paired |
 
 A relay set up with `-require-verified-registration` (see
 [Configuration](https://docs.flockdeck.ai/self-hosting/configuration.html))
@@ -119,7 +119,7 @@ then reaches every desktop on it: pairing with one is pairing with them all.
 ## Pairing a device
 
 [[action:remote]] in the command palette, or the **Remote** button in the rail
-(which is there whether or not remote access is on), opens a dialog saying
+(which is there whether or not Flockdeck Remote is on), opens a dialog saying
 whether the relay is reachable and how many windows are open through it. **Pair
 a device** asks the relay for a link and shows it as a QR code: scan it with the
 device you want to pair, or open the link on it.
@@ -255,7 +255,7 @@ to Home Screen**) and open it from there: iOS and iPadOS send notifications
 only to web apps added that way, from version 16.4. Tapping a notification
 opens the pane that is waiting.
 
-Here, Settings › **Remote access** says what is sent:
+Here, Settings › **Flockdeck Remote** says what is sent:
 
 - **Notify paired devices** turns notifications off for every device at once.
 - **After waiting** is how long an agent has to have been waiting first: 30
@@ -321,7 +321,7 @@ shows on its own **Devices** page; if they differ, unpair it.
 
 What the relay cannot read, it cannot read as long as it only reads or stores
 what passes through it, unless it actively tampers with the client it serves:
-the web client's JavaScript, and the desktop pages it proxies on a desk origin.
+the web client's JavaScript, and the desktop pages it serves on a desk origin.
 Tampered code could send the relay the terminal's keys, so this does not hold
 against such a relay; running your own relay is the mitigation.
 
@@ -346,7 +346,7 @@ deleted, and [terms](https://flockdeck.ai/terms.html) for using it.
 
 ## The trial, and the subscription
 
-Remote access through the shared relay at `https://remote.flockdeck.ai` is a
+Flockdeck Remote through the shared relay at `https://remote.flockdeck.ai` is a
 subscription, after a free trial, by default 30 days, for every account that
 starts when its first machine is enrolled. What it costs is set in Paddle and
 shown on Paddle's checkout. The desktop app itself is free, every part of it,
@@ -367,10 +367,10 @@ windows to this machine, and the dialog says so in the relay's own words.
 Nothing else changes: the window on your desk works exactly as before, and a
 paired device can still sign in and open **Devices** to subscribe. Flockdeck
 asks the relay again every ten minutes, and at once from **Try again**, so
-remote access comes back by itself once the account is paid for.
+Flockdeck Remote comes back by itself once the account is paid for.
 
-How long a subscription lasts is worked out from what Paddle reports. Remote
-access runs to the end of the period paid for, or to the date a cancellation you
+How long a subscription lasts is worked out from what Paddle reports. Flockdeck Remote
+runs to the end of the period paid for, or to the date a cancellation you
 asked for takes effect, whichever is sooner. When a renewal payment fails it
 carries on, by default, for 14 days past the end of that period while Paddle
 retries the payment, and once only: a second notice of the same failure does not
@@ -387,7 +387,7 @@ being used has to pair again, and a machine is removed from its account after
 connected. If that is the account's last machine, the account goes with it,
 except for an account that is subscribed, or whose subscription ended less than
 the grace period ago (90 days by default): the relay keeps that account's last
-machine, so a quiet machine, or one with remote access turned off, does not
+machine, so a quiet machine, or one with Flockdeck Remote turned off, does not
 delete a paid account. Once the grace period has run out the account is deleted
 as described above. A trial, or an account with no subscription, is not covered
 by that, which is why the Remote dialog says that if this machine is not seen
@@ -449,13 +449,13 @@ Machines set up from scratch point at a company's relay with `-relay`, or with
 The dialog lists every paired device with an **Unpair** button; unpairing ends
 that device's session at once, including any window it has open.
 
-There are two ways to stop using remote access on a machine, and they are
+There are two ways to stop using Flockdeck Remote on a machine, and they are
 different.
 
-**Turn off remote access**, at the foot of the dialog, only stops this machine
+**Turn off Flockdeck Remote**, at the foot of the dialog, only stops this machine
 connecting. Nothing is deleted: the account, its paired devices, its plan or
 trial and its verified email stay on the relay, and a paired device shows this
-machine as offline. **Turn on remote access** reconnects to the same account and
+machine as offline. **Turn on Flockdeck Remote** reconnects to the same account and
 the same address, with no new sign-up, no email check and no new trial. If this
 machine is not seen for 30 days and the account has no subscription, the relay
 removes the account. An account that is subscribed, or whose subscription
@@ -467,7 +467,7 @@ off with.
 **Remove this desktop from the account** leaves it for good. The relay deletes
 this machine; if it is the only machine on the account, the account goes too,
 with its paired devices, its plan or trial and its verified email, and the
-dialog says so before it asks. Turning remote access on again afterwards starts
+dialog says so before it asks. Turning Flockdeck Remote on again afterwards starts
 a new account, with a new trial and a new email check, unless the machine joins
 one with a join code. **Show a join code first** makes one for another machine to
 join with, which keeps the account alive. If you pay for Flockdeck Remote,
@@ -482,7 +482,7 @@ relay listing this machine, offline. From a terminal:
 | `flockdeck remote devices` | What is paired, and each device's id |
 | `flockdeck remote revoke <id or name>` | Unpairs one |
 | `flockdeck remote rename <name>` | Renames this machine; `-device <id or name>` renames a device |
-| `flockdeck remote disable` | Turns remote access off here and keeps the account |
+| `flockdeck remote disable` | Turns Flockdeck Remote off here and keeps the account |
 | `flockdeck remote remove` | Removes this machine from the account for good; asks first, `-yes` skips the question |
 | `flockdeck remote move <relay>` | Moves this machine to another relay; every device then pairs again |
 
@@ -505,7 +505,7 @@ of an account that is subscribed or within the grace period after a subscription
    and remove a desktop you do not know from the **Devices** page of a paired
    device.
 3. If the device could have opened a shell here, it could have copied this
-   machine's credential out of `remote.json`. Turning remote access off and on
+   machine's credential out of `remote.json`. Turning Flockdeck Remote off and on
    again keeps that credential, so it does not help. Run `flockdeck remote
    remove` and enrol again: the old credential stops working. If this is the
    account's only desktop, removing it also deletes the account and unpairs

@@ -1,7 +1,8 @@
 # Getting started
 
 Flockdeck runs your coding agents on hardware you control, your desk or a
-machine that never sleeps, and reaches you wherever you are. Every agent
+machine that never sleeps. With the optional Flockdeck Remote add-on you can use
+it from a paired phone, tablet or browser too. Every agent
 pane is a real program in a pseudo-terminal, so it behaves exactly as
 it does in a normal terminal: permission prompts, slash commands, plan mode,
 colours, mouse. Claude Code is what a pane runs unless you say otherwise; any

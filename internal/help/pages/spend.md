@@ -46,6 +46,6 @@ The windows only appear for Pro and Max subscribers, and only after the first an
 
 ## What stays on your machine
 
-Everything here is worked out on this computer, from what the agents themselves report. Flockdeck sends nothing about your spending anywhere, and makes no network request to find it out: no usage API, no price feed. If remote access is on, the figures travel with the rest of your panes' state to your own devices, through the relay, as the pane headers do.
+Everything here is worked out on this computer, from what the agents themselves report. Flockdeck sends nothing about your spending anywhere, and makes no network request to find it out: no usage API, no price feed. If Flockdeck Remote is on, the figures travel with the rest of your panes' state to your own devices, through the relay, as the pane headers do.
 
 The figures are kept in memory only for now. They start again when a conversation does, with `/clear` or a new session, and when Flockdeck restarts.

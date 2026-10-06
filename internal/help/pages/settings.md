@@ -80,10 +80,10 @@ it.
 
 ### Connections
 
-- **Remote access**: whether paired devices are notified when an agent has
+- **Flockdeck Remote**: whether paired devices are notified when an agent has
   been waiting, after how long (30 seconds unless changed; 15 seconds to 10
   minutes), and whether the notification names the pane;
-  then turning remote access on or off, the relay it goes through, this
+  then turning Flockdeck Remote on or off, the relay it goes through, this
   machine's name, and the paired devices. Turning it on or off, and the
   relay, are changed only at the desk.
 - **GitHub**: signing in to GitHub, for pull requests, issues and CI status
@@ -92,7 +92,7 @@ it.
 ### Account
 
 - **Account & plan**: the Free plan, which is every part of the desktop app;
-  where the relay reports one, the Remote access plan for reaching this
+  where the relay reports one, the Flockdeck Remote plan for reaching this
   machine through the shared relay, a free trial and then a subscription, with
   the days left or the date it is paid until, paid for from **Devices** on a
   paired phone or browser; and Enterprise, coming for companies to run the
@@ -107,8 +107,8 @@ it.
   Noncommercial), the privacy policy and terms for the shared relay, and the
   licences.
 
-A window reached through the relay leaves a few things to the desk: [Remote
-access](#remote) lists them.
+A window reached through the relay leaves a few things to the desk: [Flockdeck
+Remote](#remote) lists them.
 
 Type into **Find a setting**, at the top of the settings, to narrow the list to
 the sections that mention a word. In a narrow window the list and a section are
@@ -144,13 +144,13 @@ two pages: pick a section to open it, and **← All settings** goes back.
 - A pane's auto-review, lock and recording: the ✓, padlock and record
   buttons in its header, or the command palette. Kept with the layout, so a
   pane comes back after a restart the way you left it.
-- This machine's name and paired devices: **Remote access** in the
+- This machine's name and paired devices: **Flockdeck Remote** in the
   settings, or [[action:remote]]. Use **Pair a device**, **Rename** and
-  **Unpair**. Kept on the relay; [Remote access](#remote) has the rest.
-- Notifications on paired devices: **Remote access** in the settings:
+  **Unpair**. Kept on the relay; [Flockdeck Remote](#remote) has the rest.
+- Notifications on paired devices: **Flockdeck Remote** in the settings:
   whether the relay tells the paired devices that asked for them when an agent
   has been waiting, after how long, and whether they name the pane. Kept in
-  `prefs.json`; [Remote access](#remote) has the rest.
+  `prefs.json`; [Flockdeck Remote](#remote) has the rest.
 - Desktop notifications: **General** in the settings, or **Turn desktop
   notifications off** in the palette; kept in `prefs.json`. The browser also
   asks once whether this window may show them, and keeps the answer for that
@@ -216,7 +216,7 @@ set).
 - `todos.json`: every project's saved todo checklists.
 - `worktree-procs.json`: processes recorded for worktrees, so they can be
   swept up.
-- `e2e_key.json`: this machine's end-to-end key for remote access terminals.
+- `e2e_key.json`: this machine's end-to-end key for Flockdeck Remote terminals.
   It holds a secret; keep it private.
 - `recordings`: the transcripts of recorded panes, and their exports; see
   [Recording a pane](#recording).
@@ -233,7 +233,7 @@ To uninstall Flockdeck, quit it and delete the `flockdeck` binary (on Windows,
 the `%LOCALAPPDATA%\Programs\flockdeck` folder the installer made, its Start
 menu shortcut and its entry in your PATH), then this directory and, on
 Windows, `%APPDATA%\flockdeck.exe`; run `flockdeck remote remove` first if
-remote access is on, so the relay forgets the machine (turning it off keeps the
+Flockdeck Remote is on, so the relay forgets the machine (turning it off keeps the
 account on the relay). Worktrees it made are ordinary git worktrees, and stay beside their
 repositories until you remove them.
 

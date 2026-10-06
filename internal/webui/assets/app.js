@@ -910,12 +910,12 @@
       case "error": return "Cannot reach " + where + (r.detail ? ": " + r.detail : "") + "." + remoteRetryClock(r.retryAt);
       // Off here, with the account kept: say what a paired device sees, and
       // that turning it on again is the same account.
-      case "disabled": return "Remote access is off on this machine. Its account is kept: paired devices see this machine as offline, and turning it on again reconnects to the same account.";
+      case "disabled": return "Flockdeck Remote is off on this machine. Its account is kept: paired devices see this machine as offline, and turning it on again reconnects to the same account.";
       case "revoked":
-      case "replaced": return r.detail || "Remote access has stopped.";
+      case "replaced": return r.detail || "Flockdeck Remote has stopped.";
       // The relay's own words: it is the relay that stopped remote access,
       // and nothing on this machine that decided to.
-      case "lapsed": return r.detail || "The relay has stopped remote access for this account.";
+      case "lapsed": return r.detail || "The relay has stopped Flockdeck Remote for this account.";
       default: return "Not connected to " + where + ".";
     }
   }
@@ -938,7 +938,7 @@
    *  shows it, and every part of the app works the same whatever it says. */
   function remotePlanText(p) {
     if (p.active === false) {
-      let s = p.message || "The relay has stopped remote access for this account.";
+      let s = p.message || "The relay has stopped Flockdeck Remote for this account.";
       if (p.deleteAt) s += " The account and its paired devices are kept until " + remoteDay(p.deleteAt) + ", then deleted.";
       return s;
     }
@@ -967,7 +967,7 @@
     const box = section("Plan");
     box.id = "remote-plan";
     box.append(el("p", p.active === false ? "remote-error" : null, remotePlanText(p)));
-    box.append(el("p", "fan-hint", "Remote access through the relay is paid for from Devices on a paired phone or " +
+    box.append(el("p", "fan-hint", "Flockdeck Remote through the relay is paid for from Devices on a paired phone or " +
       "browser. The desktop app is free, and works the same whatever the plan."));
     return box;
   }
@@ -981,7 +981,7 @@
     remoteOutcome = null;
     remoteBusy = "";
     remoteMoveDraft = newRemoteMoveDraft();
-    openOverlay("Remote access", "remote");
+    openOverlay("Flockdeck Remote", "remote");
     renderRemote();
     send({ cmd: "remoteDevices" });
   }
@@ -998,7 +998,7 @@
    *  of turning remote access on or off, which the server refuses from there:
    *  off cuts the way in that window came by, with nothing at its end to turn
    *  it on again, and on, from a window already in, is against another relay. */
-  const DESK_ONLY_REMOTE = "Remote access is turned on, turned off and moved to another relay " +
+  const DESK_ONLY_REMOTE = "Flockdeck Remote is turned on, turned off and moved to another relay " +
     "on the machine itself, not from a window reached through the relay.";
 
   function renderRemote() {
@@ -1010,8 +1010,9 @@
     // it will use — empty is the default, named — before anything is pressed.
     if (!r && remoteRoster && !remoteRoster.enabled) {
       body.append(el("div", "fan-hint",
-        "Remote access opens this window from another device (a laptop, a tablet, a phone) " +
-        "through a relay, without opening a port on this machine."));
+        "Flockdeck Remote opens this window from a paired phone, tablet or browser, through " +
+        "Flockdeck's optional relay. A paired device gets the full window with full control, terminals included. " +
+        "This machine connects out to the relay and listens for nothing from the network."));
       body.append(remoteWindow ? el("p", "fan-hint", DESK_ONLY_REMOTE) : remoteEnableForm());
       return;
     }
@@ -1160,7 +1161,7 @@
       // A machine wiped without turning remote access off is listed offline
       // for good unless somebody takes it off, and this is where it is seen.
       if (hosts.some((h) => !h.self && !h.online)) {
-        hw.append(el("p", "fan-hint", "A machine that was wiped or lost, and so never turned remote access off, " +
+        hw.append(el("p", "fan-hint", "A machine that was wiped or lost, and so never turned Flockdeck Remote off, " +
           "is taken off the account from the Devices page of a paired device."));
       }
       body.append(hw);
@@ -1215,7 +1216,7 @@
       keepFocus(renderRemote);
     };
     const row = el("div", "update-row");
-    const go = el("button", "chip primary", remoteBusy === "enable" ? "Turning it on…" : "Turn on remote access");
+    const go = el("button", "chip primary", remoteBusy === "enable" ? "Turning it on…" : "Turn on Flockdeck Remote");
     go.id = "remote-enable";
     go.disabled = remoteBusy === "enable";
     go.onclick = enable;
@@ -1282,7 +1283,7 @@
     // is deleted, so its question says what stays and what a device sees.
     // Off already, the same place offers turning it back on, to that account.
     if (kept) {
-      const on = el("button", "chip primary", remoteBusy === "enable" ? "Turning it on…" : "Turn on remote access");
+      const on = el("button", "chip primary", remoteBusy === "enable" ? "Turning it on…" : "Turn on Flockdeck Remote");
       on.id = "remote-resume";
       on.disabled = !!remoteBusy;
       on.onclick = () => {
@@ -1293,11 +1294,11 @@
       };
       row.append(on);
     } else {
-      const off = el("button", "chip", remoteBusy === "disable" ? "Turning it off…" : "Turn off remote access");
+      const off = el("button", "chip", remoteBusy === "disable" ? "Turning it off…" : "Turn off Flockdeck Remote");
       off.id = "remote-disable";
       off.disabled = !!remoteBusy;
       off.onclick = () => {
-        const q = "Turn off remote access? This machine stops connecting to " + where +
+        const q = "Turn off Flockdeck Remote? This machine stops connecting to " + where +
           ", and your paired devices see it as offline. Nothing is deleted: the account, its paired devices and its plan stay, " +
           "and turning it on again reconnects to the same account with no new sign-up. " +
           "If this machine is not seen for 30 days and the account has no subscription, the relay removes the account.";
@@ -1315,7 +1316,7 @@
     remove.disabled = !!remoteBusy;
     remove.onclick = () => {
       let q = "Remove this desktop from the account? " + where + " is told to delete this machine for good. " +
-        "Turning remote access on again afterwards starts a new account, with a new trial and a new email check, " +
+        "Turning Flockdeck Remote on again afterwards starts a new account, with a new trial and a new email check, " +
         "unless this machine joins one with a join code.";
       // Taking the account's only machine off deletes the account on the
       // relay, and every device paired with it.
@@ -1325,7 +1326,7 @@
           "and its plan, trial and verified email are lost.";
       }
       q += " If you pay for Flockdeck Remote, cancel it first from the Devices page of a paired device: removing the desktop does not cancel it. " +
-        "To keep the account, choose Turn off remote access instead.";
+        "To keep the account, choose Turn off Flockdeck Remote instead.";
       if (!window.confirm(q)) return;
       remoteRemove(false);
     };
@@ -1374,7 +1375,7 @@
     if (o && o.action === "move" && o.warning) box.append(el("p", "remote-error", o.warning));
     if (o && o.untold) {
       box.append(el("p", "fan-hint", "Try again first: a relay that cannot be reached is most often the " +
-        "network, for now. Forgetting it here anyway removes this machine from remote access here, but the " +
+        "network, for now. Forgetting it here anyway removes this machine from Flockdeck Remote here, but the " +
         "relay keeps listing it, offline, until it is removed from a paired device's Devices page or has gone 30 days without being heard from."));
       const again = el("div", "update-row");
       const retry = el("button", "chip primary", "Try again");
@@ -1385,7 +1386,7 @@
       forget.id = "remote-forget";
       forget.disabled = !!remoteBusy;
       forget.onclick = () => {
-        if (!window.confirm("Forget remote access here without telling the relay? It will keep listing this machine, offline, until it is removed from a paired device or 30 days pass.")) return;
+        if (!window.confirm("Forget Flockdeck Remote here without telling the relay? It will keep listing this machine, offline, until it is removed from a paired device or 30 days pass.")) return;
         remoteRemove(true);
       };
       again.append(retry, forget);
@@ -8516,7 +8517,7 @@
     // somebody looking for one types - it matched none of them.
     const SETTING = "settings preferences options";
     const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
-    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "paneInfo" ? "id identifier identifiers details info information conversation session process pid peer path file copy" : id === "findPane" ? "search locate where switch go id identifier conversation session process pid peer name project tab branch" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : "";
+    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "paneInfo" ? "id identifier identifiers details info information conversation session process pid peer path file copy" : id === "findPane" ? "search locate where switch go id identifier conversation session process pid peer name project tab branch" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : id === "remote" ? "remote access" : "";
     // What a setting is now, beside the command that changes it: choosing a
     // scrollback or a font meant opening the question to find out.
     const value = {
@@ -11428,7 +11429,7 @@
     { id: "keys", group: "Agents", label: "API keys", words: "api keys key token secret" },
     { id: "status", group: "Agents", label: "Status detection",
       words: "status detection typesafe jev api key waiting blocked quiet pane terminal output third party" },
-    { id: "remote", group: "Connections", label: "Remote access", words: "remote relay pair paired device devices machine name phone tablet push notify notification notifications waiting anonymous identifying" },
+    { id: "remote", group: "Connections", label: "Flockdeck Remote", words: "remote access relay pair paired device devices machine name phone tablet push notify notification notifications waiting anonymous identifying" },
     { id: "github", group: "Connections", label: "GitHub", words: "github gh pull request issue pr ci actions checks workflow sign in install auth login" },
     { id: "plan", group: "Account", label: "Account & plan",
       words: "account plan free enterprise self-hosted relay sso company companies licence license support paid sponsor sponsors sponsorship donate " +
@@ -11595,7 +11596,7 @@
       b.setAttribute("aria-selected", String(on));
       b.setAttribute("aria-controls", "settings-pane");
       b.tabIndex = on ? 0 : -1;
-      // Remote access says it is on, where it is: drawn by CSS from this, so
+      // Flockdeck Remote says it is on, where it is: drawn by CSS from this, so
       // the section's name stays the tab's text.
       if (s.id === "remote" && state && state.remote && state.remote.state !== "disabled") b.setAttribute("data-tag", "on");
       b.onclick = () => {
@@ -11686,7 +11687,7 @@
     routing: settingsRouting,
     keys: (pane) => { settingsHead(pane, "API keys"); settingsHost(pane); renderKeys(); },
     status: settingsStatus,
-    remote: (pane) => { settingsHead(pane, "Remote access"); settingsPush(pane); settingsHost(pane); renderRemote(); },
+    remote: (pane) => { settingsHead(pane, "Flockdeck Remote"); settingsPush(pane); settingsHost(pane); renderRemote(); },
     github: (pane) => {
       settingsHead(pane, "GitHub", "Create and review pull requests and issues, and see CI status, without leaving Flockdeck.");
       settingsHost(pane);
@@ -12685,10 +12686,10 @@
     // is shown here as the relay says it. Nothing in the app depends on it.
     const relayPlan = remoteRoster && remoteRoster.plan;
     pane.append(card("Free", "Current plan", false, relayPlan
-      ? "Every part of the desktop app, for good. Remote access through the relay has a plan of its own."
-      : "Every part of the desktop app, and remote access to your panes through the shared relay."));
+      ? "Every part of the desktop app, for good. Flockdeck Remote through the relay has a plan of its own."
+      : "Every part of the desktop app, and Flockdeck Remote through the shared relay."));
     if (relayPlan) {
-      const remote = card("Remote access", relayPlan.name || relayPlan.plan, false, remotePlanText(relayPlan));
+      const remote = card("Flockdeck Remote", relayPlan.name || relayPlan.plan, false, remotePlanText(relayPlan));
       remote.id = "set-remote-plan";
       remote.append(el("p", "plan-text", "It is paid for from Devices on a paired phone or browser."));
       pane.append(remote);
@@ -14344,7 +14345,7 @@
     },
     {
       id: "remote-access",
-      text: "Remote access…, in the command palette, pairs a phone or another desktop through a relay, so you can see or answer a waiting agent away from this machine.",
+      text: "Flockdeck Remote…, in the command palette, pairs a phone or another desktop through a relay. The paired device gets the full window with full control, terminals included, so you can answer a waiting agent away from this machine.",
       page: "remote",
       when: () => !remoteWindow,
     },

@@ -68,7 +68,7 @@ type VerifyEvent struct {
 // for up to the registration's own expiry with no way for anyone to ever
 // finish it. The command line always gives an onEvent that opens or prints
 // the URL; a caller that does not yet have a way to show one and wait --
-// today, the window's own Remote access… dialog -- gets this instead of
+// today, the window's own Flockdeck Remote… dialog -- gets this instead of
 // hanging.
 var ErrNeedsInteractiveVerify = errors.New("this relay needs a verified email before registering a new machine; run `flockdeck remote enable` from a terminal, which opens a browser for it")
 

@@ -172,7 +172,7 @@ func (s *Server) handleRemoteReload(w http.ResponseWriter, r *http.Request) {
 	}
 	ra := s.remoteAccess()
 	if ra == nil {
-		http.Error(w, "this instance has no remote access to reload", http.StatusServiceUnavailable)
+		http.Error(w, "this instance has no Flockdeck Remote to reload", http.StatusServiceUnavailable)
 		return
 	}
 	if err := ra.Reload(); err != nil {
@@ -196,7 +196,7 @@ func RequestRemoteReload(baseURL, token string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return refused("reload remote access", resp)
+		return refused("reload Flockdeck Remote", resp)
 	}
 	return nil
 }
@@ -493,15 +493,15 @@ func (s *Server) remoteEnable(c *controlClient, cmd command) {
 		return
 	}
 	req := remote.EnableRequest{Relay: cmd.Relay, Name: cmd.Name, Join: cmd.Join, Invite: cmd.Invite}
-	s.remoteCall(c, "enable", "turning remote access on", func(ctx context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
+	s.remoteCall(c, "enable", "turning Flockdeck Remote on", func(ctx context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
 		replaced, err := ra.Enable(ctx, req)
 		switch {
 		case err != nil:
 			msg.Error = err.Error()
 		case replaced:
-			c.notify("Remote access is on: the relay had forgotten this machine, so it was enrolled again", false)
+			c.notify("Flockdeck Remote is on: the relay had forgotten this machine, so it was enrolled again", false)
 		default:
-			c.notify("Remote access is on", false)
+			c.notify("Flockdeck Remote is on", false)
 		}
 	})
 }
@@ -512,12 +512,12 @@ func (s *Server) remoteDisable(c *controlClient) {
 	if refusedThroughRelay(c, "disable") {
 		return
 	}
-	s.remoteCall(c, "disable", "turning remote access off", func(_ context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
+	s.remoteCall(c, "disable", "turning Flockdeck Remote off", func(_ context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
 		if err := ra.Disable(); err != nil {
 			msg.Error = err.Error()
 			return
 		}
-		c.notify("Remote access is off. This machine shows as offline on your devices, and turning it on again uses the same account", false)
+		c.notify("Flockdeck Remote is off. This machine shows as offline on your devices, and turning it on again uses the same account", false)
 	})
 }
 
@@ -551,7 +551,7 @@ func (s *Server) remoteRemove(c *controlClient, force bool) {
 // the far end can turn it on again; on, from a window that is already in, can
 // only be against another relay -- moving everything typed at the desk, and
 // everything the agents print, to a relay chosen from somewhere else.
-const deskOnlyRemote = "Remote access is turned off, or moved to another relay, on the machine Flockdeck runs on, not from a window reached through the relay"
+const deskOnlyRemote = "Flockdeck Remote is turned off, or moved to another relay, on the machine Flockdeck runs on, not from a window reached through the relay"
 
 // refusedThroughRelay refuses a window reached through the relay that asked to
 // turn remote access on or off, and reports whether it did. The dialog's
@@ -605,7 +605,7 @@ func (s *Server) remoteCall(c *controlClient, action, what string, call func(con
 		msg := remoteOutcomeMsg{Type: "remoteOutcome", Action: action}
 		ra := s.remoteAccess()
 		if ra == nil {
-			msg.Error = "remote access is not available in this instance"
+			msg.Error = "Flockdeck Remote is not available in this instance"
 			c.sendJSON(msg)
 			return
 		}

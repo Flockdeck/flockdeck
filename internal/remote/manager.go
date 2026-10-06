@@ -11,11 +11,11 @@ import (
 
 // ErrNotEnabled is what anything that needs an enrolment is told when there is
 // none.
-var ErrNotEnabled = errors.New("remote access is not enabled on this machine; turn it on from Remote access… in the command palette, or with `flockdeck remote enable`")
+var ErrNotEnabled = errors.New("Flockdeck Remote is not enabled on this machine; turn it on from Flockdeck Remote… in the command palette, or with `flockdeck remote enable`")
 
 // errTurnedOff is what a request to reach the relay is told while remote
 // access is turned off with its enrolment kept.
-var errTurnedOff = errors.New("remote access is turned off on this machine; turn it on again first, or run `flockdeck remote enable`")
+var errTurnedOff = errors.New("Flockdeck Remote is turned off on this machine; turn it on again first, or run `flockdeck remote enable`")
 
 // Manager is remote access as a running instance has it: the enrolment on
 // disk, and the tunnel that goes with it.

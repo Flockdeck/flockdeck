@@ -23,7 +23,7 @@ switched from inside the window. These are what is left.
 
 `-no-window` needs no browser on the machine it runs on, so it suits
 a server you own. See **Running it headless on a server** in
-[Remote access](#remote) for running Flockdeck headless and reaching it from
+[Flockdeck Remote](#remote) for running Flockdeck headless and reaching it from
 a paired phone or laptop.
 
 Running the binary again does **not** start a second set of agents. It finds
@@ -202,12 +202,12 @@ Reach this machine's agents from another device, through a relay.
 | `flockdeck remote devices` | What is paired, with the ids `revoke` takes |
 | `flockdeck remote revoke <id or name>` | Unpair a device |
 | `flockdeck remote rename <name>` | Rename this machine; with `-device <id or name>`, a paired device instead |
-| `flockdeck remote disable` | Turn remote access off here and keep the account: nothing is deleted, the machine shows as offline, and `enable` turns it back on to the same account |
+| `flockdeck remote disable` | Turn Flockdeck Remote off here and keep the account: nothing is deleted, the machine shows as offline, and `enable` turns it back on to the same account |
 | `flockdeck remote remove` | Leave the account for good: the relay deletes this machine, and the account too if it is the last one. It asks first; `-yes` skips the question, and `-force` forgets the enrolment here if the relay cannot be reached |
 | `flockdeck remote move <relay>` | Enrol with another relay, then leave this one once it answers; takes `-invite`, `-join`, `-name`, and `-yes` to skip the question. Every paired device has to pair again |
 
 A running instance is told when `enable`, `disable`, `remove` or `move` changes
-anything, and connects, disconnects or switches relay on the spot. [Remote access](#remote) has the rest.
+anything, and connects, disconnects or switches relay on the spot. [Flockdeck Remote](#remote) has the rest.
 
 ## chat
 

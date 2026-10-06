@@ -455,7 +455,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  %s=off\n", updateEnv)
 	fmt.Fprintf(out, "        do not look for new releases in the background; update still works\n")
 	fmt.Fprintf(out, "  %s=<url>\n", remote.RelayEnv)
-	fmt.Fprintf(out, "        the relay remote access goes through, instead of the default one\n")
+	fmt.Fprintf(out, "        the relay Flockdeck Remote goes through, instead of the default one\n")
 	fmt.Fprintf(out, "  FLOCKDECK_API_KEY=<key>\n")
 	fmt.Fprintf(out, "        the key any API agent uses when neither its own variables nor a key\n")
 	fmt.Fprintf(out, "        stored with `flockdeck keys set` hold one\n")
@@ -1097,7 +1097,7 @@ func run(opts options) error {
 	remoteAccess := remote.NewManager(version, srv.ServeRemote, srv.Wake)
 	srv.SetRemote(remoteAccess)
 	if err := remoteAccess.Reload(); err != nil {
-		fmt.Fprintln(os.Stderr, "flockdeck: remote access:", err)
+		fmt.Fprintln(os.Stderr, "flockdeck: Flockdeck Remote:", err)
 	}
 	defer remoteAccess.Close()
 

@@ -15,8 +15,8 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
 
 - **The desktop app runs on your computer.** It has no accounts, no analytics,
   no telemetry and no crash reporting. Your code, your terminals and your API
-  keys stay on your machine, unless you use a built-in API agent, remote
-  access, or turn on one of the two optional TypeSafe features, as described
+  keys stay on your machine, unless you use a built-in API agent, Flockdeck Remote,
+  or turn on one of the two optional TypeSafe features, as described
   below.
 - **The relay is optional.** It is used only if you turn on Flockdeck Remote. It
   keeps what it needs to connect your devices to your desktops: names, random
@@ -196,7 +196,7 @@ protects your terminal's contents from an honestly-run relay, including one
 you host yourself. Against a relay that has been tampered with to swap the
 keys it hands out at pairing, it needs one more check from you: the device and
 the desktop can each show a code for the other (Verify, under Devices on the
-phone and in the desktop's Remote access settings), and comparing them by eye
+phone and in the desktop's Flockdeck Remote settings), and comparing them by eye
 catches a swapped key.
 
 The relay does not record, store or log the content of that traffic.

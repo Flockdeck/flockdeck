@@ -20,7 +20,7 @@ import (
 // `flockdeck remote` enrols this machine with a relay, and manages what is
 // paired with it.
 //
-// The window's Remote access dialog does the same jobs. The work of enrolling
+// The window's Flockdeck Remote dialog does the same jobs. The work of enrolling
 // and of taking the machine off again is remote.Enable, remote.Disable (which keeps the account) and remote.Remove,
 // which both use; what is here is the command line's wording of it, which can
 // point at flags the window does not have.
@@ -202,11 +202,11 @@ Commands:
                  enrol this machine with a relay
   pair [-desktop]  print a one-time link (and QR code) that pairs a device;
                  -desktop prints a code for enrolling another machine instead
-  status         say whether remote access is on, and connected
+  status         say whether Flockdeck Remote is on, and connected
   devices        list the paired devices and enrolled machines
   revoke <id>    unpair a device, named by its id or its name
   rename <name>  rename this machine; -device <id or name> renames a device
-  disable        turn remote access off here and keep the account, so enable
+  disable        turn Flockdeck Remote off here and keep the account, so enable
                  later reconnects to the same one
   remove [-force] [-yes]
                  leave the account for good: delete this machine from the
@@ -217,7 +217,7 @@ Run flockdeck remote help <command> for more about one of them.
 The relay is %s unless -relay or %s
 says otherwise.
 To move to another relay, run move; every device then has to pair again.
-In the window, Remote access… in the command palette does the same things.
+In the window, Flockdeck Remote… in the command palette does the same things.
 Traffic is TLS to and from the relay. A terminal is also end-to-end encrypted
 between this machine and the paired browser, unless either side has no
 registered key. The chat view, pane state and dialogs are not, and the relay
@@ -233,7 +233,7 @@ var remoteSynopses = map[string][2]string{
 	"pair": {" [-desktop]",
 		"Print a one-time link, and a QR code of it, that pairs a device with this\nmachine."},
 	"status": {"",
-		"Say whether remote access is on, whether this machine is connected to its\nrelay, the address a paired device opens it at, and which devices are paired."},
+		"Say whether Flockdeck Remote is on, whether this machine is connected to its\nrelay, the address a paired device opens it at, and which devices are paired."},
 	"devices": {"",
 		"List the paired devices, with the ids and names revoke takes, and the\naccount's machines."},
 	"revoke": {" <device id or name>",
@@ -241,7 +241,7 @@ var remoteSynopses = map[string][2]string{
 	"rename": {" [-device <id or name>] <new name>",
 		"Give this machine a new name, which is what every paired device and the\naccount's other machines call it. With -device, rename a paired device\ninstead; `flockdeck remote devices` lists them by id and name."},
 	"disable": {"",
-		"Turn remote access off on this machine and keep the enrolment. Nothing is\ndeleted: the account, its paired devices, plan and trial stay, this machine\nshows as offline on them, and `flockdeck remote enable` turns it back on to\nthe same account with no new sign-up. If this machine is not heard from for\n30 days and the account has no subscription, the relay removes the account."},
+		"Turn Flockdeck Remote off on this machine and keep the enrolment. Nothing is\ndeleted: the account, its paired devices, plan and trial stay, this machine\nshows as offline on them, and `flockdeck remote enable` turns it back on to\nthe same account with no new sign-up. If this machine is not heard from for\n30 days and the account has no subscription, the relay removes the account."},
 	"remove": {" [-force] [-yes]",
 		"Take this machine off the account for good. The relay deletes this machine,\nand if it is the account's only one, the account too: its paired devices\nare unpaired, and its plan, trial and verified email are lost. Enabling\nagain starts a new account, unless it joins one with a join code, which\n`flockdeck remote pair -desktop` prints and which works before this is run."},
 	"move": {" [flags] <relay>",
@@ -437,18 +437,18 @@ func remoteEnable(args []string, rio remoteIO) error {
 		fmt.Fprintln(rio.out, "the relay no longer knew this machine, so it has been enrolled again")
 	}
 	if wasOff && !replaced {
-		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("remote access turned back on: this machine is %q on %s, on the same account as before", cfg.Name, cfg.Relay)))
+		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("Flockdeck Remote turned back on: this machine is %q on %s, on the same account as before", cfg.Name, cfg.Relay)))
 		reportReload(rio, "flockdeck will connect to the relay when it next starts")
 		return nil
 	}
-	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("remote access enabled: this machine is %q on %s", cfg.Name, cfg.Relay)))
+	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("Flockdeck Remote enabled: this machine is %q on %s", cfg.Name, cfg.Relay)))
 	if f.join != "" {
 		// Joining puts this machine in another's account rather than a new
 		// one, which is the whole point of the code, and worth confirming.
 		fmt.Fprintln(rio.out, "Joined the other machine's account: a device paired with either reaches both.")
 	}
 	reportReload(rio, "flockdeck will connect to the relay when it next starts")
-	fmt.Fprintln(rio.out, "Pair a device with `flockdeck remote pair`, or Remote access… in the window.")
+	fmt.Fprintln(rio.out, "Pair a device with `flockdeck remote pair`, or Flockdeck Remote… in the window.")
 	return nil
 }
 
@@ -610,7 +610,7 @@ func remotePairCmd(args []string, rio remoteIO) error {
 		return err
 	}
 	if cfg.Disabled && !f.desktop {
-		return errors.New("remote access is turned off on this machine, so a device paired now would find it offline; `flockdeck remote enable` turns it back on, and -desktop still prints a join code")
+		return errors.New("Flockdeck Remote is turned off on this machine, so a device paired now would find it offline; `flockdeck remote enable` turns it back on, and -desktop still prints a join code")
 	}
 	kind := remote.KindDevice
 	if f.desktop {
@@ -643,7 +643,7 @@ func remotePairCmd(args []string, rio remoteIO) error {
 	// The code is drawn in the terminal's own colours, which on a light
 	// background comes out inverted, and a phone's camera is not reliably
 	// able to read that. The window draws it dark on white whatever the theme.
-	fmt.Fprintf(rio.out, "If the code will not scan, Remote access… in the window shows it dark on white.\n")
+	fmt.Fprintf(rio.out, "If it will not scan, Flockdeck Remote… in the window shows it dark on white.\n")
 	// The code comes last: all of this is taller than a 24-row terminal, and
 	// what is printed last is what stays in view, at the bottom, to be scanned.
 	if code, err := remote.QRTerminal(p.URL); err == nil {
@@ -662,7 +662,7 @@ func remoteStatusCmd(args []string, rio remoteIO) error {
 		return loadAdvice(err)
 	}
 	if cfg == nil {
-		fmt.Fprintln(rio.out, "remote access is not enabled; `flockdeck remote enable` turns it on")
+		fmt.Fprintln(rio.out, "Flockdeck Remote is not enabled; `flockdeck remote enable` turns it on")
 		// Which relay is the one choice enabling makes, so it is said before
 		// it is made, along with where it would come from.
 		relay, err := remote.RelayURL("")
@@ -1074,10 +1074,10 @@ func remoteDisable(args []string, rio remoteIO) error {
 		return fmt.Errorf("%w (`flockdeck remote remove -force` forgets it)", err)
 	}
 	if !had {
-		fmt.Fprintln(rio.out, "remote access is not enabled")
+		fmt.Fprintln(rio.out, "Flockdeck Remote is not enabled")
 		return nil
 	}
-	fmt.Fprintln(rio.out, "remote access turned off; this machine keeps its account")
+	fmt.Fprintln(rio.out, "Flockdeck Remote turned off; this machine keeps its account")
 	fmt.Fprintln(rio.out, fitted("Its paired devices, plan and trial are untouched, and it shows as offline on them. `flockdeck remote enable` turns it back on to the same account, with no new sign-up. To leave the account for good, run `flockdeck remote remove`."))
 	fmt.Fprintln(rio.out, fitted("If this machine is not heard from for 30 days and the account has no subscription, the relay removes the account."))
 	reportReload(rio, "")
@@ -1109,7 +1109,7 @@ func remoteRemoveCmd(args []string, rio remoteIO) error {
 		default:
 			fmt.Fprintln(rio.out, fitted("If it is the account's only machine, the account is deleted too, with its paired devices, plan, trial and verified email."))
 		}
-		fmt.Fprintln(rio.out, fitted("Enabling again starts a new account, with a new trial and a new email check, unless it joins one with a join code; `flockdeck remote pair -desktop` prints one, and works before this is done. If you pay for Flockdeck Remote, cancel it first from the Devices page of a paired device: removing the desktop does not cancel it. To keep the account and only turn remote access off, run `flockdeck remote disable` instead."))
+		fmt.Fprintln(rio.out, fitted("Enabling again starts a new account, with a new trial and a new email check, unless it joins one with a join code; `flockdeck remote pair -desktop` prints one, and works before this is done. If you pay for Flockdeck Remote, cancel it first from the Devices page of a paired device: removing the desktop does not cancel it. To keep the account and only turn Flockdeck Remote off, run `flockdeck remote disable` instead."))
 		if !f.yes {
 			if rio.confirm == nil {
 				return errors.New("nothing has changed; run it again with -yes to remove without being asked, as a script has to")
@@ -1134,7 +1134,7 @@ func remoteRemoveCmd(args []string, rio remoteIO) error {
 	case !had:
 		// Nothing was there, readable or not, -force or no: there was
 		// nothing to turn off, and nothing to tell a running instance.
-		fmt.Fprintln(rio.out, "remote access is not enabled")
+		fmt.Fprintln(rio.out, "Flockdeck Remote is not enabled")
 		return nil
 	case untold != nil:
 		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("could not tell the relay (%v); forgetting the enrolment here anyway", untold)))
@@ -1175,7 +1175,7 @@ func remoteMoveCmd(args []string, rio remoteIO) error {
 	}
 	cfg, err := enrolled()
 	if errors.Is(err, remote.ErrNotEnabled) {
-		return fmt.Errorf("remote access is not enabled here, so there is nothing to move; `flockdeck remote enable -relay %s` enrols this machine there", fs.Arg(0))
+		return fmt.Errorf("Flockdeck Remote is not enabled here, so there is nothing to move; `flockdeck remote enable -relay %s` enrols this machine there", fs.Arg(0))
 	}
 	if err != nil {
 		return err
@@ -1230,7 +1230,7 @@ func remoteMoveCmd(args []string, rio remoteIO) error {
 	if untold != nil {
 		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("%s could not be told (%v), so it will go on listing this machine, offline, until a device paired there removes it", cfg.Relay, untold)))
 	}
-	fmt.Fprintln(rio.out, "Pair each device again with `flockdeck remote pair`, or Remote access… in the\nwindow.")
+	fmt.Fprintln(rio.out, "Pair each device again with `flockdeck remote pair`, or Flockdeck Remote… in the\nwindow.")
 	return nil
 }
 

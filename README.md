@@ -3,13 +3,13 @@
 A desktop application for running several coding agents at once without them
 stomping on each other's work: in a git repository each can have its own
 worktree, on its own branch, so agents given one do not edit each other's
-checkout. It runs them on hardware you control, and reaches you wherever you
-are.
+checkout. It runs them on hardware you control, and with the optional Flockdeck
+Remote add-on you can use it from your phone, tablet or another browser.
 
 Start it on a spare machine, a home server or a cheap VPS with `-no-window`
-and it needs no browser there either. Pair it with `flockdeck remote pair`
-and a QR code (no port opened, no password) and it's a desktop in every way
-that matters from your phone or laptop. Or run it on your own desk. Either
+and it needs no browser there either. With Flockdeck Remote turned on, pair a
+phone or laptop with `flockdeck remote pair` and a QR code, and it opens the
+whole Flockdeck window. Or run it on your own desk. Either
 way, Claude Code, Codex, Gemini and the rest run in a real pseudo-terminal, so
 each behaves exactly as it does in a normal terminal: permission prompts,
 slash commands, plan mode, colours, mouse. Around them the app adds what you
@@ -52,9 +52,11 @@ keys` keeps it.
   opens in, and a folder that is not a repository has no worktrees to give.
 - Run it on a server instead of a desk. `-no-window` needs no browser on
   that machine either, so a spare box, a home server or a cheap VPS works as
-  well as a laptop. Pair it and it's a desktop in every way that matters.
-- Reach them from another device: pair a laptop, tablet or phone through
-  a relay, with no port opened on this machine.
+  well as a laptop. With Flockdeck Remote, pair a phone or laptop and use it there.
+- Flockdeck Remote, an optional add-on (30-day trial, then a monthly
+  subscription): use your own Flockdeck from a paired phone, tablet or
+  browser through Flockdeck's optional relay. This machine connects out to the
+  relay and listens for nothing from the network.
 - Any agent, any model, per pane: a CLI you already have, or a model API
   spoken to directly by the binary itself, picked per pane and remembered per
   project.
@@ -245,7 +247,7 @@ exits; the subcommand still works.
 
 ### Uninstalling
 
-Remove this machine from its relay first if remote access is on (`flockdeck remote remove`), so the
+Remove this machine from its relay first if Flockdeck Remote is on (`flockdeck remote remove`), so the
 relay forgets this machine. Then quit Flockdeck and delete it:
 `~/.local/bin/flockdeck` on Linux, with `flockdeck.desktop` and `flockdeck.png`
 under `~/.local/share/applications` and `~/.local/share/icons`;
@@ -301,7 +303,7 @@ and switched from inside the window, and so is the agent each pane runs.
 
 Running the binary again does not start a second set of agents. It finds
 the instance already going, hands it the directory you asked for, and opens a
-window onto it. So `flockdeck -C ~/code/api` from anywhere adds that project to
+window onto it. So `flockdeck -C ~/code/api` from any directory adds that project to
 the session you already have. A record of the running instance is kept in the
 state directory; if the process died without cleaning up, the record is probed,
 found dead and replaced.
@@ -329,8 +331,8 @@ generated fresh for each run. The window is loaded directly inside the
 process from a one-time link that stands in for that token (see
 `server.WindowURL`). Unlike the browser this used to spawn, neither the
 token nor the link ever touches a command line or a file on disk for another
-account on the machine to read. [Remote access](#remote-access), below, opens
-no port either. It is a connection this machine makes outward, and what
+account on the machine to read. [Flockdeck Remote](#flockdeck-remote), below,
+listens for nothing from the network either. It is a connection this machine makes outward, and what
 arrives through it is let in because the relay has already checked the
 device, not by the token.
 
@@ -349,7 +351,7 @@ flockdeck remote enable    # enrol it with the relay
 flockdeck remote pair      # a one-time link and QR code, for your phone or laptop
 ```
 
-Pairing is exactly [remote access](#remote-access): the server is a desktop
+Pairing is exactly [Flockdeck Remote](#flockdeck-remote): the server is a desktop
 as far as the relay and a paired device are concerned, so nothing about it
 (tabs, panes, chat on a phone, fan out) is cut down for not having a screen.
 `-detach` also frees the terminal that started it, so an SSH session or a
@@ -360,7 +362,7 @@ lifecycle and logs itself.
 
 The only things that stay at "the desk" are a handful of actions a paired
 device is refused for its own safety: quitting, restarting or updating
-Flockdeck, turning remote access off or moving it to another relay, minting a
+Flockdeck, turning Flockdeck Remote off or moving it to another relay, minting a
 join code, setting an API key or an API agent's address, and exporting or
 revealing a transcript. Do those from that machine's own terminal, over SSH.
 
@@ -488,7 +490,7 @@ which the command palette and the in-app help are also drawn from; run
 | `Ctrl+=` | Increase font size |
 | `Ctrl+-` | Decrease font size |
 | `Ctrl+0` | Reset font size |
-| Command palette | Remote access… |
+| Command palette | Flockdeck Remote… |
 | Command palette | Helper apps… |
 | Command palette | Open recordings folder |
 | Command palette | Detach — close the window, leave agents running |
@@ -732,7 +734,7 @@ Every money figure is an estimate, written with `~`, and its tooltip ends *An
 estimate at published prices, not your bill.* A limit belongs to the login,
 so every Claude pane on it shows the same windows. Nothing is fetched to work
 any of this out, and the figures go no further than the pane state your own
-paired devices receive when remote access is on. They are kept in memory, and
+paired devices receive when Flockdeck Remote is on. They are kept in memory, and
 start again with a new conversation or a new run of Flockdeck.
 Codex, Gemini CLI, Aider, opencode and Cursor Agent report nothing yet, so
 their panes show neither.
@@ -1179,7 +1181,7 @@ cursor and screen reader support (Terminal); and shortcuts (Keyboard). Under
 **Agents**: the default agent and model, and whether Claude panes read their
 usage limits (Agents & models); Routing; API keys; and the TypeSafe key and
 Jev's help reading pane status (Status detection). Under **Connections**:
-pairing and push notifications (Remote access), and GitHub sign-in (GitHub).
+pairing and push notifications (Flockdeck Remote), and GitHub sign-in (GitHub).
 Under **Account**: your plan, the version, and checking for and installing
 updates (Account & plan). **Find a setting**, in the dialog's header, searches
 them all. Every control changes its setting at once. Below 640px wide
@@ -1214,11 +1216,14 @@ off, the focused pane and any panes picked with the `⇉` button in their
 header; with it on, every pane in the broadcast set, which by default is every agent
 in the tab on screen. What you type into a pane still goes to that pane alone.
 
-### Remote access
+### Flockdeck Remote
 
-The agents are on the desktop; you are not always at it. Remote access
-opens the same window from another device (a laptop, a tablet, a phone)
-through a relay, without a VPN and without opening a port on this machine.
+The agents are on the desktop; you are not always at it. Flockdeck Remote is an
+optional add-on, £5 a month after a 30-day trial. Flockdeck runs the relay. It
+lets you use your own Flockdeck from a paired phone, tablet or browser, through
+Flockdeck's optional relay. A paired device opens the full Flockdeck window,
+agent terminals and shell panes included, and can do anything you can do in it.
+This machine connects out to the relay and listens for nothing from the network.
 
 ```sh
 flockdeck remote enable           # enrol this machine with the relay
@@ -1237,7 +1242,7 @@ flockdeck remote move <relay>     # move to another relay; every device pairs ag
 another machine uses to join the same account, so one paired device reaches
 both. `enable -invite <code>` is for a relay that asks for an invitation, and
 `remove -force` forgets the enrolment here when the relay cannot be told, and `remove -yes` skips its question.
-`disable` only turns the tunnel off. The account, its paired devices, its plan and
+`disable` only turns Flockdeck Remote off. The account, its paired devices, its plan and
 its verified email stay on the relay, this machine shows as offline on them, and
 `enable` turns it back on to the same account. If this machine is not seen for 30
 days and the account has no subscription, the relay removes the account. `remove`
@@ -1279,7 +1284,7 @@ list to choose from if there's more than one. It shows which agents are
 waiting, opens any pane (as a chat with the agent where Flockdeck can read
 one, its terminal otherwise) and lets you answer a question or a permission
 prompt with a tap. **Full interface**, in its top bar, opens this window
-through the same tunnel. The client resizes a pane only when you ask it to
+through the same relay connection. The client resizes a pane only when you ask it to
 fit the pane to the screen. At 900px and wider (a tablet, or a browser
 window that wide) a desktop's list of panes sits in its own column beside
 whichever one is open, instead of swapping the whole screen for it; tapping
@@ -1388,7 +1393,7 @@ notifies you the same way any other pane you started yourself would. Starting
 several in quick succession is refused, the same guard that limits pictures.
 
 Pairing is a link that works once and expires in minutes, shown as a QR code
-by **Remote access…** in the command palette (and the **Remote** button in the
+by **Flockdeck Remote…** in the command palette (and the **Remote** button in the
 rail) or printed by `flockdeck remote pair`. The
 device that opens it can open this window until it is unpaired, from that
 dialog or from the command line, which ends its session at once.
@@ -1409,10 +1414,10 @@ photos, diffs, commit, push and pull-request data, and an API key typed into a
 remote window. The end-to-end encryption defeats an honestly-run relay; against
 one that has been actively compromised and tampered with to swap the keys it
 hands out at pairing, compare by eye the fingerprint the device and this
-machine both show for each other (in the Remote access dialog). The relay
+machine both show for each other (in the Flockdeck Remote dialog). The relay
 never sees the local server's token. A request is let in
 here because it came
-through the tunnel, which only the relay can put one on, and the relay has
+through the relay connection, which only the relay can put one on, and the relay has
 already checked the device is paired with the account. The endpoints only
 another launch of the binary uses (`-quit`, opening a project from the command
 line) still insist on the local token, so no remote window can reach them. The
@@ -1450,7 +1455,7 @@ Screen**), since iOS and iPadOS send notifications only to web apps added
 that way, from version 16.4.
 Tapping a notification opens the pane that is waiting.
 
-Settings → **Remote access** says what is sent:
+Settings → **Flockdeck Remote** says what is sent:
 
 - **Notify paired devices** turns notifications off for every device at once;
   a device turns itself off again from its own **Notify me…** toggle.

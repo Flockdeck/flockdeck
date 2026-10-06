@@ -342,7 +342,7 @@ func TestKeysKeepTheirLabelAndNameTheSurfaces(t *testing.T) {
 		"agents":  "All agents across projects",
 		"changes": "Review changes, commit and push",
 		"history": "Resume a past conversation",
-		"remote":  "Remote access…",
+		"remote":  "Flockdeck Remote…",
 		"apiKeys": "API keys…",
 	}
 	short := map[string]string{
@@ -365,6 +365,27 @@ func TestKeysKeepTheirLabelAndNameTheSurfaces(t *testing.T) {
 			t.Errorf("%s: the short name is the label, which is no short name", k.ID)
 		}
 	}
+}
+
+// Someone who remembers the old name types it into the help search, which
+// matches every word against a page's title and text. The sentence on the
+// Remote page that names the old name is what makes that work.
+func TestSearchingTheOldNameFindsTheRemotePage(t *testing.T) {
+	pages, err := Pages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pages {
+		if p.Slug != "remote" {
+			continue
+		}
+		hay := strings.ToLower(strings.Join(strings.Fields(p.Title+" "+p.Text), " "))
+		if !strings.Contains(hay, "remote access") {
+			t.Error("searching the help for \"remote access\" does not find the Remote page")
+		}
+		return
+	}
+	t.Fatal("no remote page")
 }
 
 // The Settings row for the conflict radar is three sentences. What it used to

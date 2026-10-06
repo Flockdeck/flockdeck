@@ -160,7 +160,7 @@ h.key({ key: "Escape" });
 h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 0, since: "2030-01-01T00:00:00Z" } }));
 h.click(h.$("btn-settings"));
 assert.strictEqual(h.$("settings-tab-remote").getAttribute("data-tag"), "on");
-assert.strictEqual(h.$("settings-tab-remote").textContent, "Remote access");
+assert.strictEqual(h.$("settings-tab-remote").textContent, "Flockdeck Remote");
 `)
 }
 

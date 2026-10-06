@@ -28,7 +28,7 @@ type EnableRequest struct {
 	// Enable and Move fail fast with ErrNeedsInteractiveVerify rather than
 	// wait with nobody able to show the URL to open. The command line always
 	// gives one; a caller with no way yet to show a URL and wait -- today,
-	// the window's own Remote access… dialog -- leaves it nil and gets that
+	// the window's own Flockdeck Remote… dialog -- leaves it nil and gets that
 	// error instead.
 	OnVerify func(VerifyEvent)
 }
@@ -45,9 +45,9 @@ type AlreadyEnabledError struct {
 
 func (e *AlreadyEnabledError) Error() string {
 	if e.Err == nil {
-		return "remote access is already enabled, with " + e.Relay
+		return "Flockdeck Remote is already enabled, with " + e.Relay
 	}
-	return fmt.Sprintf("remote access is already enabled with %s, which could not be asked whether it still is (%v)", e.Relay, e.Err)
+	return fmt.Sprintf("Flockdeck Remote is already enabled with %s, which could not be asked whether it still is (%v)", e.Relay, e.Err)
 }
 
 func (e *AlreadyEnabledError) Unwrap() error { return e.Err }
@@ -165,7 +165,7 @@ func againRelay(req EnableRequest, settled string, old *Config) string {
 type DisabledEnrolmentError struct{ Relay, What string }
 
 func (e *DisabledEnrolmentError) Error() string {
-	return fmt.Sprintf("remote access is turned off here but this machine is still enrolled with %s, and %s would not change that; turn it on without options to use the same account again, run `flockdeck remote remove` first to leave the account and enrol afresh, or `flockdeck remote move` to go to another relay", e.Relay, e.What)
+	return fmt.Sprintf("Flockdeck Remote is turned off here but this machine is still enrolled with %s, and %s would not change that; turn it on without options to use the same account again, run `flockdeck remote remove` first to leave the account and enrol afresh, or `flockdeck remote move` to go to another relay", e.Relay, e.What)
 }
 
 // resumable refuses a request to turn a kept enrolment back on that asks for

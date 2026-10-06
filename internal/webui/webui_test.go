@@ -430,7 +430,7 @@ h.recv({ type: "remoteDevices", enabled: true,
 assert.ok(h.$("overlay-body").textContent.includes("Its account is kept"), "the window does not say the account is kept");
 assert.ok(!h.$("overlay-body").textContent.includes("Pair a device"), "a device can be paired with a machine that is off");
 const offText = h.$("overlay-body").textContent;
-assert.ok(!offText.includes("Turn off remote access") && !offText.includes("Try again") && !offText.includes("Move to another relay"), "the buttons for a machine that is on are offered while it is off");
+assert.ok(!offText.includes("Turn off Flockdeck Remote") && !offText.includes("Try again") && !offText.includes("Move to another relay"), "the buttons for a machine that is on are offered while it is off");
 h.click(h.$("remote-joincode"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "remotePair", kind: "host" });
 h.recv({ type: "remotePair", kind: "host", code: "fdp_join", expiresAt: "2999-01-01T00:00:00Z" });
@@ -445,7 +445,7 @@ h.recv({ type: "remoteOutcome", action: "enable" });
 // deletes, the account too when it is the only machine.
 h.win._confirm = false;
 h.click(h.$("remote-remove"));
-for (const want of [/Remove this desktop from the account/, /delete this machine for good/, /new trial/, /only machine on the account/, /plan, trial and verified email are lost/, /paired device is unpaired/, /Turn off remote access instead/]) {
+for (const want of [/Remove this desktop from the account/, /delete this machine for good/, /new trial/, /only machine on the account/, /plan, trial and verified email are lost/, /paired device is unpaired/, /Turn off Flockdeck Remote instead/]) {
   assert.ok(want.test(h.win._confirmed), "the remove question does not say " + want + ": " + h.win._confirmed);
 }
 assert.ok(!h.commands().some((c) => c.cmd === "remoteRemove"), "the machine was removed without asking");
@@ -5572,7 +5572,7 @@ h.click(h.$("btn-settings"));
 assert.ok(shown(), "the rail's Settings button did not open the settings");
 assert.deepStrictEqual(groups(), ["[Window]", "General", "Appearance", "Terminal", "Keyboard",
   "[Agents]", "Agents & models", "Routing", "API keys", "Status detection",
-  "[Connections]", "Remote access", "GitHub", "[Account]", "Account & plan"]);
+  "[Connections]", "Flockdeck Remote", "GitHub", "[Account]", "Account & plan"]);
 for (const g of h.$("settings-tabs").querySelectorAll(".settings-group")) {
   assert.strictEqual(g.getAttribute("aria-hidden"), "true", "the group heading " + g.textContent + " is read out as part of the list");
   assert.ok(!g.hasAttribute("tabindex") && !g.getAttribute("role"), "the group heading " + g.textContent + " is a stop or a tab");
@@ -5608,8 +5608,8 @@ assert.strictEqual(h.$("settings-tab-appearance").getAttribute("aria-selected"),
 const find = h.$("settings-find");
 find.value = "relay";
 find.oninput();
-assert.deepStrictEqual(sections(), ["Remote access", "Account & plan"], "Find a setting did not narrow the sections");
-assert.deepStrictEqual(groups(), ["[Connections]", "Remote access", "[Account]", "Account & plan"],
+assert.deepStrictEqual(sections(), ["Flockdeck Remote", "Account & plan"], "Find a setting did not narrow the sections");
+assert.deepStrictEqual(groups(), ["[Connections]", "Flockdeck Remote", "[Account]", "Account & plan"],
   "a group with no section found is still headed");
 assert.strictEqual(h.$("settings-tab-remote").getAttribute("aria-selected"), "true", "the first section found is not shown");
 `)
@@ -5884,7 +5884,7 @@ const text = pane.textContent;
 assert.ok(text.includes("Free") && text.includes("Current plan"), "the free plan is not shown as the one you are on");
 // What the shared relay will cost is not settled, so the free plan says what
 // it covers today and promises nothing about tomorrow.
-assert.ok(text.includes("Every part of the desktop app, and remote access to your panes through the shared relay."),
+assert.ok(text.includes("Every part of the desktop app, and Flockdeck Remote through the shared relay."),
   "the free plan does not say what it covers: " + text);
 assert.ok(!relayPromise(text), "the plan promises what the shared relay will cost: " + relayPromise(text));
 // Enterprise is for companies and not here yet: individuals keep the shared

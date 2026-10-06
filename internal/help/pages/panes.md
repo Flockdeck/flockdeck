@@ -64,7 +64,7 @@ only in a window on the machine Flockdeck runs on: see
 ## One pane, several windows
 
 A pane has one terminal however many windows show it (a second window, a
-phone over [remote access](#remote)), and that terminal is the size of the
+phone over [Flockdeck Remote](#remote)), and that terminal is the size of the
 window last used on it: the one you focus or type in. Every other window draws
 it at that same size, so what the agent prints lands where it should. Where
 that is larger than the pane's room in a window, the window shows the part of
@@ -103,7 +103,7 @@ A shell has no agent, conversation or transcript, so those are left out for it.
 Nothing secret is listed: no keys, tokens or environment. A path can name your
 own folders, so look at **Copy all** before pasting it somewhere public. The
 list is read on the machine Flockdeck runs on and is not sent anywhere else, so
-a window reached through [remote access](#remote) cannot open it.
+a window reached through [Flockdeck Remote](#remote) cannot open it.
 
 ## Finding a pane
 

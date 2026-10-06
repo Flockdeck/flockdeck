@@ -26,14 +26,14 @@ assert.ok(!relayPromise(h.$("overlay-body").textContent), "the plan promises wha
 // Once the trial is over the relay refuses the tunnel and says why. The
 // dialog says it in those words, amber, with a way to try again once the
 // account is paid for, and everything else still there.
-const said = "Your remote access trial has ended. Subscribe from Devices on a paired phone or browser.";
+const said = "Your Flockdeck Remote trial has ended. Subscribe from Devices on a paired phone or browser.";
 h.recv(fixture({ remote: remote({ state: "lapsed", detail: said }) }));
-assert.ok(h.$("btn-remote").classList.contains("trouble"), "a relay that stopped remote access is not amber");
+assert.ok(h.$("btn-remote").classList.contains("trouble"), "a relay that stopped Flockdeck Remote is not amber");
 assert.ok(h.$("overlay-body").textContent.includes(said), "the relay's words are not shown: " + h.$("overlay-body").textContent);
 assert.ok(h.$("remote-retry"), "there is no way to try again once the account is paid for");
 h.recv({ type: "remoteDevices", enabled: true, devices: [], hosts,
   plan: { plan: "lapsed", name: "Lapsed", active: false, was: "trial", ends: days(-1), deleteAt: days(89), message: said } });
-assert.match(plan().textContent, /Your remote access trial has ended\..* kept until .*, then deleted\./);
+assert.match(plan().textContent, /Your Flockdeck Remote trial has ended\..* kept until .*, then deleted\./);
 assert.ok(h.$("remote-pair") && !h.$("remote-pair").disabled, "pairing a device was taken away for the plan");
 assert.ok(h.$("remote-disable"), "turning remote access off was taken away for the plan");
 
@@ -45,7 +45,7 @@ h.recv({ type: "remoteDevices", enabled: true, devices: [], hosts,
   plan: { plan: "subscribed", name: "Subscription", active: true, ends: "2031-01-01T00:00:00Z" } });
 const card = h.$("set-remote-plan");
 assert.ok(card && h.$("settings-pane").contains(card), "Account & plan does not show the relay's plan");
-assert.match(card.textContent, /Remote access/);
+assert.match(card.textContent, /Flockdeck Remote/);
 assert.match(card.textContent, /Subscription, paid until /);
 const text = h.$("settings-pane").textContent;
 assert.ok(text.includes("Every part of the desktop app, for good."), "the desktop app is not said to be whole: " + text);

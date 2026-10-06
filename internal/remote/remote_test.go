@@ -638,7 +638,7 @@ func TestRevokedReasonSaysWhatItMeans(t *testing.T) {
 
 // revokedSays is what a machine the relay no longer accepts is told to do:
 // enrol again, by either of the ways there are.
-const revokedSays = "enrol it again from Remote access… in the command palette, or with `flockdeck remote enable`"
+const revokedSays = "enrol it again from Flockdeck Remote… in the command palette, or with `flockdeck remote enable`"
 
 // A tunnel that has held for a while and is then dropped, as a relay
 // restarting drops every tunnel, is not shown as trouble while its first,
@@ -1198,8 +1198,8 @@ func TestManagerReload(t *testing.T) {
 		t.Errorf("Client with no enrolment = %v, want ErrNotEnabled", err)
 	}
 	// It is read in the window and in a terminal, and names the way from each.
-	if msg := ErrNotEnabled.Error(); !strings.Contains(msg, "Remote access… in the command palette") || !strings.Contains(msg, "flockdeck remote enable") {
-		t.Errorf("ErrNotEnabled = %q, want it to name both ways to turn remote access on", msg)
+	if msg := ErrNotEnabled.Error(); !strings.Contains(msg, "Flockdeck Remote… in the command palette") || !strings.Contains(msg, "flockdeck remote enable") {
+		t.Errorf("ErrNotEnabled = %q, want it to name both ways to turn Flockdeck Remote on", msg)
 	}
 
 	c := f.config()
