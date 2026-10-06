@@ -1,6 +1,6 @@
 # Privacy policy
 
-*Last updated: 2 October 2026*
+*Last updated: 6 October 2026*
 
 Flockdeck is made by Jim Wright, an individual based in the United Kingdom.
 This policy explains what personal data is involved when you use the
@@ -187,8 +187,9 @@ is never used expires after ten minutes, and is deleted within ten more.
 
 Your devices and your desktop reach the relay over encrypted connections
 (TLS). Terminal input and output (what you type and what an agent prints back) are
-also **end-to-end encrypted** on top of that: the relay carries them but
-cannot read them. The state of your panes still passes through the relay in
+also **end-to-end encrypted** on top of that, once the device and the desktop
+have each registered a key: the relay then carries them but cannot read them.
+Until both have, they are protected by TLS only. The state of your panes still passes through the relay in
 the clear, so it can be seen there: what each pane's agent has spent, its
 usage limits, and which model routing chose for it. End-to-end encryption
 protects your terminal's contents from an honestly-run relay, including one

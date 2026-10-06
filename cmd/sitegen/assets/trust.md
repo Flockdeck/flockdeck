@@ -1,6 +1,6 @@
 # Trust & privacy
 
-*Last updated: 2 October 2026*
+*Last updated: 6 October 2026*
 
 This is the plain-language version of Flockdeck's privacy story: what's
 collected, what isn't, and how that compares to what else is on the market.
@@ -59,11 +59,12 @@ is available, so you can read it and check.
 
 ## What is, and isn't, end-to-end encrypted, said plainly
 
-Your terminal input and output through Flockdeck Remote are now
-end-to-end encrypted the way push notifications are: your terminal output and
-what you type are encrypted with keys the relay hands out but never holds, so
-the relay carries them to your other devices without being able to
-read them, even on a relay you run yourself.
+Your terminal input and output through Flockdeck Remote are
+end-to-end encrypted, once the device and the desktop have each registered a
+key. Your terminal output and what you type are then encrypted with keys the
+relay hands out but never holds, so the relay carries them to your other
+devices without being able to read them, even on a relay you run yourself.
+Until both have registered, they are protected by TLS only.
 
 The rest still isn't: what each pane's agent has spent, its usage limits,
 which model routing chose for it, the conversation view of a pane, what you

@@ -1,6 +1,6 @@
 # Refund policy
 
-*Last updated: 29 September 2026*
+*Last updated: 6 October 2026*
 
 This policy covers the one thing Flockdeck sells: the Flockdeck Remote subscription. It sits beside the
 [terms of service](terms.html) and the [privacy policy](privacy.html).
