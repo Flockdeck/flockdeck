@@ -62,6 +62,10 @@ type fakeRelayAPI struct {
 	accountStatus int
 	accountError  string
 	deletes       int
+	// deleteStatus and deleteError make only the DELETE refuse, as a relay does
+	// for a subscription taken out after the preview.
+	deleteStatus int
+	deleteError  string
 }
 
 func (f *fakeRelayAPI) setVerified(v bool) {
@@ -194,7 +198,11 @@ func (f *fakeRelayAPI) serve(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		account, status, msg := f.account, f.accountStatus, f.accountError
 		if status == 0 && r.Method == http.MethodDelete {
-			f.deletes++
+			if f.deleteStatus != 0 {
+				status, msg = f.deleteStatus, f.deleteError
+			} else {
+				f.deletes++
+			}
 		}
 		f.mu.Unlock()
 		switch {

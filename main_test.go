@@ -521,6 +521,7 @@ func cliFlagNames() map[string]bool {
 		remoteRemoveFlagSet(&remoteRemoveFlags{}),
 		remoteRenameFlagSet(&remoteRenameFlags{}),
 		remoteMoveFlagSet(&remoteMoveFlags{}),
+		remoteDeleteAccountFlagSet(&remoteDeleteAccountFlags{}),
 	} {
 		fs.VisitAll(func(f *flag.Flag) { names[f.Name] = true })
 	}
