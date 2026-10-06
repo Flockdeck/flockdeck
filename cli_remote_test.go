@@ -289,9 +289,9 @@ func TestPickDeviceRefusesAMachine(t *testing.T) {
 		Hosts:   []remote.Host{{ID: "h1", Name: "desk", Self: true}, {ID: "h2", Name: "old laptop"}, {ID: "h3", Name: "study"}},
 	}
 	for arg, want := range map[string]string{
-		"desk":       "that is this machine, not a device; `flockdeck remote disable` takes it off the relay",
+		"desk":       "that is this machine, not a device; `flockdeck remote remove` takes it off the relay",
 		"H1":         "that is this machine, not a device",
-		"Old Laptop": `"old laptop" is another of the account's machines, not a device; to take it off, remove it from the Devices page of a paired device, or run ` + "`flockdeck remote disable`" + ` on it`,
+		"Old Laptop": `"old laptop" is another of the account's machines, not a device; to take it off, remove it from the Devices page of a paired device, or run ` + "`flockdeck remote remove`" + ` on it`,
 		"h2":         `"old laptop" is another of the account's machines`,
 	} {
 		if _, _, err := pickDevice(r, arg); err == nil || !strings.HasPrefix(err.Error(), want) {
@@ -429,49 +429,130 @@ func TestRemoteLifecycle(t *testing.T) {
 		t.Errorf("revoke by name = %q, %v; relay saw it: %v", out, err, f.saw("DELETE /api/v1/host/devices/d1"))
 	}
 
+	// Turning it off keeps the account: the relay is not told, the enrolment
+	// stays, and the output says so, and how to leave for good.
+	f.mu.Lock()
+	f.calls = nil
+	f.mu.Unlock()
+	before, _ := remote.Load()
 	out, reloads, err = runRemoteCmd(t, "disable")
-	if err != nil || !f.saw("DELETE /api/v1/host") || reloads != 1 {
-		t.Errorf("disable = %q, %v, %d reloads", out, err, reloads)
+	if err != nil || f.saw("DELETE /api/v1/host") || reloads != 1 {
+		t.Errorf("disable = %q, %v, %d reloads, relay saw %v", out, err, reloads, f.calls)
 	}
-	// The account's only machine takes its devices with it, and says so.
-	if !strings.Contains(out, "its paired device has been unpaired too") {
-		t.Errorf("disable of the account's only machine does not say its device went too: %q", out)
+	for _, want := range []string{"keeps its account", "same account", "flockdeck remote remove", "30 days", "no subscription"} {
+		if !strings.Contains(strings.ReplaceAll(out, "\n", " "), want) {
+			t.Errorf("disable does not say %q: %q", want, out)
+		}
+	}
+	if cfg, _ := remote.Load(); cfg == nil || !cfg.Disabled || cfg.HostID != before.HostID || cfg.Token != before.Token {
+		t.Errorf("disable left %+v, want the same enrolment turned off", cfg)
+	}
+	if out, _, err = runRemoteCmd(t, "status"); err != nil || !strings.Contains(out, "turned off here; the account is kept") {
+		t.Errorf("status while off = %q, %v", out, err)
+	}
+	if _, _, err = runRemoteCmd(t, "pair"); err == nil || !strings.Contains(err.Error(), "turned off") {
+		t.Errorf("pairing a device while off = %v, want it refused, saying it is off", err)
+	}
+	if out, _, err = runRemoteCmd(t, "pair", "-desktop"); err != nil || !strings.Contains(out, "-join fdp_code") {
+		t.Errorf("a join code while off = %q, %v; want one, as it is the way to keep the account", out, err)
+	}
+
+	// Turning it back on is the same machine on the same account: nothing is
+	// registered, and the output says so.
+	f.mu.Lock()
+	f.calls = nil
+	f.mu.Unlock()
+	out, reloads, err = runRemoteCmd(t, "enable")
+	if err != nil || !strings.Contains(out, "on the same account as before") || reloads != 1 {
+		t.Errorf("enable after disable = %q, %v, %d reloads", out, err, reloads)
+	}
+	if f.saw("POST /api/v1/hosts") || f.saw("POST /api/v1/register/start") || f.saw("DELETE /api/v1/host") {
+		t.Errorf("turning it back on registered or deleted something: %v", f.calls)
+	}
+	if cfg, _ := remote.Load(); cfg == nil || cfg.Disabled || cfg.HostID != before.HostID {
+		t.Errorf("enable after disable left %+v", cfg)
+	}
+
+	// Removing is what leaves the account. It says what it deletes first, and
+	// a script has to say -yes.
+	if _, _, err = runRemoteCmd(t, "remove"); err == nil || !strings.Contains(err.Error(), "-yes") {
+		t.Errorf("remove with nobody to ask = %v, want it to ask for -yes", err)
+	}
+	if f.saw("DELETE /api/v1/host") {
+		t.Fatal("remove deleted the host without being told to")
+	}
+	out, reloads, err = runRemoteCmd(t, "remove", "-yes")
+	if err != nil || !f.saw("DELETE /api/v1/host") || reloads != 1 {
+		t.Errorf("remove = %q, %v, %d reloads", out, err, reloads)
+	}
+	// The account's only machine takes its devices with it, and says so, before
+	// and after.
+	flat := strings.Join(strings.Fields(out), " ")
+	if !strings.Contains(flat, "its paired device is unpaired") || !strings.Contains(flat, "plan, trial and verified email are lost") ||
+		!strings.Contains(flat, "its paired device has been unpaired too") || !strings.Contains(flat, "remote pair -desktop") {
+		t.Errorf("remove of the account's only machine does not say what goes: %q", out)
 	}
 	if cfg, _ := remote.Load(); cfg != nil {
-		t.Error("disable left the enrolment behind")
+		t.Error("remove left the enrolment behind")
+	}
+}
+
+// Remove asks first when somebody is there to answer, and does nothing on no.
+func TestRemoteRemoveAsksFirst(t *testing.T) {
+	isolateKeys(t)
+	f := newFakeRelayAPI(t)
+	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	asked := ""
+	rio := remoteIO{out: &out, confirm: func(q string) bool { asked = q; return false }}
+	if err := remoteCmd([]string{"remove"}, rio); err != nil || asked != "Remove it?" || !strings.Contains(out.String(), "nothing has changed") {
+		t.Errorf("remove answered no = %q, %v, asked %q", out.String(), err, asked)
+	}
+	if f.saw("DELETE /api/v1/host") {
+		t.Error("remove deleted the host after the answer was no")
+	}
+	if cfg, _ := remote.Load(); cfg == nil {
+		t.Error("remove forgot the enrolment after the answer was no")
+	}
+	rio.confirm = func(string) bool { return true }
+	out.Reset()
+	if err := remoteCmd([]string{"remove"}, rio); err != nil || !f.saw("DELETE /api/v1/host") {
+		t.Errorf("remove answered yes = %q, %v", out.String(), err)
 	}
 }
 
 // A relay that cannot be told leaves the enrolment alone unless asked, since
 // forgetting it here leaves a machine listed there that nothing can remove
 // but a paired device.
-func TestRemoteDisableNeedsForceWhenTheRelayIsGone(t *testing.T) {
+func TestRemoteRemoveNeedsForceWhenTheRelayIsGone(t *testing.T) {
 	isolateKeys(t)
 	f := newFakeRelayAPI(t)
 	if _, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil {
 		t.Fatal(err)
 	}
 	f.Close()
-	_, _, err := runRemoteCmd(t, "disable")
+	_, _, err := runRemoteCmd(t, "remove", "-yes")
 	if err == nil || !strings.Contains(err.Error(), "-force") {
-		t.Errorf("disable with the relay gone = %v, want it to suggest -force", err)
+		t.Errorf("remove with the relay gone = %v, want it to suggest -force", err)
 	} else if !strings.Contains(err.Error(), "list this machine, offline, until it is removed from the Devices page of a paired device") {
 		// The cost of -force is that the machine stays listed, until a paired
 		// device removes it.
-		t.Errorf("disable with the relay gone = %v, want it to give the real cost of -force", err)
+		t.Errorf("remove with the relay gone = %v, want it to give the real cost of -force", err)
 	} else if !strings.Contains(err.Error(), "try again once the relay can be reached, or, if it is gone for good, run again with -force") {
 		// A relay out of reach is most often a network down for now, and
 		// -force is the step nothing can undo.
-		t.Errorf("disable with the relay gone = %v, want it to say to try again before forcing", err)
+		t.Errorf("remove with the relay gone = %v, want it to say to try again before forcing", err)
 	}
 	if cfg, _ := remote.Load(); cfg == nil {
-		t.Fatal("a failed disable forgot the enrolment")
+		t.Fatal("a failed remove forgot the enrolment")
 	}
-	if _, _, err := runRemoteCmd(t, "disable", "-force"); err != nil {
-		t.Errorf("disable -force: %v", err)
+	if _, _, err := runRemoteCmd(t, "remove", "-force", "-yes"); err != nil {
+		t.Errorf("remove -force: %v", err)
 	}
 	if cfg, _ := remote.Load(); cfg != nil {
-		t.Error("disable -force left the enrolment behind")
+		t.Error("remove -force left the enrolment behind")
 	}
 }
 
@@ -585,19 +666,21 @@ func TestRemoteCommandsOnAnUnusableEnrolment(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"status"}, {"pair"}, {"devices"}, {"revoke", "d1"}} {
-		if _, _, err := runRemoteCmd(t, args...); err == nil || !strings.HasSuffix(err.Error(), "(`flockdeck remote disable -force` removes it)") {
-			t.Errorf("remote %v on an unusable enrolment = %v, want it to say disable -force removes it", args, err)
+		if _, _, err := runRemoteCmd(t, args...); err == nil || !strings.HasSuffix(err.Error(), "(`flockdeck remote remove -force` removes it)") {
+			t.Errorf("remote %v on an unusable enrolment = %v, want it to say remove -force removes it", args, err)
 		}
 	}
 }
 
-// disable -force with nothing enrolled has nothing to turn off, and says so
+// remove -force with nothing enrolled has nothing to remove, and says so
 // rather than that Flockdeck Remote has been disabled.
-func TestRemoteDisableForceWithNothingEnrolled(t *testing.T) {
+func TestRemoteRemoveForceWithNothingEnrolled(t *testing.T) {
 	isolateKeys(t)
-	out, reloads, err := runRemoteCmd(t, "disable", "-force")
-	if err != nil || !strings.Contains(out, "Flockdeck Remote is not enabled") || strings.Contains(out, "disabled") || reloads != 0 {
-		t.Errorf("disable -force with nothing enrolled = %q, %v, telling the instance %d times; want it to say Flockdeck Remote is not enabled", out, err, reloads)
+	for _, args := range [][]string{{"remove", "-force"}, {"disable"}} {
+		out, reloads, err := runRemoteCmd(t, args...)
+		if err != nil || !strings.Contains(out, "Flockdeck Remote is not enabled") || strings.Contains(out, "disabled") || reloads != 0 {
+			t.Errorf("%v with nothing enrolled = %q, %v, telling the instance %d times; want it to say Flockdeck Remote is not enabled", args, out, err, reloads)
+		}
 	}
 }
 
@@ -622,7 +705,7 @@ func TestRemoteStatusWhenTheRelayErrs(t *testing.T) {
 // flag's "Usage of remote status:", which for a command with no flags was
 // all it printed.
 func TestRemoteSubcommandHelp(t *testing.T) {
-	for _, name := range []string{"enable", "pair", "status", "devices", "revoke", "disable"} {
+	for _, name := range []string{"enable", "pair", "status", "devices", "revoke", "disable", "remove"} {
 		// Through remoteHelp, which is how it is asked for, so that the
 		// flags of enable, pair and disable are in it; a bare flag set of
 		// the same name has none to show.
@@ -734,8 +817,8 @@ func TestRemoteEnableGivesTheRelaysAdviceOnce(t *testing.T) {
 			"that join code is not valid, or has expired or already been used; make a new one with `flockdeck remote pair -desktop` on a machine already enrolled",
 			[]string{"-join", "fdp_code"}, "remote pair -desktop"},
 		{"the account is full", http.StatusConflict,
-			"this account already has as many desktops as it may; remove one first, from a paired browser or with `flockdeck remote disable` on it",
-			[]string{"-join", "fdp_code"}, "remote disable"},
+			"this account already has as many desktops as it may; remove one first, from a paired browser or with `flockdeck remote remove` on it",
+			[]string{"-join", "fdp_code"}, "remote remove"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateKeys(t)
@@ -767,7 +850,7 @@ func TestRemoteEnableAddsAdviceTheRelayLeftOut(t *testing.T) {
 		{"the join code is spent", http.StatusBadRequest, "that join code is not valid, or has expired or already been used",
 			[]string{"-join", "fdp_code"}, "; `flockdeck remote pair -desktop` on the other machine makes a new one"},
 		{"the account is full", http.StatusConflict, "this account already has as many desktops as it may; unregister one first",
-			[]string{"-join", "fdp_code"}, "; running `flockdeck remote disable` on one of that account's machines does that"},
+			[]string{"-join", "fdp_code"}, "; running `flockdeck remote remove` on one of that account's machines does that"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateKeys(t)
@@ -784,8 +867,12 @@ func TestRemoteEnableAddsAdviceTheRelayLeftOut(t *testing.T) {
 // help does, rather than the general usage again.
 func TestRemoteHelpForOneCommand(t *testing.T) {
 	out, _, err := runRemoteCmd(t, "help", "disable")
-	if err != nil || !strings.HasPrefix(out, "Usage: flockdeck remote disable") || !strings.Contains(out, "-force") {
-		t.Errorf("remote help disable = %q, %v; want disable's own help", out, err)
+	if err != nil || !strings.HasPrefix(out, "Usage: flockdeck remote disable") || strings.Contains(out, "-force") || !strings.Contains(out, "keep the enrolment") || !strings.Contains(out, "30 days") {
+		t.Errorf("remote help disable = %q, %v; want disable's own help, which says it keeps the account and has no -force", out, err)
+	}
+	out, _, err = runRemoteCmd(t, "help", "remove")
+	if err != nil || !strings.HasPrefix(out, "Usage: flockdeck remote remove") || !strings.Contains(out, "-force") || !strings.Contains(out, "-yes") || !strings.Contains(out, "verified email are lost") {
+		t.Errorf("remote help remove = %q, %v; want remove's own help, which says what it deletes", out, err)
 	}
 	// Each says what the command shows and takes now: status the address and
 	// the devices' names (172, 193), devices that revoke takes names (157).
@@ -839,7 +926,7 @@ func TestRemoteOutputFitsATerminal(t *testing.T) {
 	f.mu.Lock()
 	f.revoked = false
 	f.mu.Unlock()
-	check(true, "disable")
+	check(true, "remove", "-yes")
 	check(false, "status")
 	// A relay that does not see this machine, with flockdeck running here
 	// and without.
@@ -890,7 +977,7 @@ func TestRemoteOutputFitsATerminal(t *testing.T) {
 	f2 := newFakeRelayAPI(t)
 	told("enable", "-relay", f2.URL, "-name", "DESKTOP-4F2K9LQ")
 	f2.Close()
-	told("disable", "-force")
+	told("remove", "-force", "-yes")
 
 	// Names as long as the relay keeps, 64 characters, of several words: a
 	// device's, and machines', this one offline.
@@ -955,7 +1042,7 @@ func TestRemoteRevokeANameOfSeveralWords(t *testing.T) {
 func TestRemoteUnknownCommandSuggests(t *testing.T) {
 	isolateKeys(t)
 	for arg, want := range map[string]string{
-		"unpair": "revoke", "off": "disable", "on": "enable", "Enable": "enable",
+		"unpair": "revoke", "unregister": "remove", "off": "disable", "on": "enable", "Enable": "enable",
 		"stauts": "status", "devcies": "devices", "piar": "pair", "disabel": "disable",
 	} {
 		for _, args := range [][]string{{arg}, {"help", arg}} {
@@ -1122,7 +1209,7 @@ func TestRemoteEnableByJoiningSaysSo(t *testing.T) {
 	if err != nil || !strings.Contains(out, joined) {
 		t.Errorf("enable -join = %q, %v; want it to say it joined the other machine's account", out, err)
 	}
-	if _, _, err := runRemoteCmd(t, "disable"); err != nil {
+	if _, _, err := runRemoteCmd(t, "remove", "-yes"); err != nil {
 		t.Fatal(err)
 	}
 	if out, _, err := runRemoteCmd(t, "enable", "-relay", f.URL, "-name", "desk"); err != nil || strings.Contains(out, "Joined") {
@@ -1157,7 +1244,7 @@ func TestRemoteEnableWaitsForAVerifiedEmail(t *testing.T) {
 	}
 
 	// Joining an account it already has needs no verification of its own.
-	if _, _, err := runRemoteCmd(t, "disable"); err != nil {
+	if _, _, err := runRemoteCmd(t, "remove", "-yes"); err != nil {
 		t.Fatal(err)
 	}
 	f.setVerified(false)
@@ -1179,7 +1266,7 @@ func TestRemoteMoveToAnUnreachableRelay(t *testing.T) {
 	goneURL := gone.URL
 	gone.Close()
 	_, _, err := runRemoteCmd(t, "enable", "-relay", goneURL)
-	if err == nil || !strings.Contains(err.Error(), goneURL+" could not be reached") || strings.Contains(err.Error(), "run `flockdeck remote disable") {
+	if err == nil || !strings.Contains(err.Error(), goneURL+" could not be reached") || strings.Contains(err.Error(), "run `flockdeck remote remove") {
 		t.Errorf("moving to a relay that cannot be reached = %v, want it found out before any disabling", err)
 	}
 }

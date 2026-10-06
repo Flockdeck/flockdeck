@@ -202,10 +202,11 @@ Reach this machine's agents from another device, through a relay.
 | `flockdeck remote devices` | What is paired, with the ids `revoke` takes |
 | `flockdeck remote revoke <id or name>` | Unpair a device |
 | `flockdeck remote rename <name>` | Rename this machine; with `-device <id or name>`, a paired device instead |
-| `flockdeck remote disable` | Remove this machine from the relay; `-force` if it cannot be reached |
+| `flockdeck remote disable` | Turn Flockdeck Remote off here and keep the account: nothing is deleted, the machine shows as offline, and `enable` turns it back on to the same account |
+| `flockdeck remote remove` | Leave the account for good: the relay deletes this machine, and the account too if it is the last one. It asks first; `-yes` skips the question, and `-force` forgets the enrolment here if the relay cannot be reached |
 | `flockdeck remote move <relay>` | Enrol with another relay, then leave this one once it answers; takes `-invite`, `-join`, `-name`, and `-yes` to skip the question. Every paired device has to pair again |
 
-A running instance is told when `enable`, `disable` or `move` changes
+A running instance is told when `enable`, `disable`, `remove` or `move` changes
 anything, and connects, disconnects or switches relay on the spot. [Flockdeck Remote](#remote) has the rest.
 
 ## chat

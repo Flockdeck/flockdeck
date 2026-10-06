@@ -517,7 +517,8 @@ func cliFlagNames() map[string]bool {
 		helpersListFlagSet(&helpersListFlags{}),
 		remoteEnableFlagSet(&remoteEnableFlags{}),
 		remotePairFlagSet(&remotePairFlags{}),
-		remoteDisableFlagSet(&remoteDisableFlags{}),
+		remoteDisableFlagSet(),
+		remoteRemoveFlagSet(&remoteRemoveFlags{}),
 		remoteRenameFlagSet(&remoteRenameFlags{}),
 		remoteMoveFlagSet(&remoteMoveFlags{}),
 	} {

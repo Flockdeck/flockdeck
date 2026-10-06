@@ -255,11 +255,14 @@ in memory.
 
 - **A paired device** is deleted when you remove it, when it signs out, or 30
   days after it was last used.
-- **A desktop** is kept until you turn Flockdeck Remote off on it or remove it
-  from another of your devices. One that never connects to the relay
-  is removed after seven days, and one not heard from for 30 days is removed
-  the same way, whether or not it ever connected. When the last desktop in
-  an account is removed, the account and all its devices go with it.
+- **A desktop** is kept until you remove it from the account (`flockdeck remote
+  remove`) or from another of your devices. Turning Flockdeck Remote off on it
+  keeps it. One that never connects to the relay is removed after seven days,
+  and one not heard from for 30 days is removed the same way, whether or not it
+  ever connected, except the last desktop of an account that is subscribed or
+  whose subscription ended less than the grace period ago (90 days), which is
+  kept. When the last desktop in an account is removed,
+  the account and all its devices go with it.
 - **An account whose free trial has ended, or whose subscription has
   lapsed,** can no longer be used for Flockdeck Remote. It is kept as it was for
   90 days, so that subscribing restores it; after that, the account, its
@@ -270,8 +273,9 @@ in memory.
   exists, or when the relay's notification key changes. Turning
   notifications off on the device deletes it too.
 
-To delete everything the relay holds about you, turn Flockdeck Remote off on each
-of your desktops (`flockdeck remote disable`). If a desktop can no longer be
+To delete everything the relay holds about you, remove each of your desktops
+from the account (`flockdeck remote remove`). Turning Flockdeck Remote off
+(`flockdeck remote disable`) keeps your account on the relay. If a desktop can no longer be
 reached, remove it from one of your paired devices, or email us.
 
 ### Cookies

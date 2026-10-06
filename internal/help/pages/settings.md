@@ -182,7 +182,8 @@ set).
   exported in the environment is used first, except for the TypeSafe key, where
   the one set in Settings is.
 - `remote.json`: this machine's enrolment with the relay.
-  `flockdeck remote disable` removes it.
+  `flockdeck remote disable` keeps it and marks it off; `flockdeck remote remove`
+  removes it.
 - `routing.jsonl`: what routing chose for each routed fan-out row, and
   whether you kept it: the rule's name and the models, never the task. It
   keeps the last 10,000 lines, and **Clear routing history** empties it.
@@ -231,9 +232,9 @@ in `%APPDATA%\flockdeck.exe`.
 To uninstall Flockdeck, quit it and delete the `flockdeck` binary (on Windows,
 the `%LOCALAPPDATA%\Programs\flockdeck` folder the installer made, its Start
 menu shortcut and its entry in your PATH), then this directory and, on
-Windows, `%APPDATA%\flockdeck.exe`; turn Flockdeck Remote
-off first if it is on, so the relay forgets the
-machine. Worktrees it made are ordinary git worktrees, and stay beside their
+Windows, `%APPDATA%\flockdeck.exe`; run `flockdeck remote remove` first if
+Flockdeck Remote is on, so the relay forgets the machine (turning it off keeps the
+account on the relay). Worktrees it made are ordinary git worktrees, and stay beside their
 repositories until you remove them.
 
 ## In the environment
