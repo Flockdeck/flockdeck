@@ -38,10 +38,11 @@ then open http://localhost:<port>/?t=<token> in a browser. That port and the
 token both change on every restart of flockdeck itself; the Service's own
 address above does not.
 
-For a real, lasting way in -- from a phone, or a browser off this cluster,
-with no port-forward and no inbound access to the cluster at all -- enrol
-this instance with a relay instead, once, the same way you would run any
-other one-off admin command against a pod:
+To reach it from a paired phone or browser without a port-forward, use
+Flockdeck Remote, the optional add-on. The pod connects out to the relay and
+listens for nothing from the network, so the cluster needs no inbound access.
+Enrol this instance with a relay once, the same way you would run any other
+one-off admin command against a pod:
 
   kubectl exec -n {{ .Release.Namespace }} -it deploy/{{ include "flockdeck.fullname" . }} -- \
     flockdeck remote enable{{ if .Values.remote.url }} -relay {{ .Values.remote.url }}{{ end }}

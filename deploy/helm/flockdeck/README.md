@@ -78,10 +78,11 @@ Three ways to actually reach it, in order of how permanent they are:
    restart. `helm install`'s own NOTES (`helm get notes <release>` later)
    has the exact commands.
 
-3. **For real, from anywhere -- a phone, a browser off this cluster, no
-   inbound access to the cluster at all:** enrol the instance with a relay,
-   the same remote-access mechanism the desktop app uses, over an outbound
-   connection this pod makes itself:
+3. **With Flockdeck Remote, the optional add-on:** enrol the instance with a
+   relay, the same Flockdeck Remote the desktop app uses. The pod makes an
+   outbound connection itself and listens for nothing from the network, so
+   the cluster needs no inbound access. A paired phone or browser then gets
+   the full Flockdeck window, terminals included:
 
    ```sh
    kubectl exec -it deploy/<release>-flockdeck -- flockdeck remote enable
