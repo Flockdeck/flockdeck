@@ -340,7 +340,7 @@ before moving a row to an agent with an address of its own, it opens a
 connection to that address, and closes it at once without sending anything, to
 check something is listening. With **Ask Jev to rate unmatched work** on, and a
 key set, it sends a fan-out row's text to TypeSafe as described above. The routed mark on a pane travels only as the
-rest of the pane's state does, to your own paired devices when remote access
+rest of the pane's state does, to your own paired devices when Flockdeck Remote
 is on. What it chose for each fan-out row, and whether you kept it, is kept
 in `routing.jsonl` in the state directory, for your own numbers: when, the
 project, the pane, the agent, the rule's name and the models, never the task;

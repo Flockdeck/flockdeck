@@ -209,7 +209,7 @@ default** and needs both of these:
 1. **Settings › Status detection › Let TypeSafe's Jev help read pane status**
    turned on. It can only be turned
    on from the machine itself, not from a window reached through the relay;
-   turning it off works from anywhere.
+   turning it off works from a window reached through the relay too.
 2. A TypeSafe API key: either the one you paste into **Settings › Status
    detection › TypeSafe API key** (kept on this machine with your other keys, never shown
    back, only ever sent to `api.typesafe.ai`, and only set from the machine

@@ -152,10 +152,10 @@ this computer may have. Quit Flockdeck and start it again, which ends that
 session along with whichever window got to it first. "This link has expired"
 and "This link isn't valid" are answered the same way.
 
-Remote access, once you turn it on, is a connection this machine makes out to
+Flockdeck Remote, once you turn it on, is a connection this machine makes out to
 the relay. A request arriving through it is let in without the token, because
-the relay has already checked that the device asking is paired. [Remote
-access](#remote) has the rest.
+the relay has already checked that the device asking is paired. [Flockdeck
+Remote](#remote) has the rest.
 
 ## Desktop notifications never appear
 

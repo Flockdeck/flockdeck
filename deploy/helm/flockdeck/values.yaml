@@ -12,7 +12,7 @@
 # namespace, so this works without any change to flockdeck's own server --
 # and the Service below routes to that fixed port, not to flockdeck's own
 # container. See README.md for the details, and for kubectl exec/port-forward
-# and flockdeck's own relay-enrolment remote access as the other ways in.
+# and flockdeck's own relay enrolment (Flockdeck Remote) as the other ways in.
 #
 # There is no replica count to set, for the same reason flockdeck-relay's
 # chart has none: a second pod would be a second Flockdeck with its own
@@ -87,7 +87,7 @@ shellFirst: false
 # an escape hatch for troubleshooting, not something a normal install needs.
 solo: false
 
-# Enrol this instance with a relay for real remote access -- a phone or a
+# Enrol this instance with a relay for Flockdeck Remote -- a phone or a
 # browser off this cluster -- entirely over an outbound connection, with no
 # inbound port needed (see README.md, "Reaching the web UI"). Setting relay
 # alone does not enrol anything by itself: it only seeds the default for
