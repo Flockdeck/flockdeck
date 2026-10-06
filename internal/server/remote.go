@@ -521,10 +521,11 @@ func (s *Server) remoteDisable(c *controlClient) {
 	})
 }
 
-// remoteRemove takes this machine off its relay for good from the dialog, and
-// with the account's last machine the account goes too. A relay that cannot be
-// told is not taken for one that was: the window is asked whether to forget
-// the enrolment regardless, which leaves the machine listed there.
+// remoteRemove takes this machine off its relay from the dialog. Only the
+// machine goes: the account stays on the relay, even when this was its last
+// machine. A relay that cannot be told is not taken for one that was: the
+// window is asked whether to forget the enrolment regardless, which leaves the
+// machine listed there.
 func (s *Server) remoteRemove(c *controlClient, force bool) {
 	if refusedThroughRelay(c, "remove") {
 		return

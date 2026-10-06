@@ -219,11 +219,11 @@ Commands:
   devices        list the paired devices and enrolled machines
   revoke <id>    unpair a device, named by its id or its name
   rename <name>  rename this machine; -device <id or name> renames a device
-  disable        turn Flockdeck Remote off here and keep the account, so enable
-                 later reconnects to the same one
+  disable        turn Flockdeck Remote off here and stay enrolled, so enable
+                 later reconnects to the same account
   remove [-force] [-yes]
-                 leave the account for good: delete this machine from the
-                 relay, and the account too if it is the last one
+                 take this machine off the account; the account, its plan and
+                 its paired devices stay
   move <relay>   enrol with another relay, then leave this one once it answers
   delete-account [-yes -confirm TEXT]
                  erase the account on the relay: every machine in it, every
@@ -245,7 +245,7 @@ can read them.
 // its -h says before its flags.
 var remoteSynopses = map[string][2]string{
 	"enable": {" [flags]",
-		"Enrol this machine with a relay, so its window can be opened from another\ndevice."},
+		"Enrol this machine with a relay, so its window can be opened from another\ndevice. A relay that checks email prints a confirmation code, which the page\nopened from the emailed link asks for."},
 	"pair": {" [-desktop]",
 		"Print a one-time link, and a QR code of it, that pairs a device with this\nmachine."},
 	"status": {"",
@@ -257,9 +257,9 @@ var remoteSynopses = map[string][2]string{
 	"rename": {" [-device <id or name>] <new name>",
 		"Give this machine a new name, which is what every paired device and the\naccount's other machines call it. With -device, rename a paired device\ninstead; `flockdeck remote devices` lists them by id and name."},
 	"disable": {"",
-		"Turn Flockdeck Remote off on this machine and keep the enrolment. Nothing is\ndeleted: the account, its paired devices, plan and trial stay, this machine\nshows as offline on them, and `flockdeck remote enable` turns it back on to\nthe same account with no new sign-up. If this machine is not heard from for\n30 days and the account has no subscription, the relay removes the account."},
+		"Turn Flockdeck Remote off on this machine and keep it enrolled. Nothing is\ndeleted: the account, its paired devices, plan and trial stay, this machine\nshows as offline on them, and `flockdeck remote enable` turns it back on to\nthe same account with no new sign-up. The account is kept while anything on\nit is in use, and deleted if nothing on it is used for 90 days and it has no\nsubscription."},
 	"remove": {" [-force] [-yes]",
-		"Take this machine off the account for good. The relay deletes this machine,\nand if it is the account's only one, the account too: its paired devices\nare unpaired, and its plan, trial and verified email are lost. Enabling\nagain starts a new account, unless it joins one with a join code, which\n`flockdeck remote pair -desktop` prints and which works before this is run."},
+		"Take this machine off the account. The relay deletes this machine and nothing\nelse: the account, its other machines, paired devices, plan, trial, verified\nemail and subscription stay, even when this was its last machine. To erase the\naccount, run `flockdeck remote delete-account`. A join code from\n`flockdeck remote pair -desktop` on another machine puts a machine back in it."},
 	"move": {" [flags] <relay>",
 		"Move this machine to another relay: enrol it there first, and take it off\nthe relay it is on only once the new one answers. Every device paired with\nit has to pair again afterwards, with the new relay, because a device's\npairing belongs to the relay it was made on."},
 	"delete-account": {" [-yes -confirm TEXT]",
@@ -570,7 +570,7 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 				if f.join != "" {
 					args += " -join " + cliWord(f.join)
 				}
-				return fmt.Errorf("%v; to join that account on %s instead, run `flockdeck remote remove` first, which unpairs this machine's devices if it is its account's only machine, then `flockdeck remote enable %s`", err, want, args)
+				return fmt.Errorf("%v; to join that account on %s instead, run `flockdeck remote remove` first, which takes this machine off its account and leaves the account, then `flockdeck remote enable %s`", err, want, args)
 			}
 			return fmt.Errorf("%v; to move this machine to %s, run `flockdeck remote move %s`, after which every paired device has to pair again", err, want, want)
 		}
@@ -579,7 +579,7 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 	case errors.As(err, &already) && already.Err == nil && f.join != "":
 		// A join code is asking for another account, which this machine can
 		// be in only after leaving the one it is in.
-		return fmt.Errorf("%v; to join that account instead, run `flockdeck remote remove` first, which unpairs this machine's devices if it is its account's only machine, then run this again", err)
+		return fmt.Errorf("%v; to join that account instead, run `flockdeck remote remove` first, which takes this machine off its account and leaves the account, then run this again", err)
 	case errors.As(err, &already) && already.Err == nil && renaming(f.name):
 		// A new name is something to do, and rename does it without enrolling
 		// again, which would cost the account's devices if this is its only
@@ -587,12 +587,12 @@ func enableAdvice(f remoteEnableFlags, err error) error {
 		// Quoted when it has to be: "Jim's laptop" pasted as it stood left the
 		// shell waiting on the closing quote of its apostrophe, and a name of
 		// two words renamed the machine to the first.
-		return fmt.Errorf("%v; to give this machine a new name, run `flockdeck remote rename %s`, which keeps what is paired, where enrolling it again, after `flockdeck remote remove`, unpairs its devices if it is the account's only machine", err, cliWord(strings.TrimSpace(f.name)))
+		return fmt.Errorf("%v; to give this machine a new name, run `flockdeck remote rename %s`, which keeps this machine enrolled, with what is paired; enrolling it again takes `flockdeck remote remove` first, which leaves the account", err, cliWord(strings.TrimSpace(f.name)))
 	case errors.As(err, &already) && already.Err == nil:
 		// Whoever runs enable twice most likely forgot the first; the way to
 		// enrol again costs the account's devices if this is its only
 		// machine, so that is said before anybody takes it.
-		return fmt.Errorf("%v, so there is nothing to do; to enrol this machine again, run `flockdeck remote remove` first, which unpairs its devices if it is the account's only machine", err)
+		return fmt.Errorf("%v, so there is nothing to do; to enrol this machine again, run `flockdeck remote remove` first, which takes it off its account and leaves the account", err)
 	case errors.As(err, &already):
 		// A relay out of reach is most often a network that is down for now,
 		// when trying again is the answer. -force is for a relay that is gone
@@ -1143,22 +1143,8 @@ func rosterBriefly(cfg *remote.Config) *remote.Roster {
 	return r
 }
 
-// devicesLost is how many paired devices taking cfg's machine off its relay
-// unpairs with it: every one, when it is the only machine in its account,
-// because the account goes with its last machine. It is 0 when there is no
-// knowing, and it asks for a few seconds at most.
-func devicesLost(cfg *remote.Config) int {
-	if cfg == nil {
-		return 0
-	}
-	if r := rosterBriefly(cfg); r != nil && len(r.Hosts) == 1 {
-		return len(r.Devices)
-	}
-	return 0
-}
-
-// remoteDisable turns remote access off and keeps the account. It does not
-// talk to the relay: the tunnel closes, so this machine shows there as
+// remoteDisable turns Flockdeck Remote off and keeps this machine enrolled. It
+// does not talk to the relay: the tunnel closes, so this machine shows there as
 // offline, and enable turns it on again to the same account and host.
 func remoteDisable(args []string, rio remoteIO) error {
 	if err := parseRemote(remoteDisableFlagSet(), args); err != nil {
@@ -1172,16 +1158,17 @@ func remoteDisable(args []string, rio remoteIO) error {
 		fmt.Fprintln(rio.out, "Flockdeck Remote is not enabled")
 		return nil
 	}
-	fmt.Fprintln(rio.out, "Flockdeck Remote turned off; this machine keeps its account")
-	fmt.Fprintln(rio.out, fitted("Its paired devices, plan and trial are untouched, and it shows as offline on them. `flockdeck remote enable` turns it back on to the same account, with no new sign-up. To leave the account for good, run `flockdeck remote remove`."))
-	fmt.Fprintln(rio.out, fitted("If this machine is not heard from for 30 days and the account has no subscription, the relay removes the account."))
+	fmt.Fprintln(rio.out, "Flockdeck Remote turned off; this machine stays enrolled")
+	fmt.Fprintln(rio.out, fitted("The account, its paired devices, plan and trial are untouched, and this machine shows as offline on them. `flockdeck remote enable` turns it back on to the same account, with no new sign-up. To take this machine off the account, run `flockdeck remote remove`."))
+	fmt.Fprintln(rio.out, fitted("The account is kept while anything on it is in use, and deleted if nothing on it is used for 90 days and it has no subscription."))
 	reportReload(rio, "")
 	return nil
 }
 
-// remoteRemoveCmd takes this machine off the account for good, which is what
-// disable used to do. What it deletes is said before it is done, and asked
-// about when somebody is there to answer; a script says -yes instead.
+// remoteRemoveCmd takes this machine off the account. Only the machine goes:
+// the account, with its plan, devices and subscription, stays on the relay.
+// What it does is said before it is done, and asked about when somebody is
+// there to answer; a script says -yes instead.
 func remoteRemoveCmd(args []string, rio remoteIO) error {
 	var f remoteRemoveFlags
 	if err := parseRemote(remoteRemoveFlagSet(&f), args); err != nil {
@@ -1193,18 +1180,9 @@ func remoteRemoveCmd(args []string, rio remoteIO) error {
 	if err != nil && !f.force {
 		return fmt.Errorf("%w (-force removes it anyway)", err)
 	}
-	lost := devicesLost(cfg)
 	if cfg != nil {
-		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("This removes %q from its account on %s for good.", cfg.Name, cfg.Relay)))
-		switch {
-		case lost == 1:
-			fmt.Fprintln(rio.out, fitted("It is the account's only machine, so the account is deleted too: its paired device is unpaired, and its plan, trial and verified email are lost."))
-		case lost > 1:
-			fmt.Fprintln(rio.out, fitted(fmt.Sprintf("It is the account's only machine, so the account is deleted too: its %d paired devices are unpaired, and its plan, trial and verified email are lost.", lost)))
-		default:
-			fmt.Fprintln(rio.out, fitted("If it is the account's only machine, the account is deleted too, with its paired devices, plan, trial and verified email."))
-		}
-		fmt.Fprintln(rio.out, fitted("Enabling again starts a new account, with a new trial and a new email check, unless it joins one with a join code; `flockdeck remote pair -desktop` prints one, and works before this is done. If you pay for Flockdeck Remote, cancel it first from the Devices page of a paired device: removing the desktop does not cancel it. To keep the account and only turn Flockdeck Remote off, run `flockdeck remote disable` instead."))
+		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("This takes %q off its account on %s.", cfg.Name, cfg.Relay)))
+		fmt.Fprintln(rio.out, fitted("It removes only this machine. The account, its other machines, paired devices, plan, trial, verified email and any subscription stay, even if this is the last machine. An account that nothing on it uses for 90 days and that has no subscription is deleted. To erase the account now, run `flockdeck remote delete-account`. To keep this machine enrolled and only turn Flockdeck Remote off, run `flockdeck remote disable`."))
 		if !f.yes {
 			if rio.confirm == nil {
 				return errors.New("nothing has changed; run it again with -yes to remove without being asked, as a script has to")
@@ -1235,15 +1213,10 @@ func remoteRemoveCmd(args []string, rio remoteIO) error {
 		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("could not tell the relay (%v); forgetting the enrolment here anyway", untold)))
 	}
 	fmt.Fprintln(rio.out, "this machine was removed from its account")
-	// The account goes with its last machine, and its devices with it, which
-	// somebody switching this one machine off may not have expected. A relay
-	// that was not told has removed nothing.
-	switch {
-	case untold != nil:
-	case lost == 1:
-		fmt.Fprintln(rio.out, "It was the account's only machine, so its paired device has been unpaired too.")
-	case lost > 1:
-		fmt.Fprintf(rio.out, "It was the account's only machine, so its %d paired devices have been unpaired too.\n", lost)
+	// A relay that was not told has removed nothing, and the account is the
+	// relay's to keep either way.
+	if untold == nil {
+		fmt.Fprintln(rio.out, fitted("The account is still there, with its plan and paired devices. `flockdeck remote delete-account` erases it."))
 	}
 	reportReload(rio, "")
 	return nil
@@ -1406,12 +1379,7 @@ func remoteMoveCmd(args []string, rio remoteIO) error {
 	// undo it: the pairings made on the old relay stay there.
 	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("This moves %q from %s to %s: it enrols with the new relay first, and leaves the old one only once the new one answers.", cfg.Name, cfg.Relay, want)))
 	fmt.Fprintln(rio.out, fitted("Every device paired with this machine will then have to pair again, with the new relay, because a device's pairing belongs to the relay it was made on."))
-	switch lost := devicesLost(cfg); {
-	case lost == 1:
-		fmt.Fprintln(rio.out, fitted("It is the only machine in its account on the old relay, so the account goes too, and its paired device with it."))
-	case lost > 1:
-		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("It is the only machine in its account on the old relay, so the account goes too, and its %d paired devices with it.", lost)))
-	}
+	fmt.Fprintln(rio.out, fitted(fmt.Sprintf("Only this machine leaves %s. Its account there stays, with its other machines, paired devices and plan.", cfg.Relay)))
 	if !f.yes {
 		if rio.confirm == nil {
 			return errors.New("nothing has changed; run it again with -yes to move without being asked, as a script has to")
