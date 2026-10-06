@@ -1253,7 +1253,8 @@ func TestThePrivacyPolicyDisclosesTheVerifiedEmail(t *testing.T) {
 		"Postmark",
 		"DigitalOcean, GitHub and Postmark are United States companies",
 		"To confirm an email address when a relay asks for one",
-		"for an account made with a confirmed email address",
+		"An account made before the relay asked for an address has none",
+		"For an account made with a confirmed email address",
 	} {
 		if !strings.Contains(policy, want) {
 			t.Errorf("privacy.html does not say %q", want)
@@ -1264,6 +1265,7 @@ func TestThePrivacyPolicyDisclosesTheVerifiedEmail(t *testing.T) {
 		"the relay keeps none even for those who do",
 		"The account is not linked to an email address",
 		"Because relay accounts carry no email address",
+		"Most relay accounts carry no email address",
 	} {
 		if strings.Contains(policy, gone) {
 			t.Errorf("privacy.html still says %q, which is false for an account made with a verified email", gone)

@@ -479,10 +479,11 @@ Under UK data protection law you have the right to:
 - take it elsewhere.
 
 Most of this you can do yourself, by renaming or removing desktops and devices
-in Flockdeck. For anything else, email **privacy@flockdeck.ai**. Most relay
-accounts carry no email address, so we may ask you to prove a desktop or device is
-yours, for example from the desktop itself, or, for an account made with a
-confirmed email address, by confirming that address again. Records of payments
+in Flockdeck. For anything else, email **privacy@flockdeck.ai**. An account made
+before the relay asked for an address has none, so we may ask you to prove a
+desktop or device is yours, for example from the desktop itself. For an account
+made with a confirmed email address, we may ask you to confirm that address
+again. Records of payments
 cannot be deleted before the law allows, but everything else about a
 subscription can be. For what Paddle holds, ask Paddle.
 

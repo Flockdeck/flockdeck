@@ -493,7 +493,8 @@ relay listing this machine, offline.
 machine in it, every paired device, the plan and the link between the verified
 email and the account. It asks the relay what would go, shows the masked email
 address, the machines and devices and the plan, and asks you to type `delete my
-account`. A script gives `-yes -confirm "delete my account"`, both together. An
+account` exactly, in lower case; anything else deletes nothing and exits with an
+error. A script gives `-yes -confirm "delete my account"`, both together. An
 account with a subscription is refused, because deleting the account does not
 cancel the subscription: cancel it first from the **Devices** page of a paired
 device, and run the command again once the period you paid for has ended. Once
