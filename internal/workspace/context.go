@@ -575,8 +575,9 @@ func (c PaneContext) render(viaPrompt bool) string {
 			"— the id `spawn` printed back when it started — the same effect Ctrl+Shift+W has " +
 			"on it. It refuses a pane still working unless you add `--force`, and refuses to " +
 			"close this one through this command at all; end your own turn instead. `" +
-			flockdeck + " close --finished` closes every idle or exited pane across every open " +
-			"project instead of naming one, the same as the \"Close finished panes\" command.\n")
+			flockdeck + " close --finished` closes every idle agent and cleanly exited pane across every open " +
+			"project instead of naming one, the same as the \"Close finished panes\" command. " +
+			"It leaves locked panes, idle shells and agents with background work open.\n")
 
 		writeCommandLine(&b, flockdeck)
 	}

@@ -130,7 +130,7 @@ h.press("palette");
 palType("close finished");
 const row = palRowsNow()[0];
 assert.strictEqual(row.querySelector(".pal-label").textContent, "Close finished panes");
-assert.ok(/every idle or exited pane/.test(row.querySelector(".pal-hint").textContent), "the row does not say what it closes");
+assert.ok(/idle agents and cleanly exited panes/.test(row.querySelector(".pal-hint").textContent), "the row does not say what it closes");
 // A bound command shows its keys as caps, and still reads as Ctrl+Shift+G.
 palType("worktrees");
 const wt = palRowsNow()[0];
