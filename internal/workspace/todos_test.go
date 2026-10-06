@@ -167,6 +167,33 @@ func TestSetTodoStepDoneOverridesAnAutoTick(t *testing.T) {
 	}
 }
 
+// TestALaterDoneAttemptTicksAnUntickedStepAgain pins what the comment on
+// RecordTodoStepAttemptEnd says: an untick is not remembered, so an attempt
+// that ends done after it ticks the step again.
+func TestALaterDoneAttemptTicksAnUntickedStepAgain(t *testing.T) {
+	isolateConfig(t)
+	w := &Workspace{}
+	todo, err := w.SaveTodo("", "/code/api", "t", "spec", []string{""}, []string{"step one"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	step := todo.Steps[0].ID
+	if err := w.StartTodoStepAttempt(todo.ID, step, "pane-1"); err != nil {
+		t.Fatalf("start attempt: %v", err)
+	}
+	w.RecordTodoStepAttemptEnd("pane-1", "done")
+	if err := w.SetTodoStepDone(todo.ID, step, false); err != nil {
+		t.Fatalf("untick: %v", err)
+	}
+	if err := w.StartTodoStepAttempt(todo.ID, step, "pane-2"); err != nil {
+		t.Fatalf("start second attempt: %v", err)
+	}
+	w.RecordTodoStepAttemptEnd("pane-2", "done")
+	if got, _ := w.Todo(todo.ID); !got.Steps[0].Done {
+		t.Error("a done attempt after an untick did not tick the step")
+	}
+}
+
 // TestDeleteTodoRemovesIt covers the plain removal path, and that it
 // refuses cleanly for an id that is not there -- a window can hold a
 // checklist open after another window has already deleted it.

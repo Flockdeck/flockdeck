@@ -52,7 +52,8 @@ went, not only the latest.
 Closing the pane a step's agent ran in reads its outcome the same way a
 settled [fan-out](#fanout) job does (done, needs input, or failed), and the
 step's row shows it beside how many attempts it has had. An outcome of done
-ticks the step. An outcome never unticks one, so a step you ticked by hand
+ticks the step, including one you unticked before running another attempt.
+An outcome never unticks one, so a step you ticked by hand
 stays ticked whatever its agent's pane said on the way out, and a tick you
 think is wrong is yours to take off.
 
