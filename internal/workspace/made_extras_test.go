@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -203,6 +204,43 @@ func TestAWorktreeWhoseFilesCannotBeListedIsKeptAndSaysSo(t *testing.T) {
 	}
 	if _, err := os.Stat(made.Path); err != nil {
 		t.Errorf("the worktree is gone: %v", err)
+	}
+}
+
+// A tracked folder that cannot be read is the same: the walk fails, and the worktree is
+// kept with the reason said, never removed and never taken for clean.
+func TestAWorktreeWithAnUnreadableTrackedFolderIsKeptAndSaysSo(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a folder cannot be made unreadable with chmod on Windows")
+	}
+	isolateConfig(t)
+	repo := ignoringRepo(t)
+	if err := os.MkdirAll(filepath.Join(repo, "pkg"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "pkg", "a.txt"), []byte("a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, repo, "add", ".")
+	gitIn(t, repo, "commit", "-m", "add pkg")
+	ws, made := madeIn(t, repo, "denied-tracked")
+	dir := filepath.Join(made.Path, "pkg")
+	if err := os.Chmod(dir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	if _, err := os.ReadDir(dir); err == nil {
+		t.Skip("reads are not denied here (running as root?)")
+	}
+	got := ws.DiscardMade(repo, made, errStart).Error()
+	if !strings.Contains(got, "was kept") || !strings.Contains(got, "could not be checked") {
+		t.Errorf("DiscardMade said %q", got)
+	}
+	if _, err := os.Stat(made.Path); err != nil {
+		t.Errorf("the worktree is gone: %v", err)
+	}
+	if branchTip(t, repo, made.Branch) == "" {
+		t.Error("the branch is gone")
 	}
 }
 
