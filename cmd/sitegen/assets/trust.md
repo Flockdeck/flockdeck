@@ -73,9 +73,9 @@ can route them. It doesn't record, store or log any of it.
 
 This defeats an honestly-run relay. Against one that's been actively
 compromised and tampered with to swap the keys it hands out at pairing, that
-alone isn't enough. A swap like that needs an out-of-band check, and Remote
-access has one: the device and the desktop can each show a code for the other
-(Verify, under Devices on the phone and in the desktop's Remote access
+alone isn't enough. A swap like that needs an out-of-band check, and Flockdeck Remote
+has one: the device and the desktop can each show a code for the other
+(Verify, under Devices on the phone and in the desktop's Flockdeck Remote
 settings), and comparing them by eye is what catches a relay that has swapped
 keys. If your organisation's rules don't allow a third party in that position
 at all, Flockdeck Enterprise, coming soon, will let you run the relay on your
