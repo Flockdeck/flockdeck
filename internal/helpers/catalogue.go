@@ -100,11 +100,10 @@ var lens = Entry{
 	Summary: "Reads agent session transcripts and shows what they did, in a page on your own machine.",
 	Source:  "https://dl.flockdeck.ai/lens",
 	Binary:  "lens",
-	// TODO: "0.1.0" is a placeholder, not a decision made yet. Set MinVersion to
-	// the first release that is safe to run, and raise it in the same Flockdeck
-	// release as every security fix to lens. A signature proves who built a
-	// file, not that it is the newest: an old signed release with a known flaw
-	// can be served again, and MinVersion is the only thing here that refuses it.
+	// MinVersion is the oldest lens release that may be installed. A signature
+	// proves who built a file, not that it is the newest, so an old signed release
+	// with a known flaw can be served again. Raise MinVersion in the same Flockdeck
+	// release as every security fix to lens.
 	MinVersion: "0.1.0",
 	Args:       []string{"serve", "--host", "127.0.0.1", "--port", "{port}"},
 	Env: map[string]string{

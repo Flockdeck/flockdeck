@@ -114,36 +114,62 @@ type trustRecord struct {
 
 func (s *Store) trustFile(id string) string { return filepath.Join(s.appDir(id), "trust.json") }
 
-func (s *Store) readTrust(id string) (rec trustRecord, exists, readable bool) {
+// trustState is what readTrust found.
+type trustState int
+
+const (
+	trustMissing    trustState = iota // no file: a fresh install
+	trustValid                        // read and parsed
+	trustDamaged                      // read, but does not parse
+	trustUnreadable                   // could not be read at all
+)
+
+// readTrust reads the record. Only a file that does not exist is trustMissing;
+// every other read failure is trustUnreadable, with the error, so that nothing
+// is allowed on a record that could not be looked at.
+func (s *Store) readTrust(id string) (rec trustRecord, state trustState, readErr error) {
 	data, err := os.ReadFile(s.trustFile(id))
 	if errors.Is(err, fs.ErrNotExist) {
-		return rec, false, true
+		return rec, trustMissing, nil
 	}
 	if err != nil {
-		return rec, true, false
+		return rec, trustUnreadable, err
 	}
 	if json.Unmarshal(data, &rec) != nil {
-		return trustRecord{}, true, false
+		return trustRecord{}, trustDamaged, nil
 	}
-	return rec, true, true
+	return rec, trustValid, nil
 }
 
-// TrustReadError is a trust record that is there and is not one Flockdeck
-// wrote: unreadable, empty, the wrong shape, a folder, or without a version.
+// TrustReadError is a trust record that is there and cannot be used: Err is
+// nil when it was read and is not one Flockdeck wrote (it does not parse, or
+// has no valid version), and is the read error when it could not be read at
+// all, which can be a program with the file open or a folder in its place.
 // Without it nothing can be said about which versions are too old, so an
 // install is refused rather than allowed.
-type TrustReadError struct{ Path string }
-
-func (e *TrustReadError) Error() string {
-	return fmt.Sprintf("%s is damaged, so it cannot be told which versions are older than the newest one installed here before, and the install was refused. Delete it to reset it, then try again", e.Path)
+type TrustReadError struct {
+	Path string
+	Err  error
 }
 
+func (e *TrustReadError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%s could not be read just now (%v), so it cannot be told which versions are older than the newest one installed here before, and the install was refused. Another program may have it open; try again", e.Path, e.Err)
+	}
+	return fmt.Sprintf("%s is damaged, so it cannot be told which versions are older than the newest one installed here before, and the install was refused. Delete it to reset it, then try again", e.Path)
+}
+func (e *TrustReadError) Unwrap() error { return e.Err }
+
 // highWaterChecked is HighWater, except that a trust record that is there and
-// is not valid is an error and not "no mark". A missing record is a fresh
+// cannot be used is an error and not "no mark". A missing record is a fresh
 // install and means no mark.
 func (s *Store) highWaterChecked(id string) (string, error) {
 	if validID(id) {
-		if rec, exists, ok := s.readTrust(id); exists && (!ok || !validVersion(rec.HighWater)) {
+		rec, state, readErr := s.readTrust(id)
+		switch {
+		case state == trustUnreadable:
+			return "", &TrustReadError{Path: s.trustFile(id), Err: readErr}
+		case state == trustDamaged, state == trustValid && !validVersion(rec.HighWater):
 			return "", &TrustReadError{Path: s.trustFile(id)}
 		}
 	}
@@ -158,7 +184,7 @@ func (s *Store) HighWater(id string) string {
 		return ""
 	}
 	hw := ""
-	if rec, _, ok := s.readTrust(id); ok && validVersion(rec.HighWater) {
+	if rec, state, _ := s.readTrust(id); state == trustValid && validVersion(rec.HighWater) {
 		hw = rec.HighWater
 	}
 	if info, ok := s.Info(id); ok && validVersion(info.Version) {
@@ -213,8 +239,8 @@ func (s *Store) writeTrust(id string, rec trustRecord) error {
 // raiseHighWater lifts the mark to version once it is the installed one, and
 // leaves it alone if it is already higher.
 func (s *Store) raiseHighWater(id, version string) error {
-	rec, _, ok := s.readTrust(id)
-	if !ok {
+	rec, state, _ := s.readTrust(id)
+	if state != trustValid {
 		rec = trustRecord{}
 	}
 	if validVersion(rec.HighWater) && !selfupdate.Newer(version, rec.HighWater) {

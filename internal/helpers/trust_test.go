@@ -510,15 +510,16 @@ func TestAPlanIsOnlyCarriedOutAsItsInstallerMadeIt(t *testing.T) {
 		Entry: f.entry, Version: "0.4.0", Archive: good.Archive, URL: good.URL, SHA256: sumHex(archive), Size: int64(len(archive)),
 	}, f.in)
 	changed := map[string]func(p *Plan){
-		"version":   func(p *Plan) { p.Version = "0.9.0" },
-		"url":       func(p *Plan) { p.URL = f.site.URL + "/lens/v0.4.0/other" },
-		"sha256":    func(p *Plan) { p.SHA256 = strings.Repeat("b", 64) },
-		"size":      func(p *Plan) { p.Size++ },
-		"archive":   func(p *Plan) { p.Archive = "other.tar.gz" },
-		"repair":    func(p *Plan) { p.Repair = true },
-		"installed": func(p *Plan) { p.Installed = "0.1.0" },
-		"entry id":  func(p *Plan) { p.Entry.ID = "other" },
-		"date":      func(p *Plan) { p.Date = p.Date.Add(time.Hour) },
+		"version":        func(p *Plan) { p.Version = "0.9.0" },
+		"url":            func(p *Plan) { p.URL = f.site.URL + "/lens/v0.4.0/other" },
+		"sha256":         func(p *Plan) { p.SHA256 = strings.Repeat("b", 64) },
+		"size":           func(p *Plan) { p.Size++ },
+		"archive":        func(p *Plan) { p.Archive = "other.tar.gz" },
+		"repair":         func(p *Plan) { p.Repair = true },
+		"installed":      func(p *Plan) { p.Installed = "0.1.0" },
+		"entry id":       func(p *Plan) { p.Entry.ID = "other" },
+		"date":           func(p *Plan) { p.Date = p.Date.Add(time.Hour) },
+		"downgrade rule": func(p *Plan) { p.mayDowngrade = !p.mayDowngrade },
 		"archive and its address": func(p *Plan) {
 			p.Archive = "other.tar.gz"
 			p.URL = f.site.URL + "/lens/v0.4.0/other.tar.gz"
@@ -560,7 +561,9 @@ func TestAMissingManifestSignatureIsRefusedWhateverTheChecksumsSay(t *testing.T)
 }
 
 // A trust record that is there but is not a valid one fails closed after an
-// uninstall: the install is refused with the path and how to reset it. A
+// uninstall: the install is refused with the path. One that was read and is not
+// valid says to delete it; one that could not be read (a folder, or a file
+// another program has open) says to try again. A
 // record in the older format with a valid mark still reads as a mark, and no
 // record at all is a fresh install.
 func TestADamagedTrustRecordRefusesTheInstall(t *testing.T) {
@@ -609,8 +612,20 @@ func TestADamagedTrustRecordRefusesTheInstall(t *testing.T) {
 				return
 			}
 			tr, ok := asErr[*TrustReadError](err)
-			if !ok || tr.Path != path || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "Delete it to reset it") {
+			if !ok || tr.Path != path || !strings.Contains(err.Error(), path) {
 				t.Fatalf("err = %v", err)
+			}
+			if name == "a folder" {
+				// Nothing was read, so it is not called damaged and it is not
+				// told to be deleted: it may be open in another program.
+				if tr.Err == nil || !strings.Contains(err.Error(), "could not be read just now") ||
+					!strings.Contains(err.Error(), "try again") || strings.Contains(err.Error(), "damaged") ||
+					!strings.Contains(err.Error(), tr.Err.Error()) {
+					t.Fatalf("a record that cannot be read: err = %v (Err %v)", err, tr.Err)
+				}
+			} else if tr.Err != nil || !strings.Contains(err.Error(), "is damaged") || !strings.Contains(err.Error(), "Delete it to reset it") ||
+				strings.Contains(err.Error(), "could not be read") {
+				t.Fatalf("a record that was read and is not valid: err = %v (Err %v)", err, tr.Err)
 			}
 			if _, ok := f.store.Current("lens"); ok {
 				t.Fatal("installed")
