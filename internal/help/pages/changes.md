@@ -69,3 +69,40 @@ What this does not promise:
 Nothing here stages files selectively: a commit takes every file in the list,
 whole. Reviewing the diff first is the point of the panel. For anything
 finer, a shell pane is a keystroke away.
+
+## When git is set up to run a program
+
+Commit, Push, Pull and Fetch run git on your machine, as you, and git runs
+whatever the repository tells it to: hooks in `.git/hooks`, a `core.hooksPath`,
+a `core.sshCommand`, a credential helper, a filter driver, a signing program.
+Many projects use hooks to lint or test before a commit, and tools such as husky
+set `core.hooksPath` for you, so Flockdeck does not turn any of it off.
+
+An agent that can write inside `.git` could add a hook, though, and the next
+press of Commit would run it with no agent permission prompt in between. So
+before it runs git for you, Flockdeck reads the repository's git configuration
+(files it includes, a linked worktree's own configuration and each submodule's
+too) and the hooks git would find. If something runs that was not there when you
+last accepted, it stops and lists each program and the file it comes from. You
+can cancel, or continue and then choose between remembering it for that
+repository and accepting it just this time.
+
+- A repository Flockdeck has not seen, where the repository itself names a
+  program, asks once. A husky setup counts: Flockdeck cannot tell your tools
+  from something an agent wrote.
+- A repository where nothing is set to run is recorded without asking, so
+  anything added later is a change.
+- Your own system and global git configuration, such as a credential helper or
+  Git LFS, is not asked about the first time. A change to it is.
+- An edited hook is a change. Something removed is not.
+- A hooks directory inside the working tree, such as `.husky`, is reported by its
+  `core.hooksPath` setting alone. Its files are ordinary project files, and the
+  list of changes shows them.
+
+What you accepted is kept in Flockdeck's own state folder, not in the
+repository. If the check cannot be made (git does not answer, say), the command
+runs as it always did and a notice says the check was skipped.
+
+The check runs before the buttons above. It does not see git commands you or an
+agent run in a pane; an agent's own are for [auto-review](#status) and the
+agent's permissions.

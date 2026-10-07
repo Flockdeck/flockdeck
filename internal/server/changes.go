@@ -346,7 +346,7 @@ func notUTF8Name(dir, file string) bool {
 // is refused when what it would record is no longer what was listed, and the
 // answer that follows is the tree as it is now. A window that sends no list
 // commits everything, as the button always did.
-func (s *Server) commitChanges(c *controlClient, path, message string, push bool, listed []string, stamps map[string]string, unlisted int) {
+func (s *Server) commitChanges(c *controlClient, path, message string, push bool, listed []string, stamps map[string]string, unlisted int, ans gitAnswer) {
 	dir := s.reviewDir(path)
 	// The listing a commit ends on counts from when the commit was asked for,
 	// so a review opened while it ran is not drawn over when it finishes.
@@ -364,6 +364,13 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 			}
 		}()
 		dir = repoRoot(dir)
+		action := "commit"
+		if push {
+			action = "commit and push"
+		}
+		if !s.gitProgramsAccepted(c, dir, path, action, "commit", ans.accept, ans.seen) {
+			return
+		}
 		commit := func() error { return gitx.CommitAll(dir, message) }
 		if listed != nil {
 			r := gitx.Reviewed{Files: listed, Stamps: stamps, Unlisted: unlisted}
@@ -381,6 +388,12 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 		}
 		c.notify("Committed in "+shortName(dir), false)
 		if push {
+			// A hook the commit ran may have changed what a push would run.
+			if !s.gitProgramsAccepted(c, dir, path, "push", "gitPush", ans.accept, ans.seen) {
+				s.sendChanges(c, dir, asked, "committed")
+				answered = true
+				return
+			}
 			if out, err := gitx.Push(dir); err != nil {
 				c.notify(err.Error(), true)
 			} else {
@@ -403,11 +416,15 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 var commitReviewed = gitx.CommitReviewed
 
 // runRemote performs a push, pull or fetch and reports the result.
-func (s *Server) runRemote(c *controlClient, action, path string) {
+func (s *Server) runRemote(c *controlClient, action, path string, ans gitAnswer) {
 	dir := s.reviewDir(path)
 	asked := changeListings.asked(c) // as a commit's: see commitChanges
 	go func() {
 		defer s.surviveFor(c, "talking to the remote")
+		if !s.gitProgramsAccepted(c, repoRoot(dir), path, action, resendName(action), ans.accept, ans.seen) {
+			s.sendChanges(c, repoRoot(dir), asked, "")
+			return
+		}
 		var (
 			out string
 			err error
@@ -459,4 +476,18 @@ func shortName(dir string) string {
 		return dir[i+1:]
 	}
 	return dir
+}
+
+// gitAnswer is what the window said to a gitWarn.
+type gitAnswer struct{ accept, seen string }
+
+// resendName is the command a window sends for a remote action.
+func resendName(action string) string {
+	switch action {
+	case "push":
+		return "gitPush"
+	case "pull":
+		return "gitPull"
+	}
+	return "gitFetch"
 }

@@ -513,6 +513,7 @@
       else if (msg.type === "batonError") batonFailed(msg);
       else if (msg.type === "routes") fanoutRoutes(msg);
       else if (msg.type === "diff") showDiff(msg);
+      else if (msg.type === "gitWarn") gitWarned(msg);
       else if (msg.type === "detached") {
         // The agents keep running; this window is no longer needed.
         detaching = true;
@@ -9421,6 +9422,7 @@
         // sent the commit it always was.
         const stamps = [...seen.stamps].filter(([, s]) => s);
         if (stamps.length) cmd.stamps = Object.fromEntries(stamps);
+        pendingCommit = cmd;
         send(cmd);
         commitPending = true;
         commitPendingCwd = m.cwd;
@@ -9478,6 +9480,43 @@
    *  commit is a notice saying whether it was made. */
   let commitPending = false;
   let commitPendingCwd = "";
+
+  /** The commit a gitWarn is asking about, so that answering it can send it again. */
+  let pendingCommit = null;
+
+  /** gitWarned is the server saying that a commit, push, pull or fetch would run
+   *  a program the repository names that nobody has accepted: its message lists
+   *  what runs and where it is set. Continuing sends the same command again with
+   *  the answer, which holds only if the repository still has what was listed. A
+   *  second question asks whether to stop asking about this repository. */
+  function gitWarned(msg) {
+    // Nothing was committed, so the message typed is still wanted.
+    commitPending = false;
+    const again = (accept) => {
+      const cmd = msg.resend === "commit" && pendingCommit
+        ? { ...pendingCommit }
+        : { cmd: msg.resend, path: msg.path };
+      cmd.gitAccept = accept;
+      cmd.gitSeen = msg.seen;
+      if (msg.resend === "commit") { commitPending = true; commitPendingCwd = msg.cwd; }
+      changesBusy = true;
+      send(cmd);
+    };
+    confirmDialog({
+      title: "This repository runs programs you have not accepted",
+      body: msg.text,
+      action: "Continue",
+      native: msg.text + "\n\nContinue?",
+    }, () => {
+      confirmDialog({
+        title: "Remember this for the repository?",
+        body: "Flockdeck will ask again only if what runs changes.",
+        action: "Remember",
+        cancel: "Just this time",
+        native: "Remember this for the repository? Flockdeck will ask again only if what runs changes.\n\nOK remembers it, Cancel continues just this time.",
+      }, () => again("remember"), () => again("once"));
+    });
+  }
 
   function commitAnswered(isError) {
     if (!commitPending) return;
