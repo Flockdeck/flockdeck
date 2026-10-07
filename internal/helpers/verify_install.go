@@ -154,7 +154,7 @@ type TrustReadError struct {
 
 func (e *TrustReadError) Error() string {
 	if e.Err != nil {
-		return fmt.Sprintf("%s could not be read just now (%v), so it cannot be told which versions are older than the newest one installed here before, and the install was refused. Another program may have it open; try again", e.Path, e.Err)
+		return fmt.Sprintf("%s could not be read just now (%v), so it cannot be told which versions are older than the newest one installed here before, and the install was refused. Another program may have it open, or a folder is in its place; try again", e.Path, e.Err)
 	}
 	return fmt.Sprintf("%s is damaged, so it cannot be told which versions are older than the newest one installed here before, and the install was refused. Delete it to reset it, then try again", e.Path)
 }
@@ -237,9 +237,14 @@ func (s *Store) writeTrust(id string, rec trustRecord) error {
 }
 
 // raiseHighWater lifts the mark to version once it is the installed one, and
-// leaves it alone if it is already higher.
+// leaves it alone if it is already higher. A record that could not be read is an
+// error, not an empty one. A damaged one holds no valid mark, so it is replaced.
 func (s *Store) raiseHighWater(id, version string) error {
-	rec, state, _ := s.readTrust(id)
+	rec, state, readErr := s.readTrust(id)
+	if state == trustUnreadable {
+		// It may hold a higher mark than this one; writing over it could lower it.
+		return &TrustReadError{Path: s.trustFile(id), Err: readErr}
+	}
 	if state != trustValid {
 		rec = trustRecord{}
 	}

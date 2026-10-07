@@ -563,9 +563,9 @@ func TestAMissingManifestSignatureIsRefusedWhateverTheChecksumsSay(t *testing.T)
 // A trust record that is there but is not a valid one fails closed after an
 // uninstall: the install is refused with the path. One that was read and is not
 // valid says to delete it; one that could not be read (a folder, or a file
-// another program has open) says to try again. A
-// record in the older format with a valid mark still reads as a mark, and no
-// record at all is a fresh install.
+// another program has open) says to try again. A record in the older format
+// with a valid mark still reads as a mark, and no record at all is a fresh
+// install.
 func TestADamagedTrustRecordRefusesTheInstall(t *testing.T) {
 	shapes := map[string]string{
 		"corrupt":           "{{{",
@@ -617,10 +617,11 @@ func TestADamagedTrustRecordRefusesTheInstall(t *testing.T) {
 			}
 			if name == "a folder" {
 				// Nothing was read, so it is not called damaged and it is not
-				// told to be deleted: it may be open in another program.
+				// told to be deleted: it may be open in another program. Unwrap gives
+				// the read error back.
 				if tr.Err == nil || !strings.Contains(err.Error(), "could not be read just now") ||
 					!strings.Contains(err.Error(), "try again") || strings.Contains(err.Error(), "damaged") ||
-					!strings.Contains(err.Error(), tr.Err.Error()) {
+					!strings.Contains(err.Error(), tr.Err.Error()) || !strings.Contains(err.Error(), "a folder is in its place") || !errors.Is(err, tr.Err) {
 					t.Fatalf("a record that cannot be read: err = %v (Err %v)", err, tr.Err)
 				}
 			} else if tr.Err != nil || !strings.Contains(err.Error(), "is damaged") || !strings.Contains(err.Error(), "Delete it to reset it") ||
@@ -700,5 +701,37 @@ func TestTheMinimumAndTheMarkAreAppliedAgainAtInstall(t *testing.T) {
 	}
 	if _, ok := f.store.Current("lens"); ok {
 		t.Fatal("installed")
+	}
+}
+
+// A record that cannot be read may hold a higher mark than the one being
+// recorded, so raising the mark returns the read error and leaves it alone
+// instead of writing over it. A valid higher mark is kept, and a lower one is
+// raised.
+func TestRaisingTheMarkNeverWritesOverARecordThatCannotBeRead(t *testing.T) {
+	f := newFixture(t)
+	path := f.store.trustFile("lens")
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := f.store.raiseHighWater("lens", "0.6.0")
+	tr, ok := asErr[*TrustReadError](err)
+	if !ok || tr.Err == nil || tr.Path != path {
+		t.Fatalf("err = %v, want a TrustReadError for an unreadable record", err)
+	}
+	if fi, statErr := os.Stat(path); statErr != nil || !fi.IsDir() {
+		t.Fatalf("the record was written over: %v", statErr)
+	}
+	if err := os.RemoveAll(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"highWater":"0.7.0"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.raiseHighWater("lens", "0.6.0"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.store.HighWater("lens"); got != "0.7.0" {
+		t.Fatalf("a lower version lowered the mark to %q", got)
 	}
 }

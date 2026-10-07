@@ -326,7 +326,7 @@ Flockdeck keeps the newest version it has installed in `trust.json` in the
 helper's folder under its state folder (`apps/lens/trust.json`). If an install
 says that file is damaged or cannot be written, or you want older versions to
 be accepted again, delete it. If it says the file could not be read just now,
-another program may have it open, so try again.
+another program may have it open or a folder may be in its place, so try again.
 `flockdeck helpers uninstall -purge-data lens` also removes it, together with
 the data, even when nothing is installed. If a helper's program was changed
 after it was installed, a start is refused. `flockdeck helpers install lens`
