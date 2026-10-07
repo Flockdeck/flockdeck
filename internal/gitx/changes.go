@@ -504,6 +504,8 @@ func pathspec(path string) string { return ":(literal)" + path }
 // diffFlags pin git's diff output to the shape the panel reads, whatever the
 // user keeps in their config.
 //
+// "diff.<driver>.textconv" runs a program on each file to make the text that is
+// diffed, so it is turned off as well.
 // "color.ui = always" is what people set when they want colour through a pager,
 // and git obeys it here too even though nothing is attached to a terminal: the
 // panel then shows the escape sequences as text and colours nothing, because no
@@ -515,7 +517,7 @@ func pathspec(path string) string { return ":(literal)" + path }
 // through, by subject -- "> fix the parser", "<" for one it went back past --
 // where the default was two forty-character hashes that said nothing of what
 // changed, and nothing of a bump being undone.
-var diffFlags = []string{"--no-color", "--no-ext-diff", "--find-renames", "--src-prefix=a/", "--dst-prefix=b/", "--submodule=log"}
+var diffFlags = []string{"--no-color", "--no-ext-diff", "--no-textconv", "--find-renames", "--src-prefix=a/", "--dst-prefix=b/", "--submodule=log"}
 
 // gitDiff runs a diff with those flags ahead of the caller's arguments, and
 // returns it cut down to what the panel is sent.

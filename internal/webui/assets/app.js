@@ -9502,9 +9502,17 @@
       changesBusy = true;
       send(cmd);
     };
+    // One element for what is wrong, and one per program, each set as text: what
+    // a repository's configuration says is shown, never read as markup, and a
+    // value cannot start another line of the list.
+    const body = el("div");
+    body.append(el("p", "", msg.intro || msg.text));
+    const list = el("ul");
+    for (const line of msg.items || []) list.append(el("li", "", line));
+    body.append(list);
     confirmDialog({
       title: "This repository runs programs you have not accepted",
-      body: msg.text,
+      body,
       action: "Continue",
       native: msg.text + "\n\nContinue?",
     }, () => {

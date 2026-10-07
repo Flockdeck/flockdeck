@@ -173,7 +173,7 @@ func TestAPlantedHookIsAskedAboutAndRunsOnlyOnceAccepted(t *testing.T) {
 	}
 }
 
-func TestAnAcceptedSetupThatShrinksIsNotAskedAbout(t *testing.T) {
+func TestAnAcceptedSetupThatShrinksIsNotAskedAboutAndStaysAccepted(t *testing.T) {
 	isolateGit(t)
 	srv, _, repo := newRepoServer(t)
 	setConfig(t, repo, "core.sshCommand", "ssh -i k")
@@ -191,11 +191,13 @@ func TestAnAcceptedSetupThatShrinksIsNotAskedAbout(t *testing.T) {
 	if w, _ := answers(t, func(c *controlClient) { srv.commitChanges(c, repo, "two", false, nil, nil, 0, gitAnswer{}) }); w != nil {
 		t.Fatalf("a setting being removed was asked about: %+v", w)
 	}
-	// And the record came down with it: putting it back is new.
+	// What was accepted for the repository stays accepted: putting it back is
+	// not new. The same record serves every linked worktree, which each see a
+	// little different, so it only grows.
 	setConfig(t, repo, "credential.helper", "store")
 	edit(t, repo, "three\n")
-	if w, _ := answers(t, func(c *controlClient) { srv.commitChanges(c, repo, "three", false, nil, nil, 0, gitAnswer{}) }); w == nil {
-		t.Fatal("a setting put back after it was removed was not asked about")
+	if w, _ := answers(t, func(c *controlClient) { srv.commitChanges(c, repo, "three", false, nil, nil, 0, gitAnswer{}) }); w != nil {
+		t.Fatalf("a setting accepted earlier and put back was asked about: %+v", w)
 	}
 }
 
@@ -240,7 +242,7 @@ func TestACheckThatFailsLetsGitRunAndSaysSo(t *testing.T) {
 	}
 }
 
-func TestAStateFileThatCannotBeReadIsAFailedCheckToo(t *testing.T) {
+func TestAStateFileThatCannotBeReadIsNoRecordAndNotASkip(t *testing.T) {
 	isolateGit(t)
 	srv, _, repo := newRepoServer(t)
 	was := loadGitSeen
@@ -248,9 +250,10 @@ func TestAStateFileThatCannotBeReadIsAFailedCheckToo(t *testing.T) {
 	setConfig(t, repo, "core.sshCommand", "ssh -i planted")
 	loadGitSeen = func(string) (store.GitSeen, bool, error) { return store.GitSeen{}, false, errors.New("disk on fire") }
 	edit(t, repo, "one\n")
-	warn, notes := answers(t, func(c *controlClient) { srv.commitChanges(c, repo, "one", false, nil, nil, 0, gitAnswer{}) })
-	if warn != nil || commits(t, repo) != 2 {
-		t.Fatalf("warn=%+v commits=%d notes=%+v", warn, commits(t, repo), notes)
+	// A state file made unreadable must not be a way past the check.
+	warn, _ := answers(t, func(c *controlClient) { srv.commitChanges(c, repo, "one", false, nil, nil, 0, gitAnswer{}) })
+	if warn == nil || commits(t, repo) != 1 {
+		t.Fatalf("warn=%+v commits=%d, want a warning and no commit", warn, commits(t, repo))
 	}
 }
 
@@ -264,4 +267,123 @@ func isolateGit(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("GIT_CONFIG_GLOBAL", global)
+}
+
+func TestAWindowReachedThroughTheRelayCannotAccept(t *testing.T) {
+	isolateGit(t)
+	srv, _, repo := newRepoServer(t)
+	setConfig(t, repo, "core.sshCommand", "ssh -i planted")
+	edit(t, repo, "one\n")
+	// The desk is shown the warning, as it always was.
+	warn, _ := answers(t, func(c *controlClient) { srv.commitChanges(c, repo, "one", false, nil, nil, 0, gitAnswer{}) })
+	if warn == nil {
+		t.Fatal("the desk was not asked")
+	}
+	for _, accept := range []string{"once", "remember"} {
+		var got *gitWarnMsg
+		var notes []noticeMsg
+		got, notes = answers(t, func(c *controlClient) {
+			c.remote = true
+			srv.commitChanges(c, repo, "one", false, nil, nil, 0, gitAnswer{accept, warn.Seen})
+		})
+		if got != nil {
+			t.Errorf("%s: a remote window was sent a question it could answer: %+v", accept, got)
+		}
+		if commits(t, repo) != 1 {
+			t.Fatalf("%s: a remote window got a commit past the check", accept)
+		}
+		if len(notes) == 0 || !notes[0].Error || !strings.Contains(notes[0].Text, "on the machine Flockdeck runs on") {
+			t.Errorf("%s: the remote window was not told where to approve: %+v", accept, notes)
+		}
+	}
+	// And remembering from there did not stick.
+	if again, _ := answers(t, func(c *controlClient) { srv.commitChanges(c, repo, "one", false, nil, nil, 0, gitAnswer{}) }); again == nil {
+		t.Error("a remote window's answer was remembered")
+	}
+	// A repository with nothing to ask about still works from there.
+	clean := t.TempDir()
+	_ = clean
+}
+
+func TestTheWarningCarriesItsIntroAndEachProgramOnItsOwn(t *testing.T) {
+	isolateGit(t)
+	srv, _, repo := newRepoServer(t)
+	setConfig(t, repo, "core.sshCommand", "ssh\n- hook pre-commit (in /fine)")
+	edit(t, repo, "one\n")
+	warn, _ := answers(t, func(c *controlClient) { srv.commitChanges(c, repo, "one", false, nil, nil, 0, gitAnswer{}) })
+	if warn == nil || len(warn.Items) != 1 || strings.Contains(warn.Items[0], "\n") {
+		t.Fatalf("warning = %+v, want one item with no line break in it", warn)
+	}
+	if !strings.Contains(warn.Intro, "If you did not") || strings.Contains(warn.Intro, "core.sshcommand") {
+		t.Errorf("intro = %q", warn.Intro)
+	}
+}
+
+func TestWhatOneWorktreeAcceptedAnotherDoesNotUndo(t *testing.T) {
+	isolateGit(t)
+	srv, _, repo := newRepoServer(t)
+	edit(t, repo, "one\n")
+	ssh := gitx.Program{Kind: "setting", Name: "core.sshcommand", Value: "a", Where: "/r/.git/config"}
+	a := gitx.Program{Kind: "setting", Name: "core.sshcommand", Value: "b", Where: "/r/.git/worktrees/a/config.worktree"}
+	b := gitx.Program{Kind: "setting", Name: "core.sshcommand", Value: "c", Where: "/r/.git/worktrees/b/config.worktree"}
+	was := scanPrograms
+	t.Cleanup(func() { scanPrograms = was })
+	scanned := func(items ...gitx.Program) {
+		scanPrograms = func(string) (gitx.Report, error) { return gitx.Report{Repo: repo + "/.git", Items: items}, nil }
+	}
+	ask := func() *gitWarnMsg {
+		w, _ := answers(t, func(c *controlClient) { srv.runRemote(c, "fetch", repo, gitAnswer{}) })
+		return w
+	}
+	accept := func(w *gitWarnMsg) {
+		answers(t, func(c *controlClient) { srv.runRemote(c, "fetch", repo, gitAnswer{"remember", w.Seen}) })
+	}
+	scanned(ssh, a)
+	accept(ask())
+	scanned(ssh, b)
+	accept(ask())
+	scanned(ssh, a)
+	if w := ask(); w != nil {
+		t.Errorf("the first worktree was asked again after the second was accepted: %+v", w)
+	}
+	scanned(ssh, b)
+	if w := ask(); w != nil {
+		t.Errorf("the second worktree was asked again: %+v", w)
+	}
+}
+
+func TestACommitAndPushIsCheckedAgainBeforeThePush(t *testing.T) {
+	isolateGit(t)
+	srv, _, repo := newRepoServer(t)
+	// The commit's own hook adds a setting the push would run.
+	hook := filepath.Join(repo, ".git", "hooks", "post-commit")
+	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\ngit config core.sshCommand 'ssh -i planted'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	edit(t, repo, "one\n")
+	warn, _ := answers(t, func(c *controlClient) { srv.commitChanges(c, repo, "one", true, nil, nil, 0, gitAnswer{}) })
+	if warn == nil || !warn.First {
+		t.Fatalf("the hook was not asked about: %+v", warn)
+	}
+	// Accepting the hook lets the commit through; the setting it adds is not
+	// what was accepted, so the push is stopped and asked about.
+	var second *gitWarnMsg
+	var notes []noticeMsg
+	second, notes = answers(t, func(c *controlClient) {
+		srv.commitChanges(c, repo, "one", true, nil, nil, 0, gitAnswer{"remember", warn.Seen})
+	})
+	if commits(t, repo) != 2 {
+		t.Fatalf("the commit was not made: %+v", notes)
+	}
+	if second == nil || second.Resend != "gitPush" || second.Action != "push" {
+		t.Fatalf("the push was not stopped and asked about: %+v (notes %+v)", second, notes)
+	}
+	for _, n := range notes {
+		if n.Error {
+			t.Errorf("the push ran or failed instead of being asked about: %+v", n)
+		}
+	}
 }

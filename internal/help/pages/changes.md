@@ -95,13 +95,35 @@ repository and accepting it just this time.
 - Your own system and global git configuration, such as a credential helper or
   Git LFS, is not asked about the first time. A change to it is.
 - An edited hook is a change. Something removed is not.
-- A hooks directory inside the working tree, such as `.husky`, is reported by its
-  `core.hooksPath` setting alone. Its files are ordinary project files, and the
-  list of changes shows them.
+- A hooks directory inside the working tree, such as `.husky/_`, is read like
+  any other, so an edited hook there is a change. A Pull can bring one, and
+  nothing in the list of changes shows it at that point. Scripts a hook goes on
+  to call from elsewhere are not read.
+- A remote that is a folder on this machine is listed along with the hooks that
+  folder's repository would run when you push to it. So is a remote that uses a
+  helper such as `ext::`, which runs a command.
+- Something git may run but Flockdeck could not read, such as a hooks folder with
+  no permissions, is listed as that. So is a search that stopped at its limit
+  (200 submodules, or more than six levels of them). Neither is passed over.
+- A hook, setting or path is shown cut to a length, with line breaks and other
+  control characters removed.
 
 What you accepted is kept in Flockdeck's own state folder, not in the
-repository. If the check cannot be made (git does not answer, say), the command
-runs as it always did and a notice says the check was skipped.
+repository, and it only grows: what you accepted for a repository stays
+accepted, so linked worktrees that differ a little do not undo each other. The
+file is one an agent running as you could write too, so this protects you from
+an agent that can write inside the project and not from one that can write
+anywhere you can. Two Flockdeck windows of one user may overwrite each other's
+record at the same moment; the worst result is being asked again.
+
+If the check cannot be made because git does not answer, the command runs as it
+always did and a notice says the check was skipped. A record that cannot be read
+counts as no record, so the repository's own programs are asked about.
+
+The check is not atomic. It runs just before the command, and a commit stages
+your files first, so something written in that gap is run without being
+checked. A window reached through the relay is shown the reason and told to
+press the button on the machine itself; approving is done there.
 
 The check runs before the buttons above. It does not see git commands you or an
 agent run in a pane; an agent's own are for [auto-review](#status) and the
