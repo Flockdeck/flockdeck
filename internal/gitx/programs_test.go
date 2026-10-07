@@ -333,18 +333,8 @@ func TestAScanThatCannotBeMadeIsAnErrorNotAnEmptyAnswer(t *testing.T) {
 	if _, err := ScanPrograms(""); err == nil {
 		t.Error("an empty folder name scanned as one that runs nothing")
 	}
-	// A hooks directory that cannot be read is not "no hooks".
-	if runtime.GOOS != "windows" && os.Geteuid() != 0 {
-		repo := newRepo(t)
-		hooks := filepath.Join(repo, ".git", "hooks")
-		if err := os.Chmod(hooks, 0o000); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { os.Chmod(hooks, 0o755) })
-		if _, err := ScanPrograms(repo); err == nil {
-			t.Error("an unreadable hooks directory scanned as one with no hooks")
-		}
-	}
+	// An unreadable hooks directory is an item of its own; see
+	// TestAHookThatCannotBeReadIsStillReported.
 }
 
 func prog(name string, machine bool) Program {
