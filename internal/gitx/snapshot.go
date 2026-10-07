@@ -487,7 +487,7 @@ func revParse(ctx context.Context, dir string, env []string, rev string) (string
 // first set, so the old directories are in the second, which a path under them
 // meets.
 func changedPaths(ctx context.Context, dir string, env []string, from, to string) (paths, dirs []string, err error) {
-	out, err := runEnvOut(ctx, dir, env, "diff", "--raw", "-z", "--no-abbrev", "--find-renames", "--no-ext-diff", from, to)
+	out, err := runEnvOut(ctx, dir, env, "diff", "--raw", "-z", "--no-abbrev", "--find-renames", "--no-ext-diff", "--no-textconv", from, to)
 	if err != nil {
 		return nil, nil, err
 	}

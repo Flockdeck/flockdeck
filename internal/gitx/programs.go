@@ -1,21 +1,22 @@
 package gitx
 
 import (
-	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
+	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
+	"time"
 	"unicode"
 )
 
@@ -29,18 +30,20 @@ import (
 // core.hooksPath in .git/config, so none of this is switched off. ScanPrograms
 // finds what would run; the caller decides whether you have seen it before.
 //
-// A scan never turns something it cannot read into "nothing runs": a hooks
-// directory or file git may still be able to run, a submodule whose
-// configuration cannot be read, or a search that hit its limit becomes an item
-// of its own, so that it is shown and has to be accepted. Only a git that
-// cannot be run at all, or a directory that is not a repository, is an error.
+// A scan never turns something it could not finish into "nothing runs". A
+// hooks directory or file git may still be able to run, a submodule whose
+// configuration cannot be read, a search that hit its limit, a git that did not
+// answer in time: each becomes an item of its own, so that it is shown. Only a
+// machine without git, or a directory that is not a repository, is an error,
+// because there is then nothing for git to run.
 
 // Program is one thing git would run for a commit, push, pull or fetch, and
 // where it is set.
 type Program struct {
 	// Kind is "setting" for a configuration key, "hook" for an executable file
 	// in a hooks directory, "unreadable" for something that may run and could
-	// not be read, and "limit" for a search that stopped at its limit.
+	// not be read, "limit" for a search that stopped at its limit, and
+	// "unscannable" for a scan that could not be finished.
 	Kind string
 	// Name is the configuration key as git prints it (core.sshCommand is
 	// core.sshcommand), or the hook's file name.
@@ -92,6 +95,9 @@ func (p Program) Line() string {
 	case "unreadable":
 		s = "something Flockdeck could not read, which git may still run: " + clean(p.Where, maxWhereRunes) +
 			" (" + clean(p.Value, maxValueRunes) + ")"
+	case "unscannable":
+		s = "Flockdeck could not finish reading this repository, so git may run something it did not see: " +
+			clean(p.Value, maxValueRunes) + " (" + clean(p.Where, maxWhereRunes) + ")"
 	case "limit":
 		s = "more than Flockdeck looks through: " + clean(p.Value, maxValueRunes) + " (in " + clean(p.Where, maxWhereRunes) + ")"
 	default:
@@ -141,6 +147,20 @@ func (r Report) IDs() []string {
 	return ids
 }
 
+// AcceptableIDs are the IDs of what can be remembered as accepted. A scan that
+// could not be finished cannot: what it did not see may be different next time,
+// so it is asked about every time.
+func (r Report) AcceptableIDs() []string {
+	ids := make([]string, 0, len(r.Items))
+	for _, p := range r.Items {
+		if p.Kind != "unscannable" {
+			ids = append(ids, p.ID())
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 // risky matches the configuration keys that make git run a program during a
 // commit, push, pull or fetch, as git prints them: section and name lower-case,
 // the subsection as written.
@@ -154,6 +174,8 @@ func (r Report) IDs() []string {
 //   - a filter driver's clean, smudge or process, run by git add and checkout,
 //     and Git LFS's extensions and custom transfer agents, which its own filter
 //     then starts
+//   - a merge driver, which .gitattributes can assign to any file and which a
+//     merge runs
 //   - gpg.program, gpg.<format>.program and gpg.ssh.defaultKeyCommand, run when
 //     commits are signed
 //   - hook.<name>.command, hooks configured in git's own configuration
@@ -163,10 +185,11 @@ func (r Report) IDs() []string {
 //
 // Left out on purpose: core.fsmonitor, which every git Flockdeck starts has
 // blanked (see ownConfig); core.pager and core.editor, which a commit given its
-// message on stdin and a push never start; diff drivers, which Flockdeck's own
-// diffs are told not to use (--no-ext-diff, --no-textconv); and alias.*, which
-// cannot replace the built-in commands Flockdeck runs.
-var risky = regexp.MustCompile(`^(core\.(sshcommand|hookspath|askpass|gitproxy|alternaterefscommand)|credential\.(.+\.)?helper|remote\..+\.(uploadpack|receivepack|vcs)|filter\..+\.(clean|smudge|process)|lfs\.extension\..+\.(clean|smudge)|lfs\.customtransfer\..+\.path|gpg\.program|gpg\..+\.program|gpg\.ssh\.defaultkeycommand|hook\..+\.command)$`)
+// message on stdin and a push never start; diff drivers, which every diff
+// Flockdeck runs is told not to use (--no-ext-diff, --no-textconv); merge.tool
+// and mergetool.*, which only `git mergetool` runs and Flockdeck never does;
+// and alias.*, which cannot replace the built-in commands Flockdeck runs.
+var risky = regexp.MustCompile(`^(core\.(sshcommand|hookspath|askpass|gitproxy|alternaterefscommand)|credential\.(.+\.)?helper|remote\..+\.(uploadpack|receivepack|vcs)|filter\..+\.(clean|smudge|process)|merge\..+\.(driver|recursive)|lfs\.extension\..+\.(clean|smudge)|lfs\.customtransfer\..+\.path|gpg\.program|gpg\..+\.program|gpg\.ssh\.defaultkeycommand|hook\..+\.command)$`)
 
 var (
 	submoduleUpdate = regexp.MustCompile(`^submodule\..+\.update$`)
@@ -239,29 +262,6 @@ func remoteLocation(u string) string {
 	return "local"
 }
 
-// remoteHooksDir is the hooks directory of a local remote, or "".
-func remoteHooksDir(u, base string) string {
-	u = strings.TrimSpace(u)
-	if strings.HasPrefix(strings.ToLower(u), "file://") {
-		u = u[len("file://"):]
-		// file:///C:/x is /C:/x.
-		if len(u) > 2 && u[0] == '/' && u[2] == ':' {
-			u = u[1:]
-		}
-	}
-	p := filepath.FromSlash(u)
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(base, p)
-	}
-	p = canonical(p)
-	for _, d := range []string{p, filepath.Join(p, ".git")} {
-		if _, err := os.Stat(filepath.Join(d, "HEAD")); err == nil {
-			return filepath.Join(d, "hooks")
-		}
-	}
-	return ""
-}
-
 // hookNames are the hooks git can run. A file in a hooks directory with any
 // other name is never started. They are looked for by name, one at a time,
 // because the file system decides what that name matches: Pre-Commit is
@@ -280,10 +280,44 @@ const (
 	maxSubmodules = 200
 	maxModuleDirs = 2000
 	maxModuleDeep = 6
-	// maxHashed is the largest hook read whole. A larger one is identified by
-	// its size and modification time, which an edit changes.
-	maxHashed = 16 << 20
+	// maxConfigBytes is the largest configuration file listed. A larger one is
+	// an item of its own: git is slow to read one, and padding is how a setting
+	// is hidden.
+	maxConfigBytes = 4 << 20
+	// maxHashBudget is how many bytes of hooks and submodule configuration a
+	// scan reads in all.
+	maxHashBudget = 64 << 20
 )
+
+// scanTimeout bounds a whole scan. A scan that cannot finish in this long is an
+// item to accept, not a reason to go ahead: a repository can be made slow to
+// read for the scan and not for the command that follows. It is a variable so a
+// test can shorten it.
+var scanTimeout = 15 * time.Second
+
+// ErrNotRepository and ErrNoGit are the only ways ScanPrograms fails: the
+// directory is not a git repository, or there is no git to run.
+var (
+	ErrNotRepository = errors.New("not a git repository")
+	ErrNoGit         = errors.New("git is not installed")
+)
+
+// scanner is one run of ScanPrograms.
+type scanner struct {
+	ctx    context.Context
+	budget int64
+	spent  int64
+}
+
+func (s *scanner) git(dir string, args ...string) (string, error) {
+	out, _, err := runCapture(s.ctx, scanTimeout, dir, args...)
+	return out, err
+}
+
+// unscannable is the item for a scan that could not be finished.
+func unscannable(where, why string, submodule string) Program {
+	return Program{Kind: "unscannable", Where: where, Value: why, Submodule: submodule}
+}
 
 // ScanPrograms finds what git would run, in dir, for a commit, push, pull or
 // fetch: the configuration git itself would read (system, global, repository,
@@ -292,47 +326,95 @@ const (
 // submodule, whose own configuration and hooks git consults when it descends
 // into one.
 //
-// An error means git could not be run, or dir is not a repository, and says
-// why. Callers must not take it for "nothing to run". Anything else that cannot
-// be read comes back as an item.
+// An error is ErrNotRepository or ErrNoGit and nothing else. Anything that
+// cannot be read, or that takes too long, comes back as an item.
 func ScanPrograms(dir string) (Report, error) {
-	paths, err := gitPaths(dir)
+	if !Available() {
+		return Report{}, ErrNoGit
+	}
+	if strings.TrimSpace(dir) == "" {
+		return Report{}, ErrNotRepository
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), scanTimeout)
+	defer cancel()
+	s := &scanner{ctx: ctx, budget: maxHashBudget}
+
+	paths, err := s.gitPaths(dir)
 	if err != nil {
-		return Report{}, err
+		if strings.Contains(err.Error(), "not a git repository") {
+			return Report{}, ErrNotRepository
+		}
+		return Report{Repo: canonical(dir), Items: []Program{unscannable(dir, "git rev-parse failed: "+firstWords(err), "")}}, nil
 	}
 	rep := Report{Repo: paths.common}
 
-	entries, err := listConfig(dir, paths.topdirOr(), nil)
-	if err != nil {
-		return Report{}, err
+	// A configuration file that is large is hiding something, or is slow to
+	// read, or both.
+	for _, f := range []string{filepath.Join(paths.common, "config"), filepath.Join(paths.gitDir, "config.worktree")} {
+		if fi, err := os.Stat(f); err == nil && fi.Size() > maxConfigBytes {
+			rep.Items = append(rep.Items, Program{Kind: "limit", Where: f,
+				Value: "a configuration file of " + strconv.FormatInt(fi.Size(), 10) + " bytes is larger than the " +
+					strconv.Itoa(maxConfigBytes) + " Flockdeck reads"})
+		}
 	}
-	items, hooksPath := settingsIn(entries, "", paths.topdirOr(), true)
-	rep.Items = append(rep.Items, items...)
-	rep.Items = append(rep.Items, hooksIn(paths, hooksPath, "")...)
 
-	subs, truncated, err := submoduleGitDirs(dir, paths)
+	entries, err := s.listConfig(dir, paths.topdirOr(), nil)
 	if err != nil {
-		return Report{}, err
+		rep.Items = append(rep.Items, unscannable(dir, "git config could not be read: "+firstWords(err), ""))
+	} else {
+		items, hooksPath := s.settingsIn(entries, "", paths.topdirOr(), true)
+		rep.Items = append(rep.Items, items...)
+		rep.Items = append(rep.Items, s.hooksIn(paths, hooksPath, "")...)
+	}
+	if err != nil {
+		// Without its configuration the hooks directory is a guess at best, but
+		// the default one is still worth listing.
+		rep.Items = append(rep.Items, s.hooksIn(paths, nil, "")...)
+	}
+
+	subs, truncated, err := s.submoduleGitDirs(dir, paths)
+	if err != nil {
+		rep.Items = append(rep.Items, unscannable(dir, "the submodules could not be listed: "+firstWords(err), ""))
 	}
 	for _, sub := range subs {
-		rep.Items = append(rep.Items, scanSubmodule(sub)...)
+		rep.Items = append(rep.Items, s.scanSubmodule(sub)...)
 	}
 	if truncated {
 		rep.Items = append(rep.Items, Program{
-			Kind: "limit", Value: "submodules beyond the first " + strconv.Itoa(maxSubmodules) + ", or nested more than " +
-				strconv.Itoa(maxModuleDeep) + " deep, were not looked at", Where: filepath.Join(paths.common, "modules"),
+			Kind: "limit", Value: "submodules beyond the first " + strconv.Itoa(maxSubmodules) + ", more than " +
+				strconv.Itoa(maxModuleDirs) + " directories, or nesting more than " +
+				strconv.Itoa(maxModuleDeep) + " deep were not looked at", Where: filepath.Join(paths.common, "modules"),
 		})
 	}
 	sort.SliceStable(rep.Items, func(i, j int) bool { return rep.Items[i].ID() < rep.Items[j].ID() })
 	return rep, nil
 }
 
+// firstWords is the start of an error's text.
+func firstWords(err error) string {
+	var te *timeoutError
+	if errors.As(err, &te) || errors.Is(err, context.DeadlineExceeded) {
+		return "git did not answer within " + scanTimeout.String()
+	}
+	s := strings.TrimSpace(err.Error())
+	if line, _, ok := strings.Cut(s, "\n"); ok {
+		s = line
+	}
+	return s
+}
+
 // settingsIn picks the entries that run a program, a local or helper remote
 // among them, and returns the effective core.hooksPath, the last one set. For
 // the main repository it also lists the hooks of a remote on this machine.
-func settingsIn(entries []configEntry, submodule, base string, remoteHooks bool) ([]Program, *configEntry) {
+func (s *scanner) settingsIn(entries []configEntry, submodule, base string, remoteHooks bool) ([]Program, *configEntry) {
 	var items []Program
 	var hooksPath *configEntry
+	names := map[string]bool{}
+	for _, e := range entries {
+		if n, ok := remoteName(e.key); ok {
+			names[n] = true
+		}
+	}
 	for i := range entries {
 		e := entries[i]
 		if e.key == "core.hookspath" && strings.TrimSpace(e.value) != "" {
@@ -343,15 +425,14 @@ func settingsIn(entries []configEntry, submodule, base string, remoteHooks bool)
 		case runsProgram(e.key, e.value):
 			items = append(items, item)
 		case isRemoteURL(e.key):
-			where := remoteLocation(e.value)
-			if where == "" {
-				continue
-			}
-			items = append(items, item)
-			if where == "local" && remoteHooks {
-				if hd := remoteHooksDir(e.value, base); hd != "" {
-					items = append(items, hooksInDir(hd, submodule, e.machine)...)
-				}
+			items = append(items, s.remote(item, remoteHooks, base)...)
+		case isRemoteRef(e.key):
+			// A branch's remote, or the default one, is usually the name of a
+			// remote, which is looked at under its own settings. It can also be
+			// a URL or a folder, and git then goes there.
+			v := strings.TrimSpace(e.value)
+			if v != "" && v != "." && !names[v] {
+				items = append(items, s.remote(item, remoteHooks, base)...)
 			}
 		case isURLRewrite(e.key):
 			if remoteLocation(rewriteBase(e.key)) != "" {
@@ -362,8 +443,41 @@ func settingsIn(entries []configEntry, submodule, base string, remoteHooks bool)
 	return items, hooksPath
 }
 
+// remote lists a remote setting that goes to a helper or a folder on this
+// machine, and where it is a folder, the hooks the repository there would run.
+func (s *scanner) remote(item Program, hooks bool, base string) []Program {
+	where := remoteLocation(item.Value)
+	if where == "" {
+		return nil
+	}
+	items := []Program{item}
+	if where == "local" && hooks {
+		items = append(items, s.remoteHooks(item.Value, base, item.Submodule, item.Machine)...)
+	}
+	return items
+}
+
+// remoteName is the remote a remote.<name>.<key> setting is of.
+func remoteName(key string) (string, bool) {
+	rest, ok := strings.CutPrefix(key, "remote.")
+	if !ok {
+		return "", false
+	}
+	i := strings.LastIndex(rest, ".")
+	if i <= 0 {
+		return "", false
+	}
+	return rest[:i], true
+}
+
 func isRemoteURL(key string) bool {
 	return strings.HasPrefix(key, "remote.") && (strings.HasSuffix(key, ".url") || strings.HasSuffix(key, ".pushurl"))
+}
+
+// isRemoteRef is a setting that names the remote a push or fetch goes to.
+func isRemoteRef(key string) bool {
+	return key == "remote.pushdefault" ||
+		(strings.HasPrefix(key, "branch.") && (strings.HasSuffix(key, ".remote") || strings.HasSuffix(key, ".pushremote")))
 }
 
 func isURLRewrite(key string) bool {
@@ -377,6 +491,72 @@ func rewriteBase(key string) string {
 	return key
 }
 
+// remoteHooks lists the hooks of the repository a local remote URL names, which
+// a push into it runs. Where it cannot say what those are, that is an item.
+func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program {
+	u = strings.TrimSpace(u)
+	if strings.HasPrefix(strings.ToLower(u), "file://") {
+		u = u[len("file://"):]
+		// file:///C:/x is /C:/x.
+		if len(u) > 2 && u[0] == '/' && u[2] == ':' {
+			u = u[1:]
+		}
+	}
+	p := filepath.FromSlash(u)
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(base, p)
+	}
+	p = canonical(p)
+	gd := ""
+	for _, d := range []string{p, filepath.Join(p, ".git")} {
+		if _, err := os.Stat(filepath.Join(d, "HEAD")); err == nil {
+			gd = d
+			break
+		}
+	}
+	if gd == "" {
+		if g, ok := resolveGitDir(p); ok {
+			gd = g
+		}
+	}
+	if gd == "" {
+		// Not a repository: a push there fails, and nothing runs.
+		return nil
+	}
+	dirPath := filepath.Join(gd, "hooks")
+	cfg := filepath.Join(gd, "config")
+	if fi, err := os.Stat(cfg); err == nil {
+		if fi.Size() > maxConfigBytes {
+			return []Program{unscannable(cfg, "the remote's configuration is too large to read", submodule)}
+		}
+		out, err := s.git(gd, "config", "--file", cfg, "--includes", "--get", "core.hookspath")
+		switch {
+		case err == nil:
+			hp := strings.TrimSpace(out)
+			if hp != "" {
+				exp, ok := expandPath(hp)
+				if !ok {
+					return []Program{unscannable(cfg, "the remote's core.hooksPath cannot be worked out: "+hp, submodule)}
+				}
+				if !filepath.IsAbs(exp) {
+					exp = filepath.Join(gd, filepath.FromSlash(exp))
+				}
+				dirPath = canonical(exp)
+			}
+		case !isExitOne(err):
+			return []Program{unscannable(cfg, "the remote's configuration could not be read: "+firstWords(err), submodule)}
+		}
+	}
+	return s.hooksInDir(dirPath, submodule, machine)
+}
+
+// isExitOne reports whether git said "no such key", which is exit status 1
+// with nothing printed.
+func isExitOne(err error) bool {
+	var ee *exec.ExitError
+	return errors.As(err, &ee) && ee.ExitCode() == 1
+}
+
 // gitLocations are the directories of a repository that matter here.
 type gitLocations struct {
 	gitDir string // this worktree's git directory
@@ -387,13 +567,13 @@ type gitLocations struct {
 // gitPaths asks git where things are. A linked worktree's .git is a file
 // pointing at its directory under the main repository's .git/worktrees, so
 // the paths are never built from dir by hand.
-func gitPaths(dir string) (gitLocations, error) {
-	out, err := run(dir, "rev-parse", "--absolute-git-dir", "--git-common-dir", "--show-toplevel")
+func (s *scanner) gitPaths(dir string) (gitLocations, error) {
+	out, err := s.git(dir, "rev-parse", "--absolute-git-dir", "--git-common-dir", "--show-toplevel")
 	var loc gitLocations
 	lines := strings.Split(strings.TrimRight(strings.ReplaceAll(out, "\r\n", "\n"), "\n"), "\n")
 	if err != nil {
 		// --show-toplevel fails in a bare repository; the other two do not.
-		out2, err2 := run(dir, "rev-parse", "--absolute-git-dir", "--git-common-dir")
+		out2, err2 := s.git(dir, "rev-parse", "--absolute-git-dir", "--git-common-dir")
 		if err2 != nil {
 			return loc, err
 		}
@@ -436,12 +616,12 @@ type configEntry struct {
 // them. With a file, it reads that file alone (a submodule's); entries given
 // on a command line or in the environment are not the repository's and are
 // skipped.
-func listConfig(dir, base string, file *string) ([]configEntry, error) {
+func (s *scanner) listConfig(dir, base string, file *string) ([]configEntry, error) {
 	args := []string{"config", "--null", "--includes", "--list", "--show-origin", "--show-scope"}
 	if file != nil {
 		args = []string{"config", "--null", "--includes", "--file", *file, "--list", "--show-origin", "--show-scope"}
 	}
-	out, err := run(dir, args...)
+	out, err := s.git(dir, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -508,45 +688,72 @@ func absent(err error) bool {
 // files are the project's, and a Pull can bring a changed one, which is not
 // visible in the list of changes at the time of a Push, Pull or Fetch. Scripts
 // that a hook goes on to call from elsewhere are not read.
-func hooksIn(loc gitLocations, hooksPath *configEntry, submodule string) []Program {
+func (s *scanner) hooksIn(loc gitLocations, hooksPath *configEntry, submodule string) []Program {
 	dirPath := filepath.Join(loc.common, "hooks")
 	machine := false
 	if hooksPath != nil {
-		dirPath = expandHome(hooksPath.value)
+		exp, ok := expandPath(hooksPath.value)
+		if !ok {
+			return []Program{unscannable(hooksPath.origin, "core.hooksPath cannot be worked out: "+hooksPath.value, submodule)}
+		}
+		dirPath = exp
 		if !filepath.IsAbs(dirPath) {
 			dirPath = filepath.Join(loc.topdirOr(), filepath.FromSlash(dirPath))
 		}
 		dirPath = canonical(dirPath)
-		machine = hooksPath.machine
+		// A hooks path in the user's own configuration that lands inside the
+		// working tree (".githooks") is the project's, not the machine's.
+		machine = hooksPath.machine && !(loc.topdir != "" && within(loc.topdir, dirPath))
 	}
-	return hooksInDir(dirPath, submodule, machine)
+	return s.hooksInDir(dirPath, submodule, machine)
+}
+
+// within reports whether path is dir or below it.
+func within(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // hooksInDir looks for each hook git knows by its name. That finds a file the
 // directory cannot be listed to show (a directory that can be searched but not
 // read), matches names as the file system does, and cannot be fooled by a name
-// that only looks like a hook's.
-func hooksInDir(dirPath, submodule string, machine bool) []Program {
+// that only looks like a hook's. On Windows git also starts <hook>.exe where
+// there is no <hook>.
+func (s *scanner) hooksInDir(dirPath, submodule string, machine bool) []Program {
 	var items []Program
 	for _, name := range hookNames {
-		full := filepath.Join(dirPath, name)
-		fi, err := os.Stat(full)
-		if err != nil {
-			if absent(err) {
+		candidates := []string{name}
+		if runtime.GOOS == "windows" {
+			candidates = append(candidates, name+".exe")
+		}
+		for _, cand := range candidates {
+			full := filepath.Join(dirPath, cand)
+			fi, err := os.Stat(full)
+			if err != nil {
+				if absent(err) {
+					continue
+				}
+				// Git may be able to run what this cannot see.
+				return append(items, unreadable(dirPath, err, submodule))
+			}
+			if !fi.Mode().IsRegular() || !executable(fi) {
 				continue
 			}
-			// Git may be able to run what this cannot see.
-			return append(items, unreadable(dirPath, err, submodule))
+			sum, err := s.hashFile(full, fi.Size())
+			switch {
+			case err == errOverBudget:
+				items = append(items, unscannable(full, "a hook too large to read within the limit of "+
+					strconv.Itoa(maxHashBudget>>20)+" MB for a scan", submodule))
+				continue
+			case err != nil:
+				// A hook that can be run and not read still runs.
+				sum = "unreadable: " + errText(err)
+			}
+			items = append(items, Program{Kind: "hook", Name: cand, Sum: sum, Where: dirPath, Submodule: submodule, Machine: machine})
 		}
-		if !fi.Mode().IsRegular() || !executable(fi) {
-			continue
-		}
-		sum, err := hashFile(full, fi)
-		if err != nil {
-			// A hook that can be run and not read still runs.
-			sum = "unreadable: " + errText(err)
-		}
-		items = append(items, Program{Kind: "hook", Name: name, Sum: sum, Where: dirPath, Submodule: submodule, Machine: machine})
 	}
 	return items
 }
@@ -560,27 +767,50 @@ func executable(fi fs.FileInfo) bool {
 	return fi.Mode().Perm()&0o111 != 0
 }
 
-func hashFile(path string, fi fs.FileInfo) (string, error) {
-	if fi.Size() > maxHashed {
-		return fmt.Sprintf("large:%d:%d", fi.Size(), fi.ModTime().UnixNano()), nil
+var errOverBudget = errors.New("over the budget for reading files")
+
+// hashFile hashes a whole file, streamed, within what is left of the budget for
+// the scan. The size is checked first and again as it is read, so a file that
+// grows is not read without end.
+func (s *scanner) hashFile(path string, size int64) (string, error) {
+	if size > s.budget-s.spent {
+		return "", errOverBudget
 	}
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])[:16], nil
+	defer f.Close()
+	h := sha256.New()
+	n, err := io.Copy(h, io.LimitReader(f, s.budget-s.spent+1))
+	s.spent += n
+	if err != nil {
+		return "", err
+	}
+	if s.spent > s.budget {
+		return "", errOverBudget
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16], nil
 }
 
-// expandHome turns a leading ~/ into the home directory, as git does for a
-// path-valued setting.
-func expandHome(p string) string {
-	if rest, ok := strings.CutPrefix(p, "~/"); ok {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, rest)
-		}
+// expandPath turns a leading ~/ into the home directory, as git does for a
+// path-valued setting. ~user/ and %(prefix)/ are expanded by git in ways this
+// does not follow, so they are not worked out (ok is false).
+func expandPath(p string) (string, bool) {
+	if strings.HasPrefix(p, "%(") {
+		return "", false
 	}
-	return p
+	if p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", false
+		}
+		return filepath.Join(home, p[1:]), true
+	}
+	if strings.HasPrefix(p, "~") {
+		return "", false
+	}
+	return p, true
 }
 
 // submodule is a submodule's git directory and where it is checked out.
@@ -620,10 +850,10 @@ func (f *finder) add(gd, rel, work string) {
 // can say "gitdir: ../x" for a submodule, and git then reads x's
 // configuration), and every directory under .git/modules. truncated is set when
 // a limit was hit, which the caller must not ignore.
-func submoduleGitDirs(dir string, loc gitLocations) (subs []submodule, truncated bool, err error) {
+func (s *scanner) submoduleGitDirs(dir string, loc gitLocations) (subs []submodule, truncated bool, err error) {
 	f := &finder{seen: map[string]bool{}}
 	if loc.topdir != "" {
-		out, err := run(dir, "ls-files", "--stage", "-z")
+		out, err := s.git(dir, "ls-files", "--stage", "-z")
 		if err != nil {
 			return nil, false, err
 		}
@@ -646,32 +876,44 @@ func submoduleGitDirs(dir string, loc gitLocations) (subs []submodule, truncated
 
 // walkModules finds the git directories under a modules directory: each is a
 // directory holding a HEAD file, and may have a modules directory of its own.
-// How many directories are visited, and how deep, is bounded; going past either
-// is recorded and not skipped silently.
+// A directory is read a few entries at a time and given up on at the limit, so
+// one with millions of entries is not read whole. How many directories are
+// visited, and how deep, is bounded; going past either is recorded and not
+// skipped silently.
 func (f *finder) walkModules(base string, depth int) {
-	entries, err := os.ReadDir(base)
+	d, err := os.Open(base)
 	if err != nil {
 		return
 	}
+	defer d.Close()
 	if depth > maxModuleDeep {
 		f.truncated = true
 		return
 	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
+	for {
+		entries, err := d.ReadDir(128)
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			if f.visits++; f.visits > maxModuleDirs {
+				f.truncated = true
+				return
+			}
+			gd := filepath.Join(base, e.Name())
+			if _, err := os.Stat(filepath.Join(gd, "HEAD")); err == nil {
+				f.add(gd, "", "")
+				f.walkModules(filepath.Join(gd, "modules"), depth+1)
+			} else {
+				// A submodule named with a slash lives in a nested directory.
+				f.walkModules(gd, depth+1)
+			}
+			if f.truncated && f.visits > maxModuleDirs {
+				return
+			}
 		}
-		if f.visits++; f.visits > maxModuleDirs {
-			f.truncated = true
+		if err != nil {
 			return
-		}
-		gd := filepath.Join(base, e.Name())
-		if _, err := os.Stat(filepath.Join(gd, "HEAD")); err == nil {
-			f.add(gd, "", "")
-			f.walkModules(filepath.Join(gd, "modules"), depth+1)
-		} else {
-			// A submodule named with a slash lives in a nested directory.
-			f.walkModules(gd, depth+1)
 		}
 	}
 }
@@ -686,6 +928,9 @@ func resolveGitDir(work string) (string, bool) {
 	}
 	if fi.IsDir() {
 		return dot, true
+	}
+	if fi.Size() > 4096 {
+		return "", false
 	}
 	data, err := os.ReadFile(dot)
 	if err != nil {
@@ -703,44 +948,12 @@ func resolveGitDir(work string) (string, bool) {
 	return filepath.Clean(target), true
 }
 
-// cachedConfig is a submodule configuration file as it was last read, so that a
-// repository with many submodules is not asked about each one on every press.
-// It is used only when the file's contents are unchanged and it includes
-// nothing, since an included file can change on its own.
-type cachedConfig struct {
-	sum     string
-	entries []configEntry
-}
-
-var configCache sync.Map // path -> cachedConfig
-
-// submoduleConfig reads one submodule's configuration file.
-func submoduleConfig(gitDir, cfg string) ([]configEntry, error) {
-	data, err := os.ReadFile(cfg)
-	if err != nil {
-		return nil, err
-	}
-	sum := sha256.Sum256(data)
-	key := hex.EncodeToString(sum[:])
-	cacheable := !bytes.Contains(bytes.ToLower(data), []byte("include"))
-	if v, ok := configCache.Load(cfg); ok && cacheable {
-		if c := v.(cachedConfig); c.sum == key {
-			return c.entries, nil
-		}
-	}
-	entries, err := listConfig(gitDir, gitDir, &cfg)
-	if err != nil {
-		return nil, err
-	}
-	if cacheable {
-		configCache.Store(cfg, cachedConfig{sum: key, entries: entries})
-	}
-	return entries, nil
-}
-
 // scanSubmodule is ScanPrograms for a submodule's own git directory. A
-// hooksPath that is relative is relative to the submodule's working tree.
-func scanSubmodule(sub submodule) []Program {
+// hooksPath that is relative is relative to the submodule's working tree. Its
+// configuration is read by git every time, and not remembered between scans:
+// anything remembered by what was read could be a different file by the time
+// git reads it.
+func (s *scanner) scanSubmodule(sub submodule) []Program {
 	name := sub.path
 	if name == "" {
 		name = sub.gitDir
@@ -748,20 +961,32 @@ func scanSubmodule(sub submodule) []Program {
 	cfg := filepath.Join(sub.gitDir, "config")
 	var items []Program
 	var hooksPath *configEntry
-	if _, err := os.Stat(cfg); err == nil {
-		entries, err := submoduleConfig(sub.gitDir, cfg)
+	fi, err := os.Stat(cfg)
+	switch {
+	case err == nil && fi.Size() > maxConfigBytes:
+		items = append(items, Program{Kind: "limit", Where: cfg, Submodule: name,
+			Value: "a configuration file of " + strconv.FormatInt(fi.Size(), 10) + " bytes is larger than the " +
+				strconv.Itoa(maxConfigBytes) + " Flockdeck reads"})
+	case err == nil && fi.Size() > s.budget-s.spent:
+		items = append(items, unscannable(cfg, "the submodules' configuration is more than a scan reads in all", name))
+	case err == nil:
+		s.spent += fi.Size()
+		entries, err := s.listConfig(sub.gitDir, sub.gitDir, &cfg)
 		if err != nil {
 			items = append(items, unreadable(cfg, err, name))
+			if errors.Is(err, context.DeadlineExceeded) {
+				items[len(items)-1] = unscannable(cfg, "git did not answer within "+scanTimeout.String(), name)
+			}
 		} else {
 			var found []Program
-			found, hooksPath = settingsIn(entries, name, sub.gitDir, false)
+			found, hooksPath = s.settingsIn(entries, name, sub.gitDir, false)
 			items = append(items, found...)
 		}
-	} else if !absent(err) {
+	case !absent(err):
 		items = append(items, unreadable(cfg, err, name))
 	}
 	loc := gitLocations{gitDir: sub.gitDir, common: sub.gitDir, topdir: sub.work}
-	return append(items, hooksIn(loc, hooksPath, name)...)
+	return append(items, s.hooksIn(loc, hooksPath, name)...)
 }
 
 // Known is what somebody last accepted for a repository.
@@ -795,6 +1020,8 @@ type Verdict struct {
 //   - Recorded: warn when something runs that was not there when it was
 //     accepted, whether new, edited or moved. A program that has gone is not a
 //     risk and is not asked about.
+//   - A scan that could not be finished is asked about every time, whatever
+//     was accepted.
 func Judge(r Report, known *Known) Verdict {
 	v := judge(r, known)
 	sort.SliceStable(v.New, func(i, j int) bool {
@@ -834,7 +1061,7 @@ func judge(r Report, known *Known) Verdict {
 	}
 	var added []Program
 	for _, p := range r.Items {
-		if !had[p.ID()] {
+		if !had[p.ID()] || p.Kind == "unscannable" {
 			added = append(added, p)
 		}
 	}

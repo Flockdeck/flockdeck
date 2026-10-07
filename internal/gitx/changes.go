@@ -210,7 +210,7 @@ func numstat(ctx context.Context, dir string, against ...string) (map[string]lin
 	// --find-renames pins what is paired to renames, whatever diff.renames
 	// says: with "copies" set there, a copied file was counted against the
 	// file it came from, 0/0, though the commit adds all of it.
-	args := append([]string{"diff", "--numstat", "-z", "--find-renames"}, against...)
+	args := append([]string{"diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv", "--find-renames"}, against...)
 	var out string
 	err := retryIndex(func() (e error) {
 		out, e = runIndex(ctx, dir, args...)

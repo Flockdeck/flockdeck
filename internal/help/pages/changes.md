@@ -100,11 +100,23 @@ repository and accepting it just this time.
   nothing in the list of changes shows it at that point. Scripts a hook goes on
   to call from elsewhere are not read.
 - A remote that is a folder on this machine is listed along with the hooks that
-  folder's repository would run when you push to it. So is a remote that uses a
-  helper such as `ext::`, which runs a command.
+  folder's repository would run when you push to it, including the ones in its
+  own `core.hooksPath`. That covers a remote named by a branch's `remote` or
+  `pushRemote` setting or by `remote.pushDefault` as well. A remote that uses a
+  helper such as `ext::`, which runs a command, is listed too.
+- Merge drivers, which `.gitattributes` can assign to any file, are listed with
+  the other settings that run a program. On Windows a hook named `pre-commit.exe`
+  counts as the `pre-commit` hook, as it does for git.
 - Something git may run but Flockdeck could not read, such as a hooks folder with
   no permissions, is listed as that. So is a search that stopped at its limit
-  (200 submodules, or more than six levels of them). Neither is passed over.
+  (200 submodules, 2,000 folders under `.git/modules`, or more than six levels
+  of them) and a configuration file over 4 MB. Once you accept a limit item, a
+  repository that grows further past the limit is not asked about again.
+- A scan that cannot be finished is listed too, and is asked about every time: it
+  is not remembered. That covers git not answering within 15 seconds, a hook too
+  large to read within the 64 MB a scan reads in all, and a path such as
+  `~user/hooks` that Flockdeck cannot work out. A repository can be made slow to
+  read on purpose, so slow is not treated as safe.
 - A hook, setting or path is shown cut to a length, with line breaks and other
   control characters removed.
 
@@ -116,15 +128,20 @@ an agent that can write inside the project and not from one that can write
 anywhere you can. Two Flockdeck windows of one user may overwrite each other's
 record at the same moment; the worst result is being asked again.
 
-If the check cannot be made because git does not answer, the command runs as it
-always did and a notice says the check was skipped. A record that cannot be read
-counts as no record, so the repository's own programs are asked about.
+Only a folder that is not a git repository, or a machine with no git, goes
+ahead without the check, since git has nothing to run there. A record that cannot
+be read counts as no record, so the repository's own programs are asked about.
 
-The check is not atomic. It runs just before the command, and a commit stages
-your files first, so something written in that gap is run without being
-checked. A window reached through the relay is shown the reason and told to
-press the button on the machine itself; approving is done there.
+The check is not atomic. A commit is looked at when you press the button and
+again once your files are staged, just before git commit starts, and it is
+refused if what runs has changed. That narrows the gap to the moments between
+that look and git reading the hooks and settings; it does not close it, and a
+determined agent that can write inside `.git` can still race it. Pull, Push and
+Fetch are looked at once, just before. A window reached through the relay is
+shown the reason and told to press the button on the machine itself; approving
+is done there.
 
 The check runs before the buttons above. It does not see git commands you or an
 agent run in a pane; an agent's own are for [auto-review](#status) and the
-agent's permissions.
+agent's permissions. Flockdeck never runs `git mergetool`, so `merge.tool` and
+`mergetool.*` are not read.

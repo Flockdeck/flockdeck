@@ -73,7 +73,7 @@ func TestAPanicIsToldOnlyToTheWindowThatAsked(t *testing.T) {
 // was closed.
 func TestACommitThatPanicsStillAnswersThePanel(t *testing.T) {
 	old := commitReviewed
-	commitReviewed = func(string, string, gitx.Reviewed) error { panic("a commit nobody expected") }
+	commitReviewed = func(string, string, gitx.Reviewed, func() error) error { panic("a commit nobody expected") }
 	t.Cleanup(func() { commitReviewed = old })
 
 	srv, _ := newTestServer(t)

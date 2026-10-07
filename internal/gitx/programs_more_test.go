@@ -277,15 +277,46 @@ func TestALineCannotForgeAnItemOrRunOnForever(t *testing.T) {
 	}
 }
 
-func TestAHookTooBigToReadIsIdentifiedBySizeAndTime(t *testing.T) {
+func TestAHookIsHashedWholeAndOneOverTheBudgetIsAnItem(t *testing.T) {
 	repo := newRepo(t)
 	p := writeHook(t, filepath.Join(repo, ".git", "hooks"), "pre-commit", "#!/bin/sh\n")
-	if err := os.Truncate(p, maxHashed+1); err != nil {
+	if err := os.Truncate(p, 17<<20); err != nil {
 		t.Skip(err)
 	}
-	h, ok := find(scan(t, repo), "hook", "pre-commit")
-	if !ok || !strings.HasPrefix(h.Sum, "large:") {
-		t.Errorf("hook = %+v ok=%v, want it identified by size and time", h, ok)
+	before, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h1, ok := find(scan(t, repo), "hook", "pre-commit")
+	if !ok || strings.HasPrefix(h1.Sum, "large:") || h1.Sum == "" {
+		t.Fatalf("hook = %+v ok=%v, want its contents hashed", h1, ok)
+	}
+	// Changed at its far end, with its size and time put back.
+	f, err := os.OpenFile(p, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteAt([]byte("x"), 17<<20-1); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if err := os.Chtimes(p, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	h2, _ := find(scan(t, repo), "hook", "pre-commit")
+	if h1.ID() == h2.ID() {
+		t.Error("an edit that kept the size and the time was not seen")
+	}
+
+	if err := os.Truncate(p, maxHashBudget+1); err != nil {
+		t.Skip(err)
+	}
+	rep := scan(t, repo)
+	if _, ok := find(rep, "unscannable", ""); !ok {
+		t.Errorf("a hook past the budget left no trace: %+v", rep.Items)
+	}
+	if v := Judge(rep, &Known{IDs: rep.AcceptableIDs()}); !v.Warn {
+		t.Error("an unscannable scan was let through because everything else was accepted")
 	}
 }
 

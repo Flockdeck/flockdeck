@@ -216,29 +216,95 @@ func TestPushPullAndFetchAreAskedAboutToo(t *testing.T) {
 	}
 }
 
-func TestACheckThatFailsLetsGitRunAndSaysSo(t *testing.T) {
+func TestACheckThatFailsIsAnItemNotAWayPast(t *testing.T) {
 	isolateGit(t)
 	srv, _, repo := newRepoServer(t)
 	was := scanPrograms
 	t.Cleanup(func() { scanPrograms = was })
 	scanPrograms = func(string) (gitx.Report, error) { return gitx.Report{}, errors.New("git timed out\nsecond line") }
 	edit(t, repo, "one\n")
-	warn, notes := answers(t, func(c *controlClient) { srv.commitChanges(c, repo, "one", false, nil, nil, 0, gitAnswer{}) })
-	if warn != nil {
-		t.Fatalf("a failed check stopped the commit: %+v", warn)
+	warn, _ := answers(t, func(c *controlClient) { srv.commitChanges(c, repo, "one", false, nil, nil, 0, gitAnswer{}) })
+	if warn == nil || len(warn.Items) != 1 || !strings.Contains(warn.Items[0], "git timed out") || strings.Contains(warn.Items[0], "second line") {
+		t.Fatalf("a failed scan = %+v, want it shown as something git may run unseen", warn)
 	}
-	if commits(t, repo) != 2 {
-		t.Fatalf("the commit did not go ahead: %+v", notes)
+	if commits(t, repo) != 1 {
+		t.Error("a scan that failed let the commit through")
 	}
-	said := false
-	for _, n := range notes {
-		if strings.Contains(n.Text, "could not check") && strings.Contains(n.Text, "git timed out") &&
-			strings.Contains(n.Text, "Going ahead without the check") && !strings.Contains(n.Text, "second line") {
-			said = true
+}
+
+func TestOnlyNoRepositoryOrNoGitGoesAheadUnchecked(t *testing.T) {
+	isolateGit(t)
+	srv, _, repo := newRepoServer(t)
+	was := scanPrograms
+	t.Cleanup(func() { scanPrograms = was })
+	for _, e := range []error{gitx.ErrNotRepository, gitx.ErrNoGit} {
+		scanPrograms = func(string) (gitx.Report, error) { return gitx.Report{}, e }
+		c := &controlClient{out: make(chan []byte, 8)}
+		if !srv.gitProgramsAccepted(c, repo, repo, "commit", "commit", "", "") {
+			t.Errorf("%v: stopped a command git has nothing to run for", e)
 		}
 	}
-	if !said {
-		t.Errorf("the window was not told the check was skipped: %+v", notes)
+}
+
+func TestAnUnfinishedScanIsAskedAboutEveryTimeAndNeverRemembered(t *testing.T) {
+	isolateGit(t)
+	srv, _, repo := newRepoServer(t)
+	was := scanPrograms
+	t.Cleanup(func() { scanPrograms = was })
+	scanPrograms = func(string) (gitx.Report, error) {
+		return gitx.Report{Repo: repo + "/.git", Items: []gitx.Program{{Kind: "unscannable", Where: repo, Value: "git did not answer within 15s"}}}, nil
+	}
+	ask := func(ans gitAnswer) *gitWarnMsg {
+		w, _ := answers(t, func(c *controlClient) { srv.runRemote(c, "fetch", repo, ans) })
+		return w
+	}
+	w := ask(gitAnswer{})
+	if w == nil {
+		t.Fatal("not asked")
+	}
+	if again := ask(gitAnswer{"remember", w.Seen}); again != nil {
+		t.Fatalf("asked again after the answer: %+v", again)
+	}
+	if w2 := ask(gitAnswer{}); w2 == nil {
+		t.Error("an unfinished scan was remembered as accepted")
+	}
+}
+
+func TestAHookWrittenWhileFilesAreStagedIsCaughtBeforeTheCommit(t *testing.T) {
+	isolateGit(t)
+	srv, _, repo := newRepoServer(t)
+	was := scanPrograms
+	t.Cleanup(func() { scanPrograms = was })
+	calls := 0
+	scanPrograms = func(dir string) (gitx.Report, error) {
+		calls++
+		rep, err := was(dir)
+		if calls >= 2 {
+			// What an agent writes after the first look, while the files are staged.
+			rep.Items = append(rep.Items, gitx.Program{Kind: "hook", Name: "pre-commit", Sum: "planted", Where: repo + "/.git/hooks"})
+		}
+		return rep, err
+	}
+	edit(t, repo, "one\n")
+	warn, notes := answers(t, func(c *controlClient) { srv.commitChanges(c, repo, "one", false, nil, nil, 0, gitAnswer{}) })
+	if warn == nil || len(warn.Items) != 1 || !strings.Contains(warn.Items[0], "hook pre-commit") {
+		t.Fatalf("the second look did not ask: %+v (notes %+v)", warn, notes)
+	}
+	if commits(t, repo) != 1 {
+		t.Error("the commit was made over a hook written after the first look")
+	}
+}
+
+func TestACleanRepositoryStillCommitsFromARelayWindow(t *testing.T) {
+	isolateGit(t)
+	srv, _, repo := newRepoServer(t)
+	edit(t, repo, "one\n")
+	warn, notes := answers(t, func(c *controlClient) {
+		c.remote = true
+		srv.commitChanges(c, repo, "one", false, nil, nil, 0, gitAnswer{})
+	})
+	if warn != nil || commits(t, repo) != 2 {
+		t.Fatalf("warn=%+v commits=%d notes=%+v", warn, commits(t, repo), notes)
 	}
 }
 
@@ -300,9 +366,6 @@ func TestAWindowReachedThroughTheRelayCannotAccept(t *testing.T) {
 	if again, _ := answers(t, func(c *controlClient) { srv.commitChanges(c, repo, "one", false, nil, nil, 0, gitAnswer{}) }); again == nil {
 		t.Error("a remote window's answer was remembered")
 	}
-	// A repository with nothing to ask about still works from there.
-	clean := t.TempDir()
-	_ = clean
 }
 
 func TestTheWarningCarriesItsIntroAndEachProgramOnItsOwn(t *testing.T) {

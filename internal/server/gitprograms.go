@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"sort"
 	"strings"
 
@@ -19,9 +20,11 @@ import (
 // if something new, edited or moved is there, the window is sent the list and
 // asked, and the command is sent again with the answer.
 //
-// The check is not atomic. The scan runs just ahead of the command, and a
-// commit stages files first, so a hook or setting written in between is run
-// unchecked. It also rests on a file an agent running as the same user could
+// The check is not atomic. A commit is scanned when the button is pressed and
+// again after the files are staged, just before git commit starts, which narrows
+// the gap to the moments between that scan and git reading the hooks and
+// configuration; it does not close it. A determined agent that can write inside
+// .git can still race it. It also rests on a file an agent running as the same user could
 // write too: it holds against an agent that can write inside the project and
 // not outside it.
 
@@ -64,20 +67,21 @@ type gitWarnMsg struct {
 // lies: it is the client that sends it. So a window reached through the relay
 // is never asked and its answers are ignored; accepting is done on the machine.
 //
-// A check that cannot be made because git cannot be run does not stop the
-// command: the window is told it went unchecked, and git runs as it did before
-// there was a check. Anything git can still run but the check could not read is
-// not that: it is an item in the warning.
+// Only a directory that is not a repository, or a machine with no git, goes
+// ahead unchecked, since git has nothing to run there. A scan that could not be
+// finished, for whatever reason, is an item in the warning, asked about every
+// time and never remembered.
 func (s *Server) gitProgramsAccepted(c *controlClient, dir, path, action, resend, accept, seen string) bool {
 	rep, err := scanPrograms(dir)
-	if err != nil {
-		if _, rootErr := gitx.Root(dir); rootErr != nil {
-			// Not a repository at all: git says so itself, in the command's own error.
-			return true
-		}
-		c.notify("Flockdeck could not check this repository's git settings and hooks before running git "+action+" ("+
-			firstLine(err.Error())+"). Going ahead without the check.", false)
+	switch {
+	case errors.Is(err, gitx.ErrNotRepository), errors.Is(err, gitx.ErrNoGit):
+		// No repository, or no git: there is nothing for git to run, and the
+		// command says so itself.
 		return true
+	case err != nil:
+		// ScanPrograms says nothing else, but whatever went wrong is not a
+		// reason to go ahead: it is shown as something git may run unseen.
+		rep = gitx.Report{Repo: dir, Items: []gitx.Program{{Kind: "unscannable", Where: dir, Value: firstLine(err.Error())}}}
 	}
 	// A record that cannot be read counts as no record: the repository's own
 	// programs are then asked about, which is the safe way to fail.
@@ -87,7 +91,7 @@ func (s *Server) gitProgramsAccepted(c *controlClient, dir, path, action, resend
 		kp = &gitx.Known{IDs: saved.IDs}
 	}
 	v := gitx.Judge(rep, kp)
-	ids := rep.IDs()
+	ids := rep.AcceptableIDs()
 	if !v.Warn {
 		if kp == nil {
 			// A first look at a repository that names nothing of its own. A
@@ -96,7 +100,7 @@ func (s *Server) gitProgramsAccepted(c *controlClient, dir, path, action, resend
 		}
 		return true
 	}
-	now := fingerprint(ids)
+	now := fingerprint(rep.IDs())
 	if !c.remote && (accept == "once" || accept == "remember") && seen == now {
 		if accept == "remember" {
 			// What was accepted for the repository stays accepted: a linked
