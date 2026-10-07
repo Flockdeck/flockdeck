@@ -398,3 +398,19 @@ func TestWarningListsWhatRunsAndWhere(t *testing.T) {
 		t.Errorf("a change is described as a first sight:\n%s", text)
 	}
 }
+
+func TestOneRepositoryIsOneRecordWhateverPathReachesIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a symbolic link needs a privilege here; short names cover the same ground in CI")
+	}
+	repo := newRepo(t)
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(repo, link); err != nil {
+		t.Skip(err)
+	}
+	writeHook(t, filepath.Join(repo, ".git", "hooks"), "pre-commit", "#!/bin/sh\n")
+	a, b := scan(t, repo), scan(t, link)
+	if a.Repo != b.Repo || len(a.Items) != 1 || len(b.Items) != 1 || a.Items[0].ID() != b.Items[0].ID() {
+		t.Errorf("by path %+v, by link %+v: want the same record", a, b)
+	}
+}

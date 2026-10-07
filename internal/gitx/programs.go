@@ -232,14 +232,14 @@ func gitPaths(dir string) (gitLocations, error) {
 	} else if len(lines) < 3 {
 		return loc, errors.New("git rev-parse gave an unexpected answer")
 	}
-	loc.gitDir = filepath.Clean(filepath.FromSlash(lines[0]))
+	loc.gitDir = canonical(filepath.FromSlash(lines[0]))
 	loc.common = filepath.FromSlash(lines[1])
 	if !filepath.IsAbs(loc.common) {
 		loc.common = filepath.Join(dir, loc.common)
 	}
-	loc.common = filepath.Clean(loc.common)
+	loc.common = canonical(loc.common)
 	if len(lines) >= 3 {
-		loc.topdir = filepath.Clean(filepath.FromSlash(lines[2]))
+		loc.topdir = canonical(filepath.FromSlash(lines[2]))
 	}
 	return loc, nil
 }
@@ -329,7 +329,7 @@ func hooksIn(loc gitLocations, hooksPath *configEntry, submodule string) ([]Prog
 			}
 			dirPath = filepath.Join(base, filepath.FromSlash(dirPath))
 		}
-		dirPath = filepath.Clean(dirPath)
+		dirPath = canonical(dirPath)
 		machine = hooksPath.machine
 		if loc.topdir != "" && within(loc.topdir, dirPath) && !within(loc.gitDir, dirPath) && !within(loc.common, dirPath) {
 			return nil, nil
@@ -418,7 +418,8 @@ func submoduleGitDirs(dir string, loc gitLocations) ([]submodule, error) {
 	seen := map[string]bool{}
 	var subs []submodule
 	add := func(gd, rel string) {
-		key := filepath.Clean(gd)
+		gd = canonical(gd)
+		key := gd
 		if runtime.GOOS == "windows" {
 			key = strings.ToLower(key)
 		}
@@ -426,7 +427,7 @@ func submoduleGitDirs(dir string, loc gitLocations) ([]submodule, error) {
 			return
 		}
 		seen[key] = true
-		subs = append(subs, submodule{gitDir: filepath.Clean(gd), path: rel})
+		subs = append(subs, submodule{gitDir: gd, path: rel})
 	}
 
 	if loc.topdir != "" {
@@ -627,4 +628,17 @@ func (v Verdict) Warning(action string) string {
 	}
 	b.WriteString("\nIf you or your tools set these up, continue. If you did not, an agent may have written them: look at the files named before you go on.")
 	return b.String()
+}
+
+// canonical is a path with symbolic links and, on Windows, short 8.3 names
+// resolved, so the same directory is one name however it was reached: a
+// worktree under /var on macOS is under /private/var as far as git is told, and
+// a temporary folder on Windows has a long name and a short one. A path that
+// cannot be resolved is cleaned and used as it is.
+func canonical(p string) string {
+	p = filepath.Clean(p)
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return real
+	}
+	return p
 }
