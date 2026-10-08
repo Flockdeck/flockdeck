@@ -325,6 +325,7 @@ func (c *Channel) sweep(dir string) {
 	type candidate struct {
 		path string
 		id   fileID
+		mod  time.Time
 	}
 	var first []candidate
 	for _, e := range entries {
@@ -340,7 +341,7 @@ func (c *Channel) sweep(dir string) {
 			continue
 		}
 		if c.refused(path) {
-			first = append(first, candidate{path, idOf(fi)})
+			first = append(first, candidate{path, idOf(fi), fi.ModTime()})
 		}
 	}
 	if len(first) == 0 {
@@ -359,7 +360,7 @@ func (c *Channel) sweep(dir string) {
 			f(cand.path)
 		}
 		fi, err := os.Lstat(cand.path)
-		if err != nil || fi.Mode()&os.ModeSocket == 0 || ownerOf(fi) != uint32(c.uid()) || idOf(fi) != cand.id {
+		if err != nil || fi.Mode()&os.ModeSocket == 0 || ownerOf(fi) != uint32(c.uid()) || idOf(fi) != cand.id || !fi.ModTime().Equal(cand.mod) {
 			continue
 		}
 		if os.Remove(cand.path) == nil {

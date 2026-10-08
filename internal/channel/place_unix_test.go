@@ -728,11 +728,15 @@ func TestSweepKeepsWhatReplacedTheCandidateBeforeTheRemove(t *testing.T) {
 		cfg.Seams.Pause = func(time.Duration) {}
 		cfg.Seams.SweepDial = func(string) (net.Conn, error) { return nil, refusedErr() }
 		cfg.Seams.BeforeRemove = func(path string) {
-			os.Remove(path)
-			ln, err := net.Listen("unix", path)
+			// Made beside the old file and renamed over it, so that the two exist
+			// together and the new one cannot be given the old one's inode number.
+			ln, err := net.Listen("unix", path+"x")
 			if err != nil {
 				t.Error(err)
 				return
+			}
+			if err := os.Rename(path+"x", path); err != nil {
+				t.Error(err)
 			}
 			live = ln
 		}
