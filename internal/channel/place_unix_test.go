@@ -77,7 +77,7 @@ func TestPlacementTable(t *testing.T) {
 		{name: "short path uses the state directory", state: func(t *testing.T) string { return shortTemp(t) }},
 		{name: "path over 100 bytes uses the fallback", state: long, wantFall: true},
 		{name: "path at the limit stays", state: func(t *testing.T) string { return shortTemp(t) }, maxPath: -1},
-		{name: "path one over the limit falls back", state: func(t *testing.T) string { return shortTemp(t) }, maxPath: -2, wantFall: true},
+		{name: "path one over the limit falls back", state: func(t *testing.T) string { return filepath.Join(shortTemp(t), strings.Repeat("s", 20)) }, maxPath: -2, wantFall: true},
 		{
 			name: "bind refused with EPERM falls back", state: func(t *testing.T) string { return shortTemp(t) },
 			bind: func(path string) (net.Listener, error) {
