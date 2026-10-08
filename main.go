@@ -1157,16 +1157,19 @@ func run(opts options) error {
 	// quit, it took the record with it, leaving nothing on record while the
 	// first went on running: the next launch started a rival, and the start-up
 	// sweep stopped sparing the first one's pane settings.
+	// One start time for the record and for the channel, so that a later launch
+	// can tell that the two name the same run.
+	started := time.Now()
 	recorded := !opts.solo || !answering()
 	if recorded {
 		if err := store.SaveInstance(&store.Instance{
-			PID: os.Getpid(), URL: srv.BaseURL(), Token: srv.Token(), Started: time.Now(),
+			PID: os.Getpid(), URL: srv.BaseURL(), Token: srv.Token(), Started: started,
 		}); err != nil {
 			fmt.Fprintln(os.Stderr, "flockdeck: could not record the instance:", err)
 		}
 		defer store.ClearInstance()
 	}
-	defer startChannel(srv)()
+	defer startChannel(srv, started)()
 	releaseStart()
 
 	// Watching for releases runs for the life of the server and stops with it,

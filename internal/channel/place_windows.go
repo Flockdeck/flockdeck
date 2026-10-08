@@ -3,9 +3,11 @@
 package channel
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"time"
 	"unsafe"
 
@@ -16,6 +18,15 @@ import (
 // watches is false on Windows: a pipe is not a file that something can
 // delete, it goes with the process that holds it.
 const watches = false
+
+// deferredPeer is whether the peer is checked on the first read, not on accept:
+// a pipe's client can only be impersonated once it has written.
+const deferredPeer = true
+
+// fileID is not used on Windows.
+type fileID struct{}
+
+func (c *Channel) removeSocket() {}
 
 // pipePrefix is where named pipes live.
 const pipePrefix = `\\.\pipe\`
@@ -74,45 +85,51 @@ func (c *Channel) rebindAt(string) (net.Listener, error) {
 
 func (c *Channel) verify() error { return nil }
 
-var getClientPID = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetNamedPipeClientProcessId")
+var (
+	getClientPID = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetNamedPipeClientProcessId")
+	impersonate  = windows.NewLazySystemDLL("advapi32.dll").NewProc("ImpersonateNamedPipeClient")
+)
 
-// readPeer finds the client's process and the user it runs as.
+// readPeer finds the user the client of a pipe runs as. It impersonates the
+// client on this thread for as long as it takes to read the user from the
+// thread's token, which ties the answer to the connection itself: no process
+// id is looked up afterwards, so a reused id cannot be mistaken for the
+// client, and a client whose own process token is closed to us (an elevated
+// one, say) is still read. It needs the client to have written something, and
+// the client to have connected at identification level or above (see Dial).
 func readPeer(conn net.Conn) (Peer, error) {
 	f, ok := conn.(interface{ Fd() uintptr })
 	if !ok {
 		return Peer{}, errors.New("not a pipe")
 	}
-	var pid uint32
-	if r, _, err := getClientPID.Call(f.Fd(), uintptr(unsafe.Pointer(&pid))); r == 0 {
-		return Peer{}, fmt.Errorf("GetNamedPipeClientProcessId: %w", err)
-	}
-	owner, err := ProcessUser(pid)
-	if err != nil {
-		return Peer{PID: int(pid)}, err
-	}
-	return Peer{PID: int(pid), Owner: owner}, nil
-}
+	h := f.Fd()
 
-// ProcessUser is the SID, as text, of the user a process runs as.
-func ProcessUser(pid uint32) (string, error) {
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
-	if err != nil {
-		return "", fmt.Errorf("open process %d: %w", pid, err)
+	var pid uint32
+	_, _, _ = getClientPID.Call(h, uintptr(unsafe.Pointer(&pid))) // for the log only
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if r, _, err := impersonate.Call(h); r == 0 {
+		return Peer{PID: int(pid)}, fmt.Errorf("ImpersonateNamedPipeClient: %w", err)
 	}
-	defer windows.CloseHandle(h)
+	defer windows.RevertToSelf()
 	var tok windows.Token
-	if err := windows.OpenProcessToken(h, windows.TOKEN_QUERY, &tok); err != nil {
-		return "", fmt.Errorf("open token of process %d: %w", pid, err)
+	if err := windows.OpenThreadToken(windows.CurrentThread(), windows.TOKEN_QUERY, true, &tok); err != nil {
+		return Peer{PID: int(pid)}, fmt.Errorf("read the client's token: %w", err)
 	}
 	defer tok.Close()
 	u, err := tok.GetTokenUser()
 	if err != nil {
-		return "", err
+		return Peer{PID: int(pid)}, err
 	}
-	return u.User.Sid.String(), nil
+	return Peer{PID: int(pid), Owner: u.User.Sid.String()}, nil
 }
 
 // Dial connects to the pipe at path.
 func Dial(path string, timeout time.Duration) (net.Conn, error) {
-	return winio.DialPipe(path, &timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	// Identification is the lowest level at which the server can read who is
+	// connecting. The default, anonymous, is refused.
+	return winio.DialPipeAccessImpLevel(ctx, path, windows.GENERIC_READ|windows.GENERIC_WRITE, winio.PipeImpLevelIdentification)
 }

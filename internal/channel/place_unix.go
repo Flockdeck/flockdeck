@@ -17,6 +17,19 @@ import (
 // watches is whether the socket can go missing and is looked for.
 const watches = true
 
+// deferredPeer is whether the peer is checked on the first read, not on accept.
+const deferredPeer = false
+
+// fileID names a file, so that one can be told from another put at its path.
+type fileID struct{ dev, ino uint64 }
+
+func idOf(fi os.FileInfo) fileID {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return fileID{uint64(st.Dev), uint64(st.Ino)}
+	}
+	return fileID{}
+}
+
 func selfOwner() (string, error) { return strconv.Itoa(os.Geteuid()), nil }
 
 func (c *Channel) uid() int {
@@ -85,6 +98,7 @@ func (c *Channel) bindIn(p place) (net.Listener, error) {
 	if err := ensureDir(p.dir, c.uid()); err != nil {
 		return nil, err
 	}
+	c.sweep(p.dir)
 	return c.listenAt(p.path)
 }
 
@@ -133,6 +147,14 @@ func (c *Channel) listenAt(path string) (net.Listener, error) {
 		ln.Close()
 		return nil, err
 	}
+	fi, err := os.Lstat(path)
+	if err != nil {
+		ln.Close()
+		return nil, err
+	}
+	c.mu.Lock()
+	c.id = idOf(fi)
+	c.mu.Unlock()
 	return ln, nil
 }
 
@@ -227,4 +249,70 @@ func defaultTmp() string {
 // Dial connects to the channel at path.
 func Dial(path string, timeout time.Duration) (net.Conn, error) {
 	return net.DialTimeout("unix", path, timeout)
+}
+
+// removeSocket removes the socket file at the channel's path, but only if it
+// is the file this channel made: a different file put there since is not
+// ours to remove.
+func (c *Channel) removeSocket() {
+	c.mu.Lock()
+	path, id := c.path, c.id
+	c.mu.Unlock()
+	if path == "" {
+		return
+	}
+	fi, err := os.Lstat(path)
+	if err != nil || fi.Mode()&os.ModeSocket == 0 || ownerOf(fi) != uint32(c.uid()) || idOf(fi) != id {
+		return
+	}
+	_ = os.Remove(path)
+}
+
+// staleName is the name of a socket this package makes: eight hex digits and
+// .sock.
+func staleName(name string) bool {
+	if len(name) != 13 || name[8:] != ".sock" {
+		return false
+	}
+	for _, r := range name[:8] {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// sweep removes sockets that an instance that has since died left in dir.
+// Only a file named like ours, that is a socket, owned by this user, and that
+// refuses a connection (nobody is listening) is removed. A socket that is
+// listening, or anything else, is left alone.
+func (c *Channel) sweep(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !staleName(e.Name()) {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		fi, err := os.Lstat(path)
+		if err != nil || fi.Mode()&os.ModeSocket == 0 || ownerOf(fi) != uint32(c.uid()) {
+			continue
+		}
+		conn, err := net.DialTimeout("unix", path, time.Second)
+		if err == nil {
+			conn.Close()
+			continue
+		}
+		if !errors.Is(err, syscall.ECONNREFUSED) {
+			continue
+		}
+		// Look again: it must be the same file that refused.
+		if again, err := os.Lstat(path); err == nil && idOf(again) == idOf(fi) {
+			if os.Remove(path) == nil {
+				c.logf("local channel: removed a stale socket, %s", path)
+			}
+		}
+	}
 }

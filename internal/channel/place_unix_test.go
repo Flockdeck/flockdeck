@@ -480,3 +480,103 @@ func TestTwoFailuresDoNotAlarmTheWindows(t *testing.T) {
 		t.Fatal("told the windows after only two failures")
 	}
 }
+
+// A file put at the path since the channel bound is not the channel's to
+// remove when it closes.
+func TestCloseLeavesAReplacementAlone(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		replace func(t *testing.T, path string)
+	}{
+		{"a regular file", func(t *testing.T, path string) {
+			os.Remove(path)
+			os.WriteFile(path, []byte("keep"), 0o600)
+		}},
+		{"another socket", func(t *testing.T, path string) {
+			os.Remove(path)
+			ln, err := net.Listen("unix", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ln.(*net.UnixListener).SetUnlinkOnClose(false)
+			t.Cleanup(func() { ln.Close() })
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// A long interval, so that the watcher does not repair it first.
+			c := start(t, func(cfg *Config) { cfg.Seams.Interval = time.Hour })
+			path := c.Path()
+			tc.replace(t, path)
+			c.Close()
+			if _, err := os.Lstat(path); err != nil {
+				t.Fatalf("Close removed what replaced the socket: %v", err)
+			}
+		})
+	}
+}
+
+func staleSocket(t *testing.T, path string) {
+	t.Helper()
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	ln.Close()
+}
+
+func TestStartSweepsDeadSocketsAndNothingElse(t *testing.T) {
+	state := shortTemp(t)
+	dir := filepath.Join(state, "c")
+	if err := ensureDir(dir, os.Geteuid()); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(dir, "deadbeef.sock")
+	staleSocket(t, stale)
+
+	live := filepath.Join(dir, "0badf00d.sock")
+	liveLn, err := net.Listen("unix", live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer liveLn.Close()
+	go func() {
+		for {
+			c, err := liveLn.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+
+	notOurName := filepath.Join(dir, "other.sock")
+	staleSocket(t, notOurName)
+	regular := filepath.Join(dir, "cafebabe.sock")
+	os.WriteFile(regular, []byte("x"), 0o600)
+	foreign := filepath.Join(dir, "f00dcafe.sock")
+	staleSocket(t, foreign)
+	squat(t, "f00dcafe.sock")
+
+	start(t, func(cfg *Config) { cfg.StateDir = state })
+
+	for path, want := range map[string]bool{
+		stale: false, live: true, notOurName: true, regular: true, foreign: true,
+	} {
+		_, err := os.Lstat(path)
+		if (err == nil) != want {
+			t.Errorf("%s: exists = %v, want %v", filepath.Base(path), err == nil, want)
+		}
+	}
+}
+
+func TestSweepNameRule(t *testing.T) {
+	for name, want := range map[string]bool{
+		"deadbeef.sock": true, "00000000.sock": true, "DEADBEEF.sock": false, "deadbee.sock": false,
+		"deadbeef0.sock": false, "deadbeef.sock~": false, "deadbeeg.sock": false, "deadbeef": false, "": false,
+	} {
+		if staleName(name) != want {
+			t.Errorf("staleName(%q) = %v, want %v", name, !want, want)
+		}
+	}
+}
