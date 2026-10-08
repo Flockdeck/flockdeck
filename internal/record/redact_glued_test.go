@@ -2,8 +2,17 @@ package record
 
 import (
 	"math/rand"
+	"regexp"
 	"strings"
 	"testing"
+)
+
+// pemRe and assignRe are the patterns Redact was first written with. The code
+// finds the same things by hand now, because a pattern with no literal to start
+// from is read byte by byte; these stay as the reference it is compared with.
+var (
+	pemRe    = regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\z)`)
+	assignRe = regexp.MustCompile(`(?i)(["']?[A-Za-z0-9_.\-]*` + secretName + `[A-Za-z0-9_.\-]*["']?\s*[:=]\s*)("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\n])*'|[^\s"',;&)}\]]+)`)
 )
 
 // refRedact is Redact as it was before spans were found on the original text: each
@@ -111,6 +120,38 @@ func TestRedactAKeyGluedBeforeAnotherToken(t *testing.T) {
 		got := Redact(aws + next)
 		if strings.Contains(got, "AK"+"IA") || strings.Contains(got, "sk-") || strings.Contains(got, "ghp"+"_") || strings.Contains(got, "glpat") {
 			t.Errorf("%s glued after an AWS key: part was left: %q", name, got)
+		}
+	}
+}
+
+// secretName, passName and the two patterns made of them are the idea of a
+// secret's name as it was written first, as patterns. nameIsSecret finds the same
+// names by hand; the tests compare the two.
+const (
+	secretName = `(?:secret|token|passw(?:or)?d|passwd|pwd|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|authorization|auth[_-](?:token|key|header))`
+	passName   = `(?:^|[^A-Za-z0-9])pass(?:[^A-Za-z0-9]|$)`
+)
+
+var (
+	secretNameRe = regexp.MustCompile(`(?i)` + secretName)
+	redactNameRe = regexp.MustCompile(`(?i)` + secretName + `|passphrase|` + passName)
+)
+
+func TestNameIsSecretMatchesThePatterns(t *testing.T) {
+	r := rand.New(rand.NewSource(3))
+	pieces := []string{"s", "e", "c", "r", "t", "o", "k", "n", "p", "a", "w", "d", "i", "_", "-", ".", "x", "u", "h", "y", "g", "A", "P", "K",
+		"secret", "token", "pass", "word", "wd", "pwd", "api", "key", "access", "private", "auth", "header", "phrase", "credential", "ization", "ſ", "K", "é", "1"}
+	for n := 0; n < 200000; n++ {
+		var b strings.Builder
+		for i, k := 0, 1+r.Intn(5); i < k; i++ {
+			b.WriteString(pieces[r.Intn(len(pieces))])
+		}
+		s := b.String()
+		if got, want := nameIsSecret(s, false), secretNameRe.MatchString(s); got != want {
+			t.Fatalf("nameIsSecret(%q, false) = %v, the pattern says %v", s, got, want)
+		}
+		if got, want := nameIsSecret(s, true), redactNameRe.MatchString(s); got != want {
+			t.Fatalf("nameIsSecret(%q, true) = %v, the pattern says %v", s, got, want)
 		}
 	}
 }
