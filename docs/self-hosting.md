@@ -62,3 +62,14 @@ The [chart README](../deploy/helm/flockdeck/README.md) has the install guide,
 what the `Service` does and does not authenticate, and how to reach the server:
 `kubectl exec` plus `kubectl port-forward`, or `flockdeck remote enable` from
 outside the cluster.
+
+The server also refuses a request whose `Host` header is not `127.0.0.1` (on any
+port) or a name listed in `FLOCKDECK_ALLOWED_HOSTS`. That is what stops a web
+page from reaching it under a name of its own. The chart lists the `Service`'s
+names and `localhost` for you, and its `allowedHosts` value takes an `Ingress`
+hostname. Outside the chart, set the variable where the server runs: a
+comma-separated list, a bare name for any port or `name:port` for one. A
+`kubectl port-forward` or `ssh -L` to any local port works when the browser is
+pointed at `127.0.0.1`; `localhost` is allowed by the chart and otherwise needs
+adding. The help page "A page says Flockdeck did not
+answer" has the rest.

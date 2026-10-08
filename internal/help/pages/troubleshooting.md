@@ -157,6 +157,34 @@ the relay. A request arriving through it is let in without the token, because
 the relay has already checked that the device asking is paired. [Flockdeck
 Remote](#remote) has the rest.
 
+## A page says Flockdeck did not answer, naming the Host header
+
+The local server answers only to requests addressed to `127.0.0.1`, on any port,
+and to the names listed in `FLOCKDECK_ALLOWED_HOSTS`. A request addressed any
+other way gets a 403 page that names the variable. That is what you see if you
+open `http://localhost:<port>/` instead of `http://127.0.0.1:<port>/`, or reach
+the server by a hostname, through a Kubernetes Service, an Ingress, or a
+reverse proxy that passes the original Host header on.
+
+The variable is a comma-separated list. A bare name allows every port
+(`flockdeck.example.com`); `name:port` allows that one port. Names are matched
+without regard to case or a trailing dot. IPv6 addresses go in brackets, and
+there are no wildcards. Set it in the environment of the process that runs
+Flockdeck and restart it:
+
+```sh
+FLOCKDECK_ALLOWED_HOSTS=flockdeck.example.com,localhost flockdeck -no-window
+```
+
+The Helm chart sets it to the Service's names and `localhost`, and has an
+`allowedHosts` value for an Ingress hostname. A `kubectl port-forward` or an
+`ssh -L` to any local port is fine if you browse to `127.0.0.1` on that port,
+since it is allowed on any port; `localhost` is allowed only when it is listed. A value that is
+not a plain host or host:port stops Flockdeck from starting, and the message
+names the entry.
+
+A window reached through Flockdeck Remote is not affected.
+
 ## Desktop notifications never appear
 
 Check **Settings › General › Desktop notifications** first: off, nothing is

@@ -563,14 +563,21 @@ func TestControlSocketOnlyAnswersItsOwnPage(t *testing.T) {
 		}
 	}
 
-	// The window's own page, under either loopback name it can be opened by.
-	for _, host := range []string{srv.Addr(), "localhost:" + port(srv.Addr())} {
-		conn, _, err := dial("http://"+host, host)
-		if err != nil {
-			t.Errorf("the window's own page was refused at %s: %v", host, err)
-			continue
-		}
+	// The window's own page, on the address it is opened by. localhost is not
+	// one the server answers to unless it is listed (see AllowedHostsEnv).
+	host := srv.Addr()
+	conn, _, err := dial("http://"+host, host)
+	if err != nil {
+		t.Errorf("the window's own page was refused at %s: %v", host, err)
+	} else {
 		conn.CloseNow()
+	}
+	localhost := "localhost:" + port(srv.Addr())
+	if conn, resp, err := dial("http://"+localhost, localhost); err == nil {
+		conn.CloseNow()
+		t.Errorf("a page at %s was allowed to open the control socket", localhost)
+	} else if resp != nil && resp.StatusCode != http.StatusForbidden {
+		t.Errorf("dial at %s = %d, want 403", localhost, resp.StatusCode)
 	}
 }
 

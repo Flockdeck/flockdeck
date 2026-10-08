@@ -24,6 +24,12 @@ service.enabled is false, so no Service was created for this release; see
 values.yaml's sidecar.*/service.* if you want one.
 {{- end }}
 
+Flockdeck refuses a request whose Host header it was not told about. This
+install answers to {{ include "flockdeck.allowedHosts" . | replace "," ", " }}
+and 127.0.0.1 (FLOCKDECK_ALLOWED_HOSTS; a bare name matches any port). Behind an
+Ingress or gateway that serves another hostname, add it to allowedHosts in
+values.yaml; until then that hostname gets a 403 page that names the variable.
+
 Whichever way in you use, get the token from the instance record:
 
   kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "flockdeck.fullname" . }} -- \
@@ -34,7 +40,8 @@ port-forwarding straight to it without the Service:
 
   kubectl port-forward -n {{ .Release.Namespace }} deploy/{{ include "flockdeck.fullname" . }} <port>:<port>
 
-then open http://localhost:<port>/?t=<token> in a browser. That port and the
+then open http://localhost:<port>/?t=<token> in a browser (the first <port> may be
+any free local port, and 127.0.0.1 works as well as localhost). The pod's port and the
 token both change on every restart of flockdeck itself; the Service's own
 address above does not.
 

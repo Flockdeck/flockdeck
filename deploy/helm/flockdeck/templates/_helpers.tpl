@@ -71,6 +71,11 @@ than in a pod that crash-loops.
 {{- if and .Values.persistence.state.existingClaim (not .Values.persistence.state.enabled) }}
 {{- fail "persistence.state.existingClaim is set but persistence.state.enabled is false, so it would never be mounted" }}
 {{- end }}
+{{- range .Values.allowedHosts }}
+{{- if regexMatch "[*/@ ]" (toString .) }}
+{{- fail (printf "allowedHosts entry %q is not a bare host name or host:port (no wildcards, schemes, paths or spaces)" (toString .)) }}
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -79,4 +84,22 @@ which is also the image's own WORKDIR and -C default.
 */}}
 {{- define "flockdeck.workspacePath" -}}
 {{- .Values.dir | default "/workspace" }}
+{{- end }}
+
+{{/*
+allowedHosts is the value of FLOCKDECK_ALLOWED_HOSTS: the names the server
+answers to besides 127.0.0.1. A client reaching the Service sends the Service's
+name as its Host header, so the chart lists the four ways the cluster resolves
+it (bare names match on any port, which also covers a Service on port 80, where
+no port is sent), localhost for `kubectl port-forward` to any local port, and
+whatever allowedHosts adds for an Ingress or gateway.
+*/}}
+{{- define "flockdeck.allowedHosts" -}}
+{{- $name := include "flockdeck.fullname" . }}
+{{- $ns := .Release.Namespace }}
+{{- $hosts := list $name (printf "%s.%s" $name $ns) (printf "%s.%s.svc" $name $ns) (printf "%s.%s.svc.cluster.local" $name $ns) "localhost" }}
+{{- range .Values.allowedHosts }}
+{{- $hosts = append $hosts (toString .) }}
+{{- end }}
+{{- join "," $hosts }}
 {{- end }}

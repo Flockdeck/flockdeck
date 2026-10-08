@@ -69,6 +69,16 @@ Three ways to actually reach it, in order of how permanent they are:
    in-cluster workload at this Service the way you would any other.
    `Ingress` itself is not shipped by this chart (see "Values" below).
 
+   flockdeck also checks the `Host` header of every request and answers 403
+   to a name it was not told about. The chart tells it about the Service:
+   `<release>-flockdeck`, `<release>-flockdeck.<namespace>`, `...<namespace>.svc`
+   and `...<namespace>.svc.cluster.local` (`<release>-flockdeck` is the chart's
+   full name and follows `fullnameOverride`), on any port, and `localhost`. Put the hostname your
+   Ingress or gateway serves in `allowedHosts`, or the browser gets a 403 page
+   that names `FLOCKDECK_ALLOWED_HOSTS`. A cluster domain other than
+   `cluster.local` needs adding the same way. This keeps a web page from
+   reaching flockdeck under a name of its own; it does not replace the token.
+
 2. **For now, from outside the cluster's reach, without relying on the
    Service:** `kubectl exec` the pod to read its instance record, then
    `kubectl port-forward` that exact port. `kubectl port-forward` reaches a
@@ -77,6 +87,10 @@ Three ways to actually reach it, in order of how permanent they are:
    but only for the specific port named at the time, which changes on every
    restart. `helm install`'s own NOTES (`helm get notes <release>` later)
    has the exact commands.
+
+   The local end of the forward can be any free port, such as
+   `kubectl port-forward deploy/<release>-flockdeck 9000:<port>`, and the
+   browser can use `localhost` or `127.0.0.1`: both are allowed, on any port.
 
 3. **With Flockdeck Remote, the optional add-on:** enrol the instance with a
    relay, the same Flockdeck Remote the desktop app uses. The pod makes an
@@ -122,6 +136,8 @@ See `values.yaml`, commented inline. The notable groups:
   `FLOCKDECK_SOLO`); `flockdeck -h` in the image documents each.
 - `remote.*` -- relay enrolment (see above); `apiKey.*` -- the fallback key
   an API agent uses.
+- `allowedHosts` -- extra hostnames flockdeck answers to, such as an Ingress
+  host; set as part of `FLOCKDECK_ALLOWED_HOSTS` next to the Service's names.
 - `sidecar.*` -- the `flockdeck-portproxy` container's fixed port and
   resources; `service.*` -- the `Service` in front of it (see "Reaching the
   web UI" above).
