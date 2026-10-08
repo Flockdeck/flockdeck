@@ -1630,6 +1630,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "remoteRename":
 		s.remoteRename(c, cmd.Kind, cmd.ID, cmd.Name)
 		return
+	case "remoteVerify":
+		s.remoteVerify(c, cmd)
+		return
+	case "remoteUnverify":
+		s.remoteUnverify(c, cmd)
+		return
 	case "remoteEnable":
 		s.remoteEnable(c, cmd)
 		return

@@ -13,7 +13,12 @@ import (
 type relayedRemote struct {
 	fakeRemote
 	client *remote.Client
+	// hostKey is this machine's own end-to-end public key, which the dialog
+	// computes each device's fingerprint against.
+	hostKey string
 }
+
+func (r *relayedRemote) E2EPublicKey() string { return r.hostKey }
 
 func (r *relayedRemote) Client() (*remote.Client, error) { return r.client, nil }
 

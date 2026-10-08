@@ -815,6 +815,79 @@
    *  opened to compare against that device's own screen. */
   const remoteFingerprintOpen = new Set();
 
+  /** localDeskCode is this window's own code for its own desk-origin key
+   *  against the desktop's (internal/e2e Fingerprint), computed here from
+   *  the keys this page holds. "" outside a window reached through the
+   *  relay, or until both keys are known. See refreshLocalDeskCode. */
+  let localDeskCode = "";
+
+  /** remoteDeviceCodes lists the codes a device row can show: one for each
+   *  of the device's two keys the roster has a code for. */
+  function remoteDeviceCodes(d) {
+    const out = [];
+    if (d.fingerprint) out.push({ origin: "usual", label: "Remote app", code: d.fingerprint, state: d.verify || "" });
+    if (d.deskFingerprint) out.push({ origin: "desk", label: "This desktop's page", code: d.deskFingerprint, state: d.deskVerify || "" });
+    return out;
+  }
+
+  /** remoteVerifyText says in words what a verify state is. */
+  function remoteVerifyText(state) {
+    if (state === "verified") return "Verified on the desktop";
+    if (state === "changed") return "The key changed since it was verified. Compare the code again";
+    return "Not verified";
+  }
+
+  /** remoteCodeBlock is one key's code, whether it is verified, and (on the
+   *  machine itself, never in a window reached through the relay) the
+   *  buttons to say a person compared it. The code sent with the command is
+   *  the one on screen: the desktop checks it against the key as it is now,
+   *  so a key that changed since the code was drawn is not verified by
+   *  mistake. */
+  function remoteCodeBlock(d, k) {
+    const box = el("div", "remote-code");
+    box.dataset.origin = k.origin;
+    box.append(el("div", "wt-meta", k.label + " · " + remoteVerifyText(k.state)));
+    box.append(el("p", "remote-fingerprint", k.code));
+    if (remoteWindow) return box;
+    const name = d.name || "this device";
+    if (k.state === "verified") {
+      const drop = el("button", "chip", "Remove verification");
+      drop.onclick = () => send({ cmd: "remoteUnverify", id: d.id, kind: k.origin });
+      box.append(drop);
+    } else {
+      const mark = el("button", "chip primary", "Mark verified");
+      mark.setAttribute("aria-label", "Mark the " + k.label + " code verified for " + name);
+      mark.onclick = () => {
+        if (!window.confirm("Mark " + name + " verified? Only do this if the code above is exactly what " + name + " shows.")) return;
+        send({ cmd: "remoteVerify", id: d.id, kind: k.origin, text: k.code });
+      };
+      box.append(mark);
+    }
+    return box;
+  }
+
+  /** refreshLocalDeskCode computes localDeskCode from this window's
+   *  identity and the desktop's key the hello gave it, and redraws the
+   *  dialog if it is open and the code moved. Anything that stops it (no
+   *  WebCrypto, a key that is not a key) leaves the code empty, which just
+   *  hides it. */
+  async function refreshLocalDeskCode() {
+    let code = "";
+    try {
+      if (remoteWindow && hostE2EPublicKey && window.FlockdeckE2E) {
+        const identity = await FlockdeckE2E.getIdentity();
+        if (identity) {
+          code = await FlockdeckE2E.fingerprint(identity.publicKeyRaw, FlockdeckE2E.decodePublicKeyRaw(hostE2EPublicKey));
+        }
+      }
+    } catch {
+      code = "";
+    }
+    if (code === localDeskCode) return;
+    localDeskCode = code;
+    if (remoteShown()) keepFocus(renderRemote);
+  }
+
   /** How often the roster is asked for again while a pairing link is on
    *  screen, waiting on a scan: nothing else here asks again on its own, so
    *  a device paired while the link sat there showed up only once the
@@ -1088,10 +1161,28 @@
     // moment it was handed out would make the handshake think it had, undetected
     // (internal/e2e's own doc says so); comparing each device's code against
     // what it shows on its own Devices page is the one check that catches it.
-    if (devices.some((d) => d.fingerprint)) {
+    if (devices.some((d) => remoteDeviceCodes(d).length)) {
       dev.append(el("p", "fan-hint",
-        "Press Verify and compare the code with what a device shows on its own Devices page. " +
-        "If they differ, unpair it: the relay may have handed it the wrong key."));
+        remoteWindow
+          ? "Press Verify to see the codes. A device is marked verified on the machine Flockdeck runs on, not from here."
+          : "Press Verify and compare the code with what the device shows (its own Devices page, or this page's code in a window it opened from here). " +
+            "If they differ, unpair it: the relay may have handed it the wrong key. " +
+            "Press Mark verified once they match."));
+    }
+    // A window reached through the relay can say what it sees for itself:
+    // its own key and the desktop's, as this page got them, hashed. The
+    // desktop computes the same code from the keys it holds, so the two
+    // agree unless a key was swapped on the way.
+    if (remoteWindow && localDeskCode) {
+      const mineDev = devices.find((d) => roster.current && d.id === roster.current);
+      const mineBox = el("div", "remote-this-window");
+      mineBox.append(el("p", "fan-hint",
+        "This window's code. Compare it with the code Flockdeck shows for this device on the machine it runs on, " +
+        "and mark the device verified there. If they differ, unpair this device."));
+      mineBox.append(el("p", "remote-fingerprint", localDeskCode));
+      const st = mineDev ? mineDev.deskVerify : "";
+      mineBox.append(el("p", "wt-meta", remoteVerifyText(st)));
+      dev.append(mineBox);
     }
     devices.forEach((d) => {
       const item = el("div", "wt-row");
@@ -1104,12 +1195,13 @@
       main.append(title);
       main.append(el("div", "wt-meta", "paired " + remoteAgo(d.created) + " · last seen " + remoteAgo(d.lastSeen)));
       const open = remoteFingerprintOpen.has(d.id);
-      if (d.fingerprint && open) {
-        main.append(el("p", "remote-fingerprint", d.fingerprint));
+      const codes = remoteDeviceCodes(d);
+      if (codes.length && open) {
+        codes.forEach((k) => main.append(remoteCodeBlock(d, k)));
       }
       item.append(main);
       const actions = el("div", "wt-actions");
-      if (d.fingerprint) {
+      if (codes.length) {
         const verify = el("button", "chip", open ? "Hide code" : "Verify");
         verify.setAttribute("aria-expanded", open ? "true" : "false");
         verify.setAttribute("aria-label", (open ? "Hide the code for " : "Verify the code for ") + (d.name || "this device"));
@@ -8387,6 +8479,7 @@
     // A window on the desktop itself has no relay to register with, and
     // hostE2EPublicKey is never set for one anyway (help.go's sendHello).
     if (remoteWindow && window.FlockdeckE2E) FlockdeckE2E.ensureRegistered();
+    refreshLocalDeskCode();
     // The hello is what the server holds, after a drop that may have taken
     // changes sent from here with it, so nothing sent before it is waited on.
     pendingPrefs.clear();
