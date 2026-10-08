@@ -3086,19 +3086,46 @@ var pasteSettle = 100 * time.Millisecond
 // on its own is typed exactly as it always was, so a slash command still
 // reaches an agent the way it would from the keyboard.
 //
-// The paste is what a terminal sends for one. Its line breaks are carriage
-// returns, as xterm makes them, and any paste markers inside the text are
-// removed, as terminals do: an end marker in it would close the paste early
-// and leave the rest to be typed, line breaks and all.
+// Control characters are removed first, for a pane that takes pastes and one
+// that does not. Escape, the other C0 controls except tab, carriage return and
+// line feed, DEL and the C1 controls (U+0080 to U+009F) are not part of any
+// prompt a person writes, and a terminal reads them as commands rather than
+// text. With no escape character left, nothing in the text can be taken for a
+// paste marker, whatever it is made of.
+//
+// The paste is what a terminal sends for one: its line breaks are carriage
+// returns, as xterm makes them, between the start and end markers.
 func promptInput(text string, bracketed bool) (string, bool) {
+	text = stripControls(text)
 	if !bracketed || !strings.ContainsAny(text, "\r\n") {
 		return text, false
 	}
-	body := strings.NewReplacer(
-		"\x1b[200~", "", "\x1b[201~", "",
-		"\r\n", "\r", "\n", "\r",
-	).Replace(text)
+	body := strings.NewReplacer("\r\n", "\r", "\n", "\r").Replace(text)
 	return "\x1b[200~" + body + "\x1b[201~", true
+}
+
+// stripControls removes the characters promptInput keeps out of a prompt. Tab,
+// carriage return and line feed stay; so does every other character, emoji and
+// text outside the Basic Multilingual Plane included.
+func stripControls(text string) string {
+	clean := func(r rune) bool {
+		switch {
+		case r == '\t' || r == '\r' || r == '\n':
+			return true
+		case r < 0x20, r == 0x7f, r >= 0x80 && r <= 0x9f:
+			return false
+		}
+		return true
+	}
+	if strings.IndexFunc(text, func(r rune) bool { return !clean(r) }) < 0 {
+		return text
+	}
+	return strings.Map(func(r rune) rune {
+		if clean(r) {
+			return r
+		}
+		return -1
+	}, text)
 }
 
 // ---------------------------------------------------------------- attention
