@@ -43,6 +43,10 @@ type helloMsg struct {
 	// encrypt against itself, and for a remote one before this machine has
 	// made an identity of its own yet.
 	E2EPublicKey string `json:"e2ePublicKey,omitempty"`
+	// Artifacts says the artifacts socket can be used by this window's device:
+	// at least one kind is switched on for it. Left out otherwise, which is
+	// what hides the tab. Sent only to a window reached through the relay.
+	Artifacts *artifactsCap `json:"artifacts,omitempty"`
 }
 
 // radarSupport and radarWatch are gitx's answers about merge-tree, as variables
@@ -106,7 +110,7 @@ type keyView struct {
 // sendHello gives a freshly connected window the key table and the prefs. It
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
-	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: s.prefs, Remote: c.remote}
+	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: prefsFor(c, s.prefs), Remote: c.remote}
 	// Asked without waiting: the version of git is read in the background. Until
 	// it has been, the window is told it is being checked, and is sent the answer
 	// when there is one (announceRadarSupport).
@@ -118,6 +122,12 @@ func (s *Server) sendHello(c *controlClient) {
 	if c.remote {
 		if ra := s.remoteAccess(); ra != nil {
 			msg.E2EPublicKey = ra.E2EPublicKey()
+		}
+		if artifactsOffered(s.prefs.RemoteArtifacts, c.device) {
+			msg.Artifacts = &artifactsCap{V: 1}
+			c.artifactsTold.Store(artifactsTellYes)
+		} else {
+			c.artifactsTold.Store(artifactsTellNo)
 		}
 	}
 	data, err := json.Marshal(msg)
@@ -249,13 +259,14 @@ func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
 // broadcastPrefs tells every window what the preferences now are. It runs on
 // the workspace goroutine.
 func (s *Server) broadcastPrefs() {
-	data, err := json.Marshal(prefsMsg{Type: "prefs", Prefs: s.prefs})
-	if err != nil {
-		return
-	}
 	for _, cl := range s.clientList() {
+		data, err := json.Marshal(prefsMsg{Type: "prefs", Prefs: prefsFor(cl, s.prefs)})
+		if err != nil {
+			return
+		}
 		cl.send(data)
 	}
+	s.announceArtifacts()
 }
 
 // markHelpSeen records that the help has been opened, so the first-run welcome

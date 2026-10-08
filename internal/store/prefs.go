@@ -100,6 +100,9 @@ type Prefs struct {
 	// asks before the first pane is recorded, and `flockdeck spawn -record`
 	// refuses, so that no agent is the first to switch recording on.
 	RecordingAcknowledged bool `json:"recordingAcknowledged,omitempty"`
+	// RemoteArtifacts is what paired devices may view through the artifacts
+	// socket. Off, and left out of the file, until the desk turns it on.
+	RemoteArtifacts RemoteArtifactsPrefs `json:"remoteArtifacts,omitzero"`
 
 	// extra is every top-level key the file held that this build does not
 	// know, as it was written. A newer build's setting would otherwise go at
