@@ -2,6 +2,7 @@ package recordview
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -56,7 +57,7 @@ func pageAll(t *testing.T, r *Reader, max int) []Entry {
 	var out []Entry
 	cursor := 0
 	for i := 0; i < 100000; i++ {
-		p, err := r.Page(cursor, max)
+		p, err := r.Page(bg, cursor, max)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -78,7 +79,7 @@ func TestPagingVisitsEveryEntryOnce(t *testing.T) {
 	for i := 2; i <= 30; i++ {
 		lines = append(lines, line(i, "user_prompt", map[string]any{"text": fmt.Sprintf("prompt %d", i)}))
 	}
-	r, err := Open(writeFile(t, lines...))
+	r, err := openAt(writeFile(t, lines...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,11 +94,11 @@ func TestPagingVisitsEveryEntryOnce(t *testing.T) {
 			}
 		}
 	}
-	p, _ := r.Page(0, 5)
+	p, _ := r.Page(bg, 0, 5)
 	if len(p.Entries) != 5 || p.Done {
 		t.Fatalf("first page: %d entries, done=%v", len(p.Entries), p.Done)
 	}
-	p, _ = r.Page(0, 100000)
+	p, _ = r.Page(bg, 0, 100000)
 	if len(p.Entries) != 30 || !p.Done {
 		t.Fatalf("a huge max must be lowered to the cap, got %d entries done=%v", len(p.Entries), p.Done)
 	}
@@ -112,13 +113,13 @@ func TestPageBytesBudget(t *testing.T) {
 	for i := 2; i <= 60; i++ {
 		lines = append(lines, line(i, "assistant_message", map[string]any{"text": big}))
 	}
-	r, err := Open(writeFile(t, lines...))
+	r, err := openAt(writeFile(t, lines...))
 	if err != nil {
 		t.Fatal(err)
 	}
 	cursor, entries := 0, 0
 	for {
-		p, err := r.Page(cursor, MaxPageEntries)
+		p, err := r.Page(bg, cursor, MaxPageEntries)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -161,7 +162,7 @@ func TestOnlyVersion2OfAKnownTranscriptIsOpened(t *testing.T) {
 		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		r, err := Open(p)
+		r, err := openAt(p)
 		if name == "start then junk" {
 			if err != nil {
 				t.Fatalf("%s: %v", name, err)
@@ -186,17 +187,17 @@ func TestOnlyVersion2OfAKnownTranscriptIsOpened(t *testing.T) {
 
 func TestOpenRefusals(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := Open(filepath.Join(dir, "nope.jsonl")); !errors.Is(err, ErrUnavailable) {
+	if _, err := openAt(filepath.Join(dir, "nope.jsonl")); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("missing file: %v", err)
 	}
-	if _, err := Open(dir); !errors.Is(err, ErrUnsupported) {
+	if _, err := openAt(dir); !errors.Is(err, ErrUnsupported) {
 		t.Errorf("directory: %v", err)
 	}
-	if _, err := Open(""); err == nil {
+	if _, err := openAt(""); err == nil {
 		t.Error("empty path opened")
 	}
 	// An error never carries the path or OS text.
-	_, err := Open(filepath.Join(dir, "secret-name-xyz.jsonl"))
+	_, err := openAt(filepath.Join(dir, "secret-name-xyz.jsonl"))
 	if err == nil || strings.Contains(err.Error(), "secret-name-xyz") || strings.Contains(err.Error(), dir) {
 		t.Errorf("error leaks the path: %v", err)
 	}
@@ -205,7 +206,7 @@ func TestOpenRefusals(t *testing.T) {
 	link := filepath.Join(dir, "link.jsonl")
 	if err := os.Symlink(real, link); err != nil {
 		t.Logf("no symlinks here (%v); skipping the link case", err)
-	} else if _, err := Open(link); err == nil {
+	} else if _, err := openAt(link); err == nil {
 		t.Error("a symbolic link was opened")
 	}
 
@@ -213,28 +214,28 @@ func TestOpenRefusals(t *testing.T) {
 	f, _ := os.Create(huge)
 	_ = f.Truncate(MaxFileBytes + 1)
 	f.Close()
-	if _, err := Open(huge); !errors.Is(err, ErrUnsupported) {
+	if _, err := openAt(huge); !errors.Is(err, ErrUnsupported) {
 		t.Errorf("oversized file: %v", err)
 	}
 }
 
 func TestBadCursors(t *testing.T) {
-	r, err := Open(writeFile(t, started(), line(2, "user_prompt", map[string]any{"text": "hello there"})))
+	r, err := openAt(writeFile(t, started(), line(2, "user_prompt", map[string]any{"text": "hello there"})))
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, _ := r.Page(0, 1)
+	first, _ := r.Page(bg, 0, 1)
 	for _, c := range []int{-1, -1 << 40, 1, 5, first.Next - 1, first.Next + 3, 1 << 30} {
-		if _, err := r.Page(c, 10); !errors.Is(err, ErrBadCursor) {
+		if _, err := r.Page(bg, c, 10); !errors.Is(err, ErrBadCursor) {
 			t.Errorf("cursor %d: %v", c, err)
 		}
 	}
-	if p, err := r.Page(first.Next, 10); err != nil || len(p.Entries) != 1 || !p.Done {
+	if p, err := r.Page(bg, first.Next, 10); err != nil || len(p.Entries) != 1 || !p.Done {
 		t.Errorf("valid cursor: %+v %v", p, err)
 	}
 	// The end of the file is a valid cursor and gives an empty, finished page.
-	end, _ := r.Page(first.Next, 10)
-	if p, err := r.Page(end.Next, 10); err != nil || len(p.Entries) != 0 || !p.Done {
+	end, _ := r.Page(bg, first.Next, 10)
+	if p, err := r.Page(bg, end.Next, 10); err != nil || len(p.Entries) != 0 || !p.Done {
 		t.Errorf("cursor at end: %+v %v", p, err)
 	}
 }
@@ -244,13 +245,13 @@ func TestBadCursors(t *testing.T) {
 func TestCursorCannotLandInsideAnEmbeddedLine(t *testing.T) {
 	inner := line(9, "user_prompt", map[string]any{"text": "forged"})
 	outer := line(2, "user_prompt", map[string]any{"text": "x\n" + inner + "\ny"})
-	r, err := Open(writeFile(t, started(), outer))
+	r, err := openAt(writeFile(t, started(), outer))
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, _ := os.ReadFile(r.path)
+	data, _ := os.ReadFile(filepath.Join(r.root, r.name))
 	for c := 0; c <= len(data); c++ {
-		_, err := r.Page(c, 10)
+		_, err := r.Page(bg, c, 10)
 		afterBreak := c == 0 || data[c-1] == 0x0a
 		if afterBreak && err != nil {
 			t.Fatalf("cursor %d after a line break refused: %v", c, err)
@@ -270,7 +271,7 @@ func TestUnknownFieldsAreDropped(t *testing.T) {
 		"future": map[string]any{"a": 1}, "input": map[string]any{"x": 1}, "output": "not for a prompt",
 		"model": "m", "isError": true, "usage": map[string]any{"inputTokens": 3},
 	})
-	r, err := Open(writeFile(t, started(), l))
+	r, err := openAt(writeFile(t, started(), l))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +339,7 @@ func TestEveryTypeKeepsOnlyItsFields(t *testing.T) {
 		}
 	}
 	// Unknown types and other versions are skipped, mid-file too.
-	r, err := Open(writeFile(t, started(),
+	r, err := openAt(writeFile(t, started(),
 		line(2, "mystery", map[string]any{"text": "x"}),
 		strings.Replace(line(3, "user_prompt", map[string]any{"text": "old"}), `"v":2`, `"v":1`, 1),
 		"{not json",
@@ -351,7 +352,7 @@ func TestEveryTypeKeepsOnlyItsFields(t *testing.T) {
 	if len(got) != 2 || got[1].Text != "kept" {
 		t.Fatalf("got %+v", got)
 	}
-	p, _ := r.Page(0, 10)
+	p, _ := r.Page(bg, 0, 10)
 	if p.Skipped != 3 {
 		t.Errorf("skipped = %d, want 3 (the blank line is not counted)", p.Skipped)
 	}
@@ -369,7 +370,7 @@ func TestRedactedAgainOnTheWayOut(t *testing.T) {
 		line(6, "conversation_title", map[string]any{"title": "rotate " + ghToken}),
 		line(7, "recording_truncated", map[string]any{"text": "oops " + ghToken}),
 	}
-	r, err := Open(writeFile(t, append([]string{started()}, secretLines...)...))
+	r, err := openAt(writeFile(t, append([]string{started()}, secretLines...)...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,11 +458,11 @@ func TestHostileInputShapes(t *testing.T) {
 
 func TestLongLinesAreSkippedAndReadingGoesOn(t *testing.T) {
 	huge := line(2, "user_prompt", map[string]any{"text": "x", "future": strings.Repeat("z", 3<<20)})
-	r, err := Open(writeFile(t, started(), huge, line(3, "user_prompt", map[string]any{"text": "after"})))
+	r, err := openAt(writeFile(t, started(), huge, line(3, "user_prompt", map[string]any{"text": "after"})))
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := r.Page(0, 10)
+	p, err := r.Page(bg, 0, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,26 +473,26 @@ func TestLongLinesAreSkippedAndReadingGoesOn(t *testing.T) {
 
 func TestLastLineWithoutLineBreakWaits(t *testing.T) {
 	p := writeFile(t, started())
-	r, err := Open(p)
+	r, err := openAt(p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tail := line(2, "user_prompt", map[string]any{"text": "half"})
 	f, _ := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0)
 	_, _ = f.WriteString(tail[:len(tail)/2])
-	pg, _ := r.Page(0, 10)
+	pg, _ := r.Page(bg, 0, 10)
 	if len(pg.Entries) != 1 || !pg.Done {
 		t.Fatalf("half a line: %+v", pg)
 	}
 	// Even a complete line is not read before its line break: it is the writer's mark that the line is whole.
 	_, _ = f.WriteString(tail[len(tail)/2:])
-	pg2, _ := r.Page(0, 10)
+	pg2, _ := r.Page(bg, 0, 10)
 	if len(pg2.Entries) != 1 || pg2.Next != pg.Next {
 		t.Fatalf("unterminated line was consumed: %+v", pg2)
 	}
 	_, _ = f.WriteString("\n")
 	f.Close()
-	pg3, err := r.Page(pg.Next, 10)
+	pg3, err := r.Page(bg, pg.Next, 10)
 	if err != nil || len(pg3.Entries) != 1 || pg3.Entries[0].Text != "half" {
 		t.Fatalf("after the line break: %+v %v", pg3, err)
 	}
@@ -505,11 +506,11 @@ func TestOneCallDoesBoundedWork(t *testing.T) {
 	if err := os.WriteFile(p, []byte(started()+"\n"+junk+line(2, "user_prompt", map[string]any{"text": "end"})+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r, err := Open(p)
+	r, err := openAt(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pg, err := r.Page(0, 200)
+	pg, err := r.Page(bg, 0, 200)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,10 +527,10 @@ func TestUnsafeCharactersAreRemoved(t *testing.T) {
 	e, _ := parseLine([]byte(line(2, "user_prompt", map[string]any{
 		"text": "a\x1b[31mred\x07\x00b‮evil⁦x‏y z\r\n\tq\u0085end",
 	})))
-	if e.Text != "a[31mredbevilxy\nz\n\tqend" {
+	if e.Text != "aredbevilxy\nz\n\tqend" {
 		t.Errorf("text = %q", e.Text)
 	}
-	e, _ = parseLine([]byte(line(2, "tool_call", map[string]any{"tool": "Ba\x1bsh", "input": map[string]any{"k\x1b": "v\x1b"}})))
+	e, _ = parseLine([]byte(line(2, "tool_call", map[string]any{"tool": "Ba\x1b[1msh", "input": map[string]any{"k\x1b": "v\x1b"}})))
 	if e.Tool != "Bash" || !reflect.DeepEqual(e.Input, map[string]any{"k": "v"}) {
 		t.Errorf("tool %q input %v", e.Tool, e.Input)
 	}
@@ -579,7 +580,7 @@ func TestConcurrentPages(t *testing.T) {
 	for i := 2; i <= 200; i++ {
 		lines = append(lines, line(i, "user_prompt", map[string]any{"text": strings.Repeat("w", 200)}))
 	}
-	r, err := Open(writeFile(t, lines...))
+	r, err := openAt(writeFile(t, lines...))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,7 +625,7 @@ func TestReadsWhatTheWriterWrites(t *testing.T) {
 	if err != nil || len(infos) != 1 {
 		t.Fatalf("list: %v %v", infos, err)
 	}
-	r, err := Open(infos[0].Path)
+	r, err := openAt(infos[0].Path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,3 +652,8 @@ func TestReadsWhatTheWriterWrites(t *testing.T) {
 		t.Errorf("leak: %s", b)
 	}
 }
+
+var bg = context.Background()
+
+// openAt opens a transcript by its full path, as a root and a name.
+func openAt(p string) (*Reader, error) { return Open(bg, filepath.Dir(p), filepath.Base(p)) }

@@ -227,3 +227,30 @@ func TestFindKeepsToTheOlderForms(t *testing.T) {
 		}
 	}
 }
+
+// A quoted value is looked for its closing quote over maxQuotedValue bytes. Past
+// that it is taken to the end of its line, so the line's text after the quote goes
+// with it and the next line stays.
+func TestQuotedValueBeyondTheWindowIsCutAtTheEndOfItsLine(t *testing.T) {
+	in := `password="` + strings.Repeat("x", maxQuotedValue+10) + `" more` + "\nnext"
+	if got := Redact(in); got != "password=[redacted]\nnext" {
+		t.Errorf("Redact = %q", got)
+	}
+}
+
+// Once the looks for closing quotes have read as much as they may, a quoted value
+// is cut at the end of its line without another look.
+func TestQuotedValueLooksHaveABudget(t *testing.T) {
+	s := "a=\"xx\" tail\nnext"
+	sc := &scan{s: s, wide: true, budget: 0, lineEnd: -1}
+	if got := sc.quotedEnd(2); got != 11 {
+		t.Errorf("quotedEnd with no budget = %d, want the line end 11", got)
+	}
+	sc = &scan{s: s, wide: true, budget: 100, lineEnd: -1}
+	if got := sc.quotedEnd(2); got != 6 {
+		t.Errorf("quotedEnd with a budget = %d, want the closing quote 6", got)
+	}
+	if sc.budget >= 100 {
+		t.Error("the look did not use the budget")
+	}
+}
