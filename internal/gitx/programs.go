@@ -306,6 +306,7 @@ var (
 
 // scanner is one run of ScanPrograms.
 type scanner struct {
+	fs      *scanFS
 	fsItems []Program // what the file system layer refused or gave up on in the submodules
 	ctx     context.Context
 	budget  int64
@@ -371,20 +372,21 @@ func ScanPrograms(dir string) (Report, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), scanTimeout)
 	defer cancel()
-	s := &scanner{ctx: ctx, budget: maxHashBudget}
+	s := &scanner{ctx: ctx, budget: maxHashBudget, fs: newScanFS(ctx)}
+	defer func() { lastScanCalls.Store(int64(s.fs.calls)) }()
 
 	paths, err := s.gitPaths(dir)
 	if err != nil {
 		if strings.Contains(err.Error(), "not a git repository") {
 			return Report{}, ErrNotRepository
 		}
-		return Report{Repo: canonical(dir), Items: []Program{unscannable(dir, "git rev-parse failed: "+firstWords(err), "")}}, nil
+		return Report{Repo: s.fs.canonical(dir), Items: []Program{unscannable(dir, "git rev-parse failed: "+firstWords(err), "")}}, nil
 	}
 	for _, d := range []string{paths.gitDir, paths.common, paths.topdir} {
 		if d == "" {
 			continue
 		}
-		if err := guard(d); err != nil {
+		if err := s.fs.guard(d); err != nil {
 			return Report{Repo: d, Items: []Program{fsItem(err, d, "")}}, nil
 		}
 	}
@@ -393,7 +395,7 @@ func ScanPrograms(dir string) (Report, error) {
 	// A configuration file that is large is hiding something, or is slow to
 	// read, or both.
 	for _, f := range []string{filepath.Join(paths.common, "config"), filepath.Join(paths.gitDir, "config.worktree")} {
-		fi, err := fsStat(f)
+		fi, err := s.fs.Stat(f)
 		if blocked(err) {
 			rep.Items = append(rep.Items, fsItem(err, f, ""))
 		} else if err == nil && fi.Size() > maxConfigBytes {
@@ -664,11 +666,11 @@ func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program
 		p = filepath.Join(base, p)
 	}
 	bad := func(err error, where string) []Program { return []Program{fsItem(err, where, submodule)} }
-	p, err := fsCanonical(p)
+	p, err := s.fs.Canonical(p)
 	if err != nil {
 		return bad(err, p)
 	}
-	if _, err := fsStat(p); err != nil {
+	if _, err := s.fs.Stat(p); err != nil {
 		if absent(err) {
 			return nil
 		}
@@ -676,7 +678,7 @@ func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program
 	}
 	gd := ""
 	for _, d := range []string{p, filepath.Join(p, ".git")} {
-		_, err := fsStat(filepath.Join(d, "HEAD"))
+		_, err := s.fs.Stat(filepath.Join(d, "HEAD"))
 		if err == nil {
 			gd = d
 			break
@@ -686,7 +688,7 @@ func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program
 		}
 	}
 	if gd == "" {
-		g, err := resolveGitDir(p)
+		g, err := s.fs.resolveGitDir(p)
 		switch {
 		case err == nil:
 			gd = g
@@ -698,14 +700,14 @@ func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program
 		return []Program{unscannable(p, "a folder Flockdeck cannot tell is not a repository", submodule)}
 	}
 	// A linked worktree's hooks and configuration are the main repository's.
-	data, err := fsReadFile(filepath.Join(gd, "commondir"))
+	data, err := s.fs.ReadFile(filepath.Join(gd, "commondir"))
 	switch {
 	case err == nil && len(data) < 4096:
 		c := filepath.FromSlash(strings.TrimSpace(string(data)))
 		if !filepath.IsAbs(c) {
 			c = filepath.Join(gd, c)
 		}
-		gd, err = fsCanonical(c)
+		gd, err = s.fs.Canonical(c)
 		if err != nil {
 			return bad(err, gd)
 		}
@@ -715,8 +717,10 @@ func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program
 	var items []Program
 	dirPath := filepath.Join(gd, "hooks")
 	cfg := filepath.Join(gd, "config")
-	fi, err := fsStat(cfg)
+	fi, err := s.fs.Stat(cfg)
 	switch {
+	case err == nil && !fi.Mode().IsRegular():
+		return bad(errNotRegular, cfg)
 	case err == nil:
 		if fi.Size() > maxConfigBytes {
 			return []Program{unscannable(cfg, "the remote's configuration is too large to read", submodule)}
@@ -735,7 +739,7 @@ func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program
 			if !filepath.IsAbs(exp) {
 				exp = filepath.Join(gd, filepath.FromSlash(exp))
 			}
-			dirPath, err = fsCanonical(exp)
+			dirPath, err = s.fs.Canonical(exp)
 			if err != nil {
 				return append(items, fsItem(err, exp, submodule))
 			}
@@ -780,14 +784,14 @@ func (s *scanner) gitPaths(dir string) (gitLocations, error) {
 	} else if len(lines) < 3 {
 		return loc, errors.New("git rev-parse gave an unexpected answer")
 	}
-	loc.gitDir = canonical(filepath.FromSlash(lines[0]))
+	loc.gitDir = s.fs.canonical(filepath.FromSlash(lines[0]))
 	loc.common = filepath.FromSlash(lines[1])
 	if !filepath.IsAbs(loc.common) {
 		loc.common = filepath.Join(dir, loc.common)
 	}
-	loc.common = canonical(loc.common)
+	loc.common = s.fs.canonical(loc.common)
 	if len(lines) >= 3 {
-		loc.topdir = canonical(filepath.FromSlash(lines[2]))
+		loc.topdir = s.fs.canonical(filepath.FromSlash(lines[2]))
 	}
 	return loc, nil
 }
@@ -897,7 +901,7 @@ func (s *scanner) hooksIn(loc gitLocations, hooksPath *configEntry, submodule st
 			dirPath = filepath.Join(loc.topdirOr(), filepath.FromSlash(dirPath))
 		}
 		var err error
-		dirPath, err = fsCanonical(dirPath)
+		dirPath, err = s.fs.Canonical(dirPath)
 		if err != nil {
 			return []Program{fsItem(err, dirPath, submodule)}
 		}
@@ -924,7 +928,7 @@ func within(dir, path string) bool {
 // there is no <hook>. The directory itself is checked first: a hooks directory
 // that is a link to a share is as much a share as a hook that is.
 func (s *scanner) hooksInDir(dirPath, submodule string, machine bool) []Program {
-	if err := guard(dirPath); err != nil {
+	if err := s.fs.guard(dirPath); err != nil {
 		return []Program{fsItem(err, dirPath, submodule)}
 	}
 	var items []Program
@@ -935,7 +939,7 @@ func (s *scanner) hooksInDir(dirPath, submodule string, machine bool) []Program 
 		}
 		for _, cand := range candidates {
 			full := filepath.Join(dirPath, cand)
-			fi, err := fsStat(full)
+			fi, err := s.fs.Stat(full)
 			if err != nil {
 				if absent(err) {
 					continue
@@ -984,7 +988,7 @@ func (s *scanner) hashFile(path string, size int64) (string, error) {
 	if size > s.budget-s.spent {
 		return "", errOverBudget
 	}
-	sum, n, err := fsHash(s.ctx, path, s.budget-s.spent+1)
+	sum, n, err := s.fs.Hash(path, s.budget-s.spent+1)
 	s.spent += n
 	if err != nil {
 		return "", err
@@ -1024,6 +1028,7 @@ type submodule struct {
 
 // finder collects submodule git directories up to the limits.
 type finder struct {
+	fs        *scanFS
 	items     []Program
 	seen      map[string]bool
 	subs      []submodule
@@ -1032,7 +1037,7 @@ type finder struct {
 }
 
 func (f *finder) add(gd, rel, work string) {
-	gd, err := fsCanonical(gd)
+	gd, err := f.fs.Canonical(gd)
 	if err != nil {
 		f.items = append(f.items, fsItem(err, gd, ""))
 		return
@@ -1059,7 +1064,7 @@ func (f *finder) add(gd, rel, work string) {
 // a limit was hit, which the caller must not ignore. Whatever the file system
 // layer refused is in s.fsItems.
 func (s *scanner) submoduleGitDirs(dir string, loc gitLocations) (subs []submodule, truncated bool, err error) {
-	f := &finder{seen: map[string]bool{}}
+	f := &finder{seen: map[string]bool{}, fs: s.fs}
 	if loc.topdir != "" {
 		out, err := s.git(dir, "ls-files", "--stage", "-z")
 		if err != nil {
@@ -1071,7 +1076,7 @@ func (s *scanner) submoduleGitDirs(dir string, loc gitLocations) (subs []submodu
 				continue
 			}
 			work := filepath.Join(loc.topdir, filepath.FromSlash(path))
-			gd, err := resolveGitDir(work)
+			gd, err := s.fs.resolveGitDir(work)
 			switch {
 			case err == nil:
 				f.add(gd, path, work)
@@ -1094,7 +1099,7 @@ func (s *scanner) submoduleGitDirs(dir string, loc gitLocations) (subs []submodu
 // visited, and how deep, is bounded; going past either is recorded and not
 // skipped silently.
 func (f *finder) walkModules(base string, depth int) {
-	d, err := fsOpenDir(base)
+	d, err := f.fs.OpenDir(base)
 	if err != nil {
 		if blocked(err) {
 			f.items = append(f.items, fsItem(err, base, ""))
@@ -1117,7 +1122,7 @@ func (f *finder) walkModules(base string, depth int) {
 				return
 			}
 			gd := filepath.Join(base, e.Name())
-			_, serr := fsStat(filepath.Join(gd, "HEAD"))
+			_, serr := f.fs.Stat(filepath.Join(gd, "HEAD"))
 			switch {
 			case serr == nil:
 				f.add(gd, "", "")
@@ -1141,50 +1146,6 @@ func (f *finder) walkModules(base string, depth int) {
 	}
 }
 
-// errNoGitDir says a folder is not a checked-out repository.
-var errNoGitDir = errors.New("not a git directory")
-
-// resolveGitDir is the git directory of a checked-out repository: its .git
-// directory, or where a .git file says it is. Anything that leads to a share is
-// errNetworkPath, and a folder that is not a repository is errNoGitDir.
-func resolveGitDir(work string) (string, error) {
-	dot := filepath.Join(work, ".git")
-	fi, err := fsLstat(dot)
-	if err != nil {
-		if absent(err) {
-			return "", errNoGitDir
-		}
-		return "", err
-	}
-	if fi.IsDir() {
-		return dot, nil
-	}
-	if fi.Size() > 4096 {
-		return "", errNoGitDir
-	}
-	data, err := fsReadFile(dot)
-	if err != nil {
-		if blocked(err) {
-			return "", err
-		}
-		return "", errNoGitDir
-	}
-	line, _, _ := strings.Cut(string(data), "\n")
-	target, ok := strings.CutPrefix(strings.TrimSpace(line), "gitdir:")
-	if !ok {
-		return "", errNoGitDir
-	}
-	target = filepath.FromSlash(strings.TrimSpace(target))
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(work, target)
-	}
-	target = filepath.Clean(target)
-	if err := guard(target); err != nil {
-		return "", err
-	}
-	return target, nil
-}
-
 // scanSubmodule is ScanPrograms for a submodule's own git directory. A
 // hooksPath that is relative is relative to the submodule's working tree. Its
 // configuration is read by git every time, and not remembered between scans:
@@ -1198,8 +1159,10 @@ func (s *scanner) scanSubmodule(sub submodule) []Program {
 	cfg := filepath.Join(sub.gitDir, "config")
 	var items []Program
 	var hooksPath *configEntry
-	fi, err := fsStat(cfg)
+	fi, err := s.fs.Stat(cfg)
 	switch {
+	case err == nil && !fi.Mode().IsRegular():
+		items = append(items, fsItem(errNotRegular, cfg, name))
 	case err == nil && fi.Size() > maxConfigBytes:
 		items = append(items, Program{Kind: "limit", Where: cfg, Submodule: name,
 			Value: "a configuration file of " + strconv.FormatInt(fi.Size(), 10) + " bytes is larger than the " +

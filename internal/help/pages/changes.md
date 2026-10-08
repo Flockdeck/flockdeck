@@ -108,9 +108,10 @@ repository and accepting it just this time.
   `pushInsteadOf` rule turns into a folder. A remote that uses a helper such as
   `ext::`, which runs a command, is listed too. A folder that is there and
   cannot be told from a repository, a `file://` address for another machine and
-  a network share are listed as things Flockdeck could not read. Flockdeck does
-  not open a network share, or follow a link to one, since Windows would connect
-  to it. The remote's own configuration is read as well: a setting in it that
+  a network share are listed as things Flockdeck could not read. On Windows the
+  scan does not follow links to network shares it can recognise, since Windows
+  would connect to the share and offer your credentials; see the limits below
+  for what it cannot recognise. The remote's own configuration is read as well: a setting in it that
   runs a program (an fsmonitor command, a filter, a hooks path) is listed, and an
   edit to it is a change. A push that updates the remote's checked-out branch
   (`receive.denyCurrentBranch = updateInstead`) is the case that runs them. A
@@ -188,10 +189,25 @@ make Flockdeck run. Still outside it:
   that reads it use memory until the 15 second limit; Flockdeck keeps 8 MB of
   what it prints.
 - An agent running as you that can write the file of accepted state.
-- A configuration file that includes a file on a network share (`include.path`):
-  git itself reads it when Flockdeck asks for the configuration, so Windows
-  connects to the share. Flockdeck cannot stop that; it can only list what git
-  printed.
+- A configuration file that includes a file on a network share (`include.path`),
+  in your project, in a submodule or in a remote that is a folder on this
+  machine: git itself reads it when Flockdeck asks for the configuration, so
+  Windows connects to the share. Flockdeck cannot stop that; it can only list
+  what git printed. The same goes for a project's `.git` file or `core.worktree`
+  that points at a share. The git commands Flockdeck runs in your own project to
+  find the repository, read its configuration and list its files (`rev-parse`,
+  `config`, `ls-files`) are not checked first, and never were.
+- Network drives that are mapped to a letter (`Z:`) and `subst` drives look
+  like local disks and are not recognised.
+- The scan looks at a path and then the check or read follows. A link changed
+  in between is not seen.
+- Links that are chained deeper than 8, that lead back to themselves, or that
+  make a walk longer than the scan allows (256 steps for one path, and a fixed
+  number of new links per scan) are listed as "too many links to follow", asked
+  about every time and never remembered. So is a pipe or a device where a file
+  or folder should be, which Flockdeck does not open, and a call to the file
+  system that does not answer within two seconds or when too many are already
+  waiting.
 
 An agent's own git commands are for [auto-review](#status) and the agent's
 permissions. Flockdeck never runs `git mergetool`, so `merge.tool` and

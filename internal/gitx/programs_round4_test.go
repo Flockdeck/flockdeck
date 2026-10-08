@@ -69,7 +69,7 @@ func noEval(t *testing.T) {
 	was := evalSymlinks
 	t.Cleanup(func() { evalSymlinks = was })
 	evalSymlinks = func(p string) (string, error) {
-		if isNetworkPath(p) || guard(p) != nil {
+		if isNetworkPath(p) || tfs().guard(p) != nil {
 			t.Errorf("EvalSymlinks was called on %s, which is or leads to a share", p)
 		}
 		return was(p)
@@ -151,12 +151,12 @@ func TestARemotesHooksPathOnAShareIsNeverOpened(t *testing.T) {
 func TestCanonicalLeavesAShareAloneAndFollowsNoLinkToOne(t *testing.T) {
 	windowsOnly(t)
 	noEval(t)
-	if _, err := fsCanonical(blackhole + `b`); !errors.Is(err, errNetworkPath) {
+	if _, err := tfs().Canonical(blackhole + `b`); !errors.Is(err, errNetworkPath) {
 		t.Errorf("fsCanonical on a share = %v, want errNetworkPath", err)
 	}
 	link := filepath.Join(t.TempDir(), "l")
 	linkToShare(t, link)
-	if _, err := fsCanonical(filepath.Join(link, "deeper")); !errors.Is(err, errNetworkPath) {
+	if _, err := tfs().Canonical(filepath.Join(link, "deeper")); !errors.Is(err, errNetworkPath) {
 		t.Errorf("fsCanonical through a link to a share = %v, want errNetworkPath", err)
 	}
 }

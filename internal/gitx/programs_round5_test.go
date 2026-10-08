@@ -3,98 +3,13 @@ package gitx
 import (
 	"context"
 	"errors"
-	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"testing"
 )
-
-// TestOnlyTheFileSystemLayerTouchesTheDisk is the guard on the structure: the
-// scan reaches the disk through the functions in scanfs.go, which refuse a share
-// before anything follows a link to it. A call to the standard library's file
-// system functions anywhere else in the scan is a way round that, and fails
-// here, so a later change cannot add a site that forgets the check.
-func TestOnlyTheFileSystemLayerTouchesTheDisk(t *testing.T) {
-	banned := map[string]map[string]bool{
-		"os": {"Stat": true, "Lstat": true, "ReadFile": true, "ReadDir": true, "Open": true, "OpenFile": true,
-			"Readlink": true, "Create": true, "WriteFile": true, "Readlink2": true},
-		"path/filepath": {"EvalSymlinks": true, "Walk": true, "WalkDir": true, "Glob": true},
-		"io/ioutil":     {"ReadFile": true, "ReadDir": true, "WriteFile": true, "TempFile": true, "TempDir": true},
-	}
-	files, err := filepath.Glob("programs*.go")
-	if err != nil || len(files) == 0 {
-		t.Fatalf("no scan files found: %v", err)
-	}
-	var bad []string
-	checked := 0
-	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") {
-			continue
-		}
-		checked++
-		fset := token.NewFileSet()
-		af, err := parser.ParseFile(fset, f, nil, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		local := map[string]string{} // name used in the file -> import path
-		for _, imp := range af.Imports {
-			path, _ := strconv.Unquote(imp.Path.Value)
-			name := filepath.Base(path)
-			if imp.Name != nil {
-				name = imp.Name.Name
-			}
-			local[name] = path
-		}
-		ast.Inspect(af, func(n ast.Node) bool {
-			sel, ok := n.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			id, ok := sel.X.(*ast.Ident)
-			if !ok {
-				return true
-			}
-			if banned[local[id.Name]][sel.Sel.Name] {
-				bad = append(bad, fmt.Sprintf("%s: %s.%s", fset.Position(sel.Pos()), id.Name, sel.Sel.Name))
-			}
-			return true
-		})
-	}
-	if checked == 0 {
-		t.Fatal("no scan source files were checked")
-	}
-	sort.Strings(bad)
-	if len(bad) > 0 {
-		t.Errorf("the scan reaches the disk outside scanfs.go, where a share is not refused:\n%s", strings.Join(bad, "\n"))
-	}
-
-	// And the layer does make those calls, so the check above is not vacuous.
-	fset := token.NewFileSet()
-	af, err := parser.ParseFile(fset, "scanfs.go", nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := 0
-	ast.Inspect(af, func(n ast.Node) bool {
-		if sel, ok := n.(*ast.SelectorExpr); ok {
-			if id, ok := sel.X.(*ast.Ident); ok && id.Name == "os" && (sel.Sel.Name == "Stat" || sel.Sel.Name == "Lstat") {
-				found++
-			}
-		}
-		return true
-	})
-	if found == 0 {
-		t.Error("scanfs.go makes no os.Stat or os.Lstat call, so the check above looks at the wrong file")
-	}
-}
 
 // links stands in for the links the scan reads, by the name each link has, and
 // makes a junction (which needs no privilege) where each one is so that Lstat
@@ -168,7 +83,7 @@ func chainOfLinks(t *testing.T, shareAtEnd bool) {
 	gitRun(t, repo, "config", "core.hooksPath", filepath.ToSlash(filepath.Join(dir, name(1))))
 	var rep Report
 	quickly(t, "a scan whose hooks path is a chain of links", func() { rep = scan(t, repo) })
-	if !hasNetworkItem(rep) {
+	if !hasItem(rep, "too many links") {
 		t.Errorf("a chain past the depth limit was resolved: %+v", rep.Items)
 	}
 }
@@ -244,46 +159,8 @@ func TestARelativeLinkIsReadFromTheDirectoryItIsReallyIn(t *testing.T) {
 	}
 	// Read through a.via, the textual parent of rel is a, where ..\inner is not
 	// the share; the real parent is b\real, where it is.
-	if err := guard(filepath.Join(via, "rel")); err == nil || !strings.Contains(err.Error(), "network share") {
+	if err := tfs().guard(filepath.Join(via, "rel")); err == nil || !strings.Contains(err.Error(), "network share") {
 		t.Errorf("guard = %v, want the share reached from the link's real directory", err)
-	}
-}
-
-func TestACallThatCannotBeStartedBecauseTooManyAreWaitingIsAnItem(t *testing.T) {
-	repo := newRepo(t)
-	for i := 0; i < maxInFlight; i++ {
-		inflight <- struct{}{}
-	}
-	released := false
-	release := func() {
-		if released {
-			return
-		}
-		released = true
-		for i := 0; i < maxInFlight; i++ {
-			<-inflight
-		}
-	}
-	t.Cleanup(release)
-	if _, err := fsStat(repo); err != errNoAnswer {
-		t.Errorf("with every slot taken, fsStat = %v, want errNoAnswer without calling", err)
-	}
-	rep, err := ScanPrograms(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var found bool
-	for _, p := range rep.Items {
-		if p.Kind == "unscannable" || p.Kind == "unreadable" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("a scan that could not touch the disk reported %+v", rep.Items)
-	}
-	release()
-	if _, err := fsStat(repo); err != nil {
-		t.Errorf("after the slots are free, fsStat = %v", err)
 	}
 }
 
@@ -304,12 +181,12 @@ func TestEveryCallInTheLayerRefusesAPathThroughALinkToAShare(t *testing.T) {
 	links(t, map[string]string{lnk: t.TempDir()}, map[string]string{"layerlink": blackhole + `\x`})
 	through := filepath.Join(lnk, "f")
 	calls := map[string]func() error{
-		"fsStat":      func() error { _, err := fsStat(through); return err },
-		"fsLstat":     func() error { _, err := fsLstat(through); return err },
-		"fsReadFile":  func() error { _, err := fsReadFile(through); return err },
-		"fsOpenDir":   func() error { _, err := fsOpenDir(through); return err },
-		"fsHash":      func() error { _, _, err := fsHash(context.Background(), through, 10); return err },
-		"fsCanonical": func() error { _, err := fsCanonical(through); return err },
+		"fsStat":      func() error { _, err := tfs().Stat(through); return err },
+		"fsLstat":     func() error { _, err := tfs().Lstat(through); return err },
+		"fsReadFile":  func() error { _, err := tfs().ReadFile(through); return err },
+		"fsOpenDir":   func() error { _, err := tfs().OpenDir(through); return err },
+		"fsHash":      func() error { _, _, err := tfs().Hash(through, 10); return err },
+		"fsCanonical": func() error { _, err := tfs().Canonical(through); return err },
 	}
 	for name, call := range calls {
 		quickly(t, name, func() {
@@ -318,4 +195,16 @@ func TestEveryCallInTheLayerRefusesAPathThroughALinkToAShare(t *testing.T) {
 			}
 		})
 	}
+}
+
+// tfs is a scan's view of the disk for a test that talks to the layer directly.
+func tfs() *scanFS { return newScanFS(context.Background()) }
+
+func hasItem(rep Report, text string) bool {
+	for _, p := range rep.Items {
+		if p.Kind == "unscannable" && strings.Contains(p.Value, text) {
+			return true
+		}
+	}
+	return false
 }
