@@ -712,3 +712,35 @@ func TestACancelledCallSkipsTheLineItWasOn(t *testing.T) {
 		t.Errorf("entries %d, skipped %d, next %d, done %v", len(pg.Entries), pg.Skipped, pg.Next, pg.Done)
 	}
 }
+
+// A line still being cleaned a whole budget after the budget ran out is skipped
+// and counted, not shown part cleaned. The clock is replaced so that the test does
+// not wait for it.
+func TestALineCleanedAWholeBudgetLateIsSkippedAndCounted(t *testing.T) {
+	deadline := time.Now().Add(time.Hour)
+	ctx, cancel := context.WithDeadline(bg, deadline)
+	defer cancel()
+	defer func(old func() time.Time) { now = old }(now)
+	data := []byte(manyLines(3))
+	read := func(at time.Time) Page {
+		now = func() time.Time { return at }
+		pg, err := pageOf(ctx, bytes.NewReader(data), int64(len(data)), 0, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pg
+	}
+	// Past the deadline by less than a budget the lines are still cleaned; the page ends
+	// only when the context says so.
+	if pg := read(deadline.Add(DefaultBudget / 2)); len(pg.Entries) != 4 || pg.Skipped != 0 {
+		t.Errorf("half a budget late: %d entries, %d skipped", len(pg.Entries), pg.Skipped)
+	}
+	// A whole budget past it, each line is skipped and counted.
+	if pg := read(deadline.Add(DefaultBudget + time.Millisecond)); len(pg.Entries) != 0 || pg.Skipped != 4 || pg.Next == 0 {
+		t.Errorf("a budget late: %d entries, %d skipped, next %d", len(pg.Entries), pg.Skipped, pg.Next)
+	}
+	// With time to spare nothing is skipped.
+	if pg := read(deadline.Add(-time.Minute)); len(pg.Entries) != 4 || pg.Skipped != 0 {
+		t.Errorf("on time: %d entries, %d skipped", len(pg.Entries), pg.Skipped)
+	}
+}

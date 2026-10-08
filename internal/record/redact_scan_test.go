@@ -268,30 +268,35 @@ var adversarial = map[string]string{
 	"assign-equals": "a=", "colons": "token:", "quote-pairs": `token="a"`,
 }
 
-// Doubling a text doubles the time to read it, within the noise of a clock.
+// Doubling a text doubles the time to read it. This is a coarse guard, meant to
+// fail fast on a scan that is quadratic: it times each text at 64 KiB and 128 KiB,
+// stops at the first that is too slow, and does not wait for the bigger sizes. The
+// absolute limit is what catches a regression (a quadratic scan takes seconds at
+// 128 KiB, a linear one tens of milliseconds); the ratio limit between the two
+// sizes is loose, because a clock on a shared machine is noisy.
 func TestRedactTimeGrowsLinearlyOnEveryAdversarialText(t *testing.T) {
 	best := func(s string) time.Duration {
 		d := time.Duration(1 << 62)
-		for range 3 {
+		for range 2 {
 			start := time.Now()
 			Redact(s)
 			d = min(d, time.Since(start))
 		}
 		return d
 	}
+	began := time.Now()
 	for name, unit := range adversarial {
-		var prev time.Duration
-		for _, size := range []int{64 << 10, 128 << 10, 256 << 10} {
-			s := strings.Repeat(unit, size/len(unit))
-			d := best(s)
-			t.Logf("%-14s %6d bytes %v", name, len(s), d)
-			if prev > 5*time.Millisecond && d > 8*prev {
-				t.Errorf("%s: %d bytes took %v, the half took %v", name, len(s), d, prev)
-			}
-			if d > slow*750*time.Millisecond {
-				t.Errorf("%s: %d bytes took %v", name, len(s), d)
-			}
-			prev = d
+		small := best(strings.Repeat(unit, 64<<10/len(unit)))
+		big := best(strings.Repeat(unit, 128<<10/len(unit)))
+		t.Logf("%-14s 64K %v 128K %v", name, small, big)
+		if big > slow*300*time.Millisecond {
+			t.Fatalf("%s: 128 KiB took %v", name, big)
+		}
+		if small > 10*time.Millisecond*slow && big > 6*small {
+			t.Fatalf("%s: 128 KiB took %v, 64 KiB took %v", name, big, small)
+		}
+		if time.Since(began) > slow*20*time.Second {
+			t.Fatalf("the texts took %v in all", time.Since(began))
 		}
 	}
 }
@@ -357,6 +362,119 @@ func TestOrdinaryLinesAreLeftAlone(t *testing.T) {
 	} {
 		if got := Redact(in); got != in {
 			t.Errorf("Redact(%q) = %q", in, got)
+		}
+	}
+}
+
+// A number under a name that ends in pass is a password as often as not.
+func TestNumbersUnderPassNamesAreStillRedacted(t *testing.T) {
+	for in, want := range map[string]string{
+		"DB_PASS=12345678":   "DB_PASS=[redacted]",
+		`"db_pass": 123456`:  `"db_pass": [redacted]`,
+		"mypass: 1234":       "mypass: [redacted]",
+		"password=12345678":  "password=[redacted]",
+		`"password": 123456`: `"password": [redacted]`,
+		"DB_PASS=true":       "DB_PASS=true",
+		`"vault_pass": true`: `"vault_pass": true`,
+		"pass: true":         "pass: true",
+		"db_pass=0":          "db_pass=0",
+		"db_pass=none":       "db_pass=none",
+		"app_pass: 1":        "app_pass: 1",
+	} {
+		if got := Redact(in); got != want {
+			t.Errorf("Redact(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Usage text names a flag's value and describes it; neither is a value.
+func TestUsageLinesAreLeftAlone(t *testing.T) {
+	for _, in := range []string{
+		"  --password PASSWORD",
+		"  --token TOKEN",
+		"  --api-key API_KEY",
+		"  --api-key APIKEY    the key",
+		"  --secret              print the secret",
+		"  --password     the password to log in with",
+	} {
+		if got := Redact(in); got != in {
+			t.Errorf("Redact(%q) = %q", in, got)
+		}
+	}
+	if got := Redact("x --password hunter2"); got != "x --password [redacted]" {
+		t.Errorf("a real value: %q", got)
+	}
+	if got := Redact("x --token Token9x"); got != "x --token [redacted]" {
+		t.Errorf("a value that only starts like the name: %q", got)
+	}
+}
+
+// A secret that crosses the limit is not left as the part before it.
+func TestASecretAcrossTheLimitIsNotLeftAsItsFirstPart(t *testing.T) {
+	const alnum = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	body := func(n int) string { return strings.Repeat(alnum, n/len(alnum)+1)[:n] }
+	secrets := map[string]string{
+		"ghp":      "gh" + "p_" + body(36),
+		"sk":       "sk-" + "ant-api03-" + body(40),
+		"jwt":      "ey" + "J" + body(30) + "." + body(30) + "." + body(30),
+		"aws":      "AK" + "IA" + "IOSFODNN7EXAMPLE",
+		"postgres": "postgres:" + "//user:" + "pw" + body(24) + "@db.example.com/app",
+	}
+	for name, secret := range secrets {
+		for _, sep := range []string{" ", "\n", ""} {
+			if sep == "" && (name == "aws" || name == "jwt") {
+				continue // glued to a word they are not tokens: they need a boundary
+			}
+			for _, before := range []int{3, 40, 255} {
+				filler := strings.Repeat("a b ", MaxRedactBytes/4)[:MaxRedactBytes-before-len(sep)]
+				if sep == "" {
+					filler = strings.Repeat("a", MaxRedactBytes-before)
+				}
+				text := filler + sep + secret + " tail and some more text after it, past the limit"
+				out := Redact(text)
+				if len(out) > MaxRedactBytes+len(Redacted) {
+					t.Fatalf("%s: %d bytes out", name, len(out))
+				}
+				check := secret
+				if name == "postgres" {
+					check = secret[strings.Index(secret, "pw"):strings.Index(secret, "@")]
+				}
+				for i := 0; i+8 <= len(check); i++ {
+					if strings.Contains(out, check[i:i+8]) {
+						t.Fatalf("%s sep %q before %d: %q of the secret is in the output", name, sep, before, check[i:i+8])
+					}
+				}
+				if strings.Contains(out, Redacted+Redacted) || strings.Contains(out, "["+Redacted) {
+					t.Fatalf("%s sep %q before %d: marks run together at the end: %q", name, sep, before, out[len(out)-30:])
+				}
+				if Redact(out) != out {
+					t.Fatalf("%s: the output changes when redacted again", name)
+				}
+			}
+		}
+	}
+}
+
+// The cut goes back to a separator, so a cut inside a word or just after a mark
+// leaves one mark and nothing else.
+func TestTheCutDoesNotMakeTwoMarksOrAHalfOne(t *testing.T) {
+	for _, tail := range []string{"[redacted]", "[red", "[", "x[redacted]y", "password=abc"} {
+		text := strings.Repeat("a ", MaxRedactBytes/2)[:MaxRedactBytes-len(tail)] + tail + " and more after the limit"
+		out := Redact(text)
+		if !strings.HasSuffix(out, Redacted) || strings.HasSuffix(out, Redacted+Redacted) || strings.HasSuffix(out, "["+Redacted) {
+			t.Errorf("tail %q: ends %q", tail, out[len(out)-24:])
+		}
+	}
+}
+
+// A cut that falls just after the start of a mark in the text does not leave half
+// a mark in front of the one that is added.
+func TestACutAfterTheStartOfAMarkLeavesOneMark(t *testing.T) {
+	for _, tail := range []string{"[redacted", "[redact", "x[r"} {
+		text := strings.Repeat("a ", MaxRedactBytes/2)[:MaxRedactBytes-len(tail)-3] + tail + " and some more text past the limit"
+		out := Redact(text)
+		if strings.Contains(out, "[redact[") || strings.Contains(out, "[r[") || !strings.HasSuffix(out, Redacted) || strings.HasSuffix(out, "["+Redacted) {
+			t.Errorf("tail %q: ends %q", tail, out[len(out)-30:])
 		}
 	}
 }

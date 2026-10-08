@@ -95,7 +95,7 @@ func nameIsSecretLower(l string, wide bool) bool {
 			}
 		}
 	}
-	return false
+	return wide && endsInKnownPass(l)
 }
 
 // keyAfter reports whether s starts with "key" or with a dash or underscore and
@@ -362,6 +362,7 @@ func (sc *scan) assigned(out []Span, start, end int) []Span {
 	s := sc.s
 	sc.next = end
 	p := end
+	flag := false
 	if p < len(s) && (s[p] == '"' || s[p] == '\'') {
 		p++
 	}
@@ -375,7 +376,12 @@ func (sc *scan) assigned(out []Span, start, end int) []Span {
 			p++
 		}
 	case sc.wide && s[start] == '-' && end < len(s) && (s[end] == ' ' || s[end] == '\t') && flagTakesSecret(s[start:end]):
-		// A flag: --password hunter2.
+		// A flag: --password hunter2. Two spaces or more after it are the column of
+		// a help text ("--secret      print the secret"), not a value.
+		if end+1 < len(s) && s[end+1] == ' ' {
+			return out
+		}
+		flag = true
 		p = end
 		for p < len(s) && (s[p] == ' ' || s[p] == '\t') {
 			p++
@@ -415,6 +421,10 @@ func (sc *scan) assigned(out []Span, start, end int) []Span {
 		return out
 	}
 	value := s[p:e]
+	if flag && isPlaceholderFor(s[start:end], value) {
+		// "--password PASSWORD" in a usage line names the value, it is not one.
+		return out
+	}
 	name := strings.ToLower(strings.Trim(s[start:p], " \t'\":="))
 	if sc.wide {
 		name = strings.ToLower(s[start:end])
@@ -606,11 +616,18 @@ func Redact(s string) string {
 // ends a quoted value, two pieces of a flag and its value brought together.
 func redactOnce(s string) string {
 	if len(s) > MaxRedactBytes {
-		cut := MaxRedactBytes
-		for cut > 0 && !utf8.RuneStart(s[cut]) {
-			cut--
+		head := redactOnce(s[:capCut(s)])
+		// Not a half of a mark, and not a second mark after one.
+		for k := len(Redacted) - 1; k >= 1; k-- {
+			if strings.HasSuffix(head, Redacted[:k]) {
+				head = head[:len(head)-k]
+				break
+			}
 		}
-		return redactOnce(s[:cut]) + Redacted
+		if strings.HasSuffix(head, Redacted) {
+			return head
+		}
+		return head + Redacted
 	}
 	spans := findOthers(s, true)
 	if len(spans) > 0 {
@@ -745,16 +762,61 @@ func placeholder(b byte) bool {
 	return b == '%' || b == '$' || b == '<' || b == '{' || b == '[' || b == '('
 }
 
-// boolish reports whether v is a yes or no, a number or an empty value.
+// boolish reports whether v is a yes or no, an empty value, or a 0 or 1.
 func boolish(v string) bool {
 	switch strings.ToLower(v) {
-	case "true", "false", "null", "nil", "none", "yes", "no", "on", "off":
+	case "true", "false", "null", "nil", "none", "yes", "no", "on", "off", "0", "1":
 		return true
 	}
-	for i := 0; i < len(v); i++ {
-		if v[i] < '0' || v[i] > '9' {
-			return false
+	return false
+}
+
+// isPlaceholderFor reports whether value is the name of the flag in capitals, as a
+// usage line writes it: --password PASSWORD, --api-key API_KEY.
+func isPlaceholderFor(flag, value string) bool {
+	norm := func(s string) string {
+		return strings.ToUpper(strings.NewReplacer("-", "", "_", "").Replace(s))
+	}
+	return value == strings.ToUpper(value) && norm(value) == norm(flag)
+}
+
+// capCut is where a text over MaxRedactBytes is cut. A secret that crosses the
+// limit would be left as the part of it before the limit, which is too short for
+// a pattern to see, so the cut goes back to the last space, quote or separator in
+// the 256 bytes before the limit, or to 256 bytes before it if there is none.
+func capCut(s string) int {
+	const back = 256
+	cut := MaxRedactBytes
+	lo := cut - back
+	for i := cut - 1; i >= lo; i-- {
+		switch s[i] {
+		case ' ', '\t', '\n', '\r', '"', '\'', ',', ';', '(', ')', '<', '>', '{', '}', '[', ']':
+			return i
 		}
 	}
-	return true
+	cut = lo
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return cut
+}
+
+// knownPassPrefixes are the words that, glued to "pass", make the name of a
+// password (dbpass, mypass). A word that merely ends in pass (bypass, compass,
+// trespass) is not one.
+var knownPassPrefixes = []string{"db", "my", "app", "admin", "user", "root", "smtp", "ftp", "mail"}
+
+// endsInKnownPass reports whether the name l, in lower case, ends in one of
+// those words and "pass", at the start of the name or after a separator.
+func endsInKnownPass(l string) bool {
+	for _, p := range knownPassPrefixes {
+		if !strings.HasSuffix(l, p+"pass") {
+			continue
+		}
+		at := len(l) - len(p) - len("pass")
+		if at == 0 || !isAlnum(l[at-1]) {
+			return true
+		}
+	}
+	return false
 }

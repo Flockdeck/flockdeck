@@ -719,6 +719,9 @@ func lineStop(ctx context.Context) func() bool {
 	hard, ok := ctx.Deadline()
 	hard = hard.Add(DefaultBudget)
 	return func() bool {
-		return ctx.Err() == context.Canceled || ok && time.Now().After(hard)
+		return ctx.Err() == context.Canceled || ok && now().After(hard)
 	}
 }
+
+// now is the clock lineStop reads. Tests replace it.
+var now = time.Now
