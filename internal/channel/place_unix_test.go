@@ -20,9 +20,9 @@ func socketPathFor(stateDir string, pid int, started time.Time) string {
 }
 
 func TestPrimaryPlacementIsInTheStateDirectory(t *testing.T) {
-	state := t.TempDir()
-	tmp := t.TempDir()
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	state := shortTemp(t)
+	tmp := shortTemp(t)
+	t.Setenv("XDG_RUNTIME_DIR", shortTemp(t))
 	c := start(t, func(cfg *Config) { cfg.StateDir = state; cfg.Seams.Tmp = tmp })
 	if got, want := filepath.Dir(c.Path()), filepath.Join(state, "c"); got != want {
 		t.Fatalf("socket is in %s, want %s", got, want)
@@ -58,7 +58,7 @@ func TestPlacementTable(t *testing.T) {
 	eperm := &net.OpError{Op: "listen", Err: os.NewSyscallError("bind", syscall.EPERM)}
 	eopn := &net.OpError{Op: "listen", Err: os.NewSyscallError("bind", syscall.EOPNOTSUPP)}
 	long := func(t *testing.T) string {
-		dir := t.TempDir()
+		dir := shortTemp(t)
 		for len(dir) < 110 {
 			dir = filepath.Join(dir, strings.Repeat("d", 20))
 		}
@@ -74,12 +74,12 @@ func TestPlacementTable(t *testing.T) {
 		wantFall bool // the socket is in the fallback location
 		wantFail bool
 	}{
-		{name: "short path uses the state directory", state: func(t *testing.T) string { return t.TempDir() }},
+		{name: "short path uses the state directory", state: func(t *testing.T) string { return shortTemp(t) }},
 		{name: "path over 100 bytes uses the fallback", state: long, wantFall: true},
-		{name: "path at the limit stays", state: func(t *testing.T) string { return t.TempDir() }, maxPath: -1},
-		{name: "path one over the limit falls back", state: func(t *testing.T) string { return t.TempDir() }, maxPath: -2, wantFall: true},
+		{name: "path at the limit stays", state: func(t *testing.T) string { return shortTemp(t) }, maxPath: -1},
+		{name: "path one over the limit falls back", state: func(t *testing.T) string { return shortTemp(t) }, maxPath: -2, wantFall: true},
 		{
-			name: "bind refused with EPERM falls back", state: func(t *testing.T) string { return t.TempDir() },
+			name: "bind refused with EPERM falls back", state: func(t *testing.T) string { return shortTemp(t) },
 			bind: func(path string) (net.Listener, error) {
 				if strings.Contains(path, string(filepath.Separator)+"c"+string(filepath.Separator)) {
 					return nil, eperm
@@ -89,7 +89,7 @@ func TestPlacementTable(t *testing.T) {
 			wantFall: true,
 		},
 		{
-			name: "bind refused with EOPNOTSUPP falls back", state: func(t *testing.T) string { return t.TempDir() },
+			name: "bind refused with EOPNOTSUPP falls back", state: func(t *testing.T) string { return shortTemp(t) },
 			bind: func(path string) (net.Listener, error) {
 				if strings.Contains(path, string(filepath.Separator)+"c"+string(filepath.Separator)) {
 					return nil, eopn
@@ -99,7 +99,7 @@ func TestPlacementTable(t *testing.T) {
 			wantFall: true,
 		},
 		{
-			name: "both places refuse", state: func(t *testing.T) string { return t.TempDir() },
+			name: "both places refuse", state: func(t *testing.T) string { return shortTemp(t) },
 			bind:     func(string) (net.Listener, error) { return nil, eperm },
 			wantFail: true,
 		},
@@ -107,7 +107,7 @@ func TestPlacementTable(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			state, tmp := tc.state(t), t.TempDir()
+			state, tmp := tc.state(t), shortTemp(t)
 			started := time.Now()
 			cfg := Config{
 				StateDir: state, PID: os.Getpid(), Started: started,
@@ -157,7 +157,7 @@ func TestPlacementTable(t *testing.T) {
 func TestDirectoryChecks(t *testing.T) {
 	uid := os.Geteuid()
 	mk := func(t *testing.T, mode os.FileMode) string {
-		dir := filepath.Join(t.TempDir(), "d")
+		dir := filepath.Join(shortTemp(t), "d")
 		if err := os.Mkdir(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -180,7 +180,7 @@ func TestDirectoryChecks(t *testing.T) {
 	}
 	t.Run("a link to a good directory", func(t *testing.T) {
 		good := mk(t, 0o700)
-		link := filepath.Join(t.TempDir(), "l")
+		link := filepath.Join(shortTemp(t), "l")
 		if err := os.Symlink(good, link); err != nil {
 			t.Skip("no symlinks:", err)
 		}
@@ -189,7 +189,7 @@ func TestDirectoryChecks(t *testing.T) {
 		}
 	})
 	t.Run("a file", func(t *testing.T) {
-		f := filepath.Join(t.TempDir(), "f")
+		f := filepath.Join(shortTemp(t), "f")
 		os.WriteFile(f, nil, 0o700)
 		if err := checkDir(f, uid); err == nil {
 			t.Fatal("accepted a file")
@@ -201,7 +201,7 @@ func TestDirectoryChecks(t *testing.T) {
 		}
 	})
 	t.Run("ensureDir makes 0700 and checks it", func(t *testing.T) {
-		dir := filepath.Join(t.TempDir(), "x", "c")
+		dir := filepath.Join(shortTemp(t), "x", "c")
 		if err := ensureDir(dir, uid); err != nil {
 			t.Fatal(err)
 		}
@@ -223,7 +223,7 @@ func TestDirectoryChecks(t *testing.T) {
 
 func TestSocketChecks(t *testing.T) {
 	uid := os.Geteuid()
-	dir := t.TempDir()
+	dir := shortTemp(t)
 	reg := filepath.Join(dir, "r")
 	os.WriteFile(reg, nil, 0o600)
 	if err := checkSocket(reg, uid); err == nil {
@@ -269,7 +269,7 @@ func squat(t *testing.T, names ...string) {
 }
 
 func TestSquattedPrimaryDirectoryFallsBackWithTheSameChecks(t *testing.T) {
-	state, tmp := t.TempDir(), t.TempDir()
+	state, tmp := shortTemp(t), shortTemp(t)
 	os.Mkdir(filepath.Join(state, "c"), 0o700)
 	squat(t, "c")
 	c := start(t, func(cfg *Config) { cfg.StateDir = state; cfg.Seams.Tmp = tmp })
@@ -282,7 +282,7 @@ func TestSquattedPrimaryDirectoryFallsBackWithTheSameChecks(t *testing.T) {
 }
 
 func TestSquattedFallbackDirectoryIsRefusedToo(t *testing.T) {
-	state, tmp := t.TempDir(), t.TempDir()
+	state, tmp := shortTemp(t), shortTemp(t)
 	name := "flockdeck-" + strconv.Itoa(os.Geteuid())
 	os.Mkdir(filepath.Join(tmp, name), 0o700)
 	squat(t, "c", name)
@@ -302,7 +302,7 @@ func TestSquattedFallbackDirectoryIsRefusedToo(t *testing.T) {
 }
 
 func TestSymlinkedFallbackDirectoryIsRefused(t *testing.T) {
-	state, tmp, elsewhere := t.TempDir(), t.TempDir(), t.TempDir()
+	state, tmp, elsewhere := shortTemp(t), shortTemp(t), shortTemp(t)
 	os.Chmod(elsewhere, 0o700)
 	if err := os.Symlink(elsewhere, filepath.Join(tmp, "flockdeck-"+strconv.Itoa(os.Geteuid()))); err != nil {
 		t.Skip("no symlinks:", err)
@@ -327,7 +327,7 @@ func TestSymlinkedFallbackDirectoryIsRefused(t *testing.T) {
 }
 
 func TestLeftoverSocketOfOursIsReplaced(t *testing.T) {
-	state := t.TempDir()
+	state := shortTemp(t)
 	started := time.Now()
 	path := socketPathFor(state, os.Getpid(), started)
 	if err := ensureDir(filepath.Dir(path), os.Geteuid()); err != nil {
@@ -346,12 +346,12 @@ func TestLeftoverSocketOfOursIsReplaced(t *testing.T) {
 }
 
 func TestSomethingElseAtTheSocketPathIsNotRemoved(t *testing.T) {
-	state := t.TempDir()
+	state := shortTemp(t)
 	started := time.Now()
 	path := socketPathFor(state, os.Getpid(), started)
 	ensureDir(filepath.Dir(path), os.Geteuid())
 	os.WriteFile(path, []byte("keep"), 0o600)
-	tmp := t.TempDir()
+	tmp := shortTemp(t)
 	c := start(t, func(cfg *Config) { cfg.StateDir = state; cfg.Started = started; cfg.Seams.Tmp = tmp })
 	if filepath.Dir(c.Path()) == filepath.Dir(path) {
 		t.Fatal("bound over a regular file")
@@ -367,17 +367,6 @@ func TestCloseRemovesTheSocket(t *testing.T) {
 	c.Close()
 	if _, err := os.Lstat(path); !os.IsNotExist(err) {
 		t.Fatalf("socket left behind: %v", err)
-	}
-}
-
-func waitFor(t *testing.T, what string, f func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for !f() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -462,9 +451,9 @@ func TestWindowsAreToldAfterThreeFailures(t *testing.T) {
 	})
 	fails.Store(1)
 	os.Remove(c.Path())
-	waitFor(t, "three failures", func() bool { return fails.Load() >= 4 })
-	if told.Load() != 1 {
-		t.Fatalf("told %d times after the failures", told.Load())
+	waitFor(t, "the windows to be told", func() bool { return told.Load() == 1 })
+	if fails.Load() < 4 {
+		t.Fatalf("told after only %d failures", fails.Load()-1)
 	}
 	fails.Store(0)
 	waitFor(t, "recovery", func() bool { return answers(c) })

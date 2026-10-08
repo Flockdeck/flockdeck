@@ -20,7 +20,7 @@ import (
 func start(t *testing.T, change func(*Config)) *Channel {
 	t.Helper()
 	cfg := Config{
-		StateDir: t.TempDir(),
+		StateDir: shortTemp(t),
 		PID:      os.Getpid(),
 		Started:  time.Now(),
 		Version:  "1.2.3",
@@ -179,17 +179,7 @@ func TestConnectionLimit(t *testing.T) {
 	// Freeing a place lets the next one in.
 	held[0].Close()
 	held = held[1:]
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		code, _ := post(t, c, "/identify", "")
-		if code == 200 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("no place freed after a connection closed")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitFor(t, "a place to be freed", func() bool { return identifies(c) })
 }
 
 // A connection whose peer is not this user is closed before a byte is read.
@@ -279,7 +269,7 @@ func goroutines() int {
 func TestNoGoroutinesLeftAfterAbruptClose(t *testing.T) {
 	before := goroutines()
 	c, err := Start(Config{
-		StateDir: t.TempDir(), PID: os.Getpid(), Started: time.Now(),
+		StateDir: shortTemp(t), PID: os.Getpid(), Started: time.Now(),
 		Window: func() string { return "x" },
 	})
 	if err != nil {
@@ -342,7 +332,43 @@ func TestIDIsEightHexDigitsAndPerInstance(t *testing.T) {
 }
 
 func TestStartNeedsAWindowVerb(t *testing.T) {
-	if _, err := Start(Config{StateDir: t.TempDir()}); err == nil {
+	if _, err := Start(Config{StateDir: shortTemp(t)}); err == nil {
 		t.Fatal("started without a window verb")
+	}
+}
+
+// shortTemp is a temporary directory with a short path. t.TempDir puts the
+// test's name in the path, which is long enough on Linux to push a socket
+// over the limit and send it to the fallback place.
+func shortTemp(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "fdc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
+// identifies reports whether one request to the channel is answered, without
+// failing the test if it is not.
+func identifies(c *Channel) bool {
+	req, _ := http.NewRequest(http.MethodPost, "http://channel/identify", nil)
+	resp, err := Client(c.Path()).Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == 200
+}
+
+func waitFor(t *testing.T, what string, f func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !f() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
