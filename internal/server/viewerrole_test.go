@@ -237,7 +237,11 @@ func TestAViewerIsSentNothingOfTheDesks(t *testing.T) {
 	sendCmd(t, desk, command{Cmd: "theme", Text: "light"})
 	sendCmd(t, desk, command{Cmd: "newTab"})
 	srv.do(func() { srv.broadcastPrefs(); srv.broadcastKeys() })
-	ws.NewTab(0, ws.ActiveRoot(), "a-private-tab-name")
+	var root string
+	srv.do(func() {
+		root = ws.ActiveRoot()
+		ws.NewTab(0, root, "a-private-tab-name")
+	})
 	srv.Wake()
 
 	types, raw := collectTypes(t, viewer, 2*time.Second)
@@ -249,7 +253,7 @@ func TestAViewerIsSentNothingOfTheDesks(t *testing.T) {
 		}
 	}
 	all := string(slices.Concat(raw...))
-	for _, secret := range []string{"a-private-tab-name", "/secret/place", ws.ActiveRoot()} {
+	for _, secret := range []string{"a-private-tab-name", "/secret/place", root} {
 		if strings.Contains(all, secret) {
 			t.Errorf("a viewer was sent %q", secret)
 		}
