@@ -558,7 +558,11 @@ func TestStartSweepsDeadSocketsAndNothingElse(t *testing.T) {
 	staleSocket(t, foreign)
 	squat(t, "f00dcafe.sock")
 
-	start(t, func(cfg *Config) { cfg.StateDir = state })
+	start(t, func(cfg *Config) {
+		cfg.StateDir = state
+		cfg.Seams.Now = olderBy(2 * time.Minute)
+		cfg.Seams.Pause = func(time.Duration) {}
+	})
 
 	for path, want := range map[string]bool{
 		stale: false, live: true, notOurName: true, regular: true, foreign: true,
@@ -578,5 +582,166 @@ func TestSweepNameRule(t *testing.T) {
 		if staleName(name) != want {
 			t.Errorf("staleName(%q) = %v, want %v", name, !want, want)
 		}
+	}
+}
+
+// olderBy is a clock that runs d ahead, so that sockets made a moment ago are
+// old enough to be swept.
+func olderBy(d time.Duration) func() time.Time {
+	return func() time.Time { return time.Now().Add(d) }
+}
+
+// sweepDir makes a channel directory with one stale socket in it.
+func sweepDir(t *testing.T) (state, sock string) {
+	t.Helper()
+	state = shortTemp(t)
+	dir := filepath.Join(state, "c")
+	if err := ensureDir(dir, os.Geteuid()); err != nil {
+		t.Fatal(err)
+	}
+	sock = filepath.Join(dir, "deadbeef.sock")
+	staleSocket(t, sock)
+	return state, sock
+}
+
+func exists(path string) bool { _, err := os.Lstat(path); return err == nil }
+
+func refusedErr() error {
+	return &net.OpError{Op: "dial", Net: "unix", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
+}
+
+func TestSweepKeepsSocketsYoungerThanTheGrace(t *testing.T) {
+	state, sock := sweepDir(t)
+	var dials atomic.Int32
+	start(t, func(cfg *Config) {
+		cfg.StateDir = state
+		cfg.Seams.Pause = func(time.Duration) {}
+		cfg.Seams.SweepDial = func(string) (net.Conn, error) { dials.Add(1); return nil, refusedErr() }
+		cfg.Seams.Now = olderBy(sweepGrace - 5*time.Second)
+	})
+	if !exists(sock) || dials.Load() != 0 {
+		t.Fatalf("a socket under the grace was swept or even dialled (exists %v, dials %d)", exists(sock), dials.Load())
+	}
+	// Past the grace, with the same refusals, it goes.
+	state2, sock2 := sweepDir(t)
+	start(t, func(cfg *Config) {
+		cfg.StateDir = state2
+		cfg.Seams.Pause = func(time.Duration) {}
+		cfg.Seams.SweepDial = func(string) (net.Conn, error) { return nil, refusedErr() }
+		cfg.Seams.Now = olderBy(sweepGrace + 5*time.Second)
+	})
+	if exists(sock2) {
+		t.Fatal("an old socket that refuses connections was kept")
+	}
+}
+
+func TestSweepNeedsTwoRefusalsAGapApart(t *testing.T) {
+	state, sock := sweepDir(t)
+	var dials, pauses atomic.Int32
+	var gap atomic.Int64
+	start(t, func(cfg *Config) {
+		cfg.StateDir = state
+		cfg.Seams.Now = olderBy(2 * time.Minute)
+		cfg.Seams.Pause = func(d time.Duration) { pauses.Add(1); gap.Store(int64(d)) }
+		cfg.Seams.SweepDial = func(string) (net.Conn, error) {
+			if dials.Add(1) == 1 {
+				return nil, refusedErr()
+			}
+			// The second time somebody is listening.
+			a, b := net.Pipe()
+			b.Close()
+			return a, nil
+		}
+	})
+	if !exists(sock) {
+		t.Fatal("removed a socket that accepted the second time")
+	}
+	if pauses.Load() != 1 || time.Duration(gap.Load()) != sweepGap {
+		t.Fatalf("paused %d times, %v", pauses.Load(), time.Duration(gap.Load()))
+	}
+
+	// Refused both times: removed, after exactly two connects.
+	state2, sock2 := sweepDir(t)
+	var dials2 atomic.Int32
+	start(t, func(cfg *Config) {
+		cfg.StateDir = state2
+		cfg.Seams.Now = olderBy(2 * time.Minute)
+		cfg.Seams.Pause = func(time.Duration) {}
+		cfg.Seams.SweepDial = func(string) (net.Conn, error) { dials2.Add(1); return nil, refusedErr() }
+	})
+	if exists(sock2) || dials2.Load() != 2 {
+		t.Fatalf("exists %v after %d connects, want gone after 2", exists(sock2), dials2.Load())
+	}
+}
+
+func TestSweepKeepsASocketWhoseConnectTimesOut(t *testing.T) {
+	state, sock := sweepDir(t)
+	start(t, func(cfg *Config) {
+		cfg.StateDir = state
+		cfg.Seams.Now = olderBy(2 * time.Minute)
+		cfg.Seams.Pause = func(time.Duration) {}
+		cfg.Seams.SweepDial = func(string) (net.Conn, error) {
+			return nil, &net.OpError{Op: "dial", Net: "unix", Err: os.ErrDeadlineExceeded}
+		}
+	})
+	if !exists(sock) {
+		t.Fatal("removed a socket whose connect only timed out")
+	}
+}
+
+func TestSweepNeverFollowsALink(t *testing.T) {
+	state, _ := sweepDir(t)
+	dir := filepath.Join(state, "c")
+	os.Remove(filepath.Join(dir, "deadbeef.sock"))
+	elsewhere := shortTemp(t)
+	target := filepath.Join(elsewhere, "t.sock")
+	staleSocket(t, target)
+	link := filepath.Join(dir, "deadbeef.sock")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip("no symlinks:", err)
+	}
+	var dials atomic.Int32
+	start(t, func(cfg *Config) {
+		cfg.StateDir = state
+		cfg.Seams.Now = olderBy(2 * time.Minute)
+		cfg.Seams.Pause = func(time.Duration) {}
+		cfg.Seams.SweepDial = func(string) (net.Conn, error) { dials.Add(1); return nil, refusedErr() }
+	})
+	if !exists(link) || !exists(target) || dials.Load() != 0 {
+		t.Fatalf("link %v, target %v, dials %d: a link was followed or removed", exists(link), exists(target), dials.Load())
+	}
+}
+
+// Between the last look and the remove somebody else binds a socket of the
+// same name. It is a different file, and is left alone.
+func TestSweepKeepsWhatReplacedTheCandidateBeforeTheRemove(t *testing.T) {
+	state, sock := sweepDir(t)
+	var live net.Listener
+	t.Cleanup(func() {
+		if live != nil {
+			live.Close()
+		}
+	})
+	start(t, func(cfg *Config) {
+		cfg.StateDir = state
+		cfg.Seams.Now = olderBy(2 * time.Minute)
+		cfg.Seams.Pause = func(time.Duration) {}
+		cfg.Seams.SweepDial = func(string) (net.Conn, error) { return nil, refusedErr() }
+		cfg.Seams.BeforeRemove = func(path string) {
+			// Made beside the old file and renamed over it, so that the two exist
+			// together and the new one cannot be given the old one's inode number.
+			ln, err := net.Listen("unix", path+"x")
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if err := os.Rename(path+"x", path); err != nil {
+				t.Error(err)
+			}
+			live = ln
+		}
+	})
+	if !exists(sock) {
+		t.Fatal("removed the socket that took the candidate's place")
 	}
 }
