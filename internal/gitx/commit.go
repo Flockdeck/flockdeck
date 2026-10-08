@@ -22,7 +22,14 @@ import (
 // run the tests -- so neither is held to the deadline for reading the
 // repository. A hook still going at twenty seconds was killed there, and the
 // commit it guarded reported as a hang.
-func CommitAll(dir, message string) error {
+func CommitAll(dir, message string) error { return CommitAllGuarded(dir, message, nil) }
+
+// CommitAllGuarded is CommitAll with guard called after the files are staged and
+// just before git commit runs, which is where hooks start. A guard that returns
+// an error stops the commit with the files staged. See the caller for what it
+// checks: staging can take as long as a repository is large, which is time for
+// something to be written that a check made before it never saw.
+func CommitAllGuarded(dir, message string, guard func() error) error {
 	if strings.TrimSpace(message) == "" {
 		return errEmptyMessage
 	}
@@ -36,11 +43,16 @@ func CommitAll(dir, message string) error {
 	if err := writingIndex(dir, "", "add", "--all"); err != nil {
 		return err
 	}
-	return commitIndex(dir, message)
+	return commitIndex(dir, message, guard)
 }
 
 // commitIndex commits what has been staged.
-func commitIndex(dir, message string) error {
+func commitIndex(dir, message string, guard func() error) error {
+	if guard != nil {
+		if err := guard(); err != nil {
+			return err
+		}
+	}
 	// The message goes in on stdin: on the command line a long one was more
 	// than Windows would start a program with.
 	err := writingIndex(dir, message, "commit", "-F", "-")
@@ -50,7 +62,7 @@ func commitIndex(dir, message string) error {
 		// "Changes not staged for commit" advice was about commands the panel
 		// has no way to run. Asked only when nothing is staged, so a commit
 		// refused for any other reason -- a hook -- still says so.
-		if _, qerr := run(dir, "diff", "--cached", "--quiet"); qerr == nil {
+		if _, qerr := run(dir, "diff", "--cached", "--quiet", "--no-ext-diff", "--no-textconv"); qerr == nil {
 			if subs := submoduleWork(dir); len(subs) > 0 {
 				return &gitError{fmt.Sprintf("nothing here to commit: the changes are inside %s, a submodule -- a repository "+
 					"of its own. Commit them there first; committing here then records its new commit.", strings.Join(subs, ", "))}
@@ -86,6 +98,11 @@ type Reviewed struct {
 // What is staged is then exactly what was checked, rather than "add --all"
 // again a moment later: a file written in between is left for the next commit.
 func CommitReviewed(dir, message string, r Reviewed) error {
+	return CommitReviewedGuarded(dir, message, r, nil)
+}
+
+// CommitReviewedGuarded is CommitReviewed with a guard; see CommitAllGuarded.
+func CommitReviewedGuarded(dir, message string, r Reviewed, guard func() error) error {
 	if strings.TrimSpace(message) == "" {
 		return errEmptyMessage
 	}
@@ -111,7 +128,7 @@ func CommitReviewed(dir, message string, r Reviewed) error {
 			return err
 		}
 	}
-	return commitIndex(dir, message)
+	return commitIndex(dir, message, guard)
 }
 
 // afterCheck runs between CommitReviewed's check and its staging, so a test

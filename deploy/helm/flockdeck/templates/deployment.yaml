@@ -132,6 +132,11 @@ spec:
             # default and why.
             - name: FLOCKDECK_UPDATE
               value: "off"
+            # The names the server answers to besides 127.0.0.1: without them
+            # a request through the Service, whose Host header is the
+            # Service's name, is refused. See flockdeck.allowedHosts.
+            - name: FLOCKDECK_ALLOWED_HOSTS
+              value: {{ include "flockdeck.allowedHosts" . | quote }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

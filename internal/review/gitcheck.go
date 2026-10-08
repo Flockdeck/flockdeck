@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
@@ -35,17 +36,6 @@ import (
 // A pager is left off on purpose: git only starts one when its output is a
 // terminal, and an agent's Bash call never is.
 const runningConfig = `^(core\.fsmonitor|diff\.external|diff\.submodule|diff\..+\.(command|textconv)|filter\..+\.(clean|smudge|process)|gpg\.program|gpg\..+\.program|trace2\..+|extensions\.partialclone|remote\..+\.promisor)$`
-
-// lfsFilter is what `git lfs install` writes, which is common enough in a
-// user's own global configuration that asking about every git status because
-// of it would leave auto-review pointless for everyone who has Git LFS. Only
-// these exact values are let through -- the value is run by a shell, so
-// anything added to it is a program of its own.
-var lfsFilter = map[string]string{
-	"filter.lfs.clean":   "git-lfs clean -- %f",
-	"filter.lfs.smudge":  "git-lfs smudge -- %f",
-	"filter.lfs.process": "git-lfs filter-process",
-}
 
 // touchesWorkTree are the subcommands that look at the working tree, and so at
 // every submodule checked out in it: each one runs git again inside the
@@ -120,10 +110,8 @@ func harmlessValue(key, value string) bool {
 		}
 		return false
 	}
-	if want, ok := lfsFilter[key]; ok {
-		return value == want
-	}
-	return false
+	// Git LFS's own filter, exactly as `git lfs install` writes it.
+	return gitx.StandardLFSFilter(key, value)
 }
 
 // hasSubmodule reports whether the index in dir records a submodule: an entry
