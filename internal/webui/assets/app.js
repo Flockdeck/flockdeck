@@ -11368,8 +11368,8 @@
   /* ==== Remote artifacts viewer: begin ====
    *
    * A read-only view of the desk's own recordings, for a window reached through
-   * the relay (internal/server/artifacts_socket.go is the other end). Rules, from
-   * the design (sections 5 and 8), which a Go test holds this code to:
+   * the relay (internal/server/artifacts_socket.go is the other end). Rules,
+   * which a Go test holds this code to:
    *
    *  - Everything the desk sends is drawn with textContent, as text. No markup
    *    from it is ever parsed, no script from it runs, and nothing built from it

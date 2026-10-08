@@ -9,7 +9,7 @@ import (
 // The read-only recordings viewer (app.js, "Remote artifacts viewer"): a window
 // reached through the relay reads the desk's recordings over /ws/artifacts, which
 // is end-to-end encrypted or not made at all. These hold the window to the
-// rendering rules of the design (sections 5 and 10): text only, nothing to save or
+// rendering rules of a read-only view: text only, nothing to save or
 // open, nothing kept once the view is gone.
 
 // artifactsDeskSetup plays the desk's end of the artifacts socket with the same
@@ -303,7 +303,7 @@ assert.strictEqual(ws2.sent.length, 1);
 `)
 }
 
-// The rendering rules, held to the code itself (design section 10): the viewer
+// The rendering rules, held to the code itself: the viewer
 // builds text and buttons and nothing else, from nothing but fields the desk sent.
 func TestTheViewerCodeHasNoWayToRenderMarkupOrKeepContent(t *testing.T) {
 	src := readAsset(t, "app.js")
