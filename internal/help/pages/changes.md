@@ -102,21 +102,30 @@ repository and accepting it just this time.
 - A remote that is a folder on this machine is listed along with the hooks that
   folder's repository would run when you push to it, including the ones in its
   own `core.hooksPath`. That covers a remote named by a branch's `remote` or
-  `pushRemote` setting or by `remote.pushDefault` as well. A remote that uses a
-  helper such as `ext::`, which runs a command, is listed too.
+  `pushRemote` setting or by `remote.pushDefault`, a `file://` address (with
+  `%XX` spelling and `localhost` read the way git reads them), a remote that is a
+  linked worktree, and an address that a `url.<base>.insteadOf` or
+  `pushInsteadOf` rule turns into a folder. A remote that uses a helper such as
+  `ext::`, which runs a command, is listed too. A folder that is there and
+  cannot be told from a repository, a `file://` address for another machine and
+  a network share are listed as things Flockdeck could not read. Flockdeck does
+  not open a network share, since Windows would connect to it.
 - Merge drivers, which `.gitattributes` can assign to any file, are listed with
   the other settings that run a program. On Windows a hook named `pre-commit.exe`
   counts as the `pre-commit` hook, as it does for git.
 - Something git may run but Flockdeck could not read, such as a hooks folder with
   no permissions, is listed as that. So is a search that stopped at its limit
   (200 submodules, 2,000 folders under `.git/modules`, or more than six levels
-  of them) and a configuration file over 4 MB. Once you accept a limit item, a
-  repository that grows further past the limit is not asked about again.
+  of them) and a configuration file over 4 MB. Once you accept the submodule or
+  folder limit, a repository that grows further past it is not asked about
+  again. A configuration file over 4 MB is asked about again when its size
+  changes.
 - A scan that cannot be finished is listed too, and is asked about every time: it
-  is not remembered. That covers git not answering within 15 seconds, a hook too
-  large to read within the 64 MB a scan reads in all, and a path such as
-  `~user/hooks` that Flockdeck cannot work out. A repository can be made slow to
-  read on purpose, so slow is not treated as safe.
+  is not remembered. That covers git not answering within 15 seconds, git
+  printing more than 8 MB for one question, a hook too large to read within the
+  64 MB a scan reads in all, and a path such as `~user/hooks` that Flockdeck
+  cannot work out. A repository can be made slow to read on purpose, so slow is
+  not treated as safe.
 - A hook, setting or path is shown cut to a length, with line breaks and other
   control characters removed.
 
@@ -134,14 +143,34 @@ be read counts as no record, so the repository's own programs are asked about.
 
 The check is not atomic. A commit is looked at when you press the button and
 again once your files are staged, just before git commit starts, and it is
-refused if what runs has changed. That narrows the gap to the moments between
-that look and git reading the hooks and settings; it does not close it, and a
+refused if what runs has changed. Staging is `git add`, which runs clean filters
+and the `post-index-change` hook before that second look, so those two are
+covered only by the first. The second look narrows the gap to the moments
+between it and git reading the hooks and settings; it does not close it, and a
 determined agent that can write inside `.git` can still race it. Pull, Push and
 Fetch are looked at once, just before. A window reached through the relay is
 shown the reason and told to press the button on the machine itself; approving
 is done there.
 
-The check runs before the buttons above. It does not see git commands you or an
-agent run in a pane; an agent's own are for [auto-review](#status) and the
-agent's permissions. Flockdeck never runs `git mergetool`, so `merge.tool` and
-`mergetool.*` are not read.
+This covers the four buttons above. It is not every program a repository can
+make Flockdeck run. Still outside it:
+
+- Git commands Flockdeck runs in the background to draw status, diffs and the
+  radar (including `git add` on a scratch index and the index refresh) run a
+  repository's clean filters on a file whose timestamp has changed. Filters cannot
+  be switched off for all names at once. These commands do run with
+  `core.hooksPath` turned off, so their hooks (`post-index-change`,
+  `reference-transaction`) do not run, and with `core.fsmonitor` off.
+- Creating a worktree runs `post-checkout` and the smudge filters of the
+  repository, as git does.
+- Hooks of anything you or an agent run in a pane, and scripts a hook goes on to
+  call.
+- A remote reached as `ssh://localhost/...` or `host:path` that happens to be
+  this machine: Flockdeck cannot tell, so the hooks on the other end are not
+  listed.
+- An agent running as you that can write the file of accepted state.
+
+An agent's own git commands are for [auto-review](#status) and the agent's
+permissions. Flockdeck never runs `git mergetool`, so `merge.tool` and
+`mergetool.*` are not read, and `merge.<name>.recursive` only names another
+driver.

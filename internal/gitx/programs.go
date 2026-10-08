@@ -1,12 +1,14 @@
 package gitx
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -174,7 +176,7 @@ func (r Report) AcceptableIDs() []string {
 //   - a filter driver's clean, smudge or process, run by git add and checkout,
 //     and Git LFS's extensions and custom transfer agents, which its own filter
 //     then starts
-//   - a merge driver, which .gitattributes can assign to any file and which a
+//   - a merge driver (merge.<name>.recursive only names another driver), which .gitattributes can assign to any file and which a
 //     merge runs
 //   - gpg.program, gpg.<format>.program and gpg.ssh.defaultKeyCommand, run when
 //     commits are signed
@@ -189,7 +191,7 @@ func (r Report) AcceptableIDs() []string {
 // Flockdeck runs is told not to use (--no-ext-diff, --no-textconv); merge.tool
 // and mergetool.*, which only `git mergetool` runs and Flockdeck never does;
 // and alias.*, which cannot replace the built-in commands Flockdeck runs.
-var risky = regexp.MustCompile(`^(core\.(sshcommand|hookspath|askpass|gitproxy|alternaterefscommand)|credential\.(.+\.)?helper|remote\..+\.(uploadpack|receivepack|vcs)|filter\..+\.(clean|smudge|process)|merge\..+\.(driver|recursive)|lfs\.extension\..+\.(clean|smudge)|lfs\.customtransfer\..+\.path|gpg\.program|gpg\..+\.program|gpg\.ssh\.defaultkeycommand|hook\..+\.command)$`)
+var risky = regexp.MustCompile(`^(core\.(sshcommand|hookspath|askpass|gitproxy|alternaterefscommand)|credential\.(.+\.)?helper|remote\..+\.(uploadpack|receivepack|vcs)|filter\..+\.(clean|smudge|process)|merge\..+\.driver|lfs\.extension\..+\.(clean|smudge)|lfs\.customtransfer\..+\.path|gpg\.program|gpg\..+\.program|gpg\.ssh\.defaultkeycommand|hook\..+\.command)$`)
 
 var (
 	submoduleUpdate = regexp.MustCompile(`^submodule\..+\.update$`)
@@ -309,9 +311,40 @@ type scanner struct {
 	spent  int64
 }
 
+// maxScanOutput is the most of one git command's output a scan keeps. A
+// configuration that includes itself many times prints hundreds of megabytes.
+const maxScanOutput = 8 << 20
+
+var errTooMuchOutput = errors.New("git printed more than 8 MB")
+
+type cappedBuf struct {
+	bytes.Buffer
+	over bool
+}
+
+// ReadFrom keeps io.Copy on Write: the one bytes.Buffer has would take all of it.
+func (b *cappedBuf) ReadFrom(r io.Reader) (int64, error) {
+	return io.Copy(struct{ io.Writer }{b}, r)
+}
+
+func (b *cappedBuf) Write(p []byte) (int, error) {
+	if b.Len()+len(p) > maxScanOutput {
+		b.over = true
+		return 0, errTooMuchOutput
+	}
+	return b.Buffer.Write(p)
+}
+
 func (s *scanner) git(dir string, args ...string) (string, error) {
-	out, _, err := runCapture(s.ctx, scanTimeout, dir, args...)
-	return out, err
+	var out cappedBuf
+	_, err := runTo(s.ctx, scanTimeout, dir, nil, &out, args...)
+	if out.over {
+		return "", errTooMuchOutput
+	}
+	if err != nil {
+		return "", err
+	}
+	return out.String(), nil
 }
 
 // unscannable is the item for a scan that could not be finished.
@@ -386,6 +419,15 @@ func ScanPrograms(dir string) (Report, error) {
 				strconv.Itoa(maxModuleDeep) + " deep were not looked at", Where: filepath.Join(paths.common, "modules"),
 		})
 	}
+	seen := map[string]bool{}
+	uniq := rep.Items[:0]
+	for _, p := range rep.Items {
+		if id := p.ID(); !seen[id] {
+			seen[id] = true
+			uniq = append(uniq, p)
+		}
+	}
+	rep.Items = uniq
 	sort.SliceStable(rep.Items, func(i, j int) bool { return rep.Items[i].ID() < rep.Items[j].ID() })
 	return rep, nil
 }
@@ -410,6 +452,7 @@ func (s *scanner) settingsIn(entries []configEntry, submodule, base string, remo
 	var items []Program
 	var hooksPath *configEntry
 	names := map[string]bool{}
+	rules := collectRewrites(entries)
 	for _, e := range entries {
 		if n, ok := remoteName(e.key); ok {
 			names[n] = true
@@ -425,14 +468,14 @@ func (s *scanner) settingsIn(entries []configEntry, submodule, base string, remo
 		case runsProgram(e.key, e.value):
 			items = append(items, item)
 		case isRemoteURL(e.key):
-			items = append(items, s.remote(item, remoteHooks, base)...)
+			items = append(items, s.remote(item, remoteHooks, base, rules)...)
 		case isRemoteRef(e.key):
 			// A branch's remote, or the default one, is usually the name of a
 			// remote, which is looked at under its own settings. It can also be
 			// a URL or a folder, and git then goes there.
 			v := strings.TrimSpace(e.value)
 			if v != "" && v != "." && !names[v] {
-				items = append(items, s.remote(item, remoteHooks, base)...)
+				items = append(items, s.remote(item, remoteHooks, base, rules)...)
 			}
 		case isURLRewrite(e.key):
 			if remoteLocation(rewriteBase(e.key)) != "" {
@@ -443,16 +486,68 @@ func (s *scanner) settingsIn(entries []configEntry, submodule, base string, remo
 	return items, hooksPath
 }
 
+// rewriteRule is one url.<base>.insteadOf or pushInsteadOf setting: a URL that
+// starts with prefix is taken to start with base instead.
+type rewriteRule struct{ prefix, base string }
+
+// rewriteRules are a configuration's insteadOf and pushInsteadOf rules.
+type rewriteRules struct{ fetch, push []rewriteRule }
+
+func collectRewrites(entries []configEntry) rewriteRules {
+	var r rewriteRules
+	for _, e := range entries {
+		if !isURLRewrite(e.key) || e.value == "" {
+			continue
+		}
+		rule := rewriteRule{prefix: e.value, base: rewriteBase(e.key)}
+		if strings.HasSuffix(e.key, ".pushinsteadof") {
+			r.push = append(r.push, rule)
+		} else {
+			r.fetch = append(r.fetch, rule)
+		}
+	}
+	return r
+}
+
+// apply rewrites u by the longest rule that matches, as git does.
+func apply(u string, rules []rewriteRule) string {
+	best := -1
+	for i, r := range rules {
+		if strings.HasPrefix(u, r.prefix) && (best < 0 || len(r.prefix) > len(rules[best].prefix)) {
+			best = i
+		}
+	}
+	if best < 0 {
+		return u
+	}
+	return rules[best].base + u[len(rules[best].prefix):]
+}
+
 // remote lists a remote setting that goes to a helper or a folder on this
 // machine, and where it is a folder, the hooks the repository there would run.
-func (s *scanner) remote(item Program, hooks bool, base string) []Program {
-	where := remoteLocation(item.Value)
-	if where == "" {
-		return nil
+// A rewrite can turn an ordinary address into a folder, so the address is looked
+// at as it stands and as each kind of rewrite would leave it.
+func (s *scanner) remote(item Program, hooks bool, base string, rules rewriteRules) []Program {
+	cands := []string{item.Value}
+	for _, set := range [][]rewriteRule{rules.fetch, rules.push} {
+		if r := apply(item.Value, set); r != item.Value {
+			cands = append(cands, r)
+		}
 	}
-	items := []Program{item}
-	if where == "local" && hooks {
-		items = append(items, s.remoteHooks(item.Value, base, item.Submodule, item.Machine)...)
+	var items []Program
+	listed := false
+	for _, cand := range cands {
+		where := remoteLocation(cand)
+		if where == "" {
+			continue
+		}
+		if !listed {
+			items = append(items, item)
+			listed = true
+		}
+		if where == "local" && hooks {
+			items = append(items, s.remoteHooks(cand, base, item.Submodule, item.Machine)...)
+		}
 	}
 	return items
 }
@@ -491,25 +586,98 @@ func rewriteBase(key string) string {
 	return key
 }
 
-// remoteHooks lists the hooks of the repository a local remote URL names, which
-// a push into it runs. Where it cannot say what those are, that is an item.
-func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program {
-	u = strings.TrimSpace(u)
-	if strings.HasPrefix(strings.ToLower(u), "file://") {
-		u = u[len("file://"):]
-		// file:///C:/x is /C:/x.
-		if len(u) > 2 && u[0] == '/' && u[2] == ':' {
-			u = u[1:]
-		}
+// statTimeout bounds a look at a remote's folder, which can be on a share that
+// does not answer.
+var statTimeout = 2 * time.Second
+
+var errStatTimeout = errors.New("no answer from the file system")
+
+// statWithin is os.Stat that gives up after statTimeout.
+func statWithin(p string) (fs.FileInfo, error) {
+	type result struct {
+		fi  fs.FileInfo
+		err error
 	}
-	p := filepath.FromSlash(u)
+	ch := make(chan result, 1)
+	go func() {
+		fi, err := os.Stat(p)
+		ch <- result{fi, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.fi, r.err
+	case <-time.After(statTimeout):
+		return nil, errStatTimeout
+	}
+}
+
+// isNetworkPath reports whether p is on another machine's share. Looking at one
+// makes Windows connect to it and offer the user's credentials, so such a path
+// is never touched.
+func isNetworkPath(p string) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	p = filepath.FromSlash(p)
+	if !strings.HasPrefix(p, `\\`) {
+		return false
+	}
+	// \\?\C:\x is a local path spelled the long way.
+	return !(strings.HasPrefix(p, `\\?\`) && len(p) >= 6 && p[5] == ':')
+}
+
+// fileURLPath is the folder a remote URL names. A file:// URL is decoded as git
+// decodes it: %XX is a byte, a host of localhost is this machine, and any other
+// host is another one (ok is false). A plain path is itself.
+func fileURLPath(u string) (string, bool) {
+	u = strings.TrimSpace(u)
+	if !strings.HasPrefix(strings.ToLower(u), "file://") {
+		return filepath.FromSlash(u), true
+	}
+	rest := u[len("file://"):]
+	if !strings.HasPrefix(rest, "/") {
+		host, path, _ := strings.Cut(rest, "/")
+		if host != "" && !strings.EqualFold(host, "localhost") {
+			return "", false
+		}
+		rest = "/" + path
+	}
+	dec, err := url.PathUnescape(rest)
+	if err != nil {
+		return "", false
+	}
+	// file:///C:/x is /C:/x.
+	if len(dec) > 2 && dec[0] == '/' && dec[2] == ':' {
+		dec = dec[1:]
+	}
+	return filepath.FromSlash(dec), true
+}
+
+// remoteHooks lists the hooks of the repository a local remote URL names, which
+// a push into it runs. A folder that is not there is a push that fails and
+// nothing runs. A folder that is there and cannot be worked out, a file share,
+// or a file URL for another host, is an item: it is not assumed to be harmless.
+func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program {
+	p, ok := fileURLPath(u)
+	if !ok {
+		return []Program{unscannable(u, "a file URL for another machine, or one that cannot be decoded", submodule)}
+	}
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(base, p)
+	}
+	if isNetworkPath(p) {
+		return []Program{unscannable(p, "a network share, which Flockdeck does not touch", submodule)}
+	}
+	if _, err := statWithin(p); err != nil {
+		if absent(err) {
+			return nil
+		}
+		return []Program{unscannable(p, "the remote's folder could not be looked at: "+errText(err), submodule)}
 	}
 	p = canonical(p)
 	gd := ""
 	for _, d := range []string{p, filepath.Join(p, ".git")} {
-		if _, err := os.Stat(filepath.Join(d, "HEAD")); err == nil {
+		if _, err := statWithin(filepath.Join(d, "HEAD")); err == nil {
 			gd = d
 			break
 		}
@@ -520,8 +688,15 @@ func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program
 		}
 	}
 	if gd == "" {
-		// Not a repository: a push there fails, and nothing runs.
-		return nil
+		return []Program{unscannable(p, "a folder Flockdeck cannot tell is not a repository", submodule)}
+	}
+	// A linked worktree's hooks and configuration are the main repository's.
+	if data, err := os.ReadFile(filepath.Join(gd, "commondir")); err == nil && len(data) < 4096 {
+		c := filepath.FromSlash(strings.TrimSpace(string(data)))
+		if !filepath.IsAbs(c) {
+			c = filepath.Join(gd, c)
+		}
+		gd = canonical(c)
 	}
 	dirPath := filepath.Join(gd, "hooks")
 	cfg := filepath.Join(gd, "config")
@@ -546,6 +721,9 @@ func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program
 		case !isExitOne(err):
 			return []Program{unscannable(cfg, "the remote's configuration could not be read: "+firstWords(err), submodule)}
 		}
+	}
+	if isNetworkPath(dirPath) {
+		return []Program{unscannable(dirPath, "the remote's hooks are on a network share, which Flockdeck does not touch", submodule)}
 	}
 	return s.hooksInDir(dirPath, submodule, machine)
 }
@@ -704,6 +882,9 @@ func (s *scanner) hooksIn(loc gitLocations, hooksPath *configEntry, submodule st
 		// A hooks path in the user's own configuration that lands inside the
 		// working tree (".githooks") is the project's, not the machine's.
 		machine = hooksPath.machine && !(loc.topdir != "" && within(loc.topdir, dirPath))
+		if isNetworkPath(dirPath) {
+			return []Program{unscannable(hooksPath.origin, "core.hooksPath is on a network share, which Flockdeck does not touch: "+hooksPath.value, submodule)}
+		}
 	}
 	return s.hooksInDir(dirPath, submodule, machine)
 }
@@ -973,10 +1154,7 @@ func (s *scanner) scanSubmodule(sub submodule) []Program {
 		s.spent += fi.Size()
 		entries, err := s.listConfig(sub.gitDir, sub.gitDir, &cfg)
 		if err != nil {
-			items = append(items, unreadable(cfg, err, name))
-			if errors.Is(err, context.DeadlineExceeded) {
-				items[len(items)-1] = unscannable(cfg, "git did not answer within "+scanTimeout.String(), name)
-			}
+			items = append(items, unscannable(cfg, "git could not read it: "+firstWords(err), name))
 		} else {
 			var found []Program
 			found, hooksPath = s.settingsIn(entries, name, sub.gitDir, false)

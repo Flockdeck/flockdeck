@@ -428,7 +428,7 @@ func TestASubmoduleConfigThatCannotBeReadIsAnItem(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(d, "HEAD"), []byte("ref: refs/heads/main\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	u, ok := find(scan(t, repo), "unreadable", "")
+	u, ok := find(scan(t, repo), "unscannable", "")
 	if !ok || u.Submodule == "" || !strings.HasSuffix(slash(u.Where), "/x/config") {
 		t.Errorf("an unreadable submodule configuration = %+v ok=%v", u, ok)
 	}

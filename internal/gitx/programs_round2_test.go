@@ -81,8 +81,8 @@ func TestAMergeDriverIsReported(t *testing.T) {
 	if _, ok := find(rep, "setting", "merge.evil.driver"); !ok {
 		t.Error("a merge driver was not reported")
 	}
-	if _, ok := find(rep, "setting", "merge.evil.recursive"); !ok {
-		t.Error("a recursive merge driver was not reported")
+	if _, ok := find(rep, "setting", "merge.evil.recursive"); ok {
+		t.Error("merge.<name>.recursive only names another driver, and was reported as a program")
 	}
 	for _, k := range []string{"merge.tool", "mergetool.x.cmd"} {
 		if runsProgram(k, "x") {
