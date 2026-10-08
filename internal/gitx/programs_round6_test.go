@@ -154,11 +154,17 @@ func TestTheWalkStopsAtItsStepAndScanLimits(t *testing.T) {
 	}
 	maxWalkSteps = was
 
-	wasOps := maxScanOps
-	t.Cleanup(func() { maxScanOps = wasOps })
-	maxScanOps = 2
-	if err := tfs().guard(dir); !errors.Is(err, errTooManyLinks) {
-		t.Errorf("a scan past its limit on new paths = %v, want errTooManyLinks", err)
+	// Plain looks have a budget of their own, and running out of it is said of
+	// the size of the repository and not of links.
+	wasOps := maxStatOps
+	t.Cleanup(func() { maxStatOps = wasOps })
+	maxStatOps = 2
+	err := tfs().guard(dir)
+	if !errors.Is(err, errScanTooLarge) || errors.Is(err, errTooManyLinks) {
+		t.Errorf("a scan past its budget of plain looks = %v, want errScanTooLarge and not errTooManyLinks", err)
+	}
+	if item := fsItem(err, dir, ""); !strings.Contains(item.Value, "too large") || strings.Contains(item.Value, "links") {
+		t.Errorf("the item says %q", item.Value)
 	}
 }
 
@@ -318,5 +324,60 @@ func TestACleanRepositoryAndABigOneMakeFewCallsToTheFileSystem(t *testing.T) {
 	t.Logf("a repository with 190 submodules: %d calls", big)
 	if big > 20000 {
 		t.Errorf("a repository with 190 submodules made %d calls to the file system", big)
+	}
+}
+
+// A genuine fan of links still reaches the cap on links, with the label for
+// links.
+func TestAGenuineFanOfLinksHitsTheLinkCapWithTheRightLabel(t *testing.T) {
+	windowsOnly(t)
+	entry := fan(t, "cap", 7, 3)
+	was := maxLinkOps
+	t.Cleanup(func() { maxLinkOps = was })
+	maxLinkOps = 3
+	err := tfs().guard(entry)
+	if !errors.Is(err, errTooManyLinks) {
+		t.Fatalf("err = %v, want errTooManyLinks", err)
+	}
+	if item := fsItem(err, entry, ""); !strings.Contains(item.Value, "too many links") {
+		t.Errorf("the item says %q", item.Value)
+	}
+}
+
+// Plain stats never count against the link cap: a long path of ordinary folders
+// is not a fan of links.
+func TestOrdinaryFoldersDoNotCountAsLinks(t *testing.T) {
+	windowsOnly(t)
+	dir := filepath.Join(t.TempDir(), "a", "b", "c", "d", "e", "f")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	was := maxLinkOps
+	t.Cleanup(func() { maxLinkOps = was })
+	maxLinkOps = 0
+	if err := tfs().guard(dir); err != nil {
+		t.Errorf("a path of ordinary folders with a link budget of none = %v", err)
+	}
+}
+
+func TestAScanOutOfTimeSaysSo(t *testing.T) {
+	release := make(chan struct{})
+	wasEval := evalSymlinks
+	t.Cleanup(func() { evalSymlinks = wasEval })
+	evalSymlinks = func(p string) (string, error) { <-release; return p, nil }
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	f := newScanFS(ctx)
+	_, err := f.Canonical(t.TempDir())
+	if !errors.Is(err, errScanTooLong) {
+		t.Errorf("err = %v, want errScanTooLong", err)
+	}
+	if item := fsItem(err, "x", ""); !strings.Contains(item.Value, "took too long") {
+		t.Errorf("the item says %q", item.Value)
+	}
+	close(release)
+	deadline := time.Now().Add(5 * time.Second)
+	for leaked.Load() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
 	}
 }

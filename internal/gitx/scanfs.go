@@ -56,6 +56,13 @@ var errNoAnswer = errors.New("no answer from the file system")
 // many paths as it will.
 var errTooManyLinks = errors.New("too many links to follow, or a link that leads back to itself")
 
+// errScanTooLarge is a scan that has looked at as many paths as it will. It is
+// said of the repository's size and not of links.
+var errScanTooLarge = errors.New("this repository is too large to scan within the limits")
+
+// errScanTooLong is a scan that ran out of its time.
+var errScanTooLong = errors.New("the scan took too long")
+
 // errNotRegular is a file that is not an ordinary file (a pipe or a device),
 // which a read could wait on for ever.
 var errNotRegular = errors.New("not an ordinary file, so it is not opened")
@@ -79,9 +86,13 @@ var (
 	// maxWalkSteps is how many path components one guard call visits, links
 	// followed included.
 	maxWalkSteps = 256
-	// maxScanOps is how many links and directory entries one scan reads that it
-	// has not read already.
-	maxScanOps = 8192
+	// maxLinkOps is how many links one scan reads that it has not read already.
+	// It counts links and nothing else, so that "too many links" is said only of
+	// links.
+	maxLinkOps = 1024
+	// maxStatOps is how many plain looks at a file or folder one scan makes in the
+	// walk, a generous budget that only a very large repository reaches.
+	maxStatOps = 100000
 )
 
 var (
@@ -103,7 +114,8 @@ func netErr(p string) error { return fmt.Errorf("%w: %s", errNetworkPath, p) }
 // the file system saying the path is not there or cannot be read.
 func blocked(err error) bool {
 	return errors.Is(err, errNetworkPath) || errors.Is(err, errNoAnswer) ||
-		errors.Is(err, errTooManyLinks) || errors.Is(err, errNotRegular)
+		errors.Is(err, errTooManyLinks) || errors.Is(err, errNotRegular) ||
+		errors.Is(err, errScanTooLarge) || errors.Is(err, errScanTooLong)
 }
 
 // fsItem is the item for a path the layer refused or gave up on, or that could
@@ -118,6 +130,10 @@ func fsItem(err error, where, submodule string) Program {
 		return unscannable(where, errTooManyLinks.Error(), submodule)
 	case errors.Is(err, errNotRegular):
 		return unscannable(where, errNotRegular.Error(), submodule)
+	case errors.Is(err, errScanTooLarge):
+		return unscannable(where, errScanTooLarge.Error(), submodule)
+	case errors.Is(err, errScanTooLong):
+		return unscannable(where, errScanTooLong.Error(), submodule)
 	}
 	return unreadable(where, err, submodule)
 }
@@ -125,13 +141,14 @@ func fsItem(err error, where, submodule string) Program {
 // scanFS is one scan's view of the disk. It remembers what it has looked at, so
 // a path shared by many hooks, submodules and remotes is walked once.
 type scanFS struct {
-	ctx    context.Context
-	slots  chan struct{}
-	lstats map[string]lstatResult
-	links  map[string]linkResult
-	guards map[string]error
-	ops    int // links and entries read that were not read before
-	calls  int // calls made to the file system, for tests and reports
+	ctx     context.Context
+	slots   chan struct{}
+	lstats  map[string]lstatResult
+	links   map[string]linkResult
+	guards  map[string]error
+	linkOps int // links read that were not read before
+	statOps int // plain looks made by the walk and by the child calls
+	calls   int // calls made to the file system, for tests and reports
 }
 
 type lstatResult struct {
@@ -191,15 +208,17 @@ func boxed[T any](f *scanFS, fn func() (T, error)) (T, error) {
 	}()
 	timer := time.NewTimer(statTimeout)
 	defer timer.Stop()
+	giveUp := errNoAnswer
 	select {
 	case r := <-ch:
 		return r.v, r.err
 	case <-timer.C:
 	case <-f.ctx.Done():
+		giveUp = f.stopped()
 	}
 	if state.CompareAndSwap(0, 2) {
 		leaked.Add(1)
-		return zero, errNoAnswer
+		return zero, giveUp
 	}
 	r := <-ch // it returned just as the wait ended
 	return r.v, r.err
@@ -289,11 +308,11 @@ func (f *scanFS) walk(p string, depth int, st *walkState) (string, error) {
 			return "", fmt.Errorf("%w: %s", errTooManyLinks, p)
 		}
 		if f.ctx.Err() != nil {
-			return "", errNoAnswer
+			return "", f.stopped()
 		}
 		at := filepath.Join(real, comp)
 		fi, err := f.lstat(at)
-		if errors.Is(err, errNoAnswer) || errors.Is(err, errTooManyLinks) {
+		if blocked(err) {
 			return "", err
 		}
 		if err != nil {
@@ -319,8 +338,8 @@ func (f *scanFS) lstat(at string) (fs.FileInfo, error) {
 	if r, ok := f.lstats[at]; ok {
 		return r.fi, r.err
 	}
-	if f.ops++; f.ops > maxScanOps {
-		return nil, errTooManyLinks
+	if f.statOps++; f.statOps > maxStatOps {
+		return nil, errScanTooLarge
 	}
 	fi, err := boxed(f, func() (fs.FileInfo, error) { return os.Lstat(at) })
 	f.lstats[at] = lstatResult{fi, err}
@@ -335,8 +354,10 @@ func (f *scanFS) link(at, realParent string, depth int, st *walkState) (string, 
 	}
 	// Met again while being resolved is a cycle.
 	f.links[at] = linkResult{err: fmt.Errorf("%w: %s", errTooManyLinks, at)}
-	if f.ops++; f.ops > maxScanOps {
-		return "", errTooManyLinks
+	if f.linkOps++; f.linkOps > maxLinkOps {
+		res := linkResult{err: fmt.Errorf("%w: %s", errTooManyLinks, at)}
+		f.links[at] = res
+		return "", res.err
 	}
 	t, err := boxed(f, func() (string, error) { return readLink(at) })
 	var res linkResult
@@ -429,6 +450,11 @@ func (f *scanFS) Hash(p string, limit int64) (string, int64, error) {
 	if !fi.Mode().IsRegular() {
 		return "", 0, fmt.Errorf("%w: %s", errNotRegular, p)
 	}
+	return f.hash(p, limit)
+}
+
+// hash opens and hashes without looking first.
+func (f *scanFS) hash(p string, limit int64) (string, int64, error) {
 	type result struct {
 		sum string
 		n   int64
@@ -444,6 +470,47 @@ func (f *scanFS) Hash(p string, limit int64) (string, int64, error) {
 		return result{hex.EncodeToString(h.Sum(nil))[:16], n}, err
 	})
 	return r.sum, r.n, err
+}
+
+// stopped says why a scan's context ended.
+func (f *scanFS) stopped() error {
+	if errors.Is(f.ctx.Err(), context.DeadlineExceeded) {
+		return errScanTooLong
+	}
+	return errNoAnswer
+}
+
+// The Child calls are for an entry of a folder that was already guarded (the
+// folder itself went through guard or OpenDir, and was found local). They look
+// at the entry with Lstat, which follows nothing, and only an entry that is a
+// link goes on to the full guarded call. They are what keeps a repository with
+// hundreds of submodules cheap: the folder's path is walked once, and each file
+// in it costs one call.
+
+// StatChild is Stat for an entry of a guarded folder.
+func (f *scanFS) StatChild(p string) (fs.FileInfo, error) {
+	if f.statOps++; f.statOps > maxStatOps {
+		return nil, errScanTooLarge
+	}
+	fi, err := boxed(f, func() (fs.FileInfo, error) { return os.Lstat(p) })
+	if err != nil {
+		return nil, err
+	}
+	if fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+		return f.Stat(p)
+	}
+	return fi, nil
+}
+
+// ReadChild reads a file that StatChild or Stat has just shown to be an ordinary
+// file in a guarded folder.
+func (f *scanFS) ReadChild(p string) ([]byte, error) {
+	return boxed(f, func() ([]byte, error) { return os.ReadFile(p) })
+}
+
+// HashListed is Hash for an ordinary file a listing of a guarded folder showed.
+func (f *scanFS) HashListed(p string, limit int64) (string, int64, error) {
+	return f.hash(p, limit)
 }
 
 // Canonical is p with symbolic links and, on Windows, short 8.3 names resolved,
@@ -519,11 +586,13 @@ func (f *scanFS) resolveGitDir(work string) (string, error) {
 	}
 	target = filepath.FromSlash(strings.TrimSpace(target))
 	if !filepath.IsAbs(target) {
-		target = filepath.Join(work, target)
+		// Joined to a work tree already resolved, so it is spelled as it is.
+		target = filepath.Clean(filepath.Join(work, target))
+		if err := f.guard(target); err != nil {
+			return "", err
+		}
+		return target, nil
 	}
-	target = filepath.Clean(target)
-	if err := f.guard(target); err != nil {
-		return "", err
-	}
-	return target, nil
+	// An absolute one may be spelled any way, and is resolved to compare by.
+	return f.Canonical(target)
 }

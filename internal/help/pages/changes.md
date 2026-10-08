@@ -208,6 +208,14 @@ make Flockdeck run. Still outside it:
   or folder should be, which Flockdeck does not open, and a call to the file
   system that does not answer within two seconds or when too many are already
   waiting.
+- A scan that has made more than 100,000 plain looks at files and folders is listed
+  as "this repository is too large to scan within the limits", and one that
+  runs out of its 15 seconds as "the scan took too long", with whatever it had
+  not reached left unlooked at. Neither is remembered, so the question is asked
+  again. Both are said of the scan and never of links. The most Flockdeck
+  scans is 200 submodules; a repository with 200 of them, made the way git makes
+  them, takes about 0.4 seconds and under 4,000 calls to the file system. Above
+  200, the extra ones are listed as not looked at.
 
 An agent's own git commands are for [auto-review](#status) and the agent's
 permissions. Flockdeck never runs `git mergetool`, so `merge.tool` and

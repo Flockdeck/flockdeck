@@ -277,6 +277,15 @@ var hookNames = []string{
 	"reference-transaction", "sendemail-validate", "update",
 }
 
+// hookSet is hookNames as a set.
+var hookSet = func() map[string]bool {
+	m := map[string]bool{}
+	for _, n := range hookNames {
+		m[n] = true
+	}
+	return m
+}()
+
 // Limits, so that a repository built to be slow to inspect is not.
 const (
 	maxSubmodules = 200
@@ -424,7 +433,13 @@ func ScanPrograms(dir string) (Report, error) {
 		rep.Items = append(rep.Items, unscannable(dir, "the submodules could not be listed: "+firstWords(err), ""))
 	}
 	for _, sub := range subs {
+		if ctx.Err() != nil {
+			break
+		}
 		rep.Items = append(rep.Items, s.scanSubmodule(sub)...)
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		rep.Items = append(rep.Items, unscannable(dir, errScanTooLong.Error()+" ("+scanTimeout.String()+"), so some of it was not looked at", ""))
 	}
 	rep.Items = append(rep.Items, s.fsItems...)
 	if truncated {
@@ -725,7 +740,7 @@ func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program
 		if fi.Size() > maxConfigBytes {
 			return []Program{unscannable(cfg, "the remote's configuration is too large to read", submodule)}
 		}
-		entries, err := s.listConfig(gd, gd, &cfg)
+		entries, err := s.readConfig(cfg, gd)
 		if err != nil {
 			return []Program{unscannable(cfg, "the remote's configuration could not be read: "+firstWords(err), submodule)}
 		}
@@ -921,16 +936,120 @@ func within(dir, path string) bool {
 	return rel == "." || rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// hooksInDir looks for each hook git knows by its name. That finds a file the
-// directory cannot be listed to show (a directory that can be searched but not
-// read), matches names as the file system does, and cannot be fooled by a name
-// that only looks like a hook's. On Windows git also starts <hook>.exe where
-// there is no <hook>. The directory itself is checked first: a hooks directory
-// that is a link to a share is as much a share as a hook that is.
-func (s *scanner) hooksInDir(dirPath, submodule string, machine bool) []Program {
-	if err := s.fs.guard(dirPath); err != nil {
-		return []Program{fsItem(err, dirPath, submodule)}
+// maxHooksDirEntries is how many entries of a hooks folder are listed. A folder
+// with more is looked through by name instead, which gives the same answer.
+const maxHooksDirEntries = 1024
+
+// hookFor says which hook an entry of a hooks folder would be started as, by the
+// name the file system matches: Pre-Commit is pre-commit on Windows and macOS,
+// and on Windows git also starts <hook>.exe. The name returned is the hook's,
+// with ".exe" when that is how the file is spelled.
+func hookFor(name string) (string, bool) {
+	lower := name
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		lower = strings.ToLower(name)
 	}
+	if runtime.GOOS == "windows" {
+		if base, ok := strings.CutSuffix(lower, ".exe"); ok && hookSet[base] {
+			return base + ".exe", true
+		}
+	}
+	return lower, hookSet[lower]
+}
+
+// hooksInDir lists the hooks git would run from a folder with one guarded
+// listing of it. The listing says which entries are links (those go through the
+// full guarded call, since git follows a link) and which are ordinary files
+// (those are hashed without being looked at again). A folder that can be searched
+// but not listed is looked through by name. The folder itself is checked first:
+// a hooks folder that is a link to a share is as much a share as a hook that is.
+func (s *scanner) hooksInDir(dirPath, submodule string, machine bool) []Program {
+	d, err := s.fs.OpenDir(dirPath)
+	if err != nil {
+		switch {
+		case absent(err):
+			return nil
+		case blocked(err):
+			return []Program{fsItem(err, dirPath, submodule)}
+		}
+		return s.hooksByName(dirPath, submodule, machine)
+	}
+	defer d.close()
+	var entries []fs.DirEntry
+	for {
+		batch, err := d.next(256)
+		entries = append(entries, batch...)
+		if len(entries) > maxHooksDirEntries {
+			return s.hooksByName(dirPath, submodule, machine)
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if blocked(err) {
+				return []Program{fsItem(err, dirPath, submodule)}
+			}
+			return s.hooksByName(dirPath, submodule, machine)
+		}
+		if len(batch) == 0 {
+			break
+		}
+	}
+	var items []Program
+	for _, e := range entries {
+		hook, ok := hookFor(e.Name())
+		if !ok {
+			continue
+		}
+		full := filepath.Join(dirPath, e.Name())
+		listed := e.Type()&(os.ModeSymlink|os.ModeIrregular) == 0
+		var fi fs.FileInfo
+		var err error
+		if listed {
+			fi, err = e.Info()
+		} else {
+			// Git follows a link, so where it leads decides whether it is looked at.
+			fi, err = s.fs.Stat(full)
+		}
+		if err != nil {
+			if absent(err) {
+				continue
+			}
+			if blocked(err) {
+				items = append(items, fsItem(err, full, submodule))
+				continue
+			}
+			return append(items, unreadable(dirPath, err, submodule))
+		}
+		if p, ok := s.hookItem(dirPath, hook, full, fi, listed, submodule, machine); ok {
+			items = append(items, p)
+		}
+	}
+	return items
+}
+
+// hookItem is the item for a hook file, or false when git would not start it.
+func (s *scanner) hookItem(dirPath, name, full string, fi fs.FileInfo, listed bool, submodule string, machine bool) (Program, bool) {
+	if !fi.Mode().IsRegular() || !executable(fi) {
+		return Program{}, false
+	}
+	sum, err := s.hashFile(full, fi.Size(), listed)
+	switch {
+	case err == errOverBudget:
+		return unscannable(full, "a hook too large to read within the limit of "+
+			strconv.Itoa(maxHashBudget>>20)+" MB for a scan", submodule), true
+	case blocked(err):
+		return fsItem(err, full, submodule), true
+	case err != nil:
+		// A hook that can be run and not read still runs.
+		sum = "unreadable: " + errText(err)
+	}
+	return Program{Kind: "hook", Name: name, Sum: sum, Where: dirPath, Submodule: submodule, Machine: machine}, true
+}
+
+// hooksByName looks for each hook git knows by its name, one guarded look each.
+// It finds a file in a folder that can be searched and not listed.
+func (s *scanner) hooksByName(dirPath, submodule string, machine bool) []Program {
 	var items []Program
 	for _, name := range hookNames {
 		candidates := []string{name}
@@ -951,20 +1070,9 @@ func (s *scanner) hooksInDir(dirPath, submodule string, machine bool) []Program 
 				// Git may be able to run what this cannot see.
 				return append(items, unreadable(dirPath, err, submodule))
 			}
-			if !fi.Mode().IsRegular() || !executable(fi) {
-				continue
+			if p, ok := s.hookItem(dirPath, cand, full, fi, false, submodule, machine); ok {
+				items = append(items, p)
 			}
-			sum, err := s.hashFile(full, fi.Size())
-			switch {
-			case err == errOverBudget:
-				items = append(items, unscannable(full, "a hook too large to read within the limit of "+
-					strconv.Itoa(maxHashBudget>>20)+" MB for a scan", submodule))
-				continue
-			case err != nil:
-				// A hook that can be run and not read still runs.
-				sum = "unreadable: " + errText(err)
-			}
-			items = append(items, Program{Kind: "hook", Name: cand, Sum: sum, Where: dirPath, Submodule: submodule, Machine: machine})
 		}
 	}
 	return items
@@ -983,12 +1091,23 @@ var errOverBudget = errors.New("over the budget for reading files")
 
 // hashFile hashes a whole file, streamed, within what is left of the budget for
 // the scan. The size is checked first and again as it is read, so a file that
-// grows is not read without end.
-func (s *scanner) hashFile(path string, size int64) (string, error) {
+// grows is not read without end. A file a listing of a guarded folder showed to
+// be an ordinary file (listed) is opened without being looked at again.
+func (s *scanner) hashFile(path string, size int64, listed bool) (string, error) {
 	if size > s.budget-s.spent {
 		return "", errOverBudget
 	}
-	sum, n, err := s.fs.Hash(path, s.budget-s.spent+1)
+	limit := s.budget - s.spent + 1
+	var (
+		sum string
+		n   int64
+		err error
+	)
+	if listed {
+		sum, n, err = s.fs.HashListed(path, limit)
+	} else {
+		sum, n, err = s.fs.Hash(path, limit)
+	}
 	s.spent += n
 	if err != nil {
 		return "", err
@@ -1036,11 +1155,14 @@ type finder struct {
 	truncated bool
 }
 
-func (f *finder) add(gd, rel, work string) {
-	gd, err := f.fs.Canonical(gd)
-	if err != nil {
-		f.items = append(f.items, fsItem(err, gd, ""))
-		return
+func (f *finder) add(gd, rel, work string, resolved bool) {
+	if !resolved {
+		var err error
+		gd, err = f.fs.Canonical(gd)
+		if err != nil {
+			f.items = append(f.items, fsItem(err, gd, ""))
+			return
+		}
 	}
 	key := gd
 	if runtime.GOOS == "windows" {
@@ -1079,7 +1201,7 @@ func (s *scanner) submoduleGitDirs(dir string, loc gitLocations) (subs []submodu
 			gd, err := s.fs.resolveGitDir(work)
 			switch {
 			case err == nil:
-				f.add(gd, path, work)
+				f.add(gd, path, work, true)
 			case blocked(err):
 				f.items = append(f.items, fsItem(err, work, path))
 			}
@@ -1097,7 +1219,9 @@ func (s *scanner) submoduleGitDirs(dir string, loc gitLocations) (subs []submodu
 // A directory is read a few entries at a time and given up on at the limit, so
 // one with millions of entries is not read whole. How many directories are
 // visited, and how deep, is bounded; going past either is recorded and not
-// skipped silently.
+// skipped silently. The folder is guarded once; an entry that is an ordinary
+// folder is then a child of it and is not walked again, and only an entry that
+// is a link goes through the full guarded calls.
 func (f *finder) walkModules(base string, depth int) {
 	d, err := f.fs.OpenDir(base)
 	if err != nil {
@@ -1114,7 +1238,8 @@ func (f *finder) walkModules(base string, depth int) {
 	for {
 		entries, err := d.next(128)
 		for _, e := range entries {
-			if !e.IsDir() {
+			link := e.Type()&(os.ModeSymlink|os.ModeIrregular) != 0
+			if !e.IsDir() && !link {
 				continue
 			}
 			if f.visits++; f.visits > maxModuleDirs {
@@ -1122,10 +1247,16 @@ func (f *finder) walkModules(base string, depth int) {
 				return
 			}
 			gd := filepath.Join(base, e.Name())
-			_, serr := f.fs.Stat(filepath.Join(gd, "HEAD"))
+			head := filepath.Join(gd, "HEAD")
+			var serr error
+			if link {
+				_, serr = f.fs.Stat(head)
+			} else {
+				_, serr = f.fs.StatChild(head)
+			}
 			switch {
 			case serr == nil:
-				f.add(gd, "", "")
+				f.add(gd, "", "", !link)
 				f.walkModules(filepath.Join(gd, "modules"), depth+1)
 			case blocked(serr):
 				f.items = append(f.items, fsItem(serr, gd, ""))
@@ -1148,9 +1279,10 @@ func (f *finder) walkModules(base string, depth int) {
 
 // scanSubmodule is ScanPrograms for a submodule's own git directory. A
 // hooksPath that is relative is relative to the submodule's working tree. Its
-// configuration is read by git every time, and not remembered between scans:
-// anything remembered by what was read could be a different file by the time
-// git reads it.
+// configuration is read every time and not remembered between scans: anything
+// remembered by what was read could be a different file by the time it is read
+// again. The git directory was guarded when it was found, so its configuration
+// is looked at as a child of it.
 func (s *scanner) scanSubmodule(sub submodule) []Program {
 	name := sub.path
 	if name == "" {
@@ -1159,7 +1291,7 @@ func (s *scanner) scanSubmodule(sub submodule) []Program {
 	cfg := filepath.Join(sub.gitDir, "config")
 	var items []Program
 	var hooksPath *configEntry
-	fi, err := s.fs.Stat(cfg)
+	fi, err := s.fs.StatChild(cfg)
 	switch {
 	case err == nil && !fi.Mode().IsRegular():
 		items = append(items, fsItem(errNotRegular, cfg, name))
@@ -1171,7 +1303,7 @@ func (s *scanner) scanSubmodule(sub submodule) []Program {
 		items = append(items, unscannable(cfg, "the submodules' configuration is more than a scan reads in all", name))
 	case err == nil:
 		s.spent += fi.Size()
-		entries, err := s.listConfig(sub.gitDir, sub.gitDir, &cfg)
+		entries, err := s.readConfig(cfg, sub.gitDir)
 		if err != nil {
 			items = append(items, unscannable(cfg, "git could not read it: "+firstWords(err), name))
 		} else {
@@ -1184,6 +1316,23 @@ func (s *scanner) scanSubmodule(sub submodule) []Program {
 	}
 	loc := gitLocations{gitDir: sub.gitDir, common: sub.gitDir, topdir: sub.work}
 	return append(items, s.hooksIn(loc, hooksPath, name)...)
+}
+
+// readConfig reads a configuration file that was just shown to be an ordinary
+// file of a sane size. A file of plain sections and plain assignments is read
+// here, which is what a submodule's is; anything else (an include, a quoted
+// value, a backslash) is handed to git, which reads it the way it reads all of
+// them. One git process for each of two hundred submodules was most of the time
+// a scan took.
+func (s *scanner) readConfig(cfg, dir string) ([]configEntry, error) {
+	data, err := s.fs.ReadChild(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if entries, ok := parseSimpleConfig(data, cfg); ok {
+		return entries, nil
+	}
+	return s.listConfig(dir, dir, &cfg)
 }
 
 // Known is what somebody last accepted for a repository.
