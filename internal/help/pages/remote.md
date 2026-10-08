@@ -333,8 +333,26 @@ credential of its own, kept here in `remote.json` in the state directory and
 readable only by you.
 
 A relay could hand out the wrong key for a device. To check, press **Verify**
-beside a device in the dialog and compare the code with the one the device
-shows on its own **Devices** page; if they differ, unpair it.
+beside a device in the dialog. A device has two keys, one for the Flockdeck
+Remote app and one for the full interface it opens from this machine, and
+each has its own code. Compare each code with the one the device shows (the
+app's **Devices** page, or the **Remote** dialog in the full interface, which
+shows the code for the window you are in); if they differ, unpair it. When they
+match, press **Mark verified**. Only this machine can do that, never a window
+reached through the relay, and the mark is tied to the device, the key and this
+machine's own key: if any of them changes, the device shows as not verified
+again and the codes need comparing again. Unpairing a device removes its mark,
+whether you do it here or from the device's own page (the mark is dropped the
+next time the list is read). A device that pairs again has to be compared again.
+
+Verifying matters because the relay is what hands out the keys. It stops a relay
+that swapped a key, but not one that alters the page it serves (see below).
+
+The marks are kept in `remote_verified.json` in the state directory, protected
+like `remote.json`: readable and writable by you only. A program running as you
+can change that file, or ask the local server to add a mark, so a mark says
+what you compared and does not defend against software on this machine that
+already acts as you.
 
 What the relay cannot read, it cannot read as long as it only reads or stores
 what passes through it, unless it actively tampers with the client it serves:
