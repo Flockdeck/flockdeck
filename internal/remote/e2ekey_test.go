@@ -25,6 +25,10 @@ type e2eFakeRelay struct {
 	setCalls     int      // how many times e2e-key was called
 	devicesCalls int      // how many times GET /api/v1/host/devices was called
 	devices      []Device // what GET /api/v1/host/devices answers
+	// devicesRaw, when set, is the exact body of that answer, and devicesStatus,
+	// when set, its status: a blank 200, a proxy's page, a bad gateway.
+	devicesRaw    *string
+	devicesStatus int
 }
 
 func newE2EFakeRelay(t *testing.T, devices ...Device) *e2eFakeRelay {
@@ -50,10 +54,17 @@ func newE2EFakeRelay(t *testing.T, devices ...Device) *e2eFakeRelay {
 	})
 	mux.HandleFunc("GET /api/v1/host/devices", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
-		devs := f.devices
+		devs, raw, status := f.devices, f.devicesRaw, f.devicesStatus
 		f.devicesCalls++
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
+		if status != 0 {
+			w.WriteHeader(status)
+		}
+		if raw != nil {
+			_, _ = io.WriteString(w, *raw)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(Roster{Devices: devs})
 	})
 	f.Server = httptest.NewServer(mux)

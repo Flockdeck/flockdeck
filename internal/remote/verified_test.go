@@ -5,6 +5,7 @@ import (
 	"crypto/ecdh"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -515,5 +516,91 @@ func TestParseKeyOrigin(t *testing.T) {
 		if o, ok := ParseKeyOrigin(in); o != want.o || ok != want.ok {
 			t.Errorf("ParseKeyOrigin(%q) = %v, %v", in, o, ok)
 		}
+	}
+}
+
+// answerDevicesWith makes the fake relay answer the roster with an exact body
+// and status.
+func answerDevicesWith(f *e2eFakeRelay, status int, body string) {
+	f.mu.Lock()
+	f.devicesRaw, f.devicesStatus = &body, status
+	f.mu.Unlock()
+}
+
+// A roster that lists no devices proves nothing: a proxy, a captive portal or
+// a relay that has failed can send one, and acting on it would wipe what the
+// person verified. The answers that look like that are all ignored.
+func TestAnEmptyRosterDoesNotForgetAnyVerification(t *testing.T) {
+	for name, body := range map[string]string{
+		"a blank 200":   "",
+		"an empty body": "{}",
+		"null devices":  `{"devices":null}`,
+		"no devices":    `{"devices":[],"hosts":[]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newVerifyFixture(t)
+			ctx := context.Background()
+			if err := f.m.VerifyDevice(ctx, "d1", KeyOriginDesk, f.deskFP); err != nil {
+				t.Fatal(err)
+			}
+			answerDevicesWith(f.relay, http.StatusOK, body)
+			// Reading the roster is what prunes; the device is not in this one.
+			_ = f.m.DeviceFingerprint(ctx, "d1", KeyOriginDesk)
+			if err := f.m.ForgetDevicesNotIn(nil); err != nil {
+				t.Fatal(err)
+			}
+			if !f.m.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+				t.Errorf("%s forgot a verification", name)
+			}
+		})
+	}
+}
+
+// A roster that could not be read does not prune either.
+func TestARosterErrorDoesNotForgetAnyVerification(t *testing.T) {
+	f := newVerifyFixture(t)
+	ctx := context.Background()
+	if err := f.m.VerifyDevice(ctx, "d1", KeyOriginDesk, f.deskFP); err != nil {
+		t.Fatal(err)
+	}
+	answerDevicesWith(f.relay, http.StatusBadGateway, "<html>Bad gateway</html>")
+	if got := f.m.DeviceFingerprint(ctx, "d1", KeyOriginDesk); got != "" {
+		t.Errorf("a fingerprint came from an error page: %q", got)
+	}
+	if !f.m.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+		t.Error("a roster error forgot a verification")
+	}
+}
+
+// A roster that lists devices drops the verification of exactly the ones it
+// does not list.
+func TestANonEmptyRosterForgetsOnlyTheMissingDevices(t *testing.T) {
+	f := newVerifyFixture(t)
+	ctx := context.Background()
+	_, hostPub, _ := f.m.hostKeyBytes()
+	keys := map[string]*ecdh.PrivateKey{"d2": mustKey(t), "d3": mustKey(t)}
+	devs := []Device{{
+		ID: "d1", PublicKey: e2e.EncodePublicKey(mustPub(t, f.usual)),
+		DeskPublicKey: e2e.EncodePublicKey(mustPub(t, f.desk)),
+	}}
+	for _, id := range []string{"d2", "d3"} {
+		devs = append(devs, Device{ID: id, DeskPublicKey: e2e.EncodePublicKey(keys[id].PublicKey())})
+	}
+	setDevices(f.relay, devs...)
+	if err := f.m.VerifyDevice(ctx, "d1", KeyOriginDesk, f.deskFP); err != nil {
+		t.Fatal(err)
+	}
+	for id, k := range keys {
+		if err := f.m.VerifyDevice(ctx, id, KeyOriginDesk, e2e.Fingerprint(k.PublicKey(), hostPub)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setDevices(f.relay, devs[0], devs[2]) // d2 is gone
+	_ = f.m.DeviceFingerprint(ctx, "d1", KeyOriginDesk)
+	if f.m.DeviceVerified("d2", KeyOriginDesk, keys["d2"].PublicKey().Bytes()) {
+		t.Error("a device missing from the roster is still verified")
+	}
+	if !f.m.DeviceVerified("d1", KeyOriginDesk, f.desk) || !f.m.DeviceVerified("d3", KeyOriginDesk, keys["d3"].PublicKey().Bytes()) {
+		t.Error("a device on the roster lost its verification")
 	}
 }
