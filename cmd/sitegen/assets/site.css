@@ -449,11 +449,14 @@ h2 {
 .fan + .figure { margin-top: 32px; }
 /* The recording is a 6.8 MB GIF, so the page shows a still of it and does not
    fetch the GIF until the visitor opens the details: a lazy image inside a
-   closed details is never rendered, so the browser never asks for it. The
-   still goes once the recording is showing. No script is needed. */
+   closed details is never rendered, so the browser never asks for it. No
+   script is needed. The summary stays on screen when the details is open, with
+   its label turned to "Hide the recording", so the keyboard keeps its focus
+   and the loop can be put away again. A GIF cannot honour
+   prefers-reduced-motion, which is why it stays behind a press and is never
+   started by the page itself. */
 .play summary { list-style: none; cursor: pointer; position: relative; display: block; }
 .play summary::-webkit-details-marker { display: none; }
-.play[open] summary { display: none; }
 .play-label {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   padding: 10px 18px; border-radius: 999px; white-space: nowrap;
@@ -462,6 +465,12 @@ h2 {
 }
 .play-label .t { font-family: var(--mono); font-weight: 400; font-size: 12px; color: var(--muted); }
 .play summary:hover .play-label { border-color: var(--accent); }
+.when-open { display: none; }
+.play[open] .when-open { display: inline; }
+.play[open] .when-closed { display: none; }
+/* Open, the still goes and the label becomes a plain bar over the recording. */
+.play[open] summary > img { display: none; }
+.play[open] .play-label { position: static; transform: none; display: block; width: max-content; max-width: 100%; margin: 0 auto 16px; }
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start; }
 /* Enterprise's card beside the plan as Settings shows it: the row keeps
    the space the card had above it, and the card its tint. */
