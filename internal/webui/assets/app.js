@@ -3982,10 +3982,16 @@
       session = await handshake.finish(response);
     } catch (err) {
       console.error("e2e: the desktop's handshake response did not check out", err);
+      // A socket this pane has since moved on from has no state left here to
+      // clear: closing it must not clear the new socket's handshake or timer.
+      if (p.ws !== ws) { try { ws.close(); } catch { /* already closing */ } return; }
       closeForFailedHandshake(p, ws, "the desktop's handshake response did not check out");
       return;
     }
-    if (p.ws !== ws) return;
+    // finishing is cleared by anything that closed the socket while the keys
+    // were derived (an over-cap or plain frame): no session is installed on a
+    // socket already being closed.
+    if (p.ws !== ws || !p.finishing) return;
     p.session = session;
     p.finishing = false;
     // Opened in arrival order on the same chain as every later frame, and
@@ -4002,8 +4008,8 @@
    *  and hands what it holds to the terminal. A frame that does not open
    *  ends the socket. */
   function receiveSealed(p, ws, session, frame) {
-    p.recvQueue = p.recvQueue.then(() => session.open(frame)).then((plain) => {
-      if (p.ws !== ws || !plain.length) return;
+    p.recvQueue = p.recvQueue.then(() => (p.recvDead ? null : session.open(frame))).then((plain) => {
+      if (!plain || p.ws !== ws || !plain.length) return;
       if (plain[0] === FRAME_TEXT) handlePtyHeader(p, new TextDecoder().decode(plain.subarray(1)));
       else handlePtyBinary(p, plain.subarray(1));
     }).catch((err) => {
@@ -4011,15 +4017,24 @@
       // there is no way to tell which, and no way to carry on reading
       // a stream whose next frame might be any of those.
       console.error("e2e: a frame from the desktop did not check out", err);
+      // Nothing after the failed frame is opened or drawn.
+      if (p.ws === ws) p.recvDead = true;
       try { ws.close(); } catch { /* already closing */ }
     });
   }
 
   // The most sealed frames, and bytes, held while the handshake response is
-  // still being processed. That is a few milliseconds of key derivation, so
-  // a well-behaved desktop sends the header and a replay chunk or two; a
-  // peer sending more is not waiting for the handshake and is cut off.
-  const EARLY_MAX_FRAMES = 256;
+  // still being processed (a few milliseconds of key derivation). What the
+  // desktop can legitimately send right behind the response is the stream
+  // header and a replay of up to 512 KiB (session.replayBytes) in 64 KiB
+  // frames, which is about nine frames -- except that a size notice is a
+  // frame of its own and the replay is cut wherever one begins, and a pane
+  // keeps up to 512 size marks (session.maxSizeMarks). Worst case is about
+  // 2 x 512 + 10 frames, plus some live output, so 2048 frames; a peer sending
+  // more is not waiting for the handshake and is cut off. Bytes: the replay,
+  // the marks and the sealing overhead come to well under 1 MiB, and live
+  // output frames are up to 256 KiB, so 8 MiB leaves ample room.
+  const EARLY_MAX_FRAMES = 2048;
   const EARLY_MAX_BYTES = 8 * 1024 * 1024;
 
   /** closeForFailedHandshake ends a socket whose handshake was expected to
@@ -4105,6 +4120,7 @@
     p.finishing = false;
     p.early = [];
     p.earlyBytes = 0;
+    p.recvDead = false;
     p.session = null;
     p.pending = [];
     p.sendQueue = Promise.resolve();
@@ -4138,6 +4154,9 @@
     };
     ws.onmessage = (ev) => {
       if (hostE2EPublicKey) {
+        // A socket this pane has moved on from has no say in the new one's
+        // handshake or session.
+        if (p.ws !== ws) return;
         // A desktop with a key on file gets nothing but this scheme from
         // here: the one handshake response, then only sealed frames, ever
         // again, on this socket. Anything else -- including a plain frame,
