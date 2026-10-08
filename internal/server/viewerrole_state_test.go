@@ -30,6 +30,19 @@ func prefsPath(t *testing.T) string {
 	return filepath.Join(dir, "prefs.json")
 }
 
+// removeFile deletes a file that something else may have open for a moment, as
+// Windows will not remove one that is.
+func removeFile(t *testing.T, path string) {
+	t.Helper()
+	var err error
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if err = os.Remove(path); err == nil || os.IsNotExist(err) {
+			return
+		}
+	}
+	t.Fatal(err)
+}
+
 // saveUnrelatedPref has the desk change a preference that has nothing to do
 // with devices and waits for it to be saved.
 func saveUnrelatedPref(t *testing.T, srv *Server, theme string) {
@@ -46,9 +59,7 @@ func saveUnrelatedPref(t *testing.T, srv *Server, theme string) {
 func TestDeletingThePrefsFileDoesNotLiftARestriction(t *testing.T) {
 	srv, _ := newTestServer(t)
 	setAccess(t, srv, "viewer-dev", "viewer", false)
-	if err := os.Remove(prefsPath(t)); err != nil {
-		t.Fatal(err)
-	}
+	removeFile(t, prefsPath(t))
 	saveUnrelatedPref(t, srv, "light")
 	if got := srv.deviceRole("viewer-dev"); got != store.RoleViewer {
 		t.Fatalf("after the file was deleted and another setting saved, the device is %q, want viewer", got)
@@ -86,7 +97,7 @@ func TestARestrictionIsAppliedEvenWhenItCannotBeSaved(t *testing.T) {
 	srv, _ := newTestServer(t)
 	listDevice(srv, "dev-1")
 	path := prefsPath(t)
-	_ = os.Remove(path)
+	removeFile(t, path)
 	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatal(err)
 	}

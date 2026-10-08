@@ -239,10 +239,11 @@ func TestAViewerIsSentNothingOfTheDesks(t *testing.T) {
 	sendCmd(t, desk, command{Cmd: "theme", Text: "light"})
 	sendCmd(t, desk, command{Cmd: "newTab"})
 	srv.do(func() { srv.broadcastPrefs(); srv.broadcastKeys() })
-	var root string
-	srv.do(func() {
-		root = ws.ActiveRoot()
-		ws.NewTab(0, root, "a-private-tab-name")
+	// Waited for: root is read below, and the workspace goroutine writes it.
+	root, _ := ask(srv, func() string {
+		r := ws.ActiveRoot()
+		ws.NewTab(0, r, "a-private-tab-name")
+		return r
 	})
 	srv.Wake()
 
