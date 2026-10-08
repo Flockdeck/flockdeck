@@ -1312,7 +1312,9 @@ textarea:focus-visible {
 .ov-spacer { flex: 1 1 auto; }
 
 /* The questions asked in the window (confirmDialog, promptDialog). */
-.ask-body { line-height: 1.5; max-width: 60ch; }
+.ask-body { line-height: 1.5; max-width: 60ch; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ask-body p { margin: 0 0 .5em; }
+.ask-body ul { margin: 0; padding-left: 1.2em; }
 .ask-field { width: 100%; }
 .ask-note { margin-top: 6px; font-size: 12px; color: var(--fg-dim); }
 
@@ -2912,3 +2914,5 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .helper-sub { font-weight: 600; margin: 10px 0 4px; }
 .helper-allows { margin: 0 0 8px 18px; padding: 0; }
 .helper-warning { border: 1px solid var(--waiting); border-radius: 4px; padding: 8px 10px; margin: 10px 0; }
+.remote-code, .remote-this-window { margin: 6px 0 0; }
+.remote-code .chip { margin: 6px 0 0; }

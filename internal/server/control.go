@@ -566,6 +566,9 @@ type command struct {
 	Files   []string          `json:"files"`
 	Omitted int               `json:"omitted"`
 	Stamps  map[string]string `json:"stamps"`
+	// GitAccept and GitSeen answer a gitWarn: see gitProgramsAccepted.
+	GitAccept string `json:"gitAccept"`
+	GitSeen   string `json:"gitSeen"`
 	// Follow marks a listing the review panel asked for by itself, because
 	// the pane counts moved, rather than one somebody opened or refreshed.
 	Follow bool `json:"follow"`
@@ -1559,16 +1562,16 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.showDiff(c, cmd.Path, cmd.Text)
 		return
 	case "commit":
-		s.commitChanges(c, cmd.Path, cmd.Text, cmd.Push, cmd.Files, cmd.Stamps, cmd.Omitted)
+		s.commitChanges(c, cmd.Path, cmd.Text, cmd.Push, cmd.Files, cmd.Stamps, cmd.Omitted, gitAnswer{cmd.GitAccept, cmd.GitSeen})
 		return
 	case "gitPush":
-		s.runRemote(c, "push", cmd.Path)
+		s.runRemote(c, "push", cmd.Path, gitAnswer{cmd.GitAccept, cmd.GitSeen})
 		return
 	case "gitPull":
-		s.runRemote(c, "pull", cmd.Path)
+		s.runRemote(c, "pull", cmd.Path, gitAnswer{cmd.GitAccept, cmd.GitSeen})
 		return
 	case "gitFetch":
-		s.runRemote(c, "fetch", cmd.Path)
+		s.runRemote(c, "fetch", cmd.Path, gitAnswer{cmd.GitAccept, cmd.GitSeen})
 		return
 	case "ghStatus":
 		s.ghStatus(c, cmd.Path)
@@ -1672,6 +1675,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "remoteRename":
 		s.remoteRename(c, cmd.Kind, cmd.ID, cmd.Name)
+		return
+	case "remoteVerify":
+		s.remoteVerify(c, cmd)
+		return
+	case "remoteUnverify":
+		s.remoteUnverify(c, cmd)
 		return
 	case "remoteEnable":
 		s.remoteEnable(c, cmd)

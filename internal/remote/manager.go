@@ -65,6 +65,10 @@ type Manager struct {
 	// file, or the account's relay, once Close has returned.
 	e2eCancel context.CancelFunc
 	e2eWG     sync.WaitGroup
+
+	// verified is which devices' keys the person at this machine has
+	// compared (verified.go).
+	verified verifiedStore
 }
 
 // NewManager makes a manager with nothing running. serve answers each tunnel's

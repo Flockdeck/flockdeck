@@ -5,11 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/remote"
+	"github.com/jmwri/flockdeck/internal/server"
 )
 
 // The Dockerfile and the Helm chart under deploy/helm/flockdeck are written
@@ -33,19 +35,20 @@ var chartDir = filepath.Join("deploy", "helm", "flockdeck")
 // error in this file rather than a silent gap in the check.
 func knownFlockdeckEnv() map[string]bool {
 	return map[string]bool{
-		dirEnv:               true,
-		startAgentEnv:        true,
-		freshEnv:             true,
-		shellFirstEnv:        true,
-		noWindowEnv:          true,
-		detachEnv:            true,
-		soloEnv:              true,
-		remoteJoinEnv:        true,
-		remoteInviteEnv:      true,
-		remoteNameEnv:        true,
-		remote.RelayEnv:      true,
-		updateEnv:            true,
-		agent.FallbackKeyEnv: true,
+		dirEnv:                 true,
+		startAgentEnv:          true,
+		freshEnv:               true,
+		shellFirstEnv:          true,
+		noWindowEnv:            true,
+		detachEnv:              true,
+		soloEnv:                true,
+		remoteJoinEnv:          true,
+		remoteInviteEnv:        true,
+		remoteNameEnv:          true,
+		remote.RelayEnv:        true,
+		updateEnv:              true,
+		server.AllowedHostsEnv: true,
+		agent.FallbackKeyEnv:   true,
 	}
 }
 
@@ -298,5 +301,73 @@ func TestChartServiceRoutesToSidecarNotFlockdeck(t *testing.T) {
 func TestChartHasNoIngress(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(chartDir, "templates", "ingress.yaml")); err == nil {
 		t.Error("templates/ingress.yaml exists; this chart deliberately leaves Ingress out for now (see README.md) -- if that changed on purpose, update this test rather than deleting it")
+	}
+}
+
+// The server refuses a request whose Host header it was not told about, and a
+// client of the Service sends the Service's name, so the chart has to list it.
+// Helm is not run here, so this reads the templates: the four names the
+// cluster resolves the Service by, the
+// user's own allowedHosts, and the Deployment passing the result on.
+func TestChartAllowsTheServiceNamesAsHosts(t *testing.T) {
+	helpers := readChartFile(t, "templates/_helpers.tpl")
+	m := regexp.MustCompile(`(?s)define "flockdeck\.allowedHosts" -\}\}(.*?)\{\{- end \}\}\n`).FindStringSubmatch(helpers)
+	if m == nil {
+		t.Fatal(`templates/_helpers.tpl has no define "flockdeck.allowedHosts"`)
+	}
+	body := m[1]
+	for _, want := range []string{
+		`include "flockdeck.fullname" .`,
+		`printf "%s.%s" $name $ns`,
+		`printf "%s.%s.svc" $name $ns`,
+		`printf "%s.%s.svc.cluster.local" $name $ns`,
+		`range .Values.allowedHosts`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("flockdeck.allowedHosts does not contain %s", want)
+		}
+	}
+	deployment := readChartFile(t, "templates/deployment.yaml")
+	block := containerBlock(t, deployment, "flockdeck")
+	if !regexp.MustCompile(`name: ` + server.AllowedHostsEnv + `\n\s+value: \{\{ include "flockdeck\.allowedHosts" \. \| quote \}\}`).MatchString(block) {
+		t.Errorf("the flockdeck container does not set %s from flockdeck.allowedHosts", server.AllowedHostsEnv)
+	}
+	if !regexp.MustCompile(`(?m)^allowedHosts: \[\]$`).MatchString(readChartFile(t, "values.yaml")) {
+		t.Error("values.yaml does not have allowedHosts: []")
+	}
+	for _, f := range []string{"templates/NOTES.txt", "README.md"} {
+		if !strings.Contains(readChartFile(t, f), "allowedHosts") {
+			t.Errorf("%s does not mention allowedHosts", f)
+		}
+	}
+}
+
+// flockdeck.validate refuses an allowedHosts entry with anything in it but
+// letters, digits and . _ - : [ ], so a tab, a newline or a control character
+// fails the install and not the pod. Helm is not run here: the pattern is read
+// out of the template, unquoted the way a template string is, and tried.
+func TestChartValidatesAllowedHostsCharacters(t *testing.T) {
+	helpers := readChartFile(t, "templates/_helpers.tpl")
+	m := regexp.MustCompile(`range \.Values\.allowedHosts \}\}\n\{\{- if regexMatch ("(?:[^"\\]|\\.)*") `).FindStringSubmatch(helpers)
+	if m == nil {
+		t.Fatal("flockdeck.validate has no regexMatch over .Values.allowedHosts")
+	}
+	pattern, err := strconv.Unquote(m[1])
+	if err != nil {
+		t.Fatalf("the pattern %s is not a valid template string: %v", m[1], err)
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		t.Fatalf("the pattern %q does not compile: %v", pattern, err)
+	}
+	for _, ok := range []string{"flockdeck.example.com", "a_b-c.d", "host:8443", "[::1]", "[2001:db8::1]:9000", "10.0.0.5"} {
+		if re.MatchString(ok) {
+			t.Errorf("allowedHosts entry %q is refused, want it accepted", ok)
+		}
+	}
+	for _, bad := range []string{"*.example.com", "a b", "a\tb", "a\nb", "a\rb", "a\x00b", "a\x7fb", "http://a", "a/b", "a@b", "a,b", "ä.example", "a\b"} {
+		if !re.MatchString(bad) {
+			t.Errorf("allowedHosts entry %q is accepted, want it refused", bad)
+		}
 	}
 }

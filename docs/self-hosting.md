@@ -40,7 +40,9 @@ The server inside binds `127.0.0.1` only, on a port chosen at random at each
 start, exactly as it does outside a container. So `docker run -p` publishes
 nothing. You reach it with `docker exec`, with `--network host`, or with
 `flockdeck remote enable`, which uses an outward connection and needs no inbound
-port. The `EXPOSE` comment in the Dockerfile has the detail.
+port. The `EXPOSE` comment in the Dockerfile has the detail. With `--network host`,
+browse to `127.0.0.1` or `localhost` on the port it prints; the host's own name or
+LAN address gets a 403 until it is listed in `FLOCKDECK_ALLOWED_HOSTS`.
 
 ```sh
 docker build -t flockdeck .
@@ -62,3 +64,14 @@ The [chart README](../deploy/helm/flockdeck/README.md) has the install guide,
 what the `Service` does and does not authenticate, and how to reach the server:
 `kubectl exec` plus `kubectl port-forward`, or `flockdeck remote enable` from
 outside the cluster.
+
+The server also refuses a request whose `Host` header is not `127.0.0.1` or
+`localhost` (on any port) or a name listed in `FLOCKDECK_ALLOWED_HOSTS`. That is
+what stops a web page from reaching it under a name of its own. The chart lists
+the `Service`'s names for you, and its `allowedHosts` value takes an `Ingress`
+hostname or a `NodePort` or `LoadBalancer` address. Outside the chart, set the
+variable where the server runs: a comma-separated list, a bare name for any
+port or `name:port` for one. A `kubectl port-forward` or `ssh -L` to any local
+port needs nothing, as long as the browser uses `127.0.0.1` or `localhost`. The
+help page "A page says Flockdeck did not answer, naming the Host header" has the
+rest.
