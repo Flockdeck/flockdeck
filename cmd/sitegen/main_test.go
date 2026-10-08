@@ -706,7 +706,7 @@ func TestLicenceCopiesAreTheOriginals(t *testing.T) {
 func TestTextFilesUseLF(t *testing.T) {
 	dir, _ := generate(t)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".ico") || strings.HasSuffix(path, ".woff2") {
+		if err != nil || d.IsDir() || strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".gif") || strings.HasSuffix(path, ".ico") || strings.HasSuffix(path, ".woff2") {
 			return err
 		}
 		b, err := os.ReadFile(path)
@@ -1369,5 +1369,30 @@ func TestRemoteIsDescribedAsAnAddOnNotATunnel(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(strings.Fields(pages["refunds.html"]), " "), "the Flockdeck Remote subscription") {
 		t.Error("the refund policy does not name the Flockdeck Remote subscription")
+	}
+}
+
+// The recording is several megabytes, so it must not be fetched on first
+// paint. The page shows a still, and the GIF sits in a closed details with a
+// lazy loading attribute, where a browser never fetches it until it is opened.
+func TestTheRecordingIsNotFetchedUntilPlayed(t *testing.T) {
+	_, page := home(t)
+	i := strings.Index(page, `<details class="play">`)
+	if i < 0 {
+		t.Fatal("the page has no recording")
+	}
+	block := page[i : i+strings.Index(page[i:], "</details>")]
+	if strings.Contains(block, "<details class=\"play\" open") {
+		t.Error("the recording's details starts open, so the GIF is fetched with the page")
+	}
+	gif := regexp.MustCompile(`<img src="flockdeck-demo\.[0-9a-f]{10}\.gif"[^>]*>`).FindString(block)
+	if gif == "" {
+		t.Fatal("the recording's details has no GIF in it")
+	}
+	if !strings.Contains(gif, ` loading="lazy"`) {
+		t.Errorf("%s is not lazy", gif)
+	}
+	if strings.Contains(page[:i], ".gif") {
+		t.Error("the GIF is linked before the recording's details, where a browser would fetch it")
 	}
 }

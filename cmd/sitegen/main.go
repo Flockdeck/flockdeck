@@ -52,6 +52,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/jmwri/flockdeck/docs/media"
 	"github.com/jmwri/flockdeck/internal/selfupdate"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -407,6 +408,12 @@ func run(out, repo, module, url string, rel release) error {
 			return err
 		}
 	}
+
+	// The recording is kept under docs/media, where the README links it, and
+	// served beside the screenshots. Its poster, assets/shots/demo-poster*.png,
+	// is a frame cut from it, so the page shows the poster and fetches the
+	// recording only when a visitor asks to play it.
+	binary["flockdeck-demo.gif"] = media.Demo
 
 	// The fingerprinted names. The fonts come first, because the stylesheet
 	// names them, and its own fingerprint has to cover the names it gives.

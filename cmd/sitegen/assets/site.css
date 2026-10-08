@@ -447,6 +447,21 @@ h2 {
   box-shadow: var(--shadow);
 }
 .fan + .figure { margin-top: 32px; }
+/* The recording is a 6.8 MB GIF, so the page shows a still of it and does not
+   fetch the GIF until the visitor opens the details: a lazy image inside a
+   closed details is never rendered, so the browser never asks for it. The
+   still goes once the recording is showing. No script is needed. */
+.play summary { list-style: none; cursor: pointer; position: relative; display: block; }
+.play summary::-webkit-details-marker { display: none; }
+.play[open] summary { display: none; }
+.play-label {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  padding: 10px 18px; border-radius: 999px; white-space: nowrap;
+  background: var(--raised); border: 1px solid var(--edge); box-shadow: var(--shadow);
+  font-family: var(--display); font-weight: 600; font-size: 15px;
+}
+.play-label .t { font-family: var(--mono); font-weight: 400; font-size: 12px; color: var(--muted); }
+.play summary:hover .play-label { border-color: var(--accent); }
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start; }
 /* Enterprise's card beside the plan as Settings shows it: the row keeps
    the space the card had above it, and the card its tint. */
