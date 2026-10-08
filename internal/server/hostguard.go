@@ -14,9 +14,9 @@ import (
 // AllowedHostsEnv names the environment variable that adds to the names the
 // server answers to.
 //
-// The server listens on 127.0.0.1 and answers requests whose Host header names
-// that address, with any port. A browser page that reached the same port
-// through some other name (a name that resolves to 127.0.0.1 only after the
+// The server listens on 127.0.0.1 and answers requests whose Host header is
+// 127.0.0.1 or localhost, with any port. A browser page that reached the same
+// port through some other name (a name that resolves to 127.0.0.1 only after the
 // page has loaded is the usual way) sends that other name in Host, and is
 // refused here before any handler, and before a WebSocket upgrade, sees it.
 // The WebSocket library's own Origin check does not cover this: it accepts an
@@ -32,10 +32,10 @@ import (
 // Service or an Ingress, or from another machine by a hostname.
 const AllowedHostsEnv = "FLOCKDECK_ALLOWED_HOSTS"
 
-// defaultAllowedHost is the one host the server answers to without being told.
-// localhost is left out on purpose: it is a wider name than the address the
-// window and the printed links use.
-const defaultAllowedHost = "127.0.0.1"
+// defaultAllowedHosts are the hosts the server answers to without being told:
+// the address the window and the printed links use, and the name people type
+// for it. [::1] is not among them, because the listener is IPv4 only.
+var defaultAllowedHosts = []string{"127.0.0.1", "localhost"}
 
 // hostAllow is the set of Host header values the main server answers to.
 type hostAllow struct {
@@ -51,8 +51,11 @@ type hostAllow struct {
 // error names it.
 func newHostAllow(list string) (*hostAllow, error) {
 	a := &hostAllow{
-		anyPort: map[string]bool{defaultAllowedHost: true},
+		anyPort: map[string]bool{},
 		exact:   map[string]bool{},
+	}
+	for _, h := range defaultAllowedHosts {
+		a.anyPort[h] = true
 	}
 	for _, entry := range strings.Split(list, ",") {
 		entry = strings.TrimSpace(entry)

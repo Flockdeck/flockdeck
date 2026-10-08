@@ -1025,24 +1025,16 @@ func TestTerminalSocketOnlyAnswersItsOwnPage(t *testing.T) {
 		}
 	}
 
-	// The window's own page must still be able to: its script builds the
-	// socket's address from the one it was loaded from, so the two always
-	// agree. The window is opened on 127.0.0.1; localhost is not a name the
-	// server answers to unless it is listed (see AllowedHostsEnv), and is
-	// refused by the Host check before the Origin is looked at.
-	host := srv.Addr()
-	conn, _, err := dialPTYFrom(t, srv, paneID, "http://"+host, host)
-	if err != nil {
-		t.Errorf("the window's own page was refused at %s: %v", host, err)
-	} else {
+	// The window's own page must still be able to, whichever of the loopback
+	// names it was opened under: its script builds the socket's address from
+	// the one it was loaded from, so the two always agree.
+	for _, host := range []string{srv.Addr(), "localhost:" + port(srv.Addr())} {
+		conn, _, err := dialPTYFrom(t, srv, paneID, "http://"+host, host)
+		if err != nil {
+			t.Errorf("the window's own page was refused at %s: %v", host, err)
+			continue
+		}
 		conn.CloseNow()
-	}
-	localhost := "localhost:" + port(srv.Addr())
-	if conn, resp, err := dialPTYFrom(t, srv, paneID, "http://"+localhost, localhost); err == nil {
-		conn.CloseNow()
-		t.Errorf("a page at %s was allowed to open a terminal socket", localhost)
-	} else if resp != nil && resp.StatusCode != http.StatusForbidden {
-		t.Errorf("dial at %s = %d, want 403", localhost, resp.StatusCode)
 	}
 }
 

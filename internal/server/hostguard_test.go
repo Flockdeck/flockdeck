@@ -12,7 +12,8 @@ import (
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
-// The default set answers to 127.0.0.1 on any port and to nothing else.
+// The default set answers to 127.0.0.1 and localhost on any port and to
+// nothing else.
 func TestHostAllowDefault(t *testing.T) {
 	a, err := newHostAllow("")
 	if err != nil {
@@ -28,11 +29,24 @@ func TestHostAllowDefault(t *testing.T) {
 		{"127.0.0.1:65535", true},
 		{"127.0.0.1.", true},
 		{"127.0.0.1.:8080", true},
-		// The listener is IPv4 only and the window loads 127.0.0.1, so no
-		// other spelling of loopback is on by default.
-		{"localhost", false},
-		{"localhost:8080", false},
-		{"LOCALHOST", false},
+		{"localhost", true},
+		{"localhost:8080", true},
+		{"LOCALHOST", true},
+		{"LocalHost:1", true},
+		{"localhost.", true},
+		{"localhost.:8080", true},
+		// A name that only starts or ends with localhost is another name.
+		{"localhost.evil.example", false},
+		{"localhost.evil.example:8080", false},
+		{"xlocalhost", false},
+		{"xlocalhost:8080", false},
+		{"localhost1", false},
+		{"my-localhost", false},
+		{"evil.example.localhost", false},
+		{"localhost..", false},
+		{"localhost@evil.example", false},
+		{"localhost:80@evil.example", false},
+		// The listener is IPv4 only, so [::1] is not on by default.
 		{"[::1]", false},
 		{"[::1]:8080", false},
 		{"127.0.0.2", false},
@@ -146,7 +160,9 @@ func TestHostAllowList(t *testing.T) {
 		// The default is still there.
 		{"127.0.0.1", true},
 		{"127.0.0.1:1234", true},
-		{"localhost", false},
+		{"localhost", true},
+		{"localhost:3000", true},
+		{"[::1]:3000", true},
 	} {
 		if got := a.allows(tc.host); got != tc.want {
 			t.Errorf("allows(%q) = %v, want %v", tc.host, got, tc.want)
@@ -310,8 +326,8 @@ func TestForeignHostIsRefusedOnEveryRoute(t *testing.T) {
 	for _, host := range []string{
 		"evil.example",
 		"evil.example:" + portOf(srv),
-		"localhost:" + portOf(srv),
-		"LOCALHOST",
+		"localhost.evil.example:" + portOf(srv),
+		"xlocalhost",
 		"127.0.0.1.evil.example:" + portOf(srv),
 		"127.0.0.1@evil.example",
 		"127.0.0.1/x",
@@ -355,7 +371,7 @@ func portOf(srv *Server) string {
 // with the loopback Host the container's healthcheck uses.
 func TestLoopbackHostIsServed(t *testing.T) {
 	srv, _ := newTestServer(t)
-	for _, host := range []string{srv.Addr(), "127.0.0.1", "127.0.0.1:1", "127.0.0.1.:" + portOf(srv)} {
+	for _, host := range []string{srv.Addr(), "127.0.0.1", "127.0.0.1:1", "127.0.0.1.:" + portOf(srv), "localhost:" + portOf(srv), "LOCALHOST", "localhost."} {
 		resp, _ := getWithHost(t, srv, "/?t="+srv.Token(), host)
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("GET / with Host %q = %d, want 200", host, resp.StatusCode)
@@ -443,7 +459,7 @@ func TestAllowedHostsFromTheEnvironment(t *testing.T) {
 		"svc:8080":                      http.StatusOK,
 		"svc:8081":                      http.StatusForbidden,
 		"svc":                           http.StatusForbidden,
-		"localhost:" + port:             http.StatusForbidden,
+		"localhost:" + port:             http.StatusOK,
 		"evil.example":                  http.StatusForbidden,
 		"127.0.0.1:" + port:             http.StatusOK,
 	} {
@@ -531,7 +547,7 @@ func TestRemoteWindowIsNotHeldToTheLoopbackHosts(t *testing.T) {
 // tools, with a Service on port 8080, covers every way a client reaches the
 // Service, and a port-forward to a local port of the user's choosing.
 func TestHostAllowChartList(t *testing.T) {
-	a, err := newHostAllow("flockdeck,flockdeck.tools,flockdeck.tools.svc,flockdeck.tools.svc.cluster.local,localhost,flockdeck.example.com")
+	a, err := newHostAllow("flockdeck,flockdeck.tools,flockdeck.tools.svc,flockdeck.tools.svc.cluster.local,flockdeck.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,3 +605,26 @@ type recorder struct {
 func (r *recorder) Header() http.Header         { return r.header }
 func (r *recorder) WriteHeader(c int)           { r.code = c }
 func (r *recorder) Write(p []byte) (int, error) { return r.body.Write(p) }
+
+// Names the server does not answer to by default are refused on both sockets
+// with a 403 before the upgrade: [::1] (the listener is IPv4 only), a host name
+// and a LAN address, each with an Origin equal to its Host. Each must come
+// back as an answer, not as a failed connection.
+func TestSocketsRefuseNamesOutsideTheDefault(t *testing.T) {
+	srv, _ := newTestServer(t)
+	for _, host := range []string{
+		"[::1]:" + portOf(srv),
+		"[::1]",
+		"flockdeck.example.com:" + portOf(srv),
+		"192.168.1.20:" + portOf(srv),
+		"localhost.evil.example:" + portOf(srv),
+	} {
+		for _, path := range []string{"/ws/control?t=" + srv.Token(), "/ws/pty?id=any&t=" + srv.Token()} {
+			resp := upgradeWithHost(t, srv, srv.Addr(), path, host, "http://"+host)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusForbidden {
+				t.Errorf("upgrade %s with Host %q = %d, want 403", path, host, resp.StatusCode)
+			}
+		}
+	}
+}

@@ -70,13 +70,18 @@ Three ways to actually reach it, in order of how permanent they are:
    `Ingress` itself is not shipped by this chart (see "Values" below).
 
    flockdeck also checks the `Host` header of every request and answers 403
-   to a name it was not told about. The chart tells it about the Service:
-   `<release>-flockdeck`, `<release>-flockdeck.<namespace>`, `...<namespace>.svc`
-   and `...<namespace>.svc.cluster.local` (`<release>-flockdeck` is the chart's
-   full name and follows `fullnameOverride`), on any port, and `localhost`. Put the hostname your
-   Ingress or gateway serves in `allowedHosts`, or the browser gets a 403 page
-   that names `FLOCKDECK_ALLOWED_HOSTS`. A cluster domain other than
-   `cluster.local` needs adding the same way. This keeps a web page from
+   to a name it was not told about. It answers to `127.0.0.1` and `localhost`
+   on any port by itself, and the chart adds the Service's names:
+   `<release>-flockdeck`, `<release>-flockdeck.<namespace>`,
+   `...<namespace>.svc` and `...<namespace>.svc.cluster.local`
+   (`<release>-flockdeck` is the chart's full name and follows
+   `fullnameOverride`), on any port. Put the hostname your Ingress or gateway
+   serves in `allowedHosts`, or the browser gets a 403 page that names
+   `FLOCKDECK_ALLOWED_HOSTS`. The same goes for a cluster domain other than
+   `cluster.local`, and for a `service.type` of `NodePort` or `LoadBalancer`:
+   browsing to the node or load balancer address is a 403 until that address
+   is in `allowedHosts`. This keeps a web page from reaching flockdeck under a
+   name of its own; it does not replace the token.
    reaching flockdeck under a name of its own; it does not replace the token.
 
 2. **For now, from outside the cluster's reach, without relying on the
@@ -136,8 +141,9 @@ See `values.yaml`, commented inline. The notable groups:
   `FLOCKDECK_SOLO`); `flockdeck -h` in the image documents each.
 - `remote.*` -- relay enrolment (see above); `apiKey.*` -- the fallback key
   an API agent uses.
-- `allowedHosts` -- extra hostnames flockdeck answers to, such as an Ingress
-  host; set as part of `FLOCKDECK_ALLOWED_HOSTS` next to the Service's names.
+- `allowedHosts` -- extra names flockdeck answers to: an Ingress hostname, a
+  NodePort or LoadBalancer address. Set as part of `FLOCKDECK_ALLOWED_HOSTS`
+  next to the Service's names.
 - `sidecar.*` -- the `flockdeck-portproxy` container's fixed port and
   resources; `service.*` -- the `Service` in front of it (see "Reaching the
   web UI" above).

@@ -61,14 +61,17 @@ service:
   type: ClusterIP
   port: 8080
 
-# Extra names flockdeck answers to, for an Ingress or gateway in front of the
-# Service above. flockdeck refuses any request whose Host header is not one it
-# knows, which stops a web page from reaching it under a name of its own. The
-# chart already lists the Service's names (<fullname>, <fullname>.<namespace>,
-# <fullname>.<namespace>.svc, <fullname>.<namespace>.svc.cluster.local) and
-# localhost, for kubectl port-forward; add the hostname your Ingress serves,
-# or a cluster domain other than cluster.local. An entry is a bare host (any
-# port) or host:port. No wildcards, schemes or paths. It becomes
+# Extra names flockdeck answers to, for whatever reaches the Service above other
+# than by its cluster names. flockdeck refuses any request whose Host header is
+# not one it knows, which stops a web page from reaching it under a name of its
+# own. It already answers to 127.0.0.1 and localhost on any port, and the chart
+# adds the Service's names (<fullname>, <fullname>.<namespace>,
+# <fullname>.<namespace>.svc, <fullname>.<namespace>.svc.cluster.local). Add the
+# hostname your Ingress or gateway serves, a cluster domain other than
+# cluster.local, and, if service.type is NodePort or LoadBalancer, the node or
+# load balancer address you browse to: that address is a 403 until it is listed.
+# An entry is a bare host (any port) or host:port; letters, digits, dot, hyphen,
+# underscore, colon and brackets only. No wildcards, schemes or paths. It becomes
 # FLOCKDECK_ALLOWED_HOSTS; see README.md, "Reaching the web UI".
 allowedHosts: []
 # - flockdeck.example.com
