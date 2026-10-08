@@ -519,8 +519,3 @@ func RequestQuit(baseURL, token string, pid int) error {
 // instanceAlive reports whether an instance's process is still running. It is
 // a variable so a test can say when a stand-in instance has exited.
 var instanceAlive = store.ProcessAlive
-
-// NotifyWindows shows text in every connected window, as an error when isErr
-// is set. It is for the parts of the program outside this package that need
-// to tell the user something, such as the local channel going down.
-func (s *Server) NotifyWindows(text string, isErr bool) { s.notifyAll(text, isErr) }

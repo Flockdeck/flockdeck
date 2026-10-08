@@ -3,6 +3,9 @@
 package channel
 
 import (
+	"bufio"
+	"context"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -145,14 +148,6 @@ func TestPeerFromAnotherUserSIDIsRefused(t *testing.T) {
 	}
 }
 
-func TestProcessUserOfThisProcess(t *testing.T) {
-	self, _ := selfOwner()
-	got, err := ProcessUser(uint32(os.Getpid()))
-	if err != nil || got != self {
-		t.Fatalf("ProcessUser = %q, %v; want %q", got, err, self)
-	}
-}
-
 func TestDialToAMissingPipeFails(t *testing.T) {
 	if conn, err := Dial(PipeName("nosuchpipe"), 200*time.Millisecond); err == nil {
 		conn.Close()
@@ -164,4 +159,41 @@ func TestDialToAMissingPipeFails(t *testing.T) {
 
 func newReq() (*http.Request, error) {
 	return http.NewRequest(http.MethodPost, "http://channel/identify", nil)
+}
+
+// A client that connects anonymously cannot be identified, and is refused.
+func TestAnonymousClientIsRefused(t *testing.T) {
+	c := start(t, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn, err := winio.DialPipeAccessImpLevel(ctx, c.Path(), windows.GENERIC_READ|windows.GENERIC_WRITE, winio.PipeImpLevelAnonymous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	io.WriteString(conn, "POST /identify HTTP/1.1\r\nHost: channel\r\nContent-Length: 0\r\n\r\n")
+	if resp, err := http.ReadResponse(bufio.NewReader(conn), nil); err == nil {
+		resp.Body.Close()
+		t.Fatalf("an anonymous client was answered: %d", resp.StatusCode)
+	}
+	waitFor(t, "the refusal to be counted", func() bool { return c.Denied() == 1 })
+}
+
+// The check happens on the first read, not on accept, so a client that never
+// writes is not checked and is not served either.
+func TestSilentClientIsNotServed(t *testing.T) {
+	c := start(t, nil)
+	conn, err := Dial(c.Path(), 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if n, _ := conn.Read(make([]byte, 1)); n != 0 {
+		t.Fatal("the server spoke first")
+	}
+	if c.Denied() != 0 {
+		t.Fatal("refused a client that had not sent anything")
+	}
 }

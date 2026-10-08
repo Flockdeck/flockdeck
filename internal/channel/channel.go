@@ -47,6 +47,19 @@ const (
 	// told the instance cannot be reached from the command line.
 	LostAfter = 3
 
+	// WindowsPerMinute is how many window links the channel mints in a minute.
+	// A person asks for one now and then; a loop asking for hundreds is not a
+	// person.
+	WindowsPerMinute = 10
+
+	// DenyLogEvery is the longest a refused connection is logged for: more in
+	// that time are counted and reported with the next one.
+	DenyLogEvery = time.Minute
+
+	// LostMessage is what OnLost is told. Nothing a person does depends on the
+	// channel yet, so it says only what stopped.
+	LostMessage = "The local channel stopped and could not be started again. It is not used for anything you can see yet."
+
 	// maxPath is the longest socket path used on Unix. sun_path holds 104
 	// bytes on macOS and 108 on Linux, with the terminating NUL.
 	maxPath = 100
@@ -110,6 +123,10 @@ type Seams struct {
 	ReadPeer func(net.Conn) (Peer, error)
 	// Self replaces who the peer must be.
 	Self string
+	// Now replaces the clock used for the window limit and the refusal log.
+	Now func() time.Time
+	// Seen is called with the peer of each connection that was let in.
+	Seen func(Peer)
 }
 
 // Channel is a running channel.
@@ -131,6 +148,17 @@ type Channel struct {
 	wg   sync.WaitGroup
 
 	denied atomic.Int64
+
+	limitMu sync.Mutex
+	windows []time.Time
+
+	denyMu     sync.Mutex
+	denyLast   time.Time
+	denyQueued int
+
+	// id is the socket file as it was made, so that Close removes that file and
+	// not one that has since taken its place.
+	id fileID
 }
 
 // Start makes the channel and begins serving it. It returns an error when no
@@ -213,8 +241,14 @@ func (c *Channel) Close() error {
 
 	var err error
 	if raw != nil {
+		// The file at the path is removed below, and only if it is still the one
+		// this channel made.
+		if u, ok := raw.(interface{ SetUnlinkOnClose(bool) }); ok {
+			u.SetUnlinkOnClose(false)
+		}
 		err = raw.Close()
 	}
+	c.removeSocket()
 	if e := c.srv.Close(); err == nil {
 		err = e
 	}
@@ -255,6 +289,11 @@ func (c *Channel) handleWindow(w http.ResponseWriter, r *http.Request) {
 	if !drain(w, r) {
 		return
 	}
+	if !c.allowWindow() {
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, "too many window links asked for", http.StatusTooManyRequests)
+		return
+	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = io.WriteString(w, c.cfg.Window())
@@ -289,10 +328,14 @@ func (g *guard) Accept() (net.Conn, error) {
 			conn.Close()
 			continue
 		}
+		if deferredPeer && g.c.cfg.Seams.ReadPeer == nil {
+			// The peer can only be known once it has sent something: see
+			// lateConn.
+			return &slotConn{Conn: &lateConn{Conn: conn, c: g.c}, release: func() { <-g.c.sem }}, nil
+		}
 		if err := g.c.checkPeer(conn); err != nil {
 			<-g.c.sem
-			g.c.denied.Add(1)
-			g.c.logf("local channel: refused a connection: %v", err)
+			g.c.refuse(err)
 			conn.Close()
 			continue
 		}
@@ -311,6 +354,9 @@ func (c *Channel) checkPeer(conn net.Conn) error {
 	}
 	if p.Owner != c.self {
 		return fmt.Errorf("peer %d belongs to %q, not to this user", p.PID, p.Owner)
+	}
+	if c.cfg.Seams.Seen != nil {
+		c.cfg.Seams.Seen(p)
 	}
 	return nil
 }
@@ -379,7 +425,7 @@ func (c *Channel) watch() {
 			c.mu.Unlock()
 			c.logf("local channel: could not put the socket back (attempt %d): %v", n, err)
 			if tell && c.cfg.OnLost != nil {
-				c.cfg.OnLost("Flockdeck's local channel is down: running flockdeck or flockdeck -quit in a terminal cannot reach this instance until it is restarted.")
+				c.cfg.OnLost(LostMessage)
 			}
 			wait = c.backoff(n)
 			continue
@@ -438,4 +484,79 @@ func Client(path string) *http.Client {
 			},
 		},
 	}
+}
+
+func (c *Channel) now() time.Time {
+	if f := c.cfg.Seams.Now; f != nil {
+		return f()
+	}
+	return time.Now()
+}
+
+// allowWindow counts a window request against WindowsPerMinute.
+func (c *Channel) allowWindow() bool {
+	now := c.now()
+	c.limitMu.Lock()
+	defer c.limitMu.Unlock()
+	kept := c.windows[:0]
+	for _, t := range c.windows {
+		if now.Sub(t) < time.Minute {
+			kept = append(kept, t)
+		}
+	}
+	c.windows = kept
+	if len(c.windows) >= WindowsPerMinute {
+		return false
+	}
+	c.windows = append(c.windows, now)
+	return true
+}
+
+// refuse counts a connection turned away because of who it came from, and
+// logs it: the first one at once, then at most one line a DenyLogEvery that
+// says how many there were.
+func (c *Channel) refuse(err error) {
+	now := c.now()
+	c.denyMu.Lock()
+	c.denyQueued++
+	n := c.denyQueued
+	say := c.denyLast.IsZero() || now.Sub(c.denyLast) >= DenyLogEvery
+	if say {
+		c.denyLast, c.denyQueued = now, 0
+	}
+	c.denyMu.Unlock()
+	if say {
+		if n == 1 {
+			c.logf("local channel: refused a connection: %v", err)
+		} else {
+			c.logf("local channel: refused %d connections since the last report; the latest: %v", n, err)
+		}
+	}
+	c.denied.Add(1)
+}
+
+// lateConn checks its peer when the first bytes arrive, for systems where the
+// peer cannot be known before that (Windows: a pipe's client can only be
+// impersonated once it has written). The bytes are dropped if the check fails.
+type lateConn struct {
+	net.Conn
+	c    *Channel
+	once sync.Once
+	err  error
+}
+
+func (l *lateConn) Read(b []byte) (int, error) {
+	n, err := l.Conn.Read(b)
+	if n > 0 {
+		l.once.Do(func() {
+			if l.err = l.c.checkPeer(l.Conn); l.err != nil {
+				l.c.refuse(l.err)
+				l.Conn.Close()
+			}
+		})
+		if l.err != nil {
+			return 0, l.err
+		}
+	}
+	return n, err
 }

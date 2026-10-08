@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -237,25 +238,24 @@ func TestRealPeerLookupSeesThisProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got Peer
-	var gerr error
+	var mu sync.Mutex
+	var got []Peer
 	c := start(t, func(cfg *Config) {
-		cfg.Seams.ReadPeer = func(conn net.Conn) (Peer, error) {
-			got, gerr = readPeer(conn)
-			return got, gerr
-		}
+		cfg.Seams.Seen = func(p Peer) { mu.Lock(); got = append(got, p); mu.Unlock() }
 	})
 	if code, _ := post(t, c, "/identify", ""); code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	if gerr != nil {
-		t.Fatalf("readPeer: %v", gerr)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("%d peers seen, want 1", len(got))
 	}
-	if got.Owner != self {
-		t.Errorf("owner = %q, want %q", got.Owner, self)
+	if got[0].Owner != self {
+		t.Errorf("owner = %q, want %q", got[0].Owner, self)
 	}
-	if runtime.GOOS != "darwin" && got.PID != os.Getpid() {
-		t.Errorf("pid = %d, want %d", got.PID, os.Getpid())
+	if runtime.GOOS != "darwin" && got[0].PID != os.Getpid() {
+		t.Errorf("pid = %d, want %d", got[0].PID, os.Getpid())
 	}
 }
 
@@ -370,5 +370,90 @@ func waitFor(t *testing.T, what string, f func() bool) {
 			t.Fatalf("timed out waiting for %s", what)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestLostMessageSaysOnlyWhatStopped(t *testing.T) {
+	for _, bad := range []string{"terminal", "-quit", "cannot reach", "flockdeck "} {
+		if strings.Contains(LostMessage, bad) {
+			t.Errorf("LostMessage mentions %q, which nothing does yet: %s", bad, LostMessage)
+		}
+	}
+	if !strings.Contains(LostMessage, "local channel") {
+		t.Errorf("LostMessage = %q", LostMessage)
+	}
+}
+
+// fakeClock is a clock a test moves by hand.
+type fakeClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (f *fakeClock) Now() time.Time { f.mu.Lock(); defer f.mu.Unlock(); return f.t }
+func (f *fakeClock) Advance(d time.Duration) {
+	f.mu.Lock()
+	f.t = f.t.Add(d)
+	f.mu.Unlock()
+}
+
+func TestWindowRequestsAreLimited(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(1_800_000_000, 0)}
+	c := start(t, func(cfg *Config) { cfg.Seams.Now = clock.Now })
+	for i := 0; i < WindowsPerMinute; i++ {
+		if code, _ := post(t, c, "/window", ""); code != 200 {
+			t.Fatalf("request %d = %d, want 200", i+1, code)
+		}
+	}
+	if code, _ := post(t, c, "/window", ""); code != http.StatusTooManyRequests {
+		t.Fatalf("request %d = %d, want 429", WindowsPerMinute+1, code)
+	}
+	// identify is not limited.
+	if code, _ := post(t, c, "/identify", ""); code != 200 {
+		t.Fatalf("identify = %d", code)
+	}
+	// A minute later there is room again.
+	clock.Advance(61 * time.Second)
+	if code, _ := post(t, c, "/window", ""); code != 200 {
+		t.Fatalf("after a minute = %d, want 200", code)
+	}
+}
+
+func TestRefusedPeersAreLoggedOncePerMinuteWithACount(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(1_800_000_000, 0)}
+	var mu sync.Mutex
+	var lines []string
+	c := start(t, func(cfg *Config) {
+		cfg.Seams.Now = clock.Now
+		cfg.Seams.Self = "alice"
+		cfg.Seams.ReadPeer = func(net.Conn) (Peer, error) { return Peer{PID: 9, Owner: "mallory"}, nil }
+		cfg.Logf = func(f string, a ...any) {
+			mu.Lock()
+			lines = append(lines, fmt.Sprintf(f, a...))
+			mu.Unlock()
+		}
+	})
+	try := func(want int64) {
+		conn, err := Dial(c.Path(), 5*time.Second)
+		if err == nil {
+			conn.Close()
+		}
+		waitFor(t, "the refusal", func() bool { return c.Denied() >= want })
+	}
+	for i := int64(1); i <= 5; i++ {
+		try(i)
+	}
+	mu.Lock()
+	n := len(lines)
+	mu.Unlock()
+	if n != 1 {
+		t.Fatalf("%d lines for five refusals in a minute, want 1: %q", n, lines)
+	}
+	clock.Advance(61 * time.Second)
+	try(6)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(lines) != 2 || !strings.Contains(lines[1], "5 connections") {
+		t.Fatalf("lines = %q, want a second that counts 5 more", lines)
 	}
 }
