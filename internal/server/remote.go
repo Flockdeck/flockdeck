@@ -271,6 +271,11 @@ type remoteDevicesMsg struct {
 type remoteDeviceView struct {
 	remote.Device
 	Fingerprint string `json:"fingerprint,omitempty"`
+	// Role and WatchPanes are what the desk allowed this device (see
+	// viewerrole.go). Sent only to a window on this machine: a device has no use
+	// for how another is limited.
+	Role       string `json:"role,omitempty"`
+	WatchPanes bool   `json:"watchPanes,omitempty"`
 	// DeskFingerprint is the same for the device's other key, the one a
 	// window opened from this machine's own full interface uses
 	// (remote.KeyOriginDesk). That window shows the code on its own side.
@@ -343,6 +348,8 @@ func (s *Server) remoteDevices(c *controlClient) {
 		// A device unpaired from its own page is gone from the roster, and
 		// with it whatever was verified for it.
 		s.forgetVerifiedExcept(roster.Devices)
+		// And whatever the desk limited it to.
+		s.forgetRolesExcept(roster.Devices)
 		// This machine's own key is read from this machine, not from the
 		// roster: a relay that swapped the roster's copy would otherwise
 		// make the code shown here agree with the code on a device that
@@ -360,6 +367,10 @@ func (s *Server) remoteDevices(c *controlClient) {
 					DeskFingerprint: remoteFingerprint(d.DeskPublicKey, selfKey),
 					Verify:          s.verifyStateFor(d.ID, remote.KeyOriginUsual, d.PublicKey),
 					DeskVerify:      s.verifyStateFor(d.ID, remote.KeyOriginDesk, d.DeskPublicKey),
+				}
+				if !c.remote {
+					a := s.deviceAccess(d.ID)
+					msg.Devices[i].Role, msg.Devices[i].WatchPanes = string(a.EffectiveRole()), a.WatchPanes
 				}
 			}
 		}
@@ -437,6 +448,7 @@ func (s *Server) remoteRevoke(c *controlClient, id string) {
 			c.notify("Could not unpair that device: "+err.Error(), true)
 		} else {
 			s.forgetVerified(id)
+			s.forgetRole(id)
 			c.notify("Device unpaired", false)
 		}
 		s.remoteDevices(c)

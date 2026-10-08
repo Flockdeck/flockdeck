@@ -660,6 +660,8 @@ type command struct {
 	Spec    string   `json:"spec,omitempty"`
 	StepIDs []string `json:"stepIds,omitempty"`
 	Done    bool     `json:"done,omitempty"`
+	// Watch is setDeviceRole's own: whether a viewer may also watch panes.
+	Watch bool `json:"watch,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1041,7 +1043,8 @@ func (s *Server) broadcastState() {
 		return
 	}
 	s.do(func() {
-		data, err := json.Marshal(s.snapshot())
+		snap := s.snapshot()
+		data, err := json.Marshal(snap)
 		if err != nil {
 			return
 		}
@@ -1050,7 +1053,7 @@ func (s *Server) broadcastState() {
 		}
 		s.lastState = data
 		for _, c := range s.greetedClients() {
-			c.sendState(data)
+			s.sendSnapshotTo(c, snap, data)
 		}
 	})
 }
@@ -1067,6 +1070,14 @@ type controlClient struct {
 	// paired device it is on, as the relay reported it.
 	remote bool
 	device string
+	// accessOf says what the desk allows this window, looked up each time it is
+	// asked rather than kept: the desk can change it while the socket is open.
+	// Nil for a window on this machine, which is not a device and is not limited.
+	accessOf func() store.DeviceAccess
+	// lastViewerState is the cut-down snapshot a viewer was last sent, so an
+	// unchanged one is not sent again. See sendSnapshotTo; belongs to the
+	// workspace goroutine.
+	lastViewerState []byte
 
 	// page marks a connection that opened with an Origin header, as a browser or
 	// a webview always does and a command-line client does not. Only such a
@@ -1128,8 +1139,17 @@ func (r *rateLimiter) allow(limit int, window time.Duration) bool {
 	return true
 }
 
-// send queues a one-off message, dropping it if the window cannot keep up.
+// send queues a one-off message, dropping it if the window cannot keep up. A
+// viewer is sent only the types viewerMessageTypes allows it.
 func (c *controlClient) send(data []byte) {
+	if !c.mayReceive(data) {
+		return
+	}
+	c.putMessage(data)
+}
+
+// putMessage queues a message without asking whether this window may have it.
+func (c *controlClient) putMessage(data []byte) {
 	select {
 	case c.out <- data:
 	default:
@@ -1149,6 +1169,17 @@ func (c *controlClient) send(data []byte) {
 // queue for the notices, which do not supersede each other and must not be
 // pushed out by a burst of state.
 func (c *controlClient) sendState(data []byte) {
+	// The full snapshot is for a window that may have it. A viewer is handed a
+	// cut-down one by sendSnapshotTo, so this refuses it anything else.
+	if c.accessOf != nil && c.accessOf().EffectiveRole() != store.RoleFull {
+		return
+	}
+	c.putState(data)
+}
+
+// putState is sendState without the check, for a snapshot already made fit for
+// this window.
+func (c *controlClient) putState(data []byte) {
 	c.mu.Lock()
 	c.pending = data
 	c.mu.Unlock()
@@ -1205,6 +1236,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 	}
 	if isRemote {
 		c.device = r.Header.Get("Flockdeck-Remote-Device")
+		c.accessOf = func() store.DeviceAccess { return s.deviceAccess(c.device) }
 	}
 	// The window counts from the moment its socket opens: whether the last
 	// window has gone is decided by counting them, and a page being reloaded
@@ -1236,6 +1268,11 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// The desk changing what this device may do ends the socket, and the window
+	// reconnects into the new role (see setDeviceRole).
+	if isRemote {
+		defer s.sockets.add(c.device, cancel)()
+	}
 	// http.Shutdown does not touch a hijacked connection, so a closing server
 	// would otherwise leave this one open with its two goroutines parked on it
 	// for ever. Tie the connection's lifetime to the server's.
@@ -1290,9 +1327,10 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 			s.clients[c] = true
 		}
 		s.mu.Unlock()
-		data, err := json.Marshal(s.snapshot())
+		snap := s.snapshot()
+		data, err := json.Marshal(snap)
 		if err == nil {
-			c.sendState(data)
+			s.sendSnapshotTo(c, snap, data)
 		}
 		// lastState has to go on describing what every window holds. Nothing
 		// was broadcast while there were no windows, so the state may since
@@ -1427,7 +1465,15 @@ func (c *controlClient) notify(text string, isErr bool) {
 // handleCommand applies a request from a window. Everything that touches the
 // workspace runs on its owner goroutine; anything slow (git) is done outside.
 func (s *Server) handleCommand(c *controlClient, cmd command) {
+	// A viewer's commands are refused before anything below looks at them.
+	if !s.allowCommand(c, cmd.Cmd) {
+		c.refuseViewer()
+		return
+	}
 	switch cmd.Cmd {
+	case "setDeviceRole":
+		s.setDeviceRole(c, cmd)
+		return
 	case "worktrees":
 		s.listWorktrees(c, cmd.Root)
 		return
@@ -1674,7 +1720,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// which moves it back.
 		if c.remote {
 			c.notify("Whether Flockdeck checks for updates is set on the machine it runs on, not from a window reached through the relay", true)
-			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: s.prefs}) })
+			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: s.prefs.ForWindow()}) })
 			return
 		}
 		s.setUpdates(c, cmd.Kind == "off")
@@ -1774,7 +1820,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// refusal sends it the preferences as they stand, which moves it back.
 		if c.remote && cmd.Kind == "on" {
 			c.notify("Sending terminal output to TypeSafe can only be turned on on the machine Flockdeck runs on, not from a window reached through the relay", true)
-			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: s.prefs}) })
+			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: s.prefs.ForWindow()}) })
 			return
 		}
 		s.setJevStatus(c, cmd.Kind == "on")

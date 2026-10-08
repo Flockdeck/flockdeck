@@ -51,6 +51,8 @@ type fakeRemote struct {
 	// not in the map is not capable, the same as a real Manager's answer for
 	// one that has not registered a key.
 	e2eCapable map[string]bool
+	// client is what Client answers; nil is ErrNotEnabled.
+	client *remote.Client
 }
 
 // E2ECapable and E2ERespond stand in for a real Manager's end-to-end
@@ -83,10 +85,15 @@ func (f *fakeRemote) Rename(_ context.Context, name string) error {
 	return f.renameErr
 }
 
-func (f *fakeRemote) Status() (remote.Status, bool)   { return f.st, f.ok }
-func (f *fakeRemote) Client() (*remote.Client, error) { return nil, remote.ErrNotEnabled }
-func (f *fakeRemote) Reload() error                   { f.reloads.Add(1); return f.err }
-func (f *fakeRemote) Reconnect() error                { return f.err }
+func (f *fakeRemote) Status() (remote.Status, bool) { return f.st, f.ok }
+func (f *fakeRemote) Client() (*remote.Client, error) {
+	if f.client != nil {
+		return f.client, nil
+	}
+	return nil, remote.ErrNotEnabled
+}
+func (f *fakeRemote) Reload() error    { f.reloads.Add(1); return f.err }
+func (f *fakeRemote) Reconnect() error { return f.err }
 
 func (f *fakeRemote) Enable(_ context.Context, req remote.EnableRequest) (bool, error) {
 	f.enabled = append(f.enabled, req)
@@ -460,6 +467,7 @@ func TestRemoteTerminalsAreSentCompressed(t *testing.T) {
 		defer cancel()
 		h := http.Header{}
 		h.Set("Origin", origin)
+		h.Set("Flockdeck-Remote-Device", "dev-1")
 		conn, resp, err := websocket.Dial(ctx, url,
 			&websocket.DialOptions{HTTPHeader: h, CompressionMode: websocket.CompressionNoContextTakeover})
 		if err != nil {

@@ -100,6 +100,10 @@ type Prefs struct {
 	// asks before the first pane is recorded, and `flockdeck spawn -record`
 	// refuses, so that no agent is the first to switch recording on.
 	RecordingAcknowledged bool `json:"recordingAcknowledged,omitempty"`
+	// Devices is what the desk allowed each paired device, by the device id the
+	// relay reports. A device not listed is full. Read it with AccessFor, and
+	// never send it to a window: see ForWindow.
+	Devices map[string]DeviceAccess `json:"devices,omitempty"`
 
 	// extra is every top-level key the file held that this build does not
 	// know, as it was written. A newer build's setting would otherwise go at
@@ -108,6 +112,11 @@ type Prefs struct {
 	// setting gone. It is not sent to the windows, which would not know it
 	// either.
 	extra map[string]json.RawMessage
+	// accessLost says the file could not be read or was damaged, so the record
+	// of which device may do what is not known. AccessFor then treats every
+	// device as a viewer, because falling back to "everyone is full" would
+	// undo a restriction the desk had set. It is not written to the file.
+	accessLost bool
 }
 
 // prefsKeys are the top-level keys Prefs decodes itself; every other key in
@@ -237,7 +246,7 @@ func ReadPrefs() (Prefs, error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			return Prefs{}, nil
 		}
-		return Prefs{}, fmt.Errorf("read prefs: %w", err)
+		return Prefs{accessLost: true}, fmt.Errorf("read prefs: %w", err)
 	}
 	var p Prefs
 	if json.Unmarshal(data, &p) != nil {
@@ -245,7 +254,7 @@ func ReadPrefs() (Prefs, error) {
 		// other damaged state file is: the next hint dismissed rewrites it
 		// from what was read, and what was read is nothing.
 		quarantine(filepath.Join(dir, prefsFile), prefsWhat, KeptDamaged)
-		return Prefs{}, nil
+		return Prefs{accessLost: true}, nil
 	}
 	p.extra = unknownPrefs(data)
 	return p, nil

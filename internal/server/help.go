@@ -43,6 +43,11 @@ type helloMsg struct {
 	// encrypt against itself, and for a remote one before this machine has
 	// made an identity of its own yet.
 	E2EPublicKey string `json:"e2ePublicKey,omitempty"`
+	// Role is "viewer" for a device the desk limited to viewing (store.RoleViewer),
+	// and WatchPanes whether it may also watch panes. Both are left out for a
+	// full device and for a window on this machine.
+	Role       string `json:"role,omitempty"`
+	WatchPanes bool   `json:"watchPanes,omitempty"`
 }
 
 // radarSupport and radarWatch are gitx's answers about merge-tree, as variables
@@ -106,7 +111,13 @@ type keyView struct {
 // sendHello gives a freshly connected window the key table and the prefs. It
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
-	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: s.prefs, Remote: c.remote}
+	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: s.prefs.ForWindow(), Remote: c.remote}
+	// A viewer is told what it is, so its window can say so, and is sent none of
+	// the desk's preferences.
+	if a := s.accessOf(c); a.EffectiveRole() != store.RoleFull {
+		msg.Prefs = store.Prefs{}
+		msg.Role, msg.WatchPanes = string(a.EffectiveRole()), a.WatchPanes
+	}
 	// Asked without waiting: the version of git is read in the background. Until
 	// it has been, the window is told it is being checked, and is sent the answer
 	// when there is one (announceRadarSupport).
@@ -229,6 +240,9 @@ func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
 			c.notify("Could not save the setting, because the settings saved before could not be read and saving now would write over them; it will not be kept after Flockdeck restarts: "+err.Error(), true)
 			return
 		}
+		// What each device may do is the running program's to say, not the
+		// file's: the file may have been deleted or damaged since it was read.
+		p.AdoptAccess(s.prefs)
 		if !change(&p) {
 			return
 		}
@@ -242,14 +256,51 @@ func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
 			return
 		}
 		s.prefs = p
+		s.publishAccess()
 		s.broadcastPrefs()
+	})
+}
+
+// updateAccess changes what paired devices may do. Unlike updatePrefs it applies
+// the change in memory whether or not the file can be read or written: a
+// restriction the person has just asked for is in force from that moment, and
+// is never left unapplied because the disk said no. then is told how saving
+// went (nil for saved) once the change is in force; c may be nil, for a change
+// nobody asked for.
+func (s *Server) updateAccess(change func(*store.Prefs) bool, then func(saveErr error)) {
+	s.do(func() {
+		p, readErr := store.ReadPrefs()
+		if readErr != nil {
+			// Start from what is in force. The unreadable file is not written
+			// over, since it may still hold settings that can be recovered.
+			p = s.prefs
+		} else {
+			p.AdoptAccess(s.prefs)
+		}
+		if !change(&p) {
+			return
+		}
+		saveErr := readErr
+		if readErr == nil {
+			saveErr = store.SavePrefs(p)
+		}
+		if saveErr == nil {
+			s.prefs = p
+		} else {
+			s.prefs.AdoptAccess(p)
+		}
+		s.publishAccess()
+		s.broadcastPrefs()
+		if then != nil {
+			then(saveErr)
+		}
 	})
 }
 
 // broadcastPrefs tells every window what the preferences now are. It runs on
 // the workspace goroutine.
 func (s *Server) broadcastPrefs() {
-	data, err := json.Marshal(prefsMsg{Type: "prefs", Prefs: s.prefs})
+	data, err := json.Marshal(prefsMsg{Type: "prefs", Prefs: s.prefs.ForWindow()})
 	if err != nil {
 		return
 	}

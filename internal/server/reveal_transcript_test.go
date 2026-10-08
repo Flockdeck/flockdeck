@@ -40,7 +40,7 @@ func TestRevealTranscriptIsRefusedForARemoteWindow(t *testing.T) {
 	srv, ws := newTestServer(t)
 	got := revealed(t)
 	pane := firstPane(t, srv, ws)
-	c := &controlClient{out: make(chan []byte, 8), remote: true}
+	c := &controlClient{out: make(chan []byte, 8), remote: true, device: "dev-1"}
 	srv.revealTranscript(c, command{Cmd: "revealTranscript", ID: pane})
 	if note := lastNotice(t, c); !note.Error || !strings.Contains(note.Text, "relay") {
 		t.Errorf("notice = %+v", note)

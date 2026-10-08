@@ -199,7 +199,7 @@ func TestAnExportFromARemoteWindowIsRefused(t *testing.T) {
 		runs.Add(1)
 		return record.ExportResult{}, nil
 	})
-	c := &controlClient{out: make(chan []byte, 8), remote: true}
+	c := &controlClient{out: make(chan []byte, 8), remote: true, device: "dev-1"}
 	srv.exportTranscript(c, command{ID: "p1", Confirmed: true})
 	n := exportNotices(c)
 	if len(n) != 1 || !n[0].Error || !strings.Contains(n[0].Text, "relay") {

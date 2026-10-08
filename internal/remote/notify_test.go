@@ -232,3 +232,47 @@ func TestPushRefusedIsTheRelaysWord(t *testing.T) {
 		t.Error("a plan's refusal was taken for this machine's credentials being spent")
 	}
 }
+
+// PushTo seals nothing for a device it is told to leave out, and asks again
+// for each attempt.
+func TestPushToSealsOnlyForAllowedDevices(t *testing.T) {
+	phone, viewer := newBrowser(t), newBrowser(t)
+	var mu sync.Mutex
+	var posted []PushMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"devices": []PushDevice{phone.device("phone"), viewer.device("viewer")}})
+		case r.Method == http.MethodPost:
+			var req struct {
+				Messages []PushMessage `json:"messages"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			posted = append(posted, req.Messages...)
+			_, _ = w.Write([]byte(`{"sent":1}`))
+		}
+	}))
+	defer srv.Close()
+	c := &Client{Relay: srv.URL, Token: "fdh_test"}
+	n := Notification{Title: "api needs you", URL: "/d/h1/p1", Tag: "flockdeck-h1"}
+	if _, err := c.PushTo(context.Background(), n, func(id string) bool { return id != "viewer" }); err != nil {
+		t.Fatal(err)
+	}
+	if len(posted) != 1 || posted[0].DeviceID != "phone" {
+		t.Fatalf("messages were posted for %+v, want the phone only", posted)
+	}
+	if _, ok := viewer.open(posted[0].Payload); ok {
+		t.Error("the viewer could open the phone's message")
+	}
+
+	posted = nil
+	if _, err := c.PushTo(context.Background(), n, func(string) bool { return false }); err != nil {
+		t.Fatal(err)
+	}
+	if len(posted) != 0 {
+		t.Errorf("with every device refused, %d messages were posted", len(posted))
+	}
+}
