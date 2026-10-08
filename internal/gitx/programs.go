@@ -306,7 +306,7 @@ var (
 
 // scanner is one run of ScanPrograms.
 type scanner struct {
-	netSubs []string // submodule git directories found on a share
+	fsItems []Program // what the file system layer refused or gave up on in the submodules
 	ctx     context.Context
 	budget  int64
 	spent   int64
@@ -381,8 +381,11 @@ func ScanPrograms(dir string) (Report, error) {
 		return Report{Repo: canonical(dir), Items: []Program{unscannable(dir, "git rev-parse failed: "+firstWords(err), "")}}, nil
 	}
 	for _, d := range []string{paths.gitDir, paths.common, paths.topdir} {
-		if d != "" && isNetworkPath(d) {
-			return Report{Repo: d, Items: []Program{unscannable(d, "the repository's git directory is on a network share, which Flockdeck does not touch", "")}}, nil
+		if d == "" {
+			continue
+		}
+		if err := guard(d); err != nil {
+			return Report{Repo: d, Items: []Program{fsItem(err, d, "")}}, nil
 		}
 	}
 	rep := Report{Repo: paths.common}
@@ -390,7 +393,10 @@ func ScanPrograms(dir string) (Report, error) {
 	// A configuration file that is large is hiding something, or is slow to
 	// read, or both.
 	for _, f := range []string{filepath.Join(paths.common, "config"), filepath.Join(paths.gitDir, "config.worktree")} {
-		if fi, err := statWithin(f); err == nil && fi.Size() > maxConfigBytes {
+		fi, err := fsStat(f)
+		if blocked(err) {
+			rep.Items = append(rep.Items, fsItem(err, f, ""))
+		} else if err == nil && fi.Size() > maxConfigBytes {
 			rep.Items = append(rep.Items, Program{Kind: "limit", Where: f,
 				Value: "a configuration file of " + strconv.FormatInt(fi.Size(), 10) + " bytes is larger than the " +
 					strconv.Itoa(maxConfigBytes) + " Flockdeck reads"})
@@ -418,9 +424,7 @@ func ScanPrograms(dir string) (Report, error) {
 	for _, sub := range subs {
 		rep.Items = append(rep.Items, s.scanSubmodule(sub)...)
 	}
-	for _, n := range s.netSubs {
-		rep.Items = append(rep.Items, unscannable(n, "a submodule's git directory on a network share, which Flockdeck does not touch", ""))
-	}
+	rep.Items = append(rep.Items, s.fsItems...)
 	if truncated {
 		rep.Items = append(rep.Items, Program{
 			Kind: "limit", Value: "submodules beyond the first " + strconv.Itoa(maxSubmodules) + ", more than " +
@@ -609,112 +613,6 @@ func rewriteBase(key string) string {
 	return key
 }
 
-// statTimeout bounds one look at the file system for something a repository
-// names: a remote's folder, a hooks directory, a submodule's git directory. Any
-// of them can be on a share or a mount that does not answer.
-var statTimeout = 2 * time.Second
-
-var errStatTimeout = errors.New("no answer from the file system")
-
-// boxed runs f and gives up on it after statTimeout. The call is left to finish
-// on its own; what it returns then is dropped.
-func boxed[T any](f func() (T, error)) (T, error) {
-	type result struct {
-		v   T
-		err error
-	}
-	ch := make(chan result, 1)
-	go func() {
-		v, err := f()
-		ch <- result{v, err}
-	}()
-	select {
-	case r := <-ch:
-		return r.v, r.err
-	case <-time.After(statTimeout):
-		var zero T
-		return zero, errStatTimeout
-	}
-}
-
-func statWithin(p string) (fs.FileInfo, error) {
-	return boxed(func() (fs.FileInfo, error) { return os.Stat(p) })
-}
-
-func lstatWithin(p string) (fs.FileInfo, error) {
-	return boxed(func() (fs.FileInfo, error) { return os.Lstat(p) })
-}
-
-func readFileWithin(p string) ([]byte, error) {
-	return boxed(func() ([]byte, error) { return os.ReadFile(p) })
-}
-
-// isNetworkPath reports whether p is on another machine's share. Looking at one
-// makes Windows connect to it and offer the user's credentials, so such a path
-// is never touched: this is decided from the spelling of the path, before
-// anything is opened, and again on whatever a link or a canonical name turns it
-// into.
-func isNetworkPath(p string) bool {
-	if runtime.GOOS != "windows" {
-		return false
-	}
-	p = filepath.FromSlash(p)
-	if !strings.HasPrefix(p, `\\`) {
-		return false
-	}
-	// \\?\C:\x is a local path spelled the long way.
-	return !(strings.HasPrefix(p, `\\?\`) && len(p) >= 6 && p[5] == ':')
-}
-
-// readLink and evalSymlinks are variables so a test can stand in for a link to a
-// share (making one needs a privilege, and connects to the share) and see that
-// a share is never resolved.
-var (
-	readLink     = os.Readlink
-	evalSymlinks = filepath.EvalSymlinks
-)
-
-// linksToNetwork follows the links on the way to p one at a time, reading each
-// link and not the place it leads to, and returns the first target that is on a
-// share ("" if none is). filepath.EvalSymlinks would open the target, which is
-// the connection to the share this is here to avoid. Only Windows has the
-// problem.
-func linksToNetwork(p string, depth int) string {
-	if runtime.GOOS != "windows" || depth > 8 {
-		return ""
-	}
-	vol := filepath.VolumeName(p)
-	rest := strings.TrimPrefix(p[len(vol):], string(filepath.Separator))
-	cur := vol + string(filepath.Separator)
-	for _, comp := range strings.Split(rest, string(filepath.Separator)) {
-		if comp == "" {
-			continue
-		}
-		cur = filepath.Join(cur, comp)
-		fi, err := lstatWithin(cur)
-		if err != nil {
-			return ""
-		}
-		if fi.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0 {
-			continue
-		}
-		t, err := readLink(cur)
-		if err != nil {
-			continue
-		}
-		if isNetworkPath(t) {
-			return t
-		}
-		if !filepath.IsAbs(t) {
-			t = filepath.Join(filepath.Dir(cur), t)
-		}
-		if n := linksToNetwork(filepath.Clean(t), depth+1); n != "" {
-			return n
-		}
-	}
-	return ""
-}
-
 // fileURLPath is the folder a remote URL names. A file:// URL is decoded as git
 // decodes it: %XX is a byte, a host of localhost is this machine, and any other
 // host is another one (ok is false). A drive letter written as the host
@@ -765,59 +663,61 @@ func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(base, p)
 	}
-	netItem := func(where string) []Program {
-		return []Program{unscannable(where, "a network share, which Flockdeck does not touch", submodule)}
+	bad := func(err error, where string) []Program { return []Program{fsItem(err, where, submodule)} }
+	p, err := fsCanonical(p)
+	if err != nil {
+		return bad(err, p)
 	}
-	if isNetworkPath(p) {
-		return netItem(p)
-	}
-	// Decided on the spelling above, and again on where links lead.
-	p = canonical(p)
-	if isNetworkPath(p) {
-		return netItem(p)
-	}
-	if _, err := statWithin(p); err != nil {
+	if _, err := fsStat(p); err != nil {
 		if absent(err) {
 			return nil
 		}
-		return []Program{unscannable(p, "the remote's folder could not be looked at: "+errText(err), submodule)}
+		return bad(err, p)
 	}
 	gd := ""
 	for _, d := range []string{p, filepath.Join(p, ".git")} {
-		if _, err := statWithin(filepath.Join(d, "HEAD")); err == nil {
+		_, err := fsStat(filepath.Join(d, "HEAD"))
+		if err == nil {
 			gd = d
 			break
 		}
+		if blocked(err) {
+			return bad(err, d)
+		}
 	}
 	if gd == "" {
-		if g, ok := resolveGitDir(p); ok {
+		g, err := resolveGitDir(p)
+		switch {
+		case err == nil:
 			gd = g
+		case !errors.Is(err, errNoGitDir):
+			return bad(err, p)
 		}
 	}
 	if gd == "" {
 		return []Program{unscannable(p, "a folder Flockdeck cannot tell is not a repository", submodule)}
 	}
-	if isNetworkPath(gd) {
-		return netItem(gd)
-	}
 	// A linked worktree's hooks and configuration are the main repository's.
-	if data, err := readFileWithin(filepath.Join(gd, "commondir")); err == nil && len(data) < 4096 {
+	data, err := fsReadFile(filepath.Join(gd, "commondir"))
+	switch {
+	case err == nil && len(data) < 4096:
 		c := filepath.FromSlash(strings.TrimSpace(string(data)))
 		if !filepath.IsAbs(c) {
 			c = filepath.Join(gd, c)
 		}
-		if isNetworkPath(c) {
-			return netItem(c)
+		gd, err = fsCanonical(c)
+		if err != nil {
+			return bad(err, gd)
 		}
-		gd = canonical(c)
-		if isNetworkPath(gd) {
-			return netItem(gd)
-		}
+	case blocked(err):
+		return bad(err, gd)
 	}
 	var items []Program
 	dirPath := filepath.Join(gd, "hooks")
 	cfg := filepath.Join(gd, "config")
-	if fi, err := statWithin(cfg); err == nil {
+	fi, err := fsStat(cfg)
+	switch {
+	case err == nil:
 		if fi.Size() > maxConfigBytes {
 			return []Program{unscannable(cfg, "the remote's configuration is too large to read", submodule)}
 		}
@@ -835,16 +735,13 @@ func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program
 			if !filepath.IsAbs(exp) {
 				exp = filepath.Join(gd, filepath.FromSlash(exp))
 			}
-			if isNetworkPath(exp) {
-				return append(items, netItem(exp)...)
+			dirPath, err = fsCanonical(exp)
+			if err != nil {
+				return append(items, fsItem(err, exp, submodule))
 			}
-			dirPath = canonical(exp)
 		}
-	} else if !absent(err) {
-		return []Program{unscannable(cfg, "the remote's configuration could not be looked at: "+errText(err), submodule)}
-	}
-	if isNetworkPath(dirPath) {
-		return append(items, unscannable(dirPath, "the remote's hooks are on a network share, which Flockdeck does not touch", submodule))
+	case !absent(err):
+		return bad(err, cfg)
 	}
 	return append(items, s.hooksInDir(dirPath, submodule, machine)...)
 }
@@ -999,16 +896,14 @@ func (s *scanner) hooksIn(loc gitLocations, hooksPath *configEntry, submodule st
 		if !filepath.IsAbs(dirPath) {
 			dirPath = filepath.Join(loc.topdirOr(), filepath.FromSlash(dirPath))
 		}
-		if isNetworkPath(dirPath) {
-			return []Program{unscannable(hooksPath.origin, "core.hooksPath is on a network share, which Flockdeck does not touch: "+hooksPath.value, submodule)}
+		var err error
+		dirPath, err = fsCanonical(dirPath)
+		if err != nil {
+			return []Program{fsItem(err, dirPath, submodule)}
 		}
-		dirPath = canonical(dirPath)
 		// A hooks path in the user's own configuration that lands inside the
 		// working tree (".githooks") is the project's, not the machine's.
 		machine = hooksPath.machine && !(loc.topdir != "" && within(loc.topdir, dirPath))
-		if isNetworkPath(dirPath) {
-			return []Program{unscannable(hooksPath.origin, "core.hooksPath is on a network share, which Flockdeck does not touch: "+hooksPath.value, submodule)}
-		}
 	}
 	return s.hooksInDir(dirPath, submodule, machine)
 }
@@ -1026,8 +921,12 @@ func within(dir, path string) bool {
 // directory cannot be listed to show (a directory that can be searched but not
 // read), matches names as the file system does, and cannot be fooled by a name
 // that only looks like a hook's. On Windows git also starts <hook>.exe where
-// there is no <hook>.
+// there is no <hook>. The directory itself is checked first: a hooks directory
+// that is a link to a share is as much a share as a hook that is.
 func (s *scanner) hooksInDir(dirPath, submodule string, machine bool) []Program {
+	if err := guard(dirPath); err != nil {
+		return []Program{fsItem(err, dirPath, submodule)}
+	}
 	var items []Program
 	for _, name := range hookNames {
 		candidates := []string{name}
@@ -1036,17 +935,13 @@ func (s *scanner) hooksInDir(dirPath, submodule string, machine bool) []Program 
 		}
 		for _, cand := range candidates {
 			full := filepath.Join(dirPath, cand)
-			fi, err := lstatWithin(full)
-			if err == nil && fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
-				// Git follows a link, so where it leads decides whether it is looked at.
-				if isNetworkPath(canonical(full)) {
-					items = append(items, unscannable(full, "a hook that links to a network share, which Flockdeck does not touch", submodule))
-					continue
-				}
-				fi, err = statWithin(full)
-			}
+			fi, err := fsStat(full)
 			if err != nil {
 				if absent(err) {
+					continue
+				}
+				if blocked(err) {
+					items = append(items, fsItem(err, full, submodule))
 					continue
 				}
 				// Git may be able to run what this cannot see.
@@ -1089,37 +984,15 @@ func (s *scanner) hashFile(path string, size int64) (string, error) {
 	if size > s.budget-s.spent {
 		return "", errOverBudget
 	}
-	type result struct {
-		sum string
-		n   int64
-		err error
+	sum, n, err := fsHash(s.ctx, path, s.budget-s.spent+1)
+	s.spent += n
+	if err != nil {
+		return "", err
 	}
-	ch := make(chan result, 1)
-	limit := s.budget - s.spent + 1
-	go func() {
-		f, err := os.Open(path)
-		if err != nil {
-			ch <- result{err: err}
-			return
-		}
-		defer f.Close()
-		h := sha256.New()
-		n, err := io.Copy(h, io.LimitReader(f, limit))
-		ch <- result{hex.EncodeToString(h.Sum(nil))[:16], n, err}
-	}()
-	select {
-	case <-s.ctx.Done():
-		return "", s.ctx.Err()
-	case r := <-ch:
-		s.spent += r.n
-		if r.err != nil {
-			return "", r.err
-		}
-		if s.spent > s.budget {
-			return "", errOverBudget
-		}
-		return r.sum, nil
+	if s.spent > s.budget {
+		return "", errOverBudget
 	}
+	return sum, nil
 }
 
 // expandPath turns a leading ~/ into the home directory, as git does for a
@@ -1151,7 +1024,7 @@ type submodule struct {
 
 // finder collects submodule git directories up to the limits.
 type finder struct {
-	network   []string
+	items     []Program
 	seen      map[string]bool
 	subs      []submodule
 	visits    int
@@ -1159,9 +1032,9 @@ type finder struct {
 }
 
 func (f *finder) add(gd, rel, work string) {
-	gd = canonical(gd)
-	if isNetworkPath(gd) {
-		f.network = append(f.network, gd)
+	gd, err := fsCanonical(gd)
+	if err != nil {
+		f.items = append(f.items, fsItem(err, gd, ""))
 		return
 	}
 	key := gd
@@ -1183,7 +1056,8 @@ func (f *finder) add(gd, rel, work string) {
 // submodule the index records, wherever its .git file points (a repository
 // can say "gitdir: ../x" for a submodule, and git then reads x's
 // configuration), and every directory under .git/modules. truncated is set when
-// a limit was hit, which the caller must not ignore.
+// a limit was hit, which the caller must not ignore. Whatever the file system
+// layer refused is in s.fsItems.
 func (s *scanner) submoduleGitDirs(dir string, loc gitLocations) (subs []submodule, truncated bool, err error) {
 	f := &finder{seen: map[string]bool{}}
 	if loc.topdir != "" {
@@ -1197,15 +1071,19 @@ func (s *scanner) submoduleGitDirs(dir string, loc gitLocations) (subs []submodu
 				continue
 			}
 			work := filepath.Join(loc.topdir, filepath.FromSlash(path))
-			if gd, ok := resolveGitDir(work); ok {
+			gd, err := resolveGitDir(work)
+			switch {
+			case err == nil:
 				f.add(gd, path, work)
+			case blocked(err):
+				f.items = append(f.items, fsItem(err, work, path))
 			}
 		}
 	}
 	for _, base := range []string{filepath.Join(loc.gitDir, "modules"), filepath.Join(loc.common, "modules")} {
 		f.walkModules(base, 0)
 	}
-	s.netSubs = f.network
+	s.fsItems = append(s.fsItems, f.items...)
 	return f.subs, f.truncated, nil
 }
 
@@ -1216,20 +1094,20 @@ func (s *scanner) submoduleGitDirs(dir string, loc gitLocations) (subs []submodu
 // visited, and how deep, is bounded; going past either is recorded and not
 // skipped silently.
 func (f *finder) walkModules(base string, depth int) {
-	d, err := boxed(func() (*os.File, error) { return os.Open(base) })
+	d, err := fsOpenDir(base)
 	if err != nil {
-		if errors.Is(err, errStatTimeout) {
-			f.truncated = true
+		if blocked(err) {
+			f.items = append(f.items, fsItem(err, base, ""))
 		}
 		return
 	}
-	defer d.Close()
+	defer d.close()
 	if depth > maxModuleDeep {
 		f.truncated = true
 		return
 	}
 	for {
-		entries, err := boxed(func() ([]os.DirEntry, error) { return d.ReadDir(128) })
+		entries, err := d.next(128)
 		for _, e := range entries {
 			if !e.IsDir() {
 				continue
@@ -1239,14 +1117,14 @@ func (f *finder) walkModules(base string, depth int) {
 				return
 			}
 			gd := filepath.Join(base, e.Name())
-			if c := canonical(gd); isNetworkPath(c) {
-				f.network = append(f.network, c)
-				continue
-			}
-			if _, err := statWithin(filepath.Join(gd, "HEAD")); err == nil {
+			_, serr := fsStat(filepath.Join(gd, "HEAD"))
+			switch {
+			case serr == nil:
 				f.add(gd, "", "")
 				f.walkModules(filepath.Join(gd, "modules"), depth+1)
-			} else {
+			case blocked(serr):
+				f.items = append(f.items, fsItem(serr, gd, ""))
+			default:
 				// A submodule named with a slash lives in a nested directory.
 				f.walkModules(gd, depth+1)
 			}
@@ -1255,42 +1133,56 @@ func (f *finder) walkModules(base string, depth int) {
 			}
 		}
 		if err != nil {
-			if errors.Is(err, errStatTimeout) {
-				f.truncated = true
+			if blocked(err) {
+				f.items = append(f.items, fsItem(err, base, ""))
 			}
 			return
 		}
 	}
 }
 
+// errNoGitDir says a folder is not a checked-out repository.
+var errNoGitDir = errors.New("not a git directory")
+
 // resolveGitDir is the git directory of a checked-out repository: its .git
-// directory, or where a .git file says it is.
-func resolveGitDir(work string) (string, bool) {
+// directory, or where a .git file says it is. Anything that leads to a share is
+// errNetworkPath, and a folder that is not a repository is errNoGitDir.
+func resolveGitDir(work string) (string, error) {
 	dot := filepath.Join(work, ".git")
-	fi, err := lstatWithin(dot)
+	fi, err := fsLstat(dot)
 	if err != nil {
-		return "", false
+		if absent(err) {
+			return "", errNoGitDir
+		}
+		return "", err
 	}
 	if fi.IsDir() {
-		return dot, true
+		return dot, nil
 	}
 	if fi.Size() > 4096 {
-		return "", false
+		return "", errNoGitDir
 	}
-	data, err := readFileWithin(dot)
+	data, err := fsReadFile(dot)
 	if err != nil {
-		return "", false
+		if blocked(err) {
+			return "", err
+		}
+		return "", errNoGitDir
 	}
 	line, _, _ := strings.Cut(string(data), "\n")
 	target, ok := strings.CutPrefix(strings.TrimSpace(line), "gitdir:")
 	if !ok {
-		return "", false
+		return "", errNoGitDir
 	}
 	target = filepath.FromSlash(strings.TrimSpace(target))
 	if !filepath.IsAbs(target) {
 		target = filepath.Join(work, target)
 	}
-	return filepath.Clean(target), true
+	target = filepath.Clean(target)
+	if err := guard(target); err != nil {
+		return "", err
+	}
+	return target, nil
 }
 
 // scanSubmodule is ScanPrograms for a submodule's own git directory. A
@@ -1306,7 +1198,7 @@ func (s *scanner) scanSubmodule(sub submodule) []Program {
 	cfg := filepath.Join(sub.gitDir, "config")
 	var items []Program
 	var hooksPath *configEntry
-	fi, err := statWithin(cfg)
+	fi, err := fsStat(cfg)
 	switch {
 	case err == nil && fi.Size() > maxConfigBytes:
 		items = append(items, Program{Kind: "limit", Where: cfg, Submodule: name,
@@ -1325,7 +1217,7 @@ func (s *scanner) scanSubmodule(sub submodule) []Program {
 			items = append(items, found...)
 		}
 	case !absent(err):
-		items = append(items, unreadable(cfg, err, name))
+		items = append(items, fsItem(err, cfg, name))
 	}
 	loc := gitLocations{gitDir: sub.gitDir, common: sub.gitDir, topdir: sub.work}
 	return append(items, s.hooksIn(loc, hooksPath, name)...)
@@ -1448,28 +1340,4 @@ func (v Verdict) Warning(action string) string {
 		text += "\n- " + l
 	}
 	return text
-}
-
-// canonical is a path with symbolic links and, on Windows, short 8.3 names
-// resolved, so the same directory is one name however it was reached: a
-// worktree under /var on macOS is under /private/var as far as git is told, and
-// a temporary folder on Windows has a long name and a short one. A path that
-// cannot be resolved is cleaned and used as it is.
-func canonical(p string) string {
-	p = filepath.Clean(p)
-	// Whether a path is on a share is decided from its spelling, and from where
-	// its links lead, before anything is opened: EvalSymlinks on Windows opens
-	// the target, which connects to the share and offers the user's credentials.
-	// A path that is, or leads to, a share comes back as the share's path and is
-	// not resolved.
-	if isNetworkPath(p) {
-		return p
-	}
-	if t := linksToNetwork(p, 0); t != "" {
-		return filepath.Clean(t)
-	}
-	if real, err := evalSymlinks(p); err == nil {
-		return real
-	}
-	return p
 }

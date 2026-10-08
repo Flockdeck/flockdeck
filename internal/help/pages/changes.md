@@ -188,6 +188,10 @@ make Flockdeck run. Still outside it:
   that reads it use memory until the 15 second limit; Flockdeck keeps 8 MB of
   what it prints.
 - An agent running as you that can write the file of accepted state.
+- A configuration file that includes a file on a network share (`include.path`):
+  git itself reads it when Flockdeck asks for the configuration, so Windows
+  connects to the share. Flockdeck cannot stop that; it can only list what git
+  printed.
 
 An agent's own git commands are for [auto-review](#status) and the agent's
 permissions. Flockdeck never runs `git mergetool`, so `merge.tool` and
