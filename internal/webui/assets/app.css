@@ -2912,3 +2912,16 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .helper-sub { font-weight: 600; margin: 10px 0 4px; }
 .helper-allows { margin: 0 0 8px 18px; padding: 0; }
 .helper-warning { border: 1px solid var(--waiting); border-radius: 4px; padding: 8px 10px; margin: 10px 0; }
+
+/* The read-only recordings viewer for a window reached through the relay. The
+ * text is not selectable and there is nothing to save; see the viewer's note in
+ * app.js. */
+.rail-btn[hidden] { display: none; }
+.art-banner { padding: 8px 12px; border-bottom: 1px solid var(--line-subtle); color: var(--fg); font-weight: 600; }
+.art-body { user-select: none; -webkit-user-select: none; padding: 8px 12px; }
+.art-item { width: 100%; text-align: left; background: transparent; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.art-entry { padding: 6px 0; border-bottom: 1px solid var(--line-subtle); }
+.art-head { display: flex; flex-wrap: wrap; gap: 8px; color: var(--fg-dim); font-size: 12px; }
+.art-type { font-weight: 600; color: var(--fg); }
+.art-flag { color: var(--waiting); }
+.art-text { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono, monospace); font-size: 12px; }

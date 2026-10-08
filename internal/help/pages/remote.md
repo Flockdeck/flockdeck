@@ -69,6 +69,8 @@ them from one:
   recordings folder, since all three name a path on this machine;
 - setting, reading or clearing the TypeSafe API key, and turning **on** status
   detection with Jev;
+- turning the viewing of recordings on or off, allowing a device to view them,
+  and stopping all viewing (see **Viewing recordings from a device**);
 - detaching from the agents.
 
 Batons and the conflict radar are not on that list. A paired phone or other relay window can
@@ -305,6 +307,39 @@ was sent, and when; every notification is the same size, however long the names
 in it. A relay that does not send notifications, or an account whose plan does
 not include them, is said under the switch in the relay's own words.
 
+## Viewing recordings from a device
+
+A paired device can read the recordings made on this machine (see
+[Recording a pane](#recording)), read-only, in a **Desk recordings** window.
+It is off, and nothing about it can be changed from a remote window. Turning it
+on, and allowing a device, is done at this machine, after you have compared the
+code of the device's key with the one the device shows and marked it verified;
+a device whose key has changed is refused until you do that again. The controls
+for it are not in the window yet.
+
+The recordings are sent over their own connection, which is end-to-end encrypted
+or not made at all; unlike the terminal it never falls back to plain. This
+machine reads each recording line by line, redacts it again, cuts it down to the
+fields the format defines and sends pages of that. The device is never sent a
+file, a path or the raw bytes, and it can ask for a recording only by an
+identifier this machine gave it a moment before. Only recordings in this
+machine's own recordings folder are listed. The window says **Read-only from**
+this machine's name and the device's, has no way to save or open what it shows,
+and drops it when you close it, when its tab has been hidden for two minutes and
+when the connection ends.
+
+What this does not do. Redaction looks for patterns, and a secret that does not
+look like one gets through. The device can keep, copy or photograph what it
+shows. A relay that alters the page or the keys it serves could read what the
+page shows, which the code comparison does not catch. And a device that is
+allowed here can already open a shell on this machine, so this is not a limit on
+that device. Every connection, refusal and recording opened is added to
+`remote-artifacts.log` in the state directory, with a name and a size and never
+what was shown.
+
+`flockdeck remote artifacts off` turns all of it off and ends every connection
+at once. It needs no window.
+
 ## Renaming
 
 A machine is listed on every device under the name it was enrolled with (its
@@ -321,8 +356,8 @@ Traffic is encrypted with TLS between your browser and the relay, and between
 the relay and this machine. On top of that, a **terminal** (what you type into
 it and what it prints) is end-to-end encrypted between this machine and the
 paired browser, with keys the relay hands out but never holds. Only the
-terminal is: when either side has no registered key, the terminal is served
-unencrypted. Everything else passes through the relay decrypted, so it is
+terminal and the recordings viewer are: when either side has no registered key,
+the terminal is served unencrypted, and the recordings viewer is not served. Everything else passes through the relay decrypted, so it is
 **trusted**, and whoever runs it could read it: the chat view of a pane and
 what you type into it, the state and latest replies of every pane, pictures you
 attach, diffs, commit, push and pull request data, and anything typed into a
