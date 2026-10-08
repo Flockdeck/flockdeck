@@ -306,6 +306,11 @@ const (
 // test can shorten it.
 var scanTimeout = 15 * time.Second
 
+// submoduleStep is called as each submodule is scanned, with "start" before it
+// and "after" once it is done. It does nothing; a test uses it to let the
+// scan's time run out in or between submodules.
+var submoduleStep = func(ctx context.Context, stage string) {}
+
 // ErrNotRepository and ErrNoGit are the only ways ScanPrograms fails: the
 // directory is not a git repository, or there is no git to run.
 var (
@@ -437,11 +442,21 @@ func ScanPrograms(dir string) (Report, error) {
 			break
 		}
 		rep.Items = append(rep.Items, s.scanSubmodule(sub)...)
-	}
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		rep.Items = append(rep.Items, unscannable(dir, errScanTooLong.Error()+" ("+scanTimeout.String()+"), so some of it was not looked at", ""))
+		submoduleStep(ctx, "after")
 	}
 	rep.Items = append(rep.Items, s.fsItems...)
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		// One item says it, always the same: which paths a slow scan got to
+		// depends on how far it got, and an item that changed from one scan to the
+		// next would make the same repository look different every time.
+		kept := rep.Items[:0]
+		for _, p := range rep.Items {
+			if p.Kind != "unscannable" || p.Value != errScanTooLong.Error() {
+				kept = append(kept, p)
+			}
+		}
+		rep.Items = append(kept, unscannable(dir, errScanTooLong.Error()+" ("+scanTimeout.String()+"), so some of it was not looked at", ""))
+	}
 	if truncated {
 		rep.Items = append(rep.Items, Program{
 			Kind: "limit", Value: "submodules beyond the first " + strconv.Itoa(maxSubmodules) + ", more than " +
@@ -940,15 +955,16 @@ func within(dir, path string) bool {
 // with more is looked through by name instead, which gives the same answer.
 const maxHooksDirEntries = 1024
 
-// hookFor says which hook an entry of a hooks folder would be started as, by the
-// name the file system matches: Pre-Commit is pre-commit on Windows and macOS,
-// and on Windows git also starts <hook>.exe. The name returned is the hook's,
-// with ".exe" when that is how the file is spelled.
+// hookFor says which hook an entry of a hooks folder would be started as. Names
+// are compared without regard to case: Pre-Commit is pre-commit on Windows and
+// macOS, and also on a Linux file system that ignores case (vfat, exfat, ntfs,
+// cifs, ext4 with casefold), which a Linux build cannot tell from one that does
+// not. On a file system that keeps case, git does not start Pre-Commit, so
+// listing it is more than needed and does no harm. On Windows git also starts
+// <hook>.exe. The name returned is the hook's, with ".exe" when that is how the
+// file is spelled.
 func hookFor(name string) (string, bool) {
-	lower := name
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-		lower = strings.ToLower(name)
-	}
+	lower := strings.ToLower(name)
 	if runtime.GOOS == "windows" {
 		if base, ok := strings.CutSuffix(lower, ".exe"); ok && hookSet[base] {
 			return base + ".exe", true
@@ -1092,7 +1108,10 @@ var errOverBudget = errors.New("over the budget for reading files")
 // hashFile hashes a whole file, streamed, within what is left of the budget for
 // the scan. The size is checked first and again as it is read, so a file that
 // grows is not read without end. A file a listing of a guarded folder showed to
-// be an ordinary file (listed) is opened without being looked at again.
+// be an ordinary file (listed) is opened without being looked at again. That
+// leaves the gap between the listing and the open, the same one every look at
+// this file system has between one call and the next: a file swapped for a link
+// in between is opened as the link.
 func (s *scanner) hashFile(path string, size int64, listed bool) (string, error) {
 	if size > s.budget-s.spent {
 		return "", errOverBudget
@@ -1284,6 +1303,7 @@ func (f *finder) walkModules(base string, depth int) {
 // again. The git directory was guarded when it was found, so its configuration
 // is looked at as a child of it.
 func (s *scanner) scanSubmodule(sub submodule) []Program {
+	submoduleStep(s.ctx, "start")
 	name := sub.path
 	if name == "" {
 		name = sub.gitDir

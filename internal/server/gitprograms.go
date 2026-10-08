@@ -100,7 +100,11 @@ func (s *Server) gitProgramsAccepted(c *controlClient, dir, path, action, resend
 		}
 		return true
 	}
-	now := fingerprint(rep.IDs())
+	// Only what can be accepted names the scan. A scan that could not be
+	// finished says where it stopped, and that differs from one run to the next
+	// on a repository that is always slow, so an answer to the warning would be
+	// refused every time. Those items are asked about whatever is answered.
+	now := fingerprint(rep.AcceptableIDs())
 	if !c.remote && (accept == "once" || accept == "remember") && seen == now {
 		if accept == "remember" {
 			// What was accepted for the repository stays accepted: a linked
