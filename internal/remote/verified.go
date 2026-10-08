@@ -389,7 +389,17 @@ func (m *Manager) ForgetDevice(deviceID string) error {
 // pairs again with the same id and key must not come back verified without
 // someone comparing its code again. Call it only with a roster that was read
 // successfully.
+//
+// An empty ids drops nothing. A roster that lists no devices is what a proxy's
+// blank 200, a captive portal or a relay that has failed looks like, and
+// reading it as "every device is gone" would wipe every verification. Keeping
+// a record costs little: unpairing the last device from its own page leaves a
+// record that nothing will match, since a device that pairs again is given a
+// new id and key.
 func (m *Manager) ForgetDevicesNotIn(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
 	keep := make(map[string]bool, len(ids))
 	for _, id := range ids {
 		keep[id] = true

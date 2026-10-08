@@ -313,3 +313,20 @@ func (v *verifyRemote) ForgetDevicesNotIn(ids []string) error {
 	v.keptOnly = append(v.keptOnly, ids)
 	return nil
 }
+
+// A roster with no devices is not a reason to forget every verification: a
+// proxy, a captive portal or a failing relay can send one.
+func TestAnEmptyRosterForgetsNoVerification(t *testing.T) {
+	fake := newVerifyRemote(t, `[]`, "")
+	srv, _ := newTestServer(t)
+	srv.SetRemote(fake)
+	desk := dialControl(t, srv)
+	sendCmd(t, desk, command{Cmd: "remoteDevices"})
+	var msg verifyDevicesMsg
+	readUntil(t, desk, "remoteDevices", &msg)
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.keptOnly) != 0 {
+		t.Errorf("an empty roster asked for records to be kept only for %v", fake.keptOnly)
+	}
+}

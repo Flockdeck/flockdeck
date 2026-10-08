@@ -144,10 +144,11 @@ func (s *Server) refusedVerifyThroughRelay(c *controlClient, cmd command) bool {
 }
 
 // forgetVerifiedExcept drops the records of devices no longer in a roster
-// the relay returned.
+// the relay returned. A roster with no devices drops nothing: see
+// remote.Manager.ForgetDevicesNotIn.
 func (s *Server) forgetVerifiedExcept(devices []remote.Device) {
 	v := s.deviceVerifier()
-	if v == nil {
+	if v == nil || len(devices) == 0 {
 		return
 	}
 	ids := make([]string, len(devices))
