@@ -59,7 +59,10 @@ type artifactFake struct {
 	keys map[string][]byte
 }
 
-func (f *artifactFake) E2EDeviceKey(_ context.Context, device string, _ remote.KeyOrigin) ([]byte, bool) {
+func (f *artifactFake) E2EDeviceKey(ctx context.Context, device string, _ remote.KeyOrigin) ([]byte, bool) {
+	if ctx.Err() != nil {
+		return nil, false
+	}
 	f.kmu.Lock()
 	defer f.kmu.Unlock()
 	k, ok := f.keys[device]

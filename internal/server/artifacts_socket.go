@@ -99,17 +99,6 @@ func (a *artifactState) setTimings(change func(*artifactTimings)) {
 // artifactWriteTimeout bounds one write to a device that has stopped reading.
 const artifactWriteTimeout = 10 * time.Second
 
-// artifactRequestTimeout is the most one request may take from the moment it is
-// read to the moment its reply is written. Whatever a request does, including
-// anything it asks of the disk later, runs under a context that ends then, and
-// the device is told "timeout". A variable so a test does not wait it out.
-var artifactRequestTimeout = 30 * time.Second
-
-// artifactHandshakeTimeout bounds the whole of opening a socket, from the
-// upgrade to the first request, so that a device cannot hold one of its three
-// slots with a handshake it never finishes.
-var artifactHandshakeTimeout = 20 * time.Second
-
 // artifactConnectsPerMinute is how many sockets a device may open in a minute,
 // whether or not they get past the checks. The request limit starts only once a
 // socket is open, so without this a device could open and drop sockets, each
@@ -419,7 +408,10 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 	// the handshake read is cached for a few seconds, so a key replaced in
 	// between would otherwise be served on the strength of the old one's
 	// verification.
-	if again, ok := s.deviceKey(pctx, device, origin); !ok || !bytes.Equal(again, key) {
+	// A fresh bound: the handshake may have used up the first one.
+	rctx2, rcancel2 := context.WithTimeout(ctx, tm.roster)
+	defer rcancel2()
+	if again, ok := s.deviceKey(rctx2, device, origin); !ok || !bytes.Equal(again, key) {
 		s.artifactDenied(device, name, artifactReasonVerify)
 		refuse(artifactCloseRefused, artifactReasonVerify)
 		return

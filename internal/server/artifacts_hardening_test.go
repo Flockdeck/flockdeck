@@ -460,3 +460,23 @@ func TestArtifactsAFirstRequestThatNeverComesIsDropped(t *testing.T) {
 		t.Fatalf("still open after %v: %v", time.Since(start), err)
 	}
 }
+
+// The key is looked up again after the handshake, and that lookup gets its own
+// time: a handshake that outlasts the lookup bound must not make it fail.
+func TestArtifactsASlowHandshakeStillPassesTheKeyRecheck(t *testing.T) {
+	e := newArtifactEnv(t)
+	e.allow(t)
+	e.srv.artifacts.setTimings(func(tm *artifactTimings) {
+		tm.roster = 150 * time.Millisecond
+		tm.handshake = 5 * time.Second
+	})
+	conn, _, err := e.rawDial(t, e.header("d1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(400 * time.Millisecond) // longer than the roster bound
+	sess := e.session(t, conn)
+	if r := ask2(t, conn, sess, map[string]any{"op": "hello"}); r["op"] != "hello" {
+		t.Fatalf("a slow handshake was refused: %v", r)
+	}
+}
