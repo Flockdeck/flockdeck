@@ -22,9 +22,12 @@
 //     allow in it.
 //   - A quoted value that runs over more than 4 KiB: it is redacted to the end of
 //     the line it opens on.
-//   - Command-line forms other than --flag value, curl -u user:password, mysql
-//     -ppassword and sshpass -p password. A password given with -p to any other
-//     program is shown.
+//   - Command-line forms other than the flags --password, --passwd, --pwd,
+//     --passphrase, --token, --secret, --api-key, --access-token, --auth-token and
+//     --client-secret followed by a value, curl -u user:password, mysql -ppassword
+//     and sshpass -p password. A password given with -p to any other program is
+//     shown. A bare "pass" is not taken for a name (it is too often a word in a
+//     test result); DB_PASS and passphrase are.
 //   - Fields that are not text of the conversation: the session, conversation,
 //     agent and project names, the tool name and tool use id, and the model. These
 //     get the patterns and nothing else.
@@ -33,6 +36,11 @@
 //   - The withholding of a secret file's output. The writer withholds the output
 //     of a tool call that touched a secret file by name; this package does not
 //     decide that again, so a recording written before that rule existed shows it.
+//   - A secret that a complete escape sequence interrupts, when the final byte of
+//     the sequence is a character of the secret (AKIA7, then ESC [ 1 ; 2, then the
+//     rest): a terminal would not show that byte, and it is looked for in the
+//     other readings of the string only when they join up. The same goes for a
+//     lone ESC before a letter, and for U+2028 or U+FFFD in the middle of a secret.
 //
 // What is removed from text before it is matched, and so does not stay in the
 // output: invalid UTF-8, control characters other than a line feed and a tab, the
@@ -54,7 +62,11 @@
 // is given if that is sooner. It is checked between lines: a page that runs out of
 // it is returned with what it has and Done false, and a call that has done no work
 // when it runs out returns ErrBudget. A line is never cut: either it is parsed and
-// redacted whole or it is not read yet.
+// redacted whole or it is not shown. Work inside a line is checked too: one that is
+// still being cleaned a whole budget after the first has run out is skipped and
+// counted in Skipped, so one line cannot hold a call for long. Redaction of a
+// single string reads at most record.MaxRedactBytes of it and replaces the rest
+// with one mark.
 //
 // # Paths
 //
@@ -356,6 +368,7 @@ func pageOf(ctx context.Context, ra io.ReaderAt, size int64, cursor int, max int
 		}
 	}
 	page := Page{Entries: []Entry{}, Next: cursor}
+	stop := lineStop(ctx)
 	br := bufio.NewReaderSize(io.NewSectionReader(ra, int64(cursor), size-int64(cursor)), 64<<10)
 
 	var (
@@ -389,7 +402,7 @@ func pageOf(ctx context.Context, ra io.ReaderAt, size int64, cursor int, max int
 		// A complete line.
 		if tooLong {
 			page.Skipped++
-		} else if e, ok := parseLine(bytes.TrimSpace(line)); !ok {
+		} else if e, ok := parseLineUntil(bytes.TrimSpace(line), stop); !ok {
 			if len(bytes.TrimSpace(line)) > 0 {
 				page.Skipped++
 			}
@@ -459,7 +472,11 @@ var clippedKeys = map[string]bool{"text": true, "output": true, "input": true, "
 
 // parseLine turns one line into an Entry, or reports false for a line that is
 // not shown. It never panics on any input.
-func parseLine(b []byte) (Entry, bool) {
+func parseLine(b []byte) (Entry, bool) { return parseLineUntil(b, nil) }
+
+// parseLineUntil is parseLine, giving up on a line when stop says so: it is then
+// not shown at all, never shown part cleaned.
+func parseLineUntil(b []byte, stop func() bool) (Entry, bool) {
 	var l rawLine
 	if len(b) == 0 || json.Unmarshal(b, &l) != nil {
 		return Entry{}, false
@@ -471,7 +488,7 @@ func parseLine(b []byte) (Entry, bool) {
 	if !ok {
 		return Entry{}, false
 	}
-	st := &state{redacted: l.Redacted, clipped: map[string]int{}}
+	st := &state{redacted: l.Redacted, clipped: map[string]int{}, stop: stop}
 	for k, n := range l.Clipped {
 		if clippedKeys[k] && n >= 0 && n <= 1<<40 {
 			st.clipped[k] = n
@@ -505,6 +522,9 @@ func parseLine(b []byte) (Entry, bool) {
 		e.Trigger = st.id(l.Trigger)
 		e.TokensBefore, e.TokensAfter = nonNeg(l.Before), nonNeg(l.After)
 	}
+	if st.aborted {
+		return Entry{}, false
+	}
 	e.Redacted = st.redacted
 	if len(st.clipped) > 0 {
 		e.Clipped = st.clipped
@@ -516,12 +536,18 @@ func parseLine(b []byte) (Entry, bool) {
 type state struct {
 	redacted bool
 	clipped  map[string]int
+	stop     func() bool // says the line has taken too long
+	aborted  bool
 }
 
 // redact cleans v, which may be a whole string or a key, and redacts it. The
 // order matters: removing the characters first lets redaction see a secret that
 // was broken up by them.
 func (s *state) redact(v string) string {
+	if s.aborted || s.stop != nil && s.stop() {
+		s.aborted = true
+		return ""
+	}
 	c := cleanText(v)
 	r := redactCleaned(c)
 	if r != c.text {
@@ -684,4 +710,15 @@ func cutBytes(s string, n int) string {
 		n--
 	}
 	return s[:n]
+}
+
+// lineStop says when a line has taken too long to clean: the caller has given up,
+// or the budget has been over for as long again. A line that is stopped is
+// skipped and counted, not shown part cleaned.
+func lineStop(ctx context.Context) func() bool {
+	hard, ok := ctx.Deadline()
+	hard = hard.Add(DefaultBudget)
+	return func() bool {
+		return ctx.Err() == context.Canceled || ok && time.Now().After(hard)
+	}
 }

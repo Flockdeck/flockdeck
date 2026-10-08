@@ -37,8 +37,8 @@ func Clip(s string, n int) string {
 //	api_key, apikey, access_key, private_key (the underscore may be a dash or
 //	missing), auth_token, auth_key, auth_header
 //
-// With wide set the names also are passphrase and pass as a whole word (DB_PASS,
-// pass, my.pass; not bypass or compass).
+// With wide set the names also are passphrase and pass as the last word of a
+// compound name (DB_PASS, my.pass; not pass alone, bypass or compass).
 //
 // It is the pattern (?i)(secret|token|passw(or)?d|passwd|pwd|api[_-]?key|apikey|
 // access[_-]?key|private[_-]?key|credential|authorization|auth[_-](token|key|
@@ -76,7 +76,7 @@ func nameIsSecretLower(l string, wide bool) bool {
 			if strings.HasPrefix(rest, "private") && keyAfter(rest[len("private"):]) {
 				return true
 			}
-			if wide && (strings.HasPrefix(rest, "passphrase") || strings.HasPrefix(rest, "pass") && (i == 0 || !isAlnum(l[i-1])) && (len(rest) == 4 || !isAlnum(rest[4]))) {
+			if wide && (strings.HasPrefix(rest, "passphrase") || len(rest) == 4 && rest == "pass" && compoundBefore(l, i)) {
 				return true
 			}
 		case 'a':
@@ -243,8 +243,10 @@ func findOthers(s string, wide bool) []Span {
 // appendGroup adds the first group of every match of re as a secret value.
 func appendGroup(out []Span, s string, re *regexp.Regexp) []Span {
 	for _, m := range re.FindAllStringSubmatchIndex(s, -1) {
-		if !strings.Contains(s[m[2]:m[3]], Redacted) {
-			out = append(out, Span{m[2], m[3], "secret-value"})
+		for k := 2; k+1 < len(m); k += 2 {
+			if m[k] >= 0 && !strings.Contains(s[m[k]:m[k+1]], Redacted) {
+				out = append(out, Span{m[k], m[k+1], "secret-value"})
+			}
 		}
 	}
 	return out
@@ -253,7 +255,7 @@ func appendGroup(out []Span, s string, re *regexp.Regexp) []Span {
 var (
 	// curl -u user:password and curl --user user:password. The user stays, the
 	// password goes.
-	curlUserRe = regexp.MustCompile(`(?i)\bcurl\b[^\n]*?[ \t](?:-u|--user)(?:[ \t]+|=)["']?[^\s:"']*:([^\s"']+)`)
+	curlUserRe = regexp.MustCompile(`(?i)\bcurl\b[^\n]*?[ \t](?:-u|--user)(?:[ \t]+|=)(?:"[^":\n]*:([^"\n]+)"|'[^':\n]*:([^'\n]+)'|["']?[^\s:"']*:([^\s"']+))`)
 	// mysql -pPASSWORD. The password is attached; with a space after -p mysql
 	// asks for it instead.
 	mysqlPassRe = regexp.MustCompile(`(?i)\b(?:mysql|mysqldump|mysqladmin|mariadb)\b[^\n]*?[ \t]-p("[^"\n]+"|'[^'\n]+'|[^\s"'-][^\s"']*)`)
@@ -317,6 +319,7 @@ type scan struct {
 	wide    bool
 	budget  int // bytes quoted values may still be looked through
 	lineEnd int // the end of the line the last unclosed value was cut at
+	next    int // where the scan goes on after the name last looked at
 }
 
 // findAssigned finds NAME=value, NAME: value, "name": "value" and, when wide,
@@ -344,15 +347,20 @@ func findAssigned(s, ls string, ascii, wide bool, out []Span) []Span {
 		}
 		if secret {
 			out = sc.assigned(out, i, j)
+			j = max(j, sc.next)
 		}
 		i = j
 	}
 	return out
 }
 
-// assigned looks at what follows the secret name s[start:end].
+// assigned looks at what follows the secret name s[start:end]. It sets sc.next to
+// where the scan goes on: after the value if there was one, as a pattern that
+// matches a name and its value goes on after both, so that every byte is read as
+// part of a value at most once.
 func (sc *scan) assigned(out []Span, start, end int) []Span {
 	s := sc.s
+	sc.next = end
 	p := end
 	if p < len(s) && (s[p] == '"' || s[p] == '\'') {
 		p++
@@ -366,13 +374,17 @@ func (sc *scan) assigned(out []Span, start, end int) []Span {
 		for p < len(s) && isSpace(s[p]) {
 			p++
 		}
-	case sc.wide && s[start] == '-' && end < len(s) && (s[end] == ' ' || s[end] == '\t'):
+	case sc.wide && s[start] == '-' && end < len(s) && (s[end] == ' ' || s[end] == '\t') && flagTakesSecret(s[start:end]):
 		// A flag: --password hunter2.
 		p = end
 		for p < len(s) && (s[p] == ' ' || s[p] == '\t') {
 			p++
 		}
-		if p >= len(s) || s[p] == '-' || s[p] == '\n' || s[p] == '\r' {
+		if p >= len(s) || s[p] == '-' || s[p] == '<' || s[p] == '>' || s[p] == '|' || s[p] == '\n' || s[p] == '\r' {
+			return out
+		}
+		if shortWord(s[p:]) {
+			// "--token is still taken": prose that names the flag, not a value.
 			return out
 		}
 	default:
@@ -383,8 +395,11 @@ func (sc *scan) assigned(out []Span, start, end int) []Span {
 	}
 	if q := s[p]; q == '"' || q == '\'' {
 		e := sc.quotedEnd(p)
-		if e > p && !strings.Contains(s[p:e], Redacted) {
-			out = append(out, Span{p, e, "secret-value"})
+		if e > p {
+			sc.next = e
+			if !strings.Contains(s[p:e], Redacted) {
+				out = append(out, Span{p, e, "secret-value"})
+			}
 		}
 		return out
 	}
@@ -392,7 +407,11 @@ func (sc *scan) assigned(out []Span, start, end int) []Span {
 	for e < len(s) && !valueStop(s[e]) {
 		e++
 	}
-	if e == p || strings.Contains(s[p:e], Redacted) || sc.wide && strings.HasPrefix(s[p:], Redacted) {
+	if e == p {
+		return out
+	}
+	sc.next = e
+	if strings.Contains(s[p:e], Redacted) || sc.wide && strings.HasPrefix(s[p:], Redacted) {
 		return out
 	}
 	value := s[p:e]
@@ -414,13 +433,34 @@ func (sc *scan) assigned(out []Span, start, end int) []Span {
 			for d < len(s) && !valueStop(s[d]) {
 				d++
 			}
-			if d > c && c > e && !strings.HasPrefix(s[c:], Redacted) {
+			if d > c && c > e && !strings.HasPrefix(s[c:], Redacted) && !placeholder(s[c]) {
 				out = append(out, Span{c, d, "bearer-token"})
+				sc.next = d
 			}
 			return out
 		}
 	}
+	if sc.wide && strings.HasSuffix(name, "pass") && boolish(value) {
+		// "vault_pass": true is a setting, not a password.
+		return out
+	}
 	return append(out, Span{p, e, "secret-value"})
+}
+
+// flagTakesSecret reports whether a flag, with its dashes, is one of the few that
+// are followed by a secret: exactly --password and its kin, not --password-stdin,
+// --no-password, --token-file or a flag that only has one of these words in it.
+func flagTakesSecret(flag string) bool {
+	name := strings.ToLower(strings.TrimLeft(flag, "-"))
+	if len(flag)-len(name) > 2 {
+		return false
+	}
+	switch name {
+	case "password", "passwd", "pwd", "passphrase", "token", "secret", "api-key", "apikey", "api_key",
+		"access-token", "auth-token", "client-secret":
+		return true
+	}
+	return false
 }
 
 // quotedEnd is where the quoted value that starts with the quote at s[p] ends:
@@ -541,10 +581,37 @@ func merge(spans []Span) []Span {
 	return out
 }
 
+// MaxRedactBytes is the most of a text Redact reads. A text over it is cut there
+// (on a character boundary) and the rest is replaced by one mark: a text too long
+// to read is not passed on unread.
+const MaxRedactBytes = 1 << 20
+
 // Redact removes what looks like a secret from s. It is best effort, by
 // patterns: a secret with no recognisable shape, in text that does not name it
-// as one, is kept as it was said.
+// as one, is kept as it was said. Its time is linear in the length of s, up to
+// MaxRedactBytes.
 func Redact(s string) string {
+	for range 4 {
+		next := redactOnce(s)
+		if next == s {
+			break
+		}
+		s = next
+	}
+	return s
+}
+
+// redactOnce is one round of Redact. Text that one round has changed is read again,
+// because what it left can make a pattern that did not match before: a mark that
+// ends a quoted value, two pieces of a flag and its value brought together.
+func redactOnce(s string) string {
+	if len(s) > MaxRedactBytes {
+		cut := MaxRedactBytes
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		return redactOnce(s[:cut]) + Redacted
+	}
 	spans := findOthers(s, true)
 	if len(spans) > 0 {
 		var b strings.Builder
@@ -643,4 +710,51 @@ func KeyIsSecret(name string) bool { return nameIsSecret(name, true) }
 // that has to replace in a text other than the one it looked at.
 func RedactSpans(s string) []Span {
 	return merge(append(findOthers(s, true), FindTokens(s)...))
+}
+
+// compoundBefore reports whether the name l[:i+4] that ends in "pass" has another
+// word before it, joined by a separator: DB_PASS, mysql.pass. A bare "pass" is
+// too often a word (a test result, a variable) to say what follows it is a secret.
+func compoundBefore(l string, i int) bool {
+	if i == 0 || isAlnum(l[i-1]) {
+		return false
+	}
+	for j := i - 1; j >= 0; j-- {
+		if isAlnum(l[j]) {
+			return true
+		}
+	}
+	return false
+}
+
+// shortWord reports whether s starts with a word of one to four lower-case
+// letters and then a space or the end: "is", "the", "for". A flag followed by one
+// is a flag named in a sentence, and a secret that short is not worth the words it
+// would cost.
+func shortWord(s string) bool {
+	n := 0
+	for n < len(s) && 'a' <= s[n] && s[n] <= 'z' {
+		n++
+	}
+	return n >= 1 && n <= 4 && (n == len(s) || s[n] == ' ' || s[n] == '\t' || s[n] == '\n')
+}
+
+// placeholder reports whether b starts a stand-in for a value and not a value: a
+// format verb, a variable or a template field.
+func placeholder(b byte) bool {
+	return b == '%' || b == '$' || b == '<' || b == '{' || b == '[' || b == '('
+}
+
+// boolish reports whether v is a yes or no, a number or an empty value.
+func boolish(v string) bool {
+	switch strings.ToLower(v) {
+	case "true", "false", "null", "nil", "none", "yes", "no", "on", "off":
+		return true
+	}
+	for i := 0; i < len(v); i++ {
+		if v[i] < '0' || v[i] > '9' {
+			return false
+		}
+	}
+	return true
 }

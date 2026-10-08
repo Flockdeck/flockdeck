@@ -98,17 +98,18 @@ func TestMoreFormsOfASecretAreRedacted(t *testing.T) {
 		"secret=\"line one\nline two\" after": "secret=[redacted] after",
 		"password='a\n\nb' tail":              "password=[redacted] tail",
 		// More names.
-		"passphrase=correct horse":    "passphrase=[redacted] horse",
-		"DB_PASS=hunter2":             "DB_PASS=[redacted]",
-		"pass: hunter2":               "pass: [redacted]",
-		`{"pass": "hunter2"}`:         `{"pass": [redacted]}`,
-		"export MY.PASS.WORD=hunter2": "export MY.PASS.WORD=[redacted]",
+		"passphrase=correct horse": "passphrase=[redacted] horse",
+		"DB_PASS=hunter2":          "DB_PASS=[redacted]",
+		"pass: hunter2":            "pass: hunter2",
+		`{"pass": "hunter2"}`:      `{"pass": "hunter2"}`,
+		"export MY.PASS=hunter2":   "export MY.PASS=[redacted]",
 		// Command lines.
 		"app --password hunter2 --verbose":                 "app --password [redacted] --verbose",
 		"app --api-key 'two words' run":                    "app --api-key [redacted] run",
 		"app --token\tabc123":                              "app --token\t[redacted]",
 		"curl -u alice:hunter2 https://example.com":        "curl -u alice:[redacted] https://example.com",
 		"curl -s --user=alice:hunter2 https://example.com": "curl -s --user=alice:[redacted] https://example.com",
+		`curl -u "admin:pw 1" https://example.com`:         `curl -u "admin:[redacted]" https://example.com`,
 		"mysql -u root -phunter2 shop":                     "mysql -u root -p[redacted] shop",
 		"mysqldump -p'two words' db":                       "mysqldump -p[redacted] db",
 		"sshpass -p hunter2 ssh host":                      "sshpass -p [redacted] ssh host",
@@ -153,7 +154,7 @@ func TestOrdinaryCommandsAndWordsAreLeftAlone(t *testing.T) {
 
 func TestKeyIsSecretTakesPassAsAWholeWordOnly(t *testing.T) {
 	for name, want := range map[string]bool{
-		"pass": true, "DB_PASS": true, "db.pass": true, "my-pass-x": true, "passphrase": true, "PassPhrase": true,
+		"pass": false, "DB_PASS": true, "db.pass": true, "my-pass-x": false, "passphrase": true, "PassPhrase": true,
 		"bypass": false, "compass": false, "passed": false, "passenger": false, "hostname": false,
 	} {
 		if KeyIsSecret(name) != want {
@@ -164,8 +165,8 @@ func TestKeyIsSecretTakesPassAsAWholeWordOnly(t *testing.T) {
 
 func TestRedactIsFixedByItself(t *testing.T) {
 	r := rand.New(rand.NewSource(5))
-	frags := []string{"[redacted]", "password=", "token: ", `"secret":"`, "--password ", "Authorization: Token ", `"`, `'`, "abc", " ", "\n", "x y", "=", "mysql -p", "curl -u a:b "}
-	for n := 0; n < 5000; n++ {
+	frags := []string{"-----END PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----", "--password", "--token ", "msg: it's a password: don't tell", "pass: ", "[redacted]", "password=", "token: ", `"secret":"`, "--password ", "Authorization: Token ", `"`, `'`, "abc", " ", "\n", "x y", "=", "mysql -p", "curl -u a:b "}
+	for n := 0; n < 40000; n++ {
 		var b strings.Builder
 		for i, k := 0, 1+r.Intn(8); i < k; i++ {
 			b.WriteString(frags[r.Intn(len(frags))])
@@ -252,5 +253,110 @@ func TestQuotedValueLooksHaveABudget(t *testing.T) {
 	}
 	if sc.budget >= 100 {
 		t.Error("the look did not use the budget")
+	}
+}
+
+// adversarial are texts built to make a scan do the most work, by the unit that is
+// repeated.
+var adversarial = map[string]string{
+	"token=": "token=", "pass:": "pass:", "password=a": "password=a", "a_secret=x": "a_secret=x",
+	"secret=:": "secret=:", "token=a.": "token=a.", "password=tab": "password=\t", "DB_PASS=": "DB_PASS=",
+	"openers": `password="`, "escaped": `password="\"`, "apostrophes": `token='`, "stems": "key",
+	"names": "token_", "flags": "--password ", "flags-dash": "--token --", "bearer": "Bearer ", "authorization": "Authorization: Token ",
+	"pem": "-----BEGIN PRIVATE KEY-----", "pem-end": "-----BEGIN PRIVATE KEY----- -----END PRIVATE KEY-----", "pem-orphan": "-----END PRIVATE KEY-----",
+	"mysql": "mysql -x ", "mysql-p": "mysql -p'", "curl": "curl -u a:", "curl-q": `curl -u "a:`, "sshpass": "sshpass -p ", "urls": "a://b:",
+	"assign-equals": "a=", "colons": "token:", "quote-pairs": `token="a"`,
+}
+
+// Doubling a text doubles the time to read it, within the noise of a clock.
+func TestRedactTimeGrowsLinearlyOnEveryAdversarialText(t *testing.T) {
+	best := func(s string) time.Duration {
+		d := time.Duration(1 << 62)
+		for range 3 {
+			start := time.Now()
+			Redact(s)
+			d = min(d, time.Since(start))
+		}
+		return d
+	}
+	for name, unit := range adversarial {
+		var prev time.Duration
+		for _, size := range []int{64 << 10, 128 << 10, 256 << 10} {
+			s := strings.Repeat(unit, size/len(unit))
+			d := best(s)
+			t.Logf("%-14s %6d bytes %v", name, len(s), d)
+			if prev > 5*time.Millisecond && d > 4*prev {
+				t.Errorf("%s: %d bytes took %v, the half took %v", name, len(s), d, prev)
+			}
+			if d > 750*time.Millisecond {
+				t.Errorf("%s: %d bytes took %v", name, len(s), d)
+			}
+			prev = d
+		}
+	}
+}
+
+func TestRedactStopsReadingAtTheLimit(t *testing.T) {
+	s := strings.Repeat("a", MaxRedactBytes) + "tail text"
+	got := Redact(s)
+	if len(got) > MaxRedactBytes+len(Redacted) || !strings.HasSuffix(got, Redacted) || strings.Contains(got, "tail") {
+		t.Errorf("Redact of %d bytes gave %d bytes ending %q", len(s), len(got), got[len(got)-12:])
+	}
+	if short := strings.Repeat("a", MaxRedactBytes); Redact(short) != short {
+		t.Error("a text of exactly the limit was changed")
+	}
+}
+
+// Lines of ordinary output, code and prose that name pass, a flag with a secret
+// word in it, or a word the patterns look at, and have no secret in them. None
+// may change.
+func TestOrdinaryLinesAreLeftAlone(t *testing.T) {
+	for _, in := range []string{
+		"--- PASS: TestFoo (0.00s)",
+		"=== RUN   TestFoo/pass_case",
+		"    --- PASS: TestFoo/sub (0.00s)",
+		"ok  \texample.com/pkg\t0.512s",
+		"ok  pkg 0.5s pass: 12 fail: 0",
+		"PASS",
+		"pass: true",
+		"tests pass: all",
+		"Pass: 5 tests",
+		"pass=3 fail=0",
+		"the build did not pass: see logs",
+		"pass := check(x)",
+		"if pass { return }",
+		"func pass(a, b int) bool {",
+		"bypass=true compass=north passed=yes",
+		"docker login --password-stdin < file",
+		"docker login -u user --password-stdin",
+		"x --no-password foo",
+		"x --pass foo",
+		"mycmd --password < file",
+		"mycmd --token | tee out",
+		"mycmd --secret > out",
+		`"vault_pass": true`,
+		"db_pass=0",
+		`printf 'Authorization: Bearer %s\n' "$TOKEN"`,
+		"Authorization: Bearer ${TOKEN}",
+		"runs; --token is still taken, for the settings",
+		"x --passthrough foo",
+		"tool --token-file /etc/tool/token",
+		"tool --secret-name foo",
+		"flockdeck run --max-tokens 1024",
+		"go test -run TestPassword ./...",
+		"make: Entering directory '/src/pass'",
+		"git commit -m 'fix the password check'",
+		"See the password section of the manual.",
+		"## Passwords and tokens",
+		"The api key is shown once.",
+		"mysql --version",
+		"mysql -u root -p",
+		"curl -s https://example.com/api -o out.json",
+		"ssh -p 2222 host",
+		"Authorization header missing",
+	} {
+		if got := Redact(in); got != in {
+			t.Errorf("Redact(%q) = %q", in, got)
+		}
 	}
 }

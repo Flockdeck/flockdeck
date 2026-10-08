@@ -51,7 +51,9 @@ func resolve(root, name string) (string, error) {
 }
 
 // isLink reports whether a file is a link of any kind. On Windows a junction or
-// another reparse point is not a symbolic link to Go, and shows as irregular.
+// another reparse point is not a symbolic link to Go, and shows as irregular. The
+// check is also made by the folder test that goes with it, which a link fails, so
+// it is a second guard and not the only one.
 func isLink(fi os.FileInfo) bool {
 	return fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0
 }

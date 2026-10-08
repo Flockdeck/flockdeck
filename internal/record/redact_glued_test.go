@@ -129,7 +129,7 @@ func TestRedactAKeyGluedBeforeAnotherToken(t *testing.T) {
 // names by hand; the tests compare the two.
 const (
 	secretName = `(?:secret|token|passw(?:or)?d|passwd|pwd|api[_-]?key|apikey|access[_-]?key|private[_-]?key|credential|authorization|auth[_-](?:token|key|header))`
-	passName   = `(?:^|[^A-Za-z0-9])pass(?:[^A-Za-z0-9]|$)`
+	passName   = `[A-Za-z0-9][^A-Za-z0-9]+pass$`
 )
 
 var (
@@ -140,7 +140,7 @@ var (
 func TestNameIsSecretMatchesThePatterns(t *testing.T) {
 	r := rand.New(rand.NewSource(3))
 	pieces := []string{"s", "e", "c", "r", "t", "o", "k", "n", "p", "a", "w", "d", "i", "_", "-", ".", "x", "u", "h", "y", "g", "A", "P", "K",
-		"secret", "token", "pass", "word", "wd", "pwd", "api", "key", "access", "private", "auth", "header", "phrase", "credential", "ization", "ſ", "K", "é", "1"}
+		"secret", "token", "pass", "word", "wd", "_pass", "x-pass", "pwd", "api", "key", "access", "private", "auth", "header", "phrase", "credential", "ization", "ſ", "K", "é", "1"}
 	for n := 0; n < 200000; n++ {
 		var b strings.Builder
 		for i, k := 0, 1+r.Intn(5); i < k; i++ {

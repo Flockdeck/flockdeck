@@ -644,3 +644,71 @@ func TestTheLineCapStaysSmall(t *testing.T) {
 		t.Errorf("MaxLineBytes is %d", MaxLineBytes)
 	}
 }
+
+// Texts built to make a scan do the most work, by the unit repeated, as one line
+// of about 240 KB through Page. The line is read whole or skipped, and a call
+// ends in well under the time that was quadratic.
+func TestOneLineOfAdversarialTextIsBoundedThroughPage(t *testing.T) {
+	units := []string{
+		"token=", "pass:", "password=a", "a_secret=x", "secret=:", "token=a.", "password=\t", "DB_PASS=",
+		"​token=", "\x1b[0mtoken=", "token=\x1b[0m", "\x1b_token=", "token=\t", "token='", `token="`,
+		"--password ", "Authorization: Token ", "-----BEGIN PRIVATE KEY-----", "mysql -p'", `curl -u "a:`, "Bearer ", "sk-", "ghp_\t",
+	}
+	for _, unit := range units {
+		text := strings.Repeat(unit, 240<<10/len(unit))
+		for len(line(2, "user_prompt", map[string]any{"text": text})) > MaxLineBytes-1000 {
+			text = text[:len(text)*9/10]
+		}
+		p := writeFile(t, started(), line(2, "user_prompt", map[string]any{"text": text}), line(3, "user_prompt", map[string]any{"text": "after"}))
+		r, err := openAt(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		start := time.Now()
+		pg, err := r.Page(bg, 0, 10)
+		took := time.Since(start)
+		if err != nil {
+			t.Fatalf("%q: %v", unit, err)
+		}
+		t.Logf("%-30q %6d bytes %v (%d entries)", unit, len(text), took, len(pg.Entries))
+		if took > 1500*time.Millisecond {
+			t.Errorf("%q: a line of %d bytes took %v", unit, len(text), took)
+		}
+		for _, e := range pg.Entries {
+			if strings.Contains(e.Text, "a1B2c3") {
+				t.Errorf("%q: secret in output", unit)
+			}
+		}
+	}
+}
+
+// A line that has gone on past its time is not shown, rather than shown part
+// cleaned.
+func TestALineThatTakesTooLongIsNotShown(t *testing.T) {
+	l := []byte(line(2, "user_prompt", map[string]any{"text": "a password=hunter2 here"}))
+	if _, ok := parseLineUntil(l, func() bool { return false }); !ok {
+		t.Fatal("a line was refused with time to spare")
+	}
+	if e, ok := parseLineUntil(l, func() bool { return true }); ok {
+		t.Errorf("a line out of time was shown: %+v", e)
+	}
+	in := []byte(line(2, "tool_call", map[string]any{"tool": "Bash", "input": map[string]any{"k": "v"}}))
+	if _, ok := parseLineUntil(in, func() bool { return true }); ok {
+		t.Error("a tool call out of time was shown")
+	}
+}
+
+// When the caller gives up, the line being read is skipped and counted, and the
+// page ends there.
+func TestACancelledCallSkipsTheLineItWasOn(t *testing.T) {
+	ctx, cancel := context.WithCancel(bg)
+	cancel()
+	data := []byte(manyLines(3))
+	pg, err := pageOf(ctx, bytes.NewReader(data), int64(len(data)), 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pg.Entries) != 0 || pg.Skipped != 1 || pg.Next == 0 || pg.Done {
+		t.Errorf("entries %d, skipped %d, next %d, done %v", len(pg.Entries), pg.Skipped, pg.Next, pg.Done)
+	}
+}
