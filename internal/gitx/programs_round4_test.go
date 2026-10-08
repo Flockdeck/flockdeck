@@ -52,7 +52,9 @@ func linkToShare(t *testing.T, link string) {
 	was := readLink
 	t.Cleanup(func() { readLink = was })
 	readLink = func(p string) (string, error) {
-		if strings.EqualFold(filepath.Clean(p), filepath.Clean(link)) {
+		// By name: the scan spells the path as the file system does (long names where
+		// the temporary folder has short ones), and only a link is ever asked.
+		if strings.EqualFold(filepath.Base(p), filepath.Base(link)) {
 			return blackhole + `\target`, nil
 		}
 		return was(p)
