@@ -57,9 +57,48 @@ func (p Prefs) AccessFor(deviceID string) DeviceAccess {
 // record of device roles is not known and AccessFor answers viewer for all.
 func (p Prefs) AccessUnknown() bool { return p.accessLost }
 
-// KeepAccessUnknown carries that state onto preferences read again, so that a
-// later save does not quietly make every device full by writing a clean file.
+// KeepAccessUnknown marks the record of device roles as not known, so AccessFor
+// answers viewer for every device.
 func (p *Prefs) KeepAccessUnknown() { p.accessLost = true }
+
+// AdoptAccess replaces the device roles in p with those in from, and whether
+// they are known. The running program's copy is the one in force, so preferences
+// read from the file again take it over before they are changed and written:
+// a file that was deleted, damaged or edited while Flockdeck ran must not widen
+// or narrow what any device may do.
+func (p *Prefs) AdoptAccess(from Prefs) {
+	p.Devices = maps.Clone(from.Devices)
+	p.accessLost = from.accessLost
+}
+
+// WithoutDevicesNotIn returns the preferences with the access record of every
+// device not in ids dropped, and whether anything was. It drops nothing for an
+// empty ids: an empty list is what a failed, filtered or hostile answer looks
+// like, and the cost of keeping a stale record is a slot in the table, while
+// the cost of dropping a live one is a restricted device made full.
+func (p Prefs) WithoutDevicesNotIn(ids []string) (Prefs, bool) {
+	if len(ids) == 0 || len(p.Devices) == 0 || p.accessLost {
+		return p, false
+	}
+	keep := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		keep[id] = true
+	}
+	next := map[string]DeviceAccess{}
+	for id, a := range p.Devices {
+		if keep[id] {
+			next[id] = a
+		}
+	}
+	if len(next) == len(p.Devices) {
+		return p, false
+	}
+	if len(next) == 0 {
+		next = nil
+	}
+	p.Devices = next
+	return p, true
+}
 
 // WithAccess returns the preferences with one device's access set. A full
 // device with nothing else to say is dropped from the map rather than kept, so

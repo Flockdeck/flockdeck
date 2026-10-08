@@ -2916,3 +2916,12 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .helper-warning { border: 1px solid var(--waiting); border-radius: 4px; padding: 8px 10px; margin: 10px 0; }
 .remote-code, .remote-this-window { margin: 6px 0 0; }
 .remote-code .chip { margin: 6px 0 0; }
+
+/* A device the desk limited to viewing: a banner, and none of the buttons that
+   start or change things. The server refuses them anyway. */
+#view-only-banner { padding: 6px 14px; font-size: 13px; background: var(--bg-raised); color: var(--fg); border-bottom: 1px solid var(--line); }
+#view-only-banner[hidden] { display: none; }
+body.view-only #new-tab, body.view-only #new-tab-pick, body.view-only #rail-open, body.view-only #btn-agents,
+body.view-only #btn-broadcast, body.view-only #btn-changes, body.view-only #btn-history, body.view-only #btn-worktrees,
+body.view-only #btn-fanout-history, body.view-only #btn-todos, body.view-only #btn-github, body.view-only #btn-apikeys,
+body.view-only #btn-remote { display: none; }

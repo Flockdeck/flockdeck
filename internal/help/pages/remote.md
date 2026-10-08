@@ -90,12 +90,13 @@ Every paired device is a **full** device until you say otherwise. In the dialog,
 the button beside a device's name steps it through three settings:
 
 - **Full access**: what a paired device has always had.
-- **View artifacts only**: the device can open the viewer for what your agents
-  produce, and nothing else. It is sent no panes, tabs, projects, paths or
-  preferences, cannot open a terminal, and Flockdeck refuses every command it
-  sends.
+- **View artifacts only**: for the artifacts viewer a later version adds. Until
+  then the device is shut out: it is sent no panes, tabs, projects, paths or
+  preferences, gets no push notifications, cannot open a terminal, and Flockdeck
+  refuses every command it sends.
 - **View artifacts and watch panes**: the same, and it also sees the panes, their
-  chat and their terminal output. It still cannot type, resize or run anything.
+  chat and their terminal output, and gets push notifications about waiting
+  agents. It still cannot type, resize or run anything.
 
 The setting is kept on this machine and checked here, on every command and every
 keystroke, not in the device's window, so a modified page does not get round it.

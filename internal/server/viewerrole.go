@@ -1,11 +1,15 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/store"
 )
 
@@ -48,8 +52,10 @@ func (s *Server) deviceAccess(deviceID string) store.DeviceAccess {
 		return store.DeviceAccess{Role: store.RoleViewer}
 	}
 	t := s.access.Load()
+	// Before the table is first published nothing is known, and nothing is
+	// allowed.
 	if t == nil {
-		return store.DeviceAccess{Role: store.RoleFull}
+		return store.DeviceAccess{Role: store.RoleViewer}
 	}
 	return t.prefs.AccessFor(deviceID)
 }
@@ -88,10 +94,9 @@ const (
 // source and fails for a command missing here or listed here and no longer
 // handled, so adding a command forces the decision to be written down.
 //
-// Everything is accessFull unless it says otherwise: a viewer's one job is the
-// artifacts socket (/ws/artifacts), which is not a command on this socket, so
-// no command is open to every viewer yet. accessViewer exists for the day one
-// is.
+// Everything is accessFull unless it says otherwise: the artifacts viewer a
+// later version adds is not a command on this socket, so no command is open to
+// every viewer yet. accessViewer exists for the day one is.
 var commandAccess = map[string]cmdAccess{
 	// Reading a pane's chat. Same content the terminal shows, so it needs the
 	// same permission as watching the terminal.
@@ -122,6 +127,7 @@ var commandAccess = map[string]cmdAccess{
 	"remoteDevices": accessFull, "remotePair": accessFull, "remoteRevoke": accessFull, "remoteRename": accessFull,
 	"remoteEnable": accessFull, "remoteDisable": accessFull, "remoteRemove": accessFull, "remoteMove": accessFull,
 	"remoteReconnect": accessFull, "setDeviceRole": accessFull,
+	"remoteVerify": accessFull, "remoteUnverify": accessFull,
 	"helpSeen": accessFull, "dismissTip": accessFull, "fontSize": accessFull, "notifications": accessFull,
 	"scrollback": accessFull, "updates": accessFull, "checkForUpdate": accessFull,
 	"helpers": accessFull, "helperPlan": accessFull, "helperInstall": accessFull, "helperStart": accessFull,
@@ -315,10 +321,16 @@ func (d *deviceSockets) cut(device string) {
 type accessState struct {
 	access  atomic.Pointer[accessTable]
 	sockets deviceSockets
+	// roster is how the account's paired devices are listed; nil asks the relay.
+	// A test replaces it.
+	roster func(context.Context) ([]string, error)
 }
 
-// validDeviceID reports whether a string can be a device id. The relay's ids
-// are short opaque tokens; anything else is not worth a record in the file.
+// validDeviceID reports whether a string can be a device id. The relay's ids are
+// sixteen characters of lower-case base32 (a-z and 2-7), and it sets the header
+// that carries one itself, after removing any the browser sent; this accepts
+// more than that, base64url and a few separators included, but nothing that
+// could not sit in a file name or a log line.
 func validDeviceID(id string) bool {
 	if id == "" || len(id) > 128 {
 		return false
@@ -338,10 +350,36 @@ func validDeviceID(id string) bool {
 // the desk's own phone, from anywhere the relay reaches.
 const deskOnlyRole = "What a paired device may do is set on the machine Flockdeck runs on, not from a window reached through the relay"
 
+// rosterTimeout bounds asking the relay which devices the account has.
+const rosterTimeout = 15 * time.Second
+
+// deviceRoster is the ids of the account's paired devices as the relay lists
+// them now. A test replaces it.
+func (s *Server) deviceRoster(ctx context.Context) ([]string, error) {
+	if s.roster != nil {
+		return s.roster(ctx)
+	}
+	cl, err := s.remoteClient()
+	if err != nil {
+		return nil, err
+	}
+	r, err := cl.Devices(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(r.Devices))
+	for i, d := range r.Devices {
+		ids[i] = d.ID
+	}
+	return ids, nil
+}
+
 // setDeviceRole records what a paired device may do: ID is the device, Kind is
 // "full" or "viewer", and Watch lets a viewer also watch panes. It is the
 // desk's alone and takes effect at once: the device's open sockets are ended,
-// so it reconnects into the new role.
+// so it reconnects into the new role. Only a device the relay lists for this
+// account can be limited, so the table cannot be filled with ids that name
+// nothing; a limit is lifted whether or not the device is still listed.
 func (s *Server) setDeviceRole(c *controlClient, cmd command) {
 	if c.remote {
 		c.notify(deskOnlyRole, true)
@@ -358,8 +396,29 @@ func (s *Server) setDeviceRole(c *controlClient, cmd command) {
 	}
 	device := cmd.ID
 	access := store.DeviceAccess{Role: role, WatchPanes: role == store.RoleViewer && cmd.Watch}
+	go func() {
+		defer s.surviveFor(c, "setting what a device may do")
+		if role == store.RoleViewer {
+			ctx, cancel := context.WithTimeout(context.Background(), rosterTimeout)
+			ids, err := s.deviceRoster(ctx)
+			cancel()
+			if err != nil {
+				c.notify("Could not check that device with the relay, so it was not limited: "+err.Error(), true)
+				return
+			}
+			if !slices.Contains(ids, device) {
+				c.notify("That device is not paired any more", true)
+				return
+			}
+		}
+		s.applyDeviceRole(c, device, access)
+	}()
+}
+
+// applyDeviceRole makes the change setDeviceRole was asked for, in memory first.
+func (s *Server) applyDeviceRole(c *controlClient, device string, access store.DeviceAccess) {
 	changed := false
-	s.updatePrefsThen(c, func(p *store.Prefs) bool {
+	s.updateAccess(func(p *store.Prefs) bool {
 		old, had := p.Devices[device]
 		next, ok := p.WithAccess(device, access)
 		if !ok {
@@ -373,21 +432,74 @@ func (s *Server) setDeviceRole(c *controlClient, cmd command) {
 		*p = next
 		changed = true
 		return true
-	}, func() {
+	}, func(saveErr error) {
 		if !changed {
 			return
 		}
 		// After the new record is published, so that a socket opened between
 		// the two already sees it.
 		s.sockets.cut(device)
+		var text string
 		switch {
-		case role == store.RoleFull:
-			c.notify("That device is a full device again", false)
+		case access.EffectiveRole() == store.RoleFull:
+			text = "That device is a full device again"
 		case access.WatchPanes:
-			c.notify("That device can now only view, and may watch panes", false)
+			text = "That device can now only view, and may watch panes"
 		default:
-			c.notify("That device can now only view artifacts", false)
+			text = "That device can now only view artifacts"
+		}
+		if saveErr != nil {
+			c.notify(text+". This is applied now, but could not be saved, so it will be lost when Flockdeck restarts: "+saveErr.Error(), true)
+		} else {
+			c.notify(text, false)
 		}
 		s.remoteDevices(c)
 	})
+}
+
+// forgetRolesExcept drops the access record of every device missing from a
+// roster the relay returned. Like the verified records, it is meant for a
+// roster that was read successfully, and it does nothing for one that lists no
+// devices: an empty answer is what a failed or hostile response looks like,
+// and a restriction must not be lifted by it. A device unpaired from its own
+// page leaves a harmless stale record until the next roster that has other
+// devices in it.
+func (s *Server) forgetRolesExcept(devices []remote.Device) {
+	if len(devices) == 0 {
+		return
+	}
+	ids := make([]string, len(devices))
+	for i, d := range devices {
+		ids[i] = d.ID
+	}
+	s.updateAccess(func(p *store.Prefs) bool {
+		next, changed := p.WithoutDevicesNotIn(ids)
+		if changed {
+			*p = next
+		}
+		return changed
+	}, nil)
+}
+
+// forgetRole drops the access record of a device that was unpaired.
+func (s *Server) forgetRole(device string) {
+	s.updateAccess(func(p *store.Prefs) bool {
+		if _, ok := p.Devices[device]; !ok {
+			return false
+		}
+		next, _ := p.WithAccess(device, store.DeviceAccess{Role: store.RoleFull})
+		*p = next
+		return true
+	}, nil)
+}
+
+// mayPush reports whether a push notification may be sent to a device. A
+// notification names a pane, its project and a link to it, so it goes only
+// where that could be seen on screen: to a full device, and to a viewer the
+// desk let watch panes. A viewer that sees artifacts only, a device the desk has
+// no record of being full for while the record is unknown, and a push for no
+// named device get nothing.
+func (s *Server) mayPush(deviceID string) bool {
+	a := s.deviceAccess(deviceID)
+	return a.EffectiveRole() == store.RoleFull || a.WatchPanes
 }

@@ -348,6 +348,8 @@ func (s *Server) remoteDevices(c *controlClient) {
 		// A device unpaired from its own page is gone from the roster, and
 		// with it whatever was verified for it.
 		s.forgetVerifiedExcept(roster.Devices)
+		// And whatever the desk limited it to.
+		s.forgetRolesExcept(roster.Devices)
 		// This machine's own key is read from this machine, not from the
 		// roster: a relay that swapped the roster's copy would otherwise
 		// make the code shown here agree with the code on a device that
@@ -446,6 +448,7 @@ func (s *Server) remoteRevoke(c *controlClient, id string) {
 			c.notify("Could not unpair that device: "+err.Error(), true)
 		} else {
 			s.forgetVerified(id)
+			s.forgetRole(id)
 			c.notify("Device unpaired", false)
 		}
 		s.remoteDevices(c)

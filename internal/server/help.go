@@ -231,12 +231,6 @@ type prefsMsg struct {
 // was moved aside and kept, but the window came back on the defaults at the
 // next start, with nothing to say where the rest had gone.
 func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
-	s.updatePrefsThen(c, change, nil)
-}
-
-// updatePrefsThen is updatePrefs with something to do once the change is saved
-// and published, on the same goroutine.
-func (s *Server) updatePrefsThen(c *controlClient, change func(*store.Prefs) bool, then func()) {
 	s.do(func() {
 		p, err := store.ReadPrefs()
 		if err != nil {
@@ -246,10 +240,9 @@ func (s *Server) updatePrefsThen(c *controlClient, change func(*store.Prefs) boo
 			c.notify("Could not save the setting, because the settings saved before could not be read and saving now would write over them; it will not be kept after Flockdeck restarts: "+err.Error(), true)
 			return
 		}
-		// Read fresh, so it does not know that the record was lost at start-up.
-		if s.prefs.AccessUnknown() {
-			p.KeepAccessUnknown()
-		}
+		// What each device may do is the running program's to say, not the
+		// file's: the file may have been deleted or damaged since it was read.
+		p.AdoptAccess(s.prefs)
 		if !change(&p) {
 			return
 		}
@@ -265,8 +258,41 @@ func (s *Server) updatePrefsThen(c *controlClient, change func(*store.Prefs) boo
 		s.prefs = p
 		s.publishAccess()
 		s.broadcastPrefs()
+	})
+}
+
+// updateAccess changes what paired devices may do. Unlike updatePrefs it applies
+// the change in memory whether or not the file can be read or written: a
+// restriction the person has just asked for is in force from that moment, and
+// is never left unapplied because the disk said no. then is told how saving
+// went (nil for saved) once the change is in force; c may be nil, for a change
+// nobody asked for.
+func (s *Server) updateAccess(change func(*store.Prefs) bool, then func(saveErr error)) {
+	s.do(func() {
+		p, readErr := store.ReadPrefs()
+		if readErr != nil {
+			// Start from what is in force. The unreadable file is not written
+			// over, since it may still hold settings that can be recovered.
+			p = s.prefs
+		} else {
+			p.AdoptAccess(s.prefs)
+		}
+		if !change(&p) {
+			return
+		}
+		saveErr := readErr
+		if readErr == nil {
+			saveErr = store.SavePrefs(p)
+		}
+		if saveErr == nil {
+			s.prefs = p
+		} else {
+			s.prefs.AdoptAccess(p)
+		}
+		s.publishAccess()
+		s.broadcastPrefs()
 		if then != nil {
-			then()
+			then(saveErr)
 		}
 	})
 }

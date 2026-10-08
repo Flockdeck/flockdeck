@@ -140,3 +140,63 @@ func TestForWindowHidesTheRecord(t *testing.T) {
 		t.Error("ForWindow cleared the record on the original")
 	}
 }
+
+// Preferences read from the file again take the running program's roles before
+// they are changed, so a file that lost them does not widen anything.
+func TestAdoptAccessTakesTheRunningRolesAndTheirState(t *testing.T) {
+	var running Prefs
+	running, _ = running.WithAccess("a", DeviceAccess{Role: RoleViewer, WatchPanes: true})
+	var fresh Prefs // as ReadPrefs answers for a file that is not there
+	fresh.AdoptAccess(running)
+	if got := fresh.AccessFor("a"); got.EffectiveRole() != RoleViewer || !got.WatchPanes {
+		t.Errorf("after adopting, a = %+v", got)
+	}
+	fresh.Devices["a"] = DeviceAccess{Role: RoleFull}
+	if running.AccessFor("a").EffectiveRole() != RoleViewer {
+		t.Error("the adopted table is shared with the one it came from")
+	}
+
+	lost := Prefs{}
+	lost.KeepAccessUnknown()
+	var again Prefs
+	again.AdoptAccess(lost)
+	if !again.AccessUnknown() || again.AccessFor("x").EffectiveRole() != RoleViewer {
+		t.Error("the state of not knowing was not adopted")
+	}
+	// And the other way: roles that are known replace a read that was not.
+	damaged := Prefs{}
+	damaged.KeepAccessUnknown()
+	damaged.AdoptAccess(running)
+	if damaged.AccessUnknown() || damaged.AccessFor("zzz").EffectiveRole() != RoleFull {
+		t.Error("known roles did not replace a read that could not be trusted")
+	}
+}
+
+func TestWithoutDevicesNotIn(t *testing.T) {
+	var p Prefs
+	p, _ = p.WithAccess("a", DeviceAccess{Role: RoleViewer})
+	p, _ = p.WithAccess("b", DeviceAccess{Role: RoleViewer, WatchPanes: true})
+
+	for _, ids := range [][]string{nil, {}} {
+		if next, changed := p.WithoutDevicesNotIn(ids); changed || len(next.Devices) != 2 {
+			t.Errorf("an empty roster (%#v) dropped records: %+v", ids, next.Devices)
+		}
+	}
+	next, changed := p.WithoutDevicesNotIn([]string{"b", "c"})
+	if !changed || len(next.Devices) != 1 || next.AccessFor("a").EffectiveRole() != RoleFull || !next.AccessFor("b").WatchPanes {
+		t.Errorf("pruning to b and c left %+v", next.Devices)
+	}
+	if len(p.Devices) != 2 {
+		t.Error("pruning changed the preferences it was called on")
+	}
+	if next, changed := p.WithoutDevicesNotIn([]string{"a", "b"}); changed || len(next.Devices) != 2 {
+		t.Error("a roster with everything in it dropped something")
+	}
+	if next, changed := p.WithoutDevicesNotIn([]string{"z"}); !changed || next.Devices != nil {
+		t.Errorf("a roster with none of them left %+v", next.Devices)
+	}
+	p.KeepAccessUnknown()
+	if _, changed := p.WithoutDevicesNotIn([]string{"z"}); changed {
+		t.Error("records were pruned while the roles were not known")
+	}
+}

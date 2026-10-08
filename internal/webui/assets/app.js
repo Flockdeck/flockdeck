@@ -305,6 +305,11 @@
    *  setting API keys or an API agent's address. The server refuses each of
    *  them from here anyway. */
   let remoteWindow = false;
+  /** viewOnly is what the hello says this device may do when the desk limited
+   *  it: "watch" for a viewer allowed to watch panes, "artifacts" for one that
+   *  may not, and empty for a full device and for a window on the desk. The
+   *  server enforces it; the window only stops offering what would be refused. */
+  let viewOnly = "";
   /** Why the conflict radar cannot be turned on here -- git missing, or older
    *  than merge-tree needs -- as the hello says; empty when it can. */
   let radarUnavailable = "";
@@ -3974,6 +3979,7 @@
    *  bigger one, so a paste of more than that was lost without a word. */
   const INPUT_FRAME = 1 << 20;
   function sendBytes(p, bytes) {
+    if (viewOnly) return; // a viewer's keystrokes are refused by the server anyway
     if (bytes.length <= INPUT_FRAME) { ptySend(p, bytes, false); return; }
     for (let at = 0; at < bytes.length; at += INPUT_FRAME) ptySend(p, bytes.subarray(at, at + INPUT_FRAME), false);
   }
@@ -4218,6 +4224,10 @@
   }
 
   function connectPTY(p) {
+    // A viewer that may not watch panes is refused the terminal socket with a
+    // 403, which a page sees only as a socket that failed. Not opening it is
+    // what stops it being retried for ever.
+    if (viewOnly === "artifacts") return;
     if (p.ws) { try { p.ws.close(); } catch {} }
     clearTimeout(p.retryTimer);
 
@@ -4321,6 +4331,10 @@
       // goes away - which includes restarting it. Reconnect so a restarted
       // pane comes back to life instead of sitting there dead.
       if (!panes.has(p.id)) return;
+      // The server hangs up on a socket for a device the desk has since limited
+      // (1008, policy violation); it reconnects once the control socket has
+      // been told the new role, not by retrying this one.
+      if (viewOnly && ev.code === 1008) return;
       // PTY_REFUSED is the one close the server gives for a reason retrying
       // never fixes -- pty.go's end-to-end handshake failing, which it never
       // falls back from rather than silently downgrading to plaintext for
@@ -8479,12 +8493,28 @@
     update: openUpdate,
   };
 
+  /** applyViewOnly shows a banner when the desk has limited this device to
+   *  viewing, and hides the buttons that start or change things, which the
+   *  server would refuse. A viewer that may not watch panes is told there is
+   *  nothing to show: it is sent no panes. */
+  function applyViewOnly(mode) {
+    viewOnly = mode;
+    document.body.classList.toggle("view-only", !!mode);
+    const banner = $("view-only-banner");
+    if (!mode) { banner.hidden = true; return; }
+    banner.hidden = false;
+    banner.textContent = mode === "watch"
+      ? "View only. You can watch the panes but not type into them."
+      : "View only. There is nothing to show on this device yet.";
+  }
+
   /** applyHello takes the action table and the preferences, which arrive
    *  together and before the first state, because the palette and the
    *  first-run hints are drawn from them. */
   function applyHello(msg) {
     applyKeyTable(msg.keys || []);
     remoteWindow = !!msg.remote;
+    applyViewOnly(msg.role === "viewer" ? (msg.watchPanes ? "watch" : "artifacts") : "");
     radarUnavailable = msg.radarUnavailable || "";
     radarChecking = !!msg.radarChecking;
     hostE2EPublicKey = msg.e2ePublicKey || null;

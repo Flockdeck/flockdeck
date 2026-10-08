@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -153,6 +154,7 @@ func TestAllowCommandByRole(t *testing.T) {
 // and waits until the host has applied it.
 func setAccess(t *testing.T, srv *Server, device, role string, watch bool) {
 	t.Helper()
+	listDevice(srv, device)
 	desk := dialControl(t, srv)
 	sendCmd(t, desk, command{Cmd: "setDeviceRole", ID: device, Kind: role, Watch: watch})
 	want := store.DeviceAccess{Role: store.Role(role), WatchPanes: watch && role == "viewer"}
@@ -645,5 +647,41 @@ func TestADamagedRecordKeepsEveryDeviceAViewerThroughLaterSaves(t *testing.T) {
 	readUntil(t, desk, "prefs", &prefs)
 	if got := srv.deviceRole("a-device"); got != store.RoleViewer {
 		t.Errorf("after an unrelated preference was saved a device is %q, want it still a viewer", got)
+	}
+}
+
+// rosters are the devices a test server's relay lists, by server. setAccess
+// adds the device it limits, since only a listed device can be.
+var rosters sync.Map // *Server -> *testRoster
+
+type testRoster struct {
+	mu  sync.Mutex
+	ids []string
+	err error
+}
+
+func rosterOf(srv *Server) *testRoster {
+	r, loaded := rosters.LoadOrStore(srv, &testRoster{})
+	tr := r.(*testRoster)
+	if loaded {
+		return tr
+	}
+	srv.roster = func(context.Context) ([]string, error) {
+		tr.mu.Lock()
+		defer tr.mu.Unlock()
+		return slices.Clone(tr.ids), tr.err
+	}
+	return tr
+}
+
+// listDevice makes the test relay list a device.
+func listDevice(srv *Server, ids ...string) {
+	tr := rosterOf(srv)
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	for _, id := range ids {
+		if !slices.Contains(tr.ids, id) {
+			tr.ids = append(tr.ids, id)
+		}
 	}
 }

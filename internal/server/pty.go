@@ -160,9 +160,14 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// workspace goroutine anything more.
 	var markUse func()
 	if relay {
-		markUse = s.relayMarker(ctx, id)
-		markUse()
-		defer s.markRelayUseIfOpen(id)
+		// Only a device that may type is using the pane. One that only watches
+		// is not somebody answering it, and counting it would hold back the
+		// push that tells the owner the agent is waiting (see phoneLook).
+		if mayType() {
+			markUse = s.relayMarker(ctx, id)
+			markUse()
+			defer s.markRelayUseIfOpen(id)
+		}
 		// The device asking is named by this header, which the relay itself
 		// sets on the tunnel connection and strips any client-supplied copy
 		// of first -- so a browser cannot claim to be a device it is not,
@@ -269,7 +274,9 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 			} else {
 				subID, replay, start, _, out, subscribers = sess.SubscribeFrom(0, -1)
 			}
-			s.armRepaint(ctx, &repaint, id, viewer, sess, subscribers, fresh)
+			// A device that only watches never repaints the pane: that resizes it
+			// by a row, which it has no right to do to the desk's terminal.
+			s.armRepaint(ctx, &repaint, id, viewer, sess, subscribers, fresh && mayType())
 			var feed *sizeFeed
 			if tellSize {
 				feed = newSizeFeed(sess, start)
