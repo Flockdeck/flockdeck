@@ -45,7 +45,7 @@ func TestRemoteDevicesCarriesEachDevicesFingerprint(t *testing.T) {
 
 	var msg struct {
 		Devices []struct {
-			ID         string `json:"id"`
+			ID          string `json:"id"`
 			Fingerprint string `json:"fingerprint"`
 		} `json:"devices"`
 	}
