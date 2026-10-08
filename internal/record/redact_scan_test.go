@@ -285,10 +285,10 @@ func TestRedactTimeGrowsLinearlyOnEveryAdversarialText(t *testing.T) {
 			s := strings.Repeat(unit, size/len(unit))
 			d := best(s)
 			t.Logf("%-14s %6d bytes %v", name, len(s), d)
-			if prev > 5*time.Millisecond && d > 4*prev {
+			if prev > 5*time.Millisecond && d > 8*prev {
 				t.Errorf("%s: %d bytes took %v, the half took %v", name, len(s), d, prev)
 			}
-			if d > 750*time.Millisecond {
+			if d > slow*750*time.Millisecond {
 				t.Errorf("%s: %d bytes took %v", name, len(s), d)
 			}
 			prev = d

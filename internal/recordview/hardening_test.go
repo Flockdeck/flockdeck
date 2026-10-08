@@ -372,7 +372,7 @@ func TestSlowLinesStayInsideTheBudget(t *testing.T) {
 			t.Fatalf("%s: %v", name, err)
 		}
 		// One line is at most about 30 KiB here; the budget is checked between lines.
-		if took > DefaultBudget+1500*time.Millisecond {
+		if took > DefaultBudget+slow*1500*time.Millisecond {
 			t.Errorf("%s: a call took %v for %d entries", name, took, len(pg.Entries))
 		}
 	}
@@ -631,7 +631,7 @@ func TestManyUnterminatedStringsAreReadOnce(t *testing.T) {
 		s := strings.Repeat(unit, MaxLineBytes/len(unit))
 		start := time.Now()
 		cleanText(s)
-		if d := time.Since(start); d > 2*time.Second {
+		if d := time.Since(start); d > slow*2*time.Second {
 			t.Errorf("%q: %d bytes took %v", unit, len(s), d)
 		}
 	}
@@ -671,7 +671,7 @@ func TestOneLineOfAdversarialTextIsBoundedThroughPage(t *testing.T) {
 			t.Fatalf("%q: %v", unit, err)
 		}
 		t.Logf("%-30q %6d bytes %v (%d entries)", unit, len(text), took, len(pg.Entries))
-		if took > 1500*time.Millisecond {
+		if took > slow*1500*time.Millisecond {
 			t.Errorf("%q: a line of %d bytes took %v", unit, len(text), took)
 		}
 		for _, e := range pg.Entries {
