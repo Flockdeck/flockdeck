@@ -357,8 +357,8 @@ func TestRecordingsBadCursorsAndUnsupportedFilesAreUnavailable(t *testing.T) {
 		}
 	}
 
-	// Another version: listed (its first line is a start line) and not shown, and
-	// the refusal is the same as for anything else.
+	// Another version is not listed (see TestRecordingsListLeavesOutOtherFormatVersions),
+	// and an id that is somehow asked for gets the same refusal as anything else.
 	odd := strings.Replace(recStarted(), `"v":2`, `"v":3`, 1)
 	writeRec(t, "shop-0a1b2c3d", "20261003T101530Z-eeee0005.jsonl", odd)
 	items := itemsOf(t, ask2(t, conn, sess, map[string]any{"op": "list", "kind": "recordings"}))
