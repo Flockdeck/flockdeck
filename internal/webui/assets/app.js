@@ -3973,18 +3973,69 @@
     if (!p.handshake) return;
     const handshake = p.handshake;
     p.handshake = null;
+    // The desktop writes its sealed stream header right behind this response,
+    // so frames can arrive while handshake.finish is still deriving keys.
+    // ws.onmessage holds them in p.early (see there) until p.session exists.
+    p.finishing = true;
     let session;
     try {
       session = await handshake.finish(response);
     } catch (err) {
       console.error("e2e: the desktop's handshake response did not check out", err);
+      // A socket this pane has since moved on from has no state left here to
+      // clear: closing it must not clear the new socket's handshake or timer.
+      if (p.ws !== ws) { try { ws.close(); } catch { /* already closing */ } return; }
       closeForFailedHandshake(p, ws, "the desktop's handshake response did not check out");
       return;
     }
-    if (p.ws !== ws) return;
+    // finishing is cleared by anything that closed the socket while the keys
+    // were derived (an over-cap or plain frame): no session is installed on a
+    // socket already being closed.
+    if (p.ws !== ws || !p.finishing) return;
     p.session = session;
+    p.finishing = false;
+    // Opened in arrival order on the same chain as every later frame, and
+    // through the same session.open, so each is authenticated and the
+    // strict frame counter still rejects a reordered, dropped or replayed one.
+    const early = p.early;
+    p.early = [];
+    p.earlyBytes = 0;
+    for (const frame of early) receiveSealed(p, ws, session, frame);
     flushPending(p, ws);
   }
+
+  /** receiveSealed opens one sealed frame from the desktop on p.recvQueue
+   *  and hands what it holds to the terminal. A frame that does not open
+   *  ends the socket. */
+  function receiveSealed(p, ws, session, frame) {
+    p.recvQueue = p.recvQueue.then(() => (p.recvDead ? null : session.open(frame))).then((plain) => {
+      if (!plain || p.ws !== ws || !plain.length) return;
+      if (plain[0] === FRAME_TEXT) handlePtyHeader(p, new TextDecoder().decode(plain.subarray(1)));
+      else handlePtyBinary(p, plain.subarray(1));
+    }).catch((err) => {
+      // Tampered with, reordered, dropped, or a bug on either end --
+      // there is no way to tell which, and no way to carry on reading
+      // a stream whose next frame might be any of those.
+      console.error("e2e: a frame from the desktop did not check out", err);
+      // Nothing after the failed frame is opened or drawn.
+      if (p.ws === ws) p.recvDead = true;
+      try { ws.close(); } catch { /* already closing */ }
+    });
+  }
+
+  // The most sealed frames, and bytes, held while the handshake response is
+  // still being processed (a few milliseconds of key derivation). What the
+  // desktop can legitimately send right behind the response is the stream
+  // header and a replay of up to 512 KiB (session.replayBytes) in 64 KiB
+  // frames, which is about nine frames -- except that a size notice is a
+  // frame of its own and the replay is cut wherever one begins, and a pane
+  // keeps up to 512 size marks (session.maxSizeMarks). Worst case is about
+  // 2 x 512 + 10 frames, plus some live output, so 2048 frames; a peer sending
+  // more is not waiting for the handshake and is cut off. Bytes: the replay,
+  // the marks and the sealing overhead come to well under 1 MiB, and live
+  // output frames are up to 256 KiB, so 8 MiB leaves ample room.
+  const EARLY_MAX_FRAMES = 2048;
+  const EARLY_MAX_BYTES = 8 * 1024 * 1024;
 
   /** closeForFailedHandshake ends a socket whose handshake was expected to
    *  succeed -- hostE2EPublicKey said this desktop has a key on file -- but
@@ -3995,6 +4046,9 @@
   function closeForFailedHandshake(p, ws, reason) {
     clearTimeout(p.handshakeTimer);
     p.handshake = null;
+    p.finishing = false;
+    p.early = [];
+    p.earlyBytes = 0;
     console.error("e2e: " + reason + " -- closing rather than falling back to an unencrypted terminal");
     try { ws.close(); } catch { /* already closing */ }
   }
@@ -4063,6 +4117,10 @@
     // sealed, on a socket that is no longer this one.
     clearTimeout(p.handshakeTimer);
     p.handshake = null;
+    p.finishing = false;
+    p.early = [];
+    p.earlyBytes = 0;
+    p.recvDead = false;
     p.session = null;
     p.pending = [];
     p.sendQueue = Promise.resolve();
@@ -4096,6 +4154,9 @@
     };
     ws.onmessage = (ev) => {
       if (hostE2EPublicKey) {
+        // A socket this pane has moved on from has no say in the new one's
+        // handshake or session.
+        if (p.ws !== ws) return;
         // A desktop with a key on file gets nothing but this scheme from
         // here: the one handshake response, then only sealed frames, ever
         // again, on this socket. Anything else -- including a plain frame,
@@ -4109,19 +4170,25 @@
             closeForFailedHandshake(p, ws, "a non-binary frame arrived on an encrypted terminal socket");
             return;
           }
+          receiveSealed(p, ws, p.session, new Uint8Array(ev.data));
+          return;
+        }
+        if (p.finishing) {
+          // The response has been accepted for processing and the keys are
+          // being derived. A sealed frame now is the desktop's own, written
+          // right behind its response: hold it, bounded, and open it with
+          // the rest once the session exists. Nothing is read before then.
+          if (typeof ev.data === "string") {
+            closeForFailedHandshake(p, ws, "a non-binary frame arrived on an encrypted terminal socket");
+            return;
+          }
           const frame = new Uint8Array(ev.data);
-          const session = p.session;
-          p.recvQueue = p.recvQueue.then(() => session.open(frame)).then((plain) => {
-            if (p.ws !== ws || !plain.length) return;
-            if (plain[0] === FRAME_TEXT) handlePtyHeader(p, new TextDecoder().decode(plain.subarray(1)));
-            else handlePtyBinary(p, plain.subarray(1));
-          }).catch((err) => {
-            // Tampered with, reordered, dropped, or a bug on either end --
-            // there is no way to tell which, and no way to carry on reading
-            // a stream whose next frame might be any of those.
-            console.error("e2e: a frame from the desktop did not check out", err);
-            try { ws.close(); } catch { /* already closing */ }
-          });
+          if (p.early.length >= EARLY_MAX_FRAMES || p.earlyBytes + frame.length > EARLY_MAX_BYTES) {
+            closeForFailedHandshake(p, ws, "too many frames arrived before the handshake finished");
+            return;
+          }
+          p.early.push(frame);
+          p.earlyBytes += frame.length;
           return;
         }
         if (p.handshake && typeof ev.data !== "string") {

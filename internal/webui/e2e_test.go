@@ -182,3 +182,241 @@ await h.waitFor(() => closed);
 assert.ok(closed, "a handshake response that did not check out was not closed");
 `)
 }
+
+// e2eOpenedPty is the setup the next tests share: a pane's terminal socket
+// that has sent its hello, plus the desktop's side of the session it is
+// about to be given. seal builds a frame the way internal/server/pty.go's
+// e2eConn does, from the one session, so frames must be delivered in the
+// order they were sealed. The first response is built but not delivered.
+func openedPty(before string) string {
+	return e2eHostSetup + e2eGateSetup + before + e2eOpenedBody
+}
+
+// e2eGateSetup lets a test hold one handshake's key derivation open: newGate()
+// makes the next handshake started wait in finish() until gate.open() (or
+// gate.open(err), which makes it fail), so a test can deliver frames, or
+// reconnect, at exactly the moment the bug lived in. opens counts the calls
+// made to the gated session's open.
+const e2eGateSetup = `
+const realStart = E2E.startTerminalHandshake.bind(E2E);
+const gates = [];
+let opens = 0;
+const newGate = () => {
+  let release;
+  const g = { promise: new Promise((r) => { release = r; }), error: null, open(err) { g.error = err || null; release(); } };
+  gates.push(g);
+  return g;
+};
+E2E.startTerminalHandshake = async (...args) => {
+  const started = await realStart(...args);
+  const g = gates.shift();
+  if (!g) return started;
+  const realFinish = started.handshake.finish.bind(started.handshake);
+  started.handshake.finish = async (response) => {
+    await g.promise;
+    if (g.error) throw g.error;
+    const session = await realFinish(response);
+    const realOpen = session.open.bind(session);
+    session.open = (frame) => { opens++; return realOpen(frame); };
+    return session;
+  };
+  return started;
+};
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+`
+
+const e2eOpenedBody = `
+h.recv(fixture());
+const ws = h.sockets.find((s) => s.url.includes("/ws/pty?id=p1"));
+let closed = false;
+// A browser closes a socket asynchronously: onclose, which would drop the pane's
+// hold on it, fires some time after close() is called, not during it.
+ws.close = () => { closed = true; };
+ws.onopen();
+await h.waitFor(() => ws.sent.length > 0);
+const identity = await E2E.getIdentity();
+const { session: hostSession, response } = await E2E.respondHostHandshake(
+  hostPair.privateKey, hostPair.publicKey, identity.publicKey, ws.sent[0]);
+const seal = async (tag, plain) => {
+  const tagged = new Uint8Array(plain.length + 1);
+  tagged[0] = tag;
+  tagged.set(plain, 1);
+  return hostSession.seal(tagged);
+};
+const header = () => seal(1, new TextEncoder().encode(JSON.stringify({ epoch: 1, offset: 0, end: 0, resumed: false })));
+const output = (s) => seal(0, new TextEncoder().encode(s));
+const drawn = () => h.terms.flatMap((t) => t.written.map((w) => new TextDecoder().decode(w)));
+`
+
+var e2eOpenedPty = openedPty("")
+
+// TestSealedFramesRightBehindTheHandshakeResponseAreKept covers what the
+// desktop actually does: it writes the handshake response and then, with
+// nothing in between, the sealed stream header and the replay. The browser
+// is still awaiting the key derivation in handshake.finish when those
+// messages fire, so they used to find neither a handshake nor a session and
+// close the socket. They are now held and opened, in order, once the
+// session exists.
+func TestSealedFramesRightBehindTheHandshakeResponseAreKept(t *testing.T) {
+	runFrontEnd(t, e2eOpenedPty+`
+const frames = [await header(), await output("one "), await output("two "), await output("three")];
+// All in the same tick, as one burst off the wire is.
+ws.onmessage({ data: response.buffer });
+for (const f of frames) ws.onmessage({ data: f.buffer });
+await h.waitFor(() => drawn().join("") === "one two three");
+assert.ok(!closed, "a sealed frame behind the handshake response closed the socket");
+assert.deepStrictEqual(drawn(), ["one ", "two ", "three"], "frames were not drawn in the order they were sent");
+`)
+}
+
+// TestAHeldFrameThatFailsToOpenStillCloses and the tests after it pin down that holding frames during the handshake did not become a
+// way to skip authentication.
+func TestAHeldFrameThatFailsToOpenStillCloses(t *testing.T) {
+	runFrontEnd(t, e2eOpenedPty+`
+const good = await header();
+const bad = await output("tampered");
+const flipped = new Uint8Array(bad);
+flipped[flipped.length - 1] ^= 1;
+ws.onmessage({ data: response.buffer });
+ws.onmessage({ data: good.buffer });
+ws.onmessage({ data: flipped.buffer });
+await h.waitFor(() => closed);
+assert.ok(closed, "a held frame that did not open was not closed");
+assert.ok(!drawn().includes("tampered"), "a frame that failed to open was drawn");
+`)
+}
+
+func TestAHeldFrameDeliveredTwiceIsAReplayAndCloses(t *testing.T) {
+	runFrontEnd(t, e2eOpenedPty+`
+const f = await output("once");
+ws.onmessage({ data: response.buffer });
+ws.onmessage({ data: f.buffer });
+ws.onmessage({ data: f.buffer.slice(0) });
+await h.waitFor(() => closed);
+assert.ok(closed, "a replayed frame was not closed");
+assert.deepStrictEqual(drawn().filter((s) => s === "once").length, 1, "a replayed frame was drawn twice");
+`)
+}
+
+func TestAFrameBeforeTheHandshakeStartsIsRefused(t *testing.T) {
+	runFrontEnd(t, e2eHostSetup+`
+h.recv(fixture());
+const ws = h.sockets.find((s) => s.url.includes("/ws/pty?id=p1"));
+let closed = false;
+const realClose = ws.close.bind(ws);
+ws.close = () => { closed = true; realClose(); };
+ws.onopen();
+// No hello has gone out yet, so there is no handshake to answer.
+assert.strictEqual(ws.sent.length, 0);
+ws.onmessage({ data: new Uint8Array(40).buffer });
+await h.waitFor(() => closed);
+assert.ok(closed, "a frame before the handshake started was not refused");
+`)
+}
+
+func TestATextFrameDuringTheHandshakeIsRefused(t *testing.T) {
+	runFrontEnd(t, e2eOpenedPty+`
+ws.onmessage({ data: response.buffer });
+ws.onmessage({ data: JSON.stringify({ epoch: 1, offset: 0, end: 0, resumed: false }) });
+await h.waitFor(() => closed);
+assert.ok(closed, "a plain frame during the handshake was not refused");
+`)
+}
+
+func TestTooManyFramesHeldDuringTheHandshakeCloses(t *testing.T) {
+	runFrontEnd(t, e2eOpenedPty+`
+ws.onmessage({ data: response.buffer });
+// Nothing yields between these, so the handshake cannot have finished.
+for (let i = 0; i < 100000 && !closed; i++) ws.onmessage({ data: new Uint8Array(32).buffer });
+assert.ok(closed, "an unbounded number of frames were held during the handshake");
+`)
+}
+
+// reconnectPty is the JS the stale-socket tests share: the first socket
+// closes, the pane dials a second, and that one sends its hello.
+const e2eReconnect = `
+ws.onclose({ code: 1006 });
+await h.waitFor(() => h.sockets.filter((s) => s.url.includes("/ws/pty?id=p1")).length > 1);
+const ws2 = h.sockets.filter((s) => s.url.includes("/ws/pty?id=p1")).pop();
+ws2.onopen();
+await h.waitFor(() => ws2.sent.length > 0);
+const identity2 = await E2E.getIdentity();
+const second = await E2E.respondHostHandshake(hostPair.privateKey, hostPair.publicKey, identity2.publicKey, ws2.sent[0]);
+const seal2 = async (plain) => { const t = new Uint8Array(plain.length + 1); t.set(plain, 1); return second.session.seal(t); };
+`
+
+func TestTheByteCapOnHeldFramesClosesAndInstallsNoSession(t *testing.T) {
+	runFrontEnd(t, openedPty("const gate = newGate();")+`
+ws.onmessage({ data: response.buffer });
+// 32 x 256 KiB is exactly the cap; the 33rd is over it.
+for (let i = 0; i < 33 && !closed; i++) ws.onmessage({ data: new Uint8Array(256 << 10).buffer });
+assert.ok(closed, "frames past the byte cap were held");
+gate.open();
+await pause(300);
+// The derivation finishing after the close must not install a session and
+// flush the queued resize and focus notices onto the closing socket.
+assert.strictEqual(ws.sent.length, 1, "a session was installed on a socket already closed for the cap");
+`)
+}
+
+func TestATextFrameWhileTheHandshakeFinishesClosesAtOnce(t *testing.T) {
+	runFrontEnd(t, openedPty("const gate = newGate();")+`
+ws.onmessage({ data: response.buffer });
+ws.onmessage({ data: JSON.stringify({ epoch: 1, offset: 0, end: 0, resumed: false }) });
+// Still deriving keys: a text frame is refused there and then, not held and
+// refused when it fails to open.
+assert.ok(closed, "a text frame while the handshake finished was held rather than refused");
+gate.open();
+`)
+}
+
+func TestNothingIsOpenedAfterAFrameFailsToOpen(t *testing.T) {
+	runFrontEnd(t, openedPty("const gate = newGate();")+`
+const a = await output("a");
+const b = await output("b");
+const c = await output("c");
+const flipped = new Uint8Array(b);
+flipped[flipped.length - 1] ^= 1;
+ws.onmessage({ data: response.buffer });
+ws.onmessage({ data: a.buffer });
+ws.onmessage({ data: flipped.buffer });
+ws.onmessage({ data: c.buffer });
+gate.open();
+await h.waitFor(() => closed);
+await pause(300);
+assert.strictEqual(opens, 2, "frames after the one that failed were still opened");
+assert.ok(!drawn().includes("c"), "a frame after the one that failed was drawn");
+`)
+}
+
+func TestFramesHeldForAnAbandonedSocketAreNotCarriedToTheNext(t *testing.T) {
+	runFrontEnd(t, openedPty("const gate = newGate();")+`
+const stale = await output("stale");
+ws.onmessage({ data: response.buffer });
+ws.onmessage({ data: stale.buffer });
+`+e2eReconnect+`
+ws2.onmessage({ data: second.response.buffer });
+const fresh = await seal2(new TextEncoder().encode("fresh"));
+ws2.onmessage({ data: fresh.buffer });
+await h.waitFor(() => drawn().includes("fresh"));
+gate.open();
+await pause(200);
+assert.deepStrictEqual(drawn(), ["fresh"], "the abandoned socket's frames reached the new one");
+`)
+}
+
+func TestAnAbandonedSocketsFailedHandshakeLeavesTheNewOneAlone(t *testing.T) {
+	runFrontEnd(t, openedPty("const gate = newGate();")+`
+ws.onmessage({ data: response.buffer });
+`+e2eReconnect+`
+// The first socket's derivation fails only now, with the second one's
+// handshake under way.
+gate.open(new Error("derivation failed"));
+await pause(200);
+ws2.onmessage({ data: second.response.buffer });
+const fresh = await seal2(new TextEncoder().encode("fresh"));
+ws2.onmessage({ data: fresh.buffer });
+await h.waitFor(() => drawn().includes("fresh"));
+assert.deepStrictEqual(drawn(), ["fresh"]);
+`)
+}
