@@ -91,7 +91,7 @@ func FuzzPage(f *testing.F) {
 	f.Add([]byte(started()+"\n"+line(2, "user_prompt", map[string]any{"text": "a"})+"\n"), 3, 0)
 	f.Fuzz(func(t *testing.T, data []byte, cursor, max int) {
 		rd := bytes.NewReader(data)
-		p, err := pageOf(rd, int64(len(data)), cursor, max)
+		p, err := pageOf(bg, rd, int64(len(data)), cursor, max)
 		if err != nil {
 			return
 		}
@@ -111,8 +111,13 @@ func FuzzPage(f *testing.F) {
 			checkEntry(t, e)
 		}
 		// A returned cursor is always accepted.
-		if _, err := pageOf(rd, int64(len(data)), p.Next, max); err != nil {
+		if _, err := pageOf(bg, rd, int64(len(data)), p.Next, max); err != nil {
 			t.Fatalf("own cursor refused: %v", err)
 		}
 	})
+}
+
+// unsafeRune is what must not be in any string that leaves the package.
+func unsafeRune(r rune) bool {
+	return r < 0x20 && r != '\n' && r != '\t' || r >= 0x7f && r <= 0x9f || r == 0x2028 || r == 0x2029 || invisible(r)
 }

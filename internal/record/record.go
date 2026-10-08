@@ -11,6 +11,7 @@ package record
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
@@ -952,7 +953,15 @@ type Info struct {
 	Project      string `json:"project,omitempty"`
 	Conversation string `json:"conversation,omitempty"`
 	Agent        string `json:"agent,omitempty"`
+	// Version is the "v" of the first line, or 0 if the first line is not the
+	// start of a recording. A file with any other version than Version is
+	// listed but not one this build can read; see Supported.
+	Version int `json:"version,omitempty"`
 }
+
+// Supported reports whether the file's first line is the start of a recording
+// in the format this build reads.
+func (i Info) Supported() bool { return i.Version == Version && i.Started != "" }
 
 func listFolder(folder string) []Info {
 	ents, err := os.ReadDir(folder)
@@ -961,11 +970,14 @@ func listFolder(folder string) []Info {
 	}
 	var out []Info
 	for _, e := range ents {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), sessionFileExt) {
+		// Only a regular file is a recording. The entry's type comes from the
+		// directory itself and does not follow links, so a link, a named pipe, a
+		// device or a socket called *.jsonl is passed over without being opened.
+		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), sessionFileExt) {
 			continue
 		}
 		fi, err := e.Info()
-		if err != nil {
+		if err != nil || !fi.Mode().IsRegular() {
 			continue
 		}
 		out = append(out, Info{Path: filepath.Join(folder, e.Name()), Folder: filepath.Base(folder), Size: fi.Size(), Modified: fi.ModTime()})
@@ -996,6 +1008,12 @@ func Root(dir func() (string, error)) (string, error) {
 
 // List returns every recording on disk, newest first.
 func List(dir func() (string, error)) ([]Info, error) {
+	return ListContext(context.Background(), dir)
+}
+
+// ListContext is List that stops when ctx is done and returns its error. A file
+// that is not a regular file is not listed and is never opened.
+func ListContext(ctx context.Context, dir func() (string, error)) ([]Info, error) {
 	root, err := Root(dir)
 	if err != nil {
 		return nil, err
@@ -1013,9 +1031,12 @@ func List(dir func() (string, error)) ([]Info, error) {
 			continue
 		}
 		for _, in := range listFolder(filepath.Join(root, e.Name())) {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			var first Entry
 			if b, err := readFirstLine(in.Path); err == nil && json.Unmarshal(b, &first) == nil && first.Type == TypeStarted {
-				in.Started, in.Project, in.Conversation, in.Agent = first.Time, first.Project, first.Conversation, first.Agent
+				in.Started, in.Project, in.Conversation, in.Agent, in.Version = first.Time, first.Project, first.Conversation, first.Agent, first.V
 			}
 			out = append(out, in)
 		}
@@ -1024,12 +1045,30 @@ func List(dir func() (string, error)) ([]Info, error) {
 	return out, nil
 }
 
+// readFirstLine reads the first line of a regular file, up to 16 KiB. The name
+// is looked at with Lstat first and the open handle is checked against it, so a
+// name swapped for a link or a pipe after the listing is refused, and the open
+// does not wait for a writer.
 func readFirstLine(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	lst, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !lst.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	f, err := openNoBlock(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() || !os.SameFile(lst, fi) {
+		return nil, errors.New("not a regular file")
+	}
 	buf := make([]byte, 16<<10)
 	n, _ := f.Read(buf)
 	if i := strings.IndexByte(string(buf[:n]), '\n'); i >= 0 {

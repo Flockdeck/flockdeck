@@ -83,7 +83,33 @@ start waits for the approval notice in a window on this machine.
 These keep a phone in a pocket from doing any of them by accident. They are
 not a security boundary: a remote window can open a shell pane, and from a
 shell it can do anything you can at this machine, `flockdeck remote remove`
-included. A paired device has everything your user account here has.
+included. A paired device has everything your user account here has, unless
+you make it a viewer (next section).
+
+## Devices that can only view
+
+Every paired device is a **full** device until you say otherwise. In the dialog,
+the button beside a device's name steps it through three settings:
+
+- **Full access**: what a paired device has always had.
+- **View artifacts only**: for the artifacts viewer a later version adds. Until
+  then the device is shut out: it is sent no panes, tabs, projects, paths or
+  preferences, gets no push notifications, cannot open a terminal, and Flockdeck
+  refuses every command it sends.
+- **View artifacts and watch panes**: the same, and it also sees the panes, their
+  chat and their terminal output, and gets push notifications about waiting
+  agents. It still cannot type, resize or run anything.
+
+The setting is kept on this machine and checked here, on every command and every
+keystroke, not in the device's window, so a modified page does not get round it.
+Changing it ends the device's open windows at once; they reconnect with the new
+setting. A device the setting has never been changed for stays full, and so does
+a device paired later. If the file that holds the settings cannot be read, every
+device is treated as a viewer until you restart, so a damaged file does not
+quietly give anyone more.
+
+Only the desk changes it. A window reached through the relay, whatever its own
+setting, is refused.
 
 ## Turning it on
 
@@ -368,8 +394,26 @@ credential of its own, kept here in `remote.json` in the state directory and
 readable only by you.
 
 A relay could hand out the wrong key for a device. To check, press **Verify**
-beside a device in the dialog and compare the code with the one the device
-shows on its own **Devices** page; if they differ, unpair it.
+beside a device in the dialog. A device has two keys, one for the Flockdeck
+Remote app and one for the full interface it opens from this machine, and
+each has its own code. Compare each code with the one the device shows (the
+app's **Devices** page, or the **Remote** dialog in the full interface, which
+shows the code for the window you are in); if they differ, unpair it. When they
+match, press **Mark verified**. Only this machine can do that, never a window
+reached through the relay, and the mark is tied to the device, the key and this
+machine's own key: if any of them changes, the device shows as not verified
+again and the codes need comparing again. Unpairing a device removes its mark,
+whether you do it here or from the device's own page (the mark is dropped the
+next time the list is read). A device that pairs again has to be compared again.
+
+Verifying matters because the relay is what hands out the keys. It stops a relay
+that swapped a key, but not one that alters the page it serves (see below).
+
+The marks are kept in `remote_verified.json` in the state directory, protected
+like `remote.json`: readable and writable by you only. A program running as you
+can change that file, or ask the local server to add a mark, so a mark says
+what you compared and does not defend against software on this machine that
+already acts as you.
 
 What the relay cannot read, it cannot read as long as it only reads or stores
 what passes through it, unless it actively tampers with the client it serves:

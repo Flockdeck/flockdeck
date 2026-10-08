@@ -199,7 +199,7 @@ func TestHelperCommandsAreRefusedFromARelayWindow(t *testing.T) {
 		{Cmd: "helperStart", ID: "lens"}, {Cmd: "helperStop", ID: "lens"}, {Cmd: "helperOpen", ID: "lens"},
 		{Cmd: "helperUninstall", ID: "lens", Purge: true},
 	} {
-		c := &controlClient{out: make(chan []byte, 16), remote: true}
+		c := &controlClient{out: make(chan []byte, 16), remote: true, device: "dev-1"}
 		r.send(c, cmd)
 		got := notices(c, 200*time.Millisecond)
 		if len(got) != 1 || !strings.Contains(got[0], "not from a window reached through the relay") {

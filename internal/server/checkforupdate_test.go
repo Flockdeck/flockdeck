@@ -52,7 +52,7 @@ func TestCheckForUpdateIsRefusedThroughTheRelay(t *testing.T) {
 		return "", false
 	}
 
-	c := &controlClient{out: make(chan []byte, 8), remote: true}
+	c := &controlClient{out: make(chan []byte, 8), remote: true, device: "dev-1"}
 	srv.handleCommand(c, command{Cmd: "checkForUpdate"})
 
 	select {

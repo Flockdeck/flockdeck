@@ -39,7 +39,7 @@ func TestRemoteDevicesCarriesEachDevicesFingerprint(t *testing.T) {
 	}))
 	defer relay.Close()
 	srv, _ := newTestServer(t)
-	srv.SetRemote(&relayedRemote{client: remote.NewClient(&remote.Config{Relay: relay.URL, Token: "fdh_test"}, "v")})
+	srv.SetRemote(&relayedRemote{client: remote.NewClient(&remote.Config{Relay: relay.URL, Token: "fdh_test"}, "v"), hostKey: selfKey})
 	conn := dialControl(t, srv)
 	sendCmd(t, conn, command{Cmd: "remoteDevices"})
 

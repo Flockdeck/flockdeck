@@ -26,6 +26,7 @@ func TestClosingAPaneForgetsRelayUse(t *testing.T) {
 	defer cancel()
 	h := http.Header{}
 	h.Set("Origin", ts.URL)
+	h.Set("Flockdeck-Remote-Device", "dev-1")
 	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/pty?id="+id, &websocket.DialOptions{HTTPHeader: h})
 	if err != nil {
 		t.Fatalf("open the pane through the relay: %v", err)
@@ -53,6 +54,7 @@ func TestAPaneClosedUnderItsRelaySocketLeavesNoRelayUse(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		h := http.Header{}
 		h.Set("Origin", ts.URL)
+		h.Set("Flockdeck-Remote-Device", "dev-1")
 		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/pty?id="+id, &websocket.DialOptions{HTTPHeader: h})
 		if err != nil {
 			t.Fatalf("open the pane through the relay: %v", err)
@@ -124,6 +126,7 @@ func TestTypedInputAndFocusAfterAPaneClosedLeaveNoRelayUse(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		h := http.Header{}
 		h.Set("Origin", ts.URL)
+		h.Set("Flockdeck-Remote-Device", "dev-1")
 		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/pty?id="+id, &websocket.DialOptions{HTTPHeader: h})
 		if err != nil {
 			t.Fatalf("open the pane through the relay: %v", err)
@@ -191,6 +194,7 @@ func TestOpeningARelaySocketDoesNotWaitOnTheWorkspace(t *testing.T) {
 	defer cancel()
 	h := http.Header{}
 	h.Set("Origin", ts.URL)
+	h.Set("Flockdeck-Remote-Device", "dev-1")
 	began := time.Now()
 	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/pty?id="+id, &websocket.DialOptions{HTTPHeader: h})
 	if err != nil {

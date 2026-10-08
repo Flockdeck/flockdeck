@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"path/filepath"
 	"strconv"
 
@@ -62,15 +63,17 @@ func recordingsRoot() (*artifacts.Root, error) {
 }
 
 // scanRecordings is the recordings on disk this device may be told of, newest
-// first. A file that fails the root's checks is left out, so a list is not a way
-// to learn that a link or a secret-named file is there.
-func scanRecordings() []recItem {
+// first. A file that fails the root's checks, or recordview's (the name, links,
+// the format version), is left out, so a list is not a way to learn that a link
+// or a secret-named file is there, and nothing is offered that cannot be opened.
+// It stops when ctx is done and returns what it has.
+func scanRecordings(ctx context.Context) []recItem {
 	root, err := recordingsRoot()
 	if err != nil {
 		return nil
 	}
 	defer root.Close()
-	infos, err := record.List(store.Dir)
+	infos, err := record.ListContext(ctx, store.Dir)
 	if err != nil {
 		return nil
 	}
@@ -79,15 +82,23 @@ func scanRecordings() []recItem {
 		if i >= recScanMax || len(out) >= artifacts.MaxListItems {
 			break
 		}
-		// A first line that is not the start of a transcript is not one.
-		if in.Started == "" {
+		if ctx.Err() != nil {
+			break
+		}
+		// A first line that is not the start of a transcript, or one of a format
+		// this build does not read, is not offered.
+		if !in.Supported() {
 			continue
 		}
 		f, err := root.Open(in.Path)
 		if err != nil {
 			continue
 		}
+		rel := f.Rel
 		f.Close()
+		if _, err := recordview.Open(ctx, root.Path(), rel); err != nil {
+			continue
+		}
 		out = append(out, recItem{
 			path:    in.Path,
 			name:    recText(filepath.Base(in.Path)),
@@ -111,13 +122,13 @@ func recText(s string) string {
 // without a cursor takes a fresh look at the disk and keeps the result on the
 // socket; a request with one reads the next page of that look, so paging does
 // not rescan, and a cursor that this socket did not make is not served.
-func (s *Server) listRecordings(sock *artifactSock, req artifactRequest) map[string]any {
+func (s *Server) listRecordings(ctx context.Context, sock *artifactSock, req artifactRequest) map[string]any {
 	if req.Pane != "" {
 		return map[string]any{"op": "error", "code": artifactErrUnavailable}
 	}
 	start := 0
 	if req.After == "" {
-		sock.recs = scanRecordings()
+		sock.recs = scanRecordings(ctx)
 	} else {
 		n, ok := parseRecCursor(req.After, len(sock.recs))
 		if !ok {
@@ -166,7 +177,7 @@ func parseRecCursor(s string, held int) (int, bool) {
 // openRecording answers an open request for an id that this socket issued: one
 // page of the parsed transcript. Every failure is the same reply, and says
 // nothing about why.
-func (s *Server) openRecording(device, deviceName string, e artifacts.Entry, req artifactRequest) map[string]any {
+func (s *Server) openRecording(ctx context.Context, device, deviceName string, e artifacts.Entry, req artifactRequest) map[string]any {
 	fail := map[string]any{"op": "error", "code": artifactErrUnavailable}
 	if e.Kind != recordingsKind || req.Cursor < 0 || req.Cursor > recordview.MaxFileBytes {
 		return fail
@@ -185,11 +196,11 @@ func (s *Server) openRecording(device, deviceName string, e artifacts.Entry, req
 	rel, size := f.Rel, f.Size
 	f.Close()
 
-	rd, err := recordview.Open(e.Path)
+	rd, err := recordview.Open(ctx, root.Path(), rel)
 	if err != nil {
 		return fail
 	}
-	page, err := rd.Page(int(req.Cursor), req.Max)
+	page, err := rd.Page(ctx, int(req.Cursor), req.Max)
 	if err != nil {
 		return fail
 	}

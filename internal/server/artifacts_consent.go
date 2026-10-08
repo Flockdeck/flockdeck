@@ -125,10 +125,12 @@ type artifactsCapMsg struct {
 	V         int    `json:"v,omitempty"`
 }
 
-// prefsFor is the preferences as window c may be told them. A window reached
-// through the relay is not told the artifact settings: the device list is the
-// desk's, and the control socket is readable by the relay.
+// prefsFor is the preferences as window c may be told them: what ForWindow
+// leaves, and for a window reached through the relay also without the artifact
+// settings, since the device list is the desk's and the control socket is
+// readable by the relay.
 func prefsFor(c *controlClient, p store.Prefs) store.Prefs {
+	p = p.ForWindow()
 	if c.remote {
 		p.RemoteArtifacts = store.RemoteArtifactsPrefs{}
 	}
@@ -169,6 +171,10 @@ const (
 // what can be viewed. A device that could widen it could give itself, or any
 // other, a way to read this machine.
 const deskOnlyArtifacts = "What paired devices may view is changed on the machine Flockdeck runs on, not from a window reached through the relay"
+
+// pageOnlyArtifacts is why a connection that is not a Flockdeck window may not
+// switch viewing on or allow a device.
+const pageOnlyArtifacts = "Remote artifacts can only be switched on, or a device allowed, from a Flockdeck window on this machine"
 
 // refusedArtifactsThroughRelay refuses a window reached through the relay and
 // reports whether it did. The attempt is recorded and shown at the desk: a
@@ -216,6 +222,13 @@ func (s *Server) setRemoteArtifacts(c *controlClient, cmd command) {
 		c.notify("Remote artifacts: say on or off", true)
 		return
 	}
+	// Widening what can be viewed is accepted only from a window that opened as
+	// a page, which is the one place the person is asked to confirm. A script
+	// or another program on this machine can still switch things off.
+	if on && !c.page {
+		c.notify(pageOnlyArtifacts, true)
+		return
+	}
 	switch {
 	case cmd.Text != "" && cmd.ID == "":
 		s.setArtifactKind(c, cmd.Text, on, cmd.Confirmed)
@@ -247,7 +260,11 @@ func (s *Server) setArtifactKind(c *controlClient, kind string, on, confirmed bo
 		c.notify(artifactAckText(kind), true)
 		return
 	}
-	s.updatePrefs(c, func(p *store.Prefs) bool {
+	event := "kind-off"
+	if on {
+		event = "kind-on"
+	}
+	s.updatePrefsThen(c, func(p *store.Prefs) bool {
 		changed := false
 		if on && !p.RemoteArtifacts.Acked(kind, artifactAckVersion) {
 			p.RemoteArtifacts.SetAck(kind, store.ArtifactAck{Version: artifactAckVersion, At: time.Now().UTC()})
@@ -256,22 +273,37 @@ func (s *Server) setArtifactKind(c *controlClient, kind string, on, confirmed bo
 		if p.RemoteArtifacts.SetKind(kind, on) {
 			changed = true
 		}
-		if changed && !on {
-			// Cut what is open now rather than at the next frame.
+		return changed
+	}, func(res prefsResult) {
+		// Sockets are cut after the file says off, not before: a device that
+		// reconnected in between would read the old file and be let in. If the
+		// file could not be written they are cut anyway, since the person asked
+		// for it to stop, and the notice says the setting did not stick.
+		if !on {
 			s.artifacts.closeAll(artifactReasonDisabled)
 		}
-		return changed
+		if res == prefsFailed {
+			s.auditSaveFailed(event, "desk", kind)
+			return
+		}
+		if res == prefsUnchanged {
+			c.notify("Nothing changed: remote "+kind+" was already "+map[bool]string{true: "on", false: "off"}[on], false)
+			return
+		}
+		_ = s.artifacts.audit.write(auditEvent{Event: event, Device: "desk", Kind: kind})
+		if on {
+			c.notify("Paired devices on the allowlist can now view "+kind+". Allow a device once you have verified its key", false)
+		} else {
+			c.notify("Paired devices can no longer view "+kind, false)
+		}
 	})
-	event := "kind-off"
-	if on {
-		event = "kind-on"
-	}
-	_ = s.artifacts.audit.write(auditEvent{Event: event, Device: "desk", Kind: kind})
-	if on {
-		c.notify("Paired devices on the allowlist can now view "+kind+". Allow a device once you have verified its key", false)
-	} else {
-		c.notify("Paired devices can no longer view "+kind, false)
-	}
+}
+
+// auditSaveFailed records that a change the desk asked for was not made, so
+// the log never shows a setting as changed when the file says otherwise. The
+// window has already been told why by the preferences code.
+func (s *Server) auditSaveFailed(event, device, kind string) {
+	_ = s.artifacts.audit.write(auditEvent{Event: event + "-failed", Device: device, Kind: kind, Reason: "preferences not saved"})
 }
 
 // allowArtifactDevice puts a device on the allowlist, if its key is verified.
@@ -289,9 +321,18 @@ func (s *Server) allowArtifactDevice(c *controlClient, device string) {
 			c.notify("That device's key has not been verified here. Compare its code with the one on the device, mark it verified, then allow it", true)
 			return
 		}
-		s.updatePrefs(c, func(p *store.Prefs) bool { return p.RemoteArtifacts.AddDevice(device) })
-		_ = s.artifacts.audit.write(auditEvent{Event: "device-allow", Device: device})
-		c.notify("That device may now use remote artifacts, for the kinds that are switched on", false)
+		s.updatePrefsThen(c, func(p *store.Prefs) bool { return p.RemoteArtifacts.AddDevice(device) }, func(res prefsResult) {
+			if res == prefsFailed {
+				s.auditSaveFailed("device-allow", device, "")
+				return
+			}
+			if res == prefsUnchanged {
+				c.notify("That device was already allowed", false)
+				return
+			}
+			_ = s.artifacts.audit.write(auditEvent{Event: "device-allow", Device: device})
+			c.notify("That device may now use remote artifacts, for the kinds that are switched on", false)
+		})
 	}()
 }
 
@@ -318,10 +359,21 @@ func (s *Server) revokeArtifactDevice(c *controlClient, cmd command) {
 		c.notify("Remote artifacts: name a device", true)
 		return
 	}
-	s.artifacts.closeDevice(cmd.ID, artifactReasonDevice)
-	s.updatePrefs(c, func(p *store.Prefs) bool { return p.RemoteArtifacts.RemoveDevice(cmd.ID) })
-	_ = s.artifacts.audit.write(auditEvent{Event: "device-revoke", Device: cmd.ID})
-	c.notify("That device can no longer view artifacts", false)
+	s.updatePrefsThen(c, func(p *store.Prefs) bool { return p.RemoteArtifacts.RemoveDevice(cmd.ID) }, func(res prefsResult) {
+		// After the file no longer lists the device, so that it cannot connect
+		// again on the old list. Cut even if saving failed: the person asked.
+		s.artifacts.closeDevice(cmd.ID, artifactReasonDevice)
+		if res == prefsFailed {
+			s.auditSaveFailed("device-revoke", cmd.ID, "")
+			return
+		}
+		if res == prefsUnchanged {
+			c.notify("That device was not on the allowlist", false)
+			return
+		}
+		_ = s.artifacts.audit.write(auditEvent{Event: "device-revoke", Device: cmd.ID})
+		c.notify("That device can no longer view artifacts", false)
+	})
 }
 
 // stopRemoteArtifacts closes every artifacts socket now and forgets every id
@@ -341,16 +393,33 @@ func (s *Server) stopRemoteArtifacts(c *controlClient, cmd command) {
 // and closes the sockets. Like /remote/reload it acts, so it wants a POST and
 // the token in the URL, which no remote window has.
 func (s *Server) handleArtifactsStop(w http.ResponseWriter, r *http.Request) {
+	if fromRemote(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	if !requirePost(w, r) || !s.requireURLToken(w, r) {
 		return
 	}
 	s.artifacts.closeAll(artifactReasonDisabled)
+	applied := make(chan struct{})
 	s.do(func() {
+		defer close(applied)
 		if p, err := store.ReadPrefs(); err == nil {
+			// What each device may do is this program's to say, not the file's,
+			// as in updatePrefs: take it from memory and publish it.
+			p.AdoptAccess(s.prefs)
 			s.prefs = p
+			s.publishAccess()
 			s.broadcastPrefs()
 		}
 	})
+	// Answered once the running copy has been updated, so that the command
+	// line, and a test, can rely on it having been.
+	select {
+	case <-applied:
+	case <-s.closed:
+	case <-r.Context().Done():
+	}
 	_ = s.artifacts.audit.write(auditEvent{Event: "off", Device: "desk"})
 	w.WriteHeader(http.StatusNoContent)
 }

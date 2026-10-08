@@ -245,7 +245,7 @@ func runUpdateIndex(dir string) error {
 			return err
 		}
 	}
-	cmd := exec.Command("git", append(append([]string{}, ownConfig...), args...)...)
+	cmd := exec.Command("git", append(configFor(args), args...)...)
 	cmd.Dir = dir
 	sysproc.NoWindow(cmd)
 	cmd.Env = gitEnv(nil)

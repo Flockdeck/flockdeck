@@ -305,6 +305,11 @@
    *  setting API keys or an API agent's address. The server refuses each of
    *  them from here anyway. */
   let remoteWindow = false;
+  /** viewOnly is what the hello says this device may do when the desk limited
+   *  it: "watch" for a viewer allowed to watch panes, "artifacts" for one that
+   *  may not, and empty for a full device and for a window on the desk. The
+   *  server enforces it; the window only stops offering what would be refused. */
+  let viewOnly = "";
   /** Why the conflict radar cannot be turned on here -- git missing, or older
    *  than merge-tree needs -- as the hello says; empty when it can. */
   let radarUnavailable = "";
@@ -514,6 +519,7 @@
       else if (msg.type === "batonError") batonFailed(msg);
       else if (msg.type === "routes") fanoutRoutes(msg);
       else if (msg.type === "diff") showDiff(msg);
+      else if (msg.type === "gitWarn") gitWarned(msg);
       else if (msg.type === "detached") {
         // The agents keep running; this window is no longer needed.
         detaching = true;
@@ -815,6 +821,79 @@
    *  opened to compare against that device's own screen. */
   const remoteFingerprintOpen = new Set();
 
+  /** localDeskCode is this window's own code for its own desk-origin key
+   *  against the desktop's (internal/e2e Fingerprint), computed here from
+   *  the keys this page holds. "" outside a window reached through the
+   *  relay, or until both keys are known. See refreshLocalDeskCode. */
+  let localDeskCode = "";
+
+  /** remoteDeviceCodes lists the codes a device row can show: one for each
+   *  of the device's two keys the roster has a code for. */
+  function remoteDeviceCodes(d) {
+    const out = [];
+    if (d.fingerprint) out.push({ origin: "usual", label: "Remote app", code: d.fingerprint, state: d.verify || "" });
+    if (d.deskFingerprint) out.push({ origin: "desk", label: "This desktop's page", code: d.deskFingerprint, state: d.deskVerify || "" });
+    return out;
+  }
+
+  /** remoteVerifyText says in words what a verify state is. */
+  function remoteVerifyText(state) {
+    if (state === "verified") return "Verified on the desktop";
+    if (state === "changed") return "The key changed since it was verified. Compare the code again";
+    return "Not verified";
+  }
+
+  /** remoteCodeBlock is one key's code, whether it is verified, and (on the
+   *  machine itself, never in a window reached through the relay) the
+   *  buttons to say a person compared it. The code sent with the command is
+   *  the one on screen: the desktop checks it against the key as it is now,
+   *  so a key that changed since the code was drawn is not verified by
+   *  mistake. */
+  function remoteCodeBlock(d, k) {
+    const box = el("div", "remote-code");
+    box.dataset.origin = k.origin;
+    box.append(el("div", "wt-meta", k.label + " · " + remoteVerifyText(k.state)));
+    box.append(el("p", "remote-fingerprint", k.code));
+    if (remoteWindow) return box;
+    const name = d.name || "this device";
+    if (k.state === "verified") {
+      const drop = el("button", "chip", "Remove verification");
+      drop.onclick = () => send({ cmd: "remoteUnverify", id: d.id, kind: k.origin });
+      box.append(drop);
+    } else {
+      const mark = el("button", "chip primary", "Mark verified");
+      mark.setAttribute("aria-label", "Mark the " + k.label + " code verified for " + name);
+      mark.onclick = () => {
+        if (!window.confirm("Mark " + name + " verified? Only do this if the code above is exactly what " + name + " shows.")) return;
+        send({ cmd: "remoteVerify", id: d.id, kind: k.origin, text: k.code });
+      };
+      box.append(mark);
+    }
+    return box;
+  }
+
+  /** refreshLocalDeskCode computes localDeskCode from this window's
+   *  identity and the desktop's key the hello gave it, and redraws the
+   *  dialog if it is open and the code moved. Anything that stops it (no
+   *  WebCrypto, a key that is not a key) leaves the code empty, which just
+   *  hides it. */
+  async function refreshLocalDeskCode() {
+    let code = "";
+    try {
+      if (remoteWindow && hostE2EPublicKey && window.FlockdeckE2E) {
+        const identity = await FlockdeckE2E.getIdentity();
+        if (identity) {
+          code = await FlockdeckE2E.fingerprint(identity.publicKeyRaw, FlockdeckE2E.decodePublicKeyRaw(hostE2EPublicKey));
+        }
+      }
+    } catch {
+      code = "";
+    }
+    if (code === localDeskCode) return;
+    localDeskCode = code;
+    if (remoteShown()) keepFocus(renderRemote);
+  }
+
   /** How often the roster is asked for again while a pairing link is on
    *  screen, waiting on a scan: nothing else here asks again on its own, so
    *  a device paired while the link sat there showed up only once the
@@ -1088,10 +1167,28 @@
     // moment it was handed out would make the handshake think it had, undetected
     // (internal/e2e's own doc says so); comparing each device's code against
     // what it shows on its own Devices page is the one check that catches it.
-    if (devices.some((d) => d.fingerprint)) {
+    if (devices.some((d) => remoteDeviceCodes(d).length)) {
       dev.append(el("p", "fan-hint",
-        "Press Verify and compare the code with what a device shows on its own Devices page. " +
-        "If they differ, unpair it: the relay may have handed it the wrong key."));
+        remoteWindow
+          ? "Press Verify to see the codes. A device is marked verified on the machine Flockdeck runs on, not from here."
+          : "Press Verify and compare the code with what the device shows (its own Devices page, or this page's code in a window it opened from here). " +
+            "If they differ, unpair it: the relay may have handed it the wrong key. " +
+            "Press Mark verified once they match."));
+    }
+    // A window reached through the relay can say what it sees for itself:
+    // its own key and the desktop's, as this page got them, hashed. The
+    // desktop computes the same code from the keys it holds, so the two
+    // agree unless a key was swapped on the way.
+    if (remoteWindow && localDeskCode) {
+      const mineDev = devices.find((d) => roster.current && d.id === roster.current);
+      const mineBox = el("div", "remote-this-window");
+      mineBox.append(el("p", "fan-hint",
+        "This window's code. Compare it with the code Flockdeck shows for this device on the machine it runs on, " +
+        "and mark the device verified there. If they differ, unpair this device."));
+      mineBox.append(el("p", "remote-fingerprint", localDeskCode));
+      const st = mineDev ? mineDev.deskVerify : "";
+      mineBox.append(el("p", "wt-meta", remoteVerifyText(st)));
+      dev.append(mineBox);
     }
     devices.forEach((d) => {
       const item = el("div", "wt-row");
@@ -1104,12 +1201,13 @@
       main.append(title);
       main.append(el("div", "wt-meta", "paired " + remoteAgo(d.created) + " · last seen " + remoteAgo(d.lastSeen)));
       const open = remoteFingerprintOpen.has(d.id);
-      if (d.fingerprint && open) {
-        main.append(el("p", "remote-fingerprint", d.fingerprint));
+      const codes = remoteDeviceCodes(d);
+      if (codes.length && open) {
+        codes.forEach((k) => main.append(remoteCodeBlock(d, k)));
       }
       item.append(main);
       const actions = el("div", "wt-actions");
-      if (d.fingerprint) {
+      if (codes.length) {
         const verify = el("button", "chip", open ? "Hide code" : "Verify");
         verify.setAttribute("aria-expanded", open ? "true" : "false");
         verify.setAttribute("aria-label", (open ? "Hide the code for " : "Verify the code for ") + (d.name || "this device"));
@@ -1129,6 +1227,23 @@
         if (!window.confirm(q)) return;
         send({ cmd: "remoteRevoke", id: d.id });
       };
+      // What this device may do. Only the desk sets it, so a window reached
+      // through the relay is not offered it (the server refuses it anyway).
+      if (!remoteWindow) {
+        const levels = [
+          { role: "full", watch: false, label: "Full access" },
+          { role: "viewer", watch: false, label: "View artifacts only" },
+          { role: "viewer", watch: true, label: "View artifacts and watch panes" },
+        ];
+        const at = Math.max(0, levels.findIndex((l) => l.role === (d.role || "full") && l.watch === !!d.watchPanes));
+        const access = el("button", "chip", levels[at].label);
+        access.setAttribute("aria-label", "Access for " + (d.name || "this device") + ": " + levels[at].label + ". Press to change.");
+        access.onclick = () => {
+          const next = levels[(at + 1) % levels.length];
+          send({ cmd: "setDeviceRole", id: d.id, kind: next.role, watch: next.watch });
+        };
+        actions.append(access);
+      }
       actions.append(rename, drop);
       item.append(actions);
       dev.append(item);
@@ -3865,6 +3980,7 @@
    *  bigger one, so a paste of more than that was lost without a word. */
   const INPUT_FRAME = 1 << 20;
   function sendBytes(p, bytes) {
+    if (viewOnly) return; // a viewer's keystrokes are refused by the server anyway
     if (bytes.length <= INPUT_FRAME) { ptySend(p, bytes, false); return; }
     for (let at = 0; at < bytes.length; at += INPUT_FRAME) ptySend(p, bytes.subarray(at, at + INPUT_FRAME), false);
   }
@@ -4109,6 +4225,10 @@
   }
 
   function connectPTY(p) {
+    // A viewer that may not watch panes is refused the terminal socket with a
+    // 403, which a page sees only as a socket that failed. Not opening it is
+    // what stops it being retried for ever.
+    if (viewOnly === "artifacts") return;
     if (p.ws) { try { p.ws.close(); } catch {} }
     clearTimeout(p.retryTimer);
 
@@ -4212,6 +4332,10 @@
       // goes away - which includes restarting it. Reconnect so a restarted
       // pane comes back to life instead of sitting there dead.
       if (!panes.has(p.id)) return;
+      // The server hangs up on a socket for a device the desk has since limited
+      // (1008, policy violation); it reconnects once the control socket has
+      // been told the new role, not by retrying this one.
+      if (viewOnly && ev.code === 1008) return;
       // PTY_REFUSED is the one close the server gives for a reason retrying
       // never fixes -- pty.go's end-to-end handshake failing, which it never
       // falls back from rather than silently downgrading to plaintext for
@@ -8372,12 +8496,28 @@
     update: openUpdate,
   };
 
+  /** applyViewOnly shows a banner when the desk has limited this device to
+   *  viewing, and hides the buttons that start or change things, which the
+   *  server would refuse. A viewer that may not watch panes is told there is
+   *  nothing to show: it is sent no panes. */
+  function applyViewOnly(mode) {
+    viewOnly = mode;
+    document.body.classList.toggle("view-only", !!mode);
+    const banner = $("view-only-banner");
+    if (!mode) { banner.hidden = true; return; }
+    banner.hidden = false;
+    banner.textContent = mode === "watch"
+      ? "View only. You can watch the panes but not type into them."
+      : "View only. There is nothing to show on this device yet.";
+  }
+
   /** applyHello takes the action table and the preferences, which arrive
    *  together and before the first state, because the palette and the
    *  first-run hints are drawn from them. */
   function applyHello(msg) {
     applyKeyTable(msg.keys || []);
     remoteWindow = !!msg.remote;
+    applyViewOnly(msg.role === "viewer" ? (msg.watchPanes ? "watch" : "artifacts") : "");
     radarUnavailable = msg.radarUnavailable || "";
     radarChecking = !!msg.radarChecking;
     hostE2EPublicKey = msg.e2ePublicKey || null;
@@ -8392,6 +8532,7 @@
     // A window on the desktop itself has no relay to register with, and
     // hostE2EPublicKey is never set for one anyway (help.go's sendHello).
     if (remoteWindow && window.FlockdeckE2E) FlockdeckE2E.ensureRegistered();
+    refreshLocalDeskCode();
     // The hello is what the server holds, after a drop that may have taken
     // changes sent from here with it, so nothing sent before it is waited on.
     pendingPrefs.clear();
@@ -9494,6 +9635,7 @@
         // sent the commit it always was.
         const stamps = [...seen.stamps].filter(([, s]) => s);
         if (stamps.length) cmd.stamps = Object.fromEntries(stamps);
+        pendingCommit = cmd;
         send(cmd);
         commitPending = true;
         commitPendingCwd = m.cwd;
@@ -9551,6 +9693,51 @@
    *  commit is a notice saying whether it was made. */
   let commitPending = false;
   let commitPendingCwd = "";
+
+  /** The commit a gitWarn is asking about, so that answering it can send it again. */
+  let pendingCommit = null;
+
+  /** gitWarned is the server saying that a commit, push, pull or fetch would run
+   *  a program the repository names that nobody has accepted: its message lists
+   *  what runs and where it is set. Continuing sends the same command again with
+   *  the answer, which holds only if the repository still has what was listed. A
+   *  second question asks whether to stop asking about this repository. */
+  function gitWarned(msg) {
+    // Nothing was committed, so the message typed is still wanted.
+    commitPending = false;
+    const again = (accept) => {
+      const cmd = msg.resend === "commit" && pendingCommit
+        ? { ...pendingCommit }
+        : { cmd: msg.resend, path: msg.path };
+      cmd.gitAccept = accept;
+      cmd.gitSeen = msg.seen;
+      if (msg.resend === "commit") { commitPending = true; commitPendingCwd = msg.cwd; }
+      changesBusy = true;
+      send(cmd);
+    };
+    // One element for what is wrong, and one per program, each set as text: what
+    // a repository's configuration says is shown, never read as markup, and a
+    // value cannot start another line of the list.
+    const body = el("div");
+    body.append(el("p", "", msg.intro || msg.text));
+    const list = el("ul");
+    for (const line of msg.items || []) list.append(el("li", "", line));
+    body.append(list);
+    confirmDialog({
+      title: "This repository runs programs you have not accepted",
+      body,
+      action: "Continue",
+      native: msg.text + "\n\nContinue?",
+    }, () => {
+      confirmDialog({
+        title: "Remember this for the repository?",
+        body: "Flockdeck will ask again only if what runs changes.",
+        action: "Remember",
+        cancel: "Just this time",
+        native: "Remember this for the repository? Flockdeck will ask again only if what runs changes.\n\nOK remembers it, Cancel continues just this time.",
+      }, () => again("remember"), () => again("once"));
+    });
+  }
 
   function commitAnswered(isError) {
     if (!commitPending) return;
