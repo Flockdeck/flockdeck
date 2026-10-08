@@ -235,7 +235,7 @@ func (s *Server) notifyRelay(ctx context.Context, n remote.Notification) error {
 	if err != nil {
 		return err
 	}
-	_, err = cl.Push(ctx, n)
+	_, err = cl.PushTo(ctx, n, s.mayPush)
 	return err
 }
 

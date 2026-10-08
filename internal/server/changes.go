@@ -346,7 +346,7 @@ func notUTF8Name(dir, file string) bool {
 // is refused when what it would record is no longer what was listed, and the
 // answer that follows is the tree as it is now. A window that sends no list
 // commits everything, as the button always did.
-func (s *Server) commitChanges(c *controlClient, path, message string, push bool, listed []string, stamps map[string]string, unlisted int) {
+func (s *Server) commitChanges(c *controlClient, path, message string, push bool, listed []string, stamps map[string]string, unlisted int, ans gitAnswer) {
 	dir := s.reviewDir(path)
 	// The listing a commit ends on counts from when the commit was asked for,
 	// so a review opened while it ran is not drawn over when it finishes.
@@ -364,12 +364,34 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 			}
 		}()
 		dir = repoRoot(dir)
-		commit := func() error { return gitx.CommitAll(dir, message) }
+		action := "commit"
+		if push {
+			action = "commit and push"
+		}
+		if !s.gitProgramsAccepted(c, dir, path, action, "commit", ans.accept, ans.seen) {
+			return
+		}
+		// Looked at again once the files are staged, just before git commit starts
+		// its hooks: staging a large repository takes time, and what was written
+		// during it was not in the first look.
+		guard := func() error {
+			if s.gitProgramsAccepted(c, dir, path, action, "commit", ans.accept, ans.seen) {
+				return nil
+			}
+			return errAskedAgain
+		}
+		commit := func() error { return gitx.CommitAllGuarded(dir, message, guard) }
 		if listed != nil {
 			r := gitx.Reviewed{Files: listed, Stamps: stamps, Unlisted: unlisted}
-			commit = func() error { return commitReviewed(dir, message, r) }
+			commit = func() error { return commitReviewed(dir, message, r, guard) }
 		}
 		if err := commit(); err != nil {
+			if errors.Is(err, errAskedAgain) {
+				// The window has the question. The files are staged and nothing is
+				// committed.
+				c.notify("Nothing was committed: the repository's git settings or hooks changed while your files were being staged. They are staged. Answer the question to go on.", true)
+				return
+			}
 			c.notify(err.Error(), true)
 			reason := ""
 			if gitx.IsMoved(err) {
@@ -381,6 +403,12 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 		}
 		c.notify("Committed in "+shortName(dir), false)
 		if push {
+			// A hook the commit ran may have changed what a push would run.
+			if !s.gitProgramsAccepted(c, dir, path, "push", "gitPush", ans.accept, ans.seen) {
+				s.sendChanges(c, dir, asked, "committed")
+				answered = true
+				return
+			}
 			if out, err := gitx.Push(dir); err != nil {
 				c.notify(err.Error(), true)
 			} else {
@@ -400,14 +428,22 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 
 // commitReviewed is gitx.CommitReviewed. It is a variable so a test can have a
 // commit go wrong in a way git itself never does.
-var commitReviewed = gitx.CommitReviewed
+var commitReviewed = gitx.CommitReviewedGuarded
+
+// errAskedAgain is a commit stopped by its second look, which has put a question
+// to the window.
+var errAskedAgain = errors.New("the repository's git settings or hooks changed while staging")
 
 // runRemote performs a push, pull or fetch and reports the result.
-func (s *Server) runRemote(c *controlClient, action, path string) {
+func (s *Server) runRemote(c *controlClient, action, path string, ans gitAnswer) {
 	dir := s.reviewDir(path)
 	asked := changeListings.asked(c) // as a commit's: see commitChanges
 	go func() {
 		defer s.surviveFor(c, "talking to the remote")
+		if !s.gitProgramsAccepted(c, repoRoot(dir), path, action, resendName(action), ans.accept, ans.seen) {
+			s.sendChanges(c, repoRoot(dir), asked, "")
+			return
+		}
 		var (
 			out string
 			err error
@@ -459,4 +495,18 @@ func shortName(dir string) string {
 		return dir[i+1:]
 	}
 	return dir
+}
+
+// gitAnswer is what the window said to a gitWarn.
+type gitAnswer struct{ accept, seen string }
+
+// resendName is the command a window sends for a remote action.
+func resendName(action string) string {
+	switch action {
+	case "push":
+		return "gitPush"
+	case "pull":
+		return "gitPull"
+	}
+	return "gitFetch"
 }

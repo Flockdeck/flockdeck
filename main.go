@@ -456,6 +456,10 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "\nEnvironment:\n")
 	fmt.Fprintf(out, "  %s=off\n", updateEnv)
 	fmt.Fprintf(out, "        do not look for new releases in the background; update still works\n")
+	fmt.Fprintf(out, "  %s=<host>[,<host>...]\n", server.AllowedHostsEnv)
+	fmt.Fprintf(out, "        names besides 127.0.0.1 and localhost that the local server answers to, for reaching it\n")
+	fmt.Fprintf(out, "        through a Kubernetes Service or an Ingress; a bare name allows any port,\n")
+	fmt.Fprintf(out, "        name:port allows one\n")
 	fmt.Fprintf(out, "  %s=<url>\n", remote.RelayEnv)
 	fmt.Fprintf(out, "        the relay Flockdeck Remote goes through, instead of the default one\n")
 	fmt.Fprintf(out, "  FLOCKDECK_API_KEY=<key>\n")
@@ -1098,6 +1102,9 @@ func run(opts options) error {
 	// it: nothing is dialled and nothing is shown.
 	remoteAccess := remote.NewManager(version, srv.ServeRemote, srv.Wake)
 	srv.SetRemote(remoteAccess)
+	// The artifacts socket serves a device only if the person verified its key
+	// here, and the manager is the record of that.
+	srv.SetArtifactVerifier(remoteAccess)
 	if err := remoteAccess.Reload(); err != nil {
 		fmt.Fprintln(os.Stderr, "flockdeck: Flockdeck Remote:", err)
 	}
@@ -1153,15 +1160,19 @@ func run(opts options) error {
 	// quit, it took the record with it, leaving nothing on record while the
 	// first went on running: the next launch started a rival, and the start-up
 	// sweep stopped sparing the first one's pane settings.
+	// One start time for the record and for the channel, so that a later launch
+	// can tell that the two name the same run.
+	started := time.Now()
 	recorded := !opts.solo || !answering()
 	if recorded {
 		if err := store.SaveInstance(&store.Instance{
-			PID: os.Getpid(), URL: srv.BaseURL(), Token: srv.Token(), Started: time.Now(),
+			PID: os.Getpid(), URL: srv.BaseURL(), Token: srv.Token(), Started: started,
 		}); err != nil {
 			fmt.Fprintln(os.Stderr, "flockdeck: could not record the instance:", err)
 		}
 		defer store.ClearInstance()
 	}
+	defer startChannel(srv, started)()
 	releaseStart()
 
 	// Watching for releases runs for the life of the server and stops with it,

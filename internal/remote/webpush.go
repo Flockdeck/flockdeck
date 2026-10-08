@@ -82,6 +82,13 @@ func (c *Client) PushDevices(ctx context.Context) ([]PushDevice, error) {
 // sent a message it could not open; the relay says so, and is asked once more
 // for the keys of the devices that changed.
 func (c *Client) Push(ctx context.Context, n Notification) (int, error) {
+	return c.PushTo(ctx, n, nil)
+}
+
+// PushTo is Push to the devices allow says yes to, asked for each device by id
+// as its message is sealed; nil allows every device. A device it refuses is
+// sent nothing at all, not a shorter message.
+func (c *Client) PushTo(ctx context.Context, n Notification, allow func(deviceID string) bool) (int, error) {
 	plain, err := fitNotification(n)
 	if err != nil {
 		return 0, err
@@ -95,6 +102,9 @@ func (c *Client) Push(ctx context.Context, n Notification) (int, error) {
 		}
 		var msgs []PushMessage
 		for _, d := range devices {
+			if allow != nil && !allow(d.DeviceID) {
+				continue
+			}
 			if key, ok := sealed[d.DeviceID]; ok && key == d.P256dh {
 				continue
 			}

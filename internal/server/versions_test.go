@@ -101,7 +101,7 @@ func TestListVersionsIsRefusedThroughTheRelay(t *testing.T) {
 		return nil, nil
 	}
 
-	c := &controlClient{out: make(chan []byte, 8), remote: true}
+	c := &controlClient{out: make(chan []byte, 8), remote: true, device: "dev-1"}
 	srv.handleCommand(c, command{Cmd: "listVersions"})
 
 	select {
@@ -185,7 +185,7 @@ func TestInstallVersionIsRefusedThroughTheRelay(t *testing.T) {
 		return "", false
 	}
 
-	c := &controlClient{out: make(chan []byte, 8), remote: true}
+	c := &controlClient{out: make(chan []byte, 8), remote: true, device: "dev-1"}
 	srv.handleCommand(c, command{Cmd: "installVersion", Text: "v1.3.0"})
 
 	select {

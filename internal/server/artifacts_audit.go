@@ -20,7 +20,7 @@ import (
 //
 // It is kept in the state folder with owner-only permissions and rotated by
 // size, so it cannot grow without bound: auditFile, then auditFile.1 and
-// auditFile.2, which together are the three files the design allows.
+// auditFile.2: three files in all.
 const (
 	artifactAuditFile = "remote-artifacts.log"
 	auditMaxBytes     = 1 << 20

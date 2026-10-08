@@ -11,6 +11,7 @@ go 1.27.0
 retract [v0.1.0, v0.3.30] // Published under a different licence (MIT); use v0.3.31 or later.
 
 require (
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/aymanbagabas/go-pty v0.2.3
 	github.com/blakesmith/ar v0.0.0-20190502131153-809d4375e1fb
 	github.com/coder/websocket v1.8.15
@@ -19,6 +20,7 @@ require (
 	github.com/wailsapp/wails/v3 v3.0.0-beta.22
 	github.com/xtaci/smux v1.5.57
 	github.com/yuin/goldmark v1.8.6
+	golang.org/x/sys v0.47.0
 	rsc.io/qr v0.2.0
 )
 
@@ -28,7 +30,6 @@ require (
 	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/Masterminds/semver/v3 v3.5.0 // indirect
 	github.com/Masterminds/sprig/v3 v3.3.0 // indirect
-	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/cavaliergopher/cpio v1.0.1 // indirect
@@ -69,6 +70,5 @@ require (
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )

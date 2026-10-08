@@ -850,7 +850,7 @@ func TestArtifactCommandsAreDeskOnly(t *testing.T) {
 
 func TestArtifactKindNeedsConfirmationFirstTime(t *testing.T) {
 	e := newArtifactEnv(t)
-	desk := dialControl(t, e.srv)
+	desk := dialControlPage(t, e.srv)
 	nextHello(t, desk)
 
 	// A client that skips the question is answered with it.
@@ -884,7 +884,7 @@ func TestArtifactKindNeedsConfirmationFirstTime(t *testing.T) {
 
 func TestArtifactKindsNotYetOfferedCannotBeSwitchedOn(t *testing.T) {
 	e := newArtifactEnv(t)
-	desk := dialControl(t, e.srv)
+	desk := dialControlPage(t, e.srv)
 	nextHello(t, desk)
 	for _, kind := range []string{"files", "links", "pdf", ""} {
 		sendCmd(t, desk, command{Cmd: "setRemoteArtifacts", Kind: "on", Text: kind, Confirmed: true})
@@ -901,7 +901,7 @@ func TestArtifactKindsNotYetOfferedCannotBeSwitchedOn(t *testing.T) {
 
 func TestArtifactDeviceNeedsVerificationToBeAllowed(t *testing.T) {
 	e := newArtifactEnv(t)
-	desk := dialControl(t, e.srv)
+	desk := dialControlPage(t, e.srv)
 	nextHello(t, desk)
 
 	sendCmd(t, desk, command{Cmd: "setRemoteArtifacts", Kind: "on", ID: "d1"})

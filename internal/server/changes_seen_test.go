@@ -130,7 +130,7 @@ func TestTheOmittedNoticeGoesOnlyWithAListingSomebodyAskedFor(t *testing.T) {
 	}
 
 	c := &controlClient{out: make(chan []byte, 16)}
-	srv.commitChanges(c, dir, "   ", false, nil, nil, 0)
+	srv.commitChanges(c, dir, "   ", false, nil, nil, 0, gitAnswer{})
 	got := notices(c)
 	if showing(got) {
 		t.Errorf("after a commit that failed, the window was sent %+v; the notice about files left out replaces the error", got)

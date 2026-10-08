@@ -62,6 +62,26 @@ const pipeGrace = 2 * time.Second
 // one.
 var ownConfig = []string{"-c", "core.fsmonitor="}
 
+// noHooks points core.hooksPath at nowhere. It goes ahead of the commands that
+// only read or tidy: status, diff, update-index, the radar's scratch index and
+// the rest run hooks of their own (post-index-change, reference-transaction)
+// that nobody asked for and that a repository can set. Commit, push, pull,
+// fetch and worktree creation keep the repository's hooks, which run on
+// purpose and are what the check before those buttons is about.
+var noHooks = []string{"-c", "core.hooksPath=" + os.DevNull}
+
+// hookRunners are the subcommands that run the repository's hooks.
+var hookRunners = map[string]bool{"commit": true, "push": true, "pull": true, "fetch": true, "worktree": true}
+
+// configFor is what goes ahead of a git command's arguments.
+func configFor(args []string) []string {
+	cfg := append([]string{}, ownConfig...)
+	if len(args) == 0 || !hookRunners[args[0]] {
+		cfg = append(cfg, noHooks...)
+	}
+	return cfg
+}
+
 // run executes git in dir and returns stdout.
 func run(dir string, args ...string) (string, error) {
 	out, _, err := runCapture(context.Background(), commandTimeout, dir, args...)
@@ -270,7 +290,7 @@ func runToEnv(parent context.Context, timeout time.Duration, dir string, env []s
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, "git", append(append([]string{}, ownConfig...), args...)...)
+	cmd := exec.CommandContext(ctx, "git", append(configFor(args), args...)...)
 	cmd.Dir = dir
 	// Flockdeck on Windows is a GUI program with no console of its own, so
 	// without this every one of these -- and the branch labels alone run one

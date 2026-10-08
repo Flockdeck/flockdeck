@@ -23,12 +23,12 @@ import (
 //
 // It is for devices reached through the relay only. A request on the local
 // listener is a 404; the desk uses its own means. The client never names a
-// path, URL or port: the request has no field for one, and what a later slice
-// serves is named by an id this host issued on this socket (artifacts.Registry).
+// path, URL or port: the request has no field for one, and what is served later
+// is named by an id this host issued on this socket (artifacts.Registry).
 //
-// This slice serves nothing. Every list is empty. What it ships is the gate,
-// the encryption, the limits, the audit trail and the kill switches, so that
-// the slices that serve content only add content.
+// For now the socket serves nothing: every list is empty. What is here is the
+// gate, the encryption, the limits, the audit trail and the kill switches, so
+// that serving content later only adds content.
 
 // Close codes the socket ends with. 4403 is a refusal, with one of the
 // artifactReason strings; the rest say why a socket that was fine was ended.
@@ -44,6 +44,27 @@ var artifactIdleTimeout = 5 * time.Minute
 
 // artifactWriteTimeout bounds one write to a device that has stopped reading.
 const artifactWriteTimeout = 10 * time.Second
+
+// artifactRequestTimeout is the most one request may take from the moment it is
+// read to the moment its reply is written. Whatever a request does, including
+// anything it asks of the disk later, runs under a context that ends then, and
+// the device is told "timeout". A variable so a test does not wait it out.
+var artifactRequestTimeout = 30 * time.Second
+
+// artifactHandshakeTimeout bounds the whole of opening a socket, from the
+// upgrade to the first request, so that a device cannot hold one of its three
+// slots with a handshake it never finishes.
+var artifactHandshakeTimeout = 20 * time.Second
+
+// artifactConnectsPerMinute is how many sockets a device may open in a minute,
+// whether or not they get past the checks. The request limit starts only once a
+// socket is open, so without this a device could open and drop sockets, each
+// one costing a look at the relay's roster and a handshake, as fast as it liked.
+const artifactConnectsPerMinute = 20
+
+// artifactRequestHook, when set by a test, is called with the context a request
+// runs under, before the request is answered.
+var artifactRequestHook func(ctx context.Context, op string)
 
 // artifactUnknownMax is how many requests for an id this socket never issued
 // are put up with in a minute. A client that follows the protocol never sends
@@ -72,6 +93,8 @@ type artifactState struct {
 type artifactDevice struct {
 	reqs  *artifacts.Limiter
 	bytes *artifacts.Limiter
+	// connects limits how often a socket is opened at all.
+	connects *artifacts.Limiter
 }
 
 // artifactSock is one open socket.
@@ -137,7 +160,8 @@ func (a *artifactState) device(id string) *artifactDevice {
 	}
 	reqs, _ := artifacts.NewLimiter(float64(artifacts.RequestsPerWindow)/artifacts.RequestWindow.Seconds(), artifacts.RequestsPerWindow, nil)
 	by, _ := artifacts.NewLimiter(float64(artifacts.BytesPerMinute)/60, artifacts.BytesPerMinute, nil)
-	d := &artifactDevice{reqs: reqs, bytes: by}
+	conns, _ := artifacts.NewLimiter(float64(artifactConnectsPerMinute)/60, artifactConnectsPerMinute, nil)
+	d := &artifactDevice{reqs: reqs, bytes: by, connects: conns}
 	a.devices[id] = d
 	return d
 }
@@ -238,6 +262,7 @@ const (
 	artifactErrBusy        = "busy"
 	artifactErrDisabled    = "disabled"
 	artifactErrTooLarge    = "too_large"
+	artifactErrTimeout     = "timeout"
 )
 
 // artifactLimits is what hello says the limits are.
@@ -293,6 +318,12 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 	refuse := func(code int, reason string) {
 		_ = conn.Close(websocket.StatusCode(code), reason)
 	}
+	dev := s.artifacts.device(device)
+	if !dev.connects.Allow(1) {
+		s.artifactDenied(device, name, "connect-rate")
+		refuse(artifactCloseBusy, artifactErrBusy)
+		return
+	}
 	if !s.artifacts.open(sock) {
 		s.artifactDenied(device, name, artifactErrBusy)
 		refuse(artifactCloseBusy, artifactErrBusy)
@@ -320,7 +351,9 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 		refuse(artifactCloseRefused, reason)
 		return
 	}
-	sess, err := s.e2eHandshake(ctx, ra, conn, device, origin)
+	hctx, hcancel := context.WithTimeout(ctx, artifactHandshakeTimeout)
+	sess, err := s.e2eHandshake(hctx, ra, conn, device, origin)
+	hcancel()
 	if err != nil {
 		// A failed handshake is a fault or a downgrade attempt, never a reason
 		// to go on unencrypted.
@@ -353,7 +386,6 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 		s.noticeDesk(who+" opened remote artifacts on this machine. Stop all remote viewing now closes it", false)
 	}
 
-	dev := s.artifacts.device(device)
 	var busyRun int
 	var unknown []time.Time
 	for {
@@ -363,89 +395,91 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-
-		// The check is made again on every request, from the preferences on
-		// disk, so a switch turned off takes effect on the next frame.
-		kinds, reason = s.artifactCheck(device, origin, key)
-		if reason != "" {
-			s.artifactDenied(device, name, reason)
-			refuse(artifactCloseRefused, reason)
-			return
-		}
-		if !dev.reqs.Allow(1) {
-			if busyRun++; busyRun > artifactBusyMax {
-				s.artifactDenied(device, name, "rate")
-				refuse(artifactCloseBusy, artifactErrBusy)
-				return
+		// Everything from here to the reply is bounded by one deadline.
+		qctx, qcancel := context.WithTimeout(ctx, artifactRequestTimeout)
+		more := func() bool {
+			// The check is made again on every request, from the preferences on
+			// disk, so a switch turned off takes effect on the next frame.
+			var reason string
+			kinds, reason = s.artifactCheck(device, origin, key)
+			if reason != "" {
+				s.artifactDenied(device, name, reason)
+				refuse(artifactCloseRefused, reason)
+				return false
 			}
-			if !s.artifactReply(ctx, tc, dev, map[string]any{"op": "error", "code": artifactErrBusy}) {
-				return
-			}
-			continue
-		}
-		busyRun = 0
-
-		if typ != websocket.MessageText {
-			if !s.artifactReply(ctx, tc, dev, map[string]any{"op": "error", "code": artifactErrUnavailable}) {
-				return
-			}
-			continue
-		}
-		if len(data) > artifacts.MaxRequestBytes {
-			if !s.artifactReply(ctx, tc, dev, map[string]any{"op": "error", "code": artifactErrTooLarge}) {
-				return
-			}
-			continue
-		}
-		var req artifactRequest
-		if json.Unmarshal(data, &req) != nil {
-			if !s.artifactReply(ctx, tc, dev, map[string]any{"op": "error", "code": artifactErrUnavailable}) {
-				return
-			}
-			continue
-		}
-
-		var reply map[string]any
-		switch req.Op {
-		case "hello":
-			reply = map[string]any{
-				"op": "hello", "v": 1,
-				"kinds": artifactKindsJSON(kinds),
-				"limits": artifactLimits{
-					Chunk: artifacts.ChunkBytes, Request: artifacts.MaxRequestBytes, ListItems: artifacts.MaxListItems,
-				},
-			}
-		case "list":
-			reply = s.artifactList(req, kinds)
-		case "open":
-			// Nothing is listed yet, so no id was ever issued on this socket and
-			// every id is unknown. The registry is asked anyway: it is what a
-			// later slice's lookups go through.
-			if _, err := sock.reg.Lookup(req.ID, req.Kind, req.Pane); err != nil {
-				now := time.Now()
-				unknown = append(pruneBefore(unknown, now.Add(-time.Minute)), now)
-				if len(unknown) > artifactUnknownMax {
-					s.artifactDenied(device, name, "unknown-ids")
-					refuse(artifactCloseRefused, "unknown ids")
-					return
+			if !dev.reqs.Allow(1) {
+				if busyRun++; busyRun > artifactBusyMax {
+					s.artifactDenied(device, name, "rate")
+					refuse(artifactCloseBusy, artifactErrBusy)
+					return false
 				}
+				return s.artifactReply(qctx, tc, dev, map[string]any{"op": "error", "code": artifactErrBusy})
 			}
-			reply = map[string]any{"op": "error", "code": artifactErrUnavailable}
-		case "close":
-			reply = map[string]any{"op": "close"}
-		default:
-			// An op this host does not know is ignored, so a newer client can
-			// ask for more than an older host offers.
-			continue
-		}
-		if !s.artifactReply(ctx, tc, dev, reply) {
+			busyRun = 0
+
+			if typ != websocket.MessageText {
+				return s.artifactReply(qctx, tc, dev, map[string]any{"op": "error", "code": artifactErrUnavailable})
+			}
+			if len(data) > artifacts.MaxRequestBytes {
+				return s.artifactReply(qctx, tc, dev, map[string]any{"op": "error", "code": artifactErrTooLarge})
+			}
+			var req artifactRequest
+			if json.Unmarshal(data, &req) != nil {
+				return s.artifactReply(qctx, tc, dev, map[string]any{"op": "error", "code": artifactErrUnavailable})
+			}
+			if artifactRequestHook != nil {
+				artifactRequestHook(qctx, req.Op)
+			}
+
+			var reply map[string]any
+			switch req.Op {
+			case "hello":
+				reply = map[string]any{
+					"op": "hello", "v": 1,
+					"kinds": artifactKindsJSON(kinds),
+					"limits": artifactLimits{
+						Chunk: artifacts.ChunkBytes, Request: artifacts.MaxRequestBytes, ListItems: artifacts.MaxListItems,
+					},
+				}
+			case "list":
+				reply = s.artifactList(req, kinds)
+			case "open":
+				// Nothing is listed yet, so no id was ever issued on this socket and
+				// every id is unknown. The registry is asked anyway: it is what later
+				// lookups go through.
+				if _, err := sock.reg.Lookup(req.ID, req.Kind, req.Pane); err != nil {
+					now := time.Now()
+					unknown = append(pruneBefore(unknown, now.Add(-time.Minute)), now)
+					if len(unknown) > artifactUnknownMax {
+						s.artifactDenied(device, name, "unknown-ids")
+						refuse(artifactCloseRefused, "unknown ids")
+						return false
+					}
+				}
+				reply = map[string]any{"op": "error", "code": artifactErrUnavailable}
+			case "close":
+				reply = map[string]any{"op": "close"}
+			default:
+				// An op this host does not know is ignored, so a newer client can
+				// ask for more than an older host offers.
+				return true
+			}
+			// A request that ran out of time is answered with that, on the
+			// socket's own clock, since the request's has gone.
+			if qctx.Err() != nil {
+				return s.artifactReply(ctx, tc, dev, map[string]any{"op": "error", "code": artifactErrTimeout})
+			}
+			return s.artifactReply(qctx, tc, dev, reply)
+		}()
+		qcancel()
+		if !more {
 			return
 		}
 	}
 }
 
-// artifactList answers a list request. It is empty for every kind in this
-// slice; what it already decides is which kinds may be asked for.
+// artifactList answers a list request. It is empty for every kind for now;
+// what it already decides is which kinds may be asked for.
 func (s *Server) artifactList(req artifactRequest, kinds []string) map[string]any {
 	for _, k := range kinds {
 		if k == req.Kind {

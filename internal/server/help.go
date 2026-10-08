@@ -47,6 +47,11 @@ type helloMsg struct {
 	// at least one kind is switched on for it. Left out otherwise, which is
 	// what hides the tab. Sent only to a window reached through the relay.
 	Artifacts *artifactsCap `json:"artifacts,omitempty"`
+	// Role is "viewer" for a device the desk limited to viewing (store.RoleViewer),
+	// and WatchPanes whether it may also watch panes. Both are left out for a
+	// full device and for a window on this machine.
+	Role       string `json:"role,omitempty"`
+	WatchPanes bool   `json:"watchPanes,omitempty"`
 }
 
 // radarSupport and radarWatch are gitx's answers about merge-tree, as variables
@@ -111,6 +116,12 @@ type keyView struct {
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
 	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: prefsFor(c, s.prefs), Remote: c.remote}
+	// A viewer is told what it is, so its window can say so, and is sent none of
+	// the desk's preferences.
+	if a := s.accessOf(c); a.EffectiveRole() != store.RoleFull {
+		msg.Prefs = store.Prefs{}
+		msg.Role, msg.WatchPanes = string(a.EffectiveRole()), a.WatchPanes
+	}
 	// Asked without waiting: the version of git is read in the background. Until
 	// it has been, the window is told it is being checked, and is sent the answer
 	// when there is one (announceRadarSupport).
@@ -230,6 +241,31 @@ type prefsMsg struct {
 // was moved aside and kept, but the window came back on the defaults at the
 // next start, with nothing to say where the rest had gone.
 func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
+	s.updatePrefsThen(c, change, nil)
+}
+
+// prefsResult is how an attempt to change the preferences ended.
+type prefsResult uint8
+
+const (
+	// prefsSaved: the change was made and is in the file.
+	prefsSaved prefsResult = iota
+	// prefsUnchanged: the preferences already said so, and nothing was written.
+	prefsUnchanged
+	// prefsFailed: the file could not be read or written, so nothing changed.
+	prefsFailed
+)
+
+// updatePrefsThen is updatePrefs, and tells then how it went once the change is
+// in the file and in force. then runs on the workspace goroutine and may be nil.
+// A caller that records or reports the change waits for it, so that neither
+// says a change was made that was not.
+func (s *Server) updatePrefsThen(c *controlClient, change func(*store.Prefs) bool, then func(prefsResult)) {
+	done := func(r prefsResult) {
+		if then != nil {
+			then(r)
+		}
+	}
 	s.do(func() {
 		p, err := store.ReadPrefs()
 		if err != nil {
@@ -237,9 +273,14 @@ func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
 			// has nothing to do about it, and a phone reached through the relay
 			// would be shown an error for a hint dismissed on the desk.
 			c.notify("Could not save the setting, because the settings saved before could not be read and saving now would write over them; it will not be kept after Flockdeck restarts: "+err.Error(), true)
+			done(prefsFailed)
 			return
 		}
+		// What each device may do is the running program's to say, not the
+		// file's: the file may have been deleted or damaged since it was read.
+		p.AdoptAccess(s.prefs)
 		if !change(&p) {
+			done(prefsUnchanged)
 			return
 		}
 		if err := store.SavePrefs(p); err != nil {
@@ -249,10 +290,49 @@ func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
 			// the next start with nothing to say why -- so that is said now, to
 			// the window that made it.
 			c.notify("Could not save the setting, so it will not be kept after Flockdeck restarts: "+err.Error(), true)
+			done(prefsFailed)
 			return
 		}
 		s.prefs = p
+		s.publishAccess()
 		s.broadcastPrefs()
+		done(prefsSaved)
+	})
+}
+
+// updateAccess changes what paired devices may do. Unlike updatePrefs it applies
+// the change in memory whether or not the file can be read or written: a
+// restriction the person has just asked for is in force from that moment, and
+// is never left unapplied because the disk said no. then is told how saving
+// went (nil for saved) once the change is in force; c may be nil, for a change
+// nobody asked for.
+func (s *Server) updateAccess(change func(*store.Prefs) bool, then func(saveErr error)) {
+	s.do(func() {
+		p, readErr := store.ReadPrefs()
+		if readErr != nil {
+			// Start from what is in force. The unreadable file is not written
+			// over, since it may still hold settings that can be recovered.
+			p = s.prefs
+		} else {
+			p.AdoptAccess(s.prefs)
+		}
+		if !change(&p) {
+			return
+		}
+		saveErr := readErr
+		if readErr == nil {
+			saveErr = store.SavePrefs(p)
+		}
+		if saveErr == nil {
+			s.prefs = p
+		} else {
+			s.prefs.AdoptAccess(p)
+		}
+		s.publishAccess()
+		s.broadcastPrefs()
+		if then != nil {
+			then(saveErr)
+		}
 	})
 }
 
