@@ -1070,6 +1070,9 @@ type controlClient struct {
 	// paired device it is on, as the relay reported it.
 	remote bool
 	device string
+	// artifactsTold is what the window has been told about artifacts: 0 not
+	// yet, else artifactsTellYes or artifactsTellNo.
+	artifactsTold atomic.Int32
 	// accessOf says what the desk allows this window, looked up each time it is
 	// asked rather than kept: the desk can change it while the socket is open.
 	// Nil for a window on this machine, which is not a device and is not limited.
@@ -1720,7 +1723,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// which moves it back.
 		if c.remote {
 			c.notify("Whether Flockdeck checks for updates is set on the machine it runs on, not from a window reached through the relay", true)
-			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: s.prefs.ForWindow()}) })
+			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: prefsFor(c, s.prefs)}) })
 			return
 		}
 		s.setUpdates(c, cmd.Kind == "off")
@@ -1820,7 +1823,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// refusal sends it the preferences as they stand, which moves it back.
 		if c.remote && cmd.Kind == "on" {
 			c.notify("Sending terminal output to TypeSafe can only be turned on on the machine Flockdeck runs on, not from a window reached through the relay", true)
-			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: s.prefs.ForWindow()}) })
+			s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: prefsFor(c, s.prefs)}) })
 			return
 		}
 		s.setJevStatus(c, cmd.Kind == "on")
@@ -1830,6 +1833,15 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "recordPane":
 		s.recordPane(c, cmd)
+		return
+	case "setRemoteArtifacts":
+		s.setRemoteArtifacts(c, cmd)
+		return
+	case "revokeArtifactDevice":
+		s.revokeArtifactDevice(c, cmd)
+		return
+	case "stopRemoteArtifacts":
+		s.stopRemoteArtifacts(c, cmd)
 		return
 	case "exportTranscript":
 		s.exportTranscript(c, cmd)

@@ -32,6 +32,10 @@ type remoteIO struct {
 	// reload tells a running instance that the enrolment has changed, and
 	// reports whether there was one to tell.
 	reload func() (bool, error)
+	// stopArtifacts tells a running instance to close its artifacts sockets,
+	// and reports whether there was one to tell. Nil where a test does not
+	// drive it.
+	stopArtifacts func() (bool, error)
 	// running reports whether flockdeck is running here, which is what
 	// decides whether the tunnel ought to be up.
 	running func() bool
@@ -45,7 +49,7 @@ type remoteIO struct {
 
 // runRemote implements the `remote` subcommand.
 func runRemote(args []string) error {
-	rio := remoteIO{out: os.Stdout, reload: reloadRunningRemote, running: func() bool {
+	rio := remoteIO{out: os.Stdout, reload: reloadRunningRemote, stopArtifacts: stopRunningArtifacts, running: func() bool {
 		inst, _, err := runningInstance()
 		return err == nil && inst != nil
 	}}
@@ -95,6 +99,8 @@ func remoteCmd(args []string, rio remoteIO) error {
 		err = remoteMoveCmd(args[1:], rio)
 	case "delete-account":
 		err = remoteDeleteAccountCmd(args[1:], rio)
+	case "artifacts":
+		err = remoteArtifactsCmd(args[1:], rio)
 	case "-h", "--help", "help":
 		// `remote help pair` is how most commands are asked about one of
 		// their own, so it gives that subcommand's help.
@@ -134,7 +140,7 @@ func remoteHelp(name string, rio remoteIO) error {
 		fs = remoteDeleteAccountFlagSet(&remoteDeleteAccountFlags{})
 	case "devices", "list", "ls":
 		fs = remoteFlags("devices")
-	case "status", "revoke":
+	case "status", "revoke", "artifacts":
 		fs = remoteFlags(name)
 	default:
 		remoteUsage(rio.out)
@@ -146,7 +152,7 @@ func remoteHelp(name string, rio remoteIO) error {
 }
 
 // remoteCommands are the subcommands a mistyped one is compared with.
-var remoteCommands = []string{"enable", "pair", "status", "devices", "revoke", "rename", "disable", "remove", "move", "delete-account"}
+var remoteCommands = []string{"enable", "pair", "status", "devices", "revoke", "rename", "disable", "remove", "move", "delete-account", "artifacts"}
 
 // remoteGuesses are words somebody is likely to try for one of them. They are
 // answered with the command's name rather than taken for it: revoke and
@@ -228,6 +234,8 @@ Commands:
   delete-account [-yes -confirm TEXT]
                  erase the account on the relay: every machine in it, every
                  paired device and the plan; asks you to type a phrase first
+  artifacts off  stop paired devices viewing recordings and files from this
+                 machine, and close what they have open
 
 Run flockdeck remote help <command> for more about one of them.
 The relay is %s unless -relay or %s
@@ -262,6 +270,8 @@ var remoteSynopses = map[string][2]string{
 		"Take this machine off the account. The relay deletes this machine and nothing\nelse: the account, its other machines, paired devices, plan, trial, verified\nemail and subscription stay, even when this was its last machine. To erase the\naccount, run `flockdeck remote delete-account`. A join code from\n`flockdeck remote pair -desktop` on another machine puts a machine back in it."},
 	"move": {" [flags] <relay>",
 		"Move this machine to another relay: enrol it there first, and take it off\nthe relay it is on only once the new one answers. Every device paired with\nit has to pair again afterwards, with the new relay, because a device's\npairing belongs to the relay it was made on."},
+	"artifacts": {" off",
+		"Switch off every kind of artifact that paired devices may view, and close the\nsockets they have open. It works with no window open. What a device may view is\nswitched on again at the desk, in the window, where what it exposes is shown."},
 	"delete-account": {" [-yes -confirm TEXT]",
 		"Erase this machine's whole account on the relay: every machine in it, every\npaired device, the plan and the verified email's link to it. It shows what goes,\nthen asks you to type " + deleteAccountPhrase + " exactly. An account with a\nsubscription is not deleted until the subscription has ended."},
 }

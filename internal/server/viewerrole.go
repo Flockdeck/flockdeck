@@ -94,9 +94,9 @@ const (
 // source and fails for a command missing here or listed here and no longer
 // handled, so adding a command forces the decision to be written down.
 //
-// Everything is accessFull unless it says otherwise: the artifacts viewer a
-// later version adds is not a command on this socket, so no command is open to
-// every viewer yet. accessViewer exists for the day one is.
+// Everything is accessFull unless it says otherwise: the artifacts viewer is
+// its own socket, not a command on this one, so no command is open to every
+// viewer yet. accessViewer exists for the day one is.
 var commandAccess = map[string]cmdAccess{
 	// Reading a pane's chat. Same content the terminal shows, so it needs the
 	// same permission as watching the terminal.
@@ -143,6 +143,9 @@ var commandAccess = map[string]cmdAccess{
 	"setKeybinding": accessFull, "resetKeybinding": accessFull, "resetKeybindings": accessFull,
 	"forgetRecent": accessFull, "renameProject": accessFull, "archiveProject": accessFull,
 	"reorderProjects": accessFull, "removeProject": accessFull,
+	// What paired devices may view is the desk's to decide. A viewer may be
+	// allowed to read artifacts, but never to change who can.
+	"setRemoteArtifacts": accessFull, "revokeArtifactDevice": accessFull, "stopRemoteArtifacts": accessFull,
 
 	"newTab": accessFull, "closeTab": accessFull, "selectTab": accessFull, "nextTab": accessFull,
 	"prevTab": accessFull, "renameTab": accessFull, "openProject": accessFull, "selectProject": accessFull,
@@ -191,8 +194,13 @@ func (c *controlClient) refuseViewer() {
 // state snapshot is not here: it goes by sendSnapshotTo, cut down. Every other
 // message -- the desk's notices, preferences, approvals, device lists, helper
 // and git results -- is dropped for a viewer, including any type added later.
+//
+// "artifacts" is the one that says whether the device may open the artifacts
+// socket. It carries nothing but that, for this device only, and a viewer the
+// desk allowed to read artifacts would otherwise never learn it could.
 var viewerMessageTypes = map[string]bool{
-	"hello": true,
+	"hello":     true,
+	"artifacts": true,
 }
 
 var watcherMessageTypes = map[string]bool{

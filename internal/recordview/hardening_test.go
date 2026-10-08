@@ -744,3 +744,35 @@ func TestALineCleanedAWholeBudgetLateIsSkippedAndCounted(t *testing.T) {
 		t.Errorf("on time: %d entries, %d skipped", len(pg.Entries), pg.Skipped)
 	}
 }
+
+// A root that climbs with ".." is refused even when it ends at a real folder,
+// so a root is always spelled as the folder it is.
+func TestARootWithDotDotIsRefused(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "a"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ok.jsonl"), []byte(started()+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(bg, root, "ok.jsonl"); err != nil {
+		t.Fatalf("plain root: %v", err)
+	}
+	climbing := filepath.Join(root, "a") + string(filepath.Separator) + ".."
+	if _, err := Open(bg, climbing, "ok.jsonl"); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("root %q: %v, want ErrUnsupported", climbing, err)
+	}
+	// The name may not climb either, whatever the root is.
+	if _, err := Open(bg, root, "a/../ok.jsonl"); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("name that climbs: %v, want ErrUnsupported", err)
+	}
+	// And a name cannot reach a folder outside by a link in the middle of it.
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "x.jsonl"), []byte(started()+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link(t, filepath.Join(root, "out"), outside)
+	if _, err := Open(bg, root, "out/x.jsonl"); !errors.Is(err, ErrUnsupported) {
+		t.Errorf("name through a link: %v, want ErrUnsupported", err)
+	}
+}

@@ -59,7 +59,7 @@ func isLink(fi os.FileInfo) bool {
 }
 
 // plainRoot reports whether root is an absolute path to a local folder: not
-// relative, not a UNC, device or extended-length path, and with no colon after
+// relative, with no ".." in it, not a UNC, device or extended-length path, and with no colon after
 // the drive.
 func plainRoot(root string) bool {
 	if root == "" || !filepath.IsAbs(root) || strings.ContainsRune(root, 0) {
@@ -67,6 +67,13 @@ func plainRoot(root string) bool {
 	}
 	if strings.HasPrefix(root, `\\`) || strings.HasPrefix(root, "//") {
 		return false
+	}
+	// A root is a path the host built, so it has no reason to climb. One that
+	// does is not the folder it appears to name when read in a log or a test.
+	for _, part := range strings.FieldsFunc(root, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if part == ".." {
+			return false
+		}
 	}
 	if runtime.GOOS == "windows" {
 		rest := root[len(filepath.VolumeName(root)):]

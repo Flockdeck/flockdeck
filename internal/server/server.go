@@ -200,6 +200,8 @@ type Server struct {
 
 	// exports are the transcript exports under way; see recording.go.
 	exports exports
+	// artifacts is the state of the artifacts socket; see artifacts_socket.go.
+	artifacts artifactState
 
 	// OnQuit is called when a shutdown is requested from the interface or by
 	// another launch of the binary.
@@ -396,6 +398,8 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	mux.HandleFunc("/helpers/open", s.handleHelperOpen)
 	mux.HandleFunc("/window", s.handleWindow)
 	mux.HandleFunc("/remote/reload", s.handleRemoteReload)
+	mux.HandleFunc("/remote/artifacts/stop", s.handleArtifactsStop)
+	mux.HandleFunc("/ws/artifacts", s.handleArtifacts)
 	s.mux = mux
 	s.publishAccess()
 

@@ -128,6 +128,9 @@ func ensureE2EIdentity() (*ecdh.PrivateKey, error) {
 // it -- see internal/server/pty.go's use of both.
 var ErrNoE2EKey = errors.New("remote: no end-to-end key is registered for this host and device")
 
+// e2eRosterTimeout bounds one fetch of the roster, whatever the caller allows.
+const e2eRosterTimeout = 10 * time.Second
+
 // e2eRosterTTL bounds how long a device's public key, once fetched, is
 // trusted before asking the relay again. A terminal handshake needs the
 // device's current key, but a window can open several panes at once, each
@@ -218,7 +221,9 @@ func (m *Manager) e2eRoster(ctx context.Context, deviceID string, origin KeyOrig
 	if err != nil {
 		return nil, err
 	}
-	roster, err := cl.Devices(ctx)
+	rctx, cancel := context.WithTimeout(ctx, e2eRosterTimeout)
+	defer cancel()
+	roster, err := cl.Devices(rctx)
 	if err != nil {
 		// A key this has already seen is better than none: answered "not
 		// capable" for want of asking again, a device with a key is served

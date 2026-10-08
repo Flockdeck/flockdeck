@@ -43,6 +43,10 @@ type helloMsg struct {
 	// encrypt against itself, and for a remote one before this machine has
 	// made an identity of its own yet.
 	E2EPublicKey string `json:"e2ePublicKey,omitempty"`
+	// Artifacts says the artifacts socket can be used by this window's device:
+	// at least one kind is switched on for it. Left out otherwise, which is
+	// what hides the tab. Sent only to a window reached through the relay.
+	Artifacts *artifactsCap `json:"artifacts,omitempty"`
 	// Role is "viewer" for a device the desk limited to viewing (store.RoleViewer),
 	// and WatchPanes whether it may also watch panes. Both are left out for a
 	// full device and for a window on this machine.
@@ -111,7 +115,7 @@ type keyView struct {
 // sendHello gives a freshly connected window the key table and the prefs. It
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
-	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: s.prefs.ForWindow(), Remote: c.remote}
+	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: prefsFor(c, s.prefs), Remote: c.remote}
 	// A viewer is told what it is, so its window can say so, and is sent none of
 	// the desk's preferences.
 	if a := s.accessOf(c); a.EffectiveRole() != store.RoleFull {
@@ -129,6 +133,12 @@ func (s *Server) sendHello(c *controlClient) {
 	if c.remote {
 		if ra := s.remoteAccess(); ra != nil {
 			msg.E2EPublicKey = ra.E2EPublicKey()
+		}
+		if artifactsOffered(s.prefs.RemoteArtifacts, c.device) {
+			msg.Artifacts = &artifactsCap{V: 1}
+			c.artifactsTold.Store(artifactsTellYes)
+		} else {
+			c.artifactsTold.Store(artifactsTellNo)
 		}
 	}
 	data, err := json.Marshal(msg)
@@ -231,6 +241,31 @@ type prefsMsg struct {
 // was moved aside and kept, but the window came back on the defaults at the
 // next start, with nothing to say where the rest had gone.
 func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
+	s.updatePrefsThen(c, change, nil)
+}
+
+// prefsResult is how an attempt to change the preferences ended.
+type prefsResult uint8
+
+const (
+	// prefsSaved: the change was made and is in the file.
+	prefsSaved prefsResult = iota
+	// prefsUnchanged: the preferences already said so, and nothing was written.
+	prefsUnchanged
+	// prefsFailed: the file could not be read or written, so nothing changed.
+	prefsFailed
+)
+
+// updatePrefsThen is updatePrefs, and tells then how it went once the change is
+// in the file and in force. then runs on the workspace goroutine and may be nil.
+// A caller that records or reports the change waits for it, so that neither
+// says a change was made that was not.
+func (s *Server) updatePrefsThen(c *controlClient, change func(*store.Prefs) bool, then func(prefsResult)) {
+	done := func(r prefsResult) {
+		if then != nil {
+			then(r)
+		}
+	}
 	s.do(func() {
 		p, err := store.ReadPrefs()
 		if err != nil {
@@ -238,12 +273,14 @@ func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
 			// has nothing to do about it, and a phone reached through the relay
 			// would be shown an error for a hint dismissed on the desk.
 			c.notify("Could not save the setting, because the settings saved before could not be read and saving now would write over them; it will not be kept after Flockdeck restarts: "+err.Error(), true)
+			done(prefsFailed)
 			return
 		}
 		// What each device may do is the running program's to say, not the
 		// file's: the file may have been deleted or damaged since it was read.
 		p.AdoptAccess(s.prefs)
 		if !change(&p) {
+			done(prefsUnchanged)
 			return
 		}
 		if err := store.SavePrefs(p); err != nil {
@@ -253,11 +290,13 @@ func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
 			// the next start with nothing to say why -- so that is said now, to
 			// the window that made it.
 			c.notify("Could not save the setting, so it will not be kept after Flockdeck restarts: "+err.Error(), true)
+			done(prefsFailed)
 			return
 		}
 		s.prefs = p
 		s.publishAccess()
 		s.broadcastPrefs()
+		done(prefsSaved)
 	})
 }
 
@@ -300,13 +339,14 @@ func (s *Server) updateAccess(change func(*store.Prefs) bool, then func(saveErr 
 // broadcastPrefs tells every window what the preferences now are. It runs on
 // the workspace goroutine.
 func (s *Server) broadcastPrefs() {
-	data, err := json.Marshal(prefsMsg{Type: "prefs", Prefs: s.prefs.ForWindow()})
-	if err != nil {
-		return
-	}
 	for _, cl := range s.clientList() {
+		data, err := json.Marshal(prefsMsg{Type: "prefs", Prefs: prefsFor(cl, s.prefs)})
+		if err != nil {
+			return
+		}
 		cl.send(data)
 	}
+	s.announceArtifacts()
 }
 
 // markHelpSeen records that the help has been opened, so the first-run welcome

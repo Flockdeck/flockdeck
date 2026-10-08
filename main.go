@@ -1102,6 +1102,9 @@ func run(opts options) error {
 	// it: nothing is dialled and nothing is shown.
 	remoteAccess := remote.NewManager(version, srv.ServeRemote, srv.Wake)
 	srv.SetRemote(remoteAccess)
+	// The artifacts socket serves a device only if the person verified its key
+	// here, and the manager is the record of that.
+	srv.SetArtifactVerifier(remoteAccess)
 	if err := remoteAccess.Reload(); err != nil {
 		fmt.Fprintln(os.Stderr, "flockdeck: Flockdeck Remote:", err)
 	}
