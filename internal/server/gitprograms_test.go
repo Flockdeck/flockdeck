@@ -450,3 +450,34 @@ func TestACommitAndPushIsCheckedAgainBeforeThePush(t *testing.T) {
 		}
 	}
 }
+
+// A scan that cannot be finished says where it stopped, and a slow repository
+// stops somewhere else each time. The answer to the warning still counts: what
+// is echoed names what can be accepted, not where a slow scan got to.
+func TestAnAnswerIsAcceptedWhenOnlyWhereASlowScanStoppedHasChanged(t *testing.T) {
+	isolateGit(t)
+	srv, _, repo := newRepoServer(t)
+	was := scanPrograms
+	t.Cleanup(func() { scanPrograms = was })
+	scans := 0
+	scanPrograms = func(string) (gitx.Report, error) {
+		scans++
+		return gitx.Report{Repo: repo + "/.git", Items: []gitx.Program{
+			{Kind: "unscannable", Where: repo + "/stopped-at-" + string(rune('a'+scans)), Value: "the scan took too long (15s)"},
+		}}, nil
+	}
+	ask := func(ans gitAnswer) *gitWarnMsg {
+		w, _ := answers(t, func(c *controlClient) { srv.runRemote(c, "fetch", repo, ans) })
+		return w
+	}
+	w := ask(gitAnswer{})
+	if w == nil {
+		t.Fatal("not asked")
+	}
+	if again := ask(gitAnswer{"once", w.Seen}); again != nil {
+		t.Fatalf("asked again after the answer, because the scan stopped somewhere else: %+v", again)
+	}
+	if w2 := ask(gitAnswer{}); w2 == nil {
+		t.Error("an unfinished scan was remembered as accepted")
+	}
+}

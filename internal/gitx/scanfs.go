@@ -509,6 +509,11 @@ func (f *scanFS) ReadChild(p string) ([]byte, error) {
 }
 
 // HashListed is Hash for an ordinary file a listing of a guarded folder showed.
+// It opens the file without a second guard, so a file replaced by a link
+// between the listing and this call is opened as the link. That is the race the
+// layer already has between any one call and the next (see the note on
+// gitProgramsAccepted in the server package), and a link to a share replaced
+// that way is not caught here.
 func (f *scanFS) HashListed(p string, limit int64) (string, int64, error) {
 	return f.hash(p, limit)
 }
