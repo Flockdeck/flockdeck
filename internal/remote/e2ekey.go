@@ -275,6 +275,12 @@ func (m *Manager) E2ECapable(ctx context.Context, deviceID string, origin KeyOri
 // back as ErrNoE2EKey rather than attempting a handshake that cannot
 // complete.
 func (m *Manager) E2ERespond(ctx context.Context, deviceID string, origin KeyOrigin, hello []byte) (*e2e.Session, []byte, error) {
+	return m.respond(ctx, deviceID, origin, hello, false)
+}
+
+// respond is E2ERespond, optionally refusing a device the desk has not
+// verified (see E2EVerifiedRespond). The key checked is the key used.
+func (m *Manager) respond(ctx context.Context, deviceID string, origin KeyOrigin, hello []byte, requireVerified bool) (*e2e.Session, []byte, error) {
 	hostPriv, err := m.hostE2EIdentity()
 	if err != nil {
 		return nil, nil, err
@@ -290,6 +296,9 @@ func (m *Manager) E2ERespond(ctx context.Context, deviceID string, origin KeyOri
 	devicePub, err := e2e.DecodePublicKey(enc)
 	if err != nil {
 		return nil, nil, fmt.Errorf("remote: the relay gave a bad end-to-end key for this device: %w", err)
+	}
+	if requireVerified && !m.DeviceVerified(deviceID, origin, devicePub.Bytes()) {
+		return nil, nil, ErrNotVerified
 	}
 	return e2e.RespondHostHandshake(hostPriv, devicePub, hello)
 }

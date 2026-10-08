@@ -271,6 +271,16 @@ type remoteDevicesMsg struct {
 type remoteDeviceView struct {
 	remote.Device
 	Fingerprint string `json:"fingerprint,omitempty"`
+	// DeskFingerprint is the same for the device's other key, the one a
+	// window opened from this machine's own full interface uses
+	// (remote.KeyOriginDesk). That window shows the code on its own side.
+	DeskFingerprint string `json:"deskFingerprint,omitempty"`
+	// Verify and DeskVerify say whether a person at this machine compared
+	// the code for the matching key: "" no, "verified", or "changed" for a
+	// key that was verified and has since been replaced (verified.go in
+	// internal/remote). Only a window on this machine can set it.
+	Verify     string `json:"verify,omitempty"`
+	DeskVerify string `json:"deskVerify,omitempty"`
 }
 
 // remoteFingerprint is remoteDeviceView.Fingerprint for one device, given
@@ -330,17 +340,24 @@ func (s *Server) remoteDevices(c *controlClient) {
 			c.sendJSON(msg)
 			return
 		}
+		// This machine's own key is read from this machine, not from the
+		// roster: a relay that swapped the roster's copy would otherwise
+		// make the code shown here agree with the code on a device that
+		// was handed the same swapped key, and the comparison would pass.
 		var selfKey string
-		for _, h := range roster.Hosts {
-			if h.Self {
-				selfKey = h.PublicKey
-				break
-			}
+		if ra := s.remoteAccess(); ra != nil {
+			selfKey = ra.E2EPublicKey()
 		}
 		if roster.Devices != nil {
 			msg.Devices = make([]remoteDeviceView, len(roster.Devices))
 			for i, d := range roster.Devices {
-				msg.Devices[i] = remoteDeviceView{Device: d, Fingerprint: remoteFingerprint(d.PublicKey, selfKey)}
+				msg.Devices[i] = remoteDeviceView{
+					Device:          d,
+					Fingerprint:     remoteFingerprint(d.PublicKey, selfKey),
+					DeskFingerprint: remoteFingerprint(d.DeskPublicKey, selfKey),
+					Verify:          s.verifyStateFor(d.ID, remote.KeyOriginUsual, d.PublicKey),
+					DeskVerify:      s.verifyStateFor(d.ID, remote.KeyOriginDesk, d.DeskPublicKey),
+				}
 			}
 		}
 		if roster.Hosts != nil {
@@ -416,6 +433,7 @@ func (s *Server) remoteRevoke(c *controlClient, id string) {
 		if err := cl.Revoke(context.Background(), id); err != nil {
 			c.notify("Could not unpair that device: "+err.Error(), true)
 		} else {
+			s.forgetVerified(id)
 			c.notify("Device unpaired", false)
 		}
 		s.remoteDevices(c)
