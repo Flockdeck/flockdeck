@@ -1166,6 +1166,7 @@ func run(opts options) error {
 		}
 		defer store.ClearInstance()
 	}
+	defer startChannel(srv)()
 	releaseStart()
 
 	// Watching for releases runs for the life of the server and stops with it,
