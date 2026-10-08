@@ -76,6 +76,12 @@ type Server struct {
 	ws    *workspace.Workspace
 	token string
 
+	// hosts is the set of Host header values the loopback listener answers to,
+	// and hostLog limits how often a refusal is written to stderr; see
+	// guardHosts. The relay window does not use them.
+	hosts   *hostAllow
+	hostLog hostRefusals
+
 	// rp is what a repaint does at each step; see repaintHooks.
 	rp repaintHooks
 
@@ -327,6 +333,12 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	// Starts the read of git's version in the background; windows are told what
 	// it came to (announceRadarSupport).
 	radarSupport()
+	// Read before anything is started, so that a mistake in the list ends the
+	// run with a message and not a server that refuses everything.
+	hosts, err := newHostAllow(os.Getenv(AllowedHostsEnv))
+	if err != nil {
+		return nil, err
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("listen on loopback: %w", err)
@@ -341,6 +353,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		ws:      ws,
 		prefs:   store.LoadPrefs(),
 		token:   hex.EncodeToString(raw),
+		hosts:   hosts,
 		links:   map[string]linkEntry{},
 		spent:   map[string]linkFateEntry{},
 		ln:      ln,
@@ -382,7 +395,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	mux.HandleFunc("/remote/reload", s.handleRemoteReload)
 	s.mux = mux
 
-	s.http = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	s.http = &http.Server{Handler: s.guardHosts(mux), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = s.http.Serve(ln) }()
 	go s.runLoop()
 	go s.pushLoop()
