@@ -182,3 +182,113 @@ await h.waitFor(() => closed);
 assert.ok(closed, "a handshake response that did not check out was not closed");
 `)
 }
+
+// e2eOpenedPty is the setup the next tests share: a pane's terminal socket
+// that has sent its hello, plus the desktop's side of the session it is
+// about to be given. seal builds a frame the way internal/server/pty.go's
+// e2eConn does, from the one session, so frames must be delivered in the
+// order they were sealed. The first response is built but not delivered.
+const e2eOpenedPty = e2eHostSetup + `
+h.recv(fixture());
+const ws = h.sockets.find((s) => s.url.includes("/ws/pty?id=p1"));
+let closed = false;
+const realClose = ws.close.bind(ws);
+ws.close = () => { closed = true; realClose(); };
+ws.onopen();
+await h.waitFor(() => ws.sent.length > 0);
+const identity = await E2E.getIdentity();
+const { session: hostSession, response } = await E2E.respondHostHandshake(
+  hostPair.privateKey, hostPair.publicKey, identity.publicKey, ws.sent[0]);
+const seal = async (tag, plain) => {
+  const tagged = new Uint8Array(plain.length + 1);
+  tagged[0] = tag;
+  tagged.set(plain, 1);
+  return hostSession.seal(tagged);
+};
+const header = () => seal(1, new TextEncoder().encode(JSON.stringify({ epoch: 1, offset: 0, end: 0, resumed: false })));
+const output = (s) => seal(0, new TextEncoder().encode(s));
+const drawn = () => h.terms.flatMap((t) => t.written.map((w) => new TextDecoder().decode(w)));
+`
+
+// TestSealedFramesRightBehindTheHandshakeResponseAreKept covers what the
+// desktop actually does: it writes the handshake response and then, with
+// nothing in between, the sealed stream header and the replay. The browser
+// is still awaiting the key derivation in handshake.finish when those
+// messages fire, so they used to find neither a handshake nor a session and
+// close the socket. They are now held and opened, in order, once the
+// session exists.
+func TestSealedFramesRightBehindTheHandshakeResponseAreKept(t *testing.T) {
+	runFrontEnd(t, e2eOpenedPty+`
+const frames = [await header(), await output("one "), await output("two "), await output("three")];
+// All in the same tick, as one burst off the wire is.
+ws.onmessage({ data: response.buffer });
+for (const f of frames) ws.onmessage({ data: f.buffer });
+await h.waitFor(() => drawn().join("") === "one two three");
+assert.ok(!closed, "a sealed frame behind the handshake response closed the socket");
+assert.deepStrictEqual(drawn(), ["one ", "two ", "three"], "frames were not drawn in the order they were sent");
+`)
+}
+
+// TestAFrameThatFailsToOpenAfterTheHandshakeStillCloses and the tests after
+// it pin down that holding frames during the handshake did not become a
+// way to skip authentication.
+func TestAHeldFrameThatFailsToOpenStillCloses(t *testing.T) {
+	runFrontEnd(t, e2eOpenedPty+`
+const good = await header();
+const bad = await output("tampered");
+const flipped = new Uint8Array(bad);
+flipped[flipped.length - 1] ^= 1;
+ws.onmessage({ data: response.buffer });
+ws.onmessage({ data: good.buffer });
+ws.onmessage({ data: flipped.buffer });
+await h.waitFor(() => closed);
+assert.ok(closed, "a held frame that did not open was not closed");
+assert.ok(!drawn().includes("tampered"), "a frame that failed to open was drawn");
+`)
+}
+
+func TestAHeldFrameDeliveredTwiceIsAReplayAndCloses(t *testing.T) {
+	runFrontEnd(t, e2eOpenedPty+`
+const f = await output("once");
+ws.onmessage({ data: response.buffer });
+ws.onmessage({ data: f.buffer });
+ws.onmessage({ data: f.buffer.slice(0) });
+await h.waitFor(() => closed);
+assert.ok(closed, "a replayed frame was not closed");
+assert.deepStrictEqual(drawn().filter((s) => s === "once").length, 1, "a replayed frame was drawn twice");
+`)
+}
+
+func TestAFrameBeforeTheHandshakeStartsIsRefused(t *testing.T) {
+	runFrontEnd(t, e2eHostSetup+`
+h.recv(fixture());
+const ws = h.sockets.find((s) => s.url.includes("/ws/pty?id=p1"));
+let closed = false;
+const realClose = ws.close.bind(ws);
+ws.close = () => { closed = true; realClose(); };
+ws.onopen();
+// No hello has gone out yet, so there is no handshake to answer.
+assert.strictEqual(ws.sent.length, 0);
+ws.onmessage({ data: new Uint8Array(40).buffer });
+await h.waitFor(() => closed);
+assert.ok(closed, "a frame before the handshake started was not refused");
+`)
+}
+
+func TestATextFrameDuringTheHandshakeIsRefused(t *testing.T) {
+	runFrontEnd(t, e2eOpenedPty+`
+ws.onmessage({ data: response.buffer });
+ws.onmessage({ data: JSON.stringify({ epoch: 1, offset: 0, end: 0, resumed: false }) });
+await h.waitFor(() => closed);
+assert.ok(closed, "a plain frame during the handshake was not refused");
+`)
+}
+
+func TestTooManyFramesHeldDuringTheHandshakeCloses(t *testing.T) {
+	runFrontEnd(t, e2eOpenedPty+`
+ws.onmessage({ data: response.buffer });
+// Nothing yields between these, so the handshake cannot have finished.
+for (let i = 0; i < 100000 && !closed; i++) ws.onmessage({ data: new Uint8Array(32).buffer });
+assert.ok(closed, "an unbounded number of frames were held during the handshake");
+`)
+}
