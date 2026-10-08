@@ -5,11 +5,15 @@ package channel
 import (
 	"bufio"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unsafe"
@@ -137,14 +141,18 @@ func TestRemoteNameDoesNotReachThePipe(t *testing.T) {
 
 func TestPeerFromAnotherUserSIDIsRefused(t *testing.T) {
 	self, _ := selfOwner()
-	c := start(t, func(cfg *Config) { cfg.Seams.Self = self + "-9" })
-	req, _ := newReq()
-	if resp, err := Client(c.Path()).Do(req); err == nil {
-		resp.Body.Close()
-		t.Fatalf("answered a client whose SID is not the expected one: %d", resp.StatusCode)
+	var calls atomic.Int32
+	c := start(t, func(cfg *Config) {
+		cfg.Seams.Self = self + "-9"
+		cfg.Window = func() string { calls.Add(1); return "x" }
+	})
+	if sendWindow(t, c) {
+		t.Fatal("answered a client whose SID is not the expected one")
 	}
-	if c.Denied() == 0 {
-		t.Fatal("not counted")
+	waitFor(t, "the refusal", func() bool { return c.Denied() == 1 })
+	time.Sleep(200 * time.Millisecond)
+	if calls.Load() != 0 {
+		t.Fatalf("the window verb ran %d times for a refused client", calls.Load())
 	}
 }
 
@@ -195,5 +203,37 @@ func TestSilentClientIsNotServed(t *testing.T) {
 	}
 	if c.Denied() != 0 {
 		t.Fatal("refused a client that had not sent anything")
+	}
+}
+
+// If the thread cannot be taken back from the client it is left locked and
+// the goroutine ends; the connection is refused and nothing runs.
+func TestFailedRevertRefusesTheConnection(t *testing.T) {
+	old := revertToSelf
+	revertToSelf = func() error {
+		windows.RevertToSelf() // really revert, so the test's threads are clean
+		return errors.New("simulated failure")
+	}
+	t.Cleanup(func() { revertToSelf = old })
+
+	var calls atomic.Int32
+	var mu sync.Mutex
+	var lines []string
+	c := start(t, func(cfg *Config) {
+		cfg.Window = func() string { calls.Add(1); return "x" }
+		cfg.Logf = func(f string, a ...any) { mu.Lock(); lines = append(lines, fmt.Sprintf(f, a...)); mu.Unlock() }
+	})
+	if sendWindow(t, c) {
+		t.Fatal("answered although the thread could not be reverted")
+	}
+	waitFor(t, "the refusal", func() bool { return c.Denied() == 1 })
+	time.Sleep(200 * time.Millisecond)
+	if calls.Load() != 0 {
+		t.Fatalf("the window verb ran %d times", calls.Load())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(lines) != 1 || !strings.Contains(lines[0], "could not stop impersonating the client") {
+		t.Fatalf("log = %q", lines)
 	}
 }

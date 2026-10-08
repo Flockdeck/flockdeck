@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -455,5 +456,60 @@ func TestRefusedPeersAreLoggedOncePerMinuteWithACount(t *testing.T) {
 	defer mu.Unlock()
 	if len(lines) != 2 || !strings.Contains(lines[1], "5 connections") {
 		t.Fatalf("lines = %q, want a second that counts 5 more", lines)
+	}
+}
+
+// sendWindow writes a whole window request on a fresh connection and reports
+// whether any answer came back.
+func sendWindow(t *testing.T, c *Channel) (answered bool) {
+	t.Helper()
+	conn, err := Dial(c.Path(), 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	io.WriteString(conn, "POST /window HTTP/1.1\r\nHost: channel\r\nContent-Length: 0\r\n\r\n")
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return true
+}
+
+// A peer that is refused when its first bytes arrive gets no answer, and,
+// more to the point, its request is never run: a window link would be minted
+// and thrown away.
+func TestRefusedFirstRequestNeverReachesTheHandler(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		owner string
+		want  int32
+	}{
+		{"another user", "mallory", 0},
+		{"this user", "alice", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			c := start(t, func(cfg *Config) {
+				cfg.Seams.Self = "alice"
+				cfg.Seams.Late = true
+				cfg.Seams.ReadPeer = func(net.Conn) (Peer, error) { return Peer{PID: 5, Owner: tc.owner}, nil }
+				cfg.Window = func() string { calls.Add(1); return "http://127.0.0.1:1/?w=x" }
+			})
+			answered := sendWindow(t, c)
+			if answered != (tc.want == 1) {
+				t.Fatalf("answered = %v", answered)
+			}
+			if tc.want == 0 {
+				waitFor(t, "the refusal", func() bool { return c.Denied() == 1 })
+			}
+			// Time for a handler that should not have run to run.
+			time.Sleep(200 * time.Millisecond)
+			if got := calls.Load(); got != tc.want {
+				t.Fatalf("the window verb ran %d times, want %d", got, tc.want)
+			}
+		})
 	}
 }
