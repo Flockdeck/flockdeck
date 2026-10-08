@@ -340,6 +340,9 @@ func (s *Server) remoteDevices(c *controlClient) {
 			c.sendJSON(msg)
 			return
 		}
+		// A device unpaired from its own page is gone from the roster, and
+		// with it whatever was verified for it.
+		s.forgetVerifiedExcept(roster.Devices)
 		// This machine's own key is read from this machine, not from the
 		// roster: a relay that swapped the roster's copy would otherwise
 		// make the code shown here agree with the code on a device that

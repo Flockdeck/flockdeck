@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -22,6 +23,7 @@ type verifyRemote struct {
 	verifies  []string                      // "device/origin/code"
 	unverifys []string
 	forgotten []string
+	keptOnly  [][]string
 	verifyErr error
 }
 
@@ -152,11 +154,24 @@ func TestFingerprintUsesThisMachinesOwnKeyNotTheRosters(t *testing.T) {
 	}
 }
 
-// Marking a device verified is the desk's alone.
+// Marking a device verified is the desk's alone, and an attempt from a window
+// reached through the relay is refused, written to error.log and shown at the
+// desk.
 func TestVerifyingADeviceIsDoneOnlyAtTheDesk(t *testing.T) {
+	var logMu sync.Mutex
+	var logged []string
+	old := logf
+	logf = func(format string, args ...any) {
+		logMu.Lock()
+		defer logMu.Unlock()
+		logged = append(logged, fmt.Sprintf(format, args...))
+	}
+	t.Cleanup(func() { logf = old })
+
 	fake := newVerifyRemote(t, `[]`, "")
 	srv, _ := newTestServer(t)
 	srv.SetRemote(fake)
+	desk := dialControl(t, srv)
 	ts := remoteServer(t, srv)
 	phone, err := dialRemoteControl(ts, ts.URL)
 	if err != nil {
@@ -176,12 +191,21 @@ func TestVerifyingADeviceIsDoneOnlyAtTheDesk(t *testing.T) {
 		if !note.Error || note.Text != deskOnlyVerify {
 			t.Errorf("%s through the relay was answered %+v, want it refused", cmd.Cmd, note)
 		}
+		var deskNote noticeMsg
+		readUntil(t, desk, "notice", &deskNote)
+		if !deskNote.Error || !strings.Contains(deskNote.Text, cmd.Cmd) || !strings.Contains(deskNote.Text, "refused") {
+			t.Errorf("the desk was told %+v of %s through the relay, want a notice naming it", deskNote, cmd.Cmd)
+		}
 	}
 	if v, u := fake.calls(); v != 0 || u != 0 {
 		t.Errorf("a window through the relay reached the verified record: %d verifies, %d unverifies", v, u)
 	}
+	logMu.Lock()
+	if len(logged) != 3 || !strings.Contains(logged[0], "remoteVerify") || !strings.Contains(logged[2], "remoteUnverify") {
+		t.Errorf("error.log lines = %q, want one per refused command", logged)
+	}
+	logMu.Unlock()
 
-	desk := dialControl(t, srv)
 	sendCmd(t, desk, command{Cmd: "remoteVerify", ID: "d1", Kind: "desk", Text: code})
 	var note noticeMsg
 	readUntil(t, desk, "notice", &note)
@@ -192,6 +216,23 @@ func TestVerifyingADeviceIsDoneOnlyAtTheDesk(t *testing.T) {
 	defer fake.mu.Unlock()
 	if want := fmt.Sprintf("d1/%d/%s", remote.KeyOriginDesk, code); len(fake.verifies) != 1 || fake.verifies[0] != want {
 		t.Errorf("verify calls = %v, want [%s]", fake.verifies, want)
+	}
+}
+
+// A roster without a device drops what was recorded for it, so a device
+// unpaired from its own page cannot come back verified.
+func TestARosterWithoutADeviceForgetsItsVerification(t *testing.T) {
+	fake := newVerifyRemote(t, `[{"id":"d2","name":"tablet"}]`, "")
+	srv, _ := newTestServer(t)
+	srv.SetRemote(fake)
+	desk := dialControl(t, srv)
+	sendCmd(t, desk, command{Cmd: "remoteDevices"})
+	var msg verifyDevicesMsg
+	readUntil(t, desk, "remoteDevices", &msg)
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.keptOnly) != 1 || len(fake.keptOnly[0]) != 1 || fake.keptOnly[0][0] != "d2" {
+		t.Errorf("records kept for %v, want only [d2]", fake.keptOnly)
 	}
 }
 
@@ -264,4 +305,11 @@ func TestUnpairingADeviceForgetsItsVerification(t *testing.T) {
 	if len(fake.forgotten) != 1 || fake.forgotten[0] != "d1" {
 		t.Errorf("forgotten = %v, want [d1]", fake.forgotten)
 	}
+}
+
+func (v *verifyRemote) ForgetDevicesNotIn(ids []string) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.keptOnly = append(v.keptOnly, ids)
+	return nil
 }

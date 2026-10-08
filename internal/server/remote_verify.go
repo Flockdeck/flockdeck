@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jmwri/flockdeck/internal/e2e"
 	"github.com/jmwri/flockdeck/internal/remote"
@@ -23,6 +24,7 @@ type deviceVerifier interface {
 	VerifyDevice(ctx context.Context, deviceID string, origin remote.KeyOrigin, claimed string) error
 	UnverifyDevice(deviceID string, origin remote.KeyOrigin) error
 	ForgetDevice(deviceID string) error
+	ForgetDevicesNotIn(ids []string) error
 }
 
 func (s *Server) deviceVerifier() deviceVerifier {
@@ -69,8 +71,7 @@ func (s *Server) verifyStateFor(deviceID string, origin remote.KeyOrigin, enc st
 // device, cmd.Kind the origin ("usual" or "desk") and cmd.Text the code the
 // window showed the person, which is checked against the key as it is now.
 func (s *Server) remoteVerify(c *controlClient, cmd command) {
-	if c.remote {
-		c.notify(deskOnlyVerify, true)
+	if s.refusedVerifyThroughRelay(c, cmd) {
 		return
 	}
 	origin, ok := remote.ParseKeyOrigin(cmd.Kind)
@@ -101,8 +102,7 @@ func (s *Server) remoteVerify(c *controlClient, cmd command) {
 
 // remoteUnverify takes a device's verification for one origin away.
 func (s *Server) remoteUnverify(c *controlClient, cmd command) {
-	if c.remote {
-		c.notify(deskOnlyVerify, true)
+	if s.refusedVerifyThroughRelay(c, cmd) {
 		return
 	}
 	origin, ok := remote.ParseKeyOrigin(cmd.Kind)
@@ -121,6 +121,40 @@ func (s *Server) remoteUnverify(c *controlClient, cmd command) {
 		c.notify("Verification removed", false)
 	}
 	s.remoteDevices(c)
+}
+
+// refusedVerifyThroughRelay refuses a verify or unverify that came from a
+// window reached through the relay, and reports whether it did. Nothing in
+// the app sends one from there, so one is either a modified page or a relay
+// trying it: the attempt goes to error.log and to the windows at the desk,
+// as well as being refused to the window that sent it.
+func (s *Server) refusedVerifyThroughRelay(c *controlClient, cmd command) bool {
+	if !c.remote {
+		return false
+	}
+	c.notify(deskOnlyVerify, true)
+	logf("refused %s for device %q from a window reached through the relay (paired device %q)", cmd.Cmd, cmd.ID, c.device)
+	desk := fmt.Sprintf("A window reached through the relay tried to change which devices are marked verified (%s). It was refused", cmd.Cmd)
+	for _, w := range s.clientList() {
+		if !w.remote {
+			w.notify(desk, true)
+		}
+	}
+	return true
+}
+
+// forgetVerifiedExcept drops the records of devices no longer in a roster
+// the relay returned.
+func (s *Server) forgetVerifiedExcept(devices []remote.Device) {
+	v := s.deviceVerifier()
+	if v == nil {
+		return
+	}
+	ids := make([]string, len(devices))
+	for i, d := range devices {
+		ids[i] = d.ID
+	}
+	_ = v.ForgetDevicesNotIn(ids)
 }
 
 // forgetVerified drops everything recorded for a device that was unpaired.

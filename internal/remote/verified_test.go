@@ -3,12 +3,15 @@ package remote
 import (
 	"context"
 	"crypto/ecdh"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/e2e"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -242,34 +245,239 @@ func TestVerificationSurvivesARestart(t *testing.T) {
 	}
 }
 
+// A file that does not hold the records in the form this code writes
+// verifies nothing. Each case starts from a real record, written by a
+// verification and known to verify, and breaks one thing, so a guard that
+// stops working shows as a device verifying.
 func TestUnreadableRecordsMeanNothingIsVerified(t *testing.T) {
-	for name, content := range map[string]string{
-		"garbage":       "not json",
-		"empty":         "",
-		"wrong version": `{"v":2,"records":[{"device":"d1","origin":"desk","deviceKey":"AA","hostKey":"AA"}]}`,
-		"bad base64":    `{"v":1,"records":[{"device":"d1","origin":"desk","deviceKey":"!!","hostKey":"!!"}]}`,
-		"empty keys":    `{"v":1,"records":[{"device":"d1","origin":"desk","deviceKey":"","hostKey":""}]}`,
+	type doc = map[string]any
+	// edit changes the decoded file; raw replaces the file's bytes outright.
+	for name, c := range map[string]struct {
+		edit func(d doc)
+		raw  func(good []byte) []byte
+	}{
+		"garbage":     {raw: func(good []byte) []byte { return append(append([]byte{}, good...), "}{ garbage"...) }},
+		"truncated":   {raw: func(good []byte) []byte { return good[:len(good)/2] }},
+		"empty":       {raw: func([]byte) []byte { return nil }},
+		"not json":    {raw: func([]byte) []byte { return []byte("not json") }},
+		"version two": {edit: func(d doc) { d["v"] = 2 }},
+		"no version":  {edit: func(d doc) { delete(d, "v") }},
+		"too many records": {edit: func(d doc) {
+			recs := d["records"].([]any)
+			for i := 0; i < maxVerifiedRecords; i++ {
+				recs = append(recs, doc{"device": "other" + strconv.Itoa(i), "origin": "desk", "deviceKey": "AA", "hostKey": "AA"})
+			}
+			d["records"] = recs
+		}},
+		"bad base64 device key": {edit: func(d doc) { d["records"].([]any)[0].(doc)["deviceKey"] = "!!" }},
+		"bad base64 host key":   {edit: func(d doc) { d["records"].([]any)[0].(doc)["hostKey"] = "!!" }},
+		"empty keys": {edit: func(d doc) {
+			r := d["records"].([]any)[0].(doc)
+			r["deviceKey"], r["hostKey"] = "", ""
+		}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newVerifyFixture(t)
-			p := mustVerifiedPath(t)
-			if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if f.m.DeviceVerified("d1", KeyOriginDesk, f.desk) || f.m.DeviceVerified("d1", KeyOriginDesk, []byte{0}) {
-				t.Error("a damaged record verified a device")
-			}
-			// The next real verification still works over it.
 			if err := f.m.VerifyDevice(context.Background(), "d1", KeyOriginDesk, f.deskFP); err != nil {
 				t.Fatal(err)
 			}
-			if !f.m.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+			p := mustVerifiedPath(t)
+			good, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The unbroken file verifies, so the cases below fail for the
+			// reason they say.
+			if !testManager(f.relay.URL).DeviceVerified("d1", KeyOriginDesk, f.desk) {
+				t.Fatal("the record as written does not verify")
+			}
+			data := good
+			if c.edit != nil {
+				var d doc
+				if err := json.Unmarshal(good, &d); err != nil {
+					t.Fatal(err)
+				}
+				// The decoded records are map[string]any; give the edits the
+				// shape they index.
+				recs := d["records"].([]any)
+				for i, r := range recs {
+					recs[i] = doc(r.(map[string]any))
+				}
+				c.edit(d)
+				if data, err = json.Marshal(d); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				data = c.raw(good)
+			}
+			if err := os.WriteFile(p, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			m2 := testManager(f.relay.URL)
+			if m2.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+				t.Error("a damaged record verified a device")
+			}
+			// The next real verification still works over it.
+			if err := m2.VerifyDevice(context.Background(), "d1", KeyOriginDesk, f.deskFP); err != nil {
+				t.Fatal(err)
+			}
+			if !m2.DeviceVerified("d1", KeyOriginDesk, f.desk) {
 				t.Error("could not verify after a damaged file")
 			}
 		})
+	}
+}
+
+// Two Flockdeck processes can share a state directory. What one records the
+// other sees without restarting, and removing it is seen too.
+func TestAnotherInstanceSeesAChangeToTheRecord(t *testing.T) {
+	f := newVerifyFixture(t)
+	m2 := testManager(f.relay.URL)
+	ctx := context.Background()
+	// m2 reads the (absent) file first, so it holds a stale copy.
+	if m2.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+		t.Fatal("verified with no record")
+	}
+	if err := f.m.VerifyDevice(ctx, "d1", KeyOriginDesk, f.deskFP); err != nil {
+		t.Fatal(err)
+	}
+	if !m2.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+		t.Error("a second instance does not see a verification made by the first")
+	}
+	if err := f.m.UnverifyDevice("d1", KeyOriginDesk); err != nil {
+		t.Fatal(err)
+	}
+	if m2.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+		t.Error("a second instance still trusts a verification the first removed")
+	}
+	// The file deleted outright is seen too.
+	if err := f.m.VerifyDevice(ctx, "d1", KeyOriginDesk, f.deskFP); err != nil {
+		t.Fatal(err)
+	}
+	if !m2.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+		t.Fatal("not seen")
+	}
+	if err := os.Remove(mustVerifiedPath(t)); err != nil {
+		t.Fatal(err)
+	}
+	if m2.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+		t.Error("a second instance still trusts a record file that is gone")
+	}
+}
+
+// A rewrite that leaves the file the same size is still noticed when the
+// modification time moves.
+func TestARewrittenRecordOfTheSameSizeIsReread(t *testing.T) {
+	f := newVerifyFixture(t)
+	if err := f.m.VerifyDevice(context.Background(), "d1", KeyOriginDesk, f.deskFP); err != nil {
+		t.Fatal(err)
+	}
+	if !f.m.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+		t.Fatal("not verified")
+	}
+	p := mustVerifiedPath(t)
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same length: the device id d1 becomes d2.
+	changed := strings.Replace(string(data), `"d1"`, `"d2"`, 1)
+	if len(changed) != len(data) || changed == string(data) {
+		t.Fatal("test file edit is wrong")
+	}
+	if err := os.WriteFile(p, []byte(changed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(p, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if f.m.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+		t.Error("a rewritten record file was not read again")
+	}
+}
+
+// A change made by one instance does not undo one made by another: each
+// reads the file before it changes it.
+func TestTwoInstancesDoNotOverwriteEachOther(t *testing.T) {
+	f := newVerifyFixture(t)
+	m2 := testManager(f.relay.URL)
+	ctx := context.Background()
+	// Both have read the empty file.
+	f.m.DeviceVerified("d1", KeyOriginDesk, f.desk)
+	m2.DeviceVerified("d1", KeyOriginDesk, f.desk)
+	if err := f.m.VerifyDevice(ctx, "d1", KeyOriginDesk, f.deskFP); err != nil {
+		t.Fatal(err)
+	}
+	if err := m2.VerifyDevice(ctx, "d1", KeyOriginUsual, f.usualFP); err != nil {
+		t.Fatal(err)
+	}
+	for name, m := range map[string]*Manager{"first": f.m, "second": m2, "fresh": testManager(f.relay.URL)} {
+		if !m.DeviceVerified("d1", KeyOriginDesk, f.desk) || !m.DeviceVerified("d1", KeyOriginUsual, f.usual) {
+			t.Errorf("the %s instance lost a verification: desk %v, usual %v", name,
+				m.DeviceVerified("d1", KeyOriginDesk, f.desk), m.DeviceVerified("d1", KeyOriginUsual, f.usual))
+		}
+	}
+	// A stale instance that forgets a device does not bring back what
+	// another removed, nor drop what another added.
+	m3 := testManager(f.relay.URL)
+	m3.DeviceVerified("d1", KeyOriginDesk, f.desk)
+	if err := f.m.UnverifyDevice("d1", KeyOriginDesk); err != nil {
+		t.Fatal(err)
+	}
+	if err := m3.UnverifyDevice("d1", KeyOriginUsual); err != nil {
+		t.Fatal(err)
+	}
+	if f.m.DeviceVerified("d1", KeyOriginDesk, f.desk) || f.m.DeviceVerified("d1", KeyOriginUsual, f.usual) {
+		t.Error("an instance's removal was undone by another's stale copy")
+	}
+}
+
+// A device that leaves the roster loses its verification, and one that
+// returns with the same id and key is not verified until compared again.
+func TestADeviceThatLeavesTheRosterIsNoLongerVerified(t *testing.T) {
+	f := newVerifyFixture(t)
+	ctx := context.Background()
+	d1 := Device{
+		ID: "d1", PublicKey: e2e.EncodePublicKey(mustPub(t, f.usual)),
+		DeskPublicKey: e2e.EncodePublicKey(mustPub(t, f.desk)),
+	}
+	otherPriv := mustKey(t)
+	d2 := Device{ID: "d2", DeskPublicKey: e2e.EncodePublicKey(otherPriv.PublicKey())}
+	setDevices(f.relay, d1, d2)
+	_, hostPub, _ := f.m.hostKeyBytes()
+	if err := f.m.VerifyDevice(ctx, "d1", KeyOriginDesk, f.deskFP); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.VerifyDevice(ctx, "d2", KeyOriginDesk, e2e.Fingerprint(otherPriv.PublicKey(), hostPub)); err != nil {
+		t.Fatal(err)
+	}
+
+	// d1 is unpaired from its own page: the next roster lacks it.
+	setDevices(f.relay, d2)
+	if got := f.m.DeviceFingerprint(ctx, "d2", KeyOriginDesk); got == "" {
+		t.Fatal("no fingerprint for the device that is still paired")
+	}
+	if f.m.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+		t.Error("a device missing from the roster is still verified")
+	}
+	if !f.m.DeviceVerified("d2", KeyOriginDesk, otherPriv.PublicKey().Bytes()) {
+		t.Error("a device still on the roster lost its verification")
+	}
+
+	// The same id and key pair again.
+	setDevices(f.relay, d1, d2)
+	if f.m.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+		t.Error("a re-paired device came back verified without a new comparison")
+	}
+	if got := f.m.DeviceVerifyState("d1", KeyOriginDesk, f.desk); got != NotVerified {
+		t.Errorf("state = %v, want NotVerified", got)
+	}
+	if err := f.m.VerifyDevice(ctx, "d1", KeyOriginDesk, f.deskFP); err != nil {
+		t.Fatal(err)
+	}
+	if !f.m.DeviceVerified("d1", KeyOriginDesk, f.desk) {
+		t.Error("could not verify the re-paired device")
 	}
 }
 
@@ -296,67 +504,6 @@ func TestUnverifyAndForget(t *testing.T) {
 	}
 	if testManager(f.relay.URL).DeviceVerified("d1", KeyOriginUsual, f.usual) {
 		t.Error("the removal was not saved")
-	}
-}
-
-// E2EVerifiedRespond checks the key it then handshakes against.
-func TestE2EVerifiedRespond(t *testing.T) {
-	isolate(t)
-	devicePriv := mustKey(t)
-	relay := newE2EFakeRelay(t, Device{ID: "d1", DeskPublicKey: e2e.EncodePublicKey(devicePriv.PublicKey())})
-	m := testManager(relay.URL)
-	hostPriv, err := m.hostE2EIdentity()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	_, hello, err := e2e.StartDeviceHandshake(devicePriv, hostPriv.PublicKey())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sess, resp, err := m.E2EVerifiedRespond(ctx, "d1", KeyOriginDesk, hello); !errors.Is(err, ErrNotVerified) || sess != nil || resp != nil {
-		t.Fatalf("unverified device: %v %v %v, want ErrNotVerified and no response", sess, resp, err)
-	}
-	fp := e2e.Fingerprint(devicePriv.PublicKey(), hostPriv.PublicKey())
-	if err := m.VerifyDevice(ctx, "d1", KeyOriginDesk, fp); err != nil {
-		t.Fatal(err)
-	}
-	dh, hello, err := e2e.StartDeviceHandshake(devicePriv, hostPriv.PublicKey())
-	if err != nil {
-		t.Fatal(err)
-	}
-	hostSess, resp, err := m.E2EVerifiedRespond(ctx, "d1", KeyOriginDesk, hello)
-	if err != nil {
-		t.Fatalf("verified device refused: %v", err)
-	}
-	devSess, err := dh.Finish(resp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, err := hostSess.Open(devSess.Seal([]byte("x"))); err != nil || string(got) != "x" {
-		t.Fatalf("session does not work: %q %v", got, err)
-	}
-	// The usual origin has no key at all.
-	if _, _, err := m.E2EVerifiedRespond(ctx, "d1", KeyOriginUsual, hello); err == nil {
-		t.Error("answered a handshake for an origin with no key")
-	}
-
-	// The relay swaps the key; the cache is expired so it is read again.
-	old := e2eRosterTTL
-	e2eRosterTTL = 0
-	defer func() { e2eRosterTTL = old }()
-	swapped := mustKey(t)
-	setDevices(relay, Device{ID: "d1", DeskPublicKey: e2e.EncodePublicKey(swapped.PublicKey())})
-	_, hello2, err := e2e.StartDeviceHandshake(swapped, hostPriv.PublicKey())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sess, _, err := m.E2EVerifiedRespond(ctx, "d1", KeyOriginDesk, hello2); !errors.Is(err, ErrNotVerified) || sess != nil {
-		t.Fatalf("a swapped key was served: %v %v", sess, err)
-	}
-	// The plain responder is unchanged: only the verified one gates.
-	if _, _, err := m.E2ERespond(ctx, "d1", KeyOriginDesk, hello2); err != nil {
-		t.Errorf("E2ERespond changed behaviour: %v", err)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -32,8 +33,23 @@ import (
 // comparison by a person.
 //
 // The record lives in this machine's state directory, beside remote.json,
-// and is only ever written by Manager.VerifyDevice, which the server only
-// calls for a window on this machine (never one reached through the relay).
+// and is only written by Manager.VerifyDevice, which the server only calls
+// for a window on this machine (never one reached through the relay).
+//
+// What the record does not defend against: it is protected the way
+// remote.json and e2e_key.json are, by a 0600 file in the state directory
+// and nothing stronger. Flockdeck keeps no secret anywhere that a program
+// running as the same user cannot read (keys.json is a plain file too), so a
+// MAC over the records would be keyed with a key stored beside them and
+// would add nothing. A program running as you can therefore write a record
+// for a key it chose (both keys are public values it can read), or ask the
+// local server to record one. The record stops a relay from swapping a key
+// after a person checked it. It does not stop software on this machine that
+// already acts as you.
+//
+// Two Flockdeck processes can share a state directory, so the file is
+// re-read whenever it has changed (its modification time or size), before a
+// check and before a change, rather than trusted from the first read.
 
 // verifiedFile is where the records are kept, 0600 like its neighbours.
 const verifiedFile = "remote_verified.json"
@@ -59,10 +75,6 @@ const (
 	KeyChanged
 )
 
-// ErrNotVerified is what E2EVerifiedRespond fails with for a device whose
-// key for this origin the desk has not verified.
-var ErrNotVerified = errors.New("remote: this device has not been verified at the desk")
-
 // ErrFingerprintMismatch is what VerifyDevice fails with when the code the
 // person compared is not the code for the device's key as it is now.
 var ErrFingerprintMismatch = errors.New("remote: the code no longer matches this device's key; look at the code again")
@@ -83,13 +95,22 @@ type verifiedDoc struct {
 	Records []verifiedRecord `json:"records"`
 }
 
-// verifiedStore is the records, loaded on first use. Unreadable records are
-// treated as none: failing closed means every device shows as not verified,
-// which costs a re-check and nothing else.
+// verifiedStore is the records, as last read from the file. Unreadable
+// records are treated as none: failing closed means every device shows as
+// not verified, which costs a re-check and nothing else.
 type verifiedStore struct {
 	mu     sync.Mutex
 	loaded bool
+	sig    fileSig
 	recs   []verifiedRecord
+}
+
+// fileSig is what a stat of the record file says, enough to notice that
+// another Flockdeck process changed it.
+type fileSig struct {
+	exists bool
+	mod    time.Time
+	size   int64
 }
 
 func verifiedPath() (string, error) {
@@ -100,17 +121,31 @@ func verifiedPath() (string, error) {
 	return filepath.Join(dir, verifiedFile), nil
 }
 
-// load reads the file the first time. Callers hold v.mu.
-func (v *verifiedStore) load() {
-	if v.loaded {
-		return
+func statSig(p string) fileSig {
+	fi, err := os.Stat(p)
+	if err != nil {
+		return fileSig{}
 	}
-	v.loaded = true
-	v.recs = nil
+	return fileSig{exists: true, mod: fi.ModTime(), size: fi.Size()}
+}
+
+// load makes v.recs what the file holds now, reading it again only if it is
+// not loaded yet or its modification time or size moved since the last
+// read. A stat is all a check that finds nothing changed costs. Callers hold
+// v.mu.
+func (v *verifiedStore) load() {
 	p, err := verifiedPath()
 	if err != nil {
+		v.loaded, v.recs = false, nil
 		return
 	}
+	// The stat comes before the read, so a write landing between the two
+	// leaves the signature older than the data and is read again next time.
+	sig := statSig(p)
+	if v.loaded && sig == v.sig {
+		return
+	}
+	v.loaded, v.sig, v.recs = true, sig, nil
 	data, err := store.ReadState(p)
 	if err != nil {
 		// Absent or unreadable: nothing is verified.
@@ -126,7 +161,8 @@ func (v *verifiedStore) load() {
 	v.recs = doc.Records
 }
 
-// save writes recs. Callers hold v.mu.
+// save writes recs, and forgets what was read so that the next load reads
+// the file back. Callers hold v.mu.
 func (v *verifiedStore) save(recs []verifiedRecord) error {
 	p, err := verifiedPath()
 	if err != nil {
@@ -139,6 +175,7 @@ func (v *verifiedStore) save(recs []verifiedRecord) error {
 	if err != nil {
 		return err
 	}
+	v.loaded = false
 	return store.WriteAtomic(p, data)
 }
 
@@ -219,9 +256,8 @@ func (m *Manager) DeviceVerifyState(deviceID string, origin KeyOrigin, key []byt
 // machine's own key changed under, is not verified. key is the raw P-256
 // point of the device's key for origin (ecdh.PublicKey.Bytes()).
 //
-// This is the contract other packages code against: anything that serves a
-// device must ask this about the key it is about to use, and refuse when it
-// is false.
+// Anything that serves a device on the strength of a verification must ask
+// this about the key it is about to use, and refuse when it is false.
 func (m *Manager) DeviceVerified(deviceID string, origin KeyOrigin, key []byte) bool {
 	return m.DeviceVerifyState(deviceID, origin, key) == Verified
 }
@@ -265,6 +301,11 @@ func (m *Manager) currentDeviceKey(ctx context.Context, deviceID string, origin 
 	if err != nil {
 		return nil, nil, "", err
 	}
+	ids := make([]string, len(roster.Devices))
+	for i, d := range roster.Devices {
+		ids[i] = d.ID
+	}
+	_ = m.ForgetDevicesNotIn(ids)
 	for _, d := range roster.Devices {
 		if d.ID != deviceID {
 			continue
@@ -324,7 +365,6 @@ func (m *Manager) VerifyDevice(ctx context.Context, deviceID string, origin KeyO
 	if err := m.verified.save(next); err != nil {
 		return fmt.Errorf("remote: could not save the verification: %w", err)
 	}
-	m.verified.recs = next
 	return nil
 }
 
@@ -343,6 +383,20 @@ func (m *Manager) ForgetDevice(deviceID string) error {
 	return m.dropVerified(func(r verifiedRecord) bool { return r.Device == deviceID })
 }
 
+// ForgetDevicesNotIn removes the records of every device not in ids, given
+// the device ids of a roster the relay has just returned. A device unpaired
+// from its own page leaves nothing on this machine to say so, and one that
+// pairs again with the same id and key must not come back verified without
+// someone comparing its code again. Call it only with a roster that was read
+// successfully.
+func (m *Manager) ForgetDevicesNotIn(ids []string) error {
+	keep := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		keep[id] = true
+	}
+	return m.dropVerified(func(r verifiedRecord) bool { return !keep[r.Device] })
+}
+
 func (m *Manager) dropVerified(drop func(verifiedRecord) bool) error {
 	m.verified.mu.Lock()
 	defer m.verified.mu.Unlock()
@@ -359,15 +413,5 @@ func (m *Manager) dropVerified(drop func(verifiedRecord) bool) error {
 	if err := m.verified.save(next); err != nil {
 		return err
 	}
-	m.verified.recs = next
 	return nil
-}
-
-// E2EVerifiedRespond is E2ERespond for a socket that must not be served
-// unless the desk verified the device. The key it checks is the same one it
-// then handshakes against, read once from the roster, so nothing can change
-// the key between the check and its use. It fails with ErrNotVerified, and
-// answers nothing to hello, for a device that is not verified.
-func (m *Manager) E2EVerifiedRespond(ctx context.Context, deviceID string, origin KeyOrigin, hello []byte) (*e2e.Session, []byte, error) {
-	return m.respond(ctx, deviceID, origin, hello, true)
 }
