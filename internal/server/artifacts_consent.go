@@ -286,6 +286,10 @@ func (s *Server) setArtifactKind(c *controlClient, kind string, on, confirmed bo
 			s.auditSaveFailed(event, "desk", kind)
 			return
 		}
+		if res == prefsUnchanged {
+			c.notify("Nothing changed: remote "+kind+" was already "+map[bool]string{true: "on", false: "off"}[on], false)
+			return
+		}
 		_ = s.artifacts.audit.write(auditEvent{Event: event, Device: "desk", Kind: kind})
 		if on {
 			c.notify("Paired devices on the allowlist can now view "+kind+". Allow a device once you have verified its key", false)
@@ -320,6 +324,10 @@ func (s *Server) allowArtifactDevice(c *controlClient, device string) {
 		s.updatePrefsThen(c, func(p *store.Prefs) bool { return p.RemoteArtifacts.AddDevice(device) }, func(res prefsResult) {
 			if res == prefsFailed {
 				s.auditSaveFailed("device-allow", device, "")
+				return
+			}
+			if res == prefsUnchanged {
+				c.notify("That device was already allowed", false)
 				return
 			}
 			_ = s.artifacts.audit.write(auditEvent{Event: "device-allow", Device: device})
@@ -359,6 +367,10 @@ func (s *Server) revokeArtifactDevice(c *controlClient, cmd command) {
 			s.auditSaveFailed("device-revoke", cmd.ID, "")
 			return
 		}
+		if res == prefsUnchanged {
+			c.notify("That device was not on the allowlist", false)
+			return
+		}
 		_ = s.artifacts.audit.write(auditEvent{Event: "device-revoke", Device: cmd.ID})
 		c.notify("That device can no longer view artifacts", false)
 	})
@@ -381,6 +393,10 @@ func (s *Server) stopRemoteArtifacts(c *controlClient, cmd command) {
 // and closes the sockets. Like /remote/reload it acts, so it wants a POST and
 // the token in the URL, which no remote window has.
 func (s *Server) handleArtifactsStop(w http.ResponseWriter, r *http.Request) {
+	if fromRemote(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	if !requirePost(w, r) || !s.requireURLToken(w, r) {
 		return
 	}

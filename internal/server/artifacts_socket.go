@@ -38,9 +38,63 @@ const (
 	artifactCloseProtocol = 4400
 )
 
-// artifactIdleTimeout ends a socket that has said nothing for this long. A
-// variable so a test does not wait it out.
-var artifactIdleTimeout = 5 * time.Minute
+// artifactTimings are the time limits on a socket. They live in artifactState
+// and are read once when a socket is accepted, so a test changes them for one
+// server without touching anything shared.
+type artifactTimings struct {
+	// idle ends a socket that has said nothing for this long.
+	idle time.Duration
+	// first is how long a socket that has finished its handshake may wait to
+	// send its first request.
+	first time.Duration
+	// request is the most one request may take from the moment it is read to
+	// the moment its reply is written. Whatever a request does, including
+	// anything it asks of the disk later, runs under a context that ends then,
+	// and the device is told "timeout".
+	request time.Duration
+	// handshake bounds the end-to-end handshake only, from the first frame to
+	// the sealed session. The upgrade and the roster lookups before it have
+	// their own bound, roster.
+	handshake time.Duration
+	// roster bounds the lookups of the device's key that the relay answers.
+	roster time.Duration
+	// hook, set by a test, is called with the context a request runs under,
+	// before the request is answered.
+	hook func(ctx context.Context, op string)
+}
+
+func (t artifactTimings) withDefaults() artifactTimings {
+	if t.idle == 0 {
+		t.idle = 5 * time.Minute
+	}
+	if t.first == 0 {
+		t.first = time.Minute
+	}
+	if t.request == 0 {
+		t.request = 30 * time.Second
+	}
+	if t.handshake == 0 {
+		t.handshake = 20 * time.Second
+	}
+	if t.roster == 0 {
+		t.roster = 10 * time.Second
+	}
+	return t
+}
+
+// timings is the limits for a socket accepted now.
+func (a *artifactState) timings() artifactTimings {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.timing.withDefaults()
+}
+
+// setTimings changes the limits for sockets accepted from now on.
+func (a *artifactState) setTimings(change func(*artifactTimings)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	change(&a.timing)
+}
 
 // artifactWriteTimeout bounds one write to a device that has stopped reading.
 const artifactWriteTimeout = 10 * time.Second
@@ -62,10 +116,6 @@ var artifactHandshakeTimeout = 20 * time.Second
 // one costing a look at the relay's roster and a handshake, as fast as it liked.
 const artifactConnectsPerMinute = 20
 
-// artifactRequestHook, when set by a test, is called with the context a request
-// runs under, before the request is answered.
-var artifactRequestHook func(ctx context.Context, op string)
-
 // artifactUnknownMax is how many requests for an id this socket never issued
 // are put up with in a minute. A client that follows the protocol never sends
 // one, so the socket is closed on the next and the desk is told.
@@ -86,6 +136,7 @@ type artifactState struct {
 	announced map[string]bool
 	denials   map[string]*artifactDenial
 	audit     auditLog
+	timing    artifactTimings
 }
 
 // artifactDevice is what is shared by every socket of one device, so that
@@ -318,6 +369,7 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 	refuse := func(code int, reason string) {
 		_ = conn.Close(websocket.StatusCode(code), reason)
 	}
+	tm := s.artifacts.timings()
 	dev := s.artifacts.device(device)
 	if !dev.connects.Allow(1) {
 		s.artifactDenied(device, name, "connect-rate")
@@ -334,12 +386,14 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 	// Encryption is not optional. Both sides must have a key on file, and the
 	// device's must be the one the user verified.
 	ra := s.remoteAccess()
-	if ra == nil || !ra.E2ECapable(ctx, device, origin) {
+	pctx, pcancel := context.WithTimeout(ctx, tm.roster)
+	defer pcancel()
+	if ra == nil || !ra.E2ECapable(pctx, device, origin) {
 		s.artifactDenied(device, name, artifactReasonKey)
 		refuse(artifactCloseRefused, artifactReasonKey)
 		return
 	}
-	key, ok := s.deviceKey(ctx, device, origin)
+	key, ok := s.deviceKey(pctx, device, origin)
 	if !ok {
 		s.artifactDenied(device, name, artifactReasonKey)
 		refuse(artifactCloseRefused, artifactReasonKey)
@@ -351,7 +405,7 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 		refuse(artifactCloseRefused, reason)
 		return
 	}
-	hctx, hcancel := context.WithTimeout(ctx, artifactHandshakeTimeout)
+	hctx, hcancel := context.WithTimeout(ctx, tm.handshake)
 	sess, err := s.e2eHandshake(hctx, ra, conn, device, origin)
 	hcancel()
 	if err != nil {
@@ -365,7 +419,7 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 	// the handshake read is cached for a few seconds, so a key replaced in
 	// between would otherwise be served on the strength of the old one's
 	// verification.
-	if again, ok := s.deviceKey(ctx, device, origin); !ok || !bytes.Equal(again, key) {
+	if again, ok := s.deviceKey(pctx, device, origin); !ok || !bytes.Equal(again, key) {
 		s.artifactDenied(device, name, artifactReasonVerify)
 		refuse(artifactCloseRefused, artifactReasonVerify)
 		return
@@ -388,15 +442,17 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 
 	var busyRun int
 	var unknown []time.Time
+	wait := tm.first
 	for {
-		rctx, rcancel := context.WithTimeout(ctx, artifactIdleTimeout)
+		rctx, rcancel := context.WithTimeout(ctx, wait)
+		wait = tm.idle
 		typ, data, err := tc.Read(rctx)
 		rcancel()
 		if err != nil {
 			return
 		}
 		// Everything from here to the reply is bounded by one deadline.
-		qctx, qcancel := context.WithTimeout(ctx, artifactRequestTimeout)
+		qctx, qcancel := context.WithTimeout(ctx, tm.request)
 		more := func() bool {
 			// The check is made again on every request, from the preferences on
 			// disk, so a switch turned off takes effect on the next frame.
@@ -427,8 +483,8 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal(data, &req) != nil {
 				return s.artifactReply(qctx, tc, dev, map[string]any{"op": "error", "code": artifactErrUnavailable})
 			}
-			if artifactRequestHook != nil {
-				artifactRequestHook(qctx, req.Op)
+			if tm.hook != nil {
+				tm.hook(qctx, req.Op)
 			}
 
 			var reply map[string]any

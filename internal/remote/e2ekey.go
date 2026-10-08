@@ -205,6 +205,9 @@ func (o KeyOrigin) key(d Device) string {
 // moments after a terminal the usual way cached a roster without it), and a
 // browser that has a key sends its handshake hello first, which a host that
 // wrongly answered E2ECapable false would type into the pane as keystrokes.
+// e2eRosterTimeout bounds one fetch of the roster, whatever the caller allows.
+const e2eRosterTimeout = 10 * time.Second
+
 func (m *Manager) e2eRoster(ctx context.Context, deviceID string, origin KeyOrigin) (map[string]Device, error) {
 	m.e2eMu.Lock()
 	if m.e2eRosterCache != nil && time.Since(m.e2eRosterAt) < e2eRosterTTL && origin.key(m.e2eRosterCache[deviceID]) != "" {
@@ -218,7 +221,9 @@ func (m *Manager) e2eRoster(ctx context.Context, deviceID string, origin KeyOrig
 	if err != nil {
 		return nil, err
 	}
-	roster, err := cl.Devices(ctx)
+	rctx, cancel := context.WithTimeout(ctx, e2eRosterTimeout)
+	defer cancel()
+	roster, err := cl.Devices(rctx)
 	if err != nil {
 		// A key this has already seen is better than none: answered "not
 		// capable" for want of asking again, a device with a key is served

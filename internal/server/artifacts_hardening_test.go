@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -137,6 +138,15 @@ func TestArtifactsStopEndpointKeepsWhatEachDeviceMayDo(t *testing.T) {
 		t.Fatal("setup: v1 is not a viewer")
 	}
 
+	// The published copy has recordings on, as it would after a save.
+	ask(e.srv, func() bool {
+		e.srv.prefs.RemoteArtifacts = store.LoadPrefs().RemoteArtifacts
+		e.srv.publishAccess()
+		return true
+	})
+	if !e.srv.access.Load().prefs.RemoteArtifacts.KindOn("recordings") {
+		t.Fatal("setup: recordings are not on in the published copy")
+	}
 	savePrefs(t, func(p *store.Prefs) { p.RemoteArtifacts.AllOff() })
 	if err := RequestArtifactsStop("http://"+e.srv.Addr(), e.srv.Token()); err != nil {
 		t.Fatal(err)
@@ -145,8 +155,12 @@ func TestArtifactsStopEndpointKeepsWhatEachDeviceMayDo(t *testing.T) {
 		t.Errorf("after the stop v1 is %q: the stop reread the file and lost the record in memory", got)
 	}
 	// And the published copy, which the connection goroutines read, follows.
-	if e.srv.access.Load().prefs.RemoteArtifacts.KindOn("recordings") {
+	pub := e.srv.access.Load().prefs
+	if pub.RemoteArtifacts.KindOn("recordings") {
 		t.Error("the published preferences still have recordings on")
+	}
+	if pub.AccessFor("v1").EffectiveRole() != store.RoleViewer {
+		t.Error("the published preferences lost the viewer record")
 	}
 }
 
@@ -302,17 +316,17 @@ func TestViewersAreStillSentNothingElse(t *testing.T) {
 func TestArtifactsARequestRunsUnderADeadline(t *testing.T) {
 	e := newArtifactEnv(t)
 	e.allow(t)
-	old := artifactRequestTimeout
-	artifactRequestTimeout = 200 * time.Millisecond
-	t.Cleanup(func() { artifactRequestTimeout = old; artifactRequestHook = nil })
-
-	var sawDeadline bool
-	artifactRequestHook = func(ctx context.Context, op string) {
-		_, sawDeadline = ctx.Deadline()
-		if op == "list" {
-			<-ctx.Done() // a request that never finishes
+	var sawDeadline atomic.Bool
+	e.srv.artifacts.setTimings(func(tm *artifactTimings) {
+		tm.request = 200 * time.Millisecond
+		tm.hook = func(ctx context.Context, op string) {
+			_, ok := ctx.Deadline()
+			sawDeadline.Store(ok)
+			if op == "list" {
+				<-ctx.Done() // a request that never finishes
+			}
 		}
-	}
+	})
 	conn, sess := e.open(t)
 	start := time.Now()
 	r := ask2(t, conn, sess, map[string]any{"op": "list", "kind": "recordings"})
@@ -322,7 +336,7 @@ func TestArtifactsARequestRunsUnderADeadline(t *testing.T) {
 	if took := time.Since(start); took > 5*time.Second {
 		t.Errorf("the request took %v", took)
 	}
-	if !sawDeadline {
+	if !sawDeadline.Load() {
 		t.Error("the request ran without a deadline")
 	}
 	// The socket is still good for the next, quick, request.
@@ -334,9 +348,7 @@ func TestArtifactsARequestRunsUnderADeadline(t *testing.T) {
 func TestArtifactsAHandshakeThatNeverFinishesIsDropped(t *testing.T) {
 	e := newArtifactEnv(t)
 	e.allow(t)
-	old := artifactHandshakeTimeout
-	artifactHandshakeTimeout = 200 * time.Millisecond
-	t.Cleanup(func() { artifactHandshakeTimeout = old })
+	e.srv.artifacts.setTimings(func(tm *artifactTimings) { tm.handshake = 200 * time.Millisecond })
 	conn, _, err := e.rawDial(t, e.header("d1"))
 	if err != nil {
 		t.Fatal(err)
@@ -378,5 +390,73 @@ func TestArtifactsOpeningSocketsIsRateLimitedPerDevice(t *testing.T) {
 	}
 	if !strings.Contains(auditLines(t), "connect-rate") {
 		t.Errorf("the refusal for rate was not recorded: %s", auditLines(t))
+	}
+}
+
+func TestArtifactsUnchangedSettingsAreNotReportedAsChanges(t *testing.T) {
+	e := newArtifactEnv(t)
+	e.ver.verify("d1", remote.KeyOriginDesk, e.key)
+	page := dialControlPage(t, e.srv)
+	nextHello(t, page)
+	for _, cmd := range []command{
+		{Cmd: "setRemoteArtifacts", Kind: "off", Text: "recordings"},
+		{Cmd: "revokeArtifactDevice", ID: "d1"},
+	} {
+		sendCmd(t, page, cmd)
+		var n noticeMsg
+		readUntil(t, page, "notice", &n)
+		if n.Error || !strings.Contains(n.Text, "Nothing changed") && !strings.Contains(n.Text, "not on the allowlist") {
+			t.Errorf("%s: notice %+v, want a note that nothing changed", cmd.Cmd, n)
+		}
+	}
+	// Allow once, then again.
+	sendCmd(t, page, command{Cmd: "setRemoteArtifacts", Kind: "on", ID: "d1"})
+	var n noticeMsg
+	readUntil(t, page, "notice", &n)
+	sendCmd(t, page, command{Cmd: "setRemoteArtifacts", Kind: "on", ID: "d1"})
+	readUntil(t, page, "notice", &n)
+	if !strings.Contains(n.Text, "already allowed") {
+		t.Errorf("second allow: %+v", n)
+	}
+	ask(e.srv, func() bool { return true })
+	log := auditLines(t)
+	for _, ev := range []string{`"event":"kind-off"`, `"event":"device-revoke"`} {
+		if strings.Contains(log, ev) {
+			t.Errorf("audit log has %s for a change that did not happen", ev)
+		}
+	}
+	if c := strings.Count(log, `"event":"device-allow"`); c != 1 {
+		t.Errorf("device-allow written %d times, want 1", c)
+	}
+}
+
+func TestArtifactsStopEndpointIsNotReachableThroughTheRelay(t *testing.T) {
+	e := newArtifactEnv(t)
+	e.allow(t)
+	conn, sess := e.open(t)
+	ask2(t, conn, sess, map[string]any{"op": "hello"})
+	resp, err := http.Post(e.ts.URL+"/remote/artifacts/stop?t="+e.srv.Token(), "text/plain", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("through the tunnel with the token = %d, want 403", resp.StatusCode)
+	}
+	if r := ask2(t, conn, sess, map[string]any{"op": "hello"}); r["op"] != "hello" {
+		t.Errorf("the socket was closed by a request through the relay: %v", r)
+	}
+}
+
+func TestArtifactsAFirstRequestThatNeverComesIsDropped(t *testing.T) {
+	e := newArtifactEnv(t)
+	e.allow(t)
+	e.srv.artifacts.setTimings(func(tm *artifactTimings) { tm.first = 200 * time.Millisecond })
+	conn, _ := e.open(t)
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, _, err := conn.Read(ctx); err == nil || ctx.Err() != nil {
+		t.Fatalf("still open after %v: %v", time.Since(start), err)
 	}
 }
