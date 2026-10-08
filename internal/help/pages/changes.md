@@ -109,7 +109,15 @@ repository and accepting it just this time.
   `ext::`, which runs a command, is listed too. A folder that is there and
   cannot be told from a repository, a `file://` address for another machine and
   a network share are listed as things Flockdeck could not read. Flockdeck does
-  not open a network share, since Windows would connect to it.
+  not open a network share, or follow a link to one, since Windows would connect
+  to it. The remote's own configuration is read as well: a setting in it that
+  runs a program (an fsmonitor command, a filter, a hooks path) is listed, and an
+  edit to it is a change. A push that updates the remote's checked-out branch
+  (`receive.denyCurrentBranch = updateInstead`) is the case that runs them. A
+  remote with no hooks path of its own also runs the hooks your own global
+  `core.hooksPath` names, which is listed with your other settings. A
+  `file://` address with a drive letter as the host (`file://c:/x`) counts as
+  another machine and is asked about every time.
 - Merge drivers, which `.gitattributes` can assign to any file, are listed with
   the other settings that run a program. On Windows a hook named `pre-commit.exe`
   counts as the `pre-commit` hook, as it does for git.
@@ -168,6 +176,17 @@ make Flockdeck run. Still outside it:
 - A remote reached as `ssh://localhost/...` or `host:path` that happens to be
   this machine: Flockdeck cannot tell, so the hooks on the other end are not
   listed.
+- Partial and promisor clones fetch a missing file from the remote when a
+  background diff or object read needs it, which can run a credential helper or
+  an ssh command. Only the radar's snapshot turns that off.
+- Auto-review asks git a few read-only questions (its configuration, the index)
+  with the repository's hooks as they are. None of those commands runs a hook.
+- `git gc --auto`, which git starts itself after a commit, fetch or push, and
+  `receive.autogc` on a remote that is a folder on this machine. `pre-auto-gc` is
+  the one hook of those that is read.
+- A repository whose configuration includes itself many times can make the git
+  that reads it use memory until the 15 second limit; Flockdeck keeps 8 MB of
+  what it prints.
 - An agent running as you that can write the file of accepted state.
 
 An agent's own git commands are for [auto-review](#status) and the agent's

@@ -34,6 +34,9 @@ func TestFileURLPath(t *testing.T) {
 		{"file:///C:/x/y", filepath.FromSlash("C:/x/y"), true},
 		{"file://localhost/C:/x", filepath.FromSlash("C:/x"), true},
 		{"file://other-host/srv/a", "", false},
+		// A drive letter written as the host is a host: reported as another machine,
+		// which is asked about every time. That is intended.
+		{"file://c:/x/y", "", false},
 		{"file:///srv/%zz", "", false},
 		{"/plain/%2D/path", filepath.FromSlash("/plain/%2D/path"), true},
 	}
