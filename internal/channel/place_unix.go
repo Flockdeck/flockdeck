@@ -282,15 +282,51 @@ func staleName(name string) bool {
 	return true
 }
 
+const (
+	// sweepGrace is how old a socket must be before it can be taken for a
+	// stale one. A sibling that is starting has made its socket but may not be
+	// listening yet, and a connect in between is refused.
+	sweepGrace = time.Minute
+	// sweepGap is the wait between the two refused connects. macOS also
+	// refuses a connect when the listener's backlog is full.
+	sweepGap = 200 * time.Millisecond
+)
+
+func (c *Channel) sweepDial(path string) (net.Conn, error) {
+	if f := c.cfg.Seams.SweepDial; f != nil {
+		return f(path)
+	}
+	return net.DialTimeout("unix", path, time.Second)
+}
+
+// refused reports whether a connect to path was refused: the file is a socket
+// that nobody is listening on.
+func (c *Channel) refused(path string) bool {
+	conn, err := c.sweepDial(path)
+	if err == nil {
+		conn.Close()
+		return false
+	}
+	return errors.Is(err, syscall.ECONNREFUSED)
+}
+
 // sweep removes sockets that an instance that has since died left in dir.
-// Only a file named like ours, that is a socket, owned by this user, and that
-// refuses a connection (nobody is listening) is removed. A socket that is
-// listening, or anything else, is left alone.
+//
+// A file is removed only if all of these hold: it is named like ours, it is
+// a socket (a link is never followed), it is owned by this user, it is older
+// than sweepGrace, and a connect is refused twice, sweepGap apart. Then it is
+// looked at once more, and goes only if it is still the same file. A socket
+// that is listening, or anything else, is left alone.
 func (c *Channel) sweep(dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
+	type candidate struct {
+		path string
+		id   fileID
+	}
+	var first []candidate
 	for _, e := range entries {
 		if !staleName(e.Name()) {
 			continue
@@ -300,19 +336,34 @@ func (c *Channel) sweep(dir string) {
 		if err != nil || fi.Mode()&os.ModeSocket == 0 || ownerOf(fi) != uint32(c.uid()) {
 			continue
 		}
-		conn, err := net.DialTimeout("unix", path, time.Second)
-		if err == nil {
-			conn.Close()
+		if c.now().Sub(fi.ModTime()) < sweepGrace {
 			continue
 		}
-		if !errors.Is(err, syscall.ECONNREFUSED) {
+		if c.refused(path) {
+			first = append(first, candidate{path, idOf(fi)})
+		}
+	}
+	if len(first) == 0 {
+		return
+	}
+	pause := c.cfg.Seams.Pause
+	if pause == nil {
+		pause = time.Sleep
+	}
+	pause(sweepGap)
+	for _, cand := range first {
+		if !c.refused(cand.path) {
 			continue
 		}
-		// Look again: it must be the same file that refused.
-		if again, err := os.Lstat(path); err == nil && idOf(again) == idOf(fi) {
-			if os.Remove(path) == nil {
-				c.logf("local channel: removed a stale socket, %s", path)
-			}
+		if f := c.cfg.Seams.BeforeRemove; f != nil {
+			f(cand.path)
+		}
+		fi, err := os.Lstat(cand.path)
+		if err != nil || fi.Mode()&os.ModeSocket == 0 || ownerOf(fi) != uint32(c.uid()) || idOf(fi) != cand.id {
+			continue
+		}
+		if os.Remove(cand.path) == nil {
+			c.logf("local channel: removed a stale socket, %s", cand.path)
 		}
 	}
 }

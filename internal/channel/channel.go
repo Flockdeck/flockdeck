@@ -20,6 +20,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -73,6 +74,10 @@ type Identity struct {
 	Started time.Time `json:"started"`
 }
 
+// errThreadTainted is a peer check that could not undo its impersonation of the
+// client. The thread is left locked and the goroutine that asked must end.
+var errThreadTainted = errors.New("could not stop impersonating the client")
+
 // Peer is who is on the other end of a connection. Owner is the user id on
 // Unix and the user's SID on Windows, as text.
 type Peer struct {
@@ -125,6 +130,15 @@ type Seams struct {
 	Self string
 	// Now replaces the clock used for the window limit and the refusal log.
 	Now func() time.Time
+	// SweepDial replaces the connect the stale-socket sweep makes (Unix).
+	SweepDial func(path string) (net.Conn, error)
+	// Pause replaces the wait between the sweep's two tries (Unix).
+	Pause func(time.Duration)
+	// BeforeRemove is called by the sweep just before it removes a socket.
+	BeforeRemove func(path string)
+	// Late makes the peer be checked on the first read, as it is on Windows,
+	// even where it otherwise is not.
+	Late bool
 	// Seen is called with the peer of each connection that was let in.
 	Seen func(Peer)
 }
@@ -328,7 +342,7 @@ func (g *guard) Accept() (net.Conn, error) {
 			conn.Close()
 			continue
 		}
-		if deferredPeer && g.c.cfg.Seams.ReadPeer == nil {
+		if (deferredPeer && g.c.cfg.Seams.ReadPeer == nil) || g.c.cfg.Seams.Late {
 			// The peer can only be known once it has sent something: see
 			// lateConn.
 			return &slotConn{Conn: &lateConn{Conn: conn, c: g.c}, release: func() { <-g.c.sem }}, nil
@@ -548,13 +562,21 @@ type lateConn struct {
 func (l *lateConn) Read(b []byte) (int, error) {
 	n, err := l.Conn.Read(b)
 	if n > 0 {
+		ran := false
 		l.once.Do(func() {
+			ran = true
 			if l.err = l.c.checkPeer(l.Conn); l.err != nil {
 				l.c.refuse(l.err)
 				l.Conn.Close()
 			}
 		})
 		if l.err != nil {
+			if ran && errors.Is(l.err, errThreadTainted) {
+				// The thread that did the check is still impersonating the
+				// client and is locked to this goroutine. Ending the goroutine
+				// ends the thread. The connection is already closed.
+				runtime.Goexit()
+			}
 			return 0, l.err
 		}
 	}

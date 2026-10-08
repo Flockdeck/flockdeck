@@ -108,21 +108,42 @@ func readPeer(conn net.Conn) (Peer, error) {
 	_, _, _ = getClientPID.Call(h, uintptr(unsafe.Pointer(&pid))) // for the log only
 
 	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	if r, _, err := impersonate.Call(h); r == 0 {
+		// Not impersonating, so the thread can go back.
+		runtime.UnlockOSThread()
 		return Peer{PID: int(pid)}, fmt.Errorf("ImpersonateNamedPipeClient: %w", err)
 	}
-	defer windows.RevertToSelf()
+	owner, oerr := impersonatedUser()
+	if rerr := revertToSelf(); rerr != nil {
+		// The thread still carries the client's identity. It is left locked,
+		// so that Go cannot give it to another goroutine; the caller ends its
+		// goroutine, and the thread goes with it.
+		return Peer{PID: int(pid)}, fmt.Errorf("%w: %v", errThreadTainted, rerr)
+	}
+	runtime.UnlockOSThread()
+	if oerr != nil {
+		return Peer{PID: int(pid)}, oerr
+	}
+	return Peer{PID: int(pid), Owner: owner}, nil
+}
+
+// revertToSelf stops impersonating. A variable so that a test can make it
+// fail.
+var revertToSelf = windows.RevertToSelf
+
+// impersonatedUser is the user of the token of the thread, which is
+// impersonating a client.
+func impersonatedUser() (string, error) {
 	var tok windows.Token
 	if err := windows.OpenThreadToken(windows.CurrentThread(), windows.TOKEN_QUERY, true, &tok); err != nil {
-		return Peer{PID: int(pid)}, fmt.Errorf("read the client's token: %w", err)
+		return "", fmt.Errorf("read the client's token: %w", err)
 	}
 	defer tok.Close()
 	u, err := tok.GetTokenUser()
 	if err != nil {
-		return Peer{PID: int(pid)}, err
+		return "", err
 	}
-	return Peer{PID: int(pid), Owner: u.User.Sid.String()}, nil
+	return u.User.Sid.String(), nil
 }
 
 // Dial connects to the pipe at path.
