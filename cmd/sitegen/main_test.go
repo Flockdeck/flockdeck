@@ -706,7 +706,7 @@ func TestLicenceCopiesAreTheOriginals(t *testing.T) {
 func TestTextFilesUseLF(t *testing.T) {
 	dir, _ := generate(t)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".ico") || strings.HasSuffix(path, ".woff2") {
+		if err != nil || d.IsDir() || strings.HasSuffix(path, ".png") || strings.HasSuffix(path, ".gif") || strings.HasSuffix(path, ".ico") || strings.HasSuffix(path, ".woff2") {
 			return err
 		}
 		b, err := os.ReadFile(path)
@@ -1369,5 +1369,81 @@ func TestRemoteIsDescribedAsAnAddOnNotATunnel(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(strings.Fields(pages["refunds.html"]), " "), "the Flockdeck Remote subscription") {
 		t.Error("the refund policy does not name the Flockdeck Remote subscription")
+	}
+}
+
+// The recording is several megabytes, so it must not be fetched on first
+// paint. The page shows a still, and the GIF sits in a closed details with a
+// lazy loading attribute, where a browser does not fetch it until it is opened.
+// recordingProblems says what is wrong with a page's markup for that.
+func recordingProblems(page string) []string {
+	var bad []string
+	i := strings.Index(page, "<details class=\"play\"")
+	if i < 0 {
+		return []string{"the page has no recording"}
+	}
+	end := strings.Index(page[i:], "</details>")
+	if end < 0 {
+		return []string{"the recording's details is never closed"}
+	}
+	block := page[i : i+end]
+	if open := regexp.MustCompile(`^<details\b[^>]*\sopen\b`).MatchString(block); open {
+		bad = append(bad, "the recording's details starts open, so the GIF is fetched with the page")
+	}
+	if strings.Contains(page[:i], ".gif") {
+		bad = append(bad, "the GIF is linked before the recording's details, where a browser would fetch it")
+	}
+	if regexp.MustCompile(`(?i)<link[^>]*(preload|prefetch)[^>]*\.gif`).MatchString(page) ||
+		regexp.MustCompile(`(?i)<link[^>]*\.gif[^>]*(preload|prefetch)`).MatchString(page) {
+		bad = append(bad, "a preload or prefetch link names the GIF, so it is fetched with the page")
+	}
+	if s := regexp.MustCompile(`(?s)<summary\b.*?</summary>`).FindString(block); s == "" {
+		bad = append(bad, "the recording's details has no summary")
+	} else if strings.Contains(s, ".gif") {
+		bad = append(bad, "the GIF is inside the summary, which is shown while the details is closed")
+	}
+	gif := regexp.MustCompile(`<img\b[^>]*flockdeck-demo\.[0-9a-f]{10}\.gif[^>]*>`).FindString(block)
+	switch {
+	case gif == "":
+		bad = append(bad, "the recording's details has no GIF in it")
+	case !strings.Contains(gif, ` loading="lazy"`):
+		bad = append(bad, "the GIF is not loading=lazy, so a browser may fetch it before the details is opened")
+	}
+	return bad
+}
+
+func TestTheRecordingIsNotFetchedUntilPlayed(t *testing.T) {
+	_, page := home(t)
+	for _, p := range recordingProblems(page) {
+		t.Error(p)
+	}
+
+	// Each way of getting it wrong has to be caught, with its own message.
+	gif := regexp.MustCompile(`flockdeck-demo\.[0-9a-f]{10}\.gif`).FindString(page)
+	if gif == "" {
+		t.Fatal("the page links no GIF")
+	}
+	poster := regexp.MustCompile(`<img src="demo-poster\.[0-9a-f]{10}\.png"`).FindString(page)
+	for _, m := range []struct{ name, want, from, to string }{
+		{"the GIF as the poster inside the summary", "inside the summary", poster, `<img src="` + gif + `"`},
+		{"the details open", "starts open", `<details class="play"`, `<details class="play" open`},
+		{"lazy loading dropped from the GIF", "not loading=lazy", `<img src="` + gif + `" width="999" height="609" loading="lazy"`, `<img src="` + gif + `" width="999" height="609"`},
+		{"a preload link", "preload or prefetch", "</head>", `<link rel="preload" as="image" href="` + gif + `"></head>`},
+		{"the GIF linked above the details", "before the recording", `<section class="band shot" id="see">`, `<img src="` + gif + `" alt="" width="1" height="1"><section class="band shot" id="see">`},
+	} {
+		if m.from == "" || !strings.Contains(page, m.from) {
+			t.Errorf("%s: the page has no %q to change, so this check proves nothing", m.name, m.from)
+			continue
+		}
+		broken := strings.Replace(page, m.from, m.to, 1)
+		found := false
+		for _, p := range recordingProblems(broken) {
+			if strings.Contains(p, m.want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s is not reported (want a problem containing %q, got %v)", m.name, m.want, recordingProblems(broken))
+		}
 	}
 }

@@ -6,6 +6,11 @@ each agent can have its own worktree on its own branch, so agents do not edit ea
 other's files. Each pane shows whether its agent is working, idle or waiting on
 you, so you can tell which one needs you without opening them all.
 
+![Three Claude Code agents in one Flockdeck window, each in its own git worktree on a small demo project. The conflict radar flags that two of them changed the same file, Pane info lists what names a pane, a baton hands one agent's work to a new agent, and the changes view commits a diff.](docs/media/flockdeck-demo.gif)
+
+*Recorded live in one take on a small demo project. The two stretches where the
+agents are working are sped up 3x; typing and everything else is real time.*
+
 Claude Code is the default agent. Codex, Gemini CLI, Aider, opencode and Cursor's
 agent run the same way, and Flockdeck also has its own chat client for talking to
 a model API directly, including a local Ollama or any other OpenAI-compatible

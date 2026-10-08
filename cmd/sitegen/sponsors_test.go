@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/jmwri/flockdeck/docs/media"
 )
 
 // The list is a plain file somebody edits by hand, so every way of writing a
@@ -102,6 +104,7 @@ func testNames(t *testing.T) map[string]string {
 		}
 		names[e.Name()] = fingerprint(e.Name(), body)
 	}
+	names["flockdeck-demo.gif"] = fingerprint("flockdeck-demo.gif", media.Demo)
 	return names
 }
 
