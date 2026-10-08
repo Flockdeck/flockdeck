@@ -17,6 +17,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
@@ -68,6 +69,18 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	// A viewer is turned away before the pane is even looked up, so that the
+	// answer does not say which panes exist. One the desk let watch panes gets
+	// the output only; see the input gate below.
+	var access func() store.DeviceAccess
+	if fromRemote(r) {
+		device := r.Header.Get("Flockdeck-Remote-Device")
+		access = func() store.DeviceAccess { return s.deviceAccess(device) }
+		if a := access(); a.EffectiveRole() != store.RoleFull && !a.WatchPanes {
+			http.Error(w, "this device can only view", http.StatusForbidden)
+			return
+		}
+	}
 	id := r.URL.Query().Get("id")
 	// sess may be nil for a pane that exists: one whose process never started,
 	// because the `claude` CLI was not on PATH. That is not a reason to turn
@@ -115,6 +128,19 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
+	// mayType is asked for each keystroke and measurement, not once: the desk
+	// can make a device a viewer while its terminal is open.
+	mayType := func() bool { return access == nil || access().EffectiveRole() == store.RoleFull }
+	if access != nil {
+		// The desk changing the device's role ends this socket. Looked at again
+		// once it is on the list, so a change made between the check above and
+		// here is not missed.
+		defer s.sockets.add(r.Header.Get("Flockdeck-Remote-Device"), cancel)()
+		if a := access(); a.EffectiveRole() != store.RoleFull && !a.WatchPanes {
+			_ = conn.Close(websocket.StatusPolicyViolation, "this device can only view")
+			return
+		}
+	}
 
 	viewer := nextViewer.Add(1)
 	// A window reached through the relay is somebody using the pane from their
@@ -212,7 +238,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// armRepaint.
 	var repaint atomic.Bool
 	go s.applyResizes(ctx, id, measured, &repaint)
-	go s.readInput(ctx, cancel, tc, id, viewer, markUse, measured, &live)
+	go s.readInput(ctx, cancel, tc, id, viewer, markUse, mayType, measured, &live)
 	var writes writeGauge
 	go keepalive(ctx, cancel, conn, &writes, s.pingInterval, s.pingTimeout)
 
@@ -343,7 +369,7 @@ var termReset = []byte("\x1bc")
 
 // readInput forwards what the window sends: keystrokes as binary frames,
 // everything else as JSON control messages.
-func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn termConn, id string, viewer int64, markUse func(), measured chan<- struct{}, live *atomic.Pointer[session.Session]) {
+func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn termConn, id string, viewer int64, markUse func(), mayType func() bool, measured chan<- struct{}, live *atomic.Pointer[session.Session]) {
 	defer cancel()
 	// A size is recorded here and applied elsewhere. Applying it means reaching
 	// the workspace goroutine, which can be busy for seconds at a time opening
@@ -360,6 +386,12 @@ func (s *Server) readInput(ctx context.Context, cancel context.CancelFunc, conn 
 		typ, data, err := conn.Read(ctx)
 		if err != nil {
 			return
+		}
+		// What a viewer sends is read and thrown away: keystrokes would run
+		// things, and a size or focus would resize and take over the pane the
+		// desk is using.
+		if mayType != nil && !mayType() {
+			continue
 		}
 		if typ == websocket.MessageBinary {
 			// Typing into a pane whose process has ended, or never had one, is

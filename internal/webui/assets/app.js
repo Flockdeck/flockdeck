@@ -1128,6 +1128,23 @@
         if (!window.confirm(q)) return;
         send({ cmd: "remoteRevoke", id: d.id });
       };
+      // What this device may do. Only the desk sets it, so a window reached
+      // through the relay is not offered it (the server refuses it anyway).
+      if (!remoteWindow) {
+        const levels = [
+          { role: "full", watch: false, label: "Full access" },
+          { role: "viewer", watch: false, label: "View artifacts only" },
+          { role: "viewer", watch: true, label: "View artifacts and watch panes" },
+        ];
+        const at = Math.max(0, levels.findIndex((l) => l.role === (d.role || "full") && l.watch === !!d.watchPanes));
+        const access = el("button", "chip", levels[at].label);
+        access.setAttribute("aria-label", "Access for " + (d.name || "this device") + ": " + levels[at].label + ". Press to change.");
+        access.onclick = () => {
+          const next = levels[(at + 1) % levels.length];
+          send({ cmd: "setDeviceRole", id: d.id, kind: next.role, watch: next.watch });
+        };
+        actions.append(access);
+      }
       actions.append(rename, drop);
       item.append(actions);
       dev.append(item);

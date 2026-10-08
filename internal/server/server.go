@@ -156,6 +156,9 @@ type Server struct {
 	// about a workspace. It is read and written only on the workspace
 	// goroutine, which is what keeps it free of a lock of its own.
 	prefs store.Prefs
+	// accessState is what each paired device may do, published from prefs for
+	// the connection goroutines to read; see viewerrole.go.
+	accessState
 
 	// The agent catalog as it was last built, which project it was built for,
 	// and when. Every snapshot carries it and snapshots are built ten times a
@@ -381,6 +384,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	mux.HandleFunc("/window", s.handleWindow)
 	mux.HandleFunc("/remote/reload", s.handleRemoteReload)
 	s.mux = mux
+	s.publishAccess()
 
 	s.http = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = s.http.Serve(ln) }()

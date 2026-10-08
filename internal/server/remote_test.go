@@ -460,6 +460,7 @@ func TestRemoteTerminalsAreSentCompressed(t *testing.T) {
 		defer cancel()
 		h := http.Header{}
 		h.Set("Origin", origin)
+		h.Set("Flockdeck-Remote-Device", "dev-1")
 		conn, resp, err := websocket.Dial(ctx, url,
 			&websocket.DialOptions{HTTPHeader: h, CompressionMode: websocket.CompressionNoContextTakeover})
 		if err != nil {

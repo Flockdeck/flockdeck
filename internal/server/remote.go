@@ -271,6 +271,11 @@ type remoteDevicesMsg struct {
 type remoteDeviceView struct {
 	remote.Device
 	Fingerprint string `json:"fingerprint,omitempty"`
+	// Role and WatchPanes are what the desk allowed this device (see
+	// viewerrole.go). Sent only to a window on this machine: a device has no use
+	// for how another is limited.
+	Role       string `json:"role,omitempty"`
+	WatchPanes bool   `json:"watchPanes,omitempty"`
 }
 
 // remoteFingerprint is remoteDeviceView.Fingerprint for one device, given
@@ -341,6 +346,10 @@ func (s *Server) remoteDevices(c *controlClient) {
 			msg.Devices = make([]remoteDeviceView, len(roster.Devices))
 			for i, d := range roster.Devices {
 				msg.Devices[i] = remoteDeviceView{Device: d, Fingerprint: remoteFingerprint(d.PublicKey, selfKey)}
+				if !c.remote {
+					a := s.deviceAccess(d.ID)
+					msg.Devices[i].Role, msg.Devices[i].WatchPanes = string(a.EffectiveRole()), a.WatchPanes
+				}
 			}
 		}
 		if roster.Hosts != nil {

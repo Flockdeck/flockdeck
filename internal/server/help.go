@@ -43,6 +43,11 @@ type helloMsg struct {
 	// encrypt against itself, and for a remote one before this machine has
 	// made an identity of its own yet.
 	E2EPublicKey string `json:"e2ePublicKey,omitempty"`
+	// Role is "viewer" for a device the desk limited to viewing (store.RoleViewer),
+	// and WatchPanes whether it may also watch panes. Both are left out for a
+	// full device and for a window on this machine.
+	Role       string `json:"role,omitempty"`
+	WatchPanes bool   `json:"watchPanes,omitempty"`
 }
 
 // radarSupport and radarWatch are gitx's answers about merge-tree, as variables
@@ -106,7 +111,13 @@ type keyView struct {
 // sendHello gives a freshly connected window the key table and the prefs. It
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
-	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: s.prefs, Remote: c.remote}
+	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: s.prefs.ForWindow(), Remote: c.remote}
+	// A viewer is told what it is, so its window can say so, and is sent none of
+	// the desk's preferences.
+	if a := s.accessOf(c); a.EffectiveRole() != store.RoleFull {
+		msg.Prefs = store.Prefs{}
+		msg.Role, msg.WatchPanes = string(a.EffectiveRole()), a.WatchPanes
+	}
 	// Asked without waiting: the version of git is read in the background. Until
 	// it has been, the window is told it is being checked, and is sent the answer
 	// when there is one (announceRadarSupport).
@@ -220,6 +231,12 @@ type prefsMsg struct {
 // was moved aside and kept, but the window came back on the defaults at the
 // next start, with nothing to say where the rest had gone.
 func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
+	s.updatePrefsThen(c, change, nil)
+}
+
+// updatePrefsThen is updatePrefs with something to do once the change is saved
+// and published, on the same goroutine.
+func (s *Server) updatePrefsThen(c *controlClient, change func(*store.Prefs) bool, then func()) {
 	s.do(func() {
 		p, err := store.ReadPrefs()
 		if err != nil {
@@ -228,6 +245,10 @@ func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
 			// would be shown an error for a hint dismissed on the desk.
 			c.notify("Could not save the setting, because the settings saved before could not be read and saving now would write over them; it will not be kept after Flockdeck restarts: "+err.Error(), true)
 			return
+		}
+		// Read fresh, so it does not know that the record was lost at start-up.
+		if s.prefs.AccessUnknown() {
+			p.KeepAccessUnknown()
 		}
 		if !change(&p) {
 			return
@@ -242,14 +263,18 @@ func (s *Server) updatePrefs(c *controlClient, change func(*store.Prefs) bool) {
 			return
 		}
 		s.prefs = p
+		s.publishAccess()
 		s.broadcastPrefs()
+		if then != nil {
+			then()
+		}
 	})
 }
 
 // broadcastPrefs tells every window what the preferences now are. It runs on
 // the workspace goroutine.
 func (s *Server) broadcastPrefs() {
-	data, err := json.Marshal(prefsMsg{Type: "prefs", Prefs: s.prefs})
+	data, err := json.Marshal(prefsMsg{Type: "prefs", Prefs: s.prefs.ForWindow()})
 	if err != nil {
 		return
 	}

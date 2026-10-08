@@ -208,6 +208,7 @@ func TestAPaneUsedFromAPhoneIsNotPushed(t *testing.T) {
 	defer cancel()
 	h := http.Header{}
 	h.Set("Origin", ts.URL)
+	h.Set("Flockdeck-Remote-Device", "dev-1")
 	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/ws/pty?id="+id, &websocket.DialOptions{HTTPHeader: h})
 	if err != nil {
 		t.Fatalf("open the pane through the relay: %v", err)

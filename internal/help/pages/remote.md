@@ -81,7 +81,32 @@ start waits for the approval notice in a window on this machine.
 These keep a phone in a pocket from doing any of them by accident. They are
 not a security boundary: a remote window can open a shell pane, and from a
 shell it can do anything you can at this machine, `flockdeck remote remove`
-included. A paired device has everything your user account here has.
+included. A paired device has everything your user account here has, unless
+you make it a viewer (next section).
+
+## Devices that can only view
+
+Every paired device is a **full** device until you say otherwise. In the dialog,
+the button beside a device's name steps it through three settings:
+
+- **Full access**: what a paired device has always had.
+- **View artifacts only**: the device can open the viewer for what your agents
+  produce, and nothing else. It is sent no panes, tabs, projects, paths or
+  preferences, cannot open a terminal, and Flockdeck refuses every command it
+  sends.
+- **View artifacts and watch panes**: the same, and it also sees the panes, their
+  chat and their terminal output. It still cannot type, resize or run anything.
+
+The setting is kept on this machine and checked here, on every command and every
+keystroke, not in the device's window, so a modified page does not get round it.
+Changing it ends the device's open windows at once; they reconnect with the new
+setting. A device the setting has never been changed for stays full, and so does
+a device paired later. If the file that holds the settings cannot be read, every
+device is treated as a viewer until you restart, so a damaged file does not
+quietly give anyone more.
+
+Only the desk changes it. A window reached through the relay, whatever its own
+setting, is refused.
 
 ## Turning it on
 

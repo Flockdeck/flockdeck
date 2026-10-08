@@ -124,7 +124,7 @@ func TestPaneInfoAndFindPaneAnswerOnlyTheLocalWindow(t *testing.T) {
 	srv, ws := newTestServer(t)
 	pane := firstPane(t, srv, ws)
 
-	remote := &controlClient{out: make(chan []byte, 8), remote: true}
+	remote := &controlClient{out: make(chan []byte, 8), remote: true, device: "dev-1"}
 	srv.paneInfo(remote, command{Cmd: "paneInfo", ID: pane})
 	srv.findPane(remote, command{Cmd: "findPane", Text: ""})
 	for i := 0; i < 2; i++ {
