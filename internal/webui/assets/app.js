@@ -485,6 +485,7 @@
       else if (msg.type === "keys") keepFocus(() => renderKeys(msg), () => keySetButton(keyActed));
       else if (msg.type === "versions") renderVersions(msg);
       else if (msg.type === "helpers") keepFocus(() => renderHelpers(msg));
+      else if (msg.type === "artifacts") setArtifactsOffered(!!msg.available);
       else if (msg.type === "helperPlan") helperPlanArrived(msg);
       else if (msg.type === "agentAddress") addressAnswered(msg);
       // An unpaired device's row goes with its Unpair button, and the
@@ -5660,6 +5661,7 @@
     update: { present: "dialog-m", again: () => openUpdate },
     versions: { present: "dialog-m", again: () => openVersions },
     helpers: { present: "dialog-m", act: "helpers", again: () => openHelpers },
+    artifacts: { present: "sheet", rail: "btn-recordings", again: () => openArtifacts },
     agentPicker: { present: "picker",
       again: () => {
         const p = picker;
@@ -5980,6 +5982,7 @@
    *  a shortcut still being recorded (it went on taking every key the window
    *  saw, with no dialog left to show it), a pairing link being polled. */
   function leaveSurface() {
+    artifactsLeave();
     closeMenu(false);
     picker = null;
     askCancel = null;
@@ -8518,6 +8521,9 @@
     radarUnavailable = msg.radarUnavailable || "";
     radarChecking = !!msg.radarChecking;
     hostE2EPublicKey = msg.e2ePublicKey || null;
+    // Whether the desk lets this window's device view its recordings. Sent again
+    // as an "artifacts" message when that changes.
+    setArtifactsOffered(!!msg.artifacts);
     // A window reached through the relay registers its own end-to-end key
     // with it (FlockdeckE2E.ensureRegistered, POST /.flockdeck-e2e-key)
     // before it is needed: the terminal sockets connectPTY opens next read
@@ -11358,6 +11364,399 @@
   }
 
   // ---------------------------------------------------------------- helpers
+
+  /* ==== Remote artifacts viewer: begin ====
+   *
+   * A read-only view of the desk's own recordings, for a window reached through
+   * the relay (internal/server/artifacts_socket.go is the other end). Rules,
+   * which a Go test holds this code to:
+   *
+   *  - Everything the desk sends is drawn with textContent, as text. No markup
+   *    from it is ever parsed, no script from it runs, and nothing built from it
+   *    becomes a link, an address or a file.
+   *  - There is no download, no save, no open-in-a-tab and no copy-all control.
+   *  - What was shown is not kept: not in storage, not in a cache, not in a URL.
+   *    It is dropped when the dialog closes, when the tab has been hidden for
+   *    two minutes, and when the socket drops.
+   *  - The connection is encrypted end to end or it is not made: no key on
+   *    either side, or a handshake that fails, ends it. There is no plain
+   *    fallback.
+   *  - The banner says whose it is and that it cannot be changed from here.
+   */
+
+  /** How long the tab may be hidden before what it shows is dropped. */
+  const ARTIFACT_HIDDEN_MS = 2 * 60 * 1000;
+  /** How long the desk may take over the handshake, and over one answer. */
+  const ARTIFACT_HANDSHAKE_MS = 10000;
+  const ARTIFACT_ANSWER_MS = 20000;
+  /** The largest sealed frame read: a page is a few hundred KiB at most. */
+  const ARTIFACT_MAX_FRAME = 2 * 1024 * 1024;
+  /** Entries asked for at a time, and the most drawn for one recording. */
+  const ARTIFACT_PAGE = 50;
+  const ARTIFACT_MAX_ENTRIES = 1000;
+  /** The longest piece of text drawn for one field of one entry. */
+  const ARTIFACT_MAX_TEXT = 20000;
+
+  /** Whether the desk has said this window's device may view recordings. */
+  let artifactsOffered = false;
+  /** The open viewer, or null: {gen, link, desk, device, status, items, next,
+   *  view}. */
+  let art = null;
+  let artGen = 0;
+  let artHiddenTimer = 0;
+
+  function setArtifactsOffered(on) {
+    artifactsOffered = remoteWindow && !!on;
+    const b = $("btn-recordings");
+    if (b) { b.hidden = !artifactsOffered; placeRailStop(); }
+    if (!artifactsOffered && art) {
+      artifactsLeave();
+      if (dialog === "artifacts") closeOverlay();
+    }
+  }
+
+  /** artifactLink opens the socket, runs the handshake and resolves with an
+   *  object whose ask() sends one request and resolves with the one reply. The
+   *  desk answers requests in order, one reply each, so replies are matched by
+   *  order. onDrop is told once, with the close code and reason, when the
+   *  socket ends for any reason, including this side ending it. */
+  function artifactLink(onDrop) {
+    return new Promise((resolve, reject) => {
+      if (!hostE2EPublicKey || !window.FlockdeckE2E) { onDrop(0, "nokey"); reject(new Error("nokey")); return; }
+      const ws = new WebSocket(wsBase + basePath + "ws/artifacts");
+      ws.binaryType = "arraybuffer";
+      const link = { ws, session: null, handshake: null, closed: false, waiting: [], chain: Promise.resolve(), inbox: Promise.resolve(), timer: 0 };
+      let settled = false;
+      const fail = (code, reason) => {
+        if (link.closed) return;
+        link.closed = true;
+        clearTimeout(link.timer);
+        try { ws.close(); } catch { /* already closing */ }
+        const err = new Error("closed");
+        err.code = code || 0;
+        err.reason = reason || "";
+        if (!settled) { settled = true; reject(err); }
+        for (const w of link.waiting.splice(0)) w.reject(err);
+        onDrop(err.code, err.reason);
+      };
+      link.fail = fail;
+      link.ask = (req) => new Promise((ok, no) => {
+        if (link.closed || !link.session) { no(new Error("closed")); return; }
+        link.waiting.push({ resolve: ok, reject: no });
+        clearTimeout(link.timer);
+        link.timer = setTimeout(() => fail(0, "timeout"), ARTIFACT_ANSWER_MS);
+        const body = new TextEncoder().encode(JSON.stringify(req));
+        const tagged = new Uint8Array(body.length + 1);
+        tagged[0] = 1; // a text message, as the desk's e2eConn tags it
+        tagged.set(body, 1);
+        const session = link.session;
+        link.chain = link.chain.then(() => session.seal(tagged)).then((frame) => {
+          if (!link.closed && ws.readyState === WebSocket.OPEN) ws.send(frame);
+        }).catch(() => fail(0, "seal"));
+      });
+      ws.onopen = async () => {
+        let started;
+        try {
+          const identity = await FlockdeckE2E.getIdentity();
+          if (!identity) { fail(0, "noidentity"); return; }
+          started = await FlockdeckE2E.startTerminalHandshake(identity, hostE2EPublicKey);
+        } catch { fail(0, "handshake"); return; }
+        if (link.closed) return;
+        link.handshake = started.handshake;
+        ws.send(started.hello);
+        link.timer = setTimeout(() => fail(0, "handshake"), ARTIFACT_HANDSHAKE_MS);
+      };
+      ws.onmessage = (ev) => {
+        if (link.closed) return;
+        // Nothing but binary, ever: a text frame is a relay trying to talk
+        // plain, and ends the connection.
+        if (typeof ev.data === "string" || !ev.data || ev.data.byteLength > ARTIFACT_MAX_FRAME) { fail(0, "frame"); return; }
+        const frame = new Uint8Array(ev.data);
+        if (!link.session) {
+          const handshake = link.handshake;
+          if (!handshake) { fail(0, "handshake"); return; }
+          link.handshake = null;
+          clearTimeout(link.timer);
+          handshake.finish(frame).then((session) => {
+            if (link.closed) return;
+            link.session = session;
+            settled = true;
+            resolve(link);
+          }).catch(() => fail(0, "handshake"));
+          return;
+        }
+        const session = link.session;
+        link.inbox = link.inbox.then(() => session.open(frame)).then((plain) => {
+          if (link.closed) return;
+          if (!plain || plain.length < 2 || plain[0] !== 1) { fail(0, "frame"); return; }
+          let reply;
+          try { reply = JSON.parse(new TextDecoder().decode(plain.subarray(1))); } catch { fail(0, "frame"); return; }
+          const w = link.waiting.shift();
+          if (!w) { fail(0, "unasked"); return; }
+          clearTimeout(link.timer);
+          if (link.waiting.length) link.timer = setTimeout(() => fail(0, "timeout"), ARTIFACT_ANSWER_MS);
+          w.resolve(reply);
+        }).catch(() => fail(0, "frame"));
+      };
+      ws.onclose = (ev) => fail(ev && ev.code, ev && ev.reason);
+      ws.onerror = () => fail(0, "error");
+    });
+  }
+
+  /** What the desk's reason for ending the socket means to a person. */
+  function artifactWhy(code, reason, desk) {
+    const where = desk || "the desk";
+    if (reason === "disabled") return "Viewing recordings is turned off on " + where + ". Turn it on at the desk.";
+    if (reason === "device") return "This device is not allowed to view recordings on " + where + ". Allow it at the desk.";
+    if (reason === "verify") return "This device has not been verified on " + where + ", or its key changed. Compare the codes and mark it verified at the desk.";
+    if (reason === "key" || reason === "nokey" || reason === "noidentity") return "There is no end-to-end key to encrypt with yet, so nothing is shown. Reload this page.";
+    if (code === 4429 || reason === "busy") return "Too many connections or requests. Try again in a moment.";
+    if (reason === "handshake") return "The encrypted connection to " + where + " could not be set up, so nothing is shown.";
+    if (reason === "closed") return "";
+    return "The connection to " + where + " ended.";
+  }
+
+  function openArtifacts() {
+    if (!remoteWindow || !artifactsOffered) {
+      notice("Recordings from the desk are not available to this window", true);
+      return;
+    }
+    dialog = "artifacts";
+    openOverlay("Desk recordings", "remote");
+    artifactsStart();
+  }
+
+  /** artifactsStart connects, says hello and lists. A new run replaces the
+   *  last, and a callback from the last finds it has been replaced. */
+  function artifactsStart() {
+    artifactsLeave();
+    const gen = ++artGen;
+    const mine = { gen, link: null, desk: "", device: "", status: "Connecting…", items: [], next: "", view: null, busy: true, note: "" };
+    art = mine;
+    renderArtifacts();
+    artifactLink((code, reason) => {
+      // A socket this side ended on purpose has said why already.
+      if (art !== mine || mine.ending) return;
+      artifactsDropped(mine, code, reason);
+    }).then((link) => {
+      if (art !== mine) { link.fail(0, "closed"); return null; }
+      mine.link = link;
+      return link.ask({ op: "hello", v: 1 });
+    }).then((hello) => {
+      if (!hello || art !== mine) return null;
+      if (hello.op !== "hello") throw new Error("hello");
+      mine.desk = typeof hello.desk === "string" ? hello.desk : "";
+      mine.device = typeof hello.device === "string" ? hello.device : "";
+      mine.status = "Loading…";
+      renderArtifacts();
+      return artifactsList(mine, "");
+    }).catch(() => { /* the drop handler has said why */ });
+  }
+
+  /** artifactsList asks for a page of the list of recordings. */
+  function artifactsList(mine, after) {
+    mine.busy = true;
+    const req = { op: "list", kind: "recordings" };
+    if (after) req.after = after;
+    return mine.link.ask(req).then((r) => {
+      if (art !== mine) return;
+      mine.busy = false;
+      if (r.op !== "list" || !Array.isArray(r.items)) { artifactsFailed(mine, r); return; }
+      mine.items = after ? mine.items.concat(r.items) : r.items;
+      mine.next = typeof r.next === "string" ? r.next : "";
+      mine.status = mine.items.length ? "" : "There are no recordings on the desk yet.";
+      renderArtifacts();
+    });
+  }
+
+  /** artifactsOpen asks for a page of one recording; cursor 0 starts it. */
+  function artifactsOpen(mine, item, cursor) {
+    mine.busy = true;
+    if (cursor === 0) mine.view = { item, entries: [], next: 0, done: false, header: null, skipped: 0, capped: false };
+    renderArtifacts();
+    return mine.link.ask({ op: "open", kind: "recordings", id: String(item.id), cursor, max: ARTIFACT_PAGE }).then((r) => {
+      if (art !== mine || !mine.view) return;
+      mine.busy = false;
+      if (r.op !== "data" || !Array.isArray(r.entries)) { artifactsFailed(mine, r); return; }
+      const v = mine.view;
+      v.header = r.header && typeof r.header === "object" ? r.header : v.header;
+      v.skipped += Number(r.skipped) || 0;
+      for (const en of r.entries) {
+        if (v.entries.length >= ARTIFACT_MAX_ENTRIES) { v.capped = true; break; }
+        v.entries.push(en);
+      }
+      v.next = Number(r.next) || 0;
+      v.done = r.done === true || v.capped;
+      renderArtifacts();
+    });
+  }
+
+  /** artifactsFailed is a reply that is an error, or not what was asked for.
+   *  The desk says only a code, and that is all that is shown. */
+  function artifactsFailed(mine, r) {
+    const code = r && r.code;
+    mine.view = mine.view && mine.view.entries.length ? mine.view : null;
+    if (code === "busy") mine.note = "The desk is busy. Try again in a moment.";
+    else if (code === "disabled") mine.note = "Viewing recordings is turned off on " + (mine.desk || "the desk") + ".";
+    else if (code === "too_large") mine.note = "That was too large to show.";
+    else mine.note = "That recording is not available.";
+    mine.status = mine.items.length ? "" : mine.status;
+    renderArtifacts();
+  }
+
+  /** artifactsDropped is the socket ending, which drops everything shown. */
+  function artifactsDropped(mine, code, reason) {
+    mine.link = null;
+    mine.items = [];
+    mine.view = null;
+    mine.next = "";
+    mine.busy = false;
+    mine.note = "";
+    mine.status = artifactWhy(code, reason, mine.desk) || "Closed.";
+    renderArtifacts();
+  }
+
+  /** artifactsLeave drops the connection and everything shown. It is what
+   *  closing the dialog, a hidden tab and a new run all do first. */
+  function artifactsLeave() {
+    clearTimeout(artHiddenTimer);
+    artHiddenTimer = 0;
+    const mine = art;
+    art = null;
+    if (!mine) return;
+    mine.items = [];
+    mine.view = null;
+    if (mine.link) { const l = mine.link; mine.link = null; l.fail(0, "closed"); }
+    if (dialog === "artifacts") $("overlay-body").textContent = "";
+  }
+
+  /** artifactsHiddenFor ends the view once the tab has been hidden long
+   *  enough; the person is told why when they come back. */
+  function artifactsVisibility() {
+    clearTimeout(artHiddenTimer);
+    artHiddenTimer = 0;
+    if (!art || !document.hidden) return;
+    const mine = art;
+    artHiddenTimer = setTimeout(() => {
+      artHiddenTimer = 0;
+      if (art !== mine) return;
+      const link = mine.link;
+      mine.ending = true;
+      mine.link = null;
+      artifactsDropped(mine, 0, "");
+      mine.status = "Cleared: this tab was hidden for 2 minutes.";
+      renderArtifacts();
+      if (link) link.fail(0, "closed");
+    }, ARTIFACT_HIDDEN_MS);
+  }
+  document.addEventListener("visibilitychange", artifactsVisibility);
+
+  function artifactSize(n) {
+    n = Number(n) || 0;
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return Math.round(n / 1024) + " KiB";
+    return (n / (1024 * 1024)).toFixed(1) + " MiB";
+  }
+
+  function artifactClip(v) {
+    const s = typeof v === "string" ? v : String(v);
+    return s.length > ARTIFACT_MAX_TEXT ? s.slice(0, ARTIFACT_MAX_TEXT) + "\n[cut for display]" : s;
+  }
+
+  /** artifactEntry draws one parsed entry. Every string is a text node. */
+  function artifactEntry(en) {
+    const row = el("div", "art-entry");
+    const head = el("div", "art-head");
+    head.append(el("span", "art-seq", "#" + String(en.seq)));
+    if (en.time) head.append(el("span", "art-time", String(en.time)));
+    head.append(el("span", "art-type", String(en.type).replace(/_/g, " ")));
+    if (en.tool) head.append(el("span", "art-tool", String(en.tool)));
+    if (en.isError === true) head.append(el("span", "art-flag", "error"));
+    if (en.redacted === true) head.append(el("span", "art-flag", "values hidden"));
+    row.append(head);
+    if (en.text) row.append(el("pre", "art-text", artifactClip(en.text)));
+    if (en.input !== undefined && en.input !== null) {
+      let shown;
+      try { shown = typeof en.input === "string" ? en.input : JSON.stringify(en.input, null, 2); } catch { shown = ""; }
+      if (shown) row.append(el("pre", "art-text", artifactClip(shown)));
+    }
+    if (en.output) row.append(el("pre", "art-text", artifactClip(en.output)));
+    return row;
+  }
+
+  /** renderArtifacts draws the viewer from `art` alone. */
+  function renderArtifacts() {
+    if (dialog !== "artifacts") return;
+    const body = $("overlay-body");
+    body.textContent = "";
+    const mine = art;
+    body.append(el("div", "art-banner", "Read-only from " + ((mine && mine.desk) || "the desk") + " - " + ((mine && mine.device) || "this device")));
+    const wrap = el("div", "art-body");
+    wrap.oncontextmenu = (e) => { e.preventDefault(); };
+    body.append(wrap);
+    if (!mine) return;
+
+    if (mine.note) {
+      const n = el("div", "fan-hint", mine.note);
+      n.setAttribute("role", "status");
+      wrap.append(n);
+    }
+    if (mine.status) {
+      const s = el("div", "dir-empty", mine.status);
+      s.setAttribute("role", "status");
+      wrap.append(s);
+      if (!mine.link && !mine.busy) {
+        const again = el("button", "chip primary", "Open again");
+        again.id = "art-again";
+        again.onclick = () => artifactsStart();
+        wrap.append(again);
+      }
+    }
+    if (mine.view) {
+      const v = mine.view;
+      const back = el("button", "chip", "Back to recordings");
+      back.id = "art-back";
+      back.onclick = () => { mine.view = null; mine.note = ""; renderArtifacts(); };
+      wrap.append(back);
+      const h = v.header || {};
+      wrap.append(el("div", "wt-meta", [String(v.item.project || h.project || ""), String(v.item.agent || h.agent || ""), String(v.item.started || h.started || "")].filter(Boolean).join(" · ")));
+      wrap.append(el("div", "fan-hint", "Redacted again for remote viewing. Redaction matches patterns and misses things."));
+      const list = el("div", "art-entries");
+      for (const en of v.entries) list.append(artifactEntry(en));
+      wrap.append(list);
+      if (v.skipped) wrap.append(el("div", "wt-meta", v.skipped + (v.skipped === 1 ? " line was not shown." : " lines were not shown.")));
+      if (v.capped) wrap.append(el("div", "wt-meta", "Showing the first " + ARTIFACT_MAX_ENTRIES + " entries."));
+      if (!v.done && !mine.busy) {
+        const more = el("button", "chip primary", "Show more");
+        more.id = "art-more";
+        more.onclick = () => { artifactsOpen(mine, v.item, v.next).catch(() => {}); };
+        wrap.append(more);
+      }
+      return;
+    }
+    if (!mine.items.length) return;
+    wrap.append(el("div", "fan-hint", "Recordings on " + (mine.desk || "the desk") + ". They are shown here and not saved, and what is shown is dropped when this closes."));
+    mine.items.forEach((it, i) => {
+      const row = el("button", "wt-row art-item");
+      row.id = "art-item-" + i;
+      const main = el("div", "wt-main");
+      const title = el("div", "wt-title");
+      title.append(el("span", "wt-label", String(it.project || it.name || "recording")));
+      if (it.agent) title.append(el("span", "wt-meta", String(it.agent)));
+      main.append(title);
+      main.append(el("div", "wt-meta", [String(it.started || ""), artifactSize(it.size)].filter(Boolean).join(" · ")));
+      row.append(main);
+      row.onclick = () => { mine.note = ""; artifactsOpen(mine, it, 0).catch(() => {}); };
+      wrap.append(row);
+    });
+    if (mine.next) {
+      const more = el("button", "chip", "More recordings");
+      more.id = "art-more-list";
+      more.onclick = () => { artifactsList(mine, mine.next).catch(() => {}); };
+      wrap.append(more);
+    }
+  }
+  /* ==== Remote artifacts viewer: end ==== */
 
   /* Helper apps: small local programs Flockdeck installs, starts and opens in
    * the browser (internal/helpers). This is the
@@ -15463,6 +15862,7 @@
   $("btn-github").onclick = () => openGithub();
   $("btn-apikeys").onclick = () => openKeys();
   $("btn-history").onclick = openHistory;
+  $("btn-recordings").onclick = () => openArtifacts();
   $("btn-changes").onclick = () => openChanges();
   $("summary").onclick = openAgents;
   // Bound through a closure rather than passed straight in: the click event

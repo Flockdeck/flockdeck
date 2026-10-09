@@ -2925,3 +2925,17 @@ body.view-only #new-tab, body.view-only #new-tab-pick, body.view-only #rail-open
 body.view-only #btn-broadcast, body.view-only #btn-changes, body.view-only #btn-history, body.view-only #btn-worktrees,
 body.view-only #btn-fanout-history, body.view-only #btn-todos, body.view-only #btn-github, body.view-only #btn-apikeys,
 body.view-only #btn-remote { display: none; }
+
+
+/* The read-only recordings viewer for a window reached through the relay. The
+ * text is not selectable and there is nothing to save; see the viewer's note in
+ * app.js. */
+.rail-btn[hidden] { display: none; }
+.art-banner { padding: 8px 12px; border-bottom: 1px solid var(--line-subtle); color: var(--fg); font-weight: 600; }
+.art-body { user-select: none; -webkit-user-select: none; padding: 8px 12px; }
+.art-item { width: 100%; text-align: left; background: transparent; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.art-entry { padding: 6px 0; border-bottom: 1px solid var(--line-subtle); }
+.art-head { display: flex; flex-wrap: wrap; gap: 8px; color: var(--fg-dim); font-size: 12px; }
+.art-type { font-weight: 600; color: var(--fg); }
+.art-flag { color: var(--waiting); }
+.art-text { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono, monospace); font-size: 12px; }

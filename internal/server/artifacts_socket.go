@@ -142,6 +142,9 @@ type artifactSock struct {
 	device string
 	conn   *websocket.Conn
 	reg    *artifacts.Registry
+	// recs is the last recordings listing this socket took, which the cursors
+	// of its list requests page through. Only the socket's own goroutine uses it.
+	recs []recItem
 }
 
 // artifactDenial tracks how often one refusal has been recorded and shown.
@@ -294,6 +297,10 @@ type artifactRequest struct {
 	Pane  string `json:"pane"`
 	After string `json:"after"`
 	ID    string `json:"id"`
+	// Cursor and Max page through what an id opens: a byte position the host
+	// handed out as next (or 0), and how many entries to return at most.
+	Cursor int64 `json:"cursor"`
+	Max    int   `json:"max"`
 }
 
 // The only errors a device is told, and with no detail beyond the code.
@@ -484,18 +491,25 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 			case "hello":
 				reply = map[string]any{
 					"op": "hello", "v": 1,
+					// Who is who, for the banner. They travel inside the encrypted
+					// socket, unlike the control socket the relay can read.
+					"desk": s.deskName(), "device": name,
 					"kinds": artifactKindsJSON(kinds),
 					"limits": artifactLimits{
 						Chunk: artifacts.ChunkBytes, Request: artifacts.MaxRequestBytes, ListItems: artifacts.MaxListItems,
 					},
 				}
 			case "list":
-				reply = s.artifactList(req, kinds)
+				reply = s.artifactList(qctx, sock, req, kinds)
 			case "open":
-				// Nothing is listed yet, so no id was ever issued on this socket and
-				// every id is unknown. The registry is asked anyway: it is what later
-				// lookups go through.
-				if _, err := sock.reg.Lookup(req.ID, req.Kind, req.Pane); err != nil {
+				// A kind that exists but is not switched on is told so, and does not
+				// count as a guess at an id.
+				if artifactKindKnown(req.Kind) && !artifactKindOn(kinds, req.Kind) {
+					reply = map[string]any{"op": "error", "code": artifactErrDisabled}
+					break
+				}
+				e, err := sock.reg.Lookup(req.ID, req.Kind, req.Pane)
+				if err != nil {
 					now := time.Now()
 					unknown = append(pruneBefore(unknown, now.Add(-time.Minute)), now)
 					if len(unknown) > artifactUnknownMax {
@@ -503,8 +517,10 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 						refuse(artifactCloseRefused, "unknown ids")
 						return false
 					}
+					reply = map[string]any{"op": "error", "code": artifactErrUnavailable}
+					break
 				}
-				reply = map[string]any{"op": "error", "code": artifactErrUnavailable}
+				reply = s.openRecording(qctx, device, name, e, req)
 			case "close":
 				reply = map[string]any{"op": "close"}
 			default:
@@ -526,20 +542,49 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// artifactList answers a list request. It is empty for every kind for now;
-// what it already decides is which kinds may be asked for.
-func (s *Server) artifactList(req artifactRequest, kinds []string) map[string]any {
-	for _, k := range kinds {
-		if k == req.Kind {
-			return map[string]any{"op": "list", "kind": k, "items": []any{}, "next": ""}
+// artifactList answers a list request: the items of a kind that is switched
+// on, a refusal that says so for a kind that exists and is off, and
+// "unavailable" for anything else.
+func (s *Server) artifactList(ctx context.Context, sock *artifactSock, req artifactRequest, kinds []string) map[string]any {
+	if artifactKindOn(kinds, req.Kind) {
+		if req.Kind == recordingsKind {
+			return s.listRecordings(ctx, sock, req)
 		}
+		return map[string]any{"op": "list", "kind": req.Kind, "items": []any{}, "next": ""}
 	}
-	for _, k := range artifactKinds {
-		if k == req.Kind {
-			return map[string]any{"op": "error", "code": artifactErrDisabled}
-		}
+	if artifactKindKnown(req.Kind) {
+		return map[string]any{"op": "error", "code": artifactErrDisabled}
 	}
 	return map[string]any{"op": "error", "code": artifactErrUnavailable}
+}
+
+func artifactKindOn(kinds []string, kind string) bool {
+	for _, k := range kinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func artifactKindKnown(kind string) bool {
+	for _, k := range artifactKinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// deskName is what this machine is called on paired devices, for the banner. It
+// is empty if remote access cannot say.
+func (s *Server) deskName() string {
+	ra := s.remoteAccess()
+	if ra == nil {
+		return ""
+	}
+	st, _ := ra.Status()
+	return tidy(st.Name)
 }
 
 // artifactReply sends one reply sealed, within the device's byte allowance. A
