@@ -2,9 +2,13 @@
 // contents are a secret: a dotenv file, a private key, a credentials or token
 // file, a state file that holds them, a folder that exists to keep them.
 //
-// It is a leaf: it imports only the standard library's strings and unicode, so
-// that a package which must never start a process or reach the network can use
-// it without inheriting what internal/review (which runs commands) imports.
+// It is a leaf: it imports only the standard library's strings, unicode,
+// hashing and sorting packages, so that a package which must never start a
+// process or reach the network can use it without inheriting what
+// internal/review (which runs commands) imports.
+//
+// The credential and browser-store names it looks for are held as hashes (see
+// hashed.go), not as text, and the readable list is testdata/names.txt.
 //
 // It is written for file names, not command-line arguments, which is what
 // internal/review.SecretPath was written for and why it is not used here: that
@@ -96,19 +100,21 @@ func hit(n string) bool { return match(n) || match(normalise(n)) }
 
 // Folder reports whether name, as a folder, is one whose whole contents are
 // secret (.ssh, .aws, .git, secrets, private ...).
-func Folder(name string) bool { return secretFolders[normalise(fold(name))] }
+func Folder(name string) bool {
+	n := normalise(fold(name))
+	return isSecretFolder(n) || genericFolders[n]
+}
 
 // StrictFolder is Folder without the plain words that are also ordinary folder
 // names ("private", "secret", "secrets"): for judging the folders above a place
 // where those are common and harmless (/private/var on macOS, ~/repos/private).
 func StrictFolder(name string) bool {
-	n := normalise(fold(name))
-	return secretFolders[n] && !genericFolders[n]
+	return isSecretFolder(normalise(fold(name)))
 }
 
 // FolderPair reports whether a then b, two folders in a row, are one of the
 // pairs that hold secrets (.config/gh).
-func FolderPair(a, b string) bool { return pairFolders[fold(a)+"/"+fold(b)] }
+func FolderPair(a, b string) bool { return isPair(fold(a) + "/" + fold(b)) }
 
 var genericFolders = map[string]bool{"private": true, "secret": true, "secrets": true}
 
@@ -177,21 +183,15 @@ func match(n string) bool {
 	if n == "" {
 		return false
 	}
-	if secretFolders[n] {
+	if isSecretFolder(n) || genericFolders[n] {
 		return true
 	}
-	if secretFiles[n] {
+	if has(kindFile, n) {
 		return true
 	}
 	switch {
 	case strings.HasPrefix(n, ".env."), strings.HasSuffix(n, ".env"), strings.Contains(n, ".env."):
 		return true // .env.local, prod.env, prod.env.json
-	case strings.HasPrefix(n, "kubeconfig"), strings.HasPrefix(n, "login data"), strings.HasPrefix(n, "firebase-adminsdk"):
-		return true // kubeconfig.yaml, kubeconfig-prod; a browser's "Login Data"
-	case strings.HasPrefix(n, "ssh_host_") && !strings.HasSuffix(n, ".pub"), strings.HasPrefix(n, ".authinfo"), strings.HasPrefix(n, "ntuser.dat"):
-		return true // a host's private key; ssh_host_rsa_key.pub is public
-	case strings.HasPrefix(n, "id_") && !strings.HasSuffix(n, ".pub"):
-		return true // a private ssh key; the .pub beside it is public
 	case strings.Contains(n, "credential"):
 		return true
 	case strings.Contains(n, ".tfstate"):
@@ -199,10 +199,14 @@ func match(n string) bool {
 	case strings.HasPrefix(n, ".env"): // .envrc, .env-prod, .env_local
 		return true
 	}
-	for _, ext := range secretExtensions {
-		if strings.HasSuffix(n, ext) {
-			return true
-		}
+	if hasPrefixIn(kindPrefixAny, n) {
+		return true // kubeconfig.yaml, kubeconfig-prod; a browser's "Login Data"
+	}
+	if hasPrefixIn(kindPrefixPrivate, n) && !strings.HasSuffix(n, ".pub") {
+		return true // a private key; the .pub beside it is public
+	}
+	if hasSuffixIn(n) {
+		return true
 	}
 	toks := tokens(n)
 	for i, tok := range toks {
@@ -255,7 +259,7 @@ func Path(rel string) bool {
 	// A folder pair: the folder alone is ordinary, what is under it is not.
 	parts := strings.FieldsFunc(fold(rel), func(r rune) bool { return r == '/' || r == '\\' })
 	for i := 0; i+1 < len(parts); i++ {
-		if pairFolders[parts[i]+"/"+parts[i+1]] {
+		if isPair(parts[i] + "/" + parts[i+1]) {
 			return true
 		}
 	}
@@ -276,43 +280,4 @@ func tokens(s string) []string {
 var secretWords = map[string]bool{
 	"secret": true, "secrets": true, "password": true, "passwords": true, "passwd": true,
 	"token": true, "apikey": true, "privatekey": true, "secretkey": true, "accesskey": true,
-}
-
-// secretExtensions end a name that holds key material or a protected store.
-var secretExtensions = []string{
-	".pem", ".key", ".p12", ".pfx", ".ppk", ".p8", ".keystore", ".jks", ".jceks", ".pkcs12",
-	".tfvars", ".tfvars.json", ".kdbx", ".kdb", ".gpg", ".keychain", ".keychain-db", ".ovpn", ".keytab",
-}
-
-// secretFiles are whole names, lower-case.
-var secretFiles = map[string]bool{
-	".netrc": true, "_netrc": true, ".npmrc": true, ".pgpass": true, ".git-credentials": true,
-	".htpasswd": true, ".pypirc": true, ".dockercfg": true, ".yarnrc": true, ".yarnrc.yml": true,
-	".boto": true, ".s3cfg": true, ".vault-token": true, "kubeconfig": true, ".kubeconfig": true,
-	"service-account.json": true, "service_account.json": true,
-	".bash_history": true, ".zsh_history": true, ".psql_history": true, ".mysql_history": true,
-	".sqlite_history": true, ".node_repl_history": true, ".python_history": true, ".lesshst": true,
-	"wp-config.php": true, "master.key": true,
-	".my.cnf": true, ".dev.vars": true, "gradle.properties": true, ".terraformrc": true, "terraform.rc": true,
-	"auth.json": true, "kube.config": true, ".gitconfig": true, "known_hosts": true,
-	"cookies.sqlite": true, "cookies": true, "logins.json": true, "key4.db": true,
-	".mylogin.cnf": true, ".rails_master_key": true, ".msmtprc": true, "rclone.conf": true,
-	"serviceaccountkey.json": true,
-	"web data":               true, "local state": true, "oauth_creds.json": true, "shadow": true, "htpasswd": true, "sam": true,
-	"ntds.dit": true, "key.json": true, "azureprofile.json": true, ".vault_pass": true, ".vault-pass": true, "authorized_keys": true, "wallet.dat": true,
-}
-
-// secretFolders are folder names whose whole contents are secret, wherever
-// they are in a path.
-var secretFolders = map[string]bool{
-	".git": true, ".ssh": true, ".aws": true, ".gnupg": true, ".kube": true, ".docker": true,
-	".azure": true, ".terraform": true, ".gcloud": true, ".password-store": true, ".vault": true,
-	".secrets": true, ".m2": true, "user data": true, ".mozilla": true, ".thunderbird": true, "keyrings": true,
-	"secrets": true, "secret": true, "private": true,
-}
-
-// pairFolders are two folders in a row ("a/b", lower-case) where neither alone
-// says anything: .config/gh holds GitHub's token, .config/gcloud Google's.
-var pairFolders = map[string]bool{
-	".config/gh": true, ".config/gcloud": true, ".config/op": true, ".config/rclone": true,
 }
