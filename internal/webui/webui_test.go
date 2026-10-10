@@ -3640,6 +3640,54 @@ assert.strictEqual(t.pasted.length, 1, "an ordinary paste was pasted twice");
 `)
 }
 
+// The paste strips the same characters the remote client and the prompt bar
+// do: C0 controls except tab, LF and CR, DEL, and U+0080 to U+009F. Text that
+// is left alone keeps its line breaks for xterm, and a paste with nothing left
+// sends nothing and does not reach xterm either.
+func TestAPasteLosesControlCharactersAndNothingElse(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const t = h.terms[0];
+const typing = h.doc.createElement("textarea");
+typing.className = "xterm-helper-textarea";
+t.host.append(typing);
+const reached = [];
+typing.addEventListener("paste", () => reached.push("xterm"));
+const paste = (text) => {
+  const ev = new h.Ev("paste", { clipboardData: { getData: (type) => (type === "text/plain" ? text : "") } });
+  h.dispatch(typing, ev);
+  return ev;
+};
+// Sent by us (stripped), or left for xterm (untouched), or swallowed.
+const outcome = (text) => {
+  t.pasted = []; reached.length = 0;
+  const ev = paste(text);
+  if (t.pasted.length) { assert.strictEqual(t.pasted.length, 1); assert.deepStrictEqual(reached, [], "xterm pasted it as well"); assert.ok(ev.defaultPrevented); return t.pasted[0]; }
+  if (reached.length) { assert.ok(!ev.defaultPrevented, "an untouched paste was kept from xterm"); return "xterm"; }
+  assert.ok(ev.defaultPrevented, "a swallowed paste was left to the browser");
+  return null;
+};
+
+// Coloured text copied from a terminal: the escapes go, the words stay.
+assert.strictEqual(outcome("\x1b[31mred\x1b[0m and \x1b[1;32mgreen\x1b[0m\n"), "[31mred[0m and [1;32mgreen[0m\n");
+assert.strictEqual(outcome("a\x0cb"), "ab", "form feed");
+assert.strictEqual(outcome("a\x00b\x01\x08\x0b\x0e\x1f\x7f\x80\x9b\x9fz"), "abz", "NUL, other C0, DEL and C1");
+// Line breaks and tabs are not touched, so xterm still turns CRLF and LF into CR.
+assert.strictEqual(outcome("a\r\nb\nc\rd\te\x00"), "a\r\nb\nc\rd\te");
+assert.strictEqual(outcome("a\r\nb\n\tc"), "xterm", "text with no control characters was taken from xterm");
+// Everything from U+00A0 up stays.
+assert.strictEqual(outcome("a\u00a0b \u200d \u2028 \u2029 caf\u00e9 \u65e5\u672c \ud83d\udc69\u200d\ud83d\udcbb\x1b"), "a\u00a0b \u200d \u2028 \u2029 caf\u00e9 \u65e5\u672c \ud83d\udc69\u200d\ud83d\udcbb");
+assert.strictEqual(outcome("a\u00a0b \u2028 \u2029 \u200d \ud83d\udc69\ud83d\udcbb"), "xterm");
+// Paste markers in the text become literal text.
+assert.strictEqual(outcome("x\x1b[200~y\x1b[201~z"), "x[200~y[201~z");
+// Nothing left: nothing sent, and xterm does not get it.
+assert.strictEqual(outcome("\x1b\x00\x7f\x9b"), null);
+// An empty clipboard text is not ours: xterm's handler sees it.
+assert.strictEqual(outcome(""), "xterm");
+`)
+}
+
 // The server takes a frame of up to 4 MiB from a terminal, and a paste bigger
 // than that went as one frame and was dropped with the connection, silently.
 // Input is sent a mebibyte at a time.
