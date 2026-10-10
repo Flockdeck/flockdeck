@@ -14,7 +14,7 @@ import (
 // shipped one. Change the file, then run go generate in this directory.
 
 type nameLists struct {
-	files, folders, pairs, suffixes, prefixAny, prefixPrivate []string
+	files, folders, pairs, suffixes, prefixAny, prefixPrivate, homePaths []string
 }
 
 var (
@@ -46,6 +46,8 @@ func lists(t testing.TB) nameLists {
 				cur = &listsVal.suffixes
 			case line == "[prefix-any]":
 				cur = &listsVal.prefixAny
+			case line == "[home-paths]":
+				cur = &listsVal.homePaths
 			case line == "[prefix-private]":
 				cur = &listsVal.prefixPrivate
 			case cur == nil:

@@ -141,10 +141,8 @@ func forbiddenRoot(real string, ge guardEnv) string {
 	}
 	// Equal or below: these hold secrets and nothing else.
 	for _, h := range homes {
-		for _, sub := range secretsUnderHome {
-			if sameOrUnder(h+"/"+sub, real) {
-				return "a folder that keeps secrets (" + sub + ")"
-			}
+		if why := secretUnderHome(h, real); why != "" {
+			return why
 		}
 		// Equal only: a program's settings live below these, and the folder
 		// itself holds every program's.
@@ -197,22 +195,6 @@ func (ge guardEnv) userNames(homes []string) []string {
 		}
 	}
 	return out
-}
-
-// secretsUnderHome are folders below the home directory that keep secrets, a
-// browser's or a mail program's profile among them. Root equal to one, or below
-// it, is refused.
-var secretsUnderHome = []string{
-	".ssh", ".aws", ".gnupg", ".kube", ".docker", ".azure", ".gcloud", ".password-store", ".vault", ".secrets",
-	".m2", ".terraform.d", ".config/gh", ".config/gcloud", ".config/op", ".config/rclone", ".config/git",
-	".local/share/keyrings", ".mozilla", ".thunderbird", ".config/google-chrome", ".config/chromium",
-	".config/BraveSoftware", ".config/microsoft-edge", ".config/Bitwarden", ".config/1Password",
-	"Library/Keychains", "Library/Cookies", "Library/Application Support/Google/Chrome",
-	"Library/Application Support/Firefox", "Library/Application Support/BraveSoftware",
-	"Library/Application Support/Microsoft Edge", "Library/Thunderbird",
-	"AppData/Roaming/gnupg", "AppData/Roaming/Microsoft/Credentials", "AppData/Roaming/Microsoft/Protect",
-	"AppData/Roaming/Mozilla", "AppData/Roaming/Thunderbird", "AppData/Local/Microsoft/Credentials",
-	"AppData/Local/Google/Chrome", "AppData/Local/Microsoft/Edge", "AppData/Local/BraveSoftware",
 }
 
 // settingsUnderHome are folders below the home directory that hold every
@@ -294,26 +276,25 @@ func homeShape(real string, homes, names []string) string {
 	if len(lower) == n {
 		return "the home directory itself"
 	}
-	return restForbidden(lower[n:])
+	return restForbidden(lower[n:], parts[n:])
 }
 
 // restForbidden is why a place below a home, given by its folders in lower
 // case, may not be a root. A cloud folder that redirects the user's folders
 // (OneDrive) is looked through.
-func restForbidden(rest []string) string {
+func restForbidden(rest, spelled []string) string {
 	if strings.HasPrefix(rest[0], "onedrive") {
 		if len(rest) == 1 {
 			return "a cloud folder that holds the user's folders"
 		}
-		rest = rest[1:]
+		rest, spelled = rest[1:], spelled[1:]
 	}
-	joined := strings.Join(rest, "/")
-	for _, sub := range secretsUnderHome {
-		s := strings.ToLower(sub)
-		if joined == s || strings.HasPrefix(joined, s+"/") {
-			return "a folder that keeps secrets (" + sub + ")"
+	for k := 1; k <= len(rest) && k <= secretname.MaxHomeDepth; k++ {
+		if secretname.HomeSecret(strings.Join(rest[:k], "/"), true) {
+			return "a folder that keeps secrets (" + strings.Join(spelled[:k], "/") + ")"
 		}
 	}
+	joined := strings.Join(rest, "/")
 	for _, sub := range settingsUnderHome {
 		if joined == strings.ToLower(sub) {
 			return "a folder that holds every program's settings (" + sub + ")"
