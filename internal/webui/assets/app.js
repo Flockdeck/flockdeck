@@ -3554,15 +3554,18 @@
     // markers, so it can tell text from keys, and xterm sends the text between
     // them as it was. A copied ESC[201~ ended the paste early, and whatever
     // followed it - a command and its newline - was typed at the program as
-    // keys. No escape character in a paste is anything a person means to
-    // send, so text holding one is pasted without them. Caught on the way down
-    // to xterm's own textarea, before its handler sees the event.
+    // keys. No control character in a paste is anything a person means to
+    // send, so text holding one is pasted without them (see pasteControls).
+    // Caught on the way down to xterm's own textarea, before its handler sees
+    // the event. Text with none is left to xterm, which does the rest. Text
+    // that is nothing but controls sends nothing, and xterm does not get it.
     host.addEventListener("paste", (ev) => {
       const text = ev.clipboardData && ev.clipboardData.getData("text/plain");
-      if (!text || !/[\x1b\x9b]/.test(text)) return;
+      if (!text || !pasteControls.test(text)) return;
       ev.preventDefault();
       ev.stopPropagation();
-      term.paste(text.replace(/[\x1b\x9b]/g, ""));
+      const clean = stripPasteControls(text);
+      if (clean) term.paste(clean);
     }, true);
     // Scrolled back to read what an agent wrote earlier, a pane went on
     // showing the old lines with nothing to say newer ones had arrived below,
@@ -5217,6 +5220,17 @@
     if (n >= 1e4) return Math.floor(n / 1000) + "k";
     if (n >= 1e3) return (Math.floor(n / 100) / 10).toFixed(1) + "k";
     return String(n);
+  }
+
+  /** The control characters a paste into a pane is stripped of: C0 except tab,
+   *  line feed and carriage return (so ESC, NUL and form feed go), DEL, and the
+   *  C1 range U+0080 to U+009F (which holds the 8-bit CSI, U+009B). Everything
+   *  from U+00A0 up stays, including NBSP, U+2028, U+2029, ZWJ and emoji. The
+   *  remote client and the prompt bar (stripControls in the workspace package)
+   *  remove the same set. Not global, so test() keeps no position. */
+  const pasteControls = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/;
+  function stripPasteControls(text) {
+    return String(text).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, "");
   }
 
   /** formatBytes writes a size the way a person reads one, to three
