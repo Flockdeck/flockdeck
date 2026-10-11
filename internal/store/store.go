@@ -93,6 +93,9 @@ type Pane struct {
 	// BatonID is the id of the baton the pane was started from, absent for a
 	// pane that began without one. See workspace.Pane.BatonID.
 	BatonID string `json:"baton,omitempty"`
+	// Role is the id of the role the pane was started as, absent for a pane
+	// that began without one. See workspace.Pane.Role.
+	Role string `json:"role,omitempty"`
 	// Root is the project the pane belongs to, written only when it is not the
 	// project of the tab holding it. A tab may show agents from more than one
 	// project, and without this a borrowed pane would come back counted

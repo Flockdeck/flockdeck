@@ -44,7 +44,7 @@ Run from inside a pane, this starts another agent:
 
 ```sh
 flockdeck spawn [-worktree <branch>] [-split] [-shell] [-record]
-                [-agent <id>] [-model <model>] [-baton <ref>] [-baton-send-elsewhere] <task>
+                [-agent <id>] [-model <model>] [-role <id>] [-baton <ref>] [-baton-send-elsewhere] <task>
 ```
 
 `-record` starts the helper with its agent interaction recorded as a
@@ -58,6 +58,12 @@ combined with `-shell`, which has no conversation to record.
 whatever the project runs by default. `flockdeck agents` lists the names both
 of them take, and a name neither the catalog nor the agent has is answered here
 rather than becoming a pane that never starts.
+
+`-role` starts the helper as one of the roles in [Agents and models](#agents), which
+gives it a briefing for the job and, where you gave no `-agent` or `-model`, the
+role's own agent and model. An unknown role is refused and the roles there are are
+named. A pane started in a role may start only the roles its own role lists. It
+cannot be combined with `-shell`.
 
 `-baton` starts the helper from a handoff instead of a blank conversation: `self`
 makes one from your own conversation, or give the id of a pane in your own project, a baton id (`flockdeck
@@ -360,6 +366,7 @@ command line and asks before it downloads anything.
 | `FLOCKDECK_PROJECT` | The project the pane belongs to |
 | `FLOCKDECK_AGENT` | Which agent the pane is running |
 | `FLOCKDECK_MODEL` | Which model it was asked for, if any |
+| `FLOCKDECK_ROLE` | Which role it was started as, if any |
 | `FLOCKDECK_LAUNCH` | Which start of the pane this is. Set for you, sent back by its hooks so a late one from before a restart is dropped |
 
 `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME` and `FLOCKDECK_PROJECT` are what a shell pane,
@@ -369,5 +376,5 @@ which has no lifecycle hooks of its own, has to go on.
 `FLOCKDECK_PROJECT` were called `PERCH_*` before the program was renamed. Panes
 still carry both spellings of those five and `spawn`, `peer-name` and `close`
 still read both, so a prompt or a script written against the old names keeps
-working; they will go in a later release. `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL`
-and `FLOCKDECK_LAUNCH` are newer and have only the one name.
+working; they will go in a later release. `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL`,
+`FLOCKDECK_ROLE` and `FLOCKDECK_LAUNCH` are newer and have only the one name.

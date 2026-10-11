@@ -18,6 +18,14 @@ starts.
   what is worth asking of it), and what each was asked for. It also says that the
   conversations are separate, so nothing passes between panes except through the
   user or a commit.
+- Its role, when it was started with `flockdeck spawn -role`: the role's briefing (what
+  it does, what it must not do, who it reports to and what to hand back), the checkout
+  it expects, the roles it may start, and the ids of every role in the catalog. A pane
+  started without a role gets none of this, and the section is left out. The roles are
+  the built-in `manager`, `planner`, `worker`, `reviewer`, `tester` and `docs` with
+  whatever the user's `agents.json` changes or adds under `roles`; see
+  [Agents and models](../internal/help/pages/agents.md). The briefing does not list
+  which agents currently hold which roles, and there is no messaging between them yet.
 - That it can start agents of its own with `flockdeck spawn`.
 - What the application around it can do (the status the user is watching, the
   fan-out that reads its own output, broadcast, the diff, the worktree panel and what
@@ -53,7 +61,8 @@ exit, and a message that was all briefing would end the pane. An entry in
 ## The environment
 
 Every pane also carries `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME`,
-`FLOCKDECK_PROJECT`, `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL` and `FLOCKDECK_LAUNCH`.
+`FLOCKDECK_PROJECT`, `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL` and `FLOCKDECK_LAUNCH`, and
+`FLOCKDECK_ROLE` for a pane started in a role.
 The [command line page](../internal/help/pages/cli.md) lists what each one is for,
 and which of them are also set under their older `PERCH_*` names.
 

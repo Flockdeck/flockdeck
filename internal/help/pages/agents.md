@@ -210,6 +210,66 @@ is named in the notice and ignored.
 The file is read fresh every time the picker opens, so editing it by hand takes
 effect without a restart.
 
+## Roles
+
+A role is a job an agent is started for. Flockdeck ships six: `manager`,
+`planner`, `worker`, `reviewer`, `tester` and `docs`. Each has a short briefing
+saying what the agent does, what it must not do, who it reports to and what to
+hand back when it finishes. An agent starts in one with `-role`:
+
+```sh
+flockdeck spawn -role reviewer "review the token refresh change on fix-auth"
+```
+
+`flockdeck agents` lists the roles after the agents, with the checkout each one
+expects and which roles it may start. An unknown role is refused with the list of
+roles there are.
+
+The pane is briefed for its role: the briefing gains a "Your role" section with the
+role's text and the ids of every role in the catalog, and the pane's environment
+carries `FLOCKDECK_ROLE`. The role is saved with the layout, so a restored pane is
+briefed for the same job. Roles do not yet give the agents a way to message each
+other or share a task list.
+
+A role may name an `agent` and a `model`, or a `tier` (`small`, `mid` or `top`) in
+place of a model. They apply only to a spawn that names neither `-agent` nor
+`-model`: a spawn that names an agent keeps it, and a role's model is not handed to
+an agent the role did not name. The built-in roles name none, so they run whatever
+the project runs by default.
+
+Roles are another key of `agents.json`. An entry whose `id` is a built-in's is
+merged over it field by field, and any other `id` is a role of your own:
+
+```json
+{
+  "roles": [
+    { "id": "worker", "tier": "mid" },
+    {
+      "id": "security",
+      "name": "Security reviewer",
+      "briefing": "Review the change for injection, unsafe file access and leaked secrets. Do not edit files. Report findings to whoever started you, with file and line.",
+      "worktree": "readonly",
+      "spawns": []
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | What `-role` takes |
+| `name` | What lists and the briefing call it |
+| `agent`, `model`, `tier` | Defaults for a spawn that chose neither an agent nor a model |
+| `briefing` | The text the agent is given about its role |
+| `worktree` | `own` (a worktree and branch of its own), `readonly` (a checkout it reads and does not change) or `main` (the project's main checkout) |
+| `spawns` | The ids of the roles an agent in this role may start. An agent in a role may start only these; an agent with no role may start any |
+
+The `worktree` setting is part of the briefing and the role list. Flockdeck does not
+yet cut a worktree or make a checkout read-only because of it, so pass
+`-worktree <branch>` when a role should have its own. A `worktree` that is none of
+the three, a bad `tier`, and a `spawns` entry that names no role are listed in the
+notice and ignored.
+
 ## Routing
 
 A fan-out multiplies whatever its model costs, and many of its tasks are

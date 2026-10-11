@@ -906,6 +906,10 @@ type SpawnOptions struct {
 	// CLI keeps whatever it was configured with.
 	Agent string
 	Model string
+	// Role is the id of the role the child is started as, recorded on the pane
+	// and put in its environment. The caller has already checked it exists and
+	// folded the role's agent and model into Agent and Model.
+	Role string
 	// Routed names the routing rule that chose Model, and RoutedFrom the
 	// model the child would otherwise have run. They are recorded on the pane
 	// so its header says the model was routed, and why. RoutedFromAgent names
@@ -1293,6 +1297,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		initial: initial,
 		Task:    o.Task,
 		BatonID: batonID,
+		Role:    o.Role,
 		// Kept in memory so a restart before the first turn asks the same thing.
 		batonPrompt: batonPrompt,
 		// A child inherits the pane it was started from trusting auto-review
