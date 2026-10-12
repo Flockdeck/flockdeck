@@ -88,7 +88,7 @@ func TestSpawnInARoleOverTheCallbackAPI(t *testing.T) {
 	if _, err := spawn(scout.PaneID, hooks.SpawnRequest{Task: "x", Role: "worker"}); err == nil || !strings.Contains(err.Error(), "scout role may not start") {
 		t.Errorf("scout starting a worker: error = %v", err)
 	}
-	if _, err := spawn(scout.PaneID, hooks.SpawnRequest{Task: "plain helper"}); err != nil {
+	if _, err := spawn(scout.PaneID, hooks.SpawnRequest{Task: "plain helper", Agent: "gocli"}); err != nil {
 		t.Errorf("a role with no spawn rights was stopped from starting an agent with no role: %v", err)
 	}
 }
