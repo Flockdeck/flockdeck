@@ -20,7 +20,7 @@ starts.
   user or a commit.
 - Its role, when it was started with `flockdeck spawn -role`: the role's briefing (what
   it does, what it must not do, who it reports to and what to hand back), the checkout
-  it expects, the roles it may start, and the ids of every role in the catalog. A pane
+  it expects, the roles it may start (and whether it may start agents with no role), and the ids of every role in the catalog. A pane
   started without a role gets none of this, and the section is left out. The roles are
   the built-in `manager`, `planner`, `worker`, `reviewer`, `tester` and `docs` with
   whatever the user's `agents.json` changes or adds under `roles`; see

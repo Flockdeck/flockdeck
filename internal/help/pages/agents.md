@@ -225,6 +225,12 @@ flockdeck spawn -role reviewer "review the token refresh change on fix-auth"
 expects and which roles it may start. An unknown role is refused with the list of
 roles there are.
 
+A pane in a role is limited in what it may start. It may start only the roles its
+own role lists under `spawns`, and it may start an agent with no role (`spawn`
+without `-role`) only if its role has `plain` set, since an agent with no role has
+no limits. `manager` has `plain` set; the other built-in roles do not. A refused
+spawn says which rule it hit.
+
 The pane is briefed for its role: the briefing gains a "Your role" section with the
 role's text and the ids of every role in the catalog, and the pane's environment
 carries `FLOCKDECK_ROLE`. The role is saved with the layout, so a restored pane is
@@ -233,8 +239,9 @@ other or share a task list.
 
 A role may name an `agent` and a `model`, or a `tier` (`small`, `mid` or `top`) in
 place of a model. They apply only to a spawn that names neither `-agent` nor
-`-model`: a spawn that names an agent keeps it, and a role's model is not handed to
-an agent the role did not name. The built-in roles name none, so they run whatever
+`-model`: a spawn that names an agent keeps it. A role's model goes only to the agent
+the role resolves to (its own `agent`, or the project's default when it names none),
+so `spawn -agent codex -role fast` does not give codex a model written for claude. The built-in roles name none, so they run whatever
 the project runs by default.
 
 Roles are another key of `agents.json`. An entry whose `id` is a built-in's is
@@ -263,10 +270,12 @@ merged over it field by field, and any other `id` is a role of your own:
 | `briefing` | The text the agent is given about its role |
 | `worktree` | `own` (a worktree and branch of its own), `readonly` (a checkout it reads and does not change) or `main` (the project's main checkout) |
 | `spawns` | The ids of the roles an agent in this role may start. An agent in a role may start only these; an agent with no role may start any |
+| `plain` | `true` lets an agent in this role start agents with no role. Off unless set |
 
 The `worktree` setting is part of the briefing and the role list. Flockdeck does not
 yet cut a worktree or make a checkout read-only because of it, so pass
-`-worktree <branch>` when a role should have its own. A `worktree` that is none of
+`-worktree <branch>` when a role should have its own. The manager briefing says to
+do this for workers and to pass the branch name to the reviewer and tester. A `worktree` that is none of
 the three, a bad `tier`, and a `spawns` entry that names no role are listed in the
 notice and ignored.
 

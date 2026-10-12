@@ -42,9 +42,12 @@ type Role struct {
 	// Worktree is one of the Worktree constants. Empty is not set.
 	Worktree string `json:"worktree,omitempty"`
 	// Spawns are the ids of the roles an agent in this role may start. A role
-	// with none may not start another role; it can still start an agent that
-	// has no role.
+	// with none may not start another role.
 	Spawns []string `json:"spawns,omitempty"`
+	// Plain lets an agent in this role start agents that have no role. It is
+	// off unless set, because an agent with no role has no limits and could
+	// start any role, so it would be a way round Spawns.
+	Plain bool `json:"plain,omitempty"`
 }
 
 // BuiltinRoles are the roles Flockdeck ships. A user's agents.json can change one
@@ -52,12 +55,16 @@ type Role struct {
 func BuiltinRoles() []Role {
 	return []Role{
 		{
-			ID: "manager", Name: "Manager", Worktree: WorktreeMain,
+			ID: "manager", Name: "Manager", Worktree: WorktreeMain, Plain: true,
 			Spawns: []string{"planner", "worker", "reviewer", "tester", "docs"},
 			Briefing: "You coordinate the work and do not do it yourself. Break the request into tasks, " +
 				"start an agent in the right role for each with `spawn -role`, and give every task enough " +
 				"detail to stand on its own, since a new agent has none of your conversation. Keep track of " +
 				"who has what, and read what each agent hands back before you pass it on.\n" +
+				"Flockdeck does not cut a checkout for a role. Start each worker with " +
+				"`flockdeck spawn -role worker -worktree <branch> <task>` so it has a worktree and branch of its " +
+				"own, and put the branch name in its task. When you start a reviewer or tester for a worker's " +
+				"change, name that branch in its task as well.\n" +
 				"Do not edit code, tests or docs yourself, and do not start more agents than the work needs. " +
 				"You report to the user: say what is done, what is blocked and what you need decided. " +
 				"Ask each agent to finish by stating what it changed, where, and what it did not get to.",
@@ -73,8 +80,10 @@ func BuiltinRoles() []Role {
 		},
 		{
 			ID: "worker", Name: "Worker", Worktree: WorktreeOwn,
-			Briefing: "You carry out one task in a worktree of your own. Make the change the task asks for, " +
-				"run the tests that cover it, and commit on your branch.\n" +
+			Briefing: "You carry out one task. Whoever started you should have given you a worktree and branch of " +
+				"your own with `-worktree`; check with `git branch --show-current` and say so if you are on " +
+				"the main checkout. Make the change the task asks for, run the tests that cover it, and " +
+				"commit on your branch.\n" +
 				"Do not change code outside the task, do not touch other worktrees, and do not merge or " +
 				"push unless you were told to. If the task is unclear or the plan does not fit the code, " +
 				"stop and say so rather than working around it. You report to whoever started you. " +
@@ -86,14 +95,17 @@ func BuiltinRoles() []Role {
 			Briefing: "You review a change someone else made. Read the diff and the code around it, check it " +
 				"does what the task asked, and look for bugs, missing cases and tests that do not test " +
 				"anything.\n" +
-				"Do not edit files, commit or push; this checkout is for reading. You report to whoever " +
-				"started you. Hand off a list of findings, each with the file and line, what is wrong and " +
+				"The task names the branch to review; if it does not, ask whoever started you. Read it with " +
+				"`git diff` against the base branch or `git show`. Do not edit files, commit or push. " +
+				"You report to whoever started you. Hand off a list of findings, each with the file and line, what is wrong and " +
 				"why it matters, ordered by how serious it is. Say plainly if you found nothing.",
 		},
 		{
 			ID: "tester", Name: "Tester", Worktree: WorktreeOwn,
 			Briefing: "You test a change: write the missing tests, run the suite and try to break the code. " +
-				"Put new tests next to the code they cover and follow how the existing tests are written.\n" +
+				"Put new tests next to the code they cover and follow how the existing tests are written. " +
+				"The task names the branch to test; if it does not, ask whoever started you. Work in the " +
+				"worktree you were started in and commit the tests there.\n" +
 				"Do not fix bugs in the code under test; report them. You report to whoever started you. " +
 				"Finish with the tests you added, the commands you ran with their results, and any failure " +
 				"with the steps that reproduce it.",
@@ -101,7 +113,9 @@ func BuiltinRoles() []Role {
 		{
 			ID: "docs", Name: "Docs", Worktree: WorktreeOwn,
 			Briefing: "You write and correct documentation for a change that already exists. Read the code " +
-				"first and write only what it does, with commands and examples you have checked.\n" +
+				"first and write only what it does, with commands and examples you have checked. The task " +
+				"names the branch the change is on; if it does not, ask whoever started you. Commit the " +
+				"docs in the worktree you were started in.\n" +
 				"Do not change code behaviour. If the code and what you were told disagree, say so and " +
 				"document the code. You report to whoever started you. Finish with the files you changed " +
 				"and anything you could not confirm.",
@@ -127,7 +141,12 @@ func mergeRoles(raws []json.RawMessage) ([]Role, []string) {
 		var head struct {
 			ID string `json:"id"`
 		}
-		if err := json.Unmarshal(raw, &head); err != nil || head.ID == "" {
+		if err := json.Unmarshal(raw, &head); err != nil {
+			problems = append(problems, fmt.Sprintf("role %d has no id", n+1))
+			continue
+		}
+		head.ID = strings.ToLower(strings.TrimSpace(head.ID))
+		if head.ID == "" {
 			problems = append(problems, fmt.Sprintf("role %d has no id", n+1))
 			continue
 		}
@@ -142,6 +161,10 @@ func mergeRoles(raws []json.RawMessage) ([]Role, []string) {
 		if err := json.Unmarshal(raw, &merged); err != nil {
 			problems = append(problems, fmt.Sprintf("role %q: %v", head.ID, explainValue(err)))
 			continue
+		}
+		merged.ID = head.ID
+		for i, id := range merged.Spawns {
+			merged.Spawns[i] = strings.ToLower(strings.TrimSpace(id))
 		}
 		problems = append(problems, checkRole(&merged)...)
 		if known {
@@ -211,10 +234,12 @@ func (c *Catalog) CheckRole(id string) (Role, error) {
 }
 
 // MayStart checks that a pane in the role parent may start one in the role
-// child. A parent with no role is not limited: spawn rights restrict the agents
-// that have a role.
+// child, where an empty child is an agent with no role. A parent with no role
+// is not limited: spawn rights restrict the agents that have a role. A pane in
+// a role may start an agent with no role only if its role is Plain, since that
+// agent would have no limits.
 func (c *Catalog) MayStart(parent, child string) error {
-	if parent == "" || child == "" {
+	if parent == "" {
 		return nil
 	}
 	p, ok := c.Role(parent)
@@ -222,6 +247,12 @@ func (c *Catalog) MayStart(parent, child string) error {
 		// A role taken out of agents.json after the pane began is not a reason
 		// to stop it working.
 		return nil
+	}
+	if child == "" {
+		if p.Plain {
+			return nil
+		}
+		return fmt.Errorf("the %s role may not start an agent without a role; use -role", parent)
 	}
 	if slices.Contains(p.Spawns, child) {
 		return nil
@@ -243,7 +274,14 @@ func (c *Catalog) Choose(r Role, agentID, model, defaultAgent string) (string, s
 	if agentID == "" && model == "" {
 		agentID = r.Agent
 	}
-	if model == "" && r.Model != "" && (r.Agent == "" || r.Agent == agentID) {
+	// The role's model was written for the agent the role resolves to: its own
+	// Agent, or the default's when it names none. A spawn that names another
+	// agent does not get it.
+	home := r.Agent
+	if home == "" {
+		home = defaultAgent
+	}
+	if model == "" && r.Model != "" && (agentID == "" || agentID == home) {
 		model = r.Model
 	}
 	if model == "" && r.Tier != "" {

@@ -1172,27 +1172,36 @@ func (s *Server) installContextHandler() {
 }
 
 // applyRole checks the role a spawn asks for and folds the role's agent and
-// model into the request where it named none of its own. It is a no-op for a
-// spawn with no role, and it must run on the workspace goroutine.
+// model into the request where it named none of its own. It must run on the
+// workspace goroutine.
 //
 // The role must exist, and the pane asking must be allowed to start it: a pane
-// in a role may start only the roles that role lists, and a pane with no role
-// is not limited.
+// in a role may start only the roles that role lists, and may start an agent
+// with no role only if its role is Plain. A pane with no role is not limited.
+// A request that names a parent pane that is not open is refused, since its
+// role cannot be known; one with no parent comes from outside any pane.
 func (s *Server) applyRole(req *hooks.SpawnRequest) error {
-	if req.Role == "" {
-		return nil
-	}
-	if req.Shell {
+	if req.Role != "" && req.Shell {
 		return errors.New("a role is for an agent, and -shell starts a shell")
 	}
 	cat := s.ws.Catalog()
+	parentRole := ""
+	if req.Parent != "" {
+		p := s.ws.Pane(req.Parent)
+		if p == nil {
+			return fmt.Errorf("the pane %q that asked is not open, so its role cannot be checked", req.Parent)
+		}
+		parentRole = p.Role
+	}
+	if req.Role == "" {
+		if req.Shell {
+			return nil
+		}
+		return cat.MayStart(parentRole, "")
+	}
 	role, err := cat.CheckRole(req.Role)
 	if err != nil {
 		return err
-	}
-	parentRole := ""
-	if p := s.ws.Pane(req.Parent); p != nil {
-		parentRole = p.Role
 	}
 	if err := cat.MayStart(parentRole, role.ID); err != nil {
 		return err

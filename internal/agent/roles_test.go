@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -156,7 +157,9 @@ func TestMayStart(t *testing.T) {
 	}{
 		{"", "worker", true},             // a pane with no role is not limited
 		{"manager", "worker", true},      // listed
-		{"manager", "", true},            // no role asked for
+		{"manager", "", true},            // a Plain role may start an agent with no role
+		{"worker", "", false},            // others may not: it would have no limits
+		{"planner", "", false},
 		{"worker", "reviewer", false},    // a worker lists none
 		{"planner", "worker", false},     // likewise
 		{"gone-from-file", "docs", true}, // a role taken out since the pane began
@@ -196,10 +199,51 @@ func TestChooseAppliesRoleDefaultsOnlyWhereNothingWasAsked(t *testing.T) {
 		{"a tier picks the named agent's model", tiered, "codex", "", "codex", ""},
 		{"a model with no agent is the default agent's", modelOnly, "", "", "", "opus"},
 		{"a model is not handed to another agent", pinned, "claude", "", "claude", ""},
+		{"a model-only role's model is not handed to a named agent", modelOnly, "codex", "", "codex", ""},
+		{"a model-only role's model goes to the agent named if it is the default", modelOnly, "claude", "", "claude", "opus"},
 	} {
 		agentID, model := c.Choose(tt.role, tt.agent, tt.model, "claude")
 		if agentID != tt.wantAgent || model != tt.wantMd {
 			t.Errorf("%s: got %q/%q, want %q/%q", tt.name, agentID, model, tt.wantAgent, tt.wantMd)
+		}
+	}
+}
+
+// Role ids are trimmed and lowercased, an id that is empty afterwards is
+// reported and dropped, and a Spawns entry that names no role stays reported.
+func TestMergeRolesNormalisesIDs(t *testing.T) {
+	raws := []json.RawMessage{
+		json.RawMessage(`{"id": "  Worker ", "tier": "mid"}`),
+		json.RawMessage(`{"id": "  Security", "spawns": ["Ghost"]}`),
+		json.RawMessage(`{"id": "   "}`),
+		json.RawMessage(`{"name": "no id"}`),
+	}
+	roles, problems := mergeRoles(raws)
+	n := len(BuiltinRoles())
+	if len(roles) != n+1 {
+		t.Fatalf("got %d roles, want the built-ins and one new", len(roles))
+	}
+	for _, r := range roles {
+		if r.ID == "  Worker " || r.ID == "Worker" || strings.TrimSpace(r.ID) == "" {
+			t.Errorf("role id %q was not normalised", r.ID)
+		}
+	}
+	var worker Role
+	for _, r := range roles {
+		if r.ID == "worker" {
+			worker = r
+		}
+	}
+	if worker.Tier != "mid" || worker.Briefing == "" {
+		t.Errorf("Worker did not merge over the built-in worker: %+v", worker)
+	}
+	if roles[n].ID != "security" {
+		t.Errorf("new role id = %q, want security", roles[n].ID)
+	}
+	all := strings.Join(problems, "; ")
+	for _, want := range []string{"role 3 has no id", "role 4 has no id", `may spawn "ghost"`} {
+		if !strings.Contains(all, want) {
+			t.Errorf("problems %q lack %q", all, want)
 		}
 	}
 }

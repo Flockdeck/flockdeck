@@ -88,7 +88,28 @@ func TestSpawnInARoleOverTheCallbackAPI(t *testing.T) {
 	if _, err := spawn(scout.PaneID, hooks.SpawnRequest{Task: "x", Role: "worker"}); err == nil || !strings.Contains(err.Error(), "scout role may not start") {
 		t.Errorf("scout starting a worker: error = %v", err)
 	}
-	if _, err := spawn(scout.PaneID, hooks.SpawnRequest{Task: "plain helper", Agent: "gocli"}); err != nil {
-		t.Errorf("a role with no spawn rights was stopped from starting an agent with no role: %v", err)
+	// Starting an agent with no role would shed the limits, so a role that is
+	// not Plain may not do it either, with or without an agent named.
+	if _, err := spawn(scout.PaneID, hooks.SpawnRequest{Task: "plain helper", Agent: "gocli"}); err == nil || !strings.Contains(err.Error(), "scout role may not start an agent without a role") {
+		t.Errorf("scout starting a role-less agent: error = %v", err)
+	}
+	if _, err := spawn(scout.PaneID, hooks.SpawnRequest{Task: "plain helper"}); err == nil {
+		t.Error("scout started a role-less agent with no agent named")
+	}
+	// A manager is Plain, and a pane with no role is not limited.
+	mgr, err := spawn(pane, hooks.SpawnRequest{Task: "run things", Role: "manager", Agent: "gocli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := spawn(mgr.PaneID, hooks.SpawnRequest{Task: "plain helper", Agent: "gocli"}); err != nil {
+		t.Errorf("a Plain role was stopped from starting an agent with no role: %v", err)
+	}
+	if _, err := spawn(mgr.PaneID, hooks.SpawnRequest{Task: "x", Role: "worker", Agent: "gocli"}); err != nil {
+		t.Errorf("manager starting a worker: %v", err)
+	}
+	// A parent that is not a pane cannot be checked, so it is refused; shells
+	// are not agents and are not held to the rule.
+	if _, err := spawn("no-such-pane", hooks.SpawnRequest{Task: "x", Agent: "gocli"}); err == nil || !strings.Contains(err.Error(), "not open") {
+		t.Errorf("unknown parent: error = %v", err)
 	}
 }

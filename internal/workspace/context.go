@@ -117,6 +117,7 @@ type PaneContext struct {
 	RoleBriefing string
 	RoleWorktree string
 	RoleSpawns   []string
+	RolePlain    bool
 	Roles        []string
 
 	Siblings []Sibling
@@ -175,7 +176,7 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 		c.Roles = cat.RoleIDs()
 		if r, ok := cat.Role(p.Role); ok {
 			c.RoleKnown, c.RoleName, c.RoleBriefing = true, r.Name, r.Briefing
-			c.RoleWorktree, c.RoleSpawns = r.Worktree, r.Spawns
+			c.RoleWorktree, c.RoleSpawns, c.RolePlain = r.Worktree, r.Spawns, r.Plain
 		}
 	}
 
@@ -642,9 +643,9 @@ func (c PaneContext) writeRole(b *strings.Builder) {
 		b.WriteString("\n")
 		switch c.RoleWorktree {
 		case agent.WorktreeOwn:
-			b.WriteString("- Your checkout: a worktree and branch of your own.\n")
+			b.WriteString("- Your checkout: meant to be a worktree and branch of your own. Flockdeck does not make one; whoever started you should have used `-worktree`.\n")
 		case agent.WorktreeReadOnly:
-			b.WriteString("- Your checkout: for reading. Do not change files in it or commit from it.\n")
+			b.WriteString("- Your checkout: for reading. Do not change files or commit. Flockdeck does not enforce this, so the task names the branch to read.\n")
 		case agent.WorktreeMain:
 			b.WriteString("- Your checkout: the project's main checkout, which other agents may be working in too.\n")
 		}
@@ -652,6 +653,11 @@ func (c PaneContext) writeRole(b *strings.Builder) {
 			fmt.Fprintf(b, "- You may start agents in these roles: %s.\n", strings.Join(c.RoleSpawns, ", "))
 		} else {
 			b.WriteString("- You may not start agents in a role.\n")
+		}
+		if c.RolePlain {
+			b.WriteString("- You may also start agents with no role.\n")
+		} else {
+			b.WriteString("- You may not start agents without a role; `flockdeck spawn` needs `-role`.\n")
 		}
 	}
 	if len(c.Roles) > 0 {

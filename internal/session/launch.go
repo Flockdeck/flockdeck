@@ -31,9 +31,6 @@ type Launch struct {
 	ID   string
 	Name string
 	Cwd  string
-	// Role is the id of the role the pane was started as, if it was. It is put
-	// in the pane's environment as FLOCKDECK_ROLE.
-	Role string
 	// Prompt is the task the pane opens with. It goes into the argv and is
 	// never typed into the terminal, because typing into a running interface
 	// means guessing when it is ready to accept it.
@@ -167,9 +164,6 @@ func (l Launch) model() string {
 // having to ask Flockdeck.
 func (l Launch) paneVars() []string {
 	vars := []string{"FLOCKDECK_AGENT=" + l.Spec.ID, "FLOCKDECK_MODEL=" + l.model()}
-	if l.Role != "" {
-		vars = append(vars, "FLOCKDECK_ROLE="+l.Role)
-	}
 	return vars
 }
 

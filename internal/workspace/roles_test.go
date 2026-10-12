@@ -3,6 +3,7 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -51,7 +52,7 @@ func TestBriefingWithARoleCarriesItsBriefingAndTheCatalog(t *testing.T) {
 	text := c.Render()
 	for _, want := range []string{
 		"## Your role", `the role "worker" (Worker)`, "You carry out one task.",
-		"a worktree and branch of your own", "You may start agents in these roles: reviewer.",
+		"meant to be a worktree and branch of your own", "You may start agents in these roles: reviewer.",
 		"The roles in this project's catalog: worker, reviewer, security.",
 	} {
 		if !strings.Contains(text, want) {
@@ -157,5 +158,9 @@ func TestSaveRestoreKeepsTheRole(t *testing.T) {
 	}
 	if got.Role != "security" {
 		t.Errorf("restored role = %q, want security", got.Role)
+	}
+	// The variable comes from paneEnv alone, so a restored pane gets it too.
+	if !slices.Contains(again.paneEnv(got, "gocli", ""), "FLOCKDECK_ROLE=security") {
+		t.Error("the restored pane's environment has no FLOCKDECK_ROLE")
 	}
 }

@@ -62,7 +62,8 @@ rather than becoming a pane that never starts.
 `-role` starts the helper as one of the roles in [Agents and models](#agents), which
 gives it a briefing for the job and, where you gave no `-agent` or `-model`, the
 role's own agent and model. An unknown role is refused and the roles there are are
-named. A pane started in a role may start only the roles its own role lists. It
+named. A pane started in a role may start only the roles its own role lists, and may
+start an agent with no role (no `-role`) only if its role has `plain` set. It
 cannot be combined with `-shell`.
 
 `-baton` starts the helper from a handoff instead of a blank conversation: `self`
