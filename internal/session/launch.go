@@ -163,7 +163,8 @@ func (l Launch) model() string {
 // helper of its own with `flockdeck spawn` -- can say which agent it is without
 // having to ask Flockdeck.
 func (l Launch) paneVars() []string {
-	return []string{"FLOCKDECK_AGENT=" + l.Spec.ID, "FLOCKDECK_MODEL=" + l.model()}
+	vars := []string{"FLOCKDECK_AGENT=" + l.Spec.ID, "FLOCKDECK_MODEL=" + l.model()}
+	return vars
 }
 
 // Look resolves the program an agent runs, or explains that it is not

@@ -105,6 +105,21 @@ type PaneContext struct {
 	Baton     string
 	BatonPath string
 
+	// Role is the id of the role the pane was started as, empty for a pane
+	// started without one. RoleName, RoleBriefing, RoleWorktree and RoleSpawns
+	// are what the catalog says of it; RoleKnown is false when the catalog has
+	// no such role any more, as after an edit of agents.json. Roles are the ids
+	// of every role in the catalog, which an agent starting helpers chooses
+	// from.
+	Role         string
+	RoleKnown    bool
+	RoleName     string
+	RoleBriefing string
+	RoleWorktree string
+	RoleSpawns   []string
+	RolePlain    bool
+	Roles        []string
+
 	Siblings []Sibling
 	// SiblingsOmitted counts the live panes left out of Siblings once the list
 	// hit its limit, so the agent is told the list is partial rather than
@@ -154,6 +169,15 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 
 	if c.Baton != "" {
 		c.BatonPath = batonPath(c.Baton)
+	}
+	if p.Role != "" && p.IsAgent() {
+		cat := w.agents()
+		c.Role = p.Role
+		c.Roles = cat.RoleIDs()
+		if r, ok := cat.Role(p.Role); ok {
+			c.RoleKnown, c.RoleName, c.RoleBriefing = true, r.Name, r.Briefing
+			c.RoleWorktree, c.RoleSpawns, c.RolePlain = r.Worktree, r.Spawns, r.Plain
+		}
 	}
 
 	own := w.tabOf(paneID)
@@ -504,6 +528,8 @@ func (c PaneContext) render(viaPrompt bool) string {
 			"restored, so what you say here outlives the window.\n")
 	}
 
+	c.writeRole(&b)
+
 	b.WriteString("\n## The other agents\n\n")
 	if len(c.Siblings) == 0 {
 		b.WriteString("No other pane is running in this project right now.\n")
@@ -566,7 +592,10 @@ func (c PaneContext) render(viaPrompt bool) string {
 			"- `--shell`: a terminal rather than another conversation.\n" +
 			"- `--agent <id>` and `--model <model>`: which agent the helper is, and which of its " +
 			"models, where another suits the work better than the project's default; `" +
-			flockdeck + " agents` lists them. Neither goes with `--shell`.\n\n" +
+			flockdeck + " agents` lists them. Neither goes with `--shell`.\n" +
+			"- `--role <id>`: the role the helper works as, which brings its own briefing and, " +
+			"where you name no agent or model, its own default for them; the same list shows the " +
+			"roles. It does not go with `--shell`.\n\n" +
 			"Each one is a fresh agent with an empty conversation: it inherits nothing from " +
 			"yours — not this context, not the task you were given, not what you have " +
 			"learned so far — so the task you give it has to stand on its own. Do this when " +
@@ -589,6 +618,51 @@ func (c PaneContext) render(viaPrompt bool) string {
 		"meant for a different pane, answer for your own directory and branch.\n")
 
 	return b.String()
+}
+
+// writeRole writes the "Your role" section, for a pane started in a role. A
+// pane with none is told nothing about roles: there is no job to describe, and
+// the list of them is only of use to an agent that has been given one.
+func (c PaneContext) writeRole(b *strings.Builder) {
+	if c.Role == "" {
+		return
+	}
+	b.WriteString("\n## Your role\n\n")
+	if !c.RoleKnown {
+		fmt.Fprintf(b, "You were started as the role %q, which is no longer defined in this installation's "+
+			"agents.json, so there is no briefing for it here. Work from your task.\n", c.Role)
+	} else {
+		name := ""
+		if c.RoleName != "" && c.RoleName != c.Role {
+			name = " (" + c.RoleName + ")"
+		}
+		fmt.Fprintf(b, "You were started as the role %q%s.\n", c.Role, name)
+		if briefing := strings.TrimSpace(c.RoleBriefing); briefing != "" {
+			b.WriteString("\n" + briefing + "\n")
+		}
+		b.WriteString("\n")
+		switch c.RoleWorktree {
+		case agent.WorktreeOwn:
+			b.WriteString("- Your checkout: meant to be a worktree and branch of your own. Flockdeck does not make one; whoever started you should have used `-worktree`.\n")
+		case agent.WorktreeReadOnly:
+			b.WriteString("- Your checkout: for reading. Do not change files or commit. Flockdeck does not enforce this, so the task names the branch to read.\n")
+		case agent.WorktreeMain:
+			b.WriteString("- Your checkout: the project's main checkout, which other agents may be working in too.\n")
+		}
+		if len(c.RoleSpawns) > 0 {
+			fmt.Fprintf(b, "- You may start agents in these roles: %s.\n", strings.Join(c.RoleSpawns, ", "))
+		} else {
+			b.WriteString("- You may not start agents in a role.\n")
+		}
+		if c.RolePlain {
+			b.WriteString("- You may also start agents with no role.\n")
+		} else {
+			b.WriteString("- You may not start agents without a role; `flockdeck spawn` needs `-role`.\n")
+		}
+	}
+	if len(c.Roles) > 0 {
+		fmt.Fprintf(b, "- The roles in this project's catalog: %s.\n", strings.Join(c.Roles, ", "))
+	}
 }
 
 // writeCapabilities describes the application the agent is running inside.
@@ -731,7 +805,8 @@ func writeCommandLine(b *strings.Builder, flockdeck string) {
 		"| `FLOCKDECK_PANE` | this pane's id, which `spawn` sends so a helper is placed relative to you, and which `close` refuses to close for the same pane it came from |\n" +
 		"| `FLOCKDECK_PANE_NAME` | this pane's name |\n" +
 		"| `FLOCKDECK_PROJECT` | the project directory this pane belongs to |\n" +
-		"| `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL` | the agent and model this pane runs, where it runs one |\n\n" +
+		"| `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL` | the agent and model this pane runs, where it runs one |\n" +
+		"| `FLOCKDECK_ROLE` | the role this pane was started as, where it has one |\n\n" +
 		"`spawn` and `close` read the first three, which is why they work from inside a pane " +
 		"and nowhere else. The first five are also set under the older `PERCH_*` names, for " +
 		"anything written before the application was renamed.\n")

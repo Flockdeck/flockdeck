@@ -123,6 +123,11 @@ type Pane struct {
 	// pane that began without one. The baton is in the baton store under this
 	// id; see internal/baton.
 	BatonID string
+	// Role is the id of the role the pane was started as (see agent.Role), kept
+	// so a restored pane is briefed for the same job. It is empty for a pane
+	// that began without one, and it names a role by id only: what the role
+	// says is read from the catalog each time the pane is briefed.
+	Role string
 	// Conversation is the agent's own id for the conversation the pane is in,
 	// once that is no longer the pane's id; empty means the pane's id. It is
 	// set from the hook goroutine, so it is only touched under the lock — read
@@ -1991,6 +1996,11 @@ func (w *Workspace) paneEnv(p *Pane, agentID, model string) []string {
 	// handleHook. It is Flockdeck's own business, so it has no older spelling.
 	if p.launch != "" {
 		env = append(env, hooks.LaunchEnv+"="+p.launch)
+	}
+	// Only a pane started in a role has one, and like the agent and model it
+	// is new, so it has no older spelling.
+	if p.Role != "" && p.IsAgent() {
+		env = append(env, "FLOCKDECK_ROLE="+p.Role)
 	}
 	return env
 }

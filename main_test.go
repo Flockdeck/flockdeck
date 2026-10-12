@@ -828,6 +828,11 @@ func useCatalog(t *testing.T, specs []agent.Spec, defaultID string, installed ma
 	t.Cleanup(func() { agentCatalog, agentAvailable = catalog, available })
 	agentCatalog = func() ([]agent.Spec, string, string) { return specs, defaultID, "" }
 	agentAvailable = func(s agent.Spec) bool { return installed[s.ID] }
+	// printAgents lists the roles too, and the real catalog reads the user's
+	// agents.json.
+	roles := roleCatalog
+	t.Cleanup(func() { roleCatalog = roles })
+	roleCatalog = func() ([]agent.Role, string) { return agent.BuiltinRoles(), "" }
 }
 
 // testCatalog is a stand-in for the real one: an agent with models, an agent

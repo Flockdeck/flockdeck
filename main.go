@@ -414,7 +414,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
-	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-shell] [-record] [-agent <id>] [-model <model>] [-baton <ref> [-baton-send-elsewhere]] <task>\n")
+	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-shell] [-record] [-agent <id>] [-model <model>] [-role <id>] [-baton <ref> [-baton-send-elsewhere]] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "  baton list | baton show [-path] <baton-id>\n")
@@ -1671,11 +1671,14 @@ func runSpawn(args []string) error {
 	// --worktree names a branch, and which directory that becomes is the
 	// application's decision. Without it an agent that has just handed work to
 	// a helper has no way to go and look at what the helper did.
-	if res.Cwd != "" {
-		fmt.Println("started agent", res.PaneID, "in", res.Cwd)
-	} else {
-		fmt.Println("started agent", res.PaneID)
+	started := []any{"started agent", res.PaneID}
+	if res.Role != "" {
+		started = append(started, "as", res.Role)
 	}
+	if res.Cwd != "" {
+		started = append(started, "in", res.Cwd)
+	}
+	fmt.Println(started...)
 	// The baton is saved before the helper starts, and where is worth saying
 	// back: the caller can read what the helper was told.
 	if res.BatonID != "" {
@@ -1734,7 +1737,13 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	if f.shell && f.record {
 		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, which reports no events, so it cannot also take -record")
 	}
+	if f.shell && f.role != "" {
+		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, which has no role, so it cannot also take -role")
+	}
 	if err := checkAgent(f.agent, f.model); err != nil {
+		return hooks.SpawnRequest{}, err
+	}
+	if err := checkSpawnRole(f.role); err != nil {
 		return hooks.SpawnRequest{}, err
 	}
 	return hooks.SpawnRequest{
@@ -1744,6 +1753,7 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 		Shell:  f.shell,
 		Agent:  f.agent,
 		Model:  f.model,
+		Role:   f.role,
 		Record: f.record,
 		Baton:  batonRef(f.baton),
 
@@ -1756,6 +1766,7 @@ type spawnFlags struct {
 	worktree string
 	agent    string
 	model    string
+	role     string
 	split    bool
 	shell    bool
 	record   bool
@@ -1776,6 +1787,7 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	fs.BoolVar(&f.record, "record", false, "record the helper's agent interaction as a transcript; off unless given, and only once recording has been turned on in the window")
 	fs.StringVar(&f.agent, "agent", "", "`id` of the agent to start; flockdeck agents lists them")
 	fs.StringVar(&f.model, "model", "", "which of that agent's `model`s to ask for")
+	fs.StringVar(&f.role, "role", "", "`id` of the role to start the helper as; flockdeck agents lists them. The role's agent and model apply only where -agent and -model are not given")
 	// A value flag, never one with an optional value: a flag that may or may
 	// not take the next word would be ambiguous with the first word of the
 	// task, which is the class of mistake orderSpawnArgs exists to prevent.
@@ -2048,6 +2060,42 @@ func printAgents(w io.Writer) {
 	}
 	fmt.Fprintf(w, "Choose one for a whole run with `flockdeck -agent <id>`, or for a single\n")
 	fmt.Fprintf(w, "helper with `flockdeck spawn --agent <id> --model <model> <task>`.\n")
+	printRoles(w)
+}
+
+// printRoles writes the roles a helper can be started as, after the agents.
+func printRoles(w io.Writer) {
+	roles, _ := roleCatalog()
+	if len(roles) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nRoles for `flockdeck spawn --role <id> <task>`.\n\n")
+	for _, r := range roles {
+		name := r.Name
+		if name == "" {
+			name = r.ID
+		}
+		var notes []string
+		if r.Worktree != "" {
+			notes = append(notes, r.Worktree+" checkout")
+		}
+		if r.Agent != "" {
+			notes = append(notes, "agent "+r.Agent)
+		}
+		if r.Model != "" {
+			notes = append(notes, "model "+r.Model)
+		} else if r.Tier != "" {
+			notes = append(notes, r.Tier+" tier model")
+		}
+		line := r.ID + " - " + name
+		if len(notes) > 0 {
+			line += "  [" + strings.Join(notes, ", ") + "]"
+		}
+		fmt.Fprintln(w, line)
+		if len(r.Spawns) > 0 {
+			fmt.Fprintf(w, "  may start: %s\n", strings.Join(r.Spawns, ", "))
+		}
+	}
 }
 
 // agentName is what to call an agent in a message, falling back to its id for
@@ -2237,6 +2285,37 @@ var agentCatalog = func() ([]agent.Spec, string, string) {
 	// project that runs something else of its own is answered where the pane is
 	// made, which is the only place the directory is known.
 	return c.Visible(), c.DefaultsFor("").Agent, c.Notice
+}
+
+// roleCatalog is how the command line reaches the roles, the way agentCatalog
+// reaches the agents: the built-in roles with the user's agents.json merged
+// over them, and the catalog's notice. It is a variable so a test can hand it
+// roles of its own.
+var roleCatalog = func() ([]agent.Role, string) {
+	c := agent.Load()
+	return c.Roles, c.Notice
+}
+
+// checkSpawnRole refuses a role the catalog does not have, naming the ones it
+// does so that a typo can be corrected from the message. An empty role is no
+// role and is fine.
+func checkSpawnRole(id string) error {
+	if id == "" {
+		return nil
+	}
+	roles, notice := roleCatalog()
+	ids := make([]string, len(roles))
+	for i, r := range roles {
+		if r.ID == id {
+			return nil
+		}
+		ids[i] = r.ID
+	}
+	err := fmt.Errorf("no role called %q; the roles are %s (run `flockdeck agents` for what each of them does)", id, strings.Join(ids, ", "))
+	if notice != "" {
+		err = fmt.Errorf("%w. Also, %s", err, unreadAgentsFile(notice))
+	}
+	return err
 }
 
 // unreadAgentsFile says what a catalog notice means for the command line.
