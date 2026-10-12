@@ -155,10 +155,10 @@ func TestMayStart(t *testing.T) {
 		parent, child string
 		ok            bool
 	}{
-		{"", "worker", true},             // a pane with no role is not limited
-		{"manager", "worker", true},      // listed
-		{"manager", "", true},            // a Plain role may start an agent with no role
-		{"worker", "", false},            // others may not: it would have no limits
+		{"", "worker", true},        // a pane with no role is not limited
+		{"manager", "worker", true}, // listed
+		{"manager", "", true},       // a Plain role may start an agent with no role
+		{"worker", "", false},       // others may not: it would have no limits
 		{"planner", "", false},
 		{"worker", "reviewer", false},    // a worker lists none
 		{"planner", "worker", false},     // likewise
