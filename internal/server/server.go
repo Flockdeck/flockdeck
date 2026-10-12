@@ -423,6 +423,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	s.installContextHandler()
 	s.installUsageHandler()
 	s.installCloseHandler()
+	s.installTeamHandlers()
 
 	return s, nil
 }

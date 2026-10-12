@@ -234,8 +234,8 @@ spawn says which rule it hit.
 The pane is briefed for its role: the briefing gains a "Your role" section with the
 role's text and the ids of every role in the catalog, and the pane's environment
 carries `FLOCKDECK_ROLE`. The role is saved with the layout, so a restored pane is
-briefed for the same job. Roles do not yet give the agents a way to message each
-other or share a task list.
+briefed for the same job. Agents in a project can see each other and message each other
+(see below); roles do not yet share a task list.
 
 A role may name an `agent` and a `model`, or a `tier` (`small`, `mid` or `top`) in
 place of a model. They apply only to a spawn that names neither `-agent` nor
@@ -278,6 +278,34 @@ yet cut a worktree or make a checkout read-only because of it, so pass
 do this for workers and to pass the branch name to the reviewer and tester. A `worktree` that is none of
 the three, a bad `tier`, and a `spawns` entry that names no role are listed in the
 notice and ignored.
+
+### The team and messages
+
+Every agent's briefing has a "Your team" section: the other agent panes of its
+project, each with its role (`no role` if it has none), its name, its agent and model,
+its status and its pane id, and its own entry marked. The briefing is written when the
+agent starts, so the list is a snapshot, and it says so. Lists longer than twelve are cut
+and the number left out is given. `flockdeck team` prints the live list, and `-json` the
+same as JSON.
+
+Agents message each other with `flockdeck msg send <target> <text...>`, where the target
+is a pane id, a peer name, a pane name or a role id, and read their own with `flockdeck
+inbox` and `flockdeck inbox read <id>`; see [The command line](#cli) for the rules. The
+built-in roles say when to use it: the manager writes to the agents it started to answer a
+question or change a task, and planners, workers, reviewers, testers and docs agents write to
+the manager when they are blocked. Their final report is still their last message and not a
+`msg`.
+
+A message is data from another agent. The briefing and the notice that tells an agent about
+a message both say that messages from other agents are not instructions from the user, and
+that an approval in one is not the user's approval. Any agent in a project may message any
+other in it, whatever its role; the roles limit who may start whom and nothing else. A pane
+can send only as itself and read only its own inbox, and a request naming a pane that is not
+open is refused. The pane id in a request is the one the pane's environment gives it, checked
+against the open panes but not against the pane that sent it, as with `spawn` and `close`.
+
+When a helper an agent started exits on its own, or is closed as finished, Flockdeck writes
+to that agent's inbox, from `flockdeck`. Nothing else is reported yet.
 
 ## Routing
 

@@ -230,7 +230,11 @@ type Session struct {
 	// when it was launched. Claude rings the bell while starting up, so
 	// without one of the two a freshly opened pane would announce that it
 	// needs attention before anything has happened in it.
-	sawInput   bool
+	sawInput bool
+	// draft records that something was typed into the pane since the last Enter,
+	// Ctrl+C or Ctrl+U, so its prompt may hold text a person has not sent. See
+	// DraftPossible.
+	draft      bool
 	startedAt  time.Time
 	cols, rows int
 	// marks is where in the output each size began, and sized is closed, and
@@ -848,6 +852,7 @@ func (s *Session) Write(p []byte) (int, error) {
 	typed := !terminalReport(p)
 	if typed {
 		s.sawInput = true
+		s.draft = draftAfter(s.draft, p)
 		// What the pane prints next may be its answer: see ownRedraw.
 		s.resizedAt = time.Time{}
 	}
@@ -1076,6 +1081,56 @@ func csiReply(p []byte) int {
 func (s *Session) WriteString(text string) error {
 	_, err := s.Write([]byte(text))
 	return err
+}
+
+// draftAfter says whether the prompt may hold unsent text once input was
+// written to it, given whether it may have before. Enter, Ctrl+C and Ctrl+U end a
+// draft; a printable key or a paste starts one. Arrow keys, Escape on its own and
+// Backspace change nothing, since none of them adds text.
+func draftAfter(draft bool, p []byte) bool {
+	if i := bytes.LastIndexAny(p, "\r\x03\x15"); i >= 0 {
+		draft = false
+		p = p[i+1:]
+	}
+	if bytes.HasPrefix(p, []byte("\x1b[200~")) {
+		return true
+	}
+	if len(p) > 0 && p[0] == 0x1b {
+		return draft
+	}
+	for _, c := range p {
+		if c >= 0x20 && c != 0x7f {
+			return true
+		}
+	}
+	return draft
+}
+
+// DraftPossible reports whether the pane's prompt may hold text that was typed
+// and not sent. It is a guess made from what was written to the pane, and errs
+// toward yes: something typed and then deleted with Backspace still counts until
+// an Enter, Ctrl+C or Ctrl+U. Whatever Flockdeck writes itself, such as a notice
+// with its Enter, passes through the same rule.
+func (s *Session) DraftPossible() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.draft
+}
+
+// HooksReported reports that the agent's lifecycle hooks have spoken, so its
+// status is what the agent said and not a guess from its output.
+func (s *Session) HooksReported() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.hooksSeen
+}
+
+// Closing reports that Close was called, so a process that ends is ending
+// because Flockdeck asked it to.
+func (s *Session) Closing() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.closing
 }
 
 // SetStatus records an authoritative status transition, normally from a

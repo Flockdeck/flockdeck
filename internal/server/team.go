@@ -1,0 +1,58 @@
+package server
+
+import (
+	"github.com/jmwri/flockdeck/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/team"
+)
+
+// This file is the desktop side of `flockdeck team`, `flockdeck msg` and
+// `flockdeck inbox`. Each request names the pane it comes from, and the
+// workspace refuses one whose pane is not open; see workspace.Roster. Every
+// handler runs on the workspace goroutine, like the spawn and close handlers.
+
+// installTeamHandlers lets a pane list its project's agents and exchange
+// messages with them.
+func (s *Server) installTeamHandlers() {
+	hookSrv := s.ws.HookServer()
+	if hookSrv == nil {
+		return
+	}
+	type outcome[T any] struct {
+		res T
+		err error
+	}
+	hookSrv.SetTeamHandler(func(req hooks.TeamRequest) (hooks.TeamResult, error) {
+		out, ok := ask(s, func() outcome[[]team.Member] {
+			m, err := s.ws.Roster(req.Pane)
+			return outcome[[]team.Member]{m, err}
+		})
+		if !ok {
+			return hooks.TeamResult{}, errShuttingDown
+		}
+		return hooks.TeamResult{Members: out.res}, out.err
+	})
+	hookSrv.SetMsgHandler(func(req hooks.MsgRequest) (hooks.MsgResult, error) {
+		out, ok := ask(s, func() outcome[hooks.MsgResult] {
+			r, err := s.ws.SendMessage(req.Pane, req.Target, req.Text)
+			return outcome[hooks.MsgResult]{r, err}
+		})
+		if !ok {
+			return hooks.MsgResult{}, errShuttingDown
+		}
+		return out.res, out.err
+	})
+	hookSrv.SetInboxHandler(func(req hooks.InboxRequest) (hooks.InboxResult, error) {
+		out, ok := ask(s, func() outcome[[]team.Message] {
+			if req.Read > 0 {
+				m, err := s.ws.ReadMessage(req.Pane, req.Read)
+				return outcome[[]team.Message]{[]team.Message{m}, err}
+			}
+			m, err := s.ws.Inbox(req.Pane, req.All)
+			return outcome[[]team.Message]{m, err}
+		})
+		if !ok {
+			return hooks.InboxResult{}, errShuttingDown
+		}
+		return hooks.InboxResult{Messages: out.res}, out.err
+	})
+}

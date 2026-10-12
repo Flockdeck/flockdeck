@@ -504,11 +504,15 @@ var flagLike = regexp.MustCompile(`(?:^|[\s(\[` + "`" + `])(--?[A-Za-z][A-Za-z0-
 // flag sets, without their dashes.
 func cliFlagNames() map[string]bool {
 	names := map[string]bool{}
+	teamFS, _ := teamFlagSet()
+	inboxFS, _, _ := inboxFlagSet()
+	inboxReadFS, _ := inboxReadFlagSet()
 	for _, fs := range []*flag.FlagSet{
 		flockdeckFlagSet(&cliFlags{}),
 		spawnFlagSet(&spawnFlags{}),
 		batonShowFlagSet(&batonFlags{}),
 		closeFlagSet(&closeFlags{}),
+		teamFS, inboxFS, inboxReadFS,
 		recordingsFlagSet(&recordingsFlags{}),
 		exportFlagSet(&exportFlags{}),
 		updateFlagSet(&updateFlags{}),

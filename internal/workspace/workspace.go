@@ -215,6 +215,9 @@ type Pane struct {
 	// that infrastructure may address under a different name entirely, and a
 	// stale one shown as current would be worse than none.
 	PeerName string
+	// exitReported is the session whose exit has been reported to this pane's
+	// parent, so a process that ends is reported once. See noteExit.
+	exitReported *session.Session
 }
 
 // Alive reports whether the pane has a running process.
@@ -445,6 +448,9 @@ type Workspace struct {
 	// at startup from todos.json and written back on every mutation. Unlike
 	// fanoutHistory this is meant to outlive the run; see todos.go.
 	todos []store.Todo
+	// team is the roster, inboxes and delivery of messages between panes; see
+	// team.go.
+	team teamState
 
 	selfExe     string
 	spawnCmd    string
@@ -594,6 +600,8 @@ func New(opts Options) (*Workspace, error) {
 	w.savedGroups = loadSavedGroups()
 	w.ensureGroup(root)
 	w.todos = loadSavedTodos()
+	w.initTeam()
+	w.loadMessages()
 	w.SetWake(opts.OnWake)
 	_ = store.TouchRecent(root)
 
@@ -1910,8 +1918,11 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		Cols: cols,
 		Rows: rows,
 		// Installed by Start, before the reader that calls it is running.
-		OnChange: w.wake,
-		Assist:   w.statusAssist,
+		OnChange: func() {
+			w.wake()
+			w.paneChanged(p.ID)
+		},
+		Assist: w.statusAssist,
 	})
 	if err != nil {
 		// This is shown in the pane in place of a terminal, so it has to name
@@ -2366,6 +2377,7 @@ func (w *Workspace) CloseTab(id string) bool {
 	}
 	for _, pid := range closing.Tree.Panes() {
 		w.destroyPane(pid)
+		w.dropInbox(pid)
 	}
 	// What is left to do is what a tab emptied by a move needs, focus landing
 	// on a neighbour in the same project included.
@@ -2438,6 +2450,7 @@ func (w *Workspace) destroyPane(id string) {
 	forgetWorktreeProcess(id)
 	// The generated settings file is only meaningful while the pane lives.
 	_ = os.Remove(filepath.Join(w.settingsDir, id+".settings.json"))
+	w.forgetTeam(id)
 	w.notePaneClosed(id)
 }
 
@@ -2588,6 +2601,7 @@ func (w *Workspace) ClosePaneByID(id string) bool {
 	}
 	if t.Tree.Count() <= 1 {
 		w.destroyPane(id)
+		w.dropInbox(id)
 		w.unlinkTab(t)
 		return true
 	}
@@ -2595,6 +2609,7 @@ func (w *Workspace) ClosePaneByID(id string) bool {
 	// on the pane beside the gap and all; only ending its process is extra.
 	w.detachPane(id)
 	w.destroyPane(id)
+	w.dropInbox(id)
 	return true
 }
 
@@ -2650,8 +2665,21 @@ func (w *Workspace) CloseFinishedPanes() (panesClosed, tabsClosed, locked int) {
 		}
 	}
 	for _, id := range ids {
+		// Read before the pane is closed, since closing forgets it. A helper
+		// that was started by another pane tells that pane it is done.
+		p := w.Pane(id)
+		var sess *session.Session
+		parent := ""
+		if p != nil {
+			w.mu.RLock()
+			sess, parent = p.Sess, p.Parent
+			w.mu.RUnlock()
+		}
 		if w.ClosePaneByID(id) {
 			panesClosed++
+			if p != nil {
+				w.noteFinished(p, sess, parent)
+			}
 		}
 	}
 	for _, t := range w.Tabs {
@@ -2993,20 +3021,25 @@ func (w *Workspace) sendPrompt(targets []*Pane, text string, submit bool) {
 		if submit && w.routeFirstTurn(p, text) {
 			continue
 		}
-		go func(s *session.Session) {
-			typed, pasted := promptInput(text, s.BracketedPaste())
-			if err := s.WriteString(typed); err == nil && submit {
-				// The Enter waits a moment after a paste. A program can take
-				// a paste in on its own time -- Claude Code folds a long one
-				// into a placeholder first -- and an Enter arriving on the
-				// heels of the end marker could be read before the paste had
-				// reached the input, submitting what was there without it.
-				if pasted {
-					time.Sleep(pasteSettle)
-				}
-				_ = s.WriteString("\r")
-			}
-		}(p.Sess)
+		go typeInto(p.Sess, text, submit)
+	}
+}
+
+// typeInto writes text into a pane's terminal as the prompt bar does, and
+// presses Enter after it when submit is set. It blocks while the pane is not
+// reading, so callers run it on a goroutine of their own.
+func typeInto(s *session.Session, text string, submit bool) {
+	typed, pasted := promptInput(text, s.BracketedPaste())
+	if err := s.WriteString(typed); err == nil && submit {
+		// The Enter waits a moment after a paste. A program can take
+		// a paste in on its own time -- Claude Code folds a long one
+		// into a placeholder first -- and an Enter arriving on the
+		// heels of the end marker could be read before the paste had
+		// reached the input, submitting what was there without it.
+		if pasted {
+			time.Sleep(pasteSettle)
+		}
+		_ = s.WriteString("\r")
 	}
 }
 
@@ -3464,6 +3497,7 @@ func (w *Workspace) applyGit(key string, st gitx.Status, late bool) {
 func (w *Workspace) Close() {
 	// Close stops waiting for a running index refresh; git finishes it by itself. Only
 	// this workspace's: each has a context of its own.
+	w.stopTeam()
 	w.stopRefreshes()
 	// The radar runs under the same context, and its scratch directory is removed by
 	// the refresh that made it: wait for that, so a quit leaves none behind.
