@@ -29,17 +29,57 @@ const (
 	Reviewer
 )
 
+// capacityNames are the words for each capacity in a sentence, in the order they
+// are listed.
+var capacityNames = []struct {
+	w          Who
+	need, have string
+}{
+	{Manager, "a manager", "a manager"},
+	{Owner, "the owner", "the owner"},
+	{Creator, "the creator", "the creator"},
+	{Reviewer, "a reviewer or a tester", "a reviewer or tester"},
+}
+
+// list joins words with a comma and then the last with word.
+func list(parts []string, word string) string {
+	if len(parts) < 2 {
+		return strings.Join(parts, "")
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " " + word + " " + parts[len(parts)-1]
+}
+
+// String is the capacities as a phrase for what a move needs: "a manager, the
+// owner or the creator".
 func (w Who) String() string {
 	var parts []string
-	for _, c := range []struct {
-		w    Who
-		name string
-	}{{Manager, "the manager role"}, {Owner, "the owner"}, {Creator, "the creator"}, {Reviewer, "a reviewer or tester"}} {
+	for _, c := range capacityNames {
 		if w&c.w != 0 {
-			parts = append(parts, c.name)
+			parts = append(parts, c.need)
 		}
 	}
-	return strings.Join(parts, ", ")
+	return list(parts, "or")
+}
+
+// held says what the actor is to the task: "you are the owner and the creator
+// of this task", or that the actor has no part in it.
+func (w Who) held() string {
+	var parts []string
+	for _, c := range capacityNames {
+		if w&c.w != 0 {
+			parts = append(parts, c.have)
+		}
+	}
+	if len(parts) == 0 {
+		return "you have no part in this task"
+	}
+	return "you are " + list(parts, "and") + " of this task"
+}
+
+// refusal is the one wording of a move the actor may not make: what the move
+// needs, then what the actor is.
+func refusal(t Task, to State, need, have Who) error {
+	return fmt.Errorf("moving %s from %s to %s is for %s; %s", t.ID, t.State, to, need, have.held())
 }
 
 // Rule is one allowed move from a state to another.
@@ -174,8 +214,8 @@ func CheckMove(t Task, to State, a Actor, hasManager bool, note string) error {
 		return fmt.Errorf("%s is %s and cannot go straight to %s; from %s it can go to %s",
 			t.ID, t.State, to, t.State, strings.Join(names, ", "))
 	}
-	if Capacities(t, a, hasManager)&r.Who == 0 {
-		return fmt.Errorf("moving %s from %s to %s is for %s, and you are none of those for this task", t.ID, t.State, to, r.Who)
+	if have := Capacities(t, a, hasManager); have&r.Who == 0 {
+		return refusal(t, to, r.Who, have)
 	}
 	if r.NeedNote && strings.TrimSpace(note) == "" {
 		return fmt.Errorf("moving %s from %s to %s needs a note that says why: add -note <text>", t.ID, t.State, to)

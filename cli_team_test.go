@@ -142,7 +142,7 @@ func TestInboxListsUnreadAndReadShowsOneInFull(t *testing.T) {
 	if err := runInbox(nil, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "#12 from reviewer (reviewer), 09:30: found two bugs …") || strings.Contains(out.String(), "#13") {
+	if !strings.Contains(out.String(), "#12 from reviewer (reviewer), pane p-2, 09:30: found two bugs …") || strings.Contains(out.String(), "#13") {
 		t.Errorf("unread listing:\n%s", out.String())
 	}
 	if !strings.Contains(out.String(), team.Disclaimer) {

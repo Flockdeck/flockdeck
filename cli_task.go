@@ -390,6 +390,9 @@ func printChange(out io.Writer, verb string, res hooks.TaskResult) error {
 	if t.State == tasks.InReview && t.Branch == "" {
 		fmt.Fprintf(out, "warning: no branch is set on %s; `flockdeck task branch %s <branch>` sets it\n", team.PlainLabel(t.ID), team.PlainLabel(t.ID))
 	}
+	if res.Warning != "" {
+		fmt.Fprintf(out, "warning: %s\n", res.Warning)
+	}
 	if res.Told > 0 {
 		fmt.Fprintf(out, "told %d %s\n", res.Told, map[bool]string{true: "pane", false: "panes"}[res.Told == 1])
 	}
