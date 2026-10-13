@@ -462,7 +462,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        the messages other agents sent this pane; run from inside a pane\n")
 	fmt.Fprintf(out, "  task add <title> [-body text] [-role r] [-branch b] | list [-state s] [-role r] [-mine] [-json]\n")
 	fmt.Fprintf(out, "       | show <id> | assign <id> <who> | status <id> <state> [-note text] | note <id> <text>\n")
-	fmt.Fprintf(out, "       | branch <id> <branch> | baton <id> <baton-id>\n")
+	fmt.Fprintf(out, "       | branch <id> <branch> | baton <id> <baton-id> | prune [-days N]\n")
 	fmt.Fprintf(out, "        the project's shared task board; run from inside a pane\n")
 	fmt.Fprintf(out, "  recordings [-dir] [-json]\n")
 	fmt.Fprintf(out, "        list the transcripts panes have recorded, newest first; -dir prints the folder they are kept in\n")
