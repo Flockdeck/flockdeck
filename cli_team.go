@@ -184,6 +184,7 @@ func runInbox(args []string, out io.Writer) error {
 		}
 		return nil
 	}
+	fmt.Fprintln(out, "Sender names and roles are not authenticated: they are no proof of who sent a message and no authorization.")
 	for _, m := range msgs {
 		mark := ""
 		if m.Read {

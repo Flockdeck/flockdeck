@@ -27,6 +27,16 @@ func TestDraftPossibleFollowsWhatWasTypedSinceTheLastEnter(t *testing.T) {
 		{"\x03", false}, // Ctrl+C
 		{"draft\r", false},
 		{"one\rtwo", true}, // text after the last Enter is a draft
+		{"\r", false},
+		// An escape sequence ahead of text in one write does not hide the text.
+		{"\x1b[Dabc", true},
+		{"\r", false},
+		{"\x1bOAxyz", true},
+		{"\x03", false},
+		{"ab\r\x1b[Dcd", true}, // text after the last Enter and a sequence
+		{"\x03", false},
+		{"\x1b[A\x1b[B", false},
+		{"\x1b[", false}, // half a sequence is not text
 	} {
 		if err := s.WriteString(step.input); err != nil {
 			t.Fatal(err)
@@ -60,5 +70,49 @@ func TestClosingAndHooksReportedAreFalseUntilTheyHappen(t *testing.T) {
 	_ = s.Close()
 	if !s.Closing() {
 		t.Error("Close did not mark the session as closing")
+	}
+}
+
+// A slash command can open a menu that no hook reports, and a notice typed
+// behind it would pick an option from it.
+func TestMenuPossibleFromSubmittedSlashLineUntilAHookSpeaks(t *testing.T) {
+	s := fakeSession(newFakePTY())
+	s.SetStatus(StatusIdle, "")
+	if s.MenuPossible() {
+		t.Fatal("a fresh pane may have a menu open")
+	}
+	for _, in := range []string{"/mod", "el"} {
+		_ = s.WriteString(in)
+	}
+	if s.MenuPossible() {
+		t.Error("a slash line not yet submitted counts as a menu")
+	}
+	_ = s.WriteString("\r")
+	if s.DraftPossible() {
+		t.Error("the draft flag was not cleared by Enter")
+	}
+	if !s.MenuPossible() {
+		t.Fatal("Enter on /model left the pane deliverable")
+	}
+	// Re-reporting the same status is still the agent speaking.
+	s.SetStatus(StatusIdle, "")
+	if s.MenuPossible() {
+		t.Error("a hook event after the keystroke did not end the doubt")
+	}
+
+	// An ordinary prompt, and a slash that is not first, are no menu.
+	_ = s.WriteString("fix a/b\r")
+	if s.MenuPossible() {
+		t.Error("an ordinary prompt was taken for a slash command")
+	}
+	// Ctrl+C abandons the line.
+	_ = s.WriteString("/mod\x03\r")
+	if s.MenuPossible() {
+		t.Error("an abandoned slash line was taken for a command")
+	}
+	// A pasted slash command counts too.
+	_ = s.WriteString("\x1b[200~/model\x1b[201~\r")
+	if !s.MenuPossible() {
+		t.Error("a pasted slash command was missed")
 	}
 }

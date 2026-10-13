@@ -46,6 +46,12 @@ type teamState struct {
 	// write types a notice into a pane's terminal and presses Enter.
 	write func(p *Pane, notice string)
 
+	// saveMu makes taking a snapshot and writing it one step, so an older
+	// snapshot cannot be written after a newer one.
+	saveMu sync.Mutex
+	// save writes the file; a test replaces it to make a write slow.
+	save func(path string, data []byte) error
+
 	mu       sync.Mutex
 	timers   map[string]func()
 	shutdown bool
@@ -62,6 +68,7 @@ func (w *Workspace) initTeam() {
 			return func() { tm.Stop() }
 		},
 		timers: map[string]func(){},
+		save:   store.WriteAtomic,
 	}
 	t.state = w.noticeState
 	t.write = w.typeNotice
@@ -82,13 +89,15 @@ func (w *Workspace) loadMessages() {
 		return
 	}
 	w.team.inbox.OnChange(func() {
+		w.team.saveMu.Lock()
+		defer w.team.saveMu.Unlock()
 		data, err := w.team.inbox.Snapshot()
 		if err != nil {
 			return
 		}
 		// A message that cannot be written down still reaches its pane: the
 		// inbox in memory is what `flockdeck inbox` reads.
-		_ = store.WriteAtomic(path, data)
+		_ = w.team.save(path, data)
 	})
 }
 
@@ -221,6 +230,11 @@ func (w *Workspace) SendMessage(from, target, text string) (hooks.MsgResult, err
 		if m.Self {
 			me = m
 		}
+	}
+	// Only an agent pane is on the roster. A shell has no name or role to send
+	// under, so a message from it would carry an empty sender.
+	if me.Pane != from {
+		return hooks.MsgResult{}, fmt.Errorf("pane %s is not an agent pane, so it is not part of the team and cannot send messages", from)
 	}
 	targets, err := team.Resolve(members, target)
 	if err != nil {
@@ -398,7 +412,8 @@ func (w *Workspace) noticeState(p *Pane) team.State {
 		Eligible: true,
 		Status:   st.String(),
 		IdleFor:  time.Since(sess.StatusSince()),
-		Draft:    sess.DraftPossible(),
+		// Half-typed text, or a slash command that may have opened a menu.
+		Draft: sess.DraftPossible() || sess.MenuPossible(),
 	}
 }
 
@@ -414,3 +429,10 @@ func (w *Workspace) typeNotice(p *Pane, notice string) {
 	}
 	go typeInto(sess, notice, true)
 }
+
+// cleanPeerName is a pane's own report of its name, cut down to what can be shown
+// on one line: control characters and line breaks become spaces and the length
+// is capped. The name goes into other agents' briefings and into the lines
+// `flockdeck inbox` prints, so a newline in it would start a line of its own
+// there.
+func cleanPeerName(name string) string { return team.PlainLabel(name) }

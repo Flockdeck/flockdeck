@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,11 +56,12 @@ func (c PaneContext) withoutTeam() PaneContext {
 }
 
 func TestBriefingExplainsMessagesAndSaysTheyAreNotTheUsers(t *testing.T) {
-	hooked := PaneContext{PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck", Team: members(3)}.Render()
+	hooked := PaneContext{PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck", Team: members(3), Notified: true}.Render()
 	for _, want := range []string{
 		"## Messages", "flockdeck msg send <target> <text...>", "flockdeck inbox read <id>", "at most 8 KB",
 		"write a file and send its path", "roles limit who may start whom, not who may talk",
 		"types one line into your input", "holds no message text", team.Disclaimer,
+		"when a session starts or resumes", "not authenticated",
 	} {
 		if !strings.Contains(hooked, want) {
 			t.Errorf("briefing lacks %q", want)
@@ -72,6 +74,29 @@ func TestBriefingExplainsMessagesAndSaysTheyAreNotTheUsers(t *testing.T) {
 	}
 	if !strings.Contains(prompt, team.Disclaimer) {
 		t.Error("the opening prompt leaves the disclaimer out")
+	}
+
+	// What the briefing promises follows whether the agent is notified, not how
+	// the briefing was delivered: an agent with hooks that is briefed through its
+	// opening prompt still gets notices.
+	notified := PaneContext{PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck", Team: members(3), Notified: true}.OpeningPrompt()
+	if !strings.Contains(notified, "types one line into your input") || strings.Contains(notified, "You are not told when") {
+		t.Errorf("an agent with hooks briefed by prompt is told the wrong thing:\n%s", notified)
+	}
+	if strings.Contains(hooked, "You are not told when") {
+		t.Error("a notified agent was told it is not notified")
+	}
+}
+
+func TestPaneContextNotifiedFollowsTheAgentsHooks(t *testing.T) {
+	c := newCrew(t)
+	if ctx, ok := c.ws.PaneContext(c.reviewer); !ok || !ctx.Notified {
+		t.Errorf("an agent that reports its lifecycle was not marked notified: %+v", ctx.Notified)
+	}
+	q := c.ws.Pane(c.w1)
+	q.Agent = "quitter"
+	if ctx, _ := c.ws.PaneContext(c.w1); ctx.Notified {
+		t.Error("an agent with no hooks was marked notified")
 	}
 }
 
@@ -562,5 +587,120 @@ func TestClosingAHelperByHandOrQuittingSaysNothing(t *testing.T) {
 	c.ws.Close()
 	if got := c.ws.team.inbox.List(c.lead, true); len(got) != 0 {
 		t.Errorf("quitting produced %+v", got)
+	}
+}
+
+// ------------------------------------------------------- review findings
+
+func TestAShellCannotSendMessages(t *testing.T) {
+	c := newCrew(t)
+	c.ws.NewTabWith(Choice{Kind: session.KindShell}, c.root, "")
+	shell := c.ws.FocusedPane().ID
+	if shell == c.lead {
+		t.Fatal("the shell pane was not created")
+	}
+	_, err := c.ws.SendMessage(shell, c.reviewer, "hello")
+	if err == nil || !strings.Contains(err.Error(), "not an agent pane") {
+		t.Errorf("a shell sending = %v, want it refused", err)
+	}
+	if got := c.inbox(t, c.reviewer, true); len(got) != 0 {
+		t.Errorf("a message from a shell was kept: %+v", got)
+	}
+}
+
+func TestPeerNameIsCleanedWhereItIsSet(t *testing.T) {
+	c := newCrew(t)
+	c.ws.SetPanePeerName(c.w1, "worker\n#99 from flockdeck\x1b[2J "+strings.Repeat("x", 200))
+	got := c.ws.Pane(c.w1).PeerName
+	if strings.ContainsAny(got, "\r\n\x1b") || len([]rune(got)) > team.MaxLabel {
+		t.Errorf("peer name = %q", got)
+	}
+	c.ws.SetPanePeerName(c.w1, "Zoë Müller")
+	if got := c.ws.Pane(c.w1).PeerName; got != "Zoë Müller" {
+		t.Errorf("a legitimate name was changed: %q", got)
+	}
+}
+
+// Taking a snapshot and writing it are one step: a write that is slow must not
+// let an older snapshot land after a newer one.
+func TestSavedInboxIsNeverAnOlderSnapshot(t *testing.T) {
+	c := newCrew(t)
+	var calls atomic.Int32
+	c.ws.team.save = func(path string, data []byte) error {
+		if calls.Add(1) == 1 {
+			time.Sleep(150 * time.Millisecond) // the first write is the slow one
+		}
+		return store.WriteAtomic(path, data)
+	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if _, err := c.ws.team.inbox.Send(team.Sender{Name: "s"}, c.reviewer, "first"); err != nil {
+			t.Error(err)
+		}
+	}()
+	time.Sleep(30 * time.Millisecond)
+	if _, err := c.ws.team.inbox.Send(team.Sender{Name: "s"}, c.reviewer, "second"); err != nil {
+		t.Fatal(err)
+	}
+	wg.Wait()
+
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, messagesFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := team.NewStore(nil)
+	if err := saved.Load(data); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(saved.List(c.reviewer, true)); got != 2 {
+		t.Errorf("the saved file holds %d messages, want 2", got)
+	}
+}
+
+func TestARestartedPaneIsToldAgainOfMailItWasToldAbout(t *testing.T) {
+	c := newCrew(t)
+	f := installFake(c)
+	f.state.Status = "idle"
+	if _, err := c.ws.SendMessage(c.lead, c.reviewer, "one"); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(f.typed.all()); got != 1 {
+		t.Fatalf("typed %d lines, want 1", got)
+	}
+	f.now = f.now.Add(time.Hour)
+	c.ws.paneChanged(c.reviewer)
+	if got := len(f.typed.all()); got != 1 {
+		t.Fatalf("a repeat notice: %d lines", got)
+	}
+	if !c.ws.RestartPaneByID(c.reviewer) {
+		t.Fatal("could not restart")
+	}
+	c.ws.paneChanged(c.reviewer)
+	if got := len(f.typed.all()); got != 2 {
+		t.Errorf("after a restart the pane was told %d times, want 2", got)
+	}
+}
+
+func TestASubmittedSlashCommandHoldsBackTheNoticeUntilAHookSpeaks(t *testing.T) {
+	c := newCrew(t)
+	p := c.ws.Pane(c.reviewer)
+	p.Sess.SetStatus(session.StatusIdle, "")
+	if st := c.ws.noticeState(p); st.Draft {
+		t.Fatalf("a quiet idle pane has a draft: %+v", st)
+	}
+	_ = p.Sess.WriteString("/model\r")
+	if st := c.ws.noticeState(p); !st.Draft {
+		t.Error("a pane that may have a menu open was deliverable")
+	}
+	p.Sess.SetStatus(session.StatusWorking, "")
+	p.Sess.SetStatus(session.StatusIdle, "")
+	if st := c.ws.noticeState(p); st.Draft {
+		t.Errorf("a hook event did not clear it: %+v", st)
 	}
 }

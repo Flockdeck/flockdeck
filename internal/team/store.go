@@ -17,6 +17,10 @@ const (
 	MaxInbox = 100
 	// KeepRead is how long a message that has been read is kept across a restart.
 	KeepRead = 7 * 24 * time.Hour
+	// KeepUnread is how long a message that was never read is kept across a
+	// restart. It bounds what an inbox of a pane that no longer exists leaves
+	// behind.
+	KeepUnread = 30 * 24 * time.Hour
 )
 
 // Store holds every pane's inbox. It is safe for concurrent use.
@@ -172,19 +176,21 @@ func (s *Store) Snapshot() ([]byte, error) {
 }
 
 // Load replaces the store's contents with what Snapshot wrote. Messages that
-// were read more than KeepRead ago, and any that break the limits, are dropped.
+// were read more than KeepRead ago, that were sent more than KeepUnread ago,
+// and any that break the limits, are dropped.
 func (s *Store) Load(data []byte) error {
 	var snap snapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return err
 	}
 	cutoff := s.now().Add(-KeepRead)
+	oldest := s.now().Add(-KeepUnread)
 	boxes := map[string][]Message{}
 	next := max(snap.Next, 1)
 	for pane, box := range snap.Boxes {
 		var kept []Message
 		for _, m := range box {
-			if m.ID <= 0 || m.To != pane || len(m.Text) > MaxText || (m.Read && m.Time.Before(cutoff)) {
+			if m.ID <= 0 || m.To != pane || len(m.Text) > MaxText || (m.Read && m.Time.Before(cutoff)) || m.Time.Before(oldest) {
 				continue
 			}
 			next = max(next, m.ID+1)

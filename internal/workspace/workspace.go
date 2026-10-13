@@ -1779,6 +1779,9 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	w.mu.Lock()
 	p.launch = rand.Text()
 	w.mu.Unlock()
+	// A new session has not been told of the mail waiting for the pane, whatever
+	// the last one was told.
+	w.forgetTeam(p.ID)
 
 	var argv, env []string
 	// spec is the agent the pane runs, and stays empty for a shell. The session
@@ -2839,6 +2842,7 @@ func (w *Workspace) SetPaneAutoReview(id string, on bool) bool {
 // It writes under w.mu, the same as SetPaneAutoReview: the hook server calls
 // this directly from its own goroutine, not the one that owns the workspace.
 func (w *Workspace) SetPanePeerName(id, name string) bool {
+	name = cleanPeerName(name)
 	w.mu.Lock()
 	p := w.panes[id]
 	changed := p != nil && p.PeerName != name

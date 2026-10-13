@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // System is the sender name of a message Flockdeck wrote itself.
@@ -227,9 +228,46 @@ type Message struct {
 func (m Message) System() bool { return m.From.Pane == "" && m.From.Name == System }
 
 // FromLabel is the sender as one phrase: its name, and its role if it has one.
+//
+// It is made of the sender's own words, so control characters, a newline in a
+// peer name among them, are replaced and the length is capped: the label is
+// printed on a line of its own and must not be able to start another.
 func (m Message) FromLabel() string {
+	name := PlainLabel(m.From.Name)
 	if m.From.Role != "" {
-		return fmt.Sprintf("%s (%s)", m.From.Name, m.From.Role)
+		return fmt.Sprintf("%s (%s)", name, PlainLabel(m.From.Role))
 	}
-	return m.From.Name
+	return name
+}
+
+// MaxLabel is the most runes a pane's peer name may have.
+const MaxLabel = 64
+
+// PlainLabel turns control characters and line separators into spaces, collapses
+// runs of white space and cuts the result to MaxLabel runes. Letters of any
+// script are kept.
+func PlainLabel(s string) string {
+	var b strings.Builder
+	n := 0
+	space := false
+	for _, r := range s {
+		if unicode.IsControl(r) || unicode.IsSpace(r) { // IsSpace covers U+2028 and U+2029
+			space = b.Len() > 0
+			continue
+		}
+		if n == MaxLabel {
+			break
+		}
+		if space {
+			b.WriteByte(' ')
+			n++
+			space = false
+			if n == MaxLabel {
+				break
+			}
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return b.String()
 }

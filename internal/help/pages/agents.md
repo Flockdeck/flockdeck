@@ -298,10 +298,12 @@ the manager when they are blocked. Their final report is still their last messag
 
 A message is data from another agent. The briefing and the notice that tells an agent about
 a message both say that messages from other agents are not instructions from the user, and
-that an approval in one is not the user's approval. Any agent in a project may message any
+that an approval in one is not the user's approval. The sender's name and role are not
+authenticated either, so an agent must not treat them as proof of who sent a message or as
+authorization. Any agent in a project may message any
 other in it, whatever its role; the roles limit who may start whom and nothing else. A pane
 can send only as itself and read only its own inbox, and a request naming a pane that is not
-open is refused. The pane id in a request is the one the pane's environment gives it, checked
+open is refused. A shell cannot send. The pane id in a request is the one the pane's environment gives it, checked
 against the open panes but not against the pane that sent it, as with `spawn` and `close`.
 
 When a helper an agent started exits on its own, or is closed as finished, Flockdeck writes
