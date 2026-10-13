@@ -507,12 +507,16 @@ func cliFlagNames() map[string]bool {
 	teamFS, _ := teamFlagSet()
 	inboxFS, _, _ := inboxFlagSet()
 	inboxReadFS, _ := inboxReadFlagSet()
+	taskAddFS := taskAddFlagSet(&taskAddFlags{})
+	taskListFS := taskListFlagSet(&taskListFlags{})
+	taskStatusFS := taskStatusFlagSet(&taskStatusFlags{})
+	taskPruneFS := taskPruneFlagSet(new(int))
 	for _, fs := range []*flag.FlagSet{
 		flockdeckFlagSet(&cliFlags{}),
 		spawnFlagSet(&spawnFlags{}),
 		batonShowFlagSet(&batonFlags{}),
 		closeFlagSet(&closeFlags{}),
-		teamFS, inboxFS, inboxReadFS,
+		teamFS, inboxFS, inboxReadFS, taskAddFS, taskListFS, taskStatusFS, taskPruneFS,
 		recordingsFlagSet(&recordingsFlags{}),
 		exportFlagSet(&exportFlags{}),
 		updateFlagSet(&updateFlags{}),

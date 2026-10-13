@@ -246,7 +246,11 @@ const MaxLabel = 64
 // PlainLabel turns control characters and line separators into spaces, collapses
 // runs of white space and cuts the result to MaxLabel runes. Letters of any
 // script are kept.
-func PlainLabel(s string) string {
+func PlainLabel(s string) string { return PlainText(s, MaxLabel) }
+
+// PlainText is PlainLabel with a limit of the caller's choosing: one line of at
+// most max runes, with no control character in it.
+func PlainText(s string, max int) string {
 	var b strings.Builder
 	n := 0
 	space := false
@@ -255,16 +259,18 @@ func PlainLabel(s string) string {
 			space = b.Len() > 0
 			continue
 		}
-		if n == MaxLabel {
+		if n == max {
 			break
 		}
 		if space {
+			// A space with no room for the character after it is not written, so
+			// the text never ends in one.
+			if n+1 >= max {
+				break
+			}
 			b.WriteByte(' ')
 			n++
 			space = false
-			if n == MaxLabel {
-				break
-			}
 		}
 		b.WriteRune(r)
 		n++

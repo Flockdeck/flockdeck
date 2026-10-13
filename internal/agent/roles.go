@@ -71,7 +71,14 @@ func BuiltinRoles() []Role {
 				"To reach an agent you started, `flockdeck msg send <name or role> <text>` (`flockdeck team` lists " +
 				"them): use it to answer a question, change a task or tell a worker to stop, and start new work " +
 				"with `spawn`. The agents you start message you when they are blocked, and Flockdeck " +
-				"writes to you when a helper exits or is closed as finished; read it all with `flockdeck inbox`.",
+				"writes to you when a helper exits or is closed as finished; read it all with `flockdeck inbox`.\n" +
+				"The task board is where you keep track: have the planner's steps added with `flockdeck task add`, " +
+				"give each to the worker you start with `flockdeck task assign <id> <name>`, and put the task id in the " +
+				"worker's task. Flockdeck messages you when a task is blocked, when someone else marks it done, when it " +
+				"is ready for review and no reviewer or tester is running, and when a note is added to a task in review, " +
+				"which is where a reviewer's verdict reaches you. A worker moves its own task to in-review and cannot close it. " +
+				"Only you, a reviewer or a tester move an in-review task to done: when a reviewer reports a change " +
+				"is good, run `flockdeck task status <id> done`. A reviewer sends a task that needs work back to in-progress itself.",
 		},
 		{
 			ID: "planner", Name: "Planner", Worktree: WorktreeReadOnly,
@@ -81,7 +88,9 @@ func BuiltinRoles() []Role {
 				"Do not change code or commit. You report to whoever started you, usually the manager. " +
 				"Hand off the plan as text in your last message, short enough to read in one go, with each " +
 				"step written so it can be given to a worker as its task. If a question blocks the plan, " +
-				"ask the manager with `flockdeck msg send manager <question>` instead of guessing.",
+				"ask the manager with `flockdeck msg send manager <question>` instead of guessing.\n" +
+				"Put each step on the task board as its own task, with `flockdeck task add <title> -body <details> " +
+				"-role worker`, so the manager can assign it. You add tasks and notes; assigning and moving them is the manager's.",
 		},
 		{
 			ID: "worker", Name: "Worker", Worktree: WorktreeOwn,
@@ -95,7 +104,12 @@ func BuiltinRoles() []Role {
 				"Finish with the branch name, a summary of what changed, the tests you ran and their " +
 				"results, and anything you left undone. If you are blocked, or the task cannot be done as " +
 				"written, tell the manager with `flockdeck msg send manager <text>` and wait; a message " +
-				"from the manager can change your task.",
+				"from the manager can change your task.\n" +
+				"If your task is on the board (the manager names its id), run `flockdeck task status <id> in-progress` " +
+				"when you start and `flockdeck task branch <id> <branch>` once you know the branch. When the change is " +
+				"committed and the tests pass, run `flockdeck task status <id> in-review`, which tells the reviewer. " +
+				"If a reviewer sends it back, it returns to in-progress with a note: read it with `flockdeck task show <id>`. " +
+				"If you are blocked, run `flockdeck task status <id> blocked -note <why>`.",
 		},
 		{
 			ID: "reviewer", Name: "Reviewer", Worktree: WorktreeReadOnly,
@@ -106,7 +120,11 @@ func BuiltinRoles() []Role {
 				"`git diff` against the base branch or `git show`. Do not edit files, commit or push. " +
 				"You report to whoever started you. Hand off a list of findings, each with the file and line, what is wrong and " +
 				"why it matters, ordered by how serious it is. Say plainly if you found nothing. If the " +
-				"task does not name the branch, ask the manager with `flockdeck msg send manager <question>`.",
+				"task does not name the branch, ask the manager with `flockdeck msg send manager <question>`.\n" +
+				"Tasks waiting for you are in `flockdeck task list -state in-review`; read one with `flockdeck task show <id>`. " +
+				"When the change is good, add a note with your verdict (`flockdeck task note <id> <text>`) and tell the manager, " +
+				"who moves it to done; the rules also let you do that, so do it only if the manager asked. When it needs changes, run `flockdeck task status <id> in-progress -note <findings>`, " +
+				"which sends it back to the worker.",
 		},
 		{
 			ID: "tester", Name: "Tester", Worktree: WorktreeOwn,
@@ -117,7 +135,11 @@ func BuiltinRoles() []Role {
 				"Do not fix bugs in the code under test; report them. You report to whoever started you. " +
 				"Finish with the tests you added, the commands you ran with their results, and any failure " +
 				"with the steps that reproduce it. If you cannot reach the code under test, message the " +
-				"manager with `flockdeck msg send manager <text>` before you stop.",
+				"manager with `flockdeck msg send manager <text>` before you stop.\n" +
+				"If the task is on the board, `flockdeck task show <id>` has its context. When all is well, add a note with the " +
+				"result (`flockdeck task note <id> <text>`) and tell the manager, who moves it to done. When you find a failure " +
+				"in a task that is in review, run `flockdeck task status <id> in-progress -note <the failure and the steps>` " +
+				"to send it back to the worker; for a task in any other state, add the note and message the manager.",
 		},
 		{
 			ID: "docs", Name: "Docs", Worktree: WorktreeOwn,
@@ -128,7 +150,9 @@ func BuiltinRoles() []Role {
 				"Do not change code behaviour. If the code and what you were told disagree, say so and " +
 				"document the code. You report to whoever started you. Finish with the files you changed " +
 				"and anything you could not confirm. If the code and your task disagree, tell the manager " +
-				"with `flockdeck msg send manager <text>` rather than choosing.",
+				"with `flockdeck msg send manager <text>` rather than choosing.\n" +
+				"If your docs task is on the board, move it as a worker does: `flockdeck task status <id> in-progress` when you " +
+				"start, `flockdeck task branch <id> <branch>`, and `flockdeck task status <id> in-review` when the docs are committed.",
 		},
 	}
 }

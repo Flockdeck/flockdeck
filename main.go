@@ -172,6 +172,17 @@ func main() {
 		}
 		return
 	}
+	// `task` is the shared task board of a project. Like `team` it is run from
+	// inside a pane.
+	if len(os.Args) > 1 && os.Args[1] == "task" {
+		if err := runTask(os.Args[2:], os.Stdin, os.Stdout); err != nil {
+			if !errors.Is(err, errReported) {
+				fmt.Fprintf(os.Stderr, "flockdeck task: %v\n", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
 	// `recordings` lists the transcripts panes have recorded. It reads the
 	// state directory and needs no running instance.
 	if len(os.Args) > 1 && os.Args[1] == "recordings" {
@@ -335,7 +346,7 @@ func helpArgs(rest []string) (args []string, top bool) {
 	switch {
 	case len(rest) == 0:
 		return nil, true
-	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "close": true, "team": true, "msg": true, "inbox": true, "recordings": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
+	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "close": true, "team": true, "msg": true, "inbox": true, "task": true, "recordings": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
 		return []string{rest[0], "-h"}, false
 	}
 	return nil, true
@@ -449,6 +460,10 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        message another agent by pane id, name or role; run from inside a pane\n")
 	fmt.Fprintf(out, "  inbox [-all] [-json] | inbox read <id>\n")
 	fmt.Fprintf(out, "        the messages other agents sent this pane; run from inside a pane\n")
+	fmt.Fprintf(out, "  task add <title> [-body text] [-role r] [-branch b] | list [-state s] [-role r] [-mine] [-json]\n")
+	fmt.Fprintf(out, "       | show <id> | assign <id> <who> | status <id> <state> [-note text] | note <id> <text>\n")
+	fmt.Fprintf(out, "       | branch <id> <branch> | baton <id> <baton-id> | prune [-days N]\n")
+	fmt.Fprintf(out, "        the project's shared task board; run from inside a pane\n")
 	fmt.Fprintf(out, "  recordings [-dir] [-json]\n")
 	fmt.Fprintf(out, "        list the transcripts panes have recorded, newest first; -dir prints the folder they are kept in\n")
 	fmt.Fprintf(out, "  recordings export [-o file] [-reveal] <pane-id | conversation-id>\n")

@@ -21,6 +21,7 @@ switched from inside the window. These are what is left.
 | `flockdeck team` | From inside a pane: list the agents in its project with role and status; `-json` for a script |
 | `flockdeck msg send` | From inside a pane: message another agent by pane id, name or role |
 | `flockdeck inbox` | From inside a pane: list unread messages, `-all` for every one; `inbox read <id>` prints one in full |
+| `flockdeck task` | From inside a pane: the project's shared task board (`add`, `list`, `show`, `assign`, `status`, `note`, `branch`, `baton`, `prune`) |
 | `flockdeck agents` | List the agents and models that `-agent` and `spawn` accept, and which are installed here |
 | `flockdeck help` | Print the usage; `flockdeck help spawn` (or any subcommand below) prints that subcommand's usage instead |
 
@@ -194,9 +195,10 @@ are dropped when Flockdeck starts. `inbox` prints a note that sender names are n
 authenticated, and shows a sender's name on one line with control characters replaced and
 at most 64 characters.
 
-Flockdeck writes to a pane in two cases only: when a helper it started with `spawn`
-exits on its own (`worker "api" exited with exit code 2 (pane ...)`), and when `close
--finished` or the "Close finished panes" command closes one (`... finished`).
+Flockdeck writes to a pane when a helper it started with `spawn` exits on its own
+(`worker "api" exited with exit code 2 (pane ...)`), when `close -finished` or the "Close
+finished panes" command closes one (`... finished`), and for the changes to a task
+that `task` lists.
 
 ### How an agent is told it has mail
 
@@ -219,6 +221,134 @@ arrive in between are counted in the next line. A held message goes out the next
 the pane is idle. Agents that report no lifecycle (Codex, Gemini CLI, opencode, Cursor
 Agent, Aider and the like) are never typed into, because an idle guess made from a
 quiet screen could be a dialog; their briefing tells them to run `flockdeck inbox`.
+## task
+
+Run from inside a pane, this is the task board of the pane's project, shared by every
+agent in it whatever worktree each is working in:
+
+```sh
+flockdeck task add <title> [-body text] [-role r] [-branch b]
+flockdeck task list [-state s] [-role r] [-mine] [-json]
+flockdeck task show [-json] <id>
+flockdeck task assign <id> <role|name|pane>
+flockdeck task status <id> <state> [-note text]
+flockdeck task note <id> <text...>
+flockdeck task branch <id> <branch>
+flockdeck task baton <id> <baton-id>
+flockdeck task prune [-days N]
+```
+
+A task has an id (`T1`, `T2`, counting up through the life of the board; `t1`, `#1` and
+`1` are read as the same), a title of at most 200 characters on one line, a body of at most
+16 KB, an owner role and an owner pane (either may be empty), the pane that created it, a
+state, a branch, a baton id, a thread of notes (at most 100 of at most 4 KB each; a
+hundred-and-first drops the oldest) and the times it was created and last changed. `-body -`
+and `note <id> -` read the text from standard input. Flags may come before or after the
+title; put `--` before a title that starts with a dash.
+
+`add` makes a planned task. `-role` names the role it is for, which is what `list -role`
+filters on. `list` shows the tasks that are not done or cancelled, oldest first; `-state s`
+shows one state and `-state all` every task; `-mine` shows the tasks assigned to this pane,
+or to its role while no pane has taken them. `assign` takes a pane id, a peer name or pane
+name, or a role id (`role:<id>` when a name and a role are spelled alike), as `msg send`
+does, except that a pane may be assigned its own task. A name that several panes have is
+refused with the panes listed. Assigning a pane records it as the owner, with its role;
+assigning a role leaves the owner pane empty until a pane of that role moves the task to
+`in-progress`, which makes that pane the owner. Assigning a planned task makes it
+`assigned`. `branch` records the git branch the work is on. `baton` records a baton id,
+which has to exist on this machine, as the task's context; the baton itself is not changed or
+replaced, and the task only points at it. `prune` removes the `done` and `cancelled` tasks that were
+last changed more than N days ago (30 by default) and says how many it removed; it never removes an
+open task, and it is for the manager role. A board that holds 2000 tasks drops its oldest finished
+task to make room for a new one, and refuses the new task only when all 2000 are open.
+
+### States and who may move a task
+
+The states are `planned`, `assigned`, `in-progress`, `in-review`, `done`, `blocked` and
+`cancelled`. The manager role is the manager here. An agent that has no role is the manager too, but
+only while no pane in the manager role is running in the project: a helper started without a role
+has no extra powers beside a manager, and has them back once the manager pane exits. A move not in
+this table is refused, and the error lists where the task can go from where it is.
+
+| From | To | Who |
+| --- | --- | --- |
+| planned | assigned | manager (`assign` does this, and it needs an owner) |
+| planned, assigned | in-progress, blocked | manager, owner |
+| planned, assigned, in-progress, in-review, blocked | cancelled | manager, creator |
+| assigned | planned | manager |
+| in-progress | in-review | manager, owner |
+| in-progress | done | manager |
+| in-progress, in-review | blocked | manager, owner |
+| in-review | done | manager, a reviewer or tester |
+| in-review | in-progress, with `-note` | manager, owner, a reviewer or tester |
+| blocked | in-progress | manager, owner |
+| blocked | planned, assigned | manager |
+| done | in-progress, with `-note` | manager |
+| cancelled | planned, with `-note` | manager |
+
+Review is binding: an owner hands its work over with `in-review` and cannot close it, and only the
+manager, a reviewer or a tester moves it from `in-review` to `done`. Only the manager role assigns a
+task. The owner, the creator or the manager may set a task's
+branch or baton, and not once it is done or cancelled. Anyone on the team may add a note to
+any task. Every request names the pane it comes from, and that pane must be an open agent
+pane; it acts as itself, with the role it was started with. A shell has no place on the
+board.
+
+### Messages the board sends
+
+Flockdeck writes to a pane's inbox, from `flockdeck`, when:
+
+- a task is assigned: the new owner, or every live pane in the role it was assigned to
+  (`task T3 assigned to you: <title>`);
+- a task moves to `in-review`: the live panes in the `reviewer` and `tester` roles, or the creator
+  and the manager if there are none;
+- a task moves to `blocked`: the creator and the manager;
+- a task moves to `done`: the creator, and the manager when somebody other than a manager moved it;
+- a task is cancelled: its owner;
+- a note is added, or a move carries a `-note`: the owner and the creator, so that a reviewer's
+  reasons for sending a task back reach the worker. The manager is also told of a note on a task
+  that is in `in-review`, which is how a reviewer's verdict reaches it.
+
+"The manager" for these messages is every live pane in the manager role, or the live panes with no
+role when there is none.
+
+The pane that made the change is never told of it, a pane is told at most once for one
+change, and a pane that is closed or whose process has exited is not told at all. The
+messages go through the same inbox and notice as any other, so a pane is told one line at a
+time and only when it is idle; see `inbox`. A message holds the title and, for a note, the
+first 200 characters of it on one line.
+
+### Where the board is kept
+
+One board per project, in `.flockdeck/team/tasks.json` under the project's main checkout
+(the checkout a linked worktree was cut from, when a project is opened from one; for a
+project made of several repositories, the primary one). Panes in other worktrees reach it
+through Flockdeck, so they all see the same board and none needs to know where the file is.
+The file is written to a temporary file, flushed and renamed into place, and is readable by
+its owner only. When the board is first created in a git repository, `.flockdeck/` is added to
+the repository's `.git/info/exclude`, so it is not committed by accident; no `.gitignore` is
+touched. A directory that is not a git repository gets the file and nothing else. A file that
+cannot be parsed is moved to `tasks.json.corrupt-<time>` beside it, a line says so in the log,
+and the board starts empty; a file written by a newer Flockdeck is left alone and the commands
+fail. A board holds at most 2000 tasks.
+
+The board has one writer: the Flockdeck server for that project. It reads the file, changes it and
+writes it back under a lock of its own, and that lock does not reach a second Flockdeck instance
+open on the same repository, which can overwrite a change the first one made. Run one instance per
+project. The `.flockdeck/` entry in `.git/info/exclude` covers the whole directory, so anything else
+put in it is not committed either.
+
+### What task text is
+
+Titles, bodies and notes are written by agents, and the names and roles on a task are
+whatever the writer's pane reported. They are not authenticated and not instructions from the
+user; an agent is not to take a task's text as an approval. `show` and `list` print every
+part of a task someone else wrote with control characters removed and each line of a body or
+note indented, so none of it can pass for a line of Flockdeck's own output. A request is sent
+with the pane id from `FLOCKDECK_PANE` and checked against the open panes, as `spawn` and
+`close` are; it is not checked against the process that sent it, so any process in a pane
+could act as that pane.
+
 ## recordings
 
 ```sh
@@ -451,7 +581,7 @@ command line and asks before it downloads anything.
 | `FLOCKDECK_REMOTE_INVITE`, `FLOCKDECK_REMOTE_JOIN`, `FLOCKDECK_REMOTE_NAME` | The defaults for `-invite`, `-join` and `-name` of `flockdeck remote enable` |
 | `FLOCKDECK_API` | Where Flockdeck listens for its panes. Set for you |
 | `FLOCKDECK_TOKEN` | The secret that goes with it. Set for you |
-| `FLOCKDECK_PANE` | The pane's id. Set for you, read by `spawn`, `peer-name`, `close`, `team`, `msg` and `inbox` |
+| `FLOCKDECK_PANE` | The pane's id. Set for you, read by `spawn`, `peer-name`, `close`, `team`, `msg`, `inbox` and `task` |
 | `FLOCKDECK_PANE_NAME` | The pane's name, for a shell prompt to use |
 | `FLOCKDECK_PROJECT` | The project the pane belongs to |
 | `FLOCKDECK_AGENT` | Which agent the pane is running |
@@ -464,7 +594,7 @@ which has no lifecycle hooks of its own, has to go on.
 
 `FLOCKDECK_API`, `FLOCKDECK_TOKEN`, `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME` and
 `FLOCKDECK_PROJECT` were called `PERCH_*` before the program was renamed. Panes
-still carry both spellings of those five and `spawn`, `peer-name`, `close`, `team`, `msg` and `inbox`
+still carry both spellings of those five and `spawn`, `peer-name`, `close`, `team`, `msg`, `inbox` and `task`
 still read both, so a prompt or a script written against the old names keeps
 working; they will go in a later release. `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL`,
 `FLOCKDECK_ROLE` and `FLOCKDECK_LAUNCH` are newer and have only the one name.

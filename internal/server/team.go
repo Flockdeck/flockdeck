@@ -5,13 +5,13 @@ import (
 	"github.com/jmwri/flockdeck/internal/team"
 )
 
-// This file is the desktop side of `flockdeck team`, `flockdeck msg` and
-// `flockdeck inbox`. Each request names the pane it comes from, and the
+// This file is the desktop side of `flockdeck team`, `flockdeck msg`,
+// `flockdeck inbox` and `flockdeck task`. Each request names the pane it comes from, and the
 // workspace refuses one whose pane is not open; see workspace.Roster. Every
 // handler runs on the workspace goroutine, like the spawn and close handlers.
 
-// installTeamHandlers lets a pane list its project's agents and exchange
-// messages with them.
+// installTeamHandlers lets a pane list its project's agents, exchange messages
+// with them and use the project's task board.
 func (s *Server) installTeamHandlers() {
 	hookSrv := s.ws.HookServer()
 	if hookSrv == nil {
@@ -54,5 +54,15 @@ func (s *Server) installTeamHandlers() {
 			return hooks.InboxResult{}, errShuttingDown
 		}
 		return hooks.InboxResult{Messages: out.res}, out.err
+	})
+	hookSrv.SetTaskHandler(func(req hooks.TaskRequest) (hooks.TaskResult, error) {
+		out, ok := ask(s, func() outcome[hooks.TaskResult] {
+			r, err := s.ws.Task(req)
+			return outcome[hooks.TaskResult]{r, err}
+		})
+		if !ok {
+			return hooks.TaskResult{}, errShuttingDown
+		}
+		return out.res, out.err
 	})
 }
