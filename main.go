@@ -152,6 +152,26 @@ func main() {
 		}
 		return
 	}
+	// `team`, `msg` and `inbox` are how the agents of one project see each other
+	// and exchange messages. They are run from inside a pane, like `close`.
+	if len(os.Args) > 1 && (os.Args[1] == "team" || os.Args[1] == "msg" || os.Args[1] == "inbox") {
+		var err error
+		switch os.Args[1] {
+		case "team":
+			err = runTeam(os.Args[2:], os.Stdout)
+		case "msg":
+			err = runMsg(os.Args[2:], os.Stdin, os.Stdout, os.Stderr)
+		default:
+			err = runInbox(os.Args[2:], os.Stdout)
+		}
+		if err != nil {
+			if !errors.Is(err, errReported) {
+				fmt.Fprintf(os.Stderr, "flockdeck %s: %v\n", os.Args[1], err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
 	// `recordings` lists the transcripts panes have recorded. It reads the
 	// state directory and needs no running instance.
 	if len(os.Args) > 1 && os.Args[1] == "recordings" {
@@ -315,7 +335,7 @@ func helpArgs(rest []string) (args []string, top bool) {
 	switch {
 	case len(rest) == 0:
 		return nil, true
-	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "close": true, "recordings": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
+	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "close": true, "team": true, "msg": true, "inbox": true, "recordings": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
 		return []string{rest[0], "-h"}, false
 	}
 	return nil, true
@@ -423,6 +443,12 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        report the name another Claude session would address this pane by; run from inside a pane\n")
 	fmt.Fprintf(out, "  close [-force] <pane-id> | close -finished\n")
 	fmt.Fprintf(out, "        close another pane, or every finished one; run from inside a pane\n")
+	fmt.Fprintf(out, "  team [-json]\n")
+	fmt.Fprintf(out, "        list the agents of this pane's project, with role and status; run from inside a pane\n")
+	fmt.Fprintf(out, "  msg send <target> <text...>\n")
+	fmt.Fprintf(out, "        message another agent by pane id, name or role; run from inside a pane\n")
+	fmt.Fprintf(out, "  inbox [-all] [-json] | inbox read <id>\n")
+	fmt.Fprintf(out, "        the messages other agents sent this pane; run from inside a pane\n")
 	fmt.Fprintf(out, "  recordings [-dir] [-json]\n")
 	fmt.Fprintf(out, "        list the transcripts panes have recorded, newest first; -dir prints the folder they are kept in\n")
 	fmt.Fprintf(out, "  recordings export [-o file] [-reveal] <pane-id | conversation-id>\n")

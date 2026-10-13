@@ -623,6 +623,7 @@ type Server struct {
 	onReview   func(sessionID string, ev Event) (allow bool, reason string)
 	onPeerName func(PeerNameRequest) error
 	onClose    func(CloseRequest) (CloseResult, error)
+	onTeam     teamHandlers
 }
 
 // SessionStart is the lifecycle event a pane's agent fires as it starts,
@@ -684,6 +685,9 @@ func Serve(on func(Event)) (*Server, error) {
 	mux.HandleFunc("/usage", s.handleUsage)
 	mux.HandleFunc("/peer-name", s.handlePeerName)
 	mux.HandleFunc("/close", s.handleClose)
+	mux.HandleFunc("/team", s.handleTeam())
+	mux.HandleFunc("/msg", s.handleMsg())
+	mux.HandleFunc("/inbox", s.handleInbox())
 	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() { _ = s.srv.Serve(ln) }()
