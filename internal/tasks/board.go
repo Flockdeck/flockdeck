@@ -220,8 +220,8 @@ func (b *Board) Add(a Actor, in NewTask) (Change, error) {
 	}
 	var ch Change
 	err = b.update(func(f *file) error {
-		if len(f.Tasks) >= MaxTasks {
-			return fmt.Errorf("the board holds %d tasks, which is the most it takes; remove finished ones from %s", MaxTasks, b.Path)
+		if len(f.Tasks) >= MaxTasks && !dropOldestFinished(f) {
+			return fmt.Errorf("the board holds %d tasks, all of them open, which is the most it takes; finish or cancel some, then `flockdeck task prune` removes old finished ones", MaxTasks)
 		}
 		now := b.now()
 		t := Task{
@@ -235,6 +235,65 @@ func (b *Board) Add(a Actor, in NewTask) (Change, error) {
 	})
 	return ch, err
 }
+
+// dropOldestFinished removes the done or cancelled task that was changed least
+// recently, to make room on a full board. It reports false when every task is
+// open, and then removes nothing.
+func dropOldestFinished(f *file) bool {
+	at := -1
+	for i, t := range f.Tasks {
+		if t.State.Open() {
+			continue
+		}
+		if at < 0 || t.Updated.Before(f.Tasks[at].Updated) ||
+			t.Updated.Equal(f.Tasks[at].Updated) && idNumber(t.ID) < idNumber(f.Tasks[at].ID) {
+			at = i
+		}
+	}
+	if at < 0 {
+		return false
+	}
+	f.Tasks = append(f.Tasks[:at], f.Tasks[at+1:]...)
+	return true
+}
+
+// DefaultPruneDays is how old a finished task must be for `task prune` to
+// remove it when no age is given.
+const DefaultPruneDays = 30
+
+// Prune removes the done and cancelled tasks that were last changed more than
+// days days ago, and says how many it removed. Open tasks are never removed.
+func (b *Board) Prune(a Actor, hasManager bool, days int) (int, error) {
+	if err := CheckPrune(a, hasManager); err != nil {
+		return 0, err
+	}
+	if days < 0 {
+		return 0, fmt.Errorf("the age in days cannot be negative")
+	}
+	n := 0
+	err := b.update(func(f *file) error {
+		cut := b.now().Add(-time.Duration(days) * 24 * time.Hour)
+		kept := f.Tasks[:0]
+		for _, t := range f.Tasks {
+			if !t.State.Open() && t.Updated.Before(cut) {
+				n++
+				continue
+			}
+			kept = append(kept, t)
+		}
+		f.Tasks = kept
+		if n == 0 {
+			return errNothingToWrite
+		}
+		return nil
+	})
+	if errors.Is(err, errNothingToWrite) {
+		err = nil
+	}
+	return n, err
+}
+
+var errNothingToWrite = errors.New("nothing to write")
 
 // Filter says which tasks List returns.
 type Filter struct {
@@ -295,14 +354,14 @@ type Assignee struct {
 }
 
 // Assign gives a task an owner. A planned task becomes assigned.
-func (b *Board) Assign(a Actor, id string, o Assignee) (Change, error) {
+func (b *Board) Assign(a Actor, hasManager bool, id string, o Assignee) (Change, error) {
 	var ch Change
 	err := b.update(func(f *file) error {
 		t, err := find(f, id)
 		if err != nil {
 			return err
 		}
-		if err := CheckAssign(*t, a); err != nil {
+		if err := CheckAssign(*t, a, hasManager); err != nil {
 			return err
 		}
 		from := t.State
@@ -318,7 +377,7 @@ func (b *Board) Assign(a Actor, id string, o Assignee) (Change, error) {
 }
 
 // SetState moves a task to a state, if the rules let the actor.
-func (b *Board) SetState(a Actor, id string, to State, note string) (Change, error) {
+func (b *Board) SetState(a Actor, hasManager bool, id string, to State, note string) (Change, error) {
 	var text string
 	if strings.TrimSpace(note) != "" {
 		var err error
@@ -332,7 +391,7 @@ func (b *Board) SetState(a Actor, id string, to State, note string) (Change, err
 		if err != nil {
 			return err
 		}
-		if err := CheckMove(*t, to, a, text); err != nil {
+		if err := CheckMove(*t, to, a, hasManager, text); err != nil {
 			return err
 		}
 		from := t.State
@@ -384,7 +443,7 @@ func (t *Task) addNote(n Note) {
 }
 
 // SetBranch records the branch a task's work is on.
-func (b *Board) SetBranch(a Actor, id, branch string) (Change, error) {
+func (b *Board) SetBranch(a Actor, hasManager bool, id, branch string) (Change, error) {
 	branch, err := CleanBranch(branch)
 	if err != nil {
 		return Change{}, err
@@ -395,7 +454,7 @@ func (b *Board) SetBranch(a Actor, id, branch string) (Change, error) {
 		if err != nil {
 			return err
 		}
-		if err := CheckEdit(*t, a); err != nil {
+		if err := CheckEdit(*t, a, hasManager); err != nil {
 			return err
 		}
 		t.Branch = branch
@@ -409,14 +468,14 @@ func (b *Board) SetBranch(a Actor, id, branch string) (Change, error) {
 // SetBaton points a task at the baton that gives it its context. The baton is
 // not read or changed, and it is not replaced by the task: a baton is a handoff
 // document that stays as it was written.
-func (b *Board) SetBaton(a Actor, id, baton string) (Change, error) {
+func (b *Board) SetBaton(a Actor, hasManager bool, id, baton string) (Change, error) {
 	var ch Change
 	err := b.update(func(f *file) error {
 		t, err := find(f, id)
 		if err != nil {
 			return err
 		}
-		if err := CheckEdit(*t, a); err != nil {
+		if err := CheckEdit(*t, a, hasManager); err != nil {
 			return err
 		}
 		t.Baton = baton

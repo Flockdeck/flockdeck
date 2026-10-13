@@ -85,6 +85,11 @@ type Notice struct {
 // never told of their own; and a pane that is not on the roster, or whose
 // process has exited, is not told at all, since nothing would read it.
 //
+// The manager is told when a task goes to review with no reviewer to take it,
+// is blocked, is done by somebody else, or gets a note while it is in review.
+// The manager is every live pane in the manager role, or the live panes with no
+// role when there is none, as in the rules.
+//
 // The text is built from the task's title, which is one line, and the cleaned
 // labels of the people in it. A note's own words appear only in a message that
 // is read with `flockdeck inbox read`, cut to one line, and never in the line
@@ -127,6 +132,26 @@ func Notices(ch Change, actor Actor, members []team.Member) []Notice {
 		}
 		return nil
 	}
+	var managers []string
+	for _, m := range members {
+		if m.Role == "manager" && !m.Exited() {
+			managers = append(managers, m.Pane)
+		}
+	}
+	if len(managers) == 0 {
+		managers = inRole("")
+	}
+	actorManages := false
+	for _, p := range managers {
+		if p == actor.Pane {
+			actorManages = true
+		}
+	}
+	tellManagers := func(text string) {
+		for _, p := range managers {
+			tell(p, text)
+		}
+	}
 	who := actor.Label()
 
 	switch ch.Kind {
@@ -146,9 +171,11 @@ func Notices(ch Change, actor Actor, members []team.Member) []Notice {
 				text += " (branch " + t.Branch + ")"
 			}
 			var reviewers []string
-			for _, p := range inRole("reviewer") {
-				if p != actor.Pane {
-					reviewers = append(reviewers, p)
+			for _, role := range []string{"reviewer", "tester"} {
+				for _, p := range inRole(role) {
+					if p != actor.Pane {
+						reviewers = append(reviewers, p)
+					}
 				}
 			}
 			for _, p := range reviewers {
@@ -156,11 +183,18 @@ func Notices(ch Change, actor Actor, members []team.Member) []Notice {
 			}
 			if len(reviewers) == 0 {
 				tell(t.Creator.Pane, text)
+				tellManagers(text)
 			}
 		case Blocked:
-			tell(t.Creator.Pane, fmt.Sprintf("task %s is blocked, by %s: %s", t.ID, who, t.Title)+noteTail(ch.Note))
+			text := fmt.Sprintf("task %s is blocked, by %s: %s", t.ID, who, t.Title) + noteTail(ch.Note)
+			tell(t.Creator.Pane, text)
+			tellManagers(text)
 		case Done:
-			tell(t.Creator.Pane, fmt.Sprintf("task %s is done: %s", t.ID, t.Title))
+			text := fmt.Sprintf("task %s is done: %s", t.ID, t.Title)
+			tell(t.Creator.Pane, text)
+			if !actorManages {
+				tellManagers(fmt.Sprintf("task %s is done, by %s: %s", t.ID, who, t.Title))
+			}
 		case Cancelled:
 			for _, p := range owners() {
 				tell(p, fmt.Sprintf("task %s was cancelled by %s: %s", t.ID, who, t.Title)+noteTail(ch.Note))
@@ -181,6 +215,9 @@ func Notices(ch Change, actor Actor, members []team.Member) []Notice {
 			tell(p, text)
 		}
 		tell(t.Creator.Pane, text)
+		if t.State == InReview {
+			tellManagers(text)
+		}
 	}
 	return out
 }

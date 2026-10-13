@@ -37,8 +37,9 @@ const (
 	MaxNote = 4 * 1024
 	// MaxBranch is the most a branch name may have, in bytes.
 	MaxBranch = 200
-	// MaxTasks is how many tasks a board holds. A board that is full refuses
-	// new tasks until some are removed from the file by hand.
+	// MaxTasks is how many tasks a board holds. A board that is full drops its
+	// oldest done or cancelled task to make room for a new one, and refuses the
+	// new one only when every task is open.
 	MaxTasks = 2000
 )
 

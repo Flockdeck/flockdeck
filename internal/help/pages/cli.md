@@ -21,7 +21,7 @@ switched from inside the window. These are what is left.
 | `flockdeck team` | From inside a pane: list the agents in its project with role and status; `-json` for a script |
 | `flockdeck msg send` | From inside a pane: message another agent by pane id, name or role |
 | `flockdeck inbox` | From inside a pane: list unread messages, `-all` for every one; `inbox read <id>` prints one in full |
-| `flockdeck task` | From inside a pane: the project's shared task board (`add`, `list`, `show`, `assign`, `status`, `note`, `branch`, `baton`) |
+| `flockdeck task` | From inside a pane: the project's shared task board (`add`, `list`, `show`, `assign`, `status`, `note`, `branch`, `baton`, `prune`) |
 | `flockdeck agents` | List the agents and models that `-agent` and `spawn` accept, and which are installed here |
 | `flockdeck help` | Print the usage; `flockdeck help spawn` (or any subcommand below) prints that subcommand's usage instead |
 
@@ -235,6 +235,7 @@ flockdeck task status <id> <state> [-note text]
 flockdeck task note <id> <text...>
 flockdeck task branch <id> <branch>
 flockdeck task baton <id> <baton-id>
+flockdeck task prune [-days N]
 ```
 
 A task has an id (`T1`, `T2`, counting up through the life of the board; `t1`, `#1` and
@@ -256,12 +257,17 @@ assigning a role leaves the owner pane empty until a pane of that role moves the
 `in-progress`, which makes that pane the owner. Assigning a planned task makes it
 `assigned`. `branch` records the git branch the work is on. `baton` records a baton id,
 which has to exist on this machine, as the task's context; the baton itself is not changed or
-replaced, and the task only points at it.
+replaced, and the task only points at it. `prune` removes the `done` and `cancelled` tasks that were
+last changed more than N days ago (30 by default) and says how many it removed; it never removes an
+open task, and it is for the manager role. A board that holds 2000 tasks drops its oldest finished
+task to make room for a new one, and refuses the new task only when all 2000 are open.
 
 ### States and who may move a task
 
 The states are `planned`, `assigned`, `in-progress`, `in-review`, `done`, `blocked` and
-`cancelled`. The manager role, or an agent that has no role, is the manager here. A move not in
+`cancelled`. The manager role is the manager here. An agent that has no role is the manager too, but
+only while no pane in the manager role is running in the project: a helper started without a role
+has no extra powers beside a manager, and has them back once the manager pane exits. A move not in
 this table is refused, and the error lists where the task can go from where it is.
 
 | From | To | Who |
@@ -270,16 +276,19 @@ this table is refused, and the error lists where the task can go from where it i
 | planned, assigned | in-progress, blocked | manager, owner |
 | planned, assigned, in-progress, in-review, blocked | cancelled | manager, creator |
 | assigned | planned | manager |
-| in-progress | in-review, done | manager, owner |
+| in-progress | in-review | manager, owner |
+| in-progress | done | manager |
 | in-progress, in-review | blocked | manager, owner |
-| in-review | done | manager, owner |
+| in-review | done | manager, a reviewer or tester |
 | in-review | in-progress, with `-note` | manager, owner, a reviewer or tester |
 | blocked | in-progress | manager, owner |
 | blocked | planned, assigned | manager |
 | done | in-progress, with `-note` | manager |
 | cancelled | planned, with `-note` | manager |
 
-Only the manager role assigns a task. The owner, the creator or the manager may set a task's
+Review is binding: an owner hands its work over with `in-review` and cannot close it, and only the
+manager, a reviewer or a tester moves it from `in-review` to `done`. Only the manager role assigns a
+task. The owner, the creator or the manager may set a task's
 branch or baton, and not once it is done or cancelled. Anyone on the team may add a note to
 any task. Every request names the pane it comes from, and that pane must be an open agent
 pane; it acts as itself, with the role it was started with. A shell has no place on the
@@ -291,12 +300,17 @@ Flockdeck writes to a pane's inbox, from `flockdeck`, when:
 
 - a task is assigned: the new owner, or every live pane in the role it was assigned to
   (`task T3 assigned to you: <title>`);
-- a task moves to `in-review`: the live panes in the `reviewer` role, or the creator if there
-  are none;
-- a task moves to `blocked` or `done`: the creator;
+- a task moves to `in-review`: the live panes in the `reviewer` and `tester` roles, or the creator
+  and the manager if there are none;
+- a task moves to `blocked`: the creator and the manager;
+- a task moves to `done`: the creator, and the manager when somebody other than a manager moved it;
 - a task is cancelled: its owner;
 - a note is added, or a move carries a `-note`: the owner and the creator, so that a reviewer's
-  reasons for sending a task back reach the worker.
+  reasons for sending a task back reach the worker. The manager is also told of a note on a task
+  that is in `in-review`, which is how a reviewer's verdict reaches it.
+
+"The manager" for these messages is every live pane in the manager role, or the live panes with no
+role when there is none.
 
 The pane that made the change is never told of it, a pane is told at most once for one
 change, and a pane that is closed or whose process has exited is not told at all. The
@@ -317,6 +331,12 @@ touched. A directory that is not a git repository gets the file and nothing else
 cannot be parsed is moved to `tasks.json.corrupt-<time>` beside it, a line says so in the log,
 and the board starts empty; a file written by a newer Flockdeck is left alone and the commands
 fail. A board holds at most 2000 tasks.
+
+The board has one writer: the Flockdeck server for that project. It reads the file, changes it and
+writes it back under a lock of its own, and that lock does not reach a second Flockdeck instance
+open on the same repository, which can overwrite a change the first one made. Run one instance per
+project. The `.flockdeck/` entry in `.git/info/exclude` covers the whole directory, so anything else
+put in it is not committed either.
 
 ### What task text is
 

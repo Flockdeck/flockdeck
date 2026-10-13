@@ -89,10 +89,13 @@ func (w *Workspace) Task(req hooks.TaskRequest) (hooks.TaskResult, error) {
 		return hooks.TaskResult{}, err
 	}
 	board := w.boardFor(req.Pane)
+	// A pane with no role has the manager's powers only while no pane in the
+	// manager role is running.
+	hasManager := tasks.HasManager(members)
 
 	var id string
 	switch req.Op {
-	case hooks.TaskAdd, hooks.TaskList:
+	case hooks.TaskAdd, hooks.TaskList, hooks.TaskPrune:
 	case hooks.TaskShow, hooks.TaskAssign, hooks.TaskStatus, hooks.TaskNote, hooks.TaskBranch, hooks.TaskBaton:
 		if id, err = tasks.ParseID(req.ID); err != nil {
 			return hooks.TaskResult{}, err
@@ -120,6 +123,14 @@ func (w *Workspace) Task(req hooks.TaskRequest) (hooks.TaskResult, error) {
 		list, hidden, lerr := board.List(flt)
 		return hooks.TaskResult{Tasks: list, Hidden: hidden}, lerr
 
+	case hooks.TaskPrune:
+		days := req.Days
+		if days == 0 {
+			days = tasks.DefaultPruneDays
+		}
+		n, perr := board.Prune(actor, hasManager, days)
+		return hooks.TaskResult{Pruned: n}, perr
+
 	case hooks.TaskShow:
 		t, gerr := board.Get(id)
 		if gerr != nil {
@@ -138,27 +149,27 @@ func (w *Workspace) Task(req hooks.TaskRequest) (hooks.TaskResult, error) {
 	case hooks.TaskAssign:
 		// A manager is checked before the target is looked up, so a pane that may
 		// not assign learns that and not something about the roster.
-		if err := tasks.CheckAssign(tasks.Task{ID: id, State: tasks.Planned}, actor); err != nil {
+		if err := tasks.CheckAssign(tasks.Task{ID: id, State: tasks.Planned}, actor, hasManager); err != nil {
 			return hooks.TaskResult{}, err
 		}
 		var as tasks.Assignee
 		if as, err = tasks.ResolveAssignee(members, w.agents().RoleIDs(), req.Target); err != nil {
 			return hooks.TaskResult{}, err
 		}
-		ch, err = board.Assign(actor, id, as)
+		ch, err = board.Assign(actor, hasManager, id, as)
 
 	case hooks.TaskStatus:
 		var to tasks.State
 		if to, err = tasks.ParseState(req.State); err != nil {
 			return hooks.TaskResult{}, err
 		}
-		ch, err = board.SetState(actor, id, to, req.Note)
+		ch, err = board.SetState(actor, hasManager, id, to, req.Note)
 
 	case hooks.TaskNote:
 		ch, err = board.AddNote(actor, id, req.Text)
 
 	case hooks.TaskBranch:
-		ch, err = board.SetBranch(actor, id, req.Branch)
+		ch, err = board.SetBranch(actor, hasManager, id, req.Branch)
 
 	case hooks.TaskBaton:
 		bid := strings.TrimSpace(req.Baton)
@@ -170,7 +181,7 @@ func (w *Workspace) Task(req hooks.TaskRequest) (hooks.TaskResult, error) {
 				return hooks.TaskResult{}, fmt.Errorf("no baton %s on this machine; `flockdeck baton list` shows them", bid)
 			}
 		}
-		ch, err = board.SetBaton(actor, id, bid)
+		ch, err = board.SetBaton(actor, hasManager, id, bid)
 	}
 	if err != nil {
 		return hooks.TaskResult{}, err

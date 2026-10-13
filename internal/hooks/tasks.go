@@ -23,6 +23,7 @@ const (
 	TaskNote   = "note"
 	TaskBranch = "branch"
 	TaskBaton  = "baton"
+	TaskPrune  = "prune"
 )
 
 // TaskRequest is one operation on the caller's project's board. Which of the
@@ -44,6 +45,10 @@ type TaskRequest struct {
 	Mine  bool   `json:"mine,omitempty"`
 	All   bool   `json:"all,omitempty"`
 
+	// Prune: Days is the age, in days, of the finished tasks to remove. Zero is
+	// the default of 30.
+	Days int `json:"days,omitempty"`
+
 	// Assign: Target is a role, a name or a pane id.
 	Target string `json:"target,omitempty"`
 	// Status: State is the state to move to, Note says why. Note: Text.
@@ -60,6 +65,8 @@ type TaskResult struct {
 	Tasks []tasks.Task `json:"tasks,omitempty"`
 	// Hidden is how many finished tasks a list left out.
 	Hidden int `json:"hidden,omitempty"`
+	// Pruned is how many finished tasks a prune removed.
+	Pruned int `json:"pruned,omitempty"`
 	// Told says how many panes were sent a message because of the change.
 	Told int `json:"told,omitempty"`
 }

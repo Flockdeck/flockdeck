@@ -3,6 +3,8 @@ package tasks
 import (
 	"fmt"
 	"strings"
+
+	"github.com/jmwri/flockdeck/internal/team"
 )
 
 // This file is the rule table: which moves between states exist, and who may
@@ -14,9 +16,9 @@ type Who uint8
 
 // The capacities.
 const (
-	// Manager is an actor in the manager role, or one with no role. An agent
-	// with no role has no limits in Flockdeck's role model, so it is treated as
-	// the manager would be.
+	// Manager is an actor in the manager role. An agent with no role has no
+	// limits in Flockdeck's role model, so it is treated as the manager would be,
+	// but only while its project has no live pane in the manager role.
 	Manager Who = 1 << iota
 	// Owner is the pane the task is assigned to, or any pane in the role the
 	// task is assigned to when no pane has taken it yet.
@@ -63,13 +65,15 @@ var Transitions = []Rule{
 	{Assigned, Cancelled, Manager | Creator, false},
 
 	{InProgress, InReview, Manager | Owner, false},
-	{InProgress, Done, Manager | Owner, false},
+	// The owner hands its work over for review and does not close it itself.
+	{InProgress, Done, Manager, false},
 	{InProgress, Blocked, Manager | Owner, false},
 	{InProgress, Cancelled, Manager | Creator, false},
 
 	// Sending a task back from review is for whoever reviewed it, and says why.
 	{InReview, InProgress, Manager | Owner | Reviewer, true},
-	{InReview, Done, Manager | Owner, false},
+	// Review is binding: the owner cannot close a task that is in review.
+	{InReview, Done, Manager | Reviewer, false},
 	{InReview, Blocked, Manager | Owner, false},
 	{InReview, Cancelled, Manager | Creator, false},
 
@@ -104,8 +108,22 @@ func Next(from State) []State {
 	return out
 }
 
-// IsManager reports that the actor has the manager's powers.
-func IsManager(a Actor) bool { return a.Role == "manager" || a.Role == "" }
+// HasManager reports that the roster has a live pane in the manager role.
+func HasManager(members []team.Member) bool {
+	for _, m := range members {
+		if m.Role == "manager" && !m.Exited() {
+			return true
+		}
+	}
+	return false
+}
+
+// IsManager reports that the actor has the manager's powers: it is in the
+// manager role, or it has no role and the project has no live manager pane
+// (hasManager says whether it has one).
+func IsManager(a Actor, hasManager bool) bool {
+	return a.Role == "manager" || a.Role == "" && !hasManager
+}
 
 // IsOwner reports that the actor is the owner of the task: the pane it is
 // assigned to, or a pane in the role it is assigned to while no pane has it.
@@ -123,9 +141,9 @@ func IsOwner(t Task, a Actor) bool {
 func IsCreator(t Task, a Actor) bool { return a.Pane != "" && t.Creator.Pane == a.Pane }
 
 // Capacities is the set of capacities an actor has toward a task.
-func Capacities(t Task, a Actor) Who {
+func Capacities(t Task, a Actor, hasManager bool) Who {
 	var w Who
-	if IsManager(a) {
+	if IsManager(a, hasManager) {
 		w |= Manager
 	}
 	if IsOwner(t, a) {
@@ -142,7 +160,7 @@ func Capacities(t Task, a Actor) Who {
 
 // CheckMove says whether the actor may move the task to a state, with the note
 // they wrote for it (empty for none).
-func CheckMove(t Task, to State, a Actor, note string) error {
+func CheckMove(t Task, to State, a Actor, hasManager bool, note string) error {
 	if t.State == to {
 		return fmt.Errorf("%s is already %s", t.ID, to)
 	}
@@ -156,7 +174,7 @@ func CheckMove(t Task, to State, a Actor, note string) error {
 		return fmt.Errorf("%s is %s and cannot go straight to %s; from %s it can go to %s",
 			t.ID, t.State, to, t.State, strings.Join(names, ", "))
 	}
-	if Capacities(t, a)&r.Who == 0 {
+	if Capacities(t, a, hasManager)&r.Who == 0 {
 		return fmt.Errorf("moving %s from %s to %s is for %s, and you are none of those for this task", t.ID, t.State, to, r.Who)
 	}
 	if r.NeedNote && strings.TrimSpace(note) == "" {
@@ -168,13 +186,21 @@ func CheckMove(t Task, to State, a Actor, note string) error {
 	return nil
 }
 
+// CheckPrune says whether the actor may remove old finished tasks: the manager.
+func CheckPrune(a Actor, hasManager bool) error {
+	if !IsManager(a, hasManager) {
+		return fmt.Errorf("only the manager role prunes the board")
+	}
+	return nil
+}
+
 // CheckAssign says whether the actor may give the task an owner. Only the
 // manager does, and only while the task is open.
-func CheckAssign(t Task, a Actor) error {
+func CheckAssign(t Task, a Actor, hasManager bool) error {
 	if !t.State.Open() {
 		return fmt.Errorf("%s is %s; reopen it before assigning it", t.ID, t.State)
 	}
-	if !IsManager(a) {
+	if !IsManager(a, hasManager) {
 		return fmt.Errorf("only the manager role assigns tasks; ask the manager to assign %s", t.ID)
 	}
 	return nil
@@ -182,11 +208,11 @@ func CheckAssign(t Task, a Actor) error {
 
 // CheckEdit says whether the actor may change the branch or baton of a task: its
 // owner, its creator or the manager, while it is open.
-func CheckEdit(t Task, a Actor) error {
+func CheckEdit(t Task, a Actor, hasManager bool) error {
 	if !t.State.Open() {
 		return fmt.Errorf("%s is %s; reopen it before changing it", t.ID, t.State)
 	}
-	if Capacities(t, a)&(Manager|Owner|Creator) == 0 {
+	if Capacities(t, a, hasManager)&(Manager|Owner|Creator) == 0 {
 		return fmt.Errorf("only the owner, the creator or the manager role may change %s", t.ID)
 	}
 	return nil

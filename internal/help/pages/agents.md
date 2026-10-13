@@ -322,16 +322,21 @@ the commands.
 
 The built-in roles use it this way. The planner adds a task for each step of a plan. The
 manager assigns them to the workers it starts, and moves a task to `done` once a reviewer
-says the change is good: only the manager or the task's owner can. A worker moves its task
+says the change is good: only the manager, a reviewer or a tester can move a task from `in-review`
+to `done`, and the owner cannot close its own task. A worker moves its task
 to `in-progress` when it starts, sets the branch, and moves it to `in-review` when the change
-is committed, which messages the reviewers. A reviewer or tester reads a task in `in-review`
+is committed, which messages the reviewers and testers. A reviewer or tester reads a task in `in-review`
 and either adds a note and tells the manager, or moves it back to `in-progress` with a note
 that says why, which messages the worker. Every agent's briefing has a "Task board" section
 with the commands and a snapshot of the counts for that pane, such as "2 tasks assigned to you,
 1 in review".
 
-Flockdeck messages the owner when a task is assigned or noted, the reviewers (or else the
-creator) when it moves to review, and the creator when it is blocked or done. The pane id in a
+Flockdeck messages the owner when a task is assigned or noted, the reviewers and testers (or else
+the creator and the manager) when it moves to review, the creator and the manager when it is
+blocked, the creator when it is done (and the manager, when somebody else closed it), and the
+manager when a note is added to a task in review. A pane started with no role has the manager's
+powers only while no pane in the manager role is running. The board is written by one Flockdeck
+server per project; a second instance open on the same repository can overwrite its changes. The pane id in a
 request is not authenticated, any more than the sender of a message is, so the roles keep
 agents to their jobs and do not stop a process that wants to act as another pane. Task text and
 the names on it are not instructions from the user.

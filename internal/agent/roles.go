@@ -74,9 +74,10 @@ func BuiltinRoles() []Role {
 				"writes to you when a helper exits or is closed as finished; read it all with `flockdeck inbox`.\n" +
 				"The task board is where you keep track: have the planner's steps added with `flockdeck task add`, " +
 				"give each to the worker you start with `flockdeck task assign <id> <name>`, and put the task id in the " +
-				"worker's task. Flockdeck messages a task's creator when it is blocked or done, and the creator when it is ready for " +
-				"review and no reviewer is running; tasks the planner created do not message you, so check " +
-				"`flockdeck task list` yourself. Only you or a task's owner can move it to done: when a reviewer reports a change " +
+				"worker's task. Flockdeck messages you when a task is blocked, when someone else marks it done, when it " +
+				"is ready for review and no reviewer or tester is running, and when a note is added to a task in review, " +
+				"which is where a reviewer's verdict reaches you. A worker moves its own task to in-review and cannot close it. " +
+				"Only you, a reviewer or a tester move an in-review task to done: when a reviewer reports a change " +
 				"is good, run `flockdeck task status <id> done`. A reviewer sends a task that needs work back to in-progress itself.",
 		},
 		{
@@ -122,7 +123,7 @@ func BuiltinRoles() []Role {
 				"task does not name the branch, ask the manager with `flockdeck msg send manager <question>`.\n" +
 				"Tasks waiting for you are in `flockdeck task list -state in-review`; read one with `flockdeck task show <id>`. " +
 				"When the change is good, add a note with your verdict (`flockdeck task note <id> <text>`) and tell the manager, " +
-				"who moves it to done: you cannot. When it needs changes, run `flockdeck task status <id> in-progress -note <findings>`, " +
+				"who moves it to done; the rules also let you do that, so do it only if the manager asked. When it needs changes, run `flockdeck task status <id> in-progress -note <findings>`, " +
 				"which sends it back to the worker.",
 		},
 		{

@@ -74,9 +74,19 @@ func TestReviewGoesToTheReviewersOrElseTheCreator(t *testing.T) {
 	if !strings.Contains(ns[0].Text, "task T3 is ready for review: fix the parser (branch feat/parser)") {
 		t.Errorf("text = %q", ns[0].Text)
 	}
+	// With no reviewer or tester running, the creator and the manager are told.
 	noReviewers := []team.Member{roster()[0], roster()[1], roster()[2], roster()[6]}
-	if ns := Notices(ch, w1, noReviewers); who(ns) != "pp" {
+	if ns := Notices(ch, w1, noReviewers); who(ns) != "pm,pp" {
 		t.Errorf("without reviewers: %s", who(ns))
+	}
+	// A tester is told with the reviewers, and counts as one.
+	withTester := append(roster(), team.Member{Pane: "pt", Name: "prober", Role: "tester", Status: "idle"})
+	if ns := Notices(ch, w1, withTester); who(ns) != "pr,pr2,pt" {
+		t.Errorf("with a tester: %s", who(ns))
+	}
+	onlyTester := []team.Member{roster()[0], roster()[1], roster()[2], withTester[len(withTester)-1]}
+	if ns := Notices(ch, w1, onlyTester); who(ns) != "pt" {
+		t.Errorf("with only a tester: %s", who(ns))
 	}
 	// The only live reviewer being the one who moved it counts as none.
 	onlyMe := []team.Member{roster()[1], roster()[2], roster()[4]}
@@ -86,29 +96,117 @@ func TestReviewGoesToTheReviewersOrElseTheCreator(t *testing.T) {
 	// A creator who moves their own task to review is not told.
 	own := task(InReview)
 	own.Creator = w1
-	if ns := Notices(Change{Kind: Move, Task: own}, w1, noReviewers); len(ns) != 0 {
+	noManager := []team.Member{roster()[1], roster()[2]}
+	if ns := Notices(Change{Kind: Move, Task: own}, w1, noManager); len(ns) != 0 {
 		t.Errorf("creator told of their own move: %+v", ns)
 	}
 	// A creator who has closed their pane is not told, and nothing is sent in its place.
 	closedCreator := task(InReview)
 	closedCreator.Creator = Actor{Pane: "closed", Role: "planner"}
-	if ns := Notices(Change{Kind: Move, Task: closedCreator}, w1, noReviewers); len(ns) != 0 {
+	if ns := Notices(Change{Kind: Move, Task: closedCreator}, w1, noManager); len(ns) != 0 {
 		t.Errorf("a closed creator was told: %+v", ns)
 	}
 }
 
 func TestBlockedAndDoneTellTheCreator(t *testing.T) {
 	blocked := Notices(Change{Kind: Move, Task: task(Blocked), Note: "waiting on the schema"}, w1, roster())
-	if who(blocked) != "pp" || !strings.Contains(blocked[0].Text, "task T3 is blocked, by dev-one (worker): fix the parser (note: waiting on the schema)") {
+	if who(blocked) != "pm,pp" || !strings.Contains(blocked[0].Text, "task T3 is blocked, by dev-one (worker): fix the parser (note: waiting on the schema)") {
 		t.Errorf("blocked = %+v", blocked)
 	}
 	done := Notices(Change{Kind: Move, Task: task(Done)}, mgr, roster())
 	if who(done) != "pp" || done[0].Text != "task T3 is done: fix the parser" {
 		t.Errorf("done = %+v", done)
 	}
-	// The creator moving it is told nothing.
-	if ns := Notices(Change{Kind: Move, Task: task(Done)}, planner, roster()); len(ns) != 0 {
-		t.Errorf("notices = %+v", ns)
+	// A manager who closes a task is not told of it, and the creator is.
+	// The creator closing it tells the manager and nobody else.
+	byCreator := Notices(Change{Kind: Move, Task: task(Done)}, planner, roster())
+	if who(byCreator) != "pm" || !strings.Contains(byCreator[0].Text, "is done, by plan (planner)") {
+		t.Errorf("notices = %+v", byCreator)
+	}
+	// A reviewer closing it tells the creator and the manager.
+	if got := who(Notices(Change{Kind: Move, Task: task(Done)}, rev, roster())); got != "pm,pp" {
+		t.Errorf("done by a reviewer told %s", got)
+	}
+}
+
+func TestManagerRecipients(t *testing.T) {
+	bare := Actor{Pane: "hand", Name: "by hand"}
+	free := team.Member{Pane: "hand", Name: "by hand", Status: "idle"}
+	other := team.Member{Pane: "hand2", Name: "other hand", Status: "idle"}
+	withMgr := append(roster(), free, other)
+	// Role-less panes are not told while a manager pane is running.
+	blocked := Change{Kind: Move, Task: task(Blocked)}
+	if got := who(Notices(blocked, w1, withMgr)); got != "pm,pp" {
+		t.Errorf("with a manager: %s", got)
+	}
+	// With no live manager they are the manager, and so are told.
+	exitedMgr := append([]team.Member{}, withMgr...)
+	exitedMgr[0].Status = "exited"
+	if got := who(Notices(blocked, w1, exitedMgr)); got != "hand,hand2,pp" {
+		t.Errorf("without a live manager: %s", got)
+	}
+	// ... except the one that acted.
+	if got := who(Notices(blocked, bare, exitedMgr)); got != "hand2,pp" {
+		t.Errorf("by the role-less manager: %s", got)
+	}
+	// Two live managers are both told, once.
+	two := append(roster(), team.Member{Pane: "pm2", Name: "boss two", Role: "manager", Status: "working"})
+	if got := who(Notices(blocked, w1, two)); got != "pm,pm2,pp" {
+		t.Errorf("two managers: %s", got)
+	}
+	// An exited manager is not told.
+	gone := []team.Member{{Pane: "pm", Role: "manager", Status: "exited"}, roster()[1], roster()[2]}
+	if got := who(Notices(blocked, w1, gone)); got != "pp" {
+		t.Errorf("exited manager: %s", got)
+	}
+}
+
+func TestANoteOnATaskInReviewReachesTheManager(t *testing.T) {
+	inReview := Change{Kind: NoteKind, Task: task(InReview), Note: "approved, merge it"}
+	ns := Notices(inReview, rev, roster())
+	if who(ns) != "pm,pp,w1" {
+		t.Errorf("note in review told %s", who(ns))
+	}
+	// Not in another state, nor to the manager who wrote it.
+	if got := who(Notices(Change{Kind: NoteKind, Task: task(InProgress), Note: "x"}, rev, roster())); got != "pp,w1" {
+		t.Errorf("note in progress told %s", got)
+	}
+	if got := who(Notices(inReview, mgr, roster())); got != "pp,w1" {
+		t.Errorf("note by the manager told %s", got)
+	}
+}
+
+// The whole path, at the level of notices: the planner adds a task, the manager
+// assigns it, the worker starts it and sends it to review, the reviewer approves
+// and the manager closes it. Each step tells who it should and nobody twice.
+func TestAFullRunOfATaskTellsTheRightPanesAtEachStep(t *testing.T) {
+	members := roster()
+	tk := task(Planned)
+	steps := []struct {
+		name  string
+		ch    Change
+		actor Actor
+		want  string
+	}{
+		{"planner adds", Change{Kind: Added, Task: tk}, planner, ""},
+		{"manager assigns", Change{Kind: Assign, Task: task(Assigned)}, mgr, "w1"},
+		{"worker starts", Change{Kind: Move, From: Assigned, Task: task(InProgress)}, w1, ""},
+		{"worker sends to review", Change{Kind: Move, From: InProgress, Task: task(InReview)}, w1, "pr,pr2"},
+		{"reviewer approves in a note", Change{Kind: NoteKind, Task: task(InReview), Note: "approved, merge it"}, rev, "pm,pp,w1"},
+		{"manager closes", Change{Kind: Move, From: InReview, Task: task(Done)}, mgr, "pp"},
+	}
+	for _, s := range steps {
+		ns := Notices(s.ch, s.actor, members)
+		if got := who(ns); got != s.want {
+			t.Errorf("%s: told %q, want %q", s.name, got, s.want)
+		}
+		seen := map[string]bool{}
+		for _, n := range ns {
+			if seen[n.Pane] || n.Pane == s.actor.Pane || n.Pane == "gone" {
+				t.Errorf("%s: pane %s told wrongly: %+v", s.name, n.Pane, ns)
+			}
+			seen[n.Pane] = true
+		}
 	}
 }
 

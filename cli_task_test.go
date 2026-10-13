@@ -267,3 +267,29 @@ func TestTaskOverTheCallbackAPIAndOutsideAPane(t *testing.T) {
 		t.Errorf("err = %v, want the not-in-a-pane error", err)
 	}
 }
+
+func TestTaskPruneSendsTheAgeAndSaysHowManyWereRemoved(t *testing.T) {
+	r := &recorder{res: hooks.TaskResult{Pruned: 2}}
+	out, err := runTaskArgs(t, r, "", "prune")
+	if err != nil || len(r.reqs) != 1 || r.reqs[0].Op != hooks.TaskPrune || r.reqs[0].Days != tasks.DefaultPruneDays {
+		t.Fatalf("prune = %+v, %v", r.reqs, err)
+	}
+	if out != "pruned 2 finished tasks older than 30 days\n" {
+		t.Errorf("output = %q", out)
+	}
+	r = &recorder{res: hooks.TaskResult{Pruned: 1}}
+	out, err = runTaskArgs(t, r, "", "prune", "-days", "7")
+	if err != nil || r.reqs[0].Days != 7 || out != "pruned 1 finished task older than 7 days\n" {
+		t.Errorf("prune -days 7 = %+v, %q, %v", r.reqs, out, err)
+	}
+	for _, args := range [][]string{{"prune", "-days", "0"}, {"prune", "-days", "-3"}} {
+		r = &recorder{}
+		if _, err := runTaskArgs(t, r, "", args...); err == nil || len(r.reqs) != 0 {
+			t.Errorf("%q: err = %v, requests %d", args, err, len(r.reqs))
+		}
+	}
+	r = &recorder{err: errors.New("only the manager role prunes the board")}
+	if _, err := runTaskArgs(t, r, "", "prune"); err == nil || !strings.Contains(err.Error(), "only the manager") {
+		t.Errorf("err = %v", err)
+	}
+}

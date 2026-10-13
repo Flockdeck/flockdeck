@@ -1053,13 +1053,19 @@ func (c PaneContext) writeTasks(b *strings.Builder) {
 	fmt.Fprintf(b, "%[1]s task note <id> <text...>\n", flockdeck)
 	fmt.Fprintf(b, "%[1]s task branch <id> <branch>\n", flockdeck)
 	fmt.Fprintf(b, "%[1]s task baton <id> <baton-id>               # a baton that gives the task its context\n", flockdeck)
+	fmt.Fprintf(b, "%[1]s task prune [-days N]                     # manager role only: drop done and cancelled tasks older than N days (30)\n", flockdeck)
 	b.WriteString("```\n\n")
 	b.WriteString("States are planned, assigned, in-progress, in-review, done, blocked and cancelled. " +
-		"The owner of a task (or the manager role) moves it to in-progress, in-review, done or blocked; " +
-		"a reviewer or tester may send an in-review task back to in-progress with `-note`; only the manager role reopens a done " +
-		"or cancelled task or assigns one. A move that is not allowed is refused with the reason. " +
-		"Flockdeck messages the owner, the creator or the reviewers when a task is assigned, ready for review, blocked or done, " +
-		"or has a note; read such a message with `inbox`.\n\n")
+		"The owner of a task (or the manager role) moves it to in-progress, in-review or blocked, and the owner hands finished work " +
+		"over with in-review: only the manager role, a reviewer or a tester moves a task from in-review to done, and only the manager " +
+		"role moves one from in-progress straight to done. A reviewer or tester may also send an in-review task back to in-progress " +
+		"with `-note`. The creator of a task, or the manager role, may cancel it; only the manager role reopens a done " +
+		"or cancelled task, assigns one or prunes old finished tasks. A pane started with no role has the manager role's powers only " +
+		"while no pane in the manager role is running. A move that is not allowed is refused with the reason. " +
+		"Flockdeck messages the owner, the creator or the reviewers and testers when a task is assigned, ready for review, blocked or done, " +
+		"or has a note. The manager role is also messaged when a task is blocked, when somebody else marks it done, " +
+		"when it is ready for review and no reviewer or tester is running, and when a note is added to a task in review. " +
+		"Read such a message with `inbox`.\n\n")
 	if c.HasCounts {
 		when := "when you were briefed"
 		if !c.Taken.IsZero() {

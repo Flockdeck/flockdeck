@@ -204,11 +204,11 @@ func TestCapsOnTitleBodyNoteAndBranch(t *testing.T) {
 		t.Error("an empty note was accepted")
 	}
 	for _, bad := range []string{"has space", "new\nline", "tab\tbed", strings.Repeat("x", MaxBranch+1), ""} {
-		if _, err := b.SetBranch(mgr, task.ID, bad); err == nil {
+		if _, err := b.SetBranch(mgr, true, task.ID, bad); err == nil {
 			t.Errorf("branch %q was accepted", bad)
 		}
 	}
-	if _, err := b.SetBranch(mgr, task.ID, "feat/ünï"); err != nil {
+	if _, err := b.SetBranch(mgr, true, task.ID, "feat/ünï"); err != nil {
 		t.Errorf("a branch with accents was refused: %v", err)
 	}
 }
@@ -230,17 +230,117 @@ func TestTheNotesThreadKeepsTheNewestHundred(t *testing.T) {
 	}
 }
 
-func TestABoardThatIsFullRefusesNewTasks(t *testing.T) {
-	b, _ := testBoard(t)
-	f := file{Version: fileVersion, Next: MaxTasks + 1}
-	for i := 1; i <= MaxTasks; i++ {
-		f.Tasks = append(f.Tasks, Task{ID: fmt.Sprintf("T%d", i), Title: "x", State: Done})
+// writeBoard puts n tasks on disk, T1 to Tn, with state(i) as the state of Ti
+// and a change time that rises with i, from long ago.
+func writeBoard(t *testing.T, b *Board, n int, state func(i int) State) {
+	t.Helper()
+	f := file{Version: fileVersion, Next: n + 1}
+	start := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 1; i <= n; i++ {
+		f.Tasks = append(f.Tasks, Task{ID: fmt.Sprintf("T%d", i), Title: "x", State: state(i), Updated: start.Add(time.Duration(i) * time.Hour)})
 	}
 	data, _ := json.Marshal(f)
 	_ = os.MkdirAll(filepath.Dir(b.Path), 0o700)
 	_ = os.WriteFile(b.Path, data, 0o600)
-	if _, err := b.Add(mgr, NewTask{Title: "one too many"}); err == nil || !strings.Contains(err.Error(), "most it takes") {
+}
+
+func TestAFullBoardDropsItsOldestFinishedTaskToMakeRoom(t *testing.T) {
+	b, _ := testBoard(t)
+	// T1 is open and oldest; T2 is the oldest finished task; T3 is cancelled.
+	writeBoard(t, b, MaxTasks, func(i int) State {
+		switch {
+		case i == 1:
+			return InProgress
+		case i%2 == 1:
+			return Cancelled
+		}
+		return Done
+	})
+	ch, err := b.Add(mgr, NewTask{Title: "one more"})
+	if err != nil {
+		t.Fatalf("add to a full board: %v", err)
+	}
+	all, _, _ := b.List(Filter{All: true})
+	if len(all) != MaxTasks {
+		t.Fatalf("board holds %d tasks, want %d", len(all), MaxTasks)
+	}
+	if _, err := b.Get("T1"); err != nil {
+		t.Errorf("an open task was dropped: %v", err)
+	}
+	if _, err := b.Get("T2"); err == nil {
+		t.Error("the oldest finished task is still there")
+	}
+	if _, err := b.Get("T3"); err != nil {
+		t.Errorf("a newer finished task was dropped: %v", err)
+	}
+	if ch.Task.ID != fmt.Sprintf("T%d", MaxTasks+1) {
+		t.Errorf("new id = %s", ch.Task.ID)
+	}
+	// Each further add drops the next oldest.
+	if _, err := b.Add(mgr, NewTask{Title: "and another"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Get("T3"); err == nil {
+		t.Error("T3 should have gone next")
+	}
+}
+
+func TestAFullBoardOfOpenTasksRefusesNewOnes(t *testing.T) {
+	b, _ := testBoard(t)
+	writeBoard(t, b, MaxTasks, func(int) State { return Planned })
+	_, err := b.Add(mgr, NewTask{Title: "one too many"})
+	if err == nil || !strings.Contains(err.Error(), "all of them open") || !strings.Contains(err.Error(), "task prune") {
 		t.Errorf("err = %v", err)
+	}
+	if all, _, _ := b.List(Filter{All: true}); len(all) != MaxTasks {
+		t.Errorf("a refused add changed the board: %d tasks", len(all))
+	}
+}
+
+func TestPruneRemovesOldFinishedTasksOnly(t *testing.T) {
+	b, _ := testBoard(t)
+	// The test clock is in October 2026, the tasks are from 2020 and are all old.
+	writeBoard(t, b, 6, func(i int) State { return []State{Planned, Done, Cancelled, InReview, Blocked, Done}[i-1] })
+	// A finished task changed today is kept.
+	recent, _ := b.Add(mgr, NewTask{Title: "recent"})
+	if _, err := b.SetState(mgr, true, recent.Task.ID, Cancelled, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Prune(w1, true, 30); err == nil {
+		t.Error("a worker pruned the board")
+	}
+	if all, _, _ := b.List(Filter{All: true}); len(all) != 7 {
+		t.Fatalf("a refused prune removed tasks: %d left", len(all))
+	}
+	n, err := b.Prune(mgr, true, 30)
+	if err != nil || n != 3 {
+		t.Fatalf("prune = %d, %v; want 3", n, err)
+	}
+	left, _, _ := b.List(Filter{All: true})
+	var ids []string
+	for _, tk := range left {
+		ids = append(ids, tk.ID)
+	}
+	if got := strings.Join(ids, ","); got != "T1,T4,T5,T7" {
+		t.Errorf("left %s, want T1,T4,T5,T7", got)
+	}
+	// Nothing left to prune.
+	if n, err := b.Prune(mgr, true, 30); err != nil || n != 0 {
+		t.Errorf("second prune = %d, %v", n, err)
+	}
+	// Ids are not reused.
+	if ch, err := b.Add(mgr, NewTask{Title: "next"}); err != nil || ch.Task.ID != "T8" {
+		t.Errorf("next id = %s, %v", ch.Task.ID, err)
+	}
+	if _, err := b.Prune(mgr, true, -1); err == nil {
+		t.Error("a negative age was accepted")
+	}
+	// With no manager pane running, a pane with no role may prune.
+	if _, err := b.Prune(Actor{Pane: "hand"}, false, 30); err != nil {
+		t.Errorf("a role-less manager could not prune: %v", err)
+	}
+	if _, err := b.Prune(Actor{Pane: "hand"}, true, 30); err == nil {
+		t.Error("a role-less pane pruned while a manager was running")
 	}
 }
 
@@ -291,13 +391,13 @@ func TestListFiltersAndHidesFinishedTasks(t *testing.T) {
 	a := mustAdd(t, b, mgr, "a")
 	c := mustAdd(t, b, mgr, "b")
 	d := mustAdd(t, b, mgr, "c")
-	if _, err := b.Assign(mgr, a.ID, Assignee{Pane: w1.Pane, Role: "worker", Name: w1.Name}); err != nil {
+	if _, err := b.Assign(mgr, true, a.ID, Assignee{Pane: w1.Pane, Role: "worker", Name: w1.Name}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Assign(mgr, c.ID, Assignee{Role: "reviewer"}); err != nil {
+	if _, err := b.Assign(mgr, true, c.ID, Assignee{Role: "reviewer"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.SetState(mgr, d.ID, Cancelled, ""); err != nil {
+	if _, err := b.SetState(mgr, true, d.ID, Cancelled, ""); err != nil {
 		t.Fatal(err)
 	}
 	ids := func(f Filter) string {
@@ -346,23 +446,23 @@ func TestCountsFromOnePanesPointOfView(t *testing.T) {
 	mustAdd(t, b, mgr, "nobody's either")
 	closed := mustAdd(t, b, mgr, "cancelled")
 	for _, id := range []string{mine1.ID, mine2.ID} {
-		if _, err := b.Assign(mgr, id, Assignee{Pane: w1.Pane, Role: "worker", Name: w1.Name}); err != nil {
+		if _, err := b.Assign(mgr, true, id, Assignee{Pane: w1.Pane, Role: "worker", Name: w1.Name}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := b.Assign(mgr, other.ID, Assignee{Pane: w2.Pane, Role: "worker"}); err != nil {
+	if _, err := b.Assign(mgr, true, other.ID, Assignee{Pane: w2.Pane, Role: "worker"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.SetState(w1, mine1.ID, InProgress, ""); err != nil {
+	if _, err := b.SetState(w1, true, mine1.ID, InProgress, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.SetState(w2, other.ID, InProgress, ""); err != nil {
+	if _, err := b.SetState(w2, true, other.ID, InProgress, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.SetState(w2, other.ID, InReview, ""); err != nil {
+	if _, err := b.SetState(w2, true, other.ID, InReview, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.SetState(mgr, closed.ID, Cancelled, ""); err != nil {
+	if _, err := b.SetState(mgr, true, closed.ID, Cancelled, ""); err != nil {
 		t.Fatal(err)
 	}
 	c, err := b.Counts(w1)

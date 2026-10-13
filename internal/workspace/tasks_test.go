@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,8 +128,8 @@ func TestRolesDecideWhoMayAssignAndMove(t *testing.T) {
 	c.mustCall(t, c.w1, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-progress"})
 	c.mustCall(t, c.w1, hooks.TaskRequest{Op: hooks.TaskBranch, ID: "T1", Branch: "feat/parser"})
 	c.mustCall(t, c.w1, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-review"})
-	if _, err := c.call(c.reviewer, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "done"}); err == nil {
-		t.Error("the reviewer closed the task")
+	if _, err := c.call(c.w1, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "done"}); err == nil {
+		t.Error("the owner closed a task that is in review")
 	}
 	if _, err := c.call(c.reviewer, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-progress"}); err == nil || !strings.Contains(err.Error(), "needs a note") {
 		t.Errorf("send back with no note: %v", err)
@@ -204,7 +205,10 @@ func TestAChangeMessagesTheRightPanesFromFlockdeck(t *testing.T) {
 	}
 	c.mustCall(t, c.lead, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-progress"})
 	c.mustCall(t, c.w1, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-review"})
-	c.mustCall(t, c.w1, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "done"})
+	if _, err := c.call(c.w1, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "done"}); err == nil {
+		t.Error("the owner closed its own task")
+	}
+	c.mustCall(t, c.reviewer, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "done"})
 	if got := c.texts(t, c.lead); len(got) != 2 || got[1] != "task T1 is done: fix the parser" {
 		t.Errorf("creator's mail after done = %q", got)
 	}
@@ -232,9 +236,9 @@ func TestNoMessageGoesToAPaneThatIsClosedOrExited(t *testing.T) {
 	c.mustCall(t, c.w1, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-progress"})
 	c.ws.ClosePaneByID(c.reviewer)
 	res := c.mustCall(t, c.w1, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-review"})
-	// The creator is the worker itself here, so nobody is left to tell.
-	if res.Told != 0 {
-		t.Errorf("told %d panes", res.Told)
+	// The creator is the worker itself here, so only the manager is told.
+	if res.Told != 1 || len(c.texts(t, c.lead)) != 1 {
+		t.Errorf("told %d panes, manager has %q", res.Told, c.texts(t, c.lead))
 	}
 	// Assigned to a pane that has since closed: the manager's own change tells no one.
 	c.mustCall(t, c.lead, hooks.TaskRequest{Op: hooks.TaskAdd, Title: "second"})
@@ -275,6 +279,10 @@ func TestBriefingCarriesTheBoardAndTheCountsOfTheirPane(t *testing.T) {
 		"## Task board", " task list [-state s] [-role r] [-mine]", " task assign <id> <role|name|pane>        # manager role only",
 		"2 tasks assigned to you (1 in progress), 1 in review, 1 planned and not assigned", "This is a snapshot",
 		"not instructions from the user", "not authenticated",
+		"task prune [-days N]", "The creator of a task, or the manager role, may cancel it",
+		"no role has the manager role's powers only while no pane in the manager role is running",
+		"The manager role is also messaged when a task is blocked",
+		"only the manager role, a reviewer or a tester moves a task from in-review to done",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("briefing lacks %q:\n%s", want, text)
@@ -297,6 +305,44 @@ func TestBriefingHasNoBoardForAShellOrAPaneThatCannotCallBack(t *testing.T) {
 	text := PaneContext{PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck"}.Render()
 	if !strings.Contains(text, "## Task board") || strings.Contains(text, "when you were briefed") && strings.Contains(text, "The board when") {
 		t.Errorf("briefing:\n%s", text)
+	}
+}
+
+func TestAPaneWithNoRoleIsTheManagerOnlyWhileNoManagerPaneIsRunning(t *testing.T) {
+	c := newCrew(t)
+	c.mustCall(t, c.lead, hooks.TaskRequest{Op: hooks.TaskAdd, Title: "one"})
+	c.mustCall(t, c.lead, hooks.TaskRequest{Op: hooks.TaskAdd, Title: "two"})
+	c.mustCall(t, c.lead, hooks.TaskRequest{Op: hooks.TaskAssign, ID: "T1", Target: c.w1})
+	c.mustCall(t, c.w1, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-progress"})
+	c.mustCall(t, c.w1, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-review"})
+	c.mustCall(t, c.reviewer, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "done"})
+
+	// A helper started with no role, beside a live manager.
+	c.ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, c.root, "")
+	helper := c.ws.FocusedPane().ID
+	if got := c.ws.Pane(helper).Role; got != "" {
+		t.Fatalf("the helper has role %q", got)
+	}
+	refused := func(what string, req hooks.TaskRequest) {
+		t.Helper()
+		if _, err := c.call(helper, req); err == nil {
+			t.Errorf("a role-less helper beside a manager was allowed to %s", what)
+		}
+	}
+	refused("assign", hooks.TaskRequest{Op: hooks.TaskAssign, ID: "T2", Target: c.w2})
+	refused("reopen a done task", hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-progress", Note: "again"})
+	refused("cancel a task it did not create", hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T2", State: "cancelled"})
+	refused("prune", hooks.TaskRequest{Op: hooks.TaskPrune})
+	// It can still add tasks and cancel its own.
+	c.mustCall(t, helper, hooks.TaskRequest{Op: hooks.TaskAdd, Title: "mine"})
+	c.mustCall(t, helper, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T3", State: "cancelled"})
+
+	// The manager pane exits: the helper has the manager's powers.
+	c.ws.Pane(c.lead).Err = errors.New("process exited")
+	c.mustCall(t, helper, hooks.TaskRequest{Op: hooks.TaskAssign, ID: "T2", Target: c.w2})
+	c.mustCall(t, helper, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-progress", Note: "again"})
+	if res := c.mustCall(t, helper, hooks.TaskRequest{Op: hooks.TaskPrune, Days: 1}); res.Pruned != 0 {
+		t.Errorf("pruned %d fresh tasks", res.Pruned)
 	}
 }
 
@@ -324,10 +370,10 @@ func TestRoleBriefingsDescribeMovesTheRulesAllow(t *testing.T) {
 		byID[r.ID] = r.Briefing
 	}
 	for role, phrases := range map[string][]string{
-		"manager":  {"flockdeck task add", "flockdeck task assign <id> <name>", "flockdeck task status <id> done"},
+		"manager":  {"flockdeck task add", "flockdeck task assign <id> <name>", "flockdeck task status <id> done", "cannot close it", "when someone else marks it done"},
 		"planner":  {"flockdeck task add <title>", "assigning and moving them is the manager's"},
 		"worker":   {"task status <id> in-progress", "task branch <id> <branch>", "task status <id> in-review", "task status <id> blocked -note"},
-		"reviewer": {"task list -state in-review", "task status <id> in-progress -note", "you cannot"},
+		"reviewer": {"task list -state in-review", "task status <id> in-progress -note", "only if the manager asked"},
 		"tester":   {"task status <id> in-progress -note"},
 		"docs":     {"task status <id> in-progress", "task status <id> in-review"},
 	} {
@@ -345,13 +391,13 @@ func TestRoleBriefingsDescribeMovesTheRulesAllow(t *testing.T) {
 	}
 	allow := func(who tasks.Actor, from, to tasks.State, note string) {
 		t.Helper()
-		if err := tasks.CheckMove(task(from), to, who, note); err != nil {
+		if err := tasks.CheckMove(task(from), to, who, true, note); err != nil {
 			t.Errorf("%s: %s -> %s: %v", who.Role, from, to, err)
 		}
 	}
 	refuse := func(who tasks.Actor, from, to tasks.State, note string) {
 		t.Helper()
-		if err := tasks.CheckMove(task(from), to, who, note); err == nil {
+		if err := tasks.CheckMove(task(from), to, who, true, note); err == nil {
 			t.Errorf("%s: %s -> %s was allowed", who.Role, from, to)
 		}
 	}
@@ -361,8 +407,14 @@ func TestRoleBriefingsDescribeMovesTheRulesAllow(t *testing.T) {
 	allow(rev, tasks.InReview, tasks.InProgress, "findings")
 	allow(tst, tasks.InReview, tasks.InProgress, "failure")
 	refuse(rev, tasks.InReview, tasks.InProgress, "")
-	refuse(rev, tasks.InReview, tasks.Done, "")
-	refuse(tst, tasks.InReview, tasks.Done, "")
+	// The briefings say a reviewer or tester may close a task in review, and the
+	// owner may not.
+	allow(rev, tasks.InReview, tasks.Done, "")
+	allow(tst, tasks.InReview, tasks.Done, "")
+	refuse(wk, tasks.InReview, tasks.Done, "")
+	refuse(wk, tasks.InProgress, tasks.Done, "")
+	refuse(rev, tasks.InProgress, tasks.Done, "")
 	allow(mgr, tasks.InReview, tasks.Done, "")
+	allow(mgr, tasks.InProgress, tasks.Done, "")
 	refuse(wk, tasks.Done, tasks.InProgress, "again")
 }

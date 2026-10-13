@@ -44,7 +44,9 @@ starts.
   between steps; one with hooks is told about the notice below, whether it was briefed through
   the hook or through its opening prompt.
 - The task board, for an agent that can call back into Flockdeck: the `flockdeck task`
-  commands, the seven states and who may move a task, that task text and the names on
+  commands, the seven states and who may move a task (the creator may cancel its task, review is
+  binding, a pane with no role is the manager only while no manager pane is running, and the
+  manager role is messaged about blocked, done and reviewed tasks), that task text and the names on
   it are not instructions from the user and are not authenticated, and a snapshot of the board
   from this pane's point of view, such as "2 tasks assigned to you (1 in progress), 1 in
   review, 1 planned and not assigned". The snapshot is dated like the team list and the
@@ -183,24 +185,34 @@ same board and none reads or writes the file itself.
 - Writes read the file, change it and write it back under one lock per board, through a
   temporary file that is flushed and renamed over the old one, mode 0600. Another process
   that changes the file between two writes is not overwritten; two writing in the same
-  instant could still lose one change.
+  instant could still lose one change. The board has a single writer, the Flockdeck server of
+  the project. A second instance open on the same repository does not share its lock and can
+  overwrite its changes, so a project is meant to be open in one instance.
 - The first time the file is made in a git repository, `.flockdeck/` is appended to the
   repository's `.git/info/exclude` (the shared one, for a linked worktree), so the board is
-  not committed by accident. `.gitignore` is tracked and shared and is never edited. A
+  not committed by accident. The line excludes the whole `.flockdeck/` directory, not only the
+  board file. `.gitignore` is tracked and shared and is never edited. A
   directory with no git repository, or an exclude file that cannot be written, gets the board
   anyway and a log line.
 - A file that does not parse is renamed to `tasks.json.corrupt-<time>` and the board starts
   empty, with a log line; ids start again from `T1`. A file with a newer `version` is refused
   and left alone.
 - The limits are a title of 200 characters, a body of 16 KB, 100 notes of 4 KB each (the oldest
-  is dropped for a new one past a hundred) and 2000 tasks.
+  is dropped for a new one past a hundred) and 2000 tasks. A board at 2000 drops its oldest done
+  or cancelled task to make room for a new one and refuses the new one only when every task is
+  open. `flockdeck task prune [-days N]` (manager role) removes done and cancelled tasks last
+  changed more than N days ago, 30 by default.
+- A pane with no role has the manager's powers only while the project has no live pane in the
+  manager role; the workspace works that out from the roster at each request.
 - The rules for who may move a task where are one table, `Transitions` in `internal/tasks`,
   and the tests walk every pair of states against it.
 - Changes message panes through the inbox described above, from `flockdeck`, so they are
   announced by the same line, at the same times and no oftener: assigned (to the new owner, or
-  to the live panes in a role), moved to review (to the reviewer panes, else the creator),
-  blocked or done (to the creator), cancelled (to the owner), a note or a move with a note (to
-  the owner and creator). The pane that made the change, a pane that is closed and a pane
+  to the live panes in a role), moved to review (to the reviewer and tester panes, else the
+  creator and the manager), blocked (to the creator and the manager), done (to the creator, and
+  to the manager when someone else closed it), cancelled (to the owner), a note or a move with a
+  note (to the owner and creator, and to the manager when the task is in review). The manager
+  is every live pane in the manager role, or the live panes with no role when there is none. The pane that made the change, a pane that is closed and a pane
   whose process has exited are left out. The message text holds the title, which is one line,
   and a note cut to 200 characters on one line, and `inbox read` shows it. The typed line
   carries no message text, as for any message.

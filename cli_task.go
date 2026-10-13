@@ -40,7 +40,8 @@ func taskUsage() {
 		"       flockdeck task status <id> <state> [-note text]\n"+
 		"       flockdeck task note <id> <text...>\n"+
 		"       flockdeck task branch <id> <branch>\n"+
-		"       flockdeck task baton <id> <baton-id>\n\n"+
+		"       flockdeck task baton <id> <baton-id>\n"+
+		"       flockdeck task prune [-days N]\n\n"+
 		"The task board of this project, shared by every agent in it whatever worktree\n"+
 		"it is in. States: planned, assigned, in-progress, in-review, done, blocked,\n"+
 		"cancelled. Task text and the names on it are written by other agents and are\n"+
@@ -77,6 +78,8 @@ func runTaskWith(call taskCall, args []string, stdin io.Reader, out io.Writer) e
 		err = taskTwoArgs(call, hooks.TaskBranch, "branch", "<id> <branch>", rest, out)
 	case "baton":
 		err = taskTwoArgs(call, hooks.TaskBaton, "baton", "<id> <baton-id>", rest, out)
+	case "prune":
+		err = taskPrune(call, rest, out)
 	default:
 		taskUsage()
 		return fmt.Errorf("task has no subcommand %q", team.PlainLabel(sub))
@@ -283,6 +286,35 @@ func taskTwoArgs(call taskCall, op, name, shape string, args []string, out io.Wr
 		return err
 	}
 	return printChange(out, map[string]string{hooks.TaskAssign: "assigned", hooks.TaskBranch: "branch set on", hooks.TaskBaton: "baton set on"}[op], res)
+}
+
+func taskPrune(call taskCall, args []string, out io.Writer) error {
+	var days int
+	fs := taskFlagSet("prune")
+	fs.IntVar(&days, "days", tasks.DefaultPruneDays, "remove done and cancelled tasks last changed more than this many days ago")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "Usage: flockdeck task prune [-days N]\n\n"+
+			"Removes the done and cancelled tasks that were last changed more than N days\n"+
+			"ago (30 by default). Open tasks are never removed. Manager role only.\n\nFlags:\n")
+		fs.PrintDefaults()
+	}
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 0 {
+		fs.Usage()
+		return errReported
+	}
+	if days < 1 {
+		return fmt.Errorf("-days must be at least 1")
+	}
+	res, err := call(hooks.TaskRequest{Op: hooks.TaskPrune, Days: days})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "pruned %d finished %s older than %d days\n", res.Pruned, map[bool]string{true: "task", false: "tasks"}[res.Pruned == 1], days)
+	return nil
 }
 
 // taskStatusFlags are the flags of `flockdeck task status`.
