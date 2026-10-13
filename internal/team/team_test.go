@@ -504,3 +504,21 @@ func TestFromLabelCannotStartAnotherLine(t *testing.T) {
 		t.Error("the disclaimer does not say names are unauthenticated")
 	}
 }
+
+func TestNoticeNamesTheSendersRoleBeforeItsName(t *testing.T) {
+	m := Message{ID: 1, From: Sender{Pane: "p-2", Role: "reviewer", Name: "work"}}
+	if got := Notice(1, m); !strings.Contains(got, "1 new message from reviewer work (#1).") {
+		t.Errorf("notice = %q", got)
+	}
+	// Three panes in one directory are told apart by role.
+	w := Message{ID: 2, From: Sender{Pane: "p-3", Role: "worker", Name: "work"}}
+	if got := Notice(2, w); !strings.Contains(got, "2 new messages, the latest from worker work (#2)") {
+		t.Errorf("notice = %q", got)
+	}
+	// A role is as untrusted as a name: it is cut to the same plain characters and length.
+	bad := Message{ID: 3, From: Sender{Role: "re\nviewer\x1b[2J" + strings.Repeat("x", 100), Name: "w k"}}
+	got := Notice(1, bad)
+	if strings.ContainsAny(got, "\r\n\x1b") || !strings.Contains(got, "from re-viewer--2Jxxxxxxxxxxx w-k (#3)") {
+		t.Errorf("notice = %q", got)
+	}
+}

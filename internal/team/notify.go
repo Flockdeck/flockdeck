@@ -110,7 +110,17 @@ func Notice(count int, latest Message) string {
 	if count > 1 {
 		what = fmt.Sprintf("%d new messages, the latest", count)
 	}
-	return fmt.Sprintf("[flockdeck] %s from %s (#%d). Run: flockdeck inbox. %s", what, SafeLabel(latest.From.Name), latest.ID, Disclaimer)
+	return fmt.Sprintf("[flockdeck] %s from %s (#%d). Run: flockdeck inbox. %s", what, senderLabel(latest.From), latest.ID, Disclaimer)
+}
+
+// senderLabel is the sender's role, when it has one, then its name, each cut by
+// SafeLabel. Pane names are the name of the directory and so are often shared by
+// several panes; the role tells them apart ("reviewer work", "worker work").
+func senderLabel(s Sender) string {
+	if s.Role == "" {
+		return SafeLabel(s.Name)
+	}
+	return SafeLabel(s.Role) + " " + SafeLabel(s.Name)
 }
 
 // SafeLabel cuts a name down to letters, digits, dots, dashes and underscores,

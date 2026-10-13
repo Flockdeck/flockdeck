@@ -190,6 +190,9 @@ type Change struct {
 	Note string
 	// Claimed says a move gave the task to the pane that made it.
 	Claimed bool
+	// Overrode is who owned the task when an assign took it from them: the task
+	// was in progress under a different owner. It is empty for any other change.
+	Overrode string
 }
 
 // NewTask is what a task is made from.
@@ -365,12 +368,18 @@ func (b *Board) Assign(a Actor, hasManager bool, id string, o Assignee) (Change,
 			return err
 		}
 		from := t.State
+		// An assign after the owner has started the work takes it from them. It is
+		// allowed, since the manager may need to, but the caller is told.
+		overrode := ""
+		if t.State == InProgress && t.OwnerPane != "" && (o.Pane != t.OwnerPane) {
+			overrode = OwnerLabel(*t) + " (pane " + t.OwnerPane + ")"
+		}
 		t.OwnerPane, t.OwnerRole, t.OwnerName = o.Pane, o.Role, o.Name
 		if t.State == Planned {
 			t.State = Assigned
 		}
 		t.Updated = b.now()
-		ch = Change{Kind: Assign, Task: *t, From: from}
+		ch = Change{Kind: Assign, Task: *t, From: from, Overrode: overrode}
 		return nil
 	})
 	return ch, err
@@ -491,8 +500,9 @@ type Counts struct {
 	// Total is every task that is not finished.
 	Total int
 	// Mine is the open tasks the pane owns, and MineActive those of them that
-	// are in progress.
-	Mine, MineActive int
+	// are in progress. Unclaimed is the part of Mine that is assigned to the
+	// pane's role and that no pane has taken yet; the rest are the pane's own.
+	Mine, MineActive, Unclaimed int
 	// InReview is the tasks in review that are not the pane's own.
 	InReview int
 	// Unassigned is the planned tasks that have no owner.
@@ -511,6 +521,9 @@ func (b *Board) Counts(me Actor) (Counts, error) {
 			own := IsOwner(t, me)
 			if own {
 				c.Mine++
+				if t.OwnerPane == "" {
+					c.Unclaimed++
+				}
 				if t.State == InProgress {
 					c.MineActive++
 				}
@@ -539,12 +552,20 @@ func (c Counts) Phrase() string {
 		return fmt.Sprintf("%d tasks %s", n, what)
 	}
 	var parts []string
-	if c.Mine > 0 {
-		s := plural(c.Mine, "assigned to you")
+	if claimed := c.Mine - c.Unclaimed; claimed > 0 {
+		s := plural(claimed, "assigned to you")
 		if c.MineActive > 0 {
 			s += fmt.Sprintf(" (%d in progress)", c.MineActive)
 		}
 		parts = append(parts, s)
+	}
+	if c.Unclaimed > 0 {
+		// A task for a role is nobody's until a pane of the role starts it.
+		if c.Mine == c.Unclaimed {
+			parts = append(parts, plural(c.Unclaimed, "for your role, none claimed yet"))
+		} else {
+			parts = append(parts, plural(c.Unclaimed, "for your role, not claimed yet"))
+		}
 	}
 	if c.InReview > 0 {
 		parts = append(parts, fmt.Sprintf("%d in review", c.InReview))

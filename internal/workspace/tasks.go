@@ -186,7 +186,11 @@ func (w *Workspace) Task(req hooks.TaskRequest) (hooks.TaskResult, error) {
 	if err != nil {
 		return hooks.TaskResult{}, err
 	}
-	return hooks.TaskResult{Task: &ch.Task, Told: w.sendTaskNotices(ch, actor, members)}, nil
+	res := hooks.TaskResult{Task: &ch.Task, Told: w.sendTaskNotices(ch, actor, members)}
+	if ch.Overrode != "" {
+		res.Warning = fmt.Sprintf("%s was in progress under %s, who no longer owns it; assign a task before its owner starts it", ch.Task.ID, team.PlainLabel(ch.Overrode))
+	}
+	return res, nil
 }
 
 // sendTaskNotices writes the messages a change calls for, from Flockdeck, into

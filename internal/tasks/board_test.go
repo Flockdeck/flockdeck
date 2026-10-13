@@ -515,3 +515,58 @@ func TestParseIDAndState(t *testing.T) {
 		t.Errorf("err = %v, want the list of states", err)
 	}
 }
+
+func TestCountsSeparateClaimedTasksFromTasksForTheRole(t *testing.T) {
+	b, _ := testBoard(t)
+	own := mustAdd(t, b, mgr, "claimed")
+	r1 := mustAdd(t, b, mgr, "for the role")
+	r2 := mustAdd(t, b, mgr, "for the role too")
+	if _, err := b.Assign(mgr, true, own.ID, Assignee{Pane: w1.Pane, Role: "worker", Name: w1.Name}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{r1.ID, r2.ID} {
+		if _, err := b.Assign(mgr, true, id, Assignee{Role: "worker"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, err := b.Counts(w1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Mine != 3 || c.Unclaimed != 2 {
+		t.Errorf("counts = %+v", c)
+	}
+	if got := c.Phrase(); got != "1 task assigned to you, 2 tasks for your role, not claimed yet" {
+		t.Errorf("phrase = %q", got)
+	}
+	// Before any is claimed, none is said to be assigned to the pane.
+	if got := (Counts{Total: 2, Mine: 2, Unclaimed: 2}).Phrase(); got != "2 tasks for your role, none claimed yet" {
+		t.Errorf("phrase = %q", got)
+	}
+	if got := (Counts{Total: 1, Mine: 1, Unclaimed: 1}).Phrase(); got != "1 task for your role, none claimed yet" {
+		t.Errorf("phrase = %q", got)
+	}
+}
+
+func TestAssignAfterTheOwnerStartedSaysWhoLostTheTask(t *testing.T) {
+	b, _ := testBoard(t)
+	task := mustAdd(t, b, mgr, "work")
+	if _, err := b.Assign(mgr, true, task.ID, Assignee{Pane: w1.Pane, Role: "worker", Name: w1.Name}); err != nil {
+		t.Fatal(err)
+	}
+	// Before the owner starts, a new assign takes nothing from anyone.
+	ch, err := b.Assign(mgr, true, task.ID, Assignee{Pane: w1.Pane, Role: "worker", Name: w1.Name})
+	if err != nil || ch.Overrode != "" {
+		t.Fatalf("reassign to the same pane = %+v, %v", ch, err)
+	}
+	if _, err := b.SetState(w1, true, task.ID, InProgress, ""); err != nil {
+		t.Fatal(err)
+	}
+	ch, err = b.Assign(mgr, true, task.ID, Assignee{Pane: w2.Pane, Role: "worker", Name: w2.Name})
+	if err != nil {
+		t.Fatalf("the override was refused: %v", err)
+	}
+	if !strings.Contains(ch.Overrode, w1.Pane) || ch.Task.OwnerPane != w2.Pane {
+		t.Errorf("change = %+v", ch)
+	}
+}

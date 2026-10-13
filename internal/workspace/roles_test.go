@@ -164,3 +164,77 @@ func TestSaveRestoreKeepsTheRole(t *testing.T) {
 		t.Error("the restored pane's environment has no FLOCKDECK_ROLE")
 	}
 }
+
+func roleContext(id string, spawns []string, plain bool) PaneContext {
+	return PaneContext{
+		PaneName: "work", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck",
+		Role: id, RoleKnown: true, RoleName: id, RoleSpawns: spawns, RolePlain: plain,
+		Roles: []string{"manager", "worker", "reviewer"},
+	}
+}
+
+// A role that may not start agents was told both that it may not and, by the
+// generic section, that it can hand work to further agents.
+func TestBriefingOfARoleWithoutSpawnRightsHasNoSpawnSection(t *testing.T) {
+	for _, id := range []string{"worker", "reviewer"} {
+		text := roleContext(id, nil, false).Render()
+		if !strings.Contains(text, "You may not start agents in a role.") {
+			t.Errorf("%s: the role section does not say it may not start agents", id)
+		}
+		for _, bad := range []string{
+			"Starting agents of your own", "You can hand work to further agents", "spawn \"add tests",
+			"spawn --worktree fix-auth", "parallel work", "What the flags do", "close --finished",
+		} {
+			if strings.Contains(text, bad) {
+				t.Errorf("%s: the briefing says %q to a role that may not start agents", id, bad)
+			}
+		}
+	}
+}
+
+func TestBriefingOfARoleThatMayStartAgentsGivesRoleAwareExamples(t *testing.T) {
+	text := roleContext("manager", []string{"planner", "worker", "reviewer"}, true).Render()
+	for _, want := range []string{
+		"## Starting agents\n",
+		"Your role may start agents in these roles: planner, worker, reviewer. It may also start an agent with no role.",
+		"flockdeck spawn -role worker -worktree <branch> \"<task>\"",
+		"flockdeck spawn -role planner -split \"<task>\"",
+		"`flockdeck team -json`", "Keep the pane id", "takes a pane id, a name or a role id",
+		"Assign a task before the agent starts it, or at spawn", "takes the task from it",
+		"What the flags do", "close <pane-id>",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the manager briefing lacks %q", want)
+		}
+	}
+	for _, bad := range []string{"Starting agents of your own", "You can hand work to further agents", "spawn \"add tests", "parallel work", "not on your own initiative"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("the manager briefing still says %q", bad)
+		}
+	}
+
+	// A role of the user's own with a narrower list is told its own list.
+	narrow := roleContext("lead", []string{"reviewer"}, false).Render()
+	if !strings.Contains(narrow, "in these roles: reviewer.") || !strings.Contains(narrow, "flockdeck spawn -role reviewer -worktree <branch>") {
+		t.Errorf("a role that may start only reviewers:\n%s", narrow)
+	}
+	if strings.Contains(narrow, "-role worker") || strings.Contains(narrow, "no role.") {
+		t.Errorf("a role that may start only reviewers was offered more:\n%s", narrow)
+	}
+}
+
+// Without a role there is nothing to contradict, and a role that may start
+// agents with no role keeps the plain examples.
+func TestBriefingKeepsTheGenericSpawnSectionWhereNoRoleLimitsIt(t *testing.T) {
+	for name, c := range map[string]PaneContext{
+		"no role":    {PaneName: "work", CanSpawn: true, SpawnCommand: "flockdeck"},
+		"plain only": roleContext("scout", nil, true),
+	} {
+		text := c.Render()
+		for _, want := range []string{"Starting agents of your own", "flockdeck spawn \"add tests for the parser\"", "parallel work"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s: briefing lacks %q", name, want)
+			}
+		}
+	}
+}

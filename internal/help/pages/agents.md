@@ -231,6 +231,12 @@ without `-role`) only if its role has `plain` set, since an agent with no role h
 no limits. `manager` has `plain` set; the other built-in roles do not. A refused
 spawn says which rule it hit.
 
+The briefing follows those limits. A pane in a role that may start nothing, such as `worker`
+or `reviewer`, gets no section on starting agents. A pane in a role with `spawns` gets
+examples that name those roles, such as `flockdeck spawn -role worker -worktree <branch>
+"<task>"`, and is told to use the pane id that `spawn` prints, or `flockdeck team -json`
+shows, when it assigns a task or sends a message, because pane names are shared.
+
 The pane is briefed for its role: the briefing gains a "Your role" section with the
 role's text and the ids of every role in the catalog, and the pane's environment
 carries `FLOCKDECK_ROLE`. The role is saved with the layout, so a restored pane is
@@ -329,7 +335,7 @@ is committed, which messages the reviewers and testers. A reviewer or tester rea
 and either adds a note and tells the manager, or moves it back to `in-progress` with a note
 that says why, which messages the worker. Every agent's briefing has a "Task board" section
 with the commands and a snapshot of the counts for that pane, such as "2 tasks assigned to you,
-1 in review".
+1 in review", or "2 tasks for your role, none claimed yet" for tasks assigned to a role that no pane has started.
 
 Flockdeck messages the owner when a task is assigned or noted, the reviewers and testers (or else
 the creator and the manager) when it moves to review, the creator and the manager when it is

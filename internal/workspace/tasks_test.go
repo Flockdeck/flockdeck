@@ -370,7 +370,7 @@ func TestRoleBriefingsDescribeMovesTheRulesAllow(t *testing.T) {
 		byID[r.ID] = r.Briefing
 	}
 	for role, phrases := range map[string][]string{
-		"manager":  {"flockdeck task add", "flockdeck task assign <id> <name>", "flockdeck task status <id> done", "cannot close it", "when someone else marks it done"},
+		"manager":  {"flockdeck task add", "flockdeck task assign <id> <pane id or role>", "flockdeck task status <id> done", "cannot close it", "before the worker moves it to in-progress"},
 		"planner":  {"flockdeck task add <title>", "assigning and moving them is the manager's"},
 		"worker":   {"task status <id> in-progress", "task branch <id> <branch>", "task status <id> in-review", "task status <id> blocked -note"},
 		"reviewer": {"task list -state in-review", "task status <id> in-progress -note", "only if the manager asked"},
@@ -417,4 +417,40 @@ func TestRoleBriefingsDescribeMovesTheRulesAllow(t *testing.T) {
 	allow(mgr, tasks.InReview, tasks.Done, "")
 	allow(mgr, tasks.InProgress, tasks.Done, "")
 	refuse(wk, tasks.Done, tasks.InProgress, "again")
+}
+
+func TestAssignAfterTheOwnerStartedWarnsAndTakesTheTask(t *testing.T) {
+	c := newCrew(t)
+	c.mustCall(t, c.lead, hooks.TaskRequest{Op: hooks.TaskAdd, Title: "the work"})
+	res := c.mustCall(t, c.lead, hooks.TaskRequest{Op: hooks.TaskAssign, ID: "T1", Target: c.w1})
+	if res.Warning != "" {
+		t.Errorf("an assign before the work started warned: %q", res.Warning)
+	}
+	c.mustCall(t, c.w1, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-progress"})
+	res = c.mustCall(t, c.lead, hooks.TaskRequest{Op: hooks.TaskAssign, ID: "T1", Target: c.w2})
+	if res.Task.OwnerPane != c.w2 {
+		t.Errorf("the assign was refused or ignored: %+v", res.Task)
+	}
+	if !strings.Contains(res.Warning, "T1 was in progress under") || !strings.Contains(res.Warning, c.w1) {
+		t.Errorf("warning = %q", res.Warning)
+	}
+}
+
+func TestBriefingSaysTasksForTheRoleAreNotClaimedYet(t *testing.T) {
+	c := newCrew(t)
+	for _, title := range []string{"one", "two"} {
+		c.mustCall(t, c.lead, hooks.TaskRequest{Op: hooks.TaskAdd, Title: title})
+	}
+	c.mustCall(t, c.lead, hooks.TaskRequest{Op: hooks.TaskAssign, ID: "T1", Target: "worker"})
+	c.mustCall(t, c.lead, hooks.TaskRequest{Op: hooks.TaskAssign, ID: "T2", Target: "worker"})
+	ctx, _ := c.ws.PaneContext(c.w1)
+	text := ctx.Render()
+	if !strings.Contains(text, "2 tasks for your role, none claimed yet") || strings.Contains(text, "assigned to you") {
+		t.Errorf("briefing before a claim:\n%s", text)
+	}
+	c.mustCall(t, c.w1, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-progress"})
+	ctx, _ = c.ws.PaneContext(c.w1)
+	if text := ctx.Render(); !strings.Contains(text, "1 task assigned to you (1 in progress), 1 task for your role, not claimed yet") {
+		t.Errorf("briefing after a claim:\n%s", text)
+	}
 }

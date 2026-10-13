@@ -69,6 +69,9 @@ type TaskResult struct {
 	Pruned int `json:"pruned,omitempty"`
 	// Told says how many panes were sent a message because of the change.
 	Told int `json:"told,omitempty"`
+	// Warning is something the caller should know about a change that was made,
+	// such as an assign that took a task from the pane working on it.
+	Warning string `json:"warning,omitempty"`
 }
 
 // SetTaskHandler installs the function that answers `flockdeck task`.

@@ -332,3 +332,25 @@ func TestStartingATaskThatHasAPaneOwnerDoesNotChangeTheOwner(t *testing.T) {
 		t.Errorf("manager start = %+v, %v", ch, err)
 	}
 }
+
+func TestARefusedMoveNamesWhatIsNeededAndWhatTheActorIs(t *testing.T) {
+	task := Task{ID: "T2", State: InReview, OwnerPane: w1.Pane, OwnerRole: "worker", Creator: planner}
+	err := CheckMove(task, Done, w1, true, "")
+	want := "moving T2 from in-review to done is for a manager or a reviewer or a tester; you are the owner of this task"
+	if err == nil || err.Error() != want {
+		t.Errorf("owner moving own task to done: %v, want %q", err, want)
+	}
+	err = CheckMove(task, Done, Actor{Pane: "stranger", Role: "worker"}, true, "")
+	want = "moving T2 from in-review to done is for a manager or a reviewer or a tester; you have no part in this task"
+	if err == nil || err.Error() != want {
+		t.Errorf("stranger: %v, want %q", err, want)
+	}
+	err = CheckMove(Task{ID: "T3", State: InProgress, OwnerPane: w1.Pane, Creator: planner}, Done, Actor{Pane: planner.Pane, Role: "planner"}, true, "")
+	want = "moving T3 from in-progress to done is for a manager; you are the creator of this task"
+	if err == nil || err.Error() != want {
+		t.Errorf("creator: %v, want %q", err, want)
+	}
+	if err != nil && strings.Contains(err.Error(), "none of those") {
+		t.Errorf("old wording came back: %v", err)
+	}
+}

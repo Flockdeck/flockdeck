@@ -190,7 +190,11 @@ func runInbox(args []string, out io.Writer) error {
 		if m.Read {
 			mark = " [read]"
 		}
-		fmt.Fprintf(out, "#%d from %s, %s%s: %s\n", m.ID, m.FromLabel(), m.Time.Local().Format("15:04"), mark, preview(m.Text, 80))
+		pane := ""
+		if m.From.Pane != "" {
+			pane = ", pane " + team.PlainLabel(m.From.Pane)
+		}
+		fmt.Fprintf(out, "#%d from %s%s, %s%s: %s\n", m.ID, m.FromLabel(), pane, m.Time.Local().Format("15:04"), mark, preview(m.Text, 80))
 	}
 	fmt.Fprintf(out, "\nRead one with: flockdeck inbox read <id>. %s\n", team.Disclaimer)
 	return nil
