@@ -451,6 +451,8 @@ type Workspace struct {
 	// team is the roster, inboxes and delivery of messages between panes; see
 	// team.go.
 	team teamState
+	// tasks is the task boards of the open projects; see tasks.go.
+	tasks taskState
 
 	selfExe     string
 	spawnCmd    string

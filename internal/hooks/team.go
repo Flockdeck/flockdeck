@@ -88,6 +88,7 @@ type teamHandlers struct {
 	team  func(TeamRequest) (TeamResult, error)
 	msg   func(MsgRequest) (MsgResult, error)
 	inbox func(InboxRequest) (InboxResult, error)
+	task  func(TaskRequest) (TaskResult, error)
 }
 
 // SetTeamHandler installs the function that answers `flockdeck team`.

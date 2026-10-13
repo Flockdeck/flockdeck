@@ -688,6 +688,7 @@ func Serve(on func(Event)) (*Server, error) {
 	mux.HandleFunc("/team", s.handleTeam())
 	mux.HandleFunc("/msg", s.handleMsg())
 	mux.HandleFunc("/inbox", s.handleInbox())
+	mux.HandleFunc("/task", s.handleTask())
 	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() { _ = s.srv.Serve(ln) }()
