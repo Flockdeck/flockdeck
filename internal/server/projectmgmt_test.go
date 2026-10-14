@@ -216,3 +216,41 @@ func TestRemoveProjectForgetsANotOpenRecentProject(t *testing.T) {
 		}
 	}
 }
+
+// TestRemovedProjectComesBackWithoutItsOldPlace checks that removing a
+// project that was placed by hand forgets the place as well as the entry. The
+// workspace caches each project's place (see Workspace.ReloadProjectMeta); a
+// cache left holding it put the project back where it had been until the
+// next restart, though the stored entry it came back as had no place at all.
+func TestRemovedProjectComesBackWithoutItsOldPlace(t *testing.T) {
+	srv, ws := newTestServer(t)
+	c := &controlClient{out: make(chan []byte, 8)}
+	first := ws.ActiveRoot()
+	second := t.TempDir()
+	if _, ok := ask(srv, func() bool {
+		if err := ws.OpenProject(second); err != nil {
+			t.Error(err)
+		}
+		return true
+	}); !ok {
+		t.Fatal("server closed")
+	}
+	srv.handleCommand(c, command{Cmd: "reorderProjects", Roots: []string{second, first}})
+	srv.handleCommand(c, command{Cmd: "removeProject", Root: second})
+	if _, ok := ask(srv, func() bool {
+		if err := ws.OpenProject(second); err != nil {
+			t.Error(err)
+		}
+		return true
+	}); !ok {
+		t.Fatal("server closed")
+	}
+
+	projects, ok := ask(srv, ws.Projects)
+	if !ok {
+		t.Fatal("could not read Projects back")
+	}
+	if len(projects) != 2 || projects[0].Root != first || projects[1].Root != filepath.Clean(second) {
+		t.Fatalf("projects = %+v, want %s then %s, the order they were opened in", projects, first, second)
+	}
+}

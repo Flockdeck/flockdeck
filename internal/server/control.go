@@ -1879,6 +1879,13 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			// The list is about to be sent again with the project still on
 			// it; without this the entry just refuses to go away.
 			c.notify("Could not forget "+filepath.Base(cmd.Root)+": "+err.Error(), true)
+		} else if ok {
+			// A forgotten project takes its name, its archive mark and its
+			// place with it; the workspace's cached copy of them is what an
+			// open project is drawn from, and would hand them back to the
+			// project when it is next opened, until a restart.
+			s.ws.ReloadProjectMeta()
+			s.wakeAsked()
 		}
 		s.recents(c)
 		return
@@ -1950,6 +1957,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			if err != nil {
 				c.notify("Could not remove "+filepath.Base(cmd.Root)+": "+err.Error(), true)
 			} else {
+				// See forgetRecent: the forgotten entry's settings go from
+				// the workspace's cache too.
+				s.ws.ReloadProjectMeta()
 				s.wakeAsked()
 			}
 		}
