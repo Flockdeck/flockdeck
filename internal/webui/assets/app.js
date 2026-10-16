@@ -465,6 +465,12 @@
       // todoStepRow): startAgent's other callers are reached through the
       // relay, which handles this reply itself. See ValidateStartAgent's own
       // doc comment for why a window at the desk never needed this before.
+      // A start in a role is the other: the agent is in a tab of its own that
+      // the desk was not moved to, so it is shown now.
+      else if (msg.type === "agentStarted" && pendingRoleStart && msg.id === pendingRoleStart) {
+        pendingRoleStart = "";
+        send({ cmd: "revealPane", id: msg.paneId });
+      }
       else if (msg.type === "agentStarted" && pendingStepStart && msg.id === pendingStepStart.reqID) {
         pendingStepStart = null;
         send({ cmd: "revealPane", id: msg.paneId });
@@ -1659,6 +1665,7 @@
         catalogKey = encoded;
         catalog = s.agents;
         if (dialog === "agentPicker") keepFocus(renderAgentPicker);
+        if (dialog === "startTeam") keepFocus(renderStartTeam);
         settingsChanged();
       }
     }
@@ -3377,6 +3384,10 @@
     const project = el("span", "pane-project");
     const branch = el("span", "pane-branch");
     const agent = el("span", "pane-agent");
+    // The role the pane was started in, as text in a bordered tag, and
+    // nothing for a pane started in none. See renderPaneRole.
+    const role = el("span", "pane-role");
+    role.hidden = true;
     // Shown once this pane's own agent has reported the name another Claude
     // session would use to address it -- Flockdeck cannot learn this on its
     // own. See renderPanePeerName and `flockdeck peer-name`.
@@ -3481,7 +3492,7 @@
       closeBtn,
     );
     makeToolbar(actions, "What to do with this pane");
-    header.append(dot, project, name, branch, agent, peerName, remote, git, conflict, detail, background, spend, limit, usage, cast, recMark, lockMark, actions);
+    header.append(dot, project, name, role, branch, agent, peerName, remote, git, conflict, detail, background, spend, limit, usage, cast, recMark, lockMark, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -3588,7 +3599,7 @@
     // The WebGL renderer is loaded when the pane comes on screen, not here:
     // see drawWithWebgl.
 
-    p = { id, wrap, header, dot, name, project, branch, agent, peerName, remote, git, conflict, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
+    p = { id, wrap, header, dot, name, project, branch, agent, role, peerName, remote, git, conflict, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, recBtn, exportBtn, recMark, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
@@ -4611,6 +4622,11 @@
       const badge = agent + "|" + (v.routed || "") + "|" + (v.routedFrom || "") + "|" + (v.route || "");
       if (was.agent !== badge) { was.agent = badge; renderPaneAgent(p, v); }
 
+      // Keyed on the name as well as the id, so a catalog that arrives after
+      // the pane, or an agents.json edited meanwhile, redraws the tag.
+      const role = (v.role || "") + " " + (v.role ? roleName(v.role) : "");
+      if (was.role !== role) { was.role = role; renderPaneRole(p, v); }
+
       const peerName = v.peerName || "";
       if (was.peerName !== peerName) { was.peerName = peerName; renderPanePeerName(p, v); }
 
@@ -4860,6 +4876,39 @@
       : "";
     // Cut short like the branch, and named in its bubble for the same reason.
     describe(p.agent, p.agent.textContent + " — " + TIPS.agent + routed);
+  }
+
+  /** roleById is a role of the catalog, or undefined: a pane can be in a role
+   *  that agents.json has dropped since, or the catalog can be yet to arrive. */
+  function roleById(id) {
+    return ((catalog && catalog.roles) || []).find((r) => r.id === id);
+  }
+
+  /** roleName is what a role is called: its own name, or its id where the
+   *  catalog does not list it any more. */
+  function roleName(id) {
+    const r = roleById(id);
+    return (r && r.name) || id;
+  }
+
+  /** roleTip says what a role is for, for the tag that names it. */
+  function roleTip(id) {
+    const r = roleById(id);
+    return "Role: " + roleName(id) + (r && r.description ? ". " + r.description : "") +
+      (r ? "" : ". This role is no longer in agents.json.");
+  }
+
+  /** renderPaneRole names the role the pane was started in. It is words, not a
+   *  colour, and a pane in no role shows nothing. */
+  function renderPaneRole(p, v) {
+    p.role.textContent = "";
+    p.role.hidden = !v.role;
+    if (!v.role) { delete p.role.dataset.tip; p.role.removeAttribute("aria-label"); return; }
+    p.role.textContent = roleName(v.role);
+    // The visible word alone does not say what it is a word for.
+    p.role.setAttribute("role", "img");
+    p.role.setAttribute("aria-label", "Role: " + roleName(v.role));
+    describe(p.role, roleTip(v.role));
   }
 
   /** backgroundTip says what a count of background work means: an agent
@@ -5635,6 +5684,7 @@
     todos: { present: "sheet", rail: "btn-todos", act: "todos", again: () => openTodos },
     github: { present: "sheet", rail: "btn-github", act: "github",
       again: () => { const at = ghDir; return () => openGithub(at); } },
+    startTeam: { present: "dialog-m", act: "startTeam", again: () => openStartTeam },
     keys: { present: "sheet", rail: "btn-apikeys", act: "apiKeys", again: () => openKeys },
     remote: { present: "sheet", rail: "btn-remote", act: "remote", again: () => openRemote },
     projects: { present: "sheet", rail: "rail-open", act: "projects", again: () => () => openProjects() },
@@ -5665,7 +5715,8 @@
     agentPicker: { present: "picker",
       again: () => {
         const p = picker;
-        return p && (() => chooseAgent(p.title, p.onPick, { setDefault: p.setDefault, scope: p.scope }));
+        return p && (() => chooseAgent(p.title, p.onPick, { setDefault: p.setDefault, scope: p.scope,
+          roles: p.roles, role: p.role, task: p.task, worktree: p.worktree }));
       } },
     paneInfo: { present: "dialog-m", act: "paneInfo", again: () => { const at = paneInfoFor; return () => openPaneInfo(at); } },
     findPane: { present: "dialog-m", act: "findPane", again: () => { const at = findPaneQuery; return () => openFindPane(at); } },
@@ -8399,7 +8450,7 @@
     splitDown: () => send({ cmd: "splitPane", id: focusedPaneId(), dir: "v", kind: "agent" }),
     splitRightShell: () => send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "shell" }),
     splitRightChoose: () => chooseAgent("Split right", (agent, model) =>
-      send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "agent", agent, model })),
+      send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "agent", agent, model }), { roles: true }),
     movePaneLeft: () => send({ cmd: "movePaneDir", dir: "left" }),
     movePaneRight: () => send({ cmd: "movePaneDir", dir: "right" }),
     movePaneUp: () => send({ cmd: "movePaneDir", dir: "up" }),
@@ -8442,7 +8493,7 @@
 
     newAgentTab: () => send({ cmd: "newTab", kind: "agent" }),
     newAgentTabChoose: () => chooseAgent("New agent tab", (agent, model) =>
-      send({ cmd: "newTab", kind: "agent", agent, model })),
+      send({ cmd: "newTab", kind: "agent", agent, model }), { roles: true }),
     newShellTab: () => send({ cmd: "newTab", kind: "shell" }),
     nextTab: () => send({ cmd: "nextTab" }),
     prevTab: () => send({ cmd: "prevTab" }),
@@ -8465,6 +8516,7 @@
     todos: () => openTodos(),
     agents: () => openAgents(),
     closeFinishedPanes: () => send({ cmd: "closeFinishedPanes" }),
+    startTeam: () => openStartTeam(),
     apiKeys: () => openKeys(),
     helpers: () => openHelpers(),
     github: () => openGithub(),
@@ -8722,7 +8774,7 @@
     // somebody looking for one types - it matched none of them.
     const SETTING = "settings preferences options";
     const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
-    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "paneInfo" ? "id identifier identifiers details info information conversation session process pid peer path file copy" : id === "findPane" ? "search locate where switch go id identifier conversation session process pid peer name project tab branch" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : id === "remote" ? "remote access" : "";
+    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "paneInfo" ? "id identifier identifiers details info information conversation session process pid peer path file copy" : id === "findPane" ? "search locate where switch go id identifier conversation session process pid peer name project tab branch" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : id === "remote" ? "remote access" : id === "startTeam" ? "manager roles planner worker reviewer team goal orchestrate" : "";
     // What a setting is now, beside the command that changes it: choosing a
     // scrollback or a font meant opening the question to find out.
     const value = {
@@ -10569,6 +10621,12 @@
     if (a.agent) {
       meta.append(describe(el("span", null, a.model ? a.agent + " · " + a.model : a.agent), TIPS.agent));
     }
+    if (a.role) {
+      const n = el("span", "agent-role", roleName(a.role));
+      n.setAttribute("role", "img");
+      n.setAttribute("aria-label", "Role: " + roleName(a.role));
+      meta.append(describe(n, roleTip(a.role)));
+    }
     if (a.kind === "shell") meta.append(el("span", null, "shell"));
     if (a.detail) meta.append(el("span", null, a.detail));
     // A helper's own pane, when it is still open, so it reads as part of
@@ -10655,6 +10713,9 @@
     picker = {
       title, onPick, query: "", index: 0, open: new Set(),
       setDefault: !!opts.setDefault, scope: opts.scope || "", address: null,
+      // The Role control is offered only by the callers that start a pane, and
+      // what was chosen in it lives here so that a redraw does not lose it.
+      roles: !!opts.roles, role: opts.role || "", task: opts.task || "", worktree: !!opts.worktree,
     };
     // A fresh picker starts on its first row, not on the row the last one
     // left picked out, which renderAgentPicker would otherwise carry over.
@@ -10736,6 +10797,7 @@
     body.textContent = "";
 
     if (catalog.err) body.append(el("div", "pick-warn", catalog.err));
+    if (picker.roles && rolesOf().length) body.append(pickerRoleBox());
 
     const field = el("input", "pick-filter");
     field.id = "agent-filter";
@@ -11072,10 +11134,218 @@
     startPicked(a.id, item.type === "model" ? (item.model.id || "") : (a.defaultModel || ""));
   }
 
+  /** rolesOf is the roles the catalog lists, in its order. */
+  function rolesOf() {
+    return (catalog && catalog.roles) || [];
+  }
+
+  /** roleChoice is the agent and model a start in a role gets when the window
+   *  names agentID and model (either may be empty): the same rule as
+   *  Catalog.Choose and the CLI, so the line under the Role control is what
+   *  will happen. The role's agent and model apply only when neither is named;
+   *  its model only to the agent it was written for; its tier picks the first
+   *  model of that tier. What is still empty is the agent's own default. */
+  function roleChoice(role, agentID, model) {
+    const d = defaultChoice();
+    const defAgent = d.agent || "";
+    if (!agentID && !model) agentID = role.agent || "";
+    const home = role.agent || defAgent;
+    if (!model && role.model && (!agentID || agentID === home)) model = role.model;
+    const id = agentID || defAgent;
+    const spec = (catalog.items || []).find((a) => a.id === id);
+    if (!model && role.tier && spec) {
+      const m = (spec.models || []).find((x) => x.tier === role.tier && x.id);
+      if (m) model = m.id;
+    }
+    if (!model && spec) model = d.agent === id && d.model ? d.model : (spec.defaultModel || "");
+    return { agent: id, model };
+  }
+
+  /** roleChoiceText says what a role starts with, written as the pane header
+   *  writes it, and whose choice that is: the role's own or the project's. */
+  function roleChoiceText(role) {
+    const c = roleChoice(role, "", "");
+    const own = !!(role.agent || role.model || role.tier);
+    return (c.agent ? c.agent + (c.model ? " · " + c.model : "") : "the default agent") +
+      (own ? ", the " + (role.name || role.id) + " role's choice" : ", this project's default");
+  }
+
+  /** pickerRoleBox is the Role control: None or a role, and once a role is
+   *  chosen the task it starts with, whether it gets a worktree, which agent
+   *  and model that comes to, and a button to start it with those. Picking an
+   *  agent or a model in the list below starts the role on that one instead. */
+  function pickerRoleBox() {
+    const box = el("div", "pick-role");
+    box.id = "agent-role-box";
+    const row = el("div", "pick-role-row");
+    const label = el("label", null, "Role");
+    label.htmlFor = "agent-role";
+    const sel = el("select", "fan-agent-sel");
+    sel.id = "agent-role";
+    sel.append(agentOption("None", ""));
+    rolesOf().forEach((r) => sel.append(agentOption(r.name || r.id, r.id)));
+    sel.value = roleById(picker.role) ? picker.role : "";
+    picker.role = sel.value;
+    const more = el("div", "pick-role-more");
+    more.id = "agent-role-more";
+    sel.onchange = () => { picker.role = sel.value; fillRoleMore(more); };
+    row.append(label, sel);
+    fillRoleMore(more);
+    box.append(row, more);
+    return box;
+  }
+
+  /** fillRoleMore draws what the Role control shows under it for the role
+   *  chosen, and nothing for None. */
+  function fillRoleMore(more) {
+    more.textContent = "";
+    const r = roleById(picker.role);
+    if (!r) return;
+    if (r.description) more.append(el("div", "wt-hint", r.description));
+    const task = el("textarea", "pick-role-task");
+    task.id = "agent-role-task";
+    task.rows = 2;
+    task.spellcheck = false;
+    task.placeholder = "What should it do?";
+    task.setAttribute("aria-label", "Task for the " + (r.name || r.id));
+    task.value = picker.task;
+    task.oninput = () => { picker.task = task.value; };
+    task.onkeydown = (ev) => {
+      if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); startPicked("", ""); }
+    };
+    const tree = el("label", "pick-default");
+    const tick = el("input");
+    tick.type = "checkbox";
+    tick.checked = picker.worktree;
+    tick.onchange = () => { picker.worktree = tick.checked; };
+    tree.append(tick, document.createTextNode(" In a worktree of its own"));
+    const result = el("div", "wt-hint", "Starts " + roleChoiceText(r) + ". Pick an agent or model below to use that instead.");
+    result.id = "agent-role-result";
+    result.setAttribute("aria-live", "polite");
+    const go = el("button", "chip primary", "Start " + (r.name || r.id));
+    go.id = "agent-role-start";
+    describe(go, "Starts the agent in this role with the task above and the agent and model shown. Ctrl+Enter in the task does the same.");
+    go.onclick = () => startPicked("", "");
+    more.append(task, tree, result, go);
+  }
+
+  /** pendingRoleStart is the request id of a start in a role that is out, so
+   *  the agentStarted that answers it shows the pane. */
+  let pendingRoleStart = "";
+
+  /** startInRole asks for an agent to be started in a role, in the project on
+   *  screen. An empty agent and model are the role's to fill in. */
+  function startInRole(role, agent, model, task, worktree) {
+    const reqID = "role-" + Math.random().toString(36).slice(2);
+    pendingRoleStart = reqID;
+    closeOverlay();
+    send({ cmd: "startAgent", id: reqID, root: state ? state.root : "", role, agent, model, task, worktree: !!worktree });
+  }
+
+  // ------------------------------------------------------------ start a team
+
+  /* A team starts with one agent: a manager in the project on screen, given the
+   * goal as its task, exactly as `flockdeck spawn -role manager "<goal>"` would
+   * start it. The manager starts the others itself, so this dialog starts
+   * nothing else. What was typed is kept here across a redraw. */
+  const teamDraft = { goal: "", pick: "" };
+
+  function openStartTeam() {
+    dialog = "startTeam";
+    openOverlay("Start a team", "agents");
+    renderStartTeam();
+  }
+
+  function renderStartTeam() {
+    if (dialog !== "startTeam") return;
+    const body = $("overlay-body");
+    body.textContent = "";
+    const role = roleById("manager");
+    if (!role) {
+      const why = el("div", "pick-warn", "There is no manager role in the catalog, so there is nothing to start a team with. " +
+        "Roles are listed in Settings › Agents & models and are kept under roles in agents.json.");
+      why.id = "team-missing";
+      why.setAttribute("role", "status");
+      body.append(why);
+      return;
+    }
+    const active = ((state && state.projects) || []).find((x) => x.active);
+    const project = active ? active.name : "this project";
+    const others = (role.spawns || []).map(roleName);
+    const explain = el("div", "fan-hint", "Starts one agent, a " + (role.name || role.id) + ", in " + project +
+      " with your goal as its task, as flockdeck spawn -role manager would." +
+      (others.length ? " It then starts the " + others.join(", ") + " agents it needs." : "") +
+      " Nothing else starts now.");
+    explain.id = "team-explain";
+    body.append(explain);
+
+    const label = el("label", "pick-label", "Goal");
+    label.htmlFor = "team-goal";
+    const goal = el("textarea", "pick-role-task");
+    goal.id = "team-goal";
+    goal.rows = 4;
+    goal.spellcheck = false;
+    goal.placeholder = "What should the team get done?";
+    goal.setAttribute("aria-describedby", "team-explain");
+    goal.value = teamDraft.goal;
+    goal.oninput = () => { teamDraft.goal = goal.value; };
+
+    const pickLabel = el("label", "pick-label", "Manager agent and model");
+    pickLabel.htmlFor = "team-agent";
+    const sel = agentSelect(catalogChoices(), teamDraft.pick, "The manager role's choice: " + roleChoiceText(role));
+    sel.id = "team-agent";
+    sel.onchange = () => { teamDraft.pick = sel.value; };
+
+    const go = el("button", "chip primary", "Start");
+    go.id = "team-start";
+    const start = () => {
+      const goalText = goal.value.trim();
+      if (!goalText) {
+        notice("Write the goal first", true);
+        goal.focus();
+        return;
+      }
+      const [agent, model] = pickParts(sel.value);
+      teamDraft.goal = "";
+      startInRole("manager", agent, model, goalText, false);
+    };
+    go.onclick = start;
+    goal.onkeydown = (ev) => {
+      if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); start(); }
+    };
+    const cancel = el("button", "chip", "Cancel");
+    cancel.onclick = closeOverlay;
+    const foot = el("div", "wt-form team-foot");
+    foot.append(go, cancel);
+    body.append(label, goal, pickLabel, sel, foot,
+      el("div", "wt-hint", "Ctrl+Enter in the goal starts it."));
+    goal.focus();
+  }
+
+
   /** startPicked is what the whole dialog is for: hand the choice to whoever
    *  opened it, remembering it first if that was asked for. */
   function startPicked(agentID, model) {
     const run = picker.onPick;
+    if (picker.role) {
+      // A role starts through startAgent, with the task it is given; the
+      // choice made here is the agent and model the window named.
+      if (!picker.task.trim()) {
+        notice("Give the " + roleName(picker.role) + " a task first", true);
+        const t = $("agent-role-task");
+        if (t) t.focus();
+        return;
+      }
+      const role = picker.role, task = picker.task, worktree = picker.worktree;
+      // The start button names no agent, so it has none to make the default.
+      if (picker.setDefault && agentID) {
+        const req = { cmd: "setAgentDefault", agent: agentID, model: model };
+        if (picker.scope === "all") req.kind = "all";
+        send(req);
+      }
+      startInRole(role, agentID, model, task, worktree);
+      return;
+    }
     if (picker.setDefault) {
       const req = { cmd: "setAgentDefault", agent: agentID, model: model };
       if (picker.scope === "all") req.kind = "all";
@@ -13081,13 +13351,18 @@
     return row;
   }
 
+  /** catalogChoices is the catalog in the shape the agent control is drawn
+   *  from, which is the fan-out's. */
+  function catalogChoices() {
+    return (catalog.items || []).map((a) => ({ id: a.id, name: a.name || a.id, unavailable: !a.available,
+      install: a.install, models: a.models, default: a.defaultModel }));
+  }
+
   function settingsAgents(pane) {
     const choose = keyTable.find((x) => x.id === "newAgentTabChoose");
     settingsHead(pane, "Agents & models", "The agent, and which of its models, a pane starts with when nobody chooses." +
       (choose ? " To choose for one pane, use " + choose.label + " in the command palette." : ""));
-    // In the shape the agent control is drawn from, which is the fan-out's.
-    const items = (catalog.items || []).map((a) => ({ id: a.id, name: a.name || a.id, unavailable: !a.available,
-      install: a.install, models: a.models, default: a.defaultModel }));
+    const items = catalogChoices();
     if (!items.length) {
       pane.append(el("div", "dir-empty", catalog.err || "Reading the agents…"));
       return;
@@ -13139,6 +13414,23 @@
       "Shows a Claude subscription's five-hour and weekly limits in the pane header, read from Claude Code's status line. " +
       "Your own status line is kept and runs as before. With none of your own, Claude Code hides its footer's keyboard hints " +
       "while any status line is set, so by default the limits are read only where you already have one.", sl));
+
+    // The roles are read here and written in agents.json.
+    if (rolesOf().length) {
+      const list = el("div", "route-rules");
+      list.id = "set-roles";
+      rolesOf().forEach((role) => {
+        const row = el("div", "route-rule");
+        row.append(el("span", "route-rule-name", role.name || role.id));
+        const choice = [role.agent, role.model || role.tier].filter(Boolean).join(" · ");
+        if (choice) row.append(el("span", "pick-tier", choice));
+        if (role.description) row.append(el("span", "route-rule-when", role.description));
+        list.append(row);
+      });
+      const file = catalog.routing && catalog.routing.config;
+      pane.append(settingRow("Roles", "What an agent can be started as, from the Role control in the agent picker, " +
+        "Start a team, or flockdeck spawn -role. They are edited under roles in agents.json" + (file ? ", at " + file : "") + ".", list));
+    }
 
     // What was part of this section once, and is next to it in the list now.
     pane.append(el("div", "set-sub", "Related"));

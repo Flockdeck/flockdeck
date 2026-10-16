@@ -272,6 +272,7 @@ merged over it field by field, and any other `id` is a role of your own:
 | --- | --- |
 | `id` | What `-role` takes |
 | `name` | What lists and the briefing call it |
+| `description` | One line on what the role is for, shown beside its name in the picker and Settings. It is not given to the agent |
 | `agent`, `model`, `tier` | Defaults for a spawn that chose neither an agent nor a model |
 | `briefing` | The text the agent is given about its role |
 | `worktree` | `own` (a worktree and branch of its own), `readonly` (a checkout it reads and does not change) or `main` (the project's main checkout) |
@@ -284,6 +285,32 @@ yet cut a worktree or make a checkout read-only because of it, so pass
 do this for workers and to pass the branch name to the reviewer and tester. A `worktree` that is none of
 the three, a bad `tier`, and a `spawns` entry that names no role are listed in the
 notice and ignored.
+
+### Starting a role from the window
+
+The agent picker ([[action:newAgentTabChoose]] or [[action:splitRightChoose]]) has a
+**Role** control above the filter. **None** is the picker as it has always been. Choose
+a role and the picker shows what the role is for, asks for a task, which a role always
+needs, and says which agent and model the role comes to, for example `claude · opus, the
+Worker role's choice`. **Start** runs the role on that agent and model. Picking an agent
+or a model in the list instead names one yourself, and the role's choice is not used,
+the same rule as `-agent` and `-model` on the command line. **In a worktree of its own**
+cuts a worktree and branch for the agent first, as `-worktree` does. A role started this
+way opens in a tab of its own, and Flockdeck switches to it.
+
+A role cannot be started with a shell; the window never offers one. The spawn limits
+above apply to agents, not to you: from the window you may start any role, including one
+that no role lists under `spawns`.
+
+[[action:startTeam]] starts a team with one agent. It asks for a goal and, if you want
+one, an agent and model for the manager, and starts a `manager` with the goal as its task
+in the project on screen, as `flockdeck spawn -role manager "<goal>"` would. The manager
+then starts the rest. With no `manager` role in the catalog the dialog says so and has no Start button.
+
+A pane started in a role carries its name in its header, after the agent and model, and in
+the **Agents** overview. **Pane info** lists it as **Role**. A pane started in no role shows
+nothing. Settings › Agents & models lists the roles to read; they are changed in
+`agents.json`, as above.
 
 ### The team and messages
 

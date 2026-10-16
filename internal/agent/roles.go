@@ -29,6 +29,9 @@ const (
 type Role struct {
 	ID   string `json:"id"`
 	Name string `json:"name,omitempty"`
+	// Description is one line on what the role is for, shown beside its name
+	// where a role is chosen. It is not given to the agent; Briefing is.
+	Description string `json:"description,omitempty"`
 	// Agent and Model are the agent and model a spawn gets when it names
 	// neither. Tier is used in place of Model: the first model of that tier
 	// the chosen agent offers. A model written for one agent is not applied to
@@ -55,7 +58,7 @@ type Role struct {
 func BuiltinRoles() []Role {
 	return []Role{
 		{
-			ID: "manager", Name: "Manager", Worktree: WorktreeMain, Plain: true,
+			ID: "manager", Name: "Manager", Description: "Breaks a request into tasks and starts the other agents to do them. Does not edit code.", Worktree: WorktreeMain, Plain: true,
 			Spawns: []string{"planner", "worker", "reviewer", "tester", "docs"},
 			Briefing: "You coordinate the work and do not do it yourself. Break the request into tasks, " +
 				"start an agent in the right role for each with `spawn -role`, and give every task enough " +
@@ -81,7 +84,7 @@ func BuiltinRoles() []Role {
 				"is good, run `flockdeck task status <id> done`. A reviewer sends a task that needs work back to in-progress itself.",
 		},
 		{
-			ID: "planner", Name: "Planner", Worktree: WorktreeReadOnly,
+			ID: "planner", Name: "Planner", Description: "Reads the code and writes the steps for a change. Does not change anything.", Worktree: WorktreeReadOnly,
 			Briefing: "You turn a request into a plan someone else can carry out. Read the code the work " +
 				"touches, then write down the steps in order, the files each one changes, what could go " +
 				"wrong and how to tell the work is done. Name the open questions instead of guessing.\n" +
@@ -93,7 +96,7 @@ func BuiltinRoles() []Role {
 				"-role worker`, so the manager can assign it. You add tasks and notes; assigning and moving them is the manager's.",
 		},
 		{
-			ID: "worker", Name: "Worker", Worktree: WorktreeOwn,
+			ID: "worker", Name: "Worker", Description: "Carries out one task on a branch of its own and commits it.", Worktree: WorktreeOwn,
 			Briefing: "You carry out one task. Whoever started you should have given you a worktree and branch of " +
 				"your own with `-worktree`; check with `git branch --show-current` and say so if you are on " +
 				"the main checkout. Make the change the task asks for, run the tests that cover it, and " +
@@ -112,7 +115,7 @@ func BuiltinRoles() []Role {
 				"If you are blocked, run `flockdeck task status <id> blocked -note <why>`.",
 		},
 		{
-			ID: "reviewer", Name: "Reviewer", Worktree: WorktreeReadOnly,
+			ID: "reviewer", Name: "Reviewer", Description: "Reads a branch and reports what is wrong with it. Does not edit.", Worktree: WorktreeReadOnly,
 			Briefing: "You review a change someone else made. Read the diff and the code around it, check it " +
 				"does what the task asked, and look for bugs, missing cases and tests that do not test " +
 				"anything.\n" +
@@ -127,7 +130,7 @@ func BuiltinRoles() []Role {
 				"which sends it back to the worker.",
 		},
 		{
-			ID: "tester", Name: "Tester", Worktree: WorktreeOwn,
+			ID: "tester", Name: "Tester", Description: "Writes and runs tests for a change and reports failures.", Worktree: WorktreeOwn,
 			Briefing: "You test a change: write the missing tests, run the suite and try to break the code. " +
 				"Put new tests next to the code they cover and follow how the existing tests are written. " +
 				"The task names the branch to test; if it does not, ask whoever started you. Work in the " +
@@ -142,7 +145,7 @@ func BuiltinRoles() []Role {
 				"to send it back to the worker; for a task in any other state, add the note and message the manager.",
 		},
 		{
-			ID: "docs", Name: "Docs", Worktree: WorktreeOwn,
+			ID: "docs", Name: "Docs", Description: "Writes and corrects documentation for a change that already exists.", Worktree: WorktreeOwn,
 			Briefing: "You write and correct documentation for a change that already exists. Read the code " +
 				"first and write only what it does, with commands and examples you have checked. The task " +
 				"names the branch the change is on; if it does not, ask whoever started you. Commit the " +

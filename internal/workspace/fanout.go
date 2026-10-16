@@ -1435,6 +1435,13 @@ func (w *Workspace) ValidateStartAgent(root, agentID, model string) (openRoot, r
 // other pane stays open; see Pane.Parent. It is the user's own pane, exactly
 // as one opened by hand at the desk would be -- started from a phone instead.
 func (w *Workspace) StartAgent(root, agentID, model, cwd, task string) (string, error) {
+	return w.StartAgentAs(root, agentID, model, cwd, task, "")
+}
+
+// StartAgentAs is StartAgent for a pane started in the role with the id role,
+// or in none when it is empty. The caller has checked the role and settled
+// agentID and model from it; see Catalog.Choose.
+func (w *Workspace) StartAgentAs(root, agentID, model, cwd, task, role string) (string, error) {
 	if strings.TrimSpace(task) == "" {
 		return "", fmt.Errorf("a task is required")
 	}
@@ -1466,6 +1473,7 @@ func (w *Workspace) StartAgent(root, agentID, model, cwd, task string) (string, 
 		Task:    task,
 		Agent:   agentID,
 		Model:   model,
+		Role:    role,
 		// Never given a Parent (see the doc comment above), so it starts
 		// AutoReview from the installation's own default like any other pane
 		// the user started themselves.
