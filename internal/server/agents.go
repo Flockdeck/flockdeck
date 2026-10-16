@@ -26,7 +26,9 @@ type agentView struct {
 	Name    string `json:"name"`
 	Branch  string `json:"branch"`
 	Kind    string `json:"kind"`
-	Status  string `json:"status"`
+	// Role is the id of the role the pane was started in, empty for none.
+	Role   string `json:"role,omitempty"`
+	Status string `json:"status"`
 	// Activity is what the row is drawn as doing (workspace.PaneActivity), the
 	// same value the pane's own header is drawn from.
 	Activity workspace.Activity `json:"activity"`
@@ -123,6 +125,7 @@ func (s *Server) sendAgents(c *controlClient) {
 				Name:     p.Name,
 				Branch:   p.Branch,
 				Kind:     kindName(p.Kind),
+				Role:     p.Role,
 				Status:   st.String(),
 				Activity: workspace.PaneActivity(p),
 				Detail:   detail,
@@ -290,6 +293,21 @@ type catalogAgent struct {
 
 // agentCatalog is the whole catalog as one snapshot carries it: what there is,
 // what is chosen when nobody chooses, and what this project was set to.
+// catalogRole is one role as the picker lists it: enough to say what it is for
+// and which agent and model a start in it would get, so the picker can show
+// that before anything starts. The briefing is left out; it is long and is
+// given to the agent, not to the person choosing.
+type catalogRole struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Agent       string   `json:"agent,omitempty"`
+	Model       string   `json:"model,omitempty"`
+	Tier        string   `json:"tier,omitempty"`
+	Worktree    string   `json:"worktree,omitempty"`
+	Spawns      []string `json:"spawns,omitempty"`
+}
+
 type agentCatalog struct {
 	Items []catalogAgent `json:"items"`
 	// Default is the overall default and Project the active project's own,
@@ -298,6 +316,9 @@ type agentCatalog struct {
 	Project *agentChoice `json:"project,omitempty"`
 	// Routing is what Settings › Routing draws.
 	Routing *routingView `json:"routing,omitempty"`
+	// Roles are the roles a pane can be started in, for the picker and the
+	// roles list in Settings.
+	Roles []catalogRole `json:"roles,omitempty"`
 	// Err says why the user's agents.json was ignored. A damaged file is a
 	// line in the picker and nothing more: the built-ins carry on, because
 	// refusing to start over a preferences file would be absurd.
@@ -464,6 +485,12 @@ func buildCatalog(c *agent.Catalog, root string) agentCatalog {
 			Install:      sp.Install,
 			Addressable:  agent.TakesAddress(sp),
 			Address:      maskAddress(sp.API.BaseURL),
+		})
+	}
+	for _, r := range c.Roles {
+		out.Roles = append(out.Roles, catalogRole{
+			ID: r.ID, Name: r.Name, Description: r.Description, Agent: r.Agent,
+			Model: r.Model, Tier: r.Tier, Worktree: r.Worktree, Spawns: r.Spawns,
 		})
 	}
 	return out

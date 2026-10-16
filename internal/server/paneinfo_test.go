@@ -24,13 +24,13 @@ func fieldValue(fs []paneInfoField, label string) (string, bool) {
 func TestPaneInfoFieldsForAnAgentAndAShell(t *testing.T) {
 	agent := workspace.PaneDetails{
 		ID: "p1", Agent: true, Name: "shop", Cwd: "/work/shop", Root: "/work/shop", Branch: "main",
-		Tab: "Fix checkout", AgentID: "claude", Model: "sonnet", Conversation: "0a1b2c3d-1111-2222-3333-444455556666",
+		Tab: "Fix checkout", AgentID: "claude", Model: "sonnet", Role: "worker", Conversation: "0a1b2c3d-1111-2222-3333-444455556666",
 		Pid: 4242, PeerName: "shop-agent", Status: "idle", Recording: true,
 		TranscriptPath: "/rec/2026-10-01-0a1b2c3d.jsonl", StoredPath: "/home/.claude/projects/x/0a1b2c3d.jsonl",
 	}
 	want := map[string]string{
 		"Pane id": "p1", "Pane name": "shop", "Type": "Agent", "Project": "Shop", "Project folder": "/work/shop",
-		"Directory": "/work/shop", "Branch": "main", "Tab": "Fix checkout", "Agent": "claude", "Model": "sonnet",
+		"Directory": "/work/shop", "Branch": "main", "Tab": "Fix checkout", "Agent": "claude", "Model": "sonnet", "Role": "worker",
 		"Conversation id": agent.Conversation, "Process id": "4242", "Peer name": "shop-agent", "Status": "idle",
 		"Recording": "On", "Transcript file": agent.TranscriptPath, "Stored conversation file": agent.StoredPath,
 	}
@@ -57,7 +57,7 @@ func TestPaneInfoFieldsForAnAgentAndAShell(t *testing.T) {
 	// A shell has no agent, conversation or transcript to show, and what it has
 	// not got yet is left empty, not made up.
 	shell := paneInfoFields(workspace.PaneDetails{ID: "p2", Name: "sh", Root: "/work/shop"}, "Shop")
-	for _, label := range []string{"Agent", "Model", "Conversation id", "Recording", "Transcript file", "Stored conversation file"} {
+	for _, label := range []string{"Agent", "Model", "Role", "Conversation id", "Recording", "Transcript file", "Stored conversation file"} {
 		if _, ok := fieldValue(shell, label); ok {
 			t.Errorf("a shell shows %s", label)
 		}

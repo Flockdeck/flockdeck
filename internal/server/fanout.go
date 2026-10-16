@@ -469,12 +469,26 @@ func (s *Server) startAgent(c *controlClient, cmd command) {
 	// an agent that does not exist is refused at once rather than after a
 	// wait that was always going to end in the same refusal.
 	type facts struct {
-		root string
-		err  error
+		root, agent, model string
+		err                error
 	}
 	f, ok := ask(s, func() facts {
-		root, _, err := s.ws.ValidateStartAgent(cmd.Root, cmd.Agent, cmd.Model)
-		return facts{root: root, err: err}
+		agentID, model := cmd.Agent, cmd.Model
+		if cmd.Role != "" {
+			// A window is not a pane in a role, so no spawn rights limit it;
+			// the role must still exist and an agent is not a shell.
+			if cmd.Kind == "shell" {
+				return facts{err: errRoleWithShell}
+			}
+			defaultAgent, _ := s.ws.SpawnTarget("", cmd.Root, "", "")
+			var err error
+			agentID, model, err = chooseInRole(s.ws.Catalog(), "", cmd.Role, agentID, model, defaultAgent)
+			if err != nil {
+				return facts{err: err}
+			}
+		}
+		root, _, err := s.ws.ValidateStartAgent(cmd.Root, agentID, model)
+		return facts{root: root, agent: agentID, model: model, err: err}
 	})
 	if !ok {
 		return
@@ -516,7 +530,7 @@ func (s *Server) startAgent(c *controlClient, cmd command) {
 			err error
 		}
 		r, ok := ask(s, func() spawned {
-			id, err := s.ws.StartAgent(root, cmd.Agent, cmd.Model, job.cwd, task)
+			id, err := s.ws.StartAgentAs(root, f.agent, f.model, job.cwd, task, cmd.Role)
 			return spawned{id: id, err: err}
 		})
 		if !ok {
@@ -1171,6 +1185,9 @@ func (s *Server) installContextHandler() {
 	})
 }
 
+// errRoleWithShell is the refusal for a role asked of a shell.
+var errRoleWithShell = errors.New("a role is for an agent, and -shell starts a shell")
+
 // applyRole checks the role a spawn asks for and folds the role's agent and
 // model into the request where it named none of its own. It must run on the
 // workspace goroutine.
@@ -1182,7 +1199,7 @@ func (s *Server) installContextHandler() {
 // role cannot be known; one with no parent comes from outside any pane.
 func (s *Server) applyRole(req *hooks.SpawnRequest) error {
 	if req.Role != "" && req.Shell {
-		return errors.New("a role is for an agent, and -shell starts a shell")
+		return errRoleWithShell
 	}
 	cat := s.ws.Catalog()
 	parentRole := ""
@@ -1199,16 +1216,27 @@ func (s *Server) applyRole(req *hooks.SpawnRequest) error {
 		}
 		return cat.MayStart(parentRole, "")
 	}
-	role, err := cat.CheckRole(req.Role)
+	defaultAgent, _ := s.ws.SpawnTarget(req.Parent, "", "", "")
+	var err error
+	req.Agent, req.Model, err = chooseInRole(cat, parentRole, req.Role, req.Agent, req.Model, defaultAgent)
+	return err
+}
+
+// chooseInRole checks a start in the role roleID by a pane in parentRole ("" for
+// none) and returns the agent and model it gets: the ones asked for, with the
+// role's filled in where neither was named. It is what `flockdeck spawn -role`
+// and the window's own role start share, so the two cannot differ on which
+// roles exist, who may start them or which agent they get.
+func chooseInRole(cat *agent.Catalog, parentRole, roleID, agentID, model, defaultAgent string) (string, string, error) {
+	role, err := cat.CheckRole(roleID)
 	if err != nil {
-		return err
+		return "", "", err
 	}
 	if err := cat.MayStart(parentRole, role.ID); err != nil {
-		return err
+		return "", "", err
 	}
-	defaultAgent, _ := s.ws.SpawnTarget(req.Parent, "", "", "")
-	req.Agent, req.Model = cat.Choose(role, req.Agent, req.Model, defaultAgent)
-	return nil
+	agentID, model = cat.Choose(role, agentID, model, defaultAgent)
+	return agentID, model, nil
 }
 
 // errShuttingDown is what a spawn is answered with when the window it would

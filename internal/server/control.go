@@ -352,6 +352,9 @@ type paneView struct {
 	// lets a window group this pane's waiting or settled state under the
 	// job it belongs to, rather than showing it as an unrelated pane.
 	Parent string `json:"parent,omitempty"`
+	// Role is the id of the role the pane was started in, empty for none. It is
+	// the id and not the name, so a window looks the name up in the catalog.
+	Role   string `json:"role,omitempty"`
 	Status string `json:"status"`
 	// Activity is what the pane is drawn as doing (workspace.PaneActivity): its
 	// status, except that an idle agent with background work still running is
@@ -597,6 +600,10 @@ type command struct {
 	// rather than in the project itself. See startAgent.
 	Task     string `json:"task"`
 	Worktree bool   `json:"worktree"`
+	// Role is startAgent's too: the id of the role to start the agent in, as
+	// `flockdeck spawn -role` takes it. Its agent and model apply when Agent
+	// and Model are both empty. Kind "shell" with a Role is refused.
+	Role string `json:"role"`
 	// Req is the id the window gave a baton command (makeBaton, saveBaton,
 	// startFromBaton, restartWithBaton), repeated in the answer so the window can
 	// tell which command it is for.
@@ -768,6 +775,7 @@ func (s *Server) snapshot() stateMsg {
 				Name:         p.Name,
 				Cwd:          p.Cwd,
 				Branch:       p.Branch,
+				Role:         p.Role,
 				Status:       st.String(),
 				Activity:     workspace.PaneActivity(p),
 				Detail:       detail,

@@ -97,6 +97,7 @@ var Keys = []Key{
 	{ID: "todos", Label: "Todos — this project's saved checklists", Section: "Agents", Page: "todo"},
 	{ID: "agents", Keys: "Ctrl+Shift+A", Label: "All agents across projects", Short: "Agents", Section: "Agents", Page: "status"},
 	{ID: "closeFinishedPanes", Label: "Close finished panes — idle agents and cleanly exited panes, in every open project", Section: "Agents", Page: "status"},
+	{ID: "startTeam", Label: "Start a team — a manager agent that starts the rest", Short: "Start a team", Section: "Agents", Page: "agents"},
 	{ID: "apiKeys", Label: "API keys…", Short: "API keys", Section: "Agents", Page: "agents"},
 
 	// --- git ---------------------------------------------------------------

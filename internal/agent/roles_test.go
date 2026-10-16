@@ -247,3 +247,27 @@ func TestMergeRolesNormalisesIDs(t *testing.T) {
 		}
 	}
 }
+
+// The description is a line for the person choosing a role, so each built-in
+// has one and a user's entry can write or replace it.
+func TestRoleDescriptions(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `{"roles": [
+		{"id": "worker", "description": "Does the small jobs."},
+		{"id": "security"}]}`)
+	c := LoadFrom(dir)
+	for _, r := range BuiltinRoles() {
+		if r.Description == "" || strings.Contains(r.Description, "\n") {
+			t.Errorf("built-in role %q needs a one-line description, has %q", r.ID, r.Description)
+		}
+	}
+	if w, _ := c.Role("worker"); w.Description != "Does the small jobs." {
+		t.Errorf("worker description = %q, want the user's", w.Description)
+	}
+	if m, _ := c.Role("manager"); m.Description == "" {
+		t.Error("manager lost its description when another role was changed")
+	}
+	if s, _ := c.Role("security"); s.Description != "" {
+		t.Errorf("a role with none has %q", s.Description)
+	}
+}

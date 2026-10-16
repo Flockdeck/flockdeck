@@ -25,6 +25,8 @@ type PaneDetails struct {
 	// AgentID and Model are what the pane runs, empty for a shell.
 	AgentID string
 	Model   string
+	// Role is the id of the role the pane was started in, empty for none.
+	Role string
 	// Conversation is the agent's own id for its conversation, which is the
 	// pane's id until the agent starts another (after /clear). Empty for a
 	// shell.
@@ -82,7 +84,7 @@ func (w *Workspace) PaneDetailsOf(id string, files bool) (PaneDetails, bool) {
 	}
 
 	w.mu.RLock()
-	d.AgentID, d.Model, d.Recording = p.Agent, p.Model, p.Recording
+	d.AgentID, d.Model, d.Role, d.Recording = p.Agent, p.Model, p.Role, p.Recording
 	conv := paneConversation(p)
 	spec, ex, ok := w.transcriptSourceLocked(p)
 	w.mu.RUnlock()
