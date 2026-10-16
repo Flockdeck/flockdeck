@@ -302,6 +302,12 @@ any task. Every request names the pane it comes from, and that pane must be an o
 pane; it acts as itself, with the role it was started with. A shell has no place on the
 board.
 
+The person at the window acts too, from the Team panel, and always has the manager's powers: the
+table above applies to them as to a manager, with no owner or creator rights of their own. They
+are named `the user (at the window)` in a note, in `task show`, in `inbox` and in the messages below, and
+no message is sent to them. An agent cannot take that name: a peer name that reads as the user
+or as Flockdeck is shown as `(agent) <name>`.
+
 ### Messages the board sends
 
 Flockdeck writes to a pane's inbox, from `flockdeck`, when:

@@ -63,6 +63,7 @@ table, run `go test ./internal/help -run TestKeysDocShortcuts -update`.
 | `Ctrl+Shift+A` | All agents across projects |
 | Command palette | Close finished panes — idle agents and cleanly exited panes, in every open project |
 | Command palette | Start a team — a manager agent that starts the rest |
+| Command palette | Team — this project's roster, task board and messages |
 | Command palette | API keys… |
 
 ## Git

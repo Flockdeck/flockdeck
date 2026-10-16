@@ -669,6 +669,18 @@ type command struct {
 	Done    bool     `json:"done,omitempty"`
 	// Watch is setDeviceRole's own: whether a viewer may also watch panes.
 	Watch bool `json:"watch,omitempty"`
+	// State and MsgID are the Team panel's own, with Root naming the project and
+	// Req the id the window gave the command, repeated in the answer: State is
+	// the task state a taskStatus moves to or a taskList lists, and MsgID the
+	// message a msgSeen marks or a msgList returns whole. A task is named by ID,
+	// its body is Spec, a new task's role is Role and its branch Branch, an
+	// assign or a message names its recipient with Target, a note or a message
+	// is Text, and taskPrune takes the age in days as Size. For msgSeen, ID is
+	// the pane whose inbox the message is in. See teamui.go.
+	State string `json:"state,omitempty"`
+	MsgID int    `json:"msgId,omitempty"`
+	// Panes are the panes teamClose is asked to close.
+	Panes []string `json:"panes,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -1051,6 +1063,9 @@ func (s *Server) broadcastState() {
 		return
 	}
 	s.do(func() {
+		// A Team panel that is open is kept current whether or not the state it
+		// shares the push with changed: a task or a message does not show in it.
+		s.pushTeam()
 		snap := s.snapshot()
 		data, err := json.Marshal(snap)
 		if err != nil {
@@ -1089,6 +1104,11 @@ type controlClient struct {
 	// unchanged one is not sent again. See sendSnapshotTo; belongs to the
 	// workspace goroutine.
 	lastViewerState []byte
+	// teamRoot is the project the window's Team panel is open on, empty while it
+	// is not, and teamSent the picture it was last sent so an unchanged one is
+	// not sent again. Both belong to the workspace goroutine.
+	teamRoot string
+	teamSent []byte
 
 	// page marks a connection that opened with an Origin header, as a browser or
 	// a webview always does and a command-line client does not. Only such a
@@ -1157,6 +1177,20 @@ func (c *controlClient) send(data []byte) {
 		return
 	}
 	c.putMessage(data)
+}
+
+// trySend is send that says whether the message was queued: false for a window
+// whose queue is full. A window that may not have the message is not a failure.
+func (c *controlClient) trySend(data []byte) bool {
+	if !c.mayReceive(data) {
+		return true
+	}
+	select {
+	case c.out <- data:
+		return true
+	default:
+		return false
+	}
 }
 
 // putMessage queues a message without asking whether this window may have it.
@@ -1484,6 +1518,10 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	switch cmd.Cmd {
 	case "setDeviceRole":
 		s.setDeviceRole(c, cmd)
+		return
+	case "teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "taskGet", "taskAdd", "taskAssign",
+		"taskStatus", "taskNote", "taskBranch", "taskPrune", "msgList", "msgSend", "msgSeen", "teamClose":
+		s.teamCommand(c, cmd)
 		return
 	case "worktrees":
 		s.listWorktrees(c, cmd.Root)

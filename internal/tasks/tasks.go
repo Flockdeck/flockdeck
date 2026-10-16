@@ -33,6 +33,9 @@ const (
 	// MaxNotes is how many notes a task keeps. The oldest is dropped to make
 	// room for a new one.
 	MaxNotes = 100
+	// MaxHistory is how many history entries a task keeps. The oldest is dropped
+	// to make room for a new one.
+	MaxHistory = 50
 	// MaxNote is the most one note may have, in bytes.
 	MaxNote = 4 * 1024
 	// MaxBranch is the most a branch name may have, in bytes.
@@ -95,11 +98,30 @@ type Actor struct {
 	Pane string `json:"pane,omitempty"`
 	Role string `json:"role,omitempty"`
 	Name string `json:"name,omitempty"`
+	// User marks the person at the window, who acts with the manager's powers and
+	// is no pane: see UserActor.
+	User bool `json:"user,omitempty"`
 }
+
+// UserName is what agents are told the person at the window is called, in the
+// notices a change of theirs sends and in `flockdeck task show`. The window
+// shows the same actor as "you".
+const UserName = team.UserName
+
+// UserActor is the person at the window. It has no pane and no role, so it is
+// never the owner or the creator of a task, and IsManager treats it as the
+// manager whether or not a pane is in that role: it may make every move the
+// rules give the manager, and no other. It is the only actor with User set; the
+// callback API of the panes cannot make one, since an actor there is built
+// from a pane on the roster.
+func UserActor() Actor { return Actor{Name: UserName, User: true} }
 
 // Label is the actor as one phrase, made of its own words and cut down to one
 // line.
 func (a Actor) Label() string {
+	if a.User {
+		return team.UserLabel
+	}
 	name := team.PlainLabel(a.Name)
 	if name == "" {
 		name = "unknown"
@@ -115,6 +137,14 @@ type Note struct {
 	Author Actor     `json:"author"`
 	Time   time.Time `json:"time"`
 	Text   string    `json:"text"`
+}
+
+// Event is one entry in a task's history: who did what to it, and when. What is
+// the state moved to or the owner given, in a few words, never a note's text.
+type Event struct {
+	Actor Actor     `json:"actor"`
+	Time  time.Time `json:"time"`
+	What  string    `json:"what"`
 }
 
 // Task is one unit of work on the board.
@@ -139,7 +169,10 @@ type Task struct {
 	// stays what it is, a handoff that is not changed; the task only points at it.
 	Baton string `json:"baton,omitempty"`
 
-	Notes   []Note    `json:"notes,omitempty"`
+	Notes []Note `json:"notes,omitempty"`
+	// History is what was done to the task, oldest first: the window shows it
+	// beside the notes. It keeps the last MaxHistory entries.
+	History []Event   `json:"history,omitempty"`
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
 }

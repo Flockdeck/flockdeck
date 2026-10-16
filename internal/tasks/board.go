@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/store"
@@ -44,7 +45,32 @@ type Board struct {
 	// exclude is called once when the file is first created.
 	exclude func(root string) (bool, error)
 	root    string
+
+	// cache is the parsed file as it was when it had cacheStamp, kept so that a
+	// read of a file nobody has written does not parse it again. Every change
+	// through the board's own methods drops it, and a change by another process
+	// shows as a different stamp. It belongs to mu.
+	cache      *file
+	cacheStamp string
+	// loads counts the times the file was read and parsed, for a test.
+	loads atomic.Int64
 }
+
+// stampOf says what the file is now, cheaply: its size and modification time,
+// or "none" for a file that is not there.
+func (b *Board) stampOf() string {
+	fi, err := os.Stat(b.Path)
+	if err != nil {
+		return "none"
+	}
+	return fmt.Sprintf("%d@%d", fi.Size(), fi.ModTime().UnixNano())
+}
+
+// Stamp is a string that changes when the board's file does. It costs a stat.
+func (b *Board) Stamp() string { return b.stampOf() }
+
+// Loads is how many times the file has been read and parsed.
+func (b *Board) Loads() int64 { return b.loads.Load() }
 
 // Open returns the board of the project whose directory is root. The board lives
 // in the project's main checkout, so a root that is a linked worktree gets the
@@ -66,6 +92,7 @@ func Open(root string) *Board {
 // stop to fix it. A file written by a newer Flockdeck is neither: it is an error,
 // so an older one does not overwrite it.
 func (b *Board) load() (f *file, existed bool, err error) {
+	b.loads.Add(1)
 	data, err := store.ReadState(b.Path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -137,6 +164,8 @@ func (b *Board) save(f *file, existed bool) error {
 func (b *Board) update(fn func(f *file) error) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	// Whatever this does to the file, what was kept of it is out of date.
+	b.cache = nil
 	f, existed, err := b.load()
 	if err != nil {
 		return err
@@ -150,9 +179,19 @@ func (b *Board) update(fn func(f *file) error) error {
 func (b *Board) view(fn func(f *file) error) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	// The stamp is taken before the read, so a write that lands between the two
+	// leaves the cache holding an older file under an older stamp, and the next
+	// read sees they differ.
+	stamp := b.stampOf()
+	if b.cache != nil && stamp != "none" && stamp == b.cacheStamp {
+		return fn(b.cache)
+	}
 	f, _, err := b.load()
 	if err != nil {
 		return err
+	}
+	if stamp != "none" && b.stampOf() == stamp {
+		b.cache, b.cacheStamp = f, stamp
 	}
 	return fn(f)
 }
@@ -231,6 +270,7 @@ func (b *Board) Add(a Actor, in NewTask) (Change, error) {
 			ID: fmt.Sprintf("T%d", f.Next), Title: title, Body: body, OwnerRole: role,
 			Creator: a, State: Planned, Branch: branch, Created: now, Updated: now,
 		}
+		t.addEvent(a, now, "added the task")
 		f.Next++
 		f.Tasks = append(f.Tasks, t)
 		ch = Change{Kind: Added, Task: t}
@@ -379,6 +419,7 @@ func (b *Board) Assign(a Actor, hasManager bool, id string, o Assignee) (Change,
 			t.State = Assigned
 		}
 		t.Updated = b.now()
+		t.addEvent(a, t.Updated, "assigned the task to "+OwnerLabel(*t))
 		ch = Change{Kind: Assign, Task: *t, From: from, Overrode: overrode}
 		return nil
 	})
@@ -413,6 +454,7 @@ func (b *Board) SetState(a Actor, hasManager bool, id string, to State, note str
 		t.State = to
 		now := b.now()
 		t.Updated = now
+		t.addEvent(a, now, fmt.Sprintf("moved the task from %s to %s", from, to))
 		if text != "" {
 			t.addNote(Note{Author: a, Time: now, Text: text})
 		}
@@ -451,6 +493,15 @@ func (t *Task) addNote(n Note) {
 	t.Notes = append(t.Notes, n)
 }
 
+// addEvent appends to the task's history, dropping the oldest entry when it is
+// full.
+func (t *Task) addEvent(a Actor, at time.Time, what string) {
+	if len(t.History) >= MaxHistory {
+		t.History = append(t.History[:0:0], t.History[len(t.History)-MaxHistory+1:]...)
+	}
+	t.History = append(t.History, Event{Actor: a, Time: at, What: what})
+}
+
 // SetBranch records the branch a task's work is on.
 func (b *Board) SetBranch(a Actor, hasManager bool, id, branch string) (Change, error) {
 	branch, err := CleanBranch(branch)
@@ -468,6 +519,7 @@ func (b *Board) SetBranch(a Actor, hasManager bool, id, branch string) (Change, 
 		}
 		t.Branch = branch
 		t.Updated = b.now()
+		t.addEvent(a, t.Updated, "set the branch to "+branch)
 		ch = Change{Kind: Branch, Task: *t}
 		return nil
 	})
@@ -489,6 +541,7 @@ func (b *Board) SetBaton(a Actor, hasManager bool, id, baton string) (Change, er
 		}
 		t.Baton = baton
 		t.Updated = b.now()
+		t.addEvent(a, t.Updated, "pointed the task at baton "+baton)
 		ch = Change{Kind: Baton, Task: *t}
 		return nil
 	})

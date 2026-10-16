@@ -3,6 +3,7 @@ package team
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,8 @@ type Store struct {
 	// changed is told, outside the lock, after every change a restart should
 	// keep.
 	changed func()
+	// rev counts the changes, for a reader that wants to know if any happened.
+	rev uint64
 }
 
 // NewStore returns an empty store that reads the time from now (time.Now when
@@ -41,6 +44,13 @@ func NewStore(now func() time.Time) *Store {
 		now = time.Now
 	}
 	return &Store{boxes: map[string][]Message{}, now: now, next: 1}
+}
+
+// Rev is a number that changes with every change to any inbox.
+func (s *Store) Rev() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.rev
 }
 
 // OnChange installs the function called after each change worth saving. It must
@@ -53,6 +63,7 @@ func (s *Store) OnChange(fn func()) {
 
 func (s *Store) notify() {
 	s.mu.Lock()
+	s.rev++
 	fn := s.changed
 	s.mu.Unlock()
 	if fn != nil {
@@ -123,6 +134,20 @@ func (s *Store) List(pane string, all bool) []Message {
 	return out
 }
 
+// Messages returns every message in the inboxes of the given panes, oldest
+// first by id, as copies. It is how the window lists a project's messages; an
+// agent reads only its own inbox, with List.
+func (s *Store) Messages(panes []string) []Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []Message
+	for _, p := range panes {
+		out = append(out, s.boxes[p]...)
+	}
+	slices.SortFunc(out, func(a, b Message) int { return a.ID - b.ID })
+	return out
+}
+
 // Read marks one of a pane's messages read and returns it. A pane can only read
 // what is in its own inbox: an id that is in another's is not found.
 func (s *Store) Read(pane string, id int) (Message, error) {
@@ -143,6 +168,28 @@ func (s *Store) Read(pane string, id int) (Message, error) {
 	}
 	s.mu.Unlock()
 	return Message{}, fmt.Errorf("no message #%d in your inbox; `flockdeck inbox -all` lists what is there", id)
+}
+
+// MarkSeen sets the window's Seen mark on one of a pane's messages and returns
+// it. It leaves Read alone, so the pane still finds the message unread.
+func (s *Store) MarkSeen(pane string, id int) (Message, error) {
+	s.mu.Lock()
+	box := s.boxes[pane]
+	for i := range box {
+		if box[i].ID != id {
+			continue
+		}
+		changed := !box[i].Seen
+		box[i].Seen = true
+		m := box[i]
+		s.mu.Unlock()
+		if changed {
+			s.notify()
+		}
+		return m, nil
+	}
+	s.mu.Unlock()
+	return Message{}, fmt.Errorf("no message #%d in that inbox", id)
 }
 
 // Forget drops a pane's inbox, as when the pane is closed.
@@ -205,6 +252,7 @@ func (s *Store) Load(data []byte) error {
 	}
 	s.mu.Lock()
 	s.boxes, s.next = boxes, next
+	s.rev++
 	s.mu.Unlock()
 	return nil
 }

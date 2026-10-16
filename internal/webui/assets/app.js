@@ -450,6 +450,11 @@
       else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects, "button.dir-into"); }
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
       else if (msg.type === "fanoutHistory") keepFocus(() => renderFanoutHistory(msg));
+      else if (msg.type === "team") teamApply(msg);
+      else if (msg.type === "teamResult") teamAnswer(msg);
+      else if (msg.type === "tasks") teamTasksArrived(msg);
+      else if (msg.type === "teamGone") teamGone(msg);
+      else if (msg.type === "messages") teamMessagesArrived(msg);
       else if (msg.type === "todoPlanPreview") renderTodoPlan(msg);
       else if (msg.type === "todos") keepFocus(() => renderTodos(msg));
       // Every save is answered with this, a step's own edit or a reorder as much
@@ -1694,6 +1699,7 @@
     followProjects(s);
     followWorktrees(s);
     followChanges(s);
+    followTeam(s);
     renderUpdate(s);
     renderRecall();
     renderRemoteChip(s);
@@ -5692,6 +5698,7 @@
     github: { present: "sheet", rail: "btn-github", act: "github",
       again: () => { const at = ghDir; return () => openGithub(at); } },
     startTeam: { present: "dialog-m", act: "startTeam", again: () => openStartTeam },
+    team: { present: "sheet", wide: true, act: "team", again: () => openTeam },
     keys: { present: "sheet", rail: "btn-apikeys", act: "apiKeys", again: () => openKeys },
     remote: { present: "sheet", rail: "btn-remote", act: "remote", again: () => openRemote },
     projects: { present: "sheet", rail: "rail-open", act: "projects", again: () => () => openProjects() },
@@ -6022,6 +6029,7 @@
     else if (dialog === "history") send({ cmd: "conversations" });
     else if (dialog === "fanoutHistory") send({ cmd: "fanoutHistory", root: state ? state.root : "" });
     else if (dialog === "todos") send({ cmd: "todos", root: state ? state.root : "" });
+    else if (dialog === "team") teamWatch();
     else if (dialog === "keys") send({ cmd: "keys" });
     else if (dialog === "versions") send({ cmd: "listVersions" });
     else if (dialog === "helpers" && helperView.kind === "list") send({ cmd: "helpers" });
@@ -6040,6 +6048,7 @@
    *  a shortcut still being recorded (it went on taking every key the window
    *  saw, with no dialog left to show it), a pairing link being polled. */
   function leaveSurface() {
+    if (dialog === "team") teamStop();
     artifactsLeave();
     closeMenu(false);
     picker = null;
@@ -8524,6 +8533,7 @@
     agents: () => openAgents(),
     closeFinishedPanes: () => send({ cmd: "closeFinishedPanes" }),
     startTeam: () => openStartTeam(),
+    team: () => openTeam(),
     apiKeys: () => openKeys(),
     helpers: () => openHelpers(),
     github: () => openGithub(),
@@ -8756,7 +8766,7 @@
    *  palette narrowed to just these -- one surface reaches any other without
    *  a trip back out to the rail or the shortcut that opened this one. */
   const PAGE_ACTIONS = ["agents", "changes", "worktrees", "history", "todos", "github", "remote",
-    "projects", "settings", "help", "fanout", "fanoutHistory", "apiKeys"];
+    "projects", "settings", "help", "fanout", "fanoutHistory", "team", "apiKeys"];
 
   /** The groups the palette lists its commands under while nothing is typed,
    *  in this order: the key table's own sections (Panes, Tabs, Agents, The
@@ -8781,7 +8791,7 @@
     // somebody looking for one types - it matched none of them.
     const SETTING = "settings preferences options";
     const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
-    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "paneInfo" ? "id identifier identifiers details info information conversation session process pid peer path file copy" : id === "findPane" ? "search locate where switch go id identifier conversation session process pid peer name project tab branch" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : id === "remote" ? "remote access" : id === "startTeam" ? "manager roles planner worker reviewer team goal orchestrate" : "";
+    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "paneInfo" ? "id identifier identifiers details info information conversation session process pid peer path file copy" : id === "findPane" ? "search locate where switch go id identifier conversation session process pid peer name project tab branch" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : id === "remote" ? "remote access" : id === "startTeam" ? "manager roles planner worker reviewer team goal orchestrate" : id === "team" ? "roster tasks task board kanban messages inbox agents roles manager worker reviewer assign" : "";
     // What a setting is now, beside the command that changes it: choosing a
     // scrollback or a font meant opening the question to find out.
     const value = {
@@ -11364,6 +11374,1168 @@
     body.append(label, goal, pickLabel, sel, foot,
       el("div", "wt-hint", "Ctrl+Enter in the goal starts it."));
     goal.focus();
+  }
+
+  // ------------------------------------------------------------- team panel
+
+  /* The Team panel is one project's team in three tabs: the roster of its agent
+   * panes, the shared task board, and the messages between the panes. It is how
+   * the person at the window sees and steers a team without the command line.
+   * What they do here they do as the manager would: the server runs the same
+   * operations `flockdeck task` and `flockdeck msg` run, as the user, so the
+   * rules for who may move a task where, the size limits and the notices sent to
+   * the agents are the server's and not repeated here.
+   *
+   * While the panel is open the server pushes the whole picture (type "team")
+   * whenever the roster, the board or the messages change. A push replaces what
+   * is drawn, and keepFocus puts the scroll position and the keyboard back, so
+   * what is kept here across it is the state of the panel itself: the tab, the
+   * open task, the filter, and the text typed into a form. Nothing that is a
+   * message, a title or a note is ever put into the page as markup. */
+
+  const TEAM_COLUMNS = [["planned", "Planned"], ["assigned", "Assigned"], ["in-progress", "In progress"],
+    ["in-review", "In review"], ["done", "Done"]];
+  const TEAM_SIDE = [["blocked", "Blocked"], ["cancelled", "Cancelled"]];
+  const TEAM_STATE_NAME = Object.fromEntries(TEAM_COLUMNS.concat(TEAM_SIDE));
+  const TEAM_TABS = [["roster", "Roster"], ["tasks", "Tasks"], ["messages", "Messages"]];
+  /** The most a message may carry, in bytes: the server's limit, shown so a long
+   *  message is not found too long only by sending it. */
+  const TEAM_MESSAGE_BYTES = 8 * 1024;
+  /** The most a pending request waits for an answer. */
+  const TEAM_BUSY_MS = 10000;
+
+  /** team is the picture the server last pushed, or null before the first. */
+  let team = null;
+  const teamUI = {
+    root: "",
+    tab: "roster",
+    // The task whose detail is open, the detail as the server last sent it, and
+    // when it was last asked for.
+    open: "",
+    detail: null,
+    // What was last asked for of the open task: its id, when it changed and how
+    // many notes it had, so a push that repeats it does not ask again.
+    asked: "",
+    addOpen: false,
+    sideOpen: false,
+    // Finished tasks beyond the ones a push lists, when they were asked for.
+    extra: [],
+    filter: "",
+    // Whole texts of messages that were cut, by id.
+    full: {},
+    errs: {},
+    busy: new Set(),
+    pending: new Map(),
+    deferred: 0,
+    // The list box being chosen from, and what the open tab was last drawn from.
+    picking: null,
+    drawn: "",
+    // Why the project cannot be read, when the server said so.
+    gone: "",
+    // What is typed, kept across a redraw.
+    draft: { title: "", body: "", role: "", branch: "", note: "", assign: "", branchEdit: "", to: "", text: "" },
+  };
+
+  /** teamWho is a person or pane as the panel names it. The user is "you". */
+  function teamWho(a) {
+    if (!a) return "";
+    if (a.user) return "you";
+    const name = a.name || "unknown";
+    return a.role ? name + " (" + roleName(a.role) + ")" : name;
+  }
+
+  /** teamWhen is a time as the panel writes it: the hour today, the date and
+   *  hour otherwise. */
+  function teamWhen(iso) {
+    const t = Date.parse(iso || "");
+    if (!(t > 0)) return "";
+    const d = new Date(t);
+    const two = (n) => String(n).padStart(2, "0");
+    const hm = two(d.getHours()) + ":" + two(d.getMinutes());
+    if (d.toDateString() === new Date().toDateString()) return hm;
+    return d.getFullYear() + "-" + two(d.getMonth() + 1) + "-" + two(d.getDate()) + " " + hm;
+  }
+
+  /** teamSay adds a line for a screen reader to the announcer, which keeps only
+   *  the last few. */
+  function teamSay(text) {
+    const box = $("announcer");
+    if (!box || !text) return;
+    box.append(el("div", null, text));
+    while (box.children.length > 3) box.firstChild.remove();
+  }
+
+  function openTeam() {
+    if (remoteWindow) {
+      notice("The Team panel is used on the machine Flockdeck runs on, not from a window reached through the relay", true);
+      return;
+    }
+    dialog = "team";
+    const root = state ? state.root : "";
+    if (teamUI.root !== root) {
+      // Another project: nothing of the last one's picture, forms or open task
+      // is this one's.
+      teamUI.root = root;
+      team = null;
+      teamUI.open = "";
+      teamUI.detail = null;
+      teamUI.extra = [];
+      teamUI.full = {};
+      teamUI.errs = {};
+      teamUI.addOpen = false;
+      teamUI.gone = "";
+    }
+    const active = ((state && state.projects) || []).find((x) => x.active);
+    openOverlay("Team", "agents", { scope: (team && team.project) || (active && active.name) || "" });
+    teamWatch();
+    renderTeam();
+  }
+
+  /** teamWatch subscribes this window to the project: the server answers with
+   *  the picture and pushes it again when anything in it changes. */
+  function teamWatch() {
+    send({ cmd: "teamWatch", root: teamUI.root });
+  }
+
+  /** teamStop is what leaving the panel puts away: the subscription, and the
+   *  requests still out. */
+  function teamStop() {
+    send({ cmd: "teamUnwatch" });
+    for (const p of teamUI.pending.values()) clearTimeout(p.timer);
+    teamUI.pending.clear();
+    teamUI.busy.clear();
+    clearTimeout(teamUI.deferred);
+    teamUI.deferred = 0;
+    teamUI.picking = null;
+    teamUI.drawn = "";
+    const body = $("overlay-body");
+    body.removeAttribute("role");
+    body.removeAttribute("aria-labelledby");
+  }
+
+  /** followTeam moves an open panel to the project on screen. */
+  function followTeam(s) {
+    if (dialog !== "team" || !s || s.root === teamUI.root) return;
+    openTeam();
+  }
+
+  /** teamCmd sends a command that changes something. area names where an error
+   *  is shown and which buttons wait; done is called with the answer when it was
+   *  done. */
+  function teamCmd(area, cmd, done) {
+    if (teamUI.busy.has(area)) return;
+    const req = "team-" + Math.random().toString(36).slice(2);
+    const timer = setTimeout(() => {
+      if (!teamUI.pending.delete(req)) return;
+      teamUI.busy.delete(area);
+      teamUI.errs[area] = "No answer from Flockdeck. Check the connection and try again.";
+      if (dialog === "team") keepFocus(renderTeam);
+    }, TEAM_BUSY_MS);
+    teamUI.pending.set(req, { area, done, timer });
+    teamUI.busy.add(area);
+    teamUI.errs[area] = "";
+    send(Object.assign({ root: teamUI.root, req }, cmd));
+    keepFocus(renderTeam);
+  }
+
+  /** teamAnswer takes the server's answer to a command from teamCmd. */
+  function teamAnswer(msg) {
+    // The answer to the panel's own asking for the open task, which nothing waits on.
+    if (msg.req === "detail" && msg.op === "taskGet") {
+      if (msg.ok && msg.task && msg.task.id === teamUI.open) {
+        teamUI.detail = msg.task;
+        teamUI.asked = "";
+        if (dialog === "team") keepFocus(renderTeam);
+      }
+      return;
+    }
+    const p = teamUI.pending.get(msg.req);
+    teamUI.pending.delete(msg.req);
+    if (p) { clearTimeout(p.timer); teamUI.busy.delete(p.area); }
+    if (!msg.ok) {
+      const why = msg.error || "That did not work.";
+      // Marking a message seen has no place of its own to say it failed.
+      if (p && p.area !== "seen") teamUI.errs[p.area] = why; else notice(why, true);
+    } else if (p && p.done) {
+      p.done(msg);
+    }
+    if (msg.ok && msg.warning) notice(msg.warning, false);
+    if (dialog === "team") keepFocus(renderTeam);
+  }
+
+  /** teamApply takes a pushed picture. It says what changed to a screen reader,
+   *  asks again for an open task that moved, and draws it. */
+  function teamApply(msg) {
+    if (msg.root !== teamUI.root && teamUI.root) return;
+    const before = team;
+    team = msg;
+    teamUI.gone = "";
+    if (!teamUI.root) teamUI.root = msg.root;
+    if (before) teamAnnounce(before, msg);
+    // An open task that changed is asked for in full, once for each change.
+    const card = teamUI.open && msg.tasks.find((t) => t.id === teamUI.open);
+    if (card) {
+      const d = teamUI.detail;
+      const want = card.id + "|" + card.updated + "|" + card.notes;
+      const have = d && d.id + "|" + d.updated + "|" + (d.noteList || []).length;
+      if (want !== have && want !== teamUI.asked) { teamUI.asked = want; teamAskDetail(); }
+    }
+    // A panel put away for good is let go of here, at the next push, rather than
+    // wherever a surface may be replaced by another.
+    if (dialog !== "team" && ($("overlay").hidden || !overlayStack.some((s) => s.name === "team"))) {
+      send({ cmd: "teamUnwatch" });
+      return;
+    }
+    if (dialog !== "team") return;
+    // A menu open on a button of the panel, or a list being chosen from, would
+    // lose what the redraw replaces; it is drawn once they are put away.
+    if (teamHeld()) { teamRetry(); return; }
+    teamRefresh();
+  }
+
+  /** teamHeld says the panel is not to be redrawn now: a menu is open on one of
+   *  its buttons, or a list box is being chosen from. */
+  function teamHeld() {
+    return !!menuNode || !!(teamUI.picking && teamUI.picking.isConnected && document.activeElement === teamUI.picking);
+  }
+
+  function teamRetry() {
+    if (teamUI.deferred) return;
+    teamUI.deferred = setTimeout(() => {
+      teamUI.deferred = 0;
+      if (dialog !== "team") return;
+      if (teamHeld()) teamRetry(); else teamRefresh();
+    }, 400);
+  }
+
+  /** teamRefresh draws a pushed picture. When what the open tab shows has not
+   *  moved, which is most pushes (a roster push for a team busy on the board),
+   *  nothing under it is replaced: the tab counts are all that is drawn again.
+   *  A form, a list being scrolled and a caret are then not touched. */
+  function teamRefresh() {
+    if (team && teamSlice() === teamUI.drawn) { renderTeamTabs(); return; }
+    keepFocus(renderTeam);
+  }
+
+  /** teamSlice is the part of the picture the open tab is drawn from, as a key
+   *  to compare. The panes' names and roles are in every tab's: they are what
+   *  its lists offer. */
+  function teamSlice() {
+    const who = team.roster.map((r) => [r.pane, r.name, r.role, r.status === "exited"]);
+    let part;
+    if (teamUI.tab === "roster") {
+      part = [team.roster, team.hasManager];
+    } else if (teamUI.tab === "tasks") {
+      const card = teamUI.open && team.tasks.find((t) => t.id === teamUI.open);
+      part = teamUI.open ? [card || null, who] : [team.tasks, team.counts.tasks, team.openHidden, team.finishedHidden, who];
+    } else {
+      part = [team.messages, team.messagesHidden, who];
+    }
+    return JSON.stringify([part, team.boardError || ""]);
+  }
+
+  /** teamPick wires a list box so that a push does not redraw it while it is
+   *  being chosen from, which closes the list the browser has open. */
+  function teamPick(sel, onChange) {
+    sel.onmousedown = () => { teamUI.picking = sel; };
+    sel.onkeydown = (ev) => { if ((ev.altKey && ev.key === "ArrowDown") || ev.key === "F4") teamUI.picking = sel; };
+    sel.onchange = () => { teamUI.picking = null; onChange(); };
+    sel.onblur = () => { if (teamUI.picking === sel) teamUI.picking = null; };
+  }
+
+  /** teamAnnounce says what changed in a push that a person would want told:
+   *  new unread messages from others, and tasks that moved. The rest is on
+   *  screen for whoever looks. */
+  function teamAnnounce(before, now) {
+    const said = [];
+    const seen = new Set(before.messages.map((m) => m.id));
+    const fresh = now.messages.filter((m) => !seen.has(m.id) && !m.seen && !(m.from && m.from.user));
+    if (fresh.length === 1) said.push("New message from " + teamWho(fresh[0].from));
+    else if (fresh.length > 1) said.push(fresh.length + " new messages");
+    const was = new Map(before.tasks.map((t) => [t.id, t.state]));
+    const moved = now.tasks.filter((t) => was.has(t.id) && was.get(t.id) !== t.state);
+    for (const t of moved.slice(0, 3)) said.push(t.id + " is now " + (TEAM_STATE_NAME[t.state] || t.state).toLowerCase());
+    if (moved.length > 3) said.push((moved.length - 3) + " more tasks moved");
+    teamSay(said.join(". "));
+  }
+
+  /** teamAskDetail asks for the open task in full. */
+  function teamAskDetail() {
+    if (teamUI.open) send({ cmd: "taskGet", root: teamUI.root, id: teamUI.open, req: "detail" });
+  }
+
+  /** teamTasks is the board's tasks: those pushed, and the older finished ones
+   *  asked for. */
+  function teamTasks() {
+    if (!team) return [];
+    const have = new Set(team.tasks.map((t) => t.id));
+    return team.tasks.concat(teamUI.extra.filter((t) => !have.has(t.id)));
+  }
+
+  function teamTask(id) { return teamTasks().find((t) => t.id === id); }
+
+  // ------------------------------------------------------------------ frame
+
+  function renderTeam() {
+    if (dialog !== "team") return;
+    closeMenu(false);
+    const body = $("overlay-body");
+    body.textContent = "";
+    if (!team) {
+      teamUI.drawn = "";
+      $("overlay-tabs").hidden = true;
+      const gone = el("div", "dir-empty", teamUI.gone ? "This project cannot be read now: " + teamUI.gone : "Reading the team…");
+      if (teamUI.gone) gone.setAttribute("role", "status");
+      body.append(gone);
+      return;
+    }
+    teamUI.drawn = teamSlice();
+    renderTeamTabs();
+
+    if (team.boardError) {
+      const why = el("div", "pick-warn", "The task board could not be read: " + team.boardError);
+      why.setAttribute("role", "status");
+      body.append(why);
+    }
+    if (teamUI.tab === "roster") renderTeamRoster(body);
+    else if (teamUI.tab === "tasks") renderTeamTasks(body);
+    else renderTeamMessages(body);
+  }
+
+  /** renderTeamTabs draws the tabs with their counts, and the body's part in
+   *  them: it is their panel. The keyboard stays on the tab it was on. */
+  function renderTeamTabs() {
+    const body = $("overlay-body");
+    const row = $("overlay-tabs");
+    const inTabs = row.contains(document.activeElement);
+    const counts = { roster: team.counts.panes, tasks: team.counts.open, messages: team.counts.unseen };
+    overlayTabs(TEAM_TABS.map(([id, label]) => ({ id, label, count: counts[id] })), teamUI.tab, (id) => {
+      if (teamUI.tab === id) return;
+      teamUI.tab = id;
+      renderTeam();
+    });
+    [...row.children].forEach((b, i) => { b.id = "team-tab-" + TEAM_TABS[i][0]; });
+    body.setAttribute("role", "tabpanel");
+    body.setAttribute("aria-labelledby", "team-tab-" + teamUI.tab);
+    if (inTabs) { const b = $("team-tab-" + teamUI.tab); if (b) b.focus(); }
+  }
+
+  /** teamEscape puts away what Escape closes first in the panel, and reports
+   *  whether it did: an open task, the add form, a filter box. */
+  function teamEscape() {
+    if (dialog !== "team" || !team) return false;
+    if (teamUI.tab === "tasks" && teamUI.open) { teamCloseTask(); return true; }
+    if (teamUI.tab === "tasks" && teamUI.addOpen) {
+      teamUI.addOpen = false;
+      keepFocus(renderTeam, "#team-add-open");
+      return true;
+    }
+    return false;
+  }
+
+  function teamErrBox(area) {
+    const e = el("div", "team-err", teamUI.errs[area] || "");
+    e.id = "team-err-" + area;
+    e.setAttribute("role", "alert");
+    e.hidden = !teamUI.errs[area];
+    return e;
+  }
+
+  // ----------------------------------------------------------------- roster
+
+  function renderTeamRoster(body) {
+    const roster = team.roster;
+    if (!roster.length) {
+      body.append(el("div", "dir-empty", "A team is agents in roles (manager, worker, reviewer) that share a task board and message each other."));
+      const go = el("button", "chip primary", "Start a team");
+      go.id = "team-start-team";
+      go.onclick = () => openFrom(openStartTeam);
+      describe(go, "Start a manager agent with your goal; it starts the other agents it needs.");
+      const bar = el("div", "team-bar team-empty");
+      bar.append(go);
+      body.append(bar);
+      return;
+    }
+    const bar = el("div", "team-bar");
+    const start = el("button", "chip primary", "Start an agent…");
+    start.id = "team-start-agent";
+    describe(start, "Start an agent in this project, in a role, in a tab of its own.");
+    start.onclick = () => openFrom(() => chooseAgent("Start an agent", (agent, model) =>
+      send({ cmd: "newTab", kind: "agent", agent, model }), { roles: true }));
+    bar.append(start);
+    if (!team.hasManager) {
+      const go = el("button", "chip", "Start a team");
+      go.id = "team-start-team";
+      describe(go, "No pane is in the manager role. Start a manager with a goal; it starts the other agents it needs.");
+      go.onclick = () => openFrom(openStartTeam);
+      bar.append(go);
+    }
+    const done = roster.filter((r) => r.finished && !r.locked);
+    if (done.length) {
+      const close = el("button", "chip", "Close finished (" + done.length + ")");
+      close.id = "team-close-finished";
+      close.disabled = teamUI.busy.has("close");
+      describe(close, "Close the idle or exited panes of this project listed here, after you confirm. Panes working or waiting, panes with background work and locked panes are left.");
+      close.onclick = () => confirmDialog({
+        title: "Close " + done.length + (done.length === 1 ? " finished pane?" : " finished panes?"),
+        body: done.map((r) => r.name + (r.role ? " (" + roleName(r.role) + ")" : "")).join(", ") +
+          ". Each is checked again as it closes, and one that has started working is left open.",
+        action: "Close " + done.length + (done.length === 1 ? " pane" : " panes"), danger: true,
+      }, () => teamClosePanes(done.map((r) => r.pane)));
+      bar.append(close);
+    }
+    body.append(bar);
+    body.append(teamErrBox("close"));
+
+    const wrap = section(roster.length + (roster.length === 1 ? " agent" : " agents"));
+    roster.forEach((r) => wrap.append(teamRosterRow(r)));
+    body.append(wrap);
+  }
+
+  function teamRosterRow(r) {
+    const shown = r.activity || r.status;
+    const row = el("div", "agent-row team-pane");
+    row.id = "team-pane-" + r.pane;
+    const main = el("div", "agent-main");
+    const title = el("div", "agent-title");
+    const dot = el("span", "dot " + shown);
+    dot.setAttribute("aria-hidden", "true");
+    title.append(describe(dot, TIPS[shown] || shown));
+    if (r.role) {
+      const tag = el("span", "agent-role", roleName(r.role));
+      tag.setAttribute("role", "img");
+      tag.setAttribute("aria-label", "Role: " + roleName(r.role));
+      title.append(describe(tag, roleTip(r.role)));
+    }
+    title.append(describe(el("span", "agent-tab", r.name), r.name + (r.peer ? " (pane name " + r.peer + ")" : "")));
+    main.append(title);
+
+    const meta = el("div", "agent-meta");
+    if (r.agent) meta.append(describe(el("span", null, r.model ? r.agent + " · " + r.model : r.agent), TIPS.agent));
+    if (r.branch) {
+      const n = el("span", null, "⎇ " + r.branch);
+      n.setAttribute("role", "img");
+      n.setAttribute("aria-label", "On branch " + r.branch);
+      meta.append(describe(n, TIPS.branch));
+    }
+    if (r.task) {
+      const link = el("button", "agent-parent link", r.task.id + " · " + (TEAM_STATE_NAME[r.task.state] || r.task.state) + ": " + r.task.title);
+      link.type = "button";
+      link.id = "team-pane-task-" + r.pane;
+      describe(link, "Open " + r.task.id + " on the board");
+      const go = (ev) => { ev.stopPropagation(); teamShowTask(r.task.id); };
+      link.onclick = go;
+      link.onkeydown = (ev) => {
+        if (ev.key !== "Enter" && ev.key !== " ") return;
+        ev.preventDefault();
+        go(ev);
+      };
+      meta.append(link);
+    } else {
+      meta.append(el("span", null, "no task"));
+    }
+    if (r.unread) meta.append(describe(el("span", "agent-waiting", r.unread + " unread by the agent"), "Messages in this pane's inbox that it has not read"));
+    main.append(meta);
+    row.append(main);
+
+    row.append(el("span", "agent-status " + shown, shown));
+    const close = el("button", "chip team-close", "Close");
+    close.type = "button";
+    close.id = "team-close-" + r.pane;
+    close.disabled = !r.finished || !!r.locked;
+    describe(close, r.locked ? "This pane is locked against closing."
+      : r.finished ? "Close this pane. It is idle or has exited." : "Only an idle or exited pane can be closed here.");
+    close.onclick = (ev) => { ev.stopPropagation(); teamClosePanes([r.pane]); };
+    close.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") ev.stopPropagation(); };
+    row.append(close);
+
+    rowAction(row, () => {
+      send({ cmd: "revealPane", id: r.pane });
+      closeOverlay();
+    }, false, r.name);
+    return row;
+  }
+
+  /** teamClosePanes asks the server to close panes. It judges each again as it
+   *  closes it, so one that went back to work since the roster was drawn stays. */
+  function teamClosePanes(ids) {
+    teamCmd("close", { cmd: "teamClose", panes: ids }, (res) => {
+      const left = res.skipped || [];
+      notice((res.closed ? "Closed " + res.closed + (res.closed === 1 ? " pane" : " panes") : "No pane was closed") +
+        (left.length ? ". Left open: " + left.join("; ") : ""), !res.closed && left.length > 0);
+    });
+  }
+
+  // ------------------------------------------------------------------ tasks
+
+  function teamShowTask(id) {
+    teamUI.tab = "tasks";
+    teamUI.open = id;
+    teamUI.detail = null;
+    teamUI.asked = "";
+    teamUI.errs.detail = "";
+    teamAskDetail();
+    keepFocus(renderTeam);
+  }
+
+  function teamCloseTask() {
+    const was = teamUI.open;
+    teamUI.open = "";
+    teamUI.detail = null;
+    teamUI.draft.note = "";
+    keepFocus(renderTeam, "#team-task-" + was);
+  }
+
+  function renderTeamTasks(body) {
+    if (teamUI.open) { renderTeamTask(body); return; }
+    const tasks = teamTasks();
+    const bar = el("div", "team-bar");
+    const add = el("button", "chip primary", "Add task");
+    add.id = "team-add-open";
+    add.setAttribute("aria-expanded", String(teamUI.addOpen));
+    add.onclick = () => {
+      teamUI.addOpen = !teamUI.addOpen;
+      keepFocus(renderTeam);
+      // The form takes the keyboard it was opened for.
+      const first = teamUI.addOpen && $("team-title");
+      if (first) first.focus();
+    };
+    bar.append(add);
+    const finished = (team.counts.tasks.done || 0) + (team.counts.tasks.cancelled || 0);
+    const prune = el("button", "chip", "Prune finished…");
+    prune.id = "team-prune";
+    prune.disabled = !finished || teamUI.busy.has("prune");
+    describe(prune, finished ? "Remove done and cancelled tasks that were last changed more than 30 days ago." : "There are no finished tasks.");
+    prune.onclick = () => confirmDialog({
+      title: "Prune finished tasks?",
+      body: "Removes done and cancelled tasks last changed more than 30 days ago from this project's board. Open tasks are kept.",
+      action: "Prune", danger: true,
+    }, () => teamCmd("prune", { cmd: "taskPrune", size: 30 }, (res) =>
+      notice(res.pruned ? "Removed " + res.pruned + (res.pruned === 1 ? " finished task" : " finished tasks") : "No finished task was old enough", false)));
+    bar.append(prune);
+    body.append(bar);
+    body.append(teamErrBox("prune"));
+    if (teamUI.addOpen) body.append(teamAddForm());
+
+    if (!tasks.length) {
+      body.append(el("div", "dir-empty", "No tasks on this project's board. Add one, or start a team and its manager adds them."));
+      return;
+    }
+    const byState = new Map();
+    tasks.forEach((t) => {
+      if (!byState.has(t.state)) byState.set(t.state, []);
+      byState.get(t.state).push(t);
+    });
+    const board = el("div", "team-board");
+    board.id = "team-board";
+    const cols = [];
+    TEAM_COLUMNS.forEach(([state, label]) => {
+      const col = teamColumn(state, label, byState.get(state) || []);
+      cols.push(col);
+      board.append(col);
+    });
+    body.append(board);
+    const hidden = (team.openHidden || 0) + (team.finishedHidden || 0);
+    if (hidden && !teamUI.extra.length) {
+      const more = el("button", "chip", "Show " + hidden + " more " + (hidden === 1 ? "task" : "tasks") + " not listed");
+      more.id = "team-show-all";
+      more.onclick = () => send({ cmd: "taskList", root: teamUI.root, state: "all" });
+      body.append(more);
+    }
+
+    // Blocked and cancelled stay out of the way until asked for.
+    const side = TEAM_SIDE.map(([state]) => (byState.get(state) || []).length);
+    const sideN = side[0] + side[1];
+    const toggle = el("button", "chip team-side-toggle", (teamUI.sideOpen ? "Hide" : "Show") + " blocked and cancelled (" +
+      side[0] + " blocked, " + side[1] + " cancelled)");
+    toggle.id = "team-side-toggle";
+    toggle.setAttribute("aria-expanded", String(teamUI.sideOpen));
+    toggle.setAttribute("aria-controls", "team-side");
+    toggle.disabled = !sideN;
+    toggle.onclick = () => { teamUI.sideOpen = !teamUI.sideOpen; keepFocus(renderTeam); };
+    body.append(toggle);
+    if (teamUI.sideOpen && sideN) {
+      const box = el("div", "team-board team-side");
+      box.id = "team-side";
+      TEAM_SIDE.forEach(([state, label]) => {
+        const col = teamColumn(state, label, byState.get(state) || []);
+        cols.push(col);
+        box.append(col);
+      });
+      body.append(box);
+    }
+    cols.forEach((col, i) => teamColumnKeys(col, cols, i));
+    body.append(el("div", "wt-hint", "Arrow keys move between cards. Enter opens a task."));
+  }
+
+  /** teamColumn is one state's tasks: a group with a heading naming it and how
+   *  many it holds, and a card for each. */
+  function teamColumn(state, label, list) {
+    const col = el("div", "team-col");
+    col.dataset.state = state;
+    col.setAttribute("role", "group");
+    const total = state === "done" && team.counts.tasks.done ? team.counts.tasks.done : list.length;
+    const head = el("h3", "team-col-head", label);
+    head.id = "team-col-" + state;
+    head.append(el("span", "team-col-n", String(total)));
+    col.setAttribute("aria-labelledby", head.id);
+    col.append(head);
+    const cards = el("div", "team-cards");
+    list.forEach((t) => cards.append(teamCard(t)));
+    if (!list.length) cards.append(el("div", "team-none", "None"));
+    col.append(cards);
+    return col;
+  }
+
+  /** teamColumnKeys makes Left and Right move between the columns, to the card
+   *  at the same height, as Up and Down move within one. */
+  function teamColumnKeys(col, cols, at) {
+    [...col.querySelectorAll("div.team-card")].forEach((card, i) => {
+      const was = card.onkeydown;
+      card.onkeydown = (ev) => {
+        if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+          const step = ev.key === "ArrowLeft" ? -1 : 1;
+          for (let j = at + step; j >= 0 && j < cols.length; j += step) {
+            const there = [...cols[j].querySelectorAll("div.team-card")];
+            if (!there.length) continue;
+            ev.preventDefault();
+            there[Math.min(i, there.length - 1)].focus();
+            return;
+          }
+          return;
+        }
+        if (was) was.call(card, ev);
+      };
+    });
+  }
+
+  function teamCard(t) {
+    const card = el("div", "team-card");
+    card.id = "team-task-" + t.id;
+    const head = el("div", "team-card-head");
+    head.append(el("span", "team-card-id", t.id));
+    head.append(el("span", "team-card-title", t.title));
+    card.append(head);
+    const meta = el("div", "team-card-meta");
+    const owner = el("span", "team-owner" + (t.owner === "unassigned" ? " none" : ""), t.owner);
+    meta.append(describe(owner, "Who it is for"));
+    if (t.branch) meta.append(describe(el("span", null, "⎇ " + t.branch), TIPS.branch));
+    if (t.notes) meta.append(el("span", null, t.notes + (t.notes === 1 ? " note" : " notes")));
+    card.append(meta);
+    if (t.moves.length) {
+      const move = el("button", "chip team-move", "Move");
+      move.type = "button";
+      move.id = "team-move-" + t.id;
+      move.setAttribute("aria-haspopup", "menu");
+      move.setAttribute("aria-expanded", "false");
+      describe(move, "Move " + t.id + " to another state");
+      const menu = (ev) => {
+        ev.stopPropagation();
+        move.setAttribute("aria-expanded", "true");
+        openMenu(move, t.moves.map((m) => ({
+          label: "Move to " + (TEAM_STATE_NAME[m.to] || m.to).toLowerCase(),
+          hint: m.needNote ? "needs a note" : "",
+          disabled: m.needNote,
+          run: () => teamMove(t.id, m.to, ""),
+        })), "Move " + t.id);
+      };
+      move.onclick = menu;
+      move.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") ev.stopPropagation(); };
+      card.append(move);
+    }
+    rowAction(card, () => teamShowTask(t.id), false, t.id + " " + t.title);
+    card.setAttribute("aria-label", t.id + ", " + t.title + ", " + (TEAM_STATE_NAME[t.state] || t.state) + ", " + t.owner +
+      (t.notes ? ", " + t.notes + (t.notes === 1 ? " note" : " notes") : ""));
+    return card;
+  }
+
+  function teamMove(id, to, note) {
+    teamCmd("detail", { cmd: "taskStatus", id, state: to, text: note }, (res) => {
+      if (teamUI.open === id) { teamUI.detail = res.task; teamUI.draft.note = ""; }
+      teamSay(id + " moved to " + (TEAM_STATE_NAME[to] || to).toLowerCase());
+    });
+  }
+
+  function teamAddForm() {
+    const d = teamUI.draft;
+    const form = el("div", "team-form");
+    form.id = "team-add";
+    form.setAttribute("role", "group");
+    form.setAttribute("aria-label", "Add a task");
+
+    const field = (label, id, node) => {
+      const l = el("label", "pick-label", label);
+      l.htmlFor = id;
+      node.id = id;
+      form.append(l, node);
+      return node;
+    };
+    const title = el("input", "pick-filter");
+    title.type = "text";
+    title.maxLength = 200;
+    title.value = d.title;
+    title.oninput = () => { d.title = title.value; };
+    field("Title", "team-title", title);
+
+    const text = el("textarea", "pick-role-task");
+    text.rows = 3;
+    text.spellcheck = false;
+    text.value = d.body;
+    text.oninput = () => { d.body = text.value; };
+    field("Details (optional)", "team-body", text);
+
+    const role = el("select", "pick-filter");
+    role.append(el("option", null, "Any role"));
+    role.firstChild.value = "";
+    const known = new Set();
+    ((catalog && catalog.roles) || []).forEach((r) => known.add(r.id));
+    team.roster.forEach((r) => { if (r.role) known.add(r.role); });
+    [...known].forEach((id) => {
+      const o = el("option", null, roleName(id));
+      o.value = id;
+      role.append(o);
+    });
+    role.value = d.role;
+    teamPick(role, () => { d.role = role.value; });
+    field("For role (optional)", "team-role", role);
+
+    const branch = el("input", "pick-filter");
+    branch.type = "text";
+    branch.value = d.branch;
+    branch.placeholder = "feature/parser";
+    branch.oninput = () => { d.branch = branch.value; };
+    field("Branch (optional)", "team-branch-new", branch);
+
+    const go = el("button", "chip primary", "Add task");
+    go.id = "team-add-go";
+    go.disabled = teamUI.busy.has("add");
+    const submit = () => {
+      if (!d.title.trim()) {
+        teamUI.errs.add = "Give the task a title.";
+        keepFocus(renderTeam, "#team-title");
+        return;
+      }
+      teamCmd("add", { cmd: "taskAdd", title: d.title, spec: d.body, role: d.role, branch: d.branch }, (res) => {
+        d.title = d.body = d.role = d.branch = "";
+        teamUI.addOpen = false;
+        teamSay("Task " + (res.task ? res.task.id : "") + " added");
+      });
+    };
+    go.onclick = submit;
+    title.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); submit(); } };
+    text.onkeydown = (ev) => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); submit(); } };
+    const cancel = el("button", "chip", "Cancel");
+    cancel.id = "team-add-cancel";
+    cancel.onclick = () => { teamUI.addOpen = false; teamUI.errs.add = ""; keepFocus(renderTeam, "#team-add-open"); };
+    const foot = el("div", "wt-form team-foot");
+    foot.append(go, cancel);
+    form.append(foot, teamErrBox("add"));
+    return form;
+  }
+
+  // ---------------------------------------------------------------- one task
+
+  function renderTeamTask(body) {
+    const card = teamTask(teamUI.open);
+    let t = teamUI.detail && teamUI.detail.id === teamUI.open ? teamUI.detail : null;
+    const back = el("button", "chip", "← Board");
+    back.id = "team-back";
+    back.onclick = teamCloseTask;
+    describe(back, "Back to the board (Esc)");
+    const bar = el("div", "team-bar");
+    bar.append(back);
+    body.append(bar);
+    if (!card && !t) {
+      const gone = el("div", "dir-empty", teamUI.open + " is no longer on this board.");
+      gone.setAttribute("role", "status");
+      body.append(gone);
+      return;
+    }
+    // The summary stands in until the whole task has come; the actions need
+    // nothing the summary lacks, apart from the thread.
+    t = t || card;
+    const wrap = el("div", "team-detail");
+    wrap.id = "team-detail";
+    const head = el("div", "team-detail-head");
+    head.append(el("span", "team-card-id", t.id));
+    head.append(el("h3", "team-detail-title", t.title));
+    head.append(el("span", "team-state " + t.state, TEAM_STATE_NAME[t.state] || t.state));
+    wrap.append(head);
+
+    const facts = el("dl", "team-facts");
+    const fact = (k, v) => {
+      facts.append(el("dt", null, k));
+      const dd = el("dd");
+      if (typeof v === "string") dd.textContent = v; else dd.append(v);
+      facts.append(dd);
+    };
+    const owner = el("span", null, t.owner);
+    if (t.ownerOpen) {
+      const go = el("button", "chip", "Go to pane");
+      go.id = "team-owner-go";
+      describe(go, "Show the owner's pane");
+      go.onclick = () => { send({ cmd: "revealPane", id: t.ownerPane }); closeOverlay(); };
+      const both = el("span", "team-owner-line");
+      both.append(owner, go);
+      fact("For", both);
+    } else {
+      fact("For", owner);
+    }
+    fact("Branch", t.branch || "none");
+    fact("Added by", teamWho(t.creator));
+    if (t.created) fact("Added", teamWhen(t.created));
+    fact("Changed", teamWhen(t.updated));
+    if (t.baton) fact("Baton", t.baton);
+    wrap.append(facts);
+
+    if (t.body) {
+      const b = el("div", "team-body", t.body);
+      b.id = "team-task-body";
+      wrap.append(section("Details"), b);
+    }
+
+    // Steering.
+    const steer = section("Steer");
+    steer.append(teamAssignRow(t), teamBranchRow(t));
+    wrap.append(steer);
+
+    // The thread, then the box that adds to it.
+    const notes = t.noteList || [];
+    const thread = section("Notes (" + t.notes + ")");
+    const list = el("div", "team-notes");
+    list.id = "team-notes";
+    list.setAttribute("role", "list");
+    notes.forEach((n) => {
+      const item = el("div", "team-note");
+      item.setAttribute("role", "listitem");
+      const h = el("div", "team-note-head");
+      h.append(el("span", "team-note-who" + (n.author && n.author.user ? " you" : ""), teamWho(n.author)), el("span", null, teamWhen(n.time)));
+      item.append(h, el("div", "team-note-text", n.text));
+      list.append(item);
+    });
+    if (!notes.length) list.append(el("div", "team-none", t.notes && !t.noteList ? "Reading the notes…" : "No notes yet."));
+    thread.append(list);
+    wrap.append(thread);
+    wrap.append(teamNoteBox(t));
+
+    const hist = t.historyList || [];
+    if (hist.length) {
+      const sec = section("History");
+      const ul = el("div", "team-history");
+      ul.setAttribute("role", "list");
+      hist.forEach((e) => {
+        const li = el("div", "team-event");
+        li.setAttribute("role", "listitem");
+        li.append(el("span", "team-event-time", teamWhen(e.time)), el("span", null, teamWho(e.actor) + " " + e.what));
+        ul.append(li);
+      });
+      sec.append(ul);
+      wrap.append(sec);
+    }
+    body.append(wrap);
+  }
+
+  function teamAssignRow(t) {
+    const d = teamUI.draft;
+    const row = el("div", "team-row");
+    const label = el("label", "pick-label", "Assign to");
+    label.htmlFor = "team-assign";
+    const sel = el("select", "pick-filter");
+    sel.id = "team-assign";
+    const none = el("option", null, "Choose a role or a pane");
+    none.value = "";
+    sel.append(none);
+    const roles = new Set();
+    ((catalog && catalog.roles) || []).forEach((r) => roles.add(r.id));
+    team.roster.forEach((r) => { if (r.role) roles.add(r.role); });
+    [...roles].forEach((id) => {
+      const o = el("option", null, "Any " + roleName(id));
+      o.value = "role:" + id;
+      sel.append(o);
+    });
+    team.roster.filter((r) => r.status !== "exited").forEach((r) => {
+      const o = el("option", null, r.name + (r.role ? " (" + roleName(r.role) + ")" : ""));
+      o.value = r.pane;
+      sel.append(o);
+    });
+    sel.value = d.assign;
+    sel.disabled = !t.canAssign;
+    teamPick(sel, () => { d.assign = sel.value; });
+    const go = el("button", "chip", "Assign");
+    go.id = "team-assign-go";
+    go.disabled = !t.canAssign || teamUI.busy.has("detail");
+    describe(go, t.canAssign ? "Give the task to a role, or to a pane. The pane is told." : "Only an open task can be assigned.");
+    go.onclick = () => {
+      if (!sel.value) { teamUI.errs.detail = "Choose who the task is for."; keepFocus(renderTeam, "#team-assign"); return; }
+      teamCmd("detail", { cmd: "taskAssign", id: t.id, target: sel.value }, (res) => {
+        teamUI.detail = res.task;
+        d.assign = "";
+        teamSay(t.id + " assigned");
+      });
+    };
+    row.append(label, sel, go);
+    return row;
+  }
+
+  function teamBranchRow(t) {
+    const d = teamUI.draft;
+    const row = el("div", "team-row");
+    const label = el("label", "pick-label", "Branch");
+    label.htmlFor = "team-branch";
+    const input = el("input", "pick-filter");
+    input.id = "team-branch";
+    input.type = "text";
+    input.placeholder = t.branch || "feature/parser";
+    input.value = d.branchEdit;
+    input.disabled = !t.canEdit;
+    input.oninput = () => { d.branchEdit = input.value; };
+    const go = el("button", "chip", "Set branch");
+    go.id = "team-branch-go";
+    go.disabled = !t.canEdit || teamUI.busy.has("detail");
+    describe(go, t.canEdit ? "Record the git branch the work is on." : "Only an open task can be changed.");
+    const submit = () => {
+      if (!d.branchEdit.trim()) { teamUI.errs.detail = "Type a branch name first."; keepFocus(renderTeam, "#team-branch"); return; }
+      teamCmd("detail", { cmd: "taskBranch", id: t.id, branch: d.branchEdit }, (res) => { teamUI.detail = res.task; d.branchEdit = ""; });
+    };
+    go.onclick = submit;
+    input.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); submit(); } };
+    row.append(label, input, go);
+    return row;
+  }
+
+  function teamNoteBox(t) {
+    const d = teamUI.draft;
+    const box = el("div", "team-notebox");
+    const label = el("label", "pick-label", "Add a note, or say why for a move that needs one");
+    label.htmlFor = "team-note";
+    const text = el("textarea", "pick-role-task");
+    text.id = "team-note";
+    text.rows = 3;
+    text.spellcheck = false;
+    text.value = d.note;
+    text.oninput = () => {
+      d.note = text.value;
+      add.disabled = !d.note.trim() || teamUI.busy.has("detail");
+    };
+    const add = el("button", "chip primary", "Add note");
+    add.id = "team-note-go";
+    add.disabled = !d.note.trim() || teamUI.busy.has("detail");
+    const send1 = () => {
+      if (!d.note.trim()) return;
+      teamCmd("detail", { cmd: "taskNote", id: t.id, text: d.note }, (res) => { teamUI.detail = res.task; d.note = ""; teamSay("Note added to " + t.id); });
+    };
+    add.onclick = send1;
+    text.onkeydown = (ev) => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); send1(); } };
+
+    const move = el("button", "chip", "Move to…");
+    move.id = "team-move-go";
+    move.type = "button";
+    move.disabled = !t.moves.length || teamUI.busy.has("detail");
+    move.setAttribute("aria-haspopup", "menu");
+    move.setAttribute("aria-expanded", "false");
+    describe(move, t.moves.length ? "Move the task to another state. The rules allow only these moves; a note in the box is sent with the move."
+      : "No move is open to this task.");
+    move.onclick = () => {
+      move.setAttribute("aria-expanded", "true");
+      openMenu(move, t.moves.map((m) => ({
+        label: "Move to " + (TEAM_STATE_NAME[m.to] || m.to).toLowerCase(),
+        hint: m.needNote ? "needs a note" : "",
+        disabled: m.needNote && !d.note.trim(),
+        run: () => teamMove(t.id, m.to, d.note),
+      })), "Move " + t.id);
+    };
+    const foot = el("div", "wt-form team-foot");
+    foot.append(add, move);
+    box.append(label, text, foot, teamErrBox("detail"));
+    return box;
+  }
+
+  // --------------------------------------------------------------- messages
+
+  /** teamMessageMatches says whether a message is to or from the pane or role
+   *  the filter names. */
+  function teamMessageMatches(m, filter) {
+    if (!filter) return true;
+    const [kind, id] = [filter.slice(0, filter.indexOf(":")), filter.slice(filter.indexOf(":") + 1)];
+    if (kind === "pane") return m.to === id || (m.from && m.from.pane === id);
+    if (kind === "role") return m.toRole === id || (m.from && m.from.role === id);
+    return true;
+  }
+
+  function renderTeamMessages(body) {
+    const d = teamUI.draft;
+    // Compose first, so it is where the keyboard lands and the list below can
+    // grow without moving it.
+    const form = el("div", "team-form");
+    form.id = "team-compose-box";
+    form.setAttribute("role", "group");
+    form.setAttribute("aria-label", "Send a message");
+    const live = team.roster.filter((r) => r.status !== "exited");
+    const roles = [...new Set(live.map((r) => r.role).filter(Boolean))];
+    const toLabel = el("label", "pick-label", "Send to");
+    toLabel.htmlFor = "team-to";
+    const to = el("select", "pick-filter");
+    to.id = "team-to";
+    const none = el("option", null, live.length ? "Choose a pane or a role" : "No agent is running");
+    none.value = "";
+    to.append(none);
+    roles.forEach((id) => {
+      const o = el("option", null, "Every " + roleName(id));
+      o.value = "role:" + id;
+      to.append(o);
+    });
+    live.forEach((r) => {
+      const o = el("option", null, r.name + (r.role ? " (" + roleName(r.role) + ")" : ""));
+      o.value = r.pane;
+      to.append(o);
+    });
+    to.value = d.to;
+    teamPick(to, () => { d.to = to.value; });
+    const textLabel = el("label", "pick-label", "Message");
+    textLabel.htmlFor = "team-compose";
+    const text = el("textarea", "pick-role-task");
+    text.id = "team-compose";
+    text.rows = 3;
+    text.spellcheck = false;
+    text.value = d.text;
+    text.placeholder = "It is signed as you, and the agent reads it with flockdeck inbox.";
+    const count = el("span", "team-count");
+    count.id = "team-compose-count";
+    const go = el("button", "chip primary", "Send");
+    go.id = "team-send";
+    const bytes = () => new TextEncoder().encode(d.text).length;
+    const refresh = () => {
+      const n = bytes();
+      count.textContent = n + " / " + TEAM_MESSAGE_BYTES + " bytes";
+      count.classList.toggle("over", n > TEAM_MESSAGE_BYTES);
+      go.disabled = !d.text.trim() || n > TEAM_MESSAGE_BYTES || teamUI.busy.has("compose");
+    };
+    text.oninput = () => { d.text = text.value; refresh(); };
+    const submit = () => {
+      if (go.disabled) return;
+      if (!d.to) { teamUI.errs.compose = "Choose who to send it to."; keepFocus(renderTeam, "#team-to"); return; }
+      teamCmd("compose", { cmd: "msgSend", target: d.to, text: d.text }, (res) => {
+        d.text = "";
+        teamSay("Message sent to " + res.sent + (res.sent === 1 ? " pane" : " panes"));
+        notice("Message sent to " + res.sent + (res.sent === 1 ? " pane" : " panes"), false);
+      });
+    };
+    go.onclick = submit;
+    text.onkeydown = (ev) => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); submit(); } };
+    refresh();
+    const foot = el("div", "wt-form team-foot");
+    foot.append(go, count);
+    form.append(toLabel, to, textLabel, text, foot, teamErrBox("compose"));
+    form.append(el("div", "wt-hint", "Ctrl+Enter sends. The text goes to the agent's inbox, never into its terminal; the agent is told it has mail."));
+    body.append(form);
+
+    // The list, newest first.
+    const filterBar = el("div", "team-bar");
+    const fl = el("label", "pick-label", "Show");
+    fl.htmlFor = "team-filter";
+    const filter = el("select", "pick-filter");
+    filter.id = "team-filter";
+    const all = el("option", null, "All messages");
+    all.value = "";
+    filter.append(all);
+    [...new Set(team.roster.map((r) => r.role).filter(Boolean))].forEach((id) => {
+      const o = el("option", null, "Role: " + roleName(id));
+      o.value = "role:" + id;
+      filter.append(o);
+    });
+    team.roster.forEach((r) => {
+      const o = el("option", null, "Pane: " + r.name + (r.role ? " (" + roleName(r.role) + ")" : ""));
+      o.value = "pane:" + r.pane;
+      filter.append(o);
+    });
+    filter.value = teamUI.filter;
+    teamPick(filter, () => { teamUI.filter = filter.value; keepFocus(renderTeam); });
+    filterBar.append(fl, filter);
+    body.append(filterBar);
+
+    const shown = team.messages.filter((m) => teamMessageMatches(m, teamUI.filter));
+    if (!team.messages.length) {
+      body.append(el("div", "dir-empty", "No messages in this project yet. Agents write to each other with flockdeck msg, and you can write to them above."));
+      return;
+    }
+    if (!shown.length) {
+      body.append(el("div", "dir-empty", "No message matches that."));
+      return;
+    }
+    const list = el("div", "team-msgs");
+    list.id = "team-msgs";
+    list.setAttribute("role", "list");
+    shown.forEach((m) => list.append(teamMessage(m)));
+    body.append(list);
+    if (team.messagesHidden) body.append(el("div", "wt-hint", team.messagesHidden + " older messages are not shown."));
+  }
+
+  function teamMessage(m) {
+    const fresh = !m.seen && !(m.from && m.from.user);
+    const item = el("div", "team-msg" + (fresh ? " unseen" : ""));
+    item.id = "team-msg-" + m.id;
+    item.tabIndex = 0;
+    item.setAttribute("role", "listitem");
+    const head = el("div", "team-msg-head");
+    head.append(el("span", "team-note-who" + (m.from && m.from.user ? " you" : ""), m.system ? "Flockdeck" : teamWho(m.from)));
+    head.append(el("span", null, "to " + (m.toName ? m.toName + (m.toRole ? " (" + roleName(m.toRole) + ")" : "") : m.to)));
+    head.append(el("span", null, teamWhen(m.time)));
+    // Two marks, kept apart: the recipient's (has the agent read it) and the
+    // window's own (have you looked).
+    head.append(el("span", "team-msg-state", (fresh ? "new, " : "") + (m.read ? "read by the agent" : "unread by the agent")));
+    item.append(head);
+    // Plain text, whatever it holds: it was written by an agent.
+    const full = teamUI.full[m.id];
+    item.append(el("div", "team-msg-text", full != null ? full : m.text));
+    const acts = el("div", "team-msg-acts");
+    if (m.cut && full == null) {
+      const more = el("button", "chip", "Show all");
+      more.id = "team-msg-more-" + m.id;
+      more.onclick = () => send({ cmd: "msgList", root: teamUI.root, msgId: m.id });
+      acts.append(more);
+    }
+    if (fresh) {
+      const seen = el("button", "chip", "Mark seen");
+      seen.id = "team-msg-seen-" + m.id;
+      describe(seen, "Mark it seen here. The agent's inbox is not changed: it still finds the message unread until it reads it.");
+      seen.onclick = () => teamCmd("seen", { cmd: "msgSeen", id: m.to, msgId: m.id });
+      acts.append(seen);
+    }
+    if (acts.children.length) item.append(acts);
+    item.onkeydown = (ev) => {
+      if (ev.target !== item) return;
+      const rows = [...item.parentElement.children];
+      const to = rowStep(ev.key, rows.indexOf(item), rows.length);
+      if (to === undefined || !rows[to]) return;
+      ev.preventDefault();
+      rows[to].focus();
+    };
+    return item;
+  }
+
+  /** teamGone is the server saying the project being watched can no longer be
+   *  read, a closed one above all: the panel says so and drops the old picture. */
+  function teamGone(msg) {
+    if (msg.root !== teamUI.root) return;
+    team = null;
+    teamUI.gone = msg.error || "The project is not open any more.";
+    teamUI.open = "";
+    teamUI.detail = null;
+    if (dialog === "team") keepFocus(renderTeam);
+  }
+
+  /** teamTasksArrived takes the tasks a push left out, asked for with "Show". */
+  function teamTasksArrived(msg) {
+    if (msg.root !== teamUI.root) return;
+    teamUI.extra = msg.tasks || [];
+    if (dialog === "team") keepFocus(renderTeam, "#team-side-toggle");
+  }
+
+  /** teamMessagesArrived keeps the whole text of a message that was cut. */
+  function teamMessagesArrived(msg) {
+    if (msg.root !== teamUI.root) return;
+    for (const m of msg.messages || []) if (!m.cut) teamUI.full[m.id] = m.text;
+    if (dialog === "team") keepFocus(renderTeam);
   }
 
 
@@ -16063,6 +17235,8 @@
       }
       // A menu open on a row goes first, with the keyboard back on its button.
       if (closeMenu(true)) { e.preventDefault(); return; }
+      // The Team panel's open task or form goes before the panel does.
+      if (teamEscape()) { e.preventDefault(); return; }
       // One level at a time: a surface stacked on another goes back to it.
       dismissOverlay();
       return;

@@ -29,8 +29,10 @@ type taskState struct {
 // boardFor is the board of the project the pane self belongs to. A project is a
 // group of repositories when it has one, and its board is in the group's primary
 // checkout. It must run on the workspace goroutine.
-func (w *Workspace) boardFor(self string) *tasks.Board {
-	root := w.rootOf(self)
+func (w *Workspace) boardFor(self string) *tasks.Board { return w.boardOf(w.rootOf(self)) }
+
+// boardOf is the board of the project whose directory is root.
+func (w *Workspace) boardOf(root string) *tasks.Board {
 	if g := w.groupOf(root); g != nil && g.Primary != "" {
 		root = g.Primary
 	}
@@ -88,7 +90,15 @@ func (w *Workspace) Task(req hooks.TaskRequest) (hooks.TaskResult, error) {
 	if err != nil {
 		return hooks.TaskResult{}, err
 	}
-	board := w.boardFor(req.Pane)
+	return w.runTask(actor, members, w.boardFor(req.Pane), req)
+}
+
+// runTask runs one operation as the actor on the board of the project whose
+// roster is members. It is the one place the operations are carried out, for a
+// pane and for the person at the window alike, so the rules, the limits and the
+// notices are the same for both.
+func (w *Workspace) runTask(actor tasks.Actor, members []team.Member, board *tasks.Board, req hooks.TaskRequest) (hooks.TaskResult, error) {
+	var err error
 	// A pane with no role has the manager's powers only while no pane in the
 	// manager role is running.
 	hasManager := tasks.HasManager(members)

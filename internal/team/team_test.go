@@ -522,3 +522,74 @@ func TestNoticeNamesTheSendersRoleBeforeItsName(t *testing.T) {
 		t.Errorf("notice = %q", got)
 	}
 }
+
+func TestMessagesListsSeveralInboxesByIDAndCopiesThem(t *testing.T) {
+	s := NewStore(nil)
+	a, _ := s.Send(Sender{Name: "x"}, "p1", "first")
+	b, _ := s.Send(UserSender(), "p2", "second")
+	c, _ := s.Send(Sender{Name: "x"}, "p3", "elsewhere")
+	got := s.Messages([]string{"p2", "p1"})
+	if len(got) != 2 || got[0].ID != a.ID || got[1].ID != b.ID || got[1].From.Name != UserName || !got[1].From.User {
+		t.Fatalf("messages = %+v (the third was %d)", got, c.ID)
+	}
+	got[0].Text = "changed"
+	if s.Messages([]string{"p1"})[0].Text != "first" {
+		t.Error("the store's message was changed through the copy")
+	}
+	if len(s.Messages(nil)) != 0 {
+		t.Error("no panes listed some messages")
+	}
+	// The user flag survives a save.
+	data, err := s.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := NewStore(nil)
+	if err := again.Load(data); err != nil {
+		t.Fatal(err)
+	}
+	if m := again.Messages([]string{"p2"}); len(m) != 1 || !m[0].From.User || m[0].System() {
+		t.Errorf("after a restart: %+v", m)
+	}
+}
+
+func TestNoAgentNameCanPassForTheUserOrFlockdeck(t *testing.T) {
+	for _, name := range []string{
+		"the user", "The  User", "THE USER", "the_user", "the-user", "t.h.e u.s.e.r", "user", "User", "you", "You!",
+		"me", "flockdeck", "Flockdeck", "flock deck", "system", "the user (at the window)", "The User (at the window)",
+		"you at the window", "flockdeck (system)", "  the\tuser  ", "admin",
+	} {
+		got := AgentLabel(name)
+		if Impersonates(got) {
+			t.Errorf("AgentLabel(%q) = %q, which still passes for the user or Flockdeck", name, got)
+		}
+		if !strings.HasPrefix(got, "(agent) ") {
+			t.Errorf("AgentLabel(%q) = %q, want the name kept after a marker", name, got)
+		}
+		if got == UserLabel || got == UserName || got == System {
+			t.Errorf("AgentLabel(%q) = %q", name, got)
+		}
+		m := Member{Pane: "p", Peer: name}
+		if m.Label() != got {
+			t.Errorf("Member label for %q = %q", name, m.Label())
+		}
+		// The line typed into a terminal cannot read as the user's either.
+		if s := senderLabel(Sender{Pane: "p", Name: got}); s == senderLabel(UserSender()) {
+			t.Errorf("notice label for %q = %q", name, s)
+		}
+	}
+	for _, name := range []string{"api", "worker one", "userland", "usher", "Yousef", "flock"} {
+		if got := AgentLabel(name); got != name {
+			t.Errorf("AgentLabel(%q) = %q, an ordinary name was changed", name, got)
+		}
+	}
+	if (Message{From: UserSender()}).FromLabel() != UserLabel {
+		t.Error("the user's own message is not labelled as the user")
+	}
+	if (Message{From: Sender{Name: UserName}}).FromLabel() == UserLabel {
+		t.Error("a sender named like the user, with no flag, is labelled as the user")
+	}
+	if (Message{From: Sender{Name: System}}).System() != true || (Message{From: Sender{Pane: "p", Name: System}}).System() {
+		t.Error("System() does not mean a message Flockdeck wrote")
+	}
+}

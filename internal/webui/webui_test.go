@@ -9021,6 +9021,9 @@ class Element {
   }
   dispatchEvent(ev) { return dispatch(this, ev); }
 
+  /** click is the element's own, as a browser has it: a disabled control
+   *  ignores it. app.js calls it to follow a tab the arrow keys landed on. */
+  click() { if (!this.disabled) dispatch(this, new Ev("click", { target: this })); }
   focus() { this.ownerDocument._focus(this); }
   blur() { if (this.ownerDocument.activeElement === this) this.ownerDocument._focus(this.ownerDocument.body); }
 

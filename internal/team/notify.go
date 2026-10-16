@@ -117,6 +117,9 @@ func Notice(count int, latest Message) string {
 // SafeLabel. Pane names are the name of the directory and so are often shared by
 // several panes; the role tells them apart ("reviewer work", "worker work").
 func senderLabel(s Sender) string {
+	if s.User {
+		return "the-user-at-the-window"
+	}
 	if s.Role == "" {
 		return SafeLabel(s.Name)
 	}
