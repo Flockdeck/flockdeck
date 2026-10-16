@@ -231,6 +231,7 @@ func (b *Board) Add(a Actor, in NewTask) (Change, error) {
 			ID: fmt.Sprintf("T%d", f.Next), Title: title, Body: body, OwnerRole: role,
 			Creator: a, State: Planned, Branch: branch, Created: now, Updated: now,
 		}
+		t.addEvent(a, now, "added the task")
 		f.Next++
 		f.Tasks = append(f.Tasks, t)
 		ch = Change{Kind: Added, Task: t}
@@ -379,6 +380,7 @@ func (b *Board) Assign(a Actor, hasManager bool, id string, o Assignee) (Change,
 			t.State = Assigned
 		}
 		t.Updated = b.now()
+		t.addEvent(a, t.Updated, "assigned the task to "+OwnerLabel(*t))
 		ch = Change{Kind: Assign, Task: *t, From: from, Overrode: overrode}
 		return nil
 	})
@@ -413,6 +415,7 @@ func (b *Board) SetState(a Actor, hasManager bool, id string, to State, note str
 		t.State = to
 		now := b.now()
 		t.Updated = now
+		t.addEvent(a, now, fmt.Sprintf("moved the task from %s to %s", from, to))
 		if text != "" {
 			t.addNote(Note{Author: a, Time: now, Text: text})
 		}
@@ -451,6 +454,15 @@ func (t *Task) addNote(n Note) {
 	t.Notes = append(t.Notes, n)
 }
 
+// addEvent appends to the task's history, dropping the oldest entry when it is
+// full.
+func (t *Task) addEvent(a Actor, at time.Time, what string) {
+	if len(t.History) >= MaxHistory {
+		t.History = append(t.History[:0:0], t.History[len(t.History)-MaxHistory+1:]...)
+	}
+	t.History = append(t.History, Event{Actor: a, Time: at, What: what})
+}
+
 // SetBranch records the branch a task's work is on.
 func (b *Board) SetBranch(a Actor, hasManager bool, id, branch string) (Change, error) {
 	branch, err := CleanBranch(branch)
@@ -468,6 +480,7 @@ func (b *Board) SetBranch(a Actor, hasManager bool, id, branch string) (Change, 
 		}
 		t.Branch = branch
 		t.Updated = b.now()
+		t.addEvent(a, t.Updated, "set the branch to "+branch)
 		ch = Change{Kind: Branch, Task: *t}
 		return nil
 	})
@@ -489,6 +502,7 @@ func (b *Board) SetBaton(a Actor, hasManager bool, id, baton string) (Change, er
 		}
 		t.Baton = baton
 		t.Updated = b.now()
+		t.addEvent(a, t.Updated, "pointed the task at baton "+baton)
 		ch = Change{Kind: Baton, Task: *t}
 		return nil
 	})

@@ -3,6 +3,7 @@ package team
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -120,6 +121,20 @@ func (s *Store) List(pane string, all bool) []Message {
 			out = append(out, m)
 		}
 	}
+	return out
+}
+
+// Messages returns every message in the inboxes of the given panes, oldest
+// first by id, as copies. It is how the window lists a project's messages; an
+// agent reads only its own inbox, with List.
+func (s *Store) Messages(panes []string) []Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []Message
+	for _, p := range panes {
+		out = append(out, s.boxes[p]...)
+	}
+	slices.SortFunc(out, func(a, b Message) int { return a.ID - b.ID })
 	return out
 }
 

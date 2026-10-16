@@ -207,12 +207,24 @@ func resolveRole(members []Member, role string) ([]Member, error) {
 	return nil, noSuchRole{role}
 }
 
+// UserName is what a message from the person at the window is signed with, and
+// what the window's notes and notices call them to an agent. The window itself
+// shows "you".
+const UserName = "the user"
+
 // Sender says who a message came from.
 type Sender struct {
 	Pane string `json:"pane,omitempty"`
 	Role string `json:"role,omitempty"`
 	Name string `json:"name"`
+	// User marks a message the person at the window wrote. Like the rest of the
+	// sender it is not authenticated for the agent that reads it.
+	User bool `json:"user,omitempty"`
 }
+
+// UserSender is the person at the window as the sender of a message. It has no
+// pane, so a reply to it goes nowhere an agent can send to.
+func UserSender() Sender { return Sender{Name: UserName, User: true} }
 
 // Message is one message in a pane's inbox.
 type Message struct {

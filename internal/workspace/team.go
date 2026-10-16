@@ -142,11 +142,17 @@ func (w *Workspace) dropInbox(id string) {
 // itself included and marked, in the order the tabs show them. It must run on the
 // workspace goroutine.
 func (w *Workspace) Roster(self string) ([]team.Member, error) {
-	me := w.Pane(self)
-	if me == nil {
+	if w.Pane(self) == nil {
 		return nil, fmt.Errorf("no pane %q is open here", self)
 	}
-	myRoot := w.rootOf(self)
+	return w.rosterOf(w.rootOf(self), self), nil
+}
+
+// rosterOf lists the agent panes of the project whose directory is myRoot, in the
+// order the tabs show them. The pane self, which may be empty for none, is
+// included whatever project it is in and marked. It must run on the workspace
+// goroutine.
+func (w *Workspace) rosterOf(myRoot, self string) []team.Member {
 	myGroup := w.groupOf(myRoot)
 
 	var ids []string
@@ -190,7 +196,7 @@ func (w *Workspace) Roster(self string) ([]team.Member, error) {
 		}
 		out = append(out, w.memberOf(p, id == self))
 	}
-	return out, nil
+	return out
 }
 
 // memberOf describes a pane for the roster.
@@ -236,13 +242,21 @@ func (w *Workspace) SendMessage(from, target, text string) (hooks.MsgResult, err
 	if me.Pane != from {
 		return hooks.MsgResult{}, fmt.Errorf("pane %s is not an agent pane, so it is not part of the team and cannot send messages", from)
 	}
+	return w.deliver(members, senderOf(me), target, text)
+}
+
+// deliver puts a message from sender into the inbox of every member target
+// names, and has each pane told it has mail when it can be. Both the panes and
+// the window send through it, so the size limit, the full-inbox refusal and the
+// delivery rules are the same for both.
+func (w *Workspace) deliver(members []team.Member, sender team.Sender, target, text string) (hooks.MsgResult, error) {
 	targets, err := team.Resolve(members, target)
 	if err != nil {
 		return hooks.MsgResult{}, err
 	}
 	var res hooks.MsgResult
 	for _, to := range targets {
-		m, err := w.team.inbox.Send(senderOf(me), to.Pane, text)
+		m, err := w.team.inbox.Send(sender, to.Pane, text)
 		if err != nil {
 			if len(targets) == 1 {
 				return hooks.MsgResult{}, err

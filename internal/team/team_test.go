@@ -522,3 +522,33 @@ func TestNoticeNamesTheSendersRoleBeforeItsName(t *testing.T) {
 		t.Errorf("notice = %q", got)
 	}
 }
+
+func TestMessagesListsSeveralInboxesByIDAndCopiesThem(t *testing.T) {
+	s := NewStore(nil)
+	a, _ := s.Send(Sender{Name: "x"}, "p1", "first")
+	b, _ := s.Send(UserSender(), "p2", "second")
+	c, _ := s.Send(Sender{Name: "x"}, "p3", "elsewhere")
+	got := s.Messages([]string{"p2", "p1"})
+	if len(got) != 2 || got[0].ID != a.ID || got[1].ID != b.ID || got[1].From.Name != UserName || !got[1].From.User {
+		t.Fatalf("messages = %+v (the third was %d)", got, c.ID)
+	}
+	got[0].Text = "changed"
+	if s.Messages([]string{"p1"})[0].Text != "first" {
+		t.Error("the store's message was changed through the copy")
+	}
+	if len(s.Messages(nil)) != 0 {
+		t.Error("no panes listed some messages")
+	}
+	// The user flag survives a save.
+	data, err := s.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := NewStore(nil)
+	if err := again.Load(data); err != nil {
+		t.Fatal(err)
+	}
+	if m := again.Messages([]string{"p2"}); len(m) != 1 || !m[0].From.User || m[0].System() {
+		t.Errorf("after a restart: %+v", m)
+	}
+}

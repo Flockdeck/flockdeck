@@ -39,6 +39,8 @@ func (s *Server) installTeamHandlers() {
 		if !ok {
 			return hooks.MsgResult{}, errShuttingDown
 		}
+		// A Team panel that is open shows the message.
+		s.Wake()
 		return out.res, out.err
 	})
 	hookSrv.SetInboxHandler(func(req hooks.InboxRequest) (hooks.InboxResult, error) {
@@ -53,6 +55,9 @@ func (s *Server) installTeamHandlers() {
 		if !ok {
 			return hooks.InboxResult{}, errShuttingDown
 		}
+		if req.Read > 0 {
+			s.Wake()
+		}
 		return hooks.InboxResult{Messages: out.res}, out.err
 	})
 	hookSrv.SetTaskHandler(func(req hooks.TaskRequest) (hooks.TaskResult, error) {
@@ -62,6 +67,9 @@ func (s *Server) installTeamHandlers() {
 		})
 		if !ok {
 			return hooks.TaskResult{}, errShuttingDown
+		}
+		if req.Op != hooks.TaskList && req.Op != hooks.TaskShow {
+			s.Wake()
 		}
 		return out.res, out.err
 	})

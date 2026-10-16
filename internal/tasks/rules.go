@@ -18,7 +18,8 @@ type Who uint8
 const (
 	// Manager is an actor in the manager role. An agent with no role has no
 	// limits in Flockdeck's role model, so it is treated as the manager would be,
-	// but only while its project has no live pane in the manager role.
+	// but only while its project has no live pane in the manager role. The user at
+	// the window is always one.
 	Manager Who = 1 << iota
 	// Owner is the pane the task is assigned to, or any pane in the role the
 	// task is assigned to when no pane has taken it yet.
@@ -148,6 +149,30 @@ func Next(from State) []State {
 	return out
 }
 
+// Allowed is a move the actor may make now: the state to go to, and whether the
+// move must carry a note.
+type Allowed struct {
+	To       State
+	NeedNote bool
+}
+
+// Moves lists the moves of a task that CheckMove would let the actor make, in
+// the order of the rule table, so a window offers only those. It asks CheckMove
+// with a note in hand and reports NeedNote itself, so the rules are decided in
+// one place.
+func Moves(t Task, a Actor, hasManager bool) []Allowed {
+	var out []Allowed
+	for _, r := range Transitions {
+		if r.From != t.State {
+			continue
+		}
+		if CheckMove(t, r.To, a, hasManager, "x") == nil {
+			out = append(out, Allowed{To: r.To, NeedNote: r.NeedNote})
+		}
+	}
+	return out
+}
+
 // HasManager reports that the roster has a live pane in the manager role.
 func HasManager(members []team.Member) bool {
 	for _, m := range members {
@@ -158,11 +183,11 @@ func HasManager(members []team.Member) bool {
 	return false
 }
 
-// IsManager reports that the actor has the manager's powers: it is in the
-// manager role, or it has no role and the project has no live manager pane
-// (hasManager says whether it has one).
+// IsManager reports that the actor has the manager's powers: it is the user at
+// the window, it is in the manager role, or it has no role and the project has
+// no live manager pane (hasManager says whether it has one).
 func IsManager(a Actor, hasManager bool) bool {
-	return a.Role == "manager" || a.Role == "" && !hasManager
+	return a.User || a.Role == "manager" || a.Role == "" && !hasManager
 }
 
 // IsOwner reports that the actor is the owner of the task: the pane it is
