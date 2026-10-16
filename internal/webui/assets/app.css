@@ -913,13 +913,14 @@ textarea:focus-visible {
 .pane-agent .agent-route { flex: none; white-space: pre; }
 /* The role a pane was started in, as a bordered tag with the role's name in it:
  * the word is what says it, the border only sets it apart from the quiet text
- * beside it. It sits after the pane's name and keeps its width, like the project
- * label, since it says what the pane is for; the branch and agent give way
- * first. Absent for a pane started in no role. The overview lists the same tag
- * in a row's details. A name longer than 14 characters is cut short, and the
- * bubble has it whole. */
+ * beside it. It sits after the pane's name, and the branch and agent give way
+ * before it does. In a header too narrow even for that it shrinks to six
+ * characters and an ellipsis rather than push the buttons out, and a name
+ * longer than 14 characters is cut short; the bubble has it whole. Absent for a
+ * pane started in no role. The overview lists the same tag in a row's details. */
 .pane-role, .agent-role {
-  flex: none;
+  flex: 0 2 auto;
+  min-width: 6ch;
   max-width: 14ch;
   overflow: hidden;
   text-overflow: ellipsis;

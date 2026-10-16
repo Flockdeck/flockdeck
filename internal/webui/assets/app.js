@@ -467,8 +467,12 @@
       // doc comment for why a window at the desk never needed this before.
       // A start in a role is the other: the agent is in a tab of its own that
       // the desk was not moved to, so it is shown now.
-      else if (msg.type === "agentStarted" && pendingRoleStart && msg.id === pendingRoleStart) {
-        pendingRoleStart = "";
+      else if (msg.type === "agentStarted" && pendingRoleStarts.has(msg.id)) {
+        pendingRoleStarts.delete(msg.id);
+        // Only now is what was typed spent: a refusal leaves the dialog open
+        // with it, to correct and send again.
+        teamDraft.goal = "";
+        if (dialog === "agentPicker" || dialog === "startTeam") closeOverlay();
         send({ cmd: "revealPane", id: msg.paneId });
       }
       else if (msg.type === "agentStarted" && pendingStepStart && msg.id === pendingStepStart.reqID) {
@@ -535,6 +539,9 @@
         // A request for an answer, and what is said of it, is not the answer to a
         // commit that is waiting: it must not drop the message typed for one.
         if (msg.kind !== "approval" && !msg.id) commitAnswered(msg.error);
+        // A refusal of a start in a role has no id to say which: it is taken
+        // for the latest one sent, which no longer waits for its pane.
+        if (msg.error && pendingRoleStarts.size) pendingRoleStarts.delete([...pendingRoleStarts].pop());
         // A manual update check answers with a notice alone when nothing new
         // is found; when it did, the state carrying it settles this too, but
         // resetting it here as well costs nothing and covers both.
@@ -10797,6 +10804,9 @@
     body.textContent = "";
 
     if (catalog.err) body.append(el("div", "pick-warn", catalog.err));
+    // A role agents.json no longer has is let go, so nothing asks for a task
+    // for a control that is not drawn or sends a role that is not there.
+    if (picker.role && !roleById(picker.role)) picker.role = "";
     if (picker.roles && rolesOf().length) body.append(pickerRoleBox());
 
     const field = el("input", "pick-filter");
@@ -11131,7 +11141,9 @@
       drawPickerList();
       return;
     }
-    startPicked(a.id, item.type === "model" ? (item.model.id || "") : (a.defaultModel || ""));
+    // With a role, an agent row names the agent alone, as -agent does: the
+    // server then keeps the role's model if this is the role's own agent.
+    startPicked(a.id, item.type === "model" ? (item.model.id || "") : (picker.role ? "" : (a.defaultModel || "")));
   }
 
   /** rolesOf is the roles the catalog lists, in its order. */
@@ -11170,6 +11182,24 @@
       (own ? ", the " + (role.name || role.id) + " role's choice" : ", this project's default");
   }
 
+  /** roleWorktreeText says what checkout a role expects, as its briefing does. */
+  function roleWorktreeText(role) {
+    if (role.worktree === "own") return "It expects a worktree and branch of its own, so the box is ticked; the branch is named from the task.";
+    if (role.worktree === "readonly") return "It reads a branch and does not change it: name the branch in the task.";
+    if (role.worktree === "main") return "It works in the project's main checkout.";
+    return "";
+  }
+
+  /** roleListKey lets the arrows reach the agent list from the role controls:
+   *  Ctrl with Down or Up walks it, as the arrows do from the filter. Plain
+   *  arrows stay with the control, which needs them. */
+  function roleListKey(ev) {
+    if (!ev.ctrlKey || (ev.key !== "ArrowDown" && ev.key !== "ArrowUp")) return false;
+    ev.preventDefault();
+    selectPickerRow(picker.index + (ev.key === "ArrowDown" ? 1 : -1));
+    return true;
+  }
+
   /** pickerRoleBox is the Role control: None or a role, and once a role is
    *  chosen the task it starts with, whether it gets a worktree, which agent
    *  and model that comes to, and a button to start it with those. Picking an
@@ -11188,7 +11218,14 @@
     picker.role = sel.value;
     const more = el("div", "pick-role-more");
     more.id = "agent-role-more";
-    sel.onchange = () => { picker.role = sel.value; fillRoleMore(more); };
+    sel.onchange = () => {
+      picker.role = sel.value;
+      // The role says what checkout it expects; its own branch is ticked for it.
+      const chosen = roleById(sel.value);
+      picker.worktree = !!chosen && chosen.worktree === "own";
+      fillRoleMore(more);
+    };
+    sel.onkeydown = roleListKey;
     row.append(label, sel);
     fillRoleMore(more);
     box.append(row, more);
@@ -11211,7 +11248,12 @@
     task.value = picker.task;
     task.oninput = () => { picker.task = task.value; };
     task.onkeydown = (ev) => {
-      if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); startPicked("", ""); }
+      if (roleListKey(ev)) return;
+      if (ev.key !== "Enter" || ev.shiftKey) return;
+      ev.preventDefault();
+      // Enter starts the role on its own choice; Ctrl+Enter starts it on the
+      // agent or model picked out in the list below.
+      if (ev.ctrlKey || ev.metaKey) takePickerRow(); else startPicked("", "");
     };
     const tree = el("label", "pick-default");
     const tick = el("input");
@@ -11219,7 +11261,8 @@
     tick.checked = picker.worktree;
     tick.onchange = () => { picker.worktree = tick.checked; };
     tree.append(tick, document.createTextNode(" In a worktree of its own"));
-    const result = el("div", "wt-hint", "Starts " + roleChoiceText(r) + ". Pick an agent or model below to use that instead.");
+    const result = el("div", "wt-hint", "Starts " + roleChoiceText(r) + ", in a new tab. " + roleWorktreeText(r) +
+      " Enter starts it; to use another agent or model, Ctrl+Down walks the list and Ctrl+Enter starts the one picked out.");
     result.id = "agent-role-result";
     result.setAttribute("aria-live", "polite");
     const go = el("button", "chip primary", "Start " + (r.name || r.id));
@@ -11229,16 +11272,18 @@
     more.append(task, tree, result, go);
   }
 
-  /** pendingRoleStart is the request id of a start in a role that is out, so
-   *  the agentStarted that answers it shows the pane. */
-  let pendingRoleStart = "";
+  /** pendingRoleStarts are the request ids of the starts in a role that are
+   *  out, so the agentStarted that answers each one shows its pane. */
+  const pendingRoleStarts = new Set();
 
   /** startInRole asks for an agent to be started in a role, in the project on
-   *  screen. An empty agent and model are the role's to fill in. */
+   *  screen. An empty agent and model are the role's to fill in. The dialog
+   *  stays open until the agent has started, so a refusal (agent not
+   *  installed, no git for a worktree, too many starts) leaves what was typed
+   *  where it was. */
   function startInRole(role, agent, model, task, worktree) {
     const reqID = "role-" + Math.random().toString(36).slice(2);
-    pendingRoleStart = reqID;
-    closeOverlay();
+    pendingRoleStarts.add(reqID);
     send({ cmd: "startAgent", id: reqID, root: state ? state.root : "", role, agent, model, task, worktree: !!worktree });
   }
 
@@ -11306,7 +11351,6 @@
         return;
       }
       const [agent, model] = pickParts(sel.value);
-      teamDraft.goal = "";
       startInRole("manager", agent, model, goalText, false);
     };
     go.onclick = start;
@@ -11327,7 +11371,7 @@
    *  opened it, remembering it first if that was asked for. */
   function startPicked(agentID, model) {
     const run = picker.onPick;
-    if (picker.role) {
+    if (picker.role && roleById(picker.role)) {
       // A role starts through startAgent, with the task it is given; the
       // choice made here is the agent and model the window named.
       if (!picker.task.trim()) {
