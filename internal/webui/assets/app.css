@@ -3050,10 +3050,10 @@ body.view-only #btn-remote { display: none; }
 .team-event-time { flex: 0 0 auto; font-family: var(--mono); font-size: 11px; }
 
 /* Messages. Unread is said in words as well as by the edge. */
-.team-msg.unread { border-color: var(--accent-line); box-shadow: inset 2px 0 0 var(--accent); }
+.team-msg.unseen { border-color: var(--accent-line); box-shadow: inset 2px 0 0 var(--accent); }
 .team-msg:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .team-msg-state { margin-left: auto; }
-.team-msg.unread .team-msg-state { color: var(--accent); font-weight: 600; }
+.team-msg.unseen .team-msg-state { color: var(--accent); font-weight: 600; }
 .team-msg-acts { display: flex; gap: 8px; margin-top: 6px; }
 .team-count { color: var(--fg-dim); font: 11px var(--mono); font-variant-numeric: tabular-nums; }
 .team-count.over { color: var(--exited); font-weight: 600; }

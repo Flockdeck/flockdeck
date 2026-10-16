@@ -31,8 +31,10 @@ import (
 // Limits on what the panel is sent. They bound a push, which goes out whenever
 // anything in the project changes.
 const (
-	// maxTeamFinished is how many done or cancelled tasks a push lists; taskList
-	// has all of them.
+	// maxTeamOpen is how many open tasks a push lists, the most recently changed
+	// first; maxTeamFinished is the same for done and cancelled ones. taskList
+	// with state "all" has every task, for the panel's Show button.
+	maxTeamOpen     = 300
 	maxTeamFinished = 100
 	// maxTeamMessages is how many messages a push lists, newest first.
 	maxTeamMessages = 100
@@ -60,7 +62,11 @@ type teamActorView struct {
 }
 
 func actorView(a tasks.Actor) teamActorView {
-	return teamActorView{Name: team.PlainLabel(a.Name), Role: a.Role, Pane: a.Pane, User: a.User}
+	name := team.AgentLabel(a.Name)
+	if a.User {
+		name = team.UserName
+	}
+	return teamActorView{Name: name, Role: a.Role, Pane: a.Pane, User: a.User}
 }
 
 // teamMoveView is a move the person may make to a task.
@@ -156,7 +162,10 @@ type teamMessageView struct {
 	Time   string        `json:"time"`
 	Text   string        `json:"text"`
 	Cut    bool          `json:"cut,omitempty"`
-	Read   bool          `json:"read,omitempty"`
+	// Read is the recipient's: it has read the message. Seen is the window's own
+	// mark, which the agent knows nothing of.
+	Read bool `json:"read,omitempty"`
+	Seen bool `json:"seen,omitempty"`
 }
 
 // teamCounts is the roster and the board in numbers, for the tab labels.
@@ -167,6 +176,9 @@ type teamCounts struct {
 	Open     int            `json:"open"`
 	Messages int            `json:"messages"`
 	Unread   int            `json:"unread"`
+	// Unseen is the messages the person at the window has not marked seen,
+	// leaving out their own. Unread is the messages their recipients have not read.
+	Unseen int `json:"unseen"`
 }
 
 // teamMsg is the Team panel's whole picture of a project: what a teamSnapshot is
@@ -182,6 +194,7 @@ type teamMsg struct {
 	// Tasks are the open ones and the most recently changed finished ones, oldest
 	// id first; FinishedHidden counts the finished ones left out.
 	Tasks          []teamTaskView `json:"tasks"`
+	OpenHidden     int            `json:"openHidden,omitempty"`
 	FinishedHidden int            `json:"finishedHidden,omitempty"`
 	// BoardError is why the board could not be read, if it could not.
 	BoardError string            `json:"boardError,omitempty"`
@@ -219,9 +232,13 @@ type teamResultMsg struct {
 	Pruned  int           `json:"pruned,omitempty"`
 	Sent    int           `json:"sent,omitempty"`
 	Warning string        `json:"warning,omitempty"`
-	// Pane and Message name the message a mark-read changed.
+	// Pane and Message name the message a mark-seen changed.
 	Pane    string `json:"pane,omitempty"`
 	Message int    `json:"message,omitempty"`
+	// Closed counts the panes teamClose closed, and Skipped says why it left
+	// each of the others open.
+	Closed  int      `json:"closed,omitempty"`
+	Skipped []string `json:"skipped,omitempty"`
 }
 
 // cutAtRune cuts s to at most n bytes on a rune boundary and says whether it cut.
@@ -284,8 +301,13 @@ func taskViewOf(t tasks.Task, members []team.Member, hasManager, full bool) team
 // messageViewOf describes a message. members names the panes it went to.
 func messageViewOf(m team.Message, members []team.Member, cut int) teamMessageView {
 	v := teamMessageView{
-		ID: m.ID, To: m.To, Time: m.Time.Format(time.RFC3339), Read: m.Read, System: m.System(),
-		From: teamActorView{Name: team.PlainLabel(m.From.Name), Role: m.From.Role, Pane: m.From.Pane, User: m.From.User},
+		ID: m.ID, To: m.To, Time: m.Time.Format(time.RFC3339), Read: m.Read, Seen: m.Seen, System: m.System(),
+		From: teamActorView{Name: team.AgentLabel(m.From.Name), Role: m.From.Role, Pane: m.From.Pane, User: m.From.User},
+	}
+	if m.System() {
+		v.From.Name = team.System
+	} else if m.From.User {
+		v.From.Name = team.UserName
 	}
 	v.Text, v.Cut = m.Text, false
 	if cut > 0 {
@@ -299,19 +321,61 @@ func messageViewOf(m team.Message, members []team.Member, cut int) teamMessageVi
 	return v
 }
 
-// teamPayload reads the project at root. It must run on the workspace goroutine.
+// teamRosterBase describes the panes of a project, with what the board and the
+// inboxes add to each left to teamBuild. key says whether any of it changed.
+func (s *Server) teamRosterBase(root string) (members []team.Member, rows []teamRosterView, key string, err error) {
+	ws := s.ws
+	members, err = ws.TeamMembers(root)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	var k strings.Builder
+	rows = make([]teamRosterView, 0, len(members))
+	for _, m := range members {
+		rv := teamRosterView{
+			Pane: m.Pane, Name: m.Label(), Role: m.Role, Agent: m.Agent, Model: m.Model, Status: m.Status,
+		}
+		if m.Peer != "" && m.Name != m.Peer {
+			rv.Peer = m.Name
+		}
+		if p := ws.Pane(m.Pane); p != nil {
+			rv.Activity = workspace.PaneActivity(p)
+			rv.Branch = p.Branch
+			rv.Locked = p.Locked
+			rv.Finished = ws.PaneFinished(m.Pane)
+		}
+		fmt.Fprintf(&k, "%s|%s|%s|%s|%s|%s|%s|%s|%s|%v|%v;", rv.Pane, rv.Name, rv.Peer, rv.Role, rv.Agent, rv.Model,
+			rv.Status, rv.Activity, rv.Branch, rv.Locked, rv.Finished)
+		rows = append(rows, rv)
+	}
+	for _, p := range ws.Projects() {
+		if p.Root == root {
+			k.WriteString("project:" + p.Name)
+		}
+	}
+	return members, rows, k.String(), nil
+}
+
+// teamPayload reads the project at root, whole. It must run on the workspace
+// goroutine. teamData is what the panel's commands and pushes use: it keeps the
+// result until the roster, the board file or an inbox changes.
 func (s *Server) teamPayload(root string) (teamMsg, error) {
 	ws := s.ws
 	root, err := ws.TeamRoot(root)
 	if err != nil {
 		return teamMsg{}, err
 	}
-	members, err := ws.TeamMembers(root)
+	members, rows, _, err := s.teamRosterBase(root)
 	if err != nil {
 		return teamMsg{}, err
 	}
+	return s.teamBuild(root, members, rows)
+}
+
+func (s *Server) teamBuild(root string, members []team.Member, rows []teamRosterView) (teamMsg, error) {
+	ws := s.ws
 	msg := teamMsg{Type: "team", Root: root, HasManager: tasks.HasManager(members),
-		Roster: []teamRosterView{}, Tasks: []teamTaskView{}, Messages: []teamMessageView{},
+		Roster: rows, Tasks: []teamTaskView{}, Messages: []teamMessageView{},
 		Counts: teamCounts{Tasks: map[string]int{}}}
 	for _, p := range ws.Projects() {
 		for _, m := range p.Members {
@@ -331,23 +395,60 @@ func (s *Server) teamPayload(root string) (teamMsg, error) {
 		msg.BoardError = err.Error()
 	}
 
-	// The board, with the finished tasks cut to the newest.
-	var finished []tasks.Task
-	for _, t := range board {
+	// One pass over the board: the counts, each pane's current task, and the
+	// open and finished tasks apart.
+	type mine struct {
+		cur  *tasks.Task
+		open int
+	}
+	rank := func(t *tasks.Task) int {
+		switch t.State {
+		case tasks.InProgress:
+			return 0
+		case tasks.InReview:
+			return 1
+		case tasks.Assigned:
+			return 2
+		case tasks.Blocked:
+			return 3
+		}
+		return 4
+	}
+	byPane := map[string]*mine{}
+	var open, finished []tasks.Task
+	for i := range board {
+		t := &board[i]
 		msg.Counts.Tasks[string(t.State)]++
-		if t.State.Open() {
-			msg.Counts.Open++
-			msg.Tasks = append(msg.Tasks, taskViewOf(t, members, msg.HasManager, false))
-		} else {
-			finished = append(finished, t)
+		if !t.State.Open() {
+			finished = append(finished, *t)
+			continue
+		}
+		msg.Counts.Open++
+		open = append(open, *t)
+		if t.OwnerPane != "" {
+			m := byPane[t.OwnerPane]
+			if m == nil {
+				m = &mine{}
+				byPane[t.OwnerPane] = m
+			}
+			m.open++
+			if m.cur == nil || rank(t) < rank(m.cur) {
+				m.cur = t
+			}
 		}
 	}
-	if len(finished) > maxTeamFinished {
-		slices.SortStableFunc(finished, func(a, b tasks.Task) int { return b.Updated.Compare(a.Updated) })
-		msg.FinishedHidden = len(finished) - maxTeamFinished
-		finished = finished[:maxTeamFinished]
+	// Past a limit the newest are listed and the rest are asked for, so a board
+	// of thousands is not sent whole on every change.
+	newest := func(list []tasks.Task, limit int) ([]tasks.Task, int) {
+		if len(list) <= limit {
+			return list, 0
+		}
+		slices.SortStableFunc(list, func(a, b tasks.Task) int { return b.Updated.Compare(a.Updated) })
+		return list[:limit], len(list) - limit
 	}
-	for _, t := range finished {
+	open, msg.OpenHidden = newest(open, maxTeamOpen)
+	finished, msg.FinishedHidden = newest(finished, maxTeamFinished)
+	for _, t := range append(open, finished...) {
 		msg.Tasks = append(msg.Tasks, taskViewOf(t, members, msg.HasManager, false))
 	}
 	slices.SortStableFunc(msg.Tasks, func(a, b teamTaskView) int { return taskNumber(a.ID) - taskNumber(b.ID) })
@@ -358,15 +459,14 @@ func (s *Server) teamPayload(root string) (teamMsg, error) {
 		return teamMsg{}, err
 	}
 	msg.Counts.Messages = len(all)
-	for _, m := range all {
-		if !m.Read {
-			msg.Counts.Unread++
-		}
-	}
 	unread := map[string]int{}
 	for _, m := range all {
 		if !m.Read {
+			msg.Counts.Unread++
 			unread[m.To]++
+		}
+		if !m.Seen && !m.From.User {
+			msg.Counts.Unseen++
 		}
 	}
 	slices.Reverse(all)
@@ -378,54 +478,64 @@ func (s *Server) teamPayload(root string) (teamMsg, error) {
 		msg.Messages = append(msg.Messages, messageViewOf(m, members, teamTextCut))
 	}
 
-	// The roster, each pane with its current task.
-	for _, m := range members {
-		rv := teamRosterView{
-			Pane: m.Pane, Name: m.Label(), Role: m.Role, Agent: m.Agent, Model: m.Model, Status: m.Status,
-			Unread: unread[m.Pane],
+	for i := range msg.Roster {
+		r := &msg.Roster[i]
+		r.Unread = unread[r.Pane]
+		if m := byPane[r.Pane]; m != nil {
+			r.Open = m.open
+			r.Task = &teamTaskRef{ID: m.cur.ID, Title: m.cur.Title, State: string(m.cur.State)}
 		}
-		if m.Peer != "" && m.Name != m.Peer {
-			rv.Peer = m.Name
-		}
-		if p := ws.Pane(m.Pane); p != nil {
-			rv.Activity = workspace.PaneActivity(p)
-			rv.Branch = p.Branch
-			rv.Locked = p.Locked
-			rv.Finished = ws.PaneFinished(m.Pane)
-		}
-		var cur *tasks.Task
-		rank := func(t tasks.Task) int {
-			switch t.State {
-			case tasks.InProgress:
-				return 0
-			case tasks.InReview:
-				return 1
-			case tasks.Assigned:
-				return 2
-			case tasks.Blocked:
-				return 3
-			}
-			return 4
-		}
-		for i, t := range board {
-			if t.OwnerPane != m.Pane || !t.State.Open() {
-				continue
-			}
-			rv.Open++
-			if cur == nil || rank(t) < rank(*cur) {
-				cur = &board[i]
-			}
-		}
-		if cur != nil {
-			rv.Task = &teamTaskRef{ID: cur.ID, Title: cur.Title, State: string(cur.State)}
-		}
-		msg.Roster = append(msg.Roster, rv)
 		msg.Counts.Panes++
-		if m.Status != "exited" {
+		if r.Status != "exited" {
 			msg.Counts.Live++
 		}
 	}
 	return msg, nil
+}
+
+// teamCached is a project's picture as it was last built, and what it was built
+// from.
+type teamCached struct {
+	stamp string
+	data  []byte
+}
+
+// teamData is the encoded picture of the project at root. It reads the roster,
+// takes the board file's stamp (a stat) and the inboxes' revision, and returns
+// what it built last when none of the three has changed: an agent's output wakes
+// the push many times a second, and almost none of those change the team. It
+// must run on the workspace goroutine.
+func (s *Server) teamData(root string) (resolved string, data []byte, err error) {
+	ws := s.ws
+	resolved, err = ws.TeamRoot(root)
+	if err != nil {
+		return "", nil, err
+	}
+	members, rows, key, err := s.teamRosterBase(resolved)
+	if err != nil {
+		return "", nil, err
+	}
+	board := "none"
+	if b, err := ws.TeamBoard(resolved); err == nil {
+		board = b.Stamp()
+	}
+	stamp := fmt.Sprintf("%s#%s#%d", key, board, ws.TeamMessageRev())
+	if c, ok := s.teamCache[resolved]; ok && c.stamp == stamp {
+		return resolved, c.data, nil
+	}
+	msg, err := s.teamBuild(resolved, members, rows)
+	if err != nil {
+		return "", nil, err
+	}
+	data, err = json.Marshal(msg)
+	if err != nil {
+		return "", nil, err
+	}
+	if s.teamCache == nil {
+		s.teamCache = map[string]teamCached{}
+	}
+	s.teamCache[resolved] = teamCached{stamp, data}
+	return resolved, data, nil
 }
 
 func taskNumber(id string) int {
@@ -469,8 +579,10 @@ func (s *Server) teamCommand(c *controlClient, cmd command) {
 		s.msgList(c, cmd)
 	case "msgSend":
 		s.msgSend(c, cmd)
-	case "msgRead":
-		s.msgRead(c, cmd)
+	case "msgSeen":
+		s.msgSeen(c, cmd)
+	case "teamClose":
+		s.teamClose(c, cmd)
 	}
 }
 
@@ -482,12 +594,12 @@ func refuse(c *controlClient, cmd command, err error) {
 // teamSnapshot answers with the whole picture of the project.
 func (s *Server) teamSnapshot(c *controlClient, cmd command) {
 	type out struct {
-		msg teamMsg
-		err error
+		data []byte
+		err  error
 	}
 	r, ok := ask(s, func() out {
-		m, err := s.teamPayload(cmd.Root)
-		return out{m, err}
+		_, data, err := s.teamData(cmd.Root)
+		return out{data, err}
 	})
 	if !ok {
 		return
@@ -496,7 +608,7 @@ func (s *Server) teamSnapshot(c *controlClient, cmd command) {
 		refuse(c, cmd, r.err)
 		return
 	}
-	c.sendJSON(r.msg)
+	c.send(r.data)
 }
 
 // teamWatch subscribes the window to the project: it is sent the picture now and
@@ -504,66 +616,111 @@ func (s *Server) teamSnapshot(c *controlClient, cmd command) {
 // teamInterval. One project at a time; watching another replaces it.
 func (s *Server) teamWatch(c *controlClient, cmd command) {
 	s.do(func() {
-		m, err := s.teamPayload(cmd.Root)
+		root, data, err := s.teamData(cmd.Root)
 		if err != nil {
 			c.teamRoot, c.teamSent = "", nil
 			refuse(c, cmd, err)
 			return
 		}
-		c.teamRoot = m.Root
-		data, err := json.Marshal(m)
-		if err != nil {
-			return
+		c.teamRoot, c.teamSent = root, nil
+		if c.trySend(data) {
+			c.teamSent = data
+		} else {
+			s.armTeam()
 		}
-		c.teamSent = data
-		c.send(data)
+	})
+}
+
+// teamGone is what a window watching a project is sent when the project can no
+// longer be read, a closed one above all, so that it shows that and not the last
+// picture.
+func teamGone(root string, err error) []byte {
+	data, _ := json.Marshal(struct {
+		Type  string `json:"type"`
+		Root  string `json:"root"`
+		Error string `json:"error"`
+	}{"teamGone", root, err.Error()})
+	return data
+}
+
+// armTeam arranges for a push in a moment, once.
+func (s *Server) armTeam() {
+	if s.teamArmed {
+		return
+	}
+	s.teamArmed = true
+	wait := max(teamInterval-time.Since(s.teamAt), 50*time.Millisecond)
+	time.AfterFunc(wait, func() {
+		s.do(func() {
+			s.teamArmed = false
+			s.pushTeam()
+		})
 	})
 }
 
 // pushTeam sends every subscribed window the picture of its project when it has
 // changed. It must run on the workspace goroutine, and is called with each state
-// push; the picture is built at most once every teamInterval, and a push that
-// came too soon is made when the interval is up.
+// push; the picture is looked at at most every teamInterval, and a push that came
+// too soon is made when the interval is up.
+//
+// A window is marked as having a picture only when that picture was queued for
+// it: a window whose queue was full is sent it again, rather than the push being
+// skipped as unchanged next time. A project that can no longer be read is told
+// to the window once.
 func (s *Server) pushTeam() {
 	watching := false
-	for _, c := range s.greetedClients() {
+	clients := s.greetedClients()
+	for _, c := range clients {
 		if c.teamRoot != "" {
 			watching = true
 		}
 	}
 	if !watching {
+		s.teamCache = nil
 		return
 	}
-	if wait := teamInterval - time.Since(s.teamAt); wait > 0 {
-		if !s.teamArmed {
-			s.teamArmed = true
-			time.AfterFunc(wait, func() {
-				s.do(func() {
-					s.teamArmed = false
-					s.pushTeam()
-				})
-			})
-		}
+	if time.Since(s.teamAt) < teamInterval {
+		s.armTeam()
 		return
 	}
 	s.teamAt = time.Now()
-	built := map[string][]byte{}
-	for _, c := range s.greetedClients() {
+	type built struct {
+		data []byte
+		err  error
+	}
+	cache := map[string]built{}
+	retry := false
+	for _, c := range clients {
 		if c.teamRoot == "" {
 			continue
 		}
-		data, ok := built[c.teamRoot]
+		b, ok := cache[c.teamRoot]
 		if !ok {
-			if m, err := s.teamPayload(c.teamRoot); err == nil {
-				data, _ = json.Marshal(m)
-			}
-			built[c.teamRoot] = data
+			_, data, err := s.teamData(c.teamRoot)
+			b = built{data, err}
+			cache[c.teamRoot] = b
 		}
-		if data == nil || bytes.Equal(data, c.teamSent) {
+		data := b.data
+		if b.err != nil {
+			data = teamGone(c.teamRoot, b.err)
+		}
+		if bytes.Equal(data, c.teamSent) {
 			continue
 		}
-		c.teamSent = data
-		c.send(data)
+		if c.trySend(data) {
+			c.teamSent = data
+		} else {
+			retry = true
+		}
+	}
+	// Pictures kept for projects nobody watches any more are let go.
+	for root := range s.teamCache {
+		if _, ok := cache[root]; !ok {
+			delete(s.teamCache, root)
+		}
+	}
+	if retry {
+		s.armTeam()
 	}
 }
 
@@ -730,11 +887,12 @@ func (s *Server) msgSend(c *controlClient, cmd command) {
 	s.wakeAsked()
 }
 
-// msgRead marks one message read: ID is the pane whose inbox it is in and MsgID
-// the message.
-func (s *Server) msgRead(c *controlClient, cmd command) {
+// msgSeen marks one message seen by the person at the window: ID is the pane
+// whose inbox it is in and MsgID the message. The agent's own unread mark and
+// its inbox are not touched.
+func (s *Server) msgSeen(c *controlClient, cmd command) {
 	r, ok := ask(s, func() error {
-		_, err := s.ws.UserReadMessage(cmd.Root, cmd.ID, cmd.MsgID)
+		_, err := s.ws.UserSeeMessage(cmd.Root, cmd.ID, cmd.MsgID)
 		return err
 	})
 	if !ok {
@@ -745,5 +903,28 @@ func (s *Server) msgRead(c *controlClient, cmd command) {
 		return
 	}
 	c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, OK: true, Pane: cmd.ID, Message: cmd.MsgID})
+	s.wakeAsked()
+}
+
+// teamClose closes the panes named in Panes that are finished now. The window
+// asks from a roster that may be a moment old, so each is judged again here.
+func (s *Server) teamClose(c *controlClient, cmd command) {
+	type out struct {
+		closed  int
+		skipped []string
+		err     error
+	}
+	r, ok := ask(s, func() out {
+		n, skipped, err := s.ws.CloseFinishedIn(cmd.Root, cmd.Panes)
+		return out{n, skipped, err}
+	})
+	if !ok {
+		return
+	}
+	if r.err != nil {
+		refuse(c, cmd, r.err)
+		return
+	}
+	c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, OK: true, Closed: r.closed, Skipped: r.skipped})
 	s.wakeAsked()
 }

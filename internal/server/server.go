@@ -146,6 +146,9 @@ type Server struct {
 	// to the workspace goroutine.
 	teamAt    time.Time
 	teamArmed bool
+	// teamCache is each watched project's encoded picture and what it was built
+	// from; see teamData.
+	teamCache map[string]teamCached
 	// gitEvery is gitStatusInterval as it was when this server was made, so
 	// that a test can set the package's and have no goroutine of an earlier
 	// server read it.

@@ -141,7 +141,7 @@ var commandAccess = map[string]cmdAccess{
 	"teamSnapshot": accessFull, "teamWatch": accessFull, "teamUnwatch": accessFull, "taskList": accessFull,
 	"taskGet": accessFull, "taskAdd": accessFull, "taskAssign": accessFull, "taskStatus": accessFull,
 	"taskNote": accessFull, "taskBranch": accessFull, "taskPrune": accessFull, "msgList": accessFull,
-	"msgSend": accessFull, "msgRead": accessFull,
+	"msgSend": accessFull, "msgSeen": accessFull, "teamClose": accessFull,
 	"recordPane": accessFull, "exportTranscript": accessFull, "revealTranscript": accessFull, "openRecordings": accessFull,
 	"paneInfo": accessFull, "findPane": accessFull, "jevKey": accessFull,
 	"setKeybinding": accessFull, "resetKeybinding": accessFull, "resetKeybindings": accessFull,

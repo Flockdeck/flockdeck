@@ -119,6 +119,9 @@ func UserActor() Actor { return Actor{Name: UserName, User: true} }
 // Label is the actor as one phrase, made of its own words and cut down to one
 // line.
 func (a Actor) Label() string {
+	if a.User {
+		return team.UserLabel
+	}
 	name := team.PlainLabel(a.Name)
 	if name == "" {
 		name = "unknown"

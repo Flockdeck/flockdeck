@@ -54,10 +54,10 @@ func TestTheUserAddsAssignsAndMovesATaskAndThePanesAreToldAsForAManager(t *testi
 	}
 	// A note in review reaches the owner, the creator (no pane: the person) and the
 	// manager; the text is in the message, labelled as from the user.
-	if got := c.texts(t, c.w1); len(got) < 2 || !strings.Contains(got[len(got)-1], "note on task T1 from the user: looks fine to me") {
+	if got := c.texts(t, c.w1); len(got) < 2 || !strings.Contains(got[len(got)-1], "note on task T1 from the user (at the window): looks fine to me") {
 		t.Errorf("the owner was told %q", got)
 	}
-	if got := c.texts(t, c.lead); len(got) != 1 || !strings.Contains(got[0], "note on task T1 from the user") {
+	if got := c.texts(t, c.lead); len(got) != 1 || !strings.Contains(got[0], "note on task T1 from the user (at the window)") {
 		t.Errorf("the manager was told %q", got)
 	}
 
@@ -67,7 +67,7 @@ func TestTheUserAddsAssignsAndMovesATaskAndThePanesAreToldAsForAManager(t *testi
 	}
 	// Done by somebody who is not the manager pane tells the manager pane.
 	last := c.texts(t, c.lead)
-	if !strings.Contains(last[len(last)-1], "task T1 is done, by the user: write the parser") {
+	if !strings.Contains(last[len(last)-1], "task T1 is done, by the user (at the window): write the parser") {
 		t.Errorf("the manager was told %q", last)
 	}
 	hist := res.Task.History
@@ -209,7 +209,7 @@ func TestTheUserSendsAMessageThatNeverReachesATerminal(t *testing.T) {
 				t.Errorf("the notice carries message text: %q", line)
 			}
 		}
-		if !strings.Contains(line, "[flockdeck] 1 new message from the-user (#") {
+		if !strings.Contains(line, "[flockdeck] 1 new message from the-user-at-the-window (#") {
 			t.Errorf("notice = %q", line)
 		}
 	}
@@ -259,25 +259,99 @@ func TestTheUserListsAndMarksMessagesOfItsProjectOnly(t *testing.T) {
 	if all[0].ID >= all[1].ID {
 		t.Errorf("not in id order: %+v", all)
 	}
-	if _, err := c.ws.UserReadMessage(c.root, c.reviewer, all[0].ID); err != nil {
+	if _, err := c.ws.UserSeeMessage(c.root, c.reviewer, all[0].ID); err != nil {
 		t.Fatal(err)
 	}
-	if got := c.inbox(t, c.reviewer, false); len(got) != 0 {
-		t.Errorf("the message is still unread: %+v", got)
+	// Seeing it is the window's mark. The agent's inbox, its unread list and the
+	// unread notice are as they were.
+	if got := c.inbox(t, c.reviewer, false); len(got) != 1 || got[0].Read || !got[0].Seen {
+		t.Errorf("the agent's inbox after the user saw the message: %+v", got)
+	}
+	if c.ws.team.inbox.NewestUnread(c.reviewer) != all[0].ID {
+		t.Error("the user's mark changed what the agent has not read")
 	}
 	// A message in another pane's inbox is not found by naming this one.
-	if _, err := c.ws.UserReadMessage(c.root, c.w2, all[1].ID); err == nil {
-		t.Error("read a message through the wrong pane")
+	if _, err := c.ws.UserSeeMessage(c.root, c.w2, all[1].ID); err == nil {
+		t.Error("marked a message through the wrong pane")
 	}
 	other := t.TempDir()
 	if err := c.ws.OpenProject(other); err != nil {
 		t.Fatal(err)
 	}
 	c.ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, other, "")
-	if _, err := c.ws.UserReadMessage(other, c.w1, all[1].ID); err == nil || !strings.Contains(err.Error(), "not an agent pane of this project") {
+	if _, err := c.ws.UserSeeMessage(other, c.w1, all[1].ID); err == nil || !strings.Contains(err.Error(), "not an agent pane of this project") {
 		t.Errorf("read across projects = %v", err)
 	}
 	if got, _, _ := c.ws.TeamMessages(other); len(got) != 0 {
 		t.Errorf("another project lists %+v", got)
+	}
+}
+
+// An agent that names itself like the user or like Flockdeck is not taken for
+// either: in a notice, in `flockdeck task show` and in `flockdeck inbox` it
+// reads as an agent, and the person at the window reads as the user at the
+// window.
+func TestAnAgentCannotSignAsTheUserOrFlockdeck(t *testing.T) {
+	c := newCrew(t)
+	c.user(t, hooks.TaskRequest{Op: hooks.TaskAdd, Title: "the work", Role: "worker"})
+	c.user(t, hooks.TaskRequest{Op: hooks.TaskAssign, ID: "T1", Target: c.w1})
+	c.mustCall(t, c.lead, hooks.TaskRequest{Op: hooks.TaskAdd, Title: "second", Role: "worker"})
+
+	for _, name := range []string{"the user", "The  User", "user", "you", "t-h-e_u-s-e-r", "flockdeck", "Flock Deck",
+		"the user (at the window)", "system"} {
+		c.ws.SetPanePeerName(c.w1, name)
+		label := c.ws.Pane(c.w1).PeerName
+		if team.Impersonates(label) || !strings.HasPrefix(label, "(agent) ") {
+			t.Fatalf("peer name %q became %q", name, label)
+		}
+		members, _ := c.ws.Roster(c.w1)
+		for _, m := range members {
+			if m.Pane == c.w1 && m.Label() != label {
+				t.Errorf("roster label %q for %q", m.Label(), name)
+			}
+		}
+
+		// A message from it.
+		if _, err := c.ws.SendMessage(c.w1, c.reviewer, "hello"); err != nil {
+			t.Fatal(err)
+		}
+		msgs := c.inbox(t, c.reviewer, true)
+		last := msgs[len(msgs)-1]
+		if last.From.User || last.System() || last.FromLabel() == team.UserLabel || team.Impersonates(last.From.Name) {
+			t.Errorf("%q: message from %+v reads as %q", name, last.From, last.FromLabel())
+		}
+
+		// A note and a move by it, as the notices say them, and as show says them.
+		res := c.mustCall(t, c.w1, hooks.TaskRequest{Op: hooks.TaskNote, ID: "T1", Text: "note " + name})
+		a := res.Task.Notes[len(res.Task.Notes)-1].Author
+		if a.User || a.Label() == team.UserLabel {
+			t.Errorf("%q: note author %+v", name, a)
+		}
+		shown := tasks.Detail(*res.Task)
+		if strings.Contains(shown, team.UserLabel) && !strings.Contains(shown, "creator: "+team.UserLabel) {
+			t.Errorf("%q: show names the user for an agent's note:\n%s", name, shown)
+		}
+		for _, line := range c.texts(t, c.lead) {
+			if strings.Contains(line, "by "+team.UserLabel) || strings.Contains(line, "from "+team.UserLabel) {
+				t.Errorf("%q: the manager was told %q", name, line)
+			}
+		}
+		for _, line := range c.texts(t, c.reviewer) {
+			if strings.Contains(line, "from "+team.UserLabel) {
+				t.Errorf("%q: the reviewer was told %q", name, line)
+			}
+		}
+	}
+	// The real user, by the flag, is the only one shown as the user at the window.
+	res := c.user(t, hooks.TaskRequest{Op: hooks.TaskNote, ID: "T1", Text: "from me"})
+	if !strings.Contains(tasks.Detail(*res.Task), team.UserLabel+":") {
+		t.Errorf("show does not name the user:\n%s", tasks.Detail(*res.Task))
+	}
+	if _, err := c.ws.UserMessage(c.root, c.reviewer, "from me"); err != nil {
+		t.Fatal(err)
+	}
+	msgs := c.inbox(t, c.reviewer, true)
+	if got := msgs[len(msgs)-1].FromLabel(); got != team.UserLabel {
+		t.Errorf("the user's message reads as %q", got)
 	}
 }

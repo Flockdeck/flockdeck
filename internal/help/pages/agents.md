@@ -392,7 +392,9 @@ stay as they were.
 **Roster** lists every agent pane of the project with its role, name, agent and model, status,
 branch and its current task: the one in progress, else in review, else the first assigned. Click
 a row to go to the pane, or click its task to open it on the board. **Start an agent…** opens the
-agent picker with its Role control, and **Close** closes a pane that is idle or has exited.
+agent picker with its Role control. **Close** and **Close finished** close panes that are idle or have
+exited; Close finished names them and asks first, and each pane is checked again as it closes, so one
+that has started working since the list was drawn is left open.
 With no agent running, the tab says what a team is and offers [[action:startTeam]].
 
 **Tasks** is the board, one column for each of planned, assigned, in progress, in review and
@@ -407,18 +409,21 @@ removes done and cancelled tasks last changed over 30 days ago.
 You act as the manager, whether or not a pane has that role, and as no pane: a task you add or a
 note you write shows **you** as its author, and the agents are told it was the user. The
 notices are the ones a manager pane's change would send, so an agent hears when a task is assigned
-to it, goes to review, is blocked or done, or gets a note. `flockdeck task show` names the author
-as `the user`.
+to it, goes to review, is blocked or done, or gets a note. Agents see you as `the user (at the
+window)`, in notices, `flockdeck task show` and `flockdeck inbox`; an agent that names itself `the user`, `you`
+or `flockdeck` is shown as `(agent) the user`, so no agent can sign as you.
 
 **Messages** lists the project's messages, newest first, with sender, recipient, time, text and
 whether the recipient has read it. The filter narrows them to a pane or a role. Message text is
 shown as plain text. Write to a pane, or to every pane in a role, in the box above the list: the
 message is signed as you, is at most 8 KB, and goes to the agent's inbox. It never goes into the
-terminal; the agent is sent the same one-line notice as for any message, when it is idle. **Mark
-read** marks a message read for its recipient, which stops it counting as unread for that agent.
+terminal; the agent is sent the same one-line notice as for any message, when it is idle. Each
+message shows two marks: whether its recipient has read it, and whether you have seen it. **Mark
+seen** sets only your own mark and the count on the tab; the agent's inbox and its unread count
+are unchanged.
 
 The panel works on the machine Flockdeck runs on. A window reached through the relay is refused
-its commands.
+its commands. A board of more than 300 open tasks lists the newest 300, with a button for the rest.
 
 ## Routing
 

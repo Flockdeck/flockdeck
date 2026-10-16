@@ -449,4 +449,4 @@ func (w *Workspace) typeNotice(p *Pane, notice string) {
 // is capped. The name goes into other agents' briefings and into the lines
 // `flockdeck inbox` prints, so a newline in it would start a line of its own
 // there.
-func cleanPeerName(name string) string { return team.PlainLabel(name) }
+func cleanPeerName(name string) string { return team.AgentLabel(name) }

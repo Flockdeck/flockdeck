@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -89,7 +90,7 @@ func TestTheUserIsNeitherOwnerNorCreatorAndHasNoPane(t *testing.T) {
 	if got := Capacities(task, user, true); got != Manager {
 		t.Errorf("capacities = %v, want only the manager's", got)
 	}
-	if user.Label() != "the user" {
+	if user.Label() != "the user (at the window)" {
 		t.Errorf("label = %q", user.Label())
 	}
 	// An actor with the flag unset and no role is the manager only while no pane is.
@@ -105,16 +106,16 @@ func TestChangesByTheUserAreTold(t *testing.T) {
 	// no pane, is not among them.
 	done := task(Done)
 	ns := Notices(Change{Kind: Move, Task: done, From: InReview}, user, roster())
-	if who(ns) != "pm,pp" || !strings.Contains(ns[0].Text, "is done, by the user") && !strings.Contains(ns[1].Text, "is done, by the user") {
+	if who(ns) != "pm,pp" || !strings.Contains(ns[0].Text, "is done, by the user (at the window)") && !strings.Contains(ns[1].Text, "is done, by the user (at the window)") {
 		t.Errorf("done: %+v", ns)
 	}
 	blocked := task(Blocked)
 	ns = Notices(Change{Kind: Move, Task: blocked, From: InProgress, Note: "waiting on a key"}, user, roster())
-	if who(ns) != "pm,pp,w1" || !strings.Contains(ns[0].Text, "blocked, by the user") {
+	if who(ns) != "pm,pp,w1" || !strings.Contains(ns[0].Text, "blocked, by the user (at the window)") {
 		t.Errorf("blocked: %+v", ns)
 	}
 	ns = Notices(Change{Kind: NoteKind, Task: task(InReview), Note: "check the error path"}, user, roster())
-	if who(ns) != "pm,pp,w1" || !strings.Contains(ns[0].Text, "note on task T3 from the user: check the error path") {
+	if who(ns) != "pm,pp,w1" || !strings.Contains(ns[0].Text, "note on task T3 from the user (at the window): check the error path") {
 		t.Errorf("note: %+v", ns)
 	}
 	// Review with a reviewer running goes to the reviewers.
@@ -169,5 +170,47 @@ func TestHistoryRecordsWhoDidWhatAndKeepsTheLastEntries(t *testing.T) {
 	}
 	if again, _ := b.Get("T1"); len(again.History) != n || len(again.Notes) != 1 {
 		t.Errorf("after a note: %d history, %d notes", len(again.History), len(again.Notes))
+	}
+}
+
+func TestAReadOfAnUnchangedBoardDoesNotParseItAgain(t *testing.T) {
+	b, _ := testBoard(t)
+	mustAdd(t, b, mgr, "one")
+	list := func() int {
+		l, _, err := b.List(Filter{All: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(l)
+	}
+	list() // the first read after a write parses the file
+	loads := b.Loads()
+	for i := 0; i < 50; i++ {
+		if list() != 1 {
+			t.Fatal("wrong list")
+		}
+	}
+	if b.Loads() != loads {
+		t.Errorf("the file was parsed %d more times with nothing written", b.Loads()-loads)
+	}
+	// A write through the board shows at once.
+	mustAdd(t, b, mgr, "two")
+	if list() != 2 {
+		t.Error("a task added through the board was not read")
+	}
+	// A write by another process shows too, by the file's stamp.
+	other := Open(filepath.Dir(filepath.Dir(filepath.Dir(b.Path))))
+	if _, err := other.Add(mgr, NewTask{Title: "three, from elsewhere"}); err != nil {
+		t.Fatal(err)
+	}
+	if list() != 3 {
+		t.Error("a task added by another process was not read")
+	}
+	// A change a reader got is not changed by the next write: the cache is not
+	// handed out to be mutated.
+	got, _, _ := b.List(Filter{All: true})
+	mustAdd(t, b, mgr, "four")
+	if len(got) != 3 {
+		t.Errorf("a list already returned changed to %d tasks", len(got))
 	}
 }

@@ -37,9 +37,9 @@ type Member struct {
 // Label is what to call the member: its peer name, or its pane name.
 func (m Member) Label() string {
 	if m.Peer != "" {
-		return m.Peer
+		return AgentLabel(m.Peer)
 	}
-	return m.Name
+	return AgentLabel(m.Name)
 }
 
 // Exited reports that the member's process is gone.
@@ -212,6 +212,53 @@ func resolveRole(members []Member, role string) ([]Member, error) {
 // shows "you".
 const UserName = "the user"
 
+// UserLabel is how an agent is shown the person at the window: in notices, in
+// `flockdeck task show` and in `flockdeck inbox`. It is chosen by the Actor's or
+// Sender's User flag, never by a name, and AgentLabel rewrites any name an agent
+// reports that could pass for it, so no agent can sign as the user.
+const UserLabel = "the user (at the window)"
+
+// reserved are the names an agent may not take, as Normalize writes them: the
+// person at the window, and Flockdeck itself.
+var reserved = []string{"theuser", "user", "you", "me", "flockdeck", "flockdecksystem", "system", "admin", "operator"}
+
+// Normalize is a name with everything but letters and digits dropped and the
+// case folded, so "The  User", "the_user" and "T.H.E U-S-E-R" are one name.
+func Normalize(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// Impersonates says a name could be read as the person at the window or as
+// Flockdeck: it is, once normalized, one of the reserved names or begins with
+// "theuser" or "youat".
+func Impersonates(name string) bool {
+	n := Normalize(name)
+	for _, r := range reserved {
+		if n == r {
+			return true
+		}
+	}
+	return strings.HasPrefix(n, "theuser") || strings.HasPrefix(n, "youat")
+}
+
+// AgentLabel is a name an agent chose for itself, or its pane's name, as a
+// label: PlainLabel, and rewritten as "(agent) name" when it could pass for the
+// user or for Flockdeck. The rewrite keeps what the agent wrote and cannot be
+// mistaken for either.
+func AgentLabel(name string) string {
+	n := PlainLabel(name)
+	if Impersonates(n) {
+		return PlainLabel("(agent) " + n)
+	}
+	return n
+}
+
 // Sender says who a message came from.
 type Sender struct {
 	Pane string `json:"pane,omitempty"`
@@ -234,10 +281,14 @@ type Message struct {
 	Time time.Time `json:"time"`
 	Text string    `json:"text"`
 	Read bool      `json:"read,omitempty"`
+	// Seen is the window's own mark, set when the person at the window says they
+	// have seen the message. It is not Read: the agent's inbox, its unread count
+	// and the notice that tells it of mail never look at it.
+	Seen bool `json:"seen,omitempty"`
 }
 
 // System reports that Flockdeck wrote the message, not another agent.
-func (m Message) System() bool { return m.From.Pane == "" && m.From.Name == System }
+func (m Message) System() bool { return m.From.Pane == "" && !m.From.User && m.From.Name == System }
 
 // FromLabel is the sender as one phrase: its name, and its role if it has one.
 //
@@ -245,6 +296,9 @@ func (m Message) System() bool { return m.From.Pane == "" && m.From.Name == Syst
 // peer name among them, are replaced and the length is capped: the label is
 // printed on a line of its own and must not be able to start another.
 func (m Message) FromLabel() string {
+	if m.From.User {
+		return UserLabel
+	}
 	name := PlainLabel(m.From.Name)
 	if m.From.Role != "" {
 		return fmt.Sprintf("%s (%s)", name, PlainLabel(m.From.Role))

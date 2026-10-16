@@ -453,6 +453,7 @@
       else if (msg.type === "team") teamApply(msg);
       else if (msg.type === "teamResult") teamAnswer(msg);
       else if (msg.type === "tasks") teamTasksArrived(msg);
+      else if (msg.type === "teamGone") teamGone(msg);
       else if (msg.type === "messages") teamMessagesArrived(msg);
       else if (msg.type === "todoPlanPreview") renderTodoPlan(msg);
       else if (msg.type === "todos") keepFocus(() => renderTodos(msg));
@@ -11429,6 +11430,8 @@
     // The list box being chosen from, and what the open tab was last drawn from.
     picking: null,
     drawn: "",
+    // Why the project cannot be read, when the server said so.
+    gone: "",
     // What is typed, kept across a redraw.
     draft: { title: "", body: "", role: "", branch: "", note: "", assign: "", branchEdit: "", to: "", text: "" },
   };
@@ -11480,6 +11483,7 @@
       teamUI.full = {};
       teamUI.errs = {};
       teamUI.addOpen = false;
+      teamUI.gone = "";
     }
     const active = ((state && state.projects) || []).find((x) => x.active);
     openOverlay("Team", "agents", { scope: (team && team.project) || (active && active.name) || "" });
@@ -11550,8 +11554,8 @@
     if (p) { clearTimeout(p.timer); teamUI.busy.delete(p.area); }
     if (!msg.ok) {
       const why = msg.error || "That did not work.";
-      // Marking a message read has no place of its own to say it failed.
-      if (p && p.area !== "read") teamUI.errs[p.area] = why; else notice(why, true);
+      // Marking a message seen has no place of its own to say it failed.
+      if (p && p.area !== "seen") teamUI.errs[p.area] = why; else notice(why, true);
     } else if (p && p.done) {
       p.done(msg);
     }
@@ -11565,6 +11569,7 @@
     if (msg.root !== teamUI.root && teamUI.root) return;
     const before = team;
     team = msg;
+    teamUI.gone = "";
     if (!teamUI.root) teamUI.root = msg.root;
     if (before) teamAnnounce(before, msg);
     // An open task that changed is asked for in full, once for each change.
@@ -11622,7 +11627,7 @@
       part = [team.roster, team.hasManager];
     } else if (teamUI.tab === "tasks") {
       const card = teamUI.open && team.tasks.find((t) => t.id === teamUI.open);
-      part = teamUI.open ? [card || null, who] : [team.tasks, team.counts.tasks, team.finishedHidden, who];
+      part = teamUI.open ? [card || null, who] : [team.tasks, team.counts.tasks, team.openHidden, team.finishedHidden, who];
     } else {
       part = [team.messages, team.messagesHidden, who];
     }
@@ -11644,7 +11649,7 @@
   function teamAnnounce(before, now) {
     const said = [];
     const seen = new Set(before.messages.map((m) => m.id));
-    const fresh = now.messages.filter((m) => !seen.has(m.id) && !m.read && !(m.from && m.from.user));
+    const fresh = now.messages.filter((m) => !seen.has(m.id) && !m.seen && !(m.from && m.from.user));
     if (fresh.length === 1) said.push("New message from " + teamWho(fresh[0].from));
     else if (fresh.length > 1) said.push(fresh.length + " new messages");
     const was = new Map(before.tasks.map((t) => [t.id, t.state]));
@@ -11677,8 +11682,11 @@
     const body = $("overlay-body");
     body.textContent = "";
     if (!team) {
+      teamUI.drawn = "";
       $("overlay-tabs").hidden = true;
-      body.append(el("div", "dir-empty", "Reading the team…"));
+      const gone = el("div", "dir-empty", teamUI.gone ? "This project cannot be read now: " + teamUI.gone : "Reading the team…");
+      if (teamUI.gone) gone.setAttribute("role", "status");
+      body.append(gone);
       return;
     }
     teamUI.drawn = teamSlice();
@@ -11700,7 +11708,7 @@
     const body = $("overlay-body");
     const row = $("overlay-tabs");
     const inTabs = row.contains(document.activeElement);
-    const counts = { roster: team.counts.panes, tasks: team.counts.open, messages: team.counts.unread };
+    const counts = { roster: team.counts.panes, tasks: team.counts.open, messages: team.counts.unseen };
     overlayTabs(TEAM_TABS.map(([id, label]) => ({ id, label, count: counts[id] })), teamUI.tab, (id) => {
       if (teamUI.tab === id) return;
       teamUI.tab = id;
@@ -11766,11 +11774,18 @@
     if (done.length) {
       const close = el("button", "chip", "Close finished (" + done.length + ")");
       close.id = "team-close-finished";
-      describe(close, "Close the idle or exited panes of this project listed here, with no confirmation. Panes still working or waiting, and locked panes, are left.");
-      close.onclick = () => done.forEach((r) => send({ cmd: "closePane", id: r.pane }));
+      close.disabled = teamUI.busy.has("close");
+      describe(close, "Close the idle or exited panes of this project listed here, after you confirm. Panes working or waiting, panes with background work and locked panes are left.");
+      close.onclick = () => confirmDialog({
+        title: "Close " + done.length + (done.length === 1 ? " finished pane?" : " finished panes?"),
+        body: done.map((r) => r.name + (r.role ? " (" + roleName(r.role) + ")" : "")).join(", ") +
+          ". Each is checked again as it closes, and one that has started working is left open.",
+        action: "Close " + done.length + (done.length === 1 ? " pane" : " panes"), danger: true,
+      }, () => teamClosePanes(done.map((r) => r.pane)));
       bar.append(close);
     }
     body.append(bar);
+    body.append(teamErrBox("close"));
 
     const wrap = section(roster.length + (roster.length === 1 ? " agent" : " agents"));
     roster.forEach((r) => wrap.append(teamRosterRow(r)));
@@ -11819,7 +11834,7 @@
     } else {
       meta.append(el("span", null, "no task"));
     }
-    if (r.unread) meta.append(describe(el("span", "agent-waiting", r.unread + (r.unread === 1 ? " unread message" : " unread messages")), "Messages in this pane's inbox it has not read"));
+    if (r.unread) meta.append(describe(el("span", "agent-waiting", r.unread + " unread by the agent"), "Messages in this pane's inbox that it has not read"));
     main.append(meta);
     row.append(main);
 
@@ -11830,7 +11845,7 @@
     close.disabled = !r.finished || !!r.locked;
     describe(close, r.locked ? "This pane is locked against closing."
       : r.finished ? "Close this pane. It is idle or has exited." : "Only an idle or exited pane can be closed here.");
-    close.onclick = (ev) => { ev.stopPropagation(); send({ cmd: "closePane", id: r.pane }); };
+    close.onclick = (ev) => { ev.stopPropagation(); teamClosePanes([r.pane]); };
     close.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") ev.stopPropagation(); };
     row.append(close);
 
@@ -11839,6 +11854,16 @@
       closeOverlay();
     }, false, r.name);
     return row;
+  }
+
+  /** teamClosePanes asks the server to close panes. It judges each again as it
+   *  closes it, so one that went back to work since the roster was drawn stays. */
+  function teamClosePanes(ids) {
+    teamCmd("close", { cmd: "teamClose", panes: ids }, (res) => {
+      const left = res.skipped || [];
+      notice((res.closed ? "Closed " + res.closed + (res.closed === 1 ? " pane" : " panes") : "No pane was closed") +
+        (left.length ? ". Left open: " + left.join("; ") : ""), !res.closed && left.length > 0);
+    });
   }
 
   // ------------------------------------------------------------------ tasks
@@ -11910,8 +11935,9 @@
       board.append(col);
     });
     body.append(board);
-    if (team.finishedHidden && !teamUI.extra.length) {
-      const more = el("button", "chip", "Show " + team.finishedHidden + " older finished " + (team.finishedHidden === 1 ? "task" : "tasks"));
+    const hidden = (team.openHidden || 0) + (team.finishedHidden || 0);
+    if (hidden && !teamUI.extra.length) {
+      const more = el("button", "chip", "Show " + hidden + " more " + (hidden === 1 ? "task" : "tasks") + " not listed");
       more.id = "team-show-all";
       more.onclick = () => send({ cmd: "taskList", root: teamUI.root, state: "all" });
       body.append(more);
@@ -12445,7 +12471,8 @@
   }
 
   function teamMessage(m) {
-    const item = el("div", "team-msg" + (m.read ? "" : " unread"));
+    const fresh = !m.seen && !(m.from && m.from.user);
+    const item = el("div", "team-msg" + (fresh ? " unseen" : ""));
     item.id = "team-msg-" + m.id;
     item.tabIndex = 0;
     item.setAttribute("role", "listitem");
@@ -12453,7 +12480,9 @@
     head.append(el("span", "team-note-who" + (m.from && m.from.user ? " you" : ""), m.system ? "Flockdeck" : teamWho(m.from)));
     head.append(el("span", null, "to " + (m.toName ? m.toName + (m.toRole ? " (" + roleName(m.toRole) + ")" : "") : m.to)));
     head.append(el("span", null, teamWhen(m.time)));
-    head.append(el("span", "team-msg-state", m.read ? "read" : "unread"));
+    // Two marks, kept apart: the recipient's (has the agent read it) and the
+    // window's own (have you looked).
+    head.append(el("span", "team-msg-state", (fresh ? "new, " : "") + (m.read ? "read by the agent" : "unread by the agent")));
     item.append(head);
     // Plain text, whatever it holds: it was written by an agent.
     const full = teamUI.full[m.id];
@@ -12465,12 +12494,12 @@
       more.onclick = () => send({ cmd: "msgList", root: teamUI.root, msgId: m.id });
       acts.append(more);
     }
-    if (!m.read) {
-      const read = el("button", "chip", "Mark read");
-      read.id = "team-msg-read-" + m.id;
-      describe(read, "Mark it read. The agent then no longer sees it as unread.");
-      read.onclick = () => teamCmd("read", { cmd: "msgRead", id: m.to, msgId: m.id });
-      acts.append(read);
+    if (fresh) {
+      const seen = el("button", "chip", "Mark seen");
+      seen.id = "team-msg-seen-" + m.id;
+      describe(seen, "Mark it seen here. The agent's inbox is not changed: it still finds the message unread until it reads it.");
+      seen.onclick = () => teamCmd("seen", { cmd: "msgSeen", id: m.to, msgId: m.id });
+      acts.append(seen);
     }
     if (acts.children.length) item.append(acts);
     item.onkeydown = (ev) => {
@@ -12484,10 +12513,21 @@
     return item;
   }
 
-  /** teamTasksArrived takes the older finished tasks asked for with "Show". */
+  /** teamGone is the server saying the project being watched can no longer be
+   *  read, a closed one above all: the panel says so and drops the old picture. */
+  function teamGone(msg) {
+    if (msg.root !== teamUI.root) return;
+    team = null;
+    teamUI.gone = msg.error || "The project is not open any more.";
+    teamUI.open = "";
+    teamUI.detail = null;
+    if (dialog === "team") keepFocus(renderTeam);
+  }
+
+  /** teamTasksArrived takes the tasks a push left out, asked for with "Show". */
   function teamTasksArrived(msg) {
     if (msg.root !== teamUI.root) return;
-    teamUI.extra = (msg.tasks || []).filter((t) => t.state === "done" || t.state === "cancelled");
+    teamUI.extra = msg.tasks || [];
     if (dialog === "team") keepFocus(renderTeam, "#team-side-toggle");
   }
 

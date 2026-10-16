@@ -94,18 +94,18 @@ func (w *Workspace) TeamMessages(root string) ([]team.Message, []team.Member, er
 	return w.team.inbox.Messages(panes), members, nil
 }
 
-// UserReadMessage marks one message in the inbox of pane read, as the person at
-// the window. The pane must be one of the project at root, so a window cannot
-// reach an inbox of another project. The agent then no longer sees the message
-// as unread.
-func (w *Workspace) UserReadMessage(root, pane string, id int) (team.Message, error) {
+// UserSeeMessage sets the window's seen mark on one message in the inbox of
+// pane, as the person at the window. The pane must be one of the project at
+// root, so a window cannot reach an inbox of another project. It does not mark
+// the message read: the agent's inbox and unread count are as they were.
+func (w *Workspace) UserSeeMessage(root, pane string, id int) (team.Message, error) {
 	members, err := w.TeamMembers(root)
 	if err != nil {
 		return team.Message{}, err
 	}
 	for _, m := range members {
 		if m.Pane == pane {
-			msg, err := w.team.inbox.Read(pane, id)
+			msg, err := w.team.inbox.MarkSeen(pane, id)
 			if err != nil {
 				return team.Message{}, fmt.Errorf("no message #%d in the inbox of pane %s", id, pane)
 			}
@@ -113,4 +113,55 @@ func (w *Workspace) UserReadMessage(root, pane string, id int) (team.Message, er
 		}
 	}
 	return team.Message{}, fmt.Errorf("pane %q is not an agent pane of this project", pane)
+}
+
+// TeamMessageRev is a number that changes whenever any inbox does, for a window
+// that wants to know whether to read the messages again.
+func (w *Workspace) TeamMessageRev() uint64 { return w.team.inbox.Rev() }
+
+// maxCloseAtOnce is the most panes one CloseFinishedIn closes.
+const maxCloseAtOnce = 100
+
+// CloseFinishedIn closes the panes of ids that are agent panes of the project at
+// root and are finished right now: idle with no background work, or exited
+// cleanly, and not locked. The window asks from a list that may be a moment old,
+// so each pane is judged again here, with the test `flockdeck close --finished`
+// uses, and one that has gone back to work, is locked, or is not in the project
+// is left open and named in skipped with the reason. A helper's parent is told
+// it finished, as when Close finished panes closes it.
+func (w *Workspace) CloseFinishedIn(root string, ids []string) (closed int, skipped []string, err error) {
+	members, err := w.TeamMembers(root)
+	if err != nil {
+		return 0, nil, err
+	}
+	if len(ids) > maxCloseAtOnce {
+		return 0, nil, fmt.Errorf("at most %d panes are closed at once", maxCloseAtOnce)
+	}
+	byPane := map[string]team.Member{}
+	for _, m := range members {
+		byPane[m.Pane] = m
+	}
+	for _, id := range ids {
+		m, ok := byPane[id]
+		switch {
+		case !ok:
+			skipped = append(skipped, id+": not an agent pane of this project")
+			continue
+		case w.PaneLocked(id):
+			skipped = append(skipped, m.Label()+": locked")
+			continue
+		case !w.paneFinished(id):
+			skipped = append(skipped, m.Label()+": not finished any more")
+			continue
+		}
+		p := w.Pane(id)
+		w.mu.RLock()
+		sess, parent := p.Sess, p.Parent
+		w.mu.RUnlock()
+		if w.ClosePaneByID(id) {
+			closed++
+			w.noteFinished(p, sess, parent)
+		}
+	}
+	return closed, skipped, nil
 }

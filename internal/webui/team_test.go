@@ -38,7 +38,7 @@ const EYES = { pane: "p3", name: "eyes", role: "reviewer", agent: "codex", statu
 const team = (over) => Object.assign({
   type: "team", root: "C:/repo", project: "repo", hasManager: true,
   roster: [BOSS, DEV, EYES],
-  counts: { panes: 3, live: 2, tasks: { planned: 1, "in-progress": 1, done: 1, blocked: 1 }, open: 3, messages: 2, unread: 1 },
+  counts: { panes: 3, live: 2, tasks: { planned: 1, "in-progress": 1, done: 1, blocked: 1 }, open: 3, messages: 2, unread: 1, unseen: 1 },
   tasks: [
     tk("T1", "Write the parser", "in-progress", { owner: "worker dev", ownerRole: "worker", ownerPane: "p2", ownerOpen: true, branch: "feat/parser", notes: 2 }),
     tk("T2", "Document the flags", "planned", { owner: "any worker", ownerRole: "worker" }),
@@ -101,7 +101,7 @@ const rows = [...h.$("overlay-body").querySelectorAll("div.team-pane")];
 assert.strictEqual(rows.length, 3);
 const dev = h.$("team-pane-p2");
 const text = dev.textContent;
-for (const want of ["Worker", "dev", "claude", "feat/parser", "T1", "In progress", "Write the parser", "idle", "2 unread messages"]) {
+for (const want of ["Worker", "dev", "claude", "feat/parser", "T1", "In progress", "Write the parser", "idle", "2 unread by the agent"]) {
   assert.ok(text.includes(want), want + " is missing from " + text);
 }
 assert.ok(h.$("team-pane-p1").textContent.includes("no task"), "a pane without a task says so");
@@ -121,16 +121,41 @@ opened();
 assert.ok(h.$("team-close-p1").disabled, "a working pane can be closed from here");
 assert.ok(h.$("team-close-p3").disabled, "a locked pane can be closed from here");
 assert.ok(!live("team-close-p2").disabled, "a finished pane cannot be closed");
+// The server judges the pane again as it closes it, so what is sent is the ask.
 h.click(h.$("team-close-p2"));
-assert.deepStrictEqual(sent("closePane"), [{ cmd: "closePane", id: "p2" }]);
+const one = sent("teamClose").pop();
+assert.deepStrictEqual(Object.assign({}, one, { req: "x" }), { cmd: "teamClose", root: "C:/repo", req: "x", panes: ["p2"] });
+assert.strictEqual(sent("closePane").length, 0, "a close skipped the server's own check");
 assert.strictEqual(sent("revealPane").length, 0, "closing a pane also went to it");
 assert.ok(!live("overlay").hidden);
-// Closing every finished pane of the project is one button, and counts them.
-assert.strictEqual(h.$("team-close-finished").textContent, "Close finished (1)");
-h.click(h.$("team-close-finished"));
-assert.strictEqual(sent("closePane").length, 2);
+// A pane that went back to work since the roster was drawn is left open, and
+// the notice says so.
+h.recv({ type: "teamResult", req: one.req, op: "teamClose", ok: true, closed: 0, skipped: ["dev: not finished any more"] });
+assert.ok(h.$("notice").textContent.includes("No pane was closed") && h.$("notice").textContent.includes("dev: not finished any more"), h.$("notice").textContent);
 // A key on the nested button does not also go to the pane.
 h.$("team-close-p2").onkeydown({ key: "Enter", stopPropagation() { this.stopped = true; } });
+`)
+}
+
+func TestClosingFinishedPanesAsksFirstAndNamesThem(t *testing.T) {
+	runFrontEnd(t, teamPrelude+`
+opened();
+assert.strictEqual(h.$("team-close-finished").textContent, "Close finished (1)");
+h.click(h.$("team-close-finished"));
+assert.strictEqual(h.$("overlay-title").textContent, "Close 1 finished pane?");
+assert.ok(h.$("overlay-body").textContent.includes("dev (Worker)"), "the question does not name the pane: " + h.$("overlay-body").textContent);
+assert.strictEqual(sent("teamClose").length, 0, "closed before it was confirmed");
+const yes = h.$("overlay-body").querySelectorAll("button").find((b) => b.textContent === "Close 1 pane");
+h.click(yes);
+const cmd = sent("teamClose").pop();
+assert.deepStrictEqual(cmd.panes, ["p2"]);
+assert.strictEqual(h.$("overlay-title").textContent, "Team");
+h.recv({ type: "teamResult", req: cmd.req, op: "teamClose", ok: true, closed: 1 });
+assert.ok(h.$("notice").textContent.includes("Closed 1 pane"));
+// Cancelling sends nothing.
+h.click(h.$("team-close-finished"));
+h.key({ key: "Escape" });
+assert.strictEqual(sent("teamClose").length, 1);
 `)
 }
 
@@ -509,13 +534,13 @@ assert.strictEqual(h.$("overlay-title").textContent, "Team");
 
 func TestOlderFinishedTasksAreShownOnRequest(t *testing.T) {
 	runFrontEnd(t, teamPrelude+`
-opened({ finishedHidden: 2 });
+opened({ finishedHidden: 2, openHidden: 1 });
 h.click(tab("tasks"));
-assert.ok(h.$("team-show-all").textContent.includes("2 older finished tasks"));
+assert.ok(h.$("team-show-all").textContent.includes("Show 3 more tasks not listed"), h.$("team-show-all").textContent);
 h.click(h.$("team-show-all"));
 assert.deepStrictEqual(sent("taskList").pop(), { cmd: "taskList", root: "C:/repo", state: "all" });
-h.recv({ type: "tasks", root: "C:/repo", state: "all", tasks: [tk("T9", "Ancient", "done"), tk("T8", "Older", "cancelled")] });
-assert.ok(h.$("team-task-T9"), "an older done task is not on the board");
+h.recv({ type: "tasks", root: "C:/repo", state: "all", tasks: [tk("T9", "Ancient", "done"), tk("T8", "Older", "cancelled"), tk("T7", "Quiet", "planned")] });
+assert.ok(h.$("team-task-T9") && h.$("team-task-T7"), "a task the push left out is not on the board");
 assert.ok(!live("team-show-all"));
 `)
 }
@@ -538,7 +563,7 @@ assert.ok(first.querySelector("div.team-msg-text").textContent === hostile, "the
 assert.ok(first.textContent.includes("dev (Worker)") && first.textContent.includes("to boss (Manager)") && first.textContent.includes("unread"));
 assert.ok(items[1].textContent.includes("Flockdeck"), items[1].textContent);
 assert.ok(items[2].textContent.includes("you") && items[2].textContent.includes("to dev (Worker)") && items[2].textContent.includes("read") && !items[2].textContent.includes("unread"));
-assert.ok(items[0].classList.contains("unread") && !items[2].classList.contains("unread"));
+assert.ok(items[0].classList.contains("unseen") && !items[2].classList.contains("unseen"), "new messages are marked; the user's own is not");
 // Arrow keys walk the list.
 items[0].focus();
 h.key({ key: "ArrowDown" });
@@ -617,21 +642,44 @@ assert.strictEqual(sent("msgSend").length, 3);
 `)
 }
 
-func TestAMessageIsMarkedReadAndACutOneShownWhole(t *testing.T) {
+func TestAMessageIsMarkedSeenNotReadAndACutOneShownWhole(t *testing.T) {
 	runFrontEnd(t, teamPrelude+`
 opened({ messages: [
   msg(2, { name: "dev", role: "worker", pane: "p2" }, { pane: "p1", name: "boss", role: "manager" }, "The start of a long one", { cut: true }),
-  msg(1, { name: "dev", role: "worker", pane: "p2" }, { pane: "p1", name: "boss", role: "manager" }, "Seen", { read: true }),
+  msg(1, { name: "dev", role: "worker", pane: "p2" }, { pane: "p1", name: "boss", role: "manager" }, "Looked at", { seen: true }),
+  msg(3, { name: "the user", user: true }, { pane: "p1", name: "boss", role: "manager" }, "Mine"),
 ] });
 h.click(tab("messages"));
-assert.ok(!live("team-msg-read-1"), "a read message offers Mark read");
-h.click(h.$("team-msg-read-2"));
-assert.deepStrictEqual(Object.assign({}, sent("msgRead").pop(), { req: "x" }), { cmd: "msgRead", root: "C:/repo", req: "x", id: "p1", msgId: 2 });
+// Two marks, said apart: the agent's, and the window's.
+assert.ok(h.$("team-msg-2").textContent.includes("new, unread by the agent"), h.$("team-msg-2").textContent);
+assert.ok(h.$("team-msg-1").textContent.includes("unread by the agent") && !h.$("team-msg-1").textContent.includes("new,"), h.$("team-msg-1").textContent);
+assert.ok(!live("team-msg-seen-1"), "a message that was seen offers Mark seen");
+assert.ok(!live("team-msg-seen-3"), "the user's own message offers Mark seen");
+assert.ok(/does not|not changed/.test(h.$("team-msg-seen-2").dataset.tip), "the button does not say it leaves the agent's inbox alone");
+h.click(h.$("team-msg-seen-2"));
+assert.deepStrictEqual(Object.assign({}, sent("msgSeen").pop(), { req: "x" }), { cmd: "msgSeen", root: "C:/repo", req: "x", id: "p1", msgId: 2 });
+assert.strictEqual(sent("msgRead").length, 0, "the window can still mark a message read for the agent");
 h.click(h.$("team-msg-more-2"));
 assert.deepStrictEqual(sent("msgList").pop(), { cmd: "msgList", root: "C:/repo", msgId: 2 });
 h.recv({ type: "messages", root: "C:/repo", messages: [Object.assign(msg(2, { name: "dev", role: "worker", pane: "p2" }, { pane: "p1", name: "boss" }, "The start of a long one, and the rest of it."), { cut: false })] });
 assert.ok(h.$("team-msg-2").textContent.includes("and the rest of it."));
 assert.ok(!live("team-msg-more-2"), "Show all stayed after the whole text came");
+`)
+}
+
+func TestAProjectThatClosesIsSaidAndTheOldPictureDropped(t *testing.T) {
+	runFrontEnd(t, teamPrelude+`
+opened();
+h.click(tab("tasks"));
+h.recv({ type: "teamGone", root: "C:/repo", error: "no project is open at C:/repo" });
+const body = h.$("overlay-body").textContent;
+assert.ok(body.includes("cannot be read now") && body.includes("no project is open"), body);
+assert.ok(!live("team-task-T1"), "the old board is still drawn");
+assert.ok(h.$("overlay-tabs").hidden);
+// A picture coming back replaces the message.
+h.recv(team());
+assert.ok(live("team-task-T1"));
+assert.ok(!h.$("overlay-body").textContent.includes("cannot be read"));
 `)
 }
 
@@ -651,7 +699,7 @@ const detailRequests = sent("taskGet").length;
 const next = team({
   roster: [BOSS, Object.assign({}, DEV, { status: "working", activity: "working" }), EYES],
   messages: [msg(3, { name: "dev", role: "worker", pane: "p2" }, { pane: "p1", name: "boss", role: "manager" }, "Done with T1")].concat(team().messages),
-  counts: { panes: 3, live: 2, tasks: { planned: 1, "in-progress": 1, done: 1, blocked: 1 }, open: 3, messages: 3, unread: 2 },
+  counts: { panes: 3, live: 2, tasks: { planned: 1, "in-progress": 1, done: 1, blocked: 1 }, open: 3, messages: 3, unread: 2, unseen: 2 },
 });
 h.recv(next);
 assert.ok(h.$("team-detail"), "the open task was closed by a push");
@@ -817,7 +865,7 @@ const list = h.$("team-msgs");
 // The board moves, which the messages tab does not show: nothing there is
 // drawn again, so the caret, the text and the scroll are the browser's own.
 h.recv(team({ tasks: team().tasks.concat([tk("T9", "New", "planned")]),
-  counts: { panes: 3, live: 2, tasks: { planned: 2, "in-progress": 1, done: 1, blocked: 1 }, open: 4, messages: 2, unread: 1 } }));
+  counts: { panes: 3, live: 2, tasks: { planned: 2, "in-progress": 1, done: 1, blocked: 1 }, open: 4, messages: 2, unread: 1, unseen: 1 } }));
 assert.ok(h.$("team-compose") === box, "the compose box was replaced by a push about the board");
 assert.ok(h.$("team-msgs") === list, "the list was replaced by a push about the board");
 assert.deepStrictEqual(texts([...h.$("overlay-tabs").children]), ["Roster3", "Tasks4", "Messages1"], "the tab counts did not follow");

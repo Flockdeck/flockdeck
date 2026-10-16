@@ -112,6 +112,19 @@ func (e *teamEnv) snapshot(t *testing.T) teamMsg {
 	return m
 }
 
+// agentInbox is what the agent itself sees in its inbox.
+func (e *teamEnv) agentInbox(t *testing.T, pane string, all bool) []team.Message {
+	t.Helper()
+	msgs, ok := ask(e.srv, func() []team.Message {
+		m, _ := e.ws.Inbox(pane, all)
+		return m
+	})
+	if !ok {
+		t.Fatal("the workspace did not answer")
+	}
+	return msgs
+}
+
 // systemTexts are the notices Flockdeck wrote into a pane's inbox.
 func (e *teamEnv) systemTexts(t *testing.T, pane string) []string {
 	t.Helper()
@@ -191,7 +204,7 @@ func TestTeamTasksThroughTheWindow(t *testing.T) {
 		t.Errorf("note = %+v", res.Task.NoteList)
 	}
 	// The worker, who owns it, hears of the note; the user, who has no pane, does not.
-	if got := e.systemTexts(t, e.dev); len(got) != 2 || !strings.Contains(got[1], "note on task T1 from the user: started by hand") {
+	if got := e.systemTexts(t, e.dev); len(got) != 2 || !strings.Contains(got[1], "note on task T1 from the user (at the window): started by hand") {
 		t.Errorf("the worker was told %q", got)
 	}
 	res = e.mustDo(t, command{Cmd: "taskBranch", ID: "T1", Branch: "feat/other"})
@@ -230,7 +243,7 @@ func TestTeamTasksThroughTheWindow(t *testing.T) {
 
 	// Done: the manager pane is told, since it was not the one that closed it.
 	e.mustDo(t, command{Cmd: "taskStatus", ID: "T1", State: "done"})
-	if got := e.systemTexts(t, e.boss); len(got) == 0 || !strings.Contains(got[len(got)-1], "task T1 is done, by the user") {
+	if got := e.systemTexts(t, e.boss); len(got) == 0 || !strings.Contains(got[len(got)-1], "task T1 is done, by the user (at the window)") {
 		t.Errorf("the manager was told %q", got)
 	}
 	// Finished tasks are in the all list, not the open one.
@@ -406,28 +419,50 @@ func TestTeamMessagesThroughTheWindow(t *testing.T) {
 	refused(command{Cmd: "msgSend", Target: e.otherAgent, Text: "x"}, "no pane, name or role matches")
 	e.mustDo(t, command{Cmd: "msgSend", Target: e.eyes, Text: strings.Repeat("x", team.MaxText)})
 
-	// Mark read: only in this project's inboxes.
+	// Mark seen: only in this project's inboxes, and not the agent's read mark.
 	e.srv.teamCommand(e.c, command{Cmd: "msgList", Root: e.root})
 	e.next(t, "messages", &list)
 	var forEyes teamMessageView
 	for _, m := range list.Messages {
-		if m.Text == "please look at T1" {
+		if m.Text == "need a decision" {
 			forEyes = m
 		}
 	}
-	refused(command{Cmd: "msgRead", ID: e.dev, MsgID: forEyes.ID}, "no message #")
-	refused(command{Cmd: "msgRead", ID: e.otherAgent, MsgID: forEyes.ID}, "not an agent pane of this project")
-	refused(command{Cmd: "msgRead", ID: "forged", MsgID: forEyes.ID}, "not an agent pane of this project")
-	if res := e.mustDo(t, command{Cmd: "msgRead", ID: e.eyes, MsgID: forEyes.ID}); res.Pane != e.eyes || res.Message != forEyes.ID {
-		t.Errorf("mark read = %+v", res)
+	refused(command{Cmd: "msgSeen", ID: e.dev, MsgID: forEyes.ID}, "no message #")
+	refused(command{Cmd: "msgSeen", ID: e.otherAgent, MsgID: forEyes.ID}, "not an agent pane of this project")
+	refused(command{Cmd: "msgSeen", ID: "forged", MsgID: forEyes.ID}, "not an agent pane of this project")
+	before := e.snapshot(t)
+	if before.Counts.Unseen != 1 || before.Counts.Unread != 4 {
+		t.Errorf("counts before = %+v", before.Counts)
+	}
+	if res := e.mustDo(t, command{Cmd: "msgSeen", ID: e.boss, MsgID: forEyes.ID}); res.Pane != e.boss || res.Message != forEyes.ID {
+		t.Errorf("mark seen = %+v", res)
 	}
 	m := e.snapshot(t)
-	if m.Counts.Messages != 4 || m.Counts.Unread != 3 {
+	// Seen by the user, still unread by the agent: its count, its inbox and its
+	// roster row are what they were.
+	if m.Counts.Messages != 4 || m.Counts.Unread != 4 || m.Counts.Unseen != 0 {
 		t.Errorf("counts = %+v", m.Counts)
 	}
 	for _, r := range m.Roster {
-		if r.Pane == e.eyes && r.Unread != 1 {
+		if r.Pane == e.boss && r.Unread != 1 {
+			t.Errorf("manager unread = %d, the user's mark changed it", r.Unread)
+		}
+		if r.Pane == e.eyes && r.Unread != 2 {
 			t.Errorf("reviewer unread = %d", r.Unread)
+		}
+	}
+	if got := e.agentInbox(t, e.boss, false); len(got) != 1 || got[0].Read || !got[0].Seen {
+		t.Errorf("the manager's inbox = %+v", got)
+	}
+	for _, mv := range func() []teamMessageView {
+		var l teamMessagesMsg
+		e.srv.teamCommand(e.c, command{Cmd: "msgList", Root: e.root})
+		e.next(t, "messages", &l)
+		return l.Messages
+	}() {
+		if mv.Text == "need a decision" && (!mv.Seen || mv.Read) {
+			t.Errorf("view of the message = %+v", mv)
 		}
 	}
 }
@@ -435,7 +470,7 @@ func TestTeamMessagesThroughTheWindow(t *testing.T) {
 func TestTeamCommandsAreForTheDeskOnly(t *testing.T) {
 	e := newTeamEnv(t)
 	phone := &controlClient{out: make(chan []byte, 8), remote: true, device: "d1"}
-	for name := range map[string]bool{"teamSnapshot": true, "teamWatch": true, "taskAdd": true, "taskStatus": true, "taskPrune": true, "msgSend": true, "msgRead": true, "msgList": true, "taskList": true, "taskGet": true, "taskAssign": true, "taskNote": true, "taskBranch": true, "teamUnwatch": true} {
+	for name := range map[string]bool{"teamSnapshot": true, "teamWatch": true, "taskAdd": true, "taskStatus": true, "taskPrune": true, "msgSend": true, "msgSeen": true, "teamClose": true, "msgList": true, "taskList": true, "taskGet": true, "taskAssign": true, "taskNote": true, "taskBranch": true, "teamUnwatch": true} {
 		e.srv.teamCommand(phone, command{Cmd: name, Root: e.root, Title: "x", Text: "x", Target: e.dev, ID: "T1", State: "done"})
 		var raw []byte
 		select {
@@ -466,7 +501,7 @@ func TestAViewerCannotUseTheTeamPanel(t *testing.T) {
 	if m := e.snapshot(t); len(m.Tasks) != 0 || len(m.Messages) != 0 {
 		t.Errorf("a viewer changed the team: %+v", m)
 	}
-	for _, cmd := range []string{"teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "taskGet", "taskAdd", "taskAssign", "taskStatus", "taskNote", "taskBranch", "taskPrune", "msgList", "msgSend", "msgRead"} {
+	for _, cmd := range []string{"teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "taskGet", "taskAdd", "taskAssign", "taskStatus", "taskNote", "taskBranch", "taskPrune", "msgList", "msgSend", "msgSeen", "teamClose"} {
 		if commandAccess[cmd] != accessFull {
 			t.Errorf("%s is not full-access only", cmd)
 		}
