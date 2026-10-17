@@ -137,6 +137,10 @@ var tokenShapes = []shape{
 	{"google-key", regexp.MustCompile(`AIza[0-9A-Za-z_\-]{35}`)},
 	{"npm-token", regexp.MustCompile(`npm_[A-Za-z0-9]{36}`)},
 	{"sendgrid-key", regexp.MustCompile(`\bSG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}`)},
+	{"stripe-key", regexp.MustCompile(`\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}`)},
+	{"huggingface-token", regexp.MustCompile(`\bhf_[A-Za-z0-9]{30,}`)},
+	{"digitalocean-token", regexp.MustCompile(`\bdop_v1_[A-Za-z0-9]{40,}`)},
+	{"twilio-key", regexp.MustCompile(`\bSK[0-9a-fA-F]{32}\b`)},
 	{"jwt", regexp.MustCompile(`\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}`)},
 }
 
@@ -714,6 +718,14 @@ func mayMatch(s, kind string) bool {
 		return strings.Contains(s, "SG.")
 	case "jwt":
 		return strings.Contains(s, "eyJ")
+	case "stripe-key":
+		return strings.Contains(s, "k_live_") || strings.Contains(s, "k_test_")
+	case "huggingface-token":
+		return strings.Contains(s, "hf_")
+	case "digitalocean-token":
+		return strings.Contains(s, "dop_v1_")
+	case "twilio-key":
+		return strings.Contains(s, "SK")
 	}
 	return true
 }

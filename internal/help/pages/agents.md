@@ -468,8 +468,9 @@ Flockdeck starts in. Saving a key on its own sends nothing.
 What is sent is that text alone, cut at 2,000 characters with `[truncated]` at
 the end, beside three fixed questions about it: no files, no repository, no
 conversation, no path of your machine's that the text does not itself contain.
-Nothing is removed from the text first, so a task that contains a secret sends
-it; leave the setting off for work like that. Calls give up after 2 seconds,
+Secrets are redacted from the text first (API keys, bearer tokens, password
+values, secret file paths), by pattern, so one with no recognisable shape is
+still sent; leave the setting off for work like that. Calls give up after 2 seconds,
 run at most 20 a minute, are remembered for an hour so an edited fan-out does
 not ask again, and pause for 30 seconds after a failure, or 5 minutes after
 the key is refused. Without the key the

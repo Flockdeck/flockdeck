@@ -184,9 +184,9 @@ default** and needs both of these:
    turned on. It can only be turned
    on from the machine itself, not from a window reached through the relay;
    turning it off works from a window reached through the relay too.
-2. A TypeSafe API key: either the one you paste into **Settings › Status
-   detection › TypeSafe API key** (kept on this machine with your other keys, never shown
-   back, only ever sent to `api.typesafe.ai`, and only set from the machine
+2. A TypeSafe API key: either the one you paste into **Settings › API
+   keys › TypeSafe API key** (kept on this machine with your other keys, never
+   shown back, only ever sent to `api.typesafe.ai`, and only set from the machine
    itself), or `TYPESAFE_API_KEY` in the environment Flockdeck starts in. The
    one in Settings is used first. Saving a key does not turn anything on.
 
@@ -194,11 +194,27 @@ With either missing, nothing is ever sent, and no error is shown.
 
 What is sent, when a pane of an agent that reports nothing has been quiet for
 a few seconds and its status is still a guess: the **last 30 lines of its
-output, at most 2,000 bytes, with the escape sequences taken out**. It goes in one
-request holding that text and the two questions asked of it. The
-scrollback and the pane's name and folder are not sent. Secrets that happen to be on screen
-in those lines are **not** removed. Shell panes, and agents that report their
-own status, are never sent.
+output, at most 2,000 bytes, with the escape sequences taken out and secrets
+redacted**. It goes in one request holding that text and the two questions asked
+of it. The scrollback and the pane's name and folder are not sent.
+
+Before it is sent, the text goes through the redaction the transcript recorder
+uses, with additions for a terminal. The redaction takes out API keys of the
+common providers (Anthropic, OpenAI-style, GitHub, GitLab, AWS, Google, Slack,
+Stripe, Hugging Face, DigitalOcean, Twilio, npm), JWTs, bearer and basic
+credentials, passwords in URLs, private key blocks, and values assigned to a
+name such as TOKEN, SECRET or PASSWORD. The additions are these: any word that
+is a path to a secret file (`.env`, `id_rsa`, `~/.aws/credentials`) is replaced,
+and so are three or more lines in a row of base64 (the body of a key whose first
+line has scrolled away). A key that the terminal wrapped onto the next line is
+joined first when the line before it is a full-width line, so it is caught in
+the common case. If nothing is left but redacted text, nothing is sent.
+
+Redaction works by pattern and **does not catch every secret**: a password or
+key with no recognisable shape, on a line that does not name it as one, is sent
+as it is on screen, and so is everything else in those lines (code, file names,
+prose). If a pane may show something you cannot send to a third party, leave
+this off. Shell panes, and agents that report their own status, are never sent.
 
 What it can change: a quiet pane called idle becomes waiting, or blocked, only
 when Jev answers with high confidence. It never turns waiting or blocked into
