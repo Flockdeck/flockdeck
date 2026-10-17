@@ -7,8 +7,8 @@
  * waiting on you and red one that failed, and the page spends neither on
  * anything else. Green is a verdict, a test that passed, never a state.
  *
- * The page commits to the dark ground the application runs on, so there is no
- * light variant; every colour is still stated outright rather than inherited.
+ * The page is dark by default, as the application is, and takes the light
+ * theme of design/tokens.css when the system asks for it. There is no switch.
  */
 
 /* The fonts are the site's own files rather than a font service's, which
@@ -89,6 +89,55 @@
   --ease-in-out: cubic-bezier(.65, 0, .35, 1);
 }
 
+/* The light appearance. The block above is the dark one and is shared with
+   the docs site; this is design/tokens.css's light theme under this sheet's
+   names, applied when the system asks for light. There is no switch on the
+   page: it follows the system, as the application does with its theme set to
+   system. The selector is html:root rather than a second :root rule because
+   cmd/docgen's test keeps the tokens in one shared block, and the extra type
+   selector is what lets this beat it. The terminal is dark in both themes
+   (design/color.md, "The terminal is dark in both themes"), so the deck's
+   panes keep their own colours further down. */
+@media (prefers-color-scheme: light) {
+  html:root {
+    color-scheme: light;
+
+    --surface:   #FAFBFB;
+    --raised:    #FFFFFF;
+    --sunken:    #F1F3F4;
+    --overlay:   #FFFFFF;
+    --hover:     #EEF1F2;
+    --active:    #E3E7E9;
+
+    --edge-soft: #E3E7E9;
+    --edge:      #CBD2D6;
+    --edge-hard: #7A868C;
+
+    --text:      #131A1E;
+    --muted:     #5C676D;
+    --faint:     #7A868C;
+
+    --accent:        #0B6E77;
+    --accent-strong: #08575E;
+    --accent-subtle: #E6F3F4;
+    --accent-edge:   #A9D5D8;
+    --on-accent:     #FFFFFF;
+
+    --working: #0B6E77;
+    --waiting: #875A08;
+    --waiting-subtle: #FAF0DC;
+    --waiting-edge:   #E3CE96;
+    --exited:  #B02A1F;
+    --exited-subtle:  #FBEAE8;
+    --exited-edge:    #EBB8B1;
+    --idle:    #5C676D;
+    --ended:   #7A868C;
+    --ok:      #196634;
+
+    --shadow: 0 20px 56px -16px rgb(19 26 30 / .28);
+  }
+}
+
 * { box-sizing: border-box; }
 
 /* Anything given a display of its own below would otherwise stay on screen
@@ -96,16 +145,20 @@
    did nothing, with scripting off. */
 [hidden] { display: none !important; }
 
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+/* Text is set in rem, so a larger default text size in the browser scales the
+   whole page; 17px is the body size, a little above the 16px it was. */
 body {
   margin: 0;
   background: var(--surface);
   color: var(--text);
-  font: 16px/1.65 var(--body);
+  font: 1.0625rem/1.65 var(--body);
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
 
-.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 24px; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 24px; }
 
 a { color: var(--accent); text-decoration-color: var(--accent-edge); text-underline-offset: 3px; }
 a:hover { color: var(--accent-strong); }
@@ -121,56 +174,64 @@ a:hover { color: var(--accent-strong); }
    page until it has the focus, then over the header's corner, where it is
    seen and Enter takes it. */
 .skip {
-  position: absolute; left: 16px; top: -64px; z-index: 10;
-  padding: 8px 16px; border-radius: var(--radius-sm);
+  position: absolute; left: 16px; top: 12px; z-index: 10;
+  padding: 10px 16px; border-radius: var(--radius-sm);
   background: var(--accent); color: var(--on-accent);
   font-weight: 600; text-decoration: none;
+  transform: translateY(-300%);
 }
-.skip:focus { top: 12px; color: var(--on-accent); }
+.skip:focus { transform: none; color: var(--on-accent); }
 
 /* ------------------------------------------------------------------ top */
 
 .top {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
-  max-width: 1080px; min-height: 64px; margin: 0 auto;
-  padding: 12px 24px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0 16px;
+  max-width: 1120px; min-height: 64px; margin: 0 auto;
+  padding: 0 24px;
 }
 .wordmark {
-  display: flex; align-items: center; gap: 8px;
-  font-family: var(--display); font-weight: 600; font-size: 17px;
+  display: flex; align-items: center; gap: 8px; min-height: 44px;
+  font-family: var(--display); font-weight: 600; font-size: 1.0625rem;
   letter-spacing: -.01em; color: var(--text);
 }
 .wordmark svg { display: block; }
 /* Away from the home page the wordmark is the way back to it. */
 a.wordmark { text-decoration: none; }
-/* Both navs wrap rather than run off the side of a phone, where the body's
-   overflow-x: hidden would cut the last links off without a scrollbar. */
-.top nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px 24px; font-size: 14px; }
+.top nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: 0 4px; font-size: .9375rem; }
 .top nav a, .foot nav a { white-space: nowrap; }
-.top nav a { color: var(--muted); text-decoration: none; }
+.top nav a {
+  display: inline-flex; align-items: center; min-height: 44px; padding-inline: 10px;
+  color: var(--muted); text-decoration: none;
+}
 .top nav a:hover, .top nav a[aria-current="page"] { color: var(--text); }
+.top nav a[aria-current="page"] { box-shadow: inset 0 -2px 0 var(--accent); }
 
 /* ----------------------------------------------------------------- hero */
 
-.hero { padding-block: 56px 12px; }
-
-/* A status line, not a badge: the drawn waiting mark and one line of mono.
-   The mark sits in the line, so it stays beside the first word when a phone
-   wraps the rest. */
-.kicker {
-  font-family: var(--mono); font-size: 13px; font-weight: 500; line-height: 1.6;
-  color: var(--waiting); margin: 0 0 20px;
+.hero {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 56px 64px;
+  padding-block: 56px 8px; align-items: start;
 }
-.kicker .dot { vertical-align: 0; }
+@media (min-width: 1040px) {
+  .hero { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); padding-top: 72px; }
+}
+
+/* The line over the headline: a branch, drawn, and what it is for. */
+.kicker {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--mono); font-size: .8125rem; font-weight: 500; line-height: 1.5;
+  color: var(--muted); margin: 0 0 20px;
+}
+.kicker svg { flex: none; display: block; }
 
 .hero h1 {
   font-family: var(--display);
   font-weight: 600;
-  font-size: clamp(38px, 5.2vw, 60px);
+  font-size: clamp(2rem, 4.4vw, 3.5rem);
   line-height: 1.06;
   letter-spacing: -.028em;
-  margin: 0 0 20px;
-  text-wrap: balance;
+  margin: 0 0 24px;
+  text-wrap: balance; overflow-wrap: break-word;
 }
 /* The accent, not the amber: amber is what a pane goes when it is blocked on
    you, and spending it on a headline would make the one colour the interface
@@ -178,10 +239,11 @@ a.wordmark { text-decoration: none; }
 .hero h1 em { font-style: normal; color: var(--accent); }
 
 .lede {
-  font-size: 18px; line-height: 1.55;
-  color: var(--muted); max-width: 60ch; margin: 0 0 32px;
+  font-size: 1.1875rem; line-height: 1.55;
+  color: var(--text); max-width: 58ch; margin: 0 0 16px;
   text-wrap: pretty;
 }
+.lede.second { font-size: 1rem; color: var(--muted); margin-bottom: 32px; }
 
 .cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 0 0 12px; }
 
@@ -190,9 +252,9 @@ a.wordmark { text-decoration: none; }
    never lifts. */
 .button {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  min-height: 44px; padding: 0 18px;
-  font-family: var(--display); font-weight: 600; font-size: 15px; line-height: 1.2;
-  text-decoration: none; white-space: nowrap; border-radius: var(--radius-sm);
+  min-height: 44px; padding: 0 20px;
+  font-family: var(--display); font-weight: 600; font-size: .9375rem; line-height: 1.2;
+  text-decoration: none; text-align: center; border-radius: var(--radius-sm);
   background: var(--accent); color: var(--on-accent);
   border: 1px solid var(--accent);
   transition: background-color var(--dur-1) linear, border-color var(--dur-1) linear, color var(--dur-1) linear;
@@ -203,7 +265,71 @@ a.wordmark { text-decoration: none; }
 .button.ghost:hover { background: var(--hover); border-color: var(--edge-hard); color: var(--text); }
 .button.ghost:active { background: var(--active); }
 
-.cta-note { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.cta-note { font-family: var(--mono); font-size: .8125rem; color: var(--muted); margin: 0; }
+
+/* ---------------------------------------------------------- the lane figure */
+
+/* What the headline says, drawn: three agents in one checkout write to the
+   same file, and three worktrees give each its own. It is the page's one
+   drawn idea, so it is the only thing outside the application's own
+   parts that takes the accent for more than a word: the isolated lanes are
+   accent, the shared checkout is neutral. Nothing in it is amber or red,
+   because nothing in it is a state the application reports. */
+.lanes { margin: 0; display: grid; gap: 16px; }
+.lanes-pane {
+  border: 1px solid var(--edge); border-radius: var(--radius);
+  background: var(--raised); padding: 16px 20px 20px;
+}
+.lanes-pane.iso { border-color: var(--accent-edge); background: var(--accent-subtle); }
+.lanes-title {
+  font-family: var(--mono); font-size: .8125rem; font-weight: 500; line-height: 1.4;
+  color: var(--muted); margin: 0 0 16px;
+}
+.iso .lanes-title { color: var(--text); }
+.lanes ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.lanes li { display: grid; grid-template-columns: 7.25rem minmax(0, 1fr) auto; align-items: center; gap: 0 10px; }
+.lanes .who { font-family: var(--mono); font-size: .8125rem; color: var(--text); }
+.lanes .wire { display: block; height: 0; border-top: 2px solid var(--edge-hard); position: relative; }
+.iso .wire { border-top-color: var(--accent); }
+.iso .wire::after {
+  content: ""; position: absolute; right: -1px; top: -6px;
+  width: 10px; height: 10px; border-radius: 50%; background: var(--accent);
+}
+.lanes .where { font-family: var(--mono); font-size: .8125rem; color: var(--muted); text-align: right; padding-left: 10px; overflow-wrap: anywhere; }
+.lanes .where b { font-weight: 500; color: var(--text); }
+/* In the shared checkout the three wires meet at one bar and one file. */
+.shared .lanes-merge { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 12px; }
+.shared ul { border-right: 2px solid var(--edge-hard); padding-block: 2px; }
+.shared li { grid-template-columns: 7.25rem minmax(0, 1fr); }
+.shared li .wire { margin-right: 0; }
+.shared .file {
+  font-family: var(--mono); font-size: .8125rem; font-weight: 500; color: var(--text);
+  border: 1px solid var(--edge-hard); border-radius: var(--radius-xs); padding: 6px 10px;
+  background: var(--sunken); overflow-wrap: anywhere; max-width: 9.5rem;
+}
+.lanes-note { margin: 16px 0 0; font-size: .9375rem; color: var(--muted); }
+.iso .lanes-note { color: var(--text); }
+@media (max-width: 520px) {
+  .lanes li { grid-template-columns: 6.25rem minmax(0, 1fr); }
+  .lanes .where { grid-column: 1 / -1; text-align: left; padding: 4px 0 0; }
+  .shared li { grid-template-columns: 6.25rem minmax(0, 1fr); }
+  .shared .lanes-merge { grid-template-columns: 1fr; gap: 12px; }
+  .shared ul { border-right: 0; border-bottom: 2px solid var(--edge-hard); padding-bottom: 14px; }
+  .shared .file { max-width: none; justify-self: start; }
+}
+
+/* The works-with line: names, set apart from the pills the status marks use. */
+.works {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  list-style: none; padding: 0; margin: 28px 0 0;
+}
+.works li {
+  font-family: var(--mono); font-size: .8125rem; line-height: 1.4; color: var(--muted);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-xs); padding: 2px 8px;
+}
+.works .works-label { border: 0; padding-left: 0; }
+.hero > .works { grid-column: 1 / -1; margin-top: 0; }
 
 /* ------------------------------------------------------- the status marks */
 
@@ -233,9 +359,11 @@ a.wordmark { text-decoration: none; }
 
 /* The desktop application's own parts at their own sizes: a 40px bar of
    28px tabs, panes 4px apart with 26px headers, names in the sans and
-   everything measured in the mono. It arrives once, and then holds still. */
+   everything measured in the mono. The terminals are dark in both themes, as
+   the application's are, so they carry their own colours instead of the
+   page's. It arrives once, and then holds still. */
 .deck {
-  margin: 48px 0 8px;
+  margin: 56px 0 8px;
   border: 1px solid var(--edge);
   border-radius: var(--radius);
   background: var(--surface);
@@ -247,21 +375,21 @@ a.wordmark { text-decoration: none; }
 
 .deck-bar {
   display: flex; align-items: center; gap: 4px;
-  height: 40px; padding: 0 12px;
+  min-height: 40px; padding: 4px 12px;
   background: var(--raised);
   border-bottom: 1px solid var(--edge-soft);
 }
 .deck-tab {
   display: inline-flex; align-items: center; gap: 6px;
-  height: 28px; padding: 0 10px;
-  font-size: 13px; line-height: 1.4; color: var(--muted);
+  min-height: 28px; padding: 0 10px;
+  font-size: .8125rem; line-height: 1.4; color: var(--muted);
   border-radius: var(--radius-sm); border: 1px solid transparent;
   white-space: nowrap;
 }
 .deck-tab.on { background: var(--surface); border-color: var(--edge); color: var(--text); }
 .deck-tally {
   margin-left: auto; display: flex; gap: 16px;
-  font-family: var(--mono); font-size: 12px; font-weight: 500; line-height: 1.4;
+  font-family: var(--mono); font-size: .75rem; font-weight: 500; line-height: 1.4;
   color: var(--muted); font-variant-numeric: tabular-nums;
 }
 .deck-tally span { display: inline-flex; align-items: center; gap: 6px; }
@@ -272,7 +400,7 @@ a.wordmark { text-decoration: none; }
 .pane {
   min-width: 0; min-height: 172px; display: flex; flex-direction: column;
   border: 1px solid var(--edge); border-radius: var(--radius-sm);
-  background: var(--sunken); overflow: hidden;
+  background: #0A0E11; overflow: hidden;
 }
 .pane.wide { grid-column: 1 / -1; min-height: 116px; }
 /* Where the keyboard is: the border says so, and says nothing else. */
@@ -280,12 +408,12 @@ a.wordmark { text-decoration: none; }
 
 .pane-head {
   display: flex; align-items: center; gap: 6px;
-  height: 26px; padding: 0 8px;
+  min-height: 26px; padding: 0 8px;
   background: var(--raised); border-bottom: 1px solid var(--edge-soft);
-  font-family: var(--mono); font-size: 11px; line-height: 1.4;
+  font-family: var(--mono); font-size: .75rem; line-height: 1.4;
   color: var(--muted); white-space: nowrap; overflow: hidden;
 }
-.pane-head .name { font-family: var(--body); font-size: 12px; font-weight: 600; color: var(--text); }
+.pane-head .name { font-family: var(--body); font-size: .75rem; font-weight: 600; color: var(--text); }
 .pane-head .branch { overflow: hidden; text-overflow: ellipsis; }
 
 /* A pane blocked on the user is the one thing the interface raises its voice
@@ -298,64 +426,71 @@ a.wordmark { text-decoration: none; }
 
 .term {
   flex: 1; margin: 0; padding: 8px 12px 12px;
-  font-family: var(--mono); font-size: 12px; line-height: 1.6;
+  font-family: var(--mono); font-size: .75rem; line-height: 1.6;
   font-variant-ligatures: none;
-  color: var(--muted); white-space: pre-wrap; word-break: break-word;
+  color: #93A1A9; white-space: pre-wrap; word-break: break-word;
   border: 0; border-radius: 0; background: none;
   overflow: hidden;
 }
-.term .u { color: var(--accent); }
-.term .ok { color: var(--ok); }
-.term .warn { color: var(--waiting); }
-.term .dim { color: var(--faint); }
-.term b { color: var(--term-fg); font-weight: 500; }
+.term .u { color: #4FD1DB; }
+.term .ok { color: #64C97F; }
+.term .warn { color: #E2B341; }
+.term .dim { color: #8896A0; }
+.term b { color: #D7DFE4; font-weight: 500; }
 
 .caret {
   display: inline-block; width: 7px; height: 13px;
-  background: var(--accent); vertical-align: -2px;
+  background: #4FD1DB; vertical-align: -2px;
   animation: blink 1.1s steps(1, end) infinite;
 }
 @keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
 
 .deck-cap {
-  font-family: var(--mono); font-size: 12px; color: var(--muted);
+  font-family: var(--mono); font-size: .8125rem; color: var(--muted);
   text-align: center; margin: 16px 0 0;
 }
 
 /* --------------------------------------------------------------- legend */
 
+/* A key to the marks, as a line under the window rather than a box of its
+   own: it explains the picture above it and says nothing the picture does
+   not. */
 .legend {
-  display: flex; flex-wrap: wrap; gap: 8px 32px;
-  margin: 48px 0 0; padding: 16px 20px;
-  border: 1px solid var(--edge-soft); border-radius: var(--radius);
-  background: var(--raised);
+  display: flex; flex-wrap: wrap; gap: 4px 32px;
+  margin: 32px 0 0; padding: 16px 0 0;
+  border-top: 1px solid var(--edge-soft);
 }
-.legend div { display: flex; align-items: center; gap: 8px; font-size: 14px; }
-.legend b { font-family: var(--mono); font-size: 12px; font-weight: 500; }
+.legend div { display: flex; align-items: center; gap: 8px; font-size: .9375rem; }
+.legend b { font-family: var(--mono); font-size: .8125rem; font-weight: 500; }
 .legend .t { color: var(--muted); }
 
 /* -------------------------------------------------------------- sections */
 
-.band { padding-block: 96px; }
+.band { padding-block: 104px; }
 .band + .band { padding-top: 0; }
 
 h2 {
   font-family: var(--display); font-weight: 600;
-  font-size: clamp(24px, 3.2vw, 30px); line-height: 1.2;
-  letter-spacing: -.02em; margin: 0 0 16px; text-wrap: balance;
+  font-size: clamp(1.625rem, 3.4vw, 2.125rem); line-height: 1.18;
+  letter-spacing: -.022em; margin: 0 0 20px; text-wrap: balance;
 }
-.band > p { color: var(--muted); max-width: 68ch; margin: 0 0 24px; }
+.band > p { color: var(--muted); max-width: 66ch; margin: 0 0 24px; }
 .band > p strong { color: var(--text); font-weight: 600; }
 
 /* The one small label left: the heading of a long page's contents. */
 .eyebrow {
-  font-family: var(--body); font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  font-family: var(--body); font-size: .75rem; font-weight: 600; letter-spacing: .06em;
   text-transform: uppercase; color: var(--muted); margin: 0 0 12px;
 }
 
+/* The why: the argument is the section, so it is set larger than the
+   paragraphs of the bands after it, with the claim first and the second
+   benefit under it. */
+#why > p:first-of-type { font-size: 1.25rem; line-height: 1.55; color: var(--text); max-width: 56ch; }
+
 /* ------------------------------------------------------------------ grid */
 
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 16px; }
 
 /* A card is a unit, not a control: it does nothing under the pointer. */
 .card {
@@ -363,25 +498,52 @@ h2 {
   background: var(--raised); border: 1px solid var(--edge-soft);
 }
 .card h3 {
-  font-family: var(--display); font-size: 16px; font-weight: 600; line-height: 1.3;
+  font-family: var(--display); font-size: 1.0625rem; font-weight: 600; line-height: 1.3;
   letter-spacing: -.01em; margin: 0 0 8px;
 }
-.card p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
-.card .g { font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--accent); display: block; margin-bottom: 12px; }
+.card p { margin: 0; color: var(--muted); font-size: .9375rem; line-height: 1.6; }
+.card .g { font-family: var(--mono); font-size: .75rem; font-weight: 500; color: var(--muted); display: block; margin-bottom: 12px; }
 /* Something announced rather than shipped: set apart in the accent's tint, so
    it is not read as one of the features beside it. */
 .card.soon { margin-top: 24px; background: var(--accent-subtle); border-color: var(--accent-edge); }
+
+/* The features. Two lead the list, because they are the point: a worktree for
+   each agent, and a team made from a plan. The rest are open columns on a
+   hairline rather than fourteen boxes, so the list reads as one list. */
+#what .grid { gap: 0 40px; }
+#what .card {
+  background: none; border: 0; border-top: 1px solid var(--edge);
+  border-radius: 0; padding: 20px 0 28px;
+}
+#what .card.lead {
+  grid-column: 1 / -1; background: var(--raised); border: 1px solid var(--edge);
+  border-radius: var(--radius); padding: 24px 28px; margin-bottom: 24px;
+  border-top: 2px solid var(--accent);
+}
+#what .card.lead h3 { font-size: 1.375rem; letter-spacing: -.015em; }
+#what .card.lead p { font-size: 1.0625rem; max-width: 62ch; }
+@media (min-width: 880px) {
+  #what .card.lead { grid-column: span 1; margin-bottom: 24px; }
+  #what .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #what .card.lead { grid-column: span 3 / span 3; display: grid; grid-template-columns: 1fr 1.4fr; gap: 0 32px; align-items: start; }
+  #what .card.lead .g { grid-column: 1; }
+  #what .card.lead h3 { grid-column: 1; margin: 0; }
+  #what .card.lead p { grid-column: 2; grid-row: 1 / span 2; }
+}
+@media (min-width: 560px) and (max-width: 879px) {
+  #what .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* ------------------------------------------------------------- fan-out */
 
 .fan { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1.2fr); gap: 20px; align-items: center; }
 .fan-plan, .fan-out { border: 1px solid var(--edge-soft); border-radius: var(--radius); background: var(--raised); padding: 16px 20px; }
-.fan-plan ol { margin: 0; padding-left: 24px; font-family: var(--mono); font-size: 12px; color: var(--muted); line-height: 2; }
-.fan-arrow { font-family: var(--mono); font-size: 24px; line-height: 1; color: var(--accent); text-align: center; }
+.fan-plan ol { margin: 0; padding-left: 24px; font-family: var(--mono); font-size: .8125rem; color: var(--muted); line-height: 2; }
+.fan-arrow { font-family: var(--mono); font-size: 1.5rem; line-height: 1; color: var(--accent); text-align: center; }
 .fan-out ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .fan-out li {
-  display: flex; align-items: center; gap: 8px;
-  font-family: var(--mono); font-size: 12px; color: var(--text);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
+  font-family: var(--mono); font-size: .8125rem; color: var(--text);
   background: var(--sunken); border: 1px solid var(--edge-soft);
   border-radius: var(--radius-sm); padding: 8px 12px;
 }
@@ -405,11 +567,11 @@ h2 {
   display: flex; flex-direction: column; gap: 8px;
 }
 .relay-node.hub { border-color: var(--accent-edge); background: var(--accent-subtle); }
-.relay-node .g { font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--accent); }
-.relay-node .t { font-size: 14px; color: var(--muted); }
+.relay-node .g { font-family: var(--mono); font-size: .75rem; font-weight: 500; color: var(--muted); }
+.relay-node .t { font-size: .9375rem; color: var(--muted); }
 .relay-tally {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
-  font-family: var(--mono); font-size: 12px; color: var(--text);
+  font-family: var(--mono); font-size: .75rem; color: var(--text);
   background: var(--sunken); border: 1px solid var(--edge-soft);
   border-radius: var(--radius-sm); padding: 8px 12px;
 }
@@ -417,8 +579,8 @@ h2 {
    mark at the end of one line and its label at the start of the next. */
 .relay-tally > span { white-space: nowrap; }
 .relay-link { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.relay-link .arrow { font-family: var(--mono); font-size: 24px; line-height: 1; color: var(--accent); }
-.relay-link .t { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+.relay-link .arrow { font-family: var(--mono); font-size: 1.5rem; line-height: 1; color: var(--accent); }
+.relay-link .t { font-family: var(--mono); font-size: .75rem; color: var(--muted); white-space: nowrap; }
 #remote .grid { margin-bottom: 24px; }
 /* Four cards: two rows of two rather than three and one left over. */
 @media (min-width: 661px) {
@@ -436,7 +598,7 @@ h2 {
 
 /* ------------------------------------------------------------------ shot */
 
-.caption { font-family: var(--mono); font-size: 12px; color: var(--muted); text-align: center; margin: 16px 0 0; }
+.caption { font-family: var(--mono); font-size: .8125rem; color: var(--muted); text-align: center; margin: 16px 0 0; }
 
 /* A screenshot set into a section of its own: under the fan-out diagram, and
    two to a row where a pair of panels sit side by side. */
@@ -459,18 +621,19 @@ h2 {
 .play summary::-webkit-details-marker { display: none; }
 .play-label {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  padding: 10px 18px; border-radius: 999px; white-space: nowrap;
-  background: var(--raised); border: 1px solid var(--edge); box-shadow: var(--shadow);
-  font-family: var(--display); font-weight: 600; font-size: 15px;
+  display: inline-flex; align-items: center; min-height: 44px;
+  padding: 8px 20px; border-radius: 24px; text-align: center; width: max-content; max-width: calc(100% - 24px);
+  background: var(--raised); border: 1px solid var(--edge-hard); box-shadow: var(--shadow);
+  font-family: var(--display); font-weight: 600; font-size: .9375rem; color: var(--text);
 }
-.play-label .t { font-family: var(--mono); font-weight: 400; font-size: 12px; color: var(--muted); }
+.play-label .t { font-family: var(--mono); font-weight: 400; font-size: .75rem; color: var(--muted); margin-left: .4em; }
 .play summary:hover .play-label { border-color: var(--accent); }
 .when-open { display: none; }
 .play[open] .when-open { display: inline; }
 .play[open] .when-closed { display: none; }
 /* Open, the still goes and the label becomes a plain bar over the recording. */
 .play[open] summary > img { display: none; }
-.play[open] .play-label { position: static; transform: none; display: block; width: max-content; max-width: 100%; margin: 0 auto 16px; }
+.play[open] .play-label { position: static; transform: none; display: flex; justify-content: center; width: max-content; max-width: 100%; margin: 0 auto 16px; }
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start; }
 /* Enterprise's card beside the plan as Settings shows it: the row keeps
    the space the card had above it, and the card its tint. */
@@ -488,7 +651,7 @@ pre {
   background: var(--sunken); border: 1px solid var(--edge-soft);
   border-radius: var(--radius);
 }
-pre code { font-family: var(--mono); font-size: 13px; line-height: 1.6; font-variant-ligatures: none; color: var(--text); }
+pre code { font-family: var(--mono); font-size: .8125rem; line-height: 1.6; font-variant-ligatures: none; color: var(--text); }
 pre code .c { color: var(--muted); }
 /* A path such as %LOCALAPPDATA%\Programs\flockdeck is one unbreakable word,
    wider than a 320px phone; the body clips sideways overflow, so without a
@@ -500,35 +663,21 @@ p code, li code {
   overflow-wrap: anywhere;
 }
 kbd {
-  font-family: var(--mono); font-size: 12px;
+  font-family: var(--mono); font-size: .8125rem;
   background: var(--raised); border: 1px solid var(--edge);
   border-bottom-width: 2px; border-radius: var(--radius-xs); padding: 1px 6px; color: var(--muted);
   white-space: nowrap;
 }
-.aside { font-size: 14px; color: var(--muted); border-left: 2px solid var(--edge); padding-left: 16px; }
-
-/* ---------------------------------------------------------- works with */
-
-/* Tags, not pills: a pill is a status, and these are only names. */
-.works {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-  list-style: none; padding: 0; margin: 24px 0 0;
-}
-.works li {
-  font-family: var(--mono); font-size: 12px; line-height: 1.4; color: var(--muted);
-  border: 1px solid var(--edge);
-  border-radius: var(--radius-xs); padding: 2px 8px;
-}
-.works .works-label { border: 0; padding-left: 0; }
+.aside { font-size: .9375rem; color: var(--muted); border-left: 2px solid var(--edge); padding-left: 16px; }
 
 /* -------------------------------------------------------- install tabs */
 
 /* The chosen tab is the pressed neutral with a rule in the accent under it;
    the accent's fill is kept for the one primary action. */
-.os-tabs { display: flex; gap: 8px; margin: 0 0 16px; }
+.os-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
 .os-tabs button {
   min-height: 44px; padding: 0 18px;
-  font-family: var(--display); font-size: 15px; font-weight: 500; line-height: 1.2;
+  font-family: var(--display); font-size: .9375rem; font-weight: 500; line-height: 1.2;
   color: var(--muted); background: transparent; cursor: pointer;
   border: 1px solid var(--edge-hard); border-radius: var(--radius-sm);
   transition: background-color var(--dur-1) linear, color var(--dur-1) linear;
@@ -548,26 +697,31 @@ kbd {
   display: flex; flex-wrap: wrap; gap: 8px;
   list-style: none; padding: 0; margin: 0 0 24px;
 }
-.downloads .button { padding: 0 16px; font-size: 14px; font-weight: 500; white-space: normal; }
+.downloads .button { padding: 0 16px; font-size: .875rem; font-weight: 500; white-space: normal; text-align: center; }
 .downloads .button > span { font-family: var(--mono); }
 
 /* Room for the button. On a narrow screen a long command would still scroll
    underneath it, so there the commands wrap instead; what is copied is the
    text, not the lines it was drawn on. */
-pre.has-copy { padding-right: 80px; }
+pre.has-copy { padding-right: 88px; }
 @media (max-width: 660px) {
   pre.has-copy code { white-space: pre-wrap; overflow-wrap: anywhere; }
 }
 .copy {
-  position: absolute; top: 10px; right: 10px;
-  min-height: 28px; padding: 0 10px;
-  font-family: var(--body); font-size: 12px; font-weight: 500; color: var(--text);
+  position: absolute; top: 8px; right: 8px;
+  min-height: 32px; padding: 0 12px;
+  font-family: var(--body); font-size: .8125rem; font-weight: 500; color: var(--text);
   background: var(--raised); border: 1px solid var(--edge-hard); border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background-color var(--dur-1) linear;
 }
 .copy:hover { background: var(--hover); }
 .copy:active { background: var(--active); transform: translateY(1px); }
+/* A fingertip needs 44px; a pointer is fine with the smaller one. */
+@media (pointer: coarse) {
+  .copy { min-height: 44px; min-width: 64px; }
+  pre.has-copy { padding-right: 96px; }
+}
 
 /* ------------------------------------------------------------------- faq */
 
@@ -578,19 +732,19 @@ pre.has-copy { padding-right: 80px; }
 }
 .faq details[open] { border-color: var(--edge); }
 .faq summary {
-  cursor: pointer; list-style: none; padding: 16px 0;
-  font-family: var(--display); font-weight: 600; font-size: 16px; line-height: 1.4;
+  cursor: pointer; list-style: none; padding: 14px 0; min-height: 52px;
+  font-family: var(--display); font-weight: 600; font-size: 1.0625rem; line-height: 1.4;
   display: flex; justify-content: space-between; align-items: center; gap: 16px;
 }
 .faq summary::-webkit-details-marker { display: none; }
 /* The marker is drawn, not read: without the empty alternative after the
    slash, a screen reader announces every question as "… plus". The plain
    form first is for a browser that does not know the alternative syntax. */
-.faq summary::after { content: "+"; content: "+" / ""; font-family: var(--mono); color: var(--accent); font-size: 18px; line-height: 1; }
+.faq summary::after { content: "+"; content: "+" / ""; font-family: var(--mono); color: var(--accent); font-size: 1.125rem; line-height: 1; }
 .faq details[open] summary::after { content: "–"; content: "–" / ""; }
 /* The same measure as the band's paragraphs: uncapped, an answer ran to
    about 110 characters a line across the 760px card. */
-.faq details p { margin: 0 0 16px; color: var(--muted); font-size: 14px; line-height: 1.65; max-width: 68ch; }
+.faq details p { margin: 0 0 16px; color: var(--muted); font-size: .9375rem; line-height: 1.65; max-width: 68ch; }
 
 /* --------------------------------------------------------------- sponsor */
 
@@ -598,12 +752,12 @@ pre.has-copy { padding-right: 80px; }
    agents Flockdeck works with: no logos, and nothing to make one sponsor's
    line louder than another's. */
 #sponsor h3 {
-  font-family: var(--display); font-size: 20px; font-weight: 600; line-height: 1.2;
+  font-family: var(--display); font-size: 1.25rem; font-weight: 600; line-height: 1.2;
   letter-spacing: -.01em; margin: 32px 0 12px;
 }
 .sponsors { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 0 0 24px; }
 .sponsors li {
-  font-size: 14px; line-height: 1.4; color: var(--text);
+  font-size: .9375rem; line-height: 1.4; color: var(--text);
   border: 1px solid var(--edge);
   border-radius: var(--radius-xs); padding: 4px 12px;
 }
@@ -614,18 +768,18 @@ pre.has-copy { padding-right: 80px; }
 .foot {
   border-top: 1px solid var(--edge-soft); margin-top: 40px;
   padding: 24px 24px 40px;
-  font-size: 13px; color: var(--muted);
+  font-size: .875rem; color: var(--muted);
 }
 .foot .wrap { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; padding: 0; }
 .foot p { margin: 0; }
-.foot nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px 24px; }
-.foot nav a { color: var(--muted); text-decoration: none; }
+.foot nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: 0 20px; }
+.foot nav a { display: inline-flex; align-items: center; min-height: 44px; color: var(--muted); text-decoration: none; }
 .foot nav a:hover { color: var(--text); }
 /* The copyright, and the way to the privacy policy, the terms and the
    licences: a quieter row of its own under the rest, on every page. */
 .foot-legal {
-  flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px;
-  padding-top: 16px; border-top: 1px solid var(--edge-soft);
+  flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 0 24px;
+  padding-top: 8px; border-top: 1px solid var(--edge-soft);
 }
 .foot nav a[aria-current="page"] { color: var(--text); }
 
@@ -653,7 +807,7 @@ pre.has-copy { padding-right: 80px; }
 .doc-toc a {
   display: block; padding: 4px 0 4px 16px; margin-left: -1px;
   border-left: 1px solid transparent;
-  color: var(--muted); text-decoration: none; font-size: 14px; line-height: 1.4;
+  color: var(--muted); text-decoration: none; font-size: .9375rem; line-height: 1.4;
 }
 .doc-toc a:hover { color: var(--text); border-left-color: var(--edge-hard); }
 /* The contents scroll in a box of their own, which would cut a ring drawn
@@ -663,30 +817,30 @@ pre.has-copy { padding-right: 80px; }
 .prose { max-width: 70ch; min-width: 0; overflow-wrap: break-word; }
 .prose h1 {
   font-family: var(--display); font-weight: 600;
-  font-size: clamp(30px, 5vw, 38px); line-height: 1.1; letter-spacing: -.022em;
+  font-size: clamp(1.875rem, 5vw, 2.5rem); line-height: 1.1; letter-spacing: -.024em;
   margin: 12px 0 16px; text-wrap: balance;
 }
 /* The line under a policy's title is the date it last changed. */
-.prose h1 + p { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 0 0 32px; }
+.prose h1 + p { font-family: var(--mono); font-size: .8125rem; color: var(--muted); margin: 0 0 32px; }
 .prose h1 + p em { font-style: normal; }
-.prose h1 + p.doc-lede { font-family: var(--body); font-size: 18px; line-height: 1.55; color: var(--muted); }
+.prose h1 + p.doc-lede { font-family: var(--body); font-size: 1.1875rem; line-height: 1.55; color: var(--muted); }
 .prose h1 + p.doc-lede em { font-style: italic; }
 .prose h2 {
-  font-size: 24px;
+  font-size: 1.5rem;
   margin: 48px 0 16px; padding-top: 32px; border-top: 1px solid var(--edge-soft);
 }
 .prose h3 {
-  font-family: var(--display); font-weight: 600; font-size: 20px; line-height: 1.2;
+  font-family: var(--display); font-weight: 600; font-size: 1.25rem; line-height: 1.2;
   letter-spacing: -.01em; margin: 32px 0 12px;
 }
 .prose h4 {
-  font-family: var(--mono); font-weight: 500; font-size: 14px; line-height: 1.4; color: var(--text);
+  font-family: var(--mono); font-weight: 500; font-size: .9375rem; line-height: 1.4; color: var(--text);
   margin: 32px 0 8px; overflow-wrap: anywhere;
 }
 .prose :is(h2, h3) { scroll-margin-top: 20px; }
 /* A section arrived at by a link to it, #cookies say, is marked. */
 .prose :is(h2, h3):target { color: var(--accent-strong); }
-.prose p, .prose li { color: var(--muted); font-size: 16px; line-height: 1.7; }
+.prose p, .prose li { color: var(--muted); font-size: 1.0625rem; line-height: 1.7; }
 .prose p { margin: 0 0 16px; }
 .prose strong { color: var(--text); font-weight: 600; }
 .prose ul, .prose ol { margin: 0 0 16px; padding-left: 1.25em; }
@@ -702,9 +856,9 @@ pre.has-copy { padding-right: 80px; }
   border: 1px solid var(--edge-soft); border-radius: var(--radius); background: var(--raised);
 }
 .licence-text summary {
-  cursor: pointer; list-style: none; padding: 8px 16px;
+  cursor: pointer; list-style: none; padding: 0 16px; min-height: 44px;
   display: flex; align-items: center; gap: 8px;
-  font-family: var(--mono); font-size: 12px; color: var(--accent);
+  font-family: var(--mono); font-size: .8125rem; color: var(--accent);
 }
 .licence-text summary::-webkit-details-marker { display: none; }
 .licence-text summary::before { content: "+"; content: "+" / ""; width: 1ch; }
@@ -715,7 +869,7 @@ pre.has-copy { padding-right: 80px; }
 }
 .prose pre.licence { margin: 0 0 16px; }
 .licence-text pre code, .prose pre.licence code {
-  font-size: 12px; line-height: 1.6; color: var(--muted);
+  font-size: .8125rem; line-height: 1.6; color: var(--muted);
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
@@ -732,8 +886,22 @@ pre.has-copy { padding-right: 80px; }
   .deck-panes { grid-template-columns: 1fr; }
   .pane { min-height: 140px; }
   .deck-tally { display: none; }
-  .band { padding-block: 64px; }
-  .top nav, .foot nav { margin-left: 0; }
+  .band { padding-block: 72px; }
+  .wrap, .top { padding-inline: 20px; }
+  .foot { padding-inline: 20px; }
+  /* Seven links do not fit on a phone's width, and wrapping them made three
+     rows of small targets. They are one row that scrolls, each 44px high,
+     with the edge faded to say there is more. */
+  .top nav {
+    flex: 0 0 100%; margin-left: -10px; margin-right: -20px;
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+    padding-right: 20px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+            mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+  .top nav::-webkit-scrollbar { display: none; }
+  .foot nav { margin-left: 0; }
+  .sponsors a { display: inline-flex; align-items: center; min-height: 36px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -744,6 +912,14 @@ pre.has-copy { padding-right: 80px; }
   }
 }
 
+/* Increase Contrast: the quiet text takes the full text colour and the hairlines
+   the strong one, so nothing is carried by a line or a grey that is close to
+   its ground. */
+@media (prefers-contrast: more) {
+  html:root { --muted: var(--text); --edge-soft: var(--edge-hard); --edge: var(--edge-hard); }
+  .term { color: #D7DFE4; }
+}
+
 /* High Contrast paints every ground the same, which would leave the chosen
    tab looking like the other one; the system highlight pair survives. The
    status marks keep their own colours, since their colour is their meaning. */
@@ -751,4 +927,5 @@ pre.has-copy { padding-right: 80px; }
   :focus-visible { outline: 2px solid Highlight !important; }
   .dot { forced-color-adjust: none; }
   .os-tabs button[aria-selected="true"] { color: HighlightText; background: Highlight; border-color: Highlight; }
+  .iso .wire::after { forced-color-adjust: none; }
 }
