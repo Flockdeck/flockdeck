@@ -7,8 +7,7 @@
  * waiting on you and red one that failed, and the page spends neither on
  * anything else. Green is a verdict, a test that passed, never a state.
  *
- * The page is dark by default, as the application is, and takes the light
- * theme of design/tokens.css when the system asks for it. There is no switch.
+ * The page is dark always, as the application and the docs are.
  */
 
 /* The fonts are the site's own files rather than a font service's, which
@@ -87,55 +86,6 @@
   --pulse: 1.6s;
   --ease-out:    cubic-bezier(.16, 1, .3, 1);
   --ease-in-out: cubic-bezier(.65, 0, .35, 1);
-}
-
-/* The light appearance. The block above is the dark one and is shared with
-   the docs site; this is design/tokens.css's light theme under this sheet's
-   names, applied when the system asks for light. There is no switch on the
-   page: it follows the system, as the application does with its theme set to
-   system. The selector is html:root rather than a second :root rule because
-   cmd/docgen's test keeps the tokens in one shared block, and the extra type
-   selector is what lets this beat it. The terminal is dark in both themes
-   (design/color.md, "The terminal is dark in both themes"), so the deck's
-   panes keep their own colours further down. */
-@media (prefers-color-scheme: light) {
-  html:root {
-    color-scheme: light;
-
-    --surface:   #FAFBFB;
-    --raised:    #FFFFFF;
-    --sunken:    #F1F3F4;
-    --overlay:   #FFFFFF;
-    --hover:     #EEF1F2;
-    --active:    #E3E7E9;
-
-    --edge-soft: #E3E7E9;
-    --edge:      #CBD2D6;
-    --edge-hard: #7A868C;
-
-    --text:      #131A1E;
-    --muted:     #5C676D;
-    --faint:     #7A868C;
-
-    --accent:        #0B6E77;
-    --accent-strong: #08575E;
-    --accent-subtle: #E6F3F4;
-    --accent-edge:   #A9D5D8;
-    --on-accent:     #FFFFFF;
-
-    --working: #0B6E77;
-    --waiting: #875A08;
-    --waiting-subtle: #FAF0DC;
-    --waiting-edge:   #E3CE96;
-    --exited:  #B02A1F;
-    --exited-subtle:  #FBEAE8;
-    --exited-edge:    #EBB8B1;
-    --idle:    #5C676D;
-    --ended:   #7A868C;
-    --ok:      #196634;
-
-    --shadow: 0 20px 56px -16px rgb(19 26 30 / .28);
-  }
 }
 
 * { box-sizing: border-box; }
@@ -359,9 +309,7 @@ a.wordmark { text-decoration: none; }
 
 /* The desktop application's own parts at their own sizes: a 40px bar of
    28px tabs, panes 4px apart with 26px headers, names in the sans and
-   everything measured in the mono. The terminals are dark in both themes, as
-   the application's are, so they carry their own colours instead of the
-   page's. It arrives once, and then holds still. */
+   everything measured in the mono. It arrives once, and then holds still. */
 .deck {
   margin: 56px 0 8px;
   border: 1px solid var(--edge);
@@ -400,7 +348,7 @@ a.wordmark { text-decoration: none; }
 .pane {
   min-width: 0; min-height: 172px; display: flex; flex-direction: column;
   border: 1px solid var(--edge); border-radius: var(--radius-sm);
-  background: #0A0E11; overflow: hidden;
+  background: var(--sunken); overflow: hidden;
 }
 .pane.wide { grid-column: 1 / -1; min-height: 116px; }
 /* Where the keyboard is: the border says so, and says nothing else. */
@@ -428,19 +376,19 @@ a.wordmark { text-decoration: none; }
   flex: 1; margin: 0; padding: 8px 12px 12px;
   font-family: var(--mono); font-size: .75rem; line-height: 1.6;
   font-variant-ligatures: none;
-  color: #93A1A9; white-space: pre-wrap; word-break: break-word;
+  color: var(--muted); white-space: pre-wrap; word-break: break-word;
   border: 0; border-radius: 0; background: none;
   overflow: hidden;
 }
-.term .u { color: #4FD1DB; }
-.term .ok { color: #64C97F; }
-.term .warn { color: #E2B341; }
-.term .dim { color: #8896A0; }
-.term b { color: #D7DFE4; font-weight: 500; }
+.term .u { color: var(--accent); }
+.term .ok { color: var(--ok); }
+.term .warn { color: var(--waiting); }
+.term .dim { color: var(--faint); }
+.term b { color: var(--term-fg); font-weight: 500; }
 
 .caret {
   display: inline-block; width: 7px; height: 13px;
-  background: #4FD1DB; vertical-align: -2px;
+  background: var(--accent); vertical-align: -2px;
   animation: blink 1.1s steps(1, end) infinite;
 }
 @keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
@@ -914,10 +862,11 @@ pre.has-copy { padding-right: 88px; }
 
 /* Increase Contrast: the quiet text takes the full text colour and the hairlines
    the strong one, so nothing is carried by a line or a grey that is close to
-   its ground. */
+   its ground. It is html:root rather than a second :root rule because
+   cmd/docgen's test keeps the tokens in the one shared block. */
 @media (prefers-contrast: more) {
   html:root { --muted: var(--text); --edge-soft: var(--edge-hard); --edge: var(--edge-hard); }
-  .term { color: #D7DFE4; }
+  .term { color: var(--text); }
 }
 
 /* High Contrast paints every ground the same, which would leave the chosen
