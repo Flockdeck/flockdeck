@@ -108,8 +108,8 @@ tells you what the agent is doing, not only that it is busy.
   first, on purpose: a pane still waiting on you or still working is never
   touched, an idle shell is left alone, and one whose process failed (it never
   started, exited with an error, or was killed) is left alone too, since a
-  failure is worth a look before it disappears. A pane locked with the padlock
-  in its header (🔓, 🔒 once locked) or **Lock pane** in the command palette is
+  failure is worth a look before it disappears. A pane locked with the padlock icon
+  in its header, shut once locked, or **Lock pane** in the command palette is
   left open too, with a count of how many were skipped; a locked pane cannot be
   closed any other way either until you unlock it, though it can still be
   restarted. An idle agent that still has background work going (a command

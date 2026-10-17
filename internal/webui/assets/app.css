@@ -660,7 +660,7 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
  * pane header's own buttons and their on, locked and zoomed states say their
  * piece further down, where the later rule wins. */
 .rail-btn:active, .bar-btn:active, .commands:active, .seg:active, .tab:active,
-.pane-actions button:active, .agent-row:active, .conv-row:active, .pick-row:active, .help-item:active {
+.agent-row:active, .conv-row:active, .pick-row:active, .help-item:active {
   background: var(--bg-active);
 }
 .rail-btn:active, .bar-btn:active, .commands:active, .seg:active, .pane-actions button:active { transform: translateY(1px); }
@@ -1128,6 +1128,9 @@ textarea:focus-visible {
 .pane-actions button.on, .pane-actions button.on:hover { background: var(--cast); color: var(--on-cast); }
 /* Zoomed: the accent rather than broadcast's violet, which means something else. */
 .pane-actions button.zoomed, .pane-actions button.zoomed:hover { background: var(--accent); color: var(--on-accent); }
+/* Pressed, last of the state rules so it outranks the hover ones above, but a
+ * button that is on, locked, zoomed, recording or reviewing keeps its colour. */
+.pane .pane-actions button:active:not([aria-disabled="true"]):not(.locked):not(.on):not(.zoomed):not(.recording):not(.reviewing) { background: var(--bg-active); }
 /* Auto-review on: the green of a verdict, since a verdict is what it is
  * trusting the pane to reach unwatched. */
 .pane-actions button.reviewing, .pane-actions button.reviewing:hover { background: var(--ok); color: var(--on-ok); }
@@ -2632,6 +2635,10 @@ body:has(#searchbar:not([hidden])) #notice { bottom: 64px; }
   .new-tab-group .bar-btn { height: 42px; }
   .new-tab-group #new-tab, .new-tab-group .caret-btn { width: 44px; }
   .tab .close { width: 44px; height: 44px; }
+  /* The switch track (34 by 20) and the colour chip (24) keep their look; the
+   * part that answers a touch grows to 44 each way. */
+  .switch::after { inset: -12px -5px; }
+  .swatch::after { inset: -10px; }
 }
 @media (pointer: coarse) and (max-width: 640px) {
   .rail-btn { width: 100%; }
@@ -2872,6 +2879,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
     --fg-faint: var(--fg-dim);
   }
   :focus-visible { outline-width: 3px !important; }
+  /* A tab's ring is drawn outside it and the strip clips at its padding edge:
+   * the 3px ring and its 1px offset need 4px. */
+  #tabs { padding: 4px; margin: 0 -4px; }
 }
 
 /* --------------------------------------------------------- reduced motion */
