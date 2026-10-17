@@ -62,7 +62,7 @@ smallest possible shim in a file **you** own and say so in your commit message.
 | 4 server + UI | `internal/server/{control,agents,server}.go`, `internal/webui/assets/**` outside the fan-out dialog, `internal/webui/webui_test.go` |
 | 5 fan-out | `internal/workspace/fanout.go`, `internal/server/fanout.go`, the fan-out dialog functions in `app.js` |
 | 6 transcripts | `internal/session/{history,replies}.go`, `internal/session/transcript/**`, `internal/server/history.go` |
-| 7 briefing | `internal/workspace/context.go`, `internal/hooks/hooks.go` |
+| 7 briefing | `internal/workspace/{context,briefing}.go`, `internal/hooks/hooks.go` |
 | 8 chat runtime | `internal/chat/**`, `cli_chat.go` |
 | 9 chat tools | `internal/chat/tool/**` |
 | 10 credentials | `internal/creds/**`, `cli_keys.go`, the keys overlay in `app.js` |

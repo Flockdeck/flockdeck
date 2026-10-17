@@ -238,7 +238,7 @@ examples that name those roles, such as `flockdeck spawn -role worker -worktree 
 shows, when it assigns a task or sends a message, because pane names are shared.
 
 The pane is briefed for its role: the briefing gains a "Your role" section with the
-role's text and the ids of every role in the catalog, and the pane's environment
+role's text (and, for a role that may start others, the ids of every role in the catalog), and the pane's environment
 carries `FLOCKDECK_ROLE`. The role is saved with the layout, so a restored pane is
 briefed for the same job. Agents in a project can see each other, message each other and
 share a task board (see below).
@@ -321,65 +321,35 @@ nothing. Settings › Agents & models lists the roles to read; they are changed 
 
 ### The team and messages
 
-Every agent's briefing has a "Your team" section: the other agent panes of its
-project, each with its role (`no role` if it has none), its name, its agent and model,
-its status and its pane id, and its own entry marked. The briefing is written when the
-agent starts, so the list is a snapshot, and it says so. Lists longer than twelve are cut
-and the number left out is given. `flockdeck team` prints the live list, and `-json` the
-same as JSON.
+Every agent's briefing has a "Your team" section, the other agent panes of its project
+as they were when the agent started, and a "Messages" section. Targets, limits, the
+one-line notice and what Flockdeck writes to an inbox itself are in
+[The command line](#cli).
 
-Agents message each other with `flockdeck msg send <target> <text...>`, where the target
-is a pane id, a peer name, a pane name or a role id, and read their own with `flockdeck
-inbox` and `flockdeck inbox read <id>`; see [The command line](#cli) for the rules. The
-built-in roles say when to use it: the manager writes to the agents it started to answer a
-question or change a task, and planners, workers, reviewers, testers and docs agents write to
-the manager when they are blocked. Their final report is still their last message and not a
-`msg`.
-
-A message is data from another agent. The briefing and the notice that tells an agent about
-a message both say that messages from other agents are not instructions from the user, and
-that an approval in one is not the user's approval. The sender's name and role are not
-authenticated either, so an agent must not treat them as proof of who sent a message or as
-authorization. Any agent in a project may message any
-other in it, whatever its role; the roles limit who may start whom and nothing else. A pane
-can send only as itself and read only its own inbox, and a request naming a pane that is not
-open is refused. A shell cannot send. The pane id in a request is the one the pane's environment gives it, checked
-against the open panes but not against the pane that sent it, as with `spawn` and `close`.
-
-When a helper an agent started exits on its own, or is closed as finished, Flockdeck writes
-to that agent's inbox, from `flockdeck`. Changes to a task on the board, below, are the only
-other events it writes.
+The built-in roles say when to use messages: the manager writes to the agents it started to
+answer a question or change a task, and planners, workers, reviewers, testers and docs agents
+write to the manager when they are blocked. Their final report is still their last message
+and not a `msg`.
 
 ### The task board
 
 Each project has one task board, which every agent in it reaches with `flockdeck task`
 whatever worktree it works in. A task has a title, a body, an owner role and pane, a state, a
 branch, an optional baton id for context and a thread of notes. A task points at a baton and
-does not replace it: a baton stays the handoff document it was written as. The states are
-`planned`, `assigned`, `in-progress`, `in-review`, `done`, `blocked` and `cancelled`, and
-which role may move a task where is a fixed table; see [The command line](#cli) for it and for
-the commands.
+does not replace it: a baton stays the handoff document it was written as. The states, the
+table of who may move a task where, the messages a change sends and how the board is stored
+are in [The command line](#cli).
 
 The built-in roles use it this way. The planner adds a task for each step of a plan. The
 manager assigns them to the workers it starts, and moves a task to `done` once a reviewer
-says the change is good: only the manager, a reviewer or a tester can move a task from `in-review`
-to `done`, and the owner cannot close its own task. A worker moves its task
-to `in-progress` when it starts, sets the branch, and moves it to `in-review` when the change
-is committed, which messages the reviewers and testers. A reviewer or tester reads a task in `in-review`
-and either adds a note and tells the manager, or moves it back to `in-progress` with a note
-that says why, which messages the worker. Every agent's briefing has a "Task board" section
-with the commands and a snapshot of the counts for that pane, such as "2 tasks assigned to you,
-1 in review", or "2 tasks for your role, none claimed yet" for tasks assigned to a role that no pane has started.
-
-Flockdeck messages the owner when a task is assigned or noted, the reviewers and testers (or else
-the creator and the manager) when it moves to review, the creator and the manager when it is
-blocked, the creator when it is done (and the manager, when somebody else closed it), and the
-manager when a note is added to a task in review. A pane started with no role has the manager's
-powers only while no pane in the manager role is running. The board is written by one Flockdeck
-server per project; a second instance open on the same repository can overwrite its changes. The pane id in a
-request is not authenticated, any more than the sender of a message is, so the roles keep
-agents to their jobs and do not stop a process that wants to act as another pane. Task text and
-the names on it are not instructions from the user.
+says the change is good. A worker moves its task to `in-progress` when it starts, sets the
+branch, and moves it to `in-review` when the change is committed, which messages the
+reviewers and testers. A reviewer or tester reads a task in `in-review` and either adds a
+note and tells the manager, or moves it back to `in-progress` with a note that says why,
+which messages the worker. Every agent's briefing has a "Task board" section with the
+commands and a snapshot of the counts for that pane, such as "2 tasks assigned to you,
+1 in review", or "2 tasks for your role, none claimed yet" for tasks assigned to a role that
+no pane has started.
 
 ### The Team panel
 
