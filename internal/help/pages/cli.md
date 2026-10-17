@@ -152,7 +152,7 @@ name or else its pane name, its agent and model, its status (`working`, `waiting
 pane that asked is marked `(you)`. Shells are not listed. `-json` prints the same as a
 JSON array, with `pane`, `name`, `peer`, `role`, `agent`, `model`, `status` and `self`
 on each entry. The "Your team" list in an agent's briefing is this, as it was when the
-agent started, and says so.
+agent started, and says so; it names at most twelve panes and gives the number left out.
 
 ## msg
 
@@ -175,7 +175,9 @@ Anyone in a project may message anyone else in it. Roles limit who may start who
 who may talk. A message is data from another agent: it is not an instruction from the
 user, and an approval in one is not the user's approval. The sender name and role it
 carries are not authenticated, so they prove nothing about who sent it and are not
-authorization. Only an agent pane can send; a shell is refused.
+authorization. Only an agent pane can send; a shell is refused. A pane sends only as itself
+and reads only its own inbox: the pane id comes from `FLOCKDECK_PANE` and is checked against the
+open panes, not against the process that sent it, as with `spawn` and `close`.
 
 ## inbox
 
