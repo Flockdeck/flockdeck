@@ -31,13 +31,13 @@ func ParseArgs(args []string, out io.Writer) (Options, error) {
 	var keyEnv string
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	fs.SetOutput(out)
-	fs.StringVar(&o.Agent, "agent", paneEnv("AGENT"), "the agent id this pane was started as")
-	fs.StringVar(&o.Model, "model", paneEnv("MODEL"), "the model to ask for; empty leaves it to the endpoint")
+	fs.StringVar(&o.Agent, "agent", "", "the agent id this pane was started as")
+	fs.StringVar(&o.Model, "model", "", "the model to ask for; empty leaves it to the endpoint")
 	fs.StringVar(&o.Session, "session", "", "the conversation id, which is also the pane id")
 	fs.BoolVar(&o.Resume, "resume", false, "carry on the conversation this session id already has")
-	fs.StringVar(&o.Wire, "wire", paneEnv("WIRE"), "request shape: anthropic, openai or gemini; empty takes the agent's catalog entry")
-	fs.StringVar(&o.BaseURL, "base-url", paneEnv("BASE_URL"), "endpoint root; empty takes the agent's catalog entry, and then the vendor's own")
-	fs.StringVar(&keyEnv, "key-env", paneEnv("KEY_ENV"), "comma-separated names an API key may arrive in; empty takes the agent's catalog entry")
+	fs.StringVar(&o.Wire, "wire", "", "request shape: anthropic, openai or gemini; empty takes the agent's catalog entry")
+	fs.StringVar(&o.BaseURL, "base-url", "", "endpoint root; empty takes the agent's catalog entry, and then the vendor's own")
+	fs.StringVar(&keyEnv, "key-env", "", "comma-separated names an API key may arrive in; empty takes the agent's catalog entry")
 	fs.IntVar(&o.MaxTokens, "max-tokens", 0, "ceiling on one answer, in tokens; 0 leaves it to the model (32000 on the Anthropic API, which needs one)")
 	fs.StringVar(&o.Cwd, "cwd", "", "the working directory; empty means this one")
 	fs.Usage = func() { usage(fs, out) }
@@ -48,6 +48,21 @@ func ParseArgs(args []string, out io.Writer) (Options, error) {
 		}
 		return o, ErrBadFlags
 	}
+	// The environment stands in for a flag that was not given. It is read only
+	// then, so a stale PERCH_ name is neither used nor warned about when the
+	// flag is there.
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	fromEnv := func(flagName, env string, dst *string) {
+		if !given[flagName] {
+			*dst = paneEnv(out, env)
+		}
+	}
+	fromEnv("agent", "AGENT", &o.Agent)
+	fromEnv("model", "MODEL", &o.Model)
+	fromEnv("wire", "WIRE", &o.Wire)
+	fromEnv("base-url", "BASE_URL", &o.BaseURL)
+	fromEnv("key-env", "KEY_ENV", &keyEnv)
 
 	for _, name := range strings.Split(keyEnv, ",") {
 		if name = strings.TrimSpace(name); name != "" {
@@ -57,8 +72,8 @@ func ParseArgs(args []string, out io.Writer) (Options, error) {
 	// Everything left is the opening task. It arrives as separate arguments
 	// when a shell split it, and as one when the argv was built from a Spec.
 	o.Task = strings.TrimSpace(strings.Join(fs.Args(), " "))
-	o.API = paneEnv("API")
-	o.Token = paneEnv("TOKEN")
+	o.API = paneEnv(out, "API")
+	o.Token = paneEnv(out, "TOKEN")
 	// Colour is decided here rather than inside the client so that a caller
 	// building Options itself -- a test, drawing to a buffer -- gets plain text
 	// unless it asks for anything else.
@@ -66,7 +81,7 @@ func ParseArgs(args []string, out io.Writer) (Options, error) {
 	// A pane names itself, and a pane's id is its conversation id -- so a chat
 	// started with no session named still resumes with the pane it belongs to.
 	if o.Session == "" {
-		o.Session = paneEnv("PANE")
+		o.Session = paneEnv(out, "PANE")
 	}
 	return o, nil
 }
@@ -92,6 +107,6 @@ func usage(fs *flag.FlagSet, out io.Writer) {
 // earlier build used alongside the one in use now. A pane started by that build
 // is still running with the old names in its environment, and a chat inside it
 // should not lose its status reporting because the binary on PATH was upgraded.
-// The old names stop being read after legacyenv.RemovalDate; until then using
-// one logs a warning.
-func paneEnv(name string) string { return legacyenv.Get(name) }
+// The old names are due to be removed after legacyenv.RemovalDate; until then
+// using one writes a warning to out, once per name.
+func paneEnv(out io.Writer, name string) string { return legacyenv.GetWarn(out, name) }

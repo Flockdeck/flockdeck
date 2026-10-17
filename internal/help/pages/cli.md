@@ -593,7 +593,7 @@ command line and asks before it downloads anything.
 | `FLOCKDECK_DIR`, `FLOCKDECK_START_AGENT` | The equivalents of `-C` and `-agent` |
 | `FLOCKDECK_FRESH`, `FLOCKDECK_SHELL_FIRST`, `FLOCKDECK_NO_WINDOW`, `FLOCKDECK_DETACH`, `FLOCKDECK_SOLO` | Set to `1` or `true` (any case), the equivalents of `-new`, `-shell`, `-no-window`, `-detach` and `-solo`, for a service's environment; a flag given on the command line wins |
 | `FLOCKDECK_REMOTE_INVITE`, `FLOCKDECK_REMOTE_JOIN`, `FLOCKDECK_REMOTE_NAME` | The defaults for `-invite`, `-join` and `-name` of `flockdeck remote enable` |
-| `FLOCKDECK_WIRE` | The request shape `flockdeck chat` uses when its wire flag is not given: `anthropic`, `openai` or `gemini` |
+| `FLOCKDECK_WIRE` | The request shape `flockdeck chat` uses when its wire flag is not given: `anthropic`, `openai` or `gemini`. Flockdeck sets none of these three and strips them from every pane it starts, so they do nothing in the shell that starts Flockdeck; they apply to a `flockdeck chat` you run by hand, or when an agent in `agents.json` puts them back through its `env` |
 | `FLOCKDECK_BASE_URL` | The endpoint `flockdeck chat` talks to when its base URL flag is not given |
 | `FLOCKDECK_KEY_ENV` | The variable names, separated by commas, `flockdeck chat` reads an API key from when its key-env flag is not given |
 | `FLOCKDECK_DETACHED` | Set by Flockdeck on the copy that the detach option starts; not for you to set |
@@ -614,9 +614,10 @@ which has no lifecycle hooks of its own, has to go on.
 `FLOCKDECK_PROJECT` were called `PERCH_*` before the program was renamed. Panes
 still carry both spellings of those five and `spawn`, `peer-name`, `close`, `team`, `msg`, `inbox` and `task`
 still read both, so a prompt or a script written against the old names keeps
-working. They stop being read after 17 April 2027, and until then a command that
-has to fall back to a `PERCH_*` name logs one line per name saying which
-`FLOCKDECK_*` name to set instead. `flockdeck chat` also accepts
-`PERCH_WIRE`, `PERCH_BASE_URL` and `PERCH_KEY_ENV` until then. `FLOCKDECK_AGENT`,
+working. They will be removed after 17 April 2027. Until then a command you run that
+has to fall back to a `PERCH_*` name prints one line per name on stderr saying
+which `FLOCKDECK_*` name to set instead; the hook and the status line, which run
+on every event, fall back without saying anything. `flockdeck chat` also accepts
+`PERCH_WIRE`, `PERCH_BASE_URL`, `PERCH_KEY_ENV`, `PERCH_AGENT` and `PERCH_MODEL` until then. `FLOCKDECK_AGENT`,
 `FLOCKDECK_MODEL`, `FLOCKDECK_ROLE` and `FLOCKDECK_LAUNCH` are newer and have
 only the one name in a pane.

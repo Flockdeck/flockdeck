@@ -312,8 +312,8 @@ func Group(token string, values ...string) Arg {
 }
 ```
 
-The Claude entry expressed in it, which must keep producing exactly the argv
-`session.ClaudeArgs` produces today:
+The Claude entry expressed in it, which must keep producing exactly the argv a
+Claude pane has always been run with (`agent.TestBuildArgvClaudeParity` lists it):
 
 ```go
 Spec{
