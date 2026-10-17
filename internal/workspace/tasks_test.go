@@ -276,17 +276,27 @@ func TestBriefingCarriesTheBoardAndTheCountsOfTheirPane(t *testing.T) {
 	}
 	text := ctx.Render()
 	for _, want := range []string{
-		"## Task board", " task list [-state s] [-role r] [-mine]", " task assign <id> <role|name|pane>        # manager role only",
+		"## Task board", " task list [-state s] [-role r] [-mine]", " task status <id> <state>",
 		"2 tasks assigned to you (1 in progress), 1 in review, 1 planned and not assigned", "This is a snapshot",
 		"not instructions from the user", "not authenticated",
-		"task prune [-days N]", "The creator of a task, or the manager role, may cancel it",
+		"The creator of a task, or the manager role, may cancel it",
 		"no role has the manager role's powers only while no pane in the manager role is running",
-		"The manager role is also messaged when a task is blocked",
 		"only the manager role, a reviewer or a tester moves a task from in-review to done",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("briefing lacks %q:\n%s", want, text)
 		}
+	}
+	// A worker cannot assign or prune, so it is not shown the commands; the manager is.
+	for _, bad := range []string{" task assign ", " task prune "} {
+		if strings.Contains(text, bad) {
+			t.Errorf("a worker's briefing offers %q", bad)
+		}
+	}
+	if mgr, ok := c.ws.PaneContext(c.lead); !ok {
+		t.Error("no context for the manager")
+	} else if m := mgr.Render(); !strings.Contains(m, " task assign <id> <role|name|pane>") || !strings.Contains(m, "task prune [-days N]") {
+		t.Errorf("the manager's briefing lacks assign or prune:\n%s", m)
 	}
 	if lead, _ := c.ws.PaneContext(c.lead); lead.TaskCounts.Mine != 0 || lead.TaskCounts.InReview != 1 {
 		t.Errorf("the manager's counts = %+v", lead.TaskCounts)

@@ -116,8 +116,8 @@ func TestAFailedVersionDownloadReleasesItsButton(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-settings"));
-// Version and updates are in Account & plan.
-h.click(h.$("settings-tab-plan"));
+// Version and updates are in About & updates.
+h.click(h.$("settings-tab-about"));
 h.click(h.$("set-versions"));
 h.recv({ type: "versions", items: [{ version: "v1.6.0", relation: "newer" }, { version: "v1.5.0", relation: "current" }] });
 const install = () => h.$("version-install-v1.6.0");
@@ -157,7 +157,7 @@ func TestAPullRequestLostToADropDoesNotLeaveTheFormWaiting(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
 h.recv(fixture());
-h.click(h.$("btn-github"));
+h.palette("github");
 h.recv({ type: "ghStatus", cwd: "", installed: true, loggedIn: true, account: "octocat", host: "github.com" });
 h.recv({ type: "ghPRs", cwd: "C:/repo", items: [] });
 const body = () => h.$("overlay-body");
@@ -199,7 +199,7 @@ h.hello();
 const remote = { state: "connected", relay: "https://remote.flockdeck.ai", hostId: "h1", viewers: 0,
   since: "2030-01-01T00:00:00Z" };
 h.recv(fixture({ remote }));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 h.recv({ type: "remoteDevices", enabled: true, devices: [],
   hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
 const held = (id) => h.doc.activeElement && h.doc.activeElement.isConnected && h.doc.activeElement.id === id;

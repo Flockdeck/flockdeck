@@ -44,7 +44,7 @@ func TestBriefingWithoutARoleHasNoRoleSection(t *testing.T) {
 
 func TestBriefingWithARoleCarriesItsBriefingAndTheCatalog(t *testing.T) {
 	c := PaneContext{
-		PaneName: "api", Cwd: "/work",
+		PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck",
 		Role: "worker", RoleKnown: true, RoleName: "Worker", RoleWorktree: agent.WorktreeOwn,
 		RoleBriefing: "You carry out one task.", RoleSpawns: []string{"reviewer"},
 		Roles: []string{"worker", "reviewer", "security"},
@@ -52,7 +52,7 @@ func TestBriefingWithARoleCarriesItsBriefingAndTheCatalog(t *testing.T) {
 	text := c.Render()
 	for _, want := range []string{
 		"## Your role", `the role "worker" (Worker)`, "You carry out one task.",
-		"meant to be a worktree and branch of your own", "You may start agents in these roles: reviewer.",
+		"meant to be a worktree and branch of your own", "Your role may start agents in these roles: reviewer.",
 		"The roles in this project's catalog: worker, reviewer, security.",
 	} {
 		if !strings.Contains(text, want) {
@@ -182,8 +182,8 @@ func TestBriefingOfARoleWithoutSpawnRightsHasNoSpawnSection(t *testing.T) {
 			t.Errorf("%s: the role section does not say it may not start agents", id)
 		}
 		for _, bad := range []string{
-			"Starting agents of your own", "You can hand work to further agents", "spawn \"add tests",
-			"spawn --worktree fix-auth", "parallel work", "What the flags do", "close --finished",
+			"## Starting agents", "You can hand work to further agents", "spawn \"add tests",
+			"spawn -worktree fix-auth", "parallel work", "The placement flags matter", "close -finished",
 		} {
 			if strings.Contains(text, bad) {
 				t.Errorf("%s: the briefing says %q to a role that may not start agents", id, bad)
@@ -201,13 +201,13 @@ func TestBriefingOfARoleThatMayStartAgentsGivesRoleAwareExamples(t *testing.T) {
 		"flockdeck spawn -role planner -split \"<task>\"",
 		"`flockdeck team -json`", "Keep the pane id", "takes a pane id, a name or a role id",
 		"Assign a task before the agent starts it, or at spawn", "takes the task from it",
-		"What the flags do", "close <pane-id>",
+		"The placement flags matter", "close <pane-id>",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the manager briefing lacks %q", want)
 		}
 	}
-	for _, bad := range []string{"Starting agents of your own", "You can hand work to further agents", "spawn \"add tests", "parallel work", "not on your own initiative"} {
+	for _, bad := range []string{"Starting agents of your own", "You can hand work to further agents", "spawn \"add tests", "not on your own initiative"} {
 		if strings.Contains(text, bad) {
 			t.Errorf("the manager briefing still says %q", bad)
 		}
@@ -231,7 +231,7 @@ func TestBriefingKeepsTheGenericSpawnSectionWhereNoRoleLimitsIt(t *testing.T) {
 		"plain only": roleContext("scout", nil, true),
 	} {
 		text := c.Render()
-		for _, want := range []string{"Starting agents of your own", "flockdeck spawn \"add tests for the parser\"", "parallel work"} {
+		for _, want := range []string{"## Starting agents", "flockdeck spawn \"add tests for the parser\"", "parallel work"} {
 			if !strings.Contains(text, want) {
 				t.Errorf("%s: briefing lacks %q", name, want)
 			}

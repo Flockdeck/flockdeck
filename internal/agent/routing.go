@@ -85,13 +85,9 @@ type RoutingRule struct {
 	Tier string `json:"tier,omitempty"`
 	// Model and Agent name one agent's model, for a rule that wants exactly
 	// that rather than a tier.
-	Model string `json:"model,omitempty"`
-	Agent string `json:"agent,omitempty"`
-	// SuggestInPane lets the rule suggest a switch in a pane already running.
-	// Nothing reads it yet; it is kept so a file written for a later build
-	// means the same here.
-	SuggestInPane bool      `json:"suggestInPane,omitempty"`
-	When          RuleMatch `json:"when"`
+	Model string    `json:"model,omitempty"`
+	Agent string    `json:"agent,omitempty"`
+	When  RuleMatch `json:"when"`
 }
 
 // RuleMatch is what a piece of work must be for a rule to match. Every field

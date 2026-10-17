@@ -1135,7 +1135,7 @@ func TestHookPrintsAnAllowPermissionDecision(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = srv.Close() })
 	srv.SetReviewHandler(func(string, hooks.Event) (bool, string) {
-		return true, "auto-review: a read-only command"
+		return true, "auto-approve read-only: a read-only command"
 	})
 
 	stdin := strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"git status"}}`)

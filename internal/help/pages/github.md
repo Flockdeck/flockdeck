@@ -1,6 +1,6 @@
 # GitHub
 
-The **GitHub** panel in the rail opens and reads pull requests and issues,
+The **GitHub** panel, from the command palette or **Settings › GitHub**, opens and reads pull requests and issues,
 and shows CI status, for the project on screen. It all goes through the `gh`
 command-line tool, without leaving Flockdeck.
 

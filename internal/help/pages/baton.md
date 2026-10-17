@@ -3,7 +3,7 @@
 A baton is a short markdown document one agent hands to the next: what the work is
 for, where it stands, the files that changed, the commands run, and what must hold.
 Use it to move work to a different agent or model, or to start again from a clean
-conversation. It is not **Resume a past conversation** (see [History](#history)),
+conversation. It is not **Resume** (see [Resume](#history)),
 which reattaches the whole conversation.
 
 ## Making one

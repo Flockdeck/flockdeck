@@ -30,6 +30,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/appwindow"
 	"github.com/jmwri/flockdeck/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/legacyenv"
 	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/server"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -1665,14 +1666,15 @@ var errHelpAsked = errors.New("usage shown")
 // earlier build used alongside the one in use now. A pane started by an
 // instance of that build is still running with the old names in its
 // environment, and an agent inside it should not lose the ability to spawn
-// just because the binary on its PATH has been upgraded. The fallback can go a
-// release after the rename.
-func paneEnv(name string) string {
-	if v := os.Getenv("FLOCKDECK_" + name); v != "" {
-		return v
-	}
-	return os.Getenv("PERCH_" + name)
-}
+// just because the binary on its PATH has been upgraded. The old names are due
+// to be removed after legacyenv.RemovalDate; until then using one prints a
+// warning to stderr, once per name. The hook and the status line, which run as
+// a new process on every event, use quietPaneEnv instead.
+func paneEnv(name string) string { return legacyenv.GetWarn(os.Stderr, name) }
+
+// quietPaneEnv is paneEnv without the warning, for commands whose stderr has to
+// stay clean.
+func quietPaneEnv(name string) string { return legacyenv.Get(name) }
 
 // runSpawn implements the `spawn` subcommand, which starts another agent from
 // inside a pane.
@@ -2395,7 +2397,7 @@ func hook(args []string, stdin io.Reader, stdout, stderr io.Writer) {
 		return
 	}
 	if *token == "" {
-		*token = paneEnv("TOKEN")
+		*token = quietPaneEnv("TOKEN")
 	}
 	// Stderr is the one place a hook can complain: Claude Code shows it under
 	// --debug, and it neither fails the session nor lands in the stdout that

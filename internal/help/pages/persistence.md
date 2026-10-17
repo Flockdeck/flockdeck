@@ -13,10 +13,10 @@ rather than starting an empty one. The project you name on the command line is
 the one you land in; the rest are restored around it.
 
 What you set on a pane comes back with it too: its lock, whether it is
-recording, and its auto-review switch, along with a name you gave its tab and
-the terminal size it was last drawn at. A layout saved before auto-review was
-kept per pane brings its panes back with auto-review as **Settings ›
-General › Start new panes with auto-review on** says.
+recording, and its auto-approve read-only switch, along with a name you gave its tab and
+the terminal size it was last drawn at. A layout saved before auto-approve read-only was
+kept per pane brings its panes back with it as **Settings ›
+General › Auto-approve read-only in new panes** says.
 
 A project whose folder is not there when Flockdeck starts (on a USB stick
 that is not plugged in, or a network drive not yet connected) is not opened,

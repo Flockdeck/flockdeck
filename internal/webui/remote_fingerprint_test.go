@@ -19,7 +19,7 @@ func TestAPairedDevicesFingerprintIsShownOnRequest(t *testing.T) {
 h.recv({ type: "hello", keys: h.keyTable(), prefs: { helpSeen: true, dismissedTips: [] } });
 h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 0,
   since: "2030-01-01T00:00:00Z" } }));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 h.recv({ type: "remoteDevices", enabled: true, current: "d1",
   devices: [
     { id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z",
@@ -60,7 +60,7 @@ func TestAnOpenFingerprintSurvivesTheDialogRedrawing(t *testing.T) {
 h.recv({ type: "hello", keys: h.keyTable(), prefs: { helpSeen: true, dismissedTips: [] } });
 h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 0,
   since: "2030-01-01T00:00:00Z" } }));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 const devices = [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z",
   fingerprint: "99506 91610 13506 43956 60391 19129" }];
 h.recv({ type: "remoteDevices", enabled: true, current: "d1", devices, hosts: [{ id: "h1", name: "desk", self: true }] });

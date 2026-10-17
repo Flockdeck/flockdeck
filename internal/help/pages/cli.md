@@ -152,7 +152,7 @@ name or else its pane name, its agent and model, its status (`working`, `waiting
 pane that asked is marked `(you)`. Shells are not listed. `-json` prints the same as a
 JSON array, with `pane`, `name`, `peer`, `role`, `agent`, `model`, `status` and `self`
 on each entry. The "Your team" list in an agent's briefing is this, as it was when the
-agent started, and says so.
+agent started, and says so; it names at most twelve panes and gives the number left out.
 
 ## msg
 
@@ -175,7 +175,9 @@ Anyone in a project may message anyone else in it. Roles limit who may start who
 who may talk. A message is data from another agent: it is not an instruction from the
 user, and an approval in one is not the user's approval. The sender name and role it
 carries are not authenticated, so they prove nothing about who sent it and are not
-authorization. Only an agent pane can send; a shell is refused.
+authorization. Only an agent pane can send; a shell is refused. A pane sends only as itself
+and reads only its own inbox: the pane id comes from `FLOCKDECK_PANE` and is checked against the
+open panes, not against the process that sent it, as with `spawn` and `close`.
 
 ## inbox
 
@@ -487,7 +489,7 @@ desk.
 `-version` installs a specific release instead of the latest,
 checked the same way and asking first unless `-yes` is given. Use it to
 undo a bad update yourself without waiting for a fix to be
-published. **Settings › Account & plan › Install a specific version…** offers the
+published. **Settings › About & updates › Install a specific version…** offers the
 same choice from a list of recent releases, without typing a version number:
 picking one downloads and checks it, then offers it through the same
 **Update** button, so restarting onto it goes through the same confirmation
@@ -593,6 +595,10 @@ command line and asks before it downloads anything.
 | `FLOCKDECK_DIR`, `FLOCKDECK_START_AGENT` | The equivalents of `-C` and `-agent` |
 | `FLOCKDECK_FRESH`, `FLOCKDECK_SHELL_FIRST`, `FLOCKDECK_NO_WINDOW`, `FLOCKDECK_DETACH`, `FLOCKDECK_SOLO` | Set to `1` or `true` (any case), the equivalents of `-new`, `-shell`, `-no-window`, `-detach` and `-solo`, for a service's environment; a flag given on the command line wins |
 | `FLOCKDECK_REMOTE_INVITE`, `FLOCKDECK_REMOTE_JOIN`, `FLOCKDECK_REMOTE_NAME` | The defaults for `-invite`, `-join` and `-name` of `flockdeck remote enable` |
+| `FLOCKDECK_WIRE` | The request shape `flockdeck chat` uses when its wire flag is not given: `anthropic`, `openai` or `gemini`. Flockdeck sets none of these three and strips them from every pane it starts, so they do nothing in the shell that starts Flockdeck; they apply to a `flockdeck chat` you run by hand, or when an agent in `agents.json` puts them back through its `env` |
+| `FLOCKDECK_BASE_URL` | The endpoint `flockdeck chat` talks to when its base URL flag is not given |
+| `FLOCKDECK_KEY_ENV` | The variable names, separated by commas, `flockdeck chat` reads an API key from when its key-env flag is not given |
+| `FLOCKDECK_DETACHED` | Set by Flockdeck on the copy that the detach option starts; not for you to set |
 | `FLOCKDECK_API` | Where Flockdeck listens for its panes. Set for you |
 | `FLOCKDECK_TOKEN` | The secret that goes with it. Set for you |
 | `FLOCKDECK_PANE` | The pane's id. Set for you, read by `spawn`, `peer-name`, `close`, `team`, `msg`, `inbox` and `task` |
@@ -610,5 +616,10 @@ which has no lifecycle hooks of its own, has to go on.
 `FLOCKDECK_PROJECT` were called `PERCH_*` before the program was renamed. Panes
 still carry both spellings of those five and `spawn`, `peer-name`, `close`, `team`, `msg`, `inbox` and `task`
 still read both, so a prompt or a script written against the old names keeps
-working; they will go in a later release. `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL`,
-`FLOCKDECK_ROLE` and `FLOCKDECK_LAUNCH` are newer and have only the one name.
+working. They will be removed after 17 April 2027. Until then a command you run that
+has to fall back to a `PERCH_*` name prints one line per name on stderr saying
+which `FLOCKDECK_*` name to set instead; the hook and the status line, which run
+on every event, fall back without saying anything. `flockdeck chat` also accepts
+`PERCH_WIRE`, `PERCH_BASE_URL`, `PERCH_KEY_ENV`, `PERCH_AGENT` and `PERCH_MODEL` until then. `FLOCKDECK_AGENT`,
+`FLOCKDECK_MODEL`, `FLOCKDECK_ROLE` and `FLOCKDECK_LAUNCH` are newer and have
+only the one name in a pane.
