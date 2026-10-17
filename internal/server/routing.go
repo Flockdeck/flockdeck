@@ -695,7 +695,7 @@ func routingNotice(where, field, value string) string {
 	}
 	if field == "jev" {
 		if value == "true" {
-			return "Routing may now send the text of a fan-out row no rule matched to TypeSafe, for " + where + " -- it also needs a TypeSafe API key (Settings › Status detection, or TYPESAFE_API_KEY), and only applies to Minimise cost"
+			return "Routing may now send the text of a fan-out row no rule matched to TypeSafe, for " + where + " -- it also needs a TypeSafe API key (Settings › API keys, or TYPESAFE_API_KEY), and only applies to Minimise cost"
 		}
 		return "Routing no longer sends anything to TypeSafe for " + where
 	}

@@ -12,7 +12,7 @@ h.hello();
 const remote = (over) => Object.assign({ state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 0,
   since: "2030-01-01T00:00:00Z" }, over || {});
 h.recv(fixture({ remote: remote() }));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 const days = (n) => new Date(Date.now() + n * 86400000).toISOString();
 const hosts = [{ id: "h1", name: "desk", online: true, self: true }];
 h.recv({ type: "remoteDevices", enabled: true, devices: [], hosts,
@@ -28,7 +28,7 @@ assert.ok(!relayPromise(h.$("overlay-body").textContent), "the plan promises wha
 // account is paid for, and everything else still there.
 const said = "Your Flockdeck Remote trial has ended. Subscribe from Devices on a paired phone or browser.";
 h.recv(fixture({ remote: remote({ state: "lapsed", detail: said }) }));
-assert.ok(h.$("btn-remote").classList.contains("trouble"), "a relay that stopped Flockdeck Remote is not amber");
+assert.ok(h.$("btn-settings").classList.contains("trouble"), "a relay that stopped Flockdeck Remote does not mark Settings amber");
 assert.ok(h.$("overlay-body").textContent.includes(said), "the relay's words are not shown: " + h.$("overlay-body").textContent);
 assert.ok(h.$("remote-retry"), "there is no way to try again once the account is paid for");
 h.recv({ type: "remoteDevices", enabled: true, devices: [], hosts,

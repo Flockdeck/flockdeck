@@ -111,7 +111,7 @@ from there is a restart you ask for: the layout is saved and reopened, but the
 agents running in panes are stopped, which is why it is never done for you.
 Otherwise the update goes in when Flockdeck next quits, and the next start is the
 new version. Set `FLOCKDECK_UPDATE=off`, or turn off **Check for updates** in
-Settings › Account & plan, to stop the background check and to stop a
+Settings › About & updates, to stop the background check and to stop a
 downloaded update being put in place on exit. The subcommand still works.
 
 From a terminal:

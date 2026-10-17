@@ -410,7 +410,7 @@ func TestThePairingLinkCanBeCopied(t *testing.T) {
 h.hello();
 h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 0,
   since: "2030-01-01T00:00:00Z" } }));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 h.recv({ type: "remoteDevices", enabled: true, devices: [], hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
 h.click(h.$("remote-pair"));
 h.recv({ type: "remotePair", kind: "device", code: "fdp_c", url: "https://relay.example/pair#fdp_c",
@@ -570,7 +570,7 @@ func TestTheRemoteDialogKeepsTheKeyboard(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
 h.recv(fixture());
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 h.recv({ type: "remoteDevices", enabled: false, devices: [], hosts: [] });
 h.$("remote-more").focus();
 h.key({ key: "Enter" });

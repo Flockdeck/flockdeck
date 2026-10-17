@@ -419,7 +419,7 @@ Replaced with `[withheld: a secret file]`:
 
 - the `output` of a tool call whose input names a secret file, and the
   string fields of such a call's `input` other than its path or command. A file
-  is a secret file by the name check Flockdeck's auto-review uses: `.env` and
+  is a secret file by the name check Flockdeck's auto-approve read-only uses: `.env` and
   `.env.*`, `id_*` that is not `.pub`, `.npmrc`, `.netrc`, `_netrc`, `.pgpass`,
   `.git-credentials`, anything with `credential` in its name, and `.pem`, `.key`,
   `.p12`, `.pfx`, `.ppk`, `.keystore` and `.jks` files. The path is a

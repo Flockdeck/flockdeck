@@ -115,7 +115,7 @@ cooperating, and they do not all cooperate in the same ways.
 | --- | --- |
 | reports its own lifecycle | its status mark says what it is really doing, rather than what its output looks like |
 | can resume by id | restoring a layout brings its conversation back, not only its pane |
-| writes a transcript | it can be resumed from it; Claude Code's is also where fan out reads a plan and what past conversations lists |
+| writes a transcript | it can be resumed from it; Claude Code's is also where fan out reads a plan and what Resume lists |
 | has a trust question | a [fan-out](#fanout) can answer it ahead of time for the worktrees it cuts |
 | answers a start-up hook | its briefing survives a compaction, rather than being said once and summarised away |
 
@@ -461,7 +461,7 @@ is slow, is refused or is down, the row is routed exactly as it would be without
 it. The row's tooltip says what Jev rated it when it did decide.
 
 It is **off** by default and needs both this setting, for every project or for
-one, and a TypeSafe API key: the one set in **Settings › Status detection ›
+one, and a TypeSafe API key: the one set in **Settings › API keys ›
 TypeSafe API key** (used first), or else `TYPESAFE_API_KEY` in the environment
 Flockdeck starts in. Saving a key on its own sends nothing.
 **Turning it on sends the text of each such row to TypeSafe, a third party.**

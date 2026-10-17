@@ -21,7 +21,7 @@ func TestTheDeskShowsBothCodesAndMarksOneVerified(t *testing.T) {
 	runFrontEnd(t, verifyDevicesFixture+`
 h.recv({ type: "hello", keys: h.keyTable(), prefs: { helpSeen: true, dismissedTips: [] } });
 h.recv(fixture(connected));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 h.recv(roster(devices));
 const body = h.$("overlay-body");
 assert.ok(!body.textContent.includes("77777 88888"), "a code is shown before Verify is pressed");
@@ -66,7 +66,7 @@ func TestARemoteWindowCannotMarkAnythingVerified(t *testing.T) {
 	runFrontEnd(t, verifyDevicesFixture+`
 h.recv({ type: "hello", keys: h.keyTable(), prefs: { helpSeen: true, dismissedTips: [] }, remote: true });
 h.recv(fixture(connected));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 devices[0].deskVerify = "verified";
 h.recv(roster(devices));
 h.click(findButton("Verify"));
@@ -88,7 +88,7 @@ h.recv({ type: "hello", keys: h.keyTable(), prefs: { helpSeen: true, dismissedTi
 h.recv(fixture(connected));
 const identity = await E2E.getIdentity();
 const want = await E2E.fingerprint(identity.publicKeyRaw, hostRaw);
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 h.recv(roster([{ ...devices[0], id: "d9", deskVerify: "" }]));
 await h.waitFor(() => h.$("overlay-body").textContent.includes(want));
 const body = h.$("overlay-body");
@@ -104,7 +104,7 @@ func TestALocalWindowShowsNoCodeOfItsOwn(t *testing.T) {
 	runFrontEnd(t, verifyDevicesFixture+`
 h.recv({ type: "hello", keys: h.keyTable(), prefs: { helpSeen: true, dismissedTips: [] } });
 h.recv(fixture(connected));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 h.recv(roster(devices));
 assert.ok(!h.$("overlay-body").textContent.includes("This window's code"), "a window on the desktop showed a code of its own");
 `)
