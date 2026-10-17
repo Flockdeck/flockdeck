@@ -5,8 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"strings"
+
+	"github.com/jmwri/flockdeck/internal/legacyenv"
 )
 
 // ErrHelpShown means the usage was asked for and printed: there is nothing
@@ -91,9 +92,6 @@ func usage(fs *flag.FlagSet, out io.Writer) {
 // earlier build used alongside the one in use now. A pane started by that build
 // is still running with the old names in its environment, and a chat inside it
 // should not lose its status reporting because the binary on PATH was upgraded.
-func paneEnv(name string) string {
-	if v := os.Getenv("FLOCKDECK_" + name); v != "" {
-		return v
-	}
-	return os.Getenv("PERCH_" + name)
-}
+// The old names stop being read after legacyenv.RemovalDate; until then using
+// one logs a warning.
+func paneEnv(name string) string { return legacyenv.Get(name) }

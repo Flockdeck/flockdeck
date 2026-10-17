@@ -593,6 +593,10 @@ command line and asks before it downloads anything.
 | `FLOCKDECK_DIR`, `FLOCKDECK_START_AGENT` | The equivalents of `-C` and `-agent` |
 | `FLOCKDECK_FRESH`, `FLOCKDECK_SHELL_FIRST`, `FLOCKDECK_NO_WINDOW`, `FLOCKDECK_DETACH`, `FLOCKDECK_SOLO` | Set to `1` or `true` (any case), the equivalents of `-new`, `-shell`, `-no-window`, `-detach` and `-solo`, for a service's environment; a flag given on the command line wins |
 | `FLOCKDECK_REMOTE_INVITE`, `FLOCKDECK_REMOTE_JOIN`, `FLOCKDECK_REMOTE_NAME` | The defaults for `-invite`, `-join` and `-name` of `flockdeck remote enable` |
+| `FLOCKDECK_WIRE` | The request shape `flockdeck chat` uses when its wire flag is not given: `anthropic`, `openai` or `gemini` |
+| `FLOCKDECK_BASE_URL` | The endpoint `flockdeck chat` talks to when its base URL flag is not given |
+| `FLOCKDECK_KEY_ENV` | The variable names, separated by commas, `flockdeck chat` reads an API key from when its key-env flag is not given |
+| `FLOCKDECK_DETACHED` | Set by Flockdeck on the copy that the detach option starts; not for you to set |
 | `FLOCKDECK_API` | Where Flockdeck listens for its panes. Set for you |
 | `FLOCKDECK_TOKEN` | The secret that goes with it. Set for you |
 | `FLOCKDECK_PANE` | The pane's id. Set for you, read by `spawn`, `peer-name`, `close`, `team`, `msg`, `inbox` and `task` |
@@ -610,5 +614,9 @@ which has no lifecycle hooks of its own, has to go on.
 `FLOCKDECK_PROJECT` were called `PERCH_*` before the program was renamed. Panes
 still carry both spellings of those five and `spawn`, `peer-name`, `close`, `team`, `msg`, `inbox` and `task`
 still read both, so a prompt or a script written against the old names keeps
-working; they will go in a later release. `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL`,
-`FLOCKDECK_ROLE` and `FLOCKDECK_LAUNCH` are newer and have only the one name.
+working. They stop being read after 17 April 2027, and until then a command that
+has to fall back to a `PERCH_*` name logs one line per name saying which
+`FLOCKDECK_*` name to set instead. `flockdeck chat` also accepts
+`PERCH_WIRE`, `PERCH_BASE_URL` and `PERCH_KEY_ENV` until then. `FLOCKDECK_AGENT`,
+`FLOCKDECK_MODEL`, `FLOCKDECK_ROLE` and `FLOCKDECK_LAUNCH` are newer and have
+only the one name in a pane.

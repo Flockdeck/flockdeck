@@ -16,7 +16,9 @@ import (
 )
 
 // detachedEnv marks the copy of the program that -detach starts, so that it
-// runs rather than starting another copy in turn.
+// runs rather than starting another copy in turn. It is internal: Flockdeck
+// sets it and unsets it again, and cli.md's environment section says it is not
+// for anybody else to set.
 const detachedEnv = "FLOCKDECK_DETACHED"
 
 // detached is whether this is that copy.
