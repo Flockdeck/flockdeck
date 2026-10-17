@@ -23,11 +23,13 @@
 <main class="wrap" id="main">
 
 <section class="hero">
-  <p class="kicker"><span aria-hidden="true" class="dot waiting">▲</span> A worktree and branch for each agent</p>
+  <div class="hero-text">
+  <p class="kicker"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="4.5" r="2.5"/><circle cx="5" cy="17.5" r="2.5"/><circle cx="17" cy="9" r="2.5"/><path d="M5 7v8M5 13c0-3 12 0 12-4"/></svg> A worktree and branch for each agent</p>
   <h1>Run several agents in one repo. <em>Give each its own worktree.</em></h1>
   <p class="lede">Flockdeck runs Claude Code, Codex, Gemini or your own model side
      by side, and makes it one step to give each its own git worktree and
-     branch, so parallel agents don't undo each other's edits. Run it on your desk, or on hardware you already
+     branch, so parallel agents don't undo each other's edits.</p>
+  <p class="lede second">Run it on your desk, or on hardware you already
      own (a spare machine, a NAS, a cheap VPS), and use your own Flockdeck from your phone
      through an optional hosted relay (free for 30 days, then £5 a month).
      Pair with a QR code. The app is free and source-available.</p>
@@ -36,6 +38,33 @@
     <a class="button ghost" href="{{ .Repo }}">Source on GitHub</a>
   </p>
   <p class="cta-note">Free and source-available · Windows, macOS and Linux</p>
+  </div>
+  <!-- What the headline says, drawn. The files and branches are the ones the
+       window below shows editing; the left side is the problem and the right
+       is what Flockdeck does about it. -->
+  <figure class="lanes" aria-label="Three agents in one checkout, and in a worktree each">
+    <div class="lanes-pane shared">
+      <p class="lanes-title">One checkout, three agents</p>
+      <div class="lanes-merge">
+        <ul>
+          <li><span class="who">claude-code</span><span class="wire" aria-hidden="true"></span></li>
+          <li><span class="who">codex</span><span class="wire" aria-hidden="true"></span></li>
+          <li><span class="who">gemini</span><span class="wire" aria-hidden="true"></span></li>
+        </ul>
+        <span class="file">router.go</span>
+      </div>
+      <p class="lanes-note">Each can undo the others' edits.</p>
+    </div>
+    <div class="lanes-pane iso">
+      <p class="lanes-title">A worktree and branch each</p>
+      <ul>
+        <li><span class="who">claude-code</span><span class="wire" aria-hidden="true"></span><span class="where"><b>feat/api</b> router.go</span></li>
+        <li><span class="who">codex</span><span class="wire" aria-hidden="true"></span><span class="where"><b>feat/ui</b> app.css</span></li>
+        <li><span class="who">gemini</span><span class="wire" aria-hidden="true"></span><span class="where"><b>docs/readme</b> README.md</span></li>
+      </ul>
+      <p class="lanes-note">No shared files to overwrite while they work.</p>
+    </div>
+  </figure>
   <ul class="works" aria-label="Works with">
     <li class="works-label" aria-hidden="true">Works with</li>
     <li>Claude Code</li>
@@ -84,7 +113,7 @@
 <span class="dim">waiting for you…</span></pre>
     </div>
     <div class="pane wide" data-pane="docs">
-      <div class="pane-head"><span aria-hidden="true" class="dot idle">●</span> <span class="name">docs</span> <span class="branch">main</span></div>
+      <div class="pane-head"><span aria-hidden="true" class="dot idle">●</span> <span class="name">docs</span> <span class="branch">docs/readme</span></div>
       <pre class="term" data-term="docs" data-at="0 560 900 700"><span class="u">$</span> flockdeck — agent: gemini
 <b>Reading</b> README.md
 <b>Edit</b> README.md <span class="dim">+64 −9</span>
@@ -92,7 +121,6 @@
     </div>
   </div>
 </section>
-<p class="deck-cap">Three agents on three branches. One needs you.</p>
 
 <div class="legend" role="group" aria-label="What the status marks mean">
   <div><span aria-hidden="true" class="dot working">●</span> <b>working</b> <span class="t">agent is running</span></div>
@@ -109,7 +137,8 @@
      <strong>its own git worktree and branch</strong>. Fan out does it by
      default in a git repository, and the Worktrees panel creates one and opens
      an agent or a shell in it. The agents work in parallel without touching
-     each other's files. They also finish at different times and stop for
+     each other's files.</p>
+  <p>They also finish at different times and stop for
      permission prompts, so Flockdeck shows which agent needs you right now,
      and you don't have to flick between terminals to find out.</p>
 </section>
@@ -139,13 +168,39 @@
 <section class="band" id="what">
   <h2>What it does.</h2>
   <div class="grid">
+    <div class="card lead">
+      <span class="g">git worktrees</span>
+      <h3>Worktrees built in</h3>
+      <p>Create, switch and clean up git worktrees without leaving the app, so
+         your agents can work in parallel without touching each other's files.</p>
+    </div>
+    <div class="card lead">
+      <span class="g">fan out</span>
+      <h3>Turn a plan into a team</h3>
+      <p>Flockdeck reads the task list an agent wrote, lets you edit it, then
+         starts one agent per task. In a git repository each one gets its own
+         worktree and branch by default.</p>
+    </div>
     <div class="card">
-      <span class="g">self-hosted · remote</span>
-      <h3>Runs on hardware you control</h3>
-      <p>Free to run headless on a spare machine, a home server or a VPS
-         (<code>-no-window</code> needs no browser there either). Use it
-         from your phone or laptop through the optional relay: pair with a QR
-         code. Flockdeck Remote is free for 30 days, then £5 a month.</p>
+      <span class="g">context</span>
+      <h3>Agents that know the team</h3>
+      <p>Claude Code and the built-in API client are told which pane they're in
+         and what the others are working on, so they can coordinate instead of
+         colliding.</p>
+    </div>
+    <div class="card">
+      <span class="g"><span aria-hidden="true">▲</span> waiting</span>
+      <h3>Know who needs you</h3>
+      <p>Every pane shows whether its agent is working, waiting or done. Tabs and
+         projects light up too, and you get a desktop notification when an agent
+         is waiting while you're working somewhere else.</p>
+    </div>
+    <div class="card">
+      <span class="g">all agents</span>
+      <h3>Every agent, every project</h3>
+      <p>One list of every agent in every open project, each with its status,
+         and a jump to any of them. The point is a calm overview, not running
+         dozens at once.</p>
     </div>
     <div class="card">
       <span class="g">agents · models</span>
@@ -163,31 +218,12 @@
          it.</p>
     </div>
     <div class="card">
-      <span class="g">all agents</span>
-      <h3>Every agent, every project</h3>
-      <p>One list of every agent in every open project, each with its status,
-         and a jump to any of them. The point is a calm overview, not running
-         dozens at once.</p>
-    </div>
-    <div class="card">
-      <span class="g"><span aria-hidden="true">▲</span> waiting</span>
-      <h3>Know who needs you</h3>
-      <p>Every pane shows whether its agent is working, waiting or done. Tabs and
-         projects light up too, and you get a desktop notification when an agent
-         is waiting while you're working somewhere else.</p>
-    </div>
-    <div class="card">
-      <span class="g">git worktrees</span>
-      <h3>Worktrees built in</h3>
-      <p>Create, switch and clean up git worktrees without leaving the app, so
-         your agents can work in parallel without touching each other's files.</p>
-    </div>
-    <div class="card">
-      <span class="g">fan out</span>
-      <h3>Turn a plan into a team</h3>
-      <p>Flockdeck reads the task list an agent wrote, lets you edit it, then
-         starts one agent per task. In a git repository each one gets its own
-         worktree and branch by default.</p>
+      <span class="g">self-hosted · remote</span>
+      <h3>Runs on hardware you control</h3>
+      <p>Free to run headless on a spare machine, a home server or a VPS
+         (<code>-no-window</code> needs no browser there either). Use it
+         from your phone or laptop through the optional relay: pair with a QR
+         code. Flockdeck Remote is free for 30 days, then £5 a month.</p>
     </div>
     <div class="card">
       <span class="g">spend · limits</span>
@@ -197,13 +233,6 @@
          five-hour and weekly limits, where you have a status line of your own
          or once you turn it on in Settings. It's all worked out on your
          machine.</p>
-    </div>
-    <div class="card">
-      <span class="g">context</span>
-      <h3>Agents that know the team</h3>
-      <p>Claude Code and the built-in API client are told which pane they're in
-         and what the others are working on, so they can coordinate instead of
-         colliding.</p>
     </div>
     <div class="card">
       <span class="g">detach · reattach</span>
