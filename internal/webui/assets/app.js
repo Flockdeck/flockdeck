@@ -53,6 +53,12 @@
     folderplus: '<path d="M8 4.5v7M4.5 8h7"></path>',
     ext: '<path d="M6.5 3.5h-3v9h9v-3M9.5 2.5h4v4M13.5 2.5 8 8"></path>',
     menu: '<path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"></path>',
+    // The padlock in a pane's header. It was the emoji, which every system
+    // draws in full colour (orange on Windows), in a row of text glyphs that
+    // take the header's colour and in an app where amber means an agent is
+    // waiting on you. Drawn here it takes the text colour like its neighbours.
+    lock: '<rect x="3.5" y="7" width="9" height="6.5" rx="1.3"></rect><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"></path>',
+    unlock: '<rect x="3.5" y="7" width="9" height="6.5" rx="1.3"></rect><path d="M5.5 7V5.2a2.5 2.5 0 0 1 4.8-1"></path>',
   };
 
   /** iconSVG is the markup for one icon. It goes in as markup because a node
@@ -3505,10 +3511,11 @@
     };
     // A padlock that is open while the pane can be closed and shut while it
     // cannot. renderPaneLock keeps the glyph, the label and aria-pressed true.
-    const lockBtn = btn("🔓", TIPS.lock, () => {
+    const lockBtn = btn("", TIPS.lock, () => {
       const v = state && state.panes && state.panes[id];
       send({ cmd: "lockPane", id, locked: !(v && v.locked) });
     });
+    lockBtn.innerHTML = iconSVG("unlock", 14);
     const closeBtn = btn("×", TIPS.close, () => send({ cmd: "closePane", id }));
     // Off for a shell, which reports nothing to record. renderPaneRecording
     // keeps the glyph's state, the label and aria-pressed true.
@@ -4804,10 +4811,10 @@
    *  than being a dead target. See Pane.Locked. */
   function renderPaneLock(p, on) {
     p.lockMark.hidden = !on;
-    p.lockMark.textContent = on ? "🔒 Locked" : "";
+    p.lockMark.textContent = on ? "Locked" : "";
     if (on) describe(p.lockMark, "Locked - this pane can't be closed until you unlock it.");
     else delete p.lockMark.dataset.tip;
-    p.lockBtn.textContent = on ? "🔒" : "🔓";
+    p.lockBtn.innerHTML = iconSVG(on ? "lock" : "unlock", 14);
     p.lockBtn.classList.toggle("locked", on);
     p.lockBtn.setAttribute("aria-pressed", String(on));
     describe(p.lockBtn, on ? "Unlock this pane so it can be closed again." : TIPS.lock);
