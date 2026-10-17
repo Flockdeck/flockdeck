@@ -31,7 +31,7 @@ func unknownFields(id string, raw json.RawMessage) []string {
 		// The decoder matches a key to a field without regard to case, so
 		// "defaultmodel" is the default model: named here as unread, it was
 		// a notice saying a setting that had taken effect had not.
-		if specFields[strings.ToLower(key)] {
+		if specFields[strings.ToLower(key)] || retiredFields[strings.ToLower(key)] {
 			continue
 		}
 		msg := fmt.Sprintf("agent %q: %q is not something an agent has", id, key)
@@ -61,6 +61,15 @@ func unknownFields(id string, raw json.RawMessage) []string {
 	sort.Strings(problems)
 	return problems
 }
+
+// retiredFields are keys an agents.json entry may still carry that no build
+// reads any more. They are passed over without a notice, as they were when they
+// were fields: a file written for an older build, or by hand from older
+// documentation, has not done anything wrong.
+//
+// "switch" was the command typed into a running agent to change its model,
+// which nothing ever ran.
+var retiredFields = map[string]bool{"switch": true}
 
 var (
 	specFields = jsonFields(reflect.TypeFor[Spec]())
@@ -138,9 +147,6 @@ func checkTokens(s *Spec) []string {
 	}
 	walk(s.Args)
 	walk(s.ResumeArgs)
-	for _, m := range anyToken.FindAllStringSubmatch(s.Switch, -1) {
-		note(m[1])
-	}
 	return problems
 }
 

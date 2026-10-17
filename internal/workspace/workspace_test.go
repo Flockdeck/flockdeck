@@ -730,9 +730,9 @@ func TestClosingAProjectDropsATabLeftHoldingNothing(t *testing.T) {
 
 // TestClaudeArgvIsUnchanged is the promise that somebody who only ever runs
 // Claude notices nothing: the argv a Claude pane is started with now comes out
-// of its Spec rather than out of session.ClaudeArgs, and the two must agree
-// exactly. A stray or missing argument here is a pane that dies at launch, or
-// a conversation that starts fresh where it should have resumed.
+// of its Spec, and it must be exactly what it always was. A stray or missing
+// argument here is a pane that dies at launch, or a conversation that starts
+// fresh where it should have resumed.
 func TestClaudeArgvIsUnchanged(t *testing.T) {
 	var w Workspace
 	spec, ok := w.specFor("", "")
@@ -748,19 +748,20 @@ func TestClaudeArgvIsUnchanged(t *testing.T) {
 		name   string
 		resume bool
 		prompt string
+		want   []string
 	}{
-		{name: "a fresh pane with no task"},
-		{name: "a fresh pane with a task", prompt: "fix the parser"},
-		{name: "a task that begins with a dash", prompt: "-p is not what I meant"},
-		{name: "a pane resuming its conversation", resume: true},
+		{name: "a fresh pane with no task",
+			want: []string{"claude", "--session-id", id, "--settings", settings}},
+		{name: "a fresh pane with a task", prompt: "fix the parser",
+			want: []string{"claude", "--session-id", id, "--settings", settings, "fix the parser"}},
+		{name: "a task that begins with a dash", prompt: "-p is not what I meant",
+			want: []string{"claude", "--session-id", id, "--settings", settings, "--", "-p is not what I meant"}},
+		{name: "a pane resuming its conversation", resume: true,
+			want: []string{"claude", "--resume", id, "--settings", settings}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var extra []string
-			if tc.prompt != "" {
-				extra = []string{tc.prompt}
-			}
-			want := session.ClaudeArgs(id, settings, tc.resume, extra)
+			want := tc.want
 			got := agent.BuildArgv(spec, tc.resume, agent.Tokens{
 				Session:  id,
 				Settings: settings,

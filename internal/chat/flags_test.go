@@ -131,3 +131,47 @@ func TestParseArgsSaysNothingMoreAfterTheUsage(t *testing.T) {
 		t.Errorf("error = %v, want the flag set's own complaint to stand alone", err)
 	}
 }
+
+func clearChatEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"WIRE", "BASE_URL", "KEY_ENV", "AGENT", "MODEL", "PANE", "API", "TOKEN"} {
+		t.Setenv("FLOCKDECK_"+name, "")
+		t.Setenv("PERCH_"+name, "")
+	}
+}
+
+// The old names still stand in for a flag that was not given, and say so once.
+func TestParseArgsUsesAndWarnsAboutAnOldNameWhenNoFlagIsGiven(t *testing.T) {
+	clearChatEnv(t)
+	t.Setenv("PERCH_WIRE", "gemini")
+	var out strings.Builder
+	o, err := ParseArgs(nil, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Wire != "gemini" {
+		t.Errorf("wire = %q, want the PERCH_WIRE value", o.Wire)
+	}
+	if strings.Count(out.String(), "PERCH_WIRE") != 1 || !strings.Contains(out.String(), "FLOCKDECK_WIRE") {
+		t.Errorf("output = %q, want one warning naming PERCH_WIRE and FLOCKDECK_WIRE", out.String())
+	}
+}
+
+// A flag that is given wins without the environment being read, so a stale old
+// name beside it is neither used nor complained about.
+func TestParseArgsDoesNotWarnWhenTheFlagIsGiven(t *testing.T) {
+	clearChatEnv(t)
+	t.Setenv("PERCH_WIRE", "gemini")
+	t.Setenv("PERCH_BASE_URL", "http://127.0.0.1:1")
+	var out strings.Builder
+	o, err := ParseArgs([]string{"--wire", "openai", "--base-url", "http://127.0.0.1:2"}, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Wire != "openai" || o.BaseURL != "http://127.0.0.1:2" {
+		t.Errorf("options = %+v, want the flags", o)
+	}
+	if out.Len() != 0 {
+		t.Errorf("output = %q, want nothing", out.String())
+	}
+}
