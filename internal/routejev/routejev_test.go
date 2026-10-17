@@ -410,3 +410,44 @@ func TestACorrectedKeyIsNotHeldBackByTheOldOnesCooldown(t *testing.T) {
 		t.Errorf("the corrected key was not tried: %v", err)
 	}
 }
+
+// A prompt can have a secret pasted into it: it is redacted before it is sent,
+// and the cache is keyed by what was sent.
+func TestASecretInTheTaskIsNotSent(t *testing.T) {
+	s := newServer(t)
+	c := classifier(s)
+	const key = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	task := "fix the login test, it uses " + key + "\nexport API_TOKEN=hunter2-correct-horse\nsee /home/me/app/.env"
+	if _, err := c.Classify(task); err != nil {
+		t.Fatal(err)
+	}
+	body := string(s.bodies[0])
+	for _, leaked := range []string{key, "hunter2", ".env"} {
+		if strings.Contains(body, leaked) {
+			t.Errorf("%q reached the request: %s", leaked, body)
+		}
+	}
+	if !strings.Contains(body, "fix the login test") {
+		t.Errorf("the task itself was lost: %s", body)
+	}
+
+	// The same task with another key is the same text as sent, so it is cached.
+	again := strings.Replace(task, key, "sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", 1)
+	if _, err := c.Classify(again); err != nil {
+		t.Fatal(err)
+	}
+	if n := s.requests(); n != 1 {
+		t.Errorf("%d requests, want 1: the redacted text is the same", n)
+	}
+}
+
+func TestATaskThatIsOnlyASecretIsNotAsked(t *testing.T) {
+	s := newServer(t)
+	_, err := classifier(s).Classify("  sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ")
+	if !errors.Is(err, ErrNoAnswer) {
+		t.Errorf("err = %v, want ErrNoAnswer", err)
+	}
+	if n := s.requests(); n != 0 {
+		t.Errorf("%d requests, want none", n)
+	}
+}

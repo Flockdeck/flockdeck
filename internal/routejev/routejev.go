@@ -17,11 +17,13 @@
 //     nothing is asked for a while (cooldown), so a Jev that is down costs one
 //     Timeout, not one per row.
 //
-// No secret redaction is applied to the task text, because the codebase has no
-// general helper for it: the only one, chat's redactKeys, is unexported and
-// scrubs vendor-key shapes from error messages, and inventing a weaker one
-// here would suggest a guarantee it does not give. The setting that turns this
-// on says the task text is sent, and that is the whole promise.
+// The task text is redacted first, with jev.Scrub (record.Redact plus the
+// names of secret files), because a prompt can have a key or a .env line
+// pasted into it. That is best effort and by pattern: a secret with no
+// recognisable shape, in text that does not name it as one, is sent as
+// written, and so is the rest of the task. The setting that turns this on says
+// the task text is sent. The cache is keyed by a hash of the redacted, bounded
+// text, which is what is sent.
 package routejev
 
 import (
@@ -140,7 +142,7 @@ func New(a Asker) *Classifier {
 		cache: map[[sha256.Size]byte]cached{}}
 }
 
-// Bound is the text that is sent for a task: trimmed, and cut to MaxTask runes
+// Bound is the text that is sent for a task, after Scrub: trimmed, and cut to MaxTask runes
 // with Marker after it when it was longer.
 func Bound(task string) string {
 	task = strings.TrimSpace(task)
@@ -154,7 +156,9 @@ func Bound(task string) string {
 // Classify rates a task, from the cache if it was rated within CacheTTL, and
 // otherwise by asking Jev once.
 func (c *Classifier) Classify(task string) (route.Difficulty, error) {
-	text := Bound(task)
+	// Redacted before it is cut, so that a secret the cut would split is seen
+	// whole, and before it is hashed, so that the key is of what is sent.
+	text := Bound(jev.Scrub(task))
 	if text == "" {
 		return route.Difficulty{}, fmt.Errorf("%w: no task", ErrNoAnswer)
 	}

@@ -134,9 +134,13 @@ The app makes these network connections of its own.
 
   Nothing else is sent: for status, not the rest of the scrollback, the
   pane's name or its folder; for routing, no files, repository or
-  conversation. Flockdeck does not remove secrets from what it sends, so a password or key that is on
-  screen, or in a task's text, is sent with it. Leave these settings off for
-  work like that. What TypeSafe does with what it receives is governed by
+  conversation. Before it sends anything, Flockdeck redacts what looks
+  like a secret: API keys of the common providers, bearer tokens, passwords in
+  URLs, private key blocks, values assigned to names such as TOKEN or PASSWORD,
+  and paths to files such as `.env` or `id_rsa`. This is done by pattern and
+  does not catch every secret, so a password or key with no recognisable shape
+  that is on screen, or in a task's text, is sent with the rest of it. Leave
+  these settings off for work like that. What TypeSafe does with what it receives is governed by
   TypeSafe's own terms and privacy policy, which you can find at
   [typesafe.ai](https://typesafe.ai).
 

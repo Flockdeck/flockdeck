@@ -76,8 +76,11 @@ it.
   desk. Saving a key sends nothing: both stay off until you turn them on.
   Below it, **Let TypeSafe's Jev help read pane status**: whether TypeSafe's
   Jev model may help read the status of a pane whose agent reports none. **Off
-  by default**, and it sends terminal output to a third party. See [Knowing
-  who needs you](#status). It is turned on only at the desk.
+  by default**, and it sends the last 30 lines (at most 2,000 bytes) of the
+  pane's terminal output to a third party, with API keys, tokens, password
+  values and secret file paths redacted. Redaction is by pattern and misses
+  secrets with no recognisable shape. See [Knowing who needs you](#status). It
+  is turned on only at the desk.
 
 ### Connections
 

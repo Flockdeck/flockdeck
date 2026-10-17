@@ -14323,7 +14323,8 @@
       "30 lines (at most 2,000 bytes) of a pane's terminal output are SENT TO TYPESAFE, a third party, " +
       "whenever an agent that reports no status of its own goes quiet and Flockdeck cannot tell finished " +
       "from stopped on a question. Nothing else is sent: not the scrollback, the pane's name, or its folder. " +
-      "Secrets on screen are not removed. Panes of agents that report their own status, and shell panes, " +
+      "API keys, tokens, password values and secret file paths are redacted first, by pattern, so a secret " +
+      "with no recognisable shape is still sent. Panes of agents that report their own status, and shell panes, " +
       "are never sent. It can only turn a quiet pane into waiting or blocked, never the other way. " +
       "This can only be turned on on the machine itself, not from a window reached through the relay.",
       switchControl("set-jev-status", !!prefs.jevStatus, (on) => setJevStatus(on))));
@@ -14768,7 +14769,7 @@
     pane.append(settingRow("Ask Jev to rate unmatched work",
       "With Minimise cost, a fan-out row no rule matched can be rated by TypeSafe's Jev model, so hard work is not " +
       "sent to the cheapest model blindly. This sends the text of that row (its first 2,000 characters) to TypeSafe, " +
-      "a third party, and nothing else: no files, no repository, no history. It needs a TypeSafe API key (set in Settings › Status detection, or TYPESAFE_API_KEY in the environment)" +
+      "a third party, and nothing else: no files, no repository, no history. API keys, tokens, password values and secret file paths in it are redacted first, by pattern, so a secret with no recognisable shape is still sent. It needs a TypeSafe API key (set in Settings › Status detection, or TYPESAFE_API_KEY in the environment)" +
       (r.jevKey ? "" : " (it is not set, so nothing is sent)") + " and does nothing under Cost-first, quality-aware. " +
       "Off until you turn it on, " + (own ? "for this project." : "for every project."), jevLabel,
       settingsLink("set-route-jev-key", "Status detection →", "status")));

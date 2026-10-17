@@ -757,3 +757,87 @@ func TestAnAskEndsWithItsPane(t *testing.T) {
 		t.Errorf("the ask outlived its pane by %v", d)
 	}
 }
+
+const (
+	redactKey    = "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	redactBearer = "abcdefghijklmnopqrstuvwxyz012345"
+)
+
+// A pane's screen can show a secret. What is sent to TypeSafe is the tail after
+// redaction: the key shape, the bearer token, the env-style line and the path
+// of a secret file are gone, the rest of the screen is there.
+func TestSecretsOnScreenAreRedactedBeforeTheyAreSent(t *testing.T) {
+	fake := newFakeJev(t, nil)
+	r := newRig(t, fake)
+	r.s.history = newRing(replayBytes)
+
+	screen := "\x1b[32mkey: " + redactKey + "\x1b[0m\r\n" +
+		"curl -H \"Authorization: Bearer " + redactBearer + "\" https://api.test\r\n" +
+		"export GITHUB_TOKEN=hunter2-correct-horse\r\n" +
+		"cat /home/me/app/.env ~/.ssh/id_rsa\r\n" +
+		"Proceed with the change? (y/n) "
+	r.quiet(t, screen)
+	if fake.hits.Load() != 1 {
+		t.Fatalf("%d calls, want 1", fake.hits.Load())
+	}
+	body := string(fake.bodyAt(t, 0))
+	for _, leaked := range []string{redactKey, redactBearer, "hunter2", ".env", "id_rsa"} {
+		if strings.Contains(body, leaked) {
+			t.Errorf("%q reached the request body: %s", leaked, body)
+		}
+	}
+	if !strings.Contains(body, "Proceed with the change? (y/n)") {
+		t.Errorf("the question was lost: %s", body)
+	}
+}
+
+// A secret that the cut would have split is redacted whole: it sits across the
+// start of the 2000-byte window.
+func TestASecretAtTheCutIsStillRedacted(t *testing.T) {
+	filler := strings.Repeat("x", assistTailBytes-len(redactKey)/2-len("\nEnd? (y/n)"))
+	got := assistTail([]byte(filler + redactKey + "\nEnd? (y/n)"))
+	if strings.Contains(got, "sk-ant") || strings.Contains(got, "AAAAAAAAAA") {
+		t.Errorf("part of a key was kept: %q", got)
+	}
+}
+
+// The cache is of what is sent: the same screen with another key is the same
+// tail, so it is not asked again, and a different screen is.
+func TestTheCacheHoldsOnRedactedText(t *testing.T) {
+	fake := newFakeJev(t, nil)
+	a := &StatusAssist{Enabled: enabled, NewClient: fake.client, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	ctx := context.Background()
+	tailOne := "token printed: " + redactKey + "\nContinue? (y/n)"
+	tailTwo := "token printed: sk-ant-api03-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\nContinue? (y/n)"
+	if _, ok := a.Assess(ctx, "p", tailOne); !ok {
+		t.Fatal("no verdict")
+	}
+	if _, ok := a.Assess(ctx, "p", tailTwo); !ok {
+		t.Fatal("the cached verdict was lost")
+	}
+	if n := fake.hits.Load(); n != 1 {
+		t.Errorf("%d calls, want 1: both tails are the same once redacted", n)
+	}
+	if strings.Contains(string(fake.bodyAt(t, 0)), "sk-ant") {
+		t.Error("a key reached the request")
+	}
+}
+
+// Assess does not trust its caller: a raw tail is redacted too, and one with
+// nothing left but marks is not sent.
+func TestAssessRedactsWhatItIsGiven(t *testing.T) {
+	fake := newFakeJev(t, nil)
+	a := &StatusAssist{Enabled: enabled, NewClient: fake.client, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	ctx := context.Background()
+
+	if _, ok := a.Assess(ctx, "only", redactKey+"\n  /home/me/.env \n"); ok || fake.hits.Load() != 0 {
+		t.Errorf("a tail of nothing but secrets was asked about (%d calls)", fake.hits.Load())
+	}
+	if _, ok := a.Assess(ctx, "raw", "API_KEY=abc123def456\nOverwrite? (y/n)"); !ok {
+		t.Fatal("no verdict")
+	}
+	body := string(fake.bodyAt(t, 0))
+	if strings.Contains(body, "abc123def456") || !strings.Contains(body, "Overwrite?") {
+		t.Errorf("request body: %s", body)
+	}
+}

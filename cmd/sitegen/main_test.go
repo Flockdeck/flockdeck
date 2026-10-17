@@ -444,7 +444,7 @@ func TestThePrivacyPolicyDisclosesTypeSafe(t *testing.T) {
 	for _, want := range []string{
 		"TypeSafe AI", "api.typesafe.ai", "TYPESAFE_API_KEY", "off by default",
 		"the last 30 lines", "2,000 bytes", "not from a window reached through the relay",
-		"does not remove secrets", "TypeSafe&rsquo;s own terms and privacy policy",
+		"does not catch every secret", "TypeSafe&rsquo;s own terms and privacy policy",
 		"or turn on one of the two optional TypeSafe features",
 	} {
 		if !strings.Contains(policy, want) && !strings.Contains(policy, strings.ReplaceAll(want, "&rsquo;", "'")) {
