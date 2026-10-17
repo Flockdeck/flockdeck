@@ -19,8 +19,8 @@ type Key struct {
 	// Label is the one line shown in the palette and in the shortcut tables.
 	Label string `json:"label"`
 	// Short is the one name the action goes by where a surface is named --
-	// the rail, the palette's rows, Go to: "History" for a label that reads
-	// "Resume a past conversation". The label stays, and stays searchable,
+	// the rail, the palette's rows, Go to: "Agents" for a label that reads
+	// "All agents across projects". The label stays, and stays searchable,
 	// because the docs/keys.md table and the help pages are written from it.
 	// Empty where the label's own name (the part before its dash) will do.
 	Short string `json:"short,omitempty"`
@@ -98,7 +98,7 @@ var Keys = []Key{
 	{ID: "agents", Keys: "Ctrl+Shift+A", Label: "All agents across projects", Short: "Agents", Section: "Agents", Page: "status"},
 	{ID: "closeFinishedPanes", Label: "Close finished panes — idle agents and cleanly exited panes, in every open project", Section: "Agents", Page: "status"},
 	{ID: "startTeam", Label: "Start a team — a manager agent that starts the rest", Short: "Start a team", Section: "Agents", Page: "agents"},
-	{ID: "team", Label: "Team — this project's roster, task board and messages", Short: "Team", Section: "Agents", Page: "agents"},
+	{ID: "team", Keys: "Ctrl+Shift+M", Label: "Team — this project's roster, task board and messages", Short: "Team", Section: "Agents", Page: "agents"},
 	{ID: "apiKeys", Label: "API keys…", Short: "API keys", Section: "Agents", Page: "agents"},
 
 	// --- git ---------------------------------------------------------------
@@ -113,7 +113,7 @@ var Keys = []Key{
 	{ID: "prevRegion", Keys: "Shift+F6", Label: "Move to the previous part of the window", Section: "Finding your way", NoPalette: true},
 	{ID: "findInTerminal", Keys: "Ctrl+Shift+F", Label: "Find in terminal", Section: "Finding your way"},
 	{ID: "findPane", Keys: "Ctrl+Shift+L", Label: "Find pane", Section: "Finding your way", Page: "panes"},
-	{ID: "history", Keys: "Ctrl+Shift+R", Label: "Resume a past conversation", Short: "History", Section: "Finding your way", Page: "history"},
+	{ID: "history", Keys: "Ctrl+Shift+R", Label: "Resume — reopen a past conversation", Section: "Finding your way", Page: "history"},
 	{ID: "projects", Keys: "Ctrl+Shift+O", Label: "Projects", Section: "Finding your way", Page: "projects"},
 	{ID: "help", Keys: "F1", Label: "Help", Section: "Finding your way", Page: "getting-started"},
 

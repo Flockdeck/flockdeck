@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-// Settings' sections, in the pop-over redesign's order (§5): eleven in four
+// Settings' sections, in the pop-over redesign's order (§5): twelve in five
 // groups. Every control a section held keeps its id and is in the section it
 // moved to, and in no other: Behaviour's defaults in General and its TypeSafe
 // key and Jev switch in Status detection; Appearance's terminal half in
 // Terminal; Agents' routing in Routing; General's version and updates in
-// Account & plan.
+// About & updates, and the TypeSafe key in API keys.
 func TestEverySettingIsInItsNewSection(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
@@ -20,13 +20,15 @@ h.click(h.$("btn-settings"));
 const homes = {
   general: ["set-notifications", "set-auto-review-default", "set-fanout-sametab", "set-tips"],
   appearance: ["set-theme", "set-accent"],
-  terminal: ["set-preview", "set-font-size", "set-font-family", "set-scrollback", "set-cursor", "set-cursor-blink", "set-screen-reader"],
+  terminal: ["set-preview", "set-font-size", "set-font-family", "set-scrollback", "set-scrollback-custom", "set-cursor", "set-cursor-blink", "set-screen-reader"],
   keybindings: ["set-keybind-reset-all", "set-keybind-closePane"],
   agents: ["set-agent-all", "set-agent-project", "set-statusline", "set-agent-routing", "set-agent-keys"],
   routing: ["set-route-all", "set-route-project", "set-route-floor", "set-route-strategy", "set-route-cross", "set-route-jev",
     "set-route-rules", "set-route-clear-log"],
-  status: ["set-jev-key", "set-jev-status"],
-  plan: ["set-updates", "set-check-update", "set-install", "set-versions", "set-sponsor", "set-legal", "set-plan-link"],
+  keys: ["set-jev-key"],
+  status: ["set-jev-key-link", "set-jev-status"],
+  plan: ["set-plan-link"],
+  about: ["set-updates", "set-check-update", "set-install", "set-versions", "set-sponsor", "set-legal"],
 };
 const every = Object.values(homes).flat();
 for (const [section, ids] of Object.entries(homes)) {
@@ -48,8 +50,8 @@ const kids = h.$("settings-pane").children;
 assert.ok(kids.indexOf(h.$("set-preview")) < kids.indexOf(h.$("set-font-size").closest(".set-row")), "the preview is not above the font");
 // Where the key for Ask Jev is set is said by its new name.
 h.click(h.$("settings-tab-routing"));
-assert.ok(h.$("set-route-jev").closest(".set-row").textContent.includes("Settings › Status detection"),
-  "Ask Jev still sends you to Behaviour for its key");
+assert.ok(h.$("set-route-jev").closest(".set-row").textContent.includes("Settings › API keys"),
+  "Ask Jev does not send you to API keys for its key");
 `)
 }
 
@@ -66,10 +68,10 @@ assert.deepStrictEqual(found("scrollback"), ["terminal"]);
 assert.deepStrictEqual(found("cursor"), ["terminal"]);
 assert.deepStrictEqual(found("theme"), ["appearance"]);
 assert.deepStrictEqual(found("auto review"), ["general"]);
-assert.deepStrictEqual(found("typesafe"), ["status"]);
+assert.deepStrictEqual(found("typesafe"), ["keys", "status"]);
 assert.deepStrictEqual(found("floor"), ["routing"]);
-assert.deepStrictEqual(found("version"), ["plan"]);
-assert.deepStrictEqual(found("update"), ["plan"], "updates are still found in General");
+assert.deepStrictEqual(found("version"), ["about"]);
+assert.deepStrictEqual(found("update"), ["about"], "updates are still found in General");
 assert.deepStrictEqual(found("keybindings"), ["keybindings"], "the old name no longer finds Keyboard");
 assert.deepStrictEqual(found("relay"), ["remote", "plan"]);
 `)
@@ -137,7 +139,7 @@ h.key({ key: "Escape" });
 // GitHub's own way into its settings opens on them.
 h.press("settings");
 h.key({ key: "Escape" });
-h.click(h.$("btn-github"));
+h.palette("github");
 h.recv({ type: "ghStatus", cwd: "", installed: false, installManager: "winget", installUrl: "https://cli.github.com" });
 const go = h.$("overlay-body").querySelectorAll("button").find((b) => b.textContent === "Open GitHub settings");
 assert.ok(go, "GitHub offers no way to its settings");

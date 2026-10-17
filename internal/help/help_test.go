@@ -341,12 +341,12 @@ func TestKeysKeepTheirLabelAndNameTheSurfaces(t *testing.T) {
 	want := map[string]string{
 		"agents":  "All agents across projects",
 		"changes": "Review changes, commit and push",
-		"history": "Resume a past conversation",
+		"history": "Resume — reopen a past conversation",
 		"remote":  "Flockdeck Remote…",
 		"apiKeys": "API keys…",
 	}
 	short := map[string]string{
-		"agents": "Agents", "changes": "Changes", "history": "History", "remote": "Remote", "apiKeys": "API keys",
+		"agents": "Agents", "changes": "Changes", "remote": "Remote", "apiKeys": "API keys",
 	}
 	for id, label := range want {
 		k, ok := Lookup(id)

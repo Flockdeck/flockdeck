@@ -31,37 +31,6 @@ func LookClaude() (string, error) {
 	return exe, nil
 }
 
-// ClaudeArgs builds the argv for a Claude pane.
-//
-// A pane is built from a Spec by Launch, and what this is for is to say, in one
-// place and independently of the catalog, exactly what a Claude pane is run
-// with. TestArgvFromSpecMatchesClaude holds the Spec-built argv against it,
-// because a Claude pane that gains or loses an argument either refuses to start
-// or starts a conversation that cannot be resumed.
-//
-// New panes pin their conversation to our own session id with --session-id so
-// that a later run can reattach to exactly that conversation with --resume,
-// which is what makes layout restore meaningful rather than cosmetic.
-func ClaudeArgs(sessionID, settingsPath string, resume bool, extra []string) []string {
-	argv := []string{"claude"}
-	if resume {
-		argv = append(argv, "--resume", sessionID)
-	} else {
-		argv = append(argv, "--session-id", sessionID)
-	}
-	if settingsPath != "" {
-		argv = append(argv, "--settings", settingsPath)
-	}
-	// The extra arguments are the task the pane opens with, and a task is
-	// free to begin with a dash -- "-p is not what I meant, use ...". Left as
-	// it is, the CLI reads it as an option it does not have and the pane dies
-	// on the spot; "--" is how the rest is declared not to be options.
-	if len(extra) > 0 && strings.HasPrefix(extra[0], "-") {
-		argv = append(argv, "--")
-	}
-	return append(argv, extra...)
-}
-
 // hookEvents are the Claude Code lifecycle events Flockdeck subscribes to.
 // Each maps to the status the pane should take on when the event fires.
 var hookEvents = []string{

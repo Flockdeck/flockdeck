@@ -7,9 +7,7 @@ import (
 
 // TestBuildArgvClaudeParity is the promise that nothing regresses for somebody
 // who only ever runs Claude. The expectations below are exactly what
-// session.ClaudeArgs produced before an agent was a choice, written out here
-// rather than compared against it, because session will come to import this
-// package and a test cannot import it back.
+// a Claude pane was run with before an agent was a choice, written out here.
 func TestBuildArgvClaudeParity(t *testing.T) {
 	const id = "11111111-2222-3333-4444-555555555555"
 	claude := claudeSpec()

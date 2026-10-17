@@ -35,9 +35,8 @@ func claudeLaunchSpec() agent.Spec {
 			{ID: "sonnet", Name: "Sonnet", Note: "the everyday one"},
 			{ID: "haiku", Name: "Haiku", Note: "fastest"},
 		},
-		StripEnv: []string{"CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT",
-			"CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_DONT_INHERIT_ENV"},
-		Install: "https://claude.com/claude-code",
+		StripEnv: agent.ClaudeStripEnv(),
+		Install:  "https://claude.com/claude-code",
 	}
 }
 
@@ -45,7 +44,7 @@ const testSession = "11111111-2222-3333-4444-555555555555"
 
 // TestArgvFromSpecMatchesClaude is the promise that nothing regresses for
 // somebody who only ever runs Claude. A pane launched from the Spec must be
-// run with the argument list ClaudeArgs produced before Specs existed, argument
+// run with the argument list a Claude pane had before Specs existed, argument
 // for argument: one more or one fewer and the CLI either refuses to start or
 // starts a conversation that cannot be resumed, which loses the pane's history
 // on the next restart.
@@ -54,11 +53,17 @@ func TestArgvFromSpecMatchesClaude(t *testing.T) {
 		name   string
 		prompt string
 		resume bool
+		// want is the argv, with SETTINGS standing for the settings file path.
+		want []string
 	}{
-		{name: "fresh with no task"},
-		{name: "fresh with a task", prompt: "fix the parser"},
-		{name: "a task that looks like a flag", prompt: "--verbose is the wrong flag; fix the parser"},
-		{name: "resumed", resume: true},
+		{name: "fresh with no task",
+			want: []string{"claude", "--session-id", testSession, "--settings", "SETTINGS"}},
+		{name: "fresh with a task", prompt: "fix the parser",
+			want: []string{"claude", "--session-id", testSession, "--settings", "SETTINGS", "fix the parser"}},
+		{name: "a task that looks like a flag", prompt: "--verbose is the wrong flag; fix the parser",
+			want: []string{"claude", "--session-id", testSession, "--settings", "SETTINGS", "--", "--verbose is the wrong flag; fix the parser"}},
+		{name: "resumed", resume: true,
+			want: []string{"claude", "--resume", testSession, "--settings", "SETTINGS"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -76,12 +81,13 @@ func TestArgvFromSpecMatchesClaude(t *testing.T) {
 				t.Fatalf("config: %v", err)
 			}
 
-			var extra []string
-			if tc.prompt != "" && !tc.resume {
-				extra = []string{tc.prompt}
-			}
 			settings := filepath.Join(dir, testSession+".settings.json")
-			want := ClaudeArgs(testSession, settings, tc.resume, extra)
+			want := slices.Clone(tc.want)
+			for i, a := range want {
+				if a == "SETTINGS" {
+					want[i] = settings
+				}
+			}
 			if !slices.Equal(cfg.Argv, want) {
 				t.Errorf("argv  = %q\nwant = %q", cfg.Argv, want)
 			}
@@ -398,5 +404,22 @@ func TestAShellThatIsNotThereFallsBack(t *testing.T) {
 		if got := shellArgsFor(c.goos, env(c.vars), look); !slices.Equal(got, c.want) {
 			t.Errorf("%s %v: shell = %q, want %q", c.goos, c.vars, got, c.want)
 		}
+	}
+}
+
+// The markers a pane never inherits are one list: the built-in claude Spec's.
+// An agents.json entry for claude that gives a stripEnv of its own replaces the
+// Spec's, and the markers must still go.
+func TestDefaultStripEnvIsTheClaudeSpecs(t *testing.T) {
+	spec, ok := agent.Merge(nil).Find("claude")
+	if !ok {
+		t.Fatal("no built-in claude")
+	}
+	if !slices.Equal(defaultStripEnv, spec.StripEnv) {
+		t.Errorf("defaultStripEnv = %q, claude's StripEnv = %q", defaultStripEnv, spec.StripEnv)
+	}
+	env := envFrom("windows", []string{"CLAUDECODE=1", "CLAUDE_CODE_SSE_PORT=9", "KEEP=1"}, nil, nil)
+	if !slices.Equal(env, []string{"KEEP=1"}) {
+		t.Errorf("env = %q, want only KEEP=1", env)
 	}
 }

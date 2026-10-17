@@ -49,9 +49,20 @@ func Builtins() []Spec {
 	}
 }
 
+// ClaudeStripEnv are the environment variables a running Claude Code session
+// injects into its children. If a pane inherited them it would think it was a
+// nested child session (and, among other things, stop saving its transcript),
+// so they are stripped from every pane. It is the one list of them: the
+// built-in claude Spec carries it, and session.EnvStripping removes it whatever
+// an agents.json entry for claude says its stripEnv is.
+func ClaudeStripEnv() []string {
+	return []string{"CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT",
+		"CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_DONT_INHERIT_ENV"}
+}
+
 // claudeSpec is the agent Flockdeck ran before it could run any other, expressed
 // in the same table as the rest. The argument lists are what
-// session.ClaudeArgs has always produced, which is the whole point: somebody
+// a Claude pane has always been run with, which is the whole point: somebody
 // who only ever runs Claude sees the same argv as before.
 func claudeSpec() Spec {
 	return Spec{
@@ -76,9 +87,8 @@ func claudeSpec() Spec {
 			// Claude Code's own routing: Opus in plan mode, Sonnet otherwise.
 			{ID: "opusplan", Name: "Opus plan", Note: "Opus to plan, Sonnet to carry it out"},
 		},
-		StripEnv: []string{"CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT",
-			"CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_DONT_INHERIT_ENV"},
-		Install: "https://claude.com/claude-code",
+		StripEnv: ClaudeStripEnv(),
+		Install:  "https://claude.com/claude-code",
 	}
 }
 
@@ -94,14 +104,21 @@ func codexSpec() Spec {
 			Lit("{{prompt}}"),
 		},
 		Caps: Caps{Context: ContextPrompt},
-		Models: []Model{
+		Models: append([]Model{
 			{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
-			{ID: "gpt-6-astra", Name: "GPT-6 Astra", Note: "most capable, and the dearest", Tier: TierTop},
-			{ID: "gpt-5.6-sol", Name: "GPT-5.6 Sol", Note: "for complex coding", Tier: TierTop},
-			{ID: "gpt-5.6-terra", Name: "GPT-5.6 Terra", Note: "the everyday one", Tier: TierMid},
-			{ID: "gpt-5.6-luna", Name: "GPT-5.6 Luna", Note: "fastest and cheapest", Tier: TierSmall},
-		},
+		}, openAIModels("for complex coding")...),
 		Install: "npm install -g @openai/codex",
+	}
+}
+
+// openAIModels is OpenAI's line-up, shared by the Codex CLI and the OpenAI API
+// agent. Only the note on Sol differs between the two, so it is passed in.
+func openAIModels(solNote string) []Model {
+	return []Model{
+		{ID: "gpt-6-astra", Name: "GPT-6 Astra", Note: "most capable, and the dearest", Tier: TierTop},
+		{ID: "gpt-5.6-sol", Name: "GPT-5.6 Sol", Note: solNote, Tier: TierTop},
+		{ID: "gpt-5.6-terra", Name: "GPT-5.6 Terra", Note: "the everyday one", Tier: TierMid},
+		{ID: "gpt-5.6-luna", Name: "GPT-5.6 Luna", Note: "fastest and cheapest", Tier: TierSmall},
 	}
 }
 
@@ -206,11 +223,6 @@ func chatCaps() Caps {
 	return Caps{Hooks: true, Resume: true, Transcript: true, Context: ContextHook}
 }
 
-// chatSwitch is how `flockdeck chat` changes model mid-conversation. Its
-// /model changes the session's model and nothing else: the client keeps no
-// settings of its own to save one in.
-const chatSwitch = "/model {{model}}"
-
 // chatArgs is the argument list of `flockdeck chat` for one agent id. The binary
 // and the "chat" subcommand are not here: BuildArgv leaves an API runner's
 // program to the caller, because only the running process knows where its own
@@ -265,7 +277,6 @@ func anthropicAPISpec() Spec {
 			{ID: "claude-haiku-4-5-20251001", Name: "Haiku 4.5", Note: "fastest", Tier: TierSmall},
 		},
 		DefaultModel: "claude-sonnet-5",
-		Switch:       chatSwitch,
 		Caps:         chatCaps(),
 		Install:      "set a key with `flockdeck keys set anthropic`",
 	}
@@ -279,14 +290,8 @@ func openAIAPISpec() Spec {
 			KeyEnv: []string{"OPENAI_API_KEY"},
 		},
 		// The default is the middle of the line-up, as Sonnet is for Claude.
-		Models: []Model{
-			{ID: "gpt-6-astra", Name: "GPT-6 Astra", Note: "most capable, and the dearest", Tier: TierTop},
-			{ID: "gpt-5.6-sol", Name: "GPT-5.6 Sol", Note: "for complex work", Tier: TierTop},
-			{ID: "gpt-5.6-terra", Name: "GPT-5.6 Terra", Note: "the everyday one", Tier: TierMid},
-			{ID: "gpt-5.6-luna", Name: "GPT-5.6 Luna", Note: "fastest and cheapest", Tier: TierSmall},
-		},
+		Models:       openAIModels("for complex work"),
 		DefaultModel: "gpt-5.6-terra",
-		Switch:       chatSwitch,
 		Caps:         chatCaps(),
 		Install:      "set a key with `flockdeck keys set openai`",
 	}
@@ -310,7 +315,6 @@ func googleAPISpec() Spec {
 			{ID: "gemini-3.1-flash-lite", Name: "Gemini 3.1 Flash-Lite", Note: "fastest and cheapest", Tier: TierSmall},
 		},
 		DefaultModel: "gemini-3.8-flash",
-		Switch:       chatSwitch,
 		Caps:         chatCaps(),
 		Install:      "set a key with `flockdeck keys set google`",
 	}
@@ -326,9 +330,8 @@ func googleAPISpec() Spec {
 func openAICompatibleSpec() Spec {
 	return Spec{
 		ID: OpenAICompatibleID, Name: "OpenAI-compatible endpoint", Runner: RunnerAPI,
-		API:    APISpec{Wire: "openai"},
-		Switch: chatSwitch,
-		Caps:   chatCaps(),
+		API:  APISpec{Wire: "openai"},
+		Caps: chatCaps(),
 		// The picker is named first because it is where this line is read, and
 		// it takes the address there and then. The command is for `flockdeck
 		// agents`, which prints the same line in a terminal.

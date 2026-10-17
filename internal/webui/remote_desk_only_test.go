@@ -14,7 +14,7 @@ func TestARemoteWindowIsNotOfferedWhatOnlyTheDeskMayDo(t *testing.T) {
 h.recv({ type: "hello", keys: h.keyTable(), prefs: { helpSeen: true, dismissedTips: [] }, remote: true });
 h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 1,
   since: "2030-01-01T00:00:00Z" } }));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 h.recv({ type: "remoteDevices", enabled: true, current: "d1",
   devices: [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" }],
   hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
@@ -84,7 +84,7 @@ func TestARemoteWindowIsNotOfferedTheTypeSafeKey(t *testing.T) {
 h.recv({ type: "hello", keys: h.keyTable(), prefs: { helpSeen: true, dismissedTips: [] }, remote: true });
 h.recv(fixture());
 h.click(h.$("btn-settings"));
-h.click(h.$("settings-tab-status"));
+h.click(h.$("settings-tab-keys"));
 assert.ok(!h.$("set-jev-key-field") && !h.$("set-jev-key-save"), "a window reached through the relay is given a field for the TypeSafe key");
 assert.ok(h.$("set-jev-key-status").textContent.includes("not from here"), h.$("set-jev-key-status").textContent);
 assert.ok(!h.commands().some((c) => c.cmd === "jevKey"), "a window reached through the relay asked about the TypeSafe key");

@@ -253,7 +253,7 @@ func TestTheBriefingSaysWhatBroadcastDoes(t *testing.T) {
 	if strings.Contains(text, "mirrors what the user types") {
 		t.Errorf("the briefing says broadcast mirrors typing:\n%s", text)
 	}
-	for _, want := range []string{"prompt bar", "added to the set by hand"} {
+	for _, want := range []string{"prompt bar", "broadcast set"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the briefing never says %q about broadcast:\n%s", want, text)
 		}
@@ -269,7 +269,7 @@ func TestTheBriefingDoesNotTellEveryAgentItHasClaudesSettings(t *testing.T) {
 	if strings.Contains(text, "Every agent pane is started with a generated `--settings` file") {
 		t.Errorf("the briefing tells every hooked agent it has Claude Code's settings file:\n%s", text)
 	}
-	for _, want := range []string{"Claude Code through the hooks", "chat client by itself"} {
+	for _, want := range []string{"You report your own lifecycle to Flockdeck"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the briefing never says %q:\n%s", want, text)
 		}
@@ -548,7 +548,7 @@ func TestProjectsWithTheSameNameAreToldApart(t *testing.T) {
 // it will not use.
 func TestRenderDocumentsEverySpawnFlag(t *testing.T) {
 	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
-	for _, flag := range []string{"--worktree", "--split", "--shell", "--agent", "--model"} {
+	for _, flag := range []string{"-worktree", "-split", "-shell", "-agent", "-model"} {
 		if !strings.Contains(text, flag) {
 			t.Errorf("the spawn section does not mention %s", flag)
 		}
@@ -926,7 +926,7 @@ func TestTheBriefingDoesNotOfferDetachFromThePane(t *testing.T) {
 	if strings.Contains(text, "-detach         # close the window") {
 		t.Errorf("the briefing offers -detach as a way to close the window:\n%s", text)
 	}
-	for _, want := range []string{"`-detach` and `-no-window`", "`-solo` starts a second, separate instance", how("detach")} {
+	for _, want := range []string{"`-quit` stops every agent in every project", how("detach")} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the briefing never says %q:\n%s", want, text)
 		}
@@ -964,18 +964,27 @@ func TestTheBriefingNamesEveryVariableAPaneCarries(t *testing.T) {
 	}
 }
 
-// TestRenderNamesEveryActionTheInterfaceHas keeps the description of the
-// application whole as the application grows. An action added to the palette
-// and left out of here is one the agent beside the user will never mention,
-// which is the failure this section exists to prevent.
-func TestRenderNamesEveryActionTheInterfaceHas(t *testing.T) {
+// TestRenderNamesTheActionsItPointsAt checks that every action the briefing names
+// is in the table the palette and the help pages are drawn from, so a rename there
+// does not leave a raw id in the text. The briefing no longer lists every action
+// and its key: that table is for the person at the window, and is in the in-app
+// help.
+func TestRenderNamesTheActionsItPointsAt(t *testing.T) {
 	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
-	for _, k := range help.Keys {
-		if !strings.Contains(text, k.Name()) {
-			t.Errorf("the context never mentions %q", k.Name())
+	for _, id := range []string{"fanout", "toggleBroadcast", "promptAll", "changes", "worktrees", "restartPane",
+		"closePane", "detach", "history", "projects", "agents", "palette", "help"} {
+		k, ok := help.Lookup(id)
+		if !ok {
+			t.Errorf("the briefing names the action %q, which the table does not have", id)
+			continue
 		}
-		if k.Keys != "" && !strings.Contains(text, k.Keys) {
-			t.Errorf("the context gives no binding for %q; the table says %s", k.Name(), k.Keys)
+		if !strings.Contains(text, k.Name()) {
+			t.Errorf("the briefing never mentions %q", k.Name())
+		}
+	}
+	for _, gone := range []string{"Move pane left", "Tile these panes evenly", "Select tab by number"} {
+		if strings.Contains(text, gone) {
+			t.Errorf("the briefing still carries the key table: found %q", gone)
 		}
 	}
 }
@@ -987,9 +996,9 @@ func TestRenderNamesEveryActionTheInterfaceHas(t *testing.T) {
 func TestRenderExplainsTheFeaturesThatChangeHowAnAgentWorks(t *testing.T) {
 	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
 	for _, want := range []string{
-		"amber",                     // the status the user is watching for
+		"stopping to ask is cheap",  // the status the user is watching for
 		"one agent per line",        // what fan-out does with a plan
-		"working tree as it stands", // what the commit button takes
+		"whole working tree",        // what the commit button takes
 		"resumes this conversation", // what restarting a pane keeps
 	} {
 		if !strings.Contains(text, want) {
@@ -1006,7 +1015,6 @@ func TestRenderDocumentsThePaneEnvironment(t *testing.T) {
 	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
 	for _, want := range []string{
 		"FLOCKDECK_API", "FLOCKDECK_TOKEN", "FLOCKDECK_PANE", "FLOCKDECK_PANE_NAME", "FLOCKDECK_PROJECT",
-		"PERCH_",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the context does not document %s", want)
@@ -1111,8 +1119,8 @@ func TestOpeningPromptClaimsNoHooksItDoesNotHave(t *testing.T) {
 		}
 	}
 	// It still has to describe what the user sees, because the reason to ask
-	// on a line of its own is that the pane goes amber and the user is told.
-	for _, want := range []string{"amber", "desktop notification"} {
+	// on a line of its own is that Flockdeck marks the pane and the user is told.
+	for _, want := range []string{"desktop notification", "on a line of its own"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the briefing never says %q:\n%s", want, prompt)
 		}
@@ -1194,24 +1202,6 @@ func TestPaneContextNamesTheAgentASiblingRuns(t *testing.T) {
 	}
 	if text := c.Render(); !strings.Contains(text, "running codex · gpt-5") {
 		t.Errorf("the briefing never says what the sibling runs:\n%s", text)
-	}
-}
-
-// TestTheAgentLabelsAreExplainedWhereThereAreAny keeps the note about them out
-// of a window where every pane is a shell or an agent nobody recorded.
-func TestTheAgentLabelsAreExplainedWhereThereAreAny(t *testing.T) {
-	named := PaneContext{PaneName: "one", Siblings: []Sibling{
-		{Name: "two", Cwd: "/repo", Status: "working", Agent: "codex", Model: "gpt-5"},
-	}}.Render()
-	if !strings.Contains(named, "Where an agent and a model are named") {
-		t.Errorf("the labels are never explained:\n%s", named)
-	}
-
-	plain := PaneContext{PaneName: "one", Siblings: []Sibling{
-		{Name: "two", Cwd: "/repo", Status: "working"},
-	}}.Render()
-	if strings.Contains(plain, "Where an agent and a model are named") {
-		t.Errorf("a list with no labels explains labels anyway:\n%s", plain)
 	}
 }
 

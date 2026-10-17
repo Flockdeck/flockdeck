@@ -72,26 +72,3 @@ func TestATierInAgentsJSONIsReadAndAMistakeIsNamed(t *testing.T) {
 		t.Errorf("notice = %q, want it to name the tier and the three there are", c.Notice)
 	}
 }
-
-// Typing a command into a running agent is safe only where its documentation
-// says the command changes that session alone. None of the command-line
-// agents' does -- Claude Code's /model saves the model as the default for
-// every later session -- so each is switched by restarting it. The chat
-// client's /model touches the session and nothing else.
-func TestSwitchIsSetOnlyWhereTheCommandIsSessionScoped(t *testing.T) {
-	for _, s := range Merge(nil).Specs {
-		switch {
-		case s.Runner == RunnerCLI && s.Switch != "":
-			t.Errorf("%s is switched by typing %q into it", s.ID, s.Switch)
-		case s.Runner == RunnerAPI && s.Switch != "/model {{model}}":
-			t.Errorf("%s's switch = %q, want the chat client's /model", s.ID, s.Switch)
-		}
-	}
-}
-
-func TestAMisspeltTokenInASwitchIsNamed(t *testing.T) {
-	c := Merge(&File{Agents: []json.RawMessage{json.RawMessage(`{"id": "aider", "switch": "/model {{modle}}"}`)}})
-	if !strings.Contains(c.Notice, "modle") {
-		t.Errorf("notice = %q, want it to name the token", c.Notice)
-	}
-}

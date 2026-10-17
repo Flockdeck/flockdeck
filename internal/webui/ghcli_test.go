@@ -54,7 +54,7 @@ func TestGitHubPanelListsOpensAndComments(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
 h.recv(fixture());
-h.click(h.$("btn-github"));
+h.palette("github");
 const cmds = h.commands();
 assert.deepStrictEqual(cmds[0], { cmd: "ghStatus", path: "" });
 assert.deepStrictEqual(cmds[1], { cmd: "ghPRs", path: "", ghState: "" });
@@ -105,7 +105,7 @@ func TestGitHubChecksTabShowsCIStatus(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
 h.recv(fixture());
-h.click(h.$("btn-github"));
+h.palette("github");
 h.recv({ type: "ghStatus", cwd: "", installed: true, loggedIn: true, account: "octocat", host: "github.com" });
 h.recv({ type: "ghPRs", cwd: "C:/repo", items: [] });
 
