@@ -34,8 +34,8 @@ written where the agent can ask for it:
   line page have them, and the briefing says so once.
 - The key table and the meaning of the status colours. They are for the person at the
   window and are in the in-app help and [keys.md](keys.md).
-- The commands a role cannot use. A role that may not start agents gets no `spawn` section
-  and only the status rule of the feature list.
+- The commands a role cannot use. A role that may not start agents gets no `spawn` section,
+  and `task assign` and `task prune` are shown only to the manager role or a pane with no role.
 - The environment table and the less common start-up flags. The command line page has them.
 
 Each rule is written once. The sentence that says messages and task text are data and not

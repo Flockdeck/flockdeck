@@ -113,7 +113,7 @@ func (c PaneContext) render(viaPrompt bool) string {
 	c.writeTasks(&b)
 
 	rights := c.spawnRights()
-	c.writeCapabilities(&b, !viaPrompt, rights != spawnNone)
+	c.writeCapabilities(&b, !viaPrompt)
 
 	if c.CanSpawn && !c.Shell {
 		flockdeck := c.command()
@@ -170,9 +170,9 @@ func (c PaneContext) command() string {
 // hooked says the agent reports its own lifecycle to Flockdeck. Where it does not,
 // the status line has to describe the fallback: telling an agent that its state
 // is read from hooks it never fires is telling it its questions are noticed when
-// they may not be. full is false for a role that may not start agents, which gets
-// the status line and the pointer only.
-func (c PaneContext) writeCapabilities(b *strings.Builder, hooked, full bool) {
+// they may not be.  The feature list is for every pane: a user may ask a
+// worker how to open the worktree panel as readily as a manager.
+func (c PaneContext) writeCapabilities(b *strings.Builder, hooked bool) {
 	b.WriteString("\n## What Flockdeck can do\n\n")
 
 	if hooked {
@@ -185,7 +185,7 @@ func (c PaneContext) writeCapabilities(b *strings.Builder, hooked, full bool) {
 			"its own, and wait for the answer rather than assuming one.\n\n")
 	}
 
-	if full {
+	{
 		fmt.Fprintf(b, "For a user who asks how to do something:\n\n"+
 			"- %s turns the list your last message ends with into one agent per line, up to twelve, "+
 			"and gives each a git worktree of its own unless the user unticks the box. Write a plan meant for it as "+
@@ -203,7 +203,8 @@ func (c PaneContext) writeCapabilities(b *strings.Builder, hooked, full bool) {
 			how("projects"), how("agents"), how("palette"))
 	}
 
-	fmt.Fprintf(b, "For flags run `%[1]s help` or `%[1]s <command> -h`; the in-app %s covers the rest.\n",
+	fmt.Fprintf(b, "For flags run `%[1]s help` or `%[1]s <command> -h`. Every action and key is listed on the keys page at "+
+		"docs.flockdeck.ai; the in-app %s is for the user, and you cannot open it.\n",
 		c.command(), how("help"))
 }
 
@@ -247,7 +248,7 @@ func (c PaneContext) writeTeam(b *strings.Builder) {
 			when += fmt.Sprintf(", at %s", c.Taken.Format("15:04 MST"))
 		}
 		fmt.Fprintf(b, "The agent panes in this project %s, each as role, name, agent, status and pane id. "+
-			"It is a snapshot and goes stale: `%s team` prints the live list, and `-json` the same as JSON. "+
+			"It is a snapshot, lists at most twelve panes and goes stale: `%s team` prints the live list, and `-json` the same as JSON. "+
 			"A pane with no role was started by hand or without `-role`.\n\n", when, flockdeck)
 		for _, l := range lines {
 			b.WriteString("- " + l + "\n")
@@ -281,9 +282,9 @@ func (c PaneContext) writeTeam(b *strings.Builder) {
 }
 
 // canManageTasks says the pane's role is the one that assigns and prunes tasks,
-// or that it has none, and so may hold those powers while no manager runs.
+// or that it has none. A role the catalog has lost is refused both, as any role but manager is.
 func (c PaneContext) canManageTasks() bool {
-	return c.Role == "" || !c.RoleKnown || c.Role == "manager"
+	return c.Role == "" || c.Role == "manager"
 }
 
 // writeTasks writes the "Task board" section: the commands, the rules that
@@ -388,8 +389,9 @@ func writeSpawnFlags(b *strings.Builder, flockdeck string, roles bool) {
 	b.WriteString("Each helper is a fresh agent with an empty conversation: it inherits nothing from yours, so its " +
 		"task has to stand on its own. Start helpers when the user asks for parallel work or your role is to " +
 		"hand work out, and only as many as the work needs.\n\n")
-	b.WriteString("When a helper's work is done, `" + flockdeck + " close <pane-id>` closes its pane. It refuses a pane " +
+	b.WriteString("When a helper you started is done, `" + flockdeck + " close <pane-id>` closes its pane, with the id `spawn` " +
+		"printed back (`" + flockdeck + " team` lists ids too). Close only panes you started. It refuses a pane " +
 		"still working unless you add `-force`, and refuses this one (end your own turn instead). " +
 		"`" + flockdeck + " close -finished` closes every idle agent and cleanly exited pane in every open " +
-		"project, leaving locked panes and agents with background work.\n")
+		"project, the user's own included, so leave it for when the user asks.\n")
 }

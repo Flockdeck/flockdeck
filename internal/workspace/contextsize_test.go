@@ -91,14 +91,14 @@ func sections(text string) (heads []string, sizes []int) {
 
 // briefingCeiling is the most bytes a briefing may take in each case. The briefing
 // is sent again on every session start, compaction and resume, so growth is paid
-// for each time. The ceilings sit about a quarter above the sizes when they were
+// for each time. The ceilings sit about a tenth above the sizes when they were
 // set, so an ordinary edit passes and a section pasted back in does not. Raise one
 // on purpose, with the reason in the commit, rather than to make a test pass.
 var briefingCeiling = map[string]int{
-	"":         11500,
-	"manager":  15500,
-	"worker":   9500,
-	"reviewer": 9500,
+	"":         10500,
+	"manager":  13950,
+	"worker":   10000,
+	"reviewer": 9700,
 }
 
 // TestBriefingStaysWithinItsCeiling checks the rendered size of the briefing for a
@@ -134,6 +134,45 @@ func TestBriefingSaysEachRuleOnce(t *testing.T) {
 			if strings.Contains(text, bad) {
 				t.Errorf("%s: the briefing uses %q, but the command line prints single-dash flags", tc.name, bad)
 			}
+		}
+	}
+}
+
+// A role that cannot start agents still gets the feature list: a user may ask any
+// pane how to fan out or broadcast. It does not get the spawn section.
+func TestBriefingGivesEveryPaneTheFeatureList(t *testing.T) {
+	for _, role := range []string{"", "manager", "worker", "reviewer"} {
+		text := sizeContext(role).render(false)
+		for _, want := range []string{"For a user who asks how to do something", "docs.flockdeck.ai", "is for the user"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("role %q: briefing lacks %q", role, want)
+			}
+		}
+	}
+}
+
+// A pane whose role is no longer in agents.json is refused task assign and prune
+// by the board, so the briefing must not offer them.
+func TestBriefingOffersNoManagerCommandsToAnUnknownRole(t *testing.T) {
+	c := sizeContext("")
+	c.Role, c.RoleKnown = "retired", false
+	text := c.render(false)
+	for _, bad := range []string{" task assign ", " task prune "} {
+		if strings.Contains(text, bad) {
+			t.Errorf("a pane with an unknown role is offered %q", bad)
+		}
+	}
+	if !strings.Contains(text, " task add ") {
+		t.Error("the task commands are missing")
+	}
+}
+
+// close is for panes the agent started; close -finished reaches the user's own.
+func TestBriefingLimitsCloseToHelpersTheAgentStarted(t *testing.T) {
+	text := sizeContext("").render(false)
+	for _, want := range []string{"Close only panes you started", "the id `spawn` printed back", "the user's own included"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("briefing lacks %q", want)
 		}
 	}
 }
