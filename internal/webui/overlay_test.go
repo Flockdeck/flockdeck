@@ -252,9 +252,9 @@ func TestTheAskShimKeepsTheBrowsersQuestionsUntilTheyAreReplaced(t *testing.T) {
 	runFrontEnd(t, paletteRun+`
 h.hello();
 h.recv(fixture());
-// Native: the same words, the same answer, nothing drawn. (promptDialog has
-// no caller since the palette stopped asking for the scrollback and the font;
-// its designed dialog is reached by confirmDialog's own path below.)
+// Native: the same words, the same answer, nothing drawn. (The palette no
+// longer asks for the scrollback or the font, so the designed dialog is
+// reached by confirmDialog's own path below.)
 h.win._confirm = false;
 paletteRun("quit");
 assert.strictEqual(h.win._confirmed, "Stop every agent in every open project?");

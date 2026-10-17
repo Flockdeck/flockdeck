@@ -218,15 +218,15 @@ assert.deepStrictEqual(badged(), [], "remote access that is off marks Settings")
 const remote = (over) => Object.assign({ state: "connected", relay: "https://relay.example",
   hostId: "h1", viewers: 2, since: "2030-01-01T00:00:00Z" }, over || {});
 h.recv(fixture({ remote: remote({ state: "connecting" }) }));
-assert.deepStrictEqual(badged(), [], "a tunnel still connecting marks Settings");
+assert.deepStrictEqual(badged(), ["pending"], "a tunnel still connecting is not a hollow mark on Settings");
 h.recv(fixture({ remote: remote() }));
 assert.strictEqual(chip.textContent, "Settings");
-assert.deepStrictEqual(badged(), [], "a working tunnel marks Settings");
+assert.deepStrictEqual(badged(), ["on"], "a working tunnel is not a filled mark on Settings");
 h.recv(fixture({ remote: remote({ state: "error", detail: "the relay refused the connection" }) }));
 assert.deepStrictEqual(badged(), ["trouble"], "a tunnel in trouble does not mark Settings");
 assert.ok((chip.dataset.tip || "").includes("needs you"), "the button does not say why: " + chip.dataset.tip);
 h.recv(fixture({ remote: remote() }));
-assert.deepStrictEqual(badged(), [], "the mark stays after the tunnel recovered");
+assert.deepStrictEqual(badged(), ["on"], "the trouble mark stays after the tunnel recovered");
 
 h.palette("flockdeck remote");
 assert.ok(!h.$("overlay").hidden, "the dialog opened");

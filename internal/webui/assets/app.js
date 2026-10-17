@@ -955,13 +955,50 @@
   let remoteBusy = "";
   let remoteOutcome = null;
 
-  /** renderRemoteChip keeps the rail's Settings button saying when the
-   *  tunnel needs somebody, and the dialog's status line current while it is
-   *  open. Remote has no rail button of its own: the palette and Settings
-   *  reach it, so the one state worth seeing without looking, a tunnel that
-   *  has failed, is shown on the way in. Like the update pill it is keyed on
-   *  what it shows, so a snapshot that says nothing new about the tunnel does
-   *  not rebuild it. */
+  /** remoteInTrouble is whether the tunnel has stopped and needs somebody. */
+  function remoteInTrouble(r) {
+    return !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced" || r.state === "lapsed");
+  }
+
+  /** remoteNote is what the Settings button says of the tunnel, in words, or
+   *  "" while remote access is off: the mark on the button is a shape (a
+   *  filled circle, a hollow one, a triangle) and never the only thing said. */
+  function remoteNote(r) {
+    if (!r) return "";
+    if (remoteInTrouble(r)) return "Flockdeck Remote needs you: " + remoteSummary(r);
+    if (r.state === "connected") {
+      const n = r.viewers || 0;
+      return "Flockdeck Remote: " + (n ? n + (n === 1 ? " viewer" : " viewers") + " connected" : "connected");
+    }
+    if (r.state === "connecting") return "Flockdeck Remote: connecting";
+    return "";
+  }
+
+  /** The tunnel as the Settings button last showed it; describeChrome draws
+   *  the button's tooltip again when the key table changes, and has to keep
+   *  this in it. */
+  let remoteMark = null;
+
+  /** describeSettingsButton gives the Settings button its key, and the
+   *  tunnel's state beside it where there is one, as both the tooltip and the
+   *  name a screen reader reads (the badge is a picture, so aria-hidden). */
+  function describeSettingsButton() {
+    const b = $("btn-settings");
+    if (!b) return;
+    const note = remoteNote(remoteMark);
+    describe(b, note ? actionTip("settings", note) : actionTip("settings"));
+    if (note) b.setAttribute("aria-label", "Settings, " + note);
+    else b.removeAttribute("aria-label");
+  }
+
+  /** renderRemoteChip keeps the rail's Settings button showing where the
+   *  tunnel stands, and the dialog's status line current while it is open.
+   *  Remote has no rail button of its own: the palette and Settings reach it,
+   *  so the state is shown on the way in: a filled circle for a working
+   *  tunnel, a hollow one while it connects, an amber triangle when it needs
+   *  somebody, and nothing while remote access is off. Like the update pill it
+   *  is keyed on what it shows, so a snapshot that says nothing new about the
+   *  tunnel does not rebuild it. */
   function renderRemoteChip(s) {
     const r = s.remote || null;
     // retryAt is part of the key too: a run of failures with the same detail
@@ -970,15 +1007,17 @@
     const key = r ? [r.state, r.viewers, r.detail, r.relay, r.retryAt].join("|") : "off";
     if (key === remoteChipKey) return;
     remoteChipKey = key;
+    remoteMark = r;
     const b = $("btn-settings");
-    // Amber only when it needs somebody, which is what amber means everywhere
-    // else here. A working tunnel, one still connecting and remote access
-    // turned off show nothing on the button; Settings > Flockdeck Remote
-    // says which.
-    const trouble = !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced" || r.state === "lapsed");
+    const trouble = remoteInTrouble(r);
+    const pending = !!r && r.state === "connecting";
     b.classList.toggle("trouble", trouble);
-    b.querySelector(".rail-badge").classList.toggle("trouble", trouble);
-    describe(b, trouble ? actionTip("settings", "Flockdeck Remote needs you: " + remoteSummary(r)) : actionTip("settings"));
+    b.classList.toggle("pending", pending);
+    const badge = b.querySelector(".rail-badge");
+    badge.classList.toggle("on", !!r && r.state === "connected");
+    badge.classList.toggle("pending", pending);
+    badge.classList.toggle("trouble", trouble);
+    describeSettingsButton();
     if (remoteShown()) keepFocus(renderRemote);
   }
 
@@ -2925,16 +2964,19 @@
    *  of it rather than showing the same thing twice. */
   function renderRailToggle(s) {
     const elsewhere = (s.projects || []).filter((p) => !p.active && (p.waiting || 0) > 0);
-    const key = elsewhere.map((p) => p.root + ":" + p.name).join("|");
+    // A tunnel that needs somebody shows here too: Settings, where it is
+    // marked, is out of sight while the rail is folded.
+    const remoteWhy = remoteInTrouble(s.remote) ? remoteNote(s.remote) : "";
+    const key = elsewhere.map((p) => p.root + ":" + p.name).join("|") + "#" + remoteWhy;
     if (key === railToggleShown) return;
     railToggleShown = key;
     const btn = $("rail-toggle");
-    btn.querySelector(".rail-badge").classList.toggle("waiting", elsewhere.length > 0);
+    btn.querySelector(".rail-badge").classList.toggle("waiting", elsewhere.length > 0 || !!remoteWhy);
     const why = elsewhere.length
       ? (elsewhere.length === 1 ? "An agent is" : "Agents are") + " waiting on you in " +
         elsewhere.map((p) => p.name).join(", ")
       : "";
-    describe(btn, ["Projects, tools and settings", why].filter(Boolean).join(". "));
+    describe(btn, ["Projects, tools and settings", why, remoteWhy].filter(Boolean).join(". "));
   }
 
   /** railTile makes the button for one project, bound to its folder rather
@@ -6110,7 +6152,7 @@
     if (to.top) body.scrollTop = to.top;
   }
 
-  /* ---- Asking: confirmDialog and promptDialog ------------------------------
+  /* ---- Asking: confirmDialog ------------------------------------------------
    *
    * The designed question (Dialog S, an alertdialog: the title is the
    * question, the body its consequence, the button names the action) and the
@@ -6136,21 +6178,6 @@
       return;
     }
     askDialog(opts, null, onYes, onNo);
-  }
-
-  /** promptDialog asks for a name. opts: title ("Rename project"), scope,
-   *  label (the field's name), value, placeholder, note (what an empty answer
-   *  does), action ("Rename" by default), native ({message, value} for
-   *  window.prompt while ASK_NATIVELY). onValue gets the text as typed; an
-   *  answer to trim or check is the caller's, as it was with prompt(). */
-  function promptDialog(opts, onValue, onNo) {
-    opts = opts || {};
-    if (ASK_NATIVELY && opts.native && typeof window.prompt === "function") {
-      const got = window.prompt(opts.native.message, opts.native.value == null ? "" : opts.native.value);
-      if (got == null) { if (onNo) onNo(); } else if (onValue) onValue(got);
-      return;
-    }
-    askDialog(opts, { value: opts.value == null ? "" : String(opts.value) }, onValue, onNo);
   }
 
   /** askDialog draws both: a field when `field` is given, and a footer with
@@ -8543,6 +8570,9 @@
   function applyHello(msg) {
     applyKeyTable(msg.keys || []);
     remoteWindow = !!msg.remote;
+    // The Team panel is the desk's: a window reached through the relay is
+    // refused it, so the rail does not offer it.
+    $("btn-team").hidden = remoteWindow;
     applyViewOnly(msg.role === "viewer" ? (msg.watchPanes ? "watch" : "artifacts") : "");
     radarUnavailable = msg.radarUnavailable || "";
     radarChecking = !!msg.radarChecking;
@@ -8613,7 +8643,7 @@
     label("todos", $("btn-todos"));
     label("team", $("btn-team"));
     label("help", $("btn-help"));
-    label("settings", $("btn-settings"));
+    if (keyTable.some((k) => k.id === "settings")) describeSettingsButton();
     label("palette", $("btn-palette"), "every action there is, searchable");
     label("projects", $("rail-open"), "open a folder as a project");
     label("toggleRail", $("rail-collapse"));
@@ -8748,7 +8778,7 @@
     // somebody looking for one types - it matched none of them.
     const SETTING = "settings preferences options";
     const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "apiKeys"]);
-    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "paneInfo" ? "id identifier identifiers details info information conversation session process pid peer path file copy" : id === "findPane" ? "search locate where switch go id identifier conversation session process pid peer name project tab branch" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : id === "remote" ? "remote access" : id === "history" ? "history past conversations previous sessions" : id === "startTeam" ? "manager roles planner worker reviewer team goal orchestrate" : id === "team" ? "roster tasks task board kanban messages inbox agents roles manager worker reviewer assign" : "";
+    const also = (id) => id === "settings" ? SETTING + " scrollback font typeface terminal" : SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "paneInfo" ? "id identifier identifiers details info information conversation session process pid peer path file copy" : id === "findPane" ? "search locate where switch go id identifier conversation session process pid peer name project tab branch" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : id === "remote" ? "remote access" : id === "history" ? "history past conversations previous sessions" : id === "startTeam" ? "manager roles planner worker reviewer team goal orchestrate" : id === "team" ? "roster tasks task board kanban messages inbox agents roles manager worker reviewer assign" : "";
     // What a setting is now, beside the command that changes it.
     const value = {
       fontUp: fontSize + "px", fontDown: fontSize + "px", fontReset: fontSize + "px",
@@ -12607,7 +12637,21 @@
     return null;
   }
 
+  /** renderKeys draws the agents' keys, and in the sheet the TypeSafe key
+   *  under them: the sheet is the palette's way to API keys, and the Settings
+   *  section has the same row. */
   function renderKeys(msg) {
+    renderKeysList(msg);
+    if (dialog !== "keys") return;
+    const body = $("overlay-body");
+    if (!body) return;
+    const jev = el("div", "settings-jev-key");
+    jev.id = "settings-jev-key";
+    jev.append(jevKeyRow());
+    body.append(jev);
+  }
+
+  function renderKeysList(msg) {
     if (msg) apiKeys = msg;
     const body = keysHost();
     if (!body) return; // see openWorktrees
@@ -13515,7 +13559,7 @@
     { id: "agents", group: "Agents", label: "Agents & models", words: "default agent model project claude status line usage limits spend" },
     { id: "routing", group: "Agents", label: "Routing",
       words: "routing route fan out fanout model models tier floor smallest strategy cost cheapest rules cross agents jev rate unmatched history" },
-    { id: "keys", group: "Agents", label: "API keys", words: "api keys key token secret" },
+    { id: "keys", group: "Agents", label: "API keys", words: "api keys key token secret typesafe jev" },
     { id: "status", group: "Agents", label: "Status detection",
       words: "status detection typesafe jev api key waiting blocked quiet pane terminal output third party" },
     { id: "remote", group: "Connections", label: "Flockdeck Remote", words: "remote access relay pair paired device devices machine name phone tablet push notify notification notifications waiting anonymous identifying" },
@@ -14220,6 +14264,24 @@
     lines.value = String(scrollback);
     lines.onchange = () => chooseScrollback(Number(lines.value));
     pane.append(settingRow("Scrollback", "Lines each pane keeps to scroll back through. More costs memory in every pane.", lines));
+    const custom = el("input", "set-input");
+    custom.id = "set-scrollback-custom";
+    custom.type = "number";
+    custom.min = "1000";
+    custom.max = "200000";
+    custom.step = "1";
+    custom.placeholder = "Other";
+    custom.setAttribute("aria-label", "Other scrollback, in lines");
+    custom.onchange = () => {
+      const n = Number(custom.value);
+      if (!Number.isInteger(n) || n < 1000 || n > 200000) {
+        notice("Scrollback has to be a whole number of lines from 1,000 to 200,000.", true);
+        return;
+      }
+      custom.value = "";
+      chooseScrollback(n);
+    };
+    pane.append(settingRow("Other scrollback", "Any whole number of lines from 1,000 to 200,000, when the list above has no fit.", custom));
 
     const shapes = [["block", "Block"], ["bar", "Bar"], ["underline", "Underline"]];
     const seg = el("div", "segmented");
@@ -14318,7 +14380,7 @@
    *  is, for an answer that changes it; the rest of that section is not
    *  touched, so a key half-typed above it stays. */
   function redrawJevKey() {
-    const box = dialog === "settings" && settingsSection === "keys" ? $("settings-jev-key") : null;
+    const box = (dialog === "settings" && settingsSection === "keys") || dialog === "keys" ? $("settings-jev-key") : null;
     if (!box || !box.isConnected) return;
     keepFocus(() => { box.textContent = ""; box.append(jevKeyRow()); });
   }

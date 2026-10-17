@@ -487,7 +487,7 @@ desk.
 `-version` installs a specific release instead of the latest,
 checked the same way and asking first unless `-yes` is given. Use it to
 undo a bad update yourself without waiting for a fix to be
-published. **Settings › Account & plan › Install a specific version…** offers the
+published. **Settings › About & updates › Install a specific version…** offers the
 same choice from a list of recent releases, without typing a version number:
 picking one downloads and checks it, then offers it through the same
 **Update** button, so restarting onto it goes through the same confirmation

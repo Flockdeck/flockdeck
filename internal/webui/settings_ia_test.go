@@ -20,7 +20,7 @@ h.click(h.$("btn-settings"));
 const homes = {
   general: ["set-notifications", "set-auto-review-default", "set-fanout-sametab", "set-tips"],
   appearance: ["set-theme", "set-accent"],
-  terminal: ["set-preview", "set-font-size", "set-font-family", "set-scrollback", "set-cursor", "set-cursor-blink", "set-screen-reader"],
+  terminal: ["set-preview", "set-font-size", "set-font-family", "set-scrollback", "set-scrollback-custom", "set-cursor", "set-cursor-blink", "set-screen-reader"],
   keybindings: ["set-keybind-reset-all", "set-keybind-closePane"],
   agents: ["set-agent-all", "set-agent-project", "set-statusline", "set-agent-routing", "set-agent-keys"],
   routing: ["set-route-all", "set-route-project", "set-route-floor", "set-route-strategy", "set-route-cross", "set-route-jev",
@@ -68,7 +68,7 @@ assert.deepStrictEqual(found("scrollback"), ["terminal"]);
 assert.deepStrictEqual(found("cursor"), ["terminal"]);
 assert.deepStrictEqual(found("theme"), ["appearance"]);
 assert.deepStrictEqual(found("auto review"), ["general"]);
-assert.deepStrictEqual(found("typesafe"), ["status"]);
+assert.deepStrictEqual(found("typesafe"), ["keys", "status"]);
 assert.deepStrictEqual(found("floor"), ["routing"]);
 assert.deepStrictEqual(found("version"), ["about"]);
 assert.deepStrictEqual(found("update"), ["about"], "updates are still found in General");

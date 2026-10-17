@@ -162,9 +162,10 @@ account, as before.
 
 [[action:remote]] in the command palette, or **Settings › Flockdeck Remote**
 (there whether or not Flockdeck Remote is on), opens a dialog saying
-whether the relay is reachable and how many windows are open through it. When
-Flockdeck Remote has lost its connection, the **Settings** button in the rail wears an amber mark
-until it is back. **Pair
+whether the relay is reachable and how many windows are open through it. The
+**Settings** button in the rail shows where it stands: a filled mark while it is connected,
+a hollow one while it connects and an amber triangle when it needs you. Its tooltip has the
+words, and how many windows are open through it. **Pair
 a device** asks the relay for a link and shows it as a QR code: scan it with the
 device you want to pair, or open the link on it.
 

@@ -67,5 +67,5 @@ func Decide(tool, toolInputJSON, cwd string) Decision {
 	if gitSub != "" && !gitRunsNothing(cwd, touchesWorkTree[gitSub]) {
 		return ask
 	}
-	return Decision{Allow: true, Reason: "auto-review: a read-only command"}
+	return Decision{Allow: true, Reason: "auto-approve read-only: a read-only command"}
 }

@@ -202,3 +202,123 @@ func TestRenamedKeysAndPages(t *testing.T) {
 		t.Errorf("the Team panel's section in the agents page does not show %s", tm.Keys)
 	}
 }
+
+// Remote has no rail button, so the Settings button carries the tunnel: a
+// filled circle, a hollow one or a triangle, never colour alone, with the
+// words in the tooltip and the accessible name.
+func TestTheSettingsButtonShowsTheTunnel(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const b = h.$("btn-settings");
+const badge = b.querySelector(".rail-badge");
+const marks = () => ["on", "pending", "trouble"].filter((c) => badge.classList.contains(c));
+const remote = (over) => Object.assign({ state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 0,
+  since: "2030-01-01T00:00:00Z" }, over || {});
+assert.deepStrictEqual(marks(), [], "remote access that is off marks Settings");
+assert.ok(!b.getAttribute("aria-label"), "an unmarked Settings button has a name of its own: " + b.getAttribute("aria-label"));
+assert.ok(badge.getAttribute("aria-hidden") === "true", "the badge is read out as well as the button");
+
+h.recv(fixture({ remote: remote({ state: "connecting" }) }));
+assert.deepStrictEqual(marks(), ["pending"]);
+assert.strictEqual(b.getAttribute("aria-label"), "Settings, Flockdeck Remote: connecting");
+assert.ok(b.dataset.tip.includes("connecting"), b.dataset.tip);
+
+h.recv(fixture({ remote: remote({ viewers: 2 }) }));
+assert.deepStrictEqual(marks(), ["on"]);
+assert.strictEqual(b.getAttribute("aria-label"), "Settings, Flockdeck Remote: 2 viewers connected");
+assert.ok(b.dataset.tip.includes("2 viewers connected"), b.dataset.tip);
+h.recv(fixture({ remote: remote({ viewers: 1 }) }));
+assert.strictEqual(b.getAttribute("aria-label"), "Settings, Flockdeck Remote: 1 viewer connected");
+h.recv(fixture({ remote: remote() }));
+assert.strictEqual(b.getAttribute("aria-label"), "Settings, Flockdeck Remote: connected");
+
+h.recv(fixture({ remote: remote({ state: "error", detail: "the relay refused the connection" }) }));
+assert.deepStrictEqual(marks(), ["trouble"]);
+assert.ok(/^Settings, Flockdeck Remote needs you: /.test(b.getAttribute("aria-label")), b.getAttribute("aria-label"));
+assert.ok(b.dataset.tip.includes("needs you"), b.dataset.tip);
+
+// The key table arrives again (a rebind): the tunnel stays in the tooltip.
+const tip = b.dataset.tip, name = b.getAttribute("aria-label");
+h.recv({ type: "keyTable", keys: h.keyTable() });
+assert.strictEqual(b.dataset.tip, tip, "a key table redrew the Settings tooltip without the tunnel");
+assert.strictEqual(b.getAttribute("aria-label"), name, "a key table took the tunnel out of the name");
+
+// The folded rail's menu button carries trouble too.
+const toggle = h.$("rail-toggle");
+assert.ok(toggle.querySelector(".rail-badge").classList.contains("waiting"), "the menu button does not show a tunnel in trouble");
+assert.ok(toggle.getAttribute("aria-label").includes("Flockdeck Remote needs you"), toggle.getAttribute("aria-label"));
+h.recv(fixture({ remote: remote() }));
+assert.ok(!toggle.querySelector(".rail-badge").classList.contains("waiting"), "the menu button stays marked after the tunnel is back");
+h.recv(fixture());
+assert.deepStrictEqual(marks(), []);
+assert.ok(!b.getAttribute("aria-label"));
+`)
+}
+
+// The palette's API keys sheet has the TypeSafe key under the agents' keys.
+func TestTheAPIKeysSheetHasTheTypeSafeKey(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.palette("api keys");
+h.recv({ type: "keys", items: [{ agent: "anthropic", name: "Anthropic", set: false, vars: ["ANTHROPIC_API_KEY"] }] });
+assert.ok(h.$("overlay-body").contains(h.$("set-jev-key-field")), "the sheet has no field for the TypeSafe key");
+h.recv({ type: "jevKey", set: true, env: false });
+assert.ok(h.$("overlay-body").textContent.includes("Key status: Set"), h.$("overlay-body").textContent);
+h.click(h.$("btn-settings"));
+
+const find = h.$("settings-find");
+find.value = "jev";
+find.oninput();
+assert.ok(h.$("settings-tabs").querySelectorAll("button").some((x) => x.id === "settings-tab-keys"), "Find a setting does not lead to the TypeSafe key");
+`)
+}
+
+// A person typing what the palette no longer asks for is pointed at Settings.
+func TestThePaletteFindsScrollbackAndFontInSettings(t *testing.T) {
+	runFrontEnd(t, palRows+`
+h.hello();
+h.recv(fixture());
+h.press("palette");
+for (const words of ["scrollback", "font", "typeface"]) {
+  palType(words);
+  assert.ok(palLabels().includes("Settings"), words + " does not lead to Settings: " + palLabels().join(", "));
+}
+`)
+}
+
+// The scrollback accepts any whole number in range, as the palette prompt did.
+func TestAnyScrollbackInRangeCanBeChosen(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+h.click(h.$("btn-settings"));
+h.click(h.$("settings-tab-terminal"));
+const custom = h.$("set-scrollback-custom");
+custom.value = "12";
+h.dispatch(custom, new h.Ev("change"));
+assert.ok(!h.commands().some((c) => c.cmd === "scrollback"), "a scrollback of 12 lines was accepted");
+assert.ok(h.$("notice").textContent.includes("1,000"), "nothing said what a scrollback may be");
+const field = h.$("set-scrollback-custom");
+field.value = "123456";
+h.dispatch(field, new h.Ev("change"));
+assert.deepStrictEqual(h.commands().pop(), { cmd: "scrollback", size: 123456 });
+assert.strictEqual(h.terms[0].options.scrollback, 123456);
+`)
+}
+
+// A window reached through the relay is refused the Team panel, so the rail
+// does not offer it.
+func TestARelayWindowHasNoTeamButton(t *testing.T) {
+	runFrontEnd(t, `
+h.recv({ type: "hello", keys: h.keyTable(), prefs: { helpSeen: true, dismissedTips: [] }, remote: true });
+h.recv(fixture());
+assert.ok(h.$("btn-team").hidden, "a relay window is offered the Team panel");
+`)
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+assert.ok(!h.$("btn-team").hidden, "the desk's window has no Team button");
+`)
+}

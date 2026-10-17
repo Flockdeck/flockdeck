@@ -491,7 +491,7 @@ is slow, is refused or is down, the row is routed exactly as it would be without
 it. The row's tooltip says what Jev rated it when it did decide.
 
 It is **off** by default and needs both this setting, for every project or for
-one, and a TypeSafe API key: the one set in **Settings › Status detection ›
+one, and a TypeSafe API key: the one set in **Settings › API keys ›
 TypeSafe API key** (used first), or else `TYPESAFE_API_KEY` in the environment
 Flockdeck starts in. Saving a key on its own sends nothing.
 **Turning it on sends the text of each such row to TypeSafe, a third party.**
