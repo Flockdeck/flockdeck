@@ -163,7 +163,7 @@ account, as before.
 [[action:remote]] in the command palette, or **Settings › Flockdeck Remote**
 (there whether or not Flockdeck Remote is on), opens a dialog saying
 whether the relay is reachable and how many windows are open through it. When
-the tunnel has failed, the **Settings** button in the rail wears an amber mark
+Flockdeck Remote has lost its connection, the **Settings** button in the rail wears an amber mark
 until it is back. **Pair
 a device** asks the relay for a link and shows it as a QR code: scan it with the
 device you want to pair, or open the link on it.
