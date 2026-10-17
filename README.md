@@ -89,15 +89,15 @@ filled in from the key table when the page is shown.
 - [Panes and tabs](internal/help/pages/panes.md) and
   [rearranging what is already running](internal/help/pages/rearranging.md)
 - [Agents and models](internal/help/pages/agents.md), including routing and API keys
-- [Knowing who needs you](internal/help/pages/status.md), including auto-review
-  approvals
+- [Knowing who needs you](internal/help/pages/status.md), including
+  [auto-approve read-only](internal/help/pages/auto-approve.md)
 - [Spend and limits](internal/help/pages/spend.md)
 - [Broadcast and the prompt bar](internal/help/pages/broadcast.md)
 - [Fan out](internal/help/pages/fanout.md) and [Todo](internal/help/pages/todo.md)
 - [Git worktrees](internal/help/pages/worktrees.md),
   [review, commit and push](internal/help/pages/changes.md) and
   [GitHub](internal/help/pages/github.md)
-- [Past conversations](internal/help/pages/history.md) and
+- [Resume](internal/help/pages/history.md) and
   [recording a pane](internal/help/pages/recording.md)
 - [Handing work to another agent](internal/help/pages/baton.md) and its
   [details](internal/help/pages/baton-details.md)

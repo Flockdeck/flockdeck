@@ -24,13 +24,21 @@ h.hello();
 h.recv(fixture());
 const present = () => h.$("overlay-panel").getAttribute("data-present");
 const sheets = ["btn-agents", "btn-changes", "btn-history", "btn-worktrees", "btn-fanout-history",
-  "btn-todos", "btn-github", "btn-apikeys", "btn-remote", "rail-open"];
+  "btn-todos", "btn-team", "rail-open"];
 for (const id of sheets) {
   h.click(h.$(id));
   assert.ok(!h.$("overlay").hidden, id + " opened nothing");
   assert.strictEqual(present(), "sheet", id + " did not open a sheet");
   h.key({ key: "Escape" });
   assert.ok(h.$("overlay").hidden, "Escape did not close what " + id + " opened");
+}
+// GitHub, API keys and Remote are sheets too, reached from the palette.
+for (const words of ["github", "api keys", "flockdeck remote"]) {
+  h.palette(words);
+  assert.ok(!h.$("overlay").hidden, words + " opened nothing");
+  assert.strictEqual(present(), "sheet", words + " did not open a sheet");
+  h.key({ key: "Escape" });
+  assert.ok(h.$("overlay").hidden, "Escape did not close what " + words + " opened");
 }
 // Changes is the wide one, which the style sheet turns into a large dialog
 // below 1100px.
@@ -244,11 +252,9 @@ func TestTheAskShimKeepsTheBrowsersQuestionsUntilTheyAreReplaced(t *testing.T) {
 	runFrontEnd(t, paletteRun+`
 h.hello();
 h.recv(fixture());
-// Native: the same words, the same answer, nothing drawn.
-h.win._prompt = "25,000";
-paletteRun("terminal scrollback");
-assert.ok(h.$("overlay").hidden, "the native question drew a dialog as well");
-assert.deepStrictEqual(h.commands().pop(), { cmd: "scrollback", size: 25000 });
+// Native: the same words, the same answer, nothing drawn. (promptDialog has
+// no caller since the palette stopped asking for the scrollback and the font;
+// its designed dialog is reached by confirmDialog's own path below.)
 h.win._confirm = false;
 paletteRun("quit");
 assert.strictEqual(h.win._confirmed, "Stop every agent in every open project?");
@@ -257,23 +263,13 @@ assert.ok(!h.commands().some((c) => c.cmd === "quit"), "quit ran though the ques
 // In the window: the designed dialog.
 h.win.prompt = undefined;
 h.win.confirm = undefined;
-paletteRun("terminal scrollback");
+paletteRun("quit");
 assert.ok(!h.$("overlay").hidden, "no question was asked");
 assert.strictEqual(h.$("overlay-panel").getAttribute("data-present"), "dialog-s");
-assert.strictEqual(h.$("overlay-title").textContent, "Terminal scrollback");
-const field = h.$("ask-field");
-assert.ok(h.doc.activeElement === field, "the field did not take the keyboard");
-assert.strictEqual(field.value, "25000");
 const foot = h.$("overlay-body").children[h.$("overlay-body").children.length - 1];
 assert.ok(foot.classList.contains("ov-foot"), "the footer is not the body's last child");
-assert.strictEqual(h.$("overlay-body").querySelector("button.primary"), h.$("ask-ok"), "the first primary in the body is not the answer");
-field.value = "30000";
-h.key({ key: "Enter" });
-assert.ok(h.$("overlay").hidden, "Enter did not answer");
-assert.deepStrictEqual(h.commands().pop(), { cmd: "scrollback", size: 30000 });
 
 // Escape answers no, and nothing is sent.
-paletteRun("terminal scrollback");
 const sent = h.commands().length;
 h.key({ key: "Escape" });
 assert.ok(h.$("overlay").hidden, "Escape left the question up");
@@ -301,10 +297,10 @@ func TestAQuestionAskedFromASurfaceComesBackToIt(t *testing.T) {
 	runFrontEnd(t, paletteRun+shownIn+`
 h.hello();
 h.recv(fixture());
-h.win.prompt = undefined;
+h.win.confirm = undefined;
 h.click(h.$("btn-settings"));
-paletteRun("terminal font");
-assert.strictEqual(h.$("overlay-title").textContent, "Terminal font");
+paletteRun("quit");
+assert.strictEqual(h.$("overlay-title").textContent, "Stop every agent in every open project?");
 assert.ok(!shown("overlay-back"), "a small dialog carries a back link");
 h.key({ key: "Escape" });
 assert.strictEqual(h.$("overlay-title").textContent, "Settings", "the question did not go back to Settings");

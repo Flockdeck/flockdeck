@@ -2395,7 +2395,7 @@ const paneGone = "That pane is no longer open"
 
 // autoReviewShellNotice answers an autoReview command for a shell pane.
 // Auto-review works on the agent's PreToolUse calls, and a shell makes none.
-const autoReviewShellNotice = "Auto-review is for agent panes. A shell makes no tool calls to review"
+const autoReviewShellNotice = "Auto-approve read-only is for agent panes. A shell makes no tool calls to approve"
 
 // tabGone is paneGone for a tab, renamed or switched to from a tab bar or a
 // dialog drawn before another window closed it.

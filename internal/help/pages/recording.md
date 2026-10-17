@@ -22,7 +22,7 @@ See [the command line](#cli).
 
 A recording and an export of the same conversation are the same lines. Both are
 made from the conversation the agent stores itself (for Claude Code, the file
-under `~/.claude/projects` that **Resume a past conversation** reads), by one
+under `~/.claude/projects` that **Resume** reads), by one
 piece of code. Turning recording on writes the conversation so far, from its
 first message, and then follows it; it does not begin at the moment you turned
 it on. Export is only from the machine Flockdeck runs on, not from a window

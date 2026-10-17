@@ -342,8 +342,8 @@ body { flex-direction: row; }
 /* A status mark on the corner of a tile or a button, in the shapes the pane
  * headers use, ringed in the rail's own ground so it reads over the icon. An
  * amber triangle on a project is an agent there waiting on you, which is
- * what the rail is most for; on Remote, a filled circle is a working tunnel,
- * a hollow one a tunnel still connecting and the triangle one in trouble; on
+ * what the rail is most for; on Settings, the triangle is a Flockdeck Remote
+ * tunnel in trouble; on
  * the button that folds the rail away, the triangle is an agent waiting on
  * you in a project other than the one on screen, so it still shows once its
  * own tile is out of sight. */
@@ -2947,8 +2947,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 #view-only-banner[hidden] { display: none; }
 body.view-only #new-tab, body.view-only #new-tab-pick, body.view-only #rail-open, body.view-only #btn-agents,
 body.view-only #btn-broadcast, body.view-only #btn-changes, body.view-only #btn-history, body.view-only #btn-worktrees,
-body.view-only #btn-fanout-history, body.view-only #btn-todos, body.view-only #btn-github, body.view-only #btn-apikeys,
-body.view-only #btn-remote { display: none; }
+body.view-only #btn-fanout-history, body.view-only #btn-todos, body.view-only #btn-team { display: none; }
 
 
 /* The read-only recordings viewer for a window reached through the relay. The

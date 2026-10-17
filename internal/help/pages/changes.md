@@ -180,7 +180,7 @@ make Flockdeck run. Still outside it:
 - Partial and promisor clones fetch a missing file from the remote when a
   background diff or object read needs it, which can run a credential helper or
   an ssh command. Only the radar's snapshot turns that off.
-- Auto-review asks git a few read-only questions (its configuration, the index)
+- Auto-approve read-only asks git a few read-only questions (its configuration, the index)
   with the repository's hooks as they are. None of those commands runs a hook.
 - `git gc --auto`, which git starts itself after a commit, fetch or push, and
   `receive.autogc` on a remote that is a folder on this machine. `pre-auto-gc` is
@@ -217,7 +217,7 @@ make Flockdeck run. Still outside it:
   them, takes about 0.4 seconds and under 4,000 calls to the file system. Above
   200, the extra ones are listed as not looked at.
 
-An agent's own git commands are for [auto-review](#status) and the agent's
+An agent's own git commands are for [auto-approve read-only](#auto-approve) and the agent's
 permissions. Flockdeck never runs `git mergetool`, so `merge.tool` and
 `mergetool.*` are not read, and `merge.<name>.recursive` only names another
 driver.

@@ -38,6 +38,9 @@
     // Every agent across every project, so two figures rather than the one
     // a pane's own header already draws.
     agents: '<circle cx="6" cy="5.5" r="2"></circle><path d="M2.5 13c0-2.5 1.6-4 3.5-4s3.5 1.5 3.5 4"></path><circle cx="11.4" cy="6" r="1.6"></circle><path d="M9.7 8.3c1.7-.3 3.5.7 3.9 2.9"></path>',
+    // A manager over two others: the shape a team takes, one agent that
+    // starts the rest.
+    team: '<circle cx="8" cy="3.4" r="1.6"></circle><circle cx="3.8" cy="12.6" r="1.6"></circle><circle cx="12.2" cy="12.6" r="1.6"></circle><path d="M8 5v2.6M3.8 11V7.6h8.4V11"></path>',
     key: '<circle cx="5.2" cy="8" r="2.7"></circle><path d="M7.7 8h6M10.8 8v2.2M12.9 8v1.6"></path>',
     remote: '<rect x="4.8" y="2" width="6.4" height="12" rx="1.6"></rect><path d="M7.3 11.6h1.4"></path>',
     help: '<circle cx="8" cy="8" r="6"></circle><path d="M6.3 6.4a1.8 1.8 0 1 1 2.5 1.6c-.5.2-.8.6-.8 1.1v.3"></path><path d="M8 11.3v.2"></path>',
@@ -496,7 +499,7 @@
       else if (msg.type === "paneMatches") renderPaneMatches(msg);
       // A Clear pressed goes with the key it cleared; the keyboard goes to
       // that row's own button rather than out of the dialog.
-      else if (msg.type === "jevKey") { jevKeyInfo = { set: !!msg.set, env: !!msg.env }; settingsChanged(); }
+      else if (msg.type === "jevKey") { jevKeyInfo = { set: !!msg.set, env: !!msg.env }; settingsChanged(); redrawJevKey(); }
       else if (msg.type === "keys") keepFocus(() => renderKeys(msg), () => keySetButton(keyActed));
       else if (msg.type === "versions") renderVersions(msg);
       else if (msg.type === "helpers") keepFocus(() => renderHelpers(msg));
@@ -952,13 +955,13 @@
   let remoteBusy = "";
   let remoteOutcome = null;
 
-  /** renderRemoteChip keeps the rail's Remote button saying where the tunnel
-   *  stands, and the dialog's status line current while it is open. The
-   *  button is there whether or not remote access is on: hidden until the
-   *  machine was enrolled, it could only be found by somebody who already
-   *  knew to look in the palette. Like the update pill it is keyed on what it
-   *  shows, so a snapshot that says nothing new about the tunnel does not
-   *  rebuild it. */
+  /** renderRemoteChip keeps the rail's Settings button saying when the
+   *  tunnel needs somebody, and the dialog's status line current while it is
+   *  open. Remote has no rail button of its own: the palette and Settings
+   *  reach it, so the one state worth seeing without looking, a tunnel that
+   *  has failed, is shown on the way in. Like the update pill it is keyed on
+   *  what it shows, so a snapshot that says nothing new about the tunnel does
+   *  not rebuild it. */
   function renderRemoteChip(s) {
     const r = s.remote || null;
     // retryAt is part of the key too: a run of failures with the same detail
@@ -967,22 +970,15 @@
     const key = r ? [r.state, r.viewers, r.detail, r.relay, r.retryAt].join("|") : "off";
     if (key === remoteChipKey) return;
     remoteChipKey = key;
-    const b = $("btn-remote");
+    const b = $("btn-settings");
     // Amber only when it needs somebody, which is what amber means everywhere
-    // else here; cyan is a working tunnel, grey one still connecting, and
-    // no badge at all is remote access turned off.
+    // else here. A working tunnel, one still connecting and remote access
+    // turned off show nothing on the button; Settings > Flockdeck Remote
+    // says which.
     const trouble = !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced" || r.state === "lapsed");
-    const pending = !!r && r.state === "connecting";
     b.classList.toggle("trouble", trouble);
-    b.classList.toggle("pending", pending);
-    const badge = b.querySelector(".rail-badge");
-    badge.classList.toggle("on", !!r && r.state === "connected");
-    badge.classList.toggle("pending", pending);
-    badge.classList.toggle("trouble", trouble);
-    // The count says whether anybody is using it, and is part of the name.
-    b.querySelector(".rail-label").textContent = r && r.viewers > 0 ? "Remote · " + r.viewers : "Remote";
-    describe(b, r ? remoteSummary(r) : actionTip("remote",
-      "off. Turn it on to open this window from another device, such as a tablet or a phone"));
+    b.querySelector(".rail-badge").classList.toggle("trouble", trouble);
+    describe(b, trouble ? actionTip("settings", "Flockdeck Remote needs you: " + remoteSummary(r)) : actionTip("settings"));
     if (remoteShown()) keepFocus(renderRemote);
   }
 
@@ -4740,7 +4736,7 @@
   }
 
   /** renderPaneReview says whether a pane's PreToolUse calls are put to
-   *  auto-review before Claude Code would otherwise show its own permission
+   *  auto-approve read-only before Claude Code would otherwise show its own permission
    *  prompt, and how many it has let through unasked so far -- see
    *  Pane.AutoReview and Pane.AutoApproved. A child a pane starts, by fan-out
    *  or by its own `flockdeck spawn`, comes up already showing whatever its
@@ -4753,9 +4749,9 @@
     p.reviewBtn.classList.toggle("reviewing", on);
     p.reviewBtn.setAttribute("aria-pressed", String(on));
     describe(p.reviewBtn, (on
-      ? "Auto-review is on" + (v.autoApproved ? ": " + v.autoApproved + " command" + (v.autoApproved === 1 ? "" : "s") + " let through unasked so far. " : ". ") +
+      ? "Auto-approve read-only is on" + (v.autoApproved ? ": " + v.autoApproved + " command" + (v.autoApproved === 1 ? "" : "s") + " let through unasked so far. " : ". ") +
         "Press to turn it off. "
-      : "Auto-review is off. Press to turn it on. ") + TIPS.autoReview);
+      : "Auto-approve read-only is off. Press to turn it on. ") + TIPS.autoReview);
   }
 
   /** renderPaneLock says whether a pane is locked against closing, in the
@@ -5695,12 +5691,12 @@
     history: { present: "sheet", rail: "btn-history", act: "history", again: () => openHistory },
     fanoutHistory: { present: "sheet", rail: "btn-fanout-history", act: "fanoutHistory", again: () => openFanoutHistory },
     todos: { present: "sheet", rail: "btn-todos", act: "todos", again: () => openTodos },
-    github: { present: "sheet", rail: "btn-github", act: "github",
+    github: { present: "sheet", act: "github",
       again: () => { const at = ghDir; return () => openGithub(at); } },
     startTeam: { present: "dialog-m", act: "startTeam", again: () => openStartTeam },
-    team: { present: "sheet", wide: true, act: "team", again: () => openTeam },
-    keys: { present: "sheet", rail: "btn-apikeys", act: "apiKeys", again: () => openKeys },
-    remote: { present: "sheet", rail: "btn-remote", act: "remote", again: () => openRemote },
+    team: { present: "sheet", wide: true, rail: "btn-team", act: "team", again: () => openTeam },
+    keys: { present: "sheet", act: "apiKeys", again: () => openKeys },
+    remote: { present: "sheet", act: "remote", again: () => openRemote },
     projects: { present: "sheet", rail: "rail-open", act: "projects", again: () => () => openProjects() },
     settings: { present: "dialog-l", rail: "btn-settings", act: "settings",
       again: () => { const at = settingsSection; return () => openSettings(at); } },
@@ -7916,24 +7912,8 @@
     });
   }
 
-  /** askFontFamily asks which typeface the terminals should use. It was
-   *  fixed in the source, and a terminal's font is among the first things
-   *  anybody who works in one sets to their own. */
-  function askFontFamily() {
-    const question = "Which font should the terminals use? Leave it empty for the default.";
-    promptDialog({
-      title: "Terminal font", label: "Font", value: prefs.fontFamily || "", placeholder: "Cascadia Mono…",
-      note: "Empty uses the default font.", action: "Use this font",
-      native: { message: question, value: prefs.fontFamily || "" },
-    }, (answer) => {
-      const why = chooseFontFamily(answer);
-      if (why) notice(why, true);
-      settingsChanged();
-    });
-  }
-
   /** chooseFontFamily makes a typeface the terminals' own, or says why it
-   *  cannot. The palette's question and the settings' field both come here. */
+   *  cannot. The settings' field is where it comes from. */
   function chooseFontFamily(answer) {
     const family = String(answer).trim();
     // A name this machine has no font for was taken, announced as the
@@ -7963,28 +7943,7 @@
     }
   }
 
-  /** askScrollback asks how much each terminal should keep. The number was
-   *  fixed in the source: too few lines for a long agent session to be read
-   *  back through, and more than a dozen panes need where memory is short. */
-  function askScrollback() {
-    const question = "How many lines should each terminal keep once they scroll off the top? (1,000 to 200,000)";
-    promptDialog({
-      title: "Terminal scrollback", label: "Lines kept", value: String(scrollback),
-      note: "From 1,000 to 200,000 lines.", action: "Keep these lines",
-      native: { message: question, value: String(scrollback) },
-    }, (answer) => keepScrollback(answer));
-  }
-  function keepScrollback(answer) {
-    const n = Number(String(answer).replace(/[,\s_]/g, ""));
-    if (!Number.isInteger(n) || n < 1000 || n > 200000) {
-      notice("Scrollback has to be a whole number of lines from 1,000 to 200,000.", true);
-      return;
-    }
-    chooseScrollback(n);
-  }
-
-  /** chooseScrollback is what the palette's question and the settings' list
-   *  both do with an answer. */
+  /** chooseScrollback is what the settings' list does with a choice. */
   function chooseScrollback(n) {
     applyScrollback(n);
     prefs.scrollback = n;
@@ -8557,8 +8516,6 @@
     fontUp: () => setFontSize(fontSize + 1),
     fontDown: () => setFontSize(fontSize - 1),
     fontReset: () => setFontSize(13),
-    scrollback: () => askScrollback(),
-    fontFamily: () => askFontFamily(),
     remote: () => openRemote(),
     detach: () => send({ cmd: "detach" }),
     quit: () => send({ cmd: "quit" }),
@@ -8654,7 +8611,7 @@
     label("worktrees", $("btn-worktrees"));
     label("fanoutHistory", $("btn-fanout-history"));
     label("todos", $("btn-todos"));
-    label("apiKeys", $("btn-apikeys"));
+    label("team", $("btn-team"));
     label("help", $("btn-help"));
     label("settings", $("btn-settings"));
     label("palette", $("btn-palette"), "every action there is, searchable");
@@ -8790,13 +8747,11 @@
     // The settings are commands like any other, and "settings" is the word
     // somebody looking for one types - it matched none of them.
     const SETTING = "settings preferences options";
-    const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
-    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "paneInfo" ? "id identifier identifiers details info information conversation session process pid peer path file copy" : id === "findPane" ? "search locate where switch go id identifier conversation session process pid peer name project tab branch" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : id === "remote" ? "remote access" : id === "startTeam" ? "manager roles planner worker reviewer team goal orchestrate" : id === "team" ? "roster tasks task board kanban messages inbox agents roles manager worker reviewer assign" : "";
-    // What a setting is now, beside the command that changes it: choosing a
-    // scrollback or a font meant opening the question to find out.
+    const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "apiKeys"]);
+    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "paneInfo" ? "id identifier identifiers details info information conversation session process pid peer path file copy" : id === "findPane" ? "search locate where switch go id identifier conversation session process pid peer name project tab branch" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : id === "remote" ? "remote access" : id === "history" ? "history past conversations previous sessions" : id === "startTeam" ? "manager roles planner worker reviewer team goal orchestrate" : id === "team" ? "roster tasks task board kanban messages inbox agents roles manager worker reviewer assign" : "";
+    // What a setting is now, beside the command that changes it.
     const value = {
       fontUp: fontSize + "px", fontDown: fontSize + "px", fontReset: fontSize + "px",
-      scrollback: scrollback.toLocaleString("en") + " lines", fontFamily: prefs.fontFamily || "the default font",
       // One label for both ways a toggle goes, so the hint says which it is.
       toggleBroadcastMember: id && s.panes && s.panes[id]
         ? (s.panes[id].broadcast ? "in the broadcast set" : "out of the broadcast set") : "",
@@ -8804,7 +8759,7 @@
     // A command as the palette lists it. The label is the table's and stays
     // what is searched and what "last run" is remembered by; the name is the
     // short one the row is drawn with -- "Fan out" for "Fan out — turn this
-    // pane's plan into agents", "History" for "Resume a past conversation" --
+    // pane's plan into agents", "Resume" for "Resume — reopen a past conversation" --
     // and what follows the dash is the gloss, shown where there is no key.
     const mk = (id, label, o) => {
       const dash = label.indexOf(" — ");
@@ -8843,8 +8798,6 @@
      // which a dialog's header offered as "Go to…".
      ["github", "GitHub", "Go to"],
      ["goTo", "Go to…", "Go to"],
-     ["scrollback", "Terminal scrollback…", "The window"],
-     ["fontFamily", "Terminal font…", "The window"],
      // Renaming was a double-click on the tab and nothing else: nothing a
      // keyboard could reach, and nothing that said it could be done.
      ["renameTab", "Rename this tab…", "Tabs"],
@@ -9179,9 +9132,9 @@
   function openHistory() {
     dialog = "history";
     historyQuery = "";
-    openOverlay("Past conversations", "history");
+    openOverlay("Resume", "history");
     $("overlay-body").textContent = "";
-    $("overlay-body").append(el("div", "dir-empty", "Reading past conversations…"));
+    $("overlay-body").append(el("div", "dir-empty", "Reading conversations…"));
     send({ cmd: "conversations" });
   }
 
@@ -10516,6 +10469,12 @@
     const refresh = el("button", "chip", "Refresh");
     refresh.onclick = () => send({ cmd: "agents" });
     tools.append(refresh);
+    // The Team panel lists the panes of one project with their roles and
+    // tasks; this is the way to it from the list across all of them.
+    const team = describe(el("button", "chip", "Team…"), actionTip("team", "roster, tasks and messages for the project on screen"));
+    team.id = "agents-team";
+    team.onclick = () => openFrom(openTeam);
+    tools.append(team);
     const closeFinished = describe(el("button", "chip", "Close finished panes"),
       "Close every idle or exited pane here, in every open project, with no confirmation. A pane still waiting or working, one with background work still running, one whose last turn failed, and a locked pane are left alone.");
     closeFinished.onclick = () => runAction("closeFinishedPanes");
@@ -13548,7 +13507,7 @@
   const SETTINGS_SECTIONS = [
     { id: "general", group: "Window", label: "General",
       words: "desktop notifications notify browser blocked hints tips " +
-        "new panes defaults default auto review approve approval fan out fanout fanned tab beside planner worktree" },
+        "new panes defaults default auto approve read only auto review approval permission prompt fan out fanout fanned tab beside planner worktree" },
     { id: "appearance", group: "Window", label: "Appearance", words: "theme dark light system follow colour color accent swatch" },
     { id: "terminal", group: "Window", label: "Terminal",
       words: "font size family typeface scrollback lines cursor blink block bar underline preview screen reader accessibility" },
@@ -13562,7 +13521,9 @@
     { id: "remote", group: "Connections", label: "Flockdeck Remote", words: "remote access relay pair paired device devices machine name phone tablet push notify notification notifications waiting anonymous identifying" },
     { id: "github", group: "Connections", label: "GitHub", words: "github gh pull request issue pr ci actions checks workflow sign in install auth login" },
     { id: "plan", group: "Account", label: "Account & plan",
-      words: "account plan free enterprise self-hosted relay sso company companies licence license support paid sponsor sponsors sponsorship donate " +
+      words: "account plan free enterprise self-hosted relay sso company companies paid subscription trial" },
+    { id: "about", group: "About", label: "About & updates",
+      words: "about licence license support sponsor sponsors sponsorship donate privacy terms " +
         "version versions update updates releases check install roll back rollback reinstall" },
   ];
   /** The section on show, kept from one opening to the next. */
@@ -13815,7 +13776,17 @@
     keybindings: settingsKeybindings,
     agents: settingsAgents,
     routing: settingsRouting,
-    keys: (pane) => { settingsHead(pane, "API keys"); settingsHost(pane); renderKeys(); },
+    keys: (pane) => {
+      settingsHead(pane, "API keys");
+      settingsHost(pane);
+      renderKeys();
+      // The TypeSafe key is a key like the others, set here; Status detection
+      // and Routing, which use it, point at this.
+      const jev = el("div", "settings-jev-key");
+      jev.id = "settings-jev-key";
+      jev.append(jevKeyRow());
+      pane.append(jev);
+    },
     status: settingsStatus,
     remote: (pane) => { settingsHead(pane, "Flockdeck Remote"); settingsPush(pane); settingsHost(pane); renderRemote(); },
     github: (pane) => {
@@ -13824,6 +13795,7 @@
       renderGhSettings();
     },
     plan: settingsPlan,
+    about: settingsAbout,
   };
 
   /** How long a pane may wait before the paired devices are told, as offered:
@@ -13990,7 +13962,7 @@
       sw, why));
   }
 
-  /** settingsVersion is Account & plan's Version: whether it looks for new
+  /** settingsVersion is About & updates' Version: whether it looks for new
    *  releases, looking now, installing what it found, and installing another. */
   function settingsVersion(pane) {
     // Neither is offered in a window reached through the relay: see
@@ -14303,7 +14275,7 @@
       "Off, a fan-out's agents land in a new tab of their own. This is only the default the dialog opens on; " +
       "either way it can still be changed for one run.", sameTabLabel);
 
-    pane.append(settingRow("Start new panes with auto-review on",
+    pane.append(settingRow("Auto-approve read-only in new panes",
       "Only a command it is confident is read-only is let through without asking; anything else still asks. " +
       "A pane opened by hand starts with this setting; a pane started from another one (a fan-out or " +
       "flockdeck spawn) starts the way that pane is set.",
@@ -14317,9 +14289,9 @@
   function settingsStatus(pane) {
     settingsHead(pane, "Status detection",
       "Optional help from TypeSafe's Jev reading a pane's state. Off unless you turn it on; nothing is sent until then.");
-    pane.append(jevKeyRow());
+    pane.append(jevKeyLink());
     pane.append(settingRow("Let TypeSafe's Jev help read pane status",
-      "Off by default. On, and with a TypeSafe API key set (above, or TYPESAFE_API_KEY in the environment Flockdeck runs in), the last " +
+      "Off by default. On, and with a TypeSafe API key set (in API keys, or TYPESAFE_API_KEY in the environment Flockdeck runs in), the last " +
       "30 lines (at most 2,000 bytes) of a pane's terminal output are SENT TO TYPESAFE, a third party, " +
       "whenever an agent that reports no status of its own goes quiet and Flockdeck cannot tell finished " +
       "from stopped on a question. Nothing else is sent: not the scrollback, the pane's name, or its folder. " +
@@ -14327,6 +14299,28 @@
       "are never sent. It can only turn a quiet pane into waiting or blocked, never the other way. " +
       "This can only be turned on on the machine itself, not from a window reached through the relay.",
       switchControl("set-jev-status", !!prefs.jevStatus, (on) => setJevStatus(on))));
+  }
+
+  /** jevKeyLink is Status detection's row for the key: whether one is set,
+   *  and the way to API keys, where it is set. */
+  function jevKeyLink() {
+    const info = jevKeyInfo;
+    const word = remoteWindow ? "set on the machine Flockdeck runs on" : !info ? "checking" : info.set ? "set" : "not set";
+    if (!jevKeyAsked && !remoteWindow) { jevKeyAsked = true; send({ cmd: "jevKey", kind: "get" }); }
+    const go = settingsLink("set-jev-key-link", "Open API keys →", "keys");
+    const row = settingRow("TypeSafe API key", "Used for the Jev setting below and Routing's Ask Jev. It is set under API keys. " +
+      "Status: " + word + ".", go);
+    row.id = "set-jev-key-row";
+    return row;
+  }
+
+  /** redrawJevKey draws the TypeSafe key's row again in API keys, where it
+   *  is, for an answer that changes it; the rest of that section is not
+   *  touched, so a key half-typed above it stays. */
+  function redrawJevKey() {
+    const box = dialog === "settings" && settingsSection === "keys" ? $("settings-jev-key") : null;
+    if (!box || !box.isConnected) return;
+    keepFocus(() => { box.textContent = ""; box.append(jevKeyRow()); });
   }
 
   /** jevKeyRow is where the TypeSafe API key is set, replaced and cleared. The
@@ -14374,7 +14368,7 @@
     const status = el("div", "set-desc", "Key status: " + state);
     status.id = "set-jev-key-status";
     return settingRow("TypeSafe API key",
-      "Used only for the Jev setting below and Routing's Ask Jev. Saving a key sends nothing: they stay off until " +
+      "Used only for Status detection's Jev setting and Routing's Ask Jev. Saving a key sends nothing: they stay off until " +
       "you turn one on, and what they send is described there, including that it goes to TypeSafe, a third party. " +
       "The key is kept on this machine in Flockdeck's key store, is only ever sent to api.typesafe.ai, and is never " +
       "shown again. If none is set here, TYPESAFE_API_KEY from the environment is used. It can only be set on the machine itself.",
@@ -14403,7 +14397,7 @@
     prefs.autoReviewDefault = on;
     sentPref("autoReviewDefault");
     send({ cmd: "autoReviewDefault", kind: on ? "on" : "off" });
-    notice(on ? "New panes start with auto-review on" : "New panes start with auto-review off", false);
+    notice(on ? "New panes start with auto-approve read-only on" : "New panes start with auto-approve read-only off", false);
     settingsChanged();
   }
 
@@ -14768,10 +14762,10 @@
     pane.append(settingRow("Ask Jev to rate unmatched work",
       "With Minimise cost, a fan-out row no rule matched can be rated by TypeSafe's Jev model, so hard work is not " +
       "sent to the cheapest model blindly. This sends the text of that row (its first 2,000 characters) to TypeSafe, " +
-      "a third party, and nothing else: no files, no repository, no history. It needs a TypeSafe API key (set in Settings › Status detection, or TYPESAFE_API_KEY in the environment)" +
+      "a third party, and nothing else: no files, no repository, no history. It needs a TypeSafe API key (set in Settings › API keys, or TYPESAFE_API_KEY in the environment)" +
       (r.jevKey ? "" : " (it is not set, so nothing is sent)") + " and does nothing under Cost-first, quality-aware. " +
       "Off until you turn it on, " + (own ? "for this project." : "for every project."), jevLabel,
-      settingsLink("set-route-jev-key", "Status detection →", "status")));
+      settingsLink("set-route-jev-key", "API keys →", "keys")));
     if (r.note) {
       const note = el("p", "set-lede", r.note);
       note.id = "set-route-note";
@@ -14826,7 +14820,7 @@
   }
 
   function settingsPlan(pane) {
-    settingsHead(pane, "Account & plan", "What you are on, and which version is running.");
+    settingsHead(pane, "Account & plan", "What you are on.");
     const card = (name, pill, soon, text) => {
       const c = el("div", "plan-card" + (soon ? "" : " current"));
       const head = el("div", "plan-head");
@@ -14855,14 +14849,19 @@
     link.append(document.createTextNode("Read about Enterprise"), iconEl("ext", 13));
     soon.append(link);
     pane.append(soon);
-    // Which version this is, and getting another, with what it is on.
+  }
+
+  /** settingsAbout is About & updates: which version is running and getting
+   *  another, a line for anyone who wants to sponsor, and whose Flockdeck is
+   *  and on what terms. */
+  function settingsAbout(pane) {
+    settingsHead(pane, "About & updates", "Which version is running, and getting another.");
     pane.append(el("div", "set-sub", "Version"));
     settingsVersion(pane);
     pane.append(sponsorLine());
     // Whose it is and under what licence, and the pages that say what the
-    // shared relay keeps and on what terms: quiet, at the foot of the section
-    // about the account, where somebody looking for them looks. They open in
-    // the browser, as the link above does.
+    // shared relay keeps and on what terms: quiet, at the foot of the section.
+    // They open in the browser.
     const legal = el("p", "plan-legal", "Flockdeck · © 2026 Jim Wright · PolyForm Noncommercial licence");
     legal.id = "set-legal";
     LEGAL_LINKS.forEach(([id, text, href]) => {
@@ -17369,8 +17368,7 @@
   $("btn-worktrees").onclick = () => openWorktrees();
   $("btn-fanout-history").onclick = () => openFanoutHistory();
   $("btn-todos").onclick = () => openTodos();
-  $("btn-github").onclick = () => openGithub();
-  $("btn-apikeys").onclick = () => openKeys();
+  $("btn-team").onclick = () => openTeam();
   $("btn-history").onclick = openHistory;
   $("btn-recordings").onclick = () => openArtifacts();
   $("btn-changes").onclick = () => openChanges();
@@ -17380,7 +17378,6 @@
   $("btn-help").onclick = () => openHelp();
   $("btn-settings").onclick = () => openSettings();
   $("btn-update").onclick = () => openUpdate();
-  $("btn-remote").onclick = () => openRemote();
   $("overlay-close").onclick = dismissOverlay;
   $("overlay").addEventListener("mousedown", (e) => { if (e.target === $("overlay")) dismissOverlay(); });
   // A sheet sits against the rail, which can be widened while it is open.

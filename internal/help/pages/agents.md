@@ -115,7 +115,7 @@ cooperating, and they do not all cooperate in the same ways.
 | --- | --- |
 | reports its own lifecycle | its status mark says what it is really doing, rather than what its output looks like |
 | can resume by id | restoring a layout brings its conversation back, not only its pane |
-| writes a transcript | it can be resumed from it; Claude Code's is also where fan out reads a plan and what past conversations lists |
+| writes a transcript | it can be resumed from it; Claude Code's is also where fan out reads a plan and what Resume lists |
 | has a trust question | a [fan-out](#fanout) can answer it ahead of time for the worktrees it cuts |
 | answers a start-up hook | its briefing survives a compaction, rather than being said once and summarised away |
 

@@ -1,18 +1,18 @@
 # Settings
 
 [[key:settings]], or **Settings** at the foot of the rail, opens the settings:
-eleven sections in four groups on the left, and the one you are in on the
+twelve sections in five groups on the left, and the one you are in on the
 right. Every control changes its setting at once, and it is the same setting
 the command palette and the keys change, so whichever you use, the others show
 it.
 
 ### Window
 
-- **General**: **Desktop notifications**. Under **New panes**, **Start new
-  panes with auto-review on**: a pane opened by hand starts with this setting,
+- **General**: **Desktop notifications**. Under **New panes**, **Auto-approve
+  read-only in new panes**: a pane opened by hand starts with this setting,
   and a pane started from another one (a fan-out row, or a helper started with
   `flockdeck spawn`) starts the way that pane is set. Either way the ✓ in a
-  pane's header turns it on or off for that one pane; auto-review only ever
+  pane's header turns it on or off for that one pane; auto-approve read-only only ever
   lets through a command it is confident only reads, and never says "deny".
   Then **Fan out**'s own default for its "Put fanned-out agents in this tab,
   beside the agent that planned them" checkbox, which can still be changed for
@@ -68,13 +68,14 @@ it.
   [Agents and models](#agents) has the rest.
 - **API keys**: set, replace or clear the key each API agent uses. A key is
   never shown once it is set. Keys are set and cleared only at the desk: a
-  window reached through the relay shows which are set, and no more.
-- **Status detection**: **TypeSafe API key**, where you paste, replace or
-  clear the key that **Let TypeSafe's Jev help read pane status** and
-  Routing's **Ask Jev to rate unmatched work** need. The field is masked and
-  never shows the key back, only whether one is set, and it is set only at the
-  desk. Saving a key sends nothing: both stay off until you turn them on.
-  Below it, **Let TypeSafe's Jev help read pane status**: whether TypeSafe's
+  window reached through the relay shows which are set, and no more. Below the
+  agents, **TypeSafe API key** is where you paste, replace or clear the key
+  that **Let TypeSafe's Jev help read pane status** and Routing's **Ask Jev to
+  rate unmatched work** need. The field is masked and never shows the key
+  back, only whether one is set. Saving a key sends nothing: both stay off
+  until you turn them on.
+- **Status detection**: **TypeSafe API key** says whether that key is set and
+  links to API keys, where it is edited. Below it, **Let TypeSafe's Jev help read pane status**: whether TypeSafe's
   Jev model may help read the status of a pane whose agent reports none. **Off
   by default**, and it sends terminal output to a third party. See [Knowing
   who needs you](#status). It is turned on only at the desk.
@@ -97,7 +98,11 @@ it.
   machine through the shared relay, a free trial and then a subscription, with
   the days left or the date it is paid until, paid for from **Devices** on a
   paired phone or browser; and Enterprise, coming for companies to run the
-  relay on their own infrastructure with SSO and support. Under **Version**,
+  relay on their own infrastructure with SSO and support.
+
+### About
+
+- **About & updates**: under **Version**,
   **Check for updates**: whether Flockdeck looks for new releases in the
   background, changed only at the desk; **Check for updates now** asks once
   on the spot, whatever that switch says; and **Install a specific version…**
@@ -142,7 +147,7 @@ two pages: pick a section to open it, and **← All settings** goes back.
   settings, or the palette's entries for each. Kept in `prefs.json`.
 - A fan-out's own shortcut, or any other window shortcut: **Keyboard**
   in the settings. Kept in `keybindings.json`.
-- A pane's auto-review, lock and recording: the ✓, padlock and record
+- A pane's auto-approve read-only, lock and recording: the ✓, padlock and record
   buttons in its header, or the command palette. Kept with the layout, so a
   pane comes back after a restart the way you left it.
 - This machine's name and paired devices: **Flockdeck Remote** in the
@@ -158,12 +163,12 @@ two pages: pick a section to open it, and **← All settings** goes back.
   run only: each run has an address of its own.
 - Hints under the tab bar: their close button sends one away for good.
   Kept in `prefs.json`.
-- Fan out's own default, and auto-review's own default: **General ›
+- Fan out's own default, and auto-approve read-only's own default: **General ›
   New panes** in the settings. Kept in `prefs.json`.
 - Status detection with Jev: **Status detection** in the settings. Kept
   in `prefs.json`; off unless you turn it on, and only from the machine
   itself.
-- TypeSafe API key: **Status detection** in the settings. Kept in `keys.json`
+- TypeSafe API key: **API keys** in the settings. Kept in `keys.json`
   with your agents' keys, never in `prefs.json`; set and cleared at the desk
   only, never shown back, and only ever sent to `api.typesafe.ai`.
 
@@ -199,7 +204,7 @@ set).
   running to have the help open on the next start, every hint back, and every
   one of those settings as it first was.
 - `layout-….json`: one per project: its tabs, splits and panes, with each
-  pane's auto-review, lock and recording.
+  pane's auto-approve read-only, lock and recording.
   `flockdeck -new` starts without it.
 - `projects.json`: the recent projects the picker offers.
 - `session.json`: which projects are reopened on the next start.
@@ -254,7 +259,7 @@ elsewhere) and start Flockdeck again.
 - `TYPESAFE_API_KEY`: a key for TypeSafe's Jev, used only when **Let
   TypeSafe's Jev help read pane status**, under **Status detection**, or **Ask
   Jev to rate unmatched work**, under **Routing**, is turned on; see [Knowing
-  who needs you](#status). A key set in **Settings › Status detection ›
+  who needs you](#status). A key set in **Settings › API keys ›
   TypeSafe API key** is used first; this is the fallback when none
   is set there. No other variable is ever tried. Without a key nothing is ever
   sent.
