@@ -451,3 +451,24 @@ func TestATaskThatIsOnlyASecretIsNotAsked(t *testing.T) {
 		t.Errorf("%d requests, want none", n)
 	}
 }
+
+func TestKeyMaterialAndCredentialsInATaskAreNotSent(t *testing.T) {
+	s := newServer(t)
+	c := classifier(s)
+	body := strings.Repeat("MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC0123456789\n", 4)
+	jwt := "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnopqrstuv"
+	task := "rotate this key\n-----BEGIN PRIVATE KEY-----\n" + body + "-----END PRIVATE KEY-----\n" +
+		"and https://deploy:s3cr3tpw@git.example.com/x.git with " + jwt
+	if _, err := c.Classify(task); err != nil {
+		t.Fatal(err)
+	}
+	sent := string(s.bodies[0])
+	for _, leaked := range []string{"MIIEvQ", "s3cr3tpw", jwt} {
+		if strings.Contains(sent, leaked) {
+			t.Errorf("%q reached the request", leaked)
+		}
+	}
+	if !strings.Contains(sent, "rotate this key") {
+		t.Errorf("the task was lost: %s", sent)
+	}
+}

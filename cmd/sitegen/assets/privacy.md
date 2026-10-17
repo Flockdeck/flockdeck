@@ -139,9 +139,11 @@ The app makes these network connections of its own.
   URLs, private key blocks, values assigned to names such as TOKEN or PASSWORD,
   and paths to files such as `.env` or `id_rsa`. This is done by pattern and
   does not catch every secret, so a password or key with no recognisable shape
-  that is on screen, or in a task's text, is sent with the rest of it. Leave
-  these settings off for work like that. What TypeSafe does with what it receives is governed by
-  TypeSafe's own terms and privacy policy, which you can find at
+  that is on screen, or in a task's text, is sent with the rest of it. With
+  status detection on, the lines sent can include file names and code shown in
+  the terminal. Terminal text and fan-out task text both go to TypeSafe. Leave
+  these settings off for work like that. What TypeSafe does with what it
+  receives is governed by TypeSafe's own terms and privacy policy, which you can find at
   [typesafe.ai](https://typesafe.ai).
 
 Flockdeck also starts programs you choose, such as Claude Code, Codex or

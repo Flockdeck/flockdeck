@@ -253,13 +253,25 @@ What is sent, when a pane of an agent that reports nothing has been quiet for
 a few seconds and its status is still a guess: the **last 30 lines of its
 output, at most 2,000 bytes, with the escape sequences taken out and secrets
 redacted**. It goes in one request holding that text and the two questions asked
-of it. The scrollback and the pane's name and folder are not sent. Before it is sent, text goes through the same redaction the recordings use. It takes out API keys of the common providers, bearer and basic credentials, passwords in URLs, private key blocks, values assigned to a name such as TOKEN, SECRET or PASSWORD, and any word that is a path to a secret file (`.env`, `id_rsa`, `~/.aws/credentials`).
-A line that is only a secret is not sent. Redaction works by pattern and **does
-not catch every secret**: a password or key with no recognisable shape, on a
-line that does not name it as one, is sent as it is on screen, and so is
-everything else in those lines (code, file names, prose). If a pane may show
-something you cannot send to a third party, leave this off. Shell panes, and
-agents that report their own status, are never sent.
+of it. The scrollback and the pane's name and folder are not sent.
+
+Before it is sent, the text goes through the redaction the transcript recorder
+uses, with additions for a terminal. The redaction takes out API keys of the
+common providers (Anthropic, OpenAI-style, GitHub, GitLab, AWS, Google, Slack,
+Stripe, Hugging Face, DigitalOcean, Twilio, npm), JWTs, bearer and basic
+credentials, passwords in URLs, private key blocks, and values assigned to a
+name such as TOKEN, SECRET or PASSWORD. The additions are these: any word that
+is a path to a secret file (`.env`, `id_rsa`, `~/.aws/credentials`) is replaced,
+and so are three or more lines in a row of base64 (the body of a key whose first
+line has scrolled away). A key that the terminal wrapped onto the next line is
+joined first when the line before it is a full-width line, so it is caught in
+the common case. If nothing is left but redacted text, nothing is sent.
+
+Redaction works by pattern and **does not catch every secret**: a password or
+key with no recognisable shape, on a line that does not name it as one, is sent
+as it is on screen, and so is everything else in those lines (code, file names,
+prose). If a pane may show something you cannot send to a third party, leave
+this off. Shell panes, and agents that report their own status, are never sent.
 
 What it can change: a quiet pane called idle becomes waiting, or blocked, only
 when Jev answers with high confidence. It never turns waiting or blocked into

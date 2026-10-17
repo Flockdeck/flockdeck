@@ -841,3 +841,46 @@ func TestAssessRedactsWhatItIsGiven(t *testing.T) {
 		t.Errorf("request body: %s", body)
 	}
 }
+
+// A long key dump: the BEGIN line scrolled out of the 16 KiB window that is read
+// from the pane, so only the body and the END line are in it. The body is not sent.
+func TestAKeyWhoseBeginLineIsOutsideTheWindowIsNotSent(t *testing.T) {
+	fake := newFakeJev(t, nil)
+	r := newRig(t, fake)
+	r.s.history = newRing(replayBytes)
+
+	var out bytes.Buffer
+	out.WriteString("-----BEGIN PRIVATE KEY-----\r\n")
+	for i := 0; i < 400; i++ {
+		fmt.Fprintf(&out, "%s%04d\r\n", "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCabcdefgh", i)
+	}
+	out.WriteString("-----END PRIVATE KEY-----\r\nOverwrite the file? (y/n) ")
+	r.quiet(t, out.String())
+	if fake.hits.Load() != 1 {
+		t.Fatalf("%d calls, want 1", fake.hits.Load())
+	}
+	body := string(fake.bodyAt(t, 0))
+	if strings.Contains(body, "MIIEvQ") || strings.Contains(body, "BEGIN") {
+		t.Errorf("key material reached the request: %.300s", body)
+	}
+	if !strings.Contains(body, "Overwrite the file? (y/n)") {
+		t.Errorf("the question was lost: %.300s", body)
+	}
+}
+
+func TestURLCredentialsAndJWTsOnScreenAreNotSent(t *testing.T) {
+	fake := newFakeJev(t, nil)
+	r := newRig(t, fake)
+	r.s.history = newRing(replayBytes)
+	jwt := "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnopqrstuv"
+	r.quiet(t, "git clone https://deploy:s3cr3tpw@git.example.com/x.git\r\nsession "+jwt+"\r\nContinue? (y/n) ")
+	body := string(fake.bodyAt(t, 0))
+	for _, leaked := range []string{"s3cr3tpw", jwt} {
+		if strings.Contains(body, leaked) {
+			t.Errorf("%q reached the request: %s", leaked, body)
+		}
+	}
+	if !strings.Contains(body, "git.example.com") || !strings.Contains(body, "Continue? (y/n)") {
+		t.Errorf("ordinary text was lost: %s", body)
+	}
+}

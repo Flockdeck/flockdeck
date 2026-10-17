@@ -32,7 +32,10 @@ import (
 // any word that is a path to a secret file (.env, id_rsa, ~/.aws/credentials)
 // by internal/secretname. It runs on the whole text read from the pane, after
 // the escape sequences are out and before the tail is cut, so a secret that
-// the cut would have split is still seen whole. It is best effort and by
+// the cut would have split is still seen whole. Three or more lines in a row
+// of base64 are replaced too (the body of a private key whose BEGIN line is
+// outside the window read), and a token that the terminal wrapped onto the
+// next line is joined for the look when the line is full width. It is best effort and by
 // pattern: a secret with no recognisable shape, on a line that does not name
 // it as one, is sent as it is on screen, and so is everything else in the
 // last lines (code, file names, prose). A tail that is nothing but redacted

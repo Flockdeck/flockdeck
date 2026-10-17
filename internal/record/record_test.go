@@ -489,3 +489,31 @@ func TestFindOnlyUsesTheKindsItLists(t *testing.T) {
 		}
 	}
 }
+
+func TestMoreProviderKeysAreRedacted(t *testing.T) {
+	for _, tok := range []string{
+		"sk_live_" + "4eC39HqLyjWDarjtT1zdp7dc", "rk_test_" + "4eC39HqLyjWDarjtT1zdp7dc",
+		"hf_" + "abcdefghijklmnopqrstuvwxyzABCDEFGH", "dop_v1_" + strings.Repeat("0123456789abcdef", 4),
+		"SK" + "0123456789abcdef0123456789abcdef",
+	} {
+		if got := Redact("key " + tok + " end"); got != "key [redacted] end" {
+			t.Errorf("Redact(%q) = %q", tok, got)
+		}
+		spans := Find("key " + tok)
+		if len(spans) != 1 {
+			t.Errorf("Find(%q) = %v", tok, spans)
+		}
+	}
+}
+
+func TestProviderKeyShapesDoNotEatOrdinaryText(t *testing.T) {
+	for _, in := range []string{
+		"task_test_runner mask_live_data desk_live_view", "SKU0123456789abcdef0123456789abcdef is a part number",
+		"SK0123456789abcdef0123456789abcdef0 is too long", "hf_short and hf_ prefix", "dop_v1_short",
+		"the sk_live_ prefix is documented", "const risk_test_flag = true",
+	} {
+		if got := Redact(in); got != in {
+			t.Errorf("Redact(%q) = %q", in, got)
+		}
+	}
+}
