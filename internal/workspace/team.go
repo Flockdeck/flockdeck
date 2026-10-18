@@ -52,6 +52,8 @@ type teamState struct {
 	// clock and a status of its own.
 	idle  func(p *Pane) idleReading
 	after func(d time.Duration, fn func())
+	// dwell is helperIdleDwell; a test shortens it.
+	dwell time.Duration
 }
 
 func (w *Workspace) initTeam() {
@@ -61,6 +63,7 @@ func (w *Workspace) initTeam() {
 		notifier: team.NewNotifier(),
 		save:     store.WriteAtomic,
 		after:    func(d time.Duration, fn func()) { time.AfterFunc(d, fn) },
+		dwell:    helperIdleDwell,
 	}
 	t.idle = w.readIdle
 	// A message arriving or being read changes the unread count on a pane's
@@ -405,7 +408,7 @@ func (w *Workspace) readIdle(p *Pane) idleReading {
 // then, in the same session; otherwise it drops the report, and the next time the
 // helper goes idle arms it again.
 func (w *Workspace) armIdleReport(p *Pane, parent string, sess *session.Session) {
-	w.team.after(helperIdleDwell, func() {
+	w.team.after(w.team.dwell, func() {
 		w.mu.RLock()
 		same := p.Sess == sess
 		w.mu.RUnlock()
@@ -417,8 +420,8 @@ func (w *Workspace) armIdleReport(p *Pane, parent string, sess *session.Session)
 			return
 		}
 		// Idle, but not for as long as the dwell: it went busy and idle again
-		// since this was armed. Wait out the rest from the last idle edge.
-		if r.IdleFor < helperIdleDwell {
+		// since this was armed. Look again after another full dwell.
+		if r.IdleFor < w.team.dwell {
 			w.armIdleReport(p, parent, sess)
 			return
 		}

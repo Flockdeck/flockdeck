@@ -558,12 +558,17 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		}
 	}
 
+	// What this start makes of a worktree is taken away again if the helper then
+	// does not start, as the spawn handler does for the one it cuts.
+	var made MadeWorktree
+	var madeRepo string
 	if o.Branch != "" {
-		path, err := w.worktreeFor(cwd, o.Branch)
+		madeRepo, _ = gitx.Root(cwd)
+		m, err := w.PrepareWorktreeNew(cwd, o.Branch)
 		if err != nil {
 			return "", err
 		}
-		cwd = path
+		made, cwd = m, m.Path
 	}
 
 	title := o.Title
@@ -645,7 +650,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		// can take the last place.
 		if err := w.helperRoomLocked(parentPaneID); err != nil {
 			w.mu.Unlock()
-			return "", err
+			return "", w.DiscardMade(madeRepo, made, err)
 		}
 	}
 	w.panes[p.ID] = p

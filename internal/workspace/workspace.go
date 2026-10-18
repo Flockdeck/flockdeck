@@ -1785,6 +1785,9 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	// that what the last one still has to say is told from it. See handleHook.
 	w.mu.Lock()
 	p.launch = rand.Text()
+	// A turn of the last session says nothing of this one: a helper restarted
+	// mid-turn must not report that a turn it never finished is over.
+	p.turnSeen, p.idleArmed = false, false
 	w.mu.Unlock()
 	// A new session has not been told of the mail waiting for the pane, whatever
 	// the last one was told.

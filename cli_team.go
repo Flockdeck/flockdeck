@@ -182,31 +182,30 @@ func runInbox(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	msgs, err := hooks.Inbox(api, token, pane, *all)
-	if err != nil {
-		return err
-	}
 	// Nothing wakes an idle agent, so an agent that is waiting on others
 	// waits here, inside its turn, and is handed the first message to arrive.
 	wait, _ := time.ParseDuration(fs.Lookup("wait").Value.String())
 	wait = min(wait, maxInboxWait)
 	// The last sleep is cut to the deadline, so a wait never runs past the time
-	// asked for, and an error from the application mid-wait (it was busy, or
-	// restarting) is tried again until then rather than ending the wait.
-	var waitErr error
-	for deadline := time.Now().Add(wait); len(msgs) == 0; {
+	// asked for. An error from the application, on the first look or any later
+	// one (it was busy, or restarting), is tried again until then rather than
+	// ending the wait, and fails the command only if no look succeeded.
+	var msgs []team.Message
+	var lastErr error
+	looked := false
+	for deadline := time.Now().Add(wait); ; {
+		got, err := hooks.Inbox(api, token, pane, *all)
+		if lastErr = err; err == nil {
+			msgs, looked = got, true
+		}
 		left := time.Until(deadline)
-		if left <= 0 {
+		if len(msgs) > 0 || left <= 0 {
 			break
 		}
 		time.Sleep(min(inboxPoll, left))
-		got, err := hooks.Inbox(api, token, pane, *all)
-		if waitErr = err; err == nil {
-			msgs = got
-		}
 	}
-	if len(msgs) == 0 && waitErr != nil {
-		return waitErr
+	if !looked {
+		return lastErr
 	}
 	if *asJSON {
 		return writeJSON(out, nonNil(msgs))
@@ -313,7 +312,7 @@ func inboxFlagSet() (fs *flag.FlagSet, all, asJSON *bool) {
 	fs.SetOutput(os.Stderr)
 	all = fs.Bool("all", false, "include messages already read")
 	asJSON = fs.Bool("json", false, "print the messages as JSON")
-	fs.Duration("wait", 0, "if there are no unread messages, wait up to this long (for example 2m, at most 10m) for one to arrive and print it as soon as it does")
+	fs.Duration("wait", 0, "if there are no unread messages, wait up to this long (for example 90s, at most 10m) for one to arrive and print it as soon as it does")
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: flockdeck inbox [-all] [-json] [-wait <duration>]\n"+
 			"       flockdeck inbox read [-json] <id>\n\n"+

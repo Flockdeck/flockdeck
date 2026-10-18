@@ -340,3 +340,46 @@ func TestMsgSendSaysWhenTheReceiverIsNotToldOfTheMessage(t *testing.T) {
 		}
 	}
 }
+
+// The first look is retried like the later ones, and the command fails only if no
+// look succeeded before the time ran out.
+func TestInboxWaitRetriesAFailedFirstLook(t *testing.T) {
+	srv := teamServer(t)
+	old := inboxPoll
+	inboxPoll = 5 * time.Millisecond
+	t.Cleanup(func() { inboxPoll = old })
+	var calls int
+	srv.SetInboxHandler(func(r hooks.InboxRequest) (hooks.InboxResult, error) {
+		if calls++; calls == 1 {
+			return hooks.InboxResult{}, errors.New("starting up")
+		}
+		return hooks.InboxResult{Messages: []team.Message{{ID: 3, From: team.Sender{Name: team.System}, To: "p-me", Time: time.Now(), Text: "hi"}}}, nil
+	})
+	var out bytes.Buffer
+	if err := runInbox([]string{"-wait", "30s"}, &out); err != nil || !strings.Contains(out.String(), "#3 from flockdeck") {
+		t.Errorf("a failed first look = %v\n%s", err, out.String())
+	}
+
+	// Without -wait there is one look and its error is the command's.
+	calls = -100
+	srv.SetInboxHandler(func(r hooks.InboxRequest) (hooks.InboxResult, error) { return hooks.InboxResult{}, errors.New("down") })
+	out.Reset()
+	if err := runInbox(nil, &out); err == nil {
+		t.Error("an application that is down was reported as an empty inbox")
+	}
+	// A wait that never gets a look in fails; one that got a look and then errors does not.
+	if err := runInbox([]string{"-wait", "40ms"}, &out); err == nil {
+		t.Error("a wait in which every look failed succeeded")
+	}
+	var seen int
+	srv.SetInboxHandler(func(r hooks.InboxRequest) (hooks.InboxResult, error) {
+		if seen++; seen == 1 {
+			return hooks.InboxResult{}, nil
+		}
+		return hooks.InboxResult{}, errors.New("busy")
+	})
+	out.Reset()
+	if err := runInbox([]string{"-wait", "40ms"}, &out); err != nil || !strings.Contains(out.String(), "no unread messages") {
+		t.Errorf("a wait with one good look then errors = %v\n%s", err, out.String())
+	}
+}

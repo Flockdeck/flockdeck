@@ -352,7 +352,7 @@ func TestAHelperStartedByAnAgentDoesNotInheritAutoReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !c.ws.Pane(win).AutoReview {
-		t.Error("a fan-out row started from the window lost its parent's auto-review")
+		t.Error("a pane the window started from this pane lost its parent's auto-review")
 	}
 }
 
@@ -514,5 +514,70 @@ func TestHelperCapStillCountsTheChildrenOfAClosedHelper(t *testing.T) {
 	}
 	if _, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true}); err == nil {
 		t.Error("with 8 below it, counting four whose parent was closed, the manager started a ninth")
+	}
+}
+
+// quietFor waits long enough for a dwell of the length these tests set to have
+// run out, and says whether the manager has been told anything.
+func quietFor(t *testing.T, c crew) []string {
+	t.Helper()
+	time.Sleep(400 * time.Millisecond)
+	var texts []string
+	for _, m := range c.inbox(t, c.lead, true) {
+		texts = append(texts, m.Text)
+	}
+	return texts
+}
+
+// These use the real status of a real pane, read the way the application reads
+// it (notifiable, then the session's status), with only the dwell shortened.
+func TestIdleReportOnARealPaneIsOnePerTurn(t *testing.T) {
+	c := newCrew(t)
+	c.ws.team.dwell = 100 * time.Millisecond
+	sess := c.ws.Pane(c.w1).Sess
+	sess.SetStatus(session.StatusWorking, "Edit")
+	sess.SetStatus(session.StatusIdle, "")
+	waitFor(t, "the manager to be told", func() bool { return len(c.inbox(t, c.lead, true)) == 1 })
+	if got := quietFor(t, c); len(got) != 1 || !strings.Contains(got[0], "finished its turn") {
+		t.Errorf("the manager was told %q, want one report", got)
+	}
+}
+
+// A helper restarted in the middle of a turn has not finished one: the new
+// session going idle is not the end of the turn the old one was in.
+func TestARestartedHelperDoesNotReportATurnItNeverFinished(t *testing.T) {
+	c := newCrew(t)
+	c.ws.team.dwell = 100 * time.Millisecond
+	c.ws.Pane(c.w1).Sess.SetStatus(session.StatusWorking, "Edit")
+	if !c.ws.RestartPaneByID(c.w1) {
+		t.Fatal("could not restart the helper")
+	}
+	c.ws.Pane(c.w1).Sess.SetStatus(session.StatusIdle, "")
+	if got := quietFor(t, c); len(got) != 0 {
+		t.Errorf("the manager was told %q of a turn that was cut off", got)
+	}
+}
+
+func TestARestartDuringTheDwellReportsNothing(t *testing.T) {
+	c := newCrew(t)
+	c.ws.team.dwell = 150 * time.Millisecond
+	c.ws.Pane(c.w1).Sess.SetStatus(session.StatusWorking, "Edit")
+	c.ws.Pane(c.w1).Sess.SetStatus(session.StatusIdle, "")
+	if !c.ws.RestartPaneByID(c.w1) {
+		t.Fatal("could not restart the helper")
+	}
+	if got := quietFor(t, c); len(got) != 0 {
+		t.Errorf("a restart during the dwell still reported: %q", got)
+	}
+}
+
+func TestAPaneClosedDuringTheDwellReportsNothing(t *testing.T) {
+	c := newCrew(t)
+	c.ws.team.dwell = 150 * time.Millisecond
+	c.ws.Pane(c.w1).Sess.SetStatus(session.StatusWorking, "Edit")
+	c.ws.Pane(c.w1).Sess.SetStatus(session.StatusIdle, "")
+	c.ws.ClosePaneByID(c.w1)
+	if got := quietFor(t, c); len(got) != 0 {
+		t.Errorf("a pane closed during the dwell still reported: %q", got)
 	}
 }
