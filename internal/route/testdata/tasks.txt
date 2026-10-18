@@ -1,4 +1,4 @@
-# The built-in rules against tasks of the kind a fan-out proposes. Each line is
+# The built-in rules against tasks of the kind a spawned helper is given. Each line is
 # the tier the task should be routed to -- small, top, or "-" for left alone --
 # then a tab, then the task. A change to a built-in rule shows here, in review,
 # as the lines whose answer it changes.

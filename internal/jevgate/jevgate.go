@@ -1,7 +1,7 @@
 // Package jevgate is the one path a question to Jev takes from Flockdeck to
-// TypeSafe. Every feature that asks (routejev for the router's cost fallback,
-// session.StatusAssist for a quiet pane) hands it text and a reader for the
-// answer, and the decision flow is the same for all of them:
+// TypeSafe. Every feature that asks (today session.StatusAssist, for a quiet
+// pane) hands it text and a reader for the answer, and the decision flow is
+// the same for all of them:
 //
 //  1. Scrub the text (jev.Scrub), then bound it with the caller's Bound. What
 //     is hashed and what is sent are this text, so a secret that differs

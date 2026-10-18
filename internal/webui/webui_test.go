@@ -6117,36 +6117,22 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "refreshAgents" }, "Routing di
 assert.strictEqual(h.$("set-route-all").value, "off", "routing is not shown off");
 
 const pick = (id, value) => { const s = h.$(id); s.value = value; h.dispatch(s, new h.Ev("change")); return h.commands().pop(); };
-assert.deepStrictEqual(pick("set-route-all", "suggest"), { cmd: "setRouting", kind: "all", target: "mode", text: "suggest" });
-assert.deepStrictEqual(pick("set-route-project", "auto"), { cmd: "setRouting", target: "mode", text: "auto" });
+assert.deepStrictEqual(pick("set-route-all", "auto"), { cmd: "setRouting", kind: "all", target: "mode", text: "auto" });
+assert.deepStrictEqual(pick("set-route-project", "off"), { cmd: "setRouting", target: "mode", text: "off" });
+assert.ok(!h.$("set-route-jev"), "the setting that sent tasks to Jev for rating is still drawn");
 assert.deepStrictEqual(pick("set-route-floor", "mid"), { cmd: "setRouting", target: "floor", text: "mid", kind: "all" });
 assert.strictEqual(h.$("set-route-cross").checked, false, "cross-agent routing is shown on by default");
 h.$("set-route-cross").checked = true;
 h.dispatch(h.$("set-route-cross"), new h.Ev("change"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "setRouting", kind: "all", target: "crossAgent", text: "true" });
-// Asking Jev sends task text to a third party: off until turned on, worded
-// plainly, and its own setting per project like the rest.
-assert.strictEqual(h.$("set-route-jev").checked, false, "asking Jev is shown on by default");
-const jevRow = h.$("set-route-jev").parentElement.parentElement.parentElement;
-assert.ok(/TypeSafe/.test(jevRow.textContent) && /third party/.test(jevRow.textContent) && /TYPESAFE_API_KEY/.test(jevRow.textContent),
-  "the setting does not say where the text goes: " + jevRow.textContent);
-assert.ok(jevRow.textContent.includes("it is not set, so nothing is sent"), "nothing says the key is missing");
-h.$("set-route-jev").checked = true;
-h.dispatch(h.$("set-route-jev"), new h.Ev("change"));
-assert.deepStrictEqual(h.commands().pop(), { cmd: "setRouting", kind: "all", target: "jev", text: "true" });
 assert.ok(h.$("set-route-rules").textContent.includes("run the tests"), "the rules are not listed");
 assert.ok(h.$("set-route-note").textContent.includes("Default"), "nothing says why routing would do nothing");
 h.click(h.$("set-route-clear-log"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "clearRoutingLog" });
 
 // A project with a policy of its own: that is the floor changed.
-h.recv(fixture({ agents: catalog({ routing: routing({ project: { mode: "suggest", floor: "mid" }, note: "", crossAgent: true,
-  jev: true, jevKey: true, fallback: [{ name: "fallback", kept: 3, overridden: 1 }, { name: "fallback (Jev-assisted)", kept: 4, overridden: 0 }] }) }) }));
-assert.strictEqual(h.$("set-route-jev").checked, true, "the project's own Jev setting is not shown");
-assert.ok(!h.$("set-route-jev").parentElement.parentElement.parentElement.textContent.includes("it is not set"), "a key that is set is said to be missing");
-assert.ok(h.$("set-route-fallback").textContent.includes("fallback (Jev-assisted)") && h.$("set-route-fallback").textContent.includes("overridden 25% of the time (1 of 4)"),
-  "the comparison of the fallback with and without Jev is not shown: " + h.$("set-route-fallback").textContent);
-assert.strictEqual(h.$("set-route-project").value, "suggest");
+h.recv(fixture({ agents: catalog({ routing: routing({ project: { mode: "auto", floor: "mid" }, note: "", crossAgent: true }) }) }));
+assert.strictEqual(h.$("set-route-project").value, "auto");
 assert.strictEqual(h.$("set-route-floor").value, "mid", "the project's own floor is not shown");
 assert.deepStrictEqual(pick("set-route-floor", "top"), { cmd: "setRouting", target: "floor", text: "top" });
 assert.strictEqual(h.$("set-route-cross").checked, true, "the project's own crossAgent is not shown");
@@ -6154,16 +6140,6 @@ h.$("set-route-cross").checked = false;
 h.dispatch(h.$("set-route-cross"), new h.Ev("change"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "setRouting", target: "crossAgent", text: "false" },
   "a project with its own policy sent kind: all");
-h.$("set-route-jev").checked = false;
-h.dispatch(h.$("set-route-jev"), new h.Ev("change"));
-assert.deepStrictEqual(h.commands().pop(), { cmd: "setRouting", target: "jev", text: "false" },
-  "a project with its own policy sent kind: all for Jev");
-
-// Asking Jev needs the TypeSafe key, which is set in API keys: the row leads
-// there.
-h.click(h.$("set-route-jev-key"));
-assert.strictEqual(h.$("settings-tab-keys").getAttribute("aria-selected"), "true", "Ask Jev does not lead to where its key is set");
-assert.ok(h.$("settings-pane").contains(h.$("set-jev-key")), "API keys has no TypeSafe key");
 `)
 }
 

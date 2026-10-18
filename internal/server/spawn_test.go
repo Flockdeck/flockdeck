@@ -24,7 +24,7 @@ import (
 func TestDiscardingAWorktreeSaysWhenItCannot(t *testing.T) {
 	notARepo := t.TempDir()
 	wt := t.TempDir()
-	job := &fanoutJob{task: "never started", cwd: wt, path: wt, created: true}
+	job := &worktreeJob{task: "never started", cwd: wt, path: wt, created: true}
 	if err := discardWorktree(notARepo, job, idle); err == nil {
 		t.Fatal("removing a worktree from somewhere that is not a repository reported nothing")
 	}
@@ -37,16 +37,16 @@ func TestDiscardingAWorktreeSaysWhenItCannot(t *testing.T) {
 // idle is a pane count that finds nobody working anywhere.
 func idle(string) (bool, bool) { return false, true }
 
-// TestFanoutCatalogSaysWhichAgentsAskAboutTrust covers the fan-out dialog's
-// offer to carry folder trust over, which is only worth making for a run whose
-// agents ask whether a folder is trusted.
-func TestFanoutCatalogSaysWhichAgentsAskAboutTrust(t *testing.T) {
+// TestAgentChoicesSayWhichAgentsAskAboutTrust covers the offer to carry folder
+// trust over, which is only worth making for a run whose agents ask whether a
+// folder is trusted.
+func TestAgentChoicesSayWhichAgentsAskAboutTrust(t *testing.T) {
 	srv, ws := newTestServer(t)
 	specs, _ := ask(srv, func() []agent.Spec {
 		specs, _ := ws.Agents()
 		return specs
 	})
-	agents := srv.fanoutCatalog(specs)
+	agents := srv.agentChoices(specs)
 	asking := 0
 	for _, a := range agents {
 		spec, _ := ws.Catalog().Find(a.ID)
@@ -87,8 +87,8 @@ func TestRefusedSpawnCutsNoWorktree(t *testing.T) {
 	}
 }
 
-// Writing out a working tree is the slowest thing a fan-out does, and a
-// fan-out is a dozen of them. Doing them one after another is a stretch of
+// Writing out a working tree is the slowest thing starting agents does, and a
+// batch of starts is a dozen of them. Doing them one after another is a stretch of
 // nothing happening before the first agent appears, so they have to overlap.
 func TestMakeWorktreesRunTogether(t *testing.T) {
 	const (
@@ -101,10 +101,10 @@ func TestMakeWorktreesRunTogether(t *testing.T) {
 		running int
 		peak    int
 	)
-	work := make([]*fanoutJob, jobs)
+	work := make([]*worktreeJob, jobs)
 	for i := range work {
 		branch := fmt.Sprintf("agent/t%d", i)
-		work[i] = &fanoutJob{task: fmt.Sprintf("task %d", i), branch: branch, path: `C:\repo-` + branch}
+		work[i] = &worktreeJob{task: fmt.Sprintf("task %d", i), branch: branch, path: `C:\repo-` + branch}
 	}
 
 	start := time.Now()
@@ -143,7 +143,7 @@ func TestMakeWorktreesRunTogether(t *testing.T) {
 // A worktree that cannot be created belongs to its own task. The rest are
 // still prepared, and the failure is kept where the task order can report it.
 func TestMakeWorktreesKeepsFailuresWithTheirTask(t *testing.T) {
-	work := []*fanoutJob{
+	work := []*worktreeJob{
 		{task: "first", branch: "agent/first", path: "/wt/agent/first"},
 		{task: "second", branch: "agent/second", path: "/wt/agent/second"},
 		{task: "third", branch: "agent/third", path: "/wt/agent/third"},
@@ -174,12 +174,12 @@ func TestMakeWorktreesKeepsFailuresWithTheirTask(t *testing.T) {
 // PrepareWorktree reuses the worktree a branch already has — so without this
 // two agents would quietly share one checkout.
 func TestNameBranchesAreDistinct(t *testing.T) {
-	jobs := []*fanoutJob{
+	jobs := []*worktreeJob{
 		{task: "Add a health endpoint to the HTTP server and wire it up"},
 		{task: "Add a health endpoint to the HTTP server and document it"},
 		{task: "Add a health endpoint to the HTTP server and test it"},
 	}
-	// No branch in the repository is taken, leaving the within-fan-out check.
+	// No branch in the repository is taken, leaving the within-batch check.
 	nameBranches(jobs, nil)
 
 	base := workspace.BranchNameFor(jobs[0].task)
@@ -210,7 +210,7 @@ func TestDiscardWorktreeRemovesTheOneThatWasJustMade(t *testing.T) {
 		t.Fatalf("worktree add: %v", err)
 	}
 
-	if err := discardWorktree(repo, &fanoutJob{task: "x", branch: "agent/never-started", cwd: path, path: path, created: true}, idle); err != nil {
+	if err := discardWorktree(repo, &worktreeJob{task: "x", branch: "agent/never-started", cwd: path, path: path, created: true}, idle); err != nil {
 		t.Errorf("discardWorktree: %v", err)
 	}
 
@@ -232,7 +232,7 @@ func TestDiscardWorktreeRemovesTheOneThatWasJustMade(t *testing.T) {
 	}
 }
 
-// The dangerous case: a fan-out without worktrees runs every agent in the
+// The dangerous case: a start without worktrees runs every agent in the
 // project itself, so a pane that fails to start must not take the user's own
 // checkout with it.
 func TestDiscardWorktreeLeavesTheProjectAlone(t *testing.T) {
@@ -241,7 +241,7 @@ func TestDiscardWorktreeLeavesTheProjectAlone(t *testing.T) {
 	}
 	repo := newTestRepo(t)
 
-	discardWorktree(repo, &fanoutJob{task: "x", cwd: repo}, idle)
+	discardWorktree(repo, &worktreeJob{task: "x", cwd: repo}, idle)
 
 	if _, err := os.Stat(filepath.Join(repo, "README.md")); err != nil {
 		t.Fatalf("the project checkout was removed: %v", err)
@@ -277,7 +277,7 @@ func newTestRepo(t *testing.T) string {
 // share one checkout without anything saying so.
 func TestNameBranchesStepAroundExistingOnes(t *testing.T) {
 	base := workspace.BranchNameFor("split the router into three files")
-	jobs := []*fanoutJob{{task: "split the router into three files"}}
+	jobs := []*worktreeJob{{task: "split the router into three files"}}
 
 	nameBranches(jobs, map[string]bool{base: true})
 	if jobs[0].branch == base {
@@ -291,7 +291,7 @@ func TestNameBranchesStepAroundExistingOnes(t *testing.T) {
 // git keeps a loose ref as a file, so on Windows and macOS "agent/Fix" and
 // "agent/fix" are one ref — and `git worktree add -b` refuses the second with
 // a lock error, which reaches the user as a task that would not start. The
-// branch names a fan-out derives are always lower case, so the repository's
+// branch names a start derives are always lower case, so the repository's
 // own are folded to match.
 func TestLocalBranchesFoldCase(t *testing.T) {
 	if !gitx.Available() {
@@ -315,7 +315,7 @@ func TestLocalBranchesFoldCase(t *testing.T) {
 		t.Fatalf("the repository has %s but localBranches reported %v", strings.ToUpper(base), taken)
 	}
 
-	jobs := []*fanoutJob{{task: task}}
+	jobs := []*worktreeJob{{task: task}}
 	nameBranches(jobs, taken)
 	if strings.EqualFold(jobs[0].branch, base) {
 		t.Errorf("branch = %q, which differs from an existing branch only by case", jobs[0].branch)

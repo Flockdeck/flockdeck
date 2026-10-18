@@ -411,7 +411,7 @@ func TestIsWorktreeTellsALinkedWorktreeFromTheMainCheckout(t *testing.T) {
 	}
 
 	// A fan-out started from a subfolder works below the worktree's own root;
-	// see sameFolderIn in internal/server/fanout.go. IsWorktree is asked about
+	// see sameFolderIn in internal/server/spawn.go. IsWorktree is asked about
 	// exactly that folder, and has to find the worktree it is under.
 	wtSub := filepath.Join(wtPath, "sub")
 	if err := os.Mkdir(wtSub, 0o755); err != nil {

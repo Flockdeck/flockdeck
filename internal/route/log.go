@@ -2,32 +2,22 @@ package route
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // LogName is the routing log, in Flockdeck's state directory.
 //
-// It is how the user, and later the spend view, can tell whether routing
-// saves anything and how often its choices are overridden. It stays on this
-// machine: nothing reads it but Flockdeck, on the user's behalf, and Settings
-// clears it. It holds no task text and no prompt -- only the name of the rule
-// that chose -- because the task is already in the user's own transcripts, and
-// a log of prompts would be one more copy of them to leak.
+// Nothing writes it any more: Fan out was the only thing that did, and its
+// rows were the decisions a person could override. A log an earlier build
+// wrote is still read back for Settings, which can also clear it. It holds no
+// task text and no prompt, only the name of the rule that chose.
 const LogName = "routing.jsonl"
-
-// logCap is how many decisions the log keeps. Older ones are dropped as new
-// ones are written, so it never grows without end.
-const logCap = 10_000
 
 // LogEntry is one decision, as the log records it.
 type LogEntry struct {
@@ -50,11 +40,6 @@ type LogEntry struct {
 	// Outcome is what became of the choice: "kept", or "overridden:<model>"
 	// when the user chose another before it started.
 	Outcome string `json:"outcome"`
-	// Jev is the classification a fallback decision was shaped by, and is
-	// absent from every other line -- a rule's, a plain fallback, and every
-	// line written before Jev existed -- so those parse exactly as they did.
-	// It records what the classifier said, never the task it said it about.
-	Jev *JevNote `json:"jev,omitempty"`
 }
 
 // Outcomes a decision can have.
@@ -63,81 +48,8 @@ const (
 	OutcomeOverridden = "overridden:"
 )
 
-// logMu keeps two writers in this process -- two fan-outs started from two
-// windows -- from each trimming the log and writing back a copy without the
-// other's lines.
+// logMu keeps a read or a clear from overlapping another.
 var logMu sync.Mutex
-
-// AppendLog adds decisions to the log in dir.
-func AppendLog(dir string, entries ...LogEntry) error {
-	if len(entries) == 0 {
-		return nil
-	}
-	var add bytes.Buffer
-	for _, e := range entries {
-		line, err := json.Marshal(e)
-		if err != nil {
-			return err
-		}
-		add.Write(line)
-		add.WriteByte('\n')
-	}
-	logMu.Lock()
-	defer logMu.Unlock()
-	path := filepath.Join(dir, LogName)
-	old, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read the routing log: %w", err)
-	}
-	data := add.Bytes()
-	if len(old) > 0 && old[len(old)-1] != '\n' {
-		// The last line has no end: an editor that drops the final newline, or
-		// a write cut short. Appended to as it stood, it and the first new
-		// decision became one line that parsed as neither, and both were lost.
-		data = append([]byte{'\n'}, data...)
-	}
-	if bytes.Count(old, []byte("\n"))+bytes.Count(data, []byte("\n")) <= logCap {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-		if err != nil {
-			return fmt.Errorf("write the routing log: %w", err)
-		}
-		_, err = f.Write(data)
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-		if err != nil {
-			return fmt.Errorf("write the routing log: %w", err)
-		}
-		return nil
-	}
-	// data, not add: once the log is full every append comes this way, and
-	// a last line without its newline would otherwise still swallow the
-	// first new decision.
-	lines := bytes.SplitAfter(append(old, data...), []byte("\n"))
-	if n := len(lines); n > 0 && len(lines[n-1]) == 0 {
-		lines = lines[:n-1]
-	}
-	if len(lines) > logCap {
-		lines = lines[len(lines)-logCap:]
-	}
-	return replace(path, bytes.Join(lines, nil))
-}
-
-// replace writes a file whole, through store.WriteAtomic, so a trim
-// interrupted halfway leaves the old log rather than half of one.
-//
-// It used to rename a temporary file into place itself, and on Windows a
-// rename onto a file somebody has open -- a second instance reading the log,
-// a virus scanner looking at it -- is refused with "Access is denied", which
-// lost that fan-out's decisions. WriteAtomic waits that out, and queues saves
-// of the one file from this process, as it does for every other file kept in
-// the state directory; the 0600 is the same.
-func replace(path string, data []byte) error {
-	if err := store.WriteAtomic(path, data); err != nil {
-		return fmt.Errorf("write the routing log: %w", err)
-	}
-	return nil
-}
 
 // ReadLog returns every decision in the log in dir, oldest first. A line that
 // does not parse is passed over: the log is the user's to edit or truncate.
@@ -190,8 +102,7 @@ func (s RuleStat) OverrideRate() float64 {
 // line. It only reports; nothing here changes a rule or a policy. A decision
 // StrategyCost's fallback made (Source SourceFallback, Rule "") is not a
 // named rule, so it is left out: there is nothing in agents.json to edit for
-// it. FallbackStats reports those. Rules are returned in the order they are
-// first seen, oldest first.
+// it. Rules are returned in the order they are first seen, oldest first.
 func Stats(entries []LogEntry) []RuleStat {
 	at := map[string]int{}
 	var out []RuleStat
@@ -220,44 +131,6 @@ func Stats(entries []LogEntry) []RuleStat {
 func StatsByOverrideRate(entries []LogEntry) []RuleStat {
 	out := Stats(entries)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].OverrideRate() > out[j].OverrideRate() })
-	return out
-}
-
-// The two groups FallbackStats splits a cost strategy's fallback decisions
-// into.
-const (
-	FallbackPlain = "fallback"
-	FallbackJev   = "fallback (Jev-assisted)"
-)
-
-// FallbackStats is Stats for the decisions no rule made: what the log has of
-// StrategyCost's fallback, split into the ones Jev's classification shaped and
-// the ones it did not, each with how often it was kept or overridden. That is
-// the comparison that says whether trusting Jev's rating chooses better than
-// the floor alone does. Like Stats it only reports; a group the log has no
-// decision for is left out, and nothing here changes a policy.
-func FallbackStats(entries []LogEntry) []RuleStat {
-	stats := map[string]*RuleStat{FallbackPlain: {Rule: FallbackPlain}, FallbackJev: {Rule: FallbackJev}}
-	for _, e := range entries {
-		if e.Source != SourceFallback {
-			continue
-		}
-		st := stats[FallbackPlain]
-		if e.Jev != nil {
-			st = stats[FallbackJev]
-		}
-		if strings.HasPrefix(e.Outcome, OutcomeOverridden) {
-			st.Overridden++
-		} else {
-			st.Kept++
-		}
-	}
-	var out []RuleStat
-	for _, name := range []string{FallbackPlain, FallbackJev} {
-		if stats[name].Total() > 0 {
-			out = append(out, *stats[name])
-		}
-	}
 	return out
 }
 

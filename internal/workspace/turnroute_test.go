@@ -60,7 +60,7 @@ func giveTranscript(t *testing.T, paneID string) {
 // TestRouteFirstTurnRoutesAFreshPaneOntoARoutedModel covers the design this
 // package settled on: a pane opened by hand knows nothing to route on until
 // its first prompt exists, so resolveChoice cannot route it the way a
-// fan-out row or a spawned helper is -- and routing catches up the moment the
+// spawned helper is -- and routing catches up the moment the
 // prompt is finally known, restarting the pane onto the routed model with
 // that prompt as its opening argument rather than typing it into the process
 // that was going to run without it.
@@ -134,13 +134,12 @@ func TestRouteFirstTurnDoesNothingWithoutAMatch(t *testing.T) {
 }
 
 // TestRouteFirstTurnOnlyRoutesInAutoMode covers the same gate
-// routeSpawnChoice answers to and for the same reason: a prompt about to be
-// typed straight into a live terminal has no dialog left to show a suggested
-// model in, so "suggest" -- which exists to fill one in -- has nothing to do
-// here and routes nothing.
+// routeSpawnChoice answers to. "suggest", which an earlier build used to fill
+// in Fan out's dialog and which an old agents.json may still hold, routes
+// nothing here.
 func TestRouteFirstTurnOnlyRoutesInAutoMode(t *testing.T) {
 	ws, root := turnTestWorkspace(t, agent.RoutingPolicy{
-		Mode: agent.RoutingSuggest,
+		Mode: "suggest",
 		Rules: []agent.RoutingRule{
 			{Name: "hard turn work", Tier: agent.TierTop, When: agent.RuleMatch{Kind: route.KindTurn}},
 		},

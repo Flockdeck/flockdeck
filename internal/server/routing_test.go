@@ -2,6 +2,8 @@ package server
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,88 +14,6 @@ import (
 
 func catalogRouting(policy string) *agent.Catalog {
 	return agent.Merge(&agent.File{Routing: json.RawMessage(policy)})
-}
-
-// Routes are positional against the tasks, with nothing where a row is left
-// alone, and there are none at all while routing is off.
-func TestRouteRowsArePositionalAndOnlyWhenOn(t *testing.T) {
-	tasks := []string{"add a health endpoint", "", "run the tests", "refactor the store"}
-	if routes, mode, note := routeRows(agent.Merge(nil), "/p", "claude", "sonnet", tasks); routes != nil || mode != "" || note != "" {
-		t.Errorf("with routing off: %v, %q, %q", routes, mode, note)
-	}
-	routes, mode, note := routeRows(catalogRouting(`{"mode": "suggest"}`), "/p", "claude", "sonnet", tasks)
-	if mode != agent.RoutingSuggest || note != "" || len(routes) != len(tasks) {
-		t.Fatalf("routes %v, mode %q, note %q", routes, mode, note)
-	}
-	if routes[0] != nil || routes[1] != nil {
-		t.Errorf("rows no rule matched were routed: %+v, %+v", routes[0], routes[1])
-	}
-	if r := routes[2]; r == nil || r.Model != "haiku" || r.Rule != "run the tests" || r.Up || r.Reason == "" {
-		t.Errorf("the test run was routed %+v", r)
-	}
-	if r := routes[3]; r == nil || r.Model != "opus" || !r.Up {
-		t.Errorf("the refactor was routed %+v", r)
-	}
-	// Nothing to change is no list, not a list of nothing.
-	if routes, _, _ := routeRows(catalogRouting(`{"mode": "suggest"}`), "/p", "claude", "sonnet", []string{"add a flag"}); routes != nil {
-		t.Errorf("routes = %v", routes)
-	}
-}
-
-// A project routed with Strategy "cost" gets a suggestion even for a row no
-// rule recognises, unlike the default (balanced) strategy, which leaves such
-// a row alone -- see TestRouteRowsArePositionalAndOnlyWhenOn.
-func TestRouteRowsWithCostStrategyRouteUnmatchedRows(t *testing.T) {
-	c := catalogRouting(`{"mode": "suggest", "strategy": "cost"}`)
-	routes, _, _ := routeRows(c, "/p", "claude", "sonnet", []string{"add a health endpoint"})
-	if len(routes) != 1 || routes[0] == nil || routes[0].Model != "haiku" || routes[0].Rule != "" || routes[0].Reason == "" {
-		t.Fatalf("routes = %+v, want the unmatched row routed to haiku with no rule name", routes)
-	}
-}
-
-// A project's own policy replaces every project's.
-func TestRouteRowsFollowTheProjectsOwnPolicy(t *testing.T) {
-	off := json.RawMessage(`{"mode": "off"}`)
-	c := agent.Merge(&agent.File{Routing: json.RawMessage(`{"mode": "suggest"}`),
-		Projects: map[string]agent.Defaults{"/work/quiet": {Routing: &off}}})
-	if routes, _, _ := routeRows(c, "/work/quiet", "claude", "sonnet", []string{"run the tests"}); routes != nil {
-		t.Errorf("a project with routing off was routed: %v", routes)
-	}
-	if routes, _, _ := routeRows(c, "/work/other", "claude", "sonnet", []string{"run the tests"}); routes == nil {
-		t.Error("a project with no policy of its own was not routed by every project's")
-	}
-}
-
-// Where routing can do nothing because of the run's model or its agent, the
-// dialog is told why, so it can say what would let it.
-func TestRouteRowsSayWhyNothingCanBeRouted(t *testing.T) {
-	c := catalogRouting(`{"mode": "suggest"}`)
-	routes, _, note := routeRows(c, "", "claude", "", []string{"run the tests"})
-	if routes != nil || !strings.Contains(note, "Default") || !strings.Contains(note, "Choose a model") {
-		t.Errorf("on Claude's Default: %v, note %q", routes, note)
-	}
-	if _, _, note := routeRows(c, "", "aider", "", []string{"run the tests"}); !strings.Contains(note, "tier") {
-		t.Errorf("on an agent with no tiers: note %q", note)
-	}
-}
-
-// For an API agent the reason says what the two models cost, with the day
-// the prices were read; for a command-line agent it says nothing of money.
-func TestARoutedAPIRowSaysWhatBothModelsCost(t *testing.T) {
-	c := catalogRouting(`{"mode": "suggest"}`)
-	routes, _, _ := routeRows(c, "", "anthropic", "claude-sonnet-5", []string{"run the tests"})
-	if len(routes) != 1 || routes[0] == nil {
-		t.Fatalf("routes = %v", routes)
-	}
-	for _, want := range []string{"Haiku 4.5", "Sonnet 5", "per M tokens", "prices checked"} {
-		if !strings.Contains(routes[0].Reason, want) {
-			t.Errorf("reason %q does not mention %q", routes[0].Reason, want)
-		}
-	}
-	routes, _, _ = routeRows(c, "", "claude", "sonnet", []string{"run the tests"})
-	if strings.Contains(routes[0].Reason, "$") {
-		t.Errorf("a command-line agent's reason prices it: %q", routes[0].Reason)
-	}
 }
 
 func TestPaneRouteSaysWhichWayTheModelMoved(t *testing.T) {
@@ -155,40 +75,7 @@ func stubReachable(t *testing.T, ok bool) {
 	})
 }
 
-// A row moves to another agent only with the policy's own switch on, and the
-// reason names the agent, the model, and that it costs nothing per token.
-func TestRouteRowsMoveARowToAnotherAgent(t *testing.T) {
-	stubReachable(t, true)
-	policy := `{"mode": "suggest", "crossAgent": true, "rules": [
-		{"name": "tests go local", "model": "qwen2.5-coder", "agent": "openai-compatible", "when": {"task": "tests"}}
-	]}`
-	routes, _, _ := routeRows(ollamaCatalog(policy), "", "claude", "sonnet", []string{"run the tests"})
-	if len(routes) != 1 || routes[0] == nil {
-		t.Fatalf("routes = %v", routes)
-	}
-	r := routes[0]
-	if r.Agent != "openai-compatible" || r.Model != "qwen2.5-coder" || r.Rule != "tests go local" {
-		t.Errorf("routed %+v", r)
-	}
-	if !strings.Contains(r.Reason, "Qwen 2.5 Coder") || !strings.Contains(r.Reason, "no per-token cost") {
-		t.Errorf("reason %q does not name the model and its cost", r.Reason)
-	}
-}
-
-// The same rule does nothing at all while the policy's crossAgent switch is
-// off, which is what a file that says nothing about it already means.
-func TestRouteRowsLeaveCrossAgentRulesAloneWithoutTheSwitch(t *testing.T) {
-	stubReachable(t, true)
-	policy := `{"mode": "suggest", "rules": [
-		{"name": "tests go local", "model": "qwen2.5-coder", "agent": "openai-compatible", "when": {"task": "tests"}}
-	]}`
-	routes, _, _ := routeRows(ollamaCatalog(policy), "", "claude", "sonnet", []string{"run the tests"})
-	if routes != nil {
-		t.Errorf("routes = %v, want nothing routed with crossAgent off", routes)
-	}
-}
-
-// otherAgentFor refuses an endpoint that does not answer, so a fan-out never
+// otherAgentFor refuses an endpoint that does not answer, so a spawn never
 // cuts a worktree for a pane that could never connect.
 func TestOtherAgentForRefusesAnUnreachableEndpoint(t *testing.T) {
 	stubReachable(t, false)
@@ -198,8 +85,8 @@ func TestOtherAgentForRefusesAnUnreachableEndpoint(t *testing.T) {
 	}
 }
 
-// endpointReachable remembers its answer, so a fan-out asking about a dozen
-// rows dials an endpoint once rather than once per row.
+// endpointReachable remembers its answer, so a burst of spawns dials an
+// endpoint once rather than once each.
 func TestEndpointReachableCaches(t *testing.T) {
 	calls := 0
 	orig := dialReachable
@@ -217,12 +104,14 @@ func TestEndpointReachableCaches(t *testing.T) {
 	}
 }
 
-// A spawned helper is routed only in auto mode, since there is no dialog for
-// suggest to fill in, and it records what it would have run without routing.
+// A spawned helper is routed only in auto mode, and it records what it would
+// have run without routing. A saved mode of suggest, which an earlier build
+// had for Fan out's dialog, routes nothing.
 func TestRouteSpawnChoiceOnlyInAutoMode(t *testing.T) {
-	suggest := ollamaCatalog(`{"mode": "suggest"}`)
-	if d, _, _ := routeSpawnChoice(suggest, "", "run the tests"); d.Routed {
-		t.Errorf("decided %+v, want nothing routed outside auto mode", d)
+	for _, mode := range []string{"off", "suggest"} {
+		if d, _, _ := routeSpawnChoice(ollamaCatalog(`{"mode": "`+mode+`"}`), "", "run the tests"); d.Routed {
+			t.Errorf("mode %q: decided %+v, want nothing routed outside auto mode", mode, d)
+		}
 	}
 	auto := ollamaCatalog(`{"mode": "auto"}`)
 	d, baseAgent, baseModel := routeSpawnChoice(auto, "", "run the tests")
@@ -231,8 +120,20 @@ func TestRouteSpawnChoiceOnlyInAutoMode(t *testing.T) {
 	}
 }
 
-// A spawned helper can be routed to another agent too, under the same switch
-// a fan-out row is.
+// The same rule does nothing at all while the policy's crossAgent switch is
+// off, which is what a file that says nothing about it already means.
+func TestRouteSpawnChoiceLeavesCrossAgentRulesAloneWithoutTheSwitch(t *testing.T) {
+	stubReachable(t, true)
+	policy := `{"mode": "auto", "rules": [
+		{"name": "tests go local", "model": "qwen2.5-coder", "agent": "openai-compatible", "when": {"task": "tests"}}
+	]}`
+	if d, _, _ := routeSpawnChoice(ollamaCatalog(policy), "", "run the tests"); d.Routed {
+		t.Errorf("decided %+v, want nothing routed with crossAgent off", d)
+	}
+}
+
+// A spawned helper can be routed to another agent, under the policy's
+// crossAgent switch.
 func TestRouteSpawnChoiceCanCrossAgents(t *testing.T) {
 	stubReachable(t, true)
 	policy := `{"mode": "auto", "crossAgent": true, "rules": [
@@ -242,13 +143,33 @@ func TestRouteSpawnChoiceCanCrossAgents(t *testing.T) {
 	if !d.Routed || d.Agent != "openai-compatible" || d.Model != "qwen2.5-coder" || baseAgent != "claude" || baseModel != "sonnet" {
 		t.Errorf("decided %+v (base %q on %q)", d, baseModel, baseAgent)
 	}
+	if !strings.Contains(d.Reason, "Qwen 2.5 Coder") {
+		t.Errorf("reason %q does not name the model", d.Reason)
+	}
+}
+
+// Where routing can do nothing because of the model or the agent, Settings
+// says why, so it can say what would let it.
+func TestRouteNoteSaysWhyNothingCanBeRouted(t *testing.T) {
+	c := agent.Merge(nil)
+	claude, _ := c.Find("claude")
+	if note := routeNote(claude, ""); !strings.Contains(note, "Default") || !strings.Contains(note, "Choose a model") {
+		t.Errorf("on Claude's Default: note %q", note)
+	}
+	if note := routeNote(claude, "sonnet"); note != "" {
+		t.Errorf("on a tiered model: note %q, want none", note)
+	}
+	aider, _ := c.Find("aider")
+	if note := routeNote(aider, ""); !strings.Contains(note, "tier") {
+		t.Errorf("on an agent with no tiers: note %q", note)
+	}
 }
 
 // Settings lists the rules in words, and says why routing would do nothing
 // for what a project starts.
 func TestSettingsSeeTheRulesInForce(t *testing.T) {
-	v := routingOf(catalogRouting(`{"mode": "suggest", "floor": "mid"}`), "")
-	if v.Every.Mode != agent.RoutingSuggest || v.Every.Floor != agent.TierMid || !v.BuiltIn || len(v.Rules) == 0 {
+	v := routingOf(catalogRouting(`{"mode": "auto", "floor": "mid"}`), "")
+	if v.Every.Mode != agent.RoutingAuto || v.Every.Floor != agent.TierMid || !v.BuiltIn || len(v.Rules) == 0 {
 		t.Fatalf("routing view %+v", v)
 	}
 	if !strings.Contains(v.Note, "Default") {
@@ -269,7 +190,7 @@ func TestSettingsSeeTheRulesInForce(t *testing.T) {
 // Settings shows Strategy alongside Mode and Floor, defaulting to balanced
 // the same way an unset Mode shows as off.
 func TestSettingsSeeTheStrategy(t *testing.T) {
-	v := routingOf(catalogRouting(`{"mode": "suggest"}`), "")
+	v := routingOf(catalogRouting(`{"mode": "auto"}`), "")
 	if v.Every.Strategy != agent.StrategyBalanced {
 		t.Errorf("strategy = %q with nothing set, want balanced", v.Every.Strategy)
 	}
@@ -288,14 +209,13 @@ func TestSettingsSeeTheRulesOverrideRate(t *testing.T) {
 	routingLogDir = func() (string, error) { return dir, nil }
 	defer func() { routingLogDir = old }()
 
-	entries := []route.LogEntry{
-		{Kind: route.KindFanout, Source: route.SourceRule, Rule: "rename or move", Baseline: "sonnet", Routed: "haiku", Outcome: route.OutcomeKept},
-		{Kind: route.KindFanout, Source: route.SourceRule, Rule: "rename or move", Baseline: "sonnet", Routed: "haiku", Outcome: route.OutcomeOverridden + "opus"},
-	}
-	if err := route.AppendLog(dir, entries...); err != nil {
+	// A log an earlier build wrote: nothing writes one now.
+	lines := `{"kind":"fanout","source":"rule","rule":"rename or move","baseline":"sonnet","routed":"haiku","outcome":"kept"}` + "\n" +
+		`{"kind":"fanout","source":"rule","rule":"rename or move","baseline":"sonnet","routed":"haiku","outcome":"overridden:opus"}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, route.LogName), []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	v := routingOf(catalogRouting(`{"mode": "suggest"}`), "")
+	v := routingOf(catalogRouting(`{"mode": "auto"}`), "")
 	found := false
 	for _, r := range v.Rules {
 		if r.Name != "rename or move" {

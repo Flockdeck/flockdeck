@@ -262,9 +262,9 @@ type Tab struct {
 	Focus string
 	// Zoom temporarily gives the focused pane the whole window.
 	Zoom bool
-	// Delegated is set on a tab Spawn has placed a fan-out's own child into
-	// -- gathering several into one together, or giving a lone helper a new
-	// tab of its own -- and never on one an ordinary split put a pane into.
+	// Delegated is set on a tab Spawn has placed a helper into -- gathering
+	// several into one together, or giving a lone helper a new tab of its
+	// own -- and never on one an ordinary split put a pane into.
 	// It is not persisted: a restart resumes agents into tabs nothing has
 	// just delegated work into, and starts each over the ordinary way.
 	//
@@ -272,7 +272,7 @@ type Tab struct {
 	// sharing a tab" apart from "an ordinary tab of several agents a person
 	// split together by hand, which simply happen to have gone idle at the
 	// same time" -- the window's own settled-tab-collapses-to-a-summary-card
-	// behaviour (see webui's tabSettleInfo) must never guess at fan-out from
+	// behaviour (see webui's tabSettleInfo) must never guess at delegated work from
 	// pane count alone, since a person is free to build exactly the same
 	// shape by hand.
 	Delegated bool
@@ -3044,8 +3044,7 @@ func typeInto(s *session.Session, text string, submit bool) {
 // moment its very first prompt is about to be sent, which is also the first
 // moment anything is known about what the pane is for. newPane resolved its
 // agent and model from nothing but the project's defaults, the same way a
-// fan-out row or a spawned helper would have before their own task was
-// known; this is where a pane opened by hand, or from the picker, catches up
+// spawned helper would have before its own task was known; this is where a pane opened by hand, or from the picker, catches up
 // to them -- routed, if routing has anything to say, before the prompt ever
 // reaches its agent.
 //
@@ -3062,7 +3061,7 @@ func typeInto(s *session.Session, text string, submit bool) {
 // already made and about to be acted on.
 //
 // Turn routing never crosses agents. route.Decide already refuses that for
-// every Kind but KindFanout and KindSpawn -- a live pane's process belongs
+// every Kind but KindSpawn -- a live pane's process belongs
 // to the agent it was opened as, and reassigning that is a bigger decision
 // than a model choice -- so no OtherAgent is offered here to make the point
 // twice.

@@ -28,7 +28,7 @@ func on(rules ...agent.RoutingRule) agent.RoutingPolicy {
 	if rules == nil {
 		rules = []agent.RoutingRule{}
 	}
-	return agent.RoutingPolicy{Mode: agent.RoutingSuggest, Rules: rules}
+	return agent.RoutingPolicy{Mode: agent.RoutingAuto, Rules: rules}
 }
 
 func small(name, task string) agent.RoutingRule {
@@ -57,7 +57,7 @@ func TestDecide(t *testing.T) {
 			policy: agent.RoutingPolicy{},
 			in:     Input{Task: "run the tests", Agent: claude(), Current: "sonnet"}},
 		{name: "a built-in rule moves mechanical work down",
-			policy: agent.RoutingPolicy{Mode: agent.RoutingSuggest},
+			policy: agent.RoutingPolicy{Mode: agent.RoutingAuto},
 			in:     Input{Task: "run the tests", Agent: claude(), Current: "sonnet"},
 			model:  "haiku", rule: "run the tests"},
 		{name: "and hard work up",
@@ -65,7 +65,7 @@ func TestDecide(t *testing.T) {
 			in:     Input{Task: "refactor the store", Agent: claude(), Current: "sonnet"},
 			model:  "opus", rule: "hard work", up: true},
 		{name: "no match changes nothing",
-			policy: agent.RoutingPolicy{Mode: agent.RoutingSuggest},
+			policy: agent.RoutingPolicy{Mode: agent.RoutingAuto},
 			in:     Input{Task: "add a health endpoint", Agent: claude(), Current: "sonnet"}},
 		{name: "the first match wins",
 			policy: on(small("first", "tests"), agent.RoutingRule{Name: "second", Tier: agent.TierTop, When: agent.RuleMatch{Task: "tests"}}),
@@ -94,8 +94,8 @@ func TestDecide(t *testing.T) {
 			in:     Input{Task: "add a column", Agent: claude(), Current: "sonnet"}},
 		{name: "kind narrows a rule",
 			policy: on(agent.RoutingRule{Name: "turns", Tier: agent.TierSmall, When: agent.RuleMatch{Kind: KindTurn}}),
-			in:     Input{Kind: KindFanout, Task: "anything", Agent: claude(), Current: "sonnet"}},
-		{name: "a pane's first turn is routed exactly like a fan-out row or a spawned helper once Kind matches",
+			in:     Input{Kind: KindSpawn, Task: "anything", Agent: claude(), Current: "sonnet"}},
+		{name: "a pane's first turn is routed exactly like a spawned helper once Kind matches",
 			policy: on(agent.RoutingRule{Name: "turns", Tier: agent.TierSmall, When: agent.RuleMatch{Kind: KindTurn}}),
 			in:     Input{Kind: KindTurn, Task: "anything", Agent: claude(), Current: "sonnet"},
 			model:  "haiku", rule: "turns"},
@@ -110,11 +110,11 @@ func TestDecide(t *testing.T) {
 			policy: on(agent.RoutingRule{Name: "opus please", Model: "opus", Agent: "claude", When: agent.RuleMatch{Task: "design"}}),
 			in:     Input{Task: "design the cache", Agent: codex, Current: "gpt-5.6-terra"}},
 		{name: "the floor raises what a rule chose",
-			policy: agent.RoutingPolicy{Mode: agent.RoutingSuggest, Floor: agent.TierMid, Rules: []agent.RoutingRule{small("tests", "tests")}},
+			policy: agent.RoutingPolicy{Mode: agent.RoutingAuto, Floor: agent.TierMid, Rules: []agent.RoutingRule{small("tests", "tests")}},
 			in:     Input{Task: "run the tests", Agent: claude(), Current: "opus"},
 			model:  "sonnet", rule: "tests"},
 		{name: "a floor nobody can read is taken as top",
-			policy: agent.RoutingPolicy{Mode: agent.RoutingSuggest, Floor: "medium", Rules: []agent.RoutingRule{small("tests", "tests")}},
+			policy: agent.RoutingPolicy{Mode: agent.RoutingAuto, Floor: "medium", Rules: []agent.RoutingRule{small("tests", "tests")}},
 			in:     Input{Task: "run the tests", Agent: claude(), Current: "opus"}},
 		{name: "never downgrade holds",
 			policy: on(small("tests", "tests")),
@@ -204,7 +204,7 @@ func TestCostStrategyFallback(t *testing.T) {
 			in:     Input{Task: "add a health endpoint", Agent: claude(), Current: "sonnet"},
 			model:  "haiku"},
 		{name: "cost still obeys the floor",
-			policy: costOf(agent.RoutingPolicy{Mode: agent.RoutingSuggest, Floor: agent.TierMid, Rules: []agent.RoutingRule{}}),
+			policy: costOf(agent.RoutingPolicy{Mode: agent.RoutingAuto, Floor: agent.TierMid, Rules: []agent.RoutingRule{}}),
 			in:     Input{Task: "add a health endpoint", Agent: claude(), Current: "opus"},
 			model:  "sonnet"},
 		{name: "a matching rule still wins over the fallback",
@@ -224,7 +224,7 @@ func TestCostStrategyFallback(t *testing.T) {
 			policy: costOf(on()),
 			in:     Input{Task: "add a health endpoint", Agent: codex, Current: "gpt-5.6-terra"}},
 		{name: "cost never crosses agents on the fallback",
-			policy: agent.RoutingPolicy{Mode: agent.RoutingSuggest, Strategy: agent.StrategyCost, CrossAgent: true, Rules: []agent.RoutingRule{}},
+			policy: agent.RoutingPolicy{Mode: agent.RoutingAuto, Strategy: agent.StrategyCost, CrossAgent: true, Rules: []agent.RoutingRule{}},
 			in: Input{Task: "add a health endpoint", Agent: claude(), Current: "sonnet",
 				OtherAgent: func(id string) (agent.Spec, bool) { return codex, true }},
 			model: "haiku"},
@@ -257,7 +257,7 @@ func TestTheBuiltinRulesOnExampleTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	policy := agent.RoutingPolicy{Mode: agent.RoutingSuggest}
+	policy := agent.RoutingPolicy{Mode: agent.RoutingAuto}
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
@@ -268,7 +268,7 @@ func TestTheBuiltinRulesOnExampleTasks(t *testing.T) {
 		if !ok {
 			t.Fatalf("%q has no tab", line)
 		}
-		d := Decide(policy, Input{Kind: KindFanout, Task: task, Agent: claude(), Current: "sonnet"})
+		d := Decide(policy, Input{Kind: KindSpawn, Task: task, Agent: claude(), Current: "sonnet"})
 		got := d.Tier
 		if !d.Routed {
 			got = "-"
@@ -386,7 +386,7 @@ func onCross(rules ...agent.RoutingRule) agent.RoutingPolicy {
 // reason names both.
 func TestCrossAgentRuleMovesTheWork(t *testing.T) {
 	d := Decide(onCross(crossRule("tests local", "tests")), Input{
-		Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+		Kind: KindSpawn, Task: "run the tests", Agent: claude(), Current: "sonnet",
 		OtherAgent: usable(ollama()),
 	})
 	if d.Model != "qwen2.5-coder" || d.Agent != "openai-compatible" || d.Rule != "tests local" || !d.Routed {
@@ -401,7 +401,7 @@ func TestCrossAgentRuleMovesTheWork(t *testing.T) {
 // agent's model is not by itself enough.
 func TestCrossAgentRuleDoesNothingWithoutTheSwitch(t *testing.T) {
 	d := Decide(on(crossRule("tests local", "tests")), Input{
-		Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+		Kind: KindSpawn, Task: "run the tests", Agent: claude(), Current: "sonnet",
 		OtherAgent: usable(ollama()),
 	})
 	if d.Routed {
@@ -427,7 +427,7 @@ func TestCrossAgentRuleOnlyMovesFreshWork(t *testing.T) {
 // default for every kind of work until a caller sets one up.
 func TestCrossAgentRuleNeedsACaller(t *testing.T) {
 	d := Decide(onCross(crossRule("tests local", "tests")), Input{
-		Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+		Kind: KindSpawn, Task: "run the tests", Agent: claude(), Current: "sonnet",
 	})
 	if d.Routed {
 		t.Errorf("decided %+v, want nothing routed with no OtherAgent", d)
@@ -439,7 +439,7 @@ func TestCrossAgentRuleNeedsACaller(t *testing.T) {
 // saying why.
 func TestCrossAgentRuleNeedsAUsableDestination(t *testing.T) {
 	d := Decide(onCross(crossRule("tests local", "tests")), Input{
-		Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+		Kind: KindSpawn, Task: "run the tests", Agent: claude(), Current: "sonnet",
 		OtherAgent: usable(),
 	})
 	if d.Routed || !strings.Contains(d.Reason, "openai-compatible") {
@@ -461,7 +461,7 @@ func TestCrossAgentRuleNeedsATieredModel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rule := agent.RoutingRule{Name: "x", Model: tc.model, Agent: "openai-compatible", When: agent.RuleMatch{Task: "tests"}}
 			d := Decide(onCross(rule), Input{
-				Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+				Kind: KindSpawn, Task: "run the tests", Agent: claude(), Current: "sonnet",
 				OtherAgent: usable(ollama()),
 			})
 			if d.Routed {
@@ -477,7 +477,7 @@ func TestCrossAgentRuleObeysTheFloorAndNoDowngrade(t *testing.T) {
 	policy := onCross(crossRule("tests local", "tests"))
 	policy.Floor = agent.TierMid
 	d := Decide(policy, Input{
-		Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+		Kind: KindSpawn, Task: "run the tests", Agent: claude(), Current: "sonnet",
 		OtherAgent: usable(ollama()),
 	})
 	if d.Routed {
@@ -485,7 +485,7 @@ func TestCrossAgentRuleObeysTheFloorAndNoDowngrade(t *testing.T) {
 	}
 
 	d = Decide(onCross(crossRule("tests local", "tests")), Input{
-		Kind: KindFanout, Task: "run the tests", Agent: claude(), Current: "sonnet",
+		Kind: KindSpawn, Task: "run the tests", Agent: claude(), Current: "sonnet",
 		NoDowngrade: true, OtherAgent: usable(ollama()),
 	})
 	if d.Routed {

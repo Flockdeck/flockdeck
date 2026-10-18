@@ -51,7 +51,7 @@ type batonDraftMsg struct {
 
 // batonAgentView is an agent the baton can go to.
 type batonAgentView struct {
-	fanoutAgentView
+	agentChoiceView
 	Provider string `json:"provider,omitempty"`
 }
 
@@ -371,8 +371,8 @@ func (s *Server) makeBaton(c *controlClient, paneID, req string) {
 		}
 		// The catalog has a lock of its own; asking which agents can start probes
 		// PATH, which is why it is here and not on the workspace goroutine.
-		for _, v := range s.fanoutCatalog(s.ws.Catalog().Visible()) {
-			view := batonAgentView{fanoutAgentView: v}
+		for _, v := range s.agentChoices(s.ws.Catalog().Visible()) {
+			view := batonAgentView{agentChoiceView: v}
 			if spec, err := s.ws.AgentSpecByID(v.ID); err == nil {
 				view.Provider = workspace.BatonProviderShown(spec, in.src.Pane.Cwd)
 			}
@@ -534,8 +534,8 @@ func (s *Server) batonCommand(c *controlClient, cmd command) {
 		case "startFromBaton":
 			cwd := in.cwd
 			if branch := strings.TrimSpace(cmd.Branch); branch != "" {
-				// Held until the agent is running there, like a fan-out's own
-				// worktrees; see lockRepo.
+				// Held until the agent is running there, like a spawned
+				// helper's own worktree; see lockRepo.
 				defer lockRepo(cwd)()
 				path, err := s.ws.PrepareWorktree(cwd, branch)
 				if err != nil {

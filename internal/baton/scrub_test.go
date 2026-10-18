@@ -184,7 +184,7 @@ func TestEntropyLeavesCommonLongRunsAlone(t *testing.T) {
 	for _, s := range []string{
 		"3f2c9a1d8e7b6a5f4e3d2c1b0a9f8e7d6c5b4a39",
 		"123e4567-e89b-12d3-a456-426614174000",
-		"internal/workspace/fanout_prompt_test.go",
+		"internal/workspace/spawn_prompt_test.go",
 		"TestRestartWithBatonStartsANewConversation",
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	} {
