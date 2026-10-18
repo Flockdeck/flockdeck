@@ -39,12 +39,13 @@ does. SGLang (0.5.9 or later) uses `--tool-call-parser qwen3_coder
 commands name the repository `deepreinforce-ai/...`, but the checkpoints are
 published under `ornith-ai/`, so check the id on Hugging Face before serving.
 
-For Ollama, the model card for the 1.5 9B GGUF gives `ollama run
-hf.co/ornith-ai/Ornith-1.5-9B-GGUF:Q4_K_M`, and `llama-server -hf
-ornith-ai/Ornith-1.5-9B-GGUF:Q4_K_M` for llama.cpp. The main README still shows
-the 1.0 build under `deepreinforce-ai`. Ollama may report no tool support for
-the model. A model Ollama says cannot use tools is retried without them, and
-then it cannot edit files or run commands.
+For Ollama, the model card for the 1.5 9B GGUF
+(https://huggingface.co/ornith-ai/Ornith-1.5-9B-GGUF) gives `ollama run
+ornith-1.5:9b`, and `llama-server -hf hf.co/ornith-ai/Ornith-1.5-9B-GGUF --port
+8000 -c 262144` for llama.cpp. The main README still shows the 1.0 build under
+`deepreinforce-ai`. Ollama may report no tool support for the model. A model
+Ollama says cannot use tools is retried without them, and then it cannot edit
+files or run commands.
 
 The model id you give Flockdeck is whatever the server calls the model: the
 `--served-model-name` above, or the id a hosted provider lists. A slash in the id
