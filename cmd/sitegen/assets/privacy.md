@@ -16,7 +16,7 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
 - **The desktop app runs on your computer.** It has no accounts, no analytics,
   no telemetry and no crash reporting. Your code, your terminals and your API
   keys stay on your machine, unless you use a built-in API agent, Flockdeck Remote,
-  or turn on one of the two optional TypeSafe features, as described
+  or turn on the optional TypeSafe feature, as described
   below.
 - **The relay is optional.** It is used only if you turn on Flockdeck Remote. It
   keeps what it needs to connect your devices to your desktops: names, random
@@ -42,11 +42,13 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
 ## The desktop app
 
 The app runs on your computer. It keeps its settings, layouts,
-conversations with built-in API agents, any API keys you give it, and a
-record of which models routing chose (the rules' names and the models, never
-the tasks) in Flockdeck's configuration folder on your computer. The routing
-record also names the project folder, by its full path, and the pane each task
-ran in.
+conversations with built-in API agents and any API keys you give it in
+Flockdeck's configuration folder on your computer. Versions before routing's
+cleanup also kept a record there of which models routing chose (the rules'
+names and the models, never the tasks), which names the project folder by its
+full path and the pane each task ran in. This version no longer writes that
+record. If an older version left one, Settings can show a summary of it and
+clear it.
 
 The same folder also holds:
 
@@ -114,35 +116,32 @@ The app makes these network connections of its own.
   folder's path, and your operating system's name. What the provider does
   with it is governed by your agreement
   with them.
-- **TypeSafe AI** (api.typesafe.ai), only if you turn on one of two optional
-  features. Both are off by default, and each needs an explicit setting in
-  Flockdeck **and** a TypeSafe API key that you have set yourself, either in
-  Flockdeck's Settings or as `TYPESAFE_API_KEY` in the environment Flockdeck
-  starts in; with either missing, nothing is sent. A key entered in Settings is
-  kept in Flockdeck's key store on your machine and is sent only to
-  api.typesafe.ai.
-  - *Status detection* (Settings, Status detection). When an agent that reports no
-    status of its own goes quiet, the last 30 lines of that pane's terminal
-    output, at most 2,000 bytes and with escape sequences removed, are sent so
-    that TypeSafe can help tell whether the agent has finished or is waiting
-    for you. This setting can be turned on only on the computer Flockdeck runs
-    on, not from a window reached through the relay.
-  - *Routing* (Settings, Routing, "Ask Jev to rate unmatched work"). When
-    routing is set to minimise cost and a task matches no rule, the
-    task's text, cut at 2,000 characters, is sent so that TypeSafe can rate how
-    demanding it is.
+- **TypeSafe AI** (api.typesafe.ai), only if you turn on one optional
+  feature, status detection. It is off by default and needs an explicit
+  setting in Flockdeck **and** a TypeSafe API key that you have set yourself,
+  either in Flockdeck's Settings or as `TYPESAFE_API_KEY` in the environment
+  Flockdeck starts in; with either missing, nothing is sent. A key entered in
+  Settings is kept in Flockdeck's key store on your machine and is sent only
+  to api.typesafe.ai.
 
-  Nothing else is sent: for status, not the rest of the scrollback, the
-  pane's name or its folder; for routing, no files, repository or
-  conversation. Before it sends anything, Flockdeck redacts what looks
+  *Status detection* (Settings, Status detection). When an agent that reports no
+  status of its own goes quiet, the last 30 lines of that pane's terminal
+  output, at most 2,000 bytes and with escape sequences removed, are sent so
+  that TypeSafe can help tell whether the agent has finished or is waiting
+  for you. This setting can be turned on only on the computer Flockdeck runs
+  on, not from a window reached through the relay.
+
+  Nothing else is sent: not the rest of the scrollback, the pane's name or its
+  folder. Nothing else in Flockdeck sends text to TypeSafe: not task text, not
+  the prompts you type, not the files or conversations of a project. Before it
+  sends anything, Flockdeck redacts what looks
   like a secret: API keys of the common providers, bearer tokens, passwords in
   URLs, private key blocks, values assigned to names such as TOKEN or PASSWORD,
   and paths to files such as `.env` or `id_rsa`. This is done by pattern and
   does not catch every secret, so a password or key with no recognisable shape
-  that is on screen, or in a task's text, is sent with the rest of it. With
-  status detection on, the lines sent can include file names and code shown in
-  the terminal. Terminal text and task text both go to TypeSafe. Leave
-  these settings off for work like that. What TypeSafe does with what it
+  that is on screen is sent with the rest of it. The lines sent can include
+  file names and code shown in the terminal. Leave
+  this setting off for work like that. What TypeSafe does with what it
   receives is governed by TypeSafe's own terms and privacy policy, which you can find at
   [typesafe.ai](https://typesafe.ai).
 
@@ -523,7 +522,7 @@ each notice that a desktop joined or an account was made, so that Postmark can
 send you the message. Postmark sees the address and the message. It works under
 its own terms.
 
-If you turn on one of the optional TypeSafe features, what it sends goes to
+If you turn on the optional TypeSafe feature, what it sends goes to
 TypeSafe AI, as [The desktop app](#the-desktop-app) describes. It works under
 its own terms.
 

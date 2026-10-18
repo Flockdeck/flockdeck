@@ -435,9 +435,12 @@ func TestEveryPageStartsWithASkipLink(t *testing.T) {
 	}
 }
 
-// Two optional features send terminal output and task text to TypeSafe. The
-// policy has to say so, and say what the opt-in needs, so a test fails if the
-// disclosure is edited away or the old "entirely on your computer" comes back.
+// One optional feature, status detection, sends terminal output to TypeSafe.
+// Routing used to send task text too; it no longer does (Fan out and the
+// "Ask Jev to rate unmatched work" setting are gone). The policy has to say
+// what is sent and what the opt-in needs, and must not go back to claiming
+// task text is sent, so a test fails if the disclosure is edited away, the
+// old "entirely on your computer" comes back, or the retired claim returns.
 func TestThePrivacyPolicyDisclosesTypeSafe(t *testing.T) {
 	_, pages := generate(t)
 	policy := strings.Join(strings.Fields(pages["privacy.html"]), " ")
@@ -445,7 +448,8 @@ func TestThePrivacyPolicyDisclosesTypeSafe(t *testing.T) {
 		"TypeSafe AI", "api.typesafe.ai", "TYPESAFE_API_KEY", "off by default",
 		"the last 30 lines", "2,000 bytes", "not from a window reached through the relay",
 		"does not catch every secret", "can include file names and code", "TypeSafe&rsquo;s own terms and privacy policy",
-		"or turn on one of the two optional TypeSafe features",
+		"or turn on the optional TypeSafe feature",
+		"Nothing else in Flockdeck sends text to TypeSafe",
 	} {
 		if !strings.Contains(policy, want) && !strings.Contains(policy, strings.ReplaceAll(want, "&rsquo;", "'")) {
 			t.Errorf("privacy.html does not say %q", want)
@@ -454,8 +458,15 @@ func TestThePrivacyPolicyDisclosesTypeSafe(t *testing.T) {
 	if strings.Contains(policy, "entirely on your computer") {
 		t.Error("privacy.html still says the app runs entirely on your computer")
 	}
+	for name, page := range map[string]string{"privacy.html": policy, "trust.html": pages["trust.html"]} {
+		for _, gone := range []string{"two optional", "Ask Jev to rate", "rate how demanding", "Terminal text and task text"} {
+			if strings.Contains(page, gone) {
+				t.Errorf("%s still says %q, which describes a feature that has been removed", name, gone)
+			}
+		}
+	}
 	if !strings.Contains(pages["trust.html"], "TypeSafe AI") {
-		t.Error("trust.html does not mention the optional TypeSafe features")
+		t.Error("trust.html does not mention the optional TypeSafe feature")
 	}
 }
 

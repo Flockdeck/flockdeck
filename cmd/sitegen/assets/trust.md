@@ -25,10 +25,11 @@ because there is nothing to turn off:
   neither the relay nor its push service can read it.
 - **This website** sets no cookies, runs no analytics and loads nothing from
   anyone else.
-- **Two optional features send content to a third party, TypeSafe AI**, and
-  only if you turn them on: they are off by default, need a TypeSafe API key
-  you supply yourself (in Settings, or as `TYPESAFE_API_KEY`), and are described in full in the [privacy
-  policy](privacy.html#the-desktop-app). Everything above holds while they are
+- **One optional feature sends content to a third party, TypeSafe AI**, and
+  only if you turn it on: status detection sends the last lines of a quiet
+  pane's terminal output. It is off by default, needs a TypeSafe API key
+  you supply yourself (in Settings, or as `TYPESAFE_API_KEY`), and is described in full in the [privacy
+  policy](privacy.html#the-desktop-app). Everything above holds while it is
   off.
 - **Downloads keep short-lived access logs.** The app, the installer scripts
   and the update check are served from dl.flockdeck.ai, which keeps standard
