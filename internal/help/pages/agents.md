@@ -209,6 +209,9 @@ is named in the notice and ignored.
 The file is read fresh every time the picker opens, so editing it by hand takes
 effect without a restart.
 
+[Running Ornith models](#ornith) has a worked example of an agent of your own
+pointed at a self-hosted model.
+
 ## Roles
 
 A role is a job an agent is started for. Flockdeck ships six: `manager`,
