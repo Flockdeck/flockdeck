@@ -52,15 +52,36 @@ const items = [
   { paneId: "p2", tabId: "t1", root: "C:/repo", project: "repo", tab: "helper", name: "helper", status: "waiting", waiting: "a question", parent: "p1", for: 90 },
 ];
 h.recv({ type: "agents", items });
-const flat = [...h.$("overlay-body").querySelectorAll("div.agent-row")].map((r) => r.outerHTML || r.textContent);
+const flat = {};
+h.$("overlay-body").querySelectorAll("div.agent-row").forEach((r) => { flat[r.id] = r.textContent; });
 h.click(h.$("agent-view-project"));
 const tree = [...h.$("overlay-body").querySelectorAll("div.agent-row")];
 assert.deepStrictEqual(tree.map((r) => r.id).sort(), ["agent-p1", "agent-p2"]);
 assert.ok(tree.every((r) => r.className.split(" ")[0] === "agent-row"));
 assert.ok(h.$("agent-p2").textContent.includes("needs: a question"));
 assert.ok(h.$("agent-p1").textContent.includes("2 uncommitted"));
-assert.strictEqual(flat.length, 2);
+assert.deepStrictEqual(Object.keys(flat).sort(), ["agent-p1", "agent-p2"]);
+tree.forEach((r) => assert.strictEqual(r.textContent, flat[r.id], r.id + " reads differently by project than by urgency"));
 h.click(h.$("agent-p2"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "revealPane", root: "C:/repo", node: "t1", id: "p2" });
+`)
+}
+
+// Names and branches are written as text, so markup in one stays markup on
+// the screen, and a long one reaches the row whole (the style sheet cuts it).
+func TestPaneRowsWriteNamesAsText(t *testing.T) {
+	runFrontEnd(t, teamPrelude+`
+const evil = "<img src=x onerror=alert(1)>";
+const long = "b".repeat(300);
+h.hello();
+h.recv(withRoles());
+h.click(h.$("summary"));
+h.recv({ type: "agents", items: [
+  { paneId: "p1", tabId: "t1", root: "C:/repo", project: "repo", tab: evil, name: evil, status: "idle", branch: long },
+] });
+const row = h.$("agent-p1");
+assert.ok(row.textContent.includes(evil), "the name was not shown as typed");
+assert.strictEqual(row.querySelectorAll("img").length, 0, "a name became markup");
+assert.ok(row.textContent.includes(long), "a long branch was cut in the script");
 `)
 }
