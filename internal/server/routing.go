@@ -40,18 +40,6 @@ type routeView struct {
 	Agent string `json:"agent,omitempty"`
 }
 
-// routesMsg answers routeTasks: the routes for the rows as the dialog now has
-// them, on the agent and model it now has chosen for the run.
-type routesMsg struct {
-	Type      string       `json:"type"`
-	Agent     string       `json:"agent"`
-	Model     string       `json:"model"`
-	Tasks     []string     `json:"tasks"`
-	Routes    []*routeView `json:"routes"`
-	Routing   string       `json:"routing,omitempty"`
-	RouteNote string       `json:"routeNote,omitempty"`
-}
-
 // routeOverride is a routed choice the user changed in the dialog before
 // starting it. It is sent only so the routing log can count it.
 type routeOverride struct {
@@ -63,69 +51,6 @@ type routeOverride struct {
 	Agent  string `json:"agent"`
 	Routed string `json:"routed"`
 	Chosen string `json:"chosen"`
-}
-
-// routeRows decides a model for each task of a fan-out running on an agent
-// and model, positional against the tasks and nil where a row is left alone.
-//
-// mode is the policy's mode, empty when it routes nothing, and note says why
-// no row can be routed where that is down to the agent or the model the run
-// is on rather than to the tasks.
-func routeRows(c *agent.Catalog, root, agentID, model string, tasks []string) (routes []*routeView, mode, note string) {
-	policy, _ := c.RoutingFor(root)
-	// Jev is asked here and for a fan-out's rows only: they are what the user
-	// sees and can change before anything starts, and what the routing log
-	// scores. routejev.For is nil unless the policy turned Jev on and a key is
-	// set, and then WithClassifier changes nothing.
-	r := route.New(policy).WithClassifier(routejev.For(policy))
-	if !r.On() {
-		return nil, "", ""
-	}
-	spec, ok := c.Find(agentID)
-	if !ok {
-		return nil, policy.Mode, ""
-	}
-	note = routeNote(spec, model)
-	var other func(string) (agent.Spec, bool)
-	if policy.CrossAgent {
-		other = otherAgentFor(c, root)
-	}
-	inputs := make([]route.Input, 0, len(tasks))
-	for _, task := range tasks {
-		if task = strings.TrimSpace(task); task != "" {
-			inputs = append(inputs, route.Input{Kind: route.KindFanout, Task: task, Agent: spec, Current: model, OtherAgent: other})
-		}
-	}
-	// Every row that would ask Jev asks it now, together, so the rows wait
-	// for one answer and not one each; Decide then finds the answers.
-	r.Prewarm(inputs)
-	routed := make([]*routeView, len(tasks))
-	any := false
-	for i, task := range tasks {
-		task = strings.TrimSpace(task)
-		if task == "" {
-			continue
-		}
-		d := r.Decide(route.Input{Kind: route.KindFanout, Task: task, Agent: spec, Current: model, OtherAgent: other})
-		if !d.Routed {
-			continue
-		}
-		any = true
-		if d.Source == route.SourceFallback {
-			rememberFallback(task, agentID, d)
-		}
-		reason := d.Reason
-		if d.Agent == "" {
-			reason += priceNote(spec, model, d.Model)
-		} else if dest, ok := c.Find(d.Agent); ok {
-			reason += crossAgentNote(dest)
-		}
-		routed[i] = &routeView{Model: d.Model, Tier: d.Tier, Rule: d.Rule, Up: d.Up, Agent: d.Agent, Reason: reason}
-	}
-	if any {
-		routes = routed
-	}
-	return routes, policy.Mode, note
 }
 
 // routeSpawnChoice decides a model, and maybe an agent, for a helper spawned
@@ -308,28 +233,6 @@ func modelNameOf(spec agent.Spec, id string) string {
 	return id
 }
 
-// routeTasks answers the dialog's routeTasks: the rows as it now has them,
-// routed for the agent and model it has chosen for the run. The rules run
-// here and nowhere else, so the dialog never has a second copy of them to
-// disagree with.
-func (s *Server) routeTasks(c *controlClient, cmd command) {
-	type facts struct{ root, def string }
-	f, ok := ask(s, func() facts {
-		_, def := s.ws.Agents()
-		return facts{root: s.ws.ActiveRoot(), def: def}
-	})
-	if !ok {
-		return
-	}
-	agentID := cmd.Agent
-	if agentID == "" {
-		agentID = f.def
-	}
-	routes, mode, note := routeRows(s.ws.Catalog(), f.root, agentID, cmd.Model, cmd.Tasks)
-	c.sendJSON(routesMsg{Type: "routes", Agent: cmd.Agent, Model: cmd.Model, Tasks: cmd.Tasks,
-		Routes: routes, Routing: mode, RouteNote: note})
-}
-
 // routingLogDir is where the routing log is kept: Flockdeck's state
 // directory. The tests move it by moving the state directory itself, as they
 // do for every other file kept there; nothing reassigns this.
@@ -398,53 +301,6 @@ func fallbackFor(task, agentID, model string) (fallbackNote, bool) {
 		return fallbackNote{}, false
 	}
 	return n, true
-}
-
-// fanoutRouteLog is the log's account of a fan-out: each routed row that
-// started, and each routed choice the user changed before starting. A row a
-// rule chose is named by the rule the dialog sent back; one that started on a
-// cost strategy's fallback is found by its text (see fallbacks) and logged
-// with the source "fallback", carrying Jev's classification where Jev shaped
-// it.
-func fanoutRouteLog(req fanoutRequest, project string, started map[*fanoutJob]string) []route.LogEntry {
-	now := time.Now()
-	var out []route.LogEntry
-	for j, pane := range started {
-		if j.routed == "" {
-			if n, ok := fallbackFor(j.task, j.agent, j.model); ok {
-				out = append(out, route.LogEntry{At: now, Kind: route.KindFanout, Project: project, Pane: pane,
-					Agent: j.agent, Source: route.SourceFallback, Baseline: req.Model, Routed: j.model,
-					Outcome: route.OutcomeKept, Jev: n.jev})
-			}
-			continue
-		}
-		e := route.LogEntry{At: now, Kind: route.KindFanout, Project: project, Pane: pane,
-			Agent: j.agent, Source: route.SourceRule, Rule: j.routed,
-			Baseline: req.Model, Routed: j.model, Outcome: route.OutcomeKept}
-		if j.agent != req.Agent {
-			e.BaselineAgent = req.Agent
-		}
-		out = append(out, e)
-	}
-	for _, o := range req.Overrides {
-		e := route.LogEntry{At: now, Kind: route.KindFanout, Project: project,
-			Agent: o.Agent, Source: route.SourceRule, Rule: o.Rule,
-			Baseline: req.Model, Routed: o.Routed, Outcome: route.OutcomeOverridden + o.Chosen}
-		if o.Rule == "" {
-			// A fallback's choice, changed: with no record of one, it was
-			// logged as a rule decision with no rule, which nothing counts.
-			n, ok := fallbackFor(o.Task, o.Agent, o.Routed)
-			if !ok {
-				continue
-			}
-			e.Source, e.Jev = route.SourceFallback, n.jev
-		}
-		if o.Agent != req.Agent {
-			e.BaselineAgent = req.Agent
-		}
-		out = append(out, e)
-	}
-	return out
 }
 
 // paneRoute is what a pane's header says of its routing: the rule that chose
@@ -730,4 +586,67 @@ func (s *Server) clearRoutingLog(c *controlClient) {
 		}
 		c.notify("Cleared the routing history", false)
 	}()
+}
+
+// routeRows decides a model for each task of a fan-out running on an agent
+// and model, positional against the tasks and nil where a row is left alone.
+//
+// mode is the policy's mode, empty when it routes nothing, and note says why
+// no row can be routed where that is down to the agent or the model the run
+// is on rather than to the tasks.
+func routeRows(c *agent.Catalog, root, agentID, model string, tasks []string) (routes []*routeView, mode, note string) {
+	policy, _ := c.RoutingFor(root)
+	// Jev is asked here and for a fan-out's rows only: they are what the user
+	// sees and can change before anything starts, and what the routing log
+	// scores. routejev.For is nil unless the policy turned Jev on and a key is
+	// set, and then WithClassifier changes nothing.
+	r := route.New(policy).WithClassifier(routejev.For(policy))
+	if !r.On() {
+		return nil, "", ""
+	}
+	spec, ok := c.Find(agentID)
+	if !ok {
+		return nil, policy.Mode, ""
+	}
+	note = routeNote(spec, model)
+	var other func(string) (agent.Spec, bool)
+	if policy.CrossAgent {
+		other = otherAgentFor(c, root)
+	}
+	inputs := make([]route.Input, 0, len(tasks))
+	for _, task := range tasks {
+		if task = strings.TrimSpace(task); task != "" {
+			inputs = append(inputs, route.Input{Kind: route.KindFanout, Task: task, Agent: spec, Current: model, OtherAgent: other})
+		}
+	}
+	// Every row that would ask Jev asks it now, together, so the rows wait
+	// for one answer and not one each; Decide then finds the answers.
+	r.Prewarm(inputs)
+	routed := make([]*routeView, len(tasks))
+	any := false
+	for i, task := range tasks {
+		task = strings.TrimSpace(task)
+		if task == "" {
+			continue
+		}
+		d := r.Decide(route.Input{Kind: route.KindFanout, Task: task, Agent: spec, Current: model, OtherAgent: other})
+		if !d.Routed {
+			continue
+		}
+		any = true
+		if d.Source == route.SourceFallback {
+			rememberFallback(task, agentID, d)
+		}
+		reason := d.Reason
+		if d.Agent == "" {
+			reason += priceNote(spec, model, d.Model)
+		} else if dest, ok := c.Find(d.Agent); ok {
+			reason += crossAgentNote(dest)
+		}
+		routed[i] = &routeView{Model: d.Model, Tier: d.Tier, Rule: d.Rule, Up: d.Up, Agent: d.Agent, Reason: reason}
+	}
+	if any {
+		routes = routed
+	}
+	return routes, policy.Mode, note
 }

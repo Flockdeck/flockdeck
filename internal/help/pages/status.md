@@ -99,7 +99,7 @@ tells you what the agent is doing, not only that it is busy.
   gone quiet, waiting for a new prompt) never raises any of the above, for
   any pane: it says nothing more than that the pane is still there. A
   permission prompt or a real question always still reaches you, including
-  for **a helper another agent started** for itself (see [[key:fanout]]).
+  for **a helper another agent started** for itself (see [Agents and models](#agents)).
 - [[key:agents]] lists every pane in every open project with its status, and
   jumps to any of them.
 - [[action:closeFinishedPanes]] clears out every agent pane that has gone idle

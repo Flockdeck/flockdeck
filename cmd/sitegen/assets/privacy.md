@@ -43,10 +43,10 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
 
 The app runs on your computer. It keeps its settings, layouts,
 conversations with built-in API agents, any API keys you give it, and a
-record of which models routing chose for a fan-out's tasks (the rules' names
-and the models, never the tasks) in Flockdeck's configuration folder on your
-computer. The routing record also names each fan-out's project folder, by its
-full path, and the pane each task ran in.
+record of which models routing chose (the rules' names and the models, never
+the tasks) in Flockdeck's configuration folder on your computer. The routing
+record also names the project folder, by its full path, and the pane each task
+ran in.
 
 The same folder also holds:
 
@@ -76,8 +76,8 @@ the error to a file there, `error.log`, which can include the paths of files
 and folders on your computer. Nothing there is sent anywhere by Flockdeck.
 
 Outside that folder, the app writes to one file of another program's. When a
-fan-out carries Claude Code's folder trust over to the worktrees it creates, it
-records in Claude Code's own configuration file (`~/.claude.json`) that those
+helper started in a new worktree carries Claude Code's folder trust over to it,
+Flockdeck records in Claude Code's own configuration file (`~/.claude.json`) that those
 worktrees are trusted, as the folder they came from already was.
 
 To show what each agent has spent, the app reads what the agents report about
@@ -128,7 +128,7 @@ The app makes these network connections of its own.
     for you. This setting can be turned on only on the computer Flockdeck runs
     on, not from a window reached through the relay.
   - *Routing* (Settings, Routing, "Ask Jev to rate unmatched work"). When
-    routing is set to minimise cost and a fan-out task matches no rule, the
+    routing is set to minimise cost and a task matches no rule, the
     task's text, cut at 2,000 characters, is sent so that TypeSafe can rate how
     demanding it is.
 
@@ -141,7 +141,7 @@ The app makes these network connections of its own.
   does not catch every secret, so a password or key with no recognisable shape
   that is on screen, or in a task's text, is sent with the rest of it. With
   status detection on, the lines sent can include file names and code shown in
-  the terminal. Terminal text and fan-out task text both go to TypeSafe. Leave
+  the terminal. Terminal text and task text both go to TypeSafe. Leave
   these settings off for work like that. What TypeSafe does with what it
   receives is governed by TypeSafe's own terms and privacy policy, which you can find at
   [typesafe.ai](https://typesafe.ai).

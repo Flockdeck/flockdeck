@@ -8,11 +8,12 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // The tests in this file are docs/status-matrix.md's section F rows that the
-// server derives from a pane's status: the outcome a fan-out or a todo step
-// records when its pane closes, and what is pushed to a phone. A row the code
+// server derives from a pane's status: the outcome the web UI's outcomeOf
+// states for a pane, and what is pushed to a phone. A row the code
 // gets wrong today is written as the behaviour it should have and skipped
 // through knownBug.
 
@@ -183,5 +184,71 @@ func TestStatusMatrixCleanExitIsNotFailed(t *testing.T) {
 	})
 	if pv.Status != "exited" || pv.Failed || pv.Err != "" || kind != "done" {
 		t.Errorf("clean exit sent as status %q failed=%v err=%q outcome=%q", pv.Status, pv.Failed, pv.Err, kind)
+	}
+}
+
+// fanoutOutcome is the Go statement of the outcome a pane would be given: it reads a settled pane's outcome the way the webui's outcomeOf
+// reads a live one: failed when the pane carries an error, needing input
+// while it waits on a question or a permission prompt, done otherwise, with
+// the same one-line detail that goes with each -- what the pane wants, why
+// it failed, or its agent's latest reply.
+func (s *Server) fanoutOutcome(p *workspace.Pane) (kind, detail string) {
+	st, statusDetail := p.Status()
+	kind, detail = "done", ""
+	if last, ok := s.preview.get(p.ID); ok {
+		detail = last.Text
+	}
+	if st == session.StatusWaiting {
+		kind, detail = "needs", statusDetail
+		if p.Sess != nil {
+			if label := waitingLabel(statusDetail, p.Sess.ToolInput()); label != "" {
+				detail = "Wants " + label + "."
+			}
+		}
+	}
+	// Refused outright rather than asked: nothing here is waiting on an
+	// answer, but it did not finish either, so it reads as failed rather
+	// than done -- see outcomeOf's own StatusBlocked case.
+	if st == session.StatusBlocked {
+		kind, detail = "failed", "A tool call was denied."
+		if statusDetail != "" {
+			detail = "A tool call was denied: " + statusDetail + "."
+		}
+	}
+	// Closed before it finished.
+	switch st {
+	case session.StatusWorking:
+		kind, detail = "failed", "Closed while the agent was still working."
+	case session.StatusStarting:
+		kind, detail = "failed", "Closed before the agent had started."
+	}
+	if p.Err != nil {
+		kind, detail = "failed", p.Err.Error()
+	}
+	if why, failed := p.Failed(); failed {
+		kind, detail = "failed", "The process ended: "+why+"."
+	}
+	return kind, detail
+}
+
+// waitingLabel is outcomeOf's kindLabel in the webui, read here off the same
+// ask/permission views the phone's own waiting card is built from, so a
+// "needs input" row reads the same way the live one does.
+func waitingLabel(tool, toolInputJSON string) string {
+	ask, perm := waitingViews(tool, toolInputJSON)
+	switch {
+	case ask != nil:
+		return "a question"
+	case perm != nil:
+		switch perm.Tool {
+		case "Bash":
+			return "a command to run"
+		case "Edit", "MultiEdit", "Write":
+			return "a file write"
+		default:
+			return "to use " + perm.Tool
+		}
+	default:
+		return ""
 	}
 }

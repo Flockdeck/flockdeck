@@ -62,6 +62,6 @@ for a pane whose agent you trust.
 
 It is off for a pane unless you turn it on, with the ✓ in the pane's header,
 or for new panes with **Settings › General › Auto-approve read-only
-in new panes**; a pane started from another one (a fan-out row or a
+in new panes**; a pane started from another one (a
 `flockdeck spawn` helper) starts as that pane is.
 A pane keeps its setting across restarts, whichever way you left it.

@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -94,62 +93,6 @@ func TestARoutedAPIRowSaysWhatBothModelsCost(t *testing.T) {
 	routes, _, _ = routeRows(c, "", "claude", "sonnet", []string{"run the tests"})
 	if strings.Contains(routes[0].Reason, "$") {
 		t.Errorf("a command-line agent's reason prices it: %q", routes[0].Reason)
-	}
-}
-
-// The rule a row was routed by travels with the row and changes nothing else
-// about it, and a window from before routing sends no rules at all.
-func TestPlanJobsCarriesTheRuleAndNothingElseChanges(t *testing.T) {
-	req := fanoutRequest{Tasks: []string{"run the tests", "", "add a flag"}, Agent: "claude", Model: "sonnet",
-		TaskAgents: []string{"claude", "", ""}, TaskModels: []string{"haiku", "", ""}}
-	old, _ := planJobs(req, "/repo")
-	req.TaskRouted = []string{"run the tests"}
-	routed, _ := planJobs(req, "/repo")
-	if len(old) != 2 || len(routed) != 2 {
-		t.Fatalf("jobs %d and %d, want 2", len(old), len(routed))
-	}
-	if routed[0].routed != "run the tests" || routed[1].routed != "" || old[0].routed != "" {
-		t.Errorf("routed = %q, %q; before %q", routed[0].routed, routed[1].routed, old[0].routed)
-	}
-	for i := range old {
-		a, b := *old[i], *routed[i]
-		b.routed = ""
-		if !reflect.DeepEqual(a, b) {
-			t.Errorf("job %d is %+v with a rule and %+v without", i, b, a)
-		}
-	}
-}
-
-// The log records what routing chose and what became of it, and never the
-// task: that is already in the user's own transcripts.
-func TestTheFanOutLogHoldsTheChoicesAndNoTask(t *testing.T) {
-	secret := "fix the payroll export for ACME"
-	j := &fanoutJob{task: secret, agent: "claude", model: "haiku", routed: "rename or move"}
-	plain := &fanoutJob{task: "another secret", agent: "claude", model: "sonnet"}
-	req := fanoutRequest{Tasks: []string{secret}, Model: "sonnet",
-		Overrides: []routeOverride{{Rule: "hard work", Agent: "claude", Routed: "opus", Chosen: "sonnet"}}}
-	entries := fanoutRouteLog(req, "/repo", map[*fanoutJob]string{j: "pane-1", plain: "pane-2"})
-	if len(entries) != 2 {
-		t.Fatalf("entries = %+v", entries)
-	}
-	data, _ := json.Marshal(entries)
-	if strings.Contains(string(data), "payroll") || strings.Contains(string(data), "secret") {
-		t.Errorf("the log holds the task: %s", data)
-	}
-	var kept, over *route.LogEntry
-	for i := range entries {
-		switch entries[i].Outcome {
-		case route.OutcomeKept:
-			kept = &entries[i]
-		case route.OutcomeOverridden + "sonnet":
-			over = &entries[i]
-		}
-	}
-	if kept == nil || kept.Pane != "pane-1" || kept.Baseline != "sonnet" || kept.Routed != "haiku" || kept.Rule != "rename or move" {
-		t.Errorf("the kept row is logged as %+v", kept)
-	}
-	if over == nil || over.Routed != "opus" || over.Rule != "hard work" {
-		t.Errorf("the overridden row is logged as %+v", over)
 	}
 }
 

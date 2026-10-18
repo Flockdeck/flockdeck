@@ -10,13 +10,11 @@ it.
 
 - **General**: **Desktop notifications**. Under **New panes**, **Auto-approve
   read-only in new panes**: a pane opened by hand starts with this setting,
-  and a pane started from another one (a fan-out row, or a helper started with
+  and a pane started from another one (a helper started with
   `flockdeck spawn`) starts the way that pane is set. Either way the ✓ in a
   pane's header turns it on or off for that one pane; auto-approve read-only only ever
   lets through a command it is confident only reads, and never says "deny".
-  Then **Fan out**'s own default for its "Put fanned-out agents in this tab,
-  beside the agent that planned them" checkbox, which can still be changed for
-  one run from the dialog itself. Under **Conflict radar**, the switch that
+  Under **Conflict radar**, the switch that
   marks a pane whose work git predicts would conflict with another pane's; it is
   off until you turn it on, and [Git worktrees](#worktrees) says what it does and
   costs, including that a checkout git is too slow for is skipped for a while and
@@ -53,7 +51,7 @@ it.
   **Only where I have a status line**, the default, **Always** or **Never**.
   It applies to a pane when it starts. [Spend and limits](#spend) says what
   each one costs. Below them, links to **Routing** and **API keys**.
-- **Routing**: whether a fan-out's rows come with a model chosen for the
+- **Routing**: whether a helper or first prompt comes with a model chosen for the
   work: **Off**, which it is until you change it, **Suggest** or
   **Automatic**, for every project and for this one. **Never go below** keeps
   it off the smaller tiers. **Strategy** is **Cost-first, quality-aware**,
@@ -130,7 +128,7 @@ two pages: pick a section to open it, and **← All settings** goes back.
 - Which agent and model a project starts: **Agents & models** in the
   settings, or **Set as default for** at the foot of the picker. Kept in
   `agents.json`.
-- Whether a fan-out's models are routed, and by which rules: **Routing**
+- Whether a helper's model is routed, and by which rules: **Routing**
   in the settings for the mode, the floor and the strategy; the rules
   themselves are edited by hand. Kept in `agents.json`.
 - Whether Claude panes read their usage limits: **Agents & models ›
@@ -148,7 +146,7 @@ two pages: pick a section to open it, and **← All settings** goes back.
   rest. Kept until Flockdeck stops.
 - The terminal's font, size, scrollback and cursor: **Terminal** in the
   settings, or the palette's entries for each. Kept in `prefs.json`.
-- A fan-out's own shortcut, or any other window shortcut: **Keyboard**
+- Any window shortcut: **Keyboard**
   in the settings. Kept in `keybindings.json`.
 - A pane's auto-approve read-only, lock and recording: the ✓, padlock and record
   buttons in its header, or the command palette. Kept with the layout, so a
@@ -166,7 +164,7 @@ two pages: pick a section to open it, and **← All settings** goes back.
   run only: each run has an address of its own.
 - Hints under the tab bar: their close button sends one away for good.
   Kept in `prefs.json`.
-- Fan out's own default, and auto-approve read-only's own default: **General ›
+- Auto-approve read-only's own default: **General ›
   New panes** in the settings. Kept in `prefs.json`.
 - Status detection with Jev: **Status detection** in the settings. Kept
   in `prefs.json`; off unless you turn it on, and only from the machine
@@ -193,8 +191,8 @@ set).
 - `remote.json`: this machine's enrolment with the relay.
   `flockdeck remote disable` keeps it and marks it off; `flockdeck remote remove`
   removes it.
-- `routing.jsonl`: what routing chose for each routed fan-out row, and
-  whether you kept it: the rule's name and the models, never the task. It
+- `routing.jsonl`: what an older version's routing chose for each routed fan-out row,
+  and whether you kept it: the rule's name and the models, never the task. It
   keeps the last 10,000 lines, and **Clear routing history** empties it.
 - `keybindings.json`: every shortcut you have remapped or cleared under
   **Keyboard**, by the action's own id; one absent from it is still its
@@ -222,7 +220,7 @@ set).
   Flockdeck.
 - `chats`: the built-in chat client's conversations.
 - `groups.json`: the multi-repo projects' grouping.
-- `todos.json`: every project's saved todo checklists.
+- `todos.json`: the saved todo checklists of an older version. Nothing reads it now; it is left alone.
 - `worktree-procs.json`: processes recorded for worktrees, so they can be
   swept up.
 - `e2e_key.json`: this machine's end-to-end key for Flockdeck Remote terminals.

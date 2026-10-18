@@ -115,14 +115,13 @@ cooperating, and they do not all cooperate in the same ways.
 | --- | --- |
 | reports its own lifecycle | its status mark says what it is really doing, rather than what its output looks like |
 | can resume by id | restoring a layout brings its conversation back, not only its pane |
-| writes a transcript | it can be resumed from it; Claude Code's is also where fan out reads a plan and what Resume lists |
-| has a trust question | a [fan-out](#fanout) can answer it ahead of time for the worktrees it cuts |
+| writes a transcript | it can be resumed from it; it is what Resume lists |
 | answers a start-up hook | its briefing survives a compaction, rather than being said once and summarised away |
 
 An agent that does none of it still works: it is a terminal with
 a program in it. Where a
 capability is missing Flockdeck falls back rather than failing: status comes from
-the terminal bell and a quiet timer; fan out reads the screen; resume is not
+the terminal bell and a quiet timer; resume is not
 attempted, and the pane starts fresh.
 
 Of the built-in agents, Claude Code and the four API agents report their own
@@ -139,7 +138,7 @@ shows in that state, so that its status is read from what it prints as well. The
 case does not matter. None of the built-ins has any yet.
 
 Aider is handed its opening task with `--message`, which Aider treats as a
-single message, so a pane started with a task (by a fan-out, say) may end when
+single message, so a pane started with a task (by `flockdeck spawn`, say) may end when
 the task does.
 
 ## Keys, for the API agents
@@ -397,19 +396,14 @@ its commands. A board of more than 300 open tasks lists the newest 300, with a b
 
 ## Routing
 
-A fan-out multiplies whatever its model costs, and many of its tasks are
-mechanical: run the tests, rename a symbol, fix a typo. Routing pre-sets each
-row of a [fan-out](#fanout) to a model suited to the work (a smaller one for
-mechanical work, a stronger one for hard work) and leaves every other row
-exactly as it was. It is **off** until you turn it on, in **Settings ›
-Routing**, for every project or for one.
+Helpers multiply whatever their model costs, and many of their tasks are
+mechanical: run the tests, rename a symbol, fix a typo. Routing pre-sets the
+model of a helper an agent starts with `flockdeck spawn`, and of the first
+prompt you send a pane, to one suited to the work (a smaller one for
+mechanical work, a stronger one for hard work). It is **off** until you turn it
+on, in **Settings › Routing**, for every project or for one.
 
-What it chooses is shown before anything starts. A routed row's model is
-pre-set in its select, with a **↘ routed** tag (↗ for a stronger model) whose
-tooltip says which rule chose it and, for an API agent, what the two models
-cost. Changing the select makes the row yours again, and **Undo routing**,
-beside the line saying how many rows were routed, puts every row back on the
-run's model. What was shown is what runs. A pane a rule routed says so in its
+A pane a rule routed says so in its
 header (`claude · haiku ↘`), with the rule, and the agent and model it would
 otherwise have used, in its tooltip. A pane **Minimise cost** routed with no
 rule runs the cheaper model without the arrow.
@@ -419,59 +413,55 @@ between models whose tier it knows. It sends work to another agent only when
 you turn on **Let a rule send work to another agent**, in the same place, and
 a rule names that agent's `model` and `agent`. A rule like that could send test
 runs to a local model through an OpenAI-compatible endpoint, say. Even then,
-only a new fan-out row or helper moves, never a conversation already under
+only a new helper moves, never a conversation already under
 way. The other agent has to be installed or keyed and trusted for the project,
 and, if it has an address of its own, something has to be answering there. The
-fan-out dialog shows the agent a row will run on, and the pane header's
-tooltip names the agent and model it would otherwise have used. Claude Code's
-**Default** is whatever the CLI is set to, which might be its smallest model
-or its largest, so routing leaves work on it alone: choose a model for the run
-in the fan-out, or make one your default, for routing to choose from it.
+pane header's tooltip names the agent and model it would otherwise have used.
+Claude Code's **Default** is whatever the CLI is set to, which might be its
+smallest model or its largest, so routing leaves work on it alone: make a
+model your default, for routing to choose from it.
 
-**Suggest** and **Automatic** are the same for a fan-out, since the dialog asks
-before anything starts either way. **Automatic** also routes a helper an agent
-starts with `flockdeck spawn` without `-agent` or `-model`, and the first
-prompt you send a pane from the prompt bar, while it has no conversation yet:
-the pane restarts on the chosen model with that prompt, and never on another
-agent. With **Suggest** such a helper or prompt runs as asked, since there is
-nobody to show a suggestion to. **Never go below** keeps routing off the
+**Automatic** routes a helper an agent starts with `flockdeck spawn` without
+`-agent` or `-model`, and the first prompt you send a pane from the prompt
+bar, while it has no conversation yet: the pane restarts on the chosen model
+with that prompt, and never on another agent. With **Suggest** such a helper or
+prompt runs as asked, since there is nobody to show a suggestion to. **Never go below** keeps routing off the
 smaller tiers for a project where the work matters.
 
 **Strategy** decides what happens to a task no rule matches. **Cost-first,
 quality-aware** (the default) leaves it exactly where it was, the same as
-routing off would for that row. **Minimise cost** routes it too, to the
+routing off would. **Minimise cost** routes it too, to the
 cheapest model **Never go below** allows on the agent it was already going to
 run on, never to another agent. Either strategy, a rule that matches still
 decides first and **Never go below** still holds; the strategy only changes
-what happens when nothing matches. The row's tooltip says "no rule matched" for
-a suggestion made this way, so it is never mistaken for a rule's own reason.
+what happens when nothing matches. The pane's tooltip says "no rule matched" for
+a choice made this way, so it is never mistaken for a rule's own reason.
 
 **Ask Jev to rate unmatched work** refines **Minimise cost**, and nothing
 else. Without it, a task no rule matches goes to the cheapest model whatever the
 task is. With it, Flockdeck asks [TypeSafe](https://typesafe.ai)'s Jev model
 how demanding the task is, on a scale from a trivial mechanical edit to
 open-ended design work, and routes it to a tier that suits: small, mid or top.
-Jev can only choose between **Never go below** and the model the row would
-have run on anyway, so it never makes a row cost more than it would have without
+Jev can only choose between **Never go below** and the model the work would
+have run on anyway, so it never makes work cost more than it would have without
 routing, never picks a model **Never go below** or a "never downgrade"
-constraint forbids, and never moves a row to another agent. Only a fan-out row
-no rule matched is ever asked about; a helper started with `flockdeck spawn` and a
-conversation's first prompt are not. If Jev is unsure, contradicts itself,
-is slow, is refused or is down, the row is routed exactly as it would be without
-it. The row's tooltip says what Jev rated it when it did decide.
+constraint forbids, and never moves work to another agent. Only a helper or first prompt that
+no rule matched is asked about. If Jev is unsure, contradicts itself,
+is slow, is refused or is down, the work is routed exactly as it would be without
+it. The pane's tooltip says what Jev rated it when it did decide.
 
 It is **off** by default and needs both this setting, for every project or for
 one, and a TypeSafe API key: the one set in **Settings › API keys ›
 TypeSafe API key** (used first), or else `TYPESAFE_API_KEY` in the environment
 Flockdeck starts in. Saving a key on its own sends nothing.
-**Turning it on sends the text of each such row to TypeSafe, a third party.**
+**Turning it on sends the text of each such task to TypeSafe, a third party.**
 What is sent is that text alone, cut at 2,000 characters with `[truncated]` at
 the end, beside three fixed questions about it: no files, no repository, no
 conversation, no path of your machine's that the text does not itself contain.
 Secrets are redacted from the text first (API keys, bearer tokens, password
 values, secret file paths), by pattern, so one with no recognisable shape is
 still sent; leave the setting off for work like that. Calls give up after 2 seconds,
-run at most 20 a minute, are remembered for an hour so an edited fan-out does
+run at most 20 a minute, are remembered for an hour so a repeated task does
 not ask again, and pause for 30 seconds after a failure, or 5 minutes after
 the key is refused. Without the key the
 setting does nothing and nothing is sent.
@@ -509,7 +499,7 @@ it as needing, as above. Every condition in `when` must hold: `task` is a
 regular expression matched without regard to case; `minWords` and `maxWords`
 bound the task's length; `files` are globs matched against the paths the task
 names (`**` is any number of directories, and a glob with no `/` matches a
-file's name anywhere); `kind` is `fanout`, `spawn` or `turn`; `agent` is an
+file's name anywhere); `kind` is `spawn` or `turn`; `agent` is an
 agent's id. A rule asks for a `tier`, or for one agent's `model`. Leave
 `rules` out for the built-in ones, which Settings lists; `"rules": []` means
 none. A project's own policy replaces the one for every project whole. A rule
@@ -522,16 +512,14 @@ lost that way.
 
 **Routing makes no request** unless you turn one of two things on. It decides
 from these rules alone. With **Let a rule send work to another agent** on,
-before moving a row to an agent with an address of its own, it opens a
+before moving work to an agent with an address of its own, it opens a
 connection to that address, and closes it at once without sending anything, to
 check something is listening. With **Ask Jev to rate unmatched work** on, and a
-key set, it sends a fan-out row's text to TypeSafe as described above. The routed mark on a pane travels only as the
+key set, it sends the task's text to TypeSafe as described above. The routed mark on a pane travels only as the
 rest of the pane's state does, to your own paired devices when Flockdeck Remote
-is on. What it chose for each fan-out row, and whether you kept it, is kept
-in `routing.jsonl` in the state directory, for your own numbers: when, the
-project, the pane, the agent, the rule's name and the models, never the task;
-the last 10,000 lines. A row decided with no rule is logged too, with what Jev
-rated it if it did. Helpers and first prompts are not logged. Settings lists each rule beside how often
+is on. Helpers and first prompts are not logged. An older version
+that routed fan-out rows kept its choices in `routing.jsonl` in the state
+directory (the last 10,000 lines, never the task), and Settings lists each rule beside how often
 the log shows it overridden, once it has decided at least once. That is the evidence
 for deciding which rules are worth hand-editing. Below the rules,
 **Unmatched work** shows how often what Minimise cost chose was overridden with

@@ -78,7 +78,7 @@ and replaces it. `-solo` starts a separate instance instead.
 - The workspace has a single owner. It is reached from many connection goroutines,
   so every read and write of it goes through one goroutine. Slow work (git,
   reading transcripts) runs outside that loop and only its results are applied
-  there, so a fan-out creating five worktrees does not freeze the window.
+  there, so a team creating five worktrees does not freeze the window.
 - Git is read in bulk, off the hot path. One `status --porcelain=v2 --branch` per
   checkout gives the branch, upstream, ahead and behind counts and file counts
   together. Worktrees are examined concurrently, and pane summaries refresh on a

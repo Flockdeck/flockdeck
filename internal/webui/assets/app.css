@@ -673,7 +673,7 @@ body.rail-expanded .rail-collapse-ico { transform: rotate(90deg); }
  * once. :focus-visible keeps it off the mouse path, where it would only be
  * noise. Text fields show focus on their own edge instead (further down) and
  * win on specificity; the bare input/textarea entry is for what is left, such
- * as the fan-out checkboxes.
+ * as the option checkboxes.
  *
  * The first rule is the net under the list: a link, a button or a list to
  * choose from that the list does not name still gets the same ring rather
@@ -1242,7 +1242,7 @@ textarea:focus-visible {
  *             scrim, so the panes stay in view; 460px, 820px for Changes;
  *   dialog-s  440px, as tall as it needs: a question, a name;
  *   dialog-m  720px, and a fixed height, so it does not jump when its data
- *             arrives: Fan out, New todo, Update, Versions;
+ *             arrives: Update, Versions;
  *   dialog-l  960 by 680: Settings and Help, which keep their own sizes
  *             (.settings-panel, .wide) where they have them;
  *   picker    620px, top-anchored like the palette: the agent picker.
@@ -1585,7 +1585,7 @@ textarea:focus-visible {
  * with the count, Cancel and Start. The textarea the rows are drawn from is
  * shown in their place by "Edit as text". */
 
-/* Shared with New todo, Settings and the picker, and left as they were. */
+/* Shared by Settings, the baton dialog and the pickers. */
 .fan-hint { color: var(--fg-dim); font-size: 12px; margin-bottom: 10px; }
 .fan-tasks {
   width: 100%; min-height: 150px; resize: vertical;
@@ -1599,16 +1599,13 @@ textarea:focus-visible {
  * and the display above would otherwise keep it on screen. */
 .fan-opt[hidden] { display: none; }
 .fan-opt input { accent-color: var(--accent); }
-.fan-go { display: flex; align-items: center; gap: 10px; }
-.fan-count { color: var(--fg-dim); font-size: 12px; }
 .fan-agent { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: var(--fg-dim); font-size: 12px; }
 .fan-agent-sel {
   background: var(--bg-inset); border: 1px solid var(--field-line);
   border-radius: var(--radius); color: var(--fg); font: inherit; font-size: 12px; height: 24px; padding: 0 6px;
 }
 
-/* The fan-out's own. */
-.fo-text { min-height: 220px; }
+/* The model and option controls the baton dialog shares. */
 .fo-sel { height: 30px; min-width: 0; padding: 0 8px; font-size: 13px; }
 .fo-opt { min-width: 0; color: var(--fg); }
 .fo-opt input { margin: 0; }
@@ -1628,85 +1625,24 @@ textarea:focus-visible {
 .bt-task, .bt-branch { margin: 0 0 10px; }
 .bt-scrub { margin-bottom: 16px; }
 
-/* The model for every task, and on its right what routing made of them. */
+/* The model for the new agent. */
 .fo-model { flex-wrap: wrap; margin: 0 0 4px; font-size: inherit; }
 .fo-model-label { white-space: nowrap; }
 .fo-model > .fo-sel { flex: 0 1 auto; max-width: 320px; }
-.fan-route { display: flex; align-items: center; gap: 8px; margin-left: auto; min-width: 0; }
-.fan-route-text { color: var(--fg-dim); font-size: 12px; min-width: 0; }
-/* A quiet text button: Undo routing, Edit as text. */
-.fan-quiet {
-  height: 24px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius);
-  background: transparent; color: var(--fg-dim); font: inherit; font-size: 12px; font-weight: 600;
-  white-space: nowrap; cursor: pointer;
-  transition: background-color var(--dur-1) linear, color var(--dur-1) linear;
-}
-.fan-quiet[hidden] { display: none; }
-.fan-quiet:hover { background: var(--bg-hover); color: var(--fg); }
-.fan-quiet.on { background: var(--bg-active); color: var(--fg); }
-.fan-quiet:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* Section heads: sentence case, 12/600, with a count in mono. */
 .fan-sec { display: flex; align-items: baseline; gap: 8px; margin: 14px 0 6px; }
 .fan-sec:first-child { margin-top: 0; }
 .fan-sec h3 { margin: 0; font-size: 12px; font-weight: 600; color: var(--fg-dim); }
-.fan-sec-num { font: 11px var(--mono); color: var(--fg-dim); font-variant-numeric: tabular-nums; }
-.fan-sec-num.warn, .fo-count.warn { color: var(--waiting); }
-
-/* One row a task: its number, its words, the model it runs on, and a tag
- * where routing chose that model. The row being edited is the chosen one. */
-.fan-rows { display: flex; flex-direction: column; }
-.fan-rows[hidden] { display: none; }
-.fan-row, .fan-add {
-  display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 6px 10px;
-  border-radius: var(--radius); position: relative;
-}
-.fan-row + .fan-row, .fan-row + .fan-add, .fan-rows:not(:empty) + .fan-add { box-shadow: 0 -1px 0 var(--line-subtle); }
-.fan-add[hidden] { display: none; }
-.fan-row:focus-within { background: var(--accent-subtle); box-shadow: inset 2px 0 0 var(--accent); }
-.fan-row-n, .fan-add-n {
-  flex: 0 0 14px; color: var(--fg-dim); font: 12px var(--mono); text-align: right; font-variant-numeric: tabular-nums;
-}
-.fan-row-task, .fan-add-task {
-  flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 10px; font: inherit;
-  background: var(--bg-inset); border: 1px solid var(--field-line); border-radius: var(--radius); color: var(--fg);
-}
-/* The row to add one is a line of text until it is typed into. */
-.fan-add-task { background: transparent; border-color: transparent; padding-left: 0; }
-.fan-add-task:focus { background: var(--bg-inset); padding-left: 10px; }
-.fan-row-task:focus, .fan-add-task:focus {
-  outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
-}
-.fan-row > .fo-sel { flex: 0 0 210px; width: 210px; }
-.fan-row-tag { flex: 0 0 70px; display: flex; }
-/* Past the cap: shown, and marked as not starting. */
-.fan-row.over .fan-row-n, .fan-row.over .fan-row-task { color: var(--fg-dim); text-decoration: line-through; }
-.fan-routed {
-  display: inline-flex; align-items: center; height: 18px; padding: 0 6px; white-space: nowrap;
-  font-size: 10px; font-weight: 500; border-radius: var(--radius-sm);
-  color: var(--accent); background: var(--accent-subtle); border: 1px solid var(--accent-line);
-}
 
 /* Where they run: the worktree switch and the tab beside each other, the
  * trust option under both. */
 .fan-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; align-items: center; }
 .fan-opts > .segmented { justify-self: start; }
-.fo-trust { grid-column: 1 / -1; color: var(--fg-dim); }
-.fo-trust:has(input:disabled) { cursor: default; }
-.fan-opt-note { font-size: 12px; color: var(--fg-dim); min-width: 0; }
 
-/* Start carries its key, drawn so that the button's text stays its words. */
-.fan-start::after { content: attr(data-keys); margin-left: 6px; font: 11px var(--mono); opacity: .8; }
-.fo-count { font-size: 11px; }
-
-/* Narrow: the model column gives way before the task does, and the options
- * go one under another. */
+/* Narrow: the options go one under another. */
 @media (max-width: 640px) {
-  .fan-row > .fo-sel { flex-basis: 128px; width: 128px; }
-  .fan-row-tag { flex-basis: auto; }
   .fan-opts { grid-template-columns: 1fr; }
-  .fan-route { margin-left: 0; }
-  .fan-start::after { content: none; }
 }
 
 /* ------------------------------------------------------------------ agents */
@@ -1809,28 +1745,6 @@ textarea:focus-visible {
  * plain chip is transparent, which read poorly over a terminal's own dark
  * background -- the same reason .to-latest gives itself one. */
 .show-summary { position: absolute; top: 8px; right: 8px; z-index: 4; background: var(--bg-overlay); box-shadow: var(--shadow-1); }
-
-/* The fan-out history panel is a list of past jobs, each drawn with the
- * summary-card rules above -- reused rather than duplicated, since a closed
- * job's row differs from a live one only in having nothing left to zoom
- * into. This is only the spacing between one job and the next. */
-.fanout-history-job { margin-bottom: 16px; }
-.fanout-history-job:last-child { margin-bottom: 0; }
-.fanout-history-job .summary-card-row { cursor: default; }
-.fanout-history-job .summary-card-row:hover { background: none; }
-
-/* A todo's step row is a fanout-history-job row that is also draggable, to
- * reorder the checklist -- see reorderTodoStep. */
-.todo-step-row { cursor: grab; }
-.todo-step-row .fan-opt { cursor: default; }
-.todo-step-row.dragging { opacity: 0.4; }
-.todo-step-row.drop-target { background: var(--bg-hover); box-shadow: inset 0 -2px 0 var(--accent); }
-.todo-step-text {
-  flex: 1 1 auto; min-width: 0; background: transparent; border: 1px solid transparent;
-  color: inherit; font: inherit; padding: 2px 4px; border-radius: var(--radius-sm);
-}
-.todo-step-text:hover, .todo-step-text:focus { border-color: var(--line); }
-.todo-step-text:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 
 /* ------------------------------------------------------------------ review */
 
@@ -2750,7 +2664,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .pane-usage, .pane-spend, .pane-limit, .pane-cast,
 .rail-count, .proj-badge, .proj-path,
 .wt-path, .wt-meta, .wt-root, .wt-flag,
-.dir-repo, .fan-row-n, .fan-count, .fan-routed,
+.dir-repo,
 .agent-meta, .agent-status,
 .summary-card-branch, .summary-card-outcome,
 .rev-track, .rev-kind, .rev-plus, .rev-minus, .rev-mark,
@@ -3012,7 +2926,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 #view-only-banner[hidden] { display: none; }
 body.view-only #new-tab, body.view-only #new-tab-pick, body.view-only #rail-open, body.view-only #btn-agents,
 body.view-only #btn-broadcast, body.view-only #btn-changes, body.view-only #btn-history, body.view-only #btn-worktrees,
-body.view-only #btn-fanout-history, body.view-only #btn-todos, body.view-only #btn-team { display: none; }
+body.view-only #btn-team { display: none; }
 
 
 /* The read-only recordings viewer for a window reached through the relay. The

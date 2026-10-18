@@ -23,8 +23,8 @@ func TestEachSurfaceSaysHowItIsPresented(t *testing.T) {
 h.hello();
 h.recv(fixture());
 const present = () => h.$("overlay-panel").getAttribute("data-present");
-const sheets = ["btn-agents", "btn-changes", "btn-history", "btn-worktrees", "btn-fanout-history",
-  "btn-todos", "btn-team", "rail-open"];
+const sheets = ["btn-agents", "btn-changes", "btn-history", "btn-worktrees",
+  "btn-team", "rail-open"];
 for (const id of sheets) {
   h.click(h.$(id));
   assert.ok(!h.$("overlay").hidden, id + " opened nothing");
@@ -55,9 +55,6 @@ for (const [open, want] of [["btn-settings", "dialog-l"], ["btn-help", "dialog-l
   h.key({ key: "Escape" });
   if (!h.$("overlay").hidden) h.key({ key: "Escape" });
 }
-h.press("fanout");
-assert.strictEqual(present(), "dialog-m", "Fan out is not a medium dialog");
-h.key({ key: "Escape" });
 h.win._prompt = undefined;
 h.$("tabs").children[0].ondblclick();
 assert.strictEqual(h.$("overlay-title").textContent, "Rename tab");
