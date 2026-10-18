@@ -43,12 +43,8 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
 
 The app runs on your computer. It keeps its settings, layouts,
 conversations with built-in API agents and any API keys you give it in
-Flockdeck's configuration folder on your computer. Versions before routing's
-cleanup also kept a record there of which models routing chose (the rules'
-names and the models, never the tasks), which names the project folder by its
-full path and the pane each task ran in. This version no longer writes that
-record. If an older version left one, Settings can show a summary of it and
-clear it.
+Flockdeck's configuration folder on your computer. An older version also kept
+a record there of which models routing chose. This version no longer writes it, and Settings can clear one an older version left.
 
 The same folder also holds:
 

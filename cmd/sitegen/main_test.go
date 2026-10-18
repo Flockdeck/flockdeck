@@ -450,6 +450,7 @@ func TestThePrivacyPolicyDisclosesTypeSafe(t *testing.T) {
 		"does not catch every secret", "can include file names and code", "TypeSafe&rsquo;s own terms and privacy policy",
 		"or turn on the optional TypeSafe feature",
 		"Nothing else in Flockdeck sends text to TypeSafe",
+		"Settings can clear one an older version left",
 	} {
 		if !strings.Contains(policy, want) && !strings.Contains(policy, strings.ReplaceAll(want, "&rsquo;", "'")) {
 			t.Errorf("privacy.html does not say %q", want)
@@ -459,7 +460,7 @@ func TestThePrivacyPolicyDisclosesTypeSafe(t *testing.T) {
 		t.Error("privacy.html still says the app runs entirely on your computer")
 	}
 	for name, page := range map[string]string{"privacy.html": policy, "trust.html": pages["trust.html"]} {
-		for _, gone := range []string{"two optional", "Ask Jev to rate", "rate how demanding", "Terminal text and task text"} {
+		for _, gone := range []string{"two optional", "Ask Jev to rate", "rate how demanding", "Terminal text and task text", "names the project folder"} {
 			if strings.Contains(page, gone) {
 				t.Errorf("%s still says %q, which describes a feature that has been removed", name, gone)
 			}
