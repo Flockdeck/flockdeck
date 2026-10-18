@@ -3,15 +3,16 @@
 Ornith is a family of open-weight coding models from DeepReinforce, released
 under the MIT license. Version 1.5 comes as a 9B dense model, a 35B mixture of
 experts (35B-A3B, about 3B active) and a 397B mixture of experts. The model's
-source and serving notes are at https://github.com/deepreinforce-ai/Ornith-1.
+source and serving notes are at https://github.com/ornith-ai/Ornith-1.
 
 Flockdeck has no Ornith-specific support. Ornith is served behind an
 OpenAI-compatible API with tool calling, and that is what the
 OpenAI-compatible endpoint agent talks to (see [Agents and models](#agents)).
 This setup has been checked against a stand-in OpenAI-compatible endpoint, not
-a live Ornith server. A slash in the model id, tool offering, the reasoning
-stream and a tool-call round trip worked there. Tool calling and status
-detection with a real Ornith model are untested.
+a live Ornith server. There, a model id containing a slash was sent unchanged,
+tools were offered, the reasoning stream showed as thinking, and a tool call ran
+and its result came back. How a real Ornith model calls tools, and how its pane's
+status reads, are untested.
 
 ## What the server has to do
 
@@ -38,11 +39,12 @@ does. SGLang (0.5.9 or later) uses `--tool-call-parser qwen3_coder
 commands name the repository `deepreinforce-ai/...`, but the checkpoints are
 published under `ornith-ai/`, so check the id on Hugging Face before serving.
 
-For Ollama, the README gives `ollama run
-hf.co/deepreinforce-ai/Ornith-1.0-9B-GGUF`. That is the 1.0 build, not 1.5,
-and Ollama may report no tool support for a GGUF pulled this way because the
-chat template comes with it. A model Ollama says cannot use tools is retried
-without them, and then it cannot edit files or run commands.
+For Ollama, the model card for the 1.5 9B GGUF gives `ollama run
+hf.co/ornith-ai/Ornith-1.5-9B-GGUF:Q4_K_M`, and `llama-server -hf
+ornith-ai/Ornith-1.5-9B-GGUF:Q4_K_M` for llama.cpp. The main README still shows
+the 1.0 build under `deepreinforce-ai`. Ollama may report no tool support for
+the model. A model Ollama says cannot use tools is retried without them, and
+then it cannot edit files or run commands.
 
 The model id you give Flockdeck is whatever the server calls the model: the
 `--served-model-name` above, or the id a hosted provider lists. A slash in the id

@@ -74,7 +74,6 @@ Guides in `docs/`:
 - [Running Flockdeck on a server](docs/self-hosting.md), including Docker and
   Kubernetes (the [Helm chart README](deploy/helm/flockdeck/README.md) has the chart)
 - [Keyboard shortcuts](docs/keys.md)
-- [Running Ornith models](internal/help/pages/ornith.md)
 - [How Flockdeck is built](docs/architecture.md)
 - [How each agent learns where it is running](docs/agent-briefing.md)
 - [The recording file format](docs/recording-format.md), with its
@@ -90,6 +89,7 @@ filled in from the key table when the page is shown.
 - [Panes and tabs](internal/help/pages/panes.md) and
   [rearranging what is already running](internal/help/pages/rearranging.md)
 - [Agents and models](internal/help/pages/agents.md), including routing and API keys
+- [Running Ornith models](internal/help/pages/ornith.md)
 - [Knowing who needs you](internal/help/pages/status.md), including
   [auto-approve read-only](internal/help/pages/auto-approve.md)
 - [Spend and limits](internal/help/pages/spend.md)
