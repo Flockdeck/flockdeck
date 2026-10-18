@@ -446,7 +446,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
-	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-shell] [-record] [-agent <id>] [-model <model>] [-role <id>] [-baton <ref> [-baton-send-elsewhere]] <task>\n")
+	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-tab <title>] [-shell] [-record] [-agent <id>] [-model <model>] [-role <id>] [-baton <ref> [-baton-send-elsewhere]] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "  baton list | baton show [-path] <baton-id>\n")
@@ -459,7 +459,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        list the agents of this pane's project, with role and status; run from inside a pane\n")
 	fmt.Fprintf(out, "  msg send <target> <text...>\n")
 	fmt.Fprintf(out, "        message another agent by pane id, name or role; run from inside a pane\n")
-	fmt.Fprintf(out, "  inbox [-all] [-json] | inbox read <id>\n")
+	fmt.Fprintf(out, "  inbox [-all] [-json] [-wait <duration>] | inbox read <id>\n")
 	fmt.Fprintf(out, "        the messages other agents sent this pane; run from inside a pane\n")
 	fmt.Fprintf(out, "  task add <title> [-body text] [-role r] [-branch b] | list [-state s] [-role r] [-mine] [-json]\n")
 	fmt.Fprintf(out, "       | show <id> | assign <id> <who> | status <id> <state> [-note text] | note <id> <text>\n")
@@ -1783,6 +1783,10 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	if f.shell && f.role != "" {
 		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, which has no role, so it cannot also take -role")
 	}
+	tab, err := hooks.CleanTabName(f.tab)
+	if err != nil {
+		return hooks.SpawnRequest{}, err
+	}
 	if err := checkAgent(f.agent, f.model); err != nil {
 		return hooks.SpawnRequest{}, err
 	}
@@ -1793,6 +1797,7 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 		Task:   task,
 		Branch: f.worktree,
 		Split:  f.split,
+		Tab:    tab,
 		Shell:  f.shell,
 		Agent:  f.agent,
 		Model:  f.model,
@@ -1811,6 +1816,7 @@ type spawnFlags struct {
 	model    string
 	role     string
 	split    bool
+	tab      string
 	shell    bool
 	record   bool
 	baton    string
@@ -1826,6 +1832,7 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(&f.worktree, "worktree", "", "`branch` for the helper's own git worktree, made for it")
 	fs.BoolVar(&f.split, "split", false, "place the helper beside this pane instead of in a new tab")
+	fs.StringVar(&f.tab, "tab", "", "`title` of the tab to put the helper in: the tab of that name in this project, made if there is none. Use one title for the panes of one piece of work. Takes precedence over -split")
 	fs.BoolVar(&f.shell, "shell", false, "start a shell instead of an agent")
 	fs.BoolVar(&f.record, "record", false, "record the helper's agent interaction as a transcript; off unless given, and only once recording has been turned on in the window")
 	fs.StringVar(&f.agent, "agent", "", "`id` of the agent to start; flockdeck agents lists them")

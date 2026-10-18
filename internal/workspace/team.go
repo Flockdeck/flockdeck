@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -30,6 +31,11 @@ import (
 // messagesFile is where the inboxes are kept, next to the other workspace state.
 const messagesFile = "messages.json"
 
+// helperIdleDwell is how long a helper has to stay idle before its parent is
+// told its turn is over: a turn that ends and another that starts straight
+// after it is not a helper that has finished.
+const helperIdleDwell = 5 * time.Second
+
 // teamState is everything the team keeps on the workspace.
 type teamState struct {
 	inbox    *team.Store
@@ -40,6 +46,14 @@ type teamState struct {
 	saveMu sync.Mutex
 	// save writes the file; a test replaces it to make a write slow.
 	save func(path string, data []byte) error
+
+	// idle reads the status of a helper pane and after runs fn once d has
+	// passed; they are what a test replaces to report a helper's turns with a
+	// clock and a status of its own.
+	idle  func(p *Pane) idleReading
+	after func(d time.Duration, fn func())
+	// dwell is helperIdleDwell; a test shortens it.
+	dwell time.Duration
 }
 
 func (w *Workspace) initTeam() {
@@ -48,7 +62,10 @@ func (w *Workspace) initTeam() {
 		inbox:    team.NewStore(nil),
 		notifier: team.NewNotifier(),
 		save:     store.WriteAtomic,
+		after:    func(d time.Duration, fn func()) { time.AfterFunc(d, fn) },
+		dwell:    helperIdleDwell,
 	}
+	t.idle = w.readIdle
 	// A message arriving or being read changes the unread count on a pane's
 	// header, so the window is sent the state again.
 	t.inbox.OnChange(w.wake)
@@ -320,6 +337,103 @@ func (w *Workspace) paneChanged(id string) {
 		return
 	}
 	w.noteExit(id)
+	w.noteIdle(id)
+}
+
+// noteIdle tells a pane's parent that the pane has finished a turn and stayed
+// idle, once for each turn. A helper normally finishes by going idle at its
+// prompt, not by exiting, so without it a manager waiting on its helpers hears
+// nothing until the user looks. It writes a message to the parent's inbox and
+// types nothing anywhere. It applies to panes whose agent reports its own
+// status, since an idle read off a quiet screen could be a dialog waiting for a
+// key.
+func (w *Workspace) noteIdle(id string) {
+	p := w.Pane(id)
+	if p == nil {
+		return
+	}
+	w.mu.RLock()
+	parent, sess := p.Parent, p.Sess
+	w.mu.RUnlock()
+	if parent == "" || sess == nil {
+		return
+	}
+	r := w.team.idle(p)
+	if !r.Eligible {
+		return
+	}
+	switch r.Status {
+	case "working":
+		w.mu.Lock()
+		p.turnSeen = true
+		w.mu.Unlock()
+	case "idle":
+		w.mu.Lock()
+		arm := p.turnSeen && !p.idleArmed
+		if arm {
+			p.idleArmed = true
+		}
+		w.mu.Unlock()
+		if arm {
+			w.armIdleReport(p, parent, sess)
+		}
+	}
+}
+
+// idleReading is what noteIdle needs to know of a pane: whether its status is
+// reported by the agent itself, what it is, and for how long it has been it.
+type idleReading struct {
+	Eligible bool
+	Status   string
+	IdleFor  time.Duration
+}
+
+// readIdle is the reading of a real pane. Eligible is notifiable: the agent has
+// hooks and has been heard from in this session.
+func (w *Workspace) readIdle(p *Pane) idleReading {
+	if !w.notifiable(p.ID) {
+		return idleReading{}
+	}
+	w.mu.RLock()
+	sess := p.Sess
+	w.mu.RUnlock()
+	if sess == nil {
+		return idleReading{}
+	}
+	st, _ := sess.Status()
+	return idleReading{Eligible: true, Status: st.String(), IdleFor: time.Since(sess.StatusSince())}
+}
+
+// armIdleReport tells the parent after helperIdleDwell if the helper is still idle
+// then, in the same session; otherwise it drops the report, and the next time the
+// helper goes idle arms it again.
+func (w *Workspace) armIdleReport(p *Pane, parent string, sess *session.Session) {
+	w.team.after(w.team.dwell, func() {
+		w.mu.RLock()
+		same := p.Sess == sess
+		w.mu.RUnlock()
+		r := w.team.idle(p)
+		if !same || w.Pane(p.ID) != p || !r.Eligible || r.Status != "idle" {
+			w.mu.Lock()
+			p.idleArmed = false
+			w.mu.Unlock()
+			return
+		}
+		// Idle, but not for as long as the dwell: it went busy and idle again
+		// since this was armed. Look again after another full dwell.
+		if r.IdleFor < w.team.dwell {
+			w.armIdleReport(p, parent, sess)
+			return
+		}
+		w.mu.Lock()
+		p.idleArmed = false
+		report := p.turnSeen
+		p.turnSeen = false
+		w.mu.Unlock()
+		if report {
+			w.notifyParent(p, parent, "finished its turn and is idle; its report is in `flockdeck inbox` if it sent one, and `flockdeck task list` shows its task")
+		}
+	})
 }
 
 // Unread is how many unread messages a pane has. The window draws it on the

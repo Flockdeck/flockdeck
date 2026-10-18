@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -109,9 +110,14 @@ type SpawnOptions struct {
 	// children are gathered into one tab rather than scattered a tab each, and
 	// it takes precedence over Split. A tab that has since been closed is
 	// ignored, and the child is placed as it would have been without it.
-	Tab   string
-	Kind  session.Kind
-	Title string
+	Tab string
+	// TabName is the title of the tab to join, in the project the child is
+	// started in: the tab with that title if there is one, otherwise a new tab
+	// given it. It is how a manager keeps the panes for one piece of work in
+	// one tab. When it is set, Tab and Split are not used.
+	TabName string
+	Kind    session.Kind
+	Title   string
 	// Agent names the agent.Spec the pane runs, and Model the model that agent
 	// is asked for. Empty means the default, which is how a spawn made
 	// without a thought about either keeps running what Flockdeck already ran. An
@@ -439,7 +445,85 @@ func (w *Workspace) DiscardMade(repo string, m MadeWorktree, cause error) error 
 	return fmt.Errorf("%w (the worktree and branch %s that were made for it were removed)", cause, m.Branch)
 }
 
+// MaxHelpers is the most panes that may be open below one agent that started
+// them with `flockdeck spawn`, counting the helpers it started and those they
+// started in turn, and counting a helper whose process has exited until its pane
+// is closed. A manager that delegates on its own has no user approving each
+// start, so this is what keeps a plan from fanning out without end, including
+// through a helper with no role, which is not limited by its role. Closing a
+// helper that is done makes room.
+const MaxHelpers = 8
+
+// maxHelperDepth bounds the walk up a chain of parents.
+const maxHelperDepth = 16
+
+// ancestorsLocked lists the panes that started p, and the ones that started
+// them: those recorded when p was started, which survive the close of a pane
+// in the middle of the chain, and the chain of Parent ids, which a restored pane
+// still has. The caller holds w.mu.
+func (w *Workspace) ancestorsLocked(p *Pane) []string {
+	out := slices.Clone(p.Ancestors)
+	for id, depth := p.Parent, 0; id != "" && depth < maxHelperDepth; depth++ {
+		if !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+		q := w.panes[id]
+		if q == nil {
+			break
+		}
+		id = q.Parent
+	}
+	return out
+}
+
+// helpersBelow counts the open panes that descend from the pane root, whether
+// or not the panes between are still open. The caller holds w.mu.
+func (w *Workspace) helpersBelow(root string) int {
+	n := 0
+	for _, p := range w.panes {
+		if slices.Contains(w.ancestorsLocked(p), root) {
+			n++
+		}
+	}
+	return n
+}
+
+// HelperRoom says whether the agent in the pane parent may start another
+// helper: neither it nor any agent that started it, up the chain, may already
+// have MaxHelpers open below it. The error says whose limit was reached and how
+// to make room. A start from outside any pane has no limit.
+//
+// Spawn checks again, under the lock that adds the pane, so two starts at once
+// cannot both take the last place; this is the early answer, given before
+// anything is made for the helper.
+func (w *Workspace) HelperRoom(parent string) error {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.helperRoomLocked(parent)
+}
+
+func (w *Workspace) helperRoomLocked(parent string) error {
+	p := w.panes[parent]
+	if parent == "" || p == nil {
+		return nil
+	}
+	if n := w.helpersBelow(parent); n >= MaxHelpers {
+		return fmt.Errorf("this pane already has %d helpers open, the most it may have; close the ones that are done with `flockdeck close <pane-id>` or wait for them to finish", n)
+	}
+	for _, id := range w.ancestorsLocked(p) {
+		if n := w.helpersBelow(id); n >= MaxHelpers {
+			return fmt.Errorf("the agent that started this pane already has %d helpers open below it, the most it may have; ask it to close the ones that are done", n)
+		}
+	}
+	return nil
+}
+
 func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
+	if o.SpawnedByAgent {
+		if err := w.HelperRoom(parentPaneID); err != nil {
+			return "", err
+		}
+	}
 	if o.Baton != nil && o.Kind == session.KindShell {
 		return "", fmt.Errorf("a baton starts an agent, and a shell is not one")
 	}
@@ -474,12 +558,17 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		}
 	}
 
+	// What this start makes of a worktree is taken away again if the helper then
+	// does not start, as the spawn handler does for the one it cuts.
+	var made MadeWorktree
+	var madeRepo string
 	if o.Branch != "" {
-		path, err := w.worktreeFor(cwd, o.Branch)
+		madeRepo, _ = gitx.Root(cwd)
+		m, err := w.PrepareWorktreeNew(cwd, o.Branch)
 		if err != nil {
 			return "", err
 		}
-		cwd = path
+		made, cwd = m, m.Path
 	}
 
 	title := o.Title
@@ -518,11 +607,19 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		// turning auto-review on for it -- carries to the
 		// helpers it starts, rather than needing to be found and flipped on a
 		// dozen new panes one at a time. See Pane.AutoReview.
-		AutoReview: parent != nil && parent.AutoReview,
+		//
+		// Not for a helper an agent started on its own: that would hand an
+		// agent that is acting without a user approving each step helpers that
+		// approve their own tool calls. Such a helper starts with the
+		// installation's default, and the user turns it on for it.
+		AutoReview: parent != nil && parent.AutoReview && !o.SpawnedByAgent,
 		Recording:  o.Record && o.Kind != session.KindShell,
 	}
 	if o.SpawnedByAgent && parent != nil {
 		p.Parent = parentPaneID
+		w.mu.RLock()
+		p.Ancestors = append(w.ancestorsLocked(parent), parentPaneID)
+		w.mu.RUnlock()
 	}
 	// A pane started with no parent pane behind it at all -- opened by hand --
 	// starts AutoReview from the installation's own default rather than off
@@ -532,7 +629,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	// empty for it (see the assignment above and Pane.Parent) -- checking
 	// the field here instead of the pointer would silently overwrite that
 	// inheritance with the installation default for every such pane.
-	if parent == nil {
+	if parent == nil || o.SpawnedByAgent {
 		p.AutoReview = store.LoadPrefs().AutoReviewDefault
 	}
 	if p.IsAgent() {
@@ -548,6 +645,14 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		}
 	}
 	w.mu.Lock()
+	if o.SpawnedByAgent {
+		// Checked and added under one lock: of two starts at once, only one
+		// can take the last place.
+		if err := w.helperRoomLocked(parentPaneID); err != nil {
+			w.mu.Unlock()
+			return "", w.DiscardMade(madeRepo, made, err)
+		}
+	}
 	w.panes[p.ID] = p
 	w.mu.Unlock()
 	w.startPane(p, false)
@@ -560,7 +665,36 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	// Place it: in the tab it was asked to join, beside its parent, or as a tab
 	// of its own.
 	placed := false
-	if t := w.Tab(o.Tab); t != nil {
+	var named *Tab
+	if o.TabName != "" {
+		root := w.activeRoot
+		if parent != nil {
+			for _, t := range w.Tabs {
+				if t.Tree.Find(parentPaneID) != nil {
+					root = t.Root
+					break
+				}
+			}
+		}
+		for _, t := range w.Tabs {
+			// Only a tab an earlier -tab made: never one the user made by hand,
+			// one named after the directory, or the tab of the pane asking.
+			if t.Root == root && t.Spawned && strings.EqualFold(t.Title, o.TabName) {
+				named = t
+				break
+			}
+		}
+		if named == nil {
+			title = o.TabName
+		}
+	}
+	if named != nil {
+		t := named
+		t.Tree = layout.Grid(append(t.Tree.Panes(), p.ID))
+		t.Zoom = false
+		t.Delegated = true
+		placed = true
+	} else if t := w.Tab(o.Tab); o.TabName == "" && t != nil {
 		// Rebuilt as a grid rather than split off whichever pane happens to be
 		// there, because this is the path several children of one parent arrive
 		// on: a dozen panes added one at a time, each of which would otherwise halve the last.
@@ -569,7 +703,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		t.Delegated = true
 		placed = true
 	}
-	if !placed && o.Split && parent != nil {
+	if !placed && o.TabName == "" && o.Split && parent != nil {
 		for _, t := range w.Tabs {
 			if t.Tree.Find(parentPaneID) == nil {
 				continue
@@ -598,6 +732,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 			Tree:      layout.NewLeaf(p.ID),
 			Focus:     p.ID,
 			Delegated: true,
+			Spawned:   o.TabName != "",
 		}
 		w.Tabs = append(w.Tabs, t)
 	}

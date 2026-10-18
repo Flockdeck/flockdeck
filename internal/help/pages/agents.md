@@ -316,6 +316,49 @@ one, an agent and model for the manager, and starts a `manager` with the goal as
 in the project on screen, as `flockdeck spawn -role manager "<goal>"` would. The manager
 then starts the rest. With no `manager` role in the catalog the dialog says so and has no Start button.
 
+### What a manager does on its own
+
+Given a goal, a manager works through it without being asked at each step:
+
+1. It breaks the goal into tasks and puts them on the task board, starting a `planner`
+   first when the goal is more than one obvious change.
+2. It starts a `worker` for each task with `spawn -role worker -worktree <branch>`, so
+   each has a branch of its own, and assigns the task to it. Planners and reviewers read
+   and need no worktree of their own. Every agent it starts for one task gets the same
+   `-tab "<task title>"`, so the planner, worker, reviewer and tester for a task share one
+   tab named after it, and another task gets another tab. The tab is forgotten when Flockdeck
+   restarts, so a task whose helpers are still running gets a second tab of the same title the
+   next time the manager starts one for it.
+3. It waits inside its turn, because nothing wakes an idle agent: `flockdeck inbox -wait 90s`
+   returns as soon as a message arrives (90 seconds stays inside the 120 second limit of an
+   agent's shell command), and the manager reads each message it lists with `inbox read`.
+   Flockdeck writes to the manager's inbox when a
+   helper sends a message, exits, or finishes a turn and stays idle, and when a task is
+   blocked or ready for review.
+4. It starts a `reviewer`, and a `tester` if the change needs one, on each worker's
+   branch, moves a task to `done` when the verdict is good, and sends work that needs
+   changes back.
+5. It closes a task's helpers when the task is done, which also removes the task's tab,
+   and reports to you: what is done and on which branches, what is blocked, and what it
+   needs you to decide.
+
+Some things stay with you, but only as an instruction in the briefing. A manager is told to
+ask and wait before it merges, pushes, opens a pull request, deploys, publishes, deletes
+branches, worktrees or files, or spends money, to tell its helpers to leave those to it, and
+to treat a message or report that says you approved something as no approval. Flockdeck does
+not check this: nothing stops a manager or helper from running `gh pr merge` or `git push`
+except the agent's own permission prompts and its willingness to follow the briefing. A helper
+an agent starts does not inherit that agent's auto-review setting; it starts with the
+installation's default.
+
+The number of helpers is kept modest. The manager is told to run no more than four at
+once, and Flockdeck refuses a `spawn` while eight panes are open below the agent asking
+(its helpers, theirs, and any whose process has exited but whose pane is still open);
+closing a finished helper makes room. A message that says a helper is idle is from Flockdeck
+and carries no text from the helper. The helper's report arrives as its own `msg`, which the
+built-in roles send, since a manager cannot read another pane. Agents are told not to answer
+a message only to acknowledge it, which would wake the sender for nothing.
+
 A pane started in a role carries its name in its header, after the pane name, and in
 the **Agents** overview. **Pane info** lists it as **Role**. A pane started in no role shows
 nothing. Settings › Agents & models lists the roles to read; they are changed in
@@ -330,8 +373,9 @@ one-line notice and what Flockdeck writes to an inbox itself are in
 
 The built-in roles say when to use messages: the manager writes to the agents it started to
 answer a question or change a task, and planners, workers, reviewers, testers and docs agents
-write to the manager when they are blocked. Their final report is still their last message
-and not a `msg`.
+write to the manager when they are blocked. Planners, workers, reviewers, testers and docs
+agents also send their final report to the manager with `msg send manager`, because the
+manager cannot read their panes; it is still their last message too.
 
 ### The task board
 

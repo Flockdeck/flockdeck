@@ -264,7 +264,7 @@ func (c PaneContext) writeTeam(b *strings.Builder) {
 	fmt.Fprintf(b, "A role id reaches every live pane in that role but you; a name that more than one pane has is "+
 		"refused with the panes listed. A message is at most %d KB: for anything longer, write a file and send its path. "+
 		"Anyone in the project may message anyone: roles limit who may start whom, not who may talk. "+
-		"A helper you started with `spawn` messages you from flockdeck when its process exits or it is closed as finished.\n\n",
+		"A helper you started with `spawn` messages you from flockdeck when its process exits or it is closed as finished. Do not answer a message only to acknowledge it: the reply wakes the sender for nothing.\n\n",
 		team.MaxText/1024)
 	if !c.Notified {
 		fmt.Fprintf(b, "You are not told when a message arrives. Run `%s inbox` when a session starts or resumes, "+
@@ -371,6 +371,9 @@ func writeSpawnFlags(b *strings.Builder, flockdeck string, roles bool) {
 		"- No placement flag: the agent opens in a new tab of its own, titled after the task.\n" +
 		"- `-split`: the agent opens beside you, in your tab. Several `-split` calls gather the group in " +
 		"front of the user at once.\n" +
+		"- `-tab <title>`: the agent joins the tab with that title in this project, which is made if there is " +
+		"none, and the tab's panes are laid out in a grid. Use one title for everything that belongs to one piece " +
+		"of work; it takes precedence over `-split`.\n" +
 		"- `-worktree <branch>`: the agent gets a git worktree and branch of its own, cut from yours. Without it " +
 		"every agent shares this working tree and edits files under the others; use it whenever two of them " +
 		"would touch the same files.\n" +
@@ -385,8 +388,13 @@ func writeSpawnFlags(b *strings.Builder, flockdeck string, roles bool) {
 			"where you name no agent or model, its own default for them. It does not go with `-shell`.\n\n")
 	}
 	b.WriteString("Each helper is a fresh agent with an empty conversation: it inherits nothing from yours, so its " +
-		"task has to stand on its own. Start helpers when the user asks for parallel work or your role is to " +
-		"hand work out, and only as many as the work needs.\n\n")
+		"task has to stand on its own. ")
+	if roles {
+		b.WriteString("Your role is to hand work out, so start helpers when the work needs them without asking " +
+			"the user first, and only as many as it needs.\n\n")
+	} else {
+		b.WriteString("Start helpers when the user asks for parallel work, and only as many as the work needs.\n\n")
+	}
 	b.WriteString("When a helper you started is done, `" + flockdeck + " close <pane-id>` closes its pane, with the id `spawn` " +
 		"printed back (`" + flockdeck + " team` lists ids too). Close only panes you started. It refuses a pane " +
 		"still working unless you add `-force`, and refuses this one (end your own turn instead). " +

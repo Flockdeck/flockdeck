@@ -224,6 +224,107 @@ func TestInboxPrintsAPeerNameOnOneLine(t *testing.T) {
 	}
 }
 
+// An agent waiting on its helpers waits inside `inbox -wait` and is handed the
+// first message to arrive, rather than ending its turn where nothing wakes it.
+func TestInboxWaitReturnsAsSoonAsAMessageArrives(t *testing.T) {
+	srv := teamServer(t)
+	old := inboxPoll
+	inboxPoll = 5 * time.Millisecond
+	t.Cleanup(func() { inboxPoll = old })
+
+	var calls int
+	srv.SetInboxHandler(func(r hooks.InboxRequest) (hooks.InboxResult, error) {
+		calls++
+		if calls < 4 {
+			return hooks.InboxResult{}, nil
+		}
+		return hooks.InboxResult{Messages: []team.Message{{ID: 7, From: team.Sender{Name: team.System}, To: "p-me", Time: time.Now(), Text: "worker went idle"}}}, nil
+	})
+	var out bytes.Buffer
+	start := time.Now()
+	if err := runInbox([]string{"-wait", "30s"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "#7 from flockdeck") || calls != 4 {
+		t.Errorf("after %d looks the output was:\n%s", calls, out.String())
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Error("the wait did not end when the message arrived")
+	}
+}
+
+func TestInboxWaitGivesUpAfterItsTimeAndWithoutItDoesNotWait(t *testing.T) {
+	srv := teamServer(t)
+	old := inboxPoll
+	inboxPoll = 5 * time.Millisecond
+	t.Cleanup(func() { inboxPoll = old })
+	var calls int
+	srv.SetInboxHandler(func(r hooks.InboxRequest) (hooks.InboxResult, error) {
+		calls++
+		return hooks.InboxResult{}, nil
+	})
+	var out bytes.Buffer
+	if err := runInbox(nil, &out); err != nil || calls != 1 || !strings.Contains(out.String(), "no unread messages") {
+		t.Fatalf("no -wait: %v after %d looks:\n%s", err, calls, out.String())
+	}
+	calls = 0
+	out.Reset()
+	if err := runInbox([]string{"-wait", "60ms"}, &out); err != nil || !strings.Contains(out.String(), "no unread messages") {
+		t.Errorf("a wait that ran out = %v\n%s", err, out.String())
+	}
+	if calls < 3 {
+		t.Errorf("a 60ms wait looked only %d times", calls)
+	}
+}
+
+// A wait never runs past the time asked for, even when the poll is longer, and
+// an error from the application in the middle of one is tried again.
+func TestInboxWaitStopsAtItsDeadlineAndSurvivesATransientError(t *testing.T) {
+	srv := teamServer(t)
+	old := inboxPoll
+	inboxPoll = 2 * time.Second
+	t.Cleanup(func() { inboxPoll = old })
+	srv.SetInboxHandler(func(r hooks.InboxRequest) (hooks.InboxResult, error) { return hooks.InboxResult{}, nil })
+	var out bytes.Buffer
+	start := time.Now()
+	if err := runInbox([]string{"-wait", "150ms"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("a 150ms wait took %v with a 2s poll", took)
+	}
+
+	inboxPoll = 5 * time.Millisecond
+	var calls int
+	srv.SetInboxHandler(func(r hooks.InboxRequest) (hooks.InboxResult, error) {
+		calls++
+		switch {
+		case calls == 2 || calls == 3:
+			return hooks.InboxResult{}, errors.New("busy")
+		case calls < 5:
+			return hooks.InboxResult{}, nil
+		}
+		return hooks.InboxResult{Messages: []team.Message{{ID: 9, From: team.Sender{Name: team.System}, To: "p-me", Time: time.Now(), Text: "worker went idle"}}}, nil
+	})
+	out.Reset()
+	if err := runInbox([]string{"-wait", "30s"}, &out); err != nil || !strings.Contains(out.String(), "#9 from flockdeck") {
+		t.Errorf("a wait with two failed looks = %v\n%s", err, out.String())
+	}
+
+	// An error that lasts to the end of the wait is reported.
+	srv.SetInboxHandler(func(r hooks.InboxRequest) (hooks.InboxResult, error) {
+		if calls++; calls > 100 {
+			return hooks.InboxResult{}, nil
+		}
+		return hooks.InboxResult{}, errors.New("down")
+	})
+	calls = 0
+	// The first look is outside the wait and fails at once.
+	if err := runInbox([]string{"-wait", "50ms"}, &out); err == nil {
+		t.Error("an application that is down was reported as an empty inbox")
+	}
+}
+
 func TestMsgSendSaysWhenTheReceiverIsNotToldOfTheMessage(t *testing.T) {
 	srv := teamServer(t)
 	srv.SetMsgHandler(func(hooks.MsgRequest) (hooks.MsgResult, error) {
@@ -237,5 +338,48 @@ func TestMsgSendSaysWhenTheReceiverIsNotToldOfTheMessage(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output %q lacks %q", out.String(), want)
 		}
+	}
+}
+
+// The first look is retried like the later ones, and the command fails only if no
+// look succeeded before the time ran out.
+func TestInboxWaitRetriesAFailedFirstLook(t *testing.T) {
+	srv := teamServer(t)
+	old := inboxPoll
+	inboxPoll = 5 * time.Millisecond
+	t.Cleanup(func() { inboxPoll = old })
+	var calls int
+	srv.SetInboxHandler(func(r hooks.InboxRequest) (hooks.InboxResult, error) {
+		if calls++; calls == 1 {
+			return hooks.InboxResult{}, errors.New("starting up")
+		}
+		return hooks.InboxResult{Messages: []team.Message{{ID: 3, From: team.Sender{Name: team.System}, To: "p-me", Time: time.Now(), Text: "hi"}}}, nil
+	})
+	var out bytes.Buffer
+	if err := runInbox([]string{"-wait", "30s"}, &out); err != nil || !strings.Contains(out.String(), "#3 from flockdeck") {
+		t.Errorf("a failed first look = %v\n%s", err, out.String())
+	}
+
+	// Without -wait there is one look and its error is the command's.
+	calls = -100
+	srv.SetInboxHandler(func(r hooks.InboxRequest) (hooks.InboxResult, error) { return hooks.InboxResult{}, errors.New("down") })
+	out.Reset()
+	if err := runInbox(nil, &out); err == nil {
+		t.Error("an application that is down was reported as an empty inbox")
+	}
+	// A wait that never gets a look in fails; one that got a look and then errors does not.
+	if err := runInbox([]string{"-wait", "40ms"}, &out); err == nil {
+		t.Error("a wait in which every look failed succeeded")
+	}
+	var seen int
+	srv.SetInboxHandler(func(r hooks.InboxRequest) (hooks.InboxResult, error) {
+		if seen++; seen == 1 {
+			return hooks.InboxResult{}, nil
+		}
+		return hooks.InboxResult{}, errors.New("busy")
+	})
+	out.Reset()
+	if err := runInbox([]string{"-wait", "40ms"}, &out); err != nil || !strings.Contains(out.String(), "no unread messages") {
+		t.Errorf("a wait with one good look then errors = %v\n%s", err, out.String())
 	}
 }

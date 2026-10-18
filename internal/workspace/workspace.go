@@ -148,6 +148,11 @@ type Pane struct {
 	// It is persisted with the layout, so a restored helper still knows whose
 	// it is; see encodeNode and decodeNode.
 	Parent string
+	// Ancestors are the panes that started this one and the ones that started
+	// them, nearest last, written when it was started and not persisted. They
+	// let the helper cap count a pane whose parent has since been closed. See
+	// Workspace.HelperRoom.
+	Ancestors []string
 	// Muted is set from a phone that would rather not be pushed to about this
 	// pane's waits while it is chatty, though it still shows waiting
 	// everywhere else -- the desk's markers, the phone's list, and the desk's
@@ -218,6 +223,10 @@ type Pane struct {
 	// exitReported is the session whose exit has been reported to this pane's
 	// parent, so a process that ends is reported once. See noteExit.
 	exitReported *session.Session
+	// turnSeen says the agent has been working since its parent was last told
+	// it went idle, and idleArmed that a report of it going idle is waiting out
+	// helperIdleDwell. See noteIdle.
+	turnSeen, idleArmed bool
 }
 
 // Alive reports whether the pane has a running process.
@@ -276,6 +285,11 @@ type Tab struct {
 	// pane count alone, since a person is free to build exactly the same
 	// shape by hand.
 	Delegated bool
+	// Spawned is set on a tab that `flockdeck spawn -tab` made, which is the
+	// only kind a later -tab of the same title joins. A tab the user made, or
+	// one named after its directory, is never taken over and rearranged. It is
+	// not persisted.
+	Spawned bool
 	// AutoTitle is set while the title is still the directory name the tab was
 	// given automatically, so the first prompt may replace it. Renaming a tab
 	// by hand clears it and the title is then left alone.
@@ -1771,6 +1785,9 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	// that what the last one still has to say is told from it. See handleHook.
 	w.mu.Lock()
 	p.launch = rand.Text()
+	// A turn of the last session says nothing of this one: a helper restarted
+	// mid-turn must not report that a turn it never finished is over.
+	p.turnSeen, p.idleArmed = false, false
 	w.mu.Unlock()
 	// A new session has not been told of the mail waiting for the pane, whatever
 	// the last one was told.

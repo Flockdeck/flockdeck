@@ -37,9 +37,10 @@ func TestAgentSpawnRecordsParentButAUserFanoutDoesNot(t *testing.T) {
 }
 
 // TestSpawnInheritsParentsAutoReview covers trust carrying from a pane to
-// what it starts: a fan-out or a helper begun from a pane with auto-review
-// on inherits it, and one begun from a pane with it off, or with no parent
-// at all, does not turn it on out of nowhere.
+// what it starts: a fan-out begun from a pane with auto-review on inherits
+// it, a helper an agent started with its own `spawn` does not, and one begun
+// from a pane with it off, or with no parent at all, does not turn it on out
+// of nowhere.
 func TestSpawnInheritsParentsAutoReview(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
@@ -62,8 +63,10 @@ func TestSpawnInheritsParentsAutoReview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	if p := ws.Pane(helper); !p.AutoReview {
-		t.Error("a helper spawned by a trusted pane did not inherit AutoReview")
+	// A helper an agent started on its own is not trusted because its parent is:
+	// the parent is acting without a user approving each start.
+	if p := ws.Pane(helper); p.AutoReview {
+		t.Error("a helper spawned by an agent inherited AutoReview")
 	}
 
 	ws.NewTab(session.KindShell, root, "untrusted")

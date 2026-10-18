@@ -402,6 +402,10 @@ func TestParseSpawnReadsFlagsAfterTheTask(t *testing.T) {
 			hooks.SpawnRequest{Task: "tail the build log", Shell: true, Split: true}},
 		{"flags first still work", []string{"--split", "watch the build"},
 			hooks.SpawnRequest{Task: "watch the build", Split: true}},
+		{"a tab by title, after the task", []string{"review the change", "-role", "reviewer", "-tab", "  Login rate limit "},
+			hooks.SpawnRequest{Task: "review the change", Role: "reviewer", Tab: "Login rate limit"}},
+		{"a tab with a role and a worktree", []string{"-tab", "billing", "-role", "worker", "-worktree", "bill", "add export"},
+			hooks.SpawnRequest{Task: "add export", Role: "worker", Branch: "bill", Tab: "billing"}},
 		// After a bare "--" a dash is part of the task, which is how a task
 		// that genuinely starts with one is written.
 		{"-- protects the task", []string{"--", "-shell is the flag I mean to describe"},
@@ -1195,4 +1199,62 @@ func TestUsageNamesEveryUpdateFlag(t *testing.T) {
 			t.Errorf("the usage's update line %q does not name -%s, which update takes", line, f.Name)
 		}
 	})
+}
+
+// -tab takes a title: blank means none was asked for, and one that cannot be a
+// tab title is refused.
+func TestSpawnTabTitleIsChecked(t *testing.T) {
+	if got, err := parseSpawn([]string{"-tab", "   ", "watch the build"}); err != nil || got.Tab != "" {
+		t.Errorf("a blank title = %+v, %v, want no tab", got, err)
+	}
+	for name, title := range map[string]string{
+		"too long":     strings.Repeat("x", hooks.MaxTabName+1),
+		"a line break": "login" + "\n" + "limit",
+		"an escape":    "login\x1b[2J",
+	} {
+		if _, err := parseSpawn([]string{"-tab", title, "watch the build"}); err == nil || !strings.Contains(err.Error(), "-tab") {
+			t.Errorf("%s: parseSpawn = %v, want a refusal that names -tab", name, err)
+		}
+	}
+	if _, err := parseSpawn([]string{"watch the build", "-tab"}); err == nil {
+		t.Error("-tab with no title was accepted")
+	}
+	if got, err := parseSpawn([]string{strings.Repeat("x", 3), "-tab", strings.Repeat("é", hooks.MaxTabName)}); err != nil || got.Tab == "" {
+		t.Errorf("a title of exactly %d characters = %+v, %v, want it accepted", hooks.MaxTabName, got, err)
+	}
+}
+
+// -tab goes with the other placement flags and does not change them: the request
+// carries all of them, and the application decides that the tab wins over -split.
+func TestSpawnTabWithOtherPlacementFlags(t *testing.T) {
+	got, err := parseSpawn([]string{"-tab", "billing", "-split", "-worktree", "bill", "-role", "worker", "add export"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := hooks.SpawnRequest{Task: "add export", Role: "worker", Branch: "bill", Split: true, Tab: "billing"}
+	if got != want {
+		t.Errorf("request = %+v, want %+v", got, want)
+	}
+	if _, err := parseSpawn([]string{"-shell", "-tab", "billing", "tail the log"}); err != nil {
+		t.Errorf("-tab with -shell = %v, want it accepted", err)
+	}
+}
+
+// Two titles that look alike must not become two tabs: format characters are
+// refused, here and at the endpoint, which uses the same check.
+func TestCleanTabNameRefusesFormatCharacters(t *testing.T) {
+	for name, title := range map[string]string{
+		"zero width space": "login\u200blimit",
+		"bidi override":    "login\u202elimit",
+		"line separator":   "login\u2028limit",
+		"word joiner":      "login\u2060limit",
+		"escape":           "login\x1b[2J",
+	} {
+		if _, err := hooks.CleanTabName(title); err == nil {
+			t.Errorf("%s: %q was accepted", name, title)
+		}
+	}
+	if got, err := hooks.CleanTabName("  Facturación 请求  "); err != nil || got != "Facturación 请求" {
+		t.Errorf("an ordinary non-ASCII title = %q, %v", got, err)
+	}
 }

@@ -622,6 +622,10 @@ func (s *Server) installSpawnHandler() {
 			cwd string
 			err error
 		}
+		var tabErr error
+		if req.Tab, tabErr = hooks.CleanTabName(req.Tab); tabErr != nil {
+			return hooks.SpawnResult{}, tabErr
+		}
 		in, ok := ask(s, func() start {
 			cwd := s.ws.ActiveRoot()
 			if p := s.ws.Pane(req.Parent); p != nil {
@@ -630,6 +634,11 @@ func (s *Server) installSpawnHandler() {
 			// The role is folded into the agent and model first, so that what
 			// it names is checked like anything the caller named.
 			err := s.applyRole(&req)
+			// Before a worktree is cut or a baton asked about: a start that
+			// would be refused for want of room must leave nothing behind.
+			if err == nil {
+				err = s.ws.HelperRoom(req.Parent)
+			}
 			if err == nil && !req.Shell {
 				_, err = s.ws.AgentSpec(req.Agent)
 			}
@@ -778,6 +787,7 @@ func (s *Server) installSpawnHandler() {
 				Task:           req.Task,
 				Cwd:            cwd,
 				Split:          req.Split,
+				TabName:        req.Tab,
 				Kind:           kind,
 				Agent:          req.Agent,
 				Model:          req.Model,
