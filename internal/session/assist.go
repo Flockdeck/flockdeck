@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"log/slog"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/creds"
 	"github.com/jmwri/flockdeck/internal/jev"
+	"github.com/jmwri/flockdeck/internal/jevgate"
 )
 
 // StatusAssist lets Jev (see internal/jev) settle the one call the output-
@@ -65,22 +65,10 @@ type StatusAssist struct {
 	// tuned from. Nil is slog.Default.
 	Logger *slog.Logger
 
-	mu sync.Mutex
-	// calls are the start times of the calls made in the last minute, across
-	// every pane; pausedUntil holds all calls back after a refusal.
-	calls       []time.Time
-	pausedUntil time.Time
-	panes       map[string]*assistPane
-}
-
-// assistPane is what is remembered per pane: the last tail asked about and what
-// came of it, when it was asked, and the calls made in the last hour.
-type assistPane struct {
-	hash    [sha256.Size]byte
-	hasHash bool
-	verdict assistVerdict
-	lastAt  time.Time
-	calls   []time.Time
+	once sync.Once
+	// gate is the one path to Jev (internal/jevgate), made on first use so
+	// that the zero value works and the fields above are read at that time.
+	gate *jevgate.Gate[assistVerdict]
 }
 
 // assistVerdict is Jev's reading of a tail, as far as it is acted on.
@@ -174,14 +162,37 @@ func (a *StatusAssist) logger() *slog.Logger {
 	return slog.Default()
 }
 
+// gateway is the jevgate.Gate that does the asking. Its limits are the
+// constants above; a pane is a scope, and a pane's latest tail keeps its answer
+// so that the same tail as last time is not asked again.
+func (a *StatusAssist) gateway() *jevgate.Gate[assistVerdict] {
+	a.once.Do(func() {
+		newClient := a.NewClient
+		if newClient == nil {
+			newClient = func() (*jev.Client, error) { return jev.NewClient(creds.JevKey) }
+		}
+		a.gate = jevgate.New(jevgate.Config[assistVerdict]{
+			NewClient:     newClient,
+			Questions:     assistQuestions,
+			Read:          func(pane string, res *jev.Result) (assistVerdict, error) { return a.read(pane, res), nil },
+			Now:           a.now,
+			Timeout:       assistTimeout,
+			PerMinute:     assistGlobalMinute,
+			ScopeInterval: assistPaneInterval, ScopeHourly: assistPaneHourly,
+			Cooldown: assistPauseTransient, CooldownRefused: assistPauseRefused,
+			Refused:        []error{jev.ErrUnauthorized, jev.ErrInvalidRequest},
+			LatestPerScope: true,
+		})
+	})
+	return a.gate
+}
+
 // Forget drops what is remembered about a pane that has gone.
 func (a *StatusAssist) Forget(paneID string) {
 	if a == nil {
 		return
 	}
-	a.mu.Lock()
-	delete(a.panes, paneID)
-	a.mu.Unlock()
+	a.gateway().Forget(paneID)
 }
 
 // Assess asks Jev what a pane whose heuristic status is idle is really doing,
@@ -190,104 +201,21 @@ func (a *StatusAssist) Forget(paneID string) {
 // is waiting or blocked; otherwise false, and the heuristic stands. It blocks
 // on the network, so it must not be called from the reader or under a lock.
 func (a *StatusAssist) Assess(ctx context.Context, paneID, tail string) (Status, bool) {
-	if a == nil || a.Enabled == nil || !a.Enabled() || strings.TrimSpace(tail) == "" {
+	if a == nil || a.Enabled == nil || !a.Enabled() {
 		return StatusIdle, false
 	}
-	// Whatever the caller did, what is sent and hashed is the scrubbed text.
-	// The same tail with a different secret in it is the same tail to the
-	// cache, which is right: the answer does not depend on the secret.
-	tail = jev.Scrub(tail)
-	if tail == "" {
-		return StatusIdle, false
-	}
-	newClient := a.NewClient
-	if newClient == nil {
-		newClient = func() (*jev.Client, error) { return jev.NewClient(creds.JevKey) }
-	}
-	// Without a key there is nothing to do and nothing to say: it is the
-	// ordinary state of a machine that has not opted into TypeSafe.
-	client, err := newClient()
-	if err != nil {
-		return StatusIdle, false
-	}
-
-	hash := sha256.Sum256([]byte(tail))
-	now := a.now()
-	a.mu.Lock()
-	p := a.panes[paneID]
-	if p == nil {
-		if a.panes == nil {
-			a.panes = map[string]*assistPane{}
-		}
-		p = &assistPane{}
-		a.panes[paneID] = p
-	}
-	// The same tail as last time has the same answer: nothing is asked again.
-	if p.hasHash && p.hash == hash {
-		v := p.verdict
-		a.mu.Unlock()
+	v, err := a.gateway().Do(ctx, paneID, tail)
+	switch {
+	case err == nil:
 		return v.status, v.ok
-	}
-	if !a.reserve(p, now) {
-		a.mu.Unlock()
-		return StatusIdle, false
-	}
-	a.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(ctx, assistTimeout)
-	defer cancel()
-	res, err := client.Ask(ctx, tail, assistQuestions)
-	if err != nil {
-		a.mu.Lock()
-		switch {
-		case errors.Is(err, jev.ErrUnauthorized), errors.Is(err, jev.ErrInvalidRequest):
-			a.pausedUntil = a.now().Add(assistPauseRefused)
-		case errors.Is(ctx.Err(), context.Canceled):
-			// The pane went away: nothing is wrong with TypeSafe.
-		default:
-			a.pausedUntil = a.now().Add(assistPauseTransient)
-		}
-		a.mu.Unlock()
+	case errors.Is(err, jev.ErrNoKey), errors.Is(err, jevgate.ErrNoText),
+		errors.Is(err, jevgate.ErrPaused), errors.Is(err, jevgate.ErrRateCap):
+		// Nothing was asked, and there is nothing to say: no key is the
+		// ordinary state of a machine that has not opted into TypeSafe.
+	default:
 		a.logger().Debug("jev status: no answer, keeping the heuristic", "pane", paneID, "err", err)
-		return StatusIdle, false
 	}
-
-	v := a.read(paneID, res)
-	a.mu.Lock()
-	p.hash, p.hasHash, p.verdict = hash, true, v
-	a.mu.Unlock()
-	return v.status, v.ok
-}
-
-// reserve counts a call against the limits, or refuses it. It is called with
-// a.mu held.
-func (a *StatusAssist) reserve(p *assistPane, now time.Time) bool {
-	if now.Before(a.pausedUntil) {
-		return false
-	}
-	if !p.lastAt.IsZero() && now.Sub(p.lastAt) < assistPaneInterval {
-		return false
-	}
-	p.calls = pruneBefore(p.calls, now.Add(-time.Hour))
-	if len(p.calls) >= assistPaneHourly {
-		return false
-	}
-	a.calls = pruneBefore(a.calls, now.Add(-time.Minute))
-	if len(a.calls) >= assistGlobalMinute {
-		return false
-	}
-	p.lastAt = now
-	p.calls = append(p.calls, now)
-	a.calls = append(a.calls, now)
-	return true
-}
-
-func pruneBefore(ts []time.Time, cutoff time.Time) []time.Time {
-	i := 0
-	for i < len(ts) && ts[i].Before(cutoff) {
-		i++
-	}
-	return ts[i:]
+	return StatusIdle, false
 }
 
 // read turns Jev's answers into a verdict, logging every disagreement with the

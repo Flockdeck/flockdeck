@@ -558,11 +558,11 @@ func TestTheRateLimitsHold(t *testing.T) {
 		a := newAssist(fake, &now)
 		a.Assess(ctx, "p", "tail")
 		a.Forget("p")
-		a.mu.Lock()
-		n := len(a.panes)
-		a.mu.Unlock()
-		if n != 0 {
-			t.Errorf("%d panes still remembered", n)
+		// Neither the answer nor the pane's gap since its last call is kept: the
+		// same tail, straight after, is asked about again.
+		a.Assess(ctx, "p", "tail")
+		if got := fake.hits.Load(); got != 2 {
+			t.Errorf("%d calls, want the forgotten pane asked afresh", got)
 		}
 		var none *StatusAssist
 		none.Forget("p") // a pane with no assistant exits too

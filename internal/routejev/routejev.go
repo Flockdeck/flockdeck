@@ -2,8 +2,10 @@
 // demanding a task is, so that the router's cost-strategy fallback can choose
 // a tier to suit it.
 //
-// It is the one place the router's network call is made, and so the place
-// every promise about that call is kept:
+// It is the router's side of the one path to Jev (internal/jevgate, which
+// does the scrubbing, caching, capping, pausing and asking); this package
+// supplies the questions, the bound on the task text, and the reading of the
+// answer. The promises about the call are kept there:
 //
 //   - What is sent is the task text, cut to MaxTask, as the request's state,
 //     beside three fixed questions. No repository content, no file the task
@@ -28,7 +30,6 @@ package routejev
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -39,6 +40,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/creds"
 	"github.com/jmwri/flockdeck/internal/jev"
+	"github.com/jmwri/flockdeck/internal/jevgate"
 	"github.com/jmwri/flockdeck/internal/route"
 )
 
@@ -77,15 +79,10 @@ const (
 
 // Errors a Classify can end in besides Jev's own.
 var (
-	ErrCooling  = errors.New("jev was not asked: it failed a moment ago")
-	ErrRateCap  = errors.New("jev was not asked: the calls-per-minute cap is spent")
+	ErrCooling  = jevgate.ErrPaused
+	ErrRateCap  = jevgate.ErrRateCap
 	ErrNoAnswer = errors.New("jev's answer is not usable")
 )
-
-// Asker is jev.Client's one method, so that a test asks a fake.
-type Asker interface {
-	Ask(ctx context.Context, state any, questions map[string]jev.Question) (*jev.Result, error)
-}
 
 // The questions. They are fixed text and say nothing about the user; the task
 // is the state.
@@ -116,30 +113,25 @@ func questions() map[string]jev.Question {
 	}
 }
 
-// Classifier asks Jev, with the cache, cap and cooldown described above.
+// Classifier asks Jev through a jevgate.Gate with the cache, cap and
+// cooldown described above.
 type Classifier struct {
-	asker Asker
-	now   func() time.Time
-	// Timeout and MaxPerMinute are the package's, held here so a test can set
-	// its own.
-	timeout      time.Duration
-	maxPerMinute int
-
-	mu      sync.Mutex
-	cache   map[[sha256.Size]byte]cached
-	calls   []time.Time // when the calls of the last minute were made
-	coolTil time.Time
+	gate *jevgate.Gate[route.Difficulty]
 }
 
-type cached struct {
-	d  route.Difficulty
-	at time.Time
-}
-
-// New is a Classifier that asks a.
-func New(a Asker) *Classifier {
-	return &Classifier{asker: a, now: time.Now, timeout: Timeout, maxPerMinute: MaxPerMinute,
-		cache: map[[sha256.Size]byte]cached{}}
+// New is a Classifier that asks with the client newClient returns.
+func New(newClient func() (*jev.Client, error)) *Classifier {
+	return &Classifier{gate: jevgate.New(jevgate.Config[route.Difficulty]{
+		NewClient: newClient,
+		Questions: questions(),
+		Read:      func(_ string, res *jev.Result) (route.Difficulty, error) { return read(res) },
+		Bound:     Bound,
+		Timeout:   Timeout,
+		PerMinute: MaxPerMinute,
+		Cooldown:  cooldown, CooldownRefused: cooldownBadKey,
+		Refused:  []error{jev.ErrUnauthorized, jev.ErrNoKey},
+		CacheTTL: CacheTTL, CacheCap: cacheCap,
+	})}
 }
 
 // Bound is the text that is sent for a task, after Scrub: trimmed, and cut to MaxTask runes
@@ -156,83 +148,11 @@ func Bound(task string) string {
 // Classify rates a task, from the cache if it was rated within CacheTTL, and
 // otherwise by asking Jev once.
 func (c *Classifier) Classify(task string) (route.Difficulty, error) {
-	// Redacted before it is cut, so that a secret the cut would split is seen
-	// whole, and before it is hashed, so that the key is of what is sent.
-	text := Bound(jev.Scrub(task))
-	if text == "" {
+	d, err := c.gate.Do(context.Background(), "", task)
+	if errors.Is(err, jevgate.ErrNoText) {
 		return route.Difficulty{}, fmt.Errorf("%w: no task", ErrNoAnswer)
 	}
-	key := sha256.Sum256([]byte(text))
-
-	c.mu.Lock()
-	now := c.now()
-	if hit, ok := c.cache[key]; ok && now.Sub(hit.at) < CacheTTL {
-		c.mu.Unlock()
-		return hit.d, nil
-	}
-	if now.Before(c.coolTil) {
-		c.mu.Unlock()
-		return route.Difficulty{}, ErrCooling
-	}
-	// Drop the calls that are out of the window, then take a place in it. The
-	// place is taken before the call, not after, so calls made at once by
-	// Prewarm cannot all slip in under the cap.
-	kept := c.calls[:0]
-	for _, t := range c.calls {
-		if now.Sub(t) < time.Minute {
-			kept = append(kept, t)
-		}
-	}
-	c.calls = kept
-	if len(c.calls) >= c.maxPerMinute {
-		c.mu.Unlock()
-		return route.Difficulty{}, ErrRateCap
-	}
-	c.calls = append(c.calls, now)
-	asker := c.asker
-	c.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
-	defer cancel()
-	res, err := asker.Ask(ctx, text, questions())
-	var d route.Difficulty
-	if err == nil {
-		d, err = read(res)
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if err != nil {
-		wait := cooldown
-		if errors.Is(err, jev.ErrUnauthorized) || errors.Is(err, jev.ErrNoKey) {
-			wait = cooldownBadKey
-		}
-		c.coolTil = c.now().Add(wait)
-		return route.Difficulty{}, err
-	}
-	if len(c.cache) >= cacheCap {
-		c.evict()
-	}
-	c.cache[key] = cached{d: d, at: c.now()}
-	return d, nil
-}
-
-// evict makes room: what has expired goes, and if that is nothing, the oldest.
-func (c *Classifier) evict() {
-	now := c.now()
-	var oldest [sha256.Size]byte
-	var oldestAt time.Time
-	for k, v := range c.cache {
-		if now.Sub(v.at) >= CacheTTL {
-			delete(c.cache, k)
-			continue
-		}
-		if oldestAt.IsZero() || v.at.Before(oldestAt) {
-			oldest, oldestAt = k, v.at
-		}
-	}
-	if len(c.cache) >= cacheCap {
-		delete(c.cache, oldest)
-	}
+	return d, err
 }
 
 // read is the Difficulty in Jev's answer, or ErrNoAnswer where it is out of
@@ -273,8 +193,8 @@ var StoredKey jev.KeyFunc = creds.JevKey
 var (
 	sharedMu sync.Mutex
 	shared   *Classifier
-	// APIBase is where For's classifier asks, TypeSafe's own when empty. It is
-	// set only by a test, to point the whole path at a fake server.
+	// APIBase is where the shared classifier asks, TypeSafe's own when empty.
+	// It is set only by a test, to point the whole path at a fake server.
 	APIBase string
 )
 
@@ -286,33 +206,29 @@ func Reset() {
 	shared = nil
 }
 
+// newClient is the client for the key as it is now, so a key changed under the
+// running process is used by the next ask.
+func newClient() (*jev.Client, error) {
+	c, err := jev.NewClient(StoredKey)
+	if err != nil {
+		return nil, err
+	}
+	c.APIBase = APIBase
+	return c, nil
+}
+
 // For is the classifier a policy may use: the process's one shared Classifier
 // -- its cache, cap and cooldown are what make the calls bounded, so they must
 // not be reset with every fan-out -- when the policy turned Jev on and the key
 // is set, and nil otherwise, so that neither is asked about again downstream.
 func For(p agent.RoutingPolicy) route.Classifier {
-	if !p.Jev || p.Strategy != agent.StrategyCost {
+	if !p.Jev || p.Strategy != agent.StrategyCost || !Enabled() {
 		return nil
 	}
-	c, err := jev.NewClient(StoredKey)
-	if err != nil {
-		return nil
-	}
-	c.APIBase = APIBase
 	sharedMu.Lock()
 	defer sharedMu.Unlock()
 	if shared == nil {
-		shared = New(c)
-	} else {
-		// A key changed under the running process: the next ask uses it.
-		shared.mu.Lock()
-		if sc, ok := shared.asker.(*jev.Client); !ok || sc.Key != c.Key || sc.APIBase != c.APIBase {
-			shared.asker = c
-			// What the old key or address failed with is nothing to hold against
-			// this one: a corrected key was left cooling for five minutes.
-			shared.coolTil = time.Time{}
-		}
-		shared.mu.Unlock()
+		shared = New(newClient)
 	}
 	return shared
 }
