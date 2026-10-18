@@ -2023,9 +2023,8 @@
     views.forEach(({ id, v }) => {
       const out = outcomes.get(id);
       const row = el("div", "summary-card-row");
-      const dot = el("span", "dot " + (out.kind === "failed" ? "failed" : v.status));
-      dot.setAttribute("aria-hidden", "true");
-      row.append(describe(dot, TIPS[v.status === "blocked" ? "blocked" : out.kind === "failed" ? "failed" : v.status] || v.status));
+      row.append(paneDot(out.kind === "failed" ? "failed" : v.status,
+        TIPS[v.status === "blocked" ? "blocked" : out.kind === "failed" ? "failed" : v.status] || v.status));
       const main = el("div", "summary-card-main");
       const title = el("div", "summary-card-name");
       title.append(el("span", null, v.name || ""));
@@ -10469,58 +10468,107 @@
     return wrap;
   }
 
+  /* The pieces every list of panes is drawn from. The Agents overview (flat
+   * and by project) and the Team roster each show a pane as a row of a status
+   * dot, a name, a few chips and the status in words; they had grown their own
+   * copies of the dot, the role tag, the agent badge, the branch chip and the
+   * link-styled button. The lists still choose which chips a row carries and
+   * in what order, since what is worth a glance differs between "which pane
+   * needs me" and "who has which task"; what a chip looks and sounds like is
+   * decided here once. */
+
+  /** paneDot is the coloured disc that stands for a status. It has no text
+   *  of its own, so the words go in its bubble; the rows write the status out
+   *  beside it, which is why it is hidden from a screen reader. */
+  function paneDot(cls, tip) {
+    const dot = el("span", "dot " + cls);
+    dot.setAttribute("aria-hidden", "true");
+    return describe(dot, tip);
+  }
+
+  /** paneChip is a span a screen reader reads as the label rather than the
+   *  glyph in it. */
+  function paneChip(cls, text, label, tip) {
+    const n = el("span", cls, text);
+    n.setAttribute("role", "img");
+    n.setAttribute("aria-label", label);
+    return describe(n, tip);
+  }
+
+  function paneRoleTag(role) {
+    return paneChip("agent-role", roleName(role), "Role: " + roleName(role), roleTip(role));
+  }
+
+  function paneBranchChip(branch) {
+    return paneChip(null, "⎇ " + branch, "On branch " + branch, TIPS.branch);
+  }
+
+  function paneAgentBadge(agent, model) {
+    return describe(el("span", null, model ? agent + " · " + model : agent), TIPS.agent);
+  }
+
+  /** paneLink is a button that reads as a link inside a row. The row itself
+   *  opens the pane on Enter and Space, so the link handles those keys
+   *  itself rather than letting them reach the row. */
+  function paneLink(text, tip, go, id) {
+    const link = el("button", "agent-parent link", text);
+    link.type = "button";
+    if (id) link.id = id;
+    if (tip) describe(link, tip);
+    link.onclick = go;
+    link.onkeydown = (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      ev.preventDefault();
+      go(ev);
+    };
+    return link;
+  }
+
+  /** paneRow assembles one pane's row from the pieces above: spec.title and
+   *  spec.meta are the nodes of its two lines, spec.shown the status word,
+   *  spec.after any controls to the right of it, spec.open what a click or
+   *  Enter does and spec.label the name it is announced by. */
+  function paneRow(spec) {
+    const row = el("div", "agent-row" + (spec.cls ? " " + spec.cls : ""));
+    row.id = spec.id;
+    const main = el("div", "agent-main");
+    const title = el("div", "agent-title");
+    title.append(...spec.title);
+    const meta = el("div", "agent-meta");
+    meta.append(...spec.meta);
+    main.append(title, meta);
+    row.append(main);
+    row.append(el("span", "agent-status " + spec.shown, spec.shown));
+    (spec.after || []).forEach((n) => row.append(n));
+    rowAction(row, spec.open, false, spec.label);
+    return row;
+  }
+
   /** agentRow builds one pane's row exactly as both views draw it: the flat
    *  list in its own order, and the tree nested under its parent. */
   function agentRow(a, byId) {
-    const row = el("div", "agent-row" + (a.active ? " active" : ""));
-    // By the pane, because the list is drawn again as the agents change
-    // what they are doing, and a row found again by its wording would lose
-    // the keyboard the moment its status did.
-    row.id = "agent-" + a.paneId;
-    const main = el("div", "agent-main");
-
-    const title = el("div", "agent-title");
-    // The dot is the only thing carrying status here, and it has no text
-    // at all, so it needs both the copy and a name of its own.
     // The row writes the status out in words further along, so the disc is
-    // decoration here — unlike in a pane header, where it is all there is.
+    // decoration here, unlike in a pane header where it is all there is.
     const shown = a.activity || shownStatus(a);
-    const dot = el("span", "dot " + shown);
-    dot.setAttribute("aria-hidden", "true");
-    title.append(describe(dot, TIPS[shown] || shown));
+    const title = [paneDot(shown, TIPS[shown] || shown)];
     // Cut short with an ellipsis, like the tab it names; the bubble has it all.
-    title.append(describe(el("span", "agent-tab", a.tab || a.name), a.tab || a.name));
-    title.append(el("span", "agent-project", a.project));
-    main.append(title);
+    title.push(describe(el("span", "agent-tab", a.tab || a.name), a.tab || a.name));
+    title.push(el("span", "agent-project", a.project));
 
-    const meta = el("div", "agent-meta");
-    if (a.branch) {
-      const n = el("span", null, "⎇ " + a.branch);
-      n.setAttribute("role", "img");
-      n.setAttribute("aria-label", "On branch " + a.branch);
-      meta.append(describe(n, TIPS.branch));
-    }
+    const meta = [];
+    if (a.branch) meta.push(paneBranchChip(a.branch));
     if (a.dirty) {
-      const n = el("span", null, "●" + a.dirty + " uncommitted");
-      n.setAttribute("role", "img");
-      n.setAttribute("aria-label", a.dirty + (a.dirty === 1 ? " file" : " files") + " changed but not committed");
-      meta.append(describe(n, TIPS.changed));
+      meta.push(paneChip(null, "●" + a.dirty + " uncommitted",
+        a.dirty + (a.dirty === 1 ? " file" : " files") + " changed but not committed", TIPS.changed));
     }
     // The same badge the pane header carries. With a dozen panes across
     // three projects, "waiting" means a different thing from Claude than
     // from a local model, and this is the list you scan to decide which to
     // go to first.
-    if (a.agent) {
-      meta.append(describe(el("span", null, a.model ? a.agent + " · " + a.model : a.agent), TIPS.agent));
-    }
-    if (a.role) {
-      const n = el("span", "agent-role", roleName(a.role));
-      n.setAttribute("role", "img");
-      n.setAttribute("aria-label", "Role: " + roleName(a.role));
-      meta.append(describe(n, roleTip(a.role)));
-    }
-    if (a.kind === "shell") meta.append(el("span", null, "shell"));
-    if (a.detail) meta.append(el("span", null, a.detail));
+    if (a.agent) meta.push(paneAgentBadge(a.agent, a.model));
+    if (a.role) meta.push(paneRoleTag(a.role));
+    if (a.kind === "shell") meta.push(el("span", null, "shell"));
+    if (a.detail) meta.push(el("span", null, a.detail));
     // A helper's own pane, when it is still open, so it reads as part of
     // the job it was spawned for rather than an unrelated row -- the list
     // stays sorted by what needs a person first, so this is what says
@@ -10535,17 +10583,9 @@
           send({ cmd: "revealPane", root: parent.root, node: parent.tabId, id: parent.paneId });
           closeOverlay();
         };
-        const link = el("button", "agent-parent link", "↳ helper of " + (parent.tab || parent.name));
-        link.type = "button";
-        link.onclick = go;
-        link.onkeydown = (ev) => {
-          if (ev.key !== "Enter" && ev.key !== " ") return;
-          ev.preventDefault();
-          go(ev);
-        };
-        meta.append(describe(link, "Go to " + (parent.tab || parent.name)));
+        meta.push(paneLink("↳ helper of " + (parent.tab || parent.name), "Go to " + (parent.tab || parent.name), go));
       } else {
-        meta.append(el("span", "agent-parent", "↳ helper of another agent"));
+        meta.push(el("span", "agent-parent", "↳ helper of another agent"));
       }
     }
     // What a waiting pane's permission prompt or question wants, in the same
@@ -10556,25 +10596,28 @@
       const b = backgroundCounts(a);
       const bg = el("span", "agent-bg");
       bg.append(glyph("◔"), document.createTextNode(" " + backgroundLabel(b)));
-      meta.append(describeBackground(bg, b));
+      meta.push(describeBackground(bg, b));
     }
     if (a.status === "waiting" && a.waiting) {
-      meta.append(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));
+      meta.push(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));
     } else if (a.status === "blocked" && a.waiting) {
-      meta.append(describe(el("span", "agent-waiting", a.waiting), "Why this pane stopped without finishing"));
+      meta.push(describe(el("span", "agent-waiting", a.waiting), "Why this pane stopped without finishing"));
     }
-    main.append(meta);
-    row.append(main);
 
-    const status = el("span", "agent-status " + shown, shown);
-    row.append(status);
-    if (a.for) row.append(el("span", "agent-for", howLong(a.for)));
-
-    rowAction(row, () => {
-      send({ cmd: "revealPane", root: a.root, node: a.tabId, id: a.paneId });
-      closeOverlay();
-    }, false, a.tab || a.name);
-    return row;
+    return paneRow({
+      // By the pane, because the list is drawn again as the agents change
+      // what they are doing, and a row found again by its wording would lose
+      // the keyboard the moment its status did.
+      id: "agent-" + a.paneId,
+      cls: a.active ? "active" : "",
+      shown, title, meta,
+      after: a.for ? [el("span", "agent-for", howLong(a.for))] : [],
+      label: a.tab || a.name,
+      open: () => {
+        send({ cmd: "revealPane", root: a.root, node: a.tabId, id: a.paneId });
+        closeOverlay();
+      },
+    });
   }
 
   // ---------------------------------------------------------- agent picker
@@ -11669,51 +11712,23 @@
 
   function teamRosterRow(r) {
     const shown = r.activity || r.status;
-    const row = el("div", "agent-row team-pane");
-    row.id = "team-pane-" + r.pane;
-    const main = el("div", "agent-main");
-    const title = el("div", "agent-title");
-    const dot = el("span", "dot " + shown);
-    dot.setAttribute("aria-hidden", "true");
-    title.append(describe(dot, TIPS[shown] || shown));
-    if (r.role) {
-      const tag = el("span", "agent-role", roleName(r.role));
-      tag.setAttribute("role", "img");
-      tag.setAttribute("aria-label", "Role: " + roleName(r.role));
-      title.append(describe(tag, roleTip(r.role)));
-    }
-    title.append(describe(el("span", "agent-tab", r.name), r.name + (r.peer ? " (pane name " + r.peer + ")" : "")));
-    main.append(title);
+    const title = [paneDot(shown, TIPS[shown] || shown)];
+    if (r.role) title.push(paneRoleTag(r.role));
+    title.push(describe(el("span", "agent-tab", r.name), r.name + (r.peer ? " (pane name " + r.peer + ")" : "")));
 
-    const meta = el("div", "agent-meta");
-    if (r.agent) meta.append(describe(el("span", null, r.model ? r.agent + " · " + r.model : r.agent), TIPS.agent));
-    if (r.branch) {
-      const n = el("span", null, "⎇ " + r.branch);
-      n.setAttribute("role", "img");
-      n.setAttribute("aria-label", "On branch " + r.branch);
-      meta.append(describe(n, TIPS.branch));
-    }
+    const meta = [];
+    if (r.agent) meta.push(paneAgentBadge(r.agent, r.model));
+    if (r.branch) meta.push(paneBranchChip(r.branch));
     if (r.task) {
-      const link = el("button", "agent-parent link", r.task.id + " · " + (TEAM_STATE_NAME[r.task.state] || r.task.state) + ": " + r.task.title);
-      link.type = "button";
-      link.id = "team-pane-task-" + r.pane;
-      describe(link, "Open " + r.task.id + " on the board");
-      const go = (ev) => { ev.stopPropagation(); teamShowTask(r.task.id); };
-      link.onclick = go;
-      link.onkeydown = (ev) => {
-        if (ev.key !== "Enter" && ev.key !== " ") return;
-        ev.preventDefault();
-        go(ev);
-      };
-      meta.append(link);
+      meta.push(paneLink(r.task.id + " · " + (TEAM_STATE_NAME[r.task.state] || r.task.state) + ": " + r.task.title,
+        "Open " + r.task.id + " on the board",
+        (ev) => { ev.stopPropagation(); teamShowTask(r.task.id); },
+        "team-pane-task-" + r.pane));
     } else {
-      meta.append(el("span", null, "no task"));
+      meta.push(el("span", null, "no task"));
     }
-    if (r.unread) meta.append(describe(el("span", "agent-waiting", r.unread + " unread by the agent"), "Messages in this pane's inbox that it has not read"));
-    main.append(meta);
-    row.append(main);
+    if (r.unread) meta.push(describe(el("span", "agent-waiting", r.unread + " unread by the agent"), "Messages in this pane's inbox that it has not read"));
 
-    row.append(el("span", "agent-status " + shown, shown));
     const close = el("button", "chip team-close", "Close");
     close.type = "button";
     close.id = "team-close-" + r.pane;
@@ -11722,13 +11737,18 @@
       : r.finished ? "Close this pane. It is idle or has exited." : "Only an idle or exited pane can be closed here.");
     close.onclick = (ev) => { ev.stopPropagation(); teamClosePanes([r.pane]); };
     close.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") ev.stopPropagation(); };
-    row.append(close);
 
-    rowAction(row, () => {
-      send({ cmd: "revealPane", id: r.pane });
-      closeOverlay();
-    }, false, r.name);
-    return row;
+    return paneRow({
+      id: "team-pane-" + r.pane,
+      cls: "team-pane",
+      shown, title, meta,
+      after: [close],
+      label: r.name,
+      open: () => {
+        send({ cmd: "revealPane", id: r.pane });
+        closeOverlay();
+      },
+    });
   }
 
   /** teamClosePanes asks the server to close panes. It judges each again as it
