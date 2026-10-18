@@ -324,9 +324,13 @@ Given a goal, a manager works through it without being asked at each step:
    each has a branch of its own, and assigns the task to it. Planners and reviewers read
    and need no worktree of their own. Every agent it starts for one task gets the same
    `-tab "<task title>"`, so the planner, worker, reviewer and tester for a task share one
-   tab named after it, and another task gets another tab.
-3. It waits inside its turn, because nothing wakes an idle agent: `flockdeck inbox -wait 2m`
-   returns as soon as a message arrives. Flockdeck writes to the manager's inbox when a
+   tab named after it, and another task gets another tab. The tab is forgotten when Flockdeck
+   restarts, so a task whose helpers are still running gets a second tab of the same title the
+   next time the manager starts one for it.
+3. It waits inside its turn, because nothing wakes an idle agent: `flockdeck inbox -wait 90s`
+   returns as soon as a message arrives (90 seconds stays inside the 120 second limit of an
+   agent's shell command), and the manager reads each message it lists with `inbox read`.
+   Flockdeck writes to the manager's inbox when a
    helper sends a message, exits, or finishes a turn and stays idle, and when a task is
    blocked or ready for review.
 4. It starts a `reviewer`, and a `tester` if the change needs one, on each worker's

@@ -72,12 +72,12 @@ func BuiltinRoles() []Role {
 				"a branch of its own, and name that branch in the task; a worker whose files overlap nobody else's can " +
 				"share the checkout, but when in doubt cut the worktree. Assign the task (`flockdeck task assign <id> " +
 				"<pane id or role>`, the pane id is in the output of `spawn` and `flockdeck team -json`) before the " +
-				"worker moves it to in-progress, and put the task id in the worker's task. Ask each agent to finish by " +
-				"sending you what it changed, where, and what it did not get to. Put every agent for one task in one tab " +
+				"worker moves it to in-progress, and put the task id in the worker's task. Put every agent for one task in one tab " +
 				"with `-tab \"<task title>\"`, the same title each time (a planner, then the worker, reviewer and tester " +
 				"for it), and give a different task a different title, so the user finds each task's agents together.\n" +
 				"3. Watch. Do not end your turn while helpers are working: nothing wakes an idle agent. Run " +
-				"`flockdeck inbox -wait 2m`, which returns as soon as a message arrives or after two minutes. Flockdeck " +
+				"`flockdeck inbox -wait 90s`, which returns as soon as a message arrives or after 90 seconds; it does " +
+				"not mark anything read, so `flockdeck inbox read <id>` each message it lists before you wait again. Flockdeck " +
 				"writes to your inbox when a helper sends a message, goes idle after a turn or exits, and when a task is " +
 				"blocked, ready for review or noted. Between waits, `flockdeck team` and `flockdeck task list` show the " +
 				"live state. Keep waiting until the work is finished, rather than asking the user whether to look.\n" +

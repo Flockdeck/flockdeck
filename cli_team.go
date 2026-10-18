@@ -184,11 +184,23 @@ func runInbox(args []string, out io.Writer) error {
 	// waits here, inside its turn, and is handed the first message to arrive.
 	wait, _ := time.ParseDuration(fs.Lookup("wait").Value.String())
 	wait = min(wait, maxInboxWait)
-	for deadline := time.Now().Add(wait); len(msgs) == 0 && time.Now().Before(deadline); {
-		time.Sleep(inboxPoll)
-		if msgs, err = hooks.Inbox(api, token, pane, *all); err != nil {
-			return err
+	// The last sleep is cut to the deadline, so a wait never runs past the time
+	// asked for, and an error from the application mid-wait (it was busy, or
+	// restarting) is tried again until then rather than ending the wait.
+	var waitErr error
+	for deadline := time.Now().Add(wait); len(msgs) == 0; {
+		left := time.Until(deadline)
+		if left <= 0 {
+			break
 		}
+		time.Sleep(min(inboxPoll, left))
+		got, err := hooks.Inbox(api, token, pane, *all)
+		if waitErr = err; err == nil {
+			msgs = got
+		}
+	}
+	if len(msgs) == 0 && waitErr != nil {
+		return waitErr
 	}
 	if *asJSON {
 		return writeJSON(out, nonNil(msgs))

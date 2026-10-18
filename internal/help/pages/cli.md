@@ -201,9 +201,11 @@ flockdeck inbox read [-json] <id>
 
 `inbox` lists the unread messages, oldest first, with the sender (name, role and pane id), the
 time and the start of each. `-all` includes the ones already read. `inbox read <id>` prints one in
-full and marks it read. `-wait 2m` waits up to that long (at most 10 minutes) when there is
+full and marks it read. `-wait 90s` waits up to that long (at most 10 minutes) when there is
 nothing unread, and prints the first message to arrive; it is how an agent that has started
-helpers waits for them without ending its turn. A pane sees only its own inbox. A message has an id, the
+helpers waits for them without ending its turn. It never marks a message read, so the same
+message is listed again until `inbox read` has been run on it, and an error from Flockdeck
+while it waits is retried until the time is up. A pane sees only its own inbox. A message has an id, the
 sender's pane, role and name, the time, the text and whether it was read; messages
 Flockdeck wrote itself (see below) come from `flockdeck`.
 

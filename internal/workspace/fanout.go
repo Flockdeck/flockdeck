@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -1243,21 +1244,32 @@ const MaxHelpers = 8
 // maxHelperDepth bounds the walk up a chain of parents.
 const maxHelperDepth = 16
 
-// helpersBelow counts the open panes that descend from the pane root.
+// ancestorsLocked lists the panes that started p, and the ones that started
+// them: those recorded when p was started, which survive the close of a pane
+// in the middle of the chain, and the chain of Parent ids, which a restored pane
+// still has. The caller holds w.mu.
+func (w *Workspace) ancestorsLocked(p *Pane) []string {
+	out := slices.Clone(p.Ancestors)
+	for id, depth := p.Parent, 0; id != "" && depth < maxHelperDepth; depth++ {
+		if !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+		q := w.panes[id]
+		if q == nil {
+			break
+		}
+		id = q.Parent
+	}
+	return out
+}
+
+// helpersBelow counts the open panes that descend from the pane root, whether
+// or not the panes between are still open. The caller holds w.mu.
 func (w *Workspace) helpersBelow(root string) int {
 	n := 0
 	for _, p := range w.panes {
-		id := p.Parent
-		for depth := 0; id != "" && depth < maxHelperDepth; depth++ {
-			if id == root {
-				n++
-				break
-			}
-			q := w.panes[id]
-			if q == nil {
-				break
-			}
-			id = q.Parent
+		if slices.Contains(w.ancestorsLocked(p), root) {
+			n++
 		}
 	}
 	return n
@@ -1267,24 +1279,28 @@ func (w *Workspace) helpersBelow(root string) int {
 // helper: neither it nor any agent that started it, up the chain, may already
 // have MaxHelpers open below it. The error says whose limit was reached and how
 // to make room. A start from outside any pane has no limit.
+//
+// Spawn checks again, under the lock that adds the pane, so two starts at once
+// cannot both take the last place; this is the early answer, given before
+// anything is made for the helper.
 func (w *Workspace) HelperRoom(parent string) error {
-	if parent == "" {
-		return nil
-	}
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	for id, depth := parent, 0; id != "" && depth < maxHelperDepth; depth++ {
-		p := w.panes[id]
-		if p == nil {
-			return nil
-		}
+	return w.helperRoomLocked(parent)
+}
+
+func (w *Workspace) helperRoomLocked(parent string) error {
+	p := w.panes[parent]
+	if parent == "" || p == nil {
+		return nil
+	}
+	if n := w.helpersBelow(parent); n >= MaxHelpers {
+		return fmt.Errorf("this pane already has %d helpers open, the most it may have; close the ones that are done with `flockdeck close <pane-id>` or wait for them to finish", n)
+	}
+	for _, id := range w.ancestorsLocked(p) {
 		if n := w.helpersBelow(id); n >= MaxHelpers {
-			if id == parent {
-				return fmt.Errorf("this pane already has %d helpers open, the most it may have; close the ones that are done with `flockdeck close <pane-id>` or wait for them to finish", n)
-			}
 			return fmt.Errorf("the agent that started this pane already has %d helpers open below it, the most it may have; ask it to close the ones that are done", n)
 		}
-		id = p.Parent
 	}
 	return nil
 }
@@ -1383,6 +1399,9 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	}
 	if o.SpawnedByAgent && parent != nil {
 		p.Parent = parentPaneID
+		w.mu.RLock()
+		p.Ancestors = append(w.ancestorsLocked(parent), parentPaneID)
+		w.mu.RUnlock()
 	}
 	// A pane started with no parent pane behind it at all -- opened by hand,
 	// or a fan-out with no boss pane to speak of -- starts AutoReview from
@@ -1409,6 +1428,14 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		}
 	}
 	w.mu.Lock()
+	if o.SpawnedByAgent {
+		// Checked and added under one lock: of two starts at once, only one
+		// can take the last place.
+		if err := w.helperRoomLocked(parentPaneID); err != nil {
+			w.mu.Unlock()
+			return "", err
+		}
+	}
 	w.panes[p.ID] = p
 	w.mu.Unlock()
 	w.startPane(p, false)

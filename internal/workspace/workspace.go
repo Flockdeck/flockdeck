@@ -148,6 +148,11 @@ type Pane struct {
 	// It is persisted with the layout, so a restored helper still knows whose
 	// it is; see encodeNode and decodeNode.
 	Parent string
+	// Ancestors are the panes that started this one and the ones that started
+	// them, nearest last, written when it was started and not persisted. They
+	// let the helper cap count a pane whose parent has since been closed. See
+	// Workspace.HelperRoom.
+	Ancestors []string
 	// Muted is set from a phone that would rather not be pushed to about this
 	// pane's waits while it is chatty, though it still shows waiting
 	// everywhere else -- the desk's markers, the phone's list, and the desk's

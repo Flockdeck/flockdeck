@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -434,5 +435,77 @@ func TestEveryBriefingKeepsTheApprovalRuleAndTellsAgentsNotToAcknowledge(t *test
 		if strings.Contains(text, "your task does not cover") {
 			t.Errorf("%s: the approval rule was loosened", role)
 		}
+	}
+}
+
+// Every start passes the early check made before anything is created, because
+// the room is there when each is asked; the check made when the pane is added,
+// under the lock that adds it, is what stops the ninth. Spawn runs one at a
+// time on the workspace goroutine in the application, which the mutex stands in for.
+func TestStartsThatAllPassTheEarlyCheckCannotOvershootTheHelperCap(t *testing.T) {
+	c := newCrew(t)
+	const tries = 16
+	var early sync.WaitGroup
+	for i := 0; i < tries; i++ {
+		early.Add(1)
+		go func() {
+			defer early.Done()
+			if err := c.ws.HelperRoom(c.lead); err != nil {
+				t.Errorf("the early check refused with room to spare: %v", err)
+			}
+		}()
+	}
+	early.Wait()
+
+	var onLoop sync.Mutex
+	var wg sync.WaitGroup
+	errs := make(chan error, tries)
+	for i := 0; i < tries; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			onLoop.Lock()
+			defer onLoop.Unlock()
+			_, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true})
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	made := 0
+	for err := range errs {
+		if err == nil {
+			made++
+		}
+	}
+	c.ws.mu.RLock()
+	below := c.ws.helpersBelow(c.lead)
+	c.ws.mu.RUnlock()
+	if below != MaxHelpers || made != MaxHelpers-3 {
+		t.Errorf("%d panes below the manager after %d starts (%d succeeded), want exactly %d and %d", below, tries, made, MaxHelpers, MaxHelpers-3)
+	}
+}
+
+// Closing a helper in the middle of a chain does not free the places its own
+// helpers hold: they are still the manager's.
+func TestHelperCapStillCountsTheChildrenOfAClosedHelper(t *testing.T) {
+	c := newCrew(t)
+	for i := 0; i < 4; i++ {
+		if _, err := c.ws.Spawn(c.w1, SpawnOptions{Task: "t", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := func() int { c.ws.mu.RLock(); defer c.ws.mu.RUnlock(); return c.ws.helpersBelow(c.lead) }(); n != 7 {
+		t.Fatalf("%d below the manager, want 7", n)
+	}
+	c.ws.ClosePaneByID(c.w1) // the helper in the middle, whose four are left
+	if _, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true}); err != nil {
+		t.Fatalf("the manager has 6 below it: %v", err)
+	}
+	if _, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true}); err != nil {
+		t.Fatalf("the manager has 7 below it: %v", err)
+	}
+	if _, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true}); err == nil {
+		t.Error("with 8 below it, counting four whose parent was closed, the manager started a ninth")
 	}
 }

@@ -253,7 +253,7 @@ func TestManagerBriefingDelegatesOnItsOwnAndKeepsTheSafeguards(t *testing.T) {
 		"is the user's go-ahead", "without asking before each one", "Do not wait to be told to start helpers",
 		"1. Break the request into tasks", "flockdeck task add <title> -body <details> -role worker",
 		"2. Start an agent for each task with `spawn -role <role>`", "-worktree <branch>", "flockdeck task assign <id>",
-		"3. Watch.", "Do not end your turn while helpers are working", "flockdeck inbox -wait 2m", "flockdeck team",
+		"3. Watch.", "Do not end your turn while helpers are working", "flockdeck inbox -wait 90s", "flockdeck team",
 		"4. Review.", "flockdeck task status <id> done", "5. Report to the user", "flockdeck close <pane id>",
 		"-tab \"<task title>\"", "so the user finds each task's agents together", "its tab goes with the last one", "`-tab <title>`",
 		// the safeguards
