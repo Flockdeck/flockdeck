@@ -971,7 +971,7 @@ func TestTheBriefingNamesEveryVariableAPaneCarries(t *testing.T) {
 // help.
 func TestRenderNamesTheActionsItPointsAt(t *testing.T) {
 	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
-	for _, id := range []string{"fanout", "toggleBroadcast", "promptAll", "changes", "worktrees", "restartPane",
+	for _, id := range []string{"toggleBroadcast", "promptAll", "changes", "worktrees", "restartPane",
 		"closePane", "detach", "history", "projects", "agents", "palette", "help"} {
 		k, ok := help.Lookup(id)
 		if !ok {
@@ -997,7 +997,6 @@ func TestRenderExplainsTheFeaturesThatChangeHowAnAgentWorks(t *testing.T) {
 	text := PaneContext{PaneName: "one", CanSpawn: true}.Render()
 	for _, want := range []string{
 		"stopping to ask is cheap",  // the status the user is watching for
-		"one agent per line",        // what fan-out does with a plan
 		"whole working tree",        // what the commit button takes
 		"resumes this conversation", // what restarting a pane keeps
 	} {

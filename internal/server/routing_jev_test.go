@@ -12,7 +12,6 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/jev"
-	"github.com/jmwri/flockdeck/internal/route"
 	"github.com/jmwri/flockdeck/internal/routejev"
 )
 
@@ -52,59 +51,6 @@ func modelOfTier(t *testing.T, c *agent.Catalog, id, tier string) string {
 	}
 	t.Fatalf("%s has no %s model", id, tier)
 	return ""
-}
-
-func TestJevShapesAFanoutRowsFallbackAndTheLogSaysSo(t *testing.T) {
-	t.Setenv(jev.KeyEnv, "k-test")
-	n := fakeJev(t, 2.0, 0.9)
-	c := catalogRouting(jevPolicy)
-	mid := modelOfTier(t, c, "claude", agent.TierMid)
-	top := modelOfTier(t, c, "claude", agent.TierTop)
-	const task = "add a health endpoint for ACME payroll"
-
-	routes, _, _ := routeRows(c, "/p", "claude", top, []string{task})
-	if len(routes) != 1 || routes[0] == nil || routes[0].Model != mid || routes[0].Tier != agent.TierMid {
-		t.Fatalf("routes = %+v, want the mid model %q", routes, mid)
-	}
-	if !strings.Contains(routes[0].Reason, "Jev rated the task 2.0 of 4") {
-		t.Errorf("the reason does not say Jev: %q", routes[0].Reason)
-	}
-	// The dialog routes again at every edit; the answer is kept.
-	routeRows(c, "/p", "claude", top, []string{task})
-	if n.Load() != 1 {
-		t.Errorf("Jev was asked %d times for one task", n.Load())
-	}
-
-	// The row starts on the fallback's choice: the log says Jev shaped it,
-	// and does not hold the task.
-	j := &fanoutJob{task: task, agent: "claude", model: mid}
-	entries := fanoutRouteLog(fanoutRequest{Model: top}, "/p", map[*fanoutJob]string{j: "pane-1"})
-	if len(entries) != 1 || entries[0].Source != route.SourceFallback || entries[0].Outcome != route.OutcomeKept ||
-		entries[0].Jev == nil || entries[0].Jev.Score != 2.0 || entries[0].Jev.Tier != agent.TierMid {
-		t.Fatalf("entries = %+v", entries)
-	}
-	data, _ := json.Marshal(entries)
-	if strings.Contains(string(data), "ACME") || strings.Contains(string(data), "payroll") {
-		t.Errorf("the log holds the task: %s", data)
-	}
-
-	// Changed before starting: an override with no rule is the fallback's.
-	over := fanoutRouteLog(fanoutRequest{Model: top, Overrides: []routeOverride{
-		{Task: task, Agent: "claude", Routed: mid, Chosen: top}}}, "/p", nil)
-	if len(over) != 1 || over[0].Source != route.SourceFallback || over[0].Jev == nil ||
-		over[0].Outcome != route.OutcomeOverridden+top {
-		t.Errorf("override entries = %+v", over)
-	}
-	// An override of something routing never said about this task is not
-	// invented into the log.
-	if e := fanoutRouteLog(fanoutRequest{Overrides: []routeOverride{{Task: "unseen task", Agent: "claude", Routed: mid, Chosen: top}}}, "/p", nil); len(e) != 0 {
-		t.Errorf("an override with no routing behind it was logged: %+v", e)
-	}
-	// And the two groups read back apart.
-	stats := route.FallbackStats(append(entries, over...))
-	if len(stats) != 1 || stats[0].Rule != route.FallbackJev || stats[0].Kept != 1 || stats[0].Overridden != 1 {
-		t.Errorf("FallbackStats = %+v", stats)
-	}
 }
 
 // Anything that turns Jev off leaves routeRows exactly what it was, with no

@@ -7,7 +7,6 @@ embedded in sitegen.
 | File | What it shows |
 | --- | --- |
 | `deck.png` | the staged window: four agents on four checkouts of shopfront |
-| `fanout.png` | the Fan out dialog over it, from the Gemini pane's plan |
 | `worktrees.png` | the Worktrees panel |
 | `agent-picker.png` | the New agent tab picker |
 | `settings.png` | Settings, on Account & plan, with the desktop enrolled on a relay |
@@ -35,7 +34,7 @@ Everything in the pictures is fictional.
   `flockdeck statusline` bridge, so the header figures are the app's own: the
   pricing pane is on an API key and shows an estimated cost, the waiting pane
   is on a subscription and shows tokens and its five-hour limit.
-- shopfront defaults to Claude Code's Sonnet with routing on, so the fan-out
+- shopfront defaults to Claude Code's Sonnet with routing on, so a helper
   routes one task down to Haiku and one, by the payments rule, up to Opus.
 - For the phone and the Settings shot, a `flockdeck-relay` built from a
   checkout of the relay repository runs on loopback with `-enforce-plans`, as
@@ -97,7 +96,7 @@ mkdir -p "$TEMP/relay-src" && git -C ../flockdeck-relay archive origin/main | ta
 node cmd/sitegen/shots/shots.mjs -relay-src "$TEMP/relay-src"
 ```
 
-- `-only deck,fanout,...` retakes some of them (`og` re-renders the card).
+- `-only deck,worktrees,...` retakes some of them (`og` re-renders the card).
 - `-keep` leaves the work directory, with the live-state listings
   `live-before.json` and `live-after.json`, for inspection.
 - Without `-relay-src`, `settings.png` is taken with no relay enrolled and

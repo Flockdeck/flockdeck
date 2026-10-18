@@ -85,28 +85,6 @@ func TestTealIsStillAcceptedAndIsTheDefaultAccent(t *testing.T) {
 	}
 }
 
-// Fan out's own default for its "Put them in this tab" checkbox is chosen
-// in Settings › Behaviour and kept, so the dialog opens on it next time.
-func TestFanOutSameTabDefaultIsKept(t *testing.T) {
-	srv, _ := newTestServer(t)
-	conn := dialControl(t, srv)
-	nextHello(t, conn)
-
-	sendCmd(t, conn, command{Cmd: "fanOutSameTab", Kind: "on"})
-	if got := nextPrefs(t, conn, func(p store.Prefs) bool { return p.FanOut.SameTab }); !got.FanOut.SameTab {
-		t.Fatalf("fan out's same-tab default was not turned on: %+v", got)
-	}
-	if !store.LoadPrefs().FanOut.SameTab {
-		t.Error("fan out's same-tab default did not reach disk")
-	}
-
-	sendCmd(t, conn, command{Cmd: "fanOutSameTab", Kind: "off"})
-	nextPrefs(t, conn, func(p store.Prefs) bool { return !p.FanOut.SameTab })
-	if store.LoadPrefs().FanOut.SameTab {
-		t.Error("turning fan out's same-tab default off did not reach disk")
-	}
-}
-
 // The default a pane with no parent starts AutoReview from is chosen in
 // Settings › Behaviour and kept; see internal/workspace's own tests for what
 // a pane actually starts with.

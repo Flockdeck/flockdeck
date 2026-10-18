@@ -3,7 +3,7 @@ package webui
 import "testing"
 
 // TestThePromptGoesToThePaneTheBarWasOpenedOn covers the prompt bar while
-// focus moves under it: the desk clicking another pane, a fan-out revealing
+// focus moves under it: the desk clicking another pane, a team revealing
 // its first agent. The bar sent no pane, so the prompt went to whichever had
 // focus when it arrived; it now names the pane it was opened on.
 func TestThePromptGoesToThePaneTheBarWasOpenedOn(t *testing.T) {

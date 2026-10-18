@@ -134,9 +134,8 @@
   <h2>One agent is easy. Five in one repo collide.</h2>
   <p>Agents working in the same checkout can undo each other's edits, or fight
      over who's on which branch. Flockdeck makes it one step to give each one
-     <strong>its own git worktree and branch</strong>. Fan out does it by
-     default in a git repository, and the Worktrees panel creates one and opens
-     an agent or a shell in it. The agents work in parallel without touching
+     <strong>its own git worktree and branch</strong>. The Worktrees panel
+     creates one and opens an agent or a shell in it. The agents work in parallel without touching
      each other's files.</p>
   <p>They also finish at different times and stop for
      permission prompts, so Flockdeck shows which agent needs you right now,
@@ -174,13 +173,6 @@
       <p>Create, switch and clean up git worktrees without leaving the app, so
          your agents can work in parallel without touching each other's files.</p>
     </div>
-    <div class="card lead">
-      <span class="g">fan out</span>
-      <h3>Turn a plan into a team</h3>
-      <p>Flockdeck reads the task list an agent wrote, lets you edit it, then
-         starts one agent per task. In a git repository each one gets its own
-         worktree and branch by default.</p>
-    </div>
     <div class="card">
       <span class="g">context</span>
       <h3>Agents that know the team</h3>
@@ -212,10 +204,9 @@
     <div class="card">
       <span class="g">routing</span>
       <h3>The right model for each task</h3>
-      <p>Turn on routing for a project and fan out pre-sets each task to a
-         model that suits it: a smaller one to run the tests, a stronger one for
-         a refactor. You see every choice before anything starts, and can change
-         it.</p>
+      <p>Turn on routing for a project and a helper an agent starts, or the
+         first prompt you send a pane, runs on a model that suits it: a smaller
+         one to run the tests, a stronger one for a refactor.</p>
     </div>
     <div class="card">
       <span class="g">self-hosted · remote</span>
@@ -274,37 +265,6 @@
   </div>
 </section>
 
-<section class="band" id="fanout">
-  <h2>One plan in. A branch per task out.</h2>
-  <p>Ask an agent for a plan and edit the list. Flockdeck starts an agent for
-     every line, each in its own worktree (in a git repository, unless you turn
-     that off), and your
-     deck fills up. With
-     routing on, lines that match a rule come with a smaller or a stronger
-     model already chosen.</p>
-  <div class="fan">
-    <div class="fan-plan">
-      <ol>
-        <li>Extract the config loader</li>
-        <li>Add the retry policy</li>
-        <li>Document the wire format</li>
-      </ol>
-    </div>
-    <div class="fan-arrow" aria-hidden="true">→</div>
-    <div class="fan-out">
-      <ul>
-        <li><span aria-hidden="true" class="dot working">●</span> config-loader <span class="br">feat/config-loader</span></li>
-        <li><span aria-hidden="true" class="dot working">●</span> retry-policy <span class="br">feat/retry-policy</span></li>
-        <li><span aria-hidden="true" class="dot waiting">▲</span> wire-format <span class="br">docs/wire-format</span></li>
-      </ul>
-    </div>
-  </div>
-  <figure class="figure">
-    <img src="{{asset "fanout.png"}}" srcset="{{asset "fanout-1584.png"}} 1584w, {{asset "fanout.png"}} 3168w" sizes="(max-width: 1080px) 100vw, 1032px" width="1584" height="985" loading="lazy" alt="The Fan out dialog listing four tasks read from an agent's plan, with the whole run on Claude Code's Sonnet and a model picker for each task. A line says routing chose a smaller model for one of the four tasks and a stronger one for another, beside a button to use the run's model for every task. Moving cart totals into a pricing package is set to Haiku and tagged routed, with an arrow pointing down; handling Stripe refund webhooks is set to Opus and tagged routed, with an arrow pointing up; the other two stay on the run's model. Below them are options to give each agent its own git worktree and to put them in this tab, and the Start button, beside 4 agents, 2 routed.">
-    <figcaption class="caption">Fan out picks up the plan straight from the agent's output, and routing marks each task it moved to another model.</figcaption>
-  </figure>
-</section>
-
 <!-- Flockdeck Remote, as the design in flockdeck-relay settles it: dialling out,
      pairing, the same interface, and what the relay can see, then the two
      commands that turn it on. The relay's address is left out, since it is
@@ -354,7 +314,7 @@
     <div class="card">
       <span class="g">full app</span>
       <h3>The complete Flockdeck</h3>
-      <p>Every pane, every status, the agent picker and fan out. Claude Code
+      <p>Every pane, every status and the agent picker. Claude Code
          and Flockdeck's own chat client open as a conversation, not a raw
          terminal, and the full interface is one tap away. Attach a photo or
          several, straight from the camera, and long replies, code and diffs

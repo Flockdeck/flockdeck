@@ -440,14 +440,6 @@ type Workspace struct {
 	// lastKeyMove is the keyboard move just made, so that the opposite arrow
 	// can undo it.
 	lastKeyMove keyMove
-	// fanoutHistory is each project's past fan-out jobs, most recent first,
-	// kept only for the run: a restart starts with none, the same as
-	// Tab.Delegated itself. See AddFanoutHistory and FanoutHistory.
-	fanoutHistory map[string][]FanoutJob
-	// todos is every saved todo checklist, across every project, read once
-	// at startup from todos.json and written back on every mutation. Unlike
-	// fanoutHistory this is meant to outlive the run; see todos.go.
-	todos []store.Todo
 	// team is the roster, inboxes and delivery of messages between panes; see
 	// team.go.
 	team teamState
@@ -601,7 +593,6 @@ func New(opts Options) (*Workspace, error) {
 	go once.Do(sweep)
 	w.savedGroups = loadSavedGroups()
 	w.ensureGroup(root)
-	w.todos = loadSavedTodos()
 	w.initTeam()
 	w.loadMessages()
 	w.SetWake(opts.OnWake)
@@ -3710,4 +3701,37 @@ func backgroundInfo(b *hooks.BackgroundInfo) session.BackgroundInfo {
 		return session.BackgroundInfo{}
 	}
 	return session.BackgroundInfo{Type: b.Type, AgentType: b.AgentType, Description: b.Description, Command: b.Command}
+}
+
+// isFence reports whether a line opens or closes a code block.
+func isFence(body string) bool {
+	return strings.HasPrefix(body, "```") || strings.HasPrefix(body, "~~~")
+}
+
+// unheaded strips what a numbered line of a plan may be dressed in: a markdown
+// heading, and bold.
+//
+// A plan long enough to put a paragraph under each step is as often numbered
+// with headings as with a list, and a plan written that way offered nothing to
+// fan out. Only the number makes such a line a task, so a heading without one
+// is still read as a heading.
+func unheaded(line string) string {
+	if h := strings.TrimLeft(line, "#"); h != line && strings.HasPrefix(h, " ") {
+		line = strings.TrimLeft(h, " ")
+	}
+	for _, mark := range []string{"**", "__"} {
+		line = strings.TrimPrefix(line, mark)
+	}
+	return line
+}
+
+// trimCheckbox drops the box a task-list bullet carries: "[ ]", "[x]", and the
+// "[X]" and "[-]" that get written just as often. Leaving it on would make the
+// entry open on punctuation, which isTask reads as the middle of a line and
+// throws away — so an unticked plan lost every item it had.
+func trimCheckbox(s string) string {
+	if len(s) >= 4 && s[0] == '[' && s[2] == ']' && s[3] == ' ' {
+		return s[4:]
+	}
+	return s
 }

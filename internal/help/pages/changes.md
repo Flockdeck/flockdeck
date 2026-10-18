@@ -34,7 +34,7 @@ the same choice for creating a worktree.
 - **Refresh** reads the working tree again.
 
 Everything that talks to a remote is there only when the checkout has one. The
-first push sets the upstream, so a branch a fan-out invented does not need a
+first push sets the upstream, so a branch a helper invented does not need a
 hand-typed command to leave the machine. A checkout with no branch checked out
 (a detached HEAD, or one in the middle of a rebase or a bisect) says so in
 place of the branch, and offers no push.

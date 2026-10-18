@@ -18,7 +18,7 @@ h.hello();
 h.recv(fixture({ update: { version: "9.9.9" } }));
 h.click(h.$("btn-settings"));
 const homes = {
-  general: ["set-notifications", "set-auto-review-default", "set-fanout-sametab", "set-tips"],
+  general: ["set-notifications", "set-auto-review-default", "set-tips"],
   appearance: ["set-theme", "set-accent"],
   terminal: ["set-preview", "set-font-size", "set-font-family", "set-scrollback", "set-scrollback-custom", "set-cursor", "set-cursor-blink", "set-screen-reader"],
   keybindings: ["set-keybind-reset-all", "set-keybind-closePane"],

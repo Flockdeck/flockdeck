@@ -161,9 +161,8 @@ func (c PaneContext) command() string {
 // it runs inside.
 //
 // Two kinds of thing are here. The first changes how an agent should work: its
-// status is watched, so stopping to ask is cheap; a fan-out reads its own output;
-// a commit takes the working tree whole. The second is one line per feature, so
-// a user who asks how to do something is answered by the agent in front of them.
+// status is watched, so stopping to ask is cheap; a commit takes the
+// working tree whole. The second is one line per feature, so a user who asks how to do something is answered by the agent in front of them.
 // The key table and the status colours are for the person at the window and
 // stay in the in-app help.
 //
@@ -187,9 +186,6 @@ func (c PaneContext) writeCapabilities(b *strings.Builder, hooked bool) {
 
 	{
 		fmt.Fprintf(b, "For a user who asks how to do something:\n\n"+
-			"- %s turns the list your last message ends with into one agent per line, up to twelve, "+
-			"and gives each a git worktree of its own unless the user unticks the box. Write a plan meant for it as "+
-			"one self-contained task per line.\n"+
 			"- %s decides where the prompt bar sends, and %s sends one message to every pane in the broadcast set; "+
 			"typing into a pane's own terminal reaches that pane alone.\n"+
 			"- %s shows the diff of this checkout and commits, pushes, pulls and fetches it; a commit takes the "+
@@ -198,7 +194,7 @@ func (c PaneContext) writeCapabilities(b *strings.Builder, hooked bool) {
 			"the agents running; %s reopens a past conversation.\n"+
 			"- %s switches between open projects, which stops nothing, and %s lists every agent in every project. "+
 			"%s searches every action.\n\n",
-			how("fanout"), how("toggleBroadcast"), how("promptAll"), how("changes"), how("worktrees"),
+			how("toggleBroadcast"), how("promptAll"), how("changes"), how("worktrees"),
 			how("restartPane"), how("closePane"), how("detach"), how("history"),
 			how("projects"), how("agents"), how("palette"))
 	}

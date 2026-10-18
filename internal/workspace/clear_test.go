@@ -59,8 +59,8 @@ func TestAPaneFollowsItsAgentIntoANewConversation(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if got := ws.PlanSourceFor(p.ID).SessionID; got != cleared {
-		t.Errorf("a fan-out would read the plan from %q, want the conversation after the clear", got)
+	if got := ws.ConversationOf(p.ID); got != cleared {
+		t.Errorf("the pane would resume from %q, want the conversation after the clear", got)
 	}
 
 	// And it outlives the window.

@@ -99,7 +99,7 @@ h.hello();
 h.recv(fixture());
 h.press("palette");
 const labels = palLabels();
-for (const short of ["Agents", "Changes", "Resume", "Worktrees", "Remote", "API keys", "Fan out", "Todos"]) {
+for (const short of ["Agents", "Changes", "Resume", "Worktrees", "Remote", "API keys"]) {
   assert.ok(labels.includes(short), short + " is not a name in the palette: " + labels.join(", "));
 }
 for (const long of ["All agents across projects", "Review changes, commit and push", "Resume — reopen a past conversation", "Flockdeck Remote…", "API keys…"]) {
@@ -110,7 +110,7 @@ assert.strictEqual(history.getAttribute("aria-description"), "Resume — reopen 
 
 // And it is still found by what it used to be called.
 for (const [typed, name] of [["resume", "Resume"], ["past conversation", "Resume"], ["history", "Resume"], ["all agents across", "Agents"], ["review changes", "Changes"],
-  ["remote access", "Remote"], ["past jobs", "Fan-out history"]]) {
+  ["remote access", "Remote"]]) {
   palType(typed);
   assert.ok(palLabels().includes(name), typed + " does not find " + name + ": " + palLabels().join(", "));
 }
@@ -219,15 +219,14 @@ assert.strictEqual(h.$("palette-input").placeholder, "Go to…");
 assert.ok(h.$("palette-foot").hidden, "Go to lists a handful of windows and needs no count");
 assert.deepStrictEqual(palHeads(), [], "Go to is listed under headings");
 const labels = palLabels();
-assert.deepStrictEqual(labels.slice(0, 10),
-  ["Agents", "Changes", "Worktrees", "Resume", "Todos", "GitHub", "Remote", "Projects", "Settings", "Help"]);
-for (const extra of ["Fan out", "Fan-out history", "API keys"]) assert.ok(labels.includes(extra), extra + " left Go to");
+assert.deepStrictEqual(labels.slice(0, 9),
+  ["Agents", "Changes", "Worktrees", "Resume", "GitHub", "Remote", "Projects", "Settings", "Help"]);
+for (const extra of ["API keys"]) assert.ok(labels.includes(extra), extra + " left Go to");
 const kind = (name) => palRowsNow().find((r) => r.querySelector(".pal-label").textContent === name).querySelector(".pal-kind").textContent;
 assert.strictEqual(kind("Agents"), "sheet");
 assert.strictEqual(kind("Remote"), "sheet");
 assert.strictEqual(kind("Settings"), "dialog");
 assert.strictEqual(kind("Help"), "dialog");
-assert.strictEqual(kind("Fan out"), "dialog");
 const keys = (name) => palRowsNow().find((r) => r.querySelector(".pal-label").textContent === name).querySelector(".pal-hint").textContent;
 assert.strictEqual(keys("Agents"), "Ctrl+Shift+A");
 assert.strictEqual(keys("Settings"), "Ctrl+,");
