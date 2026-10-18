@@ -1,6 +1,6 @@
 # Privacy policy
 
-*Last updated: 6 October 2026*
+*Last updated: 18 October 2026*
 
 Flockdeck is made by Jim Wright, an individual based in the United Kingdom.
 This policy explains what personal data is involved when you use the
@@ -43,8 +43,13 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
 
 The app runs on your computer. It keeps its settings, layouts,
 conversations with built-in API agents and any API keys you give it in
-Flockdeck's configuration folder on your computer. An older version also kept
-a record there of which models routing chose. This version no longer writes it, and Settings can clear one an older version left.
+Flockdeck's configuration folder on your computer. Version 0.7.0 and
+earlier also kept a record there of which models routing chose. Later versions
+do not write it, and Settings can clear one an older version left. If you are
+still on version 0.7.0 or earlier, the old behaviour applies: it writes that
+record, and its routing setting "Ask Jev to rate unmatched work", if you turned
+it on and set a TypeSafe key, sends a task's text (cut at 2,000 characters and
+redacted the same way) to TypeSafe.
 
 The same folder also holds:
 
@@ -118,7 +123,9 @@ The app makes these network connections of its own.
   either in Flockdeck's Settings or as `TYPESAFE_API_KEY` in the environment
   Flockdeck starts in; with either missing, nothing is sent. A key entered in
   Settings is kept in Flockdeck's key store on your machine and is sent only
-  to api.typesafe.ai.
+  to api.typesafe.ai. The request carries that key as a bearer token, TypeSafe
+  sees your IP address as any server does, and two fixed questions go with the
+  text.
 
   *Status detection* (Settings, Status detection). When an agent that reports no
   status of its own goes quiet, the last 30 lines of that pane's terminal

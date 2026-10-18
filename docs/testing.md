@@ -4,7 +4,7 @@ A test must never read the config directory of the person running it, use a
 key they have stored, or reach a real host. Flockdeck keeps `agents.json`,
 `keys.json` (including the stored TypeSafe/Jev key) and the rest of its state
 under `os.UserConfigDir()`, so a test that resolves it on a developer's machine
-reads their real files, and a stored key sends the test's fixture task text to
+reads their real files, and a stored key could send a test's fixture text to
 the real API.
 
 ## What the guard does

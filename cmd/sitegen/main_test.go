@@ -450,7 +450,6 @@ func TestThePrivacyPolicyDisclosesTypeSafe(t *testing.T) {
 		"does not catch every secret", "can include file names and code", "TypeSafe&rsquo;s own terms and privacy policy",
 		"or turn on the optional TypeSafe feature",
 		"Nothing else in Flockdeck sends text to TypeSafe",
-		"Settings can clear one an older version left",
 	} {
 		if !strings.Contains(policy, want) && !strings.Contains(policy, strings.ReplaceAll(want, "&rsquo;", "'")) {
 			t.Errorf("privacy.html does not say %q", want)
@@ -459,12 +458,31 @@ func TestThePrivacyPolicyDisclosesTypeSafe(t *testing.T) {
 	if strings.Contains(policy, "entirely on your computer") {
 		t.Error("privacy.html still says the app runs entirely on your computer")
 	}
-	for name, page := range map[string]string{"privacy.html": policy, "trust.html": pages["trust.html"]} {
-		for _, gone := range []string{"two optional", "Ask Jev to rate", "rate how demanding", "Terminal text and task text", "names the project folder"} {
+	trust := strings.Join(strings.Fields(pages["trust.html"]), " ")
+	for _, want := range []string{"One optional feature sends content to a third party, TypeSafe AI"} {
+		if !strings.Contains(trust, want) {
+			t.Errorf("trust.html does not say %q", want)
+		}
+	}
+	for _, want := range []string{
+		"Version 0.7.0 and earlier also kept a record",
+		"Settings can clear one an older version left",
+		"as a bearer token", "sees your IP address", "two fixed questions",
+	} {
+		if !strings.Contains(policy, want) {
+			t.Errorf("privacy.html does not say %q", want)
+		}
+	}
+	for name, page := range map[string]string{"privacy.html": policy, "trust.html": trust} {
+		page = strings.ToLower(page)
+		for _, gone := range []string{"two optional", "rate how demanding", "terminal text and task text", "names the project folder"} {
 			if strings.Contains(page, gone) {
 				t.Errorf("%s still says %q, which describes a feature that has been removed", name, gone)
 			}
 		}
+	}
+	if strings.Contains(trust, "Ask Jev") {
+		t.Error("trust.html still mentions the removed routing setting")
 	}
 	if !strings.Contains(pages["trust.html"], "TypeSafe AI") {
 		t.Error("trust.html does not mention the optional TypeSafe feature")

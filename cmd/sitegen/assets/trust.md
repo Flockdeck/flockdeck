@@ -1,6 +1,6 @@
 # Trust & privacy
 
-*Last updated: 6 October 2026*
+*Last updated: 18 October 2026*
 
 This is the plain-language version of Flockdeck's privacy story: what's
 collected, what isn't, and how that compares to what else is on the market.
