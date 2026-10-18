@@ -47,9 +47,9 @@ remember that one.
 
 Two agents editing the same files will fight. Give each its own checkout
 instead: [[key:worktrees]] opens the worktrees, where you can create them, and
-[[key:fanout]] fans out: it turns one agent's plan into a set of agents that
-each take a task in a worktree of their own. [Git worktrees](#worktrees) and
-[Fan out](#fanout) cover both.
+**Start a team** starts a manager agent that starts the rest, each in a
+worktree of its own. [Git worktrees](#worktrees) and [Agents and models](#agents)
+cover both.
 
 ## Which agent, which model
 
@@ -65,7 +65,7 @@ is; [Spend and limits](#spend) says how, and when Claude Code's are read.
 The rail down the left of the window has a tile for each open project (one
 with an amber triangle badge has an agent waiting on you, and one with a cyan badge
 has agents at work), and under them the tools: Agents, Team, Broadcast,
-Changes, Resume, Worktrees, Fan-out history and Todos, then, below a rule,
+Changes, Resume and Worktrees, then, below a rule,
 Help and Settings. GitHub, API keys and Flockdeck Remote are in the command
 palette and in the settings. Rest the
 pointer on one, or reach it with the keyboard, and it says what it is and the

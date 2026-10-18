@@ -1,7 +1,7 @@
 // Retakes the site's screenshots from a staged Flockdeck built from this
 // checkout. See README.md for what it stages and the rules it keeps.
 //
-//   node cmd/sitegen/shots/shots.mjs [-relay-src DIR] [-only deck,fanout,...] [-keep]
+//   node cmd/sitegen/shots/shots.mjs [-relay-src DIR] [-only deck,worktrees,...] [-keep]
 //
 // Windows only: the staged projects live in C:\code, which is what the
 // pictures show.
@@ -23,7 +23,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const args = process.argv.slice(2);
 const opt = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
 const relaySrc = opt("-relay-src");
-const only = (opt("-only") || "deck,fanout,worktrees,agent-picker,settings,remote-choices,og").split(",");
+const only = (opt("-only") || "deck,worktrees,agent-picker,settings,remote-choices,og").split(",");
 const keep = args.includes("-keep");
 
 if (process.platform !== "win32") throw new Error("the harness stages C:\\code and runs on Windows only");
@@ -93,10 +93,9 @@ try {
 
   const shoot = async (name, open) => {
     if (!only.includes(name)) return;
-    await page.evaluate((id) => window.__stage.cmd({ cmd: "focusPane", id }), open === "fanout" ? panes.p0 : panes.p3);
+    await page.evaluate((id) => window.__stage.cmd({ cmd: "focusPane", id }), panes.p3);
     await sleep(600);
     await page.evaluate(() => document.activeElement && document.activeElement.blur && document.activeElement.blur());
-    if (open === "fanout") await page.keyboard.press("Control+Shift+X");
     if (open === "worktrees") await page.keyboard.press("Control+Shift+G");
     if (open === "picker") await page.click("#new-tab-pick");
     if (open === "settings") {
@@ -110,7 +109,6 @@ try {
     if (open) { await page.keyboard.press("Escape"); await sleep(800); }
   };
   await shoot("deck");
-  await shoot("fanout", "fanout");
   await shoot("worktrees", "worktrees");
   await shoot("agent-picker", "picker");
 

@@ -2422,10 +2422,12 @@ func hook(args []string, stdin io.Reader, stdout, stderr io.Writer) {
 	if strings.TrimSpace(res.Context) == "" && !res.Allow {
 		return
 	}
-	// SessionStart is the one event that answers back with a context. Claude
-	// Code reads a hook's stdout for this event and adds `additionalContext`
-	// to the session, which is how a pane's agent learns which pane it is.
-	// PreToolUse is the other: auto-review having allowed it (see
+	// SessionStart answers back with a context. Claude Code reads a hook's
+	// stdout for this event and adds `additionalContext` to the session, which
+	// is how a pane's agent learns which pane it is. UserPromptSubmit and
+	// PostToolUse do the same to tell it of waiting messages (see
+	// hooks.SetNoticeHandler), which is why nothing is typed into its input.
+	// PreToolUse is the other kind: auto-review having allowed it (see
 	// hooks.SetReviewHandler) is said the same way Claude Code's own hooks
 	// say it, which lets the call through without a prompt ever opening.
 	out, err := json.Marshal(hookOutput{

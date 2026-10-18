@@ -26,7 +26,7 @@ func TestTheTabStripDoesNotClipAFocusRing(t *testing.T) {
 	}
 }
 
-// The buttons in a pane's header - fan out, broadcast, restart, zoom and close -
+// The buttons in a pane's header - broadcast, restart, zoom and close -
 // were about twenty pixels tall, under the 24 a target needs to be hit without
 // care. They have to be at least that, and still fit inside the header, whose
 // height includes its one-pixel rule.
@@ -458,58 +458,6 @@ assert.ok(!h.$("history-none").hidden, "a refresh forgot that nothing matches");
 `)
 }
 
-// Typing into a fan-out's task list built every row again on each keystroke,
-// each row a select holding every model of every agent: twelve tasks over
-// three agents of four models were 240 elements a key. Only the line typed
-// into is drawn again, and what was chosen on the others stays as it was.
-func TestTypingIntoAFanOutDrawsOnlyTheLineTyped(t *testing.T) {
-	out := runFrontEnd(t, `
-h.hello();
-h.recv(fixture());
-const agents = [
-  { id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }, { id: "sonnet" }, { id: "haiku" }] },
-  { id: "codex", name: "Codex", models: [{ id: "gpt-5" }, { id: "gpt-5-mini" }, { id: "o3" }, { id: "o4-mini" }] },
-  { id: "gemini", name: "Gemini", models: [{ id: "pro" }, { id: "flash" }, { id: "flash-lite" }, { id: "ultra" }] },
-];
-const tasks = [];
-for (let i = 0; i < 12; i++) tasks.push("task number " + i);
-h.press("fanout");
-h.recv({ type: "fanoutPreview", paneId: "p1", tasks, isRepo: true, cwd: "C:/repo", agent: "claude", agents });
-const body = h.$("overlay-body");
-const box = body.querySelector("textarea.fan-tasks");
-const rows = () => body.querySelectorAll("div.fan-row");
-const first = rows()[0];
-const s0 = first.querySelector("select");
-s0.value = "codex\no3";
-h.dispatch(s0, new h.Ev("change", { target: s0 }));
-
-const before = h.made();
-for (const ch of " and more") { box.value += ch; box.oninput(); }
-const built = h.made() - before;
-console.log("nine keystrokes into a twelve-task fan-out built " + built + " elements");
-assert.ok(built < 9 * 40, "every keystroke built the whole list again: " + built + " elements");
-assert.ok(rows()[0] === first, "a row whose line was not touched was built again");
-assert.strictEqual(rows()[0].querySelector("select").value, "codex\no3", "the choice on an untouched row was lost");
-assert.strictEqual(rows().length, 12);
-// Each task is a field of its own now, so what it shows is its value.
-assert.strictEqual(rows()[11].querySelector("input.fan-row-task").value, "task number 11 and more", "the line typed into does not show what was typed");
-assert.deepStrictEqual(rows().map((r) => r.querySelector(".fan-row-n").textContent),
-  ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]);
-
-// A line taken out takes its row with it, and the rest are numbered again.
-box.value = box.value.split(String.fromCharCode(10)).slice(1).join(String.fromCharCode(10));
-box.oninput();
-assert.strictEqual(rows().length, 11);
-assert.strictEqual(rows()[0].querySelector("input.fan-row-task").value, "task number 1");
-assert.strictEqual(rows()[0].querySelector(".fan-row-n").textContent, "1");
-body.querySelector("button.primary").onclick();
-const sent = h.commands().pop();
-assert.strictEqual(sent.tasks.length, 11);
-assert.strictEqual(sent.tasks[10], "task number 11 and more");
-`)
-	t.Log(out)
-}
-
 // A tab was named from everything in it, so it said the close button inside
 // it too, and each close button said only "Close tab": a strip of a dozen
 // read as a dozen of the same, and nothing said closing one stops its agents.
@@ -663,22 +611,6 @@ assert.ok(h.doc.activeElement === setBtn(), "the keyboard did not go back to the
 assert.strictEqual(h.commands().length, before, "a half-typed key was sent");
 h.key({ key: "Escape" });
 assert.ok(h.$("overlay").hidden, "Escape from the row no longer closes the dialog");
-`)
-}
-
-// "Use the run's model for every task" hides itself once nothing is left
-// routed, and pressed from the keyboard it hid itself with the keyboard on
-// it. The keyboard goes to the run's own select, which the button is about.
-func TestClearingTheRoutesKeepsTheKeyboardInTheFanOut(t *testing.T) {
-	runFrontEnd(t, fanoutRouting+`
-h.press("fanout");
-h.recv(routedPreview());
-const clear = h.$("fan-route-clear");
-clear.focus();
-h.key({ key: "Enter" });
-assert.ok(clear.hidden, "the button is still offered with nothing left to undo");
-const run = body.querySelector("div.fan-agent").querySelector("select");
-assert.ok(h.doc.activeElement === run, "the keyboard was left on the button that hid itself");
 `)
 }
 

@@ -522,12 +522,6 @@ func (s *Server) setAccentColor(c *controlClient, color string) {
 	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.AccentColor, color) })
 }
 
-// setFanOutSameTab records whether the fan-out dialog's "Put them in this
-// tab" checkbox starts ticked.
-func (s *Server) setFanOutSameTab(c *controlClient, on bool) {
-	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.FanOut.SameTab, on) })
-}
-
 // setAutoReviewDefault records the value Pane.AutoReview starts at for a pane
 // with no parent. See Prefs.AutoReviewDefault.
 func (s *Server) setAutoReviewDefault(c *controlClient, on bool) {

@@ -28,7 +28,7 @@ type Difficulty struct {
 // Classifier rates a task's difficulty. The Router asks it only when a
 // decision could change with the answer, never for work a rule decided, and
 // treats every error as "no answer". The deadline, cache and rate limit are
-// the implementation's to keep (see package routejev), so that Decide stays a
+// the implementation's to keep (see packages routejev and jevgate), so that Decide stays a
 // function of its inputs and a fake stands in for it in a test.
 type Classifier interface {
 	Classify(task string) (Difficulty, error)

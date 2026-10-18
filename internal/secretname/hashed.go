@@ -3,6 +3,7 @@ package secretname
 import (
 	"crypto/sha256"
 	"sort"
+	"strings"
 )
 
 // The names this package judges by are kept as hashes, not as text. A table of
@@ -57,6 +58,14 @@ func table(k kind) (tab string, lens []int) {
 		return tabPrefixAny, lensPrefixAny
 	case kindPrefixPrivate:
 		return tabPrefixPrivate, lensPrefixPrivate
+	case kindHome:
+		return tabHome, nil
+	case kindHomeLower:
+		return tabHomeLower, nil
+	case kindHomeAbove:
+		return tabHomeAbove, nil
+	case kindHomeAboveLower:
+		return tabHomeAboveLower, nil
 	}
 	return "", nil
 }
@@ -99,4 +108,51 @@ func hasSuffixIn(n string) bool {
 		}
 	}
 	return false
+}
+
+// Folders below a home directory that keep secrets (a browser's or a mail
+// program's profile, a keychain) are kept the same way. They are given as the
+// path from the home, with "/", and looked up whole: HomeSecret asks whether a
+// path is one, HomeSecretAbove whether it is on the way to one, so a caller that
+// walks a real folder knows which branches are worth opening. Each question has
+// an exact-case and a lower-case table, for file systems that tell case and
+// those that do not.
+const (
+	kindHome           kind = 'h' // a listed path, as written
+	kindHomeLower      kind = 'i' // a listed path, lower-cased
+	kindHomeAbove      kind = 'j' // a folder on the way to a listed path, as written
+	kindHomeAboveLower kind = 'k' // a folder on the way to a listed path, lower-cased
+)
+
+func homeKind(fold, above bool) kind {
+	switch {
+	case above && fold:
+		return kindHomeAboveLower
+	case above:
+		return kindHomeAbove
+	case fold:
+		return kindHomeLower
+	}
+	return kindHome
+}
+
+// HomeSecret reports whether rel, a path below a home directory written with
+// "/", is one of the folders that keep secrets. With foldCase the comparison
+// ignores case (strings.ToLower on both sides).
+func HomeSecret(rel string, foldCase bool) bool {
+	return homeLookup(rel, foldCase, false)
+}
+
+// HomeSecretAbove reports whether rel is a folder that a path listed for
+// HomeSecret lies below (so ".config" is, ".config/gh" is not).
+func HomeSecretAbove(rel string, foldCase bool) bool {
+	return homeLookup(rel, foldCase, true)
+}
+
+func homeLookup(rel string, foldCase, above bool) bool {
+	if foldCase {
+		rel = strings.ToLower(rel)
+	}
+	k := homeKind(foldCase, above)
+	return has(k, rel)
 }

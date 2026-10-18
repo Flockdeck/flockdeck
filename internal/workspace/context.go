@@ -143,8 +143,9 @@ type PaneContext struct {
 	TaskCounts tasks.Counts
 	HasCounts  bool
 
-	// Notified says Flockdeck types a line into this pane when a message arrives,
-	// which it does only for an agent that reports its own lifecycle.
+	// Notified says this pane's agent is told of a message in the reply to its
+	// next prompt or tool call, which Flockdeck can do only for an agent that
+	// reports its lifecycle through hooks.
 	Notified bool
 
 	// Taken is when the snapshot was made. It is written out only for an agent

@@ -81,7 +81,7 @@ func (s *server) set(f func()) {
 }
 
 func classifier(s *server) *Classifier {
-	return New(&jev.Client{APIBase: s.URL, Key: "k-test"})
+	return New(func() (*jev.Client, error) { return &jev.Client{APIBase: s.URL, Key: "k-test"}, nil })
 }
 
 func TestClassifyReadsTheAnswers(t *testing.T) {
@@ -189,7 +189,7 @@ func TestTheCacheAnswersARepeatWithoutACall(t *testing.T) {
 	}
 	// An hour later it is asked again.
 	now := time.Now()
-	c.now = func() time.Time { return now.Add(CacheTTL + time.Second) }
+	c.gate.Now = func() time.Time { return now.Add(CacheTTL + time.Second) }
 	if _, err := c.Classify("same task"); err != nil {
 		t.Fatal(err)
 	}
@@ -198,26 +198,12 @@ func TestTheCacheAnswersARepeatWithoutACall(t *testing.T) {
 	}
 }
 
-func TestTheCacheIsBounded(t *testing.T) {
-	s := newServer(t)
-	c := classifier(s)
-	c.maxPerMinute = 1 << 20
-	for i := 0; i < cacheCap+40; i++ {
-		if _, err := c.Classify("task " + string(rune('a'+i%26)) + strings.Repeat("x", i)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if len(c.cache) > cacheCap {
-		t.Errorf("the cache holds %d entries", len(c.cache))
-	}
-}
-
 func TestTheRateCapHolds(t *testing.T) {
 	s := newServer(t)
 	c := classifier(s)
-	c.maxPerMinute = 3
+	c.gate.PerMinute = 3
 	now := time.Now()
-	c.now = func() time.Time { return now }
+	c.gate.Now = func() time.Time { return now }
 	for i := 0; i < 3; i++ {
 		if _, err := c.Classify("task " + strings.Repeat("x", i)); err != nil {
 			t.Fatal(err)
@@ -242,7 +228,7 @@ func TestTheRateCapHolds(t *testing.T) {
 func TestTheRateCapHoldsUnderConcurrency(t *testing.T) {
 	s := newServer(t)
 	c := classifier(s)
-	c.maxPerMinute = 5
+	c.gate.PerMinute = 5
 	var wg sync.WaitGroup
 	for i := 0; i < 40; i++ {
 		wg.Add(1)
@@ -261,13 +247,13 @@ func TestASlowJevIsGivenUpOnAndNotAskedAgainForAWhile(t *testing.T) {
 	s := newServer(t)
 	s.set(func() { s.holding = true })
 	c := classifier(s)
-	c.timeout = 100 * time.Millisecond
+	c.gate.Timeout = 100 * time.Millisecond
 	start := time.Now()
 	if _, err := c.Classify("a task"); err == nil {
 		t.Fatal("a call that never answered succeeded")
 	}
 	if took := time.Since(start); took > time.Second {
-		t.Errorf("waited %v on a %v deadline", took, c.timeout)
+		t.Errorf("waited %v on a %v deadline", took, c.gate.Timeout)
 	}
 	before := s.requests()
 	start = time.Now()
@@ -284,7 +270,7 @@ func TestRefusalsAreErrorsAndCoolDown(t *testing.T) {
 		s := newServer(t)
 		s.set(func() { s.status = status })
 		c := classifier(s)
-		c.timeout = 300 * time.Millisecond // a 429 is retried inside this
+		c.gate.Timeout = 300 * time.Millisecond // a 429 is retried inside this
 		if _, err := c.Classify("a task"); err == nil {
 			t.Errorf("%d: no error", status)
 		}
@@ -297,13 +283,13 @@ func TestRefusalsAreErrorsAndCoolDown(t *testing.T) {
 	s.set(func() { s.status = 401 })
 	c := classifier(s)
 	now := time.Now()
-	c.now = func() time.Time { return now }
+	c.gate.Now = func() time.Time { return now }
 	_, _ = c.Classify("a task")
-	c.now = func() time.Time { return now.Add(cooldown + time.Second) }
+	c.gate.Now = func() time.Time { return now.Add(cooldown + time.Second) }
 	if _, err := c.Classify("b task"); !errors.Is(err, ErrCooling) {
 		t.Errorf("a refused key was asked again after %v: %v", cooldown, err)
 	}
-	c.now = func() time.Time { return now.Add(cooldownBadKey + time.Second) }
+	c.gate.Now = func() time.Time { return now.Add(cooldownBadKey + time.Second) }
 	if _, err := c.Classify("b task"); errors.Is(err, ErrCooling) {
 		t.Errorf("a refused key is still cooling after %v", cooldownBadKey)
 	}

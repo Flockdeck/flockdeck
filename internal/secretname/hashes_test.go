@@ -7,6 +7,7 @@ import (
 	"go/format"
 	"os"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +57,12 @@ func generated(l nameLists) []byte {
 	genTable(&b, "tabSuffix", kindSuffix, l.suffixes)
 	genTable(&b, "tabPrefixAny", kindPrefixAny, l.prefixAny)
 	genTable(&b, "tabPrefixPrivate", kindPrefixPrivate, l.prefixPrivate)
+	home, homeLower, above, aboveLower := homeNames(l.homePaths)
+	genTable(&b, "tabHome", kindHome, home)
+	genTable(&b, "tabHomeLower", kindHomeLower, homeLower)
+	genTable(&b, "tabHomeAbove", kindHomeAbove, above)
+	genTable(&b, "tabHomeAboveLower", kindHomeAboveLower, aboveLower)
+	fmt.Fprintf(&b, "// MaxHomeDepth is the most folders a path listed for HomeSecret has.\nconst MaxHomeDepth = %d\n\n", homeDepth(l.homePaths))
 	fmt.Fprintf(&b, "var lensSuffix = %#v\n", lengths(l.suffixes))
 	fmt.Fprintf(&b, "var lensPrefixAny = %#v\n", lengths(l.prefixAny))
 	fmt.Fprintf(&b, "var lensPrefixPrivate = %#v\n", lengths(l.prefixPrivate))
@@ -122,4 +129,38 @@ func TestEveryListedNameIsFound(t *testing.T) {
 			t.Errorf("prefix %q not found", n)
 		}
 	}
+}
+
+// homeNames are the listed home paths as written and lower-cased, and the
+// folders on the way to them (every proper prefix), the same two ways.
+func homeNames(paths []string) (home, homeLower, above, aboveLower []string) {
+	seenA := map[string]bool{}
+	seenAL := map[string]bool{}
+	for _, p := range paths {
+		home = append(home, p)
+		homeLower = append(homeLower, strings.ToLower(p))
+		parts := strings.Split(p, "/")
+		for i := 1; i < len(parts); i++ {
+			a := strings.Join(parts[:i], "/")
+			if !seenA[a] {
+				seenA[a] = true
+				above = append(above, a)
+			}
+			if al := strings.ToLower(a); !seenAL[al] {
+				seenAL[al] = true
+				aboveLower = append(aboveLower, al)
+			}
+		}
+	}
+	return
+}
+
+func homeDepth(paths []string) int {
+	n := 0
+	for _, p := range paths {
+		if d := strings.Count(p, "/") + 1; d > n {
+			n = d
+		}
+	}
+	return n
 }

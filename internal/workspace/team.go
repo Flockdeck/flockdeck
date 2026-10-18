@@ -20,8 +20,13 @@ import (
 // panes, the messages between them, and telling a pane it has mail.
 //
 // The messages themselves live in internal/team. What is here is what needs the
-// panes: who is in the caller's project, whether a pane may be typed into right
-// now, and the one line that is typed.
+// panes: who is in the caller's project, the unread count a pane's header shows,
+// and the notice an agent is given in the reply to its next hook.
+//
+// A pane is never typed into to tell it of mail. Text in an agent's message box
+// that the user did not write is a bug whether it is submitted or not, and on
+// Windows a line and its Enter that arrive in one read are taken for a paste and
+// left there. See HookNotice.
 
 // messagesFile is where the inboxes are kept, next to the other workspace state.
 const messagesFile = "messages.json"
@@ -31,25 +36,10 @@ const messagesFile = "messages.json"
 // after it is not a helper that has finished.
 const helperIdleDwell = 5 * time.Second
 
-// noticeSlack is added to a retry so it lands just after the moment the
-// notifier asked for, not just before it.
-const noticeSlack = 50 * time.Millisecond
-
-// teamState is everything the team keeps on the workspace. The function fields
-// are what a test replaces, so delivery can be checked with a clock and a
-// status of its own and no terminal.
+// teamState is everything the team keeps on the workspace.
 type teamState struct {
 	inbox    *team.Store
 	notifier *team.Notifier
-
-	// now is the clock the notifier is asked with.
-	now func() time.Time
-	// after runs fn once d has passed and returns what stops it.
-	after func(d time.Duration, fn func()) func()
-	// state says what the notifier is to know of a pane.
-	state func(p *Pane) team.State
-	// write types a notice into a pane's terminal and presses Enter.
-	write func(p *Pane, notice string)
 
 	// saveMu makes taking a snapshot and writing it one step, so an older
 	// snapshot cannot be written after a newer one.
@@ -57,9 +47,11 @@ type teamState struct {
 	// save writes the file; a test replaces it to make a write slow.
 	save func(path string, data []byte) error
 
-	mu       sync.Mutex
-	timers   map[string]func()
-	shutdown bool
+	// idle reads the status of a helper pane and after runs fn once d has
+	// passed; they are what a test replaces to report a helper's turns with a
+	// clock and a status of its own.
+	idle  func(p *Pane) idleReading
+	after func(d time.Duration, fn func())
 }
 
 func (w *Workspace) initTeam() {
@@ -67,17 +59,13 @@ func (w *Workspace) initTeam() {
 	*t = teamState{
 		inbox:    team.NewStore(nil),
 		notifier: team.NewNotifier(),
-		now:      time.Now,
-		after: func(d time.Duration, fn func()) func() {
-			tm := time.AfterFunc(d, fn)
-			return func() { tm.Stop() }
-		},
-		timers: map[string]func(){},
-		save:   store.WriteAtomic,
+		save:     store.WriteAtomic,
+		after:    func(d time.Duration, fn func()) { time.AfterFunc(d, fn) },
 	}
-	t.state = w.noticeState
-	t.write = w.typeNotice
-
+	t.idle = w.readIdle
+	// A message arriving or being read changes the unread count on a pane's
+	// header, so the window is sent the state again.
+	t.inbox.OnChange(w.wake)
 }
 
 // loadMessages reads the saved inboxes and arranges for every change to be
@@ -94,6 +82,7 @@ func (w *Workspace) loadMessages() {
 		return
 	}
 	w.team.inbox.OnChange(func() {
+		w.wake()
 		w.team.saveMu.Lock()
 		defer w.team.saveMu.Unlock()
 		data, err := w.team.inbox.Snapshot()
@@ -106,33 +95,15 @@ func (w *Workspace) loadMessages() {
 	})
 }
 
-// stopTeam stops the timers. A pane's inbox is kept when it is closed because
+// forgetTeam drops what delivery remembers of a pane that is gone, or whose
+// session was replaced. A pane's inbox is kept when it is closed because
 // Flockdeck is quitting or its project is being closed: the pane comes back with
 // the same id, and what was unread should be there.
-func (w *Workspace) stopTeam() {
-	t := &w.team
-	t.mu.Lock()
-	t.shutdown = true
-	for id, stop := range t.timers {
-		stop()
-		delete(t.timers, id)
-	}
-	t.mu.Unlock()
-}
-
-// forgetTeam drops what delivery remembers of a pane that is gone.
 func (w *Workspace) forgetTeam(id string) {
 	if w.team.inbox == nil {
 		return
 	}
-	t := &w.team
-	t.mu.Lock()
-	if stop, ok := t.timers[id]; ok {
-		stop()
-		delete(t.timers, id)
-	}
-	t.mu.Unlock()
-	t.notifier.Forget(id)
+	w.team.notifier.Forget(id)
 }
 
 // dropInbox deletes the inbox of a pane that was closed on purpose, by the user
@@ -269,8 +240,7 @@ func (w *Workspace) deliver(members []team.Member, sender team.Sender, target, t
 			res.Failed = append(res.Failed, fmt.Sprintf("%s: %v", to.Label(), err))
 			continue
 		}
-		res.Sent = append(res.Sent, hooks.Sent{ID: m.ID, Pane: to.Pane, To: to.Label()})
-		w.pumpTeam(to.Pane)
+		res.Sent = append(res.Sent, hooks.Sent{ID: m.ID, Pane: to.Pane, To: to.Label(), Notifies: w.notifiable(to.Pane)})
 	}
 	if len(res.Sent) == 0 {
 		return hooks.MsgResult{}, errors.New(strings.Join(res.Failed, "; "))
@@ -311,7 +281,6 @@ func (w *Workspace) notifyParent(p *Pane, parent, what string) {
 		who = p.Role
 	}
 	w.team.inbox.SendSystem(parent, fmt.Sprintf("%s %q %s (pane %s)", who, label, what, p.ID))
-	w.pumpTeam(parent)
 }
 
 // noteExit tells a pane's parent that the pane's process ended on its own, once
@@ -359,22 +328,22 @@ func (w *Workspace) noteFinished(p *Pane, sess *session.Session, parent string) 
 }
 
 // paneChanged is called whenever a pane's session changes: it is what notices a
-// pane has gone idle with mail waiting, and one that has exited.
+// pane that has exited.
 func (w *Workspace) paneChanged(id string) {
 	if w.team.inbox == nil {
 		return
 	}
-	w.pumpTeam(id)
 	w.noteExit(id)
 	w.noteIdle(id)
 }
 
 // noteIdle tells a pane's parent that the pane has finished a turn and stayed
-// idle, once for each turn. Without it a manager that has started helpers and
-// ended its own turn is never woken: a helper normally finishes by going idle at
-// its prompt, not by exiting, so only the user would notice. It applies to panes
-// whose agent reports its own status, since an idle read off a quiet screen could
-// be a dialog waiting for a key.
+// idle, once for each turn. A helper normally finishes by going idle at its
+// prompt, not by exiting, so without it a manager waiting on its helpers hears
+// nothing until the user looks. It writes a message to the parent's inbox and
+// types nothing anywhere. It applies to panes whose agent reports its own
+// status, since an idle read off a quiet screen could be a dialog waiting for a
+// key.
 func (w *Workspace) noteIdle(id string) {
 	p := w.Pane(id)
 	if p == nil {
@@ -386,11 +355,11 @@ func (w *Workspace) noteIdle(id string) {
 	if parent == "" || sess == nil {
 		return
 	}
-	st := w.team.state(p)
-	if !st.Eligible {
+	r := w.team.idle(p)
+	if !r.Eligible {
 		return
 	}
-	switch st.Status {
+	switch r.Status {
 	case "working":
 		w.mu.Lock()
 		p.turnSeen = true
@@ -408,23 +377,40 @@ func (w *Workspace) noteIdle(id string) {
 	}
 }
 
+// idleReading is what noteIdle needs to know of a pane: whether its status is
+// reported by the agent itself, what it is, and for how long it has been it.
+type idleReading struct {
+	Eligible bool
+	Status   string
+	IdleFor  time.Duration
+}
+
+// readIdle is the reading of a real pane. Eligible is notifiable: the agent has
+// hooks and has been heard from in this session.
+func (w *Workspace) readIdle(p *Pane) idleReading {
+	if !w.notifiable(p.ID) {
+		return idleReading{}
+	}
+	w.mu.RLock()
+	sess := p.Sess
+	w.mu.RUnlock()
+	if sess == nil {
+		return idleReading{}
+	}
+	st, _ := sess.Status()
+	return idleReading{Eligible: true, Status: st.String(), IdleFor: time.Since(sess.StatusSince())}
+}
+
 // armIdleReport tells the parent after helperIdleDwell if the helper is still idle
 // then, in the same session; otherwise it drops the report, and the next time the
 // helper goes idle arms it again.
 func (w *Workspace) armIdleReport(p *Pane, parent string, sess *session.Session) {
-	t := &w.team
-	t.mu.Lock()
-	down := t.shutdown
-	t.mu.Unlock()
-	if down {
-		return
-	}
-	t.after(helperIdleDwell, func() {
+	w.team.after(helperIdleDwell, func() {
 		w.mu.RLock()
 		same := p.Sess == sess
 		w.mu.RUnlock()
-		st := w.team.state(p)
-		if !same || w.Pane(p.ID) != p || st.Status != "idle" {
+		r := w.team.idle(p)
+		if !same || w.Pane(p.ID) != p || !r.Eligible || r.Status != "idle" {
 			w.mu.Lock()
 			p.idleArmed = false
 			w.mu.Unlock()
@@ -432,14 +418,12 @@ func (w *Workspace) armIdleReport(p *Pane, parent string, sess *session.Session)
 		}
 		// Idle, but not for as long as the dwell: it went busy and idle again
 		// since this was armed. Wait out the rest from the last idle edge.
-		if st.IdleFor < helperIdleDwell {
+		if r.IdleFor < helperIdleDwell {
 			w.armIdleReport(p, parent, sess)
 			return
 		}
 		w.mu.Lock()
 		p.idleArmed = false
-		w.mu.Unlock()
-		w.mu.Lock()
 		report := p.turnSeen
 		p.turnSeen = false
 		w.mu.Unlock()
@@ -449,85 +433,73 @@ func (w *Workspace) armIdleReport(p *Pane, parent string, sess *session.Session)
 	})
 }
 
-// pumpTeam types the notice for a pane's waiting messages, if the pane can be
-// told now, and arranges to look again when it could be later. It is safe to call
-// from any goroutine and cheap when there is nothing waiting.
-func (w *Workspace) pumpTeam(id string) {
-	t := &w.team
-	if !t.notifier.Pending(id, t.inbox.NewestUnread(id)) {
-		return
+// Unread is how many unread messages a pane has. The window draws it on the
+// pane's header, so a message to an agent that has not been told of it, or has
+// not read it, is never out of sight. It is safe from any goroutine.
+func (w *Workspace) Unread(id string) int {
+	if w.team.inbox == nil {
+		return 0
 	}
+	return len(w.team.inbox.List(id, false))
+}
+
+// hooksCapable says the pane is an agent pane whose catalog entry has hooks, so
+// it can be told of a message in the reply to its next prompt or tool result
+// (see HookNotice). An agent that cannot, such as Codex, Gemini, OpenCode, Aider
+// or Cursor Agent, is told nothing: it finds mail when it runs `flockdeck inbox`,
+// as its briefing says, and the user sees the unread count on its header.
+func (w *Workspace) hooksCapable(id string) bool {
 	p := w.Pane(id)
-	if p == nil {
-		return
+	if p == nil || !p.IsAgent() {
+		return false
 	}
-	notice, retry := t.notifier.Next(t.now(), id, t.state(p), t.inbox.List(id, false))
-	if notice != "" {
-		t.write(p, notice)
-	}
-	if retry > 0 {
-		w.armNotice(id, retry+noticeSlack)
-	}
-}
-
-// armNotice looks at a pane again after d, replacing a look already planned.
-func (w *Workspace) armNotice(id string, d time.Duration) {
-	t := &w.team
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.shutdown {
-		return
-	}
-	if stop, ok := t.timers[id]; ok {
-		stop()
-	}
-	t.timers[id] = t.after(d, func() {
-		t.mu.Lock()
-		delete(t.timers, id)
-		t.mu.Unlock()
-		w.pumpTeam(id)
-	})
-}
-
-// noticeState is what the notifier is told of a real pane.
-//
-// A pane can be told only if its agent reports its own lifecycle, and that has
-// begun: then "idle" is what the agent said, between turns, and not a guess from
-// a quiet screen that could be a dialog waiting for a key. A pane whose agent
-// reports nothing is never typed into, and relies on its briefing to look at
-// `flockdeck inbox`.
-func (w *Workspace) noticeState(p *Pane) team.State {
 	w.mu.RLock()
-	sess, agentID := p.Sess, p.Agent
+	agentID := p.Agent
 	w.mu.RUnlock()
-	if sess == nil || !p.IsAgent() || p.Err != nil || agentID == "" {
-		return team.State{}
+	if agentID == "" {
+		return false
 	}
 	spec, ok := w.agents().Find(agentID)
-	if !ok || !spec.Caps.Hooks || !sess.HooksReported() {
-		return team.State{}
-	}
-	st, _ := sess.Status()
-	return team.State{
-		Eligible: true,
-		Status:   st.String(),
-		IdleFor:  time.Since(sess.StatusSince()),
-		// Half-typed text, or a slash command that may have opened a menu.
-		Draft: sess.DraftPossible() || sess.MenuPossible(),
-	}
+	return ok && spec.Caps.Hooks
 }
 
-// typeNotice types a notice into a pane the way the prompt bar types a prompt,
-// and presses Enter, on a goroutine of its own so a pane that has stopped reading
-// cannot hold the caller up. See typeInto.
-func (w *Workspace) typeNotice(p *Pane, notice string) {
+// notifiable is hooksCapable and the agent's hooks have been heard from in this
+// session. It is what `msg send` promises the sender: a Claude pane whose hooks
+// never fire has the capability and not the notice, and is reported as not told.
+// A pane that has only just started is reported so too, until its first hook.
+func (w *Workspace) notifiable(id string) bool {
+	if !w.hooksCapable(id) {
+		return false
+	}
+	p := w.Pane(id)
 	w.mu.RLock()
 	sess := p.Sess
 	w.mu.RUnlock()
-	if sess == nil {
-		return
+	return sess != nil && sess.HooksReported()
+}
+
+// HookNotice is the notice of messages the pane's agent has not been told of, to
+// be given in the reply to one of its hooks (UserPromptSubmit or PostToolUse), or
+// "" when there is none. It counts them as told: the agent is told once, and the
+// messages stay unread, and counted on the pane's header, until it reads them.
+//
+// This is the only way an agent is told of mail. It does not wait for the agent
+// to be idle. An idle agent has no hook to answer until the user's next prompt,
+// and one that is working reads the notice with its next tool result.
+//
+// It runs on the hook server's goroutine for every tool call, so it compares two
+// numbers and does no more unless there is something to say.
+func (w *Workspace) HookNotice(id string) string {
+	t := &w.team
+	if t.inbox == nil || !t.notifier.Pending(id, t.inbox.NewestUnread(id)) {
+		return ""
 	}
-	go typeInto(sess, notice, true)
+	// A hook is arriving, which is proof enough that hooks work: notifiable is
+	// the stricter test the sender is told, and is not asked here.
+	if !w.hooksCapable(id) {
+		return ""
+	}
+	return t.notifier.Take(id, t.inbox.List(id, false))
 }
 
 // cleanPeerName is a pane's own report of its name, cut down to what can be shown

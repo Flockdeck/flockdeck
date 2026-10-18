@@ -89,11 +89,11 @@ filled in from the key table when the page is shown.
 - [Panes and tabs](internal/help/pages/panes.md) and
   [rearranging what is already running](internal/help/pages/rearranging.md)
 - [Agents and models](internal/help/pages/agents.md), including routing and API keys
+- [Running Ornith models](internal/help/pages/ornith.md)
 - [Knowing who needs you](internal/help/pages/status.md), including
   [auto-approve read-only](internal/help/pages/auto-approve.md)
 - [Spend and limits](internal/help/pages/spend.md)
 - [Broadcast and the prompt bar](internal/help/pages/broadcast.md)
-- [Fan out](internal/help/pages/fanout.md) and [Todo](internal/help/pages/todo.md)
 - [Git worktrees](internal/help/pages/worktrees.md),
   [review, commit and push](internal/help/pages/changes.md) and
   [GitHub](internal/help/pages/github.md)

@@ -40,7 +40,7 @@ serves headless: no window, and no browser is ever looked for on that
 machine. It runs just as well on a spare box, a home server, a NAS or a
 cheap VPS as it does on the machine in front of you. Pair it the same way
 (`flockdeck remote enable` then `flockdeck remote pair`) and it's a desktop
-in every way that matters here: full interface, chat on a phone, fan out, the
+in every way that matters here: full interface, chat on a phone, the
 lot. That puts the app itself on hardware you already control, for free;
 reaching it from a phone through the shared relay is the same Flockdeck Remote
 subscription as from any desktop.
@@ -256,7 +256,7 @@ opens the chat, the way tapping the row always has. Messages Flockdeck
 itself injects (a background task finishing, a session notice) show as
 small notes, never as if you had typed them.
 
-A lead agent's own helpers (started by `flockdeck spawn` or a fan-out)
+A lead agent's own helpers (started by `flockdeck spawn`)
 are grouped under its row instead of filling the list with one each,
 folded by default into a line such as "3 helpers · 1 waiting"; tap it to
 open them as indented rows, and again to fold them back, remembered per

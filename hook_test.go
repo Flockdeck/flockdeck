@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -68,5 +69,34 @@ func TestTheHookSaysWhichStartOfThePaneItIsFrom(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatalf("the event did not arrive: %s", errs.String())
+	}
+}
+
+// A notice of mail reaches Claude Code the way SessionStart's description does:
+// as additionalContext in the hook's output, under the event's own name.
+func TestTheHookPrintsAMessageNoticeAsContextForThePromptAndToolEvents(t *testing.T) {
+	srv, err := hooks.Serve(func(hooks.Event) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	srv.SetNoticeHandler(func(string) string { return "[flockdeck] 1 new message from work (reviewer) (#3)." })
+	t.Setenv("FLOCKDECK_TOKEN", srv.Token())
+
+	for _, event := range []string{"UserPromptSubmit", "PostToolUse"} {
+		var out, errs bytes.Buffer
+		hook([]string{"--endpoint", srv.Endpoint(), "--session", "pane-1", "--event", event}, strings.NewReader("{}"), &out, &errs)
+		var got struct {
+			HookSpecificOutput struct {
+				HookEventName     string `json:"hookEventName"`
+				AdditionalContext string `json:"additionalContext"`
+			} `json:"hookSpecificOutput"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+			t.Fatalf("%s: output %q: %v (stderr %q)", event, out.String(), err, errs.String())
+		}
+		if got.HookSpecificOutput.HookEventName != event || !strings.Contains(got.HookSpecificOutput.AdditionalContext, "1 new message") {
+			t.Errorf("%s: output = %q", event, out.String())
+		}
 	}
 }

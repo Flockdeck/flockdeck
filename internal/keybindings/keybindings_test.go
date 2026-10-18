@@ -177,3 +177,42 @@ func TestDamagedFileReadsAsDefaults(t *testing.T) {
 		t.Errorf("a damaged file should read as no overrides, got %+v", f.Overrides)
 	}
 }
+
+// TestBindingsForRemovedActionsAreIgnored covers keybindings.json files
+// written while Fan out and Todo existed. Their action ids are no longer in the
+// table: the file loads, the other bindings still apply, and the chord the old
+// action held is free for another one.
+func TestBindingsForRemovedActionsAreIgnored(t *testing.T) {
+	isolateConfig(t)
+	p, err := path()
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	old := `{"version":1,"overrides":{"fanout":"Ctrl+Alt+J","fanoutHistory":"","newTodo":"Ctrl+Alt+T","todos":"","closePane":"Ctrl+Shift+Q"}}`
+	if err := os.WriteFile(p, []byte(old), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	f, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	eff := Effective(f.Overrides)
+	if len(eff) != len(help.Keys) {
+		t.Fatalf("Effective returned %d keys, want %d", len(eff), len(help.Keys))
+	}
+	for _, k := range eff {
+		switch k.ID {
+		case "fanout", "fanoutHistory", "newTodo", "todos":
+			t.Errorf("the removed action %q is still in the table", k.ID)
+		case "closePane":
+			if k.Keys != "Ctrl+Shift+Q" {
+				t.Errorf("closePane lost its remapping: %q", k.Keys)
+			}
+		}
+	}
+	// A removed action's stale entry holds a chord, and it does not keep
+	// another action off it.
+	if _, err := SetBinding("agents", "Ctrl+Alt+J"); err != nil {
+		t.Errorf("a removed action's stale binding blocks its chord: %v", err)
+	}
+}

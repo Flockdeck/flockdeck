@@ -25,12 +25,6 @@
     changes: '<path d="M4 2.5h5.2L12 5.3v8.2H4z"></path><path d="M6 7h4M8 5v4M6 11h4"></path>',
     history: '<circle cx="8" cy="8" r="5.5"></circle><path d="M8 5v3.2l2.2 1.4"></path>',
     worktrees: '<circle cx="5" cy="3.5" r="1.5"></circle><circle cx="5" cy="12.5" r="1.5"></circle><circle cx="11" cy="5" r="1.5"></circle><path d="M5 5v6M11 6.5c0 2.8-6 2.2-6 4.5"></path>',
-    // One pane fanning out into three, the shape a plan turns into once it is
-    // read as a list and started as agents.
-    fanout: '<circle cx="3.5" cy="8" r="1.5"></circle><circle cx="12.5" cy="3.5" r="1.5"></circle><circle cx="12.5" cy="8" r="1.5"></circle><circle cx="12.5" cy="12.5" r="1.5"></circle><path d="M5 8h1.5M6.5 8 11 3.5M6.5 8h4.5M6.5 8 11 12.5"></path>',
-    // A checked box over two list lines: a checklist kept rather than run
-    // through once, which is the whole difference from fan-out's icon above.
-    todo: '<rect x="2.3" y="2.8" width="3.4" height="3.4" rx="0.6"></rect><path d="M3 4.5 3.7 5.2 5.1 3.6"></path><path d="M7.4 4.5h6.3M2.3 10.3h3.4M7.4 11.8h6.3M2.3 11.8h3.4"></path>',
     // Two branches meeting in one, the shape a pull request itself is drawn as
     // on github.com -- not the octocat, which is a filled mark and reads as a
     // smudge stroked at 16px the way every other glyph here is drawn.
@@ -127,8 +121,6 @@
     // prompt bar's message that goes to the set, and this used to say
     // otherwise.
     broadcast:   "Sends what you write in the prompt bar to every pane in the broadcast set, so one instruction reaches them all. Typing in a terminal still reaches only that terminal.",
-    fanOut:      "Turns the plan this agent proposed into a set of agents that carry it out, one pane each.",
-    newTodo:     "Saves the plan this agent proposed as a checklist, so its steps can be started one at a time, later.",
     restart:     "Relaunches the process in this pane. A Claude agent resumes the same conversation.",
     zoom:        "Fills the tab with this pane. Zoom again to bring the other panes back. Double-clicking the pane's header does the same.",
     close:       "Closes this pane and stops the process running in it.",
@@ -458,29 +450,14 @@
       }
       else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects, "button.dir-into"); }
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
-      else if (msg.type === "fanoutHistory") keepFocus(() => renderFanoutHistory(msg));
       else if (msg.type === "team") teamApply(msg);
       else if (msg.type === "teamResult") teamAnswer(msg);
       else if (msg.type === "tasks") teamTasksArrived(msg);
       else if (msg.type === "teamGone") teamGone(msg);
       else if (msg.type === "messages") teamMessagesArrived(msg);
-      else if (msg.type === "todoPlanPreview") renderTodoPlan(msg);
-      else if (msg.type === "todos") keepFocus(() => renderTodos(msg));
-      // Every save is answered with this, a step's own edit or a reorder as much
-      // as a new todo from the plan. Only the plan's is finished by going to the
-      // list; the others are drawn in place, and one that comes back after the
-      // dialog was closed, or another opened, is not this window's to show.
-      else if (msg.type === "todoSaved") {
-        if (dialog === "todoPlan") { notice("Saved “" + ((msg.todo && msg.todo.title) || "todo") + "”.", false); openTodos(); }
-        else if (dialog === "todos") updateTodoInPlace(msg.todo);
-      }
-      else if (msg.type === "todoUpdated") updateTodoInPlace(msg.todo);
-      // Unused by the desktop except for a todo's own step-start (see
-      // todoStepRow): startAgent's other callers are reached through the
-      // relay, which handles this reply itself. See ValidateStartAgent's own
-      // doc comment for why a window at the desk never needed this before.
-      // A start in a role is the other: the agent is in a tab of its own that
-      // the desk was not moved to, so it is shown now.
+      // A start in a role: the agent is in a tab of its own that the desk was
+      // not moved to, so it is shown now. startAgent's other callers are
+      // reached through the relay, which handles this reply itself.
       else if (msg.type === "agentStarted" && pendingRoleStarts.has(msg.id)) {
         pendingRoleStarts.delete(msg.id);
         // Only now is what was typed spent: a refusal leaves the dialog open
@@ -488,11 +465,6 @@
         teamDraft.goal = "";
         if (dialog === "agentPicker" || dialog === "startTeam") closeOverlay();
         send({ cmd: "revealPane", id: msg.paneId });
-      }
-      else if (msg.type === "agentStarted" && pendingStepStart && msg.id === pendingStepStart.reqID) {
-        pendingStepStart = null;
-        send({ cmd: "revealPane", id: msg.paneId });
-        if (dialog === "todos") send({ cmd: "todos", root: state ? state.root : "" });
       }
       // A commit that worked answers with a tree with nothing to commit, and
       // the message box and its buttons go with the keyboard in them: to
@@ -537,11 +509,9 @@
         if (msg.action === "move" && !msg.error) remoteMoveDraft = newRemoteMoveDraft();
         if (remoteShown()) keepFocus(renderRemote);
       }
-      else if (msg.type === "fanoutPreview") renderFanout(msg);
       else if (msg.type === "batonDraft") renderBaton(msg);
       else if (msg.type === "batonSaved") batonSaved(msg);
       else if (msg.type === "batonError") batonFailed(msg);
-      else if (msg.type === "routes") fanoutRoutes(msg);
       else if (msg.type === "diff") showDiff(msg);
       else if (msg.type === "gitWarn") gitWarned(msg);
       else if (msg.type === "detached") {
@@ -2053,9 +2023,8 @@
     views.forEach(({ id, v }) => {
       const out = outcomes.get(id);
       const row = el("div", "summary-card-row");
-      const dot = el("span", "dot " + (out.kind === "failed" ? "failed" : v.status));
-      dot.setAttribute("aria-hidden", "true");
-      row.append(describe(dot, TIPS[v.status === "blocked" ? "blocked" : out.kind === "failed" ? "failed" : v.status] || v.status));
+      row.append(paneDot(out.kind === "failed" ? "failed" : v.status,
+        TIPS[v.status === "blocked" ? "blocked" : out.kind === "failed" ? "failed" : v.status] || v.status));
       const main = el("div", "summary-card-main");
       const title = el("div", "summary-card-name");
       title.append(el("span", null, v.name || ""));
@@ -3460,6 +3429,7 @@
     // ends. The pane reads idle then, and this is what says it is not done.
     // See renderPaneBackground.
     const background = el("span", "pane-bg");
+    const unread = el("span", "pane-unread");
     const git = el("span", "pane-git");
     // Names a pane in the same repository whose work git would not merge with
     // this pane's, when the conflict radar is on and has seen it twice. See
@@ -3537,8 +3507,6 @@
       send({ cmd: "autoReview", id, autoReview: !(v && v.autoReview) });
     });
     actions.append(
-      btn("⑂", TIPS.fanOut, () => openFanout(id)),
-      btn("☑", TIPS.newTodo, () => openNewTodo(id)),
       castBtn,
       reviewBtn,
       btn("⟳", TIPS.restart, () => send({ cmd: "restartPane", id })),
@@ -3550,7 +3518,7 @@
       closeBtn,
     );
     makeToolbar(actions, "What to do with this pane");
-    header.append(dot, project, name, role, branch, agent, peerName, remote, git, conflict, detail, background, spend, limit, usage, cast, recMark, lockMark, actions);
+    header.append(dot, project, name, role, branch, agent, peerName, remote, git, conflict, detail, background, unread, spend, limit, usage, cast, recMark, lockMark, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -3623,15 +3591,18 @@
     // markers, so it can tell text from keys, and xterm sends the text between
     // them as it was. A copied ESC[201~ ended the paste early, and whatever
     // followed it - a command and its newline - was typed at the program as
-    // keys. No escape character in a paste is anything a person means to
-    // send, so text holding one is pasted without them. Caught on the way down
-    // to xterm's own textarea, before its handler sees the event.
+    // keys. No control character in a paste is anything a person means to
+    // send, so text holding one is pasted without them (see pasteControls).
+    // Caught on the way down to xterm's own textarea, before its handler sees
+    // the event. Text with none is left to xterm, which does the rest. Text
+    // that is nothing but controls sends nothing, and xterm does not get it.
     host.addEventListener("paste", (ev) => {
       const text = ev.clipboardData && ev.clipboardData.getData("text/plain");
-      if (!text || !/[\x1b\x9b]/.test(text)) return;
+      if (!text || !pasteControls.test(text)) return;
       ev.preventDefault();
       ev.stopPropagation();
-      term.paste(text.replace(/[\x1b\x9b]/g, ""));
+      const clean = stripPasteControls(text);
+      if (clean) term.paste(clean);
     }, true);
     // Scrolled back to read what an agent wrote earlier, a pane went on
     // showing the old lines with nothing to say newer ones had arrived below,
@@ -3657,7 +3628,7 @@
     // The WebGL renderer is loaded when the pane comes on screen, not here:
     // see drawWithWebgl.
 
-    p = { id, wrap, header, dot, name, project, branch, agent, role, peerName, remote, git, conflict, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
+    p = { id, wrap, header, dot, name, project, branch, agent, role, peerName, remote, git, conflict, detail, background, unread, usage, spend, limit, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, recBtn, exportBtn, recMark, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
@@ -4705,6 +4676,9 @@
       const bgKey = background + "|" + (v.backgroundUnverified || 0) + JSON.stringify(v.backgroundWork || []) + JSON.stringify(v.backgroundEnded || []);
       if (was.background !== bgKey) { was.background = bgKey; renderPaneBackground(p, v); }
 
+      const unreadCount = v.unread || 0;
+      if (was.unread !== unreadCount) { was.unread = unreadCount; renderPaneUnread(p, unreadCount); }
+
       const git = [v.dirty, v.untracked, v.ahead, v.behind, v.gitTimedOut ? "late" : ""].join(" ");
       if (was.git !== git) { was.git = git; renderPaneGit(p, v); }
 
@@ -4762,9 +4736,7 @@
       delete p.cast.dataset.tip;
     }
     p.cast.classList.toggle("active", !!(v.broadcast && s.broadcast));
-    // The toggle says whether it is on, to the eye and to a screen reader. It
-    // was found as the first button in the row, which is fan out, so it was
-    // fan out that lit up for a pane in the set and the toggle never did.
+    // The toggle says whether it is on, to the eye and to a screen reader.
     p.castBtn.classList.toggle("on", !!v.broadcast);
     p.castBtn.setAttribute("aria-pressed", String(!!v.broadcast));
   }
@@ -5111,6 +5083,20 @@
     describeBackground(p.background, b);
   }
 
+  /** renderPaneUnread shows how many messages from other agents wait unread in
+   *  the pane's inbox, and nothing while there are none. Flockdeck never types a
+   *  notice into an agent's message box, so this count is how mail for an idle
+   *  agent, or for one that reports no hooks and so cannot be told of it, is
+   *  seen. It goes when the agent reads the messages with `flockdeck inbox`. */
+  function renderPaneUnread(p, n) {
+    p.unread.textContent = "";
+    if (!n) { delete p.unread.dataset.tip; return; }
+    p.unread.append(glyph("✉"), document.createTextNode(" " + n + " unread"));
+    describe(p.unread, n + (n === 1 ? " message waits" : " messages wait") + " in this pane's inbox, unread by its agent. " +
+      "Nothing is typed into the agent's input to tell it: an agent with hooks is told with its next prompt " +
+      "or tool result, any other has to run `flockdeck inbox`. The Team panel lists the messages.");
+  }
+
   /** renderPanePeerName shows the name another Claude session would use to
    *  address this pane, once its own agent has reported one with `flockdeck
    *  peer-name`. Flockdeck has no way to learn this on its own -- it is
@@ -5324,6 +5310,17 @@
     if (n >= 1e4) return Math.floor(n / 1000) + "k";
     if (n >= 1e3) return (Math.floor(n / 100) / 10).toFixed(1) + "k";
     return String(n);
+  }
+
+  /** The control characters a paste into a pane is stripped of: C0 except tab,
+   *  line feed and carriage return (so ESC, NUL and form feed go), DEL, and the
+   *  C1 range U+0080 to U+009F (which holds the 8-bit CSI, U+009B). Everything
+   *  from U+00A0 up stays, including NBSP, U+2028, U+2029, ZWJ and emoji. The
+   *  remote client and the prompt bar (stripControls in the workspace package)
+   *  remove the same set. Not global, so test() keeps no position. */
+  const pasteControls = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/;
+  function stripPasteControls(text) {
+    return String(text).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, "");
   }
 
   /** formatBytes writes a size the way a person reads one, to three
@@ -5714,7 +5711,7 @@
    *   sheet      docked beside the rail with no scrim, the panes left in view:
    *              the tools used while watching the agents;
    *   dialog-s   a question or a name (content height);
-   *   dialog-m   a task that ends in one commit: Fan out, New todo, Update;
+   *   dialog-m   a task that ends in one commit: Update;
    *   dialog-l   Settings and Help;
    *   picker     top-anchored, the agent picker, like the palette.
    * Sheets are modal for now (the keyboard stays in them, and the panes they
@@ -5738,8 +5735,6 @@
       return () => openWorktrees(keep);
     } },
     history: { present: "sheet", rail: "btn-history", act: "history", again: () => openHistory },
-    fanoutHistory: { present: "sheet", rail: "btn-fanout-history", act: "fanoutHistory", again: () => openFanoutHistory },
-    todos: { present: "sheet", rail: "btn-todos", act: "todos", again: () => openTodos },
     github: { present: "sheet", act: "github",
       again: () => { const at = ghDir; return () => openGithub(at); } },
     startTeam: { present: "dialog-m", act: "startTeam", again: () => openStartTeam },
@@ -5751,8 +5746,6 @@
       again: () => { const at = settingsSection; return () => openSettings(at); } },
     help: { present: "dialog-l", rail: "btn-help", act: "help",
       again: () => { const at = helpSlug; return () => openHelp(at); } },
-    fanout: { present: "dialog-m", act: "fanout",
-      again: () => { const at = fanoutAsked; return () => openFanout(at); } },
     baton: { present: "dialog-l", act: "makeBaton",
       again: () => {
         // Drawn again from what is held, not asked for afresh: asking again
@@ -5765,8 +5758,6 @@
           renderBaton();
         };
       } },
-    todoPlan: { present: "dialog-m", act: "newTodo",
-      again: () => { const at = todoAsked; return () => openNewTodo(at); } },
     update: { present: "dialog-m", again: () => openUpdate },
     versions: { present: "dialog-m", again: () => openVersions },
     helpers: { present: "dialog-m", act: "helpers", again: () => openHelpers },
@@ -6072,8 +6063,6 @@
     else if (dialog === "agents") send({ cmd: "agents" });
     else if (dialog === "agentPicker") send({ cmd: "refreshAgents" });
     else if (dialog === "history") send({ cmd: "conversations" });
-    else if (dialog === "fanoutHistory") send({ cmd: "fanoutHistory", root: state ? state.root : "" });
-    else if (dialog === "todos") send({ cmd: "todos", root: state ? state.root : "" });
     else if (dialog === "team") teamWatch();
     else if (dialog === "keys") send({ cmd: "keys" });
     else if (dialog === "versions") send({ cmd: "listVersions" });
@@ -8519,10 +8508,6 @@
     toggleBroadcast: () => send({ cmd: "toggleBroadcast" }),
     toggleBroadcastMember: () => { const id = focusedPaneId(); if (id) send({ cmd: "toggleBroadcastMember", id }); },
     promptAll: () => openPrompt(),
-    fanout: () => openFanout(),
-    fanoutHistory: () => openFanoutHistory(),
-    newTodo: () => openNewTodo(),
-    todos: () => openTodos(),
     agents: () => openAgents(),
     closeFinishedPanes: () => send({ cmd: "closeFinishedPanes" }),
     startTeam: () => openStartTeam(),
@@ -8646,8 +8631,6 @@
     label("changes", $("btn-changes"));
     label("history", $("btn-history"));
     label("worktrees", $("btn-worktrees"));
-    label("fanoutHistory", $("btn-fanout-history"));
-    label("todos", $("btn-todos"));
     label("team", $("btn-team"));
     label("help", $("btn-help"));
     if (keyTable.some((k) => k.id === "settings")) describeSettingsButton();
@@ -8759,8 +8742,8 @@
    *  something and staying put. "Go to…", the palette's own entry, is the
    *  palette narrowed to just these -- one surface reaches any other without
    *  a trip back out to the rail or the shortcut that opened this one. */
-  const PAGE_ACTIONS = ["agents", "changes", "worktrees", "history", "todos", "github", "remote",
-    "projects", "settings", "help", "fanout", "fanoutHistory", "team", "apiKeys"];
+  const PAGE_ACTIONS = ["agents", "changes", "worktrees", "history", "github", "remote",
+    "projects", "settings", "help", "team", "apiKeys"];
 
   /** The groups the palette lists its commands under while nothing is typed,
    *  in this order: the key table's own sections (Panes, Tabs, Agents, The
@@ -8795,8 +8778,7 @@
     };
     // A command as the palette lists it. The label is the table's and stays
     // what is searched and what "last run" is remembered by; the name is the
-    // short one the row is drawn with -- "Fan out" for "Fan out — turn this
-    // pane's plan into agents", "Resume" for "Resume — reopen a past conversation" --
+    // short one the row is drawn with -- "Resume" for "Resume — reopen a past conversation" --
     // and what follows the dash is the gloss, shown where there is no key.
     const mk = (id, label, o) => {
       const dash = label.indexOf(" — ");
@@ -9271,78 +9253,6 @@
     const refresh = el("button", "chip", "Refresh");
     refresh.onclick = () => send({ cmd: "conversations" });
     tools.append(refresh, rootLabel(m.cwd || ""));
-    body.append(tools);
-  }
-
-  // ----------------------------------------------------------- fan-out history
-
-  let fanoutHistory = null;
-
-  /** openFanoutHistory opens the dialog and asks the Go side for this
-   *  project's past fan-out jobs -- kept there in memory only (see
-   *  Workspace.FanoutHistory), so a restart of flockdeck starts with none,
-   *  the same as a settled tab's own card. */
-  function openFanoutHistory() {
-    dialog = "fanoutHistory";
-    fanoutHistory = null;
-    openOverlay("Fan-out history", "fanout");
-    $("overlay-body").textContent = "";
-    $("overlay-body").append(el("div", "dir-empty", "Reading past jobs…"));
-    send({ cmd: "fanoutHistory", root: state ? state.root : "" });
-  }
-
-  /** outcomeLabel is outcomeOf's own label, for a kind the Go side has
-   *  already settled on rather than one read live off a pane. */
-  function outcomeLabel(kind) { return kind === "needs" ? "needs input" : kind; }
-
-  /** renderFanoutHistory lists a project's past fan-out jobs, most recent
-   *  first, each drawn the same one-line-per-pane way buildSummaryCard draws
-   *  a job still on screen -- the same row markup, reused rather than built
-   *  twice, since a closed job's row differs only in having no pane left to
-   *  zoom into. */
-  function renderFanoutHistory(msg) {
-    if (msg) fanoutHistory = msg;
-    if (dialog !== "fanoutHistory") return; // see openWorktrees
-    const m = fanoutHistory || {};
-    const body = $("overlay-body");
-    body.textContent = "";
-
-    if (!m.items || !m.items.length) {
-      body.append(el("div", "dir-empty", "No finished fan-out jobs have been closed in this project since Flockdeck started."));
-      return;
-    }
-
-    const wrap = section("Past jobs");
-    m.items.forEach((job) => {
-      const card = el("div", "fanout-history-job");
-      const head = el("div", "summary-card-head");
-      head.append(el("div", "summary-card-title", job.title || "This job"));
-      head.append(el("div", "summary-card-sub", job.panes.length + (job.panes.length === 1 ? " agent" : " agents") + " — " + job.ago));
-      card.append(head);
-
-      const list = el("div", "summary-card-list");
-      job.panes.forEach((p) => {
-        const row = el("div", "summary-card-row");
-        const main = el("div", "summary-card-main");
-        const title = el("div", "summary-card-name");
-        title.append(el("span", null, p.name || ""));
-        if (p.branch) title.append(el("span", "summary-card-branch", "⎇ " + p.branch));
-        main.append(title);
-        if (p.task) main.append(el("div", "summary-card-line", p.task));
-        if (p.detail) main.append(el("div", "summary-card-line", p.detail));
-        row.append(main);
-        row.append(el("span", "summary-card-outcome " + p.kind, outcomeLabel(p.kind)));
-        list.append(row);
-      });
-      card.append(list);
-      wrap.append(card);
-    });
-    body.append(wrap);
-
-    const tools = el("div", "wt-tools");
-    const refresh = el("button", "chip", "Refresh");
-    refresh.onclick = () => send({ cmd: "fanoutHistory", root: state ? state.root : "" });
-    tools.append(refresh);
     body.append(tools);
   }
 
@@ -10590,58 +10500,107 @@
     return wrap;
   }
 
+  /* The pieces every list of panes is drawn from. The Agents overview (flat
+   * and by project) and the Team roster each show a pane as a row of a status
+   * dot, a name, a few chips and the status in words; they had grown their own
+   * copies of the dot, the role tag, the agent badge, the branch chip and the
+   * link-styled button. The lists still choose which chips a row carries and
+   * in what order, since what is worth a glance differs between "which pane
+   * needs me" and "who has which task"; what a chip looks and sounds like is
+   * decided here once. */
+
+  /** paneDot is the coloured disc that stands for a status. It has no text
+   *  of its own, so the words go in its bubble; the rows write the status out
+   *  beside it, which is why it is hidden from a screen reader. */
+  function paneDot(cls, tip) {
+    const dot = el("span", "dot " + cls);
+    dot.setAttribute("aria-hidden", "true");
+    return describe(dot, tip);
+  }
+
+  /** paneChip is a span a screen reader reads as the label rather than the
+   *  glyph in it. */
+  function paneChip(cls, text, label, tip) {
+    const n = el("span", cls, text);
+    n.setAttribute("role", "img");
+    n.setAttribute("aria-label", label);
+    return describe(n, tip);
+  }
+
+  function paneRoleTag(role) {
+    return paneChip("agent-role", roleName(role), "Role: " + roleName(role), roleTip(role));
+  }
+
+  function paneBranchChip(branch) {
+    return paneChip(null, "⎇ " + branch, "On branch " + branch, TIPS.branch);
+  }
+
+  function paneAgentBadge(agent, model) {
+    return describe(el("span", null, model ? agent + " · " + model : agent), TIPS.agent);
+  }
+
+  /** paneLink is a button that reads as a link inside a row. The row itself
+   *  opens the pane on Enter and Space, so the link handles those keys
+   *  itself rather than letting them reach the row. */
+  function paneLink(text, tip, go, id) {
+    const link = el("button", "agent-parent link", text);
+    link.type = "button";
+    if (id) link.id = id;
+    if (tip) describe(link, tip);
+    link.onclick = go;
+    link.onkeydown = (ev) => {
+      if (ev.key !== "Enter" && ev.key !== " ") return;
+      ev.preventDefault();
+      go(ev);
+    };
+    return link;
+  }
+
+  /** paneRow assembles one pane's row from the pieces above: spec.title and
+   *  spec.meta are the nodes of its two lines, spec.shown the status word,
+   *  spec.after any controls to the right of it, spec.open what a click or
+   *  Enter does and spec.label the name it is announced by. */
+  function paneRow(spec) {
+    const row = el("div", "agent-row" + (spec.cls ? " " + spec.cls : ""));
+    row.id = spec.id;
+    const main = el("div", "agent-main");
+    const title = el("div", "agent-title");
+    title.append(...spec.title);
+    const meta = el("div", "agent-meta");
+    meta.append(...spec.meta);
+    main.append(title, meta);
+    row.append(main);
+    row.append(el("span", "agent-status " + spec.shown, spec.shown));
+    (spec.after || []).forEach((n) => row.append(n));
+    rowAction(row, spec.open, false, spec.label);
+    return row;
+  }
+
   /** agentRow builds one pane's row exactly as both views draw it: the flat
    *  list in its own order, and the tree nested under its parent. */
   function agentRow(a, byId) {
-    const row = el("div", "agent-row" + (a.active ? " active" : ""));
-    // By the pane, because the list is drawn again as the agents change
-    // what they are doing, and a row found again by its wording would lose
-    // the keyboard the moment its status did.
-    row.id = "agent-" + a.paneId;
-    const main = el("div", "agent-main");
-
-    const title = el("div", "agent-title");
-    // The dot is the only thing carrying status here, and it has no text
-    // at all, so it needs both the copy and a name of its own.
     // The row writes the status out in words further along, so the disc is
-    // decoration here — unlike in a pane header, where it is all there is.
+    // decoration here, unlike in a pane header where it is all there is.
     const shown = a.activity || shownStatus(a);
-    const dot = el("span", "dot " + shown);
-    dot.setAttribute("aria-hidden", "true");
-    title.append(describe(dot, TIPS[shown] || shown));
+    const title = [paneDot(shown, TIPS[shown] || shown)];
     // Cut short with an ellipsis, like the tab it names; the bubble has it all.
-    title.append(describe(el("span", "agent-tab", a.tab || a.name), a.tab || a.name));
-    title.append(el("span", "agent-project", a.project));
-    main.append(title);
+    title.push(describe(el("span", "agent-tab", a.tab || a.name), a.tab || a.name));
+    title.push(el("span", "agent-project", a.project));
 
-    const meta = el("div", "agent-meta");
-    if (a.branch) {
-      const n = el("span", null, "⎇ " + a.branch);
-      n.setAttribute("role", "img");
-      n.setAttribute("aria-label", "On branch " + a.branch);
-      meta.append(describe(n, TIPS.branch));
-    }
+    const meta = [];
+    if (a.branch) meta.push(paneBranchChip(a.branch));
     if (a.dirty) {
-      const n = el("span", null, "●" + a.dirty + " uncommitted");
-      n.setAttribute("role", "img");
-      n.setAttribute("aria-label", a.dirty + (a.dirty === 1 ? " file" : " files") + " changed but not committed");
-      meta.append(describe(n, TIPS.changed));
+      meta.push(paneChip(null, "●" + a.dirty + " uncommitted",
+        a.dirty + (a.dirty === 1 ? " file" : " files") + " changed but not committed", TIPS.changed));
     }
     // The same badge the pane header carries. With a dozen panes across
     // three projects, "waiting" means a different thing from Claude than
     // from a local model, and this is the list you scan to decide which to
     // go to first.
-    if (a.agent) {
-      meta.append(describe(el("span", null, a.model ? a.agent + " · " + a.model : a.agent), TIPS.agent));
-    }
-    if (a.role) {
-      const n = el("span", "agent-role", roleName(a.role));
-      n.setAttribute("role", "img");
-      n.setAttribute("aria-label", "Role: " + roleName(a.role));
-      meta.append(describe(n, roleTip(a.role)));
-    }
-    if (a.kind === "shell") meta.append(el("span", null, "shell"));
-    if (a.detail) meta.append(el("span", null, a.detail));
+    if (a.agent) meta.push(paneAgentBadge(a.agent, a.model));
+    if (a.role) meta.push(paneRoleTag(a.role));
+    if (a.kind === "shell") meta.push(el("span", null, "shell"));
+    if (a.detail) meta.push(el("span", null, a.detail));
     // A helper's own pane, when it is still open, so it reads as part of
     // the job it was spawned for rather than an unrelated row -- the list
     // stays sorted by what needs a person first, so this is what says
@@ -10656,17 +10615,9 @@
           send({ cmd: "revealPane", root: parent.root, node: parent.tabId, id: parent.paneId });
           closeOverlay();
         };
-        const link = el("button", "agent-parent link", "↳ helper of " + (parent.tab || parent.name));
-        link.type = "button";
-        link.onclick = go;
-        link.onkeydown = (ev) => {
-          if (ev.key !== "Enter" && ev.key !== " ") return;
-          ev.preventDefault();
-          go(ev);
-        };
-        meta.append(describe(link, "Go to " + (parent.tab || parent.name)));
+        meta.push(paneLink("↳ helper of " + (parent.tab || parent.name), "Go to " + (parent.tab || parent.name), go));
       } else {
-        meta.append(el("span", "agent-parent", "↳ helper of another agent"));
+        meta.push(el("span", "agent-parent", "↳ helper of another agent"));
       }
     }
     // What a waiting pane's permission prompt or question wants, in the same
@@ -10677,25 +10628,28 @@
       const b = backgroundCounts(a);
       const bg = el("span", "agent-bg");
       bg.append(glyph("◔"), document.createTextNode(" " + backgroundLabel(b)));
-      meta.append(describeBackground(bg, b));
+      meta.push(describeBackground(bg, b));
     }
     if (a.status === "waiting" && a.waiting) {
-      meta.append(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));
+      meta.push(describe(el("span", "agent-waiting", "needs: " + a.waiting), "What this pane is waiting on you for"));
     } else if (a.status === "blocked" && a.waiting) {
-      meta.append(describe(el("span", "agent-waiting", a.waiting), "Why this pane stopped without finishing"));
+      meta.push(describe(el("span", "agent-waiting", a.waiting), "Why this pane stopped without finishing"));
     }
-    main.append(meta);
-    row.append(main);
 
-    const status = el("span", "agent-status " + shown, shown);
-    row.append(status);
-    if (a.for) row.append(el("span", "agent-for", howLong(a.for)));
-
-    rowAction(row, () => {
-      send({ cmd: "revealPane", root: a.root, node: a.tabId, id: a.paneId });
-      closeOverlay();
-    }, false, a.tab || a.name);
-    return row;
+    return paneRow({
+      // By the pane, because the list is drawn again as the agents change
+      // what they are doing, and a row found again by its wording would lose
+      // the keyboard the moment its status did.
+      id: "agent-" + a.paneId,
+      cls: a.active ? "active" : "",
+      shown, title, meta,
+      after: a.for ? [el("span", "agent-for", howLong(a.for))] : [],
+      label: a.tab || a.name,
+      open: () => {
+        send({ cmd: "revealPane", root: a.root, node: a.tabId, id: a.paneId });
+        closeOverlay();
+      },
+    });
   }
 
   // ---------------------------------------------------------- agent picker
@@ -11790,51 +11744,23 @@
 
   function teamRosterRow(r) {
     const shown = r.activity || r.status;
-    const row = el("div", "agent-row team-pane");
-    row.id = "team-pane-" + r.pane;
-    const main = el("div", "agent-main");
-    const title = el("div", "agent-title");
-    const dot = el("span", "dot " + shown);
-    dot.setAttribute("aria-hidden", "true");
-    title.append(describe(dot, TIPS[shown] || shown));
-    if (r.role) {
-      const tag = el("span", "agent-role", roleName(r.role));
-      tag.setAttribute("role", "img");
-      tag.setAttribute("aria-label", "Role: " + roleName(r.role));
-      title.append(describe(tag, roleTip(r.role)));
-    }
-    title.append(describe(el("span", "agent-tab", r.name), r.name + (r.peer ? " (pane name " + r.peer + ")" : "")));
-    main.append(title);
+    const title = [paneDot(shown, TIPS[shown] || shown)];
+    if (r.role) title.push(paneRoleTag(r.role));
+    title.push(describe(el("span", "agent-tab", r.name), r.name + (r.peer ? " (pane name " + r.peer + ")" : "")));
 
-    const meta = el("div", "agent-meta");
-    if (r.agent) meta.append(describe(el("span", null, r.model ? r.agent + " · " + r.model : r.agent), TIPS.agent));
-    if (r.branch) {
-      const n = el("span", null, "⎇ " + r.branch);
-      n.setAttribute("role", "img");
-      n.setAttribute("aria-label", "On branch " + r.branch);
-      meta.append(describe(n, TIPS.branch));
-    }
+    const meta = [];
+    if (r.agent) meta.push(paneAgentBadge(r.agent, r.model));
+    if (r.branch) meta.push(paneBranchChip(r.branch));
     if (r.task) {
-      const link = el("button", "agent-parent link", r.task.id + " · " + (TEAM_STATE_NAME[r.task.state] || r.task.state) + ": " + r.task.title);
-      link.type = "button";
-      link.id = "team-pane-task-" + r.pane;
-      describe(link, "Open " + r.task.id + " on the board");
-      const go = (ev) => { ev.stopPropagation(); teamShowTask(r.task.id); };
-      link.onclick = go;
-      link.onkeydown = (ev) => {
-        if (ev.key !== "Enter" && ev.key !== " ") return;
-        ev.preventDefault();
-        go(ev);
-      };
-      meta.append(link);
+      meta.push(paneLink(r.task.id + " · " + (TEAM_STATE_NAME[r.task.state] || r.task.state) + ": " + r.task.title,
+        "Open " + r.task.id + " on the board",
+        (ev) => { ev.stopPropagation(); teamShowTask(r.task.id); },
+        "team-pane-task-" + r.pane));
     } else {
-      meta.append(el("span", null, "no task"));
+      meta.push(el("span", null, "no task"));
     }
-    if (r.unread) meta.append(describe(el("span", "agent-waiting", r.unread + " unread by the agent"), "Messages in this pane's inbox that it has not read"));
-    main.append(meta);
-    row.append(main);
+    if (r.unread) meta.push(describe(el("span", "agent-waiting", r.unread + " unread by the agent"), "Messages in this pane's inbox that it has not read"));
 
-    row.append(el("span", "agent-status " + shown, shown));
     const close = el("button", "chip team-close", "Close");
     close.type = "button";
     close.id = "team-close-" + r.pane;
@@ -11843,13 +11769,18 @@
       : r.finished ? "Close this pane. It is idle or has exited." : "Only an idle or exited pane can be closed here.");
     close.onclick = (ev) => { ev.stopPropagation(); teamClosePanes([r.pane]); };
     close.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") ev.stopPropagation(); };
-    row.append(close);
 
-    rowAction(row, () => {
-      send({ cmd: "revealPane", id: r.pane });
-      closeOverlay();
-    }, false, r.name);
-    return row;
+    return paneRow({
+      id: "team-pane-" + r.pane,
+      cls: "team-pane",
+      shown, title, meta,
+      after: [close],
+      label: r.name,
+      open: () => {
+        send({ cmd: "revealPane", id: r.pane });
+        closeOverlay();
+      },
+    });
   }
 
   /** teamClosePanes asks the server to close panes. It judges each again as it
@@ -13558,14 +13489,14 @@
   const SETTINGS_SECTIONS = [
     { id: "general", group: "Window", label: "General",
       words: "desktop notifications notify browser blocked hints tips " +
-        "new panes defaults default auto approve read only auto review approval permission prompt fan out fanout fanned tab beside planner worktree" },
+        "new panes defaults default auto approve read only auto review approval permission prompt" },
     { id: "appearance", group: "Window", label: "Appearance", words: "theme dark light system follow colour color accent swatch" },
     { id: "terminal", group: "Window", label: "Terminal",
       words: "font size family typeface scrollback lines cursor blink block bar underline preview screen reader accessibility" },
     { id: "keybindings", group: "Window", label: "Keyboard", words: "keybindings keyboard shortcuts shortcut remap rebind bindings keys chord conflict" },
     { id: "agents", group: "Agents", label: "Agents & models", words: "default agent model project claude status line usage limits spend" },
     { id: "routing", group: "Agents", label: "Routing",
-      words: "routing route fan out fanout model models tier floor smallest strategy cost cheapest rules cross agents jev rate unmatched history" },
+      words: "routing route helper spawn model models tier floor smallest strategy cost cheapest rules cross agents jev rate unmatched history" },
     { id: "keys", group: "Agents", label: "API keys", words: "api keys key token secret typesafe jev" },
     { id: "status", group: "Agents", label: "Status detection",
       words: "status detection typesafe jev api key waiting blocked quiet pane terminal output third party" },
@@ -14323,33 +14254,14 @@
       switchControl("set-screen-reader", !!prefs.screenReader, (on) => setScreenReader(on))));
   }
 
-  /** settingsNewPanes is General's New panes: the defaults a new pane and a
-   *  new fan-out start from, each still changed for one pane or one run. */
+  /** settingsNewPanes is General's New panes: the defaults a new pane starts
+   *  from, each still changed for one pane. */
   function settingsNewPanes(pane) {
-    const fanOut = prefs.fanOut || {};
-    const sameTab = el("input");
-    sameTab.type = "checkbox";
-    sameTab.id = "set-fanout-sametab";
-    sameTab.checked = !!fanOut.sameTab;
-    sameTab.onchange = () => {
-      prefs.fanOut = Object.assign({}, prefs.fanOut, { sameTab: sameTab.checked });
-      send({ cmd: "fanOutSameTab", kind: sameTab.checked ? "on" : "off" });
-      notice(sameTab.checked ? "Fanned-out agents will start beside the pane that planned them"
-        : "Fanned-out agents will start in a new tab of their own", false);
-      settingsChanged();
-    };
-    const sameTabLabel = el("label", "fan-opt");
-    sameTabLabel.append(sameTab, document.createTextNode(" Put fanned-out agents in this tab, beside the agent that planned them"));
-    const fanOutRow = settingRow("Fan out",
-      "Off, a fan-out's agents land in a new tab of their own. This is only the default the dialog opens on; " +
-      "either way it can still be changed for one run.", sameTabLabel);
-
     pane.append(settingRow("Auto-approve read-only in new panes",
       "Only a command it is confident is read-only is let through without asking; anything else still asks. " +
-      "A pane opened by hand starts with this setting; a pane started from another one (a fan-out or " +
-      "flockdeck spawn) starts the way that pane is set.",
+      "A pane opened by hand starts with this setting; a pane started from another one (a " +
+      "flockdeck spawn helper) starts the way that pane is set.",
       switchControl("set-auto-review-default", !!prefs.autoReviewDefault, (on) => setAutoReviewDefault(on))));
-    pane.append(fanOutRow);
   }
 
   /** settingsStatus is Status detection: TypeSafe's Jev reading a quiet pane,
@@ -14632,7 +14544,7 @@
   }
 
   /** catalogChoices is the catalog in the shape the agent control is drawn
-   *  from, which is the fan-out's. */
+   *  from. */
   function catalogChoices() {
     return (catalog.items || []).map((a) => ({ id: a.id, name: a.name || a.id, unavailable: !a.available,
       install: a.install, models: a.models, default: a.defaultModel }));
@@ -14719,7 +14631,7 @@
     const policy = r ? (r.project || r.every || {}) : null;
     pane.append(settingRow("Routing", policy
       ? [MODE[policy.mode] || "Off", (r.rules || []).length + " rules", policy.strategy === "cost" ? "minimise cost" : "cost-first"].join(" · ")
-      : "Which model each fan-out task starts on.", settingsLink("set-agent-routing", "Routing →", "routing")));
+      : "Which model a helper or first prompt starts on.", settingsLink("set-agent-routing", "Routing →", "routing")));
     pane.append(settingRow("API keys", "An agent that talks to a model API needs a key for it.",
       settingsLink("set-agent-keys", "API keys →", "keys")));
   }
@@ -14737,13 +14649,13 @@
     return b;
   }
 
-  /** settingsRouting is Settings › Routing: whether a fan-out's rows come
-   *  pre-set to a model chosen for the work, for every project and for this
+  /** settingsRouting is Settings › Routing: whether a helper or a first
+   *  prompt comes pre-set to a model chosen for the work, for every project and for this
    *  one; the smallest tier that may be chosen; the rules, to read; and the
    *  history kept of it. */
   function settingsRouting(pane) {
     settingsHead(pane, "Routing",
-      "Pre-sets each fan-out task to a smaller or stronger model, for you to change before anything starts.");
+      "Starts a helper or a first prompt on a smaller or stronger model, chosen for the work.");
     const r = catalog.routing;
     if (!r) {
       pane.append(el("div", "dir-empty", catalog.err || "Reading the agents…"));
@@ -14762,8 +14674,7 @@
     const every = select("set-route-all", MODES, (r.every && r.every.mode) || "off");
     every.onchange = () => send({ cmd: "setRouting", kind: "all", target: "mode", text: every.value });
     pane.append(settingRow("Every project",
-      "Chooses a smaller model for mechanical work and a stronger one for hard work. Suggest pre-sets a " +
-      "fan-out's rows, marked, for you to change before anything starts. Automatic does that too, and also picks " +
+      "Chooses a smaller model for mechanical work and a stronger one for hard work. Automatic picks " +
       "the model for a helper an agent starts with flockdeck spawn and for the first prompt you send a pane " +
       "(the pane restarts on the chosen model), with nothing to confirm first. Off until you turn it on. Kept in agents.json.", every));
 
@@ -14828,10 +14739,10 @@
       send(req);
     };
     const jevLabel = el("label", "fan-opt");
-    jevLabel.append(jev, document.createTextNode(" Send unmatched fan-out tasks to TypeSafe to rate"));
+    jevLabel.append(jev, document.createTextNode(" Send unmatched tasks to TypeSafe to rate"));
     pane.append(settingRow("Ask Jev to rate unmatched work",
-      "With Minimise cost, a fan-out row no rule matched can be rated by TypeSafe's Jev model, so hard work is not " +
-      "sent to the cheapest model blindly. This sends the text of that row (its first 2,000 characters) to TypeSafe, " +
+      "With Minimise cost, a helper or first prompt no rule matched can be rated by TypeSafe's Jev model, so hard work is not " +
+      "sent to the cheapest model blindly. This sends the text of that task (its first 2,000 characters) to TypeSafe, " +
       "a third party, and nothing else: no files, no repository, no history. API keys, tokens, password values and secret file paths in it are redacted first, by pattern, so a secret with no recognisable shape is still sent. It needs a TypeSafe API key (set in Settings › API keys, or TYPESAFE_API_KEY in the environment)" +
       (r.jevKey ? "" : " (it is not set, so nothing is sent)") + " and does nothing under Cost-first, quality-aware. " +
       "Off until you turn it on, " + (own ? "for this project." : "for every project."), jevLabel,
@@ -14963,21 +14874,8 @@
     return line;
   }
 
-  // --------------------------------------------------------------- fan out
+  // ------------------------------------------------------------------- baton
 
-  let fanout = null;
-  /** fanoutRoutes takes the server's answer to routeTasks; the open dialog
-   *  puts its own in place, and with no dialog open it has nothing to do. */
-  let fanoutRoutes = () => {};
-  /** The most agents one fan-out starts: the server's workspace.MaxTasks,
-   *  which a test keeps this level with. */
-  const FANOUT_MAX = 12;
-
-  /** openFanout turns what one agent proposed into a set of agents that do it.
-   *
-   *  The tasks are only ever a suggestion: they are extracted from the pane's
-   *  output, shown in an editable box, and nothing starts until the user says
-   *  so. */
   /* The baton dialog, top to bottom: anything the draft could not be built from;
    * the baton itself, as text to edit; what the scrubber removed, and that it is
    * a filter and not a guarantee; where the work goes (a new agent, with its own
@@ -15358,22 +15256,6 @@
     notice("The connection to Flockdeck dropped while a baton command was out. It may have finished; check flockdeck baton list before trying again.", true);
   }
 
-  function openFanout(paneID) {
-    dialog = "fanout";
-    fanout = null;
-    openOverlay("Fan out", "fanout");
-    $("overlay-body").textContent = "";
-    $("overlay-body").append(el("div", "dir-empty", "Reading this pane's output…"));
-    fanoutAsked = paneID || focusedPaneId();
-    send({ cmd: "fanoutPreview", id: fanoutAsked });
-  }
-  /** The pane the open dialog asked about. The server answers from a
-   *  goroutine of its own, so a late answer for a dialog opened on one pane
-   *  could arrive after it had been opened again on another, and replaced it:
-   *  Start then used the first pane's plan and started in its tab. Empty
-   *  when no pane was focused, and the server chose. */
-  let fanoutAsked = "";
-
   /** agentOption is one entry of an agentSelect: what it reads as, and the
    *  agent and model it stands for. */
   function agentOption(text, value) {
@@ -15424,7 +15306,7 @@
    *  model is whatever the agent is set to, and for an agent whose models have
    *  no empty entry - the model APIs - it matched nothing, so the control fell
    *  back to its first entry: another agent, or one not installed. Settings
-   *  then showed the wrong default and a fan-out could start the wrong agent.
+   *  then showed the wrong default and a new pane could start the wrong agent.
    *  An empty model is the agent's default model where that is one of its
    *  entries, and an agent found without the model named is on its own first
    *  model rather than on somebody else's. */
@@ -15448,999 +15330,10 @@
     return name + (mo.note ? " — " + mo.note : "") + (extra.length ? " (" + extra.join(", ") + ")" : "");
   }
 
-  /** routeSummary is the fan-out's one line about routing: how many rows it
-   *  moved to a smaller model, and how many to a stronger one. */
-  function routeSummary(down, up, total) {
-    const of = (n) => n + " of " + total + (total === 1 ? " task" : " tasks");
-    const smaller = down === 1 ? "a smaller model" : "smaller models";
-    if (down && up) return "Routing chose " + smaller + " for " + of(down) + " and " + (up === 1 ? "a stronger one" : "stronger ones") + " for " + up + ".";
-    if (down) return "Routing chose " + smaller + " for " + of(down) + ".";
-    if (up) return "Routing chose " + (up === 1 ? "a stronger model" : "stronger models") + " for " + of(up) + ".";
-    return "";
-  }
-
   /** pickParts splits an agentSelect value back into its agent and its model. */
   function pickParts(value) {
     const i = (value || "").indexOf("\n");
     return i < 0 ? ["", ""] : [value.slice(0, i), value.slice(i + 1)];
-  }
-
-  /** pickName is one agentSelect value as a line of text says it: the
-   *  model's own name, or the agent's where it names no model of its own. */
-  function pickName(agents, value) {
-    const [id, model] = pickParts(value);
-    const a = (agents || []).find((x) => x.id === id);
-    if (!a) return model || id;
-    const want = model || a.default || "";
-    const mo = (a.models || []).find((x) => (x.id || "") === want);
-    return (mo && (mo.name || mo.id)) || want || a.name || id;
-  }
-
-  /** routeShort is routeSummary as the few words the model line has room
-   *  for: "Routing: 1 down, 1 up". The sentence is its tooltip. */
-  function routeShort(down, up) {
-    const parts = [];
-    if (down) parts.push(down + " down");
-    if (up) parts.push(up + " up");
-    return parts.length ? "Routing: " + parts.join(", ") : "";
-  }
-
-  /* The dialog, top to bottom: the model for every task (and what routing
-   * chose); the tasks, one editable row each, with a model per row where
-   * there is a choice; where they run; and the footer that counts them and
-   * starts them.
-   *
-   * The plan is shown once. The rows are what is edited; "Edit as text"
-   * swaps them for the textarea they are drawn from, for pasting or rewriting
-   * a list at once. That textarea stays the one source of truth: the rows
-   * write their text back into it, and it is what Start reads. */
-  function renderFanout(msg) {
-    if (msg) {
-      // Only the answer to what the open dialog asked, and only the first:
-      // another would redraw the list under whatever was being typed in it.
-      if (dialog !== "fanout" || fanout || (fanoutAsked && msg.paneId !== fanoutAsked)) return;
-      fanout = msg;
-    }
-    if (dialog !== "fanout") return; // see openWorktrees
-    const m = fanout || {};
-    const body = $("overlay-body");
-    body.textContent = "";
-
-    // The agent controls are drawn only where there is a decision to make. A
-    // Flockdeck that knows one agent with one model has nothing to ask, and a
-    // dialog that asks it anyway has grown for nobody.
-    const catalog = m.agents || [];
-    const picks = catalog.reduce((n, a) => n + Math.max(1, (a.models || []).length), 0);
-    const choosable = catalog.length > 0 && picks > 1;
-
-    // Where the plan came from, in the head: the project, and the agent in
-    // the pane that planned it.
-    const pv = state && state.panes && state.panes[m.paneId];
-    const planner = pv && pv.agent ? ((catalog.find((a) => a.id === pv.agent) || {}).name || pv.agent) : "";
-    const from = [m.project, planner].filter(Boolean).join(" · ");
-    $("overlay-scope").textContent = from ? "from " + from : "";
-    $("overlay-scope").hidden = !from;
-
-    const found = m.tasks && m.tasks.length;
-    if (m.question) {
-      // The pane ends in a question put to the person -- a permission
-      // prompt -- whose numbered choices are not a plan (the server reads
-      // none from it). Saying so beats an empty list that seems to have
-      // missed one.
-      const warn = el("div", "fan-note warn");
-      warn.append(el("b", null, "This looks like a question the agent is asking you, not a plan."),
-        el("span", null, " Answer it in the pane, then fan out again, or type the tasks below."));
-      body.append(warn);
-    } else if (!found) {
-      const none = el("div", "fan-note");
-      none.append(el("b", null, "No plan was found in this pane."),
-        el("span", null, " Type the tasks below, one to a row, or paste a list with Edit as text."));
-      body.append(none);
-    }
-
-    let runSel = null;
-    let top = null;
-    if (choosable) {
-      const chosen = catalog.find((a) => a.id === m.agent) || catalog[0];
-      runSel = agentSelect(catalog, chosen.id + "\n" + (m.model || chosen.default || ""));
-      runSel.classList.add("fo-sel");
-      runSel.setAttribute("aria-label", "Model for every task");
-      top = el("div", "fan-agent fo-model");
-      top.append(el("span", "fo-model-label", "Model for every task"), runSel);
-      body.append(top);
-    }
-
-    // What routing chose for each row, keyed by the task's text like the
-    // overrides below, so an edited line is routed afresh. A row somebody has
-    // chosen for keeps their choice. None of it is drawn while routing is off
-    // for the project, and the dialog is then what it always was.
-    const routing = choosable && !!m.routing;
-    const routed = new Map();
-    let routeNote = m.routeNote || "";
-    const takeRoutes = (tasks, routes) => {
-      routed.clear();
-      (tasks || []).forEach((t, i) => { if (routes && routes[i]) routed.set(t.trim(), routes[i]); });
-    };
-    if (routing) takeRoutes(m.tasks, m.routes);
-    /** The routed choices changed before starting, for the routing log. */
-    const overridden = [];
-    // Which agent each line gets, where it is not the one chosen for the run.
-    //
-    // Keyed by the text of the task rather than by its position, because the
-    // list is being edited: deleting the second line moves every line below
-    // it up, and an override held by position would be left sitting on
-    // somebody else's task. A row edited in place takes its choice with it;
-    // a line rewritten in the textarea is a different task, and loses it.
-    const overrides = new Map();
-    let routeText = null;
-    let routeClear = null;
-    if (routing) {
-      const line = el("div", "fan-route");
-      routeText = el("span", "fan-route-text");
-      // After the run's select in the tab order, since it is about that
-      // select: it puts every routed row back on the model chosen there.
-      routeClear = el("button", "fan-quiet", "Undo routing");
-      routeClear.id = "fan-route-clear";
-      describe(routeClear, "Use the run's model for every task");
-      routeClear.onclick = () => {
-        const had = document.activeElement === routeClear;
-        taskLines().forEach((t) => {
-          const r = activeRoute(t);
-          if (!r) return;
-          overridden.push({ task: t, rule: r.rule, agent: r.agent || pickParts(runSel.value)[0], routed: r.model, chosen: pickParts(runSel.value)[1] });
-          overrides.set(t, "");
-        });
-        renderRows();
-        updateCount();
-        // The button hides itself once nothing is left routed, and hid
-        // itself with the keyboard on it, which then went nowhere. It goes to
-        // the run's own select, which is what the button was about.
-        if (had && routeClear.hidden) runSel.focus();
-      };
-      line.append(routeText, routeClear);
-      top.append(line);
-    }
-
-    const head = el("div", "fan-sec");
-    const num = el("span", "fan-sec-num");
-    if (found) describe(num, m.fromReply ? "Read from what the agent last said" : "Read from the pane's output");
-    const asText = el("button", "fan-quiet", "Edit as text");
-    asText.setAttribute("aria-pressed", "false");
-    head.append(el("h3", null, "Tasks"), num, el("span", "ov-spacer"), asText);
-    body.append(head);
-
-    const rows = el("div", "fan-rows");
-    body.append(rows);
-    // The row after the last, to type the next task into.
-    const add = el("div", "fan-add");
-    const addN = el("span", "fan-add-n");
-    const addIn = el("input", "fan-add-task");
-    addIn.type = "text";
-    addIn.value = "";
-    addIn.placeholder = "Add a task…";
-    addIn.setAttribute("aria-label", "Add a task");
-    add.append(addN, addIn);
-    body.append(add);
-
-    const box = el("textarea", "fan-tasks fo-text");
-    box.value = (m.tasks || []).join("\n");
-    box.placeholder = "One task per line, for example:\nAdd a health endpoint\nWrite tests for the parser\n\nCtrl+Enter starts them.";
-    box.setAttribute("aria-label", "Tasks, one per line");
-    box.hidden = true;
-    body.append(box);
-
-    /** The route a row starts on, where routing chose one and nobody has
-     *  chosen for the row since. */
-    const activeRoute = (task) => (routing && !overrides.has(task) && routed.get(task)) || null;
-    /** What a row's select holds: somebody's choice, else routing's, else
-     *  the run's. A route that moved the row to another agent keeps that
-     *  agent here; one that only chose a smaller or stronger model of the
-     *  run's own agent still reads on the run's. */
-    const effective = (task) => {
-      if (overrides.has(task)) return overrides.get(task);
-      const r = activeRoute(task);
-      return r ? (r.agent || pickParts(runSel.value)[0]) + "\n" + r.model : "";
-    };
-
-    const where = el("div", "fan-sec");
-    where.append(el("h3", null, "Where they run"));
-    body.append(where);
-    const opts = el("div", "fan-opts");
-
-    let worktrees = !!m.isRepo;
-    const wt = el("label", "fan-opt fo-opt");
-    const wtSw = el("button", "switch" + (worktrees ? " on" : ""));
-    wtSw.type = "button";
-    wtSw.setAttribute("role", "switch");
-    wtSw.setAttribute("aria-checked", String(worktrees));
-    wtSw.append(el("span", "knob"));
-    wtSw.disabled = !m.isRepo;
-    const wtText = m.isRepo ? "Each in its own git worktree" : "Not a git repository — agents share this directory";
-    wtSw.setAttribute("aria-label", wtText);
-    wtSw.onclick = () => {
-      worktrees = !worktrees;
-      wtSw.classList.toggle("on", worktrees);
-      wtSw.setAttribute("aria-checked", String(worktrees));
-      updateTrust();
-    };
-    wt.append(wtSw, el("span", null, wtText));
-    opts.append(wt);
-
-    // The children always end up in one tab, gridded; the only question is
-    // whether that tab is this one or a new one. Settings › General's own
-    // default, until this run's own choice changes it.
-    let split = !!(prefs.fanOut && prefs.fanOut.sameTab);
-    const place = el("div", "segmented fan-place");
-    place.setAttribute("role", "radiogroup");
-    place.setAttribute("aria-label", "Which tab they go in");
-    const places = [
-      [false, "New tab", "The agents share a new tab of their own"],
-      [true, "Beside the planner", "In this tab, beside the agent that planned them"],
-    ];
-    const placeBtns = places.map(([value, label, tip]) => {
-      const b = describe(el("button", "seg", label), tip);
-      b.type = "button";
-      b.setAttribute("role", "radio");
-      b.onclick = () => choosePlace(value);
-      // A group of radio buttons is one stop, and the arrows choose within it.
-      b.onkeydown = (ev) => {
-        if (startKey(ev)) return;
-        if (!["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(ev.key)) return;
-        ev.preventDefault();
-        ev.stopPropagation();
-        choosePlace(!value);
-        placeBtns[value ? 0 : 1].focus();
-      };
-      place.append(b);
-      return b;
-    });
-    const choosePlace = (value) => {
-      split = value;
-      placeBtns.forEach((b, i) => {
-        const on = places[i][0] === value;
-        b.classList.toggle("on", on);
-        b.setAttribute("aria-checked", String(on));
-        b.tabIndex = on ? 0 : -1;
-      });
-    };
-    choosePlace(split);
-    opts.append(place);
-
-    // Each worktree is a directory Claude has not seen, so it would stop and
-    // ask whether the folder is trusted before doing any work. Offer to carry
-    // over the answer already given for this project -- never silently, and
-    // only for the worktrees it is about.
-    const who = m.project || "this project";
-    const tr = el("label", "fan-opt fo-opt fo-trust");
-    const trBox = el("input");
-    trBox.type = "checkbox";
-    trBox.checked = !!m.trusted;
-    tr.append(trBox, el("span", null, "Trust the new worktrees"), el("span", "fan-opt-note",
-      m.trusted ? "· as " + who + " already is" : "· " + who + " is not trusted in Claude Code, so each agent will ask once"));
-    tr.title = m.trusted
-      ? "Without this, every new worktree stops on Claude Code's folder-trust question"
-      : "";
-    const updateTrust = () => { trBox.disabled = !m.trusted || !worktrees || wtSw.disabled; };
-    updateTrust();
-    opts.append(tr);
-    body.append(opts);
-
-    const foot = el("div", "ov-foot");
-    const count = el("span", "ov-meta fan-count fo-count");
-    const cancel = el("button", "chip", "Cancel");
-    cancel.onclick = () => dismissOverlay();
-    const start = el("button", "chip primary fan-start", "Start agents");
-    start.setAttribute("data-keys", "Ctrl+↵");
-    start.setAttribute("aria-keyshortcuts", "Control+Enter");
-    foot.append(count, el("span", "ov-spacer"), cancel, start);
-    body.append(foot);
-
-    const taskLines = () => box.value.split("\n").map((l) => l.trim()).filter(Boolean);
-
-    /** tally is what the footer says: how many agents, how many on each
-     *  model, and how many of those routing chose. A dozen panes divided on
-     *  purpose is the easiest thing here to have got wrong, and the last
-     *  moment to notice it is before any of them exist. */
-    const tally = (lines) => {
-      const parts = [lines.length === 1 ? "1 agent" : lines.length + " agents"];
-      if (choosable && lines.length) {
-        const run = runSel.value;
-        const runID = pickParts(run)[0];
-        const groups = new Map();
-        lines.forEach((t) => {
-          const v = agentValue(catalog, effective(t) || run);
-          groups.set(v, (groups.get(v) || 0) + 1);
-        });
-        const each = [...groups].sort((a, b) => b[1] - a[1]).map(([v, n]) => {
-          const id = pickParts(v)[0];
-          const a = catalog.find((x) => x.id === id);
-          const name = pickName(catalog, v);
-          // Another agent than the run's is named, as well as its model.
-          const agentName = (a && a.name) || id;
-          return n + "× " + name + (id !== runID && name !== agentName ? " (" + agentName + ")" : "");
-        });
-        parts.push(each.join(", "));
-      }
-      const n = lines.filter((t) => activeRoute(t)).length;
-      if (n) parts.push(n + " routed");
-      return parts.join(" · ");
-    };
-
-    /** Whether any agent this fan-out would start asks the folder-trust
-     *  question the trust row is about. Only Claude Code does, and the row
-     *  was drawn - in Claude's words - whichever agents had been chosen. The
-     *  server says which agents ask it; until it does, the answer is Claude. */
-    const asksTrust = (id) => {
-      const a = catalog.find((x) => x.id === id);
-      return catalog.some((x) => "askTrust" in x) ? !!(a && a.askTrust) : id === "claude";
-    };
-    const trustApplies = (lines) => {
-      const runID = choosable ? pickParts(runSel.value)[0] : (m.agent || (catalog[0] && catalog[0].id) || "claude");
-      if (asksTrust(runID) && lines.some((t) => !pickParts(effective(t))[0])) return true;
-      return lines.some((t) => asksTrust(pickParts(effective(t))[0]));
-    };
-
-    let asTextMode = false;
-    const updateCount = () => {
-      const lines = taskLines();
-      tr.hidden = !trustApplies(lines.length ? lines : [""]);
-      // The server stops at its cap and says so only afterwards, so a list
-      // longer than that promised agents that were never going to start.
-      const over = lines.length > FANOUT_MAX;
-      const starts = Math.min(lines.length, FANOUT_MAX);
-      count.textContent = over
-        ? lines.length + " tasks - only the first " + FANOUT_MAX + " start; run the rest as a second fan-out"
-        : tally(lines);
-      count.title = count.textContent;
-      count.classList.toggle("warn", over);
-      num.textContent = lines.length + " of " + FANOUT_MAX;
-      num.classList.toggle("warn", over);
-      start.disabled = lines.length === 0;
-      start.textContent = starts === 0 ? "Start agents" : starts === 1 ? "Start 1 agent" : "Start " + starts + " agents";
-      add.hidden = asTextMode || list.length >= FANOUT_MAX;
-      addN.textContent = String(list.length + 1);
-      if (routing) {
-        const chosen = lines.map(activeRoute).filter(Boolean);
-        const up = chosen.filter((r) => r.up).length;
-        const down = chosen.length - up;
-        routeText.textContent = routeShort(down, up) || routeNote || "Routing: nothing to change";
-        describe(routeText, routeSummary(down, up, lines.length) || routeNote || "Routing has nothing to change in these tasks.");
-        routeClear.hidden = chosen.length === 0;
-      }
-    };
-
-    // The rules run on the server alone. The list is asked about again once
-    // typing pauses, and whenever the run's agent or model changes, since a
-    // route is a model of the agent the run is on.
-    let routeTimer = 0;
-    const askRoutes = () => {
-      if (!routing) return;
-      clearTimeout(routeTimer);
-      routeTimer = setTimeout(() => {
-        const [agent, model] = pickParts(runSel.value);
-        send({ cmd: "routeTasks", tasks: taskLines(), agent, model });
-      }, 250);
-    };
-    fanoutRoutes = (msg) => {
-      if (dialog !== "fanout" || !routing) return;
-      const [agent, model] = pickParts(runSel.value);
-      // An answer about a run since changed would pre-fill another agent's
-      // models; the answer to the question now being asked is on its way.
-      if (msg.agent !== agent || msg.model !== model) return;
-      takeRoutes(msg.tasks, msg.routes);
-      routeNote = msg.routeNote || "";
-      renderRows();
-      updateCount();
-    };
-
-    /** Ctrl+Enter starts the agents from anywhere in the dialog. */
-    const startKey = (ev) => {
-      if (ev.key !== "Enter" || !(ev.ctrlKey || ev.metaKey)) return false;
-      ev.preventDefault();
-      start.onclick();
-      return true;
-    };
-
-    /* The row drawn for each task, by its text, with what its select and tag
-     * were drawn from. The textarea is typed into a line at a time, and
-     * building every row again for each keystroke - each with a select
-     * holding every model of every agent - was nearly all a keystroke cost:
-     * twelve tasks over three agents of four models were 240 elements a key.
-     * A row is kept while its task is; one whose choice or route changed is
-     * brought up to date where it is, never built again under the keyboard. */
-    let drawn = new Map();
-    /** The rows in order, as last drawn. */
-    let list = [];
-    const rowKey = (task) => {
-      const r = activeRoute(task);
-      return effective(task) + "\n" + (r ? [r.model, !!r.up, r.rule, r.reason].join("|") : "");
-    };
-    const setTag = (d) => {
-      if (!d.slot) return;
-      d.slot.textContent = "";
-      const r = activeRoute(d.task);
-      if (r) {
-        d.slot.append(describe(el("span", "fan-routed" + (r.up ? " up" : ""), (r.up ? "↗" : "↘") + " routed"),
-          r.reason + ". Choose another model here to decide this row yourself."));
-      }
-    };
-    const refreshRow = (d) => {
-      d.key = rowKey(d.task);
-      if (d.sel) {
-        d.sel.value = agentValue(catalog, effective(d.task));
-        if (d.sel.selectedIndex < 0) d.sel.selectedIndex = 0;
-      }
-      setTag(d);
-    };
-    const renderRows = () => {
-      const kept = new Map();
-      const next = [];
-      const held = document.activeElement;
-      box.value.split("\n").forEach((line) => {
-        const task = line.trim();
-        const pool = drawn.get(task) || [];
-        let d;
-        if (!task) {
-          // A row emptied from the keyboard stays while it has it: the next
-          // key typed is its new task. Any other blank line is not a task.
-          const at = pool.findIndex((x) => x.input === held);
-          if (at < 0) return;
-          d = pool.splice(at, 1)[0];
-        } else {
-          const key = rowKey(task);
-          const at = pool.findIndex((x) => x.key === key);
-          d = at >= 0 ? pool.splice(at, 1)[0] : pool.length ? pool.shift() : buildRow(task);
-          if (d.key !== key) refreshRow(d);
-          if (d.input !== held && (d.input.value || "").trim() !== task) d.input.value = task;
-        }
-        if (!kept.has(task)) kept.set(task, []);
-        kept.get(task).push(d);
-        next.push(d);
-      });
-      drawn = kept;
-      list = next;
-      list.forEach((d, i) => {
-        const n = String(i + 1);
-        if (d.n.textContent !== n) {
-          d.n.textContent = n;
-          d.input.setAttribute("aria-label", "Task " + n);
-          if (d.sel) d.sel.setAttribute("aria-label", "Model for task " + n);
-        }
-        // Past the cap a row is still shown, and marked as one that will
-        // not start.
-        if (d.row.classList.contains("over") !== (i >= FANOUT_MAX)) d.row.classList.toggle("over", i >= FANOUT_MAX);
-      });
-      // Into place, moving only what is out of it; what is left over after
-      // the last row is what went from the list.
-      list.forEach((d, i) => { if (rows.children[i] !== d.row) rows.insertBefore(d.row, rows.children[i] || null); });
-      while (rows.children.length > list.length) rows.children[rows.children.length - 1].remove();
-    };
-
-    /** setTexts puts the list's text in the textarea, draws it, and asks
-     *  routing about it. */
-    const setTexts = (texts) => {
-      box.value = texts.join("\n");
-      renderRows();
-      updateCount();
-      askRoutes();
-    };
-    const focusRow = (i) => {
-      const d = list[i];
-      const to = d ? d.input : !add.hidden ? addIn : null;
-      if (!to) return;
-      to.focus();
-      if (to.setSelectionRange) to.setSelectionRange(to.value.length, to.value.length);
-    };
-    /** A paste of several lines is several tasks, which a one-line field
-     *  would otherwise run together. */
-    const pastedLines = (ev) => {
-      const text = ev.clipboardData && ev.clipboardData.getData("text");
-      if (!text || !/[\r\n]/.test(text)) return null;
-      ev.preventDefault();
-      return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    };
-
-    const buildRow = (task) => {
-      const row = el("div", "fan-row");
-      const n = el("span", "fan-row-n");
-      const input = el("input", "fan-row-task");
-      input.type = "text";
-      input.value = task;
-      row.append(n, input);
-      const d = { row, n, input, sel: null, slot: null, task, key: "" };
-      if (choosable) {
-        d.sel = agentSelect(catalog, effective(task), "Same as the run");
-        d.sel.classList.add("fo-sel");
-        d.sel.onchange = () => {
-          // Changing a routed row makes it the user's: the tag goes, and
-          // routing leaves the row alone from here on, even on "Same as the
-          // run".
-          const t = d.task;
-          const was = activeRoute(t);
-          if (was) {
-            overridden.push({ task: t, rule: was.rule, agent: was.agent || pickParts(runSel.value)[0], routed: was.model,
-              chosen: pickParts(d.sel.value)[1] || pickParts(runSel.value)[1] });
-          }
-          if (d.sel.value || was) overrides.set(t, d.sel.value);
-          else overrides.delete(t);
-          // What the row shows now, so the next drawing keeps it.
-          d.key = rowKey(t);
-          setTag(d);
-          // The choice is held by the task's text, so every row with the same
-          // text now has it. Only this row was redrawn, and the other went on
-          // showing "Same as the run" while Start sent the new choice for both.
-          renderRows();
-          updateCount();
-        };
-        d.sel.onkeydown = startKey;
-        row.append(d.sel);
-      }
-      if (routing) {
-        d.slot = el("span", "fan-row-tag");
-        row.append(d.slot);
-      }
-      d.key = rowKey(task);
-      setTag(d);
-
-      input.oninput = () => {
-        const was = d.task;
-        const now = (input.value || "").trim();
-        if (now === was) return;
-        // A row edited in place is the same row: its choice, and what
-        // routing chose for it, go with it until routing has read the new
-        // words.
-        const shared = list.some((x) => x !== d && x.task === was);
-        if (overrides.has(was) && !overrides.has(now)) {
-          overrides.set(now, overrides.get(was));
-          if (!shared) overrides.delete(was);
-        }
-        if (routed.has(was) && !routed.has(now)) {
-          routed.set(now, routed.get(was));
-          if (!shared) routed.delete(was);
-        }
-        const pool = drawn.get(was) || [];
-        if (pool.includes(d)) pool.splice(pool.indexOf(d), 1);
-        if (!drawn.has(now)) drawn.set(now, []);
-        drawn.get(now).push(d);
-        d.task = now;
-        d.key = rowKey(now);
-        setTexts(list.map((x) => x.task));
-      };
-      // A row left empty is a task taken out.
-      input.onblur = () => {
-        if (d.task || !d.row.isConnected || dialog !== "fanout") return;
-        setTexts(list.filter((x) => x !== d).map((x) => x.task));
-      };
-      input.onkeydown = (ev) => {
-        if (startKey(ev) || ev.isComposing) return;
-        const at = list.indexOf(d);
-        if (ev.key === "Enter" || ev.key === "ArrowDown") {
-          ev.preventDefault();
-          focusRow(at + 1);
-        } else if (ev.key === "ArrowUp") {
-          ev.preventDefault();
-          focusRow(at - 1);
-        } else if (ev.key === "Backspace" && input.value === "") {
-          ev.preventDefault();
-          setTexts(list.filter((x) => x !== d).map((x) => x.task));
-          focusRow(Math.max(0, at - 1));
-        }
-      };
-      input.onpaste = (ev) => {
-        const lines = pastedLines(ev);
-        if (!lines) return;
-        // Into an empty row the lines take its place; after a task, they
-        // follow it.
-        const at = list.indexOf(d);
-        const texts = list.map((x) => x.task);
-        if (d.task) texts.splice(at + 1, 0, ...lines);
-        else texts.splice(at, 1, ...lines);
-        setTexts(texts);
-        focusRow(at + lines.length - (d.task ? 0 : 1));
-      };
-      return d;
-    };
-
-    /** commitAdd makes what is typed in the last row a task of its own. */
-    const commitAdd = () => {
-      const t = (addIn.value || "").trim();
-      if (!t) return false;
-      addIn.value = "";
-      setTexts(list.map((x) => x.task).concat(t));
-      return true;
-    };
-    addIn.onkeydown = (ev) => {
-      if (ev.isComposing) return;
-      if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { startKey(ev); return; }
-      if (ev.key === "Enter") {
-        ev.preventDefault();
-        commitAdd();
-        // Straight on to the next: the add row is where a list is typed.
-        if (add.hidden) focusRow(list.length - 1); else addIn.focus();
-      } else if (ev.key === "ArrowUp" && list.length) {
-        ev.preventDefault();
-        focusRow(list.length - 1);
-      }
-    };
-    addIn.onchange = () => { commitAdd(); };
-    addIn.onpaste = (ev) => {
-      const lines = pastedLines(ev);
-      if (!lines) return;
-      const typed = (addIn.value || "").trim();
-      addIn.value = "";
-      setTexts(list.map((x) => x.task).concat(typed ? [typed] : [], lines));
-      focusRow(add.hidden ? list.length - 1 : list.length);
-    };
-
-    const showMode = (text) => {
-      asTextMode = text;
-      box.hidden = !text;
-      rows.hidden = text;
-      asText.classList.toggle("on", text);
-      asText.setAttribute("aria-pressed", String(text));
-      if (!text) renderRows();
-      updateCount();
-    };
-    asText.onclick = () => {
-      commitAdd();
-      showMode(!asTextMode);
-      if (asTextMode) box.focus(); else focusRow(0);
-    };
-
-    let started = false;
-    start.onclick = () => {
-      if (started) return;
-      // A task typed into the last row and not yet entered is one of them.
-      commitAdd();
-      const tasks = taskLines();
-      if (!tasks.length) return;
-      started = true;
-      const req = {
-        cmd: "fanout",
-        id: m.paneId,
-        tasks,
-        worktrees: worktrees && !wtSw.disabled,
-        split,
-        trust: trBox.checked && !trBox.disabled && !tr.hidden,
-      };
-      // The agent fields are left off altogether where there was nothing to
-      // choose, so a fan-out that made no decision about agents goes over the
-      // wire looking exactly as it always has.
-      if (choosable) {
-        const run = pickParts(runSel.value);
-        req.agent = run[0];
-        req.model = run[1];
-        // A routed row goes over the wire as any row chosen by hand does, so
-        // what was shown is what runs; the rule's name only marks its pane.
-        const perTask = tasks.map((t) => pickParts(effective(t))[0]);
-        if (perTask.some(Boolean)) {
-          req.taskAgents = perTask;
-          req.taskModels = tasks.map((t) => pickParts(effective(t))[1]);
-        }
-        if (routing) {
-          const rules = tasks.map((t) => (activeRoute(t) || {}).rule || "");
-          if (rules.some(Boolean)) req.taskRouted = rules;
-          if (overridden.length) req.routeOverrides = overridden;
-        }
-      }
-      send(req);
-      closeOverlay();
-    };
-    box.oninput = () => { renderRows(); updateCount(); askRoutes(); };
-    // Enter is a new line here - the tasks go one to a line - so starting
-    // them took the pointer, or Tab past every option to the button.
-    box.onkeydown = startKey;
-    if (choosable) {
-      runSel.onkeydown = startKey;
-      runSel.onchange = () => {
-        // The routes were models of the agent the run was on.
-        if (routing) { routed.clear(); renderRows(); askRoutes(); }
-        updateCount();
-      };
-    }
-    wtSw.onkeydown = startKey;
-    trBox.onkeydown = startKey;
-    renderRows();
-    updateCount();
-
-    // The keyboard starts on the first task, or on the row to type one into.
-    const first = list[0] ? list[0].input : addIn;
-    first.setAttribute("data-autofocus", "");
-    first.focus();
-  }
-
-  // -------------------------------------------------------------------- todo
-
-  /* A todo is a saved checklist: a plan read out of a pane the same way
-   * fan-out reads one, but saved rather than started, and come back to over
-   * days -- its steps started one at a time, on demand, with the checklist
-   * itself remembering which have been and how they went. See
-   * internal/help/pages/todo.md for how the two are meant to differ.
-   *
-   * Two dialogs, mirroring fan-out's own pair: "todoPlan" reads a pane's
-   * plan into an editable list and saves it (openNewTodo/renderTodoPlan,
-   * built beside openFanout/renderFanout above), and "todos" lists what has
-   * already been saved for the project and starts their steps
-   * (openTodos/renderTodos, beside openFanoutHistory/renderFanoutHistory).
-   */
-
-  /** The last "todos" message for whichever project is showing. */
-  let todos = null;
-  /** A plan being reviewed before it is saved: the pane it was read from and
-   *  its extracted steps. null outside the "todoPlan" dialog. See fanout's
-   *  own `fanout` for the equivalent guard. */
-  let todoPlan = null;
-  /** The pane a plan-review dialog asked about, the same guard fanoutAsked
-   *  is for renderFanout. */
-  let todoAsked = "";
-  /** What has been typed into the plan-review dialog's title field, kept
-   *  across a redraw the same way wtDraft is for the worktree form. */
-  let todoTitleDraft = "";
-  /** Whether each saved todo's steps should be started in a worktree of
-   *  their own, by todo id -- a per-todo choice made in its card, not
-   *  persisted, the same as a fan-out's own worktree box is only ever asked
-   *  again the next time the dialog opens. */
-  const todoWorktreeChoice = new Map();
-  /** The todo and request id a todoStepStart is out for, so the matching
-   *  agentStarted -- otherwise unused on the desktop, see startAgent --
-   *  knows to reveal the pane it started and refresh the checklist to show
-   *  the new attempt. */
-  let pendingStepStart = null;
-
-  /** openNewTodo opens the plan-review dialog on paneID's plan, or the
-   *  focused pane's when none is given -- the same shape openFanout takes. */
-  function openNewTodo(paneID) {
-    dialog = "todoPlan";
-    todoPlan = null;
-    todoTitleDraft = "";
-    openOverlay("New todo", "todo");
-    $("overlay-body").textContent = "";
-    $("overlay-body").append(el("div", "dir-empty", "Reading this pane's output…"));
-    todoAsked = paneID || focusedPaneId();
-    send({ cmd: "todoPlanPreview", id: todoAsked, root: state ? state.root : "" });
-  }
-
-  function renderTodoPlan(msg) {
-    if (msg) {
-      if (dialog !== "todoPlan" || todoPlan || (todoAsked && msg.paneId !== todoAsked)) return;
-      todoPlan = msg;
-    }
-    if (dialog !== "todoPlan") return;
-    const m = todoPlan || {};
-    const body = $("overlay-body");
-    body.textContent = "";
-
-    const found = m.tasks && m.tasks.length;
-    const hint = el("div", "fan-hint");
-    hint.append(document.createTextNode(
-      found
-        ? (m.fromReply ? "Found these in what this agent last said. " : "Found these in the pane's output. ") +
-          "Edit the list, one step per line, then save it as a todo."
-        : "No plan was found in this pane. Type one step per line, or ask an agent to draft one first, the same as before fanning one out."));
-    body.append(hint);
-
-    const titleRow = el("div", "fan-agent");
-    titleRow.append(el("span", null, "Title"));
-    const titleBox = el("input");
-    titleBox.type = "text";
-    titleBox.placeholder = "Untitled todo";
-    titleBox.value = todoTitleDraft;
-    titleBox.oninput = () => { todoTitleDraft = titleBox.value; };
-    titleRow.append(titleBox);
-    body.append(titleRow);
-
-    const box = el("textarea", "fan-tasks");
-    box.value = (m.tasks || []).join("\n");
-    box.placeholder = "One step per line, for example:\nAdd a health endpoint\nWrite tests for the parser\n\nCtrl+Enter saves it.";
-    body.append(box);
-
-    const go = el("div", "fan-go");
-    const count = el("span", "fan-count");
-    const stepLines = () => box.value.split("\n").map((l) => l.trim()).filter(Boolean);
-    const save = el("button", "chip primary", "Save as todo");
-    const updateCount = () => {
-      const n = stepLines().length;
-      count.textContent = n === 1 ? "1 step" : n + " steps";
-      save.disabled = n === 0;
-    };
-    save.onclick = () => {
-      const steps = stepLines();
-      if (!steps.length) return;
-      send({ cmd: "todoSave", root: m.root || (state ? state.root : ""), title: todoTitleDraft, tasks: steps });
-    };
-    box.oninput = updateCount;
-    box.onkeydown = (ev) => {
-      if (ev.key !== "Enter" || !(ev.ctrlKey || ev.metaKey)) return;
-      ev.preventDefault();
-      save.onclick();
-    };
-    go.append(save, count);
-    body.append(go);
-    updateCount();
-
-    const tools = el("div", "wt-tools");
-    tools.append(rootLabel(m.root || ""));
-    body.append(tools);
-    box.focus();
-  }
-
-  /** openTodos opens the checklist dialog and asks for this project's saved
-   *  todos, the same shape openFanoutHistory takes for past jobs. */
-  function openTodos() {
-    dialog = "todos";
-    todos = null;
-    openOverlay("Todos", "todo");
-    $("overlay-body").textContent = "";
-    $("overlay-body").append(el("div", "dir-empty", "Reading saved todos…"));
-    send({ cmd: "todos", root: state ? state.root : "" });
-  }
-
-  /** updateTodoInPlace applies a todoUpdated message (an echo back from a
-   *  mutation like setTodoStepDone) to the open checklist without the flash
-   *  of asking the server for the whole list again -- see openTodos. */
-  function updateTodoInPlace(t) {
-    if (!t || !todos || !todos.items) return;
-    const i = todos.items.findIndex((x) => x.id === t.id);
-    if (i < 0) return;
-    todos = { ...todos, items: todos.items.map((x, j) => (j === i ? t : x)) };
-    if (dialog === "todos") renderTodos();
-  }
-
-  /** saveTodoSteps sends a todo's full step list back with the ids it
-   *  already has, so Workspace.SaveTodo updates it in place -- keeping each
-   *  step's Done flag and attempt history -- rather than minting a fresh
-   *  todo, which is what an id-free save (see renderTodoPlan) means instead.
-   *  Used by a step's own text edit and by dragging one to reorder it. */
-  function saveTodoSteps(t, steps) {
-    send({
-      cmd: "todoSave", todoId: t.id, root: t.root || (state ? state.root : ""),
-      title: t.title, spec: t.spec,
-      stepIds: steps.map((s) => s.id), tasks: steps.map((s) => s.text),
-    });
-  }
-
-  /** reorderTodoStep moves fromId to sit just before beforeId (or last, for
-   *  ""), the same shape a tab drag settles on before sending moveTab. */
-  function reorderTodoStep(t, fromId, beforeId) {
-    const steps = (t.steps || []).slice();
-    const from = steps.findIndex((s) => s.id === fromId);
-    if (from < 0 || fromId === beforeId) return;
-    const [moved] = steps.splice(from, 1);
-    const to = beforeId ? steps.findIndex((s) => s.id === beforeId) : -1;
-    steps.splice(to < 0 ? steps.length : to, 0, moved);
-    saveTodoSteps(t, steps);
-  }
-
-  /** renderTodos lists every todo saved for the project, each drawn as a
-   *  card modelled on renderFanoutHistory's own job cards. */
-  function renderTodos(msg) {
-    if (msg) todos = msg;
-    if (dialog !== "todos") return;
-    const m = todos || {};
-    const body = $("overlay-body");
-    body.textContent = "";
-
-    const tools = el("div", "wt-tools");
-    const add = el("button", "chip primary", "+ New todo");
-    describe(add, "Reads the focused pane's plan into a new todo. Ask an agent to plan something first, the same as before fanning it out.");
-    add.onclick = () => openFrom(openNewTodo);
-    tools.append(add, rootLabel(m.root || (state ? state.root : "")));
-    body.append(tools);
-
-    if (!m.items || !m.items.length) {
-      body.append(el("div", "dir-empty", "No todos saved for this project yet."));
-      return;
-    }
-    const wrap = section("Saved todos");
-    m.items.forEach((t) => wrap.append(todoCard(t)));
-    body.append(wrap);
-  }
-
-  /** todoCard draws one saved todo: its title, how many of its steps are
-   *  done, a worktree choice for the steps it starts from here, a Delete
-   *  button and every step's own row. */
-  function todoCard(t) {
-    const card = el("div", "fanout-history-job");
-    const head = el("div", "summary-card-head");
-    head.append(el("div", "summary-card-title", t.title || "Untitled todo"));
-    const doneCount = (t.steps || []).filter((s) => s.done).length;
-    head.append(el("div", "summary-card-sub", doneCount + " of " + (t.steps || []).length + " done"));
-    const del = el("button", "chip", "Delete");
-    del.onclick = () => {
-      if (!window.confirm("Delete this todo? Its checklist and history are gone for good.")) return;
-      send({ cmd: "todoDelete", todoId: t.id });
-      if (todos) todos = { ...todos, items: (todos.items || []).filter((x) => x.id !== t.id) };
-      renderTodos();
-    };
-    head.append(del);
-    card.append(head);
-
-    const wt = el("label", "fan-opt");
-    const wtBox = el("input");
-    wtBox.type = "checkbox";
-    wtBox.checked = !!todoWorktreeChoice.get(t.id);
-    wtBox.onchange = () => todoWorktreeChoice.set(t.id, wtBox.checked);
-    wt.append(wtBox, document.createTextNode("Start each step below in a git worktree of its own"));
-    card.append(wt);
-
-    const list = el("div", "summary-card-list");
-    (t.steps || []).forEach((s) => list.append(todoStepRow(t, s)));
-    card.append(list);
-    return card;
-  }
-
-  /** todoStepRow draws one step of a todo: a checkbox for its Done flag, its
-   *  text (editable in place -- committed on blur or Enter, via
-   *  saveTodoSteps), a summary of its attempts and a Start button that kicks
-   *  off a fresh agent for it, exactly as [[action:newAgentTab]] would for a
-   *  task typed by hand. The row itself is draggable, the same way a tab is
-   *  (see makeTabDraggable), to reorder the checklist -- see
-   *  reorderTodoStep. */
-  function todoStepRow(t, s) {
-    const row = el("div", "summary-card-row todo-step-row");
-    row.draggable = true;
-    row.addEventListener("dragstart", (ev) => {
-      if (ev.target.closest("input")) { ev.preventDefault(); return; }
-      ev.dataTransfer.effectAllowed = "move";
-      ev.dataTransfer.setData("text/plain", s.id);
-      row.classList.add("dragging");
-    });
-    row.addEventListener("dragend", () => row.classList.remove("dragging"));
-    row.addEventListener("dragover", (ev) => {
-      if (!Array.from(ev.dataTransfer.types || []).includes("text/plain")) return;
-      ev.preventDefault();
-      ev.dataTransfer.dropEffect = "move";
-      row.classList.add("drop-target");
-    });
-    row.addEventListener("dragleave", () => row.classList.remove("drop-target"));
-    row.addEventListener("drop", (ev) => {
-      ev.preventDefault();
-      row.classList.remove("drop-target");
-      const fromId = ev.dataTransfer.getData("text/plain");
-      if (fromId) reorderTodoStep(t, fromId, s.id);
-    });
-
-    const main = el("div", "summary-card-main");
-
-    const line = el("div", "fan-opt");
-    const box = el("input");
-    box.type = "checkbox";
-    box.checked = !!s.done;
-    box.setAttribute("aria-label", "Done");
-    box.onchange = () => send({ cmd: "todoStepDone", todoId: t.id, stepId: s.id, done: box.checked });
-    line.append(box);
-
-    const text = el("input", "todo-step-text");
-    text.type = "text";
-    text.value = s.text;
-    text.setAttribute("aria-label", "Step text");
-    const commit = () => {
-      const v = text.value.trim();
-      if (!v || v === s.text) { text.value = s.text; return; }
-      saveTodoSteps(t, (t.steps || []).map((st) => (st.id === s.id ? { ...st, text: v } : st)));
-    };
-    text.onblur = commit;
-    text.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); text.blur(); } };
-    line.append(text);
-    main.append(line);
-
-    if (s.attempts && s.attempts.length) {
-      const last = s.attempts[s.attempts.length - 1];
-      const state_ = last.outcome ? outcomeLabel(last.outcome) : "starting…";
-      main.append(el("div", "summary-card-line",
-        (s.attempts.length === 1 ? "1 attempt — " : s.attempts.length + " attempts — last ") + state_));
-    }
-    row.append(main);
-
-    const start = el("button", "chip", "Start");
-    describe(start, "Starts a fresh agent for this one step, with its text as the task.");
-    start.onclick = () => {
-      const reqID = "todo-" + Math.random().toString(36).slice(2);
-      pendingStepStart = { reqID, todoId: t.id };
-      send({ cmd: "todoStepStart", id: reqID, todoId: t.id, stepId: s.id, worktree: !!todoWorktreeChoice.get(t.id) });
-    };
-    row.append(start);
-    return row;
   }
 
   // ----------------------------------------------------------------- hints
@@ -16516,13 +15409,6 @@
       text: "opens the prompt bar. Write an instruction once and send it to several agents together. Turn on Broadcast to reach every pane in the tab, or add panes to the set by hand with their ⇉ button.",
       page: "broadcast",
       when: (s) => paneCount(s) > 1,
-    },
-    {
-      id: "fanout",
-      action: "fanout",
-      text: "turns a plan an agent just wrote into one agent per task, up to twelve at once. Each can get its own git worktree, and nothing starts until you say so.",
-      page: "fanout",
-      when: () => true,
     },
     {
       id: "worktrees",
@@ -17436,8 +16322,6 @@
   $("btn-agents").onclick = () => openAgents();
   $("btn-broadcast").onclick = () => send({ cmd: "toggleBroadcast" });
   $("btn-worktrees").onclick = () => openWorktrees();
-  $("btn-fanout-history").onclick = () => openFanoutHistory();
-  $("btn-todos").onclick = () => openTodos();
   $("btn-team").onclick = () => openTeam();
   $("btn-history").onclick = openHistory;
   $("btn-recordings").onclick = () => openArtifacts();

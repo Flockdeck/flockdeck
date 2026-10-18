@@ -41,7 +41,7 @@ closing it.
 Every move here is relative (beside this pane, past that one), and enough of
 them leaves a tab with panes too narrow to grab a divider in or drop anything
 into. [[action:tilePanes]] is the way back: it lays the tab's panes out in rows of
-even columns, in the order they are already in, the same arrangement a fan-out
+even columns, in the order they are already in, the same arrangement a team
 starts its agents in.
 
 ## From the keyboard

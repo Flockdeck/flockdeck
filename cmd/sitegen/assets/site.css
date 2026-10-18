@@ -479,24 +479,9 @@ h2 {
   #what .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* ------------------------------------------------------------- fan-out */
-
-.fan { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1.2fr); gap: 1.25rem; align-items: center; }
-.fan-plan, .fan-out { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--edge-soft); border-radius: var(--radius); background: var(--raised); padding: 1rem 1.25rem; }
-.fan-plan ol { margin: 0; padding-left: 1.5rem; font-family: var(--mono); font-size: .8125rem; color: var(--muted); line-height: 2; }
-.fan-arrow { font-family: var(--mono); font-size: 1.5rem; line-height: 1; color: var(--accent); text-align: center; }
-.fan-out ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.5rem; }
-.fan-out li {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem;
-  font-family: var(--mono); font-size: .8125rem; color: var(--text);
-  background: var(--sunken); border: 1px solid var(--edge-soft);
-  border-radius: var(--radius-sm); padding: 0.5rem 0.75rem;
-}
-.fan-out li .br { margin-left: auto; color: var(--muted); }
-
 /* ---------------------------------------------------------------- remote */
 
-/* The relay drawn the way fan out is: boxes in the raised surface, arrows in
+/* The relay drawn as boxes in the raised surface, arrows in
    the accent. The desktop's arrow points at the relay because that is the
    direction the connection is made, which is the whole reason no port has to
    be opened. The status marks keep their meanings; nothing here is amber
@@ -545,15 +530,13 @@ h2 {
 
 .caption { font-family: var(--mono); font-size: .8125rem; color: var(--muted); text-align: center; margin: 1rem 0 0; }
 
-/* A screenshot set into a section of its own: under the fan-out diagram, and
-   two to a row where a pair of panels sit side by side. */
+/* A screenshot set into a section of its own: two to a row where a pair of panels sit side by side. */
 .figure { margin: 0; }
 .figure img {
   width: 100%; height: auto; display: block;
   border: 1px solid var(--edge); border-radius: var(--radius);
   box-shadow: var(--shadow);
 }
-.fan + .figure { margin-top: 2rem; }
 /* The recording is a 6.8 MB GIF, so the page shows a still of it and does not
    fetch the GIF until the visitor opens the details: a lazy image inside a
    closed details is never rendered, so the browser never asks for it. No
@@ -824,8 +807,6 @@ pre.has-copy { padding-right: 5.5rem; }
 /* ------------------------------------------------------------ responsive */
 
 @media (max-width: 880px) {
-  .fan { grid-template-columns: minmax(0, 1fr); }
-  .fan-arrow { transform: rotate(90deg); }
   .relay { grid-template-columns: minmax(0, 1fr); }
   .relay-link { flex-direction: row; gap: 0.75rem; }
   .relay-link .arrow { transform: rotate(90deg); }
@@ -902,4 +883,4 @@ body { letter-spacing: 0; font-optical-sizing: auto; }
 .card h3, .prose h3, #sponsor h3, .faq summary { letter-spacing: -.01em; }
 .kicker, .cta-note, .caption, .works li, .lanes-title, .lanes .who, .lanes .where, .lanes .file,
 .card .g, .relay-node .g, .relay-tally, .relay-link .t, .deck-tally, .pane-head, .legend b,
-.fan-plan ol, .fan-out li, .licence-text summary, kbd { letter-spacing: .01em; }
+.licence-text summary, kbd { letter-spacing: .01em; }

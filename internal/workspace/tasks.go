@@ -204,14 +204,13 @@ func (w *Workspace) runTask(actor tasks.Actor, members []team.Member, board *tas
 }
 
 // sendTaskNotices writes the messages a change calls for, from Flockdeck, into
-// the inboxes of the panes concerned, and says how many it wrote. Delivery of
-// the line that tells a pane it has mail is the notifier's, as for any message.
+// the inboxes of the panes concerned, and says how many it wrote. How a pane
+// is told it has mail is the same as for any message: see HookNotice.
 func (w *Workspace) sendTaskNotices(ch tasks.Change, actor tasks.Actor, members []team.Member) int {
 	n := 0
 	for _, note := range tasks.Notices(ch, actor, members) {
 		if _, ok := w.team.inbox.SendSystem(note.Pane, note.Text); ok {
 			n++
-			w.pumpTeam(note.Pane)
 		}
 	}
 	return n

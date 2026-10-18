@@ -43,7 +43,8 @@ func TestALegacyPaneRunsItsOwnProjectsDefault(t *testing.T) {
 	if p.Err != nil {
 		t.Errorf("the restored pane did not start (%v); want its own project's gocli, not ghost from the project on screen", p.Err)
 	}
-	if got := ws.PlanSourceFor(id).Spec.ID; got != "gocli" {
-		t.Errorf("fan-out reads the pane's plan as %q's, want gocli's", got)
+	spec, ok := ws.specFor(p.Root, p.Agent)
+	if !ok || spec.ID != "gocli" {
+		t.Errorf("the pane runs %q (found %v), want gocli", spec.ID, ok)
 	}
 }

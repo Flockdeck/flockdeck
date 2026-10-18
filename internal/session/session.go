@@ -231,19 +231,11 @@ type Session struct {
 	// without one of the two a freshly opened pane would announce that it
 	// needs attention before anything has happened in it.
 	sawInput bool
-	// draft records that something was typed into the pane since the last Enter,
-	// Ctrl+C or Ctrl+U, so its prompt may hold text a person has not sent. See
-	// DraftPossible.
-	draft bool
-	// slashLine records that the line being typed began with "/", and menuOpen
-	// and menuSeq that such a line was submitted when hookSeq had the value
-	// menuSeq: a slash command can open a menu or dialog that no hook reports.
-	// See MenuPossible.
-	slashLine  bool
-	menuOpen   bool
-	menuSeq    uint64
-	startedAt  time.Time
-	cols, rows int
+	// typedWrites counts the writes that were typing and not a terminal's own
+	// report. See TypedWrites.
+	typedWrites int
+	startedAt   time.Time
+	cols, rows  int
 	// marks is where in the output each size began, and sized is closed, and
 	// replaced, each time the size changes: see SizeMarks.
 	marks   []SizeMark
@@ -859,11 +851,7 @@ func (s *Session) Write(p []byte) (int, error) {
 	typed := !terminalReport(p)
 	if typed {
 		s.sawInput = true
-		var entered bool
-		s.draft, s.slashLine, entered = inputAfter(s.draft, s.slashLine, p)
-		if entered {
-			s.menuOpen, s.menuSeq = true, s.hookSeq
-		}
+		s.typedWrites++
 		// What the pane prints next may be its answer: see ownRedraw.
 		s.resizedAt = time.Time{}
 	}
@@ -1094,73 +1082,13 @@ func (s *Session) WriteString(text string) error {
 	return err
 }
 
-// inputAfter says, once input p was written to the prompt, whether it may hold
-// unsent text and whether the line being typed began with "/", given the same
-// two facts from before. entered is true when p submitted a line that began with
-// "/". Enter, Ctrl+C and Ctrl+U end a line; a printable key or a paste adds to
-// it. Arrow keys and other escape sequences, a lone Escape and Backspace add
-// nothing. An escape sequence can arrive ahead of text in one write, so the
-// whole of p is walked and only what is not part of a sequence is looked at.
-func inputAfter(draft, slash bool, p []byte) (newDraft, newSlash, entered bool) {
-	for i := 0; i < len(p); i++ {
-		switch c := p[i]; {
-		case c == 0x1b:
-			if i+1 < len(p) && p[i+1] == '[' {
-				j := i + 2
-				for j < len(p) && p[j] < 0x40 {
-					j++
-				}
-				if j >= len(p) {
-					return draft, slash, entered
-				}
-				if string(p[i:j+1]) == "\x1b[200~" {
-					// A paste is text, even one with nothing in it yet.
-					if !draft {
-						slash = j+1 < len(p) && p[j+1] == '/'
-					}
-					draft = true
-				}
-				i = j
-			} else if i+1 < len(p) && p[i+1] == 'O' {
-				i += 2 // SS3: ESC O and one more byte
-			}
-		case c == '\r':
-			if draft && slash {
-				entered = true
-			}
-			draft, slash = false, false
-		case c == 0x03 || c == 0x15:
-			draft, slash = false, false
-		case c >= 0x20 && c != 0x7f:
-			if !draft {
-				slash = c == '/'
-			}
-			draft = true
-		}
-	}
-	return draft, slash, entered
-}
-
-// DraftPossible reports whether the pane's prompt may hold text that was typed
-// and not sent. It is a guess made from what was written to the pane, and errs
-// toward yes: something typed and then deleted with Backspace still counts until
-// an Enter, Ctrl+C or Ctrl+U. Whatever Flockdeck writes itself, such as a notice
-// with its Enter, passes through the same rule.
-func (s *Session) DraftPossible() bool {
+// TypedWrites is how many writes into the pane were input, as opposed to a
+// terminal's own report of focus or the mouse. A test uses it to show that
+// something Flockdeck did typed nothing into the pane's message box.
+func (s *Session) TypedWrites() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.draft
-}
-
-// MenuPossible reports that a line beginning with "/" was submitted and no
-// lifecycle hook has spoken since. A slash command such as /model opens a menu
-// that the agent does not report, and a pane that looks idle behind it would take
-// a notice and its Enter as a choice from the menu. The next hook event, such as
-// the user's next prompt, ends the doubt.
-func (s *Session) MenuPossible() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.menuOpen && s.hookSeq == s.menuSeq
+	return s.typedWrites
 }
 
 // HooksReported reports that the agent's lifecycle hooks have spoken, so its

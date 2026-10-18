@@ -227,6 +227,10 @@ type session struct {
 	in       *input
 	reporter *reporter
 	signals  <-chan os.Signal
+	// notice is what Flockdeck said in reply to a hook of this turn, such as a
+	// message waiting for the pane. It rides on the system prompt of the
+	// requests of the turn and is dropped when the turn ends; see hold.
+	notice string
 
 	model    string
 	system   string
@@ -419,7 +423,8 @@ func (s *session) turn(ctx context.Context, prompt string) {
 // a prompt the user has just added, or -- for /retry -- one that was never
 // answered.
 func (s *session) carryOn(ctx context.Context, prompt string) {
-	s.reporter.userPrompt(prompt)
+	s.hold(s.reporter.userPrompt(prompt))
+	defer func() { s.notice = "" }()
 	s.unfinished = false
 	turnCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -629,7 +634,7 @@ func (s *session) sayWhyItStopped(err error) {
 func (s *session) stream(ctx context.Context) ([]ToolCall, error) {
 	req := Request{
 		Model:     s.model,
-		System:    s.system,
+		System:    compose(s.system, s.notice),
 		Messages:  s.messages,
 		Tools:     s.opts.Tools,
 		MaxTokens: s.opts.MaxTokens,
@@ -719,6 +724,20 @@ func (s *session) record(e Entry) {
 // The directory and the system are said because everything the model does
 // with the tools depends on them, and a chat run by hand has no briefing to
 // say either: a model not told it is on Windows reaches for ls and /tmp.
+// hold keeps what Flockdeck answered a hook with, if it said anything, to be
+// sent to the model with the requests of the rest of this turn. Claude Code
+// shows the same reply to its model, so a message for this pane is told here
+// the way it is there, and nothing is typed into the input.
+func (s *session) hold(notice string) {
+	if strings.TrimSpace(notice) == "" {
+		return
+	}
+	if s.notice != "" {
+		s.notice += "\n"
+	}
+	s.notice += strings.TrimSpace(notice)
+}
+
 func (s *session) systemWith(brief string) string {
 	where := fmt.Sprintf("%s\n\nYou are working in %s, on %s.", systemPrompt, s.opts.Cwd, osName())
 	return compose(where, brief)

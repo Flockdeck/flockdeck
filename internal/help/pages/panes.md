@@ -49,8 +49,7 @@ shortcuts are on <kbd>Ctrl+Shift</kbd>, which agents do not use.
   Closing a tab's last pane closes the tab, and the `×` on a tab, or a click
   on it with the middle button, closes every pane in it.
 
-The buttons in a pane header, in order: fan out (`⑂`), save the plan as a
-todo (`☑`), include in broadcast (`⇉`), auto-approve read-only (`✓`), restart, zoom,
+The buttons in a pane header, in order: include in broadcast (`⇉`), auto-approve read-only (`✓`), restart, zoom,
 export transcript, record, pane info (`ⓘ`), lock, close. Auto-approve read-only is off
 until you turn it on, pane by pane (the ✓'s tooltip counts the commands it has
 let through unasked so far), and the pane keeps the setting across a

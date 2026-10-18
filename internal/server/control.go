@@ -385,6 +385,13 @@ type paneView struct {
 	// Recording says the pane's agent interaction is being written to a
 	// transcript (workspace.Pane.Recording), so its header says so.
 	Recording bool `json:"recording,omitempty"`
+	// Unread is how many messages from other agents or from Flockdeck wait in
+	// this pane's inbox unread (workspace.Workspace.Unread). The header draws
+	// it for every agent, whether or not it has been told of them, because a
+	// notice is never typed into the pane: this count is how the person at the
+	// window sees mail waiting for an agent that is idle, or that has no hooks
+	// to be told through. Left out at zero.
+	Unread int `json:"unread,omitempty"`
 	// AutoReview says this pane's PreToolUse calls are put to auto-review
 	// approvals before Claude Code would otherwise show its own permission
 	// prompt, and AutoApproved counts how many it has let through unasked so
@@ -507,29 +514,26 @@ type noticeMsg struct {
 
 // command is a request from the front end.
 type command struct {
-	Cmd       string    `json:"cmd"`
-	ID        string    `json:"id"`
-	Node      string    `json:"node"`
-	Root      string    `json:"root"`
-	Dir       string    `json:"dir"`
-	Kind      string    `json:"kind"`
-	Text      string    `json:"text"`
-	Path      string    `json:"path"`
-	Cols      int       `json:"cols"`
-	Rows      int       `json:"rows"`
-	Weights   []float64 `json:"weights"`
-	Submit    bool      `json:"submit"`
-	Base      string    `json:"base"`
-	Force     bool      `json:"force"`
-	Push      bool      `json:"push"`
-	Tasks     []string  `json:"tasks"`
-	Worktrees bool      `json:"worktrees"`
+	Cmd     string    `json:"cmd"`
+	ID      string    `json:"id"`
+	Node    string    `json:"node"`
+	Root    string    `json:"root"`
+	Dir     string    `json:"dir"`
+	Kind    string    `json:"kind"`
+	Text    string    `json:"text"`
+	Path    string    `json:"path"`
+	Cols    int       `json:"cols"`
+	Rows    int       `json:"rows"`
+	Weights []float64 `json:"weights"`
+	Submit  bool      `json:"submit"`
+	Base    string    `json:"base"`
+	Force   bool      `json:"force"`
+	Push    bool      `json:"push"`
 	// Target names what a drag was dropped on: a pane for movePane and
 	// swapPanes, a tab for movePaneToTab, moveTab and mergeTab.
 	Target string `json:"target"`
 	// Edge is which side of the target a dragged pane landed on.
 	Edge  string `json:"edge"`
-	Trust bool   `json:"trust"`
 	Split bool   `json:"split"`
 	// Size is the terminal font size for fontSize, a number of lines for
 	// scrollback, and a width in pixels for railWidth.
@@ -541,18 +545,6 @@ type command struct {
 	// nothing it has to say.
 	Agent string `json:"agent"`
 	Model string `json:"model"`
-	// TaskAgents and TaskModels are a fan-out's per-row overrides, positional
-	// against Tasks. They are parallel arrays rather than a list of objects so
-	// that the tasks stay exactly where they have always been on the wire: a
-	// window that knows nothing about agents still sends a fan-out this side
-	// reads.
-	TaskAgents []string `json:"taskAgents"`
-	TaskModels []string `json:"taskModels"`
-	// TaskRouted and RouteOverrides say which of a fan-out's rows start on the
-	// model routing chose, and which routed choices were changed before they
-	// started; see fanoutRequest.
-	TaskRouted     []string        `json:"taskRouted"`
-	RouteOverrides []routeOverride `json:"routeOverrides"`
 	// Relay, Name, Join and Invite are what the remote access dialog turns
 	// remote access on with, each the flag of the same name to `flockdeck
 	// remote enable`, and each may be empty. remoteMove takes the same, the
@@ -654,19 +646,10 @@ type command struct {
 	// decided by cmd.Type, the same as every other field this struct reuses
 	// across commands.
 	Roots []string `json:"roots"`
-	// TodoID and StepID name a todo and one of its steps for the todo
-	// checklist feature's own commands; Title and Spec are a todo's own.
-	// StepIDs is positional against Tasks, reused here for a todo's step
-	// text the same way it already carries a fan-out's edited task list: an
-	// empty entry is a step with no id yet, minted by Workspace.SaveTodo.
-	// Done is todoStepDone's own: the checkbox state to set. See
-	// internal/server/todo.go.
-	TodoID  string   `json:"todoId,omitempty"`
-	StepID  string   `json:"stepId,omitempty"`
-	Title   string   `json:"title,omitempty"`
-	Spec    string   `json:"spec,omitempty"`
-	StepIDs []string `json:"stepIds,omitempty"`
-	Done    bool     `json:"done,omitempty"`
+	// Title and Spec are the task a Team panel's taskAdd creates: its title and
+	// its brief.
+	Title string `json:"title,omitempty"`
+	Spec  string `json:"spec,omitempty"`
 	// Watch is setDeviceRole's own: whether a viewer may also watch panes.
 	Watch bool `json:"watch,omitempty"`
 	// State and MsgID are the Team panel's own, with Root naming the project and
@@ -795,6 +778,7 @@ func (s *Server) snapshot() stateMsg {
 				Muted:        p.Muted,
 				Locked:       p.Locked,
 				Recording:    ws.PaneRecording(p.ID),
+				Unread:       ws.Unread(p.ID),
 				AutoReview:   p.AutoReview,
 				AutoApproved: ws.AutoApprovedOf(p),
 				PeerName:     ws.PeerNameOf(p),
@@ -1541,24 +1525,6 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "browse":
 		s.browse(c, cmd.Path)
 		return
-	case "fanoutPreview":
-		s.previewFanout(c, cmd.ID)
-		return
-	case "fanout":
-		s.fanout(c, fanoutRequest{
-			Parent:     cmd.ID,
-			Tasks:      cmd.Tasks,
-			Agent:      cmd.Agent,
-			Model:      cmd.Model,
-			TaskAgents: cmd.TaskAgents,
-			TaskModels: cmd.TaskModels,
-			TaskRouted: cmd.TaskRouted,
-			Overrides:  cmd.RouteOverrides,
-			Worktrees:  cmd.Worktrees,
-			Split:      cmd.Split,
-			Trust:      cmd.Trust,
-		})
-		return
 	case "startAgent":
 		s.startAgent(c, cmd)
 		return
@@ -1570,9 +1536,6 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "approveBaton":
 		s.approveBaton(c, cmd.Text)
-		return
-	case "routeTasks":
-		s.routeTasks(c, cmd)
 		return
 	case "setRouting":
 		s.setRouting(c, cmd)
@@ -1691,27 +1654,6 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "recents":
 		s.recents(c)
-		return
-	case "fanoutHistory":
-		s.fanoutHistory(c, cmd.Root)
-		return
-	case "todoPlanPreview":
-		s.previewTodoPlan(c, cmd.ID, cmd.Root)
-		return
-	case "todos":
-		s.listTodos(c, cmd.Root)
-		return
-	case "todoSave":
-		s.saveTodo(c, cmd)
-		return
-	case "todoDelete":
-		s.deleteTodo(c, cmd.TodoID)
-		return
-	case "todoStepDone":
-		s.setTodoStepDone(c, cmd.TodoID, cmd.StepID, cmd.Done)
-		return
-	case "todoStepStart":
-		s.startTodoStep(c, cmd)
 		return
 	case "remoteDevices":
 		s.remoteDevices(c)
@@ -1853,9 +1795,6 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "accentColor":
 		s.setAccentColor(c, cmd.Text)
-		return
-	case "fanOutSameTab":
-		s.setFanOutSameTab(c, cmd.Kind == "on")
 		return
 	case "autoReviewDefault":
 		s.setAutoReviewDefault(c, cmd.Kind == "on")
@@ -2026,18 +1965,6 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				c.notify(lockedTabNotice(len(locked)), true)
 				return
 			}
-			// The whole job is about to go, panes and all, so its history is
-			// captured first -- see captureFanoutHistory -- while every pane
-			// it needs is still there to read.
-			if t := ws.Tab(cmd.ID); t != nil {
-				s.captureFanoutHistory(t)
-				// A todo step's pane closing along with the rest of its tab
-				// is read the same way one closed on its own is; see
-				// captureTodoStepOutcome.
-				for _, id := range t.Tree.Panes() {
-					s.captureTodoStepOutcome(id)
-				}
-			}
 			ws.CloseTab(cmd.ID)
 		case "selectTab":
 			// A tab bar drawn before another window closed the tab: the click
@@ -2146,17 +2073,6 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				c.notify(lockedPaneNotice, true)
 				return
 			}
-			// A settled job closed pane by pane rather than by its tab is
-			// captured on the first of those closes, while every pane is
-			// still there to read -- see captureFanoutHistory, which marks
-			// the tab so the rest of its panes closing one after another
-			// does not capture it again.
-			if tid := ws.TabIDOf(id); tid != "" {
-				if t := ws.Tab(tid); t != nil {
-					s.captureFanoutHistory(t)
-				}
-			}
-			s.captureTodoStepOutcome(id)
 			if !ws.ClosePaneByID(id) {
 				c.notify(paneGone, true)
 				return

@@ -60,9 +60,8 @@ model id and an expired login both look like this from outside.
 
 A worktree is a directory the agent has never seen, and some agents (Claude
 Code among them) ask before working in one. Answer it once and it will not ask
-again for that directory; to avoid it entirely when fanning out, use the trust
-checkbox in the [Fan out](#fanout) dialog, which carries over the answer already given for
-the project. It carries Claude Code's "Allow external CLAUDE.md file imports?"
+again for that directory; to avoid it entirely for a helper, start it from a pane
+that has already been trusted in the project; the answer carries over. It carries Claude Code's "Allow external CLAUDE.md file imports?"
 answer too, if the project was ever asked it.
 
 ## A pane stopped saying what its agent is doing
@@ -99,14 +98,12 @@ Claude pane. That choice, and any change to your own status line, applies to a
 pane when it starts, so use [[action:restartPane]] on one already running.
 [Spend and limits](#spend) has the rest.
 
-## A fan-out shows no routed rows
+## A helper shows no routed model
 
 Routing is off until you turn it on, in **Settings › Routing**. When
-it is on, it still leaves a line alone when no rule matches its task, when the
+it is on, it still leaves work alone when no rule matches its task, when the
 run is on a model whose size it does not know (Claude Code's **Default** among
-them), and when the agent has no model in the tier the rule asks for. The
-dialog says so when routing can do nothing for the run's model.
-[Agents and models](#agents) has the rules.
+them), and when the agent has no model in the tier the rule asks for. [Agents and models](#agents) has the rules.
 
 ## Push, pull or fetch fails over ssh
 

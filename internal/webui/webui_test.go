@@ -8,13 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/help"
-	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // frontEndDeadline bounds one front-end case run under node.
@@ -1811,7 +1809,7 @@ assert.strictEqual(list().length, pages, "clearing the search did not bring the 
 }
 
 // The buttons in a pane header sit between the top bar and the terminals, and
-// there are eleven of them per pane.
+// there are nine of them per pane.
 func TestThePaneButtonsAreOneStopEach(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
@@ -1830,7 +1828,7 @@ assert.ok(bars.every((b) => b.getAttribute("aria-label")), "the rows have no nam
 const stops = (bar) => bar.children.filter((b) => b.tabIndex !== -1).length;
 assert.deepStrictEqual(bars.map(stops), [1, 1, 1, 1, 1, 1],
   "each row of buttons is more than one stop on the way through the window");
-assert.strictEqual(bars[0].children.length, 11, "eleven things to do with a pane");
+assert.strictEqual(bars[0].children.length, 9, "nine things to do with a pane");
 
 // The arrows walk the row and take the stop with them.
 const buttons = bars[0].children;
@@ -1840,7 +1838,7 @@ assert.ok(h.doc.activeElement === buttons[1], "the right arrow did not move alon
 assert.strictEqual(buttons[1].tabIndex, 0, "the stop did not move with the focus");
 assert.strictEqual(buttons[0].tabIndex, -1);
 h.key({ key: "End" });
-assert.ok(h.doc.activeElement === buttons[10], "End did not go to the last button");
+assert.ok(h.doc.activeElement === buttons[8], "End did not go to the last button");
 h.key({ key: "ArrowRight" });
 assert.ok(h.doc.activeElement === buttons[0], "the row does not wrap");
 
@@ -1850,16 +1848,16 @@ h.doc.body.focus();
 h.key({ key: "Tab" });
 h.key({ key: "Tab" });
 assert.strictEqual(stops(bars[0]), 1, "the row grew a second stop");
-assert.strictEqual(buttons[10].tabIndex, 0, "the stop did not stay where it was left");
+assert.strictEqual(buttons[8].tabIndex, 0, "the stop did not stay where it was left");
 
 // And they still do what they say.
-buttons[10].focus();
+buttons[8].focus();
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "closePane", id: "p0" });
-buttons[9].focus();
+buttons[7].focus();
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "lockPane", id: "p0", locked: true });
-buttons[5].focus();
+buttons[3].focus();
 h.key({ key: " " });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "toggleZoom", id: "p0" });
 `)
@@ -2144,54 +2142,6 @@ h.recv(fixture({
   working: 1,
 }));
 assert.ok(!h.$("workspace").querySelector(".show-summary"), "the chip survived the tab going back to work");
-`)
-}
-
-// The history panel draws a closed job the same one-line-per-pane way the
-// live summary card does, from whatever the Go side has kept for this
-// project in memory.
-func TestFanOutHistoryListsPastJobs(t *testing.T) {
-	runFrontEnd(t, `
-h.hello();
-h.recv(fixture());
-h.click(h.$("btn-fanout-history"));
-assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutHistory", root: "C:/repo" });
-assert.ok(h.$("overlay-body").textContent.includes("Reading past jobs"));
-
-h.recv({ type: "fanoutHistory", root: "C:/repo", items: [] });
-assert.ok(h.$("overlay-body").textContent.includes("No finished fan-out jobs have been closed in this project since Flockdeck started"));
-
-h.recv({
-  type: "fanoutHistory", root: "C:/repo",
-  items: [{
-    id: "j1", title: "Fan out", at: "2024-01-01T00:00:00Z", ago: "3 hours ago",
-    panes: [
-      { name: "task 0", branch: "task-0", task: "first task", kind: "done", detail: "wrapped it up" },
-      { name: "task 1", branch: "task-1", task: "second task", kind: "needs", detail: "Wants a question." },
-    ],
-  }],
-});
-const body = h.$("overlay-body");
-assert.ok(body.textContent.includes("Fan out"), "the job's title is missing");
-assert.ok(body.textContent.includes("3 hours ago"), "when the job finished is missing");
-assert.ok(body.textContent.includes("2 agents"), "the pane count is missing");
-
-const rows = [...body.querySelectorAll(".summary-card-row")];
-assert.strictEqual(rows.length, 2, "want one row per pane");
-assert.ok(rows[0].textContent.includes("task 0") && rows[0].textContent.includes("task-0"));
-assert.ok(rows[0].textContent.includes("first task"), "the task that was fanned out is missing");
-assert.ok(rows[0].textContent.includes("wrapped it up"), "the agent's last reply is missing");
-assert.strictEqual(rows[0].querySelector(".summary-card-outcome").textContent, "done");
-assert.ok(rows[0].querySelector(".summary-card-outcome").classList.contains("done"));
-assert.strictEqual(rows[1].querySelector(".summary-card-outcome").textContent, "needs input");
-assert.ok(rows[1].querySelector(".summary-card-outcome").classList.contains("needs"));
-assert.ok(rows[1].textContent.includes("Wants a question."));
-
-// Refresh asks again, for this project.
-const refresh = [...body.querySelectorAll("button")].filter((b) => b.textContent === "Refresh")[0];
-assert.ok(refresh, "no way to ask again");
-h.click(refresh);
-assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutHistory", root: "C:/repo" });
 `)
 }
 
@@ -2723,19 +2673,6 @@ assert.ok(rows[1].textContent.includes("$1 / $5 per M tokens, checked 2026-09-12
   "the price, or the day it was read, is not shown: " + rows[1].textContent);
 assert.ok(!rows[2].querySelector("span.pick-tier") && !rows[2].textContent.includes("$"),
   "a model with no tier or price was given one: " + rows[2].textContent);
-
-// The fan-out's selects have no room for chips, so they say the same in words.
-h.key({ key: "Escape" });
-h.press("fanout");
-h.recv({ type: "fanoutPreview", paneId: "p1", tasks: ["one"], isRepo: false, cwd: "C:/repo", agent: "anthropic",
-  agents: [{ id: "anthropic", name: "Claude API", default: "claude-sonnet-5", models: [
-    { id: "claude-sonnet-5", name: "Sonnet 5", note: "the everyday one", tier: "mid", price: { in: 2, out: 10, checked } },
-    { id: "claude-haiku-4-5", name: "Haiku 4.5", tier: "small" },
-    { id: "odd", name: "Unpriced" }] }] });
-const opts = h.$("overlay-body").querySelector("select.fan-agent-sel").querySelectorAll("option").map((o) => o.textContent);
-assert.ok(opts.includes("Sonnet 5 — the everyday one (mid, $2/$10)"), "got: " + JSON.stringify(opts));
-assert.ok(opts.includes("Haiku 4.5 (small)"), "got: " + JSON.stringify(opts));
-assert.ok(opts.includes("Unpriced"), "got: " + JSON.stringify(opts));
 `)
 }
 
@@ -3643,6 +3580,54 @@ assert.strictEqual(t.pasted.length, 1, "an ordinary paste was pasted twice");
 `)
 }
 
+// The paste strips the same characters the remote client and the prompt bar
+// do: C0 controls except tab, LF and CR, DEL, and U+0080 to U+009F. Text that
+// is left alone keeps its line breaks for xterm, and a paste with nothing left
+// sends nothing and does not reach xterm either.
+func TestAPasteLosesControlCharactersAndNothingElse(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const t = h.terms[0];
+const typing = h.doc.createElement("textarea");
+typing.className = "xterm-helper-textarea";
+t.host.append(typing);
+const reached = [];
+typing.addEventListener("paste", () => reached.push("xterm"));
+const paste = (text) => {
+  const ev = new h.Ev("paste", { clipboardData: { getData: (type) => (type === "text/plain" ? text : "") } });
+  h.dispatch(typing, ev);
+  return ev;
+};
+// Sent by us (stripped), or left for xterm (untouched), or swallowed.
+const outcome = (text) => {
+  t.pasted = []; reached.length = 0;
+  const ev = paste(text);
+  if (t.pasted.length) { assert.strictEqual(t.pasted.length, 1); assert.deepStrictEqual(reached, [], "xterm pasted it as well"); assert.ok(ev.defaultPrevented); return t.pasted[0]; }
+  if (reached.length) { assert.ok(!ev.defaultPrevented, "an untouched paste was kept from xterm"); return "xterm"; }
+  assert.ok(ev.defaultPrevented, "a swallowed paste was left to the browser");
+  return null;
+};
+
+// Coloured text copied from a terminal: the escapes go, the words stay.
+assert.strictEqual(outcome("\x1b[31mred\x1b[0m and \x1b[1;32mgreen\x1b[0m\n"), "[31mred[0m and [1;32mgreen[0m\n");
+assert.strictEqual(outcome("a\x0cb"), "ab", "form feed");
+assert.strictEqual(outcome("a\x00b\x01\x08\x0b\x0e\x1f\x7f\x80\x9b\x9fz"), "abz", "NUL, other C0, DEL and C1");
+// Line breaks and tabs are not touched, so xterm still turns CRLF and LF into CR.
+assert.strictEqual(outcome("a\r\nb\nc\rd\te\x00"), "a\r\nb\nc\rd\te");
+assert.strictEqual(outcome("a\r\nb\n\tc"), "xterm", "text with no control characters was taken from xterm");
+// Everything from U+00A0 up stays.
+assert.strictEqual(outcome("a\u00a0b \u200d \u2028 \u2029 caf\u00e9 \u65e5\u672c \ud83d\udc69\u200d\ud83d\udcbb\x1b"), "a\u00a0b \u200d \u2028 \u2029 caf\u00e9 \u65e5\u672c \ud83d\udc69\u200d\ud83d\udcbb");
+assert.strictEqual(outcome("a\u00a0b \u2028 \u2029 \u200d \ud83d\udc69\ud83d\udcbb"), "xterm");
+// Paste markers in the text become literal text.
+assert.strictEqual(outcome("x\x1b[200~y\x1b[201~z"), "x[200~y[201~z");
+// Nothing left: nothing sent, and xterm does not get it.
+assert.strictEqual(outcome("\x1b\x00\x7f\x9b"), null);
+// An empty clipboard text is not ours: xterm's handler sees it.
+assert.strictEqual(outcome(""), "xterm");
+`)
+}
+
 // The server takes a frame of up to 4 MiB from a terminal, and a paste bigger
 // than that went as one frame and was dropped with the connection, silently.
 // Input is sent a mebibyte at a time.
@@ -4368,18 +4353,15 @@ func TestADividerCanBeDraggedByTouch(t *testing.T) {
 }
 
 // The broadcast toggle in a pane header lights up while its pane is in the
-// set. It was found as the first button in the row, which is fan out, so it
-// was fan out that lit up and the toggle never did.
+// set.
 func TestTheBroadcastToggleShowsItsOwnState(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
 h.recv(fixture({ panes: { p1: pane("p1", { broadcast: true }), p2: pane("p2") } }));
 const buttons = h.terms[0].host.parentElement.parentElement.querySelectorAll("button");
-const fan = buttons.find((b) => b.textContent === "⑂");
 const cast = buttons.find((b) => b.textContent === "⇉");
 assert.ok(cast.classList.contains("on"), "the broadcast toggle does not show that it is on");
 assert.strictEqual(cast.getAttribute("aria-pressed"), "true", "a screen reader is not told the toggle is on");
-assert.ok(!fan.classList.contains("on"), "fan out lit up for a pane in the broadcast set");
 
 h.recv(fixture());
 assert.ok(!cast.classList.contains("on"), "the toggle stayed on after the pane left the set");
@@ -5773,10 +5755,7 @@ assert.strictEqual(h.terms[0].options.cursorBlink, false, "the terminals' cursor
 
 // General: New panes, which were Behaviour's.
 h.click(h.$("settings-tab-general"));
-assert.strictEqual(h.$("set-fanout-sametab").checked, false, "fan out's own tab is offered as the default");
-h.$("set-fanout-sametab").checked = true;
-h.dispatch(h.$("set-fanout-sametab"), new h.Ev("change"));
-assert.deepStrictEqual(h.commands().pop(), { cmd: "fanOutSameTab", kind: "on" });
+assert.strictEqual(h.$("set-fanout-sametab"), null, "the Fan out setting is still offered");
 h.click(h.$("set-auto-review-default"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "autoReviewDefault", kind: "on" });
 assert.ok(on("set-auto-review-default"), "the switch did not turn on at once");
@@ -6005,26 +5984,6 @@ assert.ok(h.doc.activeElement === h.$("recent-8"), "the keyboard did not land on
 `)
 }
 
-// The fan-out's tasks go one to a line, so Enter is a new line there and
-// starting the agents took the pointer, or Tab past every option to the
-// button. Ctrl+Enter starts them.
-func TestCtrlEnterStartsTheFanOut(t *testing.T) {
-	runFrontEnd(t, `
-h.hello();
-h.recv(fixture());
-h.press("fanout");
-h.recv({ type: "fanoutPreview", paneId: "p1", tasks: ["Add a health endpoint", "Write tests"], isRepo: false, cwd: "C:/repo" });
-const box = h.$("overlay-body").querySelector("textarea.fan-tasks");
-box.focus();
-const plain = h.key({ key: "Enter" });
-assert.ok(!plain.defaultPrevented, "a plain Enter no longer makes a new line in the task list");
-h.key({ key: "Enter", ctrlKey: true });
-const sent = h.commands().pop();
-assert.strictEqual(sent.cmd, "fanout", "Ctrl+Enter did not start the agents");
-assert.deepStrictEqual(sent.tasks, ["Add a health endpoint", "Write tests"]);
-`)
-}
-
 // The prompt bar is how one instruction reaches every agent, and sending it
 // again, or a variation on it, meant typing it out in full. Up recalls what
 // was sent, as it does at a prompt, and Down comes back to what was being
@@ -6093,246 +6052,11 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "fontSize", size: 15 }, "Ctrl 
 `)
 }
 
-// The fan-out's trust row is about Claude Code's folder-trust question, in
-// Claude's words, and was drawn whichever agents had been chosen. It shows
-// only while one that asks the question is among them: the server says which
-// do, and until it does, that is Claude.
-func TestTheFanOutOffersTrustOnlyForAgentsThatAsk(t *testing.T) {
-	runFrontEnd(t, `
-h.hello();
-h.recv(fixture());
-const preview = (agents, agent) => ({ type: "fanoutPreview", paneId: "p1", tasks: ["one task"], isRepo: true,
-  trusted: true, project: "repo", cwd: "C:/repo", agent, agents });
-const trustRow = () => h.$("overlay-body").querySelectorAll("label.fan-opt").find((l) => l.textContent.includes("Trust"));
-const runSel = () => h.$("overlay-body").querySelector("select.fan-agent-sel");
-const pick = (value) => { const s = runSel(); s.value = value; h.dispatch(s, new h.Ev("change", { target: s })); };
-const agents = [
-  { id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }] },
-  { id: "codex", name: "Codex", models: [{ id: "gpt-5" }] },
-];
-
-h.press("fanout");
-h.recv(preview(agents, "codex"));
-assert.ok(trustRow().hidden, "the trust row is offered for an agent that asks no such question");
-pick("claude\n");
-assert.ok(!trustRow().hidden, "the trust row is not offered when Claude is chosen");
-h.$("overlay-body").querySelector("button.primary").onclick();
-assert.strictEqual(h.commands().pop().trust, true);
-
-// Where the server says which agents ask, that is what counts.
-h.key({ key: "Escape" });
-h.press("fanout");
-h.recv(preview([{ id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }], askTrust: false },
-                { id: "other", name: "Other", models: [{ id: "m" }], askTrust: true }], "other"));
-assert.ok(!trustRow().hidden, "an agent the server says asks was not offered trust");
-pick("claude\n");
-assert.ok(trustRow().hidden, "the id was trusted over what the server said");
-`)
-}
-
-// fanoutRouting opens the window and defines a fan-out preview with routing on:
-// three tasks, one routed to a smaller model, one left alone, and one routed
-// to a stronger model.
-const fanoutRouting = `
-h.hello();
-h.recv(fixture());
-const routedAgents = [{ id: "claude", name: "Claude Code", default: "", models: [
-  { id: "", name: "Default" }, { id: "opus", name: "Opus", tier: "top" },
-  { id: "sonnet", name: "Sonnet", tier: "mid" }, { id: "haiku", name: "Haiku", tier: "small" }] }];
-const routedPreview = (over) => Object.assign({ type: "fanoutPreview", paneId: "p1", isRepo: false, cwd: "C:/repo",
-  tasks: ["run the tests", "add a health endpoint", "fix the race"], agent: "claude", model: "sonnet",
-  agents: routedAgents, routing: "suggest",
-  routes: [{ model: "haiku", tier: "small", rule: "run the tests", reason: "rule 'run the tests' → small" }, null,
-           { model: "opus", tier: "top", rule: "hard work", reason: "rule 'hard work' → top", up: true }] }, over || {});
-const body = h.$("overlay-body");
-const sels = () => body.querySelectorAll("div.fan-row").map((r) => r.querySelector("select"));
-const tags = () => body.querySelectorAll("span.fan-routed");
-`
-
-// Routing pre-fills a fan-out's rows and marks them, and the dialog sends
-// exactly what it shows: a routed row goes over the wire as a row chosen by
-// hand does, and its rule only marks the pane it starts.
-func TestTheFanOutShowsWhatRoutingChoseAndStartsWhatItShows(t *testing.T) {
-	runFrontEnd(t, fanoutRouting+`
-h.press("fanout");
-h.recv(routedPreview());
-assert.deepStrictEqual(sels().map((s) => s.value), ["claude\nhaiku", "", "claude\nopus"]);
-assert.strictEqual(tags().length, 2, "the routed rows are not marked");
-assert.ok(tags()[0].dataset.tip.includes("run the tests"), "the tag does not say why: " + tags()[0].dataset.tip);
-assert.ok(tags()[1].textContent.includes("↗"), "a stronger model is not marked as one");
-// The model line has room for the count; the sentence is its tooltip.
-assert.strictEqual(body.querySelector("span.fan-route-text").textContent, "Routing: 1 down, 1 up");
-assert.strictEqual(body.querySelector("span.fan-route-text").dataset.tip,
-  "Routing chose a smaller model for 1 of 3 tasks and a stronger one for 1.");
-assert.ok(body.querySelector("span.fan-count").textContent.includes("2 routed"),
-  "the count does not say how many were routed: " + body.querySelector("span.fan-count").textContent);
-
-// Changing a routed row makes it the user's.
-const s = sels()[2];
-s.value = "claude\nsonnet";
-h.dispatch(s, new h.Ev("change", { target: s }));
-assert.strictEqual(tags().length, 1, "the tag stayed on a row somebody chose for");
-
-body.querySelector("button.primary").onclick();
-const sent = h.commands().pop();
-assert.deepStrictEqual(sent.taskAgents, ["claude", "", "claude"]);
-assert.deepStrictEqual(sent.taskModels, ["haiku", "", "sonnet"]);
-assert.deepStrictEqual(sent.taskRouted, ["run the tests", "", ""]);
-assert.deepStrictEqual(sent.routeOverrides, [{ task: "fix the race", rule: "hard work", agent: "claude", routed: "opus", chosen: "sonnet" }]);
-`)
-}
-
-// A row routed to another agent shows that agent's select, and starts it:
-// what was shown is what runs, agent included.
-func TestTheFanOutShowsARouteToAnotherAgent(t *testing.T) {
-	runFrontEnd(t, fanoutRouting+`
-h.press("fanout");
-h.recv(routedPreview({
-  agents: routedAgents.concat([{ id: "openai-compatible", name: "OpenAI-compatible endpoint",
-    models: [{ id: "qwen2.5-coder", name: "Qwen 2.5 Coder", tier: "small" }] }]),
-  routes: [{ model: "qwen2.5-coder", tier: "small", rule: "tests go local", agent: "openai-compatible",
-             reason: "rule 'tests go local' → OpenAI-compatible endpoint · Qwen 2.5 Coder. Runs on your own machine, no per-token cost" },
-           null, null],
-}));
-assert.deepStrictEqual(sels().map((s) => s.value), ["openai-compatible\nqwen2.5-coder", "", ""]);
-assert.strictEqual(tags().length, 1, "the cross-agent row is not marked routed");
-assert.ok(tags()[0].dataset.tip.includes("no per-token cost"), "the tag does not say what it costs: " + tags()[0].dataset.tip);
-
-body.querySelector("button.primary").onclick();
-const sent = h.commands().pop();
-assert.deepStrictEqual(sent.taskAgents, ["openai-compatible", "", ""]);
-assert.deepStrictEqual(sent.taskModels, ["qwen2.5-coder", "", ""]);
-assert.deepStrictEqual(sent.taskRouted, ["tests go local", "", ""]);
-
-// The count line says which agent the routed row actually runs on.
-assert.ok(body.querySelector("span.fan-count").textContent.includes("OpenAI-compatible endpoint"),
-  "the split does not name the agent a routed row runs on: " + body.querySelector("span.fan-count").textContent);
-`)
-}
-
-// One button puts every routed row back on the run's model.
-func TestTheRunsModelCanBeTakenForEveryTask(t *testing.T) {
-	runFrontEnd(t, fanoutRouting+`
-h.press("fanout");
-h.recv(routedPreview());
-const clear = h.$("fan-route-clear");
-assert.ok(clear && !clear.hidden, "there is no way to take the run's model for every task");
-h.click(clear);
-assert.strictEqual(tags().length, 0, "rows are still marked routed");
-assert.deepStrictEqual(sels().map((s) => s.value), ["", "", ""]);
-assert.ok(h.$("fan-route-clear").hidden, "the button is offered with nothing left to undo");
-body.querySelector("button.primary").onclick();
-const sent = h.commands().pop();
-assert.strictEqual(sent.taskAgents, undefined, "rows on the run's model were sent as chosen by hand");
-assert.strictEqual(sent.taskRouted, undefined);
-assert.strictEqual(sent.routeOverrides.length, 2, "the log is not told the routed choices were set aside");
-`)
-}
-
-// With routing off the dialog is exactly what it was, and asks for nothing.
-func TestTheFanOutWithRoutingOffIsUnchanged(t *testing.T) {
-	runFrontEnd(t, fanoutRouting+`
-h.press("fanout");
-h.recv(routedPreview({ routing: undefined }));
-assert.ok(!body.querySelector("div.fan-route"), "a routing line was drawn with routing off");
-assert.strictEqual(tags().length, 0);
-assert.deepStrictEqual(sels().map((s) => s.value), ["", "", ""]);
-const box = body.querySelector("textarea.fan-tasks");
-box.value += "\nrename foo";
-box.oninput();
-await h.sleep(300);
-assert.ok(!h.commands().some((c) => c.cmd === "routeTasks"), "routes were asked for with routing off");
-`)
-}
-
-// An edited list is routed afresh once typing pauses, and so is a run moved to
-// another model; an answer about a run since changed is not taken.
-func TestAnEditedFanOutIsRoutedAfresh(t *testing.T) {
-	runFrontEnd(t, fanoutRouting+`
-h.press("fanout");
-h.recv(routedPreview());
-const box = body.querySelector("textarea.fan-tasks");
-box.value = "run the tests\nrename foo to bar";
-box.oninput();
-await h.sleep(300);
-const ask = h.commands().pop();
-assert.deepStrictEqual(ask, { cmd: "routeTasks", tasks: ["run the tests", "rename foo to bar"], agent: "claude", model: "sonnet" });
-const route = (rule) => ({ model: "haiku", tier: "small", rule, reason: "rule '" + rule + "' → small" });
-h.recv({ type: "routes", agent: "claude", model: "sonnet", tasks: ask.tasks, routes: [route("run the tests"), route("rename or move")] });
-assert.deepStrictEqual(sels().map((s) => s.value), ["claude\nhaiku", "claude\nhaiku"]);
-h.recv({ type: "routes", agent: "codex", model: "", tasks: ask.tasks, routes: [null, null] });
-assert.strictEqual(tags().length, 2, "an answer about another run was taken");
-
-const run = body.querySelector("div.fan-agent").querySelector("select");
-run.value = "claude\nopus";
-h.dispatch(run, new h.Ev("change", { target: run }));
-assert.strictEqual(tags().length, 0, "routes for the old model stayed on the rows");
-await h.sleep(300);
-assert.deepStrictEqual(h.commands().pop(), { cmd: "routeTasks", tasks: ask.tasks, agent: "claude", model: "opus" });
-`)
-}
-
-// A choice for one row is held by the task's text, so two rows with the same
-// text share it. Only the row chosen on was redrawn: the other went on saying
-// "Same as the run" while Start sent the new choice for both of them.
-func TestTwoRowsWithTheSameTaskShowTheChoiceTheyShare(t *testing.T) {
-	runFrontEnd(t, `
-h.hello();
-h.recv(fixture());
-h.press("fanout");
-h.recv({ type: "fanoutPreview", paneId: "p1", tasks: ["write the tests", "write the tests"], isRepo: false,
-  cwd: "C:/repo", agent: "claude", agents: [{ id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }] }] });
-const body = h.$("overlay-body");
-const sels = () => body.querySelectorAll("div.fan-row").map((r) => r.querySelector("select"));
-const s = sels()[0];
-s.value = "claude\nopus";
-h.dispatch(s, new h.Ev("change", { target: s }));
-assert.deepStrictEqual(sels().map((x) => x.value), ["claude\nopus", "claude\nopus"],
-  "the second row does not show the choice Start will send for it");
-assert.ok(sels()[0] === s, "the row being chosen on was built again under the keyboard");
-body.querySelector("button.primary").onclick();
-assert.deepStrictEqual(h.commands().pop().taskModels, ["opus", "opus"]);
-`)
-}
-
-// The server reads a pane's plan off the workspace goroutine and answers when
-// it has, so an answer can arrive late. One for the dialog opened on the
-// first pane replaced the dialog opened again on the second, and Start then
-// started the first pane's plan in the first pane's tab.
-func TestAFanOutTakesOnlyTheAnswerItAskedFor(t *testing.T) {
-	runFrontEnd(t, `
-h.hello();
-h.recv(fixture());
-const preview = (paneId, task) => ({ type: "fanoutPreview", paneId, tasks: [task], isRepo: false, cwd: "C:/repo",
-  agent: "claude", agents: [{ id: "claude", name: "Claude Code", models: [{ id: "" }] }] });
-const box = () => h.$("overlay-body").querySelector("textarea.fan-tasks");
-
-h.press("fanout");
-assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutPreview", id: "p1" });
-h.key({ key: "Escape" });
-h.recv(fixture({ activeTab: "t2" }));
-h.press("fanout");
-assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutPreview", id: "p2" });
-
-h.recv(preview("p1", "the first pane's plan"));
-assert.ok(!box(), "the answer about another pane was drawn in this dialog");
-h.recv(preview("p2", "the second pane's plan"));
-assert.strictEqual(box().value, "the second pane's plan");
-h.recv(preview("p2", "a second answer"));
-assert.strictEqual(box().value, "the second pane's plan", "a repeated answer replaced the one being edited");
-
-h.$("overlay-body").querySelector("button.primary").onclick();
-const sent = h.commands().pop();
-assert.strictEqual(sent.id, "p2", "Start used the other pane");
-assert.deepStrictEqual(sent.tasks, ["the second pane's plan"]);
-`)
-}
-
 // An agent's control holds agent and model together, and an empty model means
 // whichever model the agent is set to. For an agent whose models have no empty
 // entry - the model APIs - nothing matched, and the control fell back to its
 // first entry: another agent, or one not installed. Settings showed the wrong
-// default, and a fan-out could start the wrong agent.
+// default.
 func TestAnAgentChosenWithoutAModelShowsItsOwnDefault(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
@@ -6346,14 +6070,6 @@ assert.strictEqual(h.$("set-agent-all").value, "anthropic\nclaude-sonnet",
   "the default for every project is not shown as the agent's own default model");
 assert.strictEqual(h.$("set-agent-project").value, "anthropic\nclaude-opus",
   "a model the agent no longer has was shown as another agent");
-
-h.key({ key: "Escape" });
-h.press("fanout");
-h.recv({ type: "fanoutPreview", paneId: "p1", tasks: ["a task"], isRepo: false, cwd: "C:/repo", agent: "anthropic",
-  agents: [{ id: "claude", name: "Claude Code", models: [{ id: "" }, { id: "opus" }] },
-           { id: "anthropic", name: "Anthropic API", default: "retired", models: [{ id: "claude-opus" }, { id: "claude-sonnet" }] }] });
-const run = h.$("overlay-body").querySelector("div.fan-agent").querySelector("select");
-assert.strictEqual(run.value, "anthropic\nclaude-opus", "the run would start another agent");
 `)
 }
 
@@ -6464,31 +6180,6 @@ assert.strictEqual(h.$("help-content").dataset.slug, "agents", "the picker's ? o
 `)
 }
 
-// The fan-out dialog says how many agents will start, and the server stops at
-// a cap it announces only afterwards. The dialog's number and the server's are
-// the same number, written in two places, so this holds them level.
-func TestTheFanOutCapIsTheServers(t *testing.T) {
-	m := regexp.MustCompile(`const FANOUT_MAX = (\d+);`).FindStringSubmatch(readAsset(t, "app.js"))
-	if m == nil || m[1] != strconv.Itoa(workspace.MaxTasks) {
-		t.Fatalf("app.js caps a fan-out at %v, the server at %d", m, workspace.MaxTasks)
-	}
-}
-
-// A fan-out of fifteen tasks offered to "Start 15 agents", and twelve started.
-func TestTheFanOutDoesNotPromiseMoreThanItStarts(t *testing.T) {
-	runFrontEnd(t, `
-h.hello();
-h.recv(fixture());
-h.press("fanout");
-const tasks = Array.from({ length: 15 }, (_, i) => "task " + (i + 1));
-h.recv({ type: "fanoutPreview", paneId: "p1", tasks, isRepo: false, cwd: "C:/repo" });
-const start = h.$("overlay-body").querySelector("button.primary");
-assert.strictEqual(start.textContent, "Start 12 agents", "the button promised agents that will not start");
-assert.ok(/only the first 12 start/.test(h.$("overlay-body").querySelector("span.fan-count").textContent),
-  "nothing said the rest will not start");
-`)
-}
-
 // The help's search box had a placeholder and no name, and a placeholder is
 // gone as soon as anything is typed and is not reliably read out as a label.
 func TestTheHelpSearchIsNamed(t *testing.T) {
@@ -6526,7 +6217,7 @@ assert.strictEqual(h.$("help-content").dataset.slug, "agents");
 // "Go to…" was a chip in every dialog's header; it is now the palette's own
 // entry (D5 of the pop-over redesign), and still the palette narrowed to the
 // actions that open a surface: it lists Settings without listing something
-// like a pane split, it covers Todos, GitHub and Fan out, which the chip left
+// like a pane split, it covers GitHub, which the chip left
 // out, and choosing one from there switches straight to it, no trip back out
 // to the rail.
 func TestGoToSwitchesDialogsFromThePalette(t *testing.T) {
@@ -6542,7 +6233,7 @@ assert.strictEqual(h.$("palette-input").placeholder, "Go to…");
 const labels = h.$("palette-list").children.filter((r) => r.classList.contains("pal-row")).map((r) => r.querySelector(".pal-label").textContent);
 assert.ok(labels.includes("Settings"), "Go to… does not offer Settings");
 assert.ok(!labels.some((l) => l.startsWith("Split right")), "Go to… offers more than the dialogs");
-for (const name of ["Todos", "GitHub", "Fan out"]) {
+for (const name of ["GitHub"]) {
   assert.ok(labels.some((l) => l.startsWith(name)), "Go to… does not offer " + name + ": " + labels.join(", "));
 }
 

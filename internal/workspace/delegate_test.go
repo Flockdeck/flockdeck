@@ -10,9 +10,23 @@ import (
 	"github.com/jmwri/flockdeck/internal/session"
 )
 
+// idleFake stands in for the status of the helper panes and for the clock that
+// times the dwell, so a helper's turns can be reported without a terminal.
+type idleFake struct {
+	r      idleReading
+	timers []func()
+}
+
+func installFake(c crew) *idleFake {
+	f := &idleFake{r: idleReading{Eligible: true, Status: "working", IdleFor: time.Minute}}
+	c.ws.team.idle = func(*Pane) idleReading { return f.r }
+	c.ws.team.after = func(d time.Duration, fn func()) { f.timers = append(f.timers, fn) }
+	return f
+}
+
 // runTimers runs the timers the workspace armed, as the clock would once the
 // time they were set for had passed.
-func (f *fakeDelivery) runTimers() {
+func (f *idleFake) runTimers() {
 	ts := f.timers
 	f.timers = nil
 	for _, fn := range ts {
@@ -23,13 +37,15 @@ func (f *fakeDelivery) runTimers() {
 // A manager that starts helpers and ends its turn has to be woken when one of
 // them finishes. A helper finishes by going idle at its prompt, not by exiting,
 // so going idle after a turn is what tells the parent.
+// The report is a message in the parent's inbox and nothing is typed anywhere:
+// the team state has no way to write into a pane.
 func TestAHelperThatFinishesATurnTellsItsParentOnce(t *testing.T) {
 	c := newCrew(t)
 	f := installFake(c)
 
-	f.state.Status = "working"
+	f.r.Status = "working"
 	c.ws.paneChanged(c.w1)
-	f.state.Status = "idle"
+	f.r.Status = "idle"
 	c.ws.paneChanged(c.w1)
 	if got := c.inbox(t, c.lead, true); len(got) != 0 {
 		t.Fatalf("the parent was told before the helper had stayed idle: %+v", got)
@@ -45,15 +61,6 @@ func TestAHelperThatFinishesATurnTellsItsParentOnce(t *testing.T) {
 			t.Errorf("text %q lacks %q", msgs[0].Text, want)
 		}
 	}
-	// The notice that wakes an idle manager is the usual one-line one.
-	var typed bool
-	for _, line := range f.typed.all() {
-		typed = typed || strings.HasPrefix(line, c.lead+": [flockdeck] 1 new message")
-	}
-	if !typed {
-		t.Errorf("the idle manager was not sent a notice: %q", f.typed.all())
-	}
-
 	// Going idle again with no work in between says nothing more.
 	for i := 0; i < 3; i++ {
 		c.ws.paneChanged(c.w1)
@@ -64,9 +71,9 @@ func TestAHelperThatFinishesATurnTellsItsParentOnce(t *testing.T) {
 	}
 
 	// A second turn is a second report.
-	f.state.Status = "working"
+	f.r.Status = "working"
 	c.ws.paneChanged(c.w1)
-	f.state.Status = "idle"
+	f.r.Status = "idle"
 	c.ws.paneChanged(c.w1)
 	f.runTimers()
 	if got := c.inbox(t, c.lead, true); len(got) != 2 {
@@ -77,18 +84,18 @@ func TestAHelperThatFinishesATurnTellsItsParentOnce(t *testing.T) {
 func TestAHelperThatIsBusyAgainBeforeTheDwellIsNotReported(t *testing.T) {
 	c := newCrew(t)
 	f := installFake(c)
-	f.state.Status = "working"
+	f.r.Status = "working"
 	c.ws.paneChanged(c.w1)
-	f.state.Status = "idle"
+	f.r.Status = "idle"
 	c.ws.paneChanged(c.w1)
-	f.state.Status = "working"
+	f.r.Status = "working"
 	c.ws.paneChanged(c.w1)
 	f.runTimers()
 	if got := c.inbox(t, c.lead, true); len(got) != 0 {
 		t.Errorf("a helper between two tool calls was reported: %+v", got)
 	}
 	// Finishing for real afterwards still reports.
-	f.state.Status = "idle"
+	f.r.Status = "idle"
 	c.ws.paneChanged(c.w1)
 	f.runTimers()
 	if got := c.inbox(t, c.lead, true); len(got) != 1 {
@@ -102,17 +109,17 @@ func TestOnlyAHelperWithAParentWhoseAgentReportsItsStatusIsReported(t *testing.T
 
 	// The user's own pane has no parent to tell.
 	c.ws.Pane(c.w2).Parent = ""
-	f.state.Status = "working"
+	f.r.Status = "working"
 	c.ws.paneChanged(c.w2)
-	f.state.Status = "idle"
+	f.r.Status = "idle"
 	c.ws.paneChanged(c.w2)
 	f.runTimers()
 
 	// An agent that does not report its status may be showing a dialog.
-	f.state.Eligible = false
-	f.state.Status = "working"
+	f.r.Eligible = false
+	f.r.Status = "working"
 	c.ws.paneChanged(c.w1)
-	f.state.Status = "idle"
+	f.r.Status = "idle"
 	c.ws.paneChanged(c.w1)
 	f.runTimers()
 
@@ -354,19 +361,19 @@ func TestAHelperStartedByAnAgentDoesNotInheritAutoReview(t *testing.T) {
 func TestIdleReportWaitsOutTheDwellFromTheLastIdleEdge(t *testing.T) {
 	c := newCrew(t)
 	f := installFake(c)
-	f.state.Status = "working"
+	f.r.Status = "working"
 	c.ws.paneChanged(c.w1)
-	f.state.Status = "idle"
-	f.state.IdleFor = time.Second // went idle again a second ago
+	f.r.Status = "idle"
+	f.r.IdleFor = time.Second // went idle again a second ago
 	c.ws.paneChanged(c.w1)
 	f.runTimers()
 	if got := c.inbox(t, c.lead, true); len(got) != 0 {
-		t.Fatalf("reported after %v idle: %+v", f.state.IdleFor, got)
+		t.Fatalf("reported after %v idle: %+v", f.r.IdleFor, got)
 	}
 	if len(f.timers) == 0 {
 		t.Fatal("the report was dropped instead of waiting out the rest")
 	}
-	f.state.IdleFor = time.Minute
+	f.r.IdleFor = time.Minute
 	f.runTimers()
 	if got := c.inbox(t, c.lead, true); len(got) != 1 {
 		t.Errorf("after the full dwell the manager has %d messages, want 1", len(got))

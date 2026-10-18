@@ -61,14 +61,6 @@ func (s *Server) installCloseHandler() {
 			if !req.Force && !s.ws.PaneFinished(req.Target) {
 				return outcome{err: fmt.Errorf("pane %q is still working; pass -force to close it anyway, or wait until it is idle", req.Target)}
 			}
-			// Mirrors the "closePane" control command: a settled fan-out job
-			// closed pane by pane is captured on the first of those closes,
-			// while the rest are still there to read.
-			if tid := s.ws.TabIDOf(req.Target); tid != "" {
-				if t := s.ws.Tab(tid); t != nil {
-					s.captureFanoutHistory(t)
-				}
-			}
 			if !s.ws.ClosePaneByID(req.Target) {
 				return outcome{err: fmt.Errorf("no pane %q is open here", req.Target)}
 			}
