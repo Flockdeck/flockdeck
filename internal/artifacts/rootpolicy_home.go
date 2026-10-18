@@ -98,7 +98,11 @@ func walkHome(h, rel, real string, budget *int) string {
 	}
 	ents, err := os.ReadDir(dir)
 	if err != nil {
-		return "" // not there, or not readable: only the name can relate real to it
+		// Not there, or not readable: only the name can relate real to it. A
+		// folder that can be searched but not listed, with a listed folder
+		// in it, is therefore judged by name only; the old code stat'ed the
+		// listed paths and would have found it by identity.
+		return ""
 	}
 	for _, e := range ents {
 		if *budget--; *budget < 0 {
@@ -130,9 +134,6 @@ func linksUp(dir string, e os.DirEntry) bool {
 	target, err := canonical(p)
 	if err != nil {
 		return false // not a link that leads anywhere: ReadDir will say so
-	}
-	if target == canonNear(p) {
-		return false // a regular folder spelled differently, not a link
 	}
 	here := canonNear(dir)
 	if _, ok := under(target, here); ok {
