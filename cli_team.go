@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/team"
@@ -149,6 +150,12 @@ func runMsg(args []string, stdin io.Reader, out, errOut io.Writer) error {
 	return nil
 }
 
+// maxInboxWait is the longest `inbox -wait` waits, and inboxPoll how often it
+// looks. A test replaces the poll.
+const maxInboxWait = 10 * time.Minute
+
+var inboxPoll = 2 * time.Second
+
 // runInbox implements `flockdeck inbox [-all] [-json]` and `flockdeck inbox read <id>`.
 func runInbox(args []string, out io.Writer) error {
 	if len(args) > 0 && args[0] == "read" {
@@ -172,6 +179,16 @@ func runInbox(args []string, out io.Writer) error {
 	msgs, err := hooks.Inbox(api, token, pane, *all)
 	if err != nil {
 		return err
+	}
+	// Nothing wakes an idle agent, so an agent that is waiting on others
+	// waits here, inside its turn, and is handed the first message to arrive.
+	wait, _ := time.ParseDuration(fs.Lookup("wait").Value.String())
+	wait = min(wait, maxInboxWait)
+	for deadline := time.Now().Add(wait); len(msgs) == 0 && time.Now().Before(deadline); {
+		time.Sleep(inboxPoll)
+		if msgs, err = hooks.Inbox(api, token, pane, *all); err != nil {
+			return err
+		}
 	}
 	if *asJSON {
 		return writeJSON(out, nonNil(msgs))
@@ -278,8 +295,9 @@ func inboxFlagSet() (fs *flag.FlagSet, all, asJSON *bool) {
 	fs.SetOutput(os.Stderr)
 	all = fs.Bool("all", false, "include messages already read")
 	asJSON = fs.Bool("json", false, "print the messages as JSON")
+	fs.Duration("wait", 0, "if there are no unread messages, wait up to this long (for example 2m, at most 10m) for one to arrive and print it as soon as it does")
 	fs.Usage = func() {
-		fmt.Fprint(os.Stderr, "Usage: flockdeck inbox [-all] [-json]\n"+
+		fmt.Fprint(os.Stderr, "Usage: flockdeck inbox [-all] [-json] [-wait <duration>]\n"+
 			"       flockdeck inbox read [-json] <id>\n\n"+
 			"Lists the messages other agents sent this pane that it has not read, oldest\n"+
 			"first, with the start of each. `inbox read <id>` prints one in full and marks\n"+

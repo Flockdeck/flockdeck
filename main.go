@@ -26,8 +26,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/appwindow"
@@ -461,7 +459,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        list the agents of this pane's project, with role and status; run from inside a pane\n")
 	fmt.Fprintf(out, "  msg send <target> <text...>\n")
 	fmt.Fprintf(out, "        message another agent by pane id, name or role; run from inside a pane\n")
-	fmt.Fprintf(out, "  inbox [-all] [-json] | inbox read <id>\n")
+	fmt.Fprintf(out, "  inbox [-all] [-json] [-wait <duration>] | inbox read <id>\n")
 	fmt.Fprintf(out, "        the messages other agents sent this pane; run from inside a pane\n")
 	fmt.Fprintf(out, "  task add <title> [-body text] [-role r] [-branch b] | list [-state s] [-role r] [-mine] [-json]\n")
 	fmt.Fprintf(out, "       | show <id> | assign <id> <who> | status <id> <state> [-note text] | note <id> <text>\n")
@@ -1785,7 +1783,7 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	if f.shell && f.role != "" {
 		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, which has no role, so it cannot also take -role")
 	}
-	tab, err := cleanTabName(f.tab)
+	tab, err := hooks.CleanTabName(f.tab)
 	if err != nil {
 		return hooks.SpawnRequest{}, err
 	}
@@ -1809,27 +1807,6 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 
 		BatonElsewhere: f.batonElsewhere,
 	}, nil
-}
-
-// maxTabName is the longest tab title -tab accepts, in characters.
-const maxTabName = 60
-
-// cleanTabName checks a -tab title: blank means no tab was asked for, and a
-// title with a control character or past maxTabName is refused rather than cut.
-func cleanTabName(name string) (string, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "", nil
-	}
-	if utf8.RuneCountInString(name) > maxTabName {
-		return "", fmt.Errorf("-tab names a tab, and %d characters is too long for a title; the limit is %d", utf8.RuneCountInString(name), maxTabName)
-	}
-	for _, r := range name {
-		if unicode.IsControl(r) {
-			return "", fmt.Errorf("-tab names a tab, and a title cannot contain a control character or a line break")
-		}
-	}
-	return name, nil
 }
 
 // spawnFlags are the flags of `flockdeck spawn` and where their values land.

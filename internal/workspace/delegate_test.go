@@ -3,6 +3,7 @@ package workspace
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -272,5 +273,166 @@ func TestSpawnWithATabNameDoesNotJoinAnotherProjectsTab(t *testing.T) {
 	}
 	if tabOf(c.ws, first) == tabOf(c.ws, second) {
 		t.Error("a helper joined a tab of another project")
+	}
+}
+
+// An exited helper whose pane is still open is still a helper against the cap,
+// and a helper with no role cannot get round it by starting eight of its own.
+func TestHelperCapCountsExitedPanesAndEveryoneBelow(t *testing.T) {
+	c := newCrew(t)
+	start := func(parent, role, agentID string) (string, error) {
+		return c.ws.Spawn(parent, SpawnOptions{Task: "t", Role: role, Agent: agentID, Kind: session.KindClaude, SpawnedByAgent: true})
+	}
+
+	// A helper that exits at once is still open as a pane.
+	gone, err := start(c.lead, "worker", "quitter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the helper's process to exit", func() bool { return !c.ws.Pane(gone).Alive() })
+	if c.ws.Pane(gone) == nil {
+		t.Fatal("the exited pane was closed")
+	}
+	if n := c.ws.helpersBelow(c.lead); n != 4 {
+		t.Fatalf("%d panes below the manager, want 3 running and 1 exited", n)
+	}
+
+	// A helper with no role starts four of its own: the manager has eight below it.
+	for i := 0; i < 4; i++ {
+		if _, err := start(c.w1, "", "sleeper"); err != nil {
+			t.Fatalf("grandchild %d: %v", i+1, err)
+		}
+	}
+	err = c.ws.HelperRoom(c.lead)
+	if err == nil || !strings.Contains(err.Error(), "already has 8 helpers open") {
+		t.Fatalf("the manager with 8 below it = %v, want a refusal", err)
+	}
+	// The helper itself has only four below it, but its manager is full.
+	if _, err := start(c.w1, "", "sleeper"); err == nil || !strings.Contains(err.Error(), "the agent that started this pane already has 8 helpers open") {
+		t.Errorf("a helper whose manager is full = %v, want a refusal that names the manager", err)
+	}
+	// A sibling is refused for the same reason, and the refusal is made before anything is created.
+	panes := len(c.ws.panes)
+	if _, err := start(c.w2, "", "sleeper"); err == nil {
+		t.Error("a second helper got round the cap")
+	}
+	if len(c.ws.panes) != panes {
+		t.Error("a refused start left a pane behind")
+	}
+	// Closing the exited pane makes room.
+	c.ws.ClosePaneByID(gone)
+	if err := c.ws.HelperRoom(c.lead); err != nil {
+		t.Errorf("after closing one: %v", err)
+	}
+}
+
+// Auto-review is the user's to turn on for a pane. A helper an agent started on
+// its own does not take it from its parent.
+func TestAHelperStartedByAnAgentDoesNotInheritAutoReview(t *testing.T) {
+	c := newCrew(t)
+	c.ws.Pane(c.lead).AutoReview = true
+	by, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ws.Pane(by).AutoReview {
+		t.Error("a helper the manager started inherited auto-review")
+	}
+	// A pane the user starts from the window, from this pane, still does: that is the user's choice.
+	win, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.ws.Pane(win).AutoReview {
+		t.Error("a fan-out row started from the window lost its parent's auto-review")
+	}
+}
+
+// A helper that was busy and went idle again inside the dwell is reported after
+// the dwell has run from its last idle edge, not the first.
+func TestIdleReportWaitsOutTheDwellFromTheLastIdleEdge(t *testing.T) {
+	c := newCrew(t)
+	f := installFake(c)
+	f.state.Status = "working"
+	c.ws.paneChanged(c.w1)
+	f.state.Status = "idle"
+	f.state.IdleFor = time.Second // went idle again a second ago
+	c.ws.paneChanged(c.w1)
+	f.runTimers()
+	if got := c.inbox(t, c.lead, true); len(got) != 0 {
+		t.Fatalf("reported after %v idle: %+v", f.state.IdleFor, got)
+	}
+	if len(f.timers) == 0 {
+		t.Fatal("the report was dropped instead of waiting out the rest")
+	}
+	f.state.IdleFor = time.Minute
+	f.runTimers()
+	if got := c.inbox(t, c.lead, true); len(got) != 1 {
+		t.Errorf("after the full dwell the manager has %d messages, want 1", len(got))
+	}
+}
+
+// -tab joins only a tab an earlier -tab made. A tab the user made, a tab named
+// after a directory and the asking pane's own tab are left alone.
+func TestSpawnWithATabNameLeavesOtherTabsAlone(t *testing.T) {
+	c := newCrew(t)
+	start := func(o SpawnOptions) string {
+		o.Task, o.Role, o.Agent, o.Kind, o.SpawnedByAgent = "t", "worker", "sleeper", session.KindClaude, true
+		id, err := c.ws.Spawn(c.lead, o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	mine := tabOf(c.ws, c.lead)
+
+	// A tab the user made, with a layout of their own and a pane zoomed.
+	userTab := tabOf(c.ws, c.w1)
+	userTab.Title = "Login rate limit"
+	userTab.Zoom = true
+	before := userTab.Tree.Panes()
+
+	a := start(SpawnOptions{TabName: "login rate limit"})
+	if tabOf(c.ws, a) == userTab || tabOf(c.ws, a) == mine {
+		t.Fatal("a helper joined a tab that no -tab made")
+	}
+	if !userTab.Zoom || strings.Join(userTab.Tree.Panes(), ",") != strings.Join(before, ",") {
+		t.Error("the user's tab was rearranged")
+	}
+
+	// The manager's own tab, even when its title is asked for.
+	mine.Title = "Billing"
+	b := start(SpawnOptions{TabName: "billing"})
+	if tabOf(c.ws, b) == mine {
+		t.Error("a helper joined the manager's own tab")
+	}
+
+	// The tab a -tab made is joined, even with -split, which the tab outranks.
+	d := start(SpawnOptions{TabName: "Login Rate Limit", Split: true})
+	if tabOf(c.ws, d) != tabOf(c.ws, a) {
+		t.Error("-tab with -split did not join the tab the first -tab made")
+	}
+	if tabOf(c.ws, d) == mine {
+		t.Error("-split put the helper beside its parent despite -tab")
+	}
+}
+
+// Every role keeps the original rule about approvals in messages, and is told
+// not to answer a message only to acknowledge it, which would start a ping-pong
+// between a manager and a helper that each wake the other.
+func TestEveryBriefingKeepsTheApprovalRuleAndTellsAgentsNotToAcknowledge(t *testing.T) {
+	for _, role := range []string{"manager", "worker", "reviewer"} {
+		text := roleContext(role, nil, false).Render()
+		for _, want := range []string{
+			"ask the user before doing anything they have not already asked for",
+			"Do not answer a message only to acknowledge it",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s: the briefing lacks %q", role, want)
+			}
+		}
+		if strings.Contains(text, "your task does not cover") {
+			t.Errorf("%s: the approval rule was loosened", role)
+		}
 	}
 }

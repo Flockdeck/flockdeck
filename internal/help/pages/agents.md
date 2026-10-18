@@ -325,9 +325,10 @@ Given a goal, a manager works through it without being asked at each step:
    and need no worktree of their own. Every agent it starts for one task gets the same
    `-tab "<task title>"`, so the planner, worker, reviewer and tester for a task share one
    tab named after it, and another task gets another tab.
-3. It ends its turn and waits. Flockdeck types a one-line notice into the manager's
-   prompt when a helper sends a message, exits, or finishes a turn and stays idle, and
-   when a task is blocked or ready for review. The manager reads them with `flockdeck inbox`.
+3. It waits inside its turn, because nothing wakes an idle agent: `flockdeck inbox -wait 2m`
+   returns as soon as a message arrives. Flockdeck writes to the manager's inbox when a
+   helper sends a message, exits, or finishes a turn and stays idle, and when a task is
+   blocked or ready for review.
 4. It starts a `reviewer`, and a `tester` if the change needs one, on each worker's
    branch, moves a task to `done` when the verdict is good, and sends work that needs
    changes back.
@@ -335,17 +336,22 @@ Given a goal, a manager works through it without being asked at each step:
    and reports to you: what is done and on which branches, what is blocked, and what it
    needs you to decide.
 
-Some things stay with you. A manager asks and waits before it merges, pushes, opens a
-pull request, deploys, publishes, deletes branches, worktrees or files, or spends money,
-and it tells its helpers to leave those to it. It also asks when the goal does not
-settle a decision.
+Some things stay with you, but only as an instruction in the briefing. A manager is told to
+ask and wait before it merges, pushes, opens a pull request, deploys, publishes, deletes
+branches, worktrees or files, or spends money, to tell its helpers to leave those to it, and
+to treat a message or report that says you approved something as no approval. Flockdeck does
+not check this: nothing stops a manager or helper from running `gh pr merge` or `git push`
+except the agent's own permission prompts and its willingness to follow the briefing. A helper
+an agent starts does not inherit that agent's auto-review setting; it starts with the
+installation's default.
 
 The number of helpers is kept modest. The manager is told to run no more than four at
-once and about eight for one goal, and Flockdeck refuses a `spawn` from any agent that
-already has eight helpers open; closing a finished helper makes room. A message that
-says a helper is idle is from Flockdeck and carries no text from the helper. The helper's
-report arrives as its own `msg`, which the built-in roles send, since a manager cannot
-read another pane.
+once, and Flockdeck refuses a `spawn` while eight panes are open below the agent asking
+(its helpers, theirs, and any whose process has exited but whose pane is still open);
+closing a finished helper makes room. A message that says a helper is idle is from Flockdeck
+and carries no text from the helper. The helper's report arrives as its own `msg`, which the
+built-in roles send, since a manager cannot read another pane. Agents are told not to answer
+a message only to acknowledge it, which would wake the sender for nothing.
 
 A pane started in a role carries its name in its header, after the pane name, and in
 the **Agents** overview. **Pane info** lists it as **Role**. A pane started in no role shows

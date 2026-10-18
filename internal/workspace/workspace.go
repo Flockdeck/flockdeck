@@ -280,6 +280,11 @@ type Tab struct {
 	// pane count alone, since a person is free to build exactly the same
 	// shape by hand.
 	Delegated bool
+	// Spawned is set on a tab that `flockdeck spawn -tab` made, which is the
+	// only kind a later -tab of the same title joins. A tab the user made, or
+	// one named after its directory, is never taken over and rearranged. It is
+	// not persisted.
+	Spawned bool
 	// AutoTitle is set while the title is still the directory name the tab was
 	// given automatically, so the first prompt may replace it. Renaming a tab
 	// by hand clears it and the title is then left alone.

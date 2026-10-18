@@ -31,6 +31,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/record"
@@ -951,6 +952,30 @@ type SpawnRequest struct {
 	// the user to allow a baton) stops waiting when the agent's command is
 	// cancelled or times out. It is set by the server and never read from the body.
 	Ctx context.Context `json:"-"`
+}
+
+// MaxTabName is the longest tab title a spawn may ask for, in characters.
+const MaxTabName = 60
+
+// CleanTabName checks the title a spawn asks for with -tab. Blank means no tab
+// was asked for. A title past MaxTabName, or with a control or format character
+// (a line break, an escape, a zero-width or bidirectional mark) is refused
+// rather than cut, since two titles that look the same would be two tabs. Both
+// `flockdeck spawn` and the endpoint it calls check it.
+func CleanTabName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", nil
+	}
+	if n := utf8.RuneCountInString(name); n > MaxTabName {
+		return "", fmt.Errorf("-tab names a tab, and %d characters is too long for a title; the limit is %d", n, MaxTabName)
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			return "", fmt.Errorf("-tab names a tab, and a title cannot contain a control or format character or a line break")
+		}
+	}
+	return name, nil
 }
 
 // SpawnResult is what the application answers a spawn with.

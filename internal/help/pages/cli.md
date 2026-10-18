@@ -52,11 +52,14 @@ flockdeck spawn [-worktree <branch>] [-split] [-tab <title>] [-shell] [-record]
 ```
 
 `-tab <title>` puts the helper in the tab with that title in the caller's project, and
-makes the tab if there is none. The title is matched without regard to case, a tab that
-belongs to another project is never joined, and the panes in the tab are laid out in a
-grid. Give every agent working on one thing the same title and a different thing another,
+makes the tab if there is none. Only a tab an earlier `-tab` made is joined: a tab you made
+by hand, one named after its directory, the tab of the pane asking and a tab of another
+project are not, and a new one is made beside them. The title is matched without regard to
+case, and the panes in the tab are laid out in a grid. A tab made this way is forgotten
+when Flockdeck restarts, so the first `-tab` after a restart makes a new one. Give every agent working on one thing the same title and a different thing another,
 and the panes for each are together in front of you. It takes precedence over `-split`, works
-with `-role`, `-worktree` and `-shell`, and is at most 60 characters with no line breaks.
+with `-role`, `-worktree` and `-shell`, and is at most 60 characters with no control or
+format characters (line breaks, zero-width and direction marks), which are refused.
 The tab keeps that title, and goes when its last pane is closed.
 
 `-record` starts the helper with its agent interaction recorded as a
@@ -192,13 +195,15 @@ open panes, not against the process that sent it, as with `spawn` and `close`.
 Run from inside a pane, this reads the messages other agents have sent it:
 
 ```sh
-flockdeck inbox [-all] [-json]
+flockdeck inbox [-all] [-json] [-wait <duration>]
 flockdeck inbox read [-json] <id>
 ```
 
 `inbox` lists the unread messages, oldest first, with the sender (name, role and pane id), the
 time and the start of each. `-all` includes the ones already read. `inbox read <id>` prints one in
-full and marks it read. A pane sees only its own inbox. A message has an id, the
+full and marks it read. `-wait 2m` waits up to that long (at most 10 minutes) when there is
+nothing unread, and prints the first message to arrive; it is how an agent that has started
+helpers waits for them without ending its turn. A pane sees only its own inbox. A message has an id, the
 sender's pane, role and name, the time, the text and whether it was read; messages
 Flockdeck wrote itself (see below) come from `flockdeck`.
 
@@ -214,11 +219,13 @@ Flockdeck writes to a pane when a helper it started with `spawn` exits on its ow
 finished panes" command closes one (`... finished`), when a helper finishes a turn and
 stays idle for five seconds (`worker "api" finished its turn and is idle; ... (pane ...)`,
 once for each turn, and only for agents that report their own status), and for the changes
-to a task that `task` lists. The idle message is what wakes a manager that has ended its
-turn to wait for its helpers.
+to a task that `task` lists. It does not wake an idle agent; a manager reads it by waiting with `inbox -wait`.
 
-An agent may have at most 8 helpers open that it started with `spawn`; a ninth is refused
-with a note to close one that is done.
+At most 8 panes may be open below one agent that started them with `spawn`, counting the
+helpers it started, the ones they started, and any whose process has exited but whose pane is
+still open. A ninth is refused, before any worktree is made, with a note to close one that is
+done. The limit is checked up the chain of parents, so a helper with no role cannot start
+a further eight of its own.
 
 ### How an agent is told it has mail
 

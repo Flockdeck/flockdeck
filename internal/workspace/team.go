@@ -420,19 +420,31 @@ func (w *Workspace) armIdleReport(p *Pane, parent string, sess *session.Session)
 		return
 	}
 	t.after(helperIdleDwell, func() {
-		w.mu.Lock()
-		p.idleArmed = false
+		w.mu.RLock()
 		same := p.Sess == sess
-		w.mu.Unlock()
-		if !same || w.Pane(p.ID) != p || w.team.state(p).Status != "idle" {
+		w.mu.RUnlock()
+		st := w.team.state(p)
+		if !same || w.Pane(p.ID) != p || st.Status != "idle" {
+			w.mu.Lock()
+			p.idleArmed = false
+			w.mu.Unlock()
 			return
 		}
+		// Idle, but not for as long as the dwell: it went busy and idle again
+		// since this was armed. Wait out the rest from the last idle edge.
+		if st.IdleFor < helperIdleDwell {
+			w.armIdleReport(p, parent, sess)
+			return
+		}
+		w.mu.Lock()
+		p.idleArmed = false
+		w.mu.Unlock()
 		w.mu.Lock()
 		report := p.turnSeen
 		p.turnSeen = false
 		w.mu.Unlock()
 		if report {
-			w.notifyParent(p, parent, "finished its turn and is idle; read `flockdeck inbox` for its report and `flockdeck task list` for its task")
+			w.notifyParent(p, parent, "finished its turn and is idle; its report is in `flockdeck inbox` if it sent one, and `flockdeck task list` shows its task")
 		}
 	})
 }
