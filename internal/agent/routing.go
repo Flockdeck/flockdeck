@@ -15,17 +15,20 @@ const (
 	// RoutingOff routes nothing and shows nothing. It is what a file that
 	// says nothing about routing means.
 	RoutingOff = "off"
-	// RoutingSuggest pre-fills a routed choice and marks it, for the user to
-	// confirm or change before anything starts.
-	RoutingSuggest = "suggest"
-	// RoutingAuto applies a routed choice and shows it, to be overridden after
-	// the fact.
+	// RoutingAuto applies a routed choice to a spawned helper or a pane's first
+	// turn, and shows it in the pane's header.
 	RoutingAuto = "auto"
 )
 
+// retiredSuggest is the mode an earlier build had for pre-filling Fan out's
+// dialog. Fan out is gone and nothing else showed a suggestion, so a saved
+// "suggest" is read as off. It is not auto: that would start applying choices
+// nobody asked to have applied.
+const retiredSuggest = "suggest"
+
 // The routing strategies. Strategy is orthogonal to Mode: Mode says whether a
-// decision is shown, applied or ignored; Strategy says how aggressively it
-// favors cost.
+// decision is applied or ignored; Strategy says how aggressively it favors
+// cost.
 const (
 	// StrategyBalanced is cost-first-but-quality-aware: rules move clearly
 	// mechanical work down and clearly hard work up, and work no rule
@@ -61,18 +64,10 @@ type RoutingPolicy struct {
 	// itself the deliberate choice this is meant to be gated on: a rule pack
 	// pasted from the help page, or a rule kept from before this build,
 	// would otherwise start spending through a different login the moment
-	// it was read. Cross-agent moves are further limited to a fan-out row or
-	// a spawned helper -- never a chat turn or a pane already running -- and
-	// only to an agent the caller reports as usable right now.
+	// it was read. Cross-agent moves are further limited to a spawned helper
+	// -- never a chat turn or a pane already running -- and only to an agent
+	// the caller reports as usable right now.
 	CrossAgent bool `json:"crossAgent,omitempty"`
-	// Jev lets Strategy == StrategyCost ask TypeSafe's Jev model how
-	// demanding a fan-out row is, when no rule matched it, so that the
-	// fallback can choose a tier to suit it rather than always the floor.
-	// It is off unless set, because turning it on sends the text of the task
-	// to a third party: it is the user's deliberate choice, made here and
-	// nowhere else, and it also needs a TypeSafe API key (Settings or TYPESAFE_API_KEY). It changes nothing
-	// under StrategyBalanced, where nothing unmatched is routed at all.
-	Jev bool `json:"jev,omitempty"`
 	// Rules are tried in order and the first that matches decides. Absent
 	// means the built-in rules; an empty list means none at all.
 	Rules []RoutingRule `json:"rules,omitempty"`
@@ -100,7 +95,7 @@ type RuleMatch struct {
 	MaxWords int    `json:"maxWords,omitempty"`
 	// Files are globs, matched against the paths the task names.
 	Files []string `json:"files,omitempty"`
-	// Kind is "fanout", "spawn" or "turn".
+	// Kind is "spawn" or "turn".
 	Kind  string `json:"kind,omitempty"`
 	Agent string `json:"agent,omitempty"`
 }
@@ -121,9 +116,12 @@ func checkRouting(p *RoutingPolicy, where string) []string {
 	var problems []string
 	p.Mode = strings.ToLower(strings.TrimSpace(p.Mode))
 	switch p.Mode {
-	case "", RoutingOff, RoutingSuggest, RoutingAuto:
+	case "", RoutingOff, RoutingAuto:
+	case retiredSuggest:
+		problems = append(problems, fmt.Sprintf("%s: mode %q no longer exists, so routing is off there; set it to auto to have routing choose models", where, p.Mode))
+		p.Mode = RoutingOff
 	default:
-		problems = append(problems, fmt.Sprintf("%s: mode %q is not off, suggest or auto, so routing is off there", where, p.Mode))
+		problems = append(problems, fmt.Sprintf("%s: mode %q is not off or auto, so routing is off there", where, p.Mode))
 		p.Mode = RoutingOff
 	}
 	p.Floor = strings.ToLower(strings.TrimSpace(p.Floor))
@@ -185,12 +183,14 @@ func ruleProblem(r *RoutingRule) string {
 			}
 		}
 	}
-	// Case is forgiven, as it is for a tier: "Fanout" skipped the whole rule.
+	// Case is forgiven, as it is for a tier: "Spawn" skipped the whole rule.
 	r.When.Kind = strings.ToLower(strings.TrimSpace(r.When.Kind))
 	switch r.When.Kind {
-	case "", "fanout", "spawn", "turn":
+	case "", "spawn", "turn":
+	case "fanout":
+		return `matches kind "fanout", which no longer exists because Fan out was removed; the kinds are spawn and turn`
 	default:
-		return fmt.Sprintf("matches kind %q; the kinds are fanout, spawn and turn", r.When.Kind)
+		return fmt.Sprintf("matches kind %q; the kinds are spawn and turn", r.When.Kind)
 	}
 	return ""
 }
@@ -275,8 +275,8 @@ func SetRouting(dir, project, field, value string) error {
 	value = strings.ToLower(strings.TrimSpace(value))
 	switch field {
 	case "mode":
-		if value == "" && project == "" || value != "" && value != RoutingOff && value != RoutingSuggest && value != RoutingAuto {
-			return fmt.Errorf("%q is not a routing mode; the modes are off, suggest and auto", value)
+		if value == "" && project == "" || value != "" && value != RoutingOff && value != RoutingAuto {
+			return fmt.Errorf("%q is not a routing mode; the modes are off and auto", value)
 		}
 	case "floor":
 		if value != "" && TierRank(value) == 0 {
@@ -286,7 +286,7 @@ func SetRouting(dir, project, field, value string) error {
 		if value != "" && value != StrategyBalanced && value != StrategyCost {
 			return fmt.Errorf("%q is not a routing strategy; the strategies are balanced and cost", value)
 		}
-	case "crossAgent", "jev":
+	case "crossAgent":
 		if value != "" && value != "true" && value != "false" {
 			return fmt.Errorf("%q is not true or false", value)
 		}
@@ -346,8 +346,7 @@ func SetRouting(dir, project, field, value string) error {
 // setRoutingField sets one key of a policy as written, leaving the rest of it
 // byte for byte. An empty floor is taken out, since it means small anyway;
 // "crossAgent" set to "false", and "strategy" set to "balanced", are taken
-// out the same way, since that is what their absence already means; "jev"
-// set to "false" likewise.
+// out the same way, since that is what their absence already means.
 func setRoutingField(raw json.RawMessage, field, value string) (json.RawMessage, error) {
 	obj := map[string]json.RawMessage{}
 	if t := bytes.TrimSpace(raw); len(t) > 0 && !bytes.Equal(t, []byte("null")) {
@@ -355,11 +354,11 @@ func setRoutingField(raw json.RawMessage, field, value string) (json.RawMessage,
 			return nil, fmt.Errorf(`"routing" in %s is not an object, so it was not changed`, ConfigName)
 		}
 	}
-	if value == "" || ((field == "crossAgent" || field == "jev") && value == "false") || (field == "strategy" && value == StrategyBalanced) {
+	if value == "" || (field == "crossAgent" && value == "false") || (field == "strategy" && value == StrategyBalanced) {
 		delete(obj, field)
 	} else {
 		var toWrite any = value
-		if field == "crossAgent" || field == "jev" {
+		if field == "crossAgent" {
 			toWrite = value == "true"
 		}
 		v, err := marshalUnescaped(toWrite)

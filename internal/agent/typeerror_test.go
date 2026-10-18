@@ -15,7 +15,7 @@ func TestAValueOfTheWrongKindIsNamedInTheFilesTerms(t *testing.T) {
 			json.RawMessage(`{"id": "claude", "models": "opus"}`),
 			json.RawMessage(`{"id": "mine", "exe": "mycli", "hidden": "yes"}`),
 		},
-		Routing: json.RawMessage(`{"mode": "suggest", "rules": {"name": "one"}}`),
+		Routing: json.RawMessage(`{"mode": "auto", "rules": {"name": "one"}}`),
 	})
 	for _, want := range []string{`agent "claude": "models" cannot be string`, `agent "mine": "hidden" cannot be string`, `"rules" cannot be object`} {
 		if !strings.Contains(c.Notice, want) {

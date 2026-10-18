@@ -162,7 +162,8 @@ func (c PaneContext) command() string {
 //
 // Two kinds of thing are here. The first changes how an agent should work: its
 // status is watched, so stopping to ask is cheap; a commit takes the
-// working tree whole. The second is one line per feature, so a user who asks how to do something is answered by the agent in front of them.
+// working tree whole. The second is one line per feature, so a user who asks
+// how to do something is answered by the agent in front of them.
 // The key table and the status colours are for the person at the window and
 // stay in the in-app help.
 //

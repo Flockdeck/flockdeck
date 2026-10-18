@@ -427,9 +427,8 @@ model your default, for routing to choose from it.
 **Automatic** routes a helper an agent starts with `flockdeck spawn` without
 `-agent` or `-model`, and the first prompt you send a pane from the prompt
 bar, while it has no conversation yet: the pane restarts on the chosen model
-with that prompt, and never on another agent. With **Suggest** such a helper or
-prompt runs as asked, since there is nobody to show a suggestion to. **Never go below** keeps routing off the
-smaller tiers for a project where the work matters.
+with that prompt, and never on another agent. **Never go below** keeps routing
+off the smaller tiers for a project where the work matters.
 
 **Strategy** decides what happens to a task no rule matches. **Cost-first,
 quality-aware** (the default) leaves it exactly where it was, the same as
@@ -440,45 +439,15 @@ decides first and **Never go below** still holds; the strategy only changes
 what happens when nothing matches. The pane's tooltip says "no rule matched" for
 a choice made this way, so it is never mistaken for a rule's own reason.
 
-**Ask Jev to rate unmatched work** refines **Minimise cost**, and nothing
-else. Without it, a task no rule matches goes to the cheapest model whatever the
-task is. With it, Flockdeck asks [TypeSafe](https://typesafe.ai)'s Jev model
-how demanding the task is, on a scale from a trivial mechanical edit to
-open-ended design work, and routes it to a tier that suits: small, mid or top.
-Jev can only choose between **Never go below** and the model the work would
-have run on anyway, so it never makes work cost more than it would have without
-routing, never picks a model **Never go below** or a "never downgrade"
-constraint forbids, and never moves work to another agent. Only a helper or first prompt that
-no rule matched is asked about. If Jev is unsure, contradicts itself,
-is slow, is refused or is down, the work is routed exactly as it would be without
-it. The pane's tooltip says what Jev rated it when it did decide.
-
-It is **off** by default and needs both this setting, for every project or for
-one, and a TypeSafe API key: the one set in **Settings › API keys ›
-TypeSafe API key** (used first), or else `TYPESAFE_API_KEY` in the environment
-Flockdeck starts in. Saving a key on its own sends nothing.
-**Turning it on sends the text of each such task to TypeSafe, a third party.**
-What is sent is that text alone, cut at 2,000 characters with `[truncated]` at
-the end, beside three fixed questions about it: no files, no repository, no
-conversation, no path of your machine's that the text does not itself contain.
-Secrets are redacted from the text first (API keys, bearer tokens, password
-values, secret file paths), by pattern, so one with no recognisable shape is
-still sent; leave the setting off for work like that. Calls give up after 2 seconds,
-run at most 20 a minute, are remembered for an hour so a repeated task does
-not ask again, and pause for 30 seconds after a failure, or 5 minutes after
-the key is refused. Without the key the
-setting does nothing and nothing is sent.
-
 The policy is kept in `agents.json`, and only there, never in a file inside a
 repository, so a repository you clone cannot change what your key spends:
 
 ```json
 {
   "routing": {
-    "mode": "suggest",
+    "mode": "auto",
     "floor": "",
     "strategy": "",
-    "jev": false,
     "rules": [
       { "name": "run the tests", "tier": "small",
         "when": { "task": "^(re-?)?run (the |all )?(unit |integration )?tests?\\b" } },
@@ -489,7 +458,7 @@ repository, so a repository you clone cannot change what your key spends:
     ]
   },
   "projects": {
-    "C:\\code\\payments": { "routing": { "mode": "suggest", "floor": "mid" } }
+    "C:\\code\\payments": { "routing": { "mode": "auto", "floor": "mid" } }
   }
 }
 ```
@@ -497,8 +466,7 @@ repository, so a repository you clone cannot change what your key spends:
 Rules are tried in order and the **first that matches decides**; a task no rule
 matches is left alone under `"strategy": "balanced"` (the default, same as
 leaving `strategy` out), or routed to the cheapest model the floor allows
-under `"strategy": "cost"`, or, with `"jev": true` too, to the tier Jev rates
-it as needing, as above. Every condition in `when` must hold: `task` is a
+under `"strategy": "cost"`. Every condition in `when` must hold: `task` is a
 regular expression matched without regard to case; `minWords` and `maxWords`
 bound the task's length; `files` are globs matched against the paths the task
 names (`**` is any number of directories, and a glob with no `/` matches a
@@ -509,25 +477,27 @@ none. A project's own policy replaces the one for every project whole. A rule
 that cannot be used (a pattern that is not one, a tier that is not one) is
 named in the notice and skipped, and the rest still apply.
 
+Two things an older version wrote still load, and do nothing. `"mode":
+"suggest"` filled in the Fan out dialog, which no longer exists, so it is read
+as `"off"` with a notice; set it to `"auto"` to have routing choose models. A
+rule whose `kind` is `fanout` is named in the notice and skipped. A `"jev"` key
+is ignored and left in the file as written.
+
 Saving a default from a Flockdeck that has no routing (0.2.10 or older)
 writes a project's entry back without its `routing`, so a project's policy is
 lost that way.
 
-**Routing makes no request** unless you turn one of two things on. It decides
-from these rules alone. With **Let a rule send work to another agent** on,
-before moving work to an agent with an address of its own, it opens a
-connection to that address, and closes it at once without sending anything, to
-check something is listening. With **Ask Jev to rate unmatched work** on, and a
-key set, it sends the task's text to TypeSafe as described above. The routed mark on a pane travels only as the
+**Routing makes no request** unless you turn on **Let a rule send work to
+another agent**: then, before moving work to an agent with an address of its
+own, it opens a connection to that address, and closes it at once without
+sending anything, to check something is listening. Otherwise it decides from
+these rules alone. The routed mark on a pane travels only as the
 rest of the pane's state does, to your own paired devices when Flockdeck Remote
 is on. Helpers and first prompts are not logged. An older version
 that routed fan-out rows kept its choices in `routing.jsonl` in the state
-directory (the last 10,000 lines, never the task), and Settings lists each rule beside how often
-the log shows it overridden, once it has decided at least once. That is the evidence
-for deciding which rules are worth hand-editing. Below the rules,
-**Unmatched work** shows how often what Minimise cost chose was overridden with
-Jev's rating and without it, so you can see whether trusting it has been
-worth it; nothing changes on its own. Settings has **Clear routing
+directory (the last 10,000 lines, never the task), and nothing writes to it
+now. Settings still lists each rule beside how often that log shows it
+overridden, once it has decided at least once. Settings has **Clear routing
 history**, and to turn all of it off, set every project to **Off**. A file that does not parse is a notice in the
 interface and nothing worse: the built-in agents carry on, because a typo in a
 settings file is not a reason to be unable to start work.

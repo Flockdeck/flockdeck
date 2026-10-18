@@ -12,7 +12,7 @@ import (
 )
 
 // TestDiscardWorktreeLeavesOneThisRunDidNotMake covers the data loss a failed
-// spawn could cause. The clean-up assumed every worktree a fan-out's jobs were
+// spawn could cause. The clean-up assumed every worktree a start's jobs were
 // given had just been made for them, and force-removed it -- but the worktree a
 // branch already had was reused, so the checkout could be somebody else's, with
 // their uncommitted work in it.
@@ -30,7 +30,7 @@ func TestDiscardWorktreeLeavesOneThisRunDidNotMake(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := discardWorktree(repo, &fanoutJob{task: "x", branch: "agent/theirs", cwd: path}, idle); err != nil {
+	if err := discardWorktree(repo, &worktreeJob{task: "x", branch: "agent/theirs", cwd: path}, idle); err != nil {
 		t.Errorf("discardWorktree: %v", err)
 	}
 	if _, err := os.Stat(unsaved); err != nil {
@@ -40,7 +40,7 @@ func TestDiscardWorktreeLeavesOneThisRunDidNotMake(t *testing.T) {
 
 // TestDiscardWorktreeLeavesOneAPaneIsWorkingIn covers a worktree this run made
 // that a `flockdeck spawn --worktree` on the same branch has since started a
-// helper in. The fan-out's own agent failing to start is no reason to take the
+// helper in. The start's own agent failing to start is no reason to take the
 // checkout from under the helper.
 func TestDiscardWorktreeLeavesOneAPaneIsWorkingIn(t *testing.T) {
 	if !gitx.Available() {
@@ -53,7 +53,7 @@ func TestDiscardWorktreeLeavesOneAPaneIsWorkingIn(t *testing.T) {
 	}
 	working := func(p string) (bool, bool) { return p == path, true }
 
-	if err := discardWorktree(repo, &fanoutJob{task: "x", branch: "agent/shared", cwd: path, path: path, created: true}, working); err != nil {
+	if err := discardWorktree(repo, &worktreeJob{task: "x", branch: "agent/shared", cwd: path, path: path, created: true}, working); err != nil {
 		t.Errorf("discardWorktree: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(path, "README.md")); err != nil {
@@ -68,10 +68,10 @@ func TestDiscardWorktreeLeavesOneAPaneIsWorkingIn(t *testing.T) {
 func TestAFanoutMakesNoWorktreesWithoutTheBranchList(t *testing.T) {
 	notARepo := t.TempDir()
 	c := &controlClient{out: make(chan []byte, 32)}
-	jobs := []*fanoutJob{{task: "split the router", cwd: notARepo}}
+	jobs := []*worktreeJob{{task: "split the router", cwd: notARepo}}
 
 	if prepareWorktrees(c, notARepo, jobs) {
-		t.Fatal("the fan-out went on to make worktrees without knowing which branches the repository has")
+		t.Fatal("the start went on to make worktrees without knowing which branches the repository has")
 	}
 	if jobs[0].created || jobs[0].cwd != notARepo {
 		t.Errorf("job = %+v, want it left where it was", jobs[0])
@@ -83,7 +83,7 @@ func TestAFanoutMakesNoWorktreesWithoutTheBranchList(t *testing.T) {
 			t.Errorf("said %s, want an error saying no worktrees were created", raw)
 		}
 	default:
-		t.Error("the fan-out stopped without saying why")
+		t.Error("the start stopped without saying why")
 	}
 }
 
@@ -101,10 +101,10 @@ func TestAFanoutsWorktreesAreEachItsOwn(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &controlClient{out: make(chan []byte, 32)}
-	jobs := []*fanoutJob{{task: "fix the parser", cwd: repo}, {task: "fix the parser 2", cwd: repo}}
+	jobs := []*worktreeJob{{task: "fix the parser", cwd: repo}, {task: "fix the parser 2", cwd: repo}}
 
 	if !prepareWorktrees(c, repo, jobs) {
-		t.Fatal("the fan-out stopped before making any worktrees")
+		t.Fatal("the start stopped before making any worktrees")
 	}
 	for _, j := range jobs {
 		if j.err != nil || !j.created {
@@ -117,7 +117,7 @@ func TestAFanoutsWorktreesAreEachItsOwn(t *testing.T) {
 }
 
 // TestRepoLockIsSharedByAWorktreeAndItsRepository covers a helper spawned from
-// a pane inside a linked worktree while a fan-out works in the checkout it was
+// a pane inside a linked worktree while a start works in the checkout it was
 // cut from. Both make worktrees in one repository, and each asks from its own
 // directory, so a lock kept per directory would hold neither back.
 func TestRepoLockIsSharedByAWorktreeAndItsRepository(t *testing.T) {

@@ -3,11 +3,10 @@
 //
 // Deciding is pure: it reads no file and makes no request. It is given the
 // policy, the task, and the agent and model the work would run on without it,
-// and answers with a model and a sentence saying why. The caller shows that
-// before the work starts -- a fan-out row's select is pre-set to it, and the
-// user confirms -- so a choice shown is the choice run. The one thing here
-// that touches the disk is the routing log (log.go), which holds rule names
-// and model ids and never the task.
+// and answers with a model and a sentence saying why. The caller records it on
+// the pane, whose header names the rule and the model it replaced. The one
+// thing here that touches the disk is the routing log (log.go), which holds
+// rule names and model ids and never the task.
 package route
 
 import (
@@ -22,9 +21,8 @@ import (
 
 // The kinds of work a rule's "kind" can name.
 const (
-	KindFanout = "fanout"
-	KindSpawn  = "spawn"
-	KindTurn   = "turn"
+	KindSpawn = "spawn"
+	KindTurn  = "turn"
 )
 
 // SourceRule is the Source of a decision a rule made.
@@ -36,8 +34,8 @@ const SourceFallback = "fallback"
 
 // Input is one piece of work to decide a model for.
 type Input struct {
-	Kind string // KindFanout, KindSpawn or KindTurn
-	Task string // the row, the spawn task, or the prompt
+	Kind string // KindSpawn or KindTurn
+	Task string // the spawn task, or the prompt
 	// Agent is the agent the work would run on without routing. A rule may
 	// still move it to another agent -- see OtherAgent -- but routing never
 	// does that on its own: another agent is another login, other tools and
@@ -52,8 +50,7 @@ type Input struct {
 	// project, and, for an endpoint of its own, answering. It is the
 	// caller's to supply, because deciding stays pure and does no I/O of its
 	// own. Nil means work is never moved to another agent, whatever a rule
-	// asks for -- which is also true for any Kind other than KindFanout and
-	// KindSpawn, and for a policy whose CrossAgent is off: a running
+	// asks for -- which is also true for any Kind other than KindSpawn, and for a policy whose CrossAgent is off: a running
 	// conversation cannot change agent under it, and a switch nobody turned
 	// on for this project is not one routing takes on its own.
 	OtherAgent func(id string) (agent.Spec, bool)
@@ -78,18 +75,13 @@ type Decision struct {
 	// Reason is one line a person reads: why the model was chosen, or why a
 	// rule that matched changed nothing.
 	Reason string
-	// Jev is the classification a fallback was shaped by, and nil for every
-	// decision that was not: a rule's, and a fallback made without Jev --
-	// which includes every one where Jev could not be asked or its answer was
-	// not acted on, deliberately indistinguishable from a plain fallback.
-	Jev *JevNote
 }
 
 // BuiltinRules are the rules a policy that names none of its own applies.
 //
 // They are deliberately timid. They move clearly mechanical work down and
 // clearly hard work up, and leave everything else exactly where it would have
-// been: a rule set that routes a third of a typical fan-out is doing well, and
+// been: a rule set that routes a third of a typical batch of tasks is doing well, and
 // one that routes everything is a bug. The rules for hard work come first,
 // because the first rule to match wins, and a task that reads as both -- "move
 // the session store behind a lock to fix the race" -- is the one a cheap
@@ -118,17 +110,13 @@ func RulesOf(p agent.RoutingPolicy) []agent.RoutingRule {
 	return p.Rules
 }
 
-// Router is a policy made ready to decide with: its rules compiled once, for a
-// fan-out that asks about a dozen rows at a time.
+// Router is a policy made ready to decide with: its rules compiled once.
 type Router struct {
 	mode       string
 	strategy   string
 	floor      int
 	crossAgent bool
 	rules      []rule
-	// jev and classifier are Jev-assisted fallback: see jev.go.
-	jev        bool
-	classifier Classifier
 }
 
 type rule struct {
@@ -140,7 +128,7 @@ type rule struct {
 // does not compile, a tier that is not one -- is left out; the catalog has
 // already named it in its notice when agents.json was read.
 func New(p agent.RoutingPolicy) *Router {
-	r := &Router{mode: p.Mode, strategy: p.Strategy, floor: max(agent.TierRank(p.Floor), 1), crossAgent: p.CrossAgent, jev: p.Jev}
+	r := &Router{mode: p.Mode, strategy: p.Strategy, floor: max(agent.TierRank(p.Floor), 1), crossAgent: p.CrossAgent}
 	if p.Floor != "" && agent.TierRank(p.Floor) == 0 {
 		// A floor nobody can read is taken at its most cautious.
 		r.floor = agent.TierRank(agent.TierTop)
@@ -164,7 +152,7 @@ func New(p agent.RoutingPolicy) *Router {
 
 // On reports whether the policy routes anything at all.
 func (r *Router) On() bool {
-	return r.mode == agent.RoutingSuggest || r.mode == agent.RoutingAuto
+	return r.mode == agent.RoutingAuto
 }
 
 // Decide is New(p).Decide(in), for one piece of work.
@@ -188,7 +176,7 @@ func (r *Router) Decide(in Input) Decision {
 	// a caller that can actually say whether another agent is ready. Without
 	// any one of them a rule naming another agent's model is judged exactly
 	// as it always was: about that agent's own work, and nobody else's.
-	crossOK := r.crossAgent && in.OtherAgent != nil && (in.Kind == KindFanout || in.Kind == KindSpawn)
+	crossOK := r.crossAgent && in.OtherAgent != nil && in.Kind == KindSpawn
 	for _, ru := range r.rules {
 		if ru.matches(in, words, files, crossOK) {
 			return r.apply(ru, in)
@@ -214,31 +202,7 @@ func (r *Router) fallback(in Input) Decision {
 		// smallest there is, so it is never routed from.
 		return Decision{Source: SourceFallback, Reason: modelName(in.Agent, in.Current) + " is a model of no known size, so routing leaves it alone"}
 	}
-	// want is the tier asked for: the floor, as it always was, or where Jev
-	// answered, what it asked for, but never above the work's own model (or the
-	// floor, if that is higher). Jev moves the choice between those two and no
-	// further, so cost-minimisation still never spends more than the work
-	// would have without routing, and never goes below the floor.
-	want := r.floor
-	var note *JevNote
-	var jd Difficulty
-	asked := 0
-	if r.wantsJev(in) {
-		if d, err := r.classifier.Classify(in.Task); err == nil {
-			if rank, ok := tierFor(d); ok {
-				asked, jd = rank, d
-				want = min(max(rank, r.floor), max(cur, r.floor))
-				note = &JevNote{Score: d.Score, Confidence: d.Confidence, Mechanical: d.Mechanical,
-					MultiFile: d.MultiFile, Tier: tierName(rank), Model: d.Model}
-			}
-		}
-	}
-	m, ok := pick(in.Agent, want, in.Current)
-	for !ok && want > r.floor {
-		// The agent has no model in the tier asked for: the next one down.
-		want--
-		m, ok = pick(in.Agent, want, in.Current)
-	}
+	m, ok := pick(in.Agent, r.floor, in.Current)
 	if !ok {
 		return Decision{Source: SourceFallback, Reason: in.Agent.Name + " has no " + tierName(r.floor) + " model, so cost-minimisation leaves the work alone"}
 	}
@@ -250,10 +214,7 @@ func (r *Router) fallback(in Input) Decision {
 		return Decision{Source: SourceFallback, Reason: "no rule matched, and this work may not be moved to a smaller model"}
 	}
 	reason := fmt.Sprintf("no rule matched; cost-minimisation routes unclassified work to the cheapest available tier anyway → %s", m.Tier)
-	if note != nil {
-		reason = jevReason(jd, asked, t)
-	}
-	return Decision{Model: m.ID, Tier: m.Tier, Routed: true, Up: t > cur, Source: SourceFallback, Reason: reason, Jev: note}
+	return Decision{Model: m.ID, Tier: m.Tier, Routed: true, Up: t > cur, Source: SourceFallback, Reason: reason}
 }
 
 func (ru rule) matches(in Input, words int, files []string, crossOK bool) bool {

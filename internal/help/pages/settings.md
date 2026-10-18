@@ -52,26 +52,25 @@ it.
   It applies to a pane when it starts. [Spend and limits](#spend) says what
   each one costs. Below them, links to **Routing** and **API keys**.
 - **Routing**: whether a helper or first prompt comes with a model chosen for the
-  work: **Off**, which it is until you change it, **Suggest** or
+  work: **Off**, which it is until you change it, or
   **Automatic**, for every project and for this one. **Never go below** keeps
   it off the smaller tiers. **Strategy** is **Cost-first, quality-aware**,
   the default, or **Minimise cost**: quality-aware leaves work no rule
   recognises exactly where it was; minimise cost routes it too, to the
   cheapest model the floor allows. Either way a rule that matches still
-  decides first. **Let a rule send work to another agent** and **Ask Jev to
-  rate unmatched work** are off until you turn them on. The rules in force are
-  listed, each with how often the log shows it overridden where it has decided
-  at least once, with where `agents.json` is, since that is where they are
-  edited, and **Clear routing history** empties the record of what it chose.
+  decides first. **Let a rule send work to another agent** is off until you
+  turn it on. The rules in force are listed, each with how often an older
+  version's log shows it overridden where it has decided at least once, with
+  where `agents.json` is, since that is where they are edited, and **Clear
+  routing history** empties that log, which nothing adds to now.
   [Agents and models](#agents) has the rest.
 - **API keys**: set, replace or clear the key each API agent uses. A key is
   never shown once it is set. Keys are set and cleared only at the desk: a
   window reached through the relay shows which are set, and no more. Below the
   agents, **TypeSafe API key** is where you paste, replace or clear the key
-  that **Let TypeSafe's Jev help read pane status** and Routing's **Ask Jev to
-  rate unmatched work** need. The field is masked and never shows the key
-  back, only whether one is set. Saving a key sends nothing: both stay off
-  until you turn them on.
+  that **Let TypeSafe's Jev help read pane status** needs. The field is masked
+  and never shows the key back, only whether one is set. Saving a key sends
+  nothing: the setting stays off until you turn it on.
 - **Status detection**: **TypeSafe API key** says whether that key is set and
   links to API keys, where it is edited. Below it, **Let TypeSafe's Jev help
   read pane status**: whether TypeSafe's Jev model may help read the status of a pane whose agent reports none. **Off
@@ -192,7 +191,7 @@ set).
   `flockdeck remote disable` keeps it and marks it off; `flockdeck remote remove`
   removes it.
 - `routing.jsonl`: what an older version's routing chose for each routed fan-out row,
-  and whether you kept it: the rule's name and the models, never the task. It
+  and whether you kept it. Nothing writes to it now. It holds the rule's name and the models, never the task. It
   keeps the last 10,000 lines, and **Clear routing history** empties it.
 - `keybindings.json`: every shortcut you have remapped or cleared under
   **Keyboard**, by the action's own id; one absent from it is still its
@@ -258,9 +257,8 @@ elsewhere) and start Flockdeck again.
   installed on purpose from updating itself to the latest.
 - `FLOCKDECK_RELAY`: which relay `flockdeck remote enable` uses.
 - `TYPESAFE_API_KEY`: a key for TypeSafe's Jev, used only when **Let
-  TypeSafe's Jev help read pane status**, under **Status detection**, or **Ask
-  Jev to rate unmatched work**, under **Routing**, is turned on; see [Knowing
-  who needs you](#status). A key set in **Settings › API keys ›
+  TypeSafe's Jev help read pane status**, under **Status detection**, is
+  turned on; see [Knowing who needs you](#status). A key set in **Settings › API keys ›
   TypeSafe API key** is used first; this is the fallback when none
   is set there. No other variable is ever tried. Without a key nothing is ever
   sent.

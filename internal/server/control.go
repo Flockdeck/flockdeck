@@ -320,7 +320,7 @@ type tabView struct {
 	// Named says the title was chosen by hand, which is when the rename
 	// dialog offers to go back to the automatic one.
 	Named bool `json:"named,omitempty"`
-	// Delegated says a fan-out placed its own children into this tab (see
+	// Delegated says Spawn placed an agent's helpers into this tab (see
 	// workspace.Tab.Delegated), which is what tells the window a settled
 	// multi-pane tab is delegated work safe to roll up into a summary card,
 	// rather than an ordinary split a person happens to have left idle.
@@ -1109,7 +1109,7 @@ type controlClient struct {
 	// startAgentLimit and attachImageLimit bound how often this window can
 	// start an agent or attach a picture -- see rateLimiter. Each spends real
 	// resources (a process and a worktree; a decode and a disk write), and
-	// unlike a fan-out's own MaxTasks there was nothing here to stop a window
+	// there was nothing here to stop a window
 	// asking for either as fast as it can send frames.
 	startAgentLimit  rateLimiter
 	attachImageLimit rateLimiter
@@ -2180,7 +2180,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		case "sendPrompt":
 			// The bar names the pane it was opened on, and the prompt goes
 			// there. Focus can move while it is open -- the desk clicking
-			// another pane, a fan-out revealing its first agent, a pane picked
+			// another pane, a spawned helper opening in a tab, a pane picked
 			// from the agents list -- and the prompt went to whichever pane had
 			// it by the time it was sent. A pane no longer in the tab on screen
 			// is not guessed at. A window that names none still sends to the
