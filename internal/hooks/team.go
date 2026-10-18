@@ -216,7 +216,7 @@ func post[Res any](api, path string, req any) (Res, error) {
 // open: the pane has been closed. A command that waits on a pane's inbox ends
 // when it sees this.
 func IsNoPane(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "is open here")
+	return err != nil && strings.HasPrefix(err.Error(), "no pane ") && strings.HasSuffix(err.Error(), "is open here")
 }
 
 // Team is the client half of `flockdeck team`.

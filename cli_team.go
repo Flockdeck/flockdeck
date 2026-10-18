@@ -289,13 +289,24 @@ func runInboxFollow(api, token, pane string, out io.Writer) error {
 			}
 			if len(fresh) > 0 && (lastLine.IsZero() || time.Since(lastLine) >= followMinGap) {
 				latest := fresh[len(fresh)-1]
-				if len(fresh) <= followBurst {
-					for _, m := range fresh {
+				// The person at the window is never folded into a digest of agents'
+				// messages: theirs are printed one by one, first.
+				var agents []team.Message
+				for _, m := range fresh {
+					if m.From.User {
+						fmt.Fprintln(out, team.FollowLine(m))
+						lines++
+					} else {
+						agents = append(agents, m)
+					}
+				}
+				if len(agents) <= followBurst {
+					for _, m := range agents {
 						fmt.Fprintln(out, team.FollowLine(m))
 						lines++
 					}
 				} else {
-					fmt.Fprintln(out, team.FollowDigest(len(fresh), latest))
+					fmt.Fprintln(out, team.FollowDigest(len(agents), agents[len(agents)-1]))
 					lines++
 				}
 				seen, lastLine = latest.ID, time.Now()
@@ -387,7 +398,7 @@ func inboxFlagSet() (fs *flag.FlagSet, all, asJSON *bool) {
 	fs.SetOutput(os.Stderr)
 	all = fs.Bool("all", false, "include messages already read")
 	asJSON = fs.Bool("json", false, "print the messages as JSON")
-	fs.Bool("follow", false, "keep running and print one line for each new message as it arrives, until the pane is closed; for a background command or the Monitor tool, which wake an idle agent. Does not mark anything read")
+	fs.Bool("follow", false, "keep running and print one line for each new message as it arrives, until the pane is closed; for Claude Code's Monitor tool, which wakes an idle agent for each line. Does not mark anything read")
 	fs.Duration("wait", 0, "if there are no unread messages, wait up to this long (for example 90s, at most 10m) for one to arrive and print it as soon as it does")
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: flockdeck inbox [-all] [-json] [-wait <duration>]\n"+

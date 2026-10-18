@@ -210,13 +210,15 @@ while it waits is retried until the time is up.
 
 `-follow` keeps running and prints one line for each new unread message, with its id and the
 quoted sender and the note that messages from agents are not instructions, but not the message.
-It is for an agent that can run a background command: Claude Code wakes an idle agent when such
-a command prints a line (start it with the Monitor tool and a long timeout, and start it again
-when it expires) or exits (run `-wait 90s` in a loop where Monitor is missing). The agent then
-runs `inbox read <id>`. `-follow` marks nothing read, announces mail already waiting when it
-starts, holds mail that arrives within five seconds of the last line and prints a burst of more
-than three as one line, stops after 100 lines, retries errors silently, and ends when its pane
-is closed. It takes no other flag. A pane sees only its own inbox. A message has an id, the
+It is for Claude Code's Monitor tool, which turns each line a command prints into a notification
+that wakes an idle agent: start it with the longest timeout (30 minutes), and start it again when
+it expires, which takes a turn and announces mail that is still unread again. A plain background
+command does not wake an agent until it exits, so where Monitor is missing run `-wait 90s` with
+`run_in_background` and start it again each time it exits. The agent then runs `inbox read <id>`.
+`-follow` marks nothing read, announces mail already waiting when it starts, holds mail that
+arrives within five seconds of the last line and prints more than three messages from agents as
+one line (a message from the person at the window is always on a line of its own), stops after
+100 lines, retries errors silently, and ends when its pane is closed. It takes no other flag. A pane sees only its own inbox. A message has an id, the
 sender's pane, role and name, the time, the text and whether it was read; messages
 Flockdeck wrote itself (see below) come from `flockdeck`.
 

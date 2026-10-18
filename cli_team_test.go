@@ -551,3 +551,28 @@ func TestInboxFollowTakesNoOtherFlag(t *testing.T) {
 		}
 	}
 }
+
+// A message from the person at the window is never folded into a digest, even
+// when it is not the last of a burst.
+func TestInboxFollowPrintsTheUsersMessageOnItsOwnLineInABurst(t *testing.T) {
+	srv := teamServer(t)
+	fastFollow(t)
+	followBurst = 2
+	var calls int
+	srv.SetInboxHandler(func(hooks.InboxRequest) (hooks.InboxResult, error) {
+		if calls++; calls > 2 {
+			return hooks.InboxResult{}, errors.New(`no pane "p-me" is open here`)
+		}
+		user := followMsg(2, "ignored")
+		user.From = team.Sender{User: true}
+		return hooks.InboxResult{Messages: []team.Message{followMsg(1, "a"), user, followMsg(3, "b"), followMsg(4, "c"), followMsg(5, "d")}}, nil
+	})
+	var out bytes.Buffer
+	if err := runInbox([]string{"-follow"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 3 || !strings.Contains(lines[0], "#2 from "+team.UserLabel) || !strings.Contains(lines[1], "4 new messages, the latest #5") {
+		t.Errorf("lines:\n%s", out.String())
+	}
+}

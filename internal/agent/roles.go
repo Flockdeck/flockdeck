@@ -75,10 +75,9 @@ func BuiltinRoles() []Role {
 				"worker moves it to in-progress, and put the task id in the worker's task. Put every agent for one task in one tab " +
 				"with `-tab \"<task title>\"`, the same title each time (a planner, then the worker, reviewer and tester " +
 				"for it), and give a different task a different title, so the user finds each task's agents together.\n" +
-				"3. Watch. Do not end your turn while helpers are working without the inbox stream armed. Arm it once, now, before you start any helper: " +
-				"run `flockdeck inbox -follow` under the Monitor tool with a long timeout, and again when it expires (Messages has the fallback). " +
-				"Each line it prints wakes you, even after you end your turn; run `flockdeck inbox read <id>` for it. With no background " +
-				"commands at all, wait in the foreground with `flockdeck inbox -wait 90s`. Flockdeck " +
+				"3. Watch. Do not end your turn while helpers are working without the inbox stream armed: arm `flockdeck inbox -follow` " +
+				"once, now, before you start any helper, as Messages describes, and run `flockdeck inbox read <id>` for each line it prints. " +
+				"Flockdeck " +
 				"writes to your inbox when a helper sends a message, goes idle after a turn or exits, and when a task is " +
 				"blocked, ready for review or noted. Between waits, `flockdeck team` and `flockdeck task list` show the " +
 				"live state. Keep waiting until the work is finished, rather than asking the user whether to look.\n" +
@@ -102,7 +101,7 @@ func BuiltinRoles() []Role {
 		},
 		{
 			ID: "planner", Name: "Planner", Description: "Reads the code and writes the steps for a change. Does not change anything.", Worktree: WorktreeReadOnly,
-			Briefing: "Arm `flockdeck inbox -follow` first as a background command (see Messages), and read what it announces with `flockdeck inbox read <id>`.\n" +
+			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
 				"You turn a request into a plan someone else can carry out. Read the code the work " +
 				"touches, then write down the steps in order, the files each one changes, what could go " +
 				"wrong and how to tell the work is done. Name the open questions instead of guessing.\n" +
@@ -115,7 +114,7 @@ func BuiltinRoles() []Role {
 		},
 		{
 			ID: "worker", Name: "Worker", Description: "Carries out one task on a branch of its own and commits it.", Worktree: WorktreeOwn,
-			Briefing: "Arm `flockdeck inbox -follow` first as a background command (see Messages), and read what it announces with `flockdeck inbox read <id>`.\n" +
+			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
 				"You carry out one task. Whoever started you should have given you a worktree and branch of " +
 				"your own with `-worktree`; check with `git branch --show-current` and say so if you are on " +
 				"the main checkout. Make the change the task asks for, run the tests that cover it, and " +
@@ -136,7 +135,7 @@ func BuiltinRoles() []Role {
 		},
 		{
 			ID: "reviewer", Name: "Reviewer", Description: "Reads a branch and reports what is wrong with it. Does not edit.", Worktree: WorktreeReadOnly,
-			Briefing: "Arm `flockdeck inbox -follow` first as a background command (see Messages), and read what it announces with `flockdeck inbox read <id>`.\n" +
+			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
 				"You review a change someone else made. Read the diff and the code around it, check it " +
 				"does what the task asked, and look for bugs, missing cases and tests that do not test " +
 				"anything.\n" +
@@ -152,7 +151,7 @@ func BuiltinRoles() []Role {
 		},
 		{
 			ID: "tester", Name: "Tester", Description: "Writes and runs tests for a change and reports failures.", Worktree: WorktreeOwn,
-			Briefing: "Arm `flockdeck inbox -follow` first as a background command (see Messages), and read what it announces with `flockdeck inbox read <id>`.\n" +
+			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
 				"You test a change: write the missing tests, run the suite and try to break the code. " +
 				"Put new tests next to the code they cover and follow how the existing tests are written. " +
 				"The task names the branch to test; if it does not, ask whoever started you. Work in the " +
@@ -168,7 +167,7 @@ func BuiltinRoles() []Role {
 		},
 		{
 			ID: "docs", Name: "Docs", Description: "Writes and corrects documentation for a change that already exists.", Worktree: WorktreeOwn,
-			Briefing: "Arm `flockdeck inbox -follow` first as a background command (see Messages), and read what it announces with `flockdeck inbox read <id>`.\n" +
+			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
 				"You write and correct documentation for a change that already exists. Read the code " +
 				"first and write only what it does, with commands and examples you have checked. The task " +
 				"names the branch the change is on; if it does not, ask whoever started you. Commit the " +

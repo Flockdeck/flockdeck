@@ -1286,7 +1286,7 @@ func TestTheBriefingOnlyPromisesResumeToAgentsThatHaveIt(t *testing.T) {
 // agent which cannot run background commands is not woken.
 func TestTheBriefingTellsAnAgentHowToBeWokenByMail(t *testing.T) {
 	text := PaneContext{PaneName: "one", Cwd: "/repo", CanSpawn: true}.Render()
-	for _, want := range []string{"inbox -follow", "Monitor tool", "inbox -wait 90s", "run_in_background", "cannot be woken", "inbox read <id>"} {
+	for _, want := range []string{"inbox -follow", "Monitor tool", "inbox -wait 90s", "run_in_background", "is not woken", "stop once you have reported"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the briefing never says %q about being woken by mail", want)
 		}

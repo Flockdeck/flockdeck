@@ -124,31 +124,40 @@ Mail is delivered on three channels instead.
   A working agent gets it with its next tool result. An idle agent has no hook to answer
   until the user's next prompt, so it gets it then. `Stop` is not used: its reply can only
   block the stop and force another turn, which would start work nobody asked for.
-- The follow stream. `flockdeck inbox -follow` is a command the agent starts itself, as a
-  background command or, in Claude Code, under the Monitor tool. It asks the application for
-  the pane's unread messages every two seconds, over the same `/inbox` endpoint, and prints one
-  line for each message it has not printed yet: the id, the sender quoted by `noticeSender`
-  and the disclaimer (`team.FollowLine`), never message text. It marks nothing read. Claude Code
-  delivers a background command's output, and its exit, to the model as a new turn, which is
-  what wakes an agent that has ended its turn. Flockdeck types nothing: the line comes from a
-  process the agent started, and reaches the model as tool output, not as prompt text. The
-  stream announces unread mail already waiting when it starts, so a stream armed again
-  announces the still-unread messages again. Mail that arrives within five seconds of the last
-  line is held and printed together, and more than three new messages are one digest line, so
-  two agents answering each other cost one line every five seconds at most. A stream stops
-  after 100 lines. It retries errors from the application without printing, ends with a line
-  of its own when the pane is closed (the refusal `no pane ... is open here`, see
-  `hooks.IsNoPane`), and ends after two minutes of errors. The role briefings and the Messages
-  section tell the agent to arm it once at the start. Flockdeck cannot arm it for the agent:
-  a hook can add text to what the model reads but cannot start a tool, and a process
-  Flockdeck started itself would not reach the model. An agent that forgets keeps the notice
-  and the unread count, and an idle one still learns of mail only when someone types.
-  Where the Monitor tool is missing (Bedrock, Vertex and Foundry, or with telemetry turned
-  off), the briefing falls back to `inbox -wait 90s` run as a background command and started
-  again each time it exits.
-  Only Claude Code is known to wake on a background command. For Codex, Gemini CLI, opencode,
-  Aider and Cursor Agent the briefing's first-line advice is the same, but nothing here shows
-  they are woken, so those agents poll with `flockdeck inbox`.
+- The follow stream. `flockdeck inbox -follow` is a command the agent starts itself, under the
+  Monitor tool of Claude Code. It asks the application for the pane's unread messages every two
+  seconds, over the same `/inbox` endpoint, and prints one line for each message it has not
+  printed yet: the id, the sender quoted by `noticeSender` and the disclaimer
+  (`team.FollowLine`), never message text. It marks nothing read. The Monitor tool delivers each
+  stdout line of its command to the model as a notification, which starts a turn for an agent
+  that has ended its turn; that was shown with the built binary in a Claude Code session, not
+  yet in a Flockdeck pane. A plain Bash `run_in_background` command does not do this: it
+  notifies only when it exits, and `-follow` does not exit until the pane closes, so it is
+  not the way to arm it. Flockdeck types nothing: the line reaches the model as tool output,
+  not as prompt text.
+  A Monitor command expires after its timeout, at most 30 minutes, and the agent then takes a
+  turn to start it again. A stream armed again announces the messages that are still unread
+  again, so an agent that is left idle with unread mail takes a turn about every 30 minutes.
+  The briefings tell an agent to arm it once, and to stop once its task is done and it has
+  reported.
+  Mail that arrives within five seconds of the last line is held and printed together. Of the
+  messages held, any from the person at the window are printed one by one and first, and more
+  than three from agents are one digest line that names the latest sender, so two agents
+  answering each other cost one line every five seconds at most. A stream stops after 100
+  lines. It retries errors from the application without printing, ends after two minutes of
+  errors, and ends with a line of its own when the application refuses the pane id with
+  `no pane ... is open here` (`hooks.IsNoPane`), which means the pane was closed. If Flockdeck
+  restarts, the process dies with its pane, and a restored pane has to arm it again.
+  Flockdeck cannot arm it for the agent: a hook can add text to what the model reads but
+  cannot start a tool, and a process Flockdeck started itself would not reach the model. An
+  agent that forgets keeps the notice and the unread count, and an idle one still learns of
+  mail only when someone types. Where the Monitor tool is missing (Bedrock, Vertex and Foundry,
+  or with telemetry turned off), the briefing falls back to `inbox -wait 90s` run with Bash
+  `run_in_background` and started again each time it exits; it exits when mail arrives, and
+  that exit is the notification.
+  Only Claude Code is known to be woken by a background command. For Codex, Gemini CLI,
+  opencode, Aider and Cursor Agent nothing here shows they are woken, so those agents poll
+  with `flockdeck inbox`.
 - The unread count. `Workspace.Unread` is the number of unread messages, drawn on the pane's
   header for every agent. It changes whenever an inbox does (the store's change callback wakes
   the window), and it stays until the agent reads the messages with `flockdeck inbox`, whether

@@ -330,13 +330,13 @@ Given a goal, a manager works through it without being asked at each step:
    restarts, so a task whose helpers are still running gets a second tab of the same title the
    next time the manager starts one for it.
 3. It arms `flockdeck inbox -follow` once, before it starts helpers: under the Monitor tool in
-   Claude Code, or as a background command elsewhere. Each new message prints one line, which
-   wakes the manager even after it has ended its turn, and it reads the message with
-   `inbox read`. Without the Monitor tool it runs `inbox -wait 90s` as a background command
-   in a loop. Only Claude Code is known to wake on a background command; an agent without
-   that waits inside its turn with `inbox -wait 90s` (90 seconds stays inside the 120 second
-   limit of an agent's shell command). The other roles arm the stream too, so the manager's
-   messages reach them while they are idle.
+   Claude Code. Each new message prints one line, which wakes the manager even after it has ended
+   its turn, and it reads the message with `inbox read`. The Monitor tool expires after at most 30
+   minutes, and the manager starts it again. Without the Monitor tool it runs `inbox -wait 90s`
+   with Bash `run_in_background` in a loop, because a plain background command wakes the agent
+   only when it exits. Only Claude Code is known to be woken this way; an agent without it waits
+   inside its turn with `inbox -wait 90s` (90 seconds stays inside the 120 second limit of an
+   agent's shell command). The other roles arm the stream too, and stop once they have reported.
    Flockdeck writes to the manager's inbox when a
    helper sends a message, exits, or finishes a turn and stays idle, and when a task is
    blocked or ready for review.
