@@ -10,7 +10,7 @@ import (
 // are matched exactly; the notice says so, rather than routing seeming to
 // ignore it. A rule naming an agent that is here says nothing.
 func TestARoutingRuleNamingNoAgentHereIsNamedInTheNotice(t *testing.T) {
-	c := Merge(&File{Routing: json.RawMessage(`{"mode": "suggest", "rules": [
+	c := Merge(&File{Routing: json.RawMessage(`{"mode": "auto", "rules": [
 		{"name": "design work", "model": "opus", "agent": "Claude", "when": {"task": "design"}},
 		{"name": "codex tests", "tier": "small", "when": {"agent": "codx"}},
 		{"name": "fine", "model": "opus", "agent": "claude", "when": {"task": "plan"}}]}`)})

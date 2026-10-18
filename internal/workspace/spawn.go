@@ -29,9 +29,9 @@ const maxTaskBytes = 16 << 10
 // AgentSpecByID asks the same about an agent named by id, from anywhere.
 //
 // The question asked here is about one spec rather than about Claude. A
-// fan-out may now give four of its tasks to one agent and eight to another,
-// and the half whose agent is installed should start whatever is true of the
-// other half -- which it cannot while the only question Flockdeck knows how to ask
+// parent may give four helpers to one agent and eight to another, and the
+// half whose agent is installed should start whatever is true of the other
+// half -- which it cannot while the only question Flockdeck knows how to ask
 // is whether Claude Code is on this machine.
 func (w *Workspace) AgentSpec(id string) (agent.Spec, error) {
 	if id == "" {
@@ -45,8 +45,7 @@ func (w *Workspace) AgentSpec(id string) (agent.Spec, error) {
 // the claude CLI found when the workspace was made, and nothing else: not the
 // active project, which is written on the workspace goroutine at every project
 // switch. AgentSpec read that for every id -- empty or not, since it was an
-// argument -- so the fan-out dialog probing agents, and a fan-out deciding
-// which rows ask about folder trust, raced every switch. An empty id names no
+// argument -- so the agent picker probing agents raced every switch. An empty id names no
 // agent here.
 func (w *Workspace) AgentSpecByID(id string) (agent.Spec, error) {
 	spec, ok := w.agents().Find(id)
@@ -61,14 +60,14 @@ func (w *Workspace) AgentSpecByID(id string) (agent.Spec, error) {
 	}
 	// Word for word what the pane that would have failed says, how to install
 	// the agent included: a refused spawn goes back to the agent that asked
-	// for it, and a fan-out's notice to the user, and either is where somebody
+	// for it, and a window's notice to the user, and either is where somebody
 	// learns the agent is missing.
 	return spec, missingCLI(spec)
 }
 
 // missingCLI is what somebody is told when the CLI an agent runs is not
 // installed — in the pane that could not start, and in the refusal of a spawn
-// or a fan-out that would have needed it: what is wrong, and where the catalog
+// that would have needed it: what is wrong, and where the catalog
 // knows it, how to put it right, worded as the session package words the same
 // failure.
 //
@@ -84,8 +83,8 @@ func missingCLI(spec agent.Spec) error {
 // agentAvailable reports whether a spec can be started on this machine.
 //
 // The catalog remembers what it probed for a few seconds, which is what keeps
-// a twelve-row fan-out from walking PATH twelve times over to be told the same
-// thing.
+// a dozen spawns in a row from walking PATH a dozen times over to be told the
+// same thing.
 func (w *Workspace) agentAvailable(spec agent.Spec) bool {
 	if spec.Exe == "claude" && w.claudeExe != "" {
 		// Flockdeck looks the claude CLI up once at start-up, and that answer is
@@ -107,8 +106,8 @@ type SpawnOptions struct {
 	// Split places the child beside its parent instead of in a new tab.
 	Split bool
 	// Tab names an existing tab for the child to join, where it is arranged
-	// into a grid with the panes already there. It is how a fan-out gathers a
-	// dozen children into one tab rather than scattering them a tab each, and
+	// into a grid with the panes already there. It is how a dozen
+	// children are gathered into one tab rather than scattered a tab each, and
 	// it takes precedence over Split. A tab that has since been closed is
 	// ignored, and the child is placed as it would have been without it.
 	Tab string
@@ -120,7 +119,7 @@ type SpawnOptions struct {
 	Kind    session.Kind
 	Title   string
 	// Agent names the agent.Spec the pane runs, and Model the model that agent
-	// is asked for. Empty means the default, which is how a fan-out started
+	// is asked for. Empty means the default, which is how a spawn made
 	// without a thought about either keeps running what Flockdeck already ran. An
 	// empty model is not "no model": it leaves the choice to the agent, so a
 	// CLI keeps whatever it was configured with.
@@ -140,8 +139,8 @@ type SpawnOptions struct {
 	RoutedFromAgent string
 	// SpawnedByAgent marks a child started by its parent's own `flockdeck
 	// spawn`, so the pane records the parent as its Pane.Parent -- as opposed
-	// to a fan-out the user ran themselves from the window, whose children are
-	// the user's own and carry no parent. Only installSpawnHandler sets it.
+	// to one the user started themselves from the window, which is the user's
+	// own and carries no parent. Only installSpawnHandler sets it.
 	SpawnedByAgent bool
 	// Record starts the child with Pane.Recording on. Only the spawn handler
 	// sets it, and only once the user has agreed to recording in the window.
@@ -542,7 +541,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	cwd, home := w.spawnPlace(parentPaneID, o.Cwd)
 
 	// Asked about the agent this pane will actually run rather than about
-	// Claude, because a fan-out may now hand half its tasks to one agent and
+	// Claude, because a parent may hand half its helpers to one agent and
 	// half to another, and "the `claude` CLI was not found" is a nonsense
 	// answer to a task that was never going to run Claude. One asked for no
 	// agent runs its own project's default, which need not be the default of
@@ -600,8 +599,8 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		batonPrompt: batonPrompt,
 		// A child inherits the pane it was started from trusting auto-review
 		// or not. Trust the boss has already extended to one pane -- by
-		// turning auto-review on for it -- carries to the fan-out or the
-		// helper it starts, rather than needing to be found and flipped on a
+		// turning auto-review on for it -- carries to the
+		// helpers it starts, rather than needing to be found and flipped on a
 		// dozen new panes one at a time. See Pane.AutoReview.
 		//
 		// Not for a helper an agent started on its own: that would hand an
@@ -617,22 +616,21 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		p.Ancestors = append(w.ancestorsLocked(parent), parentPaneID)
 		w.mu.RUnlock()
 	}
-	// A pane started with no parent pane behind it at all -- opened by hand,
-	// or a fan-out with no boss pane to speak of -- starts AutoReview from
-	// the installation's own default rather than off unconditionally. This
-	// is parent == nil, not p.Parent == "": a window-driven fan-out row has
-	// a real parent (the pane whose plan it came from) and inherits that
+	// A pane started with no parent pane behind it at all -- opened by hand --
+	// starts AutoReview from the installation's own default rather than off
+	// unconditionally. This is parent == nil, not p.Parent == "": a pane the
+	// window started from another pane has a real parent and inherits that
 	// pane's live AutoReview above, even though p.Parent itself is left
 	// empty for it (see the assignment above and Pane.Parent) -- checking
 	// the field here instead of the pointer would silently overwrite that
-	// inheritance with the installation default for every such row.
+	// inheritance with the installation default for every such pane.
 	if parent == nil || o.SpawnedByAgent {
 		p.AutoReview = store.LoadPrefs().AutoReviewDefault
 	}
 	if p.IsAgent() {
 		p.Agent, p.Model = agentID, model
 		// o.Agent is "" for same-agent routing, which never touches it -- a
-		// fan-out row or a spawned helper left to the project's own default
+		// spawned helper left to the project's own default
 		// agent -- so only an o.Agent that was actually given has to match
 		// what this resolved to. Requiring an exact match unconditionally
 		// dropped the badge on every same-agent route a helper had, since
@@ -693,8 +691,8 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		placed = true
 	} else if t := w.Tab(o.Tab); o.TabName == "" && t != nil {
 		// Rebuilt as a grid rather than split off whichever pane happens to be
-		// there, because this is the path a fan-out arrives on: a dozen panes
-		// added one at a time, each of which would otherwise halve the last.
+		// there, because this is the path several children of one parent arrive
+		// on: a dozen panes added one at a time, each of which would otherwise halve the last.
 		t.Tree = layout.Grid(append(t.Tree.Panes(), p.ID))
 		t.Zoom = false
 		t.Delegated = true
@@ -886,7 +884,7 @@ const maxBranchName = 32
 // Letters are letters in every script. Keeping only a-z threw away every
 // character of a task written in Cyrillic, Greek, Japanese or anything else,
 // which left nothing at all — so each of those tasks came out as the fallback
-// name, and a whole fan-out landed on agent/task, agent/task-2, agent/task-3,
+// name, and a whole batch of spawns landed on agent/task, agent/task-2, agent/task-3,
 // naming nothing. git takes UTF-8 in a ref, and the worktree directory derived
 // from it keeps the same characters already.
 func BranchNameFor(task string) string {

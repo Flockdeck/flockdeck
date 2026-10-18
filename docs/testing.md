@@ -43,7 +43,7 @@ non-zero and lists what was refused.
   already has a `TestMain`, end it with `os.Exit(testiso.Main(m))` in place of
   `os.Exit(m.Run())`.
 - **Talk to an in-process fake.** Use `httptest.NewServer` and give the code
-  under test its URL (`routejev.APIBase = srv.URL` and the like). Never a real
+  under test its URL (`jev.Client{APIBase: srv.URL}` and the like). Never a real
   hostname, not even one you expect to fail.
 - **A client with its own `Transport`, or a raw `net.Dial`, is not covered.**
   Build such a client against a loopback address, and do not rely on the guard

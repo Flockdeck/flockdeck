@@ -52,7 +52,7 @@ func TestRetiredSwitchKeyIsKeptWhenTheFileIsSaved(t *testing.T) {
 
 func TestRetiredSuggestInPaneKeyIsPassedOver(t *testing.T) {
 	dir := t.TempDir()
-	write(t, dir, `{"version":1,"routing":{"mode":"suggest","rules":[
+	write(t, dir, `{"version":1,"routing":{"mode":"auto","rules":[
 		{"name":"big","tier":"top","suggestInPane":true,"when":{"minWords":50}}
 	]},"projects":{"/p":{"routing":{"mode":"auto","rules":[
 		{"name":"small","tier":"small","suggestInPane":false,"when":{"maxWords":3}}

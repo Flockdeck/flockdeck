@@ -71,8 +71,8 @@ type Prefs struct {
 	// palette. Empty is the default blue.
 	AccentColor string `json:"accentColor,omitempty"`
 	// AutoReviewDefault is the value Pane.AutoReview starts at for a pane with
-	// no parent -- one opened by hand, or a fresh row of a fan-out run from the
-	// window -- rather than inherited from a parent that spawned it with its
+	// no parent -- one opened by hand, or a fresh one the window started
+	// from another pane -- rather than inherited from a parent that spawned it with its
 	// own `flockdeck spawn`. Off by default, as the switch itself is. A pane's
 	// own switch is kept across restarts; this also stands in for a layout
 	// saved before that was. See workspace.Pane.AutoReview.

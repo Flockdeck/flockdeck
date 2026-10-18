@@ -50,7 +50,7 @@ func TestARoutingPolicySurvivesEveryWrite(t *testing.T) {
 	entry, _ := json.Marshal(project)
 	writeFile(t, dir, `{
   "version": 1,
-  "routing": {"mode": "suggest", "floor": "mid", "classifier": {"enabled": false},
+  "routing": {"mode": "auto", "floor": "mid", "classifier": {"enabled": false},
               "rules": [{"name": "tests", "tier": "small", "when": {"task": "tests"}}]},
   "projects": {`+string(entry)+`: {"agent": "claude", "model": "opus", "routing": {"mode": "auto", "later": 1}}}
 }`)
@@ -86,7 +86,7 @@ func TestARoutingPolicySurvivesEveryWrite(t *testing.T) {
 	if p, own := c.RoutingFor(project); !own || p.Mode != RoutingAuto {
 		t.Errorf("the project is routed by %+v (own %v), want its own policy", p, own)
 	}
-	if p, own := c.RoutingFor(filepath.Join(dir, "other")); own || p.Mode != RoutingSuggest || p.Floor != TierMid {
+	if p, own := c.RoutingFor(filepath.Join(dir, "other")); own || p.Mode != RoutingAuto || p.Floor != TierMid {
 		t.Errorf("another project is routed by %+v (own %v), want every project's", p, own)
 	}
 }
@@ -159,11 +159,11 @@ func TestSetRouting(t *testing.T) {
 	project := filepath.Join(dir, "app")
 	writeFile(t, dir, `{"version": 1, "routing": {"floor": "mid", "rules": [], "later": true}}`)
 
-	if err := SetRouting(dir, "", "mode", "Suggest"); err != nil {
+	if err := SetRouting(dir, "", "mode", "Auto"); err != nil {
 		t.Fatal(err)
 	}
 	m := readBack(t, dir)
-	if dig(m, "routing", "mode") != "suggest" || dig(m, "routing", "later") != true || dig(m, "routing", "floor") != "mid" {
+	if dig(m, "routing", "mode") != "auto" || dig(m, "routing", "later") != true || dig(m, "routing", "floor") != "mid" {
 		t.Errorf("routing = %v, want the mode changed and nothing else", m["routing"])
 	}
 
@@ -239,7 +239,7 @@ func TestSetRoutingStrategy(t *testing.T) {
 // A strategy nobody can read leaves routing quality-aware -- the cautious
 // default -- rather than off or as cost-minimising as it gets.
 func TestAStrategyNobodyCanReadIsBalanced(t *testing.T) {
-	c := Merge(&File{Routing: json.RawMessage(`{"mode": "suggest", "strategy": "cheapest"}`)})
+	c := Merge(&File{Routing: json.RawMessage(`{"mode": "auto", "strategy": "cheapest"}`)})
 	if !strings.Contains(c.Notice, `"cheapest"`) {
 		t.Errorf("notice does not mention the bad strategy: %s", c.Notice)
 	}
@@ -274,50 +274,46 @@ func TestSetRoutingCrossAgent(t *testing.T) {
 	}
 }
 
-// jev round-trips as a real JSON boolean, is off unless written, is taken out
-// again by "false", is scoped to a project by the same copy-the-policy rule as
-// every other setting, and refuses anything else.
-func TestSetRoutingJev(t *testing.T) {
+// Settings an earlier build wrote that do nothing now are read without
+// trouble, and kept in the file when anything else is written.
+func TestRetiredRoutingValuesLoadAndDegrade(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, `{"version": 1, "routing": {"mode": "suggest", "strategy": "cost", "rules": []}}`)
-	if p, _ := LoadFrom(dir).RoutingFor(""); p.Jev {
-		t.Fatal("Jev is on in a file that never said so")
-	}
-	if err := SetRouting(dir, "", "jev", "true"); err != nil {
-		t.Fatal(err)
-	}
-	if dig(readBack(t, dir), "routing", "jev") != true {
-		t.Errorf("jev = %v, want true", readBack(t, dir)["routing"])
-	}
-	p, _ := LoadFrom(dir).RoutingFor("")
-	if !p.Jev || p.Strategy != StrategyCost || p.Rules == nil || p.Mode != RoutingSuggest {
-		t.Errorf("the policy read back is %+v: setting jev lost the rest", p)
-	}
-	// A project given its own policy starts from a copy that keeps jev.
-	if err := SetRouting(dir, "/work/a", "floor", "mid"); err != nil {
-		t.Fatal(err)
-	}
-	if p, own := LoadFrom(dir).RoutingFor("/work/a"); !own || !p.Jev || p.Floor != TierMid {
-		t.Errorf("the project's policy is %+v", p)
-	}
-	// ... and can turn it off for itself alone.
-	if err := SetRouting(dir, "/work/a", "jev", "false"); err != nil {
-		t.Fatal(err)
-	}
+	writeFile(t, dir, `{"version": 1, "routing": {"mode": "suggest", "strategy": "cost", "jev": true,
+  "rules": [{"name": "fan-outs", "tier": "small", "when": {"kind": "fanout"}},
+            {"name": "tests", "tier": "small", "when": {"task": "tests"}}]},
+  "projects": {"/work/a": {"routing": {"mode": "Suggest"}}}}`)
 	c := LoadFrom(dir)
-	if p, _ := c.RoutingFor("/work/a"); p.Jev {
-		t.Error("the project's own policy still has Jev on")
+	p, _ := c.RoutingFor("")
+	if p.Mode != RoutingOff {
+		t.Errorf("a saved mode of suggest is %q, want off", p.Mode)
 	}
-	if p, _ := c.RoutingFor(""); !p.Jev {
-		t.Error("turning it off for one project turned it off for every project")
+	if pa, own := c.RoutingFor("/work/a"); !own || pa.Mode != RoutingOff {
+		t.Errorf("a project's saved mode of Suggest is %+v (own %v), want off", pa, own)
 	}
-	if err := SetRouting(dir, "", "jev", "false"); err != nil {
+	if p.Strategy != StrategyCost || len(p.Rules) != 1 || p.Rules[0].Name != "tests" {
+		t.Errorf("policy %+v: want the strategy kept, the fanout rule dropped and the other rule kept", p)
+	}
+	for _, want := range []string{`mode "suggest" no longer exists`, `rule "fan-outs"`, `"fanout"`} {
+		if !strings.Contains(c.Notice, want) {
+			t.Errorf("notice %q does not mention %q", c.Notice, want)
+		}
+	}
+
+	// Turning routing on again replaces the retired mode, and the retired
+	// keys the file still holds are left as written.
+	if err := SetRouting(dir, "", "mode", "auto"); err != nil {
 		t.Fatal(err)
 	}
-	if dig(readBack(t, dir), "routing", "jev") != nil {
-		t.Error("jev is kept after being set to false")
+	m := readBack(t, dir)
+	if dig(m, "routing", "mode") != "auto" || dig(m, "routing", "jev") != true {
+		t.Errorf("routing = %v, want mode auto and the old jev key untouched", m["routing"])
 	}
-	if err := SetRouting(dir, "", "jev", "maybe"); err == nil {
-		t.Error("jev accepted maybe")
+	if p, _ := LoadFrom(dir).RoutingFor(""); p.Mode != RoutingAuto {
+		t.Errorf("mode after saving auto = %q", p.Mode)
+	}
+	for _, bad := range []struct{ field, value string }{{"mode", "suggest"}, {"jev", "true"}} {
+		if err := SetRouting(dir, "", bad.field, bad.value); err == nil {
+			t.Errorf("SetRouting(%q, %q) was accepted", bad.field, bad.value)
+		}
 	}
 }

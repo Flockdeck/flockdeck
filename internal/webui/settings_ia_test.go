@@ -23,7 +23,7 @@ const homes = {
   terminal: ["set-preview", "set-font-size", "set-font-family", "set-scrollback", "set-scrollback-custom", "set-cursor", "set-cursor-blink", "set-screen-reader"],
   keybindings: ["set-keybind-reset-all", "set-keybind-closePane"],
   agents: ["set-agent-all", "set-agent-project", "set-statusline", "set-agent-routing", "set-agent-keys"],
-  routing: ["set-route-all", "set-route-project", "set-route-floor", "set-route-strategy", "set-route-cross", "set-route-jev",
+  routing: ["set-route-all", "set-route-project", "set-route-floor", "set-route-strategy", "set-route-cross",
     "set-route-rules", "set-route-clear-log"],
   keys: ["set-jev-key"],
   status: ["set-jev-key-link", "set-jev-status"],
@@ -48,10 +48,6 @@ assert.strictEqual(h.$("settings-pane").querySelector(".set-title").textContent,
 h.click(h.$("settings-tab-terminal"));
 const kids = h.$("settings-pane").children;
 assert.ok(kids.indexOf(h.$("set-preview")) < kids.indexOf(h.$("set-font-size").closest(".set-row")), "the preview is not above the font");
-// Where the key for Ask Jev is set is said by its new name.
-h.click(h.$("settings-tab-routing"));
-assert.ok(h.$("set-route-jev").closest(".set-row").textContent.includes("Settings › API keys"),
-  "Ask Jev does not send you to API keys for its key");
 `)
 }
 

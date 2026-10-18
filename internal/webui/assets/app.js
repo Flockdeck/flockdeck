@@ -8212,7 +8212,7 @@
    *  several prompts that are really one job (a fan-out's rows, or an
    *  agent's own helpers) can be told about together instead of as
    *  unrelated interruptions. A fan-out's children share a tab of their
-   *  own (see fanout.go's Spawn), so a tab of two or more panes with no
+   *  own (see workspace/spawn.go's Spawn), so a tab of two or more panes with no
    *  parent is one; a helper started by `flockdeck spawn` carries its
    *  starting pane as v.parent (Pane.Parent), walked up to the pane at the
    *  root of the chain, so a manager that itself spawned a helper still
@@ -13496,7 +13496,7 @@
     { id: "keybindings", group: "Window", label: "Keyboard", words: "keybindings keyboard shortcuts shortcut remap rebind bindings keys chord conflict" },
     { id: "agents", group: "Agents", label: "Agents & models", words: "default agent model project claude status line usage limits spend" },
     { id: "routing", group: "Agents", label: "Routing",
-      words: "routing route helper spawn model models tier floor smallest strategy cost cheapest rules cross agents jev rate unmatched history" },
+      words: "routing route helper spawn model models tier floor smallest strategy cost cheapest rules cross agents history" },
     { id: "keys", group: "Agents", label: "API keys", words: "api keys key token secret typesafe jev" },
     { id: "status", group: "Agents", label: "Status detection",
       words: "status detection typesafe jev api key waiting blocked quiet pane terminal output third party" },
@@ -14265,7 +14265,7 @@
   }
 
   /** settingsStatus is Status detection: TypeSafe's Jev reading a quiet pane,
-   *  and the key it needs, which Routing's Ask Jev uses too. Nothing is sent
+   *  and the key it needs. Nothing is sent
    *  until it is turned on, and the section says what is then. */
   function settingsStatus(pane) {
     settingsHead(pane, "Status detection",
@@ -14290,7 +14290,7 @@
     const word = remoteWindow ? "set on the machine Flockdeck runs on" : !info ? "checking" : info.set ? "set" : "not set";
     if (!jevKeyAsked && !remoteWindow) { jevKeyAsked = true; send({ cmd: "jevKey", kind: "get" }); }
     const go = settingsLink("set-jev-key-link", "Open API keys →", "keys");
-    const row = settingRow("TypeSafe API key", "Used for the Jev setting below and Routing's Ask Jev. It is set under API keys. " +
+    const row = settingRow("TypeSafe API key", "Used for the Jev setting below. It is set under API keys. " +
       "Status: " + word + ".", go);
     row.id = "set-jev-key-row";
     return row;
@@ -14350,8 +14350,8 @@
     const status = el("div", "set-desc", "Key status: " + state);
     status.id = "set-jev-key-status";
     return settingRow("TypeSafe API key",
-      "Used only for Status detection's Jev setting and Routing's Ask Jev. Saving a key sends nothing: they stay off until " +
-      "you turn one on, and what they send is described there, including that it goes to TypeSafe, a third party. " +
+      "Used only for Status detection's Jev setting. Saving a key sends nothing: it stays off until " +
+      "you turn it on, and what it sends is described there, including that it goes to TypeSafe, a third party. " +
       "The key is kept on this machine in Flockdeck's key store, is only ever sent to api.typesafe.ai, and is never " +
       "shown again. If none is set here, TYPESAFE_API_KEY from the environment is used. It can only be set on the machine itself.",
       box, status);
@@ -14627,7 +14627,7 @@
     // What was part of this section once, and is next to it in the list now.
     pane.append(el("div", "set-sub", "Related"));
     const r = catalog.routing;
-    const MODE = { off: "Off", suggest: "Suggest", auto: "Automatic" };
+    const MODE = { off: "Off", auto: "Automatic" };
     const policy = r ? (r.project || r.every || {}) : null;
     pane.append(settingRow("Routing", policy
       ? [MODE[policy.mode] || "Off", (r.rules || []).length + " rules", policy.strategy === "cost" ? "minimise cost" : "cost-first"].join(" · ")
@@ -14650,9 +14650,9 @@
   }
 
   /** settingsRouting is Settings › Routing: whether a helper or a first
-   *  prompt comes pre-set to a model chosen for the work, for every project and for this
+   *  prompt starts on a model chosen for the work, for every project and for this
    *  one; the smallest tier that may be chosen; the rules, to read; and the
-   *  history kept of it. */
+   *  history an earlier version kept of it. */
   function settingsRouting(pane) {
     settingsHead(pane, "Routing",
       "Starts a helper or a first prompt on a smaller or stronger model, chosen for the work.");
@@ -14662,7 +14662,7 @@
       return;
     }
     const active = ((state && state.projects) || []).find((p) => p.active);
-    const MODES = [["off", "Off"], ["suggest", "Suggest"], ["auto", "Automatic"]];
+    const MODES = [["off", "Off"], ["auto", "Automatic"]];
     const select = (id, options, value) => {
       const sel = el("select", "set-select");
       sel.id = id;
@@ -14727,26 +14727,6 @@
       "A rule may name another agent's model as well as a smaller or stronger model of this one, such as a local model " +
       "through an OpenAI-compatible endpoint. That pane runs a different program, with its own login, tools " +
       "and transcript. Off until you turn it on, " + (own ? "for this project." : "for every project."), crossLabel));
-    // Asking Jev is the one setting here that sends anything off this machine,
-    // so it says so, in plain words, beside the switch.
-    const jev = el("input");
-    jev.type = "checkbox";
-    jev.id = "set-route-jev";
-    jev.checked = !!r.jev;
-    jev.onchange = () => {
-      const req = { cmd: "setRouting", target: "jev", text: jev.checked ? "true" : "false" };
-      if (!own) req.kind = "all";
-      send(req);
-    };
-    const jevLabel = el("label", "fan-opt");
-    jevLabel.append(jev, document.createTextNode(" Send unmatched tasks to TypeSafe to rate"));
-    pane.append(settingRow("Ask Jev to rate unmatched work",
-      "With Minimise cost, a helper or first prompt no rule matched can be rated by TypeSafe's Jev model, so hard work is not " +
-      "sent to the cheapest model blindly. This sends the text of that task (its first 2,000 characters) to TypeSafe, " +
-      "a third party, and nothing else: no files, no repository, no history. API keys, tokens, password values and secret file paths in it are redacted first, by pattern, so a secret with no recognisable shape is still sent. It needs a TypeSafe API key (set in Settings › API keys, or TYPESAFE_API_KEY in the environment)" +
-      (r.jevKey ? "" : " (it is not set, so nothing is sent)") + " and does nothing under Cost-first, quality-aware. " +
-      "Off until you turn it on, " + (own ? "for this project." : "for every project."), jevLabel,
-      settingsLink("set-route-jev-key", "API keys →", "keys")));
     if (r.note) {
       const note = el("p", "set-lede", r.note);
       note.id = "set-route-note";
@@ -14774,29 +14754,11 @@
       (r.builtIn ? "The built-in rules. " : "") + "The first to match a task decides. They are edited in agents.json" +
       (r.config ? ", at " + r.config : "") + ".", list));
 
-    if ((r.fallback || []).length) {
-      // What the fallback chose, with Jev's rating and without it, read back
-      // from the log: nothing here changes a setting.
-      const fb = el("div", "route-rules");
-      fb.id = "set-route-fallback";
-      r.fallback.forEach((g) => {
-        const row = el("div", "route-rule");
-        const total = (g.kept || 0) + (g.overridden || 0);
-        const pct = total ? Math.round((100 * (g.overridden || 0)) / total) : 0;
-        row.append(el("span", "route-rule-name", g.name),
-          el("span", "route-rule-stat", "overridden " + pct + "% of the time (" + (g.overridden || 0) + " of " + total + ")"));
-        fb.append(row);
-      });
-      pane.append(settingRow("Unmatched work",
-        "How often what Minimise cost chose for work no rule matched was changed before it started, with Jev's " +
-        "rating and without it. It is shown for you to compare; nothing changes on its own.", fb));
-    }
-
     const clear = el("button", "chip", "Clear routing history");
     clear.id = "set-route-clear-log";
     clear.onclick = () => send({ cmd: "clearRoutingLog" });
     pane.append(settingRow("Routing history",
-      "What routing chose and whether you kept it, for your own numbers. It is kept on this machine, " +
+      "What routing chose, as an earlier version recorded it. Nothing is added to it now. It is kept on this machine, " +
       "holds no task text, and is never sent anywhere.", clear));
   }
 
