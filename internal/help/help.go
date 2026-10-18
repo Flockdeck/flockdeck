@@ -29,6 +29,7 @@ var order = []string{
 	"getting-started",
 	"panes",
 	"agents",
+	"ornith",
 	"status",
 	"auto-approve",
 	"spend",
