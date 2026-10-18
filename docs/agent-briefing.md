@@ -103,10 +103,18 @@ Mail is delivered on two channels instead.
 - The notice. When a hook of the agent runs for `UserPromptSubmit` or `PostToolUse`, the hook
   server asks `Workspace.HookNotice` for the pane and returns the answer as
   `additionalContext`, which Claude Code adds to what the model reads. The notice is built
-  from a count, an id and the sender's label (`Message.FromLabel`, the same name and role the
-  inbox prints, one line of at most 64 characters), so it holds no text the sender wrote. It is
-  given once per message: `team.Notifier` remembers the newest id each pane was told of, and
-  forgets it when the session is replaced, so unread mail is told again to a restarted pane.
+  from a count, an id and the sender's name and role (`noticeSender` in `internal/team/notify.go`).
+  The model trusts context from a hook more than a tool result, so each is quoted, reduced to
+  letters, digits, spaces and `.-_()`, and cut to 32 and 16 characters, and the notice carries
+  the unauthenticated-sender disclaimer. It holds no text the sender wrote. It is given once
+  per message: `team.Notifier` remembers the newest id each pane was told of, and forgets it
+  when the session is replaced, so unread mail is told again to a restarted pane. It is
+  counted as told when the reply is built, and a hook that times out loses the reply, so an
+  unread message is announced again as a reminder after `team.Renotify` (five minutes), at
+  most `team.MaxReminders` times.
+  `flockdeck chat` (the API-key agents) has `caps.hooks` and gets the same replies: the
+  reporter returns them and the session adds them to the system prompt of that turn's requests
+  (`session.hold`), so the notice reaches the model.
   A working agent gets it with its next tool result. An idle agent has no hook to answer
   until the user's next prompt, so it gets it then. `Stop` is not used: its reply can only
   block the stop and force another turn, which would start work nobody asked for.
@@ -119,7 +127,9 @@ The agent's catalog entry needs `caps.hooks` to be told. Agents without it (Code
 opencode, Cursor Agent, Aider) get no notice at all: their briefing says "You are not told when
 a message arrives" and asks them to run `flockdeck inbox` when a session starts and before they
 report back, `flockdeck msg send` tells the sender when the receiver is one of them
-(`Sent.Notifies`), and the unread count shows on their pane. A message to them can wait
+(`Sent.Notifies`), and the unread count shows on their pane. `Notifies` is also false for an
+agent that has the capability but whose hooks have not reported in this session
+(`Session.HooksReported`), so a Claude pane whose hooks never fire is not promised a notice. A message to them can wait
 until the agent next looks, which is a real limit; it is not lost.
 
 ## The task board

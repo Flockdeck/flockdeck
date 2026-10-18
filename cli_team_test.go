@@ -233,7 +233,7 @@ func TestMsgSendSaysWhenTheReceiverIsNotToldOfTheMessage(t *testing.T) {
 	if err := runMsg([]string{"send", "codex-helper", "hi"}, strings.NewReader(""), &out, &errOut); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"sent #9 to codex-helper (pane p-3)", "codex-helper is not told of it", "flockdeck inbox"} {
+	for _, want := range []string{"sent #9 to codex-helper (pane p-3)", "codex-helper may not be told of it", "flockdeck inbox"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output %q lacks %q", out.String(), want)
 		}

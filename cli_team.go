@@ -146,7 +146,7 @@ func runMsg(args []string, stdin io.Reader, out, errOut io.Writer) error {
 	for _, s := range res.Sent {
 		fmt.Fprintf(out, "sent #%d to %s (pane %s)\n", s.ID, s.To, s.Pane)
 		if !s.Notifies {
-			fmt.Fprintf(out, "  %s is not told of it: its agent reports no hooks, so it sees the message only when it runs `flockdeck inbox`\n", s.To)
+			fmt.Fprintf(out, "  %s may not be told of it: its agent has reported no hooks, so it may see the message only when it runs `flockdeck inbox`\n", s.To)
 		}
 	}
 	for _, f := range res.Failed {

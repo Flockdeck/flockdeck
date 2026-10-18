@@ -274,7 +274,7 @@ func (c PaneContext) writeTeam(b *strings.Builder) {
 			"when you finish a step and before you report back.\n\n", flockdeck)
 	} else {
 		fmt.Fprintf(b, "Run `%s inbox` when a session starts or resumes. When a message is waiting, the next prompt or "+
-			"tool result you read carries one line, such as `[flockdeck] 1 new message from reviewer (worker) (#12). "+
+			"tool result you read carries one line, such as `[flockdeck] 1 new message from \"reviewer\" (role \"worker\") (#12). "+
 			"Run: flockdeck inbox.`; it holds no message text. Nothing is typed into your input, so an idle "+
 			"agent reads it only with its next prompt: check `%s inbox` before you report back.\n\n", flockdeck, flockdeck)
 	}

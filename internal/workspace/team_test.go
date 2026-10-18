@@ -574,7 +574,7 @@ func TestHookNoticeNamesAPaneCalledFlockdeckWhole(t *testing.T) {
 		t.Fatal(err)
 	}
 	notice := c.ws.HookNotice(c.reviewer)
-	if !strings.Contains(notice, "from (agent) flockdeck (worker) (#") || strings.Contains(notice, "-agent-") {
+	if !strings.Contains(notice, "from \"(agent) flockdeck\" (role \"worker\") (#") || strings.Contains(notice, "-agent-") {
 		t.Errorf("notice = %q", notice)
 	}
 }
@@ -600,7 +600,22 @@ func TestAnAgentWithNoHooksIsToldNothingAndTheSenderIsToldSo(t *testing.T) {
 		t.Errorf("inbox = %+v", got)
 	}
 
+	// An agent that has the capability but whose hooks have not spoken is not
+	// promised a notice either.
 	res, err = c.ws.SendMessage(c.lead, c.reviewer, "are you there")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Sent) != 1 || res.Sent[0].Notifies {
+		t.Errorf("sent = %+v, want a delivery that does not notify until its hooks have reported", res.Sent)
+	}
+	// It is still told when a hook does arrive.
+	if got := c.ws.HookNotice(c.reviewer); got == "" {
+		t.Error("a pane with the capability was not given the notice on a hook")
+	}
+
+	c.ws.Pane(c.reviewer).Sess.SetStatus(session.StatusIdle, "")
+	res, err = c.ws.SendMessage(c.lead, c.reviewer, "once more")
 	if err != nil {
 		t.Fatal(err)
 	}

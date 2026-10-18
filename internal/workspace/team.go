@@ -332,12 +332,12 @@ func (w *Workspace) Unread(id string) int {
 	return len(w.team.inbox.List(id, false))
 }
 
-// notifiable says the pane's agent reports its lifecycle through hooks, so a
-// message to it is told in the reply to its next prompt or tool result (see
-// HookNotice). An agent that does not, such as Codex, Gemini, OpenCode, Aider or
-// Cursor Agent, is told nothing: it finds mail when it runs `flockdeck inbox`,
+// hooksCapable says the pane is an agent pane whose catalog entry has hooks, so
+// it can be told of a message in the reply to its next prompt or tool result
+// (see HookNotice). An agent that cannot, such as Codex, Gemini, OpenCode, Aider
+// or Cursor Agent, is told nothing: it finds mail when it runs `flockdeck inbox`,
 // as its briefing says, and the user sees the unread count on its header.
-func (w *Workspace) notifiable(id string) bool {
+func (w *Workspace) hooksCapable(id string) bool {
 	p := w.Pane(id)
 	if p == nil || !p.IsAgent() {
 		return false
@@ -350,6 +350,21 @@ func (w *Workspace) notifiable(id string) bool {
 	}
 	spec, ok := w.agents().Find(agentID)
 	return ok && spec.Caps.Hooks
+}
+
+// notifiable is hooksCapable and the agent's hooks have been heard from in this
+// session. It is what `msg send` promises the sender: a Claude pane whose hooks
+// never fire has the capability and not the notice, and is reported as not told.
+// A pane that has only just started is reported so too, until its first hook.
+func (w *Workspace) notifiable(id string) bool {
+	if !w.hooksCapable(id) {
+		return false
+	}
+	p := w.Pane(id)
+	w.mu.RLock()
+	sess := p.Sess
+	w.mu.RUnlock()
+	return sess != nil && sess.HooksReported()
 }
 
 // HookNotice is the notice of messages the pane's agent has not been told of, to
@@ -368,7 +383,9 @@ func (w *Workspace) HookNotice(id string) string {
 	if t.inbox == nil || !t.notifier.Pending(id, t.inbox.NewestUnread(id)) {
 		return ""
 	}
-	if !w.notifiable(id) {
+	// A hook is arriving, which is proof enough that hooks work: notifiable is
+	// the stricter test the sender is told, and is not asked here.
+	if !w.hooksCapable(id) {
 		return ""
 	}
 	return t.notifier.Take(id, t.inbox.List(id, false))

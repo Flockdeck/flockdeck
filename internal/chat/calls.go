@@ -66,7 +66,7 @@ func (s *session) runCalls(ctx context.Context, calls []ToolCall) bool {
 				// The question turned the pane amber, and the model is working
 				// again from here; without an event to say so the pane stayed
 				// waiting until the turn ended. The call is over, run or not.
-				s.reporter.postTool(c.Name)
+				s.hold(s.reporter.postTool(c.Name))
 			}
 			if !ok && instead != "" {
 				// What the user said instead is the next thing the model has
@@ -84,7 +84,7 @@ func (s *session) runCalls(ctx context.Context, calls []ToolCall) bool {
 		}
 		s.reporter.preTool(c.Name)
 		out, err := tool.Run(ctx, c.Args)
-		s.reporter.postTool(c.Name)
+		s.hold(s.reporter.postTool(c.Name))
 		if err != nil {
 			// Drawn as well as answered: a refusal -- a path outside the
 			// pane, an edit that does not match -- is otherwise invisible, and
