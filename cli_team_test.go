@@ -80,7 +80,7 @@ func TestMsgSendJoinsTheWordsReadsStdinAndRefusesATooLongMessage(t *testing.T) {
 	var got []hooks.MsgRequest
 	srv.SetMsgHandler(func(r hooks.MsgRequest) (hooks.MsgResult, error) {
 		got = append(got, r)
-		return hooks.MsgResult{Sent: []hooks.Sent{{ID: 4, Pane: "p-2", To: "reviewer"}}, Failed: []string{"other: inbox full"}}, nil
+		return hooks.MsgResult{Sent: []hooks.Sent{{ID: 4, Pane: "p-2", To: "reviewer", Notifies: true}}, Failed: []string{"other: inbox full"}}, nil
 	})
 	var out, errOut bytes.Buffer
 	if err := runMsg([]string{"send", "reviewer", "please", "look", "at", "-x", "branch"}, strings.NewReader(""), &out, &errOut); err != nil {
@@ -91,6 +91,9 @@ func TestMsgSendJoinsTheWordsReadsStdinAndRefusesATooLongMessage(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "sent #4 to reviewer (pane p-2)") || !strings.Contains(errOut.String(), "not sent: other: inbox full") {
 		t.Errorf("out %q, err %q", out.String(), errOut.String())
+	}
+	if strings.Contains(out.String(), "not told") {
+		t.Errorf("a receiver that is told of the message was said not to be: %q", out.String())
 	}
 
 	out.Reset()
@@ -217,6 +220,22 @@ func TestInboxPrintsAPeerNameOnOneLine(t *testing.T) {
 		}
 		if args == nil && !strings.Contains(out.String(), "not authenticated") {
 			t.Errorf("the listing has no note that names are not authenticated:\n%s", out.String())
+		}
+	}
+}
+
+func TestMsgSendSaysWhenTheReceiverIsNotToldOfTheMessage(t *testing.T) {
+	srv := teamServer(t)
+	srv.SetMsgHandler(func(hooks.MsgRequest) (hooks.MsgResult, error) {
+		return hooks.MsgResult{Sent: []hooks.Sent{{ID: 9, Pane: "p-3", To: "codex-helper"}}}, nil
+	})
+	var out, errOut bytes.Buffer
+	if err := runMsg([]string{"send", "codex-helper", "hi"}, strings.NewReader(""), &out, &errOut); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"sent #9 to codex-helper (pane p-3)", "codex-helper may not be told of it", "flockdeck inbox"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output %q lacks %q", out.String(), want)
 		}
 	}
 }

@@ -960,6 +960,10 @@ textarea:focus-visible {
  * the one thing that tells an idle pane that is done from one that is not, so
  * it does not give way to the badges beside it; quiet like them otherwise. */
 .pane-bg { flex: none; color: var(--fg-dim); font-size: 11px; white-space: nowrap; }
+/* Shown only while the pane has unread messages. Mail is never typed into an
+ * agent, so this count is where it shows; it uses the waiting colour because
+ * it is something for the person to look at. */
+.pane-unread { flex: none; color: var(--waiting); font-size: 11px; white-space: nowrap; }
 /* Shown only while a phone has this pane open, in its chat view or its
  * terminal -- quiet on purpose, a glyph and nothing else, so it says "someone
  * else may be here" without competing with the branch and agent for the eye.
@@ -2660,7 +2664,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
  * Ligatures are off, so that an arrow typed as two characters stays two.
  * Gathered here, after the rules that size and colour each of these, so that
  * the first rule for any one of them is still its own. */
-.pane-branch, .pane-agent, .pane-role, .agent-role, .pane-peer, .pane-bg, .pane-project, .pane-detail, .pane-git,
+.pane-branch, .pane-agent, .pane-role, .agent-role, .pane-peer, .pane-bg, .pane-unread, .pane-project, .pane-detail, .pane-git,
 .pane-usage, .pane-spend, .pane-limit, .pane-cast,
 .rail-count, .proj-badge, .proj-path,
 .wt-path, .wt-meta, .wt-root, .wt-flag,

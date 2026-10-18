@@ -151,11 +151,18 @@ func (r *reporter) sessionStart(source string) string {
 	return r.send(eventSessionStart, hookInput{Source: source})
 }
 
-func (r *reporter) userPrompt(prompt string) { r.send(eventUserPrompt, hookInput{Prompt: prompt}) }
-func (r *reporter) preTool(tool string)      { r.send(eventPreTool, hookInput{ToolName: tool}) }
-func (r *reporter) postTool(tool string)     { r.send(eventPostTool, hookInput{ToolName: tool}) }
-func (r *reporter) stop()                    { r.send(eventStop, hookInput{}) }
-func (r *reporter) sessionEnd()              { r.send(eventSessionEnd, hookInput{}) }
+// userPrompt and postTool return what Flockdeck answers with: a notice of
+// waiting messages, for the model to read with the rest of the turn (see
+// session.hold). It is the same reply Claude Code's own hooks get.
+func (r *reporter) userPrompt(prompt string) string {
+	return r.send(eventUserPrompt, hookInput{Prompt: prompt})
+}
+func (r *reporter) preTool(tool string) { r.send(eventPreTool, hookInput{ToolName: tool}) }
+func (r *reporter) postTool(tool string) string {
+	return r.send(eventPostTool, hookInput{ToolName: tool})
+}
+func (r *reporter) stop()       { r.send(eventStop, hookInput{}) }
+func (r *reporter) sessionEnd() { r.send(eventSessionEnd, hookInput{}) }
 
 // notification is what turns the pane amber and tells the user which pane wants
 // them. It is sent when the chat is waiting on an answer it cannot go on

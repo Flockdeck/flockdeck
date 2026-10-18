@@ -385,6 +385,13 @@ type paneView struct {
 	// Recording says the pane's agent interaction is being written to a
 	// transcript (workspace.Pane.Recording), so its header says so.
 	Recording bool `json:"recording,omitempty"`
+	// Unread is how many messages from other agents or from Flockdeck wait in
+	// this pane's inbox unread (workspace.Workspace.Unread). The header draws
+	// it for every agent, whether or not it has been told of them, because a
+	// notice is never typed into the pane: this count is how the person at the
+	// window sees mail waiting for an agent that is idle, or that has no hooks
+	// to be told through. Left out at zero.
+	Unread int `json:"unread,omitempty"`
 	// AutoReview says this pane's PreToolUse calls are put to auto-review
 	// approvals before Claude Code would otherwise show its own permission
 	// prompt, and AutoApproved counts how many it has let through unasked so
@@ -771,6 +778,7 @@ func (s *Server) snapshot() stateMsg {
 				Muted:        p.Muted,
 				Locked:       p.Locked,
 				Recording:    ws.PaneRecording(p.ID),
+				Unread:       ws.Unread(p.ID),
 				AutoReview:   p.AutoReview,
 				AutoApproved: ws.AutoApprovedOf(p),
 				PeerName:     ws.PeerNameOf(p),

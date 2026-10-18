@@ -3429,6 +3429,7 @@
     // ends. The pane reads idle then, and this is what says it is not done.
     // See renderPaneBackground.
     const background = el("span", "pane-bg");
+    const unread = el("span", "pane-unread");
     const git = el("span", "pane-git");
     // Names a pane in the same repository whose work git would not merge with
     // this pane's, when the conflict radar is on and has seen it twice. See
@@ -3517,7 +3518,7 @@
       closeBtn,
     );
     makeToolbar(actions, "What to do with this pane");
-    header.append(dot, project, name, role, branch, agent, peerName, remote, git, conflict, detail, background, spend, limit, usage, cast, recMark, lockMark, actions);
+    header.append(dot, project, name, role, branch, agent, peerName, remote, git, conflict, detail, background, unread, spend, limit, usage, cast, recMark, lockMark, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -3627,7 +3628,7 @@
     // The WebGL renderer is loaded when the pane comes on screen, not here:
     // see drawWithWebgl.
 
-    p = { id, wrap, header, dot, name, project, branch, agent, role, peerName, remote, git, conflict, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
+    p = { id, wrap, header, dot, name, project, branch, agent, role, peerName, remote, git, conflict, detail, background, unread, usage, spend, limit, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, recBtn, exportBtn, recMark, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
@@ -4675,6 +4676,9 @@
       const bgKey = background + "|" + (v.backgroundUnverified || 0) + JSON.stringify(v.backgroundWork || []) + JSON.stringify(v.backgroundEnded || []);
       if (was.background !== bgKey) { was.background = bgKey; renderPaneBackground(p, v); }
 
+      const unreadCount = v.unread || 0;
+      if (was.unread !== unreadCount) { was.unread = unreadCount; renderPaneUnread(p, unreadCount); }
+
       const git = [v.dirty, v.untracked, v.ahead, v.behind, v.gitTimedOut ? "late" : ""].join(" ");
       if (was.git !== git) { was.git = git; renderPaneGit(p, v); }
 
@@ -5077,6 +5081,20 @@
     }
     p.background.append(glyph("◔"), document.createTextNode(" " + backgroundLabel(b)));
     describeBackground(p.background, b);
+  }
+
+  /** renderPaneUnread shows how many messages from other agents wait unread in
+   *  the pane's inbox, and nothing while there are none. Flockdeck never types a
+   *  notice into an agent's message box, so this count is how mail for an idle
+   *  agent, or for one that reports no hooks and so cannot be told of it, is
+   *  seen. It goes when the agent reads the messages with `flockdeck inbox`. */
+  function renderPaneUnread(p, n) {
+    p.unread.textContent = "";
+    if (!n) { delete p.unread.dataset.tip; return; }
+    p.unread.append(glyph("✉"), document.createTextNode(" " + n + " unread"));
+    describe(p.unread, n + (n === 1 ? " message waits" : " messages wait") + " in this pane's inbox, unread by its agent. " +
+      "Nothing is typed into the agent's input to tell it: an agent with hooks is told with its next prompt " +
+      "or tool result, any other has to run `flockdeck inbox`. The Team panel lists the messages.");
   }
 
   /** renderPanePeerName shows the name another Claude session would use to

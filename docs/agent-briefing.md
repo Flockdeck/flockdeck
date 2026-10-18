@@ -91,29 +91,46 @@ line says are on the command line page.
 
 ### Telling the agent it has mail
 
-An agent only looks at its inbox if it is told to, so Flockdeck types one line into the pane
-when a message is waiting. The line is typed the way the prompt bar types a prompt (`typeInto`
-in the workspace package): the text, then Enter. It is built from a count, an id and the
-sender's role and name, each reduced to `A-Za-z0-9._-` and at most 24 characters, so it holds
-no text the sender wrote. The conditions under which it is typed are on the command line page;
-the parts that are worth knowing when changing them:
+An agent only looks at its inbox if it is told to, and Flockdeck does not type into a pane to
+tell it. Text in an agent's message box that the user did not write is a bug whether it is
+submitted or not, and it was one in practice: on Windows ConPTY the line and its Enter arrived
+in one read, Claude Code took the Enter for part of a paste, and the line stayed in the box
+unsubmitted. The earlier design also had to guess when typing was safe (idle, no draft, no
+open menu), and a guess cannot be right when the user may be typing in the same instant.
 
-- The agent's catalog entry must have `caps.hooks` and its hooks must have reported at least
-  once, so `idle` is what the agent said and not a guess from a quiet screen (see
-  [the status matrix](status-matrix.md)).
-- "Nothing typed since the last Enter, Ctrl+C or Ctrl+U" is `Session.DraftPossible`. Deleting
-  typed text with Backspace does not clear it, and an escape sequence at the start of a write,
-  such as an arrow key, is skipped and the rest of the write is read.
-- "No line starting with `/` since the last hook event" is `Session.MenuPossible`. A slash
-  command such as `/model` opens a menu that no hook reports, so the pane stays `idle` behind
-  it, and the line and its Enter would pick an option. The next hook event ends the wait.
-- Messages that arrive while the line is held are counted in the next one, and a timer looks
-  again when the wait is over.
+Mail is delivered on two channels instead.
 
-Two cases are not covered: a user typing in the same instant as the line is written can
-interleave with it, and an agent that is `idle` with a modal open that was not opened by a
-slash command receives the line into that modal. What a pane was told is forgotten when its
-session restarts, so mail that is still unread is announced again once the new session is idle.
+- The notice. When a hook of the agent runs for `UserPromptSubmit` or `PostToolUse`, the hook
+  server asks `Workspace.HookNotice` for the pane and returns the answer as
+  `additionalContext`, which Claude Code adds to what the model reads. The notice is built
+  from a count, an id and the sender's name and role (`noticeSender` in `internal/team/notify.go`).
+  The model trusts context from a hook more than a tool result, so each is quoted, reduced to
+  letters, digits, spaces and `.-_()`, and cut to 32 and 16 characters, and the notice carries
+  the unauthenticated-sender disclaimer. It holds no text the sender wrote. It is given once
+  per message: `team.Notifier` remembers the newest id each pane was told of, and forgets it
+  when the session is replaced, so unread mail is told again to a restarted pane. It is
+  counted as told when the reply is built, and a hook that times out loses the reply, so an
+  unread message is announced again as a reminder after `team.Renotify` (five minutes), at
+  most `team.MaxReminders` times.
+  `flockdeck chat` (the API-key agents) has `caps.hooks` and gets the same replies: the
+  reporter returns them and the session adds them to the system prompt of that turn's requests
+  (`session.hold`), so the notice reaches the model.
+  A working agent gets it with its next tool result. An idle agent has no hook to answer
+  until the user's next prompt, so it gets it then. `Stop` is not used: its reply can only
+  block the stop and force another turn, which would start work nobody asked for.
+- The unread count. `Workspace.Unread` is the number of unread messages, drawn on the pane's
+  header for every agent. It changes whenever an inbox does (the store's change callback wakes
+  the window), and it stays until the agent reads the messages with `flockdeck inbox`, whether
+  or not it was told. It is the only sign for an idle agent, and for an agent without hooks.
+
+The agent's catalog entry needs `caps.hooks` to be told. Agents without it (Codex, Gemini CLI,
+opencode, Cursor Agent, Aider) get no notice at all: their briefing says "You are not told when
+a message arrives" and asks them to run `flockdeck inbox` when a session starts and before they
+report back, `flockdeck msg send` tells the sender when the receiver is one of them
+(`Sent.Notifies`), and the unread count shows on their pane. `Notifies` is also false for an
+agent that has the capability but whose hooks have not reported in this session
+(`Session.HooksReported`), so a Claude pane whose hooks never fire is not promised a notice. A message to them can wait
+until the agent next looks, which is a real limit; it is not lost.
 
 ## The task board
 
@@ -133,8 +150,8 @@ to it.
   one change. The board has a single writer, the Flockdeck server of the project.
 - The workspace works out from the roster at each request whether a pane with no role holds
   the manager's powers.
-- Changes message panes through the inbox, from `flockdeck`, so they are announced by the same
-  line, at the same times and no oftener. The pane that made the change, a pane that is closed
+- Changes message panes through the inbox, from `flockdeck`, so they are told and counted the same
+  way as any message. The pane that made the change, a pane that is closed
   and a pane whose process has exited are left out.
 
 ## Isolation between panes
