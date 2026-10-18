@@ -38,6 +38,9 @@
     // Every agent across every project, so two figures rather than the one
     // a pane's own header already draws.
     agents: '<circle cx="6" cy="5.5" r="2"></circle><path d="M2.5 13c0-2.5 1.6-4 3.5-4s3.5 1.5 3.5 4"></path><circle cx="11.4" cy="6" r="1.6"></circle><path d="M9.7 8.3c1.7-.3 3.5.7 3.9 2.9"></path>',
+    // A manager over two others: the shape a team takes, one agent that
+    // starts the rest.
+    team: '<circle cx="8" cy="3.4" r="1.6"></circle><circle cx="3.8" cy="12.6" r="1.6"></circle><circle cx="12.2" cy="12.6" r="1.6"></circle><path d="M8 5v2.6M3.8 11V7.6h8.4V11"></path>',
     key: '<circle cx="5.2" cy="8" r="2.7"></circle><path d="M7.7 8h6M10.8 8v2.2M12.9 8v1.6"></path>',
     remote: '<rect x="4.8" y="2" width="6.4" height="12" rx="1.6"></rect><path d="M7.3 11.6h1.4"></path>',
     help: '<circle cx="8" cy="8" r="6"></circle><path d="M6.3 6.4a1.8 1.8 0 1 1 2.5 1.6c-.5.2-.8.6-.8 1.1v.3"></path><path d="M8 11.3v.2"></path>',
@@ -50,6 +53,12 @@
     folderplus: '<path d="M8 4.5v7M4.5 8h7"></path>',
     ext: '<path d="M6.5 3.5h-3v9h9v-3M9.5 2.5h4v4M13.5 2.5 8 8"></path>',
     menu: '<path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"></path>',
+    // The padlock in a pane's header. It was the emoji, which every system
+    // draws in full colour (orange on Windows), in a row of text glyphs that
+    // take the header's colour and in an app where amber means an agent is
+    // waiting on you. Drawn here it takes the text colour like its neighbours.
+    lock: '<rect x="3.5" y="7" width="9" height="6.5" rx="1.3"></rect><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"></path>',
+    unlock: '<rect x="3.5" y="7" width="9" height="6.5" rx="1.3"></rect><path d="M5.5 7V5.2a2.5 2.5 0 0 1 4.8-1"></path>',
   };
 
   /** iconSVG is the markup for one icon. It goes in as markup because a node
@@ -450,6 +459,11 @@
       else if (msg.type === "browse") { browseState = msg; browseDraft = null; if (dialog === "projects") keepFocus(renderProjects, "button.dir-into"); }
       else if (msg.type === "conversations") keepFocus(() => renderHistory(msg));
       else if (msg.type === "fanoutHistory") keepFocus(() => renderFanoutHistory(msg));
+      else if (msg.type === "team") teamApply(msg);
+      else if (msg.type === "teamResult") teamAnswer(msg);
+      else if (msg.type === "tasks") teamTasksArrived(msg);
+      else if (msg.type === "teamGone") teamGone(msg);
+      else if (msg.type === "messages") teamMessagesArrived(msg);
       else if (msg.type === "todoPlanPreview") renderTodoPlan(msg);
       else if (msg.type === "todos") keepFocus(() => renderTodos(msg));
       // Every save is answered with this, a step's own edit or a reorder as much
@@ -465,6 +479,16 @@
       // todoStepRow): startAgent's other callers are reached through the
       // relay, which handles this reply itself. See ValidateStartAgent's own
       // doc comment for why a window at the desk never needed this before.
+      // A start in a role is the other: the agent is in a tab of its own that
+      // the desk was not moved to, so it is shown now.
+      else if (msg.type === "agentStarted" && pendingRoleStarts.has(msg.id)) {
+        pendingRoleStarts.delete(msg.id);
+        // Only now is what was typed spent: a refusal leaves the dialog open
+        // with it, to correct and send again.
+        teamDraft.goal = "";
+        if (dialog === "agentPicker" || dialog === "startTeam") closeOverlay();
+        send({ cmd: "revealPane", id: msg.paneId });
+      }
       else if (msg.type === "agentStarted" && pendingStepStart && msg.id === pendingStepStart.reqID) {
         pendingStepStart = null;
         send({ cmd: "revealPane", id: msg.paneId });
@@ -481,7 +505,7 @@
       else if (msg.type === "paneMatches") renderPaneMatches(msg);
       // A Clear pressed goes with the key it cleared; the keyboard goes to
       // that row's own button rather than out of the dialog.
-      else if (msg.type === "jevKey") { jevKeyInfo = { set: !!msg.set, env: !!msg.env }; settingsChanged(); }
+      else if (msg.type === "jevKey") { jevKeyInfo = { set: !!msg.set, env: !!msg.env }; settingsChanged(); redrawJevKey(); }
       else if (msg.type === "keys") keepFocus(() => renderKeys(msg), () => keySetButton(keyActed));
       else if (msg.type === "versions") renderVersions(msg);
       else if (msg.type === "helpers") keepFocus(() => renderHelpers(msg));
@@ -529,6 +553,9 @@
         // A request for an answer, and what is said of it, is not the answer to a
         // commit that is waiting: it must not drop the message typed for one.
         if (msg.kind !== "approval" && !msg.id) commitAnswered(msg.error);
+        // A refusal of a start in a role has no id to say which: it is taken
+        // for the latest one sent, which no longer waits for its pane.
+        if (msg.error && pendingRoleStarts.size) pendingRoleStarts.delete([...pendingRoleStarts].pop());
         // A manual update check answers with a notice alone when nothing new
         // is found; when it did, the state carrying it settles this too, but
         // resetting it here as well costs nothing and covers both.
@@ -934,13 +961,50 @@
   let remoteBusy = "";
   let remoteOutcome = null;
 
-  /** renderRemoteChip keeps the rail's Remote button saying where the tunnel
-   *  stands, and the dialog's status line current while it is open. The
-   *  button is there whether or not remote access is on: hidden until the
-   *  machine was enrolled, it could only be found by somebody who already
-   *  knew to look in the palette. Like the update pill it is keyed on what it
-   *  shows, so a snapshot that says nothing new about the tunnel does not
-   *  rebuild it. */
+  /** remoteInTrouble is whether the tunnel has stopped and needs somebody. */
+  function remoteInTrouble(r) {
+    return !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced" || r.state === "lapsed");
+  }
+
+  /** remoteNote is what the Settings button says of the tunnel, in words, or
+   *  "" while remote access is off: the mark on the button is a shape (a
+   *  filled circle, a hollow one, a triangle) and never the only thing said. */
+  function remoteNote(r) {
+    if (!r) return "";
+    if (remoteInTrouble(r)) return "Flockdeck Remote needs you: " + remoteSummary(r);
+    if (r.state === "connected") {
+      const n = r.viewers || 0;
+      return "Flockdeck Remote: " + (n ? n + (n === 1 ? " viewer" : " viewers") + " connected" : "connected");
+    }
+    if (r.state === "connecting") return "Flockdeck Remote: connecting";
+    return "";
+  }
+
+  /** The tunnel as the Settings button last showed it; describeChrome draws
+   *  the button's tooltip again when the key table changes, and has to keep
+   *  this in it. */
+  let remoteMark = null;
+
+  /** describeSettingsButton gives the Settings button its key, and the
+   *  tunnel's state beside it where there is one, as both the tooltip and the
+   *  name a screen reader reads (the badge is a picture, so aria-hidden). */
+  function describeSettingsButton() {
+    const b = $("btn-settings");
+    if (!b) return;
+    const note = remoteNote(remoteMark);
+    describe(b, note ? actionTip("settings", note) : actionTip("settings"));
+    if (note) b.setAttribute("aria-label", "Settings, " + note);
+    else b.removeAttribute("aria-label");
+  }
+
+  /** renderRemoteChip keeps the rail's Settings button showing where the
+   *  tunnel stands, and the dialog's status line current while it is open.
+   *  Remote has no rail button of its own: the palette and Settings reach it,
+   *  so the state is shown on the way in: a filled circle for a working
+   *  tunnel, a hollow one while it connects, an amber triangle when it needs
+   *  somebody, and nothing while remote access is off. Like the update pill it
+   *  is keyed on what it shows, so a snapshot that says nothing new about the
+   *  tunnel does not rebuild it. */
   function renderRemoteChip(s) {
     const r = s.remote || null;
     // retryAt is part of the key too: a run of failures with the same detail
@@ -949,11 +1013,9 @@
     const key = r ? [r.state, r.viewers, r.detail, r.relay, r.retryAt].join("|") : "off";
     if (key === remoteChipKey) return;
     remoteChipKey = key;
-    const b = $("btn-remote");
-    // Amber only when it needs somebody, which is what amber means everywhere
-    // else here; cyan is a working tunnel, grey one still connecting, and
-    // no badge at all is remote access turned off.
-    const trouble = !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced" || r.state === "lapsed");
+    remoteMark = r;
+    const b = $("btn-settings");
+    const trouble = remoteInTrouble(r);
     const pending = !!r && r.state === "connecting";
     b.classList.toggle("trouble", trouble);
     b.classList.toggle("pending", pending);
@@ -961,10 +1023,7 @@
     badge.classList.toggle("on", !!r && r.state === "connected");
     badge.classList.toggle("pending", pending);
     badge.classList.toggle("trouble", trouble);
-    // The count says whether anybody is using it, and is part of the name.
-    b.querySelector(".rail-label").textContent = r && r.viewers > 0 ? "Remote · " + r.viewers : "Remote";
-    describe(b, r ? remoteSummary(r) : actionTip("remote",
-      "off. Turn it on to open this window from another device, such as a tablet or a phone"));
+    describeSettingsButton();
     if (remoteShown()) keepFocus(renderRemote);
   }
 
@@ -1659,6 +1718,7 @@
         catalogKey = encoded;
         catalog = s.agents;
         if (dialog === "agentPicker") keepFocus(renderAgentPicker);
+        if (dialog === "startTeam") keepFocus(renderStartTeam);
         settingsChanged();
       }
     }
@@ -1680,6 +1740,7 @@
     followProjects(s);
     followWorktrees(s);
     followChanges(s);
+    followTeam(s);
     renderUpdate(s);
     renderRecall();
     renderRemoteChip(s);
@@ -2909,16 +2970,19 @@
    *  of it rather than showing the same thing twice. */
   function renderRailToggle(s) {
     const elsewhere = (s.projects || []).filter((p) => !p.active && (p.waiting || 0) > 0);
-    const key = elsewhere.map((p) => p.root + ":" + p.name).join("|");
+    // A tunnel that needs somebody shows here too: Settings, where it is
+    // marked, is out of sight while the rail is folded.
+    const remoteWhy = remoteInTrouble(s.remote) ? remoteNote(s.remote) : "";
+    const key = elsewhere.map((p) => p.root + ":" + p.name).join("|") + "#" + remoteWhy;
     if (key === railToggleShown) return;
     railToggleShown = key;
     const btn = $("rail-toggle");
-    btn.querySelector(".rail-badge").classList.toggle("waiting", elsewhere.length > 0);
+    btn.querySelector(".rail-badge").classList.toggle("waiting", elsewhere.length > 0 || !!remoteWhy);
     const why = elsewhere.length
       ? (elsewhere.length === 1 ? "An agent is" : "Agents are") + " waiting on you in " +
         elsewhere.map((p) => p.name).join(", ")
       : "";
-    describe(btn, ["Projects, tools and settings", why].filter(Boolean).join(". "));
+    describe(btn, ["Projects, tools and settings", why, remoteWhy].filter(Boolean).join(". "));
   }
 
   /** railTile makes the button for one project, bound to its folder rather
@@ -3377,6 +3441,10 @@
     const project = el("span", "pane-project");
     const branch = el("span", "pane-branch");
     const agent = el("span", "pane-agent");
+    // The role the pane was started in, as text in a bordered tag, and
+    // nothing for a pane started in none. See renderPaneRole.
+    const role = el("span", "pane-role");
+    role.hidden = true;
     // Shown once this pane's own agent has reported the name another Claude
     // session would use to address it -- Flockdeck cannot learn this on its
     // own. See renderPanePeerName and `flockdeck peer-name`.
@@ -3443,10 +3511,11 @@
     };
     // A padlock that is open while the pane can be closed and shut while it
     // cannot. renderPaneLock keeps the glyph, the label and aria-pressed true.
-    const lockBtn = btn("🔓", TIPS.lock, () => {
+    const lockBtn = btn("", TIPS.lock, () => {
       const v = state && state.panes && state.panes[id];
       send({ cmd: "lockPane", id, locked: !(v && v.locked) });
     });
+    lockBtn.innerHTML = iconSVG("unlock", 14);
     const closeBtn = btn("×", TIPS.close, () => send({ cmd: "closePane", id }));
     // Off for a shell, which reports nothing to record. renderPaneRecording
     // keeps the glyph's state, the label and aria-pressed true.
@@ -3481,7 +3550,7 @@
       closeBtn,
     );
     makeToolbar(actions, "What to do with this pane");
-    header.append(dot, project, name, branch, agent, peerName, remote, git, conflict, detail, background, spend, limit, usage, cast, recMark, lockMark, actions);
+    header.append(dot, project, name, role, branch, agent, peerName, remote, git, conflict, detail, background, spend, limit, usage, cast, recMark, lockMark, actions);
 
     const body = el("div", "pane-body");
     const host = el("div", "term-host");
@@ -3588,7 +3657,7 @@
     // The WebGL renderer is loaded when the pane comes on screen, not here:
     // see drawWithWebgl.
 
-    p = { id, wrap, header, dot, name, project, branch, agent, peerName, remote, git, conflict, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
+    p = { id, wrap, header, dot, name, project, branch, agent, role, peerName, remote, git, conflict, detail, background, usage, spend, limit, cast, body, host, term, fit, ws: null,
           nodeId: "", fitTimer: 0, retryTimer: 0, retries: 0, connectedAt: 0, flingTimer: 0, cols: 0, rows: 0, actions, castBtn, zoomBtn, reviewBtn, lockBtn, closeBtn, lockMark, recBtn, exportBtn, recMark, search, dropZone,
           // What each part of the header is currently showing. Empty to begin
           // with, so the first push draws all of it.
@@ -4611,6 +4680,11 @@
       const badge = agent + "|" + (v.routed || "") + "|" + (v.routedFrom || "") + "|" + (v.route || "");
       if (was.agent !== badge) { was.agent = badge; renderPaneAgent(p, v); }
 
+      // Keyed on the name as well as the id, so a catalog that arrives after
+      // the pane, or an agents.json edited meanwhile, redraws the tag.
+      const role = (v.role || "") + " " + (v.role ? roleName(v.role) : "");
+      if (was.role !== role) { was.role = role; renderPaneRole(p, v); }
+
       const peerName = v.peerName || "";
       if (was.peerName !== peerName) { was.peerName = peerName; renderPanePeerName(p, v); }
 
@@ -4711,7 +4785,7 @@
   }
 
   /** renderPaneReview says whether a pane's PreToolUse calls are put to
-   *  auto-review before Claude Code would otherwise show its own permission
+   *  auto-approve read-only before Claude Code would otherwise show its own permission
    *  prompt, and how many it has let through unasked so far -- see
    *  Pane.AutoReview and Pane.AutoApproved. A child a pane starts, by fan-out
    *  or by its own `flockdeck spawn`, comes up already showing whatever its
@@ -4724,9 +4798,9 @@
     p.reviewBtn.classList.toggle("reviewing", on);
     p.reviewBtn.setAttribute("aria-pressed", String(on));
     describe(p.reviewBtn, (on
-      ? "Auto-review is on" + (v.autoApproved ? ": " + v.autoApproved + " command" + (v.autoApproved === 1 ? "" : "s") + " let through unasked so far. " : ". ") +
+      ? "Auto-approve read-only is on" + (v.autoApproved ? ": " + v.autoApproved + " command" + (v.autoApproved === 1 ? "" : "s") + " let through unasked so far. " : ". ") +
         "Press to turn it off. "
-      : "Auto-review is off. Press to turn it on. ") + TIPS.autoReview);
+      : "Auto-approve read-only is off. Press to turn it on. ") + TIPS.autoReview);
   }
 
   /** renderPaneLock says whether a pane is locked against closing, in the
@@ -4737,10 +4811,10 @@
    *  than being a dead target. See Pane.Locked. */
   function renderPaneLock(p, on) {
     p.lockMark.hidden = !on;
-    p.lockMark.textContent = on ? "🔒 Locked" : "";
+    p.lockMark.textContent = on ? "Locked" : "";
     if (on) describe(p.lockMark, "Locked - this pane can't be closed until you unlock it.");
     else delete p.lockMark.dataset.tip;
-    p.lockBtn.textContent = on ? "🔒" : "🔓";
+    p.lockBtn.innerHTML = iconSVG(on ? "lock" : "unlock", 14);
     p.lockBtn.classList.toggle("locked", on);
     p.lockBtn.setAttribute("aria-pressed", String(on));
     describe(p.lockBtn, on ? "Unlock this pane so it can be closed again." : TIPS.lock);
@@ -4860,6 +4934,39 @@
       : "";
     // Cut short like the branch, and named in its bubble for the same reason.
     describe(p.agent, p.agent.textContent + " — " + TIPS.agent + routed);
+  }
+
+  /** roleById is a role of the catalog, or undefined: a pane can be in a role
+   *  that agents.json has dropped since, or the catalog can be yet to arrive. */
+  function roleById(id) {
+    return ((catalog && catalog.roles) || []).find((r) => r.id === id);
+  }
+
+  /** roleName is what a role is called: its own name, or its id where the
+   *  catalog does not list it any more. */
+  function roleName(id) {
+    const r = roleById(id);
+    return (r && r.name) || id;
+  }
+
+  /** roleTip says what a role is for, for the tag that names it. */
+  function roleTip(id) {
+    const r = roleById(id);
+    return "Role: " + roleName(id) + (r && r.description ? ". " + r.description : "") +
+      (r ? "" : ". This role is no longer in agents.json.");
+  }
+
+  /** renderPaneRole names the role the pane was started in. It is words, not a
+   *  colour, and a pane in no role shows nothing. */
+  function renderPaneRole(p, v) {
+    p.role.textContent = "";
+    p.role.hidden = !v.role;
+    if (!v.role) { delete p.role.dataset.tip; p.role.removeAttribute("aria-label"); return; }
+    p.role.textContent = roleName(v.role);
+    // The visible word alone does not say what it is a word for.
+    p.role.setAttribute("role", "img");
+    p.role.setAttribute("aria-label", "Role: " + roleName(v.role));
+    describe(p.role, roleTip(v.role));
   }
 
   /** backgroundTip says what a count of background work means: an agent
@@ -5633,10 +5740,12 @@
     history: { present: "sheet", rail: "btn-history", act: "history", again: () => openHistory },
     fanoutHistory: { present: "sheet", rail: "btn-fanout-history", act: "fanoutHistory", again: () => openFanoutHistory },
     todos: { present: "sheet", rail: "btn-todos", act: "todos", again: () => openTodos },
-    github: { present: "sheet", rail: "btn-github", act: "github",
+    github: { present: "sheet", act: "github",
       again: () => { const at = ghDir; return () => openGithub(at); } },
-    keys: { present: "sheet", rail: "btn-apikeys", act: "apiKeys", again: () => openKeys },
-    remote: { present: "sheet", rail: "btn-remote", act: "remote", again: () => openRemote },
+    startTeam: { present: "dialog-m", act: "startTeam", again: () => openStartTeam },
+    team: { present: "sheet", wide: true, rail: "btn-team", act: "team", again: () => openTeam },
+    keys: { present: "sheet", act: "apiKeys", again: () => openKeys },
+    remote: { present: "sheet", act: "remote", again: () => openRemote },
     projects: { present: "sheet", rail: "rail-open", act: "projects", again: () => () => openProjects() },
     settings: { present: "dialog-l", rail: "btn-settings", act: "settings",
       again: () => { const at = settingsSection; return () => openSettings(at); } },
@@ -5665,7 +5774,8 @@
     agentPicker: { present: "picker",
       again: () => {
         const p = picker;
-        return p && (() => chooseAgent(p.title, p.onPick, { setDefault: p.setDefault, scope: p.scope }));
+        return p && (() => chooseAgent(p.title, p.onPick, { setDefault: p.setDefault, scope: p.scope,
+          roles: p.roles, role: p.role, task: p.task, worktree: p.worktree }));
       } },
     paneInfo: { present: "dialog-m", act: "paneInfo", again: () => { const at = paneInfoFor; return () => openPaneInfo(at); } },
     findPane: { present: "dialog-m", act: "findPane", again: () => { const at = findPaneQuery; return () => openFindPane(at); } },
@@ -5964,6 +6074,7 @@
     else if (dialog === "history") send({ cmd: "conversations" });
     else if (dialog === "fanoutHistory") send({ cmd: "fanoutHistory", root: state ? state.root : "" });
     else if (dialog === "todos") send({ cmd: "todos", root: state ? state.root : "" });
+    else if (dialog === "team") teamWatch();
     else if (dialog === "keys") send({ cmd: "keys" });
     else if (dialog === "versions") send({ cmd: "listVersions" });
     else if (dialog === "helpers" && helperView.kind === "list") send({ cmd: "helpers" });
@@ -5982,6 +6093,7 @@
    *  a shortcut still being recorded (it went on taking every key the window
    *  saw, with no dialog left to show it), a pairing link being polled. */
   function leaveSurface() {
+    if (dialog === "team") teamStop();
     artifactsLeave();
     closeMenu(false);
     picker = null;
@@ -6047,7 +6159,7 @@
     if (to.top) body.scrollTop = to.top;
   }
 
-  /* ---- Asking: confirmDialog and promptDialog ------------------------------
+  /* ---- Asking: confirmDialog ------------------------------------------------
    *
    * The designed question (Dialog S, an alertdialog: the title is the
    * question, the body its consequence, the button names the action) and the
@@ -6073,21 +6185,6 @@
       return;
     }
     askDialog(opts, null, onYes, onNo);
-  }
-
-  /** promptDialog asks for a name. opts: title ("Rename project"), scope,
-   *  label (the field's name), value, placeholder, note (what an empty answer
-   *  does), action ("Rename" by default), native ({message, value} for
-   *  window.prompt while ASK_NATIVELY). onValue gets the text as typed; an
-   *  answer to trim or check is the caller's, as it was with prompt(). */
-  function promptDialog(opts, onValue, onNo) {
-    opts = opts || {};
-    if (ASK_NATIVELY && opts.native && typeof window.prompt === "function") {
-      const got = window.prompt(opts.native.message, opts.native.value == null ? "" : opts.native.value);
-      if (got == null) { if (onNo) onNo(); } else if (onValue) onValue(got);
-      return;
-    }
-    askDialog(opts, { value: opts.value == null ? "" : String(opts.value) }, onValue, onNo);
   }
 
   /** askDialog draws both: a field when `field` is given, and a footer with
@@ -7849,24 +7946,8 @@
     });
   }
 
-  /** askFontFamily asks which typeface the terminals should use. It was
-   *  fixed in the source, and a terminal's font is among the first things
-   *  anybody who works in one sets to their own. */
-  function askFontFamily() {
-    const question = "Which font should the terminals use? Leave it empty for the default.";
-    promptDialog({
-      title: "Terminal font", label: "Font", value: prefs.fontFamily || "", placeholder: "Cascadia Mono…",
-      note: "Empty uses the default font.", action: "Use this font",
-      native: { message: question, value: prefs.fontFamily || "" },
-    }, (answer) => {
-      const why = chooseFontFamily(answer);
-      if (why) notice(why, true);
-      settingsChanged();
-    });
-  }
-
   /** chooseFontFamily makes a typeface the terminals' own, or says why it
-   *  cannot. The palette's question and the settings' field both come here. */
+   *  cannot. The settings' field is where it comes from. */
   function chooseFontFamily(answer) {
     const family = String(answer).trim();
     // A name this machine has no font for was taken, announced as the
@@ -7896,28 +7977,7 @@
     }
   }
 
-  /** askScrollback asks how much each terminal should keep. The number was
-   *  fixed in the source: too few lines for a long agent session to be read
-   *  back through, and more than a dozen panes need where memory is short. */
-  function askScrollback() {
-    const question = "How many lines should each terminal keep once they scroll off the top? (1,000 to 200,000)";
-    promptDialog({
-      title: "Terminal scrollback", label: "Lines kept", value: String(scrollback),
-      note: "From 1,000 to 200,000 lines.", action: "Keep these lines",
-      native: { message: question, value: String(scrollback) },
-    }, (answer) => keepScrollback(answer));
-  }
-  function keepScrollback(answer) {
-    const n = Number(String(answer).replace(/[,\s_]/g, ""));
-    if (!Number.isInteger(n) || n < 1000 || n > 200000) {
-      notice("Scrollback has to be a whole number of lines from 1,000 to 200,000.", true);
-      return;
-    }
-    chooseScrollback(n);
-  }
-
-  /** chooseScrollback is what the palette's question and the settings' list
-   *  both do with an answer. */
+  /** chooseScrollback is what the settings' list does with a choice. */
   function chooseScrollback(n) {
     applyScrollback(n);
     prefs.scrollback = n;
@@ -8399,7 +8459,7 @@
     splitDown: () => send({ cmd: "splitPane", id: focusedPaneId(), dir: "v", kind: "agent" }),
     splitRightShell: () => send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "shell" }),
     splitRightChoose: () => chooseAgent("Split right", (agent, model) =>
-      send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "agent", agent, model })),
+      send({ cmd: "splitPane", id: focusedPaneId(), dir: "h", kind: "agent", agent, model }), { roles: true }),
     movePaneLeft: () => send({ cmd: "movePaneDir", dir: "left" }),
     movePaneRight: () => send({ cmd: "movePaneDir", dir: "right" }),
     movePaneUp: () => send({ cmd: "movePaneDir", dir: "up" }),
@@ -8442,7 +8502,7 @@
 
     newAgentTab: () => send({ cmd: "newTab", kind: "agent" }),
     newAgentTabChoose: () => chooseAgent("New agent tab", (agent, model) =>
-      send({ cmd: "newTab", kind: "agent", agent, model })),
+      send({ cmd: "newTab", kind: "agent", agent, model }), { roles: true }),
     newShellTab: () => send({ cmd: "newTab", kind: "shell" }),
     nextTab: () => send({ cmd: "nextTab" }),
     prevTab: () => send({ cmd: "prevTab" }),
@@ -8465,6 +8525,8 @@
     todos: () => openTodos(),
     agents: () => openAgents(),
     closeFinishedPanes: () => send({ cmd: "closeFinishedPanes" }),
+    startTeam: () => openStartTeam(),
+    team: () => openTeam(),
     apiKeys: () => openKeys(),
     helpers: () => openHelpers(),
     github: () => openGithub(),
@@ -8488,8 +8550,6 @@
     fontUp: () => setFontSize(fontSize + 1),
     fontDown: () => setFontSize(fontSize - 1),
     fontReset: () => setFontSize(13),
-    scrollback: () => askScrollback(),
-    fontFamily: () => askFontFamily(),
     remote: () => openRemote(),
     detach: () => send({ cmd: "detach" }),
     quit: () => send({ cmd: "quit" }),
@@ -8517,6 +8577,9 @@
   function applyHello(msg) {
     applyKeyTable(msg.keys || []);
     remoteWindow = !!msg.remote;
+    // The Team panel is the desk's: a window reached through the relay is
+    // refused it, so the rail does not offer it.
+    $("btn-team").hidden = remoteWindow;
     applyViewOnly(msg.role === "viewer" ? (msg.watchPanes ? "watch" : "artifacts") : "");
     radarUnavailable = msg.radarUnavailable || "";
     radarChecking = !!msg.radarChecking;
@@ -8585,9 +8648,9 @@
     label("worktrees", $("btn-worktrees"));
     label("fanoutHistory", $("btn-fanout-history"));
     label("todos", $("btn-todos"));
-    label("apiKeys", $("btn-apikeys"));
+    label("team", $("btn-team"));
     label("help", $("btn-help"));
-    label("settings", $("btn-settings"));
+    if (keyTable.some((k) => k.id === "settings")) describeSettingsButton();
     label("palette", $("btn-palette"), "every action there is, searchable");
     label("projects", $("rail-open"), "open a folder as a project");
     label("toggleRail", $("rail-collapse"));
@@ -8697,7 +8760,7 @@
    *  palette narrowed to just these -- one surface reaches any other without
    *  a trip back out to the rail or the shortcut that opened this one. */
   const PAGE_ACTIONS = ["agents", "changes", "worktrees", "history", "todos", "github", "remote",
-    "projects", "settings", "help", "fanout", "fanoutHistory", "apiKeys"];
+    "projects", "settings", "help", "fanout", "fanoutHistory", "team", "apiKeys"];
 
   /** The groups the palette lists its commands under while nothing is typed,
    *  in this order: the key table's own sections (Panes, Tabs, Agents, The
@@ -8721,13 +8784,11 @@
     // The settings are commands like any other, and "settings" is the word
     // somebody looking for one types - it matched none of them.
     const SETTING = "settings preferences options";
-    const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "scrollback", "fontFamily", "apiKeys"]);
-    const also = (id) => SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "paneInfo" ? "id identifier identifiers details info information conversation session process pid peer path file copy" : id === "findPane" ? "search locate where switch go id identifier conversation session process pid peer name project tab branch" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : id === "remote" ? "remote access" : "";
-    // What a setting is now, beside the command that changes it: choosing a
-    // scrollback or a font meant opening the question to find out.
+    const SETTINGS = new Set(["settings", "fontUp", "fontDown", "fontReset", "apiKeys"]);
+    const also = (id) => id === "settings" ? SETTING + " scrollback font typeface terminal" : SETTINGS.has(id) ? SETTING : id === "lockPane" ? "lock unlock keep protect" : id === "paneInfo" ? "id identifier identifiers details info information conversation session process pid peer path file copy" : id === "findPane" ? "search locate where switch go id identifier conversation session process pid peer name project tab branch" : id === "recordPane" || id === "openRecordings" || id === "exportTranscript" || id === "revealTranscript" ? "reveal show folder file manager record recording transcript log export save" : id === "remote" ? "remote access" : id === "history" ? "history past conversations previous sessions" : id === "startTeam" ? "manager roles planner worker reviewer team goal orchestrate" : id === "team" ? "roster tasks task board kanban messages inbox agents roles manager worker reviewer assign" : "";
+    // What a setting is now, beside the command that changes it.
     const value = {
       fontUp: fontSize + "px", fontDown: fontSize + "px", fontReset: fontSize + "px",
-      scrollback: scrollback.toLocaleString("en") + " lines", fontFamily: prefs.fontFamily || "the default font",
       // One label for both ways a toggle goes, so the hint says which it is.
       toggleBroadcastMember: id && s.panes && s.panes[id]
         ? (s.panes[id].broadcast ? "in the broadcast set" : "out of the broadcast set") : "",
@@ -8735,7 +8796,7 @@
     // A command as the palette lists it. The label is the table's and stays
     // what is searched and what "last run" is remembered by; the name is the
     // short one the row is drawn with -- "Fan out" for "Fan out — turn this
-    // pane's plan into agents", "History" for "Resume a past conversation" --
+    // pane's plan into agents", "Resume" for "Resume — reopen a past conversation" --
     // and what follows the dash is the gloss, shown where there is no key.
     const mk = (id, label, o) => {
       const dash = label.indexOf(" — ");
@@ -8774,8 +8835,6 @@
      // which a dialog's header offered as "Go to…".
      ["github", "GitHub", "Go to"],
      ["goTo", "Go to…", "Go to"],
-     ["scrollback", "Terminal scrollback…", "The window"],
-     ["fontFamily", "Terminal font…", "The window"],
      // Renaming was a double-click on the tab and nothing else: nothing a
      // keyboard could reach, and nothing that said it could be done.
      ["renameTab", "Rename this tab…", "Tabs"],
@@ -9110,9 +9169,9 @@
   function openHistory() {
     dialog = "history";
     historyQuery = "";
-    openOverlay("Past conversations", "history");
+    openOverlay("Resume", "history");
     $("overlay-body").textContent = "";
-    $("overlay-body").append(el("div", "dir-empty", "Reading past conversations…"));
+    $("overlay-body").append(el("div", "dir-empty", "Reading conversations…"));
     send({ cmd: "conversations" });
   }
 
@@ -10447,6 +10506,12 @@
     const refresh = el("button", "chip", "Refresh");
     refresh.onclick = () => send({ cmd: "agents" });
     tools.append(refresh);
+    // The Team panel lists the panes of one project with their roles and
+    // tasks; this is the way to it from the list across all of them.
+    const team = describe(el("button", "chip", "Team…"), actionTip("team", "roster, tasks and messages for the project on screen"));
+    team.id = "agents-team";
+    team.onclick = () => openFrom(openTeam);
+    tools.append(team);
     const closeFinished = describe(el("button", "chip", "Close finished panes"),
       "Close every idle or exited pane here, in every open project, with no confirmation. A pane still waiting or working, one with background work still running, one whose last turn failed, and a locked pane are left alone.");
     closeFinished.onclick = () => runAction("closeFinishedPanes");
@@ -10569,6 +10634,12 @@
     if (a.agent) {
       meta.append(describe(el("span", null, a.model ? a.agent + " · " + a.model : a.agent), TIPS.agent));
     }
+    if (a.role) {
+      const n = el("span", "agent-role", roleName(a.role));
+      n.setAttribute("role", "img");
+      n.setAttribute("aria-label", "Role: " + roleName(a.role));
+      meta.append(describe(n, roleTip(a.role)));
+    }
     if (a.kind === "shell") meta.append(el("span", null, "shell"));
     if (a.detail) meta.append(el("span", null, a.detail));
     // A helper's own pane, when it is still open, so it reads as part of
@@ -10655,6 +10726,9 @@
     picker = {
       title, onPick, query: "", index: 0, open: new Set(),
       setDefault: !!opts.setDefault, scope: opts.scope || "", address: null,
+      // The Role control is offered only by the callers that start a pane, and
+      // what was chosen in it lives here so that a redraw does not lose it.
+      roles: !!opts.roles, role: opts.role || "", task: opts.task || "", worktree: !!opts.worktree,
     };
     // A fresh picker starts on its first row, not on the row the last one
     // left picked out, which renderAgentPicker would otherwise carry over.
@@ -10736,6 +10810,10 @@
     body.textContent = "";
 
     if (catalog.err) body.append(el("div", "pick-warn", catalog.err));
+    // A role agents.json no longer has is let go, so nothing asks for a task
+    // for a control that is not drawn or sends a role that is not there.
+    if (picker.role && !roleById(picker.role)) picker.role = "";
+    if (picker.roles && rolesOf().length) body.append(pickerRoleBox());
 
     const field = el("input", "pick-filter");
     field.id = "agent-filter";
@@ -11069,13 +11147,1417 @@
       drawPickerList();
       return;
     }
-    startPicked(a.id, item.type === "model" ? (item.model.id || "") : (a.defaultModel || ""));
+    // With a role, an agent row names the agent alone, as -agent does: the
+    // server then keeps the role's model if this is the role's own agent.
+    startPicked(a.id, item.type === "model" ? (item.model.id || "") : (picker.role ? "" : (a.defaultModel || "")));
   }
+
+  /** rolesOf is the roles the catalog lists, in its order. */
+  function rolesOf() {
+    return (catalog && catalog.roles) || [];
+  }
+
+  /** roleChoice is the agent and model a start in a role gets when the window
+   *  names agentID and model (either may be empty): the same rule as
+   *  Catalog.Choose and the CLI, so the line under the Role control is what
+   *  will happen. The role's agent and model apply only when neither is named;
+   *  its model only to the agent it was written for; its tier picks the first
+   *  model of that tier. What is still empty is the agent's own default. */
+  function roleChoice(role, agentID, model) {
+    const d = defaultChoice();
+    const defAgent = d.agent || "";
+    if (!agentID && !model) agentID = role.agent || "";
+    const home = role.agent || defAgent;
+    if (!model && role.model && (!agentID || agentID === home)) model = role.model;
+    const id = agentID || defAgent;
+    const spec = (catalog.items || []).find((a) => a.id === id);
+    if (!model && role.tier && spec) {
+      const m = (spec.models || []).find((x) => x.tier === role.tier && x.id);
+      if (m) model = m.id;
+    }
+    if (!model && spec) model = d.agent === id && d.model ? d.model : (spec.defaultModel || "");
+    return { agent: id, model };
+  }
+
+  /** roleChoiceText says what a role starts with, written as the pane header
+   *  writes it, and whose choice that is: the role's own or the project's. */
+  function roleChoiceText(role) {
+    const c = roleChoice(role, "", "");
+    const own = !!(role.agent || role.model || role.tier);
+    return (c.agent ? c.agent + (c.model ? " · " + c.model : "") : "the default agent") +
+      (own ? ", the " + (role.name || role.id) + " role's choice" : ", this project's default");
+  }
+
+  /** roleWorktreeText says what checkout a role expects, as its briefing does. */
+  function roleWorktreeText(role) {
+    if (role.worktree === "own") return "It expects a worktree and branch of its own, so the box is ticked; the branch is named from the task.";
+    if (role.worktree === "readonly") return "It reads a branch and does not change it: name the branch in the task.";
+    if (role.worktree === "main") return "It works in the project's main checkout.";
+    return "";
+  }
+
+  /** roleListKey lets the arrows reach the agent list from the role controls:
+   *  Ctrl with Down or Up walks it, as the arrows do from the filter. Plain
+   *  arrows stay with the control, which needs them. */
+  function roleListKey(ev) {
+    if (!ev.ctrlKey || (ev.key !== "ArrowDown" && ev.key !== "ArrowUp")) return false;
+    ev.preventDefault();
+    selectPickerRow(picker.index + (ev.key === "ArrowDown" ? 1 : -1));
+    return true;
+  }
+
+  /** pickerRoleBox is the Role control: None or a role, and once a role is
+   *  chosen the task it starts with, whether it gets a worktree, which agent
+   *  and model that comes to, and a button to start it with those. Picking an
+   *  agent or a model in the list below starts the role on that one instead. */
+  function pickerRoleBox() {
+    const box = el("div", "pick-role");
+    box.id = "agent-role-box";
+    const row = el("div", "pick-role-row");
+    const label = el("label", null, "Role");
+    label.htmlFor = "agent-role";
+    const sel = el("select", "fan-agent-sel");
+    sel.id = "agent-role";
+    sel.append(agentOption("None", ""));
+    rolesOf().forEach((r) => sel.append(agentOption(r.name || r.id, r.id)));
+    sel.value = roleById(picker.role) ? picker.role : "";
+    picker.role = sel.value;
+    const more = el("div", "pick-role-more");
+    more.id = "agent-role-more";
+    sel.onchange = () => {
+      picker.role = sel.value;
+      // The role says what checkout it expects; its own branch is ticked for it.
+      const chosen = roleById(sel.value);
+      picker.worktree = !!chosen && chosen.worktree === "own";
+      fillRoleMore(more);
+    };
+    sel.onkeydown = roleListKey;
+    row.append(label, sel);
+    fillRoleMore(more);
+    box.append(row, more);
+    return box;
+  }
+
+  /** fillRoleMore draws what the Role control shows under it for the role
+   *  chosen, and nothing for None. */
+  function fillRoleMore(more) {
+    more.textContent = "";
+    const r = roleById(picker.role);
+    if (!r) return;
+    if (r.description) more.append(el("div", "wt-hint", r.description));
+    const task = el("textarea", "pick-role-task");
+    task.id = "agent-role-task";
+    task.rows = 2;
+    task.spellcheck = false;
+    task.placeholder = "What should it do?";
+    task.setAttribute("aria-label", "Task for the " + (r.name || r.id));
+    task.value = picker.task;
+    task.oninput = () => { picker.task = task.value; };
+    task.onkeydown = (ev) => {
+      if (roleListKey(ev)) return;
+      if (ev.key !== "Enter" || ev.shiftKey) return;
+      ev.preventDefault();
+      // Enter starts the role on its own choice; Ctrl+Enter starts it on the
+      // agent or model picked out in the list below.
+      if (ev.ctrlKey || ev.metaKey) takePickerRow(); else startPicked("", "");
+    };
+    const tree = el("label", "pick-default");
+    const tick = el("input");
+    tick.type = "checkbox";
+    tick.checked = picker.worktree;
+    tick.onchange = () => { picker.worktree = tick.checked; };
+    tree.append(tick, document.createTextNode(" In a worktree of its own"));
+    const result = el("div", "wt-hint", "Starts " + roleChoiceText(r) + ", in a new tab. " + roleWorktreeText(r) +
+      " Enter starts it; to use another agent or model, Ctrl+Down walks the list and Ctrl+Enter starts the one picked out.");
+    result.id = "agent-role-result";
+    result.setAttribute("aria-live", "polite");
+    const go = el("button", "chip primary", "Start " + (r.name || r.id));
+    go.id = "agent-role-start";
+    describe(go, "Starts the agent in this role with the task above and the agent and model shown. Ctrl+Enter in the task does the same.");
+    go.onclick = () => startPicked("", "");
+    more.append(task, tree, result, go);
+  }
+
+  /** pendingRoleStarts are the request ids of the starts in a role that are
+   *  out, so the agentStarted that answers each one shows its pane. */
+  const pendingRoleStarts = new Set();
+
+  /** startInRole asks for an agent to be started in a role, in the project on
+   *  screen. An empty agent and model are the role's to fill in. The dialog
+   *  stays open until the agent has started, so a refusal (agent not
+   *  installed, no git for a worktree, too many starts) leaves what was typed
+   *  where it was. */
+  function startInRole(role, agent, model, task, worktree) {
+    const reqID = "role-" + Math.random().toString(36).slice(2);
+    pendingRoleStarts.add(reqID);
+    send({ cmd: "startAgent", id: reqID, root: state ? state.root : "", role, agent, model, task, worktree: !!worktree });
+  }
+
+  // ------------------------------------------------------------ start a team
+
+  /* A team starts with one agent: a manager in the project on screen, given the
+   * goal as its task, exactly as `flockdeck spawn -role manager "<goal>"` would
+   * start it. The manager starts the others itself, so this dialog starts
+   * nothing else. What was typed is kept here across a redraw. */
+  const teamDraft = { goal: "", pick: "" };
+
+  function openStartTeam() {
+    dialog = "startTeam";
+    openOverlay("Start a team", "agents");
+    renderStartTeam();
+  }
+
+  function renderStartTeam() {
+    if (dialog !== "startTeam") return;
+    const body = $("overlay-body");
+    body.textContent = "";
+    const role = roleById("manager");
+    if (!role) {
+      const why = el("div", "pick-warn", "There is no manager role in the catalog, so there is nothing to start a team with. " +
+        "Roles are listed in Settings › Agents & models and are kept under roles in agents.json.");
+      why.id = "team-missing";
+      why.setAttribute("role", "status");
+      body.append(why);
+      return;
+    }
+    const active = ((state && state.projects) || []).find((x) => x.active);
+    const project = active ? active.name : "this project";
+    const others = (role.spawns || []).map(roleName);
+    const explain = el("div", "fan-hint", "Starts one agent, a " + (role.name || role.id) + ", in " + project +
+      " with your goal as its task, as flockdeck spawn -role manager would." +
+      (others.length ? " It then starts the " + others.join(", ") + " agents it needs." : "") +
+      " Nothing else starts now.");
+    explain.id = "team-explain";
+    body.append(explain);
+
+    const label = el("label", "pick-label", "Goal");
+    label.htmlFor = "team-goal";
+    const goal = el("textarea", "pick-role-task");
+    goal.id = "team-goal";
+    goal.rows = 4;
+    goal.spellcheck = false;
+    goal.placeholder = "What should the team get done?";
+    goal.setAttribute("aria-describedby", "team-explain");
+    goal.value = teamDraft.goal;
+    goal.oninput = () => { teamDraft.goal = goal.value; };
+
+    const pickLabel = el("label", "pick-label", "Manager agent and model");
+    pickLabel.htmlFor = "team-agent";
+    const sel = agentSelect(catalogChoices(), teamDraft.pick, "The manager role's choice: " + roleChoiceText(role));
+    sel.id = "team-agent";
+    sel.onchange = () => { teamDraft.pick = sel.value; };
+
+    const go = el("button", "chip primary", "Start");
+    go.id = "team-start";
+    const start = () => {
+      const goalText = goal.value.trim();
+      if (!goalText) {
+        notice("Write the goal first", true);
+        goal.focus();
+        return;
+      }
+      const [agent, model] = pickParts(sel.value);
+      startInRole("manager", agent, model, goalText, false);
+    };
+    go.onclick = start;
+    goal.onkeydown = (ev) => {
+      if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); start(); }
+    };
+    const cancel = el("button", "chip", "Cancel");
+    cancel.onclick = closeOverlay;
+    const foot = el("div", "wt-form team-foot");
+    foot.append(go, cancel);
+    body.append(label, goal, pickLabel, sel, foot,
+      el("div", "wt-hint", "Ctrl+Enter in the goal starts it."));
+    goal.focus();
+  }
+
+  // ------------------------------------------------------------- team panel
+
+  /* The Team panel is one project's team in three tabs: the roster of its agent
+   * panes, the shared task board, and the messages between the panes. It is how
+   * the person at the window sees and steers a team without the command line.
+   * What they do here they do as the manager would: the server runs the same
+   * operations `flockdeck task` and `flockdeck msg` run, as the user, so the
+   * rules for who may move a task where, the size limits and the notices sent to
+   * the agents are the server's and not repeated here.
+   *
+   * While the panel is open the server pushes the whole picture (type "team")
+   * whenever the roster, the board or the messages change. A push replaces what
+   * is drawn, and keepFocus puts the scroll position and the keyboard back, so
+   * what is kept here across it is the state of the panel itself: the tab, the
+   * open task, the filter, and the text typed into a form. Nothing that is a
+   * message, a title or a note is ever put into the page as markup. */
+
+  const TEAM_COLUMNS = [["planned", "Planned"], ["assigned", "Assigned"], ["in-progress", "In progress"],
+    ["in-review", "In review"], ["done", "Done"]];
+  const TEAM_SIDE = [["blocked", "Blocked"], ["cancelled", "Cancelled"]];
+  const TEAM_STATE_NAME = Object.fromEntries(TEAM_COLUMNS.concat(TEAM_SIDE));
+  const TEAM_TABS = [["roster", "Roster"], ["tasks", "Tasks"], ["messages", "Messages"]];
+  /** The most a message may carry, in bytes: the server's limit, shown so a long
+   *  message is not found too long only by sending it. */
+  const TEAM_MESSAGE_BYTES = 8 * 1024;
+  /** The most a pending request waits for an answer. */
+  const TEAM_BUSY_MS = 10000;
+
+  /** team is the picture the server last pushed, or null before the first. */
+  let team = null;
+  const teamUI = {
+    root: "",
+    tab: "roster",
+    // The task whose detail is open, the detail as the server last sent it, and
+    // when it was last asked for.
+    open: "",
+    detail: null,
+    // What was last asked for of the open task: its id, when it changed and how
+    // many notes it had, so a push that repeats it does not ask again.
+    asked: "",
+    addOpen: false,
+    sideOpen: false,
+    // Finished tasks beyond the ones a push lists, when they were asked for.
+    extra: [],
+    filter: "",
+    // Whole texts of messages that were cut, by id.
+    full: {},
+    errs: {},
+    busy: new Set(),
+    pending: new Map(),
+    deferred: 0,
+    // The list box being chosen from, and what the open tab was last drawn from.
+    picking: null,
+    drawn: "",
+    // Why the project cannot be read, when the server said so.
+    gone: "",
+    // What is typed, kept across a redraw.
+    draft: { title: "", body: "", role: "", branch: "", note: "", assign: "", branchEdit: "", to: "", text: "" },
+  };
+
+  /** teamWho is a person or pane as the panel names it. The user is "you". */
+  function teamWho(a) {
+    if (!a) return "";
+    if (a.user) return "you";
+    const name = a.name || "unknown";
+    return a.role ? name + " (" + roleName(a.role) + ")" : name;
+  }
+
+  /** teamWhen is a time as the panel writes it: the hour today, the date and
+   *  hour otherwise. */
+  function teamWhen(iso) {
+    const t = Date.parse(iso || "");
+    if (!(t > 0)) return "";
+    const d = new Date(t);
+    const two = (n) => String(n).padStart(2, "0");
+    const hm = two(d.getHours()) + ":" + two(d.getMinutes());
+    if (d.toDateString() === new Date().toDateString()) return hm;
+    return d.getFullYear() + "-" + two(d.getMonth() + 1) + "-" + two(d.getDate()) + " " + hm;
+  }
+
+  /** teamSay adds a line for a screen reader to the announcer, which keeps only
+   *  the last few. */
+  function teamSay(text) {
+    const box = $("announcer");
+    if (!box || !text) return;
+    box.append(el("div", null, text));
+    while (box.children.length > 3) box.firstChild.remove();
+  }
+
+  function openTeam() {
+    if (remoteWindow) {
+      notice("The Team panel is used on the machine Flockdeck runs on, not from a window reached through the relay", true);
+      return;
+    }
+    dialog = "team";
+    const root = state ? state.root : "";
+    if (teamUI.root !== root) {
+      // Another project: nothing of the last one's picture, forms or open task
+      // is this one's.
+      teamUI.root = root;
+      team = null;
+      teamUI.open = "";
+      teamUI.detail = null;
+      teamUI.extra = [];
+      teamUI.full = {};
+      teamUI.errs = {};
+      teamUI.addOpen = false;
+      teamUI.gone = "";
+    }
+    const active = ((state && state.projects) || []).find((x) => x.active);
+    openOverlay("Team", "agents", { scope: (team && team.project) || (active && active.name) || "" });
+    teamWatch();
+    renderTeam();
+  }
+
+  /** teamWatch subscribes this window to the project: the server answers with
+   *  the picture and pushes it again when anything in it changes. */
+  function teamWatch() {
+    send({ cmd: "teamWatch", root: teamUI.root });
+  }
+
+  /** teamStop is what leaving the panel puts away: the subscription, and the
+   *  requests still out. */
+  function teamStop() {
+    send({ cmd: "teamUnwatch" });
+    for (const p of teamUI.pending.values()) clearTimeout(p.timer);
+    teamUI.pending.clear();
+    teamUI.busy.clear();
+    clearTimeout(teamUI.deferred);
+    teamUI.deferred = 0;
+    teamUI.picking = null;
+    teamUI.drawn = "";
+    const body = $("overlay-body");
+    body.removeAttribute("role");
+    body.removeAttribute("aria-labelledby");
+  }
+
+  /** followTeam moves an open panel to the project on screen. */
+  function followTeam(s) {
+    if (dialog !== "team" || !s || s.root === teamUI.root) return;
+    openTeam();
+  }
+
+  /** teamCmd sends a command that changes something. area names where an error
+   *  is shown and which buttons wait; done is called with the answer when it was
+   *  done. */
+  function teamCmd(area, cmd, done) {
+    if (teamUI.busy.has(area)) return;
+    const req = "team-" + Math.random().toString(36).slice(2);
+    const timer = setTimeout(() => {
+      if (!teamUI.pending.delete(req)) return;
+      teamUI.busy.delete(area);
+      teamUI.errs[area] = "No answer from Flockdeck. Check the connection and try again.";
+      if (dialog === "team") keepFocus(renderTeam);
+    }, TEAM_BUSY_MS);
+    teamUI.pending.set(req, { area, done, timer });
+    teamUI.busy.add(area);
+    teamUI.errs[area] = "";
+    send(Object.assign({ root: teamUI.root, req }, cmd));
+    keepFocus(renderTeam);
+  }
+
+  /** teamAnswer takes the server's answer to a command from teamCmd. */
+  function teamAnswer(msg) {
+    // The answer to the panel's own asking for the open task, which nothing waits on.
+    if (msg.req === "detail" && msg.op === "taskGet") {
+      if (msg.ok && msg.task && msg.task.id === teamUI.open) {
+        teamUI.detail = msg.task;
+        teamUI.asked = "";
+        if (dialog === "team") keepFocus(renderTeam);
+      }
+      return;
+    }
+    const p = teamUI.pending.get(msg.req);
+    teamUI.pending.delete(msg.req);
+    if (p) { clearTimeout(p.timer); teamUI.busy.delete(p.area); }
+    if (!msg.ok) {
+      const why = msg.error || "That did not work.";
+      // Marking a message seen has no place of its own to say it failed.
+      if (p && p.area !== "seen") teamUI.errs[p.area] = why; else notice(why, true);
+    } else if (p && p.done) {
+      p.done(msg);
+    }
+    if (msg.ok && msg.warning) notice(msg.warning, false);
+    if (dialog === "team") keepFocus(renderTeam);
+  }
+
+  /** teamApply takes a pushed picture. It says what changed to a screen reader,
+   *  asks again for an open task that moved, and draws it. */
+  function teamApply(msg) {
+    if (msg.root !== teamUI.root && teamUI.root) return;
+    const before = team;
+    team = msg;
+    teamUI.gone = "";
+    if (!teamUI.root) teamUI.root = msg.root;
+    if (before) teamAnnounce(before, msg);
+    // An open task that changed is asked for in full, once for each change.
+    const card = teamUI.open && msg.tasks.find((t) => t.id === teamUI.open);
+    if (card) {
+      const d = teamUI.detail;
+      const want = card.id + "|" + card.updated + "|" + card.notes;
+      const have = d && d.id + "|" + d.updated + "|" + (d.noteList || []).length;
+      if (want !== have && want !== teamUI.asked) { teamUI.asked = want; teamAskDetail(); }
+    }
+    // A panel put away for good is let go of here, at the next push, rather than
+    // wherever a surface may be replaced by another.
+    if (dialog !== "team" && ($("overlay").hidden || !overlayStack.some((s) => s.name === "team"))) {
+      send({ cmd: "teamUnwatch" });
+      return;
+    }
+    if (dialog !== "team") return;
+    // A menu open on a button of the panel, or a list being chosen from, would
+    // lose what the redraw replaces; it is drawn once they are put away.
+    if (teamHeld()) { teamRetry(); return; }
+    teamRefresh();
+  }
+
+  /** teamHeld says the panel is not to be redrawn now: a menu is open on one of
+   *  its buttons, or a list box is being chosen from. */
+  function teamHeld() {
+    return !!menuNode || !!(teamUI.picking && teamUI.picking.isConnected && document.activeElement === teamUI.picking);
+  }
+
+  function teamRetry() {
+    if (teamUI.deferred) return;
+    teamUI.deferred = setTimeout(() => {
+      teamUI.deferred = 0;
+      if (dialog !== "team") return;
+      if (teamHeld()) teamRetry(); else teamRefresh();
+    }, 400);
+  }
+
+  /** teamRefresh draws a pushed picture. When what the open tab shows has not
+   *  moved, which is most pushes (a roster push for a team busy on the board),
+   *  nothing under it is replaced: the tab counts are all that is drawn again.
+   *  A form, a list being scrolled and a caret are then not touched. */
+  function teamRefresh() {
+    if (team && teamSlice() === teamUI.drawn) { renderTeamTabs(); return; }
+    keepFocus(renderTeam);
+  }
+
+  /** teamSlice is the part of the picture the open tab is drawn from, as a key
+   *  to compare. The panes' names and roles are in every tab's: they are what
+   *  its lists offer. */
+  function teamSlice() {
+    const who = team.roster.map((r) => [r.pane, r.name, r.role, r.status === "exited"]);
+    let part;
+    if (teamUI.tab === "roster") {
+      part = [team.roster, team.hasManager];
+    } else if (teamUI.tab === "tasks") {
+      const card = teamUI.open && team.tasks.find((t) => t.id === teamUI.open);
+      part = teamUI.open ? [card || null, who] : [team.tasks, team.counts.tasks, team.openHidden, team.finishedHidden, who];
+    } else {
+      part = [team.messages, team.messagesHidden, who];
+    }
+    return JSON.stringify([part, team.boardError || ""]);
+  }
+
+  /** teamPick wires a list box so that a push does not redraw it while it is
+   *  being chosen from, which closes the list the browser has open. */
+  function teamPick(sel, onChange) {
+    sel.onmousedown = () => { teamUI.picking = sel; };
+    sel.onkeydown = (ev) => { if ((ev.altKey && ev.key === "ArrowDown") || ev.key === "F4") teamUI.picking = sel; };
+    sel.onchange = () => { teamUI.picking = null; onChange(); };
+    sel.onblur = () => { if (teamUI.picking === sel) teamUI.picking = null; };
+  }
+
+  /** teamAnnounce says what changed in a push that a person would want told:
+   *  new unread messages from others, and tasks that moved. The rest is on
+   *  screen for whoever looks. */
+  function teamAnnounce(before, now) {
+    const said = [];
+    const seen = new Set(before.messages.map((m) => m.id));
+    const fresh = now.messages.filter((m) => !seen.has(m.id) && !m.seen && !(m.from && m.from.user));
+    if (fresh.length === 1) said.push("New message from " + teamWho(fresh[0].from));
+    else if (fresh.length > 1) said.push(fresh.length + " new messages");
+    const was = new Map(before.tasks.map((t) => [t.id, t.state]));
+    const moved = now.tasks.filter((t) => was.has(t.id) && was.get(t.id) !== t.state);
+    for (const t of moved.slice(0, 3)) said.push(t.id + " is now " + (TEAM_STATE_NAME[t.state] || t.state).toLowerCase());
+    if (moved.length > 3) said.push((moved.length - 3) + " more tasks moved");
+    teamSay(said.join(". "));
+  }
+
+  /** teamAskDetail asks for the open task in full. */
+  function teamAskDetail() {
+    if (teamUI.open) send({ cmd: "taskGet", root: teamUI.root, id: teamUI.open, req: "detail" });
+  }
+
+  /** teamTasks is the board's tasks: those pushed, and the older finished ones
+   *  asked for. */
+  function teamTasks() {
+    if (!team) return [];
+    const have = new Set(team.tasks.map((t) => t.id));
+    return team.tasks.concat(teamUI.extra.filter((t) => !have.has(t.id)));
+  }
+
+  function teamTask(id) { return teamTasks().find((t) => t.id === id); }
+
+  // ------------------------------------------------------------------ frame
+
+  function renderTeam() {
+    if (dialog !== "team") return;
+    closeMenu(false);
+    const body = $("overlay-body");
+    body.textContent = "";
+    if (!team) {
+      teamUI.drawn = "";
+      $("overlay-tabs").hidden = true;
+      const gone = el("div", "dir-empty", teamUI.gone ? "This project cannot be read now: " + teamUI.gone : "Reading the team…");
+      if (teamUI.gone) gone.setAttribute("role", "status");
+      body.append(gone);
+      return;
+    }
+    teamUI.drawn = teamSlice();
+    renderTeamTabs();
+
+    if (team.boardError) {
+      const why = el("div", "pick-warn", "The task board could not be read: " + team.boardError);
+      why.setAttribute("role", "status");
+      body.append(why);
+    }
+    if (teamUI.tab === "roster") renderTeamRoster(body);
+    else if (teamUI.tab === "tasks") renderTeamTasks(body);
+    else renderTeamMessages(body);
+  }
+
+  /** renderTeamTabs draws the tabs with their counts, and the body's part in
+   *  them: it is their panel. The keyboard stays on the tab it was on. */
+  function renderTeamTabs() {
+    const body = $("overlay-body");
+    const row = $("overlay-tabs");
+    const inTabs = row.contains(document.activeElement);
+    const counts = { roster: team.counts.panes, tasks: team.counts.open, messages: team.counts.unseen };
+    overlayTabs(TEAM_TABS.map(([id, label]) => ({ id, label, count: counts[id] })), teamUI.tab, (id) => {
+      if (teamUI.tab === id) return;
+      teamUI.tab = id;
+      renderTeam();
+    });
+    [...row.children].forEach((b, i) => { b.id = "team-tab-" + TEAM_TABS[i][0]; });
+    body.setAttribute("role", "tabpanel");
+    body.setAttribute("aria-labelledby", "team-tab-" + teamUI.tab);
+    if (inTabs) { const b = $("team-tab-" + teamUI.tab); if (b) b.focus(); }
+  }
+
+  /** teamEscape puts away what Escape closes first in the panel, and reports
+   *  whether it did: an open task, the add form, a filter box. */
+  function teamEscape() {
+    if (dialog !== "team" || !team) return false;
+    if (teamUI.tab === "tasks" && teamUI.open) { teamCloseTask(); return true; }
+    if (teamUI.tab === "tasks" && teamUI.addOpen) {
+      teamUI.addOpen = false;
+      keepFocus(renderTeam, "#team-add-open");
+      return true;
+    }
+    return false;
+  }
+
+  function teamErrBox(area) {
+    const e = el("div", "team-err", teamUI.errs[area] || "");
+    e.id = "team-err-" + area;
+    e.setAttribute("role", "alert");
+    e.hidden = !teamUI.errs[area];
+    return e;
+  }
+
+  // ----------------------------------------------------------------- roster
+
+  function renderTeamRoster(body) {
+    const roster = team.roster;
+    if (!roster.length) {
+      body.append(el("div", "dir-empty", "A team is agents in roles (manager, worker, reviewer) that share a task board and message each other."));
+      const go = el("button", "chip primary", "Start a team");
+      go.id = "team-start-team";
+      go.onclick = () => openFrom(openStartTeam);
+      describe(go, "Start a manager agent with your goal; it starts the other agents it needs.");
+      const bar = el("div", "team-bar team-empty");
+      bar.append(go);
+      body.append(bar);
+      return;
+    }
+    const bar = el("div", "team-bar");
+    const start = el("button", "chip primary", "Start an agent…");
+    start.id = "team-start-agent";
+    describe(start, "Start an agent in this project, in a role, in a tab of its own.");
+    start.onclick = () => openFrom(() => chooseAgent("Start an agent", (agent, model) =>
+      send({ cmd: "newTab", kind: "agent", agent, model }), { roles: true }));
+    bar.append(start);
+    if (!team.hasManager) {
+      const go = el("button", "chip", "Start a team");
+      go.id = "team-start-team";
+      describe(go, "No pane is in the manager role. Start a manager with a goal; it starts the other agents it needs.");
+      go.onclick = () => openFrom(openStartTeam);
+      bar.append(go);
+    }
+    const done = roster.filter((r) => r.finished && !r.locked);
+    if (done.length) {
+      const close = el("button", "chip", "Close finished (" + done.length + ")");
+      close.id = "team-close-finished";
+      close.disabled = teamUI.busy.has("close");
+      describe(close, "Close the idle or exited panes of this project listed here, after you confirm. Panes working or waiting, panes with background work and locked panes are left.");
+      close.onclick = () => confirmDialog({
+        title: "Close " + done.length + (done.length === 1 ? " finished pane?" : " finished panes?"),
+        body: done.map((r) => r.name + (r.role ? " (" + roleName(r.role) + ")" : "")).join(", ") +
+          ". Each is checked again as it closes, and one that has started working is left open.",
+        action: "Close " + done.length + (done.length === 1 ? " pane" : " panes"), danger: true,
+      }, () => teamClosePanes(done.map((r) => r.pane)));
+      bar.append(close);
+    }
+    body.append(bar);
+    body.append(teamErrBox("close"));
+
+    const wrap = section(roster.length + (roster.length === 1 ? " agent" : " agents"));
+    roster.forEach((r) => wrap.append(teamRosterRow(r)));
+    body.append(wrap);
+  }
+
+  function teamRosterRow(r) {
+    const shown = r.activity || r.status;
+    const row = el("div", "agent-row team-pane");
+    row.id = "team-pane-" + r.pane;
+    const main = el("div", "agent-main");
+    const title = el("div", "agent-title");
+    const dot = el("span", "dot " + shown);
+    dot.setAttribute("aria-hidden", "true");
+    title.append(describe(dot, TIPS[shown] || shown));
+    if (r.role) {
+      const tag = el("span", "agent-role", roleName(r.role));
+      tag.setAttribute("role", "img");
+      tag.setAttribute("aria-label", "Role: " + roleName(r.role));
+      title.append(describe(tag, roleTip(r.role)));
+    }
+    title.append(describe(el("span", "agent-tab", r.name), r.name + (r.peer ? " (pane name " + r.peer + ")" : "")));
+    main.append(title);
+
+    const meta = el("div", "agent-meta");
+    if (r.agent) meta.append(describe(el("span", null, r.model ? r.agent + " · " + r.model : r.agent), TIPS.agent));
+    if (r.branch) {
+      const n = el("span", null, "⎇ " + r.branch);
+      n.setAttribute("role", "img");
+      n.setAttribute("aria-label", "On branch " + r.branch);
+      meta.append(describe(n, TIPS.branch));
+    }
+    if (r.task) {
+      const link = el("button", "agent-parent link", r.task.id + " · " + (TEAM_STATE_NAME[r.task.state] || r.task.state) + ": " + r.task.title);
+      link.type = "button";
+      link.id = "team-pane-task-" + r.pane;
+      describe(link, "Open " + r.task.id + " on the board");
+      const go = (ev) => { ev.stopPropagation(); teamShowTask(r.task.id); };
+      link.onclick = go;
+      link.onkeydown = (ev) => {
+        if (ev.key !== "Enter" && ev.key !== " ") return;
+        ev.preventDefault();
+        go(ev);
+      };
+      meta.append(link);
+    } else {
+      meta.append(el("span", null, "no task"));
+    }
+    if (r.unread) meta.append(describe(el("span", "agent-waiting", r.unread + " unread by the agent"), "Messages in this pane's inbox that it has not read"));
+    main.append(meta);
+    row.append(main);
+
+    row.append(el("span", "agent-status " + shown, shown));
+    const close = el("button", "chip team-close", "Close");
+    close.type = "button";
+    close.id = "team-close-" + r.pane;
+    close.disabled = !r.finished || !!r.locked;
+    describe(close, r.locked ? "This pane is locked against closing."
+      : r.finished ? "Close this pane. It is idle or has exited." : "Only an idle or exited pane can be closed here.");
+    close.onclick = (ev) => { ev.stopPropagation(); teamClosePanes([r.pane]); };
+    close.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") ev.stopPropagation(); };
+    row.append(close);
+
+    rowAction(row, () => {
+      send({ cmd: "revealPane", id: r.pane });
+      closeOverlay();
+    }, false, r.name);
+    return row;
+  }
+
+  /** teamClosePanes asks the server to close panes. It judges each again as it
+   *  closes it, so one that went back to work since the roster was drawn stays. */
+  function teamClosePanes(ids) {
+    teamCmd("close", { cmd: "teamClose", panes: ids }, (res) => {
+      const left = res.skipped || [];
+      notice((res.closed ? "Closed " + res.closed + (res.closed === 1 ? " pane" : " panes") : "No pane was closed") +
+        (left.length ? ". Left open: " + left.join("; ") : ""), !res.closed && left.length > 0);
+    });
+  }
+
+  // ------------------------------------------------------------------ tasks
+
+  function teamShowTask(id) {
+    teamUI.tab = "tasks";
+    teamUI.open = id;
+    teamUI.detail = null;
+    teamUI.asked = "";
+    teamUI.errs.detail = "";
+    teamAskDetail();
+    keepFocus(renderTeam);
+  }
+
+  function teamCloseTask() {
+    const was = teamUI.open;
+    teamUI.open = "";
+    teamUI.detail = null;
+    teamUI.draft.note = "";
+    keepFocus(renderTeam, "#team-task-" + was);
+  }
+
+  function renderTeamTasks(body) {
+    if (teamUI.open) { renderTeamTask(body); return; }
+    const tasks = teamTasks();
+    const bar = el("div", "team-bar");
+    const add = el("button", "chip primary", "Add task");
+    add.id = "team-add-open";
+    add.setAttribute("aria-expanded", String(teamUI.addOpen));
+    add.onclick = () => {
+      teamUI.addOpen = !teamUI.addOpen;
+      keepFocus(renderTeam);
+      // The form takes the keyboard it was opened for.
+      const first = teamUI.addOpen && $("team-title");
+      if (first) first.focus();
+    };
+    bar.append(add);
+    const finished = (team.counts.tasks.done || 0) + (team.counts.tasks.cancelled || 0);
+    const prune = el("button", "chip", "Prune finished…");
+    prune.id = "team-prune";
+    prune.disabled = !finished || teamUI.busy.has("prune");
+    describe(prune, finished ? "Remove done and cancelled tasks that were last changed more than 30 days ago." : "There are no finished tasks.");
+    prune.onclick = () => confirmDialog({
+      title: "Prune finished tasks?",
+      body: "Removes done and cancelled tasks last changed more than 30 days ago from this project's board. Open tasks are kept.",
+      action: "Prune", danger: true,
+    }, () => teamCmd("prune", { cmd: "taskPrune", size: 30 }, (res) =>
+      notice(res.pruned ? "Removed " + res.pruned + (res.pruned === 1 ? " finished task" : " finished tasks") : "No finished task was old enough", false)));
+    bar.append(prune);
+    body.append(bar);
+    body.append(teamErrBox("prune"));
+    if (teamUI.addOpen) body.append(teamAddForm());
+
+    if (!tasks.length) {
+      body.append(el("div", "dir-empty", "No tasks on this project's board. Add one, or start a team and its manager adds them."));
+      return;
+    }
+    const byState = new Map();
+    tasks.forEach((t) => {
+      if (!byState.has(t.state)) byState.set(t.state, []);
+      byState.get(t.state).push(t);
+    });
+    const board = el("div", "team-board");
+    board.id = "team-board";
+    const cols = [];
+    TEAM_COLUMNS.forEach(([state, label]) => {
+      const col = teamColumn(state, label, byState.get(state) || []);
+      cols.push(col);
+      board.append(col);
+    });
+    body.append(board);
+    const hidden = (team.openHidden || 0) + (team.finishedHidden || 0);
+    if (hidden && !teamUI.extra.length) {
+      const more = el("button", "chip", "Show " + hidden + " more " + (hidden === 1 ? "task" : "tasks") + " not listed");
+      more.id = "team-show-all";
+      more.onclick = () => send({ cmd: "taskList", root: teamUI.root, state: "all" });
+      body.append(more);
+    }
+
+    // Blocked and cancelled stay out of the way until asked for.
+    const side = TEAM_SIDE.map(([state]) => (byState.get(state) || []).length);
+    const sideN = side[0] + side[1];
+    const toggle = el("button", "chip team-side-toggle", (teamUI.sideOpen ? "Hide" : "Show") + " blocked and cancelled (" +
+      side[0] + " blocked, " + side[1] + " cancelled)");
+    toggle.id = "team-side-toggle";
+    toggle.setAttribute("aria-expanded", String(teamUI.sideOpen));
+    toggle.setAttribute("aria-controls", "team-side");
+    toggle.disabled = !sideN;
+    toggle.onclick = () => { teamUI.sideOpen = !teamUI.sideOpen; keepFocus(renderTeam); };
+    body.append(toggle);
+    if (teamUI.sideOpen && sideN) {
+      const box = el("div", "team-board team-side");
+      box.id = "team-side";
+      TEAM_SIDE.forEach(([state, label]) => {
+        const col = teamColumn(state, label, byState.get(state) || []);
+        cols.push(col);
+        box.append(col);
+      });
+      body.append(box);
+    }
+    cols.forEach((col, i) => teamColumnKeys(col, cols, i));
+    body.append(el("div", "wt-hint", "Arrow keys move between cards. Enter opens a task."));
+  }
+
+  /** teamColumn is one state's tasks: a group with a heading naming it and how
+   *  many it holds, and a card for each. */
+  function teamColumn(state, label, list) {
+    const col = el("div", "team-col");
+    col.dataset.state = state;
+    col.setAttribute("role", "group");
+    const total = state === "done" && team.counts.tasks.done ? team.counts.tasks.done : list.length;
+    const head = el("h3", "team-col-head", label);
+    head.id = "team-col-" + state;
+    head.append(el("span", "team-col-n", String(total)));
+    col.setAttribute("aria-labelledby", head.id);
+    col.append(head);
+    const cards = el("div", "team-cards");
+    list.forEach((t) => cards.append(teamCard(t)));
+    if (!list.length) cards.append(el("div", "team-none", "None"));
+    col.append(cards);
+    return col;
+  }
+
+  /** teamColumnKeys makes Left and Right move between the columns, to the card
+   *  at the same height, as Up and Down move within one. */
+  function teamColumnKeys(col, cols, at) {
+    [...col.querySelectorAll("div.team-card")].forEach((card, i) => {
+      const was = card.onkeydown;
+      card.onkeydown = (ev) => {
+        if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+          const step = ev.key === "ArrowLeft" ? -1 : 1;
+          for (let j = at + step; j >= 0 && j < cols.length; j += step) {
+            const there = [...cols[j].querySelectorAll("div.team-card")];
+            if (!there.length) continue;
+            ev.preventDefault();
+            there[Math.min(i, there.length - 1)].focus();
+            return;
+          }
+          return;
+        }
+        if (was) was.call(card, ev);
+      };
+    });
+  }
+
+  function teamCard(t) {
+    const card = el("div", "team-card");
+    card.id = "team-task-" + t.id;
+    const head = el("div", "team-card-head");
+    head.append(el("span", "team-card-id", t.id));
+    head.append(el("span", "team-card-title", t.title));
+    card.append(head);
+    const meta = el("div", "team-card-meta");
+    const owner = el("span", "team-owner" + (t.owner === "unassigned" ? " none" : ""), t.owner);
+    meta.append(describe(owner, "Who it is for"));
+    if (t.branch) meta.append(describe(el("span", null, "⎇ " + t.branch), TIPS.branch));
+    if (t.notes) meta.append(el("span", null, t.notes + (t.notes === 1 ? " note" : " notes")));
+    card.append(meta);
+    if (t.moves.length) {
+      const move = el("button", "chip team-move", "Move");
+      move.type = "button";
+      move.id = "team-move-" + t.id;
+      move.setAttribute("aria-haspopup", "menu");
+      move.setAttribute("aria-expanded", "false");
+      describe(move, "Move " + t.id + " to another state");
+      const menu = (ev) => {
+        ev.stopPropagation();
+        move.setAttribute("aria-expanded", "true");
+        openMenu(move, t.moves.map((m) => ({
+          label: "Move to " + (TEAM_STATE_NAME[m.to] || m.to).toLowerCase(),
+          hint: m.needNote ? "needs a note" : "",
+          disabled: m.needNote,
+          run: () => teamMove(t.id, m.to, ""),
+        })), "Move " + t.id);
+      };
+      move.onclick = menu;
+      move.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") ev.stopPropagation(); };
+      card.append(move);
+    }
+    rowAction(card, () => teamShowTask(t.id), false, t.id + " " + t.title);
+    card.setAttribute("aria-label", t.id + ", " + t.title + ", " + (TEAM_STATE_NAME[t.state] || t.state) + ", " + t.owner +
+      (t.notes ? ", " + t.notes + (t.notes === 1 ? " note" : " notes") : ""));
+    return card;
+  }
+
+  function teamMove(id, to, note) {
+    teamCmd("detail", { cmd: "taskStatus", id, state: to, text: note }, (res) => {
+      if (teamUI.open === id) { teamUI.detail = res.task; teamUI.draft.note = ""; }
+      teamSay(id + " moved to " + (TEAM_STATE_NAME[to] || to).toLowerCase());
+    });
+  }
+
+  function teamAddForm() {
+    const d = teamUI.draft;
+    const form = el("div", "team-form");
+    form.id = "team-add";
+    form.setAttribute("role", "group");
+    form.setAttribute("aria-label", "Add a task");
+
+    const field = (label, id, node) => {
+      const l = el("label", "pick-label", label);
+      l.htmlFor = id;
+      node.id = id;
+      form.append(l, node);
+      return node;
+    };
+    const title = el("input", "pick-filter");
+    title.type = "text";
+    title.maxLength = 200;
+    title.value = d.title;
+    title.oninput = () => { d.title = title.value; };
+    field("Title", "team-title", title);
+
+    const text = el("textarea", "pick-role-task");
+    text.rows = 3;
+    text.spellcheck = false;
+    text.value = d.body;
+    text.oninput = () => { d.body = text.value; };
+    field("Details (optional)", "team-body", text);
+
+    const role = el("select", "pick-filter");
+    role.append(el("option", null, "Any role"));
+    role.firstChild.value = "";
+    const known = new Set();
+    ((catalog && catalog.roles) || []).forEach((r) => known.add(r.id));
+    team.roster.forEach((r) => { if (r.role) known.add(r.role); });
+    [...known].forEach((id) => {
+      const o = el("option", null, roleName(id));
+      o.value = id;
+      role.append(o);
+    });
+    role.value = d.role;
+    teamPick(role, () => { d.role = role.value; });
+    field("For role (optional)", "team-role", role);
+
+    const branch = el("input", "pick-filter");
+    branch.type = "text";
+    branch.value = d.branch;
+    branch.placeholder = "feature/parser";
+    branch.oninput = () => { d.branch = branch.value; };
+    field("Branch (optional)", "team-branch-new", branch);
+
+    const go = el("button", "chip primary", "Add task");
+    go.id = "team-add-go";
+    go.disabled = teamUI.busy.has("add");
+    const submit = () => {
+      if (!d.title.trim()) {
+        teamUI.errs.add = "Give the task a title.";
+        keepFocus(renderTeam, "#team-title");
+        return;
+      }
+      teamCmd("add", { cmd: "taskAdd", title: d.title, spec: d.body, role: d.role, branch: d.branch }, (res) => {
+        d.title = d.body = d.role = d.branch = "";
+        teamUI.addOpen = false;
+        teamSay("Task " + (res.task ? res.task.id : "") + " added");
+      });
+    };
+    go.onclick = submit;
+    title.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); submit(); } };
+    text.onkeydown = (ev) => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); submit(); } };
+    const cancel = el("button", "chip", "Cancel");
+    cancel.id = "team-add-cancel";
+    cancel.onclick = () => { teamUI.addOpen = false; teamUI.errs.add = ""; keepFocus(renderTeam, "#team-add-open"); };
+    const foot = el("div", "wt-form team-foot");
+    foot.append(go, cancel);
+    form.append(foot, teamErrBox("add"));
+    return form;
+  }
+
+  // ---------------------------------------------------------------- one task
+
+  function renderTeamTask(body) {
+    const card = teamTask(teamUI.open);
+    let t = teamUI.detail && teamUI.detail.id === teamUI.open ? teamUI.detail : null;
+    const back = el("button", "chip", "← Board");
+    back.id = "team-back";
+    back.onclick = teamCloseTask;
+    describe(back, "Back to the board (Esc)");
+    const bar = el("div", "team-bar");
+    bar.append(back);
+    body.append(bar);
+    if (!card && !t) {
+      const gone = el("div", "dir-empty", teamUI.open + " is no longer on this board.");
+      gone.setAttribute("role", "status");
+      body.append(gone);
+      return;
+    }
+    // The summary stands in until the whole task has come; the actions need
+    // nothing the summary lacks, apart from the thread.
+    t = t || card;
+    const wrap = el("div", "team-detail");
+    wrap.id = "team-detail";
+    const head = el("div", "team-detail-head");
+    head.append(el("span", "team-card-id", t.id));
+    head.append(el("h3", "team-detail-title", t.title));
+    head.append(el("span", "team-state " + t.state, TEAM_STATE_NAME[t.state] || t.state));
+    wrap.append(head);
+
+    const facts = el("dl", "team-facts");
+    const fact = (k, v) => {
+      facts.append(el("dt", null, k));
+      const dd = el("dd");
+      if (typeof v === "string") dd.textContent = v; else dd.append(v);
+      facts.append(dd);
+    };
+    const owner = el("span", null, t.owner);
+    if (t.ownerOpen) {
+      const go = el("button", "chip", "Go to pane");
+      go.id = "team-owner-go";
+      describe(go, "Show the owner's pane");
+      go.onclick = () => { send({ cmd: "revealPane", id: t.ownerPane }); closeOverlay(); };
+      const both = el("span", "team-owner-line");
+      both.append(owner, go);
+      fact("For", both);
+    } else {
+      fact("For", owner);
+    }
+    fact("Branch", t.branch || "none");
+    fact("Added by", teamWho(t.creator));
+    if (t.created) fact("Added", teamWhen(t.created));
+    fact("Changed", teamWhen(t.updated));
+    if (t.baton) fact("Baton", t.baton);
+    wrap.append(facts);
+
+    if (t.body) {
+      const b = el("div", "team-body", t.body);
+      b.id = "team-task-body";
+      wrap.append(section("Details"), b);
+    }
+
+    // Steering.
+    const steer = section("Steer");
+    steer.append(teamAssignRow(t), teamBranchRow(t));
+    wrap.append(steer);
+
+    // The thread, then the box that adds to it.
+    const notes = t.noteList || [];
+    const thread = section("Notes (" + t.notes + ")");
+    const list = el("div", "team-notes");
+    list.id = "team-notes";
+    list.setAttribute("role", "list");
+    notes.forEach((n) => {
+      const item = el("div", "team-note");
+      item.setAttribute("role", "listitem");
+      const h = el("div", "team-note-head");
+      h.append(el("span", "team-note-who" + (n.author && n.author.user ? " you" : ""), teamWho(n.author)), el("span", null, teamWhen(n.time)));
+      item.append(h, el("div", "team-note-text", n.text));
+      list.append(item);
+    });
+    if (!notes.length) list.append(el("div", "team-none", t.notes && !t.noteList ? "Reading the notes…" : "No notes yet."));
+    thread.append(list);
+    wrap.append(thread);
+    wrap.append(teamNoteBox(t));
+
+    const hist = t.historyList || [];
+    if (hist.length) {
+      const sec = section("History");
+      const ul = el("div", "team-history");
+      ul.setAttribute("role", "list");
+      hist.forEach((e) => {
+        const li = el("div", "team-event");
+        li.setAttribute("role", "listitem");
+        li.append(el("span", "team-event-time", teamWhen(e.time)), el("span", null, teamWho(e.actor) + " " + e.what));
+        ul.append(li);
+      });
+      sec.append(ul);
+      wrap.append(sec);
+    }
+    body.append(wrap);
+  }
+
+  function teamAssignRow(t) {
+    const d = teamUI.draft;
+    const row = el("div", "team-row");
+    const label = el("label", "pick-label", "Assign to");
+    label.htmlFor = "team-assign";
+    const sel = el("select", "pick-filter");
+    sel.id = "team-assign";
+    const none = el("option", null, "Choose a role or a pane");
+    none.value = "";
+    sel.append(none);
+    const roles = new Set();
+    ((catalog && catalog.roles) || []).forEach((r) => roles.add(r.id));
+    team.roster.forEach((r) => { if (r.role) roles.add(r.role); });
+    [...roles].forEach((id) => {
+      const o = el("option", null, "Any " + roleName(id));
+      o.value = "role:" + id;
+      sel.append(o);
+    });
+    team.roster.filter((r) => r.status !== "exited").forEach((r) => {
+      const o = el("option", null, r.name + (r.role ? " (" + roleName(r.role) + ")" : ""));
+      o.value = r.pane;
+      sel.append(o);
+    });
+    sel.value = d.assign;
+    sel.disabled = !t.canAssign;
+    teamPick(sel, () => { d.assign = sel.value; });
+    const go = el("button", "chip", "Assign");
+    go.id = "team-assign-go";
+    go.disabled = !t.canAssign || teamUI.busy.has("detail");
+    describe(go, t.canAssign ? "Give the task to a role, or to a pane. The pane is told." : "Only an open task can be assigned.");
+    go.onclick = () => {
+      if (!sel.value) { teamUI.errs.detail = "Choose who the task is for."; keepFocus(renderTeam, "#team-assign"); return; }
+      teamCmd("detail", { cmd: "taskAssign", id: t.id, target: sel.value }, (res) => {
+        teamUI.detail = res.task;
+        d.assign = "";
+        teamSay(t.id + " assigned");
+      });
+    };
+    row.append(label, sel, go);
+    return row;
+  }
+
+  function teamBranchRow(t) {
+    const d = teamUI.draft;
+    const row = el("div", "team-row");
+    const label = el("label", "pick-label", "Branch");
+    label.htmlFor = "team-branch";
+    const input = el("input", "pick-filter");
+    input.id = "team-branch";
+    input.type = "text";
+    input.placeholder = t.branch || "feature/parser";
+    input.value = d.branchEdit;
+    input.disabled = !t.canEdit;
+    input.oninput = () => { d.branchEdit = input.value; };
+    const go = el("button", "chip", "Set branch");
+    go.id = "team-branch-go";
+    go.disabled = !t.canEdit || teamUI.busy.has("detail");
+    describe(go, t.canEdit ? "Record the git branch the work is on." : "Only an open task can be changed.");
+    const submit = () => {
+      if (!d.branchEdit.trim()) { teamUI.errs.detail = "Type a branch name first."; keepFocus(renderTeam, "#team-branch"); return; }
+      teamCmd("detail", { cmd: "taskBranch", id: t.id, branch: d.branchEdit }, (res) => { teamUI.detail = res.task; d.branchEdit = ""; });
+    };
+    go.onclick = submit;
+    input.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); submit(); } };
+    row.append(label, input, go);
+    return row;
+  }
+
+  function teamNoteBox(t) {
+    const d = teamUI.draft;
+    const box = el("div", "team-notebox");
+    const label = el("label", "pick-label", "Add a note, or say why for a move that needs one");
+    label.htmlFor = "team-note";
+    const text = el("textarea", "pick-role-task");
+    text.id = "team-note";
+    text.rows = 3;
+    text.spellcheck = false;
+    text.value = d.note;
+    text.oninput = () => {
+      d.note = text.value;
+      add.disabled = !d.note.trim() || teamUI.busy.has("detail");
+    };
+    const add = el("button", "chip primary", "Add note");
+    add.id = "team-note-go";
+    add.disabled = !d.note.trim() || teamUI.busy.has("detail");
+    const send1 = () => {
+      if (!d.note.trim()) return;
+      teamCmd("detail", { cmd: "taskNote", id: t.id, text: d.note }, (res) => { teamUI.detail = res.task; d.note = ""; teamSay("Note added to " + t.id); });
+    };
+    add.onclick = send1;
+    text.onkeydown = (ev) => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); send1(); } };
+
+    const move = el("button", "chip", "Move to…");
+    move.id = "team-move-go";
+    move.type = "button";
+    move.disabled = !t.moves.length || teamUI.busy.has("detail");
+    move.setAttribute("aria-haspopup", "menu");
+    move.setAttribute("aria-expanded", "false");
+    describe(move, t.moves.length ? "Move the task to another state. The rules allow only these moves; a note in the box is sent with the move."
+      : "No move is open to this task.");
+    move.onclick = () => {
+      move.setAttribute("aria-expanded", "true");
+      openMenu(move, t.moves.map((m) => ({
+        label: "Move to " + (TEAM_STATE_NAME[m.to] || m.to).toLowerCase(),
+        hint: m.needNote ? "needs a note" : "",
+        disabled: m.needNote && !d.note.trim(),
+        run: () => teamMove(t.id, m.to, d.note),
+      })), "Move " + t.id);
+    };
+    const foot = el("div", "wt-form team-foot");
+    foot.append(add, move);
+    box.append(label, text, foot, teamErrBox("detail"));
+    return box;
+  }
+
+  // --------------------------------------------------------------- messages
+
+  /** teamMessageMatches says whether a message is to or from the pane or role
+   *  the filter names. */
+  function teamMessageMatches(m, filter) {
+    if (!filter) return true;
+    const [kind, id] = [filter.slice(0, filter.indexOf(":")), filter.slice(filter.indexOf(":") + 1)];
+    if (kind === "pane") return m.to === id || (m.from && m.from.pane === id);
+    if (kind === "role") return m.toRole === id || (m.from && m.from.role === id);
+    return true;
+  }
+
+  function renderTeamMessages(body) {
+    const d = teamUI.draft;
+    // Compose first, so it is where the keyboard lands and the list below can
+    // grow without moving it.
+    const form = el("div", "team-form");
+    form.id = "team-compose-box";
+    form.setAttribute("role", "group");
+    form.setAttribute("aria-label", "Send a message");
+    const live = team.roster.filter((r) => r.status !== "exited");
+    const roles = [...new Set(live.map((r) => r.role).filter(Boolean))];
+    const toLabel = el("label", "pick-label", "Send to");
+    toLabel.htmlFor = "team-to";
+    const to = el("select", "pick-filter");
+    to.id = "team-to";
+    const none = el("option", null, live.length ? "Choose a pane or a role" : "No agent is running");
+    none.value = "";
+    to.append(none);
+    roles.forEach((id) => {
+      const o = el("option", null, "Every " + roleName(id));
+      o.value = "role:" + id;
+      to.append(o);
+    });
+    live.forEach((r) => {
+      const o = el("option", null, r.name + (r.role ? " (" + roleName(r.role) + ")" : ""));
+      o.value = r.pane;
+      to.append(o);
+    });
+    to.value = d.to;
+    teamPick(to, () => { d.to = to.value; });
+    const textLabel = el("label", "pick-label", "Message");
+    textLabel.htmlFor = "team-compose";
+    const text = el("textarea", "pick-role-task");
+    text.id = "team-compose";
+    text.rows = 3;
+    text.spellcheck = false;
+    text.value = d.text;
+    text.placeholder = "It is signed as you, and the agent reads it with flockdeck inbox.";
+    const count = el("span", "team-count");
+    count.id = "team-compose-count";
+    const go = el("button", "chip primary", "Send");
+    go.id = "team-send";
+    const bytes = () => new TextEncoder().encode(d.text).length;
+    const refresh = () => {
+      const n = bytes();
+      count.textContent = n + " / " + TEAM_MESSAGE_BYTES + " bytes";
+      count.classList.toggle("over", n > TEAM_MESSAGE_BYTES);
+      go.disabled = !d.text.trim() || n > TEAM_MESSAGE_BYTES || teamUI.busy.has("compose");
+    };
+    text.oninput = () => { d.text = text.value; refresh(); };
+    const submit = () => {
+      if (go.disabled) return;
+      if (!d.to) { teamUI.errs.compose = "Choose who to send it to."; keepFocus(renderTeam, "#team-to"); return; }
+      teamCmd("compose", { cmd: "msgSend", target: d.to, text: d.text }, (res) => {
+        d.text = "";
+        teamSay("Message sent to " + res.sent + (res.sent === 1 ? " pane" : " panes"));
+        notice("Message sent to " + res.sent + (res.sent === 1 ? " pane" : " panes"), false);
+      });
+    };
+    go.onclick = submit;
+    text.onkeydown = (ev) => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); submit(); } };
+    refresh();
+    const foot = el("div", "wt-form team-foot");
+    foot.append(go, count);
+    form.append(toLabel, to, textLabel, text, foot, teamErrBox("compose"));
+    form.append(el("div", "wt-hint", "Ctrl+Enter sends. The text goes to the agent's inbox, never into its terminal; the agent is told it has mail."));
+    body.append(form);
+
+    // The list, newest first.
+    const filterBar = el("div", "team-bar");
+    const fl = el("label", "pick-label", "Show");
+    fl.htmlFor = "team-filter";
+    const filter = el("select", "pick-filter");
+    filter.id = "team-filter";
+    const all = el("option", null, "All messages");
+    all.value = "";
+    filter.append(all);
+    [...new Set(team.roster.map((r) => r.role).filter(Boolean))].forEach((id) => {
+      const o = el("option", null, "Role: " + roleName(id));
+      o.value = "role:" + id;
+      filter.append(o);
+    });
+    team.roster.forEach((r) => {
+      const o = el("option", null, "Pane: " + r.name + (r.role ? " (" + roleName(r.role) + ")" : ""));
+      o.value = "pane:" + r.pane;
+      filter.append(o);
+    });
+    filter.value = teamUI.filter;
+    teamPick(filter, () => { teamUI.filter = filter.value; keepFocus(renderTeam); });
+    filterBar.append(fl, filter);
+    body.append(filterBar);
+
+    const shown = team.messages.filter((m) => teamMessageMatches(m, teamUI.filter));
+    if (!team.messages.length) {
+      body.append(el("div", "dir-empty", "No messages in this project yet. Agents write to each other with flockdeck msg, and you can write to them above."));
+      return;
+    }
+    if (!shown.length) {
+      body.append(el("div", "dir-empty", "No message matches that."));
+      return;
+    }
+    const list = el("div", "team-msgs");
+    list.id = "team-msgs";
+    list.setAttribute("role", "list");
+    shown.forEach((m) => list.append(teamMessage(m)));
+    body.append(list);
+    if (team.messagesHidden) body.append(el("div", "wt-hint", team.messagesHidden + " older messages are not shown."));
+  }
+
+  function teamMessage(m) {
+    const fresh = !m.seen && !(m.from && m.from.user);
+    const item = el("div", "team-msg" + (fresh ? " unseen" : ""));
+    item.id = "team-msg-" + m.id;
+    item.tabIndex = 0;
+    item.setAttribute("role", "listitem");
+    const head = el("div", "team-msg-head");
+    head.append(el("span", "team-note-who" + (m.from && m.from.user ? " you" : ""), m.system ? "Flockdeck" : teamWho(m.from)));
+    head.append(el("span", null, "to " + (m.toName ? m.toName + (m.toRole ? " (" + roleName(m.toRole) + ")" : "") : m.to)));
+    head.append(el("span", null, teamWhen(m.time)));
+    // Two marks, kept apart: the recipient's (has the agent read it) and the
+    // window's own (have you looked).
+    head.append(el("span", "team-msg-state", (fresh ? "new, " : "") + (m.read ? "read by the agent" : "unread by the agent")));
+    item.append(head);
+    // Plain text, whatever it holds: it was written by an agent.
+    const full = teamUI.full[m.id];
+    item.append(el("div", "team-msg-text", full != null ? full : m.text));
+    const acts = el("div", "team-msg-acts");
+    if (m.cut && full == null) {
+      const more = el("button", "chip", "Show all");
+      more.id = "team-msg-more-" + m.id;
+      more.onclick = () => send({ cmd: "msgList", root: teamUI.root, msgId: m.id });
+      acts.append(more);
+    }
+    if (fresh) {
+      const seen = el("button", "chip", "Mark seen");
+      seen.id = "team-msg-seen-" + m.id;
+      describe(seen, "Mark it seen here. The agent's inbox is not changed: it still finds the message unread until it reads it.");
+      seen.onclick = () => teamCmd("seen", { cmd: "msgSeen", id: m.to, msgId: m.id });
+      acts.append(seen);
+    }
+    if (acts.children.length) item.append(acts);
+    item.onkeydown = (ev) => {
+      if (ev.target !== item) return;
+      const rows = [...item.parentElement.children];
+      const to = rowStep(ev.key, rows.indexOf(item), rows.length);
+      if (to === undefined || !rows[to]) return;
+      ev.preventDefault();
+      rows[to].focus();
+    };
+    return item;
+  }
+
+  /** teamGone is the server saying the project being watched can no longer be
+   *  read, a closed one above all: the panel says so and drops the old picture. */
+  function teamGone(msg) {
+    if (msg.root !== teamUI.root) return;
+    team = null;
+    teamUI.gone = msg.error || "The project is not open any more.";
+    teamUI.open = "";
+    teamUI.detail = null;
+    if (dialog === "team") keepFocus(renderTeam);
+  }
+
+  /** teamTasksArrived takes the tasks a push left out, asked for with "Show". */
+  function teamTasksArrived(msg) {
+    if (msg.root !== teamUI.root) return;
+    teamUI.extra = msg.tasks || [];
+    if (dialog === "team") keepFocus(renderTeam, "#team-side-toggle");
+  }
+
+  /** teamMessagesArrived keeps the whole text of a message that was cut. */
+  function teamMessagesArrived(msg) {
+    if (msg.root !== teamUI.root) return;
+    for (const m of msg.messages || []) if (!m.cut) teamUI.full[m.id] = m.text;
+    if (dialog === "team") keepFocus(renderTeam);
+  }
+
 
   /** startPicked is what the whole dialog is for: hand the choice to whoever
    *  opened it, remembering it first if that was asked for. */
   function startPicked(agentID, model) {
     const run = picker.onPick;
+    if (picker.role && roleById(picker.role)) {
+      // A role starts through startAgent, with the task it is given; the
+      // choice made here is the agent and model the window named.
+      if (!picker.task.trim()) {
+        notice("Give the " + roleName(picker.role) + " a task first", true);
+        const t = $("agent-role-task");
+        if (t) t.focus();
+        return;
+      }
+      const role = picker.role, task = picker.task, worktree = picker.worktree;
+      // The start button names no agent, so it has none to make the default.
+      if (picker.setDefault && agentID) {
+        const req = { cmd: "setAgentDefault", agent: agentID, model: model };
+        if (picker.scope === "all") req.kind = "all";
+        send(req);
+      }
+      startInRole(role, agentID, model, task, worktree);
+      return;
+    }
     if (picker.setDefault) {
       const req = { cmd: "setAgentDefault", agent: agentID, model: model };
       if (picker.scope === "all") req.kind = "all";
@@ -11162,7 +12644,21 @@
     return null;
   }
 
+  /** renderKeys draws the agents' keys, and in the sheet the TypeSafe key
+   *  under them: the sheet is the palette's way to API keys, and the Settings
+   *  section has the same row. */
   function renderKeys(msg) {
+    renderKeysList(msg);
+    if (dialog !== "keys") return;
+    const body = $("overlay-body");
+    if (!body) return;
+    const jev = el("div", "settings-jev-key");
+    jev.id = "settings-jev-key";
+    jev.append(jevKeyRow());
+    body.append(jev);
+  }
+
+  function renderKeysList(msg) {
     if (msg) apiKeys = msg;
     const body = keysHost();
     if (!body) return; // see openWorktrees
@@ -12062,7 +13558,7 @@
   const SETTINGS_SECTIONS = [
     { id: "general", group: "Window", label: "General",
       words: "desktop notifications notify browser blocked hints tips " +
-        "new panes defaults default auto review approve approval fan out fanout fanned tab beside planner worktree" },
+        "new panes defaults default auto approve read only auto review approval permission prompt fan out fanout fanned tab beside planner worktree" },
     { id: "appearance", group: "Window", label: "Appearance", words: "theme dark light system follow colour color accent swatch" },
     { id: "terminal", group: "Window", label: "Terminal",
       words: "font size family typeface scrollback lines cursor blink block bar underline preview screen reader accessibility" },
@@ -12070,13 +13566,15 @@
     { id: "agents", group: "Agents", label: "Agents & models", words: "default agent model project claude status line usage limits spend" },
     { id: "routing", group: "Agents", label: "Routing",
       words: "routing route fan out fanout model models tier floor smallest strategy cost cheapest rules cross agents jev rate unmatched history" },
-    { id: "keys", group: "Agents", label: "API keys", words: "api keys key token secret" },
+    { id: "keys", group: "Agents", label: "API keys", words: "api keys key token secret typesafe jev" },
     { id: "status", group: "Agents", label: "Status detection",
       words: "status detection typesafe jev api key waiting blocked quiet pane terminal output third party" },
     { id: "remote", group: "Connections", label: "Flockdeck Remote", words: "remote access relay pair paired device devices machine name phone tablet push notify notification notifications waiting anonymous identifying" },
     { id: "github", group: "Connections", label: "GitHub", words: "github gh pull request issue pr ci actions checks workflow sign in install auth login" },
     { id: "plan", group: "Account", label: "Account & plan",
-      words: "account plan free enterprise self-hosted relay sso company companies licence license support paid sponsor sponsors sponsorship donate " +
+      words: "account plan free enterprise self-hosted relay sso company companies paid subscription trial" },
+    { id: "about", group: "About", label: "About & updates",
+      words: "about licence license support sponsor sponsors sponsorship donate privacy terms " +
         "version versions update updates releases check install roll back rollback reinstall" },
   ];
   /** The section on show, kept from one opening to the next. */
@@ -12329,7 +13827,17 @@
     keybindings: settingsKeybindings,
     agents: settingsAgents,
     routing: settingsRouting,
-    keys: (pane) => { settingsHead(pane, "API keys"); settingsHost(pane); renderKeys(); },
+    keys: (pane) => {
+      settingsHead(pane, "API keys");
+      settingsHost(pane);
+      renderKeys();
+      // The TypeSafe key is a key like the others, set here; Status detection
+      // and Routing, which use it, point at this.
+      const jev = el("div", "settings-jev-key");
+      jev.id = "settings-jev-key";
+      jev.append(jevKeyRow());
+      pane.append(jev);
+    },
     status: settingsStatus,
     remote: (pane) => { settingsHead(pane, "Flockdeck Remote"); settingsPush(pane); settingsHost(pane); renderRemote(); },
     github: (pane) => {
@@ -12338,6 +13846,7 @@
       renderGhSettings();
     },
     plan: settingsPlan,
+    about: settingsAbout,
   };
 
   /** How long a pane may wait before the paired devices are told, as offered:
@@ -12504,7 +14013,7 @@
       sw, why));
   }
 
-  /** settingsVersion is Account & plan's Version: whether it looks for new
+  /** settingsVersion is About & updates' Version: whether it looks for new
    *  releases, looking now, installing what it found, and installing another. */
   function settingsVersion(pane) {
     // Neither is offered in a window reached through the relay: see
@@ -12762,6 +14271,24 @@
     lines.value = String(scrollback);
     lines.onchange = () => chooseScrollback(Number(lines.value));
     pane.append(settingRow("Scrollback", "Lines each pane keeps to scroll back through. More costs memory in every pane.", lines));
+    const custom = el("input", "set-input");
+    custom.id = "set-scrollback-custom";
+    custom.type = "number";
+    custom.min = "1000";
+    custom.max = "200000";
+    custom.step = "1";
+    custom.placeholder = "Other";
+    custom.setAttribute("aria-label", "Other scrollback, in lines");
+    custom.onchange = () => {
+      const n = Number(custom.value);
+      if (!Number.isInteger(n) || n < 1000 || n > 200000) {
+        notice("Scrollback has to be a whole number of lines from 1,000 to 200,000.", true);
+        return;
+      }
+      custom.value = "";
+      chooseScrollback(n);
+    };
+    pane.append(settingRow("Other scrollback", "Any whole number of lines from 1,000 to 200,000, when the list above has no fit.", custom));
 
     const shapes = [["block", "Block"], ["bar", "Bar"], ["underline", "Underline"]];
     const seg = el("div", "segmented");
@@ -12817,7 +14344,7 @@
       "Off, a fan-out's agents land in a new tab of their own. This is only the default the dialog opens on; " +
       "either way it can still be changed for one run.", sameTabLabel);
 
-    pane.append(settingRow("Start new panes with auto-review on",
+    pane.append(settingRow("Auto-approve read-only in new panes",
       "Only a command it is confident is read-only is let through without asking; anything else still asks. " +
       "A pane opened by hand starts with this setting; a pane started from another one (a fan-out or " +
       "flockdeck spawn) starts the way that pane is set.",
@@ -12831,16 +14358,39 @@
   function settingsStatus(pane) {
     settingsHead(pane, "Status detection",
       "Optional help from TypeSafe's Jev reading a pane's state. Off unless you turn it on; nothing is sent until then.");
-    pane.append(jevKeyRow());
+    pane.append(jevKeyLink());
     pane.append(settingRow("Let TypeSafe's Jev help read pane status",
-      "Off by default. On, and with a TypeSafe API key set (above, or TYPESAFE_API_KEY in the environment Flockdeck runs in), the last " +
+      "Off by default. On, and with a TypeSafe API key set (in API keys, or TYPESAFE_API_KEY in the environment Flockdeck runs in), the last " +
       "30 lines (at most 2,000 bytes) of a pane's terminal output are SENT TO TYPESAFE, a third party, " +
       "whenever an agent that reports no status of its own goes quiet and Flockdeck cannot tell finished " +
       "from stopped on a question. Nothing else is sent: not the scrollback, the pane's name, or its folder. " +
-      "Secrets on screen are not removed. Panes of agents that report their own status, and shell panes, " +
+      "API keys, tokens, password values and secret file paths are redacted first, by pattern, so a secret " +
+      "with no recognisable shape is still sent. Panes of agents that report their own status, and shell panes, " +
       "are never sent. It can only turn a quiet pane into waiting or blocked, never the other way. " +
       "This can only be turned on on the machine itself, not from a window reached through the relay.",
       switchControl("set-jev-status", !!prefs.jevStatus, (on) => setJevStatus(on))));
+  }
+
+  /** jevKeyLink is Status detection's row for the key: whether one is set,
+   *  and the way to API keys, where it is set. */
+  function jevKeyLink() {
+    const info = jevKeyInfo;
+    const word = remoteWindow ? "set on the machine Flockdeck runs on" : !info ? "checking" : info.set ? "set" : "not set";
+    if (!jevKeyAsked && !remoteWindow) { jevKeyAsked = true; send({ cmd: "jevKey", kind: "get" }); }
+    const go = settingsLink("set-jev-key-link", "Open API keys →", "keys");
+    const row = settingRow("TypeSafe API key", "Used for the Jev setting below and Routing's Ask Jev. It is set under API keys. " +
+      "Status: " + word + ".", go);
+    row.id = "set-jev-key-row";
+    return row;
+  }
+
+  /** redrawJevKey draws the TypeSafe key's row again in API keys, where it
+   *  is, for an answer that changes it; the rest of that section is not
+   *  touched, so a key half-typed above it stays. */
+  function redrawJevKey() {
+    const box = (dialog === "settings" && settingsSection === "keys") || dialog === "keys" ? $("settings-jev-key") : null;
+    if (!box || !box.isConnected) return;
+    keepFocus(() => { box.textContent = ""; box.append(jevKeyRow()); });
   }
 
   /** jevKeyRow is where the TypeSafe API key is set, replaced and cleared. The
@@ -12888,7 +14438,7 @@
     const status = el("div", "set-desc", "Key status: " + state);
     status.id = "set-jev-key-status";
     return settingRow("TypeSafe API key",
-      "Used only for the Jev setting below and Routing's Ask Jev. Saving a key sends nothing: they stay off until " +
+      "Used only for Status detection's Jev setting and Routing's Ask Jev. Saving a key sends nothing: they stay off until " +
       "you turn one on, and what they send is described there, including that it goes to TypeSafe, a third party. " +
       "The key is kept on this machine in Flockdeck's key store, is only ever sent to api.typesafe.ai, and is never " +
       "shown again. If none is set here, TYPESAFE_API_KEY from the environment is used. It can only be set on the machine itself.",
@@ -12917,7 +14467,7 @@
     prefs.autoReviewDefault = on;
     sentPref("autoReviewDefault");
     send({ cmd: "autoReviewDefault", kind: on ? "on" : "off" });
-    notice(on ? "New panes start with auto-review on" : "New panes start with auto-review off", false);
+    notice(on ? "New panes start with auto-approve read-only on" : "New panes start with auto-approve read-only off", false);
     settingsChanged();
   }
 
@@ -13081,13 +14631,18 @@
     return row;
   }
 
+  /** catalogChoices is the catalog in the shape the agent control is drawn
+   *  from, which is the fan-out's. */
+  function catalogChoices() {
+    return (catalog.items || []).map((a) => ({ id: a.id, name: a.name || a.id, unavailable: !a.available,
+      install: a.install, models: a.models, default: a.defaultModel }));
+  }
+
   function settingsAgents(pane) {
     const choose = keyTable.find((x) => x.id === "newAgentTabChoose");
     settingsHead(pane, "Agents & models", "The agent, and which of its models, a pane starts with when nobody chooses." +
       (choose ? " To choose for one pane, use " + choose.label + " in the command palette." : ""));
-    // In the shape the agent control is drawn from, which is the fan-out's.
-    const items = (catalog.items || []).map((a) => ({ id: a.id, name: a.name || a.id, unavailable: !a.available,
-      install: a.install, models: a.models, default: a.defaultModel }));
+    const items = catalogChoices();
     if (!items.length) {
       pane.append(el("div", "dir-empty", catalog.err || "Reading the agents…"));
       return;
@@ -13139,6 +14694,23 @@
       "Shows a Claude subscription's five-hour and weekly limits in the pane header, read from Claude Code's status line. " +
       "Your own status line is kept and runs as before. With none of your own, Claude Code hides its footer's keyboard hints " +
       "while any status line is set, so by default the limits are read only where you already have one.", sl));
+
+    // The roles are read here and written in agents.json.
+    if (rolesOf().length) {
+      const list = el("div", "route-rules");
+      list.id = "set-roles";
+      rolesOf().forEach((role) => {
+        const row = el("div", "route-rule");
+        row.append(el("span", "route-rule-name", role.name || role.id));
+        const choice = [role.agent, role.model || role.tier].filter(Boolean).join(" · ");
+        if (choice) row.append(el("span", "pick-tier", choice));
+        if (role.description) row.append(el("span", "route-rule-when", role.description));
+        list.append(row);
+      });
+      const file = catalog.routing && catalog.routing.config;
+      pane.append(settingRow("Roles", "What an agent can be started as, from the Role control in the agent picker, " +
+        "Start a team, or flockdeck spawn -role. They are edited under roles in agents.json" + (file ? ", at " + file : "") + ".", list));
+    }
 
     // What was part of this section once, and is next to it in the list now.
     pane.append(el("div", "set-sub", "Related"));
@@ -13260,10 +14832,10 @@
     pane.append(settingRow("Ask Jev to rate unmatched work",
       "With Minimise cost, a fan-out row no rule matched can be rated by TypeSafe's Jev model, so hard work is not " +
       "sent to the cheapest model blindly. This sends the text of that row (its first 2,000 characters) to TypeSafe, " +
-      "a third party, and nothing else: no files, no repository, no history. It needs a TypeSafe API key (set in Settings › Status detection, or TYPESAFE_API_KEY in the environment)" +
+      "a third party, and nothing else: no files, no repository, no history. API keys, tokens, password values and secret file paths in it are redacted first, by pattern, so a secret with no recognisable shape is still sent. It needs a TypeSafe API key (set in Settings › API keys, or TYPESAFE_API_KEY in the environment)" +
       (r.jevKey ? "" : " (it is not set, so nothing is sent)") + " and does nothing under Cost-first, quality-aware. " +
       "Off until you turn it on, " + (own ? "for this project." : "for every project."), jevLabel,
-      settingsLink("set-route-jev-key", "Status detection →", "status")));
+      settingsLink("set-route-jev-key", "API keys →", "keys")));
     if (r.note) {
       const note = el("p", "set-lede", r.note);
       note.id = "set-route-note";
@@ -13318,7 +14890,7 @@
   }
 
   function settingsPlan(pane) {
-    settingsHead(pane, "Account & plan", "What you are on, and which version is running.");
+    settingsHead(pane, "Account & plan", "What you are on.");
     const card = (name, pill, soon, text) => {
       const c = el("div", "plan-card" + (soon ? "" : " current"));
       const head = el("div", "plan-head");
@@ -13347,14 +14919,19 @@
     link.append(document.createTextNode("Read about Enterprise"), iconEl("ext", 13));
     soon.append(link);
     pane.append(soon);
-    // Which version this is, and getting another, with what it is on.
+  }
+
+  /** settingsAbout is About & updates: which version is running and getting
+   *  another, a line for anyone who wants to sponsor, and whose Flockdeck is
+   *  and on what terms. */
+  function settingsAbout(pane) {
+    settingsHead(pane, "About & updates", "Which version is running, and getting another.");
     pane.append(el("div", "set-sub", "Version"));
     settingsVersion(pane);
     pane.append(sponsorLine());
     // Whose it is and under what licence, and the pages that say what the
-    // shared relay keeps and on what terms: quiet, at the foot of the section
-    // about the account, where somebody looking for them looks. They open in
-    // the browser, as the link above does.
+    // shared relay keeps and on what terms: quiet, at the foot of the section.
+    // They open in the browser.
     const legal = el("p", "plan-legal", "Flockdeck · © 2026 Jim Wright · PolyForm Noncommercial licence");
     legal.id = "set-legal";
     LEGAL_LINKS.forEach(([id, text, href]) => {
@@ -15727,6 +17304,8 @@
       }
       // A menu open on a row goes first, with the keyboard back on its button.
       if (closeMenu(true)) { e.preventDefault(); return; }
+      // The Team panel's open task or form goes before the panel does.
+      if (teamEscape()) { e.preventDefault(); return; }
       // One level at a time: a surface stacked on another goes back to it.
       dismissOverlay();
       return;
@@ -15859,8 +17438,7 @@
   $("btn-worktrees").onclick = () => openWorktrees();
   $("btn-fanout-history").onclick = () => openFanoutHistory();
   $("btn-todos").onclick = () => openTodos();
-  $("btn-github").onclick = () => openGithub();
-  $("btn-apikeys").onclick = () => openKeys();
+  $("btn-team").onclick = () => openTeam();
   $("btn-history").onclick = openHistory;
   $("btn-recordings").onclick = () => openArtifacts();
   $("btn-changes").onclick = () => openChanges();
@@ -15870,7 +17448,6 @@
   $("btn-help").onclick = () => openHelp();
   $("btn-settings").onclick = () => openSettings();
   $("btn-update").onclick = () => openUpdate();
-  $("btn-remote").onclick = () => openRemote();
   $("overlay-close").onclick = dismissOverlay;
   $("overlay").addEventListener("mousedown", (e) => { if (e.target === $("overlay")) dismissOverlay(); });
   // A sheet sits against the rail, which can be widened while it is open.

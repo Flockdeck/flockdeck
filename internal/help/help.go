@@ -30,6 +30,7 @@ var order = []string{
 	"panes",
 	"agents",
 	"status",
+	"auto-approve",
 	"spend",
 	"rearranging",
 	"broadcast",

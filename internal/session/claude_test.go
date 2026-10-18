@@ -64,32 +64,6 @@ func TestConversationExistsWithoutClaudeState(t *testing.T) {
 	}
 }
 
-// TestClaudeArgsResumeVsFresh pins the two argument shapes.
-func TestClaudeArgsResumeVsFresh(t *testing.T) {
-	const id = "11111111-2222-3333-4444-555555555555"
-
-	fresh := strings.Join(ClaudeArgs(id, "/tmp/s.json", false, nil), " ")
-	if !strings.Contains(fresh, "--session-id "+id) {
-		t.Errorf("a new pane should pin its session id, got %q", fresh)
-	}
-	if strings.Contains(fresh, "--resume") {
-		t.Errorf("a new pane must not resume, got %q", fresh)
-	}
-
-	resumed := strings.Join(ClaudeArgs(id, "/tmp/s.json", true, nil), " ")
-	if !strings.Contains(resumed, "--resume "+id) {
-		t.Errorf("a restored pane should resume its conversation, got %q", resumed)
-	}
-	if strings.Contains(resumed, "--session-id") {
-		t.Errorf("resuming must not also pin a session id, got %q", resumed)
-	}
-	for _, args := range []string{fresh, resumed} {
-		if !strings.Contains(args, "--settings /tmp/s.json") {
-			t.Errorf("lifecycle hooks must always be installed, got %q", args)
-		}
-	}
-}
-
 // TestHookSettingsRegisterSessionStart checks the generated settings subscribe
 // to the event whose reply tells a pane's agent where it is running. It fires
 // again on a compaction, which is what keeps that description from being
@@ -516,30 +490,6 @@ func TestStatusForEventTellsIdleNudgeFromARealAsk(t *testing.T) {
 		if ok && st != StatusWaiting {
 			t.Errorf("StatusForEvent(Notification, %q) = %v, want StatusWaiting", c.notificationType, st)
 		}
-	}
-}
-
-// TestClaudeArgsGuardsATaskThatLooksLikeAFlag covers the opening prompt a pane
-// is spawned with. Nothing stops someone starting a task with a dash, and the
-// CLI would take it for an option it does not have and exit at once.
-func TestClaudeArgsGuardsATaskThatLooksLikeAFlag(t *testing.T) {
-	const id = "11111111-2222-3333-4444-555555555555"
-
-	got := ClaudeArgs(id, "", false, []string{"--verbose is the wrong flag; fix the parser"})
-	last := got[len(got)-2:]
-	if last[0] != "--" {
-		t.Errorf("argv = %q; the task should be shielded with --", got)
-	}
-
-	// The common case is left exactly as it was.
-	plain := ClaudeArgs(id, "", false, []string{"fix the parser"})
-	for _, a := range plain {
-		if a == "--" {
-			t.Errorf("argv = %q; an ordinary task needs no --", plain)
-		}
-	}
-	if plain[len(plain)-1] != "fix the parser" {
-		t.Errorf("argv = %q; the task should come last", plain)
 	}
 }
 

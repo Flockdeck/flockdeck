@@ -150,14 +150,6 @@ type Spec struct {
 	// whatever it was configured with.
 	Models       []Model `json:"models,omitempty"`
 	DefaultModel string  `json:"defaultModel,omitempty"`
-	// Switch is the command, typed into the agent itself, that changes the
-	// model of the session already running: "/model {{model}}". It is set only
-	// where the agent documents that command as changing the model for that
-	// session alone. Empty means the model is changed by restarting the pane
-	// on the new one and resuming the conversation, which works for any agent
-	// that can resume. Claude Code has none: its /model saves what it is given
-	// as the default for every later session, inside Flockdeck or not.
-	Switch string `json:"switch,omitempty"`
 	// Env is added to the pane's environment; StripEnv is removed from it,
 	// which is how the markers of the session Flockdeck was launched from are kept
 	// from making every pane look like a nested child of it.

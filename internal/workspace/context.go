@@ -11,6 +11,8 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/tasks"
+	"github.com/jmwri/flockdeck/internal/team"
 )
 
 // siblingTaskLimit and ownTaskLimit bound how much of a task is written out.
@@ -24,6 +26,9 @@ const (
 	siblingTaskLimit = 160
 	ownTaskLimit     = 1200
 )
+
+// maxTeam bounds how many panes the "Your team" list names; the rest are counted.
+const maxTeam = 12
 
 // maxSiblings bounds how many other agents are named in a pane's context. A
 // long list stops being orientation and starts being noise, and it is stale
@@ -105,6 +110,21 @@ type PaneContext struct {
 	Baton     string
 	BatonPath string
 
+	// Role is the id of the role the pane was started as, empty for a pane
+	// started without one. RoleName, RoleBriefing, RoleWorktree and RoleSpawns
+	// are what the catalog says of it; RoleKnown is false when the catalog has
+	// no such role any more, as after an edit of agents.json. Roles are the ids
+	// of every role in the catalog, which an agent starting helpers chooses
+	// from.
+	Role         string
+	RoleKnown    bool
+	RoleName     string
+	RoleBriefing string
+	RoleWorktree string
+	RoleSpawns   []string
+	RolePlain    bool
+	Roles        []string
+
 	Siblings []Sibling
 	// SiblingsOmitted counts the live panes left out of Siblings once the list
 	// hit its limit, so the agent is told the list is partial rather than
@@ -112,6 +132,20 @@ type PaneContext struct {
 	SiblingsOmitted int
 
 	OtherProjects []string
+
+	// Team is the agent panes of this pane's project with the role, name, agent and
+	// status of each, this pane included and marked. It is empty when this pane is
+	// the only agent in its project. It is a snapshot, like Siblings.
+	Team []team.Member
+
+	// TaskCounts is what the project's task board holds, from this pane's point of
+	// view, and HasCounts says it could be read. A snapshot, like Team.
+	TaskCounts tasks.Counts
+	HasCounts  bool
+
+	// Notified says Flockdeck types a line into this pane when a message arrives,
+	// which it does only for an agent that reports its own lifecycle.
+	Notified bool
 
 	// Taken is when the snapshot was made. It is written out only for an agent
 	// briefed through its opening prompt, because that briefing arrives once
@@ -154,6 +188,15 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 
 	if c.Baton != "" {
 		c.BatonPath = batonPath(c.Baton)
+	}
+	if p.Role != "" && p.IsAgent() {
+		cat := w.agents()
+		c.Role = p.Role
+		c.Roles = cat.RoleIDs()
+		if r, ok := cat.Role(p.Role); ok {
+			c.RoleKnown, c.RoleName, c.RoleBriefing = true, r.Name, r.Briefing
+			c.RoleWorktree, c.RoleSpawns, c.RolePlain = r.Worktree, r.Spawns, r.Plain
+		}
 	}
 
 	own := w.tabOf(paneID)
@@ -276,6 +319,21 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 		c.OtherProjects = append(c.OtherProjects, groupNames[g.ID])
 	}
 	sort.Strings(c.OtherProjects)
+
+	if p.IsAgent() && p.Agent != "" {
+		if spec, ok := w.agents().Find(p.Agent); ok && spec.Caps.Hooks {
+			c.Notified = true
+		}
+	}
+	if c.CanSpawn && !c.Shell {
+		// One small file is read here. The briefing is built while the agent
+		// waits on its start hook, and this is the one place that reads a file;
+		// a board that cannot be read leaves its counts out.
+		c.TaskCounts, c.HasCounts = w.TaskCounts(paneID)
+		if members, err := w.Roster(paneID); err == nil && len(members) > 1 {
+			c.Team = members
+		}
+	}
 
 	return c, true
 }
@@ -421,320 +479,49 @@ func (c PaneContext) OpeningPrompt() string {
 	return b.String()
 }
 
-// render writes the briefing. viaPrompt says it is going in front of an
-// opening prompt rather than back down a lifecycle hook, which changes two
-// things: the briefing has to admit that it will never be refreshed, and it
-// must not describe a status Flockdeck reads from hooks the agent does not have.
-func (c PaneContext) render(viaPrompt bool) string {
-	var b strings.Builder
-
-	b.WriteString("# Where you are running\n\n")
-	fmt.Fprintf(&b, "You are one agent inside **Flockdeck**, a desktop application that runs "+
-		"several coding agents side by side in terminal panes. You are the agent in the pane "+
-		"named %q", c.PaneName)
-	if c.Tab != "" {
-		fmt.Fprintf(&b, ", in the tab %q", c.Tab)
+// writeRole writes the "Your role" section, for a pane started in a role. A
+// pane with none is told nothing about roles: there is no job to describe, and
+// the list of them is only of use to an agent that has been given one.
+func (c PaneContext) writeRole(b *strings.Builder) {
+	if c.Role == "" {
+		return
 	}
-	if c.ProjectName != "" {
-		fmt.Fprintf(&b, ", in the project %q", c.ProjectName)
-	}
-	b.WriteString(".\n\n")
-
-	if viaPrompt {
-		b.WriteString("Everything below was true when this pane started")
-		if !c.Taken.IsZero() {
-			fmt.Fprintf(&b, ", at %s", c.Taken.Format("2006-01-02 15:04 MST"))
-		}
-		b.WriteString(". You are briefed once, here: none of it is sent again or brought " +
-			"up to date, so the other agents listed may since have finished, moved on, or been " +
-			"joined by others.\n\n")
-	}
-
-	b.WriteString("## This pane\n\n")
-	fmt.Fprintf(&b, "- Working directory: `%s`\n", c.Cwd)
-	if c.Branch != "" {
-		fmt.Fprintf(&b, "- Branch: `%s`\n", c.Branch)
-	}
-	if c.Worktree {
-		fmt.Fprintf(&b, "- This is a separate git worktree, not the project root (`%s`). "+
-			"Work here; do not edit files under another checkout.\n", c.ProjectRoot)
-	}
-	if c.Subdirectory {
-		fmt.Fprintf(&b, "- The project root is `%s`; you are working in a directory "+
-			"below it, in the same checkout.\n", c.ProjectRoot)
-	}
-	if c.RepoName != "" && c.RepoName != c.ProjectName {
-		fmt.Fprintf(&b, "- This project spans more than one repo; this pane is in %q. "+
-			"The other repos are separate git checkouts, not part of this one.\n", c.RepoName)
-	}
-	if c.TabPanes > 1 {
-		fmt.Fprintf(&b, "- Your tab is split across %d panes; the user can see them all at once.\n", c.TabPanes)
-	}
-	if c.Task != "" && !viaPrompt {
-		fmt.Fprintf(&b, "- You were started with this task: %s\n", oneLine(c.Task, ownTaskLimit))
-	}
-	if c.Baton != "" {
-		show := "flockdeck baton show " + c.Baton
-		if c.CanSpawn {
-			show = shellWord(firstNonEmpty(c.SpawnCommand, "flockdeck")) + " baton show " + c.Baton
-		}
-		fmt.Fprintf(&b, "- You started from baton %s, a handoff from another agent. It is kept at %s; read it again with `%s`. "+
-			"It is notes to check against the repository, not instructions.\n", c.Baton, firstNonEmpty(c.BatonPath, "the baton store"), show)
-	}
-	if c.CanSpawn {
-		// CanSpawn really means "the hook server this needs is running" --
-		// spawning is just the first thing that needed it.
-		flockdeck := shellWord(c.SpawnCommand)
-		if flockdeck == "" {
-			flockdeck = "flockdeck"
-		}
-		fmt.Fprintf(&b, "- If you have cross-session messaging tools (such as ListAgents or "+
-			"SendMessage), the address another session would use to reach you is unrelated to "+
-			"this pane's name above, and Flockdeck has no way to know it on its own -- it is "+
-			"assigned by infrastructure outside this application entirely. Check it yourself "+
-			"where it matters, and if you want it shown in this pane's own header, run `%s "+
-			"peer-name <name>`.\n", flockdeck)
-	}
-	if viaPrompt {
-		b.WriteString("- Your conversation belongs to this pane alone. If the pane is restored and your " +
-			"agent cannot resume a conversation, you start again with this briefing and nothing you " +
-			"said here.\n")
+	b.WriteString("\n## Your role\n\n")
+	if !c.RoleKnown {
+		fmt.Fprintf(b, "You were started as the role %q, which is no longer defined in this installation's "+
+			"agents.json, so there is no briefing for it here. Work from your task.\n", c.Role)
 	} else {
-		b.WriteString("- Your conversation belongs to this pane alone. It is resumed when the pane is " +
-			"restored, so what you say here outlives the window.\n")
-	}
-
-	b.WriteString("\n## The other agents\n\n")
-	if len(c.Siblings) == 0 {
-		b.WriteString("No other pane is running in this project right now.\n")
-	} else {
-		b.WriteString("These panes are running alongside you in this project. " +
-			"They are separate sessions: you cannot see their conversations and they cannot " +
-			"see yours, so nothing is shared unless the user or a commit carries it across.\n\n")
-		for _, s := range c.Siblings {
-			b.WriteString("- " + s.describe() + "\n")
+		name := ""
+		if c.RoleName != "" && c.RoleName != c.Role {
+			name = " (" + c.RoleName + ")"
 		}
-		if c.SiblingsOmitted > 0 {
-			fmt.Fprintf(&b, "- …and %d more, not listed.\n", c.SiblingsOmitted)
+		fmt.Fprintf(b, "You were started as the role %q%s.\n", c.Role, name)
+		if briefing := strings.TrimSpace(c.RoleBriefing); briefing != "" {
+			b.WriteString("\n" + briefing + "\n")
 		}
-		b.WriteString("\nIf more than one of you is working in the same checkout, expect files to " +
-			"change under you and re-read before editing.\n")
-		if c.siblingAgentsNamed() {
-			// Flockdeck runs whichever coding agents the user has, and they are not
-			// interchangeable. Where the pane says which one it is, the reader
-			// can pitch what it asks of it — and can stop assuming the pane next
-			// door works the way it does.
-			b.WriteString("\nWhere an agent and a model are named, that is what the pane is " +
-				"running. They differ in what they are good at and in what they can reach, so it " +
-				"is worth knowing which one you would be asking.\n")
+		b.WriteString("\n")
+		switch c.RoleWorktree {
+		case agent.WorktreeOwn:
+			b.WriteString("- Your checkout: meant to be a worktree and branch of your own. Flockdeck does not make one; whoever started you should have used `-worktree`.\n")
+		case agent.WorktreeReadOnly:
+			b.WriteString("- Your checkout: for reading. Do not change files or commit. Flockdeck does not enforce this, so the task names the branch to read.\n")
+		case agent.WorktreeMain:
+			b.WriteString("- Your checkout: the project's main checkout, which other agents may be working in too.\n")
 		}
-	}
-	if len(c.OtherProjects) > 0 {
-		fmt.Fprintf(&b, "\nOther projects are open in the same window (%s); their agents are not "+
-			"working on this one.\n", strings.Join(c.OtherProjects, ", "))
-	}
-
-	writeCapabilities(&b, !viaPrompt)
-
-	if c.CanSpawn && !c.Shell {
-		// The examples name the command that will actually run here. A copy
-		// that has not been installed is not on PATH, and an agent given
-		// `flockdeck spawn` in that case is given something that cannot work.
-		flockdeck := shellWord(c.SpawnCommand)
-		if flockdeck == "" {
-			flockdeck = "flockdeck"
-		}
-		b.WriteString("\n## Starting agents of your own\n\n" +
-			"You can hand work to further agents, which appear as panes of their own:\n\n" +
-			"```sh\n" +
-			flockdeck + " spawn \"add tests for the parser\"\n" +
-			flockdeck + " spawn --worktree fix-auth \"repair the token refresh\"\n" +
-			flockdeck + " spawn --split \"watch the build\"\n" +
-			flockdeck + " spawn --split --shell \"tail the build log\"\n" +
-			"```\n\n" +
-			"What the flags do — the placement ones matter, because a pane put somewhere " +
-			"the user did not expect is one they have to go looking for:\n\n" +
-			"- No placement flag: the agent opens in a **new tab** of its own, titled after " +
-			"the task you gave it.\n" +
-			"- `--split`: the agent opens **beside you, in the tab you are in**. Splitting " +
-			"again adds a sibling to that same split rather than nesting inside it, so " +
-			"several `--split` calls gather the whole group in front of the user at once.\n" +
-			"- `--worktree <branch>`: the agent gets a git worktree and branch of its own, " +
-			"created from yours. Without it every agent shares this one working tree and " +
-			"will edit files under the others; use it whenever two of them would otherwise " +
-			"touch the same files.\n" +
-			"- `--shell`: a terminal rather than another conversation.\n" +
-			"- `--agent <id>` and `--model <model>`: which agent the helper is, and which of its " +
-			"models, where another suits the work better than the project's default; `" +
-			flockdeck + " agents` lists them. Neither goes with `--shell`.\n\n" +
-			"Each one is a fresh agent with an empty conversation: it inherits nothing from " +
-			"yours — not this context, not the task you were given, not what you have " +
-			"learned so far — so the task you give it has to stand on its own. Do this when " +
-			"the user asks for parallel work, not on your own initiative.\n\n" +
-			"Once a helper's work is done, `" + flockdeck + " close <pane-id>` closes its pane " +
-			"— the id `spawn` printed back when it started — the same effect Ctrl+Shift+W has " +
-			"on it. It refuses a pane still working unless you add `--force`, and refuses to " +
-			"close this one through this command at all; end your own turn instead. `" +
-			flockdeck + " close --finished` closes every idle agent and cleanly exited pane across every open " +
-			"project instead of naming one, the same as the \"Close finished panes\" command. " +
-			"It leaves locked panes, idle shells and agents with background work open.\n")
-
-		writeCommandLine(&b, flockdeck)
-	}
-
-	b.WriteString("\n## The user's view\n\n" +
-		"The user watches every pane at once and is told which one is waiting on them, so a " +
-		"question here is seen even when they are looking elsewhere. They may also type the " +
-		"same instruction into several panes at once; if a message reads as though it were " +
-		"meant for a different pane, answer for your own directory and branch.\n")
-
-	return b.String()
-}
-
-// writeCapabilities describes the application the agent is running inside.
-//
-// An agent told only that it is in "Flockdeck" has been told the name of something
-// it cannot use. Two kinds of thing are written here. The first is the
-// behaviour that changes how an agent should work: a status the user is
-// watching, a fan-out that reads the agent's own output, a commit button that
-// takes the working tree whole. The second is the plain list of what the
-// interface can do, so that a user who asks how to do something is answered by
-// the agent in front of them rather than sent to the help.
-//
-// The shortcuts are not written out by hand. They come from the one table the
-// command palette and the help pages are drawn from, so a rebinding cannot be
-// made there and left stale here.
-//
-// hooked says the agent reports its own lifecycle to Flockdeck. Where it does not,
-// the status paragraph has to describe the fallback instead: telling an agent
-// that its state is read from hooks it never fires, out of a settings file it
-// was never given, is telling it its questions are noticed when they may not
-// be.
-func writeCapabilities(b *strings.Builder, hooked bool) {
-	b.WriteString("\n## What Flockdeck can do\n\n" +
-		"Some of this changes how you should work; the rest is here so that a user who asks " +
-		"how to do something gets an answer from you.\n\n")
-
-	if hooked {
-		fmt.Fprintf(b, "**Your status is watched, so stopping to ask is cheap.** You report your "+
-			"own lifecycle to Flockdeck — Claude Code through the hooks a generated `--settings` file "+
-			"registers, with your own settings, hooks and permissions still applying on top, and "+
-			"Flockdeck's built-in chat client by itself — and Flockdeck reads "+
-			"your state from those rather than from your output: a cyan circle while you work, an amber "+
-			"triangle while you wait on the user, a hollow grey circle between turns, a red square if the "+
-			"process fails and a hollow square once it exits. A pane that is "+
-			"waiting marks its tab and the window title, and raises a desktop notification when the "+
-			"window is not in front. The pane header names the tool you are running while it runs. "+
-			"%s reaches any pane in any open project from anywhere.\n\n", how("agents"))
-	} else {
-		fmt.Fprintf(b, "**Your status is watched, so stopping to ask is worth it.** You report no "+
-			"lifecycle events to Flockdeck, so it colours this pane from what it prints and how long it "+
-			"has been quiet: a cyan circle while you work, an amber triangle when what you last printed reads as a "+
-			"question, a hollow grey circle between turns, a red square if the process fails and a hollow square once it exits. A pane that is waiting marks "+
-			"its tab and the window title, and raises a desktop notification when the window is not "+
-			"in front, so a question does reach the user even when they are looking elsewhere — but "+
-			"it is read off your output rather than told to Flockdeck, so ask plainly, on a line of its "+
-			"own, and wait for an answer rather than assuming one. %s reaches any pane in any open "+
-			"project from anywhere.\n\n", how("agents"))
-	}
-
-	fmt.Fprintf(b, "**Fan out turns your own output into agents.** %s reads the list your last "+
-		"message ends with, hands the user an editable copy of it, and starts one agent per "+
-		"line — up to twelve, each given its line as its opening prompt. In a git repository "+
-		"each is given a git worktree and branch of its own unless the user unticks the box "+
-		"for it, in which case they all work in this checkout together. A plan written as one "+
-		"self-contained task per line can be run "+
-		"as it stands; a plan written as prose has to be rewritten before it can be, so write "+
-		"one that way when it is going to be handed to other agents.\n\n", how("fanout"))
-
-	fmt.Fprintf(b, "**Broadcast is one instruction to several panes.** %s decides where the "+
-		"prompt bar sends: while it is on, %s delivers one composed message to every pane in the "+
-		"broadcast set — by default the agents on the current tab, adjusted with the `⇉` button "+
-		"in each pane header — and while it is off, to the focused pane and any panes added "+
-		"to the set by hand. What the user "+
-		"types into a pane's own terminal only ever reaches that pane.\n\n",
-		how("toggleBroadcast"), how("promptAll"))
-
-	fmt.Fprintf(b, "**Git has a home in the window.** %s shows the diff of the checkout this "+
-		"pane is working in, and commits, pushes, pulls and fetches it. Nothing is staged "+
-		"selectively there: a commit takes the working tree as it stands, so unrelated edits "+
-		"left lying about go in with it. %s lists every worktree with its branch, the agents "+
-		"working in it, its uncommitted files and how far it stands from upstream; it creates "+
-		"one for a new branch, and opens an agent, a shell or a diff in any of them. Every pane "+
-		"header carries the same for its own checkout.\n\n", how("changes"), how("worktrees"))
-
-	fmt.Fprintf(b, "**A pane and its conversation are one thing.** %s starts the process again "+
-		"in the same directory and resumes this conversation, which is the repair for an agent "+
-		"that has wedged itself rather than a way to clear the screen; %s ends it. Layouts, "+
-		"projects and conversations are restored on the next run, %s closes the window and "+
-		"leaves every agent running, and %s reopens a stored transcript in a tab. Panes are "+
-		"moved rather than recreated: dragged to another edge, another tab or a tab of their "+
-		"own, nothing restarts and the conversation, directory and scrollback come with "+
-		"them.\n\n", how("restartPane"), how("closePane"), how("detach"), how("history"))
-
-	fmt.Fprintf(b, "**Several projects are open at once**, each with its own tabs, layout and "+
-		"restored conversations. %s switches between them, which stops nothing: the other "+
-		"project's agents keep working, and a pane can be split into another project while "+
-		"staying on this tab.\n\n", how("projects"))
-
-	fmt.Fprintf(b, "Every action there is, and the keys for it. The ones marked "+
-		"(command palette) have no binding of their own; %s searches the whole list:\n\n",
-		how("palette"))
-	for _, section := range help.Sections {
-		var parts []string
-		for _, k := range help.InSection(section) {
-			if k.Keys == "" {
-				parts = append(parts, k.Name()+" (command palette)")
-				continue
+		// A role that may start others is told which in the "Starting agents"
+		// section; saying so here as well is the same rule twice.
+		if len(c.RoleSpawns) == 0 {
+			b.WriteString("- You may not start agents in a role.\n")
+			if c.RolePlain {
+				b.WriteString("- You may start agents with no role.\n")
+			} else {
+				b.WriteString("- You may not start agents without a role; `flockdeck spawn` needs `-role`.\n")
 			}
-			parts = append(parts, fmt.Sprintf("%s `%s`", k.Name(), k.Keys))
 		}
-		if len(parts) == 0 {
-			continue
-		}
-		fmt.Fprintf(b, "- **%s** — %s\n", section, strings.Join(parts, "; "))
 	}
-}
-
-// writeCommandLine documents what the pane carries in its environment and what
-// the rest of the command line does.
-//
-// `spawn` is the part of it meant for an agent, and it has a section of its
-// own. This is here so that the rest is recognised rather than experimented
-// with: `-quit` reads like a way to end this pane and is a way to end every
-// agent in every project, and an agent that has never been told about
-// `FLOCKDECK_PANE_NAME` cannot answer the user asking how to put it in a prompt.
-func writeCommandLine(b *strings.Builder, flockdeck string) {
-	fmt.Fprintf(b, "\n## Flockdeck from the shell\n\n"+
-		"The rest of the command line operates the application itself. It reaches the "+
-		"instance already running rather than starting a second one:\n\n"+
-		"```sh\n"+
-		"%s -C ~/code/api   # open another project in this window\n"+
-		"%s -quit           # stop every agent in every project\n"+
-		"```\n\n"+
-		"Those are the user's to run rather than yours — `-quit` ends the other agents' work "+
-		"along with your own. `-new`, `-shell` and `-agent` only shape a fresh start and do "+
-		"nothing from in here (Flockdeck says so and ignores them). `-detach` and `-no-window`, "+
-		"joined to the running instance, open no window: they hand the project to it and print "+
-		"its address. `-solo` starts a second, separate instance beside the running one, which "+
-		"is not what you want from in here. Closing the window and leaving the agents running is "+how("detach")+". "+
-		"The interface is a local page: Flockdeck serves it on `127.0.0.1` on "+
-		"a random port, behind a token generated for each run. Nothing else reaches it unless "+
-		"the user turns on remote access, which serves the same interface through Flockdeck's "+
-		"relay.\n\n", flockdeck, flockdeck)
-
-	b.WriteString("Your pane carries the rest in its environment:\n\n" +
-		"| Variable | What it is |\n" +
-		"| --- | --- |\n" +
-		"| `FLOCKDECK_API` | where Flockdeck listens for its panes |\n" +
-		"| `FLOCKDECK_TOKEN` | the secret that goes with it, which never leaves this pane |\n" +
-		"| `FLOCKDECK_PANE` | this pane's id, which `spawn` sends so a helper is placed relative to you, and which `close` refuses to close for the same pane it came from |\n" +
-		"| `FLOCKDECK_PANE_NAME` | this pane's name |\n" +
-		"| `FLOCKDECK_PROJECT` | the project directory this pane belongs to |\n" +
-		"| `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL` | the agent and model this pane runs, where it runs one |\n\n" +
-		"`spawn` and `close` read the first three, which is why they work from inside a pane " +
-		"and nowhere else. The first five are also set under the older `PERCH_*` names, for " +
-		"anything written before the application was renamed.\n")
+	if len(c.Roles) > 0 && len(c.RoleSpawns) > 0 {
+		fmt.Fprintf(b, "- The roles in this project's catalog: %s.\n", strings.Join(c.Roles, ", "))
+	}
 }
 
 // how names an action as prose calls it and says how it is reached, from the
@@ -806,17 +593,6 @@ func agentLabel(agentID, model string) string {
 	return agentID + " · " + model
 }
 
-// siblingAgentsNamed reports whether any sibling says what it is running, so
-// the note explaining the labels is written only where there are labels.
-func (c PaneContext) siblingAgentsNamed() bool {
-	for _, s := range c.Siblings {
-		if !s.Shell && s.Agent != "" {
-			return true
-		}
-	}
-	return false
-}
-
 // shellWord quotes a command for the shell the examples are written for.
 //
 // The path to a build that has not been installed is full of characters a
@@ -860,4 +636,31 @@ func oneLine(s string, max int) string {
 		s = strings.TrimSpace(string(r[:max])) + "…"
 	}
 	return s
+}
+
+// spawnKind is what a pane may be told about starting agents.
+type spawnKind int
+
+const (
+	// spawnAny is a pane with no role, or one whose role the catalog no longer
+	// has or leaves open: the plain examples are right for it.
+	spawnAny spawnKind = iota
+	// spawnRoles is a pane whose role lists roles it may start, so `spawn` needs
+	// -role and the examples must name one.
+	spawnRoles
+	// spawnNone is a pane whose role may start nothing. `spawn` is refused there,
+	// so the briefing says nothing of it beyond what the role section does.
+	spawnNone
+)
+
+func (c PaneContext) spawnRights() spawnKind {
+	switch {
+	case c.Role == "" || !c.RoleKnown:
+		return spawnAny
+	case len(c.RoleSpawns) > 0:
+		return spawnRoles
+	case c.RolePlain:
+		return spawnAny
+	}
+	return spawnNone
 }

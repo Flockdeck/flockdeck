@@ -131,8 +131,10 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 			Task: p.Task,
 			// Empty, and so left out, for a pane that began without a baton.
 			BatonID: p.BatonID,
-			Agent:   p.Agent,
-			Model:   p.Model,
+			// Empty, and so left out, for a pane started with no role.
+			Role:  p.Role,
+			Agent: p.Agent,
+			Model: p.Model,
 			// Written only for a routed pane, like Root below.
 			Routed:          p.Routed,
 			RoutedFrom:      p.RoutedFrom,
@@ -538,6 +540,7 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 			Name:            n.Pane.Name,
 			Task:            n.Pane.Task,
 			BatonID:         n.Pane.BatonID,
+			Role:            n.Pane.Role,
 			Root:            n.Pane.Root,
 			Agent:           n.Pane.Agent,
 			Model:           n.Pane.Model,

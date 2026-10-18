@@ -200,32 +200,35 @@ for (const s of ptys) {
 `)
 }
 
-// Remote access: a chip that shows only on an enrolled machine, and a dialog
+// Remote access: reached from the palette and the settings, with the rail's
+// Settings button turning amber when the tunnel is in trouble, and a dialog
 // that pairs devices and unpairs them — asking first, since unpairing ends
 // whatever that device has open.
 func TestRemoteAccessDialog(t *testing.T) {
 	runFrontEnd(t, relayPromise+`
 h.hello();
 h.recv(fixture());
-const chip = h.$("btn-remote");
+const chip = h.$("btn-settings");
 const badge = chip.querySelector(".rail-badge");
 const badged = () => ["on", "pending", "trouble"].filter((c) => badge.classList.contains(c));
-// Found before it is turned on: the button stays in the rail, with no badge.
-assert.ok(!chip.hidden, "the button is hidden on a machine that is not enrolled, so remote access cannot be found");
-assert.deepStrictEqual(badged(), [], "remote access that is off wears a badge");
-assert.ok((chip.dataset.tip || "").includes("off"), "the button does not say remote access is off: " + chip.dataset.tip);
+// Remote has no rail button: the palette and the settings are the way in.
+assert.ok(!h.$("btn-remote"), "Remote still has a rail button");
+assert.deepStrictEqual(badged(), [], "remote access that is off marks Settings");
 
 const remote = (over) => Object.assign({ state: "connected", relay: "https://relay.example",
   hostId: "h1", viewers: 2, since: "2030-01-01T00:00:00Z" }, over || {});
 h.recv(fixture({ remote: remote({ state: "connecting" }) }));
-assert.deepStrictEqual(badged(), ["pending"], "a tunnel still connecting is not grey");
+assert.deepStrictEqual(badged(), ["pending"], "a tunnel still connecting is not a hollow mark on Settings");
 h.recv(fixture({ remote: remote() }));
-assert.ok(!chip.hidden, "the chip shows once the machine is enrolled");
-assert.strictEqual(chip.textContent, "Remote · 2");
-assert.deepStrictEqual(badged(), ["on"], "a working tunnel is not green");
-assert.ok(!chip.classList.contains("trouble"), "a working tunnel is not amber");
+assert.strictEqual(chip.textContent, "Settings");
+assert.deepStrictEqual(badged(), ["on"], "a working tunnel is not a filled mark on Settings");
+h.recv(fixture({ remote: remote({ state: "error", detail: "the relay refused the connection" }) }));
+assert.deepStrictEqual(badged(), ["trouble"], "a tunnel in trouble does not mark Settings");
+assert.ok((chip.dataset.tip || "").includes("needs you"), "the button does not say why: " + chip.dataset.tip);
+h.recv(fixture({ remote: remote() }));
+assert.deepStrictEqual(badged(), ["on"], "the trouble mark stays after the tunnel recovered");
 
-h.click(chip);
+h.palette("flockdeck remote");
 assert.ok(!h.$("overlay").hidden, "the dialog opened");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "remoteDevices" });
 
@@ -284,7 +287,7 @@ const clockOf = (iso) => {
 const retryAt = new Date(Date.now() + 45000).toISOString();
 h.recv(fixture({ remote: { state: "error", relay: "https://relay.example", hostId: "h1", viewers: 0,
   since: "2030-01-01T00:00:00Z", detail: "lost the relay", retryAt } }));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 h.recv({ type: "remoteDevices", enabled: true, devices: [], hosts: [{ id: "h1", name: "desk", online: false, self: true }] });
 const body = h.$("overlay-body");
 assert.ok(body.textContent.includes("Trying again at " + clockOf(retryAt) + "."),
@@ -320,7 +323,7 @@ func TestRemoteAccessPollsWhileAPairingLinkIsShown(t *testing.T) {
 h.hello();
 h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 0,
   since: "2030-01-01T00:00:00Z" } }));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 h.recv({ type: "remoteDevices", enabled: true, devices: [], hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
 
 h.click(h.$("remote-pair"));
@@ -360,7 +363,7 @@ func TestRemoteAccessRenames(t *testing.T) {
 h.hello();
 h.recv(fixture({ remote: { state: "connected", relay: "https://relay.example", hostId: "h1", viewers: 0,
   since: "2030-01-01T00:00:00Z" } }));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 h.recv({ type: "remoteDevices", enabled: true,
   devices: [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" }],
   hosts: [{ id: "h1", name: "desk", online: true, self: true },
@@ -397,7 +400,7 @@ h.hello();
 const remote = { state: "error", relay: "https://relay.example", hostId: "h1", viewers: 0,
   since: "2030-01-01T00:00:00Z", detail: "no route to host" };
 h.recv(fixture({ remote }));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 h.recv({ type: "remoteDevices", enabled: true,
   devices: [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" }],
   hosts: [{ id: "h1", name: "desk", online: false, self: true }] });
@@ -494,7 +497,7 @@ h.hello();
 const remote = { state: "connected", relay: "https://remote.flockdeck.ai", hostId: "h1", viewers: 0,
   since: "2030-01-01T00:00:00Z" };
 h.recv(fixture({ remote }));
-h.click(h.$("btn-remote"));
+h.palette("flockdeck remote");
 h.recv({ type: "remoteDevices", enabled: true,
   devices: [{ id: "d1", name: "phone", created: "2030-01-01T00:00:00Z", lastSeen: "2030-01-01T00:00:00Z" }],
   hosts: [{ id: "h1", name: "desk", online: true, self: true }] });
@@ -2983,8 +2986,8 @@ func TestTheVersionPickerListsAndInstallsAChoice(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-settings"));
-// Version and updates are in Account & plan.
-h.click(h.$("settings-tab-plan"));
+// Version and updates are in About & updates.
+h.click(h.$("settings-tab-about"));
 h.click(h.$("set-versions"));
 assert.ok(!h.$("overlay").hidden, "the version picker did not open");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "listVersions" });
@@ -3020,8 +3023,8 @@ func TestTheVersionPickerStaysClosedWhenItsAnswerArrives(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-settings"));
-// Version and updates are in Account & plan.
-h.click(h.$("settings-tab-plan"));
+// Version and updates are in About & updates.
+h.click(h.$("settings-tab-about"));
 h.click(h.$("set-versions"));
 h.key({ key: "Escape" });
 assert.strictEqual(h.$("overlay-title").textContent, "Settings", "Escape did not close the picker back to Settings");
@@ -3042,8 +3045,8 @@ func TestTheVersionPickerShowsAFailureToList(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-settings"));
-// Version and updates are in Account & plan.
-h.click(h.$("settings-tab-plan"));
+// Version and updates are in About & updates.
+h.click(h.$("settings-tab-about"));
 h.click(h.$("set-versions"));
 h.recv({ type: "versions", error: "could not reach dl.flockdeck.ai or GitHub" });
 assert.ok(h.$("overlay-body").textContent.includes("could not reach"), "the picker does not say what went wrong");
@@ -3080,7 +3083,7 @@ assert.ok(h.$("overlay").hidden, "a worktree list arriving opened the dialog aga
 // Nor does one dialog's answer land in another.
 h.click(h.$("btn-history"));
 h.recv(changes);
-assert.strictEqual(h.$("overlay-title").textContent, "Past conversations");
+assert.strictEqual(h.$("overlay-title").textContent, "Resume");
 assert.ok(!h.$("overlay-body").textContent.includes("a.go"), "the review was drawn into the history dialog");
 `)
 }
@@ -3180,8 +3183,8 @@ func TestCheckingForAnUpdateSaysItIsRunning(t *testing.T) {
 h.hello();
 h.recv(fixture({ recall: { version: "9.9.8", reason: "corrupts settings on first launch", upgrade: "9.9.9" } }));
 h.click(h.$("btn-settings"));
-// Version and updates are in Account & plan.
-h.click(h.$("settings-tab-plan"));
+// Version and updates are in About & updates.
+h.click(h.$("settings-tab-about"));
 
 h.click(h.$("set-check-update"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "checkForUpdate" });
@@ -3214,8 +3217,8 @@ func TestACheckForUpdateDroppedWithTheConnectionIsReleased(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-settings"));
-// Version and updates are in Account & plan.
-h.click(h.$("settings-tab-plan"));
+// Version and updates are in About & updates.
+h.click(h.$("settings-tab-about"));
 h.click(h.$("set-check-update"));
 assert.ok(h.$("set-check-update").disabled, "the button did not say it was working");
 
@@ -4553,24 +4556,22 @@ assert.deepStrictEqual(sent[sent.length - 1], { cmd: "newTab", kind: "agent", ag
 `)
 }
 
-// How many lines a terminal keeps was a number in the source. It is asked for
-// from the palette, kept with the other preferences, and follows a change made
-// in another window.
+// How many lines a terminal keeps was a number in the source. It is chosen in
+// Settings > Terminal, kept with the other preferences, and follows a change
+// made in another window.
 func TestTheScrollbackCanBeChosen(t *testing.T) {
-	runFrontEnd(t, paletteRun+`
+	runFrontEnd(t, `
 h.hello({ scrollback: 50000 });
 h.recv(fixture());
 assert.strictEqual(h.terms[0].options.scrollback, 50000, "the scrollback chosen on an earlier run was not used");
 
-h.win._prompt = "25,000";
-paletteRun("scrollback");
+h.click(h.$("btn-settings"));
+h.click(h.$("settings-tab-terminal"));
+const lines = h.$("set-scrollback");
+lines.value = "25000";
+h.dispatch(lines, new h.Ev("change"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "scrollback", size: 25000 });
 assert.strictEqual(h.terms[0].options.scrollback, 25000, "the terminals did not take the new scrollback");
-
-h.win._prompt = "12";
-paletteRun("scrollback");
-assert.ok(!h.commands().some((c) => c.cmd === "scrollback" && c.size === 12), "a scrollback of 12 lines was accepted");
-assert.ok(h.$("notice").textContent.includes("1,000"), "nothing said what a scrollback may be");
 
 h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: [], scrollback: 90000 } });
 assert.strictEqual(h.terms[1].options.scrollback, 90000, "a scrollback chosen in another window was not followed");
@@ -5358,13 +5359,13 @@ func TestTheRailKeepsTheControlsAndTheirKeys(t *testing.T) {
 const keys = h.hello();
 h.recv(fixture());
 for (const id of ["new-tab", "new-tab-pick", "summary", "btn-agents", "btn-broadcast", "btn-changes",
-  "btn-history", "btn-worktrees", "btn-apikeys", "btn-update", "btn-remote", "btn-help", "btn-settings",
+  "btn-history", "btn-worktrees", "btn-team", "btn-update", "btn-help", "btn-settings",
   "btn-palette", "rail-open"]) {
   assert.ok(h.$(id), id + " is gone");
 }
 const rail = h.$("rail");
 const tools = { "btn-agents": "agents", "btn-broadcast": "toggleBroadcast", "btn-changes": "changes",
-  "btn-history": "history", "btn-worktrees": "worktrees", "btn-apikeys": "apiKeys", "btn-help": "help",
+  "btn-history": "history", "btn-worktrees": "worktrees", "btn-team": "team", "btn-help": "help",
   "btn-settings": "settings", "rail-open": "projects", "btn-palette": "palette" };
 for (const [id, action] of Object.entries(tools)) {
   const k = keys.find((x) => x.id === action);
@@ -5498,7 +5499,7 @@ func TestThePlanSaysWhoseItIsAndLinksThePolicies(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-settings"));
-h.click(h.$("settings-tab-plan"));
+h.click(h.$("settings-tab-about"));
 const legal = h.$("set-legal");
 assert.ok(legal && h.$("settings-pane").contains(legal), "the plan does not say whose Flockdeck is");
 assert.ok(legal.textContent.startsWith("Flockdeck · © 2026 Jim Wright · PolyForm Noncommercial licence"), "the copyright line reads " + legal.textContent);
@@ -5526,22 +5527,22 @@ h.hello();
 h.recv(fixture());
 const url = "https://github.com/sponsors/jmwri";
 const links = () => h.doc.querySelectorAll("a").filter((a) => a.getAttribute("href") === url);
-assert.strictEqual(links().length, 0, "the app offers sponsoring before Settings › Account & plan is opened");
+assert.strictEqual(links().length, 0, "the app offers sponsoring before Settings › About & updates is opened");
 
 h.click(h.$("btn-settings"));
-assert.ok(!h.$("set-sponsor"), "the sponsor line is drawn in a section other than Account & plan");
+assert.ok(!h.$("set-sponsor"), "the sponsor line is drawn in a section other than About & updates");
 const find = h.$("settings-find");
 find.value = "sponsor";
 find.oninput();
 // The list's tabs, not its group headings, which are labels and not tabs.
-assert.deepStrictEqual(h.$("settings-tabs").querySelectorAll("button").map((b) => b.textContent), ["Account & plan"],
+assert.deepStrictEqual(h.$("settings-tabs").querySelectorAll("button").map((b) => b.textContent), ["About & updates"],
   "Find a setting does not lead to the sponsor line");
 find.value = "";
 find.oninput();
-h.click(h.$("settings-tab-plan"));
+h.click(h.$("settings-tab-about"));
 
 const line = h.$("set-sponsor"), a = h.$("set-sponsor-link");
-assert.ok(line && h.$("settings-pane").contains(line), "Account & plan has no sponsor line");
+assert.ok(line && h.$("settings-pane").contains(line), "About & updates has no sponsor line");
 assert.ok(!line.closest(".plan-card"), "the sponsor line is drawn as part of a plan");
 assert.strictEqual(links().length, 1, "sponsoring is offered more than once");
 assert.ok(a && line.contains(a) && a.tagName === "A", "the sponsor line is not a link");
@@ -5578,7 +5579,7 @@ h.click(h.$("btn-settings"));
 assert.ok(shown(), "the rail's Settings button did not open the settings");
 assert.deepStrictEqual(groups(), ["[Window]", "General", "Appearance", "Terminal", "Keyboard",
   "[Agents]", "Agents & models", "Routing", "API keys", "Status detection",
-  "[Connections]", "Flockdeck Remote", "GitHub", "[Account]", "Account & plan"]);
+  "[Connections]", "Flockdeck Remote", "GitHub", "[Account]", "Account & plan", "[About]", "About & updates"]);
 for (const g of h.$("settings-tabs").querySelectorAll(".settings-group")) {
   assert.strictEqual(g.getAttribute("aria-hidden"), "true", "the group heading " + g.textContent + " is read out as part of the list");
   assert.ok(!g.hasAttribute("tabindex") && !g.getAttribute("role"), "the group heading " + g.textContent + " is a stop or a tab");
@@ -5706,8 +5707,8 @@ assert.ok(!on("set-notifications"), "the switch did not turn off at once");
 h.recv({ type: "prefs", prefs: { helpSeen: true, dismissedTips: ["palette"], fontSize: 13 } });
 assert.ok(on("set-notifications"), "the switch did not follow notifications turned back on in another window");
 
-// Account & plan: Version, which was General's.
-h.click(h.$("settings-tab-plan"));
+// About & updates: Version, which was General's.
+h.click(h.$("settings-tab-about"));
 h.click(h.$("set-updates"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "updates", kind: "off" });
 h.press("palette");
@@ -5792,8 +5793,14 @@ assert.deepStrictEqual(h.commands().pop(), { cmd: "jevStatus", kind: "on" });
 assert.ok(on("set-jev-status"), "the switch did not turn on at once");
 h.click(h.$("set-jev-status"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "jevStatus", kind: "off" });
+// Status detection says whether the key is set and leads to where it is.
+assert.ok(h.$("settings-pane").contains(h.$("set-jev-key-link")), "Status detection has no way to the TypeSafe key");
+assert.ok(!h.$("set-jev-key-field"), "the TypeSafe key is typed in two places");
 
-// The TypeSafe key: masked, never shown back, and saving it turns nothing on.
+// The TypeSafe key, in API keys: masked, never shown back, and saving it
+// turns nothing on.
+h.click(h.$("set-jev-key-link"));
+assert.strictEqual(h.$("settings-tab-keys").getAttribute("aria-selected"), "true", "the link did not lead to API keys");
 assert.ok(h.commands().some((c) => c.cmd === "jevKey" && c.kind === "get"), "the key's state was not asked for");
 assert.strictEqual(h.$("set-jev-key-field").type, "password", "the key field is not masked");
 assert.ok(/Key status: (Checking|Not set)/.test(h.$("set-jev-key-status").textContent), h.$("set-jev-key-status").textContent);
@@ -5863,7 +5870,7 @@ field.value = "sk-secret";
 field.focus();
 h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "keySet", id: "anthropic", text: "sk-secret" });
-assert.ok(!pane.textContent.includes("sk-secret") && !pane.querySelectorAll("input").length, "the key was left on screen");
+assert.ok(!pane.textContent.includes("sk-secret") && !pane.querySelectorAll("input").filter((i) => i.id !== "set-jev-key-field").length, "the key was left on screen");
 
 // Remote access: the remote dialog's own parts, drawn here.
 h.click(h.$("settings-tab-remote"));
@@ -6436,11 +6443,11 @@ h.dispatch(h.$("set-route-jev"), new h.Ev("change"));
 assert.deepStrictEqual(h.commands().pop(), { cmd: "setRouting", target: "jev", text: "false" },
   "a project with its own policy sent kind: all for Jev");
 
-// Asking Jev needs the TypeSafe key, which is set in Status detection: the
-// row leads there.
+// Asking Jev needs the TypeSafe key, which is set in API keys: the row leads
+// there.
 h.click(h.$("set-route-jev-key"));
-assert.strictEqual(h.$("settings-tab-status").getAttribute("aria-selected"), "true", "Ask Jev does not lead to where its key is set");
-assert.ok(h.$("settings-pane").contains(h.$("set-jev-key")), "Status detection has no TypeSafe key");
+assert.strictEqual(h.$("settings-tab-keys").getAttribute("aria-selected"), "true", "Ask Jev does not lead to where its key is set");
+assert.ok(h.$("settings-pane").contains(h.$("set-jev-key")), "API keys has no TypeSafe key");
 `)
 }
 
@@ -7157,22 +7164,23 @@ oneStop(h.$("overlay-body").querySelector("div.places"), "the places");
 `)
 }
 
-// The terminals' typeface was fixed in the source. It is asked for from the
-// palette, kept with the other preferences, and a font the machine does not
+// The terminals' typeface was fixed in the source. It is chosen in Settings >
+// Terminal, kept with the other preferences, and a font the machine does not
 // have still falls back to a fixed-width one.
 func TestTheTerminalFontCanBeChosen(t *testing.T) {
-	runFrontEnd(t, paletteRun+`
+	runFrontEnd(t, `
 h.hello({ fontFamily: "Fira Code" });
 h.recv(fixture());
 assert.strictEqual(h.terms[0].options.fontFamily, "Fira Code, monospace", "the font chosen on an earlier run was not used");
 
-h.win._prompt = "Iosevka";
-paletteRun("terminal font");
+h.click(h.$("btn-settings"));
+h.click(h.$("settings-tab-terminal"));
+const setFont = (text) => { const f = h.$("set-font-family"); f.value = text; h.dispatch(f, new h.Ev("change")); };
+setFont("Iosevka");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "fontFamily", text: "Iosevka" });
 assert.strictEqual(h.terms[0].options.fontFamily, "Iosevka, monospace", "the terminals did not take the new font");
 
-h.win._prompt = "";
-paletteRun("terminal font");
+setFont("");
 assert.deepStrictEqual(h.commands().pop(), { cmd: "fontFamily", text: "" });
 assert.ok(/Cascadia Mono/.test(h.terms[0].options.fontFamily), "an empty answer did not go back to the default");
 `)
@@ -7181,7 +7189,7 @@ assert.ok(/Cascadia Mono/.test(h.terms[0].options.fontFamily), "an empty answer 
 // A font name the machine has no font for was saved and announced, and the
 // terminals were drawn in the fallback: nothing changed, and nothing said why.
 func TestAFontTheMachineLacksIsRefused(t *testing.T) {
-	runFrontEnd(t, paletteRun+`
+	runFrontEnd(t, `
 // A canvas on which only "Real Mono" is installed: any other name measures
 // exactly as its generic family does.
 const make = h.doc.createElement.bind(h.doc);
@@ -7192,21 +7200,20 @@ h.doc.createElement = (tag) => tag !== "canvas" ? make(tag) : { getContext: () =
 h.hello({ fontFamily: "Real Mono" });
 h.recv(fixture());
 const sent = () => h.commands().filter((c) => c.cmd === "fontFamily").length;
+h.click(h.$("btn-settings"));
+h.click(h.$("settings-tab-terminal"));
+const setFont = (text) => { const f = h.$("set-font-family"); f.value = text; h.dispatch(f, new h.Ev("change")); };
 
-h.win._prompt = "Fira Cod";
-paletteRun("terminal font");
+setFont("Fira Cod");
 assert.strictEqual(sent(), 0, "a font the machine does not have was saved");
 assert.strictEqual(h.terms[0].options.fontFamily, "Real Mono, monospace", "the terminals were given a font the machine does not have");
 
 // One that is there, alone or first in a list, is taken.
-h.win._prompt = "Fira Cod, Real Mono";
-paletteRun("terminal font");
+setFont("Fira Cod, Real Mono");
 assert.strictEqual(sent(), 1, "a list with an installed font in it was refused");
-h.win._prompt = "";
-paletteRun("terminal font");
+setFont("");
 assert.strictEqual(sent(), 2, "going back to the default was refused");
-h.win._prompt = "monospace";
-paletteRun("terminal font");
+setFont("monospace");
 assert.strictEqual(sent(), 3, "a generic family was refused as a font the machine does not have");
 `)
 }
@@ -7750,7 +7757,7 @@ const labels = (q) => {
 };
 for (const q of ["settings", "preferences", "options"]) {
   const found = labels(q);
-  for (const want of ["Terminal scrollback…", "Terminal font…", "Increase font size", "Turn desktop notifications off", "Stop the terminal cursor blinking", "Turn update checks off"]) {
+  for (const want of ["Increase font size", "Turn desktop notifications off", "Stop the terminal cursor blinking", "Turn update checks off"]) {
     assert.ok(found.includes(want), "typing " + q + " does not find " + want + ": " + JSON.stringify(found));
   }
   assert.ok(!found.includes("Rename this tab…"), "typing " + q + " offers a command that is not a setting");
@@ -7784,8 +7791,7 @@ assert.ok(term.focused, "the keyboard is not back in the terminal");
 `)
 }
 
-// The palette's settings said nothing of what each was set to: finding out
-// the scrollback or the font meant opening the question that changes it.
+// The palette's font size commands say what the size is now.
 func TestThePaletteSaysWhatEachSettingIsNow(t *testing.T) {
 	runFrontEnd(t, `
 h.hello();
@@ -7802,8 +7808,6 @@ const hint = (label) => {
 };
 assert.ok(/Ctrl\+=/.test(hint("Increase font size")), "the font size command lost its key");
 assert.ok(/13px/.test(hint("Increase font size")), "the font size command does not say the size: " + hint("Increase font size"));
-assert.ok(/\d lines/.test(hint("Terminal scrollback…")), "the scrollback command does not say how many lines: " + hint("Terminal scrollback…"));
-assert.ok(/default/.test(hint("Terminal font…")), "the font command does not say which font: " + hint("Terminal font…"));
 `)
 }
 
@@ -9021,6 +9025,9 @@ class Element {
   }
   dispatchEvent(ev) { return dispatch(this, ev); }
 
+  /** click is the element's own, as a browser has it: a disabled control
+   *  ignores it. app.js calls it to follow a tab the arrow keys landed on. */
+  click() { if (!this.disabled) dispatch(this, new Ev("click", { target: this })); }
   focus() { this.ownerDocument._focus(this); }
   blur() { if (this.ownerDocument.activeElement === this) this.ownerDocument._focus(this.ownerDocument.body); }
 
@@ -9634,6 +9641,15 @@ function boot(opts) {
     made() { return SERIAL; },
     /** searched counts the elements every selector search has looked at. */
     searched() { return SEARCHED; },
+    /** palette runs a command the way a person does: opens the palette, types
+     *  the words and presses Enter. For the surfaces with no rail button. */
+    palette(words) {
+      h.press("palette");
+      const input = h.$("palette-input");
+      input.value = words;
+      input.oninput();
+      return h.key({ key: "Enter" });
+    },
     /** bind presses the binding the action table gives for an action id. */
     press(actionID) {
       const k = h.keyTable().find((x) => x.id === actionID);

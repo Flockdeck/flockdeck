@@ -62,6 +62,8 @@ table, run `go test ./internal/help -run TestKeysDocShortcuts -update`.
 | Command palette | Todos — this project's saved checklists |
 | `Ctrl+Shift+A` | All agents across projects |
 | Command palette | Close finished panes — idle agents and cleanly exited panes, in every open project |
+| Command palette | Start a team — a manager agent that starts the rest |
+| `Ctrl+Shift+M` | Team — this project's roster, task board and messages |
 | Command palette | API keys… |
 
 ## Git
@@ -80,7 +82,7 @@ table, run `go test ./internal/help -run TestKeysDocShortcuts -update`.
 | `Shift+F6` | Move to the previous part of the window |
 | `Ctrl+Shift+F` | Find in terminal |
 | `Ctrl+Shift+L` | Find pane |
-| `Ctrl+Shift+R` | Resume a past conversation |
+| `Ctrl+Shift+R` | Resume — reopen a past conversation |
 | `Ctrl+Shift+O` | Projects |
 | `F1` | Help |
 

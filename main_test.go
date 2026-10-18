@@ -504,11 +504,19 @@ var flagLike = regexp.MustCompile(`(?:^|[\s(\[` + "`" + `])(--?[A-Za-z][A-Za-z0-
 // flag sets, without their dashes.
 func cliFlagNames() map[string]bool {
 	names := map[string]bool{}
+	teamFS, _ := teamFlagSet()
+	inboxFS, _, _ := inboxFlagSet()
+	inboxReadFS, _ := inboxReadFlagSet()
+	taskAddFS := taskAddFlagSet(&taskAddFlags{})
+	taskListFS := taskListFlagSet(&taskListFlags{})
+	taskStatusFS := taskStatusFlagSet(&taskStatusFlags{})
+	taskPruneFS := taskPruneFlagSet(new(int))
 	for _, fs := range []*flag.FlagSet{
 		flockdeckFlagSet(&cliFlags{}),
 		spawnFlagSet(&spawnFlags{}),
 		batonShowFlagSet(&batonFlags{}),
 		closeFlagSet(&closeFlags{}),
+		teamFS, inboxFS, inboxReadFS, taskAddFS, taskListFS, taskStatusFS, taskPruneFS,
 		recordingsFlagSet(&recordingsFlags{}),
 		exportFlagSet(&exportFlags{}),
 		updateFlagSet(&updateFlags{}),
@@ -828,6 +836,11 @@ func useCatalog(t *testing.T, specs []agent.Spec, defaultID string, installed ma
 	t.Cleanup(func() { agentCatalog, agentAvailable = catalog, available })
 	agentCatalog = func() ([]agent.Spec, string, string) { return specs, defaultID, "" }
 	agentAvailable = func(s agent.Spec) bool { return installed[s.ID] }
+	// printAgents lists the roles too, and the real catalog reads the user's
+	// agents.json.
+	roles := roleCatalog
+	t.Cleanup(func() { roleCatalog = roles })
+	roleCatalog = func() ([]agent.Role, string) { return agent.BuiltinRoles(), "" }
 }
 
 // testCatalog is a stand-in for the real one: an agent with models, an agent
@@ -1122,7 +1135,7 @@ func TestHookPrintsAnAllowPermissionDecision(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = srv.Close() })
 	srv.SetReviewHandler(func(string, hooks.Event) (bool, string) {
-		return true, "auto-review: a read-only command"
+		return true, "auto-approve read-only: a read-only command"
 	})
 
 	stdin := strings.NewReader(`{"session_id":"s","tool_name":"Bash","tool_input":{"command":"git status"}}`)

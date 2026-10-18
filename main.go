@@ -30,6 +30,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/appwindow"
 	"github.com/jmwri/flockdeck/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/legacyenv"
 	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/server"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -147,6 +148,37 @@ func main() {
 		if err := runClose(os.Args[2:]); err != nil {
 			if !errors.Is(err, errReported) {
 				fmt.Fprintln(os.Stderr, "flockdeck close:", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
+	// `team`, `msg` and `inbox` are how the agents of one project see each other
+	// and exchange messages. They are run from inside a pane, like `close`.
+	if len(os.Args) > 1 && (os.Args[1] == "team" || os.Args[1] == "msg" || os.Args[1] == "inbox") {
+		var err error
+		switch os.Args[1] {
+		case "team":
+			err = runTeam(os.Args[2:], os.Stdout)
+		case "msg":
+			err = runMsg(os.Args[2:], os.Stdin, os.Stdout, os.Stderr)
+		default:
+			err = runInbox(os.Args[2:], os.Stdout)
+		}
+		if err != nil {
+			if !errors.Is(err, errReported) {
+				fmt.Fprintf(os.Stderr, "flockdeck %s: %v\n", os.Args[1], err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
+	// `task` is the shared task board of a project. Like `team` it is run from
+	// inside a pane.
+	if len(os.Args) > 1 && os.Args[1] == "task" {
+		if err := runTask(os.Args[2:], os.Stdin, os.Stdout); err != nil {
+			if !errors.Is(err, errReported) {
+				fmt.Fprintf(os.Stderr, "flockdeck task: %v\n", err)
 			}
 			os.Exit(1)
 		}
@@ -315,7 +347,7 @@ func helpArgs(rest []string) (args []string, top bool) {
 	switch {
 	case len(rest) == 0:
 		return nil, true
-	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "close": true, "recordings": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
+	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "close": true, "team": true, "msg": true, "inbox": true, "task": true, "recordings": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
 		return []string{rest[0], "-h"}, false
 	}
 	return nil, true
@@ -414,7 +446,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
-	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-shell] [-record] [-agent <id>] [-model <model>] [-baton <ref> [-baton-send-elsewhere]] <task>\n")
+	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-shell] [-record] [-agent <id>] [-model <model>] [-role <id>] [-baton <ref> [-baton-send-elsewhere]] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "  baton list | baton show [-path] <baton-id>\n")
@@ -423,6 +455,16 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        report the name another Claude session would address this pane by; run from inside a pane\n")
 	fmt.Fprintf(out, "  close [-force] <pane-id> | close -finished\n")
 	fmt.Fprintf(out, "        close another pane, or every finished one; run from inside a pane\n")
+	fmt.Fprintf(out, "  team [-json]\n")
+	fmt.Fprintf(out, "        list the agents of this pane's project, with role and status; run from inside a pane\n")
+	fmt.Fprintf(out, "  msg send <target> <text...>\n")
+	fmt.Fprintf(out, "        message another agent by pane id, name or role; run from inside a pane\n")
+	fmt.Fprintf(out, "  inbox [-all] [-json] | inbox read <id>\n")
+	fmt.Fprintf(out, "        the messages other agents sent this pane; run from inside a pane\n")
+	fmt.Fprintf(out, "  task add <title> [-body text] [-role r] [-branch b] | list [-state s] [-role r] [-mine] [-json]\n")
+	fmt.Fprintf(out, "       | show <id> | assign <id> <who> | status <id> <state> [-note text] | note <id> <text>\n")
+	fmt.Fprintf(out, "       | branch <id> <branch> | baton <id> <baton-id> | prune [-days N]\n")
+	fmt.Fprintf(out, "        the project's shared task board; run from inside a pane\n")
 	fmt.Fprintf(out, "  recordings [-dir] [-json]\n")
 	fmt.Fprintf(out, "        list the transcripts panes have recorded, newest first; -dir prints the folder they are kept in\n")
 	fmt.Fprintf(out, "  recordings export [-o file] [-reveal] <pane-id | conversation-id>\n")
@@ -1624,14 +1666,15 @@ var errHelpAsked = errors.New("usage shown")
 // earlier build used alongside the one in use now. A pane started by an
 // instance of that build is still running with the old names in its
 // environment, and an agent inside it should not lose the ability to spawn
-// just because the binary on its PATH has been upgraded. The fallback can go a
-// release after the rename.
-func paneEnv(name string) string {
-	if v := os.Getenv("FLOCKDECK_" + name); v != "" {
-		return v
-	}
-	return os.Getenv("PERCH_" + name)
-}
+// just because the binary on its PATH has been upgraded. The old names are due
+// to be removed after legacyenv.RemovalDate; until then using one prints a
+// warning to stderr, once per name. The hook and the status line, which run as
+// a new process on every event, use quietPaneEnv instead.
+func paneEnv(name string) string { return legacyenv.GetWarn(os.Stderr, name) }
+
+// quietPaneEnv is paneEnv without the warning, for commands whose stderr has to
+// stay clean.
+func quietPaneEnv(name string) string { return legacyenv.Get(name) }
 
 // runSpawn implements the `spawn` subcommand, which starts another agent from
 // inside a pane.
@@ -1671,11 +1714,14 @@ func runSpawn(args []string) error {
 	// --worktree names a branch, and which directory that becomes is the
 	// application's decision. Without it an agent that has just handed work to
 	// a helper has no way to go and look at what the helper did.
-	if res.Cwd != "" {
-		fmt.Println("started agent", res.PaneID, "in", res.Cwd)
-	} else {
-		fmt.Println("started agent", res.PaneID)
+	started := []any{"started agent", res.PaneID}
+	if res.Role != "" {
+		started = append(started, "as", res.Role)
 	}
+	if res.Cwd != "" {
+		started = append(started, "in", res.Cwd)
+	}
+	fmt.Println(started...)
 	// The baton is saved before the helper starts, and where is worth saying
 	// back: the caller can read what the helper was told.
 	if res.BatonID != "" {
@@ -1734,7 +1780,13 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	if f.shell && f.record {
 		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, which reports no events, so it cannot also take -record")
 	}
+	if f.shell && f.role != "" {
+		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, which has no role, so it cannot also take -role")
+	}
 	if err := checkAgent(f.agent, f.model); err != nil {
+		return hooks.SpawnRequest{}, err
+	}
+	if err := checkSpawnRole(f.role); err != nil {
 		return hooks.SpawnRequest{}, err
 	}
 	return hooks.SpawnRequest{
@@ -1744,6 +1796,7 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 		Shell:  f.shell,
 		Agent:  f.agent,
 		Model:  f.model,
+		Role:   f.role,
 		Record: f.record,
 		Baton:  batonRef(f.baton),
 
@@ -1756,6 +1809,7 @@ type spawnFlags struct {
 	worktree string
 	agent    string
 	model    string
+	role     string
 	split    bool
 	shell    bool
 	record   bool
@@ -1776,6 +1830,7 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	fs.BoolVar(&f.record, "record", false, "record the helper's agent interaction as a transcript; off unless given, and only once recording has been turned on in the window")
 	fs.StringVar(&f.agent, "agent", "", "`id` of the agent to start; flockdeck agents lists them")
 	fs.StringVar(&f.model, "model", "", "which of that agent's `model`s to ask for")
+	fs.StringVar(&f.role, "role", "", "`id` of the role to start the helper as; flockdeck agents lists them. The role's agent and model apply only where -agent and -model are not given")
 	// A value flag, never one with an optional value: a flag that may or may
 	// not take the next word would be ambiguous with the first word of the
 	// task, which is the class of mistake orderSpawnArgs exists to prevent.
@@ -2048,6 +2103,42 @@ func printAgents(w io.Writer) {
 	}
 	fmt.Fprintf(w, "Choose one for a whole run with `flockdeck -agent <id>`, or for a single\n")
 	fmt.Fprintf(w, "helper with `flockdeck spawn --agent <id> --model <model> <task>`.\n")
+	printRoles(w)
+}
+
+// printRoles writes the roles a helper can be started as, after the agents.
+func printRoles(w io.Writer) {
+	roles, _ := roleCatalog()
+	if len(roles) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nRoles for `flockdeck spawn --role <id> <task>`.\n\n")
+	for _, r := range roles {
+		name := r.Name
+		if name == "" {
+			name = r.ID
+		}
+		var notes []string
+		if r.Worktree != "" {
+			notes = append(notes, r.Worktree+" checkout")
+		}
+		if r.Agent != "" {
+			notes = append(notes, "agent "+r.Agent)
+		}
+		if r.Model != "" {
+			notes = append(notes, "model "+r.Model)
+		} else if r.Tier != "" {
+			notes = append(notes, r.Tier+" tier model")
+		}
+		line := r.ID + " - " + name
+		if len(notes) > 0 {
+			line += "  [" + strings.Join(notes, ", ") + "]"
+		}
+		fmt.Fprintln(w, line)
+		if len(r.Spawns) > 0 {
+			fmt.Fprintf(w, "  may start: %s\n", strings.Join(r.Spawns, ", "))
+		}
+	}
 }
 
 // agentName is what to call an agent in a message, falling back to its id for
@@ -2239,6 +2330,37 @@ var agentCatalog = func() ([]agent.Spec, string, string) {
 	return c.Visible(), c.DefaultsFor("").Agent, c.Notice
 }
 
+// roleCatalog is how the command line reaches the roles, the way agentCatalog
+// reaches the agents: the built-in roles with the user's agents.json merged
+// over them, and the catalog's notice. It is a variable so a test can hand it
+// roles of its own.
+var roleCatalog = func() ([]agent.Role, string) {
+	c := agent.Load()
+	return c.Roles, c.Notice
+}
+
+// checkSpawnRole refuses a role the catalog does not have, naming the ones it
+// does so that a typo can be corrected from the message. An empty role is no
+// role and is fine.
+func checkSpawnRole(id string) error {
+	if id == "" {
+		return nil
+	}
+	roles, notice := roleCatalog()
+	ids := make([]string, len(roles))
+	for i, r := range roles {
+		if r.ID == id {
+			return nil
+		}
+		ids[i] = r.ID
+	}
+	err := fmt.Errorf("no role called %q; the roles are %s (run `flockdeck agents` for what each of them does)", id, strings.Join(ids, ", "))
+	if notice != "" {
+		err = fmt.Errorf("%w. Also, %s", err, unreadAgentsFile(notice))
+	}
+	return err
+}
+
 // unreadAgentsFile says what a catalog notice means for the command line.
 func unreadAgentsFile(notice string) string {
 	return "your agents.json was not fully read, so an agent defined there may be missing: " + notice
@@ -2275,7 +2397,7 @@ func hook(args []string, stdin io.Reader, stdout, stderr io.Writer) {
 		return
 	}
 	if *token == "" {
-		*token = paneEnv("TOKEN")
+		*token = quietPaneEnv("TOKEN")
 	}
 	// Stderr is the one place a hook can complain: Claude Code shows it under
 	// --debug, and it neither fails the session nor lands in the stdout that

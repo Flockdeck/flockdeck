@@ -30,6 +30,8 @@ type Catalog struct {
 	// could not be used, which Notice names.
 	Routing        RoutingPolicy
 	ProjectRouting map[string]RoutingPolicy
+	// Roles are the built-in roles with the user's merged over them.
+	Roles []Role
 	// Notice is empty unless the user's file could not be used in full. It is
 	// something for the interface to show, never a reason not to start: a
 	// mistyped agents.json leaves somebody with the built-in agents, not with
@@ -50,7 +52,7 @@ func Load() *Catalog {
 	Refresh()
 	path, err := ConfigPath()
 	if err != nil {
-		return &Catalog{Specs: normalizeAll(Builtins())}
+		return &Catalog{Specs: normalizeAll(Builtins()), Roles: BuiltinRoles()}
 	}
 	return LoadFrom(filepath.Dir(path))
 }
@@ -60,7 +62,7 @@ func Load() *Catalog {
 func LoadFrom(dir string) *Catalog {
 	f, err := ReadConfig(dir)
 	if err != nil {
-		c := &Catalog{Specs: normalizeAll(Builtins())}
+		c := &Catalog{Specs: normalizeAll(Builtins()), Roles: BuiltinRoles()}
 		c.Notice = err.Error()
 		return c
 	}
@@ -74,7 +76,7 @@ func LoadFrom(dir string) *Catalog {
 // That is why the entries arrive as raw JSON -- it is the only way left, by
 // then, to tell "" the user wrote from "" the decoder filled in.
 func Merge(f *File) *Catalog {
-	c := &Catalog{Specs: Builtins()}
+	c := &Catalog{Specs: Builtins(), Roles: BuiltinRoles()}
 	if f == nil {
 		c.Specs = normalizeAll(c.Specs)
 		return c
@@ -159,6 +161,9 @@ func Merge(f *File) *Catalog {
 	c.Specs = normalizeAll(c.Specs)
 	problems = append(problems, c.missingDefaults()...)
 	problems = append(problems, c.parseAllRouting(f)...)
+	roles, roleProblems := mergeRoles(f.Roles)
+	c.Roles = roles
+	problems = append(problems, roleProblems...)
 	if len(problems) > 0 {
 		c.Notice = ConfigName + ": " + strings.Join(problems, "; ")
 	}

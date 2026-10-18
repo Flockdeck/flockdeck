@@ -1,6 +1,6 @@
-# Past conversations
+# Resume
 
-[[key:history]], or **History** in the rail, lists the conversations stored
+[[key:history]], or **Resume** in the rail, lists the conversations stored
 for this project and resumes any of them into a new tab.
 
 For each one it shows the opening prompt, how long ago it was touched, how many

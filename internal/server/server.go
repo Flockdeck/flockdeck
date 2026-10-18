@@ -141,6 +141,14 @@ type Server struct {
 	// goroutine.
 	gitShown string
 	gitAllAt time.Time
+	// teamAt is when the Team panels were last sent a picture, and teamArmed says
+	// a push held back for teamInterval is waiting for it to pass. Both belong
+	// to the workspace goroutine.
+	teamAt    time.Time
+	teamArmed bool
+	// teamCache is each watched project's encoded picture and what it was built
+	// from; see teamData.
+	teamCache map[string]teamCached
 	// gitEvery is gitStatusInterval as it was when this server was made, so
 	// that a test can set the package's and have no goroutine of an earlier
 	// server read it.
@@ -423,6 +431,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 	s.installContextHandler()
 	s.installUsageHandler()
 	s.installCloseHandler()
+	s.installTeamHandlers()
 
 	return s, nil
 }

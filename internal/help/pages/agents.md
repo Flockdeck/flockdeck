@@ -115,7 +115,7 @@ cooperating, and they do not all cooperate in the same ways.
 | --- | --- |
 | reports its own lifecycle | its status mark says what it is really doing, rather than what its output looks like |
 | can resume by id | restoring a layout brings its conversation back, not only its pane |
-| writes a transcript | it can be resumed from it; Claude Code's is also where fan out reads a plan and what past conversations lists |
+| writes a transcript | it can be resumed from it; Claude Code's is also where fan out reads a plan and what Resume lists |
 | has a trust question | a [fan-out](#fanout) can answer it ahead of time for the worktrees it cuts |
 | answers a start-up hook | its briefing survives a compaction, rather than being said once and summarised away |
 
@@ -210,6 +210,191 @@ is named in the notice and ignored.
 The file is read fresh every time the picker opens, so editing it by hand takes
 effect without a restart.
 
+## Roles
+
+A role is a job an agent is started for. Flockdeck ships six: `manager`,
+`planner`, `worker`, `reviewer`, `tester` and `docs`. Each has a short briefing
+saying what the agent does, what it must not do, who it reports to and what to
+hand back when it finishes. An agent starts in one with `-role`:
+
+```sh
+flockdeck spawn -role reviewer "review the token refresh change on fix-auth"
+```
+
+`flockdeck agents` lists the roles after the agents, with the checkout each one
+expects and which roles it may start. An unknown role is refused with the list of
+roles there are.
+
+A pane in a role is limited in what it may start. It may start only the roles its
+own role lists under `spawns`, and it may start an agent with no role (`spawn`
+without `-role`) only if its role has `plain` set, since an agent with no role has
+no limits. `manager` has `plain` set; the other built-in roles do not. A refused
+spawn says which rule it hit.
+
+The briefing follows those limits. A pane in a role that may start nothing, such as `worker`
+or `reviewer`, gets no section on starting agents. A pane in a role with `spawns` gets
+examples that name those roles, such as `flockdeck spawn -role worker -worktree <branch>
+"<task>"`, and is told to use the pane id that `spawn` prints, or `flockdeck team -json`
+shows, when it assigns a task or sends a message, because pane names are shared.
+
+The pane is briefed for its role: the briefing gains a "Your role" section with the
+role's text (and, for a role that may start others, the ids of every role in the catalog), and the pane's environment
+carries `FLOCKDECK_ROLE`. The role is saved with the layout, so a restored pane is
+briefed for the same job. Agents in a project can see each other, message each other and
+share a task board (see below).
+
+A role may name an `agent` and a `model`, or a `tier` (`small`, `mid` or `top`) in
+place of a model. They apply only to a spawn that names neither `-agent` nor
+`-model`: a spawn that names an agent keeps it. A role's model goes only to the agent
+the role resolves to (its own `agent`, or the project's default when it names none),
+so `spawn -agent codex -role fast` does not give codex a model written for claude. The built-in roles name none, so they run whatever
+the project runs by default.
+
+Roles are another key of `agents.json`. An entry whose `id` is a built-in's is
+merged over it field by field, and any other `id` is a role of your own:
+
+```json
+{
+  "roles": [
+    { "id": "worker", "tier": "mid" },
+    {
+      "id": "security",
+      "name": "Security reviewer",
+      "briefing": "Review the change for injection, unsafe file access and leaked secrets. Do not edit files. Report findings to whoever started you, with file and line.",
+      "worktree": "readonly",
+      "spawns": []
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | What `-role` takes |
+| `name` | What lists and the briefing call it |
+| `description` | One line on what the role is for, shown beside its name in the picker and Settings. It is not given to the agent |
+| `agent`, `model`, `tier` | Defaults for a spawn that chose neither an agent nor a model |
+| `briefing` | The text the agent is given about its role |
+| `worktree` | `own` (a worktree and branch of its own), `readonly` (a checkout it reads and does not change) or `main` (the project's main checkout) |
+| `spawns` | The ids of the roles an agent in this role may start. An agent in a role may start only these; an agent with no role may start any |
+| `plain` | `true` lets an agent in this role start agents with no role. Off unless set |
+
+The `worktree` setting is part of the briefing and the role list. Flockdeck does not
+yet cut a worktree or make a checkout read-only because of it, so pass
+`-worktree <branch>` when a role should have its own. The manager briefing says to
+do this for workers and to pass the branch name to the reviewer and tester. A `worktree` that is none of
+the three, a bad `tier`, and a `spawns` entry that names no role are listed in the
+notice and ignored.
+
+### Starting a role from the window
+
+The agent picker ([[action:newAgentTabChoose]] or [[action:splitRightChoose]]) has a
+**Role** control above the filter. **None** is the picker as it has always been. Choose
+a role and the picker shows what the role is for, asks for a task, which a role always
+needs, and says which agent and model the role comes to, for example `claude · opus, the
+Worker role's choice`. **Enter** in the task, or **Start**, runs the role on that agent and
+model. Picking an agent row in the list names the agent only, as `-agent` does, so the role's
+model still applies when that agent is the role's own; picking a model row names both, and
+the role's choice is not used. `Ctrl+Down` and `Ctrl+Up` walk the list from the task box or
+the Role control, and `Ctrl+Enter` starts the row picked out.
+
+**In a worktree of its own** is ticked for a role whose `worktree` is `own`, and the hint
+says what the role expects: its own branch, a branch it reads and that the task should name
+(`readonly`), or the project's main checkout. Ticked, Flockdeck cuts a worktree and branch
+named from the task, as `-worktree` does. A role opens in a tab of its own, not as a split,
+and Flockdeck switches to it once it has started. If the start is refused, the dialog stays
+open with what you typed and the notice says why.
+
+A role cannot be started with a shell; the window never offers one. The spawn limits
+above apply to agents, not to you: from the window you may start any role, including one
+that no role lists under `spawns`.
+
+[[action:startTeam]] starts a team with one agent. It asks for a goal and, if you want
+one, an agent and model for the manager, and starts a `manager` with the goal as its task
+in the project on screen, as `flockdeck spawn -role manager "<goal>"` would. The manager
+then starts the rest. With no `manager` role in the catalog the dialog says so and has no Start button.
+
+A pane started in a role carries its name in its header, after the pane name, and in
+the **Agents** overview. **Pane info** lists it as **Role**. A pane started in no role shows
+nothing. Settings › Agents & models lists the roles to read; they are changed in
+`agents.json`, as above.
+
+### The team and messages
+
+Every agent's briefing has a "Your team" section, the other agent panes of its project
+as they were when the agent started, and a "Messages" section. Targets, limits, the
+one-line notice and what Flockdeck writes to an inbox itself are in
+[The command line](#cli).
+
+The built-in roles say when to use messages: the manager writes to the agents it started to
+answer a question or change a task, and planners, workers, reviewers, testers and docs agents
+write to the manager when they are blocked. Their final report is still their last message
+and not a `msg`.
+
+### The task board
+
+Each project has one task board, which every agent in it reaches with `flockdeck task`
+whatever worktree it works in. A task has a title, a body, an owner role and pane, a state, a
+branch, an optional baton id for context and a thread of notes. A task points at a baton and
+does not replace it: a baton stays the handoff document it was written as. The states, the
+table of who may move a task where, the messages a change sends and how the board is stored
+are in [The command line](#cli).
+
+The built-in roles use it this way. The planner adds a task for each step of a plan. The
+manager assigns them to the workers it starts, and moves a task to `done` once a reviewer
+says the change is good. A worker moves its task to `in-progress` when it starts, sets the
+branch, and moves it to `in-review` when the change is committed, which messages the
+reviewers and testers. A reviewer or tester reads a task in `in-review` and either adds a
+note and tells the manager, or moves it back to `in-progress` with a note that says why,
+which messages the worker. Every agent's briefing has a "Task board" section with the
+commands and a snapshot of the counts for that pane, such as "2 tasks assigned to you,
+1 in review", or "2 tasks for your role, none claimed yet" for tasks assigned to a role that
+no pane has started.
+
+### The Team panel
+
+[[action:team]] opens a sheet for the project on screen, with three tabs. It shows what the
+command line shows, and lets you steer from the window. It updates as the team works: a task
+that moves, a message that arrives and a pane that starts, stops or changes status appear
+without reopening it, and an open task, the text you are typing and your place in the list
+stay as they were.
+
+**Roster** lists every agent pane of the project with its role, name, agent and model, status,
+branch and its current task: the one in progress, else in review, else the first assigned. Click
+a row to go to the pane, or click its task to open it on the board. **Start an agent…** opens the
+agent picker with its Role control. **Close** and **Close finished** close panes that are idle or have
+exited; Close finished names them and asks first, and each pane is checked again as it closes, so one
+that has started working since the list was drawn is left open.
+With no agent running, the tab says what a team is and offers [[action:startTeam]].
+
+**Tasks** is the board, one column for each of planned, assigned, in progress, in review and
+done. In a window narrower than 900 pixels the columns are one list, grouped by state. Blocked and
+cancelled tasks are behind a button. Each card shows the id, title, who the task is for, the
+branch and the number of notes; the arrow keys move between cards and Enter opens one. Open a task
+to read its details, notes and history and to assign it to a role or a pane, set its branch, add a
+note, or move it. **Move** offers only the moves the rules allow you for that task, and a move that
+undoes progress needs a note in the note box. **Add task** adds one, and **Prune finished…**
+removes done and cancelled tasks last changed over 30 days ago.
+
+You act as the manager, whether or not a pane has that role, and as no pane: a task you add or a
+note you write shows **you** as its author, and the agents are told it was the user. The
+notices are the ones a manager pane's change would send, so an agent hears when a task is assigned
+to it, goes to review, is blocked or done, or gets a note. Agents see you as `the user (at the
+window)`, in notices, `flockdeck task show` and `flockdeck inbox`; an agent that names itself `the user`, `you`
+or `flockdeck` is shown as `(agent) the user`, so no agent can sign as you.
+
+**Messages** lists the project's messages, newest first, with sender, recipient, time, text and
+whether the recipient has read it. The filter narrows them to a pane or a role. Message text is
+shown as plain text. Write to a pane, or to every pane in a role, in the box above the list: the
+message is signed as you, is at most 8 KB, and goes to the agent's inbox. It never goes into the
+terminal; the agent is sent the same one-line notice as for any message, when it is idle. Each
+message shows two marks: whether its recipient has read it, and whether you have seen it. **Mark
+seen** sets only your own mark and the count on the tab; the agent's inbox and its unread count
+are unchanged.
+
+The panel works on the machine Flockdeck runs on. A window reached through the relay is refused
+its commands. A board of more than 300 open tasks lists the newest 300, with a button for the rest.
+
 ## Routing
 
 A fan-out multiplies whatever its model costs, and many of its tasks are
@@ -276,15 +461,16 @@ is slow, is refused or is down, the row is routed exactly as it would be without
 it. The row's tooltip says what Jev rated it when it did decide.
 
 It is **off** by default and needs both this setting, for every project or for
-one, and a TypeSafe API key: the one set in **Settings › Status detection ›
+one, and a TypeSafe API key: the one set in **Settings › API keys ›
 TypeSafe API key** (used first), or else `TYPESAFE_API_KEY` in the environment
 Flockdeck starts in. Saving a key on its own sends nothing.
 **Turning it on sends the text of each such row to TypeSafe, a third party.**
 What is sent is that text alone, cut at 2,000 characters with `[truncated]` at
 the end, beside three fixed questions about it: no files, no repository, no
 conversation, no path of your machine's that the text does not itself contain.
-Nothing is removed from the text first, so a task that contains a secret sends
-it; leave the setting off for work like that. Calls give up after 2 seconds,
+Secrets are redacted from the text first (API keys, bearer tokens, password
+values, secret file paths), by pattern, so one with no recognisable shape is
+still sent; leave the setting off for work like that. Calls give up after 2 seconds,
 run at most 20 a minute, are remembered for an hour so an edited fan-out does
 not ask again, and pause for 30 seconds after a failure, or 5 minutes after
 the key is refused. Without the key the

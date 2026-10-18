@@ -163,7 +163,8 @@ func (l Launch) model() string {
 // helper of its own with `flockdeck spawn` -- can say which agent it is without
 // having to ask Flockdeck.
 func (l Launch) paneVars() []string {
-	return []string{"FLOCKDECK_AGENT=" + l.Spec.ID, "FLOCKDECK_MODEL=" + l.model()}
+	vars := []string{"FLOCKDECK_AGENT=" + l.Spec.ID, "FLOCKDECK_MODEL=" + l.model()}
+	return vars
 }
 
 // Look resolves the program an agent runs, or explains that it is not
@@ -254,21 +255,13 @@ func StripEnvUnion(specs []agent.Spec) []string {
 }
 
 // defaultStripEnv are the environment variables a running Claude Code session
-// injects into its children. If we passed them through, every pane we spawn
-// would think it was a nested child session (and, among other things, stop
-// saving its transcript). They are stripped so each pane is a clean top-level
-// session, regardless of whether Flockdeck itself was launched from Claude.
+// injects into its children, so that each pane is a clean top-level session
+// whether or not Flockdeck itself was launched from Claude. The list is
+// agent.ClaudeStripEnv, which the built-in claude Spec carries too.
 //
 // They are stripped whatever else is: a caller with a catalog to hand passes
 // the union of StripEnv across it on top of them.
-var defaultStripEnv = []string{
-	"CLAUDECODE",
-	"CLAUDE_CODE_CHILD_SESSION",
-	"CLAUDE_CODE_ENTRYPOINT",
-	"CLAUDE_CODE_SESSION_ID",
-	"CLAUDE_CODE_SSE_PORT",
-	"CLAUDE_CODE_DONT_INHERIT_ENV",
-}
+var defaultStripEnv = agent.ClaudeStripEnv()
 
 // chatEndpointEnv are the variables `flockdeck chat` takes its wire, address
 // and key names from where no flag says them, under both spellings it reads.

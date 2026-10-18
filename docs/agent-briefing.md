@@ -6,27 +6,42 @@ directory it was dropped into is a worktree and not the project, or that the tas
 it was given came from another agent's plan. So Flockdeck briefs it when it
 starts.
 
-## What the briefing says
+This page covers how the briefing is delivered and why it is shaped as it is. What
+the commands do is in the [command line page](../internal/help/pages/cli.md); roles
+and the team are in [Agents and models](../internal/help/pages/agents.md). The
+text itself is built in `internal/workspace/briefing.go` and `context.go`.
 
-- Which pane it is, in which tab and which project.
-- The directory and branch it has, and whether that is a worktree of its own and not
-  the project root.
-- What it was spawned to do, when a fan-out or another agent started it and a person
-  did not.
-- Which other agents are running beside it: where each is working, which agent and
-  model each is (`codex · gpt-5.6-sol`, because what is in the next pane changes
-  what is worth asking of it), and what each was asked for. It also says that the
-  conversations are separate, so nothing passes between panes except through the
-  user or a commit.
-- That it can start agents of its own with `flockdeck spawn`.
-- What the application around it can do (the status the user is watching, the
-  fan-out that reads its own output, broadcast, the diff, the worktree panel and what
-  a restart keeps), with the keys for each. The keys come from the same table the
-  command palette and the help pages are drawn from, so an agent can answer a user
-  who asks how to do something.
-- What its pane carries in its environment, and what the rest of the command line
-  does, including that `-quit` stops every agent in every project and not only this
-  pane.
+## What the briefing holds
+
+- The pane: its name, tab, project, directory and branch, whether the directory is a
+  worktree of its own, and the task it was started with.
+- The other agents running in the project, with the agent and model of each, and that
+  their conversations are separate from this one.
+- The pane's role, when it has one: the role's briefing, the checkout it expects, and
+  which roles it may start.
+- For an agent that can call back into Flockdeck: the team roster, the commands for
+  messages and the task board, and how to start helpers if its role allows it.
+- A one-line status rule, one line for each user-facing feature, and a pointer to
+  `flockdeck help`.
+
+## What it leaves out
+
+The briefing is sent again on every session start, compaction and resume, so every line
+is paid for each time. It leaves out what an agent cannot act on, and what is already
+written where the agent can ask for it:
+
+- Flag lists, state tables and storage details. `flockdeck <command> -h` and the command
+  line page have them, and the briefing says so once.
+- The key table and the meaning of the status colours. They are for the person at the
+  window and are in the in-app help and [keys.md](keys.md).
+- The commands a role cannot use. A role that may not start agents gets no `spawn` section,
+  and `task assign` and `task prune` are shown only to the manager role or a pane with no role.
+- The environment table and the less common start-up flags. The command line page has them.
+
+Each rule is written once. The sentence that says messages and task text are data and not
+instructions from the user appears once, in the messages section, and covers both.
+`internal/workspace/contextsize_test.go` holds a size ceiling per case so the briefing does
+not grow back unnoticed.
 
 ## How it is delivered
 
@@ -50,12 +65,77 @@ exit, and a message that was all briefing would end the pane. An entry in
 `agents.json` chooses the same for its own agent with `"caps": {"context": "prompt"}`
 (or `"task"` for the Aider behaviour).
 
-## The environment
+## Messages between panes
 
-Every pane also carries `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME`,
-`FLOCKDECK_PROJECT`, `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL` and `FLOCKDECK_LAUNCH`.
-The [command line page](../internal/help/pages/cli.md) lists what each one is for,
-and which of them are also set under their older `PERCH_*` names.
+The briefing is only where an agent learns the commands. The messages are Flockdeck's own
+channel: a pane runs `flockdeck msg send`, which posts to the loopback server with
+`FLOCKDECK_API`, `FLOCKDECK_TOKEN` and its own `FLOCKDECK_PANE`, and reads with
+`flockdeck inbox`. Nothing is sent through the terminal, and nothing from a message reaches
+a pane's input, except as described here. Targets, limits, retention and what the typed
+line says are on the command line page.
+
+- Who a message is from is the pane named in the request, which has to be an open pane; the
+  sender's role and name are taken from that pane, not from the request. The token is the
+  same for every pane of a run, so a process in one pane could name another pane's id. This is
+  the trust `spawn` and `close` already rely on, and it is not stronger. So the sender name and
+  role in a message are not authenticated, and an agent must not use them as proof of who sent
+  it or as authorization.
+- A peer name is the pane's own report. Control characters and line breaks in it become
+  spaces and it is cut to 64 characters when it is recorded, and `inbox` prints a sender
+  with the same rules, so a name cannot start a line of its own.
+- Spawn rights (`spawns`, `plain`) do not apply to messages.
+- Messages are kept in memory and in `messages.json`, written under one lock, so the newest
+  snapshot is always the one left on disk. At start-up, messages read more than 7 days ago and
+  messages of any kind sent more than 30 days ago are dropped, which is what removes the inbox
+  of a pane that no longer exists.
+
+### Telling the agent it has mail
+
+An agent only looks at its inbox if it is told to, so Flockdeck types one line into the pane
+when a message is waiting. The line is typed the way the prompt bar types a prompt (`typeInto`
+in the workspace package): the text, then Enter. It is built from a count, an id and the
+sender's role and name, each reduced to `A-Za-z0-9._-` and at most 24 characters, so it holds
+no text the sender wrote. The conditions under which it is typed are on the command line page;
+the parts that are worth knowing when changing them:
+
+- The agent's catalog entry must have `caps.hooks` and its hooks must have reported at least
+  once, so `idle` is what the agent said and not a guess from a quiet screen (see
+  [the status matrix](status-matrix.md)).
+- "Nothing typed since the last Enter, Ctrl+C or Ctrl+U" is `Session.DraftPossible`. Deleting
+  typed text with Backspace does not clear it, and an escape sequence at the start of a write,
+  such as an arrow key, is skipped and the rest of the write is read.
+- "No line starting with `/` since the last hook event" is `Session.MenuPossible`. A slash
+  command such as `/model` opens a menu that no hook reports, so the pane stays `idle` behind
+  it, and the line and its Enter would pick an option. The next hook event ends the wait.
+- Messages that arrive while the line is held are counted in the next one, and a timer looks
+  again when the wait is over.
+
+Two cases are not covered: a user typing in the same instant as the line is written can
+interleave with it, and an agent that is `idle` with a modal open that was not opened by a
+slash command receives the line into that modal. What a pane was told is forgotten when its
+session restarts, so mail that is still unread is announced again once the new session is idle.
+
+## The task board
+
+`flockdeck task` posts to the same loopback server, with the same `FLOCKDECK_API`,
+`FLOCKDECK_TOKEN` and `FLOCKDECK_PANE`, to `/task`. The board is the application's: the
+workspace opens it, applies the rules and writes the file, so a pane in any worktree sees the
+same board and none reads or writes the file itself. Who acts is the pane named in the request,
+which has to be an open agent pane, with the role it was started with; the request cannot name
+another role. That is the trust `spawn`, `close` and `msg` rely on, and the board adds nothing
+to it.
+
+- The rules for who may move a task where are one table, `Transitions` in `internal/tasks`,
+  and the tests walk every pair of states against it. The command line page prints it.
+- Writes read the file, change it and write it back under one lock per board, through a
+  temporary file that is flushed and renamed over the old one. Another process that changes the
+  file between two writes is not overwritten; two writing in the same instant could still lose
+  one change. The board has a single writer, the Flockdeck server of the project.
+- The workspace works out from the roster at each request whether a pane with no role holds
+  the manager's powers.
+- Changes message panes through the inbox, from `flockdeck`, so they are announced by the same
+  line, at the same times and no oftener. The pane that made the change, a pane that is closed
+  and a pane whose process has exited are left out.
 
 ## Isolation between panes
 

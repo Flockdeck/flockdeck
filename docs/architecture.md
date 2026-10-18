@@ -133,7 +133,7 @@ The help pages are Markdown under `internal/help/pages`, compiled into the binar
 and rendered on the Go side. They never write shortcuts out by hand. A page says
 `[[key:splitRight]]` or `{{keys:Panes}}`, and both are expanded from the key table
 in `internal/help/keys.go`. The command palette, the keyboard dispatch, the
-briefing each agent receives and the [shortcut table](keys.md) are drawn from the
+briefing each agent receives (for the dozen actions it names) and the [shortcut table](keys.md) are drawn from the
 same table, so a binding changes in one place, and a page that names an action that
 no longer exists fails its test. `cmd/docgen` renders the same pages to
 docs.flockdeck.ai.

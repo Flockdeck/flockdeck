@@ -48,6 +48,9 @@ type File struct {
 	Defaults Defaults            `json:"defaults,omitempty"`
 	Projects map[string]Defaults `json:"projects,omitempty"`
 	Agents   []json.RawMessage   `json:"agents,omitempty"`
+	// Roles are the user's own role entries, kept raw like Agents so a field
+	// left out of one can be told from one set to its zero value.
+	Roles []json.RawMessage `json:"roles,omitempty"`
 	// Routing is the routing policy every project without one of its own is
 	// routed by, kept as written for the same reason a project's is.
 	Routing json.RawMessage `json:"routing,omitempty"`
@@ -58,7 +61,7 @@ type File struct {
 }
 
 // knownFields are the keys File decodes itself; everything else is Extra.
-var knownFields = []string{"version", "defaults", "projects", "agents", "routing"}
+var knownFields = []string{"version", "defaults", "projects", "agents", "roles", "routing"}
 
 func (f *File) UnmarshalJSON(data []byte) error {
 	type plain File

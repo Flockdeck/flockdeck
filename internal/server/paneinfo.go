@@ -51,6 +51,7 @@ func paneInfoFields(d workspace.PaneDetails, project string) []paneInfoField {
 		f = append(f,
 			paneInfoField{"Agent", d.AgentID, ""},
 			paneInfoField{"Model", d.Model, "Empty means the agent's own default"},
+			paneInfoField{"Role", d.Role, "The role the pane was started in; it sets the briefing the agent was given"},
 			paneInfoField{"Conversation id", d.Conversation, "The agent's own id for this conversation. It changes after /clear, and the first 8 characters are in the transcript file name"},
 		)
 	}

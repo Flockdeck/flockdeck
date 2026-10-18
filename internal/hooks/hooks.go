@@ -623,6 +623,7 @@ type Server struct {
 	onReview   func(sessionID string, ev Event) (allow bool, reason string)
 	onPeerName func(PeerNameRequest) error
 	onClose    func(CloseRequest) (CloseResult, error)
+	onTeam     teamHandlers
 }
 
 // SessionStart is the lifecycle event a pane's agent fires as it starts,
@@ -684,6 +685,10 @@ func Serve(on func(Event)) (*Server, error) {
 	mux.HandleFunc("/usage", s.handleUsage)
 	mux.HandleFunc("/peer-name", s.handlePeerName)
 	mux.HandleFunc("/close", s.handleClose)
+	mux.HandleFunc("/team", s.handleTeam())
+	mux.HandleFunc("/msg", s.handleMsg())
+	mux.HandleFunc("/inbox", s.handleInbox())
+	mux.HandleFunc("/task", s.handleTask())
 	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() { _ = s.srv.Serve(ln) }()
@@ -916,6 +921,10 @@ type SpawnRequest struct {
 	// asked for without an opinion is started exactly as it always was.
 	Agent string `json:"agent,omitempty"`
 	Model string `json:"model,omitempty"`
+	// Role is the id of the role the helper is started as. Its agent and model
+	// are used only where the request names none of its own, and the caller's
+	// own role says whether it may start this one.
+	Role string `json:"role,omitempty"`
 	// Record starts the helper with its transcript being recorded; see
 	// workspace.Pane.Recording. Only honoured once the user has turned
 	// recording on in the window and read what it stores, so an agent cannot
@@ -947,6 +956,8 @@ type SpawnResult struct {
 	// the caller cannot work it out: --worktree asks for a branch, and which
 	// directory that becomes is the application's decision, not the caller's.
 	Cwd string `json:"cwd,omitempty"`
+	// Role is the role the helper was started as, when it was started as one.
+	Role string `json:"role,omitempty"`
 	// BatonID and BatonPath say which baton the helper was started from and
 	// where it is kept, when it was started from one, so the caller can read it
 	// with `flockdeck baton show`.

@@ -23,10 +23,23 @@ import (
 // party, TypeSafe, which nothing else in Flockdeck does with terminal content.
 // So it is off unless BOTH the user has turned the setting on (Enabled) and
 // a TypeSafe key is set (Settings or TYPESAFE_API_KEY), and what is sent is only the last assistTailLines
-// lines, at most assistTailBytes, with escape sequences taken out: never the
-// scrollback, the pane's name, or its working directory. No redaction of
-// secrets that may be on screen is done -- there is no general helper for it
-// in the code base, and a weak one would promise more than it kept.
+// lines, at most assistTailBytes, with escape sequences taken out and secrets
+// redacted: never the scrollback, the pane's name, or its working directory.
+//
+// Redaction is jev.Scrub, which is record.Redact (provider key shapes, bearer
+// and basic credentials, user:password in URLs, private key blocks, values
+// assigned to names such as TOKEN or password) plus a pass that replaces
+// any word that is a path to a secret file (.env, id_rsa, ~/.aws/credentials)
+// by internal/secretname. It runs on the whole text read from the pane, after
+// the escape sequences are out and before the tail is cut, so a secret that
+// the cut would have split is still seen whole. Three or more lines in a row
+// of base64 are replaced too (the body of a private key whose BEGIN line is
+// outside the window read), and a token that the terminal wrapped onto the
+// next line is joined for the look when the line is full width. It is best effort and by
+// pattern: a secret with no recognisable shape, on a line that does not name
+// it as one, is sent as it is on screen, and so is everything else in the
+// last lines (code, file names, prose). A tail that is nothing but redacted
+// text is not sent at all.
 //
 // SAFETY. It only ever supplements the fallback and only ever moves a pane
 // from the quiet-timer's idle to waiting or blocked, which is the direction
@@ -180,6 +193,13 @@ func (a *StatusAssist) Assess(ctx context.Context, paneID, tail string) (Status,
 	if a == nil || a.Enabled == nil || !a.Enabled() || strings.TrimSpace(tail) == "" {
 		return StatusIdle, false
 	}
+	// Whatever the caller did, what is sent and hashed is the scrubbed text.
+	// The same tail with a different secret in it is the same tail to the
+	// cache, which is right: the answer does not depend on the secret.
+	tail = jev.Scrub(tail)
+	if tail == "" {
+		return StatusIdle, false
+	}
 	newClient := a.NewClient
 	if newClient == nil {
 		newClient = func() (*jev.Client, error) { return jev.NewClient(creds.JevKey) }
@@ -297,11 +317,13 @@ func (a *StatusAssist) read(paneID string, res *jev.Result) assistVerdict {
 }
 
 // assistTail is the text that may be sent: the end of the pane's output with
-// escape sequences removed, cut to assistTailLines lines and assistTailBytes
+// escape sequences removed and secrets redacted (jev.Scrub), cut to assistTailLines lines and assistTailBytes
 // bytes. raw is the pane's own recent output, which the caller has cut to a
 // generous size already.
 func assistTail(raw []byte) string {
 	text := strings.TrimRight(stripANSI(raw), " \t\r\n")
+	// Before the cut, so that a secret the cut would split is seen whole.
+	text = jev.Scrub(text)
 	lines := strings.Split(text, "\n")
 	if len(lines) > assistTailLines {
 		lines = lines[len(lines)-assistTailLines:]

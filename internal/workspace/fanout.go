@@ -906,6 +906,10 @@ type SpawnOptions struct {
 	// CLI keeps whatever it was configured with.
 	Agent string
 	Model string
+	// Role is the id of the role the child is started as, recorded on the pane
+	// and put in its environment. The caller has already checked it exists and
+	// folded the role's agent and model into Agent and Model.
+	Role string
 	// Routed names the routing rule that chose Model, and RoutedFrom the
 	// model the child would otherwise have run. They are recorded on the pane
 	// so its header says the model was routed, and why. RoutedFromAgent names
@@ -1293,6 +1297,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		initial: initial,
 		Task:    o.Task,
 		BatonID: batonID,
+		Role:    o.Role,
 		// Kept in memory so a restart before the first turn asks the same thing.
 		batonPrompt: batonPrompt,
 		// A child inherits the pane it was started from trusting auto-review
@@ -1430,6 +1435,13 @@ func (w *Workspace) ValidateStartAgent(root, agentID, model string) (openRoot, r
 // other pane stays open; see Pane.Parent. It is the user's own pane, exactly
 // as one opened by hand at the desk would be -- started from a phone instead.
 func (w *Workspace) StartAgent(root, agentID, model, cwd, task string) (string, error) {
+	return w.StartAgentAs(root, agentID, model, cwd, task, "")
+}
+
+// StartAgentAs is StartAgent for a pane started in the role with the id role,
+// or in none when it is empty. The caller has checked the role and settled
+// agentID and model from it; see Catalog.Choose.
+func (w *Workspace) StartAgentAs(root, agentID, model, cwd, task, role string) (string, error) {
 	if strings.TrimSpace(task) == "" {
 		return "", fmt.Errorf("a task is required")
 	}
@@ -1461,6 +1473,7 @@ func (w *Workspace) StartAgent(root, agentID, model, cwd, task string) (string, 
 		Task:    task,
 		Agent:   agentID,
 		Model:   model,
+		Role:    role,
 		// Never given a Parent (see the doc comment above), so it starts
 		// AutoReview from the installation's own default like any other pane
 		// the user started themselves.
