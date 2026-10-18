@@ -896,9 +896,14 @@ type SpawnOptions struct {
 	// dozen children into one tab rather than scattering them a tab each, and
 	// it takes precedence over Split. A tab that has since been closed is
 	// ignored, and the child is placed as it would have been without it.
-	Tab   string
-	Kind  session.Kind
-	Title string
+	Tab string
+	// TabName is the title of the tab to join, in the project the child is
+	// started in: the tab with that title if there is one, otherwise a new tab
+	// given it. It is how a manager keeps the panes for one piece of work in
+	// one tab. When it is set, Tab and Split are not used.
+	TabName string
+	Kind    session.Kind
+	Title   string
 	// Agent names the agent.Spec the pane runs, and Model the model that agent
 	// is asked for. Empty means the default, which is how a fan-out started
 	// without a thought about either keeps running what Flockdeck already ran. An
@@ -1372,7 +1377,34 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	// Place it: in the tab it was asked to join, beside its parent, or as a tab
 	// of its own.
 	placed := false
-	if t := w.Tab(o.Tab); t != nil {
+	var named *Tab
+	if o.TabName != "" {
+		root := w.activeRoot
+		if parent != nil {
+			for _, t := range w.Tabs {
+				if t.Tree.Find(parentPaneID) != nil {
+					root = t.Root
+					break
+				}
+			}
+		}
+		for _, t := range w.Tabs {
+			if t.Root == root && strings.EqualFold(t.Title, o.TabName) {
+				named = t
+				break
+			}
+		}
+		if named == nil {
+			title = o.TabName
+		}
+	}
+	if named != nil {
+		t := named
+		t.Tree = layout.Grid(append(t.Tree.Panes(), p.ID))
+		t.Zoom = false
+		t.Delegated = true
+		placed = true
+	} else if t := w.Tab(o.Tab); o.TabName == "" && t != nil {
 		// Rebuilt as a grid rather than split off whichever pane happens to be
 		// there, because this is the path a fan-out arrives on: a dozen panes
 		// added one at a time, each of which would otherwise halve the last.
@@ -1381,7 +1413,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		t.Delegated = true
 		placed = true
 	}
-	if !placed && o.Split && parent != nil {
+	if !placed && o.TabName == "" && o.Split && parent != nil {
 		for _, t := range w.Tabs {
 			if t.Tree.Find(parentPaneID) == nil {
 				continue

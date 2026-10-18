@@ -47,9 +47,17 @@ opens only its own projects.
 Run from inside a pane, this starts another agent:
 
 ```sh
-flockdeck spawn [-worktree <branch>] [-split] [-shell] [-record]
+flockdeck spawn [-worktree <branch>] [-split] [-tab <title>] [-shell] [-record]
                 [-agent <id>] [-model <model>] [-role <id>] [-baton <ref>] [-baton-send-elsewhere] <task>
 ```
+
+`-tab <title>` puts the helper in the tab with that title in the caller's project, and
+makes the tab if there is none. The title is matched without regard to case, a tab that
+belongs to another project is never joined, and the panes in the tab are laid out in a
+grid. Give every agent working on one thing the same title and a different thing another,
+and the panes for each are together in front of you. It takes precedence over `-split`, works
+with `-role`, `-worktree` and `-shell`, and is at most 60 characters with no line breaks.
+The tab keeps that title, and goes when its last pane is closed.
 
 `-record` starts the helper with its agent interaction recorded as a
 transcript, the same as the record button in its header; see

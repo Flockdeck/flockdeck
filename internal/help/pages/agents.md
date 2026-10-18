@@ -322,15 +322,18 @@ Given a goal, a manager works through it without being asked at each step:
    first when the goal is more than one obvious change.
 2. It starts a `worker` for each task with `spawn -role worker -worktree <branch>`, so
    each has a branch of its own, and assigns the task to it. Planners and reviewers read
-   and need no worktree of their own.
+   and need no worktree of their own. Every agent it starts for one task gets the same
+   `-tab "<task title>"`, so the planner, worker, reviewer and tester for a task share one
+   tab named after it, and another task gets another tab.
 3. It ends its turn and waits. Flockdeck types a one-line notice into the manager's
    prompt when a helper sends a message, exits, or finishes a turn and stays idle, and
    when a task is blocked or ready for review. The manager reads them with `flockdeck inbox`.
 4. It starts a `reviewer`, and a `tester` if the change needs one, on each worker's
    branch, moves a task to `done` when the verdict is good, and sends work that needs
    changes back.
-5. It closes the helpers it started and reports to you: what is done and on which
-   branches, what is blocked, and what it needs you to decide.
+5. It closes a task's helpers when the task is done, which also removes the task's tab,
+   and reports to you: what is done and on which branches, what is blocked, and what it
+   needs you to decide.
 
 Some things stay with you. A manager asks and waits before it merges, pushes, opens a
 pull request, deploys, publishes, deletes branches, worktrees or files, or spends money,

@@ -914,7 +914,11 @@ type SpawnRequest struct {
 	Task   string `json:"task"`
 	Branch string `json:"branch,omitempty"`
 	Split  bool   `json:"split,omitempty"`
-	Shell  bool   `json:"shell,omitempty"`
+	// Tab is the title of the tab the helper joins: the tab of that title in
+	// the caller's project, made if there is none. It takes precedence over
+	// Split, and is how a manager keeps the panes for one piece of work together.
+	Tab   string `json:"tab,omitempty"`
+	Shell bool   `json:"shell,omitempty"`
 	// Agent and Model are which agent the helper should be, for an agent
 	// handing work to one that is better at it than itself. Both empty is what
 	// every earlier build sent and means the project's default, so a helper

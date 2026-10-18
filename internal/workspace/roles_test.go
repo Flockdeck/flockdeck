@@ -255,6 +255,7 @@ func TestManagerBriefingDelegatesOnItsOwnAndKeepsTheSafeguards(t *testing.T) {
 		"2. Start an agent for each task with `spawn -role <role>`", "-worktree <branch>", "flockdeck task assign <id>",
 		"3. Watch.", "end your turn", "flockdeck team", "flockdeck inbox",
 		"4. Review.", "flockdeck task status <id> done", "5. Report to the user", "flockdeck close <pane id>",
+		"-tab \"<task title>\"", "so the user finds each task's agents together", "its tab goes with the last one", "`-tab <title>`",
 		// the safeguards
 		"no more than four helpers running at once", "Flockdeck refuses a start while eight of your helpers are open",
 		"Ask the user, and wait, before anything hard to undo or that leaves this machine",

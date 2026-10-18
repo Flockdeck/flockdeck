@@ -402,6 +402,10 @@ func TestParseSpawnReadsFlagsAfterTheTask(t *testing.T) {
 			hooks.SpawnRequest{Task: "tail the build log", Shell: true, Split: true}},
 		{"flags first still work", []string{"--split", "watch the build"},
 			hooks.SpawnRequest{Task: "watch the build", Split: true}},
+		{"a tab by title, after the task", []string{"review the change", "-role", "reviewer", "-tab", "  Login rate limit "},
+			hooks.SpawnRequest{Task: "review the change", Role: "reviewer", Tab: "Login rate limit"}},
+		{"a tab with a role and a worktree", []string{"-tab", "billing", "-role", "worker", "-worktree", "bill", "add export"},
+			hooks.SpawnRequest{Task: "add export", Role: "worker", Branch: "bill", Tab: "billing"}},
 		// After a bare "--" a dash is part of the task, which is how a task
 		// that genuinely starts with one is written.
 		{"-- protects the task", []string{"--", "-shell is the flag I mean to describe"},
@@ -1195,4 +1199,27 @@ func TestUsageNamesEveryUpdateFlag(t *testing.T) {
 			t.Errorf("the usage's update line %q does not name -%s, which update takes", line, f.Name)
 		}
 	})
+}
+
+// -tab takes a title: blank means none was asked for, and one that cannot be a
+// tab title is refused.
+func TestSpawnTabTitleIsChecked(t *testing.T) {
+	if got, err := parseSpawn([]string{"-tab", "   ", "watch the build"}); err != nil || got.Tab != "" {
+		t.Errorf("a blank title = %+v, %v, want no tab", got, err)
+	}
+	for name, title := range map[string]string{
+		"too long":     strings.Repeat("x", maxTabName+1),
+		"a line break": "login" + "\n" + "limit",
+		"an escape":    "login\x1b[2J",
+	} {
+		if _, err := parseSpawn([]string{"-tab", title, "watch the build"}); err == nil || !strings.Contains(err.Error(), "-tab") {
+			t.Errorf("%s: parseSpawn = %v, want a refusal that names -tab", name, err)
+		}
+	}
+	if _, err := parseSpawn([]string{"watch the build", "-tab"}); err == nil {
+		t.Error("-tab with no title was accepted")
+	}
+	if got, err := parseSpawn([]string{strings.Repeat("x", 3), "-tab", strings.Repeat("é", maxTabName)}); err != nil || got.Tab == "" {
+		t.Errorf("a title of exactly %d characters = %+v, %v, want it accepted", maxTabName, got, err)
+	}
 }

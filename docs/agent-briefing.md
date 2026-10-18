@@ -24,7 +24,8 @@ text itself is built in `internal/workspace/briefing.go` and `context.go`.
   role is briefed to run a goal through to a report without being asked at each step:
   tasks on the board, helpers started, results reviewed, the user told. It is told to stop
   and ask only before merging, pushing, opening a pull request, deploying, publishing,
-  deleting or spending, and to keep to four helpers at once.
+  deleting or spending, to keep to four helpers at once, and to put the agents for one task in one tab
+  named after it (`spawn -tab`).
 - A one-line status rule, one line for each user-facing feature, and a pointer to
   `flockdeck help`.
 

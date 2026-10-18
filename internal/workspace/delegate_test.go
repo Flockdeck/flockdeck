@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
 )
 
@@ -145,5 +146,131 @@ func TestAnAgentMayHaveOnlyMaxHelpersOpen(t *testing.T) {
 	c.ws.ClosePaneByID(last)
 	if _, err := spawn(); err != nil {
 		t.Errorf("after a close the next start = %v", err)
+	}
+}
+
+// tabOf returns the tab holding a pane.
+func tabOf(w *Workspace, pane string) *Tab {
+	for _, t := range w.Tabs {
+		if t.Tree.Find(pane) != nil {
+			return t
+		}
+	}
+	return nil
+}
+
+// drawTab renders a tab's layout as text, one letter per pane, in a 40 by 8 box.
+func drawTab(t *Tab, letters map[string]byte) string {
+	t.Tree.Compute(layout.Rect{X: 0, Y: 0, W: 40, H: 8})
+	cells := make([][]byte, 8)
+	for y := range cells {
+		cells[y] = []byte(strings.Repeat(".", 40))
+	}
+	for _, leaf := range t.Tree.Leaves() {
+		r := leaf.Rect()
+		for y := r.Y; y < r.Y+r.H && y < 8; y++ {
+			for x := r.X; x < r.X+r.W && x < 40; x++ {
+				cells[y][x] = letters[leaf.Pane]
+			}
+		}
+	}
+	var b strings.Builder
+	for _, row := range cells {
+		b.Write(row)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// A manager keeps the panes for one piece of work in one tab by naming it, and
+// starts a different piece of work in a tab of its own.
+func TestSpawnWithATabNameGathersOnePieceOfWorkInOneTab(t *testing.T) {
+	c := newCrew(t)
+	start := func(role, tab string) string {
+		id, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: role, Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true, TabName: tab})
+		if err != nil {
+			t.Fatalf("spawn %s in %q: %v", role, tab, err)
+		}
+		return id
+	}
+	before := len(c.ws.Tabs)
+
+	plan := start("planner", "Login rate limit")
+	work := start("worker", "login rate limit") // the title is matched without regard to case
+	rev := start("reviewer", "Login rate limit")
+	other := start("worker", "Billing export")
+	if got := len(c.ws.Tabs); got != before+2 {
+		t.Fatalf("%d tabs were made for two pieces of work, want 2", got-before)
+	}
+
+	feature := tabOf(c.ws, plan)
+	if feature == nil || tabOf(c.ws, work) != feature || tabOf(c.ws, rev) != feature {
+		t.Fatal("the planner, worker and reviewer for one feature are not in one tab")
+	}
+	if feature.Title != "Login rate limit" {
+		t.Errorf("the tab is titled %q, want the name it was first given", feature.Title)
+	}
+	if !feature.Delegated || feature.AutoTitle {
+		t.Errorf("the tab is %+v, want delegated and not retitled by a prompt", feature)
+	}
+	if got := len(feature.Tree.Panes()); got != 3 {
+		t.Errorf("the feature tab holds %d panes, want 3", got)
+	}
+	bill := tabOf(c.ws, other)
+	if bill == nil || bill == feature || bill.Title != "Billing export" || len(bill.Tree.Panes()) != 1 {
+		t.Errorf("the second feature's tab = %+v", bill)
+	}
+	if tabOf(c.ws, c.lead) == feature || tabOf(c.ws, c.lead) == bill {
+		t.Error("the manager's own pane was moved into a feature tab")
+	}
+
+	// Closing a task's helpers takes its tab with them.
+	defer func() {
+		for _, id := range []string{plan, work, rev} {
+			c.ws.ClosePaneByID(id)
+		}
+		if tabOf(c.ws, other) == nil || c.ws.Tab(feature.ID) != nil {
+			t.Error("closing the last pane of the feature did not remove its tab, or removed another")
+		}
+	}()
+
+	// The layout is a grid with no pane hidden or overlapped.
+	letters := map[string]byte{plan: 'P', work: 'W', rev: 'R'}
+	drawn := drawTab(feature, letters)
+	t.Logf("tab %q:\n%s", feature.Title, drawn)
+	for _, l := range "PWR" {
+		if !strings.ContainsRune(drawn, l) {
+			t.Errorf("pane %c is not on screen in:\n%s", l, drawn)
+		}
+	}
+	// The dots are the one-cell rules between panes: whole columns, never a gap in a pane.
+	rows := strings.Split(strings.TrimSpace(drawn), "\n")
+	for x := range rows[0] {
+		dots := 0
+		for _, row := range rows {
+			if row[x] == '.' {
+				dots++
+			}
+		}
+		if dots != 0 && dots != len(rows) {
+			t.Fatalf("column %d is partly empty:\n%s", x, drawn)
+		}
+	}
+}
+
+// A tab name is looked for in the project the caller is in only.
+func TestSpawnWithATabNameDoesNotJoinAnotherProjectsTab(t *testing.T) {
+	c := newCrew(t)
+	first, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true, TabName: "shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tabOf(c.ws, first).Root = t.TempDir() // as though the tab belonged to another project
+	second, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true, TabName: "shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tabOf(c.ws, first) == tabOf(c.ws, second) {
+		t.Error("a helper joined a tab of another project")
 	}
 }

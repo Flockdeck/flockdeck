@@ -26,6 +26,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/appwindow"
@@ -446,7 +448,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
-	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-shell] [-record] [-agent <id>] [-model <model>] [-role <id>] [-baton <ref> [-baton-send-elsewhere]] <task>\n")
+	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-tab <title>] [-shell] [-record] [-agent <id>] [-model <model>] [-role <id>] [-baton <ref> [-baton-send-elsewhere]] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "  baton list | baton show [-path] <baton-id>\n")
@@ -1783,6 +1785,10 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	if f.shell && f.role != "" {
 		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, which has no role, so it cannot also take -role")
 	}
+	tab, err := cleanTabName(f.tab)
+	if err != nil {
+		return hooks.SpawnRequest{}, err
+	}
 	if err := checkAgent(f.agent, f.model); err != nil {
 		return hooks.SpawnRequest{}, err
 	}
@@ -1793,6 +1799,7 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 		Task:   task,
 		Branch: f.worktree,
 		Split:  f.split,
+		Tab:    tab,
 		Shell:  f.shell,
 		Agent:  f.agent,
 		Model:  f.model,
@@ -1804,6 +1811,27 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	}, nil
 }
 
+// maxTabName is the longest tab title -tab accepts, in characters.
+const maxTabName = 60
+
+// cleanTabName checks a -tab title: blank means no tab was asked for, and a
+// title with a control character or past maxTabName is refused rather than cut.
+func cleanTabName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", nil
+	}
+	if utf8.RuneCountInString(name) > maxTabName {
+		return "", fmt.Errorf("-tab names a tab, and %d characters is too long for a title; the limit is %d", utf8.RuneCountInString(name), maxTabName)
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return "", fmt.Errorf("-tab names a tab, and a title cannot contain a control character or a line break")
+		}
+	}
+	return name, nil
+}
+
 // spawnFlags are the flags of `flockdeck spawn` and where their values land.
 type spawnFlags struct {
 	worktree string
@@ -1811,6 +1839,7 @@ type spawnFlags struct {
 	model    string
 	role     string
 	split    bool
+	tab      string
 	shell    bool
 	record   bool
 	baton    string
@@ -1826,6 +1855,7 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(&f.worktree, "worktree", "", "`branch` for the helper's own git worktree, made for it")
 	fs.BoolVar(&f.split, "split", false, "place the helper beside this pane instead of in a new tab")
+	fs.StringVar(&f.tab, "tab", "", "`title` of the tab to put the helper in: the tab of that name in this project, made if there is none. Use one title for the panes of one piece of work. Takes precedence over -split")
 	fs.BoolVar(&f.shell, "shell", false, "start a shell instead of an agent")
 	fs.BoolVar(&f.record, "record", false, "record the helper's agent interaction as a transcript; off unless given, and only once recording has been turned on in the window")
 	fs.StringVar(&f.agent, "agent", "", "`id` of the agent to start; flockdeck agents lists them")

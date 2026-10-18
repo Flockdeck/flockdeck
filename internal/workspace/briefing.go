@@ -373,6 +373,9 @@ func writeSpawnFlags(b *strings.Builder, flockdeck string, roles bool) {
 		"- No placement flag: the agent opens in a new tab of its own, titled after the task.\n" +
 		"- `-split`: the agent opens beside you, in your tab. Several `-split` calls gather the group in " +
 		"front of the user at once.\n" +
+		"- `-tab <title>`: the agent joins the tab with that title in this project, which is made if there is " +
+		"none, and the tab's panes are laid out in a grid. Use one title for everything that belongs to one piece " +
+		"of work; it takes precedence over `-split`.\n" +
 		"- `-worktree <branch>`: the agent gets a git worktree and branch of its own, cut from yours. Without it " +
 		"every agent shares this working tree and edits files under the others; use it whenever two of them " +
 		"would touch the same files.\n" +

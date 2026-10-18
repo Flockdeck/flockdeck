@@ -73,7 +73,9 @@ func BuiltinRoles() []Role {
 				"share the checkout, but when in doubt cut the worktree. Assign the task (`flockdeck task assign <id> " +
 				"<pane id or role>`, the pane id is in the output of `spawn` and `flockdeck team -json`) before the " +
 				"worker moves it to in-progress, and put the task id in the worker's task. Ask each agent to finish by " +
-				"sending you what it changed, where, and what it did not get to.\n" +
+				"sending you what it changed, where, and what it did not get to. Put every agent for one task in one tab " +
+				"with `-tab \"<task title>\"`, the same title each time (a planner, then the worker, reviewer and tester " +
+				"for it), and give a different task a different title, so the user finds each task's agents together.\n" +
 				"3. Watch. After starting helpers, end your turn: Flockdeck types a one-line notice into your prompt " +
 				"when a helper goes idle, sends a message or exits, and when a task is blocked, ready for review or " +
 				"noted. Read it with `flockdeck inbox`; `flockdeck team` and `flockdeck task list` are the live state. " +
@@ -85,7 +87,7 @@ func BuiltinRoles() []Role {
 				"in-progress itself, and you tell the worker or start another. Read what each agent handed back " +
 				"before you pass it on.\n" +
 				"5. Report to the user: what is done and on which branches, what is blocked, and what you need decided. " +
-				"Close the helpers you started once their work is done (`flockdeck close <pane id>`).\n" +
+				"Close a task's helpers once its work is done (`flockdeck close <pane id>`); its tab goes with the last one.\n" +
 				"Reach an agent you started with `flockdeck msg send <pane id or role> <text>` (pane names are not " +
 				"unique) to answer a question, change a task or tell a worker to stop. Do not edit code, tests or " +
 				"docs yourself.\n" +
