@@ -258,3 +258,22 @@ func TestHomeFixtureHasLinks(t *testing.T) {
 		t.Skip("this system cannot make links here: the equivalence test does not cover them")
 	}
 }
+
+// A link that points back up the home is not walked, and does not spend the
+// budget.
+func TestWalkHomeDoesNotFollowALinkUp(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".config", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := linkDir(home, filepath.Join(home, ".config", "loop")); err != nil {
+		t.Skip("this system cannot make links here")
+	}
+	budget := 1000
+	if why := walkHome(home, "", filepath.Join(home, "repos"), &budget); why != "" {
+		t.Errorf("walk refused an unrelated root: %q", why)
+	}
+	if spent := 1000 - budget; spent > 20 {
+		t.Errorf("walk looked at %d entries; a loop was followed", spent)
+	}
+}

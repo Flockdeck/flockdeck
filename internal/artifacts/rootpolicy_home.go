@@ -32,20 +32,56 @@ const maxHomeEntries = 200000
 // secretUnderHome says why real may not be a root because it is, or is below, a
 // folder under the home h that keeps secrets, or "" if it is not.
 func secretUnderHome(h, real string) string {
-	// By name: real, below h, begins with a listed path.
-	if rel, ok := under(canonOr(h), canonOr(real)); ok {
-		parts := strings.Split(rel, "/")
-		for k := 1; k <= len(parts) && k <= secretname.MaxHomeDepth; k++ {
-			sub := strings.Join(parts[:k], "/")
-			if secretname.HomeSecret(sub, foldCase) {
-				return keepsSecrets(sub)
-			}
+	// By name: real, below h, begins with a listed path. Both are tried as
+	// written and with their existing part resolved the same way, so a home
+	// that exists and a root that does not still meet in one spelling.
+	for _, pair := range [][2]string{
+		{canonNear(h), canonNear(real)},
+		{filepath.Clean(filepath.FromSlash(h)), filepath.Clean(filepath.FromSlash(real))},
+	} {
+		if why := secretByName(pair[0], pair[1]); why != "" {
+			return why
 		}
 	}
 	// By identity: a listed folder that exists, found by reading the folders
 	// on the way to it, and compared with real as a folder.
 	budget := maxHomeEntries
 	return walkHome(h, "", real, &budget)
+}
+
+func secretByName(h, real string) string {
+	rel, ok := under(h, real)
+	if !ok {
+		return ""
+	}
+	parts := strings.Split(rel, "/")
+	for k := 1; k <= len(parts) && k <= secretname.MaxHomeDepth; k++ {
+		sub := strings.Join(parts[:k], "/")
+		if secretname.HomeSecret(sub, foldCase) {
+			return keepsSecrets(sub)
+		}
+	}
+	return ""
+}
+
+// canonNear is p with links and short names resolved as far as p exists: the
+// longest existing ancestor is resolved and the missing rest is put back as
+// written. Two paths into the same tree then share a prefix even when only
+// one of them exists.
+func canonNear(p string) string {
+	p = filepath.Clean(filepath.FromSlash(p))
+	rest := ""
+	for q := p; ; {
+		if c, err := canonical(q); err == nil {
+			return filepath.Join(c, rest)
+		}
+		parent := filepath.Dir(q)
+		if parent == q {
+			return p
+		}
+		rest = filepath.Join(filepath.Base(q), rest)
+		q = parent
+	}
 }
 
 func keepsSecrets(sub string) string { return "a folder that keeps secrets (" + sub + ")" }
@@ -75,11 +111,32 @@ func walkHome(h, rel, real string, budget *int) string {
 		if secretname.HomeSecret(sub, foldCase) && sameOrUnder(filepath.Join(dir, e.Name()), real) {
 			return keepsSecrets(sub)
 		}
-		if !e.Type().IsRegular() && secretname.HomeSecretAbove(sub, foldCase) {
+		if !e.Type().IsRegular() && secretname.HomeSecretAbove(sub, foldCase) && !linksUp(dir, e) {
 			if why := walkHome(h, sub, real, budget); why != "" {
 				return why
 			}
 		}
 	}
 	return ""
+}
+
+// linksUp is whether the entry e of dir is a link to dir or to a folder above
+// it. Following one would read the same folders again, so the walk does not.
+func linksUp(dir string, e os.DirEntry) bool {
+	if e.IsDir() && e.Type()&os.ModeIrregular == 0 {
+		return false // a real folder
+	}
+	p := filepath.Join(dir, e.Name())
+	target, err := canonical(p)
+	if err != nil {
+		return false // not a link that leads anywhere: ReadDir will say so
+	}
+	if target == canonNear(p) {
+		return false // a regular folder spelled differently, not a link
+	}
+	here := canonNear(dir)
+	if _, ok := under(target, here); ok {
+		return true
+	}
+	return target == here || (foldCase && strings.EqualFold(target, here))
 }
