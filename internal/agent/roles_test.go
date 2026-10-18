@@ -271,3 +271,19 @@ func TestRoleDescriptions(t *testing.T) {
 		t.Errorf("a role with none has %q", s.Description)
 	}
 }
+
+// Every built-in role tells its agent to arm the inbox stream, and the manager
+// names the Monitor tool and the fallback for when it is missing.
+func TestBuiltinRolesTellTheAgentToArmTheInboxStream(t *testing.T) {
+	for _, r := range Merge(nil).Roles {
+		if !strings.Contains(r.Briefing, "inbox -follow") {
+			t.Errorf("role %q never mentions `inbox -follow`", r.ID)
+		}
+	}
+	m, _ := Merge(nil).Role("manager")
+	for _, want := range []string{"Monitor tool", "inbox -wait 90s", "inbox read <id>"} {
+		if !strings.Contains(m.Briefing, want) {
+			t.Errorf("the manager briefing lacks %q", want)
+		}
+	}
+}

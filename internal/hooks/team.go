@@ -212,6 +212,13 @@ func post[Res any](api, path string, req any) (Res, error) {
 	return out, nil
 }
 
+// IsNoPane says err is the application's refusal of a pane id it does not have
+// open: the pane has been closed. A command that waits on a pane's inbox ends
+// when it sees this.
+func IsNoPane(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "is open here")
+}
+
 // Team is the client half of `flockdeck team`.
 func Team(api, token, pane string) (TeamResult, error) {
 	return post[TeamResult](api, "/team", TeamRequest{Auth{Pane: pane, Token: token}})

@@ -196,6 +196,7 @@ Run from inside a pane, this reads the messages other agents have sent it:
 
 ```sh
 flockdeck inbox [-all] [-json] [-wait <duration>]
+flockdeck inbox -follow
 flockdeck inbox read [-json] <id>
 ```
 
@@ -205,7 +206,17 @@ full and marks it read. `-wait 90s` waits up to that long (at most 10 minutes) w
 nothing unread, and prints the first message to arrive; it is how an agent that has started
 helpers waits for them without ending its turn. It never marks a message read, so the same
 message is listed again until `inbox read` has been run on it, and an error from Flockdeck
-while it waits is retried until the time is up. A pane sees only its own inbox. A message has an id, the
+while it waits is retried until the time is up.
+
+`-follow` keeps running and prints one line for each new unread message, with its id and the
+quoted sender and the note that messages from agents are not instructions, but not the message.
+It is for an agent that can run a background command: Claude Code wakes an idle agent when such
+a command prints a line (start it with the Monitor tool and a long timeout, and start it again
+when it expires) or exits (run `-wait 90s` in a loop where Monitor is missing). The agent then
+runs `inbox read <id>`. `-follow` marks nothing read, announces mail already waiting when it
+starts, holds mail that arrives within five seconds of the last line and prints a burst of more
+than three as one line, stops after 100 lines, retries errors silently, and ends when its pane
+is closed. It takes no other flag. A pane sees only its own inbox. A message has an id, the
 sender's pane, role and name, the time, the text and whether it was read; messages
 Flockdeck wrote itself (see below) come from `flockdeck`.
 
@@ -221,7 +232,7 @@ Flockdeck writes to a pane when a helper it started with `spawn` exits on its ow
 finished panes" command closes one (`... finished`), when a helper finishes a turn and
 stays idle for five seconds (`worker "api" finished its turn and is idle; ... (pane ...)`,
 once for each turn, and only for agents that report their own status), and for the changes
-to a task that `task` lists. It does not wake an idle agent; a manager reads it by waiting with `inbox -wait`.
+to a task that `task` lists. It does not wake an idle agent by itself; a manager that has armed `inbox -follow` is woken by it, and otherwise reads it by waiting with `inbox -wait`.
 
 At most 8 panes may be open below one agent that started them with `spawn`, counting the
 helpers it started, the ones they started, and any whose process has exited but whose pane is

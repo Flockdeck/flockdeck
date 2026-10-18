@@ -96,7 +96,7 @@ func sections(text string) (heads []string, sizes []int) {
 // on purpose, with the reason in the commit, rather than to make a test pass.
 var briefingCeiling = map[string]int{
 	"":         10500,
-	"manager":  14500, // was 13950: the manager role now carries the whole delegation loop
+	"manager":  15200, // was 14500: the inbox stream the briefing teaches every agent to arm; was 13950: the manager role now carries the whole delegation loop
 	"worker":   10000,
 	"reviewer": 9700,
 }

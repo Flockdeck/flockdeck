@@ -1280,3 +1280,15 @@ func TestTheBriefingOnlyPromisesResumeToAgentsThatHaveIt(t *testing.T) {
 		t.Errorf("an agent briefed in its prompt is not told it may start again:\n%s", prompted)
 	}
 }
+
+// TestTheBriefingTellsAnAgentHowToBeWokenByMail covers the follow stream: the
+// command, the Monitor tool, the fallback without it, and the admission that an
+// agent which cannot run background commands is not woken.
+func TestTheBriefingTellsAnAgentHowToBeWokenByMail(t *testing.T) {
+	text := PaneContext{PaneName: "one", Cwd: "/repo", CanSpawn: true}.Render()
+	for _, want := range []string{"inbox -follow", "Monitor tool", "inbox -wait 90s", "run_in_background", "cannot be woken", "inbox read <id>"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the briefing never says %q about being woken by mail", want)
+		}
+	}
+}
