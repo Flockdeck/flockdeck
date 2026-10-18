@@ -12,7 +12,8 @@ import (
 	"github.com/jmwri/flockdeck/internal/store"
 )
 
-// This file is the todo checklist feature's workspace-side cache, the same
+// This file is the workspace-side cache of saved fan-out plans (called todos
+// here and in store.Todo, the name they were first saved under), the same
 // shape groups.go is for project groupings: store.Todo is read once at
 // startup, kept in memory as w.todos, and every mutation writes the whole
 // list straight back out via persistTodos -- there being far fewer todos in
@@ -20,8 +21,8 @@ import (
 // that are saved only on a timer or on the way out.
 //
 // Unlike a fan-out's own history (see fanouthistory.go), which is kept only
-// for the run and starts empty on every restart, a todo is meant to be come
-// back to over days, so it is the one of the two that is actually
+// for the run and starts empty on every restart, a saved plan is meant to be
+// come back to over days, so it is the one of the two that is actually
 // persisted.
 
 // loadSavedTodos reads todos.json once, at startup. A damaged or absent
@@ -69,7 +70,7 @@ func (w *Workspace) Todo(id string) (store.Todo, bool) {
 func (w *Workspace) SaveTodo(id, root, title, spec string, stepIDs, stepTexts []string) (store.Todo, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
-		return store.Todo{}, errors.New("a todo needs a project")
+		return store.Todo{}, errors.New("a saved plan needs a project")
 	}
 	if len(stepIDs) != len(stepTexts) {
 		return store.Todo{}, fmt.Errorf("internal error: %d step ids for %d steps", len(stepIDs), len(stepTexts))
@@ -109,7 +110,7 @@ func (w *Workspace) SaveTodo(id, root, title, spec string, stepIDs, stepTexts []
 		steps = append(steps, step)
 	}
 	if len(steps) == 0 {
-		return store.Todo{}, errors.New("a todo needs at least one step")
+		return store.Todo{}, errors.New("a saved plan needs at least one step")
 	}
 
 	t := store.Todo{
@@ -132,7 +133,7 @@ func (w *Workspace) SaveTodo(id, root, title, spec string, stepIDs, stepTexts []
 		t.Title = summarisePrompt(t.Spec)
 	}
 	if t.Title == "" {
-		t.Title = "Untitled todo"
+		t.Title = "Untitled plan"
 	}
 
 	if idx >= 0 {
@@ -235,7 +236,7 @@ func (w *Workspace) todoIndex(id string) (int, error) {
 			return i, nil
 		}
 	}
-	return -1, fmt.Errorf("this todo no longer exists")
+	return -1, fmt.Errorf("this saved plan no longer exists")
 }
 
 // todoStep finds a step by todo and step id, for a caller about to change a

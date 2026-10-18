@@ -654,13 +654,14 @@ type command struct {
 	// decided by cmd.Type, the same as every other field this struct reuses
 	// across commands.
 	Roots []string `json:"roots"`
-	// TodoID and StepID name a todo and one of its steps for the todo
-	// checklist feature's own commands; Title and Spec are a todo's own.
-	// StepIDs is positional against Tasks, reused here for a todo's step
-	// text the same way it already carries a fan-out's edited task list: an
-	// empty entry is a step with no id yet, minted by Workspace.SaveTodo.
-	// Done is todoStepDone's own: the checkbox state to set. See
-	// internal/server/todo.go.
+	// TodoID and StepID name a saved fan-out plan and one of its steps for the
+	// plan commands; Title and Spec are a plan's own. StepIDs is positional
+	// against Tasks, reused here for a plan's step text the same way it
+	// already carries a fan-out's edited task list: an empty entry is a step
+	// with no id yet, minted by Workspace.SaveTodo. A fan-out sends TodoID
+	// and StepIDs too, when it was opened from a saved plan. Done is
+	// todoStepDone's own: the checkbox state to set. See
+	// internal/server/savedplans.go.
 	TodoID  string   `json:"todoId,omitempty"`
 	StepID  string   `json:"stepId,omitempty"`
 	Title   string   `json:"title,omitempty"`
@@ -1546,17 +1547,19 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "fanout":
 		s.fanout(c, fanoutRequest{
-			Parent:     cmd.ID,
-			Tasks:      cmd.Tasks,
-			Agent:      cmd.Agent,
-			Model:      cmd.Model,
-			TaskAgents: cmd.TaskAgents,
-			TaskModels: cmd.TaskModels,
-			TaskRouted: cmd.TaskRouted,
-			Overrides:  cmd.RouteOverrides,
-			Worktrees:  cmd.Worktrees,
-			Split:      cmd.Split,
-			Trust:      cmd.Trust,
+			Parent:      cmd.ID,
+			Tasks:       cmd.Tasks,
+			Agent:       cmd.Agent,
+			Model:       cmd.Model,
+			TaskAgents:  cmd.TaskAgents,
+			TaskModels:  cmd.TaskModels,
+			TaskRouted:  cmd.TaskRouted,
+			Overrides:   cmd.RouteOverrides,
+			Worktrees:   cmd.Worktrees,
+			Split:       cmd.Split,
+			Trust:       cmd.Trust,
+			PlanID:      cmd.TodoID,
+			PlanStepIDs: cmd.StepIDs,
 		})
 		return
 	case "startAgent":
@@ -1695,9 +1698,6 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "fanoutHistory":
 		s.fanoutHistory(c, cmd.Root)
 		return
-	case "todoPlanPreview":
-		s.previewTodoPlan(c, cmd.ID, cmd.Root)
-		return
 	case "todos":
 		s.listTodos(c, cmd.Root)
 		return
@@ -1709,9 +1709,6 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "todoStepDone":
 		s.setTodoStepDone(c, cmd.TodoID, cmd.StepID, cmd.Done)
-		return
-	case "todoStepStart":
-		s.startTodoStep(c, cmd)
 		return
 	case "remoteDevices":
 		s.remoteDevices(c)

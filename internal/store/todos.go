@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"path/filepath"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // TodoStepAttempt is one time an agent was started for a todo's step.
@@ -37,14 +39,15 @@ type TodoStep struct {
 	Attempts []TodoStepAttempt `json:"attempts,omitempty"`
 }
 
-// Todo is a saved implementation plan: a spec the user wrote, and the steps
-// drafted from it by an agent, checked off and started one at a time.
+// Todo is a saved fan-out plan: a task list kept so the Fan out dialog can
+// reopen it later, with which steps are done and every agent started for
+// each. The name is what the type shipped as, as a separate Todo feature
+// that was folded into Fan out; it stays because todos.json has to keep
+// loading as it was written.
 //
-// Unlike a fan-out, which starts every task at once and forgets the run the
-// moment its tab closes, a todo is meant to be come back to over days: it
-// belongs to a project as a whole (Root), not to any one worktree, since a
-// worktree is only where a given step's agent happens to run, and several
-// may exist for one project.
+// A plan belongs to a project as a whole (Root), not to any one worktree,
+// since a worktree is only where a given step's agent happens to run, and
+// several may exist for one project.
 type Todo struct {
 	ID    string     `json:"id"`
 	Root  string     `json:"root"`
@@ -93,6 +96,14 @@ func LoadTodos() ([]Todo, error) {
 	for _, t := range todos {
 		if t.ID == "" || t.Root == "" {
 			continue
+		}
+		// A step with no id (a hand-edited file) could not be named by the
+		// Fan out dialog that now starts them; it is given one here rather
+		// than dropped, so no saved step is lost to a missing field.
+		for i := range t.Steps {
+			if t.Steps[i].ID == "" {
+				t.Steps[i].ID = uuid.NewString()
+			}
 		}
 		out = append(out, t)
 	}

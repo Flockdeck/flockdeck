@@ -237,6 +237,13 @@ type fanoutRequest struct {
 	Worktrees  bool
 	Split      bool
 	Trust      bool
+	// PlanID names the saved plan (a store.Todo) the dialog was opened on,
+	// and PlanStepIDs the plan's step each row came from, positional against
+	// Tasks and empty for a row typed in since. A started row records an
+	// attempt against its step, and its branch is grouped under the plan's.
+	// Both are empty for a fan-out that was not opened from a saved plan.
+	PlanID      string
+	PlanStepIDs []string
 }
 
 // overrideAt returns the value list holds for row i, or "" when it holds none.
@@ -308,6 +315,7 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 		parent, baseCwd := in.parent, in.cwd
 
 		jobs, capped := planJobs(req, baseCwd)
+		planID := s.groupUnderPlan(req, jobs)
 		if capped {
 			c.notify(fmt.Sprintf("Stopped after %d agents; start the rest as a second fan-out", workspace.MaxTasks), true)
 		}
@@ -399,6 +407,13 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 				if err == nil && first {
 					s.revealFirstChild(id, in.shown)
 				}
+				if err == nil && planID != "" && j.stepID != "" {
+					// Recorded in the same visit as the spawn, so the pane
+					// cannot close before it has an attempt to end. A plan
+					// deleted from another window since the dialog opened has
+					// nothing to record against, and the agent has started.
+					_ = s.ws.StartTodoStepAttempt(planID, j.stepID, id)
+				}
 				return spawned{id: id, tab: s.ws.TabIDOf(id), err: err}
 			})
 			if !ok {
@@ -424,6 +439,33 @@ func (s *Server) fanout(c *controlClient, req fanoutRequest) {
 		c.notify(fanoutSummary(started, failed))
 		s.Wake()
 	}()
+}
+
+// groupUnderPlan gives each job that came from a step of the saved plan the
+// fan-out was opened on the branch name that plan groups its steps under, and
+// returns the plan's id. It returns "" and changes nothing when the fan-out
+// was not opened from a plan, or the plan has since been deleted: the run
+// then goes ahead as an ordinary fan-out.
+func (s *Server) groupUnderPlan(req fanoutRequest, jobs []*fanoutJob) string {
+	if req.PlanID == "" {
+		return ""
+	}
+	plan, found := ask(s, func() *store.Todo {
+		t, ok := s.ws.Todo(req.PlanID)
+		if !ok {
+			return nil
+		}
+		return &t
+	})
+	if !found || plan == nil {
+		return ""
+	}
+	for _, j := range jobs {
+		if j.stepID != "" {
+			j.branchBase = todoStepBranch(*plan, store.TodoStep{Text: j.task})
+		}
+	}
+	return plan.ID
 }
 
 // startAgentRateLimit and startAgentRateWindow bound how often one window
@@ -696,6 +738,9 @@ func planJobs(req fanoutRequest, cwd string) ([]*fanoutJob, bool) {
 			j.model = m
 		}
 		j.routed = overrideAt(req.TaskRouted, i)
+		if req.PlanID != "" {
+			j.stepID = overrideAt(req.PlanStepIDs, i)
+		}
 		jobs = append(jobs, j)
 	}
 	return jobs, false
@@ -716,6 +761,11 @@ type fanoutJob struct {
 	// routed names the routing rule that chose model, for a row the dialog
 	// started on the model routing pre-filled.
 	routed string
+	// stepID is the step of a saved plan this task is, when the fan-out was
+	// opened from one, and branchBase the branch name its worktree starts
+	// from in place of one derived from the task text; see todoStepBranch.
+	stepID     string
+	branchBase string
 	// branch is the branch the agent gets when it is given a worktree, and
 	// path is where that worktree goes.
 	branch string
@@ -799,7 +849,11 @@ func sameFolderIn(repo, base, wt string) (cwd, origin string) {
 func nameBranches(jobs []*fanoutJob, taken map[string]bool) {
 	used := map[string]bool{}
 	for _, j := range jobs {
-		j.branch = uniqueBranch(workspace.BranchNameFor(j.task), taken, used)
+		base := j.branchBase
+		if base == "" {
+			base = workspace.BranchNameFor(j.task)
+		}
+		j.branch = uniqueBranch(base, taken, used)
 		used[j.branch] = true
 	}
 }

@@ -5,8 +5,8 @@ list out of the pane's output and offers to start an agent for each item.
 
 Press [[key:fanout]], or use the `⑂` button in the pane header.
 
-For a plan you want to work through over days rather than start all at once,
-see [Todo](#todo) instead.
+A plan you want to work through over days rather than start all at once can
+be saved from the same dialog; see Saved plans below.
 
 For a Claude Code pane, and for a model API spoken to through the built-in
 chat client, the list is read out of the agent's own stored conversation (the
@@ -83,6 +83,40 @@ Under **Where they run**:
   project was never asked. The questions are Claude Code's, so the box is
   shown only when the run starts Claude Code.
 
+## Saved plans
+
+Under **Save for later**, give the list a name and press **Save plan**. That
+writes the tasks down and starts nothing. Saved plans are kept on disk with
+Flockdeck's other state, so they are there after a restart, and they belong to
+the project they were saved in.
+
+Open [[action:fanoutHistory]], in the rail or the command palette. Saved plans
+are listed there above the past jobs, each with how many of its steps are
+done. **Open in Fan out** loads the steps that are not done into the dialog,
+where everything above applies: edit a row, remove one, choose models, then
+start the ones you want now and leave the rest for another day.
+
+- Agents started from a saved plan record an attempt against the step each
+  came from. When one of those panes is closed, its outcome (done, needs input,
+  or failed) is read the same way the fan-out history reads it. An outcome of
+  done ticks the step, and an outcome never unticks one.
+- A step ticked off moves out of the list into a **Done** section, with its
+  last outcome and how many attempts it had. **Reopen** puts it back; earlier
+  attempts are kept.
+- **Mark done** on a row ticks a step without running it, for work you did
+  yourself.
+- With **Each in its own git worktree** on, the branches of a saved plan's
+  steps are grouped under the plan's name, `agent/<plan>/<step>`, so they sit
+  together in `git branch` and the worktree list across as many runs as it
+  takes.
+- **Update plan** saves the edits, reordering and renames you made in the
+  dialog. Steps keep their history through an edit to their text.
+- **Delete** in the history removes a plan and its history, after asking.
+
+Plans saved by the Todo feature, which this replaces, appear in the same list
+with their steps, ticks and attempts as they were. There is no separate Todo
+button, shortcut or page any more.
+
 Each task is handed to the agent as its opening argument rather than typed into
 the terminal, so it is submitted the moment the agent starts, with no guessing
 when the interface is ready.
@@ -121,8 +155,8 @@ Closing a settled job, tab and all or one pane at a time, does not throw its
 outcome away. [[action:fanoutHistory]], in the rail and the command palette,
 lists a project's past fan-out jobs for as long as Flockdeck runs: what was
 fanned out, when, and each pane's own outcome, read the same way the card
-itself reads them. It is kept in memory only: quitting Flockdeck clears it,
-the same as everything else a fan-out is not asked to write to disk.
+itself reads them. The past jobs are kept in memory only: quitting Flockdeck
+clears them. Only saved plans are written to disk.
 
 ## How many at once
 

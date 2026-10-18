@@ -101,3 +101,69 @@ func TestLoadTodosDropsEmptyEntries(t *testing.T) {
 		t.Fatalf("got %v, want only t2", got)
 	}
 }
+
+// legacyTodos is a todos.json as the standalone Todo feature wrote it, before
+// it was folded into Fan out, with a field this version does not know and a
+// step missing its id.
+const legacyTodos = `[
+  {
+    "id": "t1", "root": "C:/code/api", "title": "Ship health endpoint", "spec": "add a health endpoint",
+    "steps": [
+      {"id": "s1", "text": "add the route", "done": true,
+       "attempts": [{"paneId": "p1", "startedAt": "2026-10-01T09:00:00Z", "endedAt": "2026-10-01T09:05:00Z", "outcome": "done"}]},
+      {"text": "add a test", "futureField": 3}
+    ],
+    "futureField": {"a": 1},
+    "createdAt": "2026-10-01T08:00:00Z", "updatedAt": "2026-10-01T09:05:00Z"
+  },
+  {"id": "t2", "root": "C:/code/web", "title": "", "spec": "", "steps": null,
+   "createdAt": "2026-10-02T08:00:00Z", "updatedAt": "2026-10-02T08:00:00Z"}
+]`
+
+// TestLoadTodosReadsAFileWrittenBeforeTheMergeIntoFanOut checks a saved todo
+// from the standalone feature loads whole, survives a save and a second load
+// (what the first change made through Fan out does), and that nothing in it
+// is lost or crashes on load: unknown fields, a todo with no steps, and a
+// step with no id.
+func TestLoadTodosReadsAFileWrittenBeforeTheMergeIntoFanOut(t *testing.T) {
+	isolateConfig(t)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, todosFile), []byte(legacyTodos), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadTodos()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("loaded %d todos, want both", len(got))
+	}
+	first := got[0]
+	if first.Title != "Ship health endpoint" || len(first.Steps) != 2 {
+		t.Fatalf("first todo = %+v", first)
+	}
+	if !first.Steps[0].Done || len(first.Steps[0].Attempts) != 1 || first.Steps[0].Attempts[0].Outcome != "done" {
+		t.Errorf("step 0 lost its done flag or attempt: %+v", first.Steps[0])
+	}
+	if first.Steps[1].ID == "" || first.Steps[1].Text != "add a test" {
+		t.Errorf("step 1 = %+v, want it kept with an id given to it", first.Steps[1])
+	}
+	if len(got[1].Steps) != 0 {
+		t.Errorf("second todo has steps %v, want none", got[1].Steps)
+	}
+
+	if err := SaveTodos(got); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	again, err := LoadTodos()
+	if err != nil {
+		t.Fatalf("second load: %v", err)
+	}
+	if len(again) != 2 || again[0].Steps[1].ID != first.Steps[1].ID || !again[0].Steps[0].Done {
+		t.Errorf("a save and reload changed the todos: %+v", again)
+	}
+}

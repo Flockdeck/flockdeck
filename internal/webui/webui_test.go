@@ -1830,7 +1830,7 @@ assert.ok(bars.every((b) => b.getAttribute("aria-label")), "the rows have no nam
 const stops = (bar) => bar.children.filter((b) => b.tabIndex !== -1).length;
 assert.deepStrictEqual(bars.map(stops), [1, 1, 1, 1, 1, 1],
   "each row of buttons is more than one stop on the way through the window");
-assert.strictEqual(bars[0].children.length, 11, "eleven things to do with a pane");
+assert.strictEqual(bars[0].children.length, 10, "ten things to do with a pane");
 
 // The arrows walk the row and take the stop with them.
 const buttons = bars[0].children;
@@ -1840,7 +1840,7 @@ assert.ok(h.doc.activeElement === buttons[1], "the right arrow did not move alon
 assert.strictEqual(buttons[1].tabIndex, 0, "the stop did not move with the focus");
 assert.strictEqual(buttons[0].tabIndex, -1);
 h.key({ key: "End" });
-assert.ok(h.doc.activeElement === buttons[10], "End did not go to the last button");
+assert.ok(h.doc.activeElement === buttons[9], "End did not go to the last button");
 h.key({ key: "ArrowRight" });
 assert.ok(h.doc.activeElement === buttons[0], "the row does not wrap");
 
@@ -1850,16 +1850,16 @@ h.doc.body.focus();
 h.key({ key: "Tab" });
 h.key({ key: "Tab" });
 assert.strictEqual(stops(bars[0]), 1, "the row grew a second stop");
-assert.strictEqual(buttons[10].tabIndex, 0, "the stop did not stay where it was left");
+assert.strictEqual(buttons[9].tabIndex, 0, "the stop did not stay where it was left");
 
 // And they still do what they say.
-buttons[10].focus();
-h.key({ key: "Enter" });
-assert.deepStrictEqual(h.commands().pop(), { cmd: "closePane", id: "p0" });
 buttons[9].focus();
 h.key({ key: "Enter" });
+assert.deepStrictEqual(h.commands().pop(), { cmd: "closePane", id: "p0" });
+buttons[8].focus();
+h.key({ key: "Enter" });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "lockPane", id: "p0", locked: true });
-buttons[5].focus();
+buttons[4].focus();
 h.key({ key: " " });
 assert.deepStrictEqual(h.commands().pop(), { cmd: "toggleZoom", id: "p0" });
 `)
@@ -2155,11 +2155,12 @@ func TestFanOutHistoryListsPastJobs(t *testing.T) {
 h.hello();
 h.recv(fixture());
 h.click(h.$("btn-fanout-history"));
-assert.deepStrictEqual(h.commands().pop(), { cmd: "fanoutHistory", root: "C:/repo" });
-assert.ok(h.$("overlay-body").textContent.includes("Reading past jobs"));
+assert.deepStrictEqual(h.commands().slice(-2), [{ cmd: "fanoutHistory", root: "C:/repo" }, { cmd: "todos", root: "C:/repo" }]);
+assert.ok(h.$("overlay-body").textContent.includes("Reading saved plans and past jobs"));
 
 h.recv({ type: "fanoutHistory", root: "C:/repo", items: [] });
-assert.ok(h.$("overlay-body").textContent.includes("No finished fan-out jobs have been closed in this project since Flockdeck started"));
+h.recv({ type: "todos", root: "C:/repo", items: [] });
+assert.ok(h.$("overlay-body").textContent.includes("no finished fan-out jobs have been closed in this project since Flockdeck started"));
 
 h.recv({
   type: "fanoutHistory", root: "C:/repo",
@@ -6526,7 +6527,7 @@ assert.strictEqual(h.$("help-content").dataset.slug, "agents");
 // "Go to…" was a chip in every dialog's header; it is now the palette's own
 // entry (D5 of the pop-over redesign), and still the palette narrowed to the
 // actions that open a surface: it lists Settings without listing something
-// like a pane split, it covers Todos, GitHub and Fan out, which the chip left
+// like a pane split, it covers GitHub and Fan out, which the chip left
 // out, and choosing one from there switches straight to it, no trip back out
 // to the rail.
 func TestGoToSwitchesDialogsFromThePalette(t *testing.T) {
@@ -6542,7 +6543,7 @@ assert.strictEqual(h.$("palette-input").placeholder, "Go to…");
 const labels = h.$("palette-list").children.filter((r) => r.classList.contains("pal-row")).map((r) => r.querySelector(".pal-label").textContent);
 assert.ok(labels.includes("Settings"), "Go to… does not offer Settings");
 assert.ok(!labels.some((l) => l.startsWith("Split right")), "Go to… offers more than the dialogs");
-for (const name of ["Todos", "GitHub", "Fan out"]) {
+for (const name of ["GitHub", "Fan out"]) {
   assert.ok(labels.some((l) => l.startsWith(name)), "Go to… does not offer " + name + ": " + labels.join(", "));
 }
 

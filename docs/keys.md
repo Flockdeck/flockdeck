@@ -57,9 +57,7 @@ table, run `go test ./internal/help -run TestKeysDocShortcuts -update`.
 | `Ctrl+Shift+P` | Prompt all panes |
 | `Ctrl+Shift+X` | Fan out — turn this pane's plan into agents |
 | Command palette | Make baton: hand this pane's work to another agent |
-| Command palette | Fan-out history — past jobs in this project |
-| Command palette | New todo — save this pane's plan as a checklist |
-| Command palette | Todos — this project's saved checklists |
+| Command palette | Fan-out history — saved plans and past jobs in this project |
 | `Ctrl+Shift+A` | All agents across projects |
 | Command palette | Close finished panes — idle agents and cleanly exited panes, in every open project |
 | Command palette | Start a team — a manager agent that starts the rest |

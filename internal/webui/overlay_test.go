@@ -24,7 +24,7 @@ h.hello();
 h.recv(fixture());
 const present = () => h.$("overlay-panel").getAttribute("data-present");
 const sheets = ["btn-agents", "btn-changes", "btn-history", "btn-worktrees", "btn-fanout-history",
-  "btn-todos", "btn-team", "rail-open"];
+  "btn-team", "rail-open"];
 for (const id of sheets) {
   h.click(h.$(id));
   assert.ok(!h.$("overlay").hidden, id + " opened nothing");

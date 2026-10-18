@@ -222,7 +222,7 @@ set).
   Flockdeck.
 - `chats`: the built-in chat client's conversations.
 - `groups.json`: the multi-repo projects' grouping.
-- `todos.json`: every project's saved todo checklists.
+- `todos.json`: every project's saved fan-out plans. It is named for the Todo feature they were first saved by.
 - `worktree-procs.json`: processes recorded for worktrees, so they can be
   swept up.
 - `e2e_key.json`: this machine's end-to-end key for Flockdeck Remote terminals.

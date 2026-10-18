@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // runSaveTodo calls saveTodo directly and reads back its answer: a
@@ -106,100 +107,102 @@ func TestSaveTodoRefusesAnEmptyRoot(t *testing.T) {
 	}
 }
 
-// TestStartTodoStepStartsAgentAndRecordsAttempt covers the "kick off a pane
-// for this step" action: it starts a real agent for the step's own text,
-// and records the pane as the step's attempt so the checklist can show it.
-func TestStartTodoStepStartsAgentAndRecordsAttempt(t *testing.T) {
+// stepPane returns the pane id recorded as step i's latest attempt.
+func stepPane(t *testing.T, ws *workspace.Workspace, planID string, i int) string {
+	t.Helper()
+	got, ok := ws.Todo(planID)
+	if !ok {
+		t.Fatal("saved plan vanished")
+	}
+	at := got.Steps[i].Attempts
+	if len(at) == 0 {
+		t.Fatalf("step %d has no attempt", i)
+	}
+	return at[len(at)-1].PaneID
+}
+
+// TestFanOutFromASavedPlanRecordsAnAttemptPerStep covers starting a saved
+// plan's steps from the Fan out dialog: each started row records its pane as
+// an attempt against the step it came from, and a row typed in since (no step
+// id) records nothing.
+func TestFanOutFromASavedPlanRecordsAnAttemptPerStep(t *testing.T) {
 	srv, ws := fanoutServer(t)
 	root := ws.ActiveRoot()
 
-	todo, err := ws.SaveTodo("", root, "ship the thing", "spec", []string{"", ""},
+	plan, err := ws.SaveTodo("", root, "ship the thing", "spec", []string{"", ""},
 		[]string{"first step", "second step"})
 	if err != nil {
-		t.Fatalf("save todo: %v", err)
+		t.Fatalf("save plan: %v", err)
 	}
 
-	c := &controlClient{out: make(chan []byte, 8)}
-	srv.startTodoStep(c, command{TodoID: todo.ID, StepID: todo.Steps[0].ID, Agent: "gocli"})
-	paneID := waitAgentStarted(t, c)
+	runFanout(t, srv, fanoutRequest{
+		Tasks:       []string{"second step", "typed in later"},
+		PlanID:      plan.ID,
+		PlanStepIDs: []string{plan.Steps[1].ID, ""},
+		Agent:       "gocli",
+	})
 
-	got, ok := ws.Todo(todo.ID)
-	if !ok {
-		t.Fatal("todo vanished")
+	got, _ := ws.Todo(plan.ID)
+	if n := len(got.Steps[0].Attempts); n != 0 {
+		t.Errorf("a step left out of the run has %d attempts, want none", n)
 	}
-	step := got.Steps[0]
-	if len(step.Attempts) != 1 || step.Attempts[0].PaneID != paneID {
-		t.Fatalf("step attempts = %+v, want one attempt naming pane %q", step.Attempts, paneID)
+	paneID := stepPane(t, ws, plan.ID, 1)
+	if len(got.Steps[1].Attempts) != 1 {
+		t.Fatalf("step attempts = %+v, want one", got.Steps[1].Attempts)
 	}
-	if p := ws.Pane(paneID); p == nil || p.Task != "first step" {
-		t.Fatalf("started pane's task = %+v, want %q", p, "first step")
+	if p := ws.Pane(paneID); p == nil || p.Task != "second step" {
+		t.Fatalf("the attempt's pane = %+v, want one running %q", p, "second step")
+	}
+	if len(got.Steps) != 2 {
+		t.Errorf("the plan has %d steps, want the 2 it was saved with", len(got.Steps))
 	}
 }
 
-// TestStartTodoStepInAWorktreeNamespacesTheBranch covers point 8 of the
-// feature's design: a step started in a worktree of its own gets a branch
-// grouped under its todo, not one derived from the step's own text the way
-// a fan-out's tasks are.
-func TestStartTodoStepInAWorktreeNamespacesTheBranch(t *testing.T) {
+// TestFanOutFromADeletedPlanStillStartsTheAgents covers a plan deleted from
+// another window while the dialog was open: the run goes ahead as an
+// ordinary fan-out.
+func TestFanOutFromADeletedPlanStillStartsTheAgents(t *testing.T) {
+	srv, ws := fanoutServer(t)
+	root := ws.ActiveRoot()
+	plan, err := ws.SaveTodo("", root, "gone soon", "", []string{""}, []string{"only step"})
+	if err != nil {
+		t.Fatalf("save plan: %v", err)
+	}
+	if err := ws.DeleteTodo(plan.ID); err != nil {
+		t.Fatalf("delete plan: %v", err)
+	}
+	runFanout(t, srv, fanoutRequest{
+		Tasks: []string{"only step"}, PlanID: plan.ID, PlanStepIDs: []string{plan.Steps[0].ID}, Agent: "gocli",
+	})
+}
+
+// TestFanOutFromASavedPlanInWorktreesNamespacesTheBranches covers the branch
+// names: grouped under the plan, as they were when a todo started its steps,
+// rather than derived from each step's text alone.
+func TestFanOutFromASavedPlanInWorktreesNamespacesTheBranches(t *testing.T) {
 	srv, ws, repo := newRepoServer(t)
 	writeAgents(t, revealAgents)
 	ws.ReloadAgents()
 
-	todo, err := ws.SaveTodo("", repo, "ship the thing", "spec", []string{""}, []string{"add a health endpoint"})
+	plan, err := ws.SaveTodo("", repo, "ship the thing", "spec", []string{""}, []string{"add a health endpoint"})
 	if err != nil {
-		t.Fatalf("save todo: %v", err)
+		t.Fatalf("save plan: %v", err)
 	}
+	runFanout(t, srv, fanoutRequest{
+		Tasks: []string{"add a health endpoint"}, PlanID: plan.ID, PlanStepIDs: []string{plan.Steps[0].ID},
+		Agent: "gocli", Worktrees: true,
+	})
 
-	c := &controlClient{out: make(chan []byte, 8)}
-	srv.startTodoStep(c, command{TodoID: todo.ID, StepID: todo.Steps[0].ID, Agent: "gocli", Worktree: true})
-	paneID := waitAgentStarted(t, c)
-
-	p := ws.Pane(paneID)
+	p := ws.Pane(stepPane(t, ws, plan.ID, 0))
 	if p == nil {
 		t.Fatal("the started pane does not exist")
 	}
 	if samePath(filepath.Clean(p.Cwd), filepath.Clean(repo)) {
 		t.Errorf("pane cwd = %s, want a worktree of its own", p.Cwd)
 	}
-	want := todoStepBranch(todo, todo.Steps[0])
-	if p.Branch != want {
-		t.Errorf("branch = %q, want it namespaced under the todo: %q", p.Branch, want)
+	if want := todoStepBranch(plan, plan.Steps[0]); p.Branch != want {
+		t.Errorf("branch = %q, want it namespaced under the plan: %q", p.Branch, want)
 	}
-}
-
-// waitAgentStarted reads an agentStarted message off c and returns its pane
-// id, the same shape runStartAgent reads for startAgent's own reply.
-func waitAgentStarted(t *testing.T, c *controlClient) string {
-	t.Helper()
-	for i := 0; i < 2; i++ {
-		select {
-		case raw := <-c.out:
-			var head struct {
-				Type string `json:"type"`
-			}
-			if unmarshalHead(raw, &head) != nil {
-				continue
-			}
-			if head.Type == "notice" {
-				var msg noticeMsg
-				_ = unmarshalHead(raw, &msg)
-				t.Fatalf("startTodoStep said %q", msg.Text)
-			}
-			if head.Type == "agentStarted" {
-				var msg struct {
-					PaneID string `json:"paneId"`
-				}
-				if err := unmarshalHead(raw, &msg); err != nil {
-					t.Fatalf("agentStarted: %v", err)
-				}
-				return msg.PaneID
-			}
-		case <-timeoutChan():
-			t.Fatal("startTodoStep never answered")
-		}
-	}
-	t.Fatal("startTodoStep never sent agentStarted")
-	return ""
 }
 
 // TestClosingATodoStepsPaneRecordsItsOutcome covers the auto-detect half of
@@ -225,9 +228,10 @@ func TestClosingATodoStepsPaneRecordsItsOutcome(t *testing.T) {
 		t.Fatalf("save todo: %v", err)
 	}
 
-	c := &controlClient{out: make(chan []byte, 8)}
-	srv.startTodoStep(c, command{TodoID: todo.ID, StepID: todo.Steps[0].ID, Agent: "gocli"})
-	paneID := waitAgentStarted(t, c)
+	runFanout(t, srv, fanoutRequest{
+		Tasks: []string{"first step"}, PlanID: todo.ID, PlanStepIDs: []string{todo.Steps[0].ID}, Agent: "gocli",
+	})
+	paneID := stepPane(t, ws, todo.ID, 0)
 	settlePane(t, srv, ws, paneID, session.StatusIdle)
 
 	sendCmd(t, conn, command{Cmd: "closePane", ID: paneID})
@@ -281,37 +285,6 @@ func TestClosingAPaneNotOwnedByATodoLeavesTodosAlone(t *testing.T) {
 	}
 	if len(got.Steps[0].Attempts) != 0 {
 		t.Errorf("an unrelated pane's close recorded an attempt on the todo: %+v", got.Steps[0].Attempts)
-	}
-}
-
-// TestPreviewTodoPlanAnswersWithThePaneAndRoot covers previewTodoPlan's own
-// wiring, distinct from fan-out's dialog: the extraction itself (planTasks,
-// ExtractTasks) is already covered by the workspace package's own tests, so
-// this only pins that the answer names the pane and root it was asked
-// about, the way a todo's spec-drafting flow needs to match the preview
-// back to the request that opened it.
-func TestPreviewTodoPlanAnswersWithThePaneAndRoot(t *testing.T) {
-	srv, ws := fanoutServer(t)
-	root := ws.ActiveRoot()
-	lead := wherePlaced(t, srv, ws)
-
-	c := &controlClient{out: make(chan []byte, 8)}
-	srv.previewTodoPlan(c, lead.pane, root)
-
-	select {
-	case raw := <-c.out:
-		var msg todoPlanPreviewMsg
-		if err := unmarshalHead(raw, &msg); err != nil {
-			t.Fatalf("todoPlanPreview: %v", err)
-		}
-		if msg.PaneID != lead.pane {
-			t.Errorf("paneId = %q, want %q", msg.PaneID, lead.pane)
-		}
-		if msg.Root != root {
-			t.Errorf("root = %q, want %q", msg.Root, root)
-		}
-	case <-timeoutChan():
-		t.Fatal("previewTodoPlan never answered")
 	}
 }
 

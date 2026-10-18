@@ -35,7 +35,6 @@ var order = []string{
 	"rearranging",
 	"broadcast",
 	"fanout",
-	"todo",
 	"worktrees",
 	"changes",
 	"github",

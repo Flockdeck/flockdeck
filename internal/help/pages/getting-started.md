@@ -65,7 +65,7 @@ is; [Spend and limits](#spend) says how, and when Claude Code's are read.
 The rail down the left of the window has a tile for each open project (one
 with an amber triangle badge has an agent waiting on you, and one with a cyan badge
 has agents at work), and under them the tools: Agents, Team, Broadcast,
-Changes, Resume, Worktrees, Fan-out history and Todos, then, below a rule,
+Changes, Resume, Worktrees, Fan-out history, then, below a rule,
 Help and Settings. GitHub, API keys and Flockdeck Remote are in the command
 palette and in the settings. Rest the
 pointer on one, or reach it with the keyboard, and it says what it is and the
