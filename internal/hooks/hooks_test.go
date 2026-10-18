@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -1189,4 +1190,54 @@ func TestAFieldOfAnUnexpectedTypeCostsOnlyItself(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestAMessageNoticeRidesOnThePromptAndToolHooksOnly checks the two events a
+// notice of waiting messages is returned for, and that every other event stays
+// cheap and silent. A notice is never typed into a pane; this is how it arrives.
+func TestAMessageNoticeRidesOnThePromptAndToolHooksOnly(t *testing.T) {
+	srv, r := newServer(t)
+	var asked []string
+	var mu sync.Mutex
+	srv.SetNoticeHandler(func(id string) string {
+		mu.Lock()
+		asked = append(asked, id)
+		mu.Unlock()
+		if id == "quiet" {
+			return ""
+		}
+		return "you have mail for " + id
+	})
+
+	for _, event := range NoticeEvents {
+		res, err := Emit(nil, srv.Endpoint(), srv.Token(), "pane-9", event)
+		if err != nil {
+			t.Fatalf("%s: %v", event, err)
+		}
+		if res.Context != "you have mail for pane-9" {
+			t.Errorf("%s: context = %q, want the notice", event, res.Context)
+		}
+		r.next(t)
+	}
+	res, err := Emit(nil, srv.Endpoint(), srv.Token(), "quiet", "UserPromptSubmit")
+	if err != nil || res.Context != "" {
+		t.Errorf("nothing to say: context %q, err %v", res.Context, err)
+	}
+	r.next(t)
+
+	mu.Lock()
+	before := len(asked)
+	mu.Unlock()
+	for _, event := range []string{"Stop", "PreToolUse", "Notification", "SessionEnd"} {
+		res, err := Emit(nil, srv.Endpoint(), srv.Token(), "pane-9", event)
+		if err != nil || res.Context != "" {
+			t.Errorf("%s: context %q, err %v, want none", event, res.Context, err)
+		}
+		r.next(t)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(asked) != before {
+		t.Errorf("the notice handler was asked on an event that carries none: %v", asked[before:])
+	}
 }

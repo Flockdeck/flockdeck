@@ -28,6 +28,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -619,6 +620,7 @@ type Server struct {
 	mu         sync.RWMutex
 	onSpawn    func(SpawnRequest) (SpawnResult, error)
 	onContext  func(sessionID string) string
+	onNotice   func(sessionID string) string
 	onUsage    func(spend.Report)
 	onReview   func(sessionID string, ev Event) (allow bool, reason string)
 	onPeerName func(PeerNameRequest) error
@@ -648,6 +650,26 @@ func (s *Server) SetContextHandler(fn func(sessionID string) string) {
 	s.onContext = fn
 	s.mu.Unlock()
 }
+
+// SetNoticeHandler installs the function that tells a pane's agent it has mail.
+// It is asked for the replies to UserPromptSubmit and PostToolUse, the two
+// events Claude Code reads additional context from while a session is running,
+// and returns the empty string when there is nothing new to say.
+//
+// This is how an agent is told of a message. Typing a line into its input would
+// leave text in the user's message box that the user did not write, and on
+// Windows a line and its Enter that arrive together are read as a paste and
+// left there unsubmitted. The handler runs on the hook's own goroutine and must
+// be quick: it is asked on every tool call.
+func (s *Server) SetNoticeHandler(fn func(sessionID string) string) {
+	s.mu.Lock()
+	s.onNotice = fn
+	s.mu.Unlock()
+}
+
+// NoticeEvents are the hook events whose reply carries a notice of waiting
+// messages.
+var NoticeEvents = []string{"UserPromptSubmit", "PostToolUse"}
 
 // SetReviewHandler installs auto-review approvals: the function consulted on
 // every PreToolUse call, which answers whether the pane it names is safe to
@@ -716,7 +738,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.RLock()
-	ctxFn, reviewFn := s.onContext, s.onReview
+	ctxFn, reviewFn, noticeFn := s.onContext, s.onReview, s.onNotice
 	s.mu.RUnlock()
 
 	var rep reply
@@ -727,6 +749,15 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	if p.Event.Event == SessionStart && ctxFn != nil && p.SessionID != "" {
 		rep.Context = ctxFn(p.SessionID)
 		answered = true
+	}
+	// A message waiting for the pane's agent is told in the reply to the next
+	// prompt or tool result it reads, never typed into its input; see
+	// SetNoticeHandler.
+	if noticeFn != nil && p.SessionID != "" && slices.Contains(NoticeEvents, p.Event.Event) {
+		if text := noticeFn(p.SessionID); text != "" {
+			rep.Context = text
+			answered = true
+		}
 	}
 	// Only PreToolUse is worth reviewing: it is the one event Claude Code
 	// still reads a reply from once its own permission prompt would open, so
@@ -758,8 +789,9 @@ type reply struct {
 
 // Response is what Emit returns once a hook's request has been answered.
 type Response struct {
-	// Context is the pane description a SessionStart hook is answered with,
-	// empty for every other event.
+	// Context is the text a hook is answered with for the agent to read: the
+	// pane description for SessionStart, a notice of waiting messages for
+	// UserPromptSubmit and PostToolUse, empty when there is none.
 	Context string
 	// Allow is true where auto-review has decided a PreToolUse call needs no
 	// prompt at all -- see SetReviewHandler. False is not a refusal, only

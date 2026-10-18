@@ -231,6 +231,9 @@ type Session struct {
 	// without one of the two a freshly opened pane would announce that it
 	// needs attention before anything has happened in it.
 	sawInput bool
+	// typedWrites counts the writes that were typing and not a terminal's own
+	// report. See TypedWrites.
+	typedWrites int
 	// draft records that something was typed into the pane since the last Enter,
 	// Ctrl+C or Ctrl+U, so its prompt may hold text a person has not sent. See
 	// DraftPossible.
@@ -859,6 +862,7 @@ func (s *Session) Write(p []byte) (int, error) {
 	typed := !terminalReport(p)
 	if typed {
 		s.sawInput = true
+		s.typedWrites++
 		var entered bool
 		s.draft, s.slashLine, entered = inputAfter(s.draft, s.slashLine, p)
 		if entered {
@@ -1161,6 +1165,15 @@ func (s *Session) MenuPossible() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.menuOpen && s.hookSeq == s.menuSeq
+}
+
+// TypedWrites is how many writes into the pane were input, as opposed to a
+// terminal's own report of focus or the mouse. A test uses it to show that
+// something Flockdeck did typed nothing into the pane's message box.
+func (s *Session) TypedWrites() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.typedWrites
 }
 
 // HooksReported reports that the agent's lifecycle hooks have spoken, so its

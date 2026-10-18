@@ -60,6 +60,11 @@ type Sent struct {
 	ID   int    `json:"id"`
 	Pane string `json:"pane"`
 	To   string `json:"to"`
+	// Notifies says the receiver's agent is told of the message in the reply to
+	// its next prompt or tool call. When it is false the agent finds the message
+	// only by running `flockdeck inbox`, and the window shows an unread count on
+	// its pane meanwhile.
+	Notifies bool `json:"notifies,omitempty"`
 }
 
 // MsgResult says where a message went. A role has more than one entry.

@@ -3503,7 +3503,6 @@ func (w *Workspace) applyGit(key string, st gitx.Status, late bool) {
 func (w *Workspace) Close() {
 	// Close stops waiting for a running index refresh; git finishes it by itself. Only
 	// this workspace's: each has a context of its own.
-	w.stopTeam()
 	w.stopRefreshes()
 	// The radar runs under the same context, and its scratch directory is removed by
 	// the refresh that made it: wait for that, so a quit leaves none behind.
