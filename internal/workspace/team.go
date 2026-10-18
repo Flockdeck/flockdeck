@@ -26,6 +26,11 @@ import (
 // messagesFile is where the inboxes are kept, next to the other workspace state.
 const messagesFile = "messages.json"
 
+// helperIdleDwell is how long a helper has to stay idle before its parent is
+// told its turn is over: a turn that ends and another that starts straight
+// after it is not a helper that has finished.
+const helperIdleDwell = 5 * time.Second
+
 // noticeSlack is added to a retry so it lands just after the moment the
 // notifier asked for, not just before it.
 const noticeSlack = 50 * time.Millisecond
@@ -361,6 +366,75 @@ func (w *Workspace) paneChanged(id string) {
 	}
 	w.pumpTeam(id)
 	w.noteExit(id)
+	w.noteIdle(id)
+}
+
+// noteIdle tells a pane's parent that the pane has finished a turn and stayed
+// idle, once for each turn. Without it a manager that has started helpers and
+// ended its own turn is never woken: a helper normally finishes by going idle at
+// its prompt, not by exiting, so only the user would notice. It applies to panes
+// whose agent reports its own status, since an idle read off a quiet screen could
+// be a dialog waiting for a key.
+func (w *Workspace) noteIdle(id string) {
+	p := w.Pane(id)
+	if p == nil {
+		return
+	}
+	w.mu.RLock()
+	parent, sess := p.Parent, p.Sess
+	w.mu.RUnlock()
+	if parent == "" || sess == nil {
+		return
+	}
+	st := w.team.state(p)
+	if !st.Eligible {
+		return
+	}
+	switch st.Status {
+	case "working":
+		w.mu.Lock()
+		p.turnSeen = true
+		w.mu.Unlock()
+	case "idle":
+		w.mu.Lock()
+		arm := p.turnSeen && !p.idleArmed
+		if arm {
+			p.idleArmed = true
+		}
+		w.mu.Unlock()
+		if arm {
+			w.armIdleReport(p, parent, sess)
+		}
+	}
+}
+
+// armIdleReport tells the parent after helperIdleDwell if the helper is still idle
+// then, in the same session; otherwise it drops the report, and the next time the
+// helper goes idle arms it again.
+func (w *Workspace) armIdleReport(p *Pane, parent string, sess *session.Session) {
+	t := &w.team
+	t.mu.Lock()
+	down := t.shutdown
+	t.mu.Unlock()
+	if down {
+		return
+	}
+	t.after(helperIdleDwell, func() {
+		w.mu.Lock()
+		p.idleArmed = false
+		same := p.Sess == sess
+		w.mu.Unlock()
+		if !same || w.Pane(p.ID) != p || w.team.state(p).Status != "idle" {
+			return
+		}
+		w.mu.Lock()
+		report := p.turnSeen
+		p.turnSeen = false
+		w.mu.Unlock()
+		if report {
+			w.notifyParent(p, parent, "finished its turn and is idle; read `flockdeck inbox` for its report and `flockdeck task list` for its task")
+		}
+	})
 }
 
 // pumpTeam types the notice for a pane's waiting messages, if the pane can be

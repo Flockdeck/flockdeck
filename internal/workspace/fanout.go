@@ -1226,7 +1226,31 @@ func (w *Workspace) DiscardMade(repo string, m MadeWorktree, cause error) error 
 	return fmt.Errorf("%w (the worktree and branch %s that were made for it were removed)", cause, m.Branch)
 }
 
+// MaxHelpers is the most open panes one agent may have started with `flockdeck
+// spawn`. A manager that delegates on its own has no user approving each start,
+// so this is what keeps a plan from fanning out without end. Closing a helper
+// that is done makes room.
+const MaxHelpers = 8
+
+// helpersOf counts the open panes the agent in parent started.
+func (w *Workspace) helpersOf(parent string) int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	n := 0
+	for _, p := range w.panes {
+		if p.Parent == parent && p.Alive() {
+			n++
+		}
+	}
+	return n
+}
+
 func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
+	if o.SpawnedByAgent && parentPaneID != "" {
+		if n := w.helpersOf(parentPaneID); n >= MaxHelpers {
+			return "", fmt.Errorf("this pane already has %d helpers open, the most it may have; close the ones that are done with `flockdeck close <pane-id>` or wait for them to finish", n)
+		}
+	}
 	if o.Baton != nil && o.Kind == session.KindShell {
 		return "", fmt.Errorf("a baton starts an agent, and a shell is not one")
 	}

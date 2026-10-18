@@ -218,6 +218,10 @@ type Pane struct {
 	// exitReported is the session whose exit has been reported to this pane's
 	// parent, so a process that ends is reported once. See noteExit.
 	exitReported *session.Session
+	// turnSeen says the agent has been working since its parent was last told
+	// it went idle, and idleArmed that a report of it going idle is waiting out
+	// helperIdleDwell. See noteIdle.
+	turnSeen, idleArmed bool
 }
 
 // Alive reports whether the pane has a running process.

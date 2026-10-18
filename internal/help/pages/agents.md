@@ -314,6 +314,36 @@ one, an agent and model for the manager, and starts a `manager` with the goal as
 in the project on screen, as `flockdeck spawn -role manager "<goal>"` would. The manager
 then starts the rest. With no `manager` role in the catalog the dialog says so and has no Start button.
 
+### What a manager does on its own
+
+Given a goal, a manager works through it without being asked at each step:
+
+1. It breaks the goal into tasks and puts them on the task board, starting a `planner`
+   first when the goal is more than one obvious change.
+2. It starts a `worker` for each task with `spawn -role worker -worktree <branch>`, so
+   each has a branch of its own, and assigns the task to it. Planners and reviewers read
+   and need no worktree of their own.
+3. It ends its turn and waits. Flockdeck types a one-line notice into the manager's
+   prompt when a helper sends a message, exits, or finishes a turn and stays idle, and
+   when a task is blocked or ready for review. The manager reads them with `flockdeck inbox`.
+4. It starts a `reviewer`, and a `tester` if the change needs one, on each worker's
+   branch, moves a task to `done` when the verdict is good, and sends work that needs
+   changes back.
+5. It closes the helpers it started and reports to you: what is done and on which
+   branches, what is blocked, and what it needs you to decide.
+
+Some things stay with you. A manager asks and waits before it merges, pushes, opens a
+pull request, deploys, publishes, deletes branches, worktrees or files, or spends money,
+and it tells its helpers to leave those to it. It also asks when the goal does not
+settle a decision.
+
+The number of helpers is kept modest. The manager is told to run no more than four at
+once and about eight for one goal, and Flockdeck refuses a `spawn` from any agent that
+already has eight helpers open; closing a finished helper makes room. A message that
+says a helper is idle is from Flockdeck and carries no text from the helper. The helper's
+report arrives as its own `msg`, which the built-in roles send, since a manager cannot
+read another pane.
+
 A pane started in a role carries its name in its header, after the pane name, and in
 the **Agents** overview. **Pane info** lists it as **Role**. A pane started in no role shows
 nothing. Settings › Agents & models lists the roles to read; they are changed in
@@ -328,8 +358,9 @@ one-line notice and what Flockdeck writes to an inbox itself are in
 
 The built-in roles say when to use messages: the manager writes to the agents it started to
 answer a question or change a task, and planners, workers, reviewers, testers and docs agents
-write to the manager when they are blocked. Their final report is still their last message
-and not a `msg`.
+write to the manager when they are blocked. Planners, workers, reviewers, testers and docs
+agents also send their final report to the manager with `msg send manager`, because the
+manager cannot read their panes; it is still their last message too.
 
 ### The task board
 

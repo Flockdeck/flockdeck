@@ -20,7 +20,11 @@ text itself is built in `internal/workspace/briefing.go` and `context.go`.
 - The pane's role, when it has one: the role's briefing, the checkout it expects, and
   which roles it may start.
 - For an agent that can call back into Flockdeck: the team roster, the commands for
-  messages and the task board, and how to start helpers if its role allows it.
+  messages and the task board, and how to start helpers if its role allows it. The manager
+  role is briefed to run a goal through to a report without being asked at each step:
+  tasks on the board, helpers started, results reviewed, the user told. It is told to stop
+  and ask only before merging, pushing, opening a pull request, deploying, publishing,
+  deleting or spending, and to keep to four helpers at once.
 - A one-line status rule, one line for each user-facing feature, and a pointer to
   `flockdeck help`.
 

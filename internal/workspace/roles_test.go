@@ -238,3 +238,58 @@ func TestBriefingKeepsTheGenericSpawnSectionWhereNoRoleLimitsIt(t *testing.T) {
 		}
 	}
 }
+
+// A manager is told to run the work without being asked at each step, and still
+// to stop for what is hard to undo or leaves the machine.
+func TestManagerBriefingDelegatesOnItsOwnAndKeepsTheSafeguards(t *testing.T) {
+	cat := &agent.Catalog{Roles: agent.BuiltinRoles()}
+	r, _ := cat.Role("manager")
+	c := roleContext("manager", r.Spawns, r.Plain)
+	c.RoleBriefing = r.Briefing
+	c.Notified = true
+	text := c.Render()
+	for _, want := range []string{
+		// the loop, in order
+		"is the user's go-ahead", "without asking before each one", "Do not wait to be told to start helpers",
+		"1. Break the request into tasks", "flockdeck task add <title> -body <details> -role worker",
+		"2. Start an agent for each task with `spawn -role <role>`", "-worktree <branch>", "flockdeck task assign <id>",
+		"3. Watch.", "end your turn", "flockdeck team", "flockdeck inbox",
+		"4. Review.", "flockdeck task status <id> done", "5. Report to the user", "flockdeck close <pane id>",
+		// the safeguards
+		"no more than four helpers running at once", "Flockdeck refuses a start while eight of your helpers are open",
+		"Ask the user, and wait, before anything hard to undo or that leaves this machine",
+		"merging, pushing", "opening a pull request", "deploying", "deleting",
+		// the section on starting agents does not undo it
+		"Your role is to hand work out, so start helpers when the work needs them without asking the user first",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the manager briefing lacks %q", want)
+		}
+	}
+	for _, bad := range []string{"when the user asks for parallel work", "anything they have not already asked for"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("the manager briefing still says %q", bad)
+		}
+	}
+	if MaxHelpers != 8 {
+		t.Errorf("MaxHelpers = %d, but the manager is told eight", MaxHelpers)
+	}
+}
+
+// Helpers hand their report to the manager as a message, because the manager
+// cannot read their panes.
+func TestHelperRolesSendTheirReportToTheManager(t *testing.T) {
+	cat := &agent.Catalog{Roles: agent.BuiltinRoles()}
+	for _, id := range []string{"planner", "worker", "reviewer", "tester", "docs"} {
+		r, _ := cat.Role(id)
+		if !strings.Contains(r.Briefing, "flockdeck msg send manager") {
+			t.Errorf("%s: the briefing does not send the report to the manager", id)
+		}
+	}
+	for _, id := range []string{"worker", "reviewer", "tester", "docs"} {
+		r, _ := cat.Role(id)
+		if !strings.Contains(r.Briefing, "<report>") && !strings.Contains(r.Briefing, "<findings>") {
+			t.Errorf("%s: the briefing does not say the report goes by message", id)
+		}
+	}
+}

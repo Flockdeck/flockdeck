@@ -203,8 +203,14 @@ at most 64 characters.
 
 Flockdeck writes to a pane when a helper it started with `spawn` exits on its own
 (`worker "api" exited with exit code 2 (pane ...)`), when `close -finished` or the "Close
-finished panes" command closes one (`... finished`), and for the changes to a task
-that `task` lists.
+finished panes" command closes one (`... finished`), when a helper finishes a turn and
+stays idle for five seconds (`worker "api" finished its turn and is idle; ... (pane ...)`,
+once for each turn, and only for agents that report their own status), and for the changes
+to a task that `task` lists. The idle message is what wakes a manager that has ended its
+turn to wait for its helpers.
+
+An agent may have at most 8 helpers open that it started with `spawn`; a ninth is refused
+with a note to close one that is done.
 
 ### How an agent is told it has mail
 
