@@ -103,6 +103,12 @@ type graphTeamView struct {
 	NeedsHidden int              `json:"needsHidden,omitempty"`
 }
 
+// The kinds of graphEdge.
+const (
+	graphEdgeSpawn   = "spawn"
+	graphEdgeMessage = "message"
+)
+
 // graphEdge is a link between two panes: "spawn" from a parent to a helper it
 // started, or "message" from a sender to a recipient.
 type graphEdge struct {
@@ -289,7 +295,7 @@ func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic
 		if m.From.Pane == "" || !agent[m.From.Pane] || !agent[m.To] {
 			continue
 		}
-		st.edges = append(st.edges, graphEdge{Kind: "message", From: m.From.Pane, To: m.To, ID: m.ID,
+		st.edges = append(st.edges, graphEdge{Kind: graphEdgeMessage, From: m.From.Pane, To: m.To, ID: m.ID,
 			Time: m.Time.Format(time.RFC3339), Text: graphLine(m.Text, graphEdgeCut)})
 	}
 	if s.graphStatics == nil {
@@ -408,7 +414,7 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		}
 		out.Nodes = append(out.Nodes, nv)
 		if n.Parent != "" {
-			out.Edges = append(out.Edges, graphEdge{Kind: "spawn", From: n.Parent, To: n.Pane})
+			out.Edges = append(out.Edges, graphEdge{Kind: graphEdgeSpawn, From: n.Parent, To: n.Pane})
 		}
 	}
 	out.Edges = append(out.Edges, st.edges...)

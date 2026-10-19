@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Flockdeck/flockdeck/blob/main/docs/team-graph.schema.json",
+  "title": "Flockdeck team graph push",
+  "description": "The graph message a window gets from graphSnapshot, and as a push after graphWatch, for one project. The document root is that message; the other shapes are in $defs: the needs-you item (needsItem), the node (node), the edge (edge) and the answer to paneSend (paneSend). An object with a field not named here is not one Flockdeck writes. A field is either always present or absent for the reason its description gives; no field is ever null. A value is stored by Flockdeck (read from the workspace, the task board or the inboxes) or derived by it (by team.BuildGraph and team.NeedsYou in internal/team).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "root", "project", "teams", "nodes", "edges", "solo", "soloNeeds"],
+  "properties": {
+    "type": { "const": "graph", "description": "Message type. Always written." },
+    "root": { "type": "string", "minLength": 1, "description": "The directory of the project the graph is of, as the workspace spells it (stored by the workspace). Always written." },
+    "project": { "type": "string", "description": "The project's name as the project switcher shows it (stored by the workspace). Empty when the workspace has no name for the project." },
+    "teams": { "type": "array", "items": { "$ref": "#/$defs/team" }, "description": "One entry for each team, in the order of their root panes in the tabs (derived). A team is a root pane that has children or the manager role, with every pane below it. Empty, never absent, when the project has none." },
+    "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" }, "description": "One entry for each pane of the project, shells included, in the order the tabs show them (derived). A pane id appears once." },
+    "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" }, "description": "A spawn edge for each pane whose parent is open, then the last 100 messages between two panes of the project, newest first (stored: the inboxes). Messages from the person or from Flockdeck have no sending pane and are not edges." },
+    "solo": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The ids of the panes in no team: a lone agent, a shell, a pane the person opened (derived). Empty, never absent." },
+    "soloNeeds": { "type": "array", "items": { "$ref": "#/$defs/needsItem" }, "description": "What needs the person among the solo panes, most urgent first, at most 50 (derived). Empty, never absent." },
+    "soloNeedsHidden": { "type": "integer", "minimum": 1, "description": "How many solo items the bound of 50 cut. Absent when none were." },
+    "panesHidden": { "type": "integer", "minimum": 1, "description": "How many panes the bound of 500 nodes cut (derived). Absent when none were." },
+    "boardError": { "type": "string", "minLength": 1, "description": "Why the task board could not be read (stored: the board file). Absent when it could. Task chips, waiting-on for tasks and returned items are then missing from the graph." }
+  },
+  "$defs": {
+    "team": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "manager", "members", "spendUSD", "caps", "needs"],
+      "description": "One team. Always has at least its root pane.",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "description": "The root pane's id (derived). Stable while the root pane is open. Always written." },
+        "manager": { "type": "string", "minLength": 1, "description": "The root pane's id. The root need not be in the manager role: any pane that started helpers is one. Always written." },
+        "members": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The panes of the team, the root first and then by depth (derived). Always written." },
+        "goal": { "type": "string", "minLength": 1, "description": "The root pane's opening task, as a single line cut to 300 characters (stored: Pane.Task). Absent for a root started with no opening prompt." },
+        "started": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When the root pane's process started, RFC 3339 (stored: the session). Absent while the root has no session." },
+        "spendUSD": { "type": "number", "minimum": 0, "description": "The estimated spend in dollars of the team's panes that reported a priced one (stored: the spend book). 0 when none did. Always written." },
+        "spendPartial": { "const": true, "description": "Present, and true, when some pane of the team reported no priced spend, so spendUSD is a floor. Absent when every pane did." },
+        "caps": { "type": "array", "items": { "$ref": "#/$defs/cap" }, "description": "Helper cap use of the root and of every pane with children (derived). Always written." },
+        "needs": { "type": "array", "items": { "$ref": "#/$defs/needsItem" }, "description": "What needs the person in this team, most urgent first, at most 50 (derived). Empty, never absent." },
+        "needsHidden": { "type": "integer", "minimum": 1, "description": "How many items the bound of 50 cut. Absent when none were." }
+      }
+    },
+    "cap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pane", "used", "max"],
+      "description": "How much of the helper cap a pane uses.",
+      "properties": {
+        "pane": { "type": "string", "minLength": 1, "description": "The pane's id. Always written." },
+        "used": { "type": "integer", "minimum": 0, "description": "Open panes below it, nested ones included and exited ones until closed (stored: the workspace's own count). Always written." },
+        "max": { "type": "integer", "minimum": 1, "description": "The most it may have: workspace.MaxHelpers. Always written." }
+      }
+    },
+    "waitingOn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "description": "What a pane is held up by (derived). The first that applies, in this order: down, user, reviewer, task, helpers, none.",
+      "properties": {
+        "kind": { "enum": ["down", "user", "reviewer", "task", "helpers", "none"], "description": "Always written." },
+        "text": { "type": "string", "minLength": 1, "description": "A short line: the question or command for user (cut to 200 characters), exited or failed for down, the task and reviewer for reviewer, the latest task note for task, how many helpers are busy for helpers. Absent for none, and for task when the task has no note." },
+        "ref": { "type": "string", "minLength": 1, "description": "A task id for reviewer and task, the first busy helper's pane id for helpers, the pane's own id for down. Absent for user and none." }
+      }
+    },
+    "taskChip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "state"],
+      "description": "The task a node names as its current one: in progress, else in review, else assigned, else blocked (stored: the task board).",
+      "properties": {
+        "id": { "type": "string", "pattern": "^T[0-9]+$" },
+        "title": { "type": "string", "description": "The task's title cut to 120 characters." },
+        "state": { "enum": ["planned", "assigned", "in-progress", "in-review", "done", "blocked", "cancelled"] }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pane", "depth", "waitingOn", "name", "status", "activity"],
+      "description": "One pane in the graph.",
+      "properties": {
+        "pane": { "type": "string", "minLength": 1, "description": "The pane's id. Always written." },
+        "parent": { "type": "string", "minLength": 1, "description": "The id of the pane that started this one (stored: Pane.Parent), only while that pane is open and not where a parent loop was cut (derived). Absent for a root." },
+        "children": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "description": "The panes this one started that are open (derived). Absent when there are none." },
+        "depth": { "type": "integer", "minimum": 0, "description": "0 for a root and for a pane in no team (derived). Always written." },
+        "team": { "type": "string", "minLength": 1, "description": "The id of the team the pane is in (derived). Absent for a solo pane." },
+        "orphaned": { "const": true, "description": "Present, and true, when the pane named a parent that is not open, or is where a parent loop was cut (derived). It is then treated as a root. Absent otherwise." },
+        "waitingOn": { "$ref": "#/$defs/waitingOn" },
+        "name": { "type": "string", "description": "The pane's own name, usually its directory's name (stored by the workspace). Always written, and may be empty." },
+        "peer": { "type": "string", "minLength": 1, "description": "The name the agent reported with `flockdeck peer-name` (stored). Absent until it does." },
+        "role": { "type": "string", "minLength": 1, "description": "The id of the role the pane was started as (stored). Absent for none." },
+        "agent": { "type": "string", "minLength": 1, "description": "The id of the agent the pane runs (stored). Absent for a shell and for a pane that never recorded one." },
+        "shell": { "const": true, "description": "Present, and true, for a plain terminal with no agent in it. Absent for an agent." },
+        "status": { "type": "string", "minLength": 1, "description": "The status the session inferred (stored), as the Team panel's roster has it. Always written." },
+        "activity": { "type": "string", "description": "What the pane is drawn as doing: waiting, blocked, working, idle, starting, exited or failed; empty for none (derived by workspace.PaneActivity). Always written." },
+        "since": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When the current status began, RFC 3339 (stored: the session). Absent for a pane with no session." },
+        "live": { "type": "string", "minLength": 1, "description": "The agent's current tool detail, or else its latest reply, on one line cut to 140 characters (stored). Absent when it has neither." },
+        "branch": { "type": "string", "minLength": 1, "description": "The git branch checked out in the pane's directory (stored). Absent outside a repository." },
+        "dirty": { "type": "integer", "minimum": 1, "description": "Files with uncommitted changes (stored: the git refresh). Absent at 0." },
+        "untracked": { "type": "integer", "minimum": 1, "description": "Untracked files. Absent at 0." },
+        "ahead": { "type": "integer", "minimum": 1, "description": "Commits ahead of upstream. Absent at 0 and with no upstream." },
+        "behind": { "type": "integer", "minimum": 1, "description": "Commits behind upstream. Absent at 0 and with no upstream." },
+        "task": { "$ref": "#/$defs/taskChip" },
+        "unread": { "type": "integer", "minimum": 1, "description": "Messages waiting unread in the pane's inbox (stored). Absent at 0." },
+        "autoReview": { "const": true, "description": "Present, and true, when the pane's tool calls are put to auto-review (stored). Absent otherwise." },
+        "autoApproved": { "type": "integer", "minimum": 1, "description": "How many calls auto-review has let through unasked (stored). Absent at 0." }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "from", "to"],
+      "description": "A link between two panes of the project.",
+      "properties": {
+        "kind": { "enum": ["spawn", "message"], "description": "spawn goes from a parent to a helper it started; message from the sender to the pane whose inbox it went to. Always written." },
+        "from": { "type": "string", "minLength": 1, "description": "A pane id. Always written." },
+        "to": { "type": "string", "minLength": 1, "description": "A pane id. Always written." },
+        "id": { "type": "integer", "minimum": 1, "description": "The message's id in its inbox (stored). Written for message edges only." },
+        "time": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When the message was sent, RFC 3339 (stored). Written for message edges only." },
+        "text": { "type": "string", "description": "The first non-empty line of the message, cleaned of control characters and cut to 140 characters (derived). Written for message edges only; absent when the message has no text." }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "message" } } }, "then": { "required": ["id", "time"] } }
+      ]
+    },
+    "needsItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "pane", "time"],
+      "description": "One thing that needs the person (derived by team.NeedsYou). Listed in this order: permission and ask by waiting time, longest first; returned, newest first; conflict; down; stale-unread, oldest first.",
+      "properties": {
+        "id": { "type": "string", "minLength": 3, "description": "Stable while the item stands: the kind and the pane (returned: the task; conflict: the two panes in sorted order). A window can keep its selection by it. Always written." },
+        "kind": { "enum": ["permission", "ask", "returned", "conflict", "down", "stale-unread"], "description": "Always written." },
+        "pane": { "type": "string", "minLength": 1, "description": "The pane concerned. For a conflict, the first of the pair in sorted order. Always written." },
+        "other": { "type": "string", "minLength": 1, "description": "The second pane of a conflict. Written for conflicts only." },
+        "task": { "type": "string", "pattern": "^T[0-9]+$", "description": "The task of a returned item. Written for returned items only." },
+        "time": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When the item began: when the pane started waiting, the task came back, the radar first reported the pair, the pane went down or the oldest unread message arrived. Always written; 0001-01-01T00:00:00Z when that is not known, and such an item is listed after the others of its kind." },
+        "text": { "type": "string", "minLength": 1, "description": "The question or command (cut to 200 characters), the note a task came back with, up to 5 paths of a conflict with a count of the rest, how a pane went down, or how many messages are unread. Absent when there is nothing to say, as for a returned task without a note." }
+      }
+    },
+    "paneSend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "queued", "shell"],
+      "description": "The answer to a paneSend that was accepted. A refusal is an error notice and not this message.",
+      "properties": {
+        "type": { "const": "paneSend", "description": "Message type. Always written." },
+        "id": { "type": "string", "minLength": 1, "description": "The pane the text was typed into, as the command named it. Always written." },
+        "queued": { "type": "boolean", "description": "True when the pane was in the middle of a turn, so the text waits behind it. Always written." },
+        "shell": { "type": "boolean", "description": "True when the pane is a plain shell. Always written." },
+        "waiting": { "const": true, "description": "Present, and true, when the pane was waiting on a question put to the person. Absent otherwise." },
+        "routed": { "const": true, "description": "Present, and true, when the text was the pane's first prompt and routing restarted the pane on another model to take it. Absent otherwise." }
+      }
+    }
+  }
+}
