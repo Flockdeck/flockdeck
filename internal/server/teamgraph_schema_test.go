@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/record/schemacheck"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/tasks"
 	"github.com/jmwri/flockdeck/internal/team"
 )
 
@@ -172,6 +174,8 @@ func TestSchemaAndStructsNameTheSameFields(t *testing.T) {
 		m := d.(map[string]any)
 		shapes[name] = shape{m["properties"], m["required"]}
 	}
+	// TODO: add paneSend (paneSendMsg) here once #326 is merged; until then its
+	// schema is checked against a sample answer only.
 	cases := []struct {
 		def string
 		typ reflect.Type
@@ -231,6 +235,51 @@ var timeInDoc = regexp.MustCompile(`"(since|started|time)":"[^"]*"`)
 // same as the golden file. A change to the shape has to be made on purpose: run
 // the test with FLOCKDECK_UPDATE_GOLDEN=1 to write the new file, and read the
 // diff.
+// enumOf reads the values of the enum of one property of a definition.
+func enumOf(t *testing.T, s schemacheck.Schema, def, prop string) []string {
+	t.Helper()
+	defs, _ := s["$defs"].(map[string]any)
+	d, _ := defs[def].(map[string]any)
+	props, _ := d["properties"].(map[string]any)
+	p, _ := props[prop].(map[string]any)
+	list, _ := p["enum"].([]any)
+	if len(list) == 0 {
+		t.Fatalf("%s.%s has no enum in the schema", def, prop)
+	}
+	var out []string
+	for _, v := range list {
+		out = append(out, v.(string))
+	}
+	sort.Strings(out)
+	return out
+}
+
+// The values the schema lists are the ones the Go code writes. Renaming a
+// constant without the schema, or the other way round, fails here.
+func TestSchemaEnumsAreTheGoConstants(t *testing.T) {
+	schema := loadGraphSchema(t)
+	var states []string
+	for _, st := range tasks.States {
+		states = append(states, string(st))
+	}
+	cases := []struct {
+		def, prop string
+		want      []string
+	}{
+		{"needsItem", "kind", []string{team.NeedPermission, team.NeedAsk, team.NeedReturned, team.NeedConflict, team.NeedDown, team.NeedStaleUnread}},
+		{"waitingOn", "kind", []string{team.WaitUser, team.WaitDown, team.WaitReviewer, team.WaitTask, team.WaitHelpers, team.WaitNone}},
+		{"taskChip", "state", states},
+		{"edge", "kind", []string{graphEdgeSpawn, graphEdgeMessage}},
+	}
+	for _, c := range cases {
+		want := append([]string(nil), c.want...)
+		sort.Strings(want)
+		if got := enumOf(t, schema, c.def, c.prop); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s.%s: the schema lists %v, the Go constants are %v", c.def, c.prop, got, want)
+		}
+	}
+}
+
 func TestTwoTeamGraphMatchesTheGoldenFile(t *testing.T) {
 	e := newGraphEnv(t)
 	boss2 := agentPane(t, e.srv, e.ws, "boss2", "manager")
@@ -253,6 +302,7 @@ func TestTwoTeamGraphMatchesTheGoldenFile(t *testing.T) {
 	if err := json.Unmarshal(raw, &g); err != nil {
 		t.Fatal(err)
 	}
+	// Each pane gets a name of its own, so the golden file pins the name field.
 	names := map[string]string{e.boss: "boss", e.dev: "dev", e.eyes: "eyes", e.nested: "nested", e.lone: "lone", boss2: "boss2", helper2: "helper2"}
 	extra := 0
 	for _, n := range g.Nodes {
@@ -265,6 +315,7 @@ func TestTwoTeamGraphMatchesTheGoldenFile(t *testing.T) {
 	// is not fixed. Settle it and read again.
 	ask(e.srv, func() bool {
 		for _, n := range g.Nodes {
+			e.ws.Pane(n.Pane).Name = names[n.Pane]
 			if n.Shell {
 				e.ws.Pane(n.Pane).Sess.SetStatus(session.StatusIdle, "")
 			}
@@ -284,8 +335,14 @@ func TestTwoTeamGraphMatchesTheGoldenFile(t *testing.T) {
 	// The project's directory is a temporary one, with the account name in it.
 	top := doc.(map[string]any)
 	top["root"], top["project"] = "<root>", "<project>"
-	got, _ := json.MarshalIndent(doc, "", "  ")
-	got = append(got, '\n')
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		t.Fatal(err)
+	}
+	got := buf.Bytes()
 
 	path := filepath.Join("testdata", "team-graph.golden.json")
 	if os.Getenv("FLOCKDECK_UPDATE_GOLDEN") == "1" {

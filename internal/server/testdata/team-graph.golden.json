@@ -25,7 +25,7 @@
       "id": 1,
       "kind": "message",
       "text": "done",
-      "time": "\u003ctime\u003e",
+      "time": "<time>",
       "to": "boss2"
     }
   ],
@@ -33,10 +33,10 @@
     {
       "activity": "idle",
       "depth": 0,
-      "name": "\u003cproject\u003e",
+      "name": "other1",
       "pane": "other1",
       "shell": true,
-      "since": "\u003ctime\u003e",
+      "since": "<time>",
       "status": "idle",
       "waitingOn": {
         "kind": "none"
@@ -49,10 +49,10 @@
         "eyes"
       ],
       "depth": 0,
-      "name": "\u003cproject\u003e",
+      "name": "boss",
       "pane": "boss",
       "role": "manager",
-      "since": "\u003ctime\u003e",
+      "since": "<time>",
       "status": "idle",
       "team": "boss",
       "waitingOn": {
@@ -68,11 +68,11 @@
       ],
       "depth": 1,
       "live": "Edit main.go",
-      "name": "\u003cproject\u003e",
+      "name": "dev",
       "pane": "dev",
       "parent": "boss",
       "role": "worker",
-      "since": "\u003ctime\u003e",
+      "since": "<time>",
       "status": "working",
       "team": "boss",
       "waitingOn": {
@@ -83,11 +83,11 @@
       "activity": "waiting",
       "depth": 1,
       "live": "Bash",
-      "name": "\u003cproject\u003e",
+      "name": "eyes",
       "pane": "eyes",
       "parent": "boss",
       "role": "reviewer",
-      "since": "\u003ctime\u003e",
+      "since": "<time>",
       "status": "waiting",
       "team": "boss",
       "waitingOn": {
@@ -98,10 +98,10 @@
     {
       "activity": "idle",
       "depth": 2,
-      "name": "\u003cproject\u003e",
+      "name": "nested",
       "pane": "nested",
       "parent": "dev",
-      "since": "\u003ctime\u003e",
+      "since": "<time>",
       "status": "idle",
       "team": "boss",
       "waitingOn": {
@@ -111,9 +111,9 @@
     {
       "activity": "idle",
       "depth": 0,
-      "name": "\u003cproject\u003e",
+      "name": "lone",
       "pane": "lone",
-      "since": "\u003ctime\u003e",
+      "since": "<time>",
       "status": "idle",
       "waitingOn": {
         "kind": "none"
@@ -125,10 +125,10 @@
         "helper2"
       ],
       "depth": 0,
-      "name": "\u003cproject\u003e",
+      "name": "boss2",
       "pane": "boss2",
       "role": "manager",
-      "since": "\u003ctime\u003e",
+      "since": "<time>",
       "status": "idle",
       "team": "boss2",
       "unread": 1,
@@ -139,11 +139,11 @@
     {
       "activity": "idle",
       "depth": 1,
-      "name": "\u003cproject\u003e",
+      "name": "helper2",
       "pane": "helper2",
       "parent": "boss2",
       "role": "worker",
-      "since": "\u003ctime\u003e",
+      "since": "<time>",
       "status": "idle",
       "team": "boss2",
       "waitingOn": {
@@ -151,8 +151,8 @@
       }
     }
   ],
-  "project": "\u003cproject\u003e",
-  "root": "\u003croot\u003e",
+  "project": "<project>",
+  "root": "<root>",
   "solo": [
     "other1",
     "lone"
@@ -187,12 +187,12 @@
           "kind": "permission",
           "pane": "eyes",
           "text": "go test ./...",
-          "time": "\u003ctime\u003e"
+          "time": "<time>"
         }
       ],
       "spendPartial": true,
       "spendUSD": 0,
-      "started": "\u003ctime\u003e"
+      "started": "<time>"
     },
     {
       "caps": [
@@ -212,7 +212,7 @@
       "needs": [],
       "spendPartial": true,
       "spendUSD": 0,
-      "started": "\u003ctime\u003e"
+      "started": "<time>"
     }
   ],
   "type": "graph"
