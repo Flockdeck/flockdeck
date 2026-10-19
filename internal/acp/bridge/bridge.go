@@ -24,18 +24,28 @@
 //     error. Subagent, compaction and image entries are not produced: ACP gave
 //     nothing for them.
 //
+// Everything in the traffic comes from the agent and is treated as hostile: every
+// string is cleaned of control characters, ESC sequences and bidi marks and
+// capped; entries, inline text and kept detail each have a budget; tool call
+// ids are keyed by hash; and Flush limits how fast new entries and status
+// changes are handed out. Dropped entries are counted by Dropped.
+//
 // A Bridge is safe for concurrent use. The tool call ids and every string in
 // the traffic come from the agent, so all of it is capped.
 package bridge
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"hash/maphash"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/acp"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
@@ -60,8 +70,20 @@ const (
 	// tool's output.
 	maxText = 4 << 20
 
+	// labelCap is in runes; the other caps below are too, for one-line fields.
 	labelCap   = 200
 	summaryCap = 120
+
+	defaultMaxEntries = 10000
+	defaultTextBudget = 64 << 20
+	// maxUrgent is how many entries that are due at once (new ones, status
+	// changes) one Flush window hands out; the rest wait for the next window.
+	maxUrgent = 64
+	// maxFlaps is how many status changes of one entry are handed out at once
+	// in a second.
+	maxFlaps   = 4
+	maxOptions = 16
+	maxPlan    = 100
 )
 
 // Config tunes a Bridge. The zero value works.
@@ -73,6 +95,13 @@ type Config struct {
 	MinInterval time.Duration
 	// DetailBudget bounds the bytes kept for Detail. Default 64 MiB.
 	DetailBudget int
+	// MaxEntries bounds the entries kept. Past it the oldest entries other
+	// than prompts are dropped. Default 10000.
+	MaxEntries int
+	// TextBudget bounds the text held inline in entries (replies, diffs,
+	// summaries, labels). Past it the oldest entries other than prompts are
+	// dropped. Default 64 MiB.
+	TextBudget int
 }
 
 // Usage is what the agent last reported with usage_update: tokens in the
@@ -102,26 +131,49 @@ type item struct {
 	// full output. diff is a tool's full diff.
 	text, diff string
 	detail     int // bytes held in text and diff
+	inl        int // bytes held inline in e, counted against the text budget
+	seq        int
 	lastEmit   time.Time
 	dirty      bool
 	urgent     bool
-	toolID     string
+	key        [sha256.Size]byte // the tool call id's hash, when keyed
+	keyed      bool
 	merges     string // "reply" or "thinking" while consecutive chunks may still append
+	burstStart time.Time
+	burstN     int
+	out        outKey
+}
+
+// outKey identifies the output a tool entry was last built from, so an update
+// that repeats it is not summarized again.
+type outKey struct {
+	set          bool
+	n, dn        int
+	h, dh        uint64
+	status, sums string
 }
 
 // Bridge is one session's conversation state.
 type Bridge struct {
-	cfg Config
+	cfg  Config
+	seed maphash.Seed
 
 	mu       sync.Mutex
-	items    []*item
-	tools    map[string]*item
+	items    []*item // ascending seq
+	tools    map[[sha256.Size]byte]*item
+	seq      int
 	inFlight bool
 	pending  []Card
 	plan     []acp.PlanEntry
 	usage    Usage
 	detail   int
-	evicted  int // items before this index have had their detail dropped
+	inline   int
+	dropped  int
+	// detailFrom is a seq: entries before it hold no detail.
+	detailFrom int
+	// windowStart and urgentUsed limit the entries handed out at once.
+	windowStart time.Time
+	urgentUsed  int
 }
 
 // New returns an empty Bridge.
@@ -135,17 +187,74 @@ func New(cfg Config) *Bridge {
 	if cfg.DetailBudget <= 0 {
 		cfg.DetailBudget = defaultDetailBudget
 	}
-	return &Bridge{cfg: cfg, tools: map[string]*item{}}
+	if cfg.MaxEntries <= 0 {
+		cfg.MaxEntries = defaultMaxEntries
+	}
+	if cfg.TextBudget <= 0 {
+		cfg.TextBudget = defaultTextBudget
+	}
+	return &Bridge{cfg: cfg, seed: maphash.MakeSeed(), tools: map[[sha256.Size]byte]*item{}}
 }
 
 // add appends an entry. Call with b.mu held.
 func (b *Bridge) add(e transcript.Entry) *item {
 	now := b.cfg.Now()
-	e.ID = "e" + strconv.Itoa(len(b.items)+1)
+	b.seq++
+	e.ID = "e" + strconv.Itoa(b.seq)
 	e.TS = now.UTC().Format(time.RFC3339)
-	it := &item{e: e, dirty: true, urgent: true}
+	it := &item{e: e, seq: b.seq, dirty: true, urgent: true}
 	b.items = append(b.items, it)
+	b.reinline(it)
 	return it
+}
+
+// reinline recounts the text an entry holds inline.
+func (b *Bridge) reinline(it *item) {
+	e := &it.e
+	n := len(e.Markdown) + len(e.Diff) + len(e.Text) + len(e.Summary) + len(e.Label)
+	b.inline += n - it.inl
+	it.inl = n
+}
+
+// Dropped is how many entries were dropped to stay inside MaxEntries and
+// TextBudget.
+func (b *Bridge) Dropped() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.dropped
+}
+
+// enforce drops the oldest entries when there are too many or they hold too
+// much text. Prompts and the newest entry are kept. It drops to 90% of the
+// limit so the work is not repeated on every update. Call with b.mu held.
+func (b *Bridge) enforce() {
+	if n := b.cfg.MaxEntries; len(b.items) > n {
+		b.drop(func(removed int) bool { return len(b.items)-removed <= n-n/10 })
+	}
+	if n := b.cfg.TextBudget; b.inline > n {
+		b.drop(func(int) bool { return b.inline <= n-n/10 })
+	}
+}
+
+// drop removes entries, oldest first, until done reports true.
+func (b *Bridge) drop(done func(removed int) bool) {
+	last := len(b.items) - 1
+	out := make([]*item, 0, len(b.items))
+	removed := 0
+	for i, it := range b.items {
+		if i < last && it.e.Kind != transcript.KindPrompt && !done(removed) {
+			b.detail -= it.detail
+			b.inline -= it.inl
+			if it.keyed {
+				delete(b.tools, it.key)
+			}
+			b.dropped++
+			removed++
+			continue
+		}
+		out = append(out, it)
+	}
+	b.items = out
 }
 
 // Status derives the pane's status: waiting while any permission request is
@@ -224,16 +333,19 @@ func (b *Bridge) Snapshot() []transcript.Entry {
 func (b *Bridge) Detail(id string) (transcript.Detail, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for _, it := range b.items {
-		if it.e.ID != id {
-			continue
-		}
-		if it.text == "" && it.diff == "" {
-			return transcript.Detail{}, false
-		}
-		return transcript.Detail{Text: it.text, Diff: it.diff}, true
+	n, err := strconv.Atoi(strings.TrimPrefix(id, "e"))
+	if err != nil || !strings.HasPrefix(id, "e") {
+		return transcript.Detail{}, false
 	}
-	return transcript.Detail{}, false
+	i := sort.Search(len(b.items), func(i int) bool { return b.items[i].seq >= n })
+	if i == len(b.items) || b.items[i].seq != n {
+		return transcript.Detail{}, false
+	}
+	it := b.items[i]
+	if it.text == "" && it.diff == "" {
+		return transcript.Detail{}, false
+	}
+	return transcript.Detail{Text: it.text, Diff: it.diff}, true
 }
 
 // TurnStart records the person's prompt and marks the turn in flight. The
@@ -241,9 +353,10 @@ func (b *Bridge) Detail(id string) (transcript.Detail, bool) {
 func (b *Bridge) TurnStart(text string) []transcript.Entry {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.closeMerges()
 	b.add(transcript.Entry{Kind: transcript.KindPrompt, Text: text})
 	b.inFlight = true
-	b.closeMerges()
+	b.enforce()
 	return b.take(true)
 }
 
@@ -261,8 +374,9 @@ func (b *Bridge) TurnEnd(stop string) []transcript.Entry {
 	case acp.StopCancelled:
 		b.add(transcript.Entry{Kind: transcript.KindNotice, Text: "Turn cancelled."})
 	default:
-		b.add(transcript.Entry{Kind: transcript.KindNotice, Text: "Turn ended: " + oneLine(stop, labelCap)})
+		b.add(transcript.Entry{Kind: transcript.KindNotice, Text: "Turn ended: " + line(stop, labelCap)})
 	}
+	b.enforce()
 	return b.take(true)
 }
 
@@ -272,30 +386,50 @@ func (b *Bridge) closeMerges() {
 	}
 }
 
-// PermissionOpen records a permission request and returns its card.
+// PermissionOpen records a permission request and returns its card. Every
+// string on the card is cleaned and capped, and at most 16 options are kept.
 func (b *Bridge) PermissionOpen(req acp.PermissionRequest) Card {
+	c, _ := b.open(req)
+	return c
+}
+
+// open is PermissionOpen that also returns the agent's own option ids by the
+// id shown on the card, for answering.
+func (b *Bridge) open(req acp.PermissionRequest) (Card, map[string]string) {
 	c := Card{
 		RequestID: req.RequestID,
 		SessionID: req.SessionID,
-		Tool:      oneLine(req.ToolCall.Title, labelCap),
-		Kind:      req.ToolCall.Kind,
-		Options:   append([]acp.PermissionOption(nil), req.Options...),
+		Tool:      line(req.ToolCall.Title, labelCap),
+		Kind:      line(req.ToolCall.Kind, 40),
 	}
-	c.Summary = c.Kind + ": " + c.Tool
+	own := map[string]string{}
+	for i, o := range req.Options {
+		if i == maxOptions {
+			break
+		}
+		shown := acp.PermissionOption{OptionID: line(o.OptionID, labelCap), Name: line(o.Name, labelCap), Kind: line(o.Kind, 40)}
+		c.Options = append(c.Options, shown)
+		if _, dup := own[shown.OptionID]; !dup {
+			own[shown.OptionID] = o.OptionID
+		}
+	}
+	c.Summary = line(c.Kind+": "+c.Tool, labelCap)
 	if len(req.ToolCall.Locations) > 0 {
-		c.File = req.ToolCall.Locations[0].Path
-		c.Summary = strings.TrimSuffix(c.Kind+" "+filepath.Base(c.File), " ")
+		c.File = line(req.ToolCall.Locations[0].Path, 1024)
+		c.Summary = line(strings.TrimSuffix(c.Kind+" "+filepath.Base(c.File), " "), labelCap)
 	}
 	var in struct {
 		Command string `json:"command"`
 	}
 	if json.Unmarshal(req.ToolCall.RawInput, &in) == nil {
-		c.Command = oneLine(in.Command, 4<<10)
+		c.Command = line(in.Command, 4<<10)
 	}
+	cp := c
+	cp.Options = append([]acp.PermissionOption(nil), c.Options...)
 	b.mu.Lock()
-	b.pending = append(b.pending, c)
+	b.pending = append(b.pending, cp)
 	b.mu.Unlock()
-	return c
+	return c, own
 }
 
 // PermissionClosed removes a permission request, answered or not.
@@ -326,9 +460,13 @@ type handler struct {
 func (h handler) Update(u acp.Update) { h.b.Update(u) }
 
 func (h handler) Permission(ctx context.Context, req acp.PermissionRequest) string {
-	card := h.b.PermissionOpen(req)
+	card, own := h.b.open(req)
 	defer h.b.PermissionClosed(card.RequestID)
-	return h.answer(ctx, card)
+	answer := h.answer(ctx, card)
+	if id, ok := own[answer]; ok {
+		return id // the agent's own id, not the one shown
+	}
+	return answer
 }
 
 // Update folds one session/update into the state. It is called in wire order
@@ -344,7 +482,14 @@ func (b *Bridge) Update(u acp.Update) {
 	case acp.UpdateToolCall, acp.UpdateToolCallUpdate:
 		b.tool(u)
 	case acp.UpdatePlan:
-		b.plan = append([]acp.PlanEntry(nil), u.Plan...)
+		n := len(u.Plan)
+		if n > maxPlan {
+			n = maxPlan
+		}
+		b.plan = make([]acp.PlanEntry, 0, n)
+		for _, p := range u.Plan[:n] {
+			b.plan = append(b.plan, acp.PlanEntry{Content: line(p.Content, labelCap), Priority: line(p.Priority, 40), Status: line(p.Status, 40)})
+		}
 	case acp.UpdateUsage:
 		if u.Used != nil {
 			b.usage.Used = *u.Used
@@ -353,10 +498,11 @@ func (b *Bridge) Update(u acp.Update) {
 			b.usage.Size = *u.Size
 		}
 		if u.Cost != nil {
-			b.usage.Cost, b.usage.Currency = u.Cost.Amount, u.Cost.Currency
+			b.usage.Cost, b.usage.Currency = u.Cost.Amount, line(u.Cost.Currency, 16)
 		}
 	}
 	// Anything else is a kind this bridge does not map; it is ignored.
+	b.enforce()
 }
 
 // chunkText is the text a content block adds to a message.
@@ -365,9 +511,9 @@ func chunkText(c *acp.ContentBlock) string {
 	case c == nil:
 		return ""
 	case c.Type == "text":
-		return c.Text
+		return clean(capBytes(c.Text, maxText))
 	case c.Type != "":
-		return "[" + oneLine(c.Type, 40) + "]"
+		return "[" + line(c.Type, 40) + "]"
 	}
 	return ""
 }
@@ -389,21 +535,18 @@ func (b *Bridge) chunk(u acp.Update, kind string) {
 	switch kind {
 	case transcript.KindReply:
 		if room := maxText - len(it.e.Markdown); room > 0 {
-			if len(text) > room {
-				text = text[:room]
-			}
-			it.e.Markdown += text
+			it.e.Markdown += capBytes(text, room)
+			b.reinline(it)
 		}
 	case transcript.KindThinking:
-		it.e.Chars += len(text)
+		it.e.Chars += utf8.RuneCountInString(text)
 		it.e.HasDetail = true
 		if room := maxText - len(it.text); room > 0 {
-			if len(text) > room {
-				text = text[:room]
-			}
+			text = capBytes(text, room)
 			it.text += text
 			it.detail += len(text)
 			b.detail += len(text)
+			b.gainedDetail(it)
 			b.trim()
 		}
 	}
@@ -422,29 +565,44 @@ func toolStatus(s string) string {
 }
 
 func (b *Bridge) tool(u acp.Update) {
-	id := u.ToolCallID
-	if len(id) > 256 {
-		id = id[:256]
-	}
-	it := b.tools[id]
-	if it == nil {
-		b.closeMerges()
-		it = b.add(transcript.Entry{Kind: transcript.KindTool, Name: "tool", Label: "tool", Status: transcript.StatusRunning})
-		it.toolID = id
-		b.tools[id] = it
+	var it *item
+	if u.ToolCallID != "" {
+		// Keyed by a hash of the whole id: ids that share a long prefix are
+		// still different tools.
+		key := sha256.Sum256([]byte(u.ToolCallID))
+		it = b.tools[key]
+		if it != nil && u.Kind == acp.UpdateToolCall {
+			// A second announcement of a known call: the first one stands.
+			return
+		}
+		if it == nil {
+			it = b.newTool()
+			it.key, it.keyed = key, true
+			b.tools[key] = it
+		}
+	} else {
+		// An update with no id cannot be matched to anything.
+		it = b.newTool()
 	}
 	e := &it.e
 	if u.ToolKind != "" {
-		e.Name = oneLine(u.ToolKind, 40)
+		e.Name = line(u.ToolKind, 40)
 	}
 	if u.Title != "" {
-		e.Label = oneLine(u.Title, labelCap)
+		e.Label = line(u.Title, labelCap)
 	}
 	if s := toolStatus(u.Status); s != "" && s != e.Status {
 		e.Status = s
-		it.urgent = true
+		now := b.cfg.Now()
+		if now.Sub(it.burstStart) >= time.Second {
+			it.burstStart, it.burstN = now, 0
+		}
+		if it.burstN++; it.burstN <= maxFlaps {
+			it.urgent = true
+		}
 	}
 	it.dirty = true
+	defer b.reinline(it)
 
 	// The raw input is not kept: an update repeats it whole every time. Output
 	// and diff come from the content the update carries, which replaces the
@@ -461,10 +619,11 @@ func (b *Bridge) tool(u acp.Update) {
 				texts = append(texts, c.Content.Text)
 			}
 		case "diff":
+			path, newText := line(c.Path, 1024), clean(capBytes(c.NewText, maxText))
 			if c.OldText == nil {
-				diff += transcript.WriteDiff(c.Path, c.NewText)
+				diff += transcript.WriteDiff(path, newText)
 			} else {
-				diff += transcript.EditDiff(c.Path, *c.OldText, c.NewText)
+				diff += transcript.EditDiff(path, clean(capBytes(*c.OldText, maxText)), newText)
 			}
 		}
 	}
@@ -472,13 +631,23 @@ func (b *Bridge) tool(u acp.Update) {
 	if out == "" {
 		out = rawOutputText(u.RawOutput)
 	}
-	if len(out) > maxText {
-		out = out[:maxText]
+	out = clean(capBytes(out, maxText))
+	diff = capBytes(diff, maxText)
+
+	// An update that repeats what it said before costs a comparison, not a
+	// summary of up to 4 MiB.
+	k := outKey{set: true, n: len(out), h: maphash.String(b.seed, out), dn: len(diff), dh: maphash.String(b.seed, diff), status: e.Status}
+	if it.out == k {
+		return
 	}
-	if len(diff) > maxText {
-		diff = diff[:maxText]
-	}
+	it.out = k
 	b.setOutput(it, out, diff)
+}
+
+// newTool adds a tool entry that has no id yet.
+func (b *Bridge) newTool() *item {
+	b.closeMerges()
+	return b.add(transcript.Entry{Kind: transcript.KindTool, Name: "tool", Label: "tool", Status: transcript.StatusRunning})
 }
 
 // rawOutputText is a tool's rawOutput as text: a JSON string as itself,
@@ -523,15 +692,29 @@ func (b *Bridge) setOutput(it *item, out, diff string) {
 	}
 	it.detail = len(it.text) + len(it.diff)
 	b.detail += it.detail
+	b.gainedDetail(it)
 	b.trim()
 }
 
+// gainedDetail notes that an entry holds detail, so trim looks at it even if
+// it is older than entries trim has already passed.
+func (b *Bridge) gainedDetail(it *item) {
+	if it.detail > 0 && it.seq < b.detailFrom {
+		b.detailFrom = it.seq
+	}
+}
+
 // trim drops the oldest entries' detail until the total is inside the budget.
-// The entry stays; it just no longer has a detail to fetch.
+// The entry stays; it just no longer has a detail to fetch. An old entry that
+// gains detail again is found by detailFrom, so the budget holds whatever order
+// entries are updated in.
 func (b *Bridge) trim() {
-	for b.detail > b.cfg.DetailBudget && b.evicted < len(b.items) {
-		it := b.items[b.evicted]
-		b.evicted++
+	if b.detail <= b.cfg.DetailBudget {
+		return
+	}
+	i := sort.Search(len(b.items), func(i int) bool { return b.items[i].seq >= b.detailFrom })
+	for ; i < len(b.items) && b.detail > b.cfg.DetailBudget; i++ {
+		it := b.items[i]
 		if it.detail == 0 {
 			continue
 		}
@@ -540,12 +723,18 @@ func (b *Bridge) trim() {
 		it.e.HasDetail = false
 		it.dirty = true
 	}
+	if i < len(b.items) {
+		b.detailFrom = b.items[i].seq
+	} else {
+		b.detailFrom = b.seq + 1
+	}
 }
 
-// Flush returns the entries that are due: new ones and ones whose status
-// changed at once, ones whose content only grew once MinInterval has passed
-// since they were last handed out. Each is as it stands now; an entry updated
-// ten times in the interval is handed out once.
+// Flush returns the entries that are due. New entries and ones whose status
+// changed are due at once, at most 64 per MinInterval and, for status, about
+// four changes per entry per second; ones whose content only grew are due once
+// MinInterval has passed since they were last handed out. Each is as it
+// stands now; an entry updated ten times in the interval is handed out once.
 func (b *Bridge) Flush() []transcript.Entry {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -556,19 +745,26 @@ func (b *Bridge) Flush() []transcript.Entry {
 // held.
 func (b *Bridge) take(all bool) []transcript.Entry {
 	now := b.cfg.Now()
+	if now.Sub(b.windowStart) >= b.cfg.MinInterval {
+		b.windowStart, b.urgentUsed = now, 0
+	}
 	var out []transcript.Entry
 	for _, it := range b.items {
 		if !it.dirty {
 			continue
 		}
-		if !all && !it.urgent && now.Sub(it.lastEmit) < b.cfg.MinInterval {
-			continue
+		if !all {
+			if it.urgent {
+				if b.urgentUsed >= maxUrgent {
+					continue
+				}
+				b.urgentUsed++
+			} else if now.Sub(it.lastEmit) < b.cfg.MinInterval {
+				continue
+			}
 		}
 		it.dirty, it.urgent, it.lastEmit = false, false, now
 		out = append(out, it.e)
 	}
 	return out
 }
-
-// oneLine is the first line of s, cut to max bytes.
-func oneLine(s string, max int) string { return transcript.OneLine(s, max) }

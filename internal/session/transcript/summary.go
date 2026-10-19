@@ -11,5 +11,5 @@ func SummarizeToolOutput(text string) (summary string, hasDetail bool) {
 // DiffSummary stands in for a diff too large to send inline.
 func DiffSummary(diff string) string { return diffSummary(diff) }
 
-// OneLine is the first line of text, cut to max bytes with an ellipsis.
+// OneLine is the first line of text, cut to max runes with an ellipsis.
 func OneLine(text string, max int) string { return oneLine(text, max) }
