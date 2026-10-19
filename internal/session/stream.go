@@ -876,6 +876,9 @@ type WakeReading struct {
 	Prompt string
 	// Version is the rule's version, empty when there is no rule.
 	Version string
+	// Source is where the rule came from (agent.RuleBuiltIn, RuleEdited or
+	// RuleUser), for the audit record of a wake. Empty when there is no rule.
+	Source string
 	// Tail is the output the verdict was drawn from, with the time it last
 	// changed, for the caller to require a quiet period.
 	Tail ScreenTail
@@ -887,7 +890,7 @@ func (s *Session) WakeReading() WakeReading {
 	tail := s.ScreenTail()
 	r := WakeReading{Tail: tail}
 	if s.wake != nil {
-		r.Version = s.wake.Version
+		r.Version, r.Source = s.wake.Version, s.wake.Source
 	}
 	r.Verdict, r.Prompt = s.wake.Judge(tail.Lines)
 	return r

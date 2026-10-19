@@ -132,6 +132,7 @@ func Merge(f *File) *Catalog {
 			merged.Args = orBuiltin(merged.Args, builtin.Args)
 			merged.ResumeArgs = orBuiltin(merged.ResumeArgs, builtin.ResumeArgs)
 			merged.Models = orBuiltin(merged.Models, builtin.Models)
+			mergeWake(&merged, builtin)
 			problems = append(problems, checkRunner(&merged)...)
 			problems = append(problems, checkTokens(&merged)...)
 			problems = append(problems, checkTiers(&merged)...)
@@ -153,6 +154,9 @@ func Merge(f *File) *Catalog {
 				break
 			}
 		}
+		if fresh.Wake != nil {
+			fresh.Wake.Source = RuleUser
+		}
 		problems = append(problems, checkRunner(&fresh)...)
 		problems = append(problems, checkTokens(&fresh)...)
 		problems = append(problems, checkTiers(&fresh)...)
@@ -169,6 +173,36 @@ func Merge(f *File) *Catalog {
 		c.Notice = ConfigName + ": " + strings.Join(problems, "; ")
 	}
 	return c
+}
+
+// mergeWake settles a built-in agent's wake rule after a user's entry has been
+// decoded over it. Whether a built-in rule is trusted is decided by the
+// catalog, which ships it, and not by the file that edits it: Tested is put
+// back to the built-in's. The user's forbidden strings are added to the
+// built-in's, never in place of them. Everything else in the rule the entry
+// may change, and the rule then says in its Source that it was edited. A
+// built-in agent with no rule of its own that gets one from the file is
+// treated as the user's, and carries the Tested the file gives it.
+func mergeWake(merged *Spec, builtin Spec) {
+	if merged.Wake == nil {
+		return
+	}
+	if builtin.Wake == nil {
+		merged.Wake.Source = RuleUser
+		return
+	}
+	merged.Wake.Tested = builtin.Wake.Tested
+	extra := merged.Wake.Forbid
+	merged.Wake.Forbid = slices.Clone(builtin.Wake.Forbid)
+	for _, f := range extra {
+		if !slices.Contains(merged.Wake.Forbid, f) {
+			merged.Wake.Forbid = append(merged.Wake.Forbid, f)
+		}
+	}
+	merged.Wake.Source = RuleBuiltIn
+	if !merged.Wake.sameShape(builtin.Wake) {
+		merged.Wake.Source = RuleEdited
+	}
 }
 
 // orBuiltin is the list an entry set, or the built-in's where it set none.

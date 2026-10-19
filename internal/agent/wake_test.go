@@ -17,19 +17,32 @@ func tested(r *WakeRule) *WakeRule {
 
 func lines(s string) []string { return strings.Split(s, "\n") }
 
+func builtinSpec(t *testing.T, c *Catalog, id string) Spec {
+	t.Helper()
+	for _, s := range c.Specs {
+		if s.ID == id {
+			return s
+		}
+	}
+	t.Fatalf("no agent %q", id)
+	return Spec{}
+}
+
 // The tails below are synthetic, built from the documented shape of each
 // prompt. They are to be replaced by tails from real recordings, and Tested
 // set, before any agent is typed into.
 func TestClaudeWakeRule(t *testing.T) {
 	box := "╭──────────────╮\n│ >            │\n╰──────────────╯\n  ? for shortcuts"
+	rules := "──────────────\n❯\n──────────────\n  ? for shortcuts"
 	cases := []struct {
 		name string
 		tail string
 		want WakeVerdict
 	}{
-		{"idle empty prompt", "done with the task\n" + box, WakeOK},
-		{"idle prompt without the footer", "done\n╭────╮\n│ >  │\n╰────╯", WakeOK},
-		{"bare prompt character", "done\n❯", WakeOK},
+		{"idle empty prompt in a box", "done with the task\n" + box, WakeOK},
+		{"idle empty prompt between rules", "done\n" + rules, WakeOK},
+		{"no footer", "done\n╭────╮\n│ >  │\n╰────╯", WakeNo},
+		{"bare prompt character", "done\n❯", WakeNo},
 		{"draft text in the prompt", "done\n╭────────────╮\n│ > fix the  │\n╰────────────╯\n  ? for shortcuts", WakeNo},
 		{"working, hint shown", "thinking\n╭────╮\n│ >  │\n╰────╯\n  esc to interrupt", WakeNo},
 		{"permission question", "Do you want to proceed?\n❯ 1. Yes\n  2. No\n\n>", WakeNo},
@@ -43,6 +56,16 @@ func TestClaudeWakeRule(t *testing.T) {
 		{"prompt-like line in earlier output", "> quoted line from a file\nstill printing", WakeNo},
 		{"empty prompt earlier, output after", ">\nmore output arrived", WakeNo},
 		{"markdown quote is not the prompt", "> some quoted text", WakeNo},
+
+		// Lookalikes that must never pass.
+		{"output line then a bare prompt", "step 3 running\n>", WakeNo},
+		{"markdown table row", "| a | b |\n| > |\n  ? for shortcuts", WakeNo},
+		{"printed box without its footer", "╭────╮\n│ > │\n╰────╯", WakeNo},
+		{"prompt followed by a no-break space", "done\n──────\n> \n──────\n  ? for shortcuts", WakeNo},
+		{"prompt followed by a tab", "done\n──────\n>\t\n──────\n  ? for shortcuts", WakeNo},
+		{"prompt with no border above", "done\n>\n──────\n  ? for shortcuts", WakeNo},
+		{"prompt with no border below", "──────\n>\n  ? for shortcuts", WakeNo},
+		{"wrapped question", "Do you\nwant to proceed?\n──────\n>\n──────\n  ? for shortcuts", WakeNo},
 	}
 	rule := tested(claudeWake())
 	for _, c := range cases {
@@ -67,13 +90,18 @@ func TestChatWakeRule(t *testing.T) {
 		tail string
 		want WakeVerdict
 	}{
-		{"idle empty prompt", "assistant: done\n\nsonnet · 1.2k tokens\nyou >", WakeOK},
-		{"with trailing space", "answer\nyou > ", WakeOK},
-		{"draft typed", "answer\nyou > half a thought", WakeNo},
+		{"idle empty prompt", "answer text\n\nsonnet · 1.2k in · 300 out\nyou >", WakeOK},
+		{"with trailing space", "answer\n\nsonnet\nyou > ", WakeOK},
+		{"first prompt", "\ndefault model\nyou >", WakeOK},
+		{"draft typed", "answer\n\nsonnet\nyou > half a thought", WakeNo},
 		{"continuation line", "you > first\n   …", WakeNo},
 		{"tool question prompt", "Run `go test`?\n  [y] yes   [n] no (Enter)   or type what to do instead\n  >", WakeNo},
 		{"answer streaming", "assistant: let me look", WakeNo},
 		{"prompt only in earlier output", "you >\nassistant: thinking", WakeNo},
+		{"working output then the prompt text", "assistant: reading files\nyou >", WakeNo},
+		{"no blank line above the status line", "answer\nsonnet\nyou >", WakeNo},
+		{"no status line", "\nyou >", WakeNo},
+		{"no-break space after the prompt", "answer\n\nsonnet\nyou > ", WakeNo},
 	}
 	rule := tested(chatWake())
 	for _, c := range cases {
@@ -91,7 +119,7 @@ func TestAnUntestedRuleNeverAllowsAWake(t *testing.T) {
 			t.Fatalf("%s: the built-in rule is marked tested, and no recording exists", name)
 		}
 	}
-	idle := []string{"done", "you >"}
+	idle := []string{"done", "", "model", "you >"}
 	if v, line := chatWake().Judge(idle); v != WakeUnknown || line != "" {
 		t.Errorf("untested rule on an idle prompt = %v, %q, want unknown", v, line)
 	}
@@ -135,6 +163,8 @@ func TestOnlyClaudeAndTheChatClientHaveRules(t *testing.T) {
 		case s.ID == "claude", s.Runner == RunnerAPI:
 			if s.Wake == nil {
 				t.Errorf("%s has no wake rule", s.ID)
+			} else if s.Wake.Source != RuleBuiltIn {
+				t.Errorf("%s: source = %q, want %q", s.ID, s.Wake.Source, RuleBuiltIn)
 			}
 		default:
 			if s.Wake != nil {
@@ -144,44 +174,86 @@ func TestOnlyClaudeAndTheChatClientHaveRules(t *testing.T) {
 	}
 }
 
-func TestAUserEntryEditsAWakeRuleWithoutTouchingTheBuiltIn(t *testing.T) {
-	f := &File{Agents: []json.RawMessage{
-		json.RawMessage(`{"id": "claude", "wake": {"tested": true, "forbid": ["my own"]}}`),
-	}}
-	c := Merge(f)
-	var got *WakeRule
-	for _, s := range c.Specs {
-		if s.ID == "claude" {
-			got = s.Wake
+// The file that edits a built-in rule is not what proves it, so it cannot
+// switch the gate off.
+func TestAUserEntryCannotMarkABuiltInRuleTested(t *testing.T) {
+	for _, entry := range []string{
+		`{"id": "claude", "wake": {"tested": true}}`,
+		`{"id": "claude", "wake": {"tested": true, "prompts": [">"], "forbid": []}}`,
+		`{"id": "anthropic", "wake": {"tested": true}}`,
+	} {
+		c := Merge(&File{Agents: []json.RawMessage{json.RawMessage(entry)}})
+		for _, id := range []string{"claude", "anthropic"} {
+			if r := builtinSpec(t, c, id).Wake; r.Tested {
+				t.Errorf("%s: %s marked the rule tested", id, entry)
+			}
 		}
 	}
-	if got == nil || !got.Tested || len(got.Forbid) != 1 || got.Forbid[0] != "my own" {
-		t.Fatalf("merged rule = %+v, want tested with the user's forbid list", got)
+	for _, s := range Builtins() {
+		if s.Wake != nil && s.Wake.Tested {
+			t.Errorf("%s: the built-in itself was changed", s.ID)
+		}
+	}
+}
+
+func TestAUserForbidListAddsToTheBuiltInListAndNeverReplacesIt(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "claude", "wake": {"forbid": ["my own", "esc to interrupt"]}}`),
+	}})
+	got := builtinSpec(t, c, "claude").Wake
+	for _, want := range claudeWake().Forbid {
+		if !slices.Contains(got.Forbid, want) {
+			t.Errorf("built-in forbid %q was lost", want)
+		}
+	}
+	if !slices.Contains(got.Forbid, "my own") {
+		t.Error("the user's forbid string was not added")
+	}
+	if n := strings.Count(strings.Join(got.Forbid, "|"), "esc to interrupt"); n != 1 {
+		t.Errorf("a repeated string appears %d times", n)
 	}
 	if len(got.Prompts) == 0 {
 		t.Error("the user left prompts out and lost the built-in's")
 	}
-	for _, s := range Builtins() {
-		if s.ID == "claude" && (s.Wake.Tested || slices.Contains(s.Wake.Forbid, "my own")) {
-			t.Error("the entry reached into the built-in")
-		}
+	if got.Source != RuleBuiltIn {
+		t.Errorf("source = %q after only adding a forbid string", got.Source)
+	}
+	if slices.Contains(claudeWake().Forbid, "my own") {
+		t.Error("the entry reached into the built-in")
 	}
 	if c.Notice != "" {
 		t.Errorf("a wake entry produced a notice: %s", c.Notice)
 	}
 }
 
-func TestANewAgentCanCarryAWakeRule(t *testing.T) {
+func TestAnEditedBuiltInRuleSaysSo(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "claude", "wake": {"prompts": [">", "$"]}}`),
+	}})
+	if got := builtinSpec(t, c, "claude").Wake; got.Source != RuleEdited || got.Tested {
+		t.Errorf("source = %q, tested = %v, want edited and untested", got.Source, got.Tested)
+	}
+}
+
+func TestANewAgentCanCarryAWakeRuleAndItIsMarkedAsTheUsers(t *testing.T) {
 	f := &File{Agents: []json.RawMessage{
 		json.RawMessage(`{"id": "mine", "exe": "mine", "wake": {"version": "1", "prompts": ["mine>"]}}`),
+		json.RawMessage(`{"id": "mine2", "exe": "mine2", "wake": {"tested": true, "prompts": ["m2>"]}}`),
 	}}
-	for _, s := range Merge(f).Specs {
-		if s.ID == "mine" {
-			if s.Wake == nil || s.Wake.Tested {
-				t.Fatalf("rule = %+v, want present and untested by default", s.Wake)
-			}
-			return
-		}
+	c := Merge(f)
+	if r := builtinSpec(t, c, "mine").Wake; r == nil || r.Tested || r.Source != RuleUser {
+		t.Fatalf("rule = %+v, want present, untested by default and the user's", r)
 	}
-	t.Fatal("agent not found")
+	if r := builtinSpec(t, c, "mine2").Wake; r == nil || !r.Tested || r.Source != RuleUser {
+		t.Fatalf("rule = %+v, want the user's own tested flag kept for their own agent", r)
+	}
+}
+
+func TestAWakeRuleForABuiltInAgentWithoutOneIsTheUsers(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "codex", "wake": {"prompts": ["codex>"]}}`),
+	}})
+	if r := builtinSpec(t, c, "codex").Wake; r == nil || r.Source != RuleUser {
+		t.Fatalf("rule = %+v, want the user's", r)
+	}
 }
