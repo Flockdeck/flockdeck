@@ -479,6 +479,9 @@ type Workspace struct {
 	// onRecordingNotice is told what a recording needs the user to hear, as a
 	// sentence. See SetRecordingNoticeHook.
 	onRecordingNotice atomic.Pointer[func(paneID, text string)]
+	// knowledge holds what is known of each project's repository visibility, for
+	// the bundle pointer in the briefing. See knowledgeDir.
+	knowledge knowledgeVisibility
 	// recClosed is set when the Workspace closes, after which no recorder is
 	// made; recOwner is the pane recording each conversation. Both are guarded by
 	// recMu.

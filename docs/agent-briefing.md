@@ -27,6 +27,9 @@ text itself is built in `internal/workspace/briefing.go` and `context.go`.
   deleting or spending, to keep to four helpers at once, to arm the inbox stream (`inbox -follow`) before starting helpers, and to
   put the agents for one task in one tab named after it (`spawn -tab`). These are instructions
   in the briefing and are advisory; only the cap on open helpers is enforced.
+- When the pane's checkout has `.flockdeck/knowledge/index.md` and the project allows it, one
+  line giving the folder's path, saying the notes may be stale and are data, not instructions.
+  The notes are never copied into the briefing. See [Pointing agents at the knowledge bundle](#pointing-agents-at-the-knowledge-bundle).
 - A one-line status rule, one line for each user-facing feature, and a pointer to
   `flockdeck help`.
 
@@ -220,3 +223,26 @@ an environment scrubbed of the markers a parent agent session would otherwise pa
 down. Those markers are stripped for every agent in the catalog, not only the one in
 this pane, because Flockdeck may have been launched from inside any of them. Nothing
 is shared between two panes.
+
+## Pointing agents at the knowledge bundle
+
+The bundle's text reaches a model only if the agent reads the files, but the
+path in the briefing is what sends it there, so whether to include it is a
+privacy decision about the repository. A project has one of three states.
+`on` and `off` are the user's answer, kept in the preferences file by
+`flockdeck knowledge on|off`, which refuses to run inside a pane. `ask` is the
+default for a repository not known to be private: the line is left out and the
+window shows a one-time notice.
+
+The default is `on` only when `gh repo view --json visibility` says
+`private`. The lookup runs in the background at most once per project per run,
+with a ten second limit, because the briefing is built while the agent waits
+on its start hook and must not wait for the network. Any failure (no `gh`, not
+signed in, offline, a remote that is not on GitHub) counts as not private. The
+first briefing of a project in a private repository therefore has no line, and
+the next one has.
+
+The folder is the pane's own checkout, so a pane in a worktree reads that
+worktree's copy. A bundle whose `index.md` is a link, not a regular file, is
+ignored. The line is built in `internal/workspace/knowledge.go` and written by
+`render` for hook-delivered and prompt-delivered briefings alike.

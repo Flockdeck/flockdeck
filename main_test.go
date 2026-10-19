@@ -524,6 +524,7 @@ func cliFlagNames() map[string]bool {
 		recordingsFlagSet(&recordingsFlags{}),
 		exportFlagSet(&exportFlags{}),
 		updateFlagSet(&updateFlags{}),
+		knowledgeFlagSet(new(string)),
 		helpersInstallFlagSet(&helpersInstallFlags{}),
 		helpersUninstallFlagSet(&helpersUninstallFlags{}),
 		helpersListFlagSet(&helpersListFlags{}),

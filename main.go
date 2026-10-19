@@ -184,6 +184,17 @@ func main() {
 		}
 		return
 	}
+	// `knowledge` switches the briefing's pointer at a project's knowledge bundle.
+	// It edits the preferences file and needs no running instance.
+	if len(os.Args) > 1 && os.Args[1] == "knowledge" {
+		if err := runKnowledge(os.Args[2:], os.Stdout); err != nil {
+			if !errors.Is(err, errReported) {
+				fmt.Fprintln(os.Stderr, "flockdeck knowledge:", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
 	// `recordings` lists the transcripts panes have recorded. It reads the
 	// state directory and needs no running instance.
 	if len(os.Args) > 1 && os.Args[1] == "recordings" {
@@ -347,7 +358,7 @@ func helpArgs(rest []string) (args []string, top bool) {
 	switch {
 	case len(rest) == 0:
 		return nil, true
-	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "close": true, "team": true, "msg": true, "inbox": true, "task": true, "recordings": true, "agents": true, "chat": true, "keys": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
+	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "close": true, "team": true, "msg": true, "inbox": true, "task": true, "recordings": true, "agents": true, "chat": true, "keys": true, "knowledge": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
 		return []string{rest[0], "-h"}, false
 	}
 	return nil, true
@@ -470,6 +481,9 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  recordings export [-o file] [-reveal] <pane-id | conversation-id>\n")
 	fmt.Fprintf(out, "        write an agent's stored conversation as a transcript, whether or not the pane\n")
 	fmt.Fprintf(out, "        was recorded; only Claude Code stores a conversation flockdeck can read\n")
+	fmt.Fprintf(out, "  knowledge [status | on | off] [-project dir]\n")
+	fmt.Fprintf(out, "        whether agents' briefings point at the project's notes in .flockdeck/knowledge;\n")
+	fmt.Fprintf(out, "        on and off are refused inside a pane\n")
 	fmt.Fprintf(out, "  agents\n")
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "  chat [flags]\n")

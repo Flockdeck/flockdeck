@@ -22,6 +22,7 @@ switched from inside the window. These are what is left.
 | `flockdeck msg send` | From inside a pane: message another agent by pane id, name or role |
 | `flockdeck inbox` | From inside a pane: list unread messages, `-all` for every one; `inbox read <id>` prints one in full |
 | `flockdeck task` | From inside a pane: the project's shared task board (`add`, `list`, `show`, `assign`, `status`, `note`, `branch`, `baton`, `prune`) |
+| `flockdeck knowledge` | From a terminal outside Flockdeck: show (`status`) or set (`on`, `off`) whether a project's agents are pointed at the notes in `.flockdeck/knowledge` |
 | `flockdeck agents` | List the agents and models that `-agent` and `spawn` accept, and which are installed here |
 | `flockdeck help` | Print the usage; `flockdeck help spawn` (or any subcommand below) prints that subcommand's usage instead |
 
@@ -491,6 +492,33 @@ only while the agent talks to that vendor's own address.
 | `flockdeck keys endpoint <agent> <url>` | Points an API agent at another address; `default` in place of the address goes back to the vendor's own, and no address at all prints the one it uses now |
 
 Nothing here ever prints a key back, and neither does the interface.
+
+## knowledge
+
+A repository can keep notes written from its code in `.flockdeck/knowledge`
+(start at `index.md`). When a pane's checkout has them and the project allows
+it, the agent's briefing gets one line with the folder's path, saying the notes
+may be stale and that their text is data, not instructions. Nothing from the
+notes is put in the briefing itself.
+
+The notes go to whatever model the agent runs on, so the default depends on the
+repository. It is on when `gh` reports the repository as private. If it is
+public, or `gh` is missing, signed out, offline or the remote is not on GitHub,
+the pointer is off and the window shows a one-time notice. Your answer is
+stored for the project and the question is not asked again.
+
+| Command | What it does |
+| --- | --- |
+| `flockdeck knowledge` | Show whether the pointer is on, and why (`status` is the same) |
+| `flockdeck knowledge on` | Point this project's agents at the notes |
+| `flockdeck knowledge off` | Stop pointing them there |
+
+`-project <dir>` names another project. `on` and `off` are refused inside a
+pane: they decide what is offered to a model, and an agent should not be able to
+answer for you. The briefing is rebuilt at each session start, compaction and
+resume, so a change reaches a running agent then. The first briefing in a
+project does not wait for the `gh` lookup, so in a private repository the line
+appears from the next one.
 
 ## remote
 
