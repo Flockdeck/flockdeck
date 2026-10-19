@@ -46,9 +46,11 @@ const (
 	killGrace = 3 * time.Second
 )
 
-// Tree is what a started process's descendants are tracked by. The zero value
-// tracks nothing, and End then falls back to the process table, so a nil or
-// zero Tree is safe to End.
+// Tree is what a started process's descendants are tracked by. A nil or zero
+// Tree is safe to End: it tracks nothing, so End ends only the process it is
+// given (on Windows it does not walk the process table for a process the Tree
+// was not made for). A second End returns immediately, even while the first is
+// still running on another goroutine.
 type Tree struct {
 	mu   sync.Mutex
 	tree tree
