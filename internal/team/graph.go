@@ -23,8 +23,9 @@ const (
 
 // Task states the derivation looks at. They match tasks.State.
 const (
-	taskInReview = "in-review"
-	taskBlocked  = "blocked"
+	taskInReview   = "in-review"
+	taskBlocked    = "blocked"
+	taskInProgress = "in-progress"
 )
 
 // ManagerRole is the id of the role that leads a team.
@@ -59,10 +60,20 @@ type GraphPane struct {
 	// the question or the command it shows.
 	HasPrompt  bool
 	PromptText string
+	// PromptKind is PromptPermission for a permission prompt and PromptAsk for a
+	// question. Empty is read as a question.
+	PromptKind string
 	// Exited and Failed say the process is gone, and whether it ended in error.
 	Exited bool
 	Failed bool
-	Unread int
+	// ExitCode is the process's exit code when Exited.
+	ExitCode int
+	// ClosedByUser says the person closed or killed the pane, so its exit is not a
+	// fault. The caller sets it.
+	ClosedByUser bool
+	Unread       int
+	// UnreadSince is when the oldest unread message arrived, zero if unknown.
+	UnreadSince time.Time
 }
 
 // GraphTask is one task of the board.
