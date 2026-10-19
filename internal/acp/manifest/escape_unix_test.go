@@ -3,7 +3,6 @@
 package manifest
 
 import (
-	"context"
 	"os/exec"
 	"syscall"
 	"testing"
@@ -20,7 +19,7 @@ func leaveSession(c *exec.Cmd) { c.SysProcAttr = &syscall.SysProcAttr{Setsid: tr
 func TestHandshakeDoesNotWaitForADescendantThatEscapedTheTree(t *testing.T) {
 	cfg := fakeAdapter(t, "escape")
 	started := time.Now()
-	res, err := Handshake(context.Background(), cfg)
+	res, err := handshakeWithin(t, cfg, 10*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

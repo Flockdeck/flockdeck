@@ -87,7 +87,7 @@ func TestHandshakeRefusesRelativePathsAndNoEnv(t *testing.T) {
 func TestHandshakeDoesNotWaitForADescendantInsideTheTreeHoldingTheStreams(t *testing.T) {
 	cfg := fakeAdapter(t, "holdstderr")
 	started := time.Now()
-	res, err := Handshake(context.Background(), cfg)
+	res, err := handshakeWithin(t, cfg, 15*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,5 +96,28 @@ func TestHandshakeDoesNotWaitForADescendantInsideTheTreeHoldingTheStreams(t *tes
 	}
 	if took := time.Since(started); took > 15*time.Second {
 		t.Errorf("took %v; it waited for the descendant", took)
+	}
+}
+
+// handshakeWithin runs Handshake and fails the test if it has not returned
+// after d, so that a Handshake that hangs fails at once and says so instead of
+// waiting for the package's timeout.
+func handshakeWithin(t *testing.T, cfg HandshakeConfig, d time.Duration) (HandshakeResult, error) {
+	t.Helper()
+	type out struct {
+		res HandshakeResult
+		err error
+	}
+	ch := make(chan out, 1)
+	go func() {
+		res, err := Handshake(context.Background(), cfg)
+		ch <- out{res, err}
+	}()
+	select {
+	case o := <-ch:
+		return o.res, o.err
+	case <-time.After(d):
+		t.Fatalf("Handshake had not returned after %v; it is waiting for a descendant", d)
+		return HandshakeResult{}, nil
 	}
 }
