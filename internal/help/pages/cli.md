@@ -502,7 +502,11 @@ may be stale and that their text is data, not instructions. Nothing from the
 notes is put in the briefing itself.
 
 The notes go to whatever model the agent runs on, so the default depends on the
-repository. It is on when `gh` reports the repository as private. If it is
+repository. It is on when `gh` reports the repository as private. That trusts the
+repository's own remotes: a third-party repository you cloned and then pointed
+at a private repository you can read would get the pointer. The line says the
+notes are data and not instructions, and nothing from them is put in the
+briefing. If it is
 public, or `gh` is missing, signed out, offline or the remote is not on GitHub,
 the pointer is off and the window shows a one-time notice. Your answer is
 stored for the project and the question is not asked again.
@@ -513,9 +517,15 @@ stored for the project and the question is not asked again.
 | `flockdeck knowledge on` | Point this project's agents at the notes |
 | `flockdeck knowledge off` | Stop pointing them there |
 
-`-project <dir>` names another project. `on` and `off` are refused inside a
-pane: they decide what is offered to a model, and an agent should not be able to
-answer for you. The briefing is rebuilt at each session start, compaction and
+`-project <dir>` names another project. The setting is kept for the folder the
+project was opened as, which is not always a repository (it may hold several),
+so the command finds that folder from the projects Flockdeck has opened and
+only falls back to the repository's own root for a directory in none of them;
+`status` prints the folder it used. `on` and `off` are refused inside a pane:
+they decide what is offered to a model, and an agent should not be able to
+answer for you. The refusal is advisory, since it reads an environment variable
+an agent could unset; the barrier that holds is the agent's own permission
+prompt for running a command. The briefing is rebuilt at each session start, compaction and
 resume, so a change reaches a running agent then. The first briefing in a
 project does not wait for the `gh` lookup, so in a private repository the line
 appears from the next one.

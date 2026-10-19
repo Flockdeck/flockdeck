@@ -3,6 +3,7 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/jmwri/flockdeck/internal/ghcli"
@@ -15,6 +16,12 @@ import (
 // that is a decision the user makes. So the pointer is on by default only
 // where the repository is known to be private; everywhere else the user is
 // told once and answers with `flockdeck knowledge on` or `off`.
+//
+// "Known to be private" is what gh reports for the checkout's own remotes. It
+// trusts them: a third-party repository cloned and then re-pointed at a private
+// repository the user can read would get the pointer. What the line offers is a
+// path to notes the checkout holds, and it says their text is data, not
+// instructions.
 
 // bundleSubdir is where the bundle is kept, below a checkout.
 var bundleSubdir = filepath.Join(".flockdeck", "knowledge")
@@ -54,9 +61,7 @@ type visibilityResult struct {
 // a compaction or a resume, has it.
 func (w *Workspace) knowledgeDir(paneID, cwd, root string) string {
 	dir := filepath.Join(cwd, bundleSubdir)
-	// A bundle is a regular file named index.md in a real directory under the
-	// pane's own checkout. A link there could name anything on the machine.
-	if fi, err := os.Lstat(filepath.Join(dir, bundleIndex)); err != nil || !fi.Mode().IsRegular() {
+	if !bundleInside(cwd, dir) {
 		return ""
 	}
 	switch store.LoadPrefs().KnowledgeSetting(root) {
@@ -69,6 +74,27 @@ func (w *Workspace) knowledgeDir(paneID, cwd, root string) string {
 		return dir
 	}
 	return ""
+}
+
+// bundleInside reports whether dir holds a bundle: an index.md that is a
+// regular file once every link on the way is followed, and that lies under the
+// pane's own checkout. A link in .flockdeck or in the bundle could otherwise
+// name anything on the machine, and the path would be offered to a model.
+func bundleInside(cwd, dir string) bool {
+	root, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return false
+	}
+	index, err := filepath.EvalSymlinks(filepath.Join(dir, bundleIndex))
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(root, index)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return false
+	}
+	fi, err := os.Stat(index)
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // private reports whether root's repository is known to be private, starting
@@ -110,12 +136,15 @@ func (k *knowledgeVisibility) look(w *Workspace, paneID, root string, r *visibil
 // does not turn it into a notice on every run.
 func (w *Workspace) askAboutKnowledge(paneID, root string) {
 	tip := "knowledge-ask:" + store.MetaKey(root)
-	p, err := store.ReadPrefs()
-	if err != nil || p.KnowledgeSetting(root) != "" || p.Dismissed(tip) {
-		return
-	}
-	p.Dismiss(tip)
-	if store.SavePrefs(p) != nil {
+	show := false
+	err := store.UpdatePrefs(func(p *store.Prefs) bool {
+		if p.KnowledgeSetting(root) != "" || p.Dismissed(tip) {
+			return false
+		}
+		show = p.Dismiss(tip)
+		return show
+	})
+	if err != nil || !show {
 		return
 	}
 	w.note(paneID, knowledgeAskNotice)

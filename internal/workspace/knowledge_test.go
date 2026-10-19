@@ -208,6 +208,7 @@ func TestAIndexThatIsALinkIsNotABundle(t *testing.T) {
 func TestKnowledgeLineIsOneShortBullet(t *testing.T) {
 	for _, role := range []string{"", "manager", "worker"} {
 		c := sizeContext(role)
+		c.KnowledgeDir = ""
 		before := len(c.Render())
 		c.KnowledgeDir = `/home/dev/code/api/.flockdeck/knowledge`
 		after := c.Render()
@@ -219,5 +220,49 @@ func TestKnowledgeLineIsOneShortBullet(t *testing.T) {
 		if strings.Count(after, "Notes on this codebase") != 1 {
 			t.Errorf("role %q: the pointer is not in the briefing exactly once", role)
 		}
+	}
+}
+
+// A link anywhere on the way to index.md, not only at the file, must not take
+// the path outside the pane's checkout.
+func TestABundleReachedThroughALinkOutOfTheCheckoutIsNotOffered(t *testing.T) {
+	answerVisibility(t, "private", nil)
+	isolateConfig(t)
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "index.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".flockdeck"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, ".flockdeck", "knowledge")); err != nil {
+		t.Skipf("cannot make a symbolic link here: %v", err)
+	}
+	ws := newTestWorkspace(t, root)
+	if got := ws.knowledgeDir("p", root, root); got != "" {
+		t.Errorf("knowledgeDir followed a linked directory out of the checkout: %q", got)
+	}
+}
+
+func TestABundleLinkedToAnotherPlaceInTheCheckoutIsOffered(t *testing.T) {
+	answerVisibility(t, "private", nil)
+	isolateConfig(t)
+	root := t.TempDir()
+	real := filepath.Join(root, "docs", "notes")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "index.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".flockdeck"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(root, ".flockdeck", "knowledge")); err != nil {
+		t.Skipf("cannot make a symbolic link here: %v", err)
+	}
+	if !bundleInside(root, filepath.Join(root, ".flockdeck", "knowledge")) {
+		t.Error("a link that stays inside the checkout was refused")
 	}
 }

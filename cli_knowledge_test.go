@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -69,7 +71,7 @@ func TestKnowledgeStatusSaysWhereTheStateComesFrom(t *testing.T) {
 	}{
 		{"private default", testKnowledgeEnv(false, "private", nil), "pointer: on (default, repository is private)"},
 		{"public default", testKnowledgeEnv(false, "public", nil), "pointer: ask, off until answered (repository is public)"},
-		{"unknown default", testKnowledgeEnv(false, "", errors.New("offline")), "visibility is not known"},
+		{"unknown default", testKnowledgeEnv(false, "", errors.New("offline")), "visibility is unknown"},
 	}
 	for _, c := range cases {
 		out, err := runK(t, c.env)
@@ -90,5 +92,45 @@ func TestKnowledgeRejectsAnUnknownAction(t *testing.T) {
 	isolateState(t)
 	if _, err := runK(t, testKnowledgeEnv(false, "", nil), "maybe"); err == nil {
 		t.Error("an unknown action was accepted")
+	}
+}
+
+// A project can be a folder holding several repositories. The window keys the
+// setting by that folder, so the command has to as well, not by the
+// repository it happens to be run inside.
+func TestKnowledgeUsesTheFolderTheProjectWasOpenedAs(t *testing.T) {
+	isolateState(t)
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "api")
+	if err := os.MkdirAll(filepath.Join(repo, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.TouchRecents(parent); err != nil {
+		t.Fatal(err)
+	}
+	store.FlushRecents()
+
+	env := knowledgeEnv{
+		inPane:     func() bool { return false },
+		projectOf:  projectRootOf,
+		visibility: func(string) (string, error) { return "private", nil },
+	}
+	if _, err := runK(t, env, "on", "-project", filepath.Join(repo, "pkg")); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.LoadPrefs().KnowledgeSetting(parent); got != "on" {
+		t.Errorf("setting under the project folder = %q, want on", got)
+	}
+	out, err := runK(t, env, "status", "-project", repo)
+	if err != nil || !strings.Contains(out, "project: "+parent) || !strings.Contains(out, "pointer: on (set by you)") {
+		t.Errorf("status = %q, %v, want the project folder and the answer", out, err)
+	}
+}
+
+func TestKnowledgeStatusCallsAnEmptyVisibilityUnknown(t *testing.T) {
+	isolateState(t)
+	out, err := runK(t, testKnowledgeEnv(false, "", nil))
+	if err != nil || !strings.Contains(out, "visibility is unknown") {
+		t.Errorf("status = %q, %v", out, err)
 	}
 }

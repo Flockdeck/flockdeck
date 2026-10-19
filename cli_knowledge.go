@@ -18,9 +18,11 @@ import (
 // knowledge bundle (.flockdeck/knowledge). It writes the preferences file, which
 // the briefing reads each time it is built, so it needs no running instance.
 //
-// `on` and `off` are refused inside a pane. The setting decides whether notes
-// from the code are offered to a model, and an agent that could switch it on
-// would have answered a question that is the user's.
+// `on` and `off` are refused inside a pane. That refusal is advisory: it reads
+// the environment a pane is started with, which an agent can unset in the
+// command it runs. The real barrier is the agent's own permission prompt for
+// running a command. The refusal stops an agent doing it by accident or on a
+// default, and says why; it does not stop one that is set on it.
 
 func knowledgeUsage(w io.Writer) {
 	fmt.Fprint(w, "Usage: flockdeck knowledge [status] [-project dir]\n"+
@@ -99,28 +101,29 @@ func runKnowledgeWith(env knowledgeEnv, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	// Read first, and refuse if the file cannot be read: saving defaults with
-	// one change over a file that exists would lose every other setting.
-	p, err := store.ReadPrefs()
-	if err != nil {
-		return fmt.Errorf("the preferences could not be read, so nothing was changed: %w", err)
-	}
 	if action != "status" {
-		if p.SetKnowledge(root, action) {
-			if err := store.SavePrefs(p); err != nil {
-				return fmt.Errorf("could not save the preferences: %w", err)
-			}
+		// Read and written as one step, and refused if the file cannot be
+		// read: saving defaults with one change over a file that exists would
+		// lose every other setting.
+		err := store.UpdatePrefs(func(p *store.Prefs) bool { return p.SetKnowledge(root, action) })
+		if err != nil {
+			return fmt.Errorf("could not save the setting: %w", err)
 		}
 		fmt.Fprintf(out, "Agents in %s: bundle pointer %s\n", root, action)
 		return nil
+	}
+	p, err := store.ReadPrefs()
+	if err != nil {
+		return fmt.Errorf("the preferences could not be read: %w", err)
 	}
 	return knowledgeStatus(env, p, root, dir, out)
 }
 
 func knowledgeStatus(env knowledgeEnv, p store.Prefs, root, dir string, out io.Writer) error {
+	// The root is what the window keys the setting by, so what is printed here
+	// is the project the briefing will look up.
 	fmt.Fprintf(out, "project: %s\n", root)
-	_, statErr := os.Stat(filepath.Join(dir, ".flockdeck", "knowledge", "index.md"))
-	if statErr != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".flockdeck", "knowledge", "index.md")); err != nil {
 		fmt.Fprintln(out, "bundle: none in this directory")
 	} else {
 		fmt.Fprintln(out, "bundle: .flockdeck/knowledge/index.md")
@@ -131,8 +134,8 @@ func knowledgeStatus(env knowledgeEnv, p store.Prefs, root, dir string, out io.W
 	}
 	v, err := env.visibility(root)
 	switch {
-	case err != nil:
-		fmt.Fprintln(out, "pointer: ask, off until answered (repository visibility is not known)")
+	case err != nil || v == "":
+		fmt.Fprintln(out, "pointer: ask, off until answered (repository visibility is unknown)")
 	case v == "private":
 		fmt.Fprintln(out, "pointer: on (default, repository is private)")
 	default:
@@ -141,13 +144,19 @@ func knowledgeStatus(env knowledgeEnv, p store.Prefs, root, dir string, out io.W
 	return nil
 }
 
-// projectRootOf is the root of the project dir belongs to: the main checkout
-// of its repository, which is also the root of a worktree's project.
+// projectRootOf is the project dir belongs to, spelled as the window keys it:
+// the folder it was opened as, when dir is in one that Flockdeck has open or
+// has opened. That folder is not always a repository (it may hold several), so
+// the repository's own root is only the answer for a directory no project
+// contains, and is the main checkout of the repository for a worktree.
 func projectRootOf(dir string) (string, error) {
+	if root, ok := store.ProjectContaining(dir); ok {
+		return root, nil
+	}
 	cmd := exec.Command("git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	b, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("%s is not in a git repository", dir)
+		return "", fmt.Errorf("%s is not in a project Flockdeck has opened or in a git repository", dir)
 	}
 	common := filepath.Clean(strings.TrimSpace(string(b)))
 	if filepath.Base(common) == ".git" {

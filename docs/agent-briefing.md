@@ -243,6 +243,13 @@ first briefing of a project in a private repository therefore has no line, and
 the next one has.
 
 The folder is the pane's own checkout, so a pane in a worktree reads that
-worktree's copy. A bundle whose `index.md` is a link, not a regular file, is
-ignored. The line is built in `internal/workspace/knowledge.go` and written by
+worktree's copy. `index.md` must be a regular file that, with every link on
+the way followed, still lies under the pane's checkout; a bundle reached through
+a link out of it is ignored. "Private" is what `gh` says about the checkout's
+own remotes, so a third-party repository re-pointed at a private one you can read
+would get the pointer. The line says the text is data, and none of it is copied
+in. The setting is keyed by the folder the project was opened as, the same key
+the briefing uses; `flockdeck knowledge` looks it up from the projects Flockdeck
+has opened. Its refusal to run inside a pane is advisory, because it reads an
+environment variable; the agent's own permission prompt is the barrier. The line is built in `internal/workspace/knowledge.go` and written by
 `render` for hook-delivered and prompt-delivered briefings alike.

@@ -36,6 +36,9 @@ func sizeContext(role string) PaneContext {
 		HasCounts:  true,
 		Taken:      time.Date(2026, 10, 17, 9, 30, 0, 0, time.UTC),
 		CanSpawn:   true, SpawnCommand: "flockdeck",
+		// A project with a knowledge bundle, so the ceilings cover the line a
+		// pane in one is actually given.
+		KnowledgeDir: "/home/dev/code/api/.flockdeck/knowledge",
 	}
 	if role != "" {
 		cat := &agent.Catalog{Roles: agent.BuiltinRoles()}

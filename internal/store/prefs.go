@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // Prefs is what the interface remembers about the person using it, as opposed
@@ -323,4 +324,55 @@ func (p *Prefs) SetKnowledge(root, state string) bool {
 	next[key] = state
 	p.Knowledge = next
 	return true
+}
+
+// prefsUpdate serialises UpdatePrefs within a process.
+var prefsUpdate sync.Mutex
+
+// UpdatePrefs reads the preferences, lets change alter them, and writes them
+// back when it reports a change. The read and the write are one step as far as
+// the other callers of UpdatePrefs in this process go, so a background lookup
+// and a command handler cannot overwrite each other's change. A separate
+// process, such as `flockdeck knowledge`, is not excluded; the window between
+// its read and its write is the same one every other command that edits this
+// file has.
+func UpdatePrefs(change func(*Prefs) bool) error {
+	prefsUpdate.Lock()
+	defer prefsUpdate.Unlock()
+	p, err := ReadPrefs()
+	if err != nil {
+		return fmt.Errorf("the preferences could not be read, so nothing was changed: %w", err)
+	}
+	if !change(&p) {
+		return nil
+	}
+	return SavePrefs(p)
+}
+
+// ProjectContaining returns the root of the open or recent project that dir is
+// in or is, the longest such root when there are several, and false when it is
+// in none. It is how a command run in a directory finds the project the window
+// keys its settings by, which is the folder the project was opened as: a
+// folder holding several repositories, or a subdirectory, is not the root of
+// any one repository.
+func ProjectContaining(dir string) (string, bool) {
+	list, err := Recents()
+	if err != nil {
+		return "", false
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", false
+	}
+	d := normalizeRoot(abs)
+	best, bestLen := "", -1
+	for _, p := range list {
+		r := normalizeRoot(p.Root)
+		if r == d || strings.HasPrefix(d, strings.TrimRight(r, string(filepath.Separator))+string(filepath.Separator)) {
+			if len(r) > bestLen {
+				best, bestLen = p.Root, len(r)
+			}
+		}
+	}
+	return best, bestLen >= 0
 }
