@@ -231,10 +231,6 @@ var projectDir = regexp.MustCompile(`flockdeck-state-[0-9]+`)
 
 var timeInDoc = regexp.MustCompile(`"(since|started|time)":"[^"]*"`)
 
-// A two-team project, with names in place of the pane ids and no times, is the
-// same as the golden file. A change to the shape has to be made on purpose: run
-// the test with FLOCKDECK_UPDATE_GOLDEN=1 to write the new file, and read the
-// diff.
 // enumOf reads the values of the enum of one property of a definition.
 func enumOf(t *testing.T, s schemacheck.Schema, def, prop string) []string {
 	t.Helper()
@@ -280,6 +276,10 @@ func TestSchemaEnumsAreTheGoConstants(t *testing.T) {
 	}
 }
 
+// A two-team project, with names in place of the pane ids and no times, is the
+// same as the golden file. A change to the shape has to be made on purpose: run
+// the test with FLOCKDECK_UPDATE_GOLDEN=1 to write the new file, and read the
+// diff.
 func TestTwoTeamGraphMatchesTheGoldenFile(t *testing.T) {
 	e := newGraphEnv(t)
 	boss2 := agentPane(t, e.srv, e.ws, "boss2", "manager")
