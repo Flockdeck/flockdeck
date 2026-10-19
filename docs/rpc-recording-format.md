@@ -52,14 +52,25 @@ sensitive as a terminal recording. Before a line is written:
   line was written in between by the timer, because it was full, or because
   another message came in the middle. The end is written at the latest when the
   recording closes. The result is that the last words of a run of text can be
-  written after later messages; each line's `time` is when it was seen. A key
-  that never gets finished cannot be recognised, and what there was of it is
-  written when the recording closes.
+  written after later messages, so a reader can see the end of a reply after a
+  message of the next turn; each line's `time` is when it was seen, and `seq`
+  is the order written. A key that never gets finished cannot be recognised, and
+  what there was of it is written when the recording closes.
+- A label can already be written when its value arrives: "the password:" in one
+  line and the password in the text after it. The recorder therefore keeps the
+  last 16 KiB of the text it has written, for each kind of text, and redacts
+  what follows together with it, so that the label, or the first lines of a
+  private key, are seen. Only the new part is written. A label or the start of
+  a key further back than 16 KiB is not seen, and when more than 16 kinds of
+  text are open at once the context of all of them is let go.
 - Every string is cut at 8 KiB, except the text of a prompt and of a message or
   thought chunk, which is cut at 32 KiB. A cut string ends in a marker saying
   how many bytes went.
 - A caller can set a hook that sees each message after all that and may clip
   fields, or drop the message (`record.RPCHook`).
+  A hook that panics drops the message it was given. At close that can be the
+  held end of a reply, which is then not in the file; the other lines and the
+  closing line are still written.
 
 A line of traffic longer than 1 MiB, or with more than 50,000 array items and
 object members, is not parsed, because parsing costs about a hundred times its
@@ -118,8 +129,8 @@ joins neighbours the way the transcript bridge does:
   is written at the latest 250 ms after its first part arrived.
 
 A joined line has `merged` (how many messages it stands for) and `until` (when
-the last one was seen); `time` is the first. Nothing else is joined, and a
-message is never reordered.
+the last one was seen); `time` is the first. Nothing else is joined. Apart from the held end of a run of
+text (section 2), a message is never reordered.
 
 ## 5. The size cap
 

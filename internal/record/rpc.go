@@ -68,6 +68,12 @@ const (
 	rpcHoldBack = 256
 	// rpcMaxHeld bounds the kinds of message text with something held back.
 	rpcMaxHeld = 16
+	// rpcContextBytes is how much of the text already written is kept, for each
+	// kind of message text, so that what follows it is redacted with it in view:
+	// "password:" in one chunk and the password in the next, or the first lines
+	// of a private key and the rest. A label or key start further back than this
+	// is not seen.
+	rpcContextBytes = 16 << 10
 	// rpcBufferBytes is how much is held before the file is written.
 	rpcBufferBytes = 64 << 10
 )
@@ -144,8 +150,10 @@ type RPCRecorder struct {
 	held map[string]*held
 }
 
-// held is the unwritten end of a run of message text.
+// held is the state of a run of message text: the end of it not yet written,
+// and the last of what was.
 type held struct {
+	ctx         string // the end of the raw text already written, up to rpcContextBytes
 	tail        string
 	tmpl        map[string]any // the message the text was in, with its text emptied
 	dir         string
@@ -291,7 +299,7 @@ func (r *RPCRecorder) Tap(dir string, raw []byte) {
 		}
 	}
 	r.flushPendingLocked()
-	r.commitMsgLocked(dir, msg, now, now, 1)
+	r.commitMsgLocked(dir, msg, now, now, 1, "")
 }
 
 // Flush writes whatever is held to the file.
@@ -345,8 +353,11 @@ func (r *RPCRecorder) emitHeldLocked() {
 	for _, k := range keys {
 		h := r.held[k]
 		delete(r.held, k)
+		if h.tail == "" {
+			continue
+		}
 		setChunkText(h.tmpl, h.tail)
-		r.commitMsgLocked(h.dir, h.tmpl, h.first, h.last, max(h.merged, 1))
+		r.commitMsgLocked(h.dir, h.tmpl, h.first, h.last, max(h.merged, 1), h.ctx)
 	}
 }
 
@@ -452,27 +463,32 @@ func (r *RPCRecorder) flushPending(final bool) {
 	}
 	r.pend = nil
 	if p.kind != "chunk" {
-		r.commitMsgLocked(p.dir, p.msg, p.time, p.until, p.merged)
+		r.commitMsgLocked(p.dir, p.msg, p.time, p.until, p.merged, "")
 		return
 	}
 	// A secret can begin in one chunk and end in the next, with this line
 	// written, or other messages, in between. So the end of every line of text
 	// is kept back, and put in front of the next piece of the same text before
 	// it is redacted. Nothing of a key that is still arriving is on the disk.
-	text, first, total := chunkTextOf(p.msg), p.time, p.merged
+	text, first, total, ctx := chunkTextOf(p.msg), p.time, p.merged, ""
 	if prev := r.held[p.key]; prev != nil {
-		text, first, total = prev.tail+text, prev.first, total+prev.merged
+		text, first, total, ctx = prev.tail+text, prev.first, total+prev.merged, prev.ctx
 		delete(r.held, p.key)
 	}
 	head, tail := text, ""
 	if !final {
 		head, tail = splitHeld(text)
 	}
-	if tail != "" {
+	if !final && (tail != "" || head != "") {
 		if len(r.held) >= rpcMaxHeld {
+			// Too many kinds of text at once: what is held is written, and the
+			// context of every kind is let go.
 			r.emitHeldLocked()
 		}
-		h := &held{tail: tail, tmpl: cloneMsg(p.msg), dir: p.dir, first: p.until, last: p.until}
+		h := &held{ctx: tailBytes(ctx+head, rpcContextBytes), tail: tail, dir: p.dir, first: p.until, last: p.until}
+		if tail != "" {
+			h.tmpl = cloneMsg(p.msg)
+		}
 		if head == "" {
 			// Nothing is written, so the line that ends up carrying this text
 			// is the one that stands for all of it.
@@ -484,7 +500,7 @@ func (r *RPCRecorder) flushPending(final bool) {
 		return
 	}
 	setChunkText(p.msg, head)
-	r.commitMsgLocked(p.dir, p.msg, first, p.until, total)
+	r.commitMsgLocked(p.dir, p.msg, first, p.until, total, ctx)
 }
 
 // splitHeld cuts text into what can be written now and the end of it, which is
@@ -508,6 +524,40 @@ func splitHeld(text string) (head, tail string) {
 		}
 	}
 	return text[:i], text[i:]
+}
+
+// tailBytes is the last n bytes of s, starting at a character.
+func tailBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	s = s[len(s)-n:]
+	for len(s) > 0 && !utf8.RuneStart(s[0]) {
+		s = s[1:]
+	}
+	return s
+}
+
+// redactAfter redacts text as it would be if it followed ctx, which is already
+// written, and returns only the part that follows. The two are redacted
+// together so that a label in ctx and its value in text, or the start of a
+// private key in ctx and the rest of it in text, are found; what is returned is
+// what redacting text alone would have missed. Where the redacted ctx and the
+// redacted whole part ways, the whole's text from there on is returned, which
+// can repeat a few characters of ctx but never shows a secret.
+func redactAfter(ctx, text string) string {
+	if ctx == "" {
+		return Redact(text)
+	}
+	before, whole := Redact(ctx), Redact(ctx+text)
+	n := 0
+	for n < len(before) && n < len(whole) && before[n] == whole[n] {
+		n++
+	}
+	for n > 0 && n < len(whole) && !utf8.RuneStart(whole[n]) {
+		n--
+	}
+	return whole[n:]
 }
 
 func setChunkText(msg map[string]any, s string) {
@@ -602,8 +652,10 @@ func redactKeys(v any, clipped *int) any {
 	return v
 }
 
-// commitMsgLocked redacts, clips and hooks a message and writes it.
-func (r *RPCRecorder) commitMsgLocked(dir string, msg map[string]any, first, last time.Time, merged int) {
+// commitMsgLocked redacts, clips and hooks a message and writes it. ctx is the
+// end of the text of the same kind already written, which the message text is
+// redacted after; "" for a message that continues no text.
+func (r *RPCRecorder) commitMsgLocked(dir string, msg map[string]any, first, last time.Time, merged int, ctx string) {
 	line := RPCLine{Time: stamp(first), Type: TypeRPCMessage, Dir: dir}
 	if merged > 1 {
 		line.Merged, line.Until = merged, stamp(last)
@@ -618,7 +670,7 @@ func (r *RPCRecorder) commitMsgLocked(dir string, msg map[string]any, first, las
 	v = clipCount(v, MaxFieldBytes, &clipped)
 	out, _ := v.(map[string]any)
 	for _, t := range texts {
-		t.text = Redact(t.text)
+		t.text = redactAfter(ctx, t.text)
 		if len(t.text) > MaxMessageBytes {
 			clipped++
 		}
