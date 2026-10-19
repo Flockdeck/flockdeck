@@ -192,3 +192,28 @@ func TestEventLogSkipsDamagedLinesAndKeepsNoText(t *testing.T) {
 		t.Errorf("an empty log encodes to %q", got)
 	}
 }
+
+// A message that an old snapshot holds as read has no ReadAt. Reading it again
+// changes nothing and reports nothing.
+func TestReadingAnOldReadMessageAgainReportsNothing(t *testing.T) {
+	old := `{"version":1,"next":2,"boxes":{"p2":[
+	  {"id":1,"from":{"pane":"p1","name":"w"},"to":"p2","time":"2026-10-11T09:00:00Z","text":"read one","read":true}]}}`
+	s, _ := newTestStore()
+	if err := s.Load([]byte(old)); err != nil {
+		t.Fatal(err)
+	}
+	var log EventLog
+	s.OnEvent(log.Append)
+	for range 2 {
+		got, err := s.Read("p2", 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.ReadAt.IsZero() {
+			t.Errorf("ReadAt = %v, want it left zero", got.ReadAt)
+		}
+	}
+	if ev := log.Events(); len(ev) != 0 {
+		t.Errorf("events %+v, want none", ev)
+	}
+}
