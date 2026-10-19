@@ -227,6 +227,10 @@ type Pane struct {
 	// it went idle, and idleArmed that a report of it going idle is waiting out
 	// helperIdleDwell. See noteIdle.
 	turnSeen, idleArmed bool
+	// sending is set, under the workspace lock, while a SendToPane write into
+	// this pane is in flight, so a pane that has stopped reading cannot collect
+	// a goroutine per send.
+	sending bool
 }
 
 // Alive reports whether the pane has a running process.

@@ -529,6 +529,8 @@ type command struct {
 	Base    string    `json:"base"`
 	Force   bool      `json:"force"`
 	Push    bool      `json:"push"`
+	// AllowShell is paneSend's own: the caller means the text for a shell.
+	AllowShell bool `json:"allowShell"`
 	// Target names what a drag was dropped on: a pane for movePane and
 	// swapPanes, a tab for movePaneToTab, moveTab and mergeTab.
 	Target string `json:"target"`
@@ -1839,6 +1841,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "paneInfo":
 		s.paneInfo(c, cmd)
+		return
+	case "paneSend":
+		s.paneSend(c, cmd)
 		return
 	case "findPane":
 		s.findPane(c, cmd)
