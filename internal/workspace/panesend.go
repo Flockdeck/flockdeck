@@ -109,8 +109,15 @@ func (w *Workspace) SendToPane(id, text string, allowShell bool) (SendResult, er
 		return res, nil
 	}
 	sess := p.Sess
-	go w.writeToPane(p, sess, text, typeInto)
+	go w.writeToPane(p, sess, text, typeIntoAsFlockdeck)
 	return res, nil
+}
+
+// typeIntoAsFlockdeck is what SendToPane types with. The text is written on
+// the graph's behalf, so it moves the pane's Flockdeck input time and not the
+// user's: see session.LastUserInput.
+func typeIntoAsFlockdeck(s *session.Session, text string, submit bool) {
+	typeIntoFrom(s, session.InputFlockdeck, text, submit)
 }
 
 // writeToPane types text into sess with write and then lets the next send for
