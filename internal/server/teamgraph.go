@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -130,6 +131,9 @@ type graphMsg struct {
 	NeedsHidden int              `json:"soloNeedsHidden,omitempty"`
 	// BoardError is why the board could not be read, if it could not.
 	BoardError string `json:"boardError,omitempty"`
+	// PanesHidden counts the panes left out because a push holds only
+	// maxGraphPanes nodes.
+	PanesHidden int `json:"panesHidden,omitempty"`
 }
 
 // graphLine is the first non-empty line of s, cleaned and cut to n characters.
@@ -180,8 +184,124 @@ func graphReviewerRole(members []team.Member, owner string) string {
 	return ""
 }
 
-// graphPayload reads the project at root, whole. It must run on the workspace
-// goroutine.
+// graphStatic is the part of a graph that comes from the task board and the
+// inboxes: it changes when they do, not with every tool call, so it is kept
+// until the board file, the inboxes or the set of agents and their roles change.
+type graphStatic struct {
+	stamp       string
+	tasks       []team.GraphTask
+	moves       []team.TaskMove
+	chips       map[string]graphTaskChip
+	unreadSince map[string]time.Time
+	// edges are the last maxGraphEdges messages between agents of the project.
+	edges      []graphEdge
+	boardError string
+}
+
+// graphStaticFor returns the board and message part of the graph of the project
+// at root, rebuilding it only when its stamp changed. The stamp is the board
+// file's stamp, the inboxes' revision, and the agents with their roles and
+// whether they are gone, which is what the reviewer role and the message edges
+// depend on. It must run on the workspace goroutine.
+func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic {
+	ws := s.ws
+	var k strings.Builder
+	board := "none"
+	b, berr := ws.TeamBoard(root)
+	if berr == nil {
+		board = b.Stamp()
+	}
+	fmt.Fprintf(&k, "%s#%d#", board, ws.TeamMessageRev())
+	for _, m := range members {
+		fmt.Fprintf(&k, "%s|%s|%v;", m.Pane, m.Role, m.Exited())
+	}
+	stamp := k.String()
+	if c := s.graphStatics[root]; c != nil && c.stamp == stamp {
+		return c
+	}
+	s.graphBuilds++
+	st := &graphStatic{stamp: stamp, chips: map[string]graphTaskChip{}, unreadSince: map[string]time.Time{}}
+
+	var board2 []tasks.Task
+	if berr != nil {
+		st.boardError = berr.Error()
+	} else if l, _, err := b.List(tasks.Filter{All: true}); err != nil {
+		st.boardError = err.Error()
+	} else {
+		board2 = l
+	}
+	chipOf := map[string]*tasks.Task{}
+	for i := range board2 {
+		t := &board2[i]
+		g := team.GraphTask{ID: t.ID, State: string(t.State), OwnerRole: t.OwnerRole, OwnerPane: t.OwnerPane, Title: t.Title}
+		if n := len(t.Notes); n > 0 {
+			g.LastNote = t.Notes[n-1].Text
+		}
+		if t.State == tasks.InReview {
+			g.ReviewerRole = graphReviewerRole(members, t.OwnerPane)
+		}
+		st.tasks = append(st.tasks, g)
+		for _, e := range t.History {
+			from, to, ok := parseMove(e.What)
+			if !ok {
+				continue
+			}
+			// The note a move came with is written with the same time and by the
+			// same actor as the history entry; no other note is its note.
+			note := ""
+			for _, n := range t.Notes {
+				if n.Time.Equal(e.Time) && n.Author == e.Actor {
+					note = n.Text
+					break
+				}
+			}
+			st.moves = append(st.moves, team.TaskMove{Task: t.ID, From: from, To: to, Time: e.Time, Note: note})
+		}
+		if t.OwnerPane != "" && t.State.Open() {
+			if cur := chipOf[t.OwnerPane]; cur == nil || chipRank(t.State) < chipRank(cur.State) {
+				chipOf[t.OwnerPane] = t
+			}
+		}
+	}
+	for pane, t := range chipOf {
+		st.chips[pane] = graphTaskChip{ID: t.ID, Title: team.PlainText(t.Title, 120), State: string(t.State)}
+	}
+
+	msgs, _, err := ws.TeamMessages(root)
+	if err != nil && st.boardError == "" {
+		st.boardError = err.Error()
+	}
+	agent := map[string]bool{}
+	for _, m := range members {
+		agent[m.Pane] = true
+	}
+	for _, m := range msgs {
+		if !m.Read {
+			if t, ok := st.unreadSince[m.To]; !ok || m.Time.Before(t) {
+				st.unreadSince[m.To] = m.Time
+			}
+		}
+	}
+	// The last messages between panes, newest first. A message from the person
+	// or from Flockdeck has no sending pane and is not an edge.
+	for i := len(msgs) - 1; i >= 0 && len(st.edges) < maxGraphEdges; i-- {
+		m := msgs[i]
+		if m.From.Pane == "" || !agent[m.From.Pane] || !agent[m.To] {
+			continue
+		}
+		st.edges = append(st.edges, graphEdge{Kind: "message", From: m.From.Pane, To: m.To, ID: m.ID,
+			Time: m.Time.Format(time.RFC3339), Text: graphLine(m.Text, graphEdgeCut)})
+	}
+	if s.graphStatics == nil {
+		s.graphStatics = map[string]*graphStatic{}
+	}
+	s.graphStatics[root] = st
+	return st
+}
+
+// graphPayload reads the project at root, whole. The pane part is read each
+// time; the board and message part comes from graphStaticFor. It must run on the
+// workspace goroutine.
 func (s *Server) graphPayload(root string) (graphMsg, error) {
 	ws := s.ws
 	root, err := ws.TeamRoot(root)
@@ -192,107 +312,61 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 	if err != nil {
 		return graphMsg{}, err
 	}
+	out := graphMsg{Type: "graph", Root: root, Teams: []graphTeamView{}, Nodes: []graphNodeView{},
+		Edges: []graphEdge{}, Solo: []string{}, SoloNeeds: []team.NeedsItem{}}
 	if len(panes) > maxGraphPanes {
+		out.PanesHidden = len(panes) - maxGraphPanes
 		panes = panes[:maxGraphPanes]
 	}
 	members, err := ws.TeamMembers(root)
 	if err != nil {
 		return graphMsg{}, err
 	}
-	msgs, _, err := ws.TeamMessages(root)
-	if err != nil {
-		return graphMsg{}, err
-	}
-	out := graphMsg{Type: "graph", Root: root, Teams: []graphTeamView{}, Nodes: []graphNodeView{},
-		Edges: []graphEdge{}, Solo: []string{}, SoloNeeds: []team.NeedsItem{}}
 	for _, p := range ws.Projects() {
 		if p.Root == root {
 			out.Project = p.Name
 		}
 	}
-
-	// The oldest unread message of each pane, for the stale-unread rule.
-	unreadSince := map[string]time.Time{}
-	for _, m := range msgs {
-		if m.Read {
-			continue
-		}
-		if t, ok := unreadSince[m.To]; !ok || m.Time.Before(t) {
-			unreadSince[m.To] = m.Time
-		}
-	}
+	st := s.graphStaticFor(root, members)
+	out.BoardError = st.boardError
 
 	now := time.Now()
 	gp := make([]team.GraphPane, 0, len(panes))
 	byID := map[string]*workspace.Pane{}
+	live := map[string]string{}
 	for _, p := range panes {
 		byID[p.ID] = p
-		st, detail := session.StatusStarting, ""
+		// One read of the status serves the pane, its live line and its prompt.
+		stat, detail := session.StatusExited, ""
 		var since time.Time
 		if p.Sess != nil && p.Err == nil {
-			st, detail = p.Sess.Status()
+			stat, detail = p.Sess.Status()
 			since = p.Sess.StatusSince()
-		} else {
-			st = session.StatusExited
 		}
 		g := team.GraphPane{
-			ID: p.ID, Role: p.Role, Name: p.Name, Peer: ws.PeerNameOf(p), Agent: p.Agent,
-			Shell: !p.IsAgent(), Status: st.String(), Activity: string(workspace.PaneActivity(p)),
-			StatusSince: since, Unread: ws.Unread(p.ID), UnreadSince: unreadSince[p.ID],
+			ID: p.ID, Parent: p.Parent, Role: p.Role, Name: p.Name, Peer: ws.PeerNameOf(p), Agent: p.Agent,
+			Shell: !p.IsAgent(), Status: stat.String(), Activity: string(workspace.PaneActivity(p)),
+			StatusSince: since, Unread: ws.Unread(p.ID), UnreadSince: st.unreadSince[p.ID],
+			Exited: stat == session.StatusExited,
 		}
-		if p.Parent != "" {
-			g.Parent = p.Parent
+		switch why, failed := p.Failed(); {
+		case p.Err != nil:
+			// A pane that could not start has no session and nothing to run.
+			g.Failed, g.FailureReason = true, team.PlainText(p.Err.Error(), 120)
+		case failed && g.Shell:
+			// A shell that ends with a status after a command the person typed
+			// is not a fault, so it is not listed as down.
+		case failed:
+			g.Failed, g.FailureReason = true, team.PlainText(why, 120)
 		}
-		if _, failed := p.Failed(); failed {
-			g.Failed = true
-		}
-		g.Exited = st == session.StatusExited
-		if st == session.StatusWaiting && p.Sess != nil {
+		if stat == session.StatusWaiting && p.Sess != nil {
 			a, perm := waitingViews(detail, p.Sess.ToolInput())
 			g.PromptText, g.PromptKind, g.HasPrompt = graphPrompt(a, perm)
 		}
+		if detail != "" && stat != session.StatusExited {
+			live[p.ID] = graphLine(detail, graphLiveCut)
+		}
 		gp = append(gp, g)
-	}
-
-	// The board: the tasks, and the moves out of review.
-	var gt []team.GraphTask
-	var moves []team.TaskMove
-	chips := map[string]*tasks.Task{}
-	var board []tasks.Task
-	if b, err := ws.TeamBoard(root); err != nil {
-		out.BoardError = err.Error()
-	} else if board, _, err = b.List(tasks.Filter{All: true}); err != nil {
-		out.BoardError = err.Error()
-	}
-	for i := range board {
-		t := &board[i]
-		g := team.GraphTask{ID: t.ID, State: string(t.State), OwnerRole: t.OwnerRole, OwnerPane: t.OwnerPane, Title: t.Title}
-		if n := len(t.Notes); n > 0 {
-			g.LastNote = t.Notes[n-1].Text
-		}
-		if t.State == tasks.InReview {
-			g.ReviewerRole = graphReviewerRole(members, t.OwnerPane)
-		}
-		gt = append(gt, g)
-		for _, e := range t.History {
-			from, to, ok := parseMove(e.What)
-			if !ok {
-				continue
-			}
-			note := ""
-			for _, n := range t.Notes {
-				if !n.Time.Before(e.Time) {
-					note = n.Text
-					break
-				}
-			}
-			moves = append(moves, team.TaskMove{Task: t.ID, From: from, To: to, Time: e.Time, Note: note})
-		}
-		if t.OwnerPane != "" && t.State.Open() {
-			if cur := chips[t.OwnerPane]; cur == nil || chipRank(t.State) < chipRank(cur.State) {
-				chips[t.OwnerPane] = t
-			}
-		}
 	}
 
 	// The radar's pairs, once for each, with both panes in the project.
@@ -305,8 +379,8 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		}
 	}
 
-	graph := team.BuildGraph(gp, gt)
-	needs := team.NeedsYou(graph, gp, gt, conflicts, moves, now)
+	graph := team.BuildGraph(gp, st.tasks)
+	needs := team.NeedsYou(graph, gp, st.tasks, conflicts, st.moves, now)
 
 	gpByID := map[string]team.GraphPane{}
 	for _, g := range gp {
@@ -316,47 +390,48 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		p, g := byID[n.Pane], gpByID[n.Pane]
 		nv := graphNodeView{
 			GraphNode: n, Name: g.Name, Peer: g.Peer, Role: g.Role, Agent: g.Agent, Shell: g.Shell,
-			Status: g.Status, Activity: g.Activity, Branch: p.Branch,
+			Status: g.Status, Activity: g.Activity, Branch: p.Branch, Live: live[n.Pane],
 			Dirty: p.Git.Dirty, Untracked: p.Git.Untracked, Ahead: p.Git.Ahead, Behind: p.Git.Behind,
 			Unread: g.Unread, AutoReview: p.AutoReview, AutoApproved: ws.AutoApprovedOf(p),
 		}
 		if !g.StatusSince.IsZero() {
 			nv.Since = g.StatusSince.Format(time.RFC3339)
 		}
-		if p.Sess != nil && p.Err == nil {
-			if _, detail := p.Sess.Status(); detail != "" {
-				nv.Live = graphLine(detail, graphLiveCut)
-			}
-		}
 		if nv.Live == "" && !g.Shell {
 			if last, ok := s.preview.get(p.ID); ok {
 				nv.Live = graphLine(last.Text, graphLiveCut)
 			}
 		}
-		if t := chips[n.Pane]; t != nil {
-			nv.Task = &graphTaskChip{ID: t.ID, Title: team.PlainText(t.Title, 120), State: string(t.State)}
+		if chip, ok := st.chips[n.Pane]; ok {
+			c := chip
+			nv.Task = &c
 		}
 		out.Nodes = append(out.Nodes, nv)
 		if n.Parent != "" {
 			out.Edges = append(out.Edges, graphEdge{Kind: "spawn", From: n.Parent, To: n.Pane})
 		}
 	}
+	out.Edges = append(out.Edges, st.edges...)
 	out.Solo = graph.Solo
 	if n, ok := needs[""]; ok {
 		out.SoloNeeds, out.NeedsHidden = n.Items, n.Hidden
 	}
 
 	for _, tm := range graph.Teams {
-		root := byID[tm.Root]
+		rootPane := byID[tm.Root]
 		tv := graphTeamView{ID: tm.ID, Manager: tm.Root, Members: tm.Members, Caps: []graphCap{}, Needs: []team.NeedsItem{}}
-		tv.Goal = team.PlainText(root.Task, graphGoalCut)
-		if root.Sess != nil && !root.Sess.StartedAt().IsZero() {
-			tv.Started = root.Sess.StartedAt().Format(time.RFC3339)
+		tv.Goal = team.PlainText(rootPane.Task, graphGoalCut)
+		if rootPane.Sess != nil && !rootPane.Sess.StartedAt().IsZero() {
+			tv.Started = rootPane.Sess.StartedAt().Format(time.RFC3339)
 		}
 		for _, id := range tm.Members {
+			p, g := byID[id], gpByID[id]
 			if v := s.book.Pane(id, now); v != nil && v.USD > 0 && !v.Unpriced {
 				tv.SpendUSD += v.USD
-			} else {
+			} else if !g.Shell && p.Sess != nil && g.Status != session.StatusStarting.String() {
+				// An agent that has run and has no priced figure makes the total a
+				// floor. A shell, and an agent that has not started, report none by
+				// nature.
 				tv.SpendPartial = true
 			}
 			if n, _ := graph.Node(id); id == tm.Root || len(n.Children) > 0 {
@@ -367,19 +442,6 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 			tv.Needs, tv.NeedsHidden = n.Items, n.Hidden
 		}
 		out.Teams = append(out.Teams, tv)
-	}
-
-	// The last messages between panes, newest first. A message from the person
-	// or from Flockdeck has no sending pane and is not an edge.
-	sent := 0
-	for i := len(msgs) - 1; i >= 0 && sent < maxGraphEdges; i-- {
-		m := msgs[i]
-		if m.From.Pane == "" || byID[m.From.Pane] == nil || byID[m.To] == nil {
-			continue
-		}
-		sent++
-		out.Edges = append(out.Edges, graphEdge{Kind: "message", From: m.From.Pane, To: m.To, ID: m.ID,
-			Time: m.Time.Format(time.RFC3339), Text: graphLine(m.Text, graphEdgeCut)})
 	}
 	return out, nil
 }
@@ -457,9 +519,12 @@ func (s *Server) graphWatch(c *controlClient, cmd command) {
 		c.graphRoot, c.graphSent = root, nil
 		if c.trySend(data) {
 			c.graphSent = data
-		} else {
-			s.armGraph()
+			// This counts as a push, so a change in the next interval waits for it
+			// instead of making a second one at once.
+			s.graphAt = time.Now()
 		}
+		s.armGraph()
+		s.armGraphTick()
 	})
 }
 
@@ -493,8 +558,10 @@ func (s *Server) pushGraph() {
 		}
 	}
 	if !watching {
+		s.graphStatics = nil
 		return
 	}
+	s.armGraphTick()
 	if time.Since(s.graphAt) < teamInterval {
 		s.armGraph()
 		return
@@ -534,8 +601,30 @@ func (s *Server) pushGraph() {
 	}
 }
 
+// graphTickEvery is how often a watched graph is looked at when nothing else
+// has woken the server. Some of what it shows depends on the clock alone: mail
+// that has waited five minutes in an idle pane, and a returned task that is
+// older than a day.
+var graphTickEvery = 30 * time.Second
+
+// armGraphTick arranges for a look at the graph in graphTickEvery, once.
+func (s *Server) armGraphTick() {
+	if s.graphTickArmed {
+		return
+	}
+	s.graphTickArmed = true
+	time.AfterFunc(graphTickEvery, func() {
+		s.do(func() {
+			s.graphTickArmed = false
+			s.pushGraph()
+		})
+	})
+}
+
 // graphCommand answers the graph commands. A window reached through the relay
-// is refused all of them, as it is for the Team panel.
+// is refused all of them, as it is for the Team panel. If a later change opens
+// the graph to the relay, it must first scrub secrets from the command text a
+// permission prompt carries: neither this view nor paneView scrubs it today.
 func (s *Server) graphCommand(c *controlClient, cmd command) {
 	if c.remote {
 		c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, Error: teamDeskOnly})

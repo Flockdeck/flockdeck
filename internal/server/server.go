@@ -147,8 +147,13 @@ type Server struct {
 	teamAt    time.Time
 	teamArmed bool
 	// graphAt and graphArmed do the same for the graph view's pushes.
-	graphAt    time.Time
-	graphArmed bool
+	graphAt        time.Time
+	graphArmed     bool
+	graphTickArmed bool
+	// graphStatics is each watched project's board and message part of the
+	// graph, and graphBuilds how many times one was built.
+	graphStatics map[string]*graphStatic
+	graphBuilds  int
 	// teamCache is each watched project's encoded picture and what it was built
 	// from; see teamData.
 	teamCache map[string]teamCached
