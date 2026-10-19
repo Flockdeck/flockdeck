@@ -413,9 +413,19 @@ func (f *scanFS) ReadFile(p string) ([]byte, error) {
 }
 
 // dirReader reads a directory a few entries at a time.
+//
+// A read that was given up on is still running when the scan moves on and
+// closes the folder. Closing the handle under it frees the directory buffer the
+// read is draining, and on Windows the read then dies with a nil pointer
+// dereference that nothing can recover, so the handle is closed by whichever of
+// close and the last running read comes second.
 type dirReader struct {
 	f *scanFS
 	d *os.File
+
+	mu     sync.Mutex
+	busy   bool // a ReadDir is running
+	closed bool // close has been asked for
 }
 
 // OpenDir opens a folder; anything else is errNotRegular.
@@ -431,14 +441,44 @@ func (f *scanFS) OpenDir(p string) (*dirReader, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &dirReader{f, d}, nil
+	return &dirReader{f: f, d: d}, nil
 }
 
 func (d *dirReader) next(n int) ([]fs.DirEntry, error) {
-	return boxed(d.f, func() ([]fs.DirEntry, error) { return d.d.ReadDir(n) })
+	return boxed(d.f, func() ([]fs.DirEntry, error) {
+		d.mu.Lock()
+		if d.closed {
+			d.mu.Unlock()
+			return nil, fs.ErrClosed
+		}
+		d.busy = true
+		d.mu.Unlock()
+
+		entries, err := d.d.ReadDir(n)
+
+		d.mu.Lock()
+		d.busy = false
+		if d.closed {
+			d.d.Close()
+		}
+		d.mu.Unlock()
+		return entries, err
+	})
 }
 
-func (d *dirReader) close() { d.d.Close() }
+// close ends the reader. If a read that was given up on is still running, the
+// handle is closed when that read returns.
+func (d *dirReader) close() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return
+	}
+	d.closed = true
+	if !d.busy {
+		d.d.Close()
+	}
+}
 
 // Hash hashes up to limit bytes of an ordinary file, streamed, and returns the
 // hash and how many bytes were read. It stops when the scan's context ends.

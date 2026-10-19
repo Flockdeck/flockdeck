@@ -227,6 +227,10 @@ func TestACallThatNeverReturnsHoldsOneSlotOfOneScanAndIsCountedDown(t *testing.T
 		t.Errorf("%d calls counted as leaked, want %d", got, maxSlots)
 	}
 
+	// The calls that follow have to finish, not give up: 20ms is for the hung
+	// ones, and a loaded runner can take longer than that to run a goroutine.
+	statTimeout = 10 * time.Second
+
 	// Another scan has slots of its own.
 	other := tfs()
 	if _, err := other.Canonical(dir); err != nil {
