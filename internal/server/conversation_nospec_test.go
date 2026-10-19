@@ -42,9 +42,11 @@ func TestConversationOpenOnAnUnknownPaneStaysSilent(t *testing.T) {
 func TestConversationOpenOnAClosedPaneStaysSilent(t *testing.T) {
 	srv, ws := newTestServer(t)
 	id := addAgentPane(t, srv, ws, "claude")
-	ask(srv, func() bool { ws.ClosePaneByID(id); return true })
-	if p, _ := ask(srv, func() bool { return ws.Pane(id) != nil }); p {
-		t.Skip("closing the pane left it in the workspace")
+	if closed, _ := ask(srv, func() bool { return ws.ClosePaneByID(id) }); !closed {
+		t.Fatal("the pane was not closed")
+	}
+	if still, _ := ask(srv, func() bool { return ws.Pane(id) != nil }); still {
+		t.Fatal("closing the pane left it in the workspace")
 	}
 	c := &controlClient{out: make(chan []byte, 8)}
 	srv.handleCommand(c, command{Cmd: "conversationOpen", ID: id})

@@ -182,7 +182,8 @@ type conversationDetailMsg struct {
 // exists is true for a pane the workspace has, whether or not it runs an
 // agent. A shell is a pane that exists with no spec: found is false for it
 // too, but a window that asked about it has the pane in front of it and is
-// owed an answer.
+// owed an answer. Only an id the workspace does not hold is answered with
+// nothing, so a client probing for ids learns nothing about ones it lacks.
 type resolvedPane struct {
 	spec      agent.Spec
 	sessionID string
