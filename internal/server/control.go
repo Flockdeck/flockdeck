@@ -526,9 +526,13 @@ type command struct {
 	Rows    int       `json:"rows"`
 	Weights []float64 `json:"weights"`
 	Submit  bool      `json:"submit"`
-	Base    string    `json:"base"`
-	Force   bool      `json:"force"`
-	Push    bool      `json:"push"`
+	// RequestID and OptionID are permissionAnswer's: the request being answered
+	// and the option chosen, both as the pane's permission card showed them.
+	RequestID string `json:"requestId"`
+	OptionID  string `json:"optionId"`
+	Base      string `json:"base"`
+	Force     bool   `json:"force"`
+	Push      bool   `json:"push"`
 	// AllowShell is paneSend's own: the caller means the text for a shell.
 	AllowShell bool `json:"allowShell"`
 	// Target names what a drag was dropped on: a pane for movePane and
@@ -1855,6 +1859,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "paneSend":
 		s.paneSend(c, cmd)
+		return
+	case "permissionAnswer":
+		s.permissionAnswer(c, cmd)
 		return
 	case "findPane":
 		s.findPane(c, cmd)
