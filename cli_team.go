@@ -263,7 +263,8 @@ var (
 // announced as a digest of the whole burst, so two agents answering each other
 // cost a line every few seconds and no more.
 func runInboxFollow(api, token, pane string, out io.Writer) error {
-	seen, lines := 0, 0
+	printed := map[int]bool{}
+	lines, capped := 0, false
 	var lastLine, failingSince time.Time
 	for {
 		msgs, err := hooks.Inbox(api, token, pane, false)
@@ -281,25 +282,28 @@ func runInboxFollow(api, token, pane string, out io.Writer) error {
 			}
 		default:
 			failingSince = time.Time{}
-			var fresh []team.Message
+			// The person at the window is never folded into a digest of agents'
+			// messages and never waits out the gap: theirs are printed one by one,
+			// first, as soon as they are seen, and still after the line limit.
+			var users, agents []team.Message
 			for _, m := range msgs {
-				if m.ID > seen {
-					fresh = append(fresh, m)
+				switch {
+				case printed[m.ID]:
+				case m.From.User:
+					users = append(users, m)
+				default:
+					agents = append(agents, m)
 				}
 			}
-			if len(fresh) > 0 && (lastLine.IsZero() || time.Since(lastLine) >= followMinGap) {
-				latest := fresh[len(fresh)-1]
-				// The person at the window is never folded into a digest of agents'
-				// messages: theirs are printed one by one, first.
-				var agents []team.Message
-				for _, m := range fresh {
-					if m.From.User {
-						fmt.Fprintln(out, team.FollowLine(m))
-						lines++
-					} else {
-						agents = append(agents, m)
-					}
-				}
+			gapOver := lastLine.IsZero() || time.Since(lastLine) >= followMinGap
+			for _, m := range users {
+				fmt.Fprintln(out, team.FollowLine(m))
+				printed[m.ID] = true
+			}
+			if len(users) > 0 {
+				lastLine = time.Now()
+			}
+			if len(agents) > 0 && !capped && gapOver {
 				if len(agents) <= followBurst {
 					for _, m := range agents {
 						fmt.Fprintln(out, team.FollowLine(m))
@@ -309,10 +313,13 @@ func runInboxFollow(api, token, pane string, out io.Writer) error {
 					fmt.Fprintln(out, team.FollowDigest(len(agents), agents[len(agents)-1]))
 					lines++
 				}
-				seen, lastLine = latest.ID, time.Now()
+				for _, m := range agents {
+					printed[m.ID] = true
+				}
+				lastLine = time.Now()
 				if lines >= followMaxLines {
-					fmt.Fprintf(out, "[flockdeck] The inbox stream has printed %d lines and stops here. Run: flockdeck inbox, then flockdeck inbox -follow to start it again.\n", lines)
-					return nil
+					capped = true
+					fmt.Fprintf(out, "[flockdeck] The inbox stream has printed %d lines of agents' messages and now announces only messages from the user. Run: flockdeck inbox; start flockdeck inbox -follow again to hear of the rest.\n", lines)
 				}
 			}
 		}

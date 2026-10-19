@@ -520,13 +520,15 @@ func TestInboxFollowRetriesTransientErrorsAndGivesUpWhenTheApplicationStaysDown(
 }
 
 // A burst is one digest line, and a stream that has printed its limit ends.
-func TestInboxFollowCoalescesABurstAndStopsAtItsLimit(t *testing.T) {
+func TestInboxFollowCoalescesABurstAndLimitsAgentLinesWhileTheStreamKeepsRunning(t *testing.T) {
 	srv := teamServer(t)
 	fastFollow(t)
 	followBurst, followMaxLines = 2, 2
 	var calls int
 	srv.SetInboxHandler(func(hooks.InboxRequest) (hooks.InboxResult, error) {
-		calls++
+		if calls++; calls > 6 {
+			return hooks.InboxResult{}, errors.New(`no pane "p-me" is open here`)
+		}
 		msgs := []team.Message{followMsg(1, "a"), followMsg(2, "a"), followMsg(3, "a"), followMsg(4, "a")}
 		if calls > 1 {
 			msgs = append(msgs, followMsg(5, "b"))
@@ -538,7 +540,7 @@ func TestInboxFollowCoalescesABurstAndStopsAtItsLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) != 3 || !strings.Contains(lines[0], "4 new messages, the latest #4") || !strings.Contains(lines[1], "#5 from") || !strings.Contains(lines[2], "stops here") {
+	if len(lines) != 4 || !strings.Contains(lines[0], "4 new messages, the latest #4") || !strings.Contains(lines[1], "#5 from") || !strings.Contains(lines[2], "lines of agents' messages and now announces only messages from the user") || !strings.Contains(lines[3], "pane is closed") {
 		t.Errorf("lines:\n%s", out.String())
 	}
 }
@@ -574,5 +576,102 @@ func TestInboxFollowPrintsTheUsersMessageOnItsOwnLineInABurst(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	if len(lines) != 3 || !strings.Contains(lines[0], "#2 from "+team.UserLabel) || !strings.Contains(lines[1], "4 new messages, the latest #5") {
 		t.Errorf("lines:\n%s", out.String())
+	}
+}
+
+// A fresh message from the person at the window does not wait out the gap
+// behind a burst of agents' messages, and one that arrives after the line limit
+// is still announced, while the agents' are not.
+func TestInboxFollowAnnouncesTheUserAtOnceAndAfterTheLineLimit(t *testing.T) {
+	srv := teamServer(t)
+	fastFollow(t)
+	followMinGap, followMaxLines = time.Hour, 1
+	var mu sync.Mutex
+	inbox := []team.Message{followMsg(1, "a")}
+	closed := false
+	srv.SetInboxHandler(func(hooks.InboxRequest) (hooks.InboxResult, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if closed {
+			return hooks.InboxResult{}, errors.New(`no pane "p-me" is open here`)
+		}
+		return hooks.InboxResult{Messages: append([]team.Message(nil), inbox...)}, nil
+	})
+	var out syncBuffer
+	done := make(chan error, 1)
+	go func() { done <- runInbox([]string{"-follow"}, &out) }()
+	waitFor := func(want string) {
+		t.Helper()
+		for i := 0; i < 1000 && !strings.Contains(out.String(), want); i++ {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("no %q in:\n%s", want, out.String())
+		}
+	}
+	waitFor("now announces only messages from the user")
+	user := followMsg(3, "x")
+	user.From = team.Sender{User: true}
+	mu.Lock()
+	inbox = append(inbox, followMsg(2, "b"), user)
+	mu.Unlock()
+	waitFor("#3 from " + team.UserLabel)
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	closed = true
+	mu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "#2 from") {
+		t.Errorf("an agent's message was announced past the limit:\n%s", out.String())
+	}
+}
+
+// Before any limit, a user message prints at once while the agents' lines that
+// came with it are held by the gap.
+func TestInboxFollowPrintsTheUsersMessageAtOnceWhileAgentLinesAreHeld(t *testing.T) {
+	srv := teamServer(t)
+	fastFollow(t)
+	followMinGap = time.Hour
+	var mu sync.Mutex
+	inbox := []team.Message{followMsg(1, "a")}
+	closed := false
+	srv.SetInboxHandler(func(hooks.InboxRequest) (hooks.InboxResult, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if closed {
+			return hooks.InboxResult{}, errors.New(`no pane "p-me" is open here`)
+		}
+		return hooks.InboxResult{Messages: append([]team.Message(nil), inbox...)}, nil
+	})
+	var out syncBuffer
+	done := make(chan error, 1)
+	go func() { done <- runInbox([]string{"-follow"}, &out) }()
+	waitFor := func(want string) {
+		t.Helper()
+		for i := 0; i < 1000 && !strings.Contains(out.String(), want); i++ {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("no %q in:\n%s", want, out.String())
+		}
+	}
+	waitFor("#1 from")
+	user := followMsg(3, "x")
+	user.From = team.Sender{User: true}
+	mu.Lock()
+	inbox = append(inbox, followMsg(2, "b"), user)
+	mu.Unlock()
+	waitFor("#3 from " + team.UserLabel)
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	closed = true
+	mu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "#2 from") {
+		t.Errorf("an agent's message got past the gap:\n%s", out.String())
 	}
 }

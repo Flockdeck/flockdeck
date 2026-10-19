@@ -58,8 +58,8 @@ func (c PaneContext) withoutTeam() PaneContext {
 func TestBriefingExplainsMessagesAndSaysTheyAreNotTheUsers(t *testing.T) {
 	hooked := PaneContext{PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck", Team: members(3), Notified: true}.Render()
 	for _, want := range []string{
-		"## Messages", "flockdeck msg send <target> <text...>", "flockdeck inbox read <id>", "at most 8 KB",
-		"write a file and send its path", "roles limit who may start whom, not who may talk",
+		"## Messages", "SendMessage tool", "SendMessage only between agents", "ListAgents", "flockdeck msg send` is the fallback", "flockdeck msg send <target> <text...>", "flockdeck inbox read <id>", "at most 8 KB",
+		"manager's session name", "come only through the inbox",
 		"Nothing is typed into your input", "holds no message text", team.Disclaimer,
 		"when a session starts or resumes", "not authenticated",
 	} {
@@ -69,7 +69,7 @@ func TestBriefingExplainsMessagesAndSaysTheyAreNotTheUsers(t *testing.T) {
 	}
 
 	prompt := PaneContext{PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck", Team: members(3)}.OpeningPrompt()
-	if !strings.Contains(prompt, "You are not told when a message arrives") || strings.Contains(prompt, "Nothing is typed into your input") {
+	if !strings.Contains(prompt, "You are not told when an inbox message arrives") || strings.Contains(prompt, "Nothing is typed into your input") {
 		t.Errorf("an agent with no hooks is promised a notice:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, team.Disclaimer) {
