@@ -99,15 +99,77 @@ func TestBuildGraphParentLoop(t *testing.T) {
 	g := BuildGraph([]GraphPane{
 		pane("a", "b", "", "idle"),
 		pane("b", "a", "", "idle"),
+		pane("c", "b", "", "idle"),
 		pane("self", "self", "", "idle"),
 	}, nil)
-	for _, n := range g.Nodes {
-		if !n.Orphaned || n.Team != "" || n.Depth != 0 {
-			t.Errorf("node %s = %+v, want an orphaned solo root", n.Pane, n)
-		}
+
+	// The loop is cut at a, its first pane. a becomes the root, b hangs below it
+	// and c below b.
+	a, _ := g.Node("a")
+	if a.Parent != "" || !a.Orphaned || a.Team != "a" || a.Depth != 0 || !reflect.DeepEqual(a.Children, []string{"b"}) {
+		t.Errorf("a = %+v", a)
 	}
-	if len(g.Solo) != 3 {
+	b, _ := g.Node("b")
+	if b.Parent != "a" || b.Team != "a" || b.Depth != 1 || !reflect.DeepEqual(b.Children, []string{"c"}) {
+		t.Errorf("b = %+v", b)
+	}
+	if c, _ := g.Node("c"); c.Team != "a" || c.Depth != 2 {
+		t.Errorf("c = %+v", c)
+	}
+	if want := []GraphTeam{{ID: "a", Root: "a", Members: []string{"a", "b", "c"}}}; !reflect.DeepEqual(g.Teams, want) {
+		t.Errorf("teams = %+v", g.Teams)
+	}
+	// A pane that is its own parent is an orphaned solo pane.
+	if s, _ := g.Node("self"); !s.Orphaned || s.Team != "" || len(s.Children) != 0 {
+		t.Errorf("self = %+v", s)
+	}
+	if !reflect.DeepEqual(g.Solo, []string{"self"}) {
 		t.Errorf("solo = %v", g.Solo)
+	}
+	// Nobody is waiting on a loop partner that is only a parent.
+	if w := a.WaitingOn.Kind; w != WaitNone {
+		t.Errorf("a waits on %s", w)
+	}
+}
+
+func TestBuildGraphDuplicateIDs(t *testing.T) {
+	g := BuildGraph([]GraphPane{
+		pane("a", "", "", "idle"),
+		pane("a", "", "", "idle"),
+		pane("m", "", "manager", "idle"),
+	}, nil)
+	if len(g.Nodes) != 2 || !reflect.DeepEqual(g.Solo, []string{"a"}) {
+		t.Errorf("nodes %d solo %v", len(g.Nodes), g.Solo)
+	}
+}
+
+func TestBuildGraphManagerWithParent(t *testing.T) {
+	g := BuildGraph([]GraphPane{
+		pane("top", "", "manager", "idle"),
+		pane("sub", "top", "manager", "idle"),
+		pane("w", "sub", "worker", "idle"),
+	}, nil)
+	if len(g.Teams) != 1 || g.Teams[0].ID != "top" {
+		t.Fatalf("teams = %+v, want one rooted at top", g.Teams)
+	}
+	if n, _ := g.Node("w"); n.Depth != 2 || n.Team != "top" {
+		t.Errorf("w = %+v", n)
+	}
+}
+
+func TestWaitingOnAcrossTeams(t *testing.T) {
+	ps := []GraphPane{
+		pane("m1", "", "manager", "idle"),
+		pane("a", "m1", "worker", "idle"),
+		pane("m2", "", "manager", "idle"),
+		pane("b", "m2", "worker", "working"),
+	}
+	tasks := []GraphTask{{ID: "T1", State: "blocked", OwnerPane: "b", LastNote: "stuck"}}
+	g := BuildGraph(ps, tasks)
+	for pane, want := range map[string]string{"m1": WaitNone, "a": WaitNone, "m2": WaitHelpers, "b": WaitTask} {
+		if n, _ := g.Node(pane); n.WaitingOn.Kind != want {
+			t.Errorf("%s waits on %s, want %s", pane, n.WaitingOn.Kind, want)
+		}
 	}
 }
 
@@ -159,12 +221,12 @@ func TestWaitingOn(t *testing.T) {
 		{
 			name:  "down exited",
 			panes: []GraphPane{exited(pane("a", "", "", "exited"))},
-			pane:  "a", want: WaitingOn{Kind: WaitDown, Text: "exited"},
+			pane:  "a", want: WaitingOn{Kind: WaitDown, Text: "exited", Ref: "a"},
 		},
 		{
 			name:  "down failed",
 			panes: []GraphPane{failed(pane("a", "", "", "failed"))},
-			pane:  "a", want: WaitingOn{Kind: WaitDown, Text: "failed"},
+			pane:  "a", want: WaitingOn{Kind: WaitDown, Text: "failed", Ref: "a"},
 		},
 		{
 			name:  "reviewer pane",
@@ -179,16 +241,45 @@ func TestWaitingOn(t *testing.T) {
 			pane:  "a", want: WaitingOn{Kind: WaitReviewer, Text: "T1 is in review by reviewer", Ref: "T1"},
 		},
 		{
-			name:  "review by the owner itself is not waiting on a reviewer",
+			name:  "review with nobody to review it still needs attention",
 			panes: []GraphPane{pane("a", "", "worker", "idle")},
 			tasks: []GraphTask{{ID: "T1", State: "in-review", OwnerPane: "a", ReviewerPane: "a"}},
-			pane:  "a", want: WaitingOn{Kind: WaitNone},
+			pane:  "a", want: WaitingOn{Kind: WaitReviewer, Text: "T1 is in review, and nobody is set to review it", Ref: "T1"},
+		},
+		{
+			name:  "reviewer pane that is gone is named by id",
+			panes: []GraphPane{pane("a", "", "worker", "idle")},
+			tasks: []GraphTask{{ID: "T1", State: "in-review", OwnerPane: "a", ReviewerPane: "zz"}},
+			pane:  "a", want: WaitingOn{Kind: WaitReviewer, Text: "T1 is in review by zz", Ref: "T1"},
+		},
+		{
+			name:  "first of several in-review tasks",
+			panes: []GraphPane{pane("a", "", "worker", "idle")},
+			tasks: []GraphTask{
+				{ID: "T4", State: "in-review", OwnerPane: "a", ReviewerRole: "tester"},
+				{ID: "T5", State: "in-review", OwnerPane: "a", ReviewerRole: "reviewer"},
+			},
+			pane: "a", want: WaitingOn{Kind: WaitReviewer, Text: "T4 is in review by tester", Ref: "T4"},
+		},
+		{
+			name: "exited and failed helpers are not busy",
+			panes: []GraphPane{
+				pane("m", "", "manager", "idle"),
+				func() GraphPane { p := pane("h1", "m", "", "working"); p.Exited = true; return p }(),
+				func() GraphPane { p := pane("h2", "m", "", "waiting"); p.Failed = true; return p }(),
+			},
+			pane: "m", want: WaitingOn{Kind: WaitNone},
 		},
 		{
 			name:  "task blocked",
 			panes: []GraphPane{pane("a", "", "worker", "idle")},
 			tasks: []GraphTask{{ID: "T2", State: "blocked", OwnerPane: "a", LastNote: "needs the API key\nfrom ops"}},
 			pane:  "a", want: WaitingOn{Kind: WaitTask, Text: "needs the API key from ops", Ref: "T2"},
+		},
+		{
+			name:  "control characters are removed",
+			panes: []GraphPane{prompt(pane("a", "", "", "waiting"), "ls\x1b[31m\n\tdone")},
+			pane:  "a", want: WaitingOn{Kind: WaitUser, Text: "ls [31m done"},
 		},
 		{
 			name:  "task note clipped",
@@ -242,19 +333,19 @@ func TestWaitingOn(t *testing.T) {
 			pane: "m", want: WaitingOn{Kind: WaitNone},
 		},
 		{
-			name: "user beats down",
+			name: "down beats a leftover prompt",
 			panes: []GraphPane{func() GraphPane {
 				p := pane("a", "", "", "waiting")
 				p.HasPrompt, p.PromptText, p.Exited = true, "ok?", true
 				return p
 			}()},
-			pane: "a", want: WaitingOn{Kind: WaitUser, Text: "ok?"},
+			pane: "a", want: WaitingOn{Kind: WaitDown, Text: "exited", Ref: "a"},
 		},
 		{
 			name:  "down beats reviewer",
 			panes: []GraphPane{exited(pane("a", "", "worker", "exited"))},
 			tasks: []GraphTask{{ID: "T1", State: "in-review", OwnerPane: "a", ReviewerRole: "reviewer"}},
-			pane:  "a", want: WaitingOn{Kind: WaitDown, Text: "exited"},
+			pane:  "a", want: WaitingOn{Kind: WaitDown, Text: "exited", Ref: "a"},
 		},
 		{
 			name:  "reviewer beats task",

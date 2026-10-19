@@ -2,7 +2,6 @@ package team
 
 import (
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -72,8 +71,11 @@ type GraphTask struct {
 	State     string
 	OwnerRole string
 	OwnerPane string
-	// ReviewerPane and ReviewerRole say who the task waits on while it is in
-	// review. Either may be empty.
+	// ReviewerRole says who the task waits on while it is in review. Review is
+	// bound to a role ("reviewer" or "tester"), not to a pane, so this is the
+	// usual input. ReviewerPane is set only when a pane has claimed or been
+	// given the review. With both empty an in-review task still shows as
+	// waiting on a reviewer, with text saying nobody is set to take it.
 	ReviewerPane string
 	ReviewerRole string
 	Title        string
@@ -98,8 +100,8 @@ type GraphNode struct {
 	Depth int `json:"depth"`
 	// Team is the id of the team the pane is in, empty for a solo pane.
 	Team string `json:"team,omitempty"`
-	// Orphaned says the pane named a parent that is not in the snapshot, or sits
-	// in a parent loop. It is treated as a root.
+	// Orphaned says the pane named a parent that is not in the snapshot, or is
+	// where a parent loop was cut. It is treated as a root.
 	Orphaned  bool      `json:"orphaned,omitempty"`
 	WaitingOn WaitingOn `json:"waitingOn"`
 }
@@ -116,7 +118,7 @@ type GraphTeam struct {
 // Graph is the derived model.
 type Graph struct {
 	Teams []GraphTeam `json:"teams"`
-	// Nodes has one entry for each pane, in the order the panes were given.
+	// Nodes has one entry for each pane id, in the order the panes were given.
 	Nodes []GraphNode `json:"nodes"`
 	// Solo lists the panes that are in no team.
 	Solo []string `json:"solo"`
@@ -139,38 +141,43 @@ func (g Graph) Node(pane string) (GraphNode, bool) {
 // with no parent, or whose parent is not in the snapshot, that has children or
 // the manager role. Other panes with no team are solo.
 func BuildGraph(panes []GraphPane, tasks []GraphTask) Graph {
+	// A pane id counts once: the first pane with it is kept.
+	seen := make(map[string]bool, len(panes))
+	uniq := make([]GraphPane, 0, len(panes))
+	for _, p := range panes {
+		if !seen[p.ID] {
+			seen[p.ID] = true
+			uniq = append(uniq, p)
+		}
+	}
+	panes = uniq
+
 	g := Graph{Teams: []GraphTeam{}, Nodes: make([]GraphNode, len(panes)), Solo: []string{}}
 	index := make(map[string]int, len(panes))
 	for i, p := range panes {
-		if _, dup := index[p.ID]; !dup {
-			index[p.ID] = i
-		}
+		index[p.ID] = i
 	}
-
 	for i, p := range panes {
 		n := &g.Nodes[i]
 		n.Pane = p.ID
-		if _, ok := index[p.Parent]; ok && p.Parent != "" && p.Parent != p.ID {
+		if _, ok := index[p.Parent]; ok && p.Parent != p.ID {
 			n.Parent = p.Parent
 		} else if p.Parent != "" {
 			n.Orphaned = true
 		}
 	}
+	breakLoops(g.Nodes, index)
+
 	for i := range g.Nodes {
-		if parent := g.Nodes[i].Parent; parent != "" && index[g.Nodes[i].Pane] == i {
+		if parent := g.Nodes[i].Parent; parent != "" {
 			pi := index[parent]
 			g.Nodes[pi].Children = append(g.Nodes[pi].Children, g.Nodes[i].Pane)
 		}
 	}
 
-	placed := make([]bool, len(panes))
 	for i, p := range panes {
 		n := &g.Nodes[i]
-		if n.Parent != "" || index[p.ID] != i {
-			continue
-		}
-		placed[i] = true
-		if len(n.Children) == 0 && p.Role != ManagerRole {
+		if n.Parent != "" || len(n.Children) == 0 && p.Role != ManagerRole {
 			continue
 		}
 		team := GraphTeam{ID: p.ID, Root: p.ID}
@@ -183,21 +190,12 @@ func BuildGraph(panes []GraphPane, tasks []GraphTask) Graph {
 			for _, c := range g.Nodes[cur].Children {
 				ci := index[c]
 				g.Nodes[ci].Depth = g.Nodes[cur].Depth + 1
-				placed[ci] = true
 				queue = append(queue, ci)
 			}
 		}
 		g.Teams = append(g.Teams, team)
 	}
-
-	// Panes in a parent loop, or repeating another pane's id, have no root
-	// above them. Each is a root of its own and solo.
 	for i := range g.Nodes {
-		if !placed[i] {
-			g.Nodes[i].Orphaned = true
-			g.Nodes[i].Parent = ""
-			g.Nodes[i].Depth = 0
-		}
 		if g.Nodes[i].Team == "" {
 			g.Solo = append(g.Solo, g.Nodes[i].Pane)
 		}
@@ -209,35 +207,77 @@ func BuildGraph(panes []GraphPane, tasks []GraphTask) Graph {
 	return g
 }
 
-func waitingOn(p GraphPane, n GraphNode, panes []GraphPane, index map[string]int, tasks []GraphTask) WaitingOn {
-	if (p.Activity == activityWaiting || p.Activity == activityBlocked) && p.HasPrompt {
-		return WaitingOn{Kind: WaitUser, Text: clip(p.PromptText, MaxWaitText)}
+// breakLoops cuts every parent loop at the first of its panes in input order,
+// which becomes an orphaned root, so each pane has a root above it.
+func breakLoops(nodes []GraphNode, index map[string]int) {
+	const (
+		unseen = iota
+		onPath
+		done
+	)
+	state := make([]int, len(nodes))
+	for start := range nodes {
+		var path []int
+		i := start
+		for i >= 0 && state[i] == unseen {
+			state[i] = onPath
+			path = append(path, i)
+			if nodes[i].Parent == "" {
+				i = -1
+			} else {
+				i = index[nodes[i].Parent]
+			}
+		}
+		if i >= 0 && state[i] == onPath {
+			// The loop is the path from i on. Cut it at its lowest input index.
+			first := i
+			for j := len(path) - 1; path[j] != i; j-- {
+				first = min(first, path[j])
+			}
+			nodes[first].Parent = ""
+			nodes[first].Orphaned = true
+		}
+		for _, j := range path {
+			state[j] = done
+		}
 	}
+}
+
+func waitingOn(p GraphPane, n GraphNode, panes []GraphPane, index map[string]int, tasks []GraphTask) WaitingOn {
 	if p.Exited || p.Failed {
 		text := "exited"
 		if p.Failed {
 			text = "failed"
 		}
-		return WaitingOn{Kind: WaitDown, Text: text}
+		return WaitingOn{Kind: WaitDown, Text: text, Ref: p.ID}
+	}
+	if (p.Activity == activityWaiting || p.Activity == activityBlocked) && p.HasPrompt {
+		return WaitingOn{Kind: WaitUser, Text: PlainText(p.PromptText, MaxWaitText)}
 	}
 	if !p.Shell {
 		for _, t := range tasks {
 			if t.OwnerPane != p.ID || t.State != taskInReview {
 				continue
 			}
+			text := t.ID + " is in review, and nobody is set to review it"
 			if by := reviewerLabel(t, p.ID, panes, index); by != "" {
-				return WaitingOn{Kind: WaitReviewer, Text: clip(t.ID+" is in review by "+by, MaxWaitText), Ref: t.ID}
+				text = t.ID + " is in review by " + by
 			}
+			return WaitingOn{Kind: WaitReviewer, Text: PlainText(text, MaxWaitText), Ref: t.ID}
 		}
 		for _, t := range tasks {
 			if t.OwnerPane == p.ID && t.State == taskBlocked {
-				return WaitingOn{Kind: WaitTask, Text: clip(t.LastNote, MaxWaitText), Ref: t.ID}
+				return WaitingOn{Kind: WaitTask, Text: PlainText(t.LastNote, MaxWaitText), Ref: t.ID}
 			}
 		}
 	}
 	busy, first := 0, ""
 	for _, c := range n.Children {
-		if a := panes[index[c]].Activity; a == activityWorking || a == activityWaiting {
+		h := panes[index[c]]
+		if h.Exited || h.Failed {
+			continue
+		}
+		if a := h.Activity; a == activityWorking || a == activityWaiting {
 			if busy == 0 {
 				first = c
 			}
@@ -274,15 +314,4 @@ func paneLabel(p GraphPane) string {
 		return p.Name
 	}
 	return p.ID
-}
-
-// clip folds white space in s so a multi-line note reads as one line, then cuts
-// it to at most max characters, ending in an ellipsis when it cut.
-func clip(s string, max int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return string(r[:max-1]) + "…"
 }
