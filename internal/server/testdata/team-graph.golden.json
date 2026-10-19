@@ -1,0 +1,219 @@
+{
+  "edges": [
+    {
+      "from": "boss",
+      "kind": "spawn",
+      "to": "dev"
+    },
+    {
+      "from": "boss",
+      "kind": "spawn",
+      "to": "eyes"
+    },
+    {
+      "from": "dev",
+      "kind": "spawn",
+      "to": "nested"
+    },
+    {
+      "from": "boss2",
+      "kind": "spawn",
+      "to": "helper2"
+    },
+    {
+      "from": "helper2",
+      "id": 1,
+      "kind": "message",
+      "text": "done",
+      "time": "\u003ctime\u003e",
+      "to": "boss2"
+    }
+  ],
+  "nodes": [
+    {
+      "activity": "idle",
+      "depth": 0,
+      "name": "\u003cproject\u003e",
+      "pane": "other1",
+      "shell": true,
+      "since": "\u003ctime\u003e",
+      "status": "idle",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "idle",
+      "children": [
+        "dev",
+        "eyes"
+      ],
+      "depth": 0,
+      "name": "\u003cproject\u003e",
+      "pane": "boss",
+      "role": "manager",
+      "since": "\u003ctime\u003e",
+      "status": "idle",
+      "team": "boss",
+      "waitingOn": {
+        "kind": "helpers",
+        "ref": "dev",
+        "text": "2 helpers are busy"
+      }
+    },
+    {
+      "activity": "working",
+      "children": [
+        "nested"
+      ],
+      "depth": 1,
+      "live": "Edit main.go",
+      "name": "\u003cproject\u003e",
+      "pane": "dev",
+      "parent": "boss",
+      "role": "worker",
+      "since": "\u003ctime\u003e",
+      "status": "working",
+      "team": "boss",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "waiting",
+      "depth": 1,
+      "live": "Bash",
+      "name": "\u003cproject\u003e",
+      "pane": "eyes",
+      "parent": "boss",
+      "role": "reviewer",
+      "since": "\u003ctime\u003e",
+      "status": "waiting",
+      "team": "boss",
+      "waitingOn": {
+        "kind": "user",
+        "text": "go test ./..."
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 2,
+      "name": "\u003cproject\u003e",
+      "pane": "nested",
+      "parent": "dev",
+      "since": "\u003ctime\u003e",
+      "status": "idle",
+      "team": "boss",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 0,
+      "name": "\u003cproject\u003e",
+      "pane": "lone",
+      "since": "\u003ctime\u003e",
+      "status": "idle",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "idle",
+      "children": [
+        "helper2"
+      ],
+      "depth": 0,
+      "name": "\u003cproject\u003e",
+      "pane": "boss2",
+      "role": "manager",
+      "since": "\u003ctime\u003e",
+      "status": "idle",
+      "team": "boss2",
+      "unread": 1,
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 1,
+      "name": "\u003cproject\u003e",
+      "pane": "helper2",
+      "parent": "boss2",
+      "role": "worker",
+      "since": "\u003ctime\u003e",
+      "status": "idle",
+      "team": "boss2",
+      "waitingOn": {
+        "kind": "none"
+      }
+    }
+  ],
+  "project": "\u003cproject\u003e",
+  "root": "\u003croot\u003e",
+  "solo": [
+    "other1",
+    "lone"
+  ],
+  "soloNeeds": [],
+  "teams": [
+    {
+      "caps": [
+        {
+          "max": 8,
+          "pane": "boss",
+          "used": 3
+        },
+        {
+          "max": 8,
+          "pane": "dev",
+          "used": 1
+        }
+      ],
+      "goal": "Ship the thing",
+      "id": "boss",
+      "manager": "boss",
+      "members": [
+        "boss",
+        "dev",
+        "eyes",
+        "nested"
+      ],
+      "needs": [
+        {
+          "id": "permission:eyes",
+          "kind": "permission",
+          "pane": "eyes",
+          "text": "go test ./...",
+          "time": "\u003ctime\u003e"
+        }
+      ],
+      "spendPartial": true,
+      "spendUSD": 0,
+      "started": "\u003ctime\u003e"
+    },
+    {
+      "caps": [
+        {
+          "max": 8,
+          "pane": "boss2",
+          "used": 1
+        }
+      ],
+      "goal": "Fix the other thing",
+      "id": "boss2",
+      "manager": "boss2",
+      "members": [
+        "boss2",
+        "helper2"
+      ],
+      "needs": [],
+      "spendPartial": true,
+      "spendUSD": 0,
+      "started": "\u003ctime\u003e"
+    }
+  ],
+  "type": "graph"
+}
