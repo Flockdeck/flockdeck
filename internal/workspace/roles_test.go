@@ -286,13 +286,13 @@ func TestHelperRolesSendTheirReportToTheManager(t *testing.T) {
 	cat := &agent.Catalog{Roles: agent.BuiltinRoles()}
 	for _, id := range []string{"planner", "worker", "reviewer", "tester", "docs"} {
 		r, _ := cat.Role(id)
-		if !strings.Contains(r.Briefing, "flockdeck msg send manager") {
+		if !strings.Contains(r.Briefing, "the manager with SendMessage") {
 			t.Errorf("%s: the briefing does not send the report to the manager", id)
 		}
 	}
 	for _, id := range []string{"worker", "reviewer", "tester", "docs"} {
 		r, _ := cat.Role(id)
-		if !strings.Contains(r.Briefing, "<report>") && !strings.Contains(r.Briefing, "<findings>") {
+		if !strings.Contains(r.Briefing, "SendMessage") {
 			t.Errorf("%s: the briefing does not say the report goes by message", id)
 		}
 	}

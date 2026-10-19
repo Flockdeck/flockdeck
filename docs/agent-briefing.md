@@ -74,7 +74,7 @@ exit, and a message that was all briefing would end the pane. An entry in
 ## Messages between panes
 
 The briefing is only where an agent learns the commands. The messages are Flockdeck's own
-channel: a pane runs `flockdeck msg send`, which posts to the loopback server with
+channel for the notices it writes, and the fallback between agents, who are told to use the SendMessage tool of Claude Code first: a pane runs `flockdeck msg send`, which posts to the loopback server with
 `FLOCKDECK_API`, `FLOCKDECK_TOKEN` and its own `FLOCKDECK_PANE`, and reads with
 `flockdeck inbox`. Nothing is sent through the terminal, and nothing from a message reaches
 a pane's input, except as described here. Targets, limits, retention and what the typed
@@ -130,8 +130,9 @@ Mail is delivered on three channels instead.
   printed yet: the id, the sender quoted by `noticeSender` and the disclaimer
   (`team.FollowLine`), never message text. It marks nothing read. The Monitor tool delivers each
   stdout line of its command to the model as a notification, which starts a turn for an agent
-  that has ended its turn; that was shown with the built binary in a Claude Code session, not
-  yet in a Flockdeck pane. A plain Bash `run_in_background` command does not do this: it
+  that has ended its turn; that was shown in a Flockdeck pane with the built binary against the
+  real application: a task assigned to the pane and then cancelled gave one line each, and each started a
+  turn in the idle session. A plain Bash `run_in_background` command does not do this: it
   notifies only when it exits, and `-follow` does not exit until the pane closes, so it is
   not the way to arm it. Flockdeck types nothing: the line reaches the model as tool output,
   not as prompt text.
@@ -143,8 +144,10 @@ Mail is delivered on three channels instead.
   Mail that arrives within five seconds of the last line is held and printed together. Of the
   messages held, any from the person at the window are printed one by one and first, and more
   than three from agents are one digest line that names the latest sender, so two agents
-  answering each other cost one line every five seconds at most. A stream stops after 100
-  lines. It retries errors from the application without printing, ends after two minutes of
+  answering each other cost one line every five seconds at most. After 100
+  lines the stream announces only the person's messages, and says so; a stream started again
+  announces the agents' unread messages again. A message from the person never waits for the
+  five-second gap. It retries errors from the application without printing, ends after two minutes of
   errors, and ends with a line of its own when the application refuses the pane id with
   `no pane ... is open here` (`hooks.IsNoPane`), which means the pane was closed. If Flockdeck
   restarts, the process dies with its pane, and a restored pane has to arm it again.

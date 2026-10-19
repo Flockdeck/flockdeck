@@ -360,8 +360,8 @@ The number of helpers is kept modest. The manager is told to run no more than fo
 once, and Flockdeck refuses a `spawn` while eight panes are open below the agent asking
 (its helpers, theirs, and any whose process has exited but whose pane is still open);
 closing a finished helper makes room. A message that says a helper is idle is from Flockdeck
-and carries no text from the helper. The helper's report arrives as its own `msg`, which the
-built-in roles send, since a manager cannot read another pane. Agents are told not to answer
+and carries no text from the helper. The helper's report arrives as a SendMessage from the helper, which the
+built-in roles send, since a manager cannot read another pane (`msg send` is the fallback). Agents are told not to answer
 a message only to acknowledge it, which would wake the sender for nothing.
 
 A pane started in a role carries its name in its header, after the pane name, and in
@@ -379,7 +379,7 @@ one-line notice and what Flockdeck writes to an inbox itself are in
 The built-in roles say when to use messages: the manager writes to the agents it started to
 answer a question or change a task, and planners, workers, reviewers, testers and docs agents
 write to the manager when they are blocked. Planners, workers, reviewers, testers and docs
-agents also send their final report to the manager with `msg send manager`, because the
+agents also send their final report to the manager with SendMessage, because the
 manager cannot read their panes; it is still their last message too.
 
 ### The task board

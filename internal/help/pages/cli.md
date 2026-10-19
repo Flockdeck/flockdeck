@@ -167,7 +167,15 @@ agent started, and says so; it names at most twelve panes and gives the number l
 
 ## msg
 
-Run from inside a pane, this sends a message to another agent in the same project:
+Run from inside a pane, this sends a message to another agent in the same project. It is the
+fallback channel: agents are told to message each other with the SendMessage tool of Claude Code,
+by the session name `ListAgents` shows, and to use `msg send` only when SendMessage fails or an
+agent has no such tool. Flockdeck's own notices (a helper idle or exited, task changes) always
+come through the inbox. What is known of SendMessage: it has reached across sessions in both
+directions between a manager and a helper, it arrives at the receiver's next tool round, and it
+has started a turn in an idle Flockdeck session when the manager sent it to a helper. A helper
+learns the manager's session name from its task, where the manager puts its own name, sent again
+after a restart because the name changes; a name that does not resolve means the manager restarted.
 
 ```sh
 flockdeck msg send <target> <text...>
@@ -217,8 +225,10 @@ command does not wake an agent until it exits, so where Monitor is missing run `
 `run_in_background` and start it again each time it exits. The agent then runs `inbox read <id>`.
 `-follow` marks nothing read, announces mail already waiting when it starts, holds mail that
 arrives within five seconds of the last line and prints more than three messages from agents as
-one line (a message from the person at the window is always on a line of its own), stops after
-100 lines, retries errors silently, and ends when its pane is closed. It takes no other flag. A pane sees only its own inbox. A message has an id, the
+one line, retries errors silently, and ends when its pane is closed. A message from the person at
+the window is always on a line of its own and never waits for the five seconds. After 100 lines it
+stops announcing agents' messages (it says so) and keeps announcing the person's; starting it
+again announces the agents' messages that are still unread. It takes no other flag. A pane sees only its own inbox. A message has an id, the
 sender's pane, role and name, the time, the text and whether it was read; messages
 Flockdeck wrote itself (see below) come from `flockdeck`.
 

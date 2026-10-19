@@ -58,8 +58,8 @@ func (c PaneContext) withoutTeam() PaneContext {
 func TestBriefingExplainsMessagesAndSaysTheyAreNotTheUsers(t *testing.T) {
 	hooked := PaneContext{PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck", Team: members(3), Notified: true}.Render()
 	for _, want := range []string{
-		"## Messages", "flockdeck msg send <target> <text...>", "flockdeck inbox read <id>", "at most 8 KB",
-		"write a file and send its path", "roles limit who may start whom, not who may talk",
+		"## Messages", "SendMessage tool", "SendMessage only between agents", "ListAgents", "flockdeck msg send` is the fallback", "flockdeck msg send <target> <text...>", "flockdeck inbox read <id>", "at most 8 KB",
+		"manager's session name", "come only through the inbox",
 		"Nothing is typed into your input", "holds no message text", team.Disclaimer,
 		"when a session starts or resumes", "not authenticated",
 	} {
