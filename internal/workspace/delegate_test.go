@@ -615,3 +615,27 @@ func TestAPaneClosedDuringTheDwellReportsNothing(t *testing.T) {
 		t.Errorf("a pane closed during the dwell still reported: %+v", got)
 	}
 }
+
+// A close or restart that takes longer than the dwell leaves the old session as
+// the pane's while the timer runs out. It is being ended by Flockdeck, so it
+// reports nothing.
+func TestAClosingSessionIsNotReportedIdleWhenTheDwellRunsOut(t *testing.T) {
+	c := newCrew(t)
+	f := installFake(c)
+	f.r.Status = "working"
+	c.ws.paneChanged(c.w1)
+	f.r.Status = "idle"
+	c.ws.paneChanged(c.w1)
+	if len(f.timers) != 1 {
+		t.Fatalf("%d dwell timers armed by a turn that ended, want 1", len(f.timers))
+	}
+	// Close has begun and the pane still holds the session: the slow part of a
+	// close or a restart.
+	if err := c.ws.Pane(c.w1).Sess.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f.runTimers()
+	if got := c.inbox(t, c.lead, true); len(got) != 0 {
+		t.Errorf("the manager was told %+v of a session being closed", got)
+	}
+}
