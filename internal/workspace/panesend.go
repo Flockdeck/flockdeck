@@ -49,10 +49,14 @@ type SendResult struct {
 // NUL would otherwise pass as text and be written as a bare Enter. The length
 // limit is checked on the text as given.
 //
-// A pane waiting on a permission prompt is refused: a permission is answered
+// A pane that is waiting on anything but a question is refused, since the
+// waiting can be a permission prompt however little it says about itself
+// (some agents report waiting with no tool named at all): a permission is answered
 // by the user, through its choice buttons, and never by text from another
-// agent. A pane waiting on a question is sent the text and the result has
-// Waiting set.
+// agent. A pane waiting on a question (the exact detail AskUserQuestion) is
+// sent the text and the result has Waiting set. Idle and blocked panes are
+// sent it. The status is read before the write happens, so a prompt that
+// opens in between is not caught.
 //
 // The text is written as a prompt. In a pane whose program has not asked for
 // bracketed paste, each line break types an Enter and so submits what came
@@ -89,7 +93,7 @@ func (w *Workspace) SendToPane(id, text string, allowShell bool) (SendResult, er
 	if res.Shell && !allowShell {
 		return res, ErrSendShell
 	}
-	if st, detail := p.Status(); st == session.StatusWaiting && detail != "" {
+	if st, detail := p.Status(); st == session.StatusWaiting {
 		if detail != "AskUserQuestion" {
 			return res, ErrSendPermission
 		}
@@ -105,18 +109,18 @@ func (w *Workspace) SendToPane(id, text string, allowShell bool) (SendResult, er
 		return res, nil
 	}
 	sess := p.Sess
-	go w.writeToPane(p, sess, text)
+	go w.writeToPane(p, sess, text, typeInto)
 	return res, nil
 }
 
-// typeIntoPane is typeInto, a variable so a test can have the write fail.
-var typeIntoPane = typeInto
-
-// writeToPane types text into sess and then lets the next send for p start,
-// whether or not the write returns normally.
-func (w *Workspace) writeToPane(p *Pane, sess *session.Session, text string) {
+// writeToPane types text into sess with write and then lets the next send for
+// p start, whether or not write returns normally. write is a parameter so a
+// test can have it fail without sharing a variable with other sends. Nothing
+// recovers a panic in write: it would take the process down, as one in
+// typeInto does for SendPrompt, and that is by design.
+func (w *Workspace) writeToPane(p *Pane, sess *session.Session, text string, write func(*session.Session, string, bool)) {
 	defer w.releaseSend(p)
-	typeIntoPane(sess, text, true)
+	write(sess, text, true)
 }
 
 // claimSend marks a write into p as in flight, and says false when one

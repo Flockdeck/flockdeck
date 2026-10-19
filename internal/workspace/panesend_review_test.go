@@ -53,11 +53,26 @@ func TestSendToPaneAndWaitingPanes(t *testing.T) {
 			t.Fatal("the write did not finish")
 		}
 	}
-	// An idle nudge names no tool: it is not a prompt to refuse.
-	p.Sess.SetStatus(session.StatusIdle, "")
-	p.Sess.SetStatus(session.StatusWaiting, "")
-	if res, err := ws.SendToPane(p.ID, "go on", false); err != nil || res.Waiting {
-		t.Errorf("idle nudge: res %+v err %v, want sent, not Waiting", res, err)
+	// Waiting is refused whatever it says about itself: no detail, other tool
+	// names, other spellings of the question tool.
+	for _, detail := range []string{"", "ExitPlanMode", "askuserquestion", "AskUserQuestion ", "Bash"} {
+		p.Sess.SetStatus(session.StatusIdle, "")
+		p.Sess.SetStatusFull(session.StatusWaiting, detail, "")
+		if _, err := ws.SendToPane(p.ID, "go on", false); err != ErrSendPermission {
+			t.Errorf("waiting with detail %q: err = %v, want ErrSendPermission", detail, err)
+		}
+	}
+	// Idle and blocked are sent.
+	for _, st := range []session.Status{session.StatusIdle, session.StatusBlocked} {
+		p.Sess.SetStatus(st, "")
+		if _, err := ws.SendToPane(p.ID, "go on", false); err != nil {
+			t.Errorf("status %v: err = %v, want sent", st, err)
+		}
+		for deadline := time.Now().Add(10 * time.Second); sendingNow(ws, p); time.Sleep(10 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatal("the write did not finish")
+			}
+		}
 	}
 }
 
@@ -66,16 +81,12 @@ func TestSendToPaneAndWaitingPanes(t *testing.T) {
 func TestSendToPaneFlagIsClearedAfterAPanic(t *testing.T) {
 	ws, p := newSendTestWorkspace(t)
 
-	old := typeIntoPane
-	typeIntoPane = func(*session.Session, string, bool) { panic("write failed") }
-	t.Cleanup(func() { typeIntoPane = old })
-
 	if !ws.claimSend(p) {
 		t.Fatal("could not claim the pane")
 	}
 	func() {
 		defer func() { _ = recover() }()
-		ws.writeToPane(p, p.Sess, "hi")
+		ws.writeToPane(p, p.Sess, "hi", func(*session.Session, string, bool) { panic("write failed") })
 	}()
 	if sendingNow(ws, p) {
 		t.Error("the in-flight flag was still set after the write panicked")
