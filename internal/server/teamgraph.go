@@ -38,6 +38,13 @@ const (
 	maxGraphPanes = 500
 )
 
+// The kinds of pane. Structured is reserved for panes an agent drives over a
+// protocol rather than a terminal; nothing sets it yet.
+const (
+	graphKindTerminal   = "terminal"
+	graphKindStructured = "structured"
+)
+
 // graphTaskChip is the task a node names as its current one.
 type graphTaskChip struct {
 	ID    string `json:"id"`
@@ -49,6 +56,8 @@ type graphTaskChip struct {
 // from team.BuildGraph, with the facts a node draws.
 type graphNodeView struct {
 	team.GraphNode
+	// Kind is how the pane is run: graphKindTerminal for every pane today.
+	Kind     string `json:"kind"`
 	Name     string `json:"name"`
 	Peer     string `json:"peer,omitempty"`
 	Role     string `json:"role,omitempty"`
@@ -395,7 +404,7 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 	for _, n := range graph.Nodes {
 		p, g := byID[n.Pane], gpByID[n.Pane]
 		nv := graphNodeView{
-			GraphNode: n, Name: g.Name, Peer: g.Peer, Role: g.Role, Agent: g.Agent, Shell: g.Shell,
+			GraphNode: n, Kind: graphKindTerminal, Name: g.Name, Peer: g.Peer, Role: g.Role, Agent: g.Agent, Shell: g.Shell,
 			Status: g.Status, Activity: g.Activity, Branch: p.Branch, Live: live[n.Pane],
 			Dirty: p.Git.Dirty, Untracked: p.Git.Untracked, Ahead: p.Git.Ahead, Behind: p.Git.Behind,
 			Unread: g.Unread, AutoReview: p.AutoReview, AutoApproved: ws.AutoApprovedOf(p),

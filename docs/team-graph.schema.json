@@ -74,10 +74,11 @@
     "node": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["pane", "depth", "waitingOn", "name", "status", "activity"],
+      "required": ["pane", "kind", "depth", "waitingOn", "name", "status", "activity"],
       "description": "One pane in the graph.",
       "properties": {
         "pane": { "type": "string", "minLength": 1, "description": "The pane's id. Always written." },
+        "kind": { "enum": ["terminal", "structured"], "description": "How the pane is run (known to Flockdeck). terminal for every pane today, shells included. structured is reserved for panes an agent drives over a protocol and is not written yet. Always written." },
         "parent": { "type": "string", "minLength": 1, "description": "The id of the pane that started this one (stored: Pane.Parent), only while that pane is open and not where a parent loop was cut (derived). Absent for a root." },
         "children": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "description": "The panes this one started that are open (derived). Absent when there are none." },
         "depth": { "type": "integer", "minimum": 0, "description": "0 for a root and for a pane in no team (derived). Always written." },
@@ -134,6 +135,31 @@
         "task": { "type": "string", "pattern": "^T[0-9]+$", "description": "The task of a returned item. Written for returned items only." },
         "time": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When the item began: when the pane started waiting, the task came back, the radar first reported the pair, the pane went down or the oldest unread message arrived. Always written; 0001-01-01T00:00:00Z when that is not known, and such an item is listed after the others of its kind." },
         "text": { "type": "string", "minLength": 1, "description": "The question or command (cut to 200 characters), the note a task came back with, up to 5 paths of a conflict with a count of the rest, how a pane went down, or how many messages are unread. Absent when there is nothing to say, as for a returned task without a note." }
+      }
+    },
+    "permission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "summary", "options"],
+      "description": "What a permission prompt is asking, as the pane view's permission field carries it (paneView.permission in internal/server): not part of the graph message, which only carries the prompt's text in waitingOn. Written for a pane that is waiting on a permission prompt for a tool other than AskUserQuestion.",
+      "properties": {
+        "tool": { "type": "string", "minLength": 1, "description": "The tool the prompt is for (stored: the agent's hook call). Always written." },
+        "summary": { "type": "string", "description": "One line saying what the tool would do (derived from the call's input). Always written." },
+        "command": { "type": "string", "minLength": 1, "description": "The command, for Bash (stored: the call's input). Absent for other tools." },
+        "description": { "type": "string", "minLength": 1, "description": "The agent's own description of the command, for Bash. Absent when it gave none." },
+        "file": { "type": "string", "minLength": 1, "description": "The file, for Edit, MultiEdit and Write. Absent for other tools." },
+        "diff": { "type": "string", "minLength": 1, "description": "What the edit would change, cut at 64 KiB (derived from the call's before and after text). Absent for other tools." },
+        "options": { "type": "array", "items": { "$ref": "#/$defs/permissionOption" }, "description": "The choices of the prompt that are documented for the agent (derived by permissionOptions). Claude Code panes list Yes and No; its 'Yes, and don't ask again' is not listed because the rule it names depends on the tool and version. Empty, never absent, for every other agent and for a pane that has not recorded its agent: the window then keeps to the terminal path." }
+      }
+    },
+    "permissionOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "description": "One choice of a permission prompt.",
+      "properties": {
+        "id": { "enum": ["yes", "no"], "description": "What a window sends back to choose it. Yes is answered with Enter, the prompt's default; no with Esc. Always written." },
+        "label": { "type": "string", "minLength": 1, "description": "The words the agent's own prompt uses for the choice. Always written." }
       }
     },
     "paneSend": {

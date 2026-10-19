@@ -50,7 +50,44 @@ type permissionView struct {
 	Description string `json:"description,omitempty"`
 	File        string `json:"file,omitempty"`
 	Diff        string `json:"diff,omitempty"`
+	// Options are the choices the agent's prompt offers that Flockdeck can name
+	// without reading the screen: see permissionOptions. Empty, never left out,
+	// where it cannot, and a window then keeps to the terminal path.
+	Options []permissionOption `json:"options"`
 }
+
+// permissionOption is one choice of a permission prompt: an id a window can send
+// back and the words the agent's own prompt uses for it.
+type permissionOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// permissionOptions are the choices of a permission prompt that are documented
+// for the agent: Claude Code answers Yes with Enter, which is its default
+// choice, and "No, and tell Claude what to do differently" with Esc (see
+// docs/status-matrix.md, B4 and B7). Its middle choice, "Yes, and don't ask
+// again", names a rule that depends on the tool and the version, so it is not
+// listed. Any other agent, and a pane that has not recorded its agent, gets
+// none: its prompts are not parsed here.
+func permissionOptions(agent string) []permissionOption {
+	if agent != "claude" {
+		return []permissionOption{}
+	}
+	return []permissionOption{
+		{ID: permissionYes, Label: "Yes"},
+		{ID: permissionNo, Label: "No, and tell Claude what to do differently"},
+	}
+}
+
+// The ids of a permission prompt's options.
+const (
+	permissionYes = "yes"
+	permissionNo  = "no"
+)
+
+// permissionOptionIDs lists every id an option can have.
+func permissionOptionIDs() []string { return []string{permissionYes, permissionNo} }
 
 // maxPermissionDiff bounds the diff a permission view carries inline. There is
 // no on-demand detail fetch for a permission prompt the way a finished tool
@@ -124,7 +161,7 @@ func askViewFor(in waitingToolInput) *askView {
 }
 
 func permissionViewFor(tool string, in waitingToolInput) *permissionView {
-	pv := &permissionView{Tool: tool}
+	pv := &permissionView{Tool: tool, Options: []permissionOption{}}
 	switch tool {
 	case "Bash":
 		pv.Command = in.Command

@@ -186,6 +186,8 @@ func TestSchemaAndStructsNameTheSameFields(t *testing.T) {
 		{"needsItem", reflect.TypeOf(team.NeedsItem{})},
 		{"waitingOn", reflect.TypeOf(team.WaitingOn{})},
 		{"paneSend", reflect.TypeOf(paneSendMsg{})},
+		{"permission", reflect.TypeOf(permissionView{})},
+		{"permissionOption", reflect.TypeOf(permissionOption{})},
 	}
 	for _, c := range cases {
 		goAll, goAlways := jsonFields(c.typ)
@@ -264,6 +266,8 @@ func TestSchemaEnumsAreTheGoConstants(t *testing.T) {
 		{"waitingOn", "kind", []string{team.WaitUser, team.WaitDown, team.WaitReviewer, team.WaitTask, team.WaitHelpers, team.WaitNone}},
 		{"taskChip", "state", states},
 		{"edge", "kind", []string{graphEdgeSpawn, graphEdgeMessage}},
+		{"node", "kind", []string{graphKindTerminal, graphKindStructured}},
+		{"permissionOption", "id", permissionOptionIDs()},
 	}
 	for _, c := range cases {
 		want := append([]string(nil), c.want...)

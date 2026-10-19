@@ -33,6 +33,7 @@
     {
       "activity": "idle",
       "depth": 0,
+      "kind": "terminal",
       "name": "other1",
       "pane": "other1",
       "shell": true,
@@ -49,6 +50,7 @@
         "eyes"
       ],
       "depth": 0,
+      "kind": "terminal",
       "name": "boss",
       "pane": "boss",
       "role": "manager",
@@ -67,6 +69,7 @@
         "nested"
       ],
       "depth": 1,
+      "kind": "terminal",
       "live": "Edit main.go",
       "name": "dev",
       "pane": "dev",
@@ -82,6 +85,7 @@
     {
       "activity": "waiting",
       "depth": 1,
+      "kind": "terminal",
       "live": "Bash",
       "name": "eyes",
       "pane": "eyes",
@@ -98,6 +102,7 @@
     {
       "activity": "idle",
       "depth": 2,
+      "kind": "terminal",
       "name": "nested",
       "pane": "nested",
       "parent": "dev",
@@ -111,6 +116,7 @@
     {
       "activity": "idle",
       "depth": 0,
+      "kind": "terminal",
       "name": "lone",
       "pane": "lone",
       "since": "<time>",
@@ -125,6 +131,7 @@
         "helper2"
       ],
       "depth": 0,
+      "kind": "terminal",
       "name": "boss2",
       "pane": "boss2",
       "role": "manager",
@@ -139,6 +146,7 @@
     {
       "activity": "idle",
       "depth": 1,
+      "kind": "terminal",
       "name": "helper2",
       "pane": "helper2",
       "parent": "boss2",

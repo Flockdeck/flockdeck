@@ -790,6 +790,9 @@ func (s *Server) snapshot() stateMsg {
 			pv.RemoteInsecure = remoteTermViewers.insecure(p.ID)
 			if st == session.StatusWaiting && p.Sess != nil {
 				pv.Ask, pv.Permission = waitingViews(detail, p.Sess.ToolInput())
+				if pv.Permission != nil {
+					pv.Permission.Options = permissionOptions(p.Agent)
+				}
 			}
 			if pv.Kind != "shell" {
 				if last, ok := s.preview.get(p.ID); ok {
