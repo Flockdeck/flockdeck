@@ -269,7 +269,7 @@ func (c PaneContext) writeTeam(b *strings.Builder) {
 		"SendMessage only between agents. `%s msg send` is the fallback when SendMessage fails or you have no such tool; a "+
 		"message is at most %d KB. It arrives at the receiver's next tool "+
 		"round, and has started an idle session's turn (manager to helper). Your task gives the manager's session "+
-		"name; if it does not resolve, the manager restarted, so look in ListAgents. Flockdeck notices (a helper exits, a task changes) "+
+		"name; if it does not resolve, the manager restarted, so look in ListAgents. Flockdeck notices (a helper exits or idles, a task changes) "+
 		"come only through the inbox. Do not answer a message only to acknowledge it: the reply wakes "+
 		"the sender for nothing.\n\n", flockdeck, team.MaxText/1024)
 	if !c.Notified {
@@ -322,7 +322,7 @@ func (c PaneContext) writeTasks(b *strings.Builder) {
 		"in-review: it cannot close its own task, and only the manager role, a reviewer or a tester moves a task from " +
 		"in-review to done, or sends it back to in-progress with `-note`. The creator of a task, or the manager role, may cancel it. " +
 		"A pane with no role has the manager role's powers only while no pane in the manager role is running. " +
-		"A refused move says why. Flockdeck messages the people a change concerns; read them with `inbox`.\n")
+		" A refused move says why.\n")
 	if c.HasCounts {
 		when := "when you were briefed"
 		if !c.Taken.IsZero() {
@@ -361,13 +361,8 @@ func (c PaneContext) writeRoleSpawn(b *strings.Builder, flockdeck string) {
 	}
 	b.WriteString("```\n\n")
 	fmt.Fprintf(b, "`spawn` prints `started agent <pane-id> as <role> in <directory>`. Keep the pane id. Pane names come "+
-		"from the directory, so several panes can have the same one; take ids from that line or from `%s team -json` "+
-		"when you assign a task, send a message or close a pane. `%s task assign <task-id> <target>` takes a pane id, "+
-		"a name or a role id; a role id leaves the task for whichever pane in that role moves it to in-progress first.\n\n",
-		flockdeck, flockdeck)
-	b.WriteString("Assign a task before the agent starts it, or at spawn: to the role before you start the agent, " +
-		"or to the pane id as soon as `spawn` prints it, and put the task id in the agent's task. An assign " +
-		"after the agent has moved the task to in-progress takes the task from it, and Flockdeck prints a warning.\n\n")
+		"from the directory, so several panes can have the same one; take ids from that line or from `%s team -json`.\n\n",
+		flockdeck)
 }
 
 // writeSpawnFlags writes what the `spawn` flags that matter do, how many helpers
@@ -380,12 +375,10 @@ func writeSpawnFlags(b *strings.Builder, flockdeck string, roles bool) {
 		"- No placement flag: the agent opens in a new tab of its own, titled after the task.\n" +
 		"- `-split`: the agent opens beside you, in your tab. Several `-split` calls gather the group in " +
 		"front of the user at once.\n" +
-		"- `-tab <title>`: the agent joins the tab with that title in this project, which is made if there is " +
-		"none, and the tab's panes are laid out in a grid. Use one title for everything that belongs to one piece " +
-		"of work; it takes precedence over `-split`.\n" +
-		"- `-worktree <branch>`: the agent gets a git worktree and branch of its own, cut from yours. Without it " +
-		"every agent shares this working tree and edits files under the others; use it whenever two of them " +
-		"would touch the same files.\n" +
+		"- `-tab <title>`: the agent joins the tab with that title, which is made if there is none. It takes " +
+		"precedence over `-split`.\n" +
+		"- `-worktree <branch>`: the agent gets a git worktree and branch of its own, cut from yours; without it " +
+		"it shares this working tree.\n" +
 		"- `-shell`: a terminal rather than another conversation.\n" +
 		"- `-agent <id>` and `-model <model>`: another agent or model where it suits the work better than the " +
 		"project's default; `" + flockdeck + " agents` lists them. Neither goes with `-shell`.\n")
@@ -396,16 +389,15 @@ func writeSpawnFlags(b *strings.Builder, flockdeck string, roles bool) {
 		b.WriteString("- `-role <id>`: the role the helper works as, which brings its own briefing and, " +
 			"where you name no agent or model, its own default for them. It does not go with `-shell`.\n\n")
 	}
-	b.WriteString("Each helper is a fresh agent with an empty conversation: it inherits nothing from yours, so its " +
-		"task has to stand on its own. ")
+	b.WriteString("Each helper inherits nothing from your conversation, so its task has to stand on its own. ")
 	if roles {
-		b.WriteString("Your role is to hand work out, so start helpers when the work needs them without asking " +
-			"the user first, and only as many as it needs.\n\n")
+		b.WriteString("Your role is to hand work out, so start helpers without asking the user first, and only as many as " +
+			"the work needs.\n\n")
 	} else {
 		b.WriteString("Start helpers when the user asks for parallel work, and only as many as the work needs.\n\n")
 	}
 	b.WriteString("When a helper you started is done, `" + flockdeck + " close <pane-id>` closes its pane, with the id `spawn` " +
-		"printed back (`" + flockdeck + " team` lists ids too). Close only panes you started. It refuses a pane " +
+		"printed back. Close only panes you started. It refuses a pane " +
 		"still working unless you add `-force`, and refuses this one (end your own turn instead). " +
 		"`" + flockdeck + " close -finished` closes every idle agent and cleanly exited pane in every open " +
 		"project, the user's own included, so leave it for when the user asks.\n")
