@@ -22,7 +22,7 @@ Runtime settings:
 | Volumes | `/home/flockdeck`, `/workspace` |
 | Port | 8080 (exposed) |
 | `FLOCKDECK_UPDATE` | `off` |
-| Healthcheck | `docker/healthcheck.sh` every 30s |
+| Healthcheck | `/usr/local/bin/flockdeck-healthcheck` (a copy of `docker/healthcheck.sh`) every 30s |
 
 The healthcheck reads `instance.json` under `$HOME/.config/flockdeck/`, takes its `url` and `token`, and requests `<url>/health?t=<token>` with `wget`. It fails if the record or either field is missing.
 

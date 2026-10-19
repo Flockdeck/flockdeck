@@ -20,4 +20,4 @@ Role data lives in prefs ([device access roles](/security/device-access-roles.md
 
 The role is looked up on every command, message and keystroke, not once when the socket opens. A request through the relay with no device header is treated as a viewer. `TestEveryCommandHasAnAccessDecision` reads `handleCommand`'s source and fails if a command is missing from `commandAccess`, so each new command needs an explicit decision.
 
-Desk-only actions are also refused to full relay devices: quit, restart, detach, team, versions, updates, helpers, role changes, verify, `pair host`.
+Desk-only actions refused to full relay devices include (the list is not complete; for example turning Jev terminal output on from a relay window is also refused in `control.go`): quit, restart, detach, team, versions, updates, helpers, role changes, verify, `pair host`.
