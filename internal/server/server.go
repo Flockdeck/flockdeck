@@ -146,6 +146,9 @@ type Server struct {
 	// to the workspace goroutine.
 	teamAt    time.Time
 	teamArmed bool
+	// graphAt and graphArmed do the same for the graph view's pushes.
+	graphAt    time.Time
+	graphArmed bool
 	// teamCache is each watched project's encoded picture and what it was built
 	// from; see teamData.
 	teamCache map[string]teamCached

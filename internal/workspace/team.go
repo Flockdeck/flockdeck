@@ -132,6 +132,18 @@ func (w *Workspace) Roster(self string) ([]team.Member, error) {
 // included whatever project it is in and marked. It must run on the workspace
 // goroutine.
 func (w *Workspace) rosterOf(myRoot, self string) []team.Member {
+	var out []team.Member
+	for _, p := range w.projectPanes(myRoot, self, true) {
+		out = append(out, w.memberOf(p, p.ID == self))
+	}
+	return out
+}
+
+// projectPanes lists the panes of the project whose directory is myRoot, in the
+// order the tabs show them, agents only or shells too. The pane self, which may
+// be empty for none, is included whatever project it is in. It must run on the
+// workspace goroutine.
+func (w *Workspace) projectPanes(myRoot, self string, agentsOnly bool) []*Pane {
 	myGroup := w.groupOf(myRoot)
 
 	var ids []string
@@ -156,10 +168,10 @@ func (w *Workspace) rosterOf(myRoot, self string) []team.Member {
 	sort.Strings(loose)
 	ids = append(ids, loose...)
 
-	var out []team.Member
+	var out []*Pane
 	for _, id := range ids {
 		p := w.Pane(id)
-		if p == nil || !p.IsAgent() {
+		if p == nil || agentsOnly && !p.IsAgent() {
 			continue
 		}
 		if id != self {
@@ -173,7 +185,7 @@ func (w *Workspace) rosterOf(myRoot, self string) []team.Member {
 				continue
 			}
 		}
-		out = append(out, w.memberOf(p, id == self))
+		out = append(out, p)
 	}
 	return out
 }

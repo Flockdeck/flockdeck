@@ -1052,6 +1052,7 @@ func (s *Server) broadcastState() {
 		// A Team panel that is open is kept current whether or not the state it
 		// shares the push with changed: a task or a message does not show in it.
 		s.pushTeam()
+		s.pushGraph()
 		snap := s.snapshot()
 		data, err := json.Marshal(snap)
 		if err != nil {
@@ -1095,6 +1096,10 @@ type controlClient struct {
 	// not sent again. Both belong to the workspace goroutine.
 	teamRoot string
 	teamSent []byte
+	// graphRoot and graphSent are the same for the graph view (see
+	// teamgraph.go), which is subscribed to apart from the Team panel.
+	graphRoot string
+	graphSent []byte
 
 	// page marks a connection that opened with an Origin header, as a browser or
 	// a webview always does and a command-line client does not. Only such a
@@ -1508,6 +1513,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "taskGet", "taskAdd", "taskAssign",
 		"taskStatus", "taskNote", "taskBranch", "taskPrune", "msgList", "msgSend", "msgSeen", "teamClose":
 		s.teamCommand(c, cmd)
+		return
+	case "graphSnapshot", "graphWatch", "graphUnwatch":
+		s.graphCommand(c, cmd)
 		return
 	case "worktrees":
 		s.listWorktrees(c, cmd.Root)

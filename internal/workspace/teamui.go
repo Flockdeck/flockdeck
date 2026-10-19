@@ -46,6 +46,24 @@ func (w *Workspace) TeamMembers(root string) ([]team.Member, error) {
 	return w.rosterOf(open, ""), nil
 }
 
+// TeamPanes lists every pane of the project at root, shells included, in the
+// order the tabs show them.
+func (w *Workspace) TeamPanes(root string) ([]*Pane, error) {
+	open, err := w.teamRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	return w.projectPanes(open, "", false), nil
+}
+
+// HelpersBelow counts the open panes that descend from the pane id, by the rule
+// the helper cap uses (see MaxHelpers).
+func (w *Workspace) HelpersBelow(id string) int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.helpersBelow(id)
+}
+
 // TeamBoard is the task board of the project at root.
 func (w *Workspace) TeamBoard(root string) (*tasks.Board, error) {
 	open, err := w.teamRoot(root)
