@@ -5,7 +5,7 @@ description: Writes a pane's agent conversation to disk as a redacted, size-capp
 resource: internal/record/record.go
 tags: [recording, redaction, package]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/record/record.go, internal/record/redact.go, internal/record/export.go]
+code_paths: [internal/record/record.go, internal/record/redact.go, internal/record/export.go, internal/record/rpc.go]
 ---
 Off for every pane until the user turns it on. Never writes into a project repository. Input is the agent's stored conversation (via `session/transcript` followers and exporters), not the terminal screen.
 
@@ -35,3 +35,7 @@ Format: [transcript line](/data/recording-line.md). Consumers: [workspace](/pack
 ## Export safety
 
 `CheckExportPath` refuses a path inside the conversation's project or inside any directory with a `.git` entry above it, following symlinks, because a transcript can hold secrets.
+
+## Stream recordings
+
+`Manager.StartRPC` opens a `<id>.rpc.jsonl` file beside a project's terminal recordings and returns an `RPCRecorder`. The structured-agent client is meant to call `Tap(dir, raw)` with each JSON-RPC line it reads or writes; it is not wired into `internal/acp` yet. Messages are redacted and clipped (`RedactValue`, 8 KiB a string, 32 KiB for prompt and message text) and `RPCHook` can clip or drop more. Neighbouring chunk updates of one kind, and updates of one tool call, are joined into one line and written within 250 ms. At `MaxRPCFileBytes` the file is rewritten without its oldest lines and a `rpc_dropped` line says how many. The same `prune` retention covers these files. `ReadRPCFile` skips damaged lines and flags a torn tail. Format: `docs/rpc-recording-format.md` and `docs/rpc-recording-line.schema.json`.
