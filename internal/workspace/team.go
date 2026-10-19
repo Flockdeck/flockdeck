@@ -23,10 +23,14 @@ import (
 // panes: who is in the caller's project, the unread count a pane's header shows,
 // and the notice an agent is given in the reply to its next hook.
 //
-// A pane is never typed into to tell it of mail. Text in an agent's message box
-// that the user did not write is a bug whether it is submitted or not, and on
+// An agent that is working is told of mail in the reply to its next hook (see
+// HookNotice). One that is idle at an empty prompt is told by the wake service
+// (wake.go), which types one fixed line, never a sender or message text. Apart
+// from that line and the text of a message the user sends from the graph, a pane
+// is not typed into: text in an agent's message box that the user did not write
+// is otherwise a bug. The line and its Enter are written separately, because on
 // Windows a line and its Enter that arrive in one read are taken for a paste and
-// left there. See HookNotice.
+// left there.
 
 // messagesFile is where the inboxes are kept, next to the other workspace state.
 const messagesFile = "messages.json"
@@ -46,8 +50,9 @@ type teamState struct {
 	notifier *team.Notifier
 	// events is the team event log, nil until loadMessages has found the
 	// directory it is kept in. evMu orders the writes of its file.
-	events *team.EventLog
-	evMu   sync.Mutex
+	events     *team.EventLog
+	eventsPath string
+	evMu       sync.Mutex
 	// taps are the SendMessage calls Claude sessions made, seen in their hooks.
 	taps team.TapLog
 
@@ -118,13 +123,22 @@ func (w *Workspace) loadEvents(path string) {
 		log.Load(data)
 	}
 	t.events = log
-	t.inbox.OnEvent(func(e team.Event) {
-		log.Append(e)
-		t.evMu.Lock()
-		defer t.evMu.Unlock()
-		// A log that cannot be written down is no reason to lose the message.
-		_ = t.save(path, log.Encode())
-	})
+	t.eventsPath = path
+	t.inbox.OnEvent(w.recordEvent)
+}
+
+// recordEvent adds an event to the log and saves it. Messages, deliveries and
+// wakes all come through here.
+func (w *Workspace) recordEvent(e team.Event) {
+	t := &w.team
+	if t.events == nil {
+		return
+	}
+	t.events.Append(e)
+	t.evMu.Lock()
+	defer t.evMu.Unlock()
+	// A log that cannot be written down is no reason to lose the message.
+	_ = t.save(t.eventsPath, t.events.Encode())
 }
 
 // forgetTeam drops what delivery remembers of a pane that is gone, or whose

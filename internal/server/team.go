@@ -21,8 +21,9 @@ func (s *Server) installTeamHandlers() {
 		res T
 		err error
 	}
-	// Mail is told to an agent in the reply to its next prompt or tool call and
-	// is never typed into its input. HookNotice is safe from any goroutine.
+	// Mail is told to a working agent in the reply to its next prompt or tool
+	// call. An idle agent is woken by the workspace's wake service with one
+	// fixed typed line. HookNotice is safe from any goroutine.
 	hookSrv.SetNoticeHandler(s.ws.HookNotice)
 	hookSrv.SetTeamHandler(func(req hooks.TeamRequest) (hooks.TeamResult, error) {
 		out, ok := ask(s, func() outcome[[]team.Member] {

@@ -217,3 +217,30 @@ func TestReadingAnOldReadMessageAgainReportsNothing(t *testing.T) {
 		t.Errorf("events %+v, want none", ev)
 	}
 }
+
+func TestEventLogKeepsAWakeWithoutMessageText(t *testing.T) {
+	data := `{"kind":"wake","id":7,"time":"2026-10-19T10:00:00Z","pane":"p1","agent":"claude","rule":"1","rule_source":"built-in","prompt":"> ","line":"Flockdeck: new mail, message 7. Run: flockdeck inbox read 7","text":"smuggled"}`
+	var log EventLog
+	log.Load([]byte(data))
+	ev := log.Events()
+	if len(ev) != 1 || ev[0].Kind != EventWake || ev[0].Pane != "p1" || ev[0].Agent != "claude" {
+		t.Fatalf("loaded %+v", ev)
+	}
+	if strings.Contains(string(log.Encode()), "smuggled") {
+		t.Error("a text field was kept")
+	}
+}
+
+func TestNotifierLastNotice(t *testing.T) {
+	n := NewNotifier()
+	if !n.LastNotice("p").IsZero() {
+		t.Fatal("a notice before any was given")
+	}
+	n.Take("p", []Message{{ID: 3}})
+	if n.LastNotice("p").IsZero() {
+		t.Fatal("no time after a notice")
+	}
+	if !n.LastNotice("other").IsZero() {
+		t.Fatal("another pane's notice")
+	}
+}
