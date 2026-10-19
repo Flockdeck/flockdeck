@@ -1,5 +1,6 @@
 # CI checks
 
+* [acp-canary workflow](acp-canary.md) - Weekly report on whether the ACP adapters in the manifest still answer initialize, pinned and latest.
 * [agent-compat workflow](agent-compat.md) - Weekly check that the built-in agent catalog still matches the real agent CLIs and model APIs.
 * [deploy-drift workflow](deploy-drift.md) - Daily check that code merged to main in the Flockdeck repositories has been tagged for deploy.
 * [design-tokens workflow](design-tokens.md) - Contrast and colour-vision checks on the design token files.

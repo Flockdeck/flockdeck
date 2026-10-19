@@ -1,0 +1,143 @@
+name: acp-canary
+
+# Weekly check that the structured-agent adapters Flockdeck is tested with
+# still answer the protocol (docs/acp-adapters.md). Two jobs:
+#
+#   contract   the fake-agent contract suite, `go test ./internal/acp/...`
+#   handshake  for each adapter in internal/acp/manifest/adapters.json, on two
+#              channels: `pinned` (the version the manifest names) and `latest`
+#              (the newest the registry has, the `preview` tag where there is
+#              one), install the adapter into a temporary folder and send one
+#              `initialize`. It never logs in, sends a prompt or opens a
+#              session.
+#
+# This is a report, not a gate. It runs on a schedule and by hand only, never
+# on a pull request or a push, so it can not stop a merge: a red run here means
+# an adapter changed, and the manifest is what to look at.
+#
+# Isolation. The adapter gets a home, config, cache and temp folders, a working
+# directory, and an npm cache that are all inside one new folder under
+# RUNNER_TEMP, and an environment that is only PATH, CI and those folders: no
+# secret of this repository, and no key, is given to it. The workflow has
+# read-only repository permission and references no secret. The log shows the
+# folder, the environment the adapter was given, and, at the end, whether
+# anything in the runner's real home changed.
+on:
+  schedule:
+    # Sunday, 07:00 UTC, an hour after agent-compat.
+    - cron: "0 7 * * 0"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run the fake-agent contract suite
+        run: |
+          if [ -d internal/acp/acptest ]; then
+            go test ./internal/acp/... -count=1 -timeout 10m
+          else
+            echo "::warning title=no contract suite::internal/acp/acptest is not in this checkout yet, so nothing was run"
+          fi
+
+  handshake:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        adapter: [opencode, gemini, codex]
+        channel: [pinned, latest]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Make the isolation folder
+        run: |
+          ISO="$(mktemp -d "${RUNNER_TEMP}/acp-canary.XXXXXX")"
+          mkdir -p "$ISO/adapter" "$ISO/home" "$ISO/npm-cache"
+          touch "$ISO/.start"
+          {
+            echo "ISO=$ISO"
+            echo "REAL_HOME=$HOME"
+          } >> "$GITHUB_ENV"
+          echo "isolation folder:   $ISO"
+          echo "runner home (must not change): $HOME"
+          echo "node: $(node --version)"
+
+      - name: Work out what to install
+        run: |
+          row="$(jq -r --arg id "${{ matrix.adapter }}" '.adapters[] | select(.id == $id) | [.package, (.pin // .testedWith), .command] | @tsv' internal/acp/manifest/adapters.json)"
+          IFS=$'\t' read -r PKG PINNED CMD <<< "$row"
+          if [ -z "$PKG" ] || [ "$PKG" = "null" ]; then
+            echo "::error::the manifest names no npm package for ${{ matrix.adapter }}"
+            exit 1
+          fi
+          if [ "${{ matrix.channel }}" = "pinned" ]; then
+            VERSION="$PINNED"
+          else
+            VERSION="$(HOME="$ISO/home" npm_config_cache="$ISO/npm-cache" npm view "$PKG" dist-tags.preview 2>/dev/null || true)"
+            if [ -z "$VERSION" ]; then
+              VERSION="$(HOME="$ISO/home" npm_config_cache="$ISO/npm-cache" npm view "$PKG" dist-tags.latest)"
+            fi
+          fi
+          {
+            echo "PKG=$PKG"
+            echo "VERSION=$VERSION"
+            echo "CMD=$CMD"
+          } >> "$GITHUB_ENV"
+          echo "adapter ${{ matrix.adapter }}, channel ${{ matrix.channel }}: $PKG@$VERSION (starts as: $CMD)"
+
+      - name: Install the adapter into the isolation folder
+        run: |
+          HOME="$ISO/home" npm_config_cache="$ISO/npm-cache" \
+            npm install --prefix "$ISO/adapter" --no-audit --no-fund --loglevel=error "$PKG@$VERSION"
+          echo "installed version: $(node -p "require('$ISO/adapter/node_modules/$PKG/package.json').version")"
+          ls -l "$ISO/adapter/node_modules/.bin/$CMD"
+
+      - name: Handshake
+        env:
+          FLOCKDECK_CANARY_BIN: ${{ env.ISO }}/adapter/node_modules/.bin/${{ env.CMD }}
+          FLOCKDECK_CANARY_ISO: ${{ env.ISO }}
+          FLOCKDECK_CANARY_ADAPTER: ${{ matrix.adapter }}
+        run: go test -tags acp_canary ./internal/acp/manifest -run TestCanaryInitialize -v -count=1 -timeout 5m
+
+      - name: Show whether the runner home changed
+        if: always()
+        run: |
+          echo "files in the runner home newer than the start of this job, outside the Go and npm caches of the job itself:"
+          find "$REAL_HOME" -newer "$ISO/.start" -type f \
+            -not -path "*/.cache/go-build/*" -not -path "*/go/pkg/*" -not -path "*/.cache/go/*" \
+            -not -path "*/.npm/_logs/*" 2>/dev/null | head -20 || true
+          echo "(end of list)"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ${{ matrix.adapter }} (${{ matrix.channel }})"
+            echo ""
+            echo "- package: \`${PKG:-unknown}@${VERSION:-unknown}\`"
+            echo "- result: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
