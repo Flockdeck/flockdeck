@@ -8,7 +8,9 @@ type paneSendMsg struct {
 	ID     string `json:"id"`
 	Queued bool   `json:"queued"`
 	Shell  bool   `json:"shell"`
-	Routed bool   `json:"routed,omitempty"`
+	// Waiting says the pane was waiting on a question put to the user.
+	Waiting bool `json:"waiting,omitempty"`
+	Routed  bool `json:"routed,omitempty"`
 }
 
 // paneSend types cmd.Text into the pane named by cmd.ID and submits it, for
@@ -17,13 +19,24 @@ type paneSendMsg struct {
 // cmd.AllowShell is the caller's say-so for a shell: without it a shell pane is refused.
 // A refusal comes back as an error notice, an accepted send as a paneSend
 // message.
+//
+// A window reached through the relay is refused for now: whether and how a
+// remote device may send text into a pane is decided with the remote work
+// that follows (T7), and until then the desk is the only place it is sent from.
 func (s *Server) paneSend(c *controlClient, cmd command) {
+	if c.remote {
+		c.notify(paneSendDeskOnly, true)
+		return
+	}
 	s.do(func() {
 		res, err := s.ws.SendToPane(cmd.ID, cmd.Text, cmd.AllowShell)
 		if err != nil {
 			c.notify(err.Error(), true)
 			return
 		}
-		c.sendJSON(paneSendMsg{Type: "paneSend", ID: cmd.ID, Queued: res.Queued, Shell: res.Shell, Routed: res.Routed})
+		c.sendJSON(paneSendMsg{Type: "paneSend", ID: cmd.ID, Queued: res.Queued, Shell: res.Shell, Waiting: res.Waiting, Routed: res.Routed})
 	})
 }
+
+// paneSendDeskOnly is what a window reached through the relay is told.
+const paneSendDeskOnly = "Sending text into a pane is done on the machine Flockdeck runs on, not from a window reached through the relay"

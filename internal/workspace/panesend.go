@@ -3,6 +3,8 @@ package workspace
 import (
 	"errors"
 	"strings"
+
+	"github.com/jmwri/flockdeck/internal/session"
 )
 
 // MaxPaneSendBytes is the longest text SendToPane takes.
@@ -10,12 +12,13 @@ const MaxPaneSendBytes = 16 * 1024
 
 // Why SendToPane refused. Each message is shown to the person who asked.
 var (
-	ErrSendPaneGone = errors.New("That pane is no longer open")
-	ErrSendExited   = errors.New("That pane's process has exited, so the text was not sent. Restart the pane and send it again")
-	ErrSendEmpty    = errors.New("There was no text to send")
-	ErrSendTooLong  = errors.New("That text is over 16 KB, so it was not sent")
-	ErrSendShell    = errors.New("That pane is a shell, and a shell runs whatever it is sent, so the text was not sent")
-	ErrSendInFlight = errors.New("The pane is still taking in the last text sent to it, so this was not sent. Try again in a moment")
+	ErrSendPaneGone   = errors.New("That pane is no longer open")
+	ErrSendExited     = errors.New("That pane's process has exited, so the text was not sent. Restart the pane and send it again")
+	ErrSendEmpty      = errors.New("There was no text to send")
+	ErrSendTooLong    = errors.New("That text is over 16 KB, so it was not sent")
+	ErrSendShell      = errors.New("That pane is a shell, and a shell runs whatever it is sent, so the text was not sent")
+	ErrSendPermission = errors.New("That pane is waiting on a permission prompt, which is answered with its choice buttons and not by text, so the text was not sent")
+	ErrSendInFlight   = errors.New("The pane is still taking in the last text sent to it, so this was not sent. Try again in a moment")
 )
 
 // SendResult says how a SendToPane went.
@@ -25,6 +28,9 @@ type SendResult struct {
 	Queued bool
 	// Shell is set when the pane is a plain shell.
 	Shell bool
+	// Waiting is set when the pane was waiting on a question put to the user
+	// (AskUserQuestion), so the text may be read as an answer to it.
+	Waiting bool
 	// Routed is set when the text was the pane's first prompt and routing
 	// restarted the pane on another model to take it. See routeFirstTurn.
 	Routed bool
@@ -34,6 +40,25 @@ type SendResult struct {
 // whichever tab the pane is in and whether or not that tab is on screen. It
 // writes to that pane alone: unlike SendPromptTo it never goes through the
 // broadcast.
+//
+// The pane is looked up with w.Pane, so it may belong to any project open in
+// this workspace, not only the one on screen.
+//
+// Control characters are stripped before the empty and length checks, as
+// typeInto strips them before writing: text that is nothing but an escape or a
+// NUL would otherwise pass as text and be written as a bare Enter. The length
+// limit is checked on the text as given.
+//
+// A pane waiting on a permission prompt is refused: a permission is answered
+// by the user, through its choice buttons, and never by text from another
+// agent. A pane waiting on a question is sent the text and the result has
+// Waiting set.
+//
+// The text is written as a prompt. In a pane whose program has not asked for
+// bracketed paste, each line break types an Enter and so submits what came
+// before it. In an agent pane a line starting with "!" or "/" is read by the
+// agent as a shell or slash command. allowShell guards shell panes only and
+// does nothing about either.
 //
 // A pane that is a shell is refused unless allowShell is set. The write
 // happens on a goroutine of its own, as in SendPrompt, and only one is in
@@ -53,15 +78,22 @@ func (w *Workspace) SendToPane(id, text string, allowShell bool) (SendResult, er
 	if !p.Alive() {
 		return res, ErrSendExited
 	}
-	if strings.TrimSpace(text) == "" {
-		return res, ErrSendEmpty
-	}
 	if len(text) > MaxPaneSendBytes {
 		return res, ErrSendTooLong
+	}
+	text = stripControls(text)
+	if strings.TrimSpace(text) == "" {
+		return res, ErrSendEmpty
 	}
 	res.Shell = !p.IsAgent()
 	if res.Shell && !allowShell {
 		return res, ErrSendShell
+	}
+	if st, detail := p.Status(); st == session.StatusWaiting && detail != "" {
+		if detail != "AskUserQuestion" {
+			return res, ErrSendPermission
+		}
+		res.Waiting = true
 	}
 	if !w.claimSend(p) {
 		return res, ErrSendInFlight
@@ -73,11 +105,18 @@ func (w *Workspace) SendToPane(id, text string, allowShell bool) (SendResult, er
 		return res, nil
 	}
 	sess := p.Sess
-	go func() {
-		defer w.releaseSend(p)
-		typeInto(sess, text, true)
-	}()
+	go w.writeToPane(p, sess, text)
 	return res, nil
+}
+
+// typeIntoPane is typeInto, a variable so a test can have the write fail.
+var typeIntoPane = typeInto
+
+// writeToPane types text into sess and then lets the next send for p start,
+// whether or not the write returns normally.
+func (w *Workspace) writeToPane(p *Pane, sess *session.Session, text string) {
+	defer w.releaseSend(p)
+	typeIntoPane(sess, text, true)
 }
 
 // claimSend marks a write into p as in flight, and says false when one
