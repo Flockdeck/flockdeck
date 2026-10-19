@@ -56,6 +56,9 @@ import (
 type Status string
 
 const (
+	// maxRequestID is the most of an agent's request or session id that is kept.
+	maxRequestID = 64
+
 	StatusWorking Status = "working"
 	StatusWaiting Status = "waiting"
 	StatusIdle    Status = "idle"
@@ -115,6 +118,12 @@ type Usage struct {
 // Card is a pending permission request as the pane shows it. Options are the
 // agent's own; an answer must use one of their ids.
 type Card struct {
+	// Seq is made by Flockdeck, one more for each card the bridge opens, and
+	// never comes from the agent. RequestID is the agent's own, cleaned and
+	// cut, and an agent can reuse it for a different request; an answer
+	// names the Seq of the card it was given for, so that an answer to one
+	// card is never taken for another that has the same RequestID.
+	Seq       uint64
 	RequestID string
 	SessionID string
 	Tool      string
@@ -164,6 +173,7 @@ type Bridge struct {
 	seq      int
 	inFlight bool
 	pending  []Card
+	cardSeq  uint64 // the Seq of the last card opened
 	plan     []acp.PlanEntry
 	usage    Usage
 	detail   int
@@ -399,8 +409,8 @@ func (b *Bridge) PermissionOpen(req acp.PermissionRequest) Card {
 // id shown on the card, for answering.
 func (b *Bridge) open(req acp.PermissionRequest) (Card, map[string]string) {
 	c := Card{
-		RequestID: req.RequestID,
-		SessionID: req.SessionID,
+		RequestID: line(req.RequestID, maxRequestID),
+		SessionID: line(req.SessionID, 200),
 		Tool:      line(req.ToolCall.Title, labelCap),
 		Kind:      line(req.ToolCall.Kind, 40),
 	}
@@ -436,15 +446,30 @@ func (b *Bridge) open(req acp.PermissionRequest) (Card, map[string]string) {
 	if json.Unmarshal(req.ToolCall.RawInput, &in) == nil {
 		c.Command = line(in.Command, 4<<10)
 	}
+	b.mu.Lock()
+	b.cardSeq++
+	c.Seq = b.cardSeq
 	cp := c
 	cp.Options = append([]acp.PermissionOption(nil), c.Options...)
-	b.mu.Lock()
 	b.pending = append(b.pending, cp)
 	b.mu.Unlock()
 	return c, own
 }
 
-// PermissionClosed removes a permission request, answered or not.
+// closeCard removes the card with this Seq, answered or not.
+func (b *Bridge) closeCard(seq uint64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i, c := range b.pending {
+		if c.Seq == seq {
+			b.pending = append(b.pending[:i], b.pending[i+1:]...)
+			return
+		}
+	}
+}
+
+// PermissionClosed removes a permission request, answered or not. It takes the
+// first card with this RequestID; a Handler removes its own card by Seq.
 func (b *Bridge) PermissionClosed(requestID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -473,7 +498,7 @@ func (h handler) Update(u acp.Update) { h.b.Update(u) }
 
 func (h handler) Permission(ctx context.Context, req acp.PermissionRequest) string {
 	card, own := h.b.open(req)
-	defer h.b.PermissionClosed(card.RequestID)
+	defer h.b.closeCard(card.Seq)
 	answer := h.answer(ctx, card)
 	// The agent's own id for the option chosen. "" is cancelled, and so is
 	// anything that is not an id on the card.

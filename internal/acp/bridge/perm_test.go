@@ -159,3 +159,26 @@ func TestTheUnchangedOutputShortcutIsUsed(t *testing.T) {
 		t.Errorf("a status change skipped the output: %d", b.summaries)
 	}
 }
+
+// Each card gets a number of Flockdeck's own, one more every time, whatever
+// request id the agent chose; the request id is cleaned and cut.
+func TestEachCardHasASequenceNumberOfItsOwn(t *testing.T) {
+	b := New(Config{})
+	opts := []acp.PermissionOption{{OptionID: "a", Name: "Allow", Kind: "allow_once"}}
+	one := b.PermissionOpen(acp.PermissionRequest{RequestID: "7", SessionID: "s", Options: opts})
+	b.PermissionClosed("7")
+	two := b.PermissionOpen(acp.PermissionRequest{RequestID: "7", SessionID: "s", Options: opts})
+	if one.Seq == 0 || two.Seq != one.Seq+1 || one.RequestID != two.RequestID {
+		t.Errorf("seq %d then %d, request ids %q and %q", one.Seq, two.Seq, one.RequestID, two.RequestID)
+	}
+	if p := b.Pending(); p == nil || p.Seq != two.Seq {
+		t.Errorf("pending = %+v", p)
+	}
+	long := b.PermissionOpen(acp.PermissionRequest{RequestID: "\"" + strings.Repeat("x\x1b[31m", 200) + "\"", SessionID: "s", Options: opts})
+	if len(long.RequestID) > maxRequestID*4 || strings.ContainsAny(long.RequestID, "\x1b\n") {
+		t.Errorf("request id = %q", long.RequestID)
+	}
+	if long.Seq != two.Seq+1 {
+		t.Errorf("seq = %d", long.Seq)
+	}
+}
