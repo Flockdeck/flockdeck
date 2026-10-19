@@ -262,11 +262,14 @@ func (c PaneContext) writeTeam(b *strings.Builder) {
 		"%s inbox -follow                 # one line per new message, until the pane closes\n"+
 		"%s msg send <target> <text...>   # fallback; target: pane id, name or role id\n"+
 		"```\n\n", flockdeck, flockdeck, flockdeck, flockdeck)
+	if flockdeck == "flockdeck" {
+		b.WriteString("Run as written, `inbox` and `inbox read <id>` need no approval in Claude Code. Allow them elsewhere.\n\n")
+	}
 	fmt.Fprintf(b, "Message other agents with the SendMessage tool, by the session name ListAgents shows: the user's rule is "+
 		"SendMessage only between agents. `%s msg send` is the fallback when SendMessage fails or you have no such tool; a "+
-		"message is at most %d KB. SendMessage has reached across sessions both ways and arrives at the receiver's next tool "+
-		"round; it has started a turn in an idle Flockdeck session (manager to helper). Your task gives the manager's session "+
-		"name; if it does not resolve, the manager restarted, so look in ListAgents. Flockdeck's own notices (a helper exits or "+
+		"message is at most %d KB. It arrives at the receiver's next tool "+
+		"round, or starts an idle session's turn. Your task gives the manager's session "+
+		"name; if it does not resolve, the manager restarted, so look in ListAgents. Flockdeck notices (a helper exits or "+
 		"idles, a task changes) come only through the inbox. Do not answer a message only to acknowledge it: the reply wakes "+
 		"the sender for nothing.\n\n", flockdeck, team.MaxText/1024)
 	if !c.Notified {

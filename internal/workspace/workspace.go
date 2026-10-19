@@ -535,6 +535,12 @@ type Workspace struct {
 	// reviewTool or anything upstream of it having to change.
 	reviewer func(tool, toolInputJSON, cwd string) review.Decision
 
+	// mailReader decides whether a call is the reading of Flockdeck mail,
+	// which is allowed in every pane whatever its AutoReview setting -- see
+	// reviewTool. It defaults to review.MailRead and is swapped by tests the
+	// way reviewer is.
+	mailReader func(tool, toolInputJSON, cwd string) review.Decision
+
 	// onWake is swapped rather than assigned. The server installs itself once
 	// the workspace is built, by which time the panes restored with it are
 	// already running and calling it from their readers.
@@ -598,6 +604,7 @@ func New(opts Options) (*Workspace, error) {
 		selfExe:      selfExe,
 		settingsDir:  settingsDir,
 		reviewer:     review.Decide,
+		mailReader:   review.MailRead,
 		rec:          record.NewManager(store.Dir),
 		statusAssist: &session.StatusAssist{Enabled: func() bool { return store.LoadPrefs().JevStatus }},
 	}
@@ -815,6 +822,17 @@ func (w *Workspace) reviewTool(sessionID string, ev hooks.Event) (allow bool, re
 	}
 	on := p != nil && p.AutoReview
 	w.mu.Unlock()
+	// Reading Flockdeck mail needs no approval in any pane, whatever its
+	// auto-approve setting, so it is asked before that setting is. It is a
+	// separate check with its own two exact forms, and it does not count
+	// towards AutoApproved, which is for auto-approve decisions. A call
+	// from a session that is not a known pane, or from an earlier launch of
+	// one, is asked about as before.
+	if p != nil {
+		if d := w.mailReader(ev.Tool, ev.ToolInput, ev.Cwd); d.Allow {
+			return true, d.Reason
+		}
+	}
 	if !on {
 		return false, ""
 	}
