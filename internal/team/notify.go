@@ -133,6 +133,19 @@ func Reminder(count int, latest Message) string {
 	return fmt.Sprintf("[flockdeck] Reminder: %s from %s (#%d). Run: flockdeck inbox. %s", what, noticeSender(latest), latest.ID, Disclaimer)
 }
 
+// FollowLine is the one line `flockdeck inbox -follow` prints for a new message.
+// Like a notice it holds the id and the quoted sender and never the message text;
+// the agent reads the text with `flockdeck inbox read <id>`.
+func FollowLine(m Message) string {
+	return fmt.Sprintf("[flockdeck] New message #%d from %s. Read it: flockdeck inbox read %d. %s", m.ID, noticeSender(m), m.ID, Disclaimer)
+}
+
+// FollowDigest is the line for count messages that arrived together, the latest
+// of which is latest. It keeps a burst of mail from being a burst of wake-ups.
+func FollowDigest(count int, latest Message) string {
+	return fmt.Sprintf("[flockdeck] %d new messages, the latest #%d from %s. List them: flockdeck inbox. %s", count, latest.ID, noticeSender(latest), Disclaimer)
+}
+
 // noticeSender is who a message is from, as a notice says it: the name and the
 // role each in quotes, so they read as names and not as part of the sentence. The
 // person at the window is the one label that is not quoted, because it is chosen

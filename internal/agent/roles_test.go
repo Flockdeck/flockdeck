@@ -271,3 +271,16 @@ func TestRoleDescriptions(t *testing.T) {
 		t.Errorf("a role with none has %q", s.Description)
 	}
 }
+
+// Every built-in role tells the agent to arm the inbox stream, and under the
+// Monitor tool: a plain background command is not woken by its output.
+func TestBuiltinRolesTellTheAgentToArmTheInboxStreamUnderMonitor(t *testing.T) {
+	for _, r := range Merge(nil).Roles {
+		if !strings.Contains(r.Briefing, "inbox -follow") {
+			t.Errorf("role %q never mentions `inbox -follow`", r.ID)
+		}
+		if r.ID != "manager" && !strings.Contains(r.Briefing, "Monitor tool") {
+			t.Errorf("role %q does not name the Monitor tool", r.ID)
+		}
+	}
+}

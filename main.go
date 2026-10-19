@@ -459,7 +459,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        list the agents of this pane's project, with role and status; run from inside a pane\n")
 	fmt.Fprintf(out, "  msg send <target> <text...>\n")
 	fmt.Fprintf(out, "        message another agent by pane id, name or role; run from inside a pane\n")
-	fmt.Fprintf(out, "  inbox [-all] [-json] [-wait <duration>] | inbox read <id>\n")
+	fmt.Fprintf(out, "  inbox [-all] [-json] [-wait <duration>] | inbox -follow | inbox read <id>\n")
 	fmt.Fprintf(out, "        the messages other agents sent this pane; run from inside a pane\n")
 	fmt.Fprintf(out, "  task add <title> [-body text] [-role r] [-branch b] | list [-state s] [-role r] [-mine] [-json]\n")
 	fmt.Fprintf(out, "       | show <id> | assign <id> <who> | status <id> <state> [-note text] | note <id> <text>\n")

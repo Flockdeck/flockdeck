@@ -182,9 +182,15 @@ func runInbox(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	wait, _ := time.ParseDuration(fs.Lookup("wait").Value.String())
+	if fs.Lookup("follow").Value.String() == "true" {
+		if *all || *asJSON || wait != 0 {
+			return errors.New("-follow takes no other flag: it prints one line for each new message until the pane is closed")
+		}
+		return runInboxFollow(api, token, pane, out)
+	}
 	// Nothing wakes an idle agent, so an agent that is waiting on others
 	// waits here, inside its turn, and is handed the first message to arrive.
-	wait, _ := time.ParseDuration(fs.Lookup("wait").Value.String())
 	wait = min(wait, maxInboxWait)
 	// The last sleep is cut to the deadline, so a wait never runs past the time
 	// asked for. An error from the application, on the first look or any later
@@ -232,6 +238,86 @@ func runInbox(args []string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "\nRead one with: flockdeck inbox read <id>. %s\n", team.Disclaimer)
 	return nil
+}
+
+// How `inbox -follow` behaves. It looks every inboxPoll, at most followBurst
+// messages are printed one by one and more than that as one digest line, two
+// printings are at least followMinGap apart, and the stream ends after
+// followMaxLines lines or when the application has not answered for
+// followGiveUp. A test replaces them.
+var (
+	followMinGap   = 5 * time.Second
+	followGiveUp   = 2 * time.Minute
+	followBurst    = 3
+	followMaxLines = 100
+)
+
+// runInboxFollow implements `flockdeck inbox -follow`: one line on out for each
+// new unread message, with no message text, until the pane is closed. It marks
+// nothing read. An agent runs it as a background command or under a monitor, and
+// each line wakes the agent, which reads the message with `inbox read`.
+//
+// Messages already unread when it starts are announced first, so mail that came
+// before the stream was armed is not missed; a stream armed again announces the
+// ones still unread again. Mail that arrives faster than followMinGap is
+// announced as a digest of the whole burst, so two agents answering each other
+// cost a line every few seconds and no more.
+func runInboxFollow(api, token, pane string, out io.Writer) error {
+	seen, lines := 0, 0
+	var lastLine, failingSince time.Time
+	for {
+		msgs, err := hooks.Inbox(api, token, pane, false)
+		switch {
+		case hooks.IsNoPane(err):
+			fmt.Fprintln(out, "[flockdeck] This pane is closed, so the inbox stream has ended.")
+			return nil
+		case err != nil:
+			if failingSince.IsZero() {
+				failingSince = time.Now()
+			}
+			if time.Since(failingSince) >= followGiveUp {
+				fmt.Fprintf(out, "[flockdeck] The application has not answered for %s, so the inbox stream has ended (%v). Run: flockdeck inbox -follow to start it again.\n", followGiveUp.Round(time.Second), err)
+				return nil
+			}
+		default:
+			failingSince = time.Time{}
+			var fresh []team.Message
+			for _, m := range msgs {
+				if m.ID > seen {
+					fresh = append(fresh, m)
+				}
+			}
+			if len(fresh) > 0 && (lastLine.IsZero() || time.Since(lastLine) >= followMinGap) {
+				latest := fresh[len(fresh)-1]
+				// The person at the window is never folded into a digest of agents'
+				// messages: theirs are printed one by one, first.
+				var agents []team.Message
+				for _, m := range fresh {
+					if m.From.User {
+						fmt.Fprintln(out, team.FollowLine(m))
+						lines++
+					} else {
+						agents = append(agents, m)
+					}
+				}
+				if len(agents) <= followBurst {
+					for _, m := range agents {
+						fmt.Fprintln(out, team.FollowLine(m))
+						lines++
+					}
+				} else {
+					fmt.Fprintln(out, team.FollowDigest(len(agents), agents[len(agents)-1]))
+					lines++
+				}
+				seen, lastLine = latest.ID, time.Now()
+				if lines >= followMaxLines {
+					fmt.Fprintf(out, "[flockdeck] The inbox stream has printed %d lines and stops here. Run: flockdeck inbox, then flockdeck inbox -follow to start it again.\n", lines)
+					return nil
+				}
+			}
+		}
+		time.Sleep(inboxPoll)
+	}
 }
 
 // preview is the first line of a message, cut to max runes.
@@ -312,9 +398,11 @@ func inboxFlagSet() (fs *flag.FlagSet, all, asJSON *bool) {
 	fs.SetOutput(os.Stderr)
 	all = fs.Bool("all", false, "include messages already read")
 	asJSON = fs.Bool("json", false, "print the messages as JSON")
+	fs.Bool("follow", false, "keep running and print one line for each new message as it arrives, until the pane is closed; for Claude Code's Monitor tool, which wakes an idle agent for each line. Does not mark anything read")
 	fs.Duration("wait", 0, "if there are no unread messages, wait up to this long (for example 90s, at most 10m) for one to arrive and print it as soon as it does")
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: flockdeck inbox [-all] [-json] [-wait <duration>]\n"+
+			"       flockdeck inbox -follow\n"+
 			"       flockdeck inbox read [-json] <id>\n\n"+
 			"Lists the messages other agents sent this pane that it has not read, oldest\n"+
 			"first, with the start of each. `inbox read <id>` prints one in full and marks\n"+
