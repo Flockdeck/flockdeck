@@ -90,3 +90,9 @@ func volumeRoot() string {
 func WithMute() Option {
 	return func(l *launch) { l.env = append(l.env, envMute+"=1") }
 }
+
+// WithDeaf makes the agent never read its input, so writes to it fill the
+// pipe and then block.
+func WithDeaf() Option {
+	return func(l *launch) { l.env = append(l.env, envDeaf+"=1") }
+}

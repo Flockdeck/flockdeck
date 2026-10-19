@@ -98,6 +98,9 @@ func (c *Client) cancelPermissions(sessionID string) {
 	}
 }
 
+// maxAbandoned bounds the ids remembered for calls that gave up waiting.
+const maxAbandoned = 1024
+
 var errOutboxFull = errors.New("acp: the agent is not reading its input")
 
 // enqueue queues one message for the writer. It never waits: a full queue
@@ -150,7 +153,12 @@ func (c *Client) reply(id *json.RawMessage, result any, e *RPCError) {
 	} else {
 		m["result"] = result
 	}
-	_ = c.enqueue(m)
+	if err := c.enqueue(m); errors.Is(err, errOutboxFull) {
+		// The answer is lost, and the agent may wait for it for ever. This is
+		// only reachable when the agent has stopped reading; it is counted in
+		// ProtocolErrors so that it is not silent.
+		c.protoErr("a reply to the agent could not be queued")
+	}
 }
 
 // call sends a request and waits for its response. ctx ends the wait, not the
@@ -195,7 +203,14 @@ func (c *Client) call(ctx context.Context, method string, params, result any) er
 			return &ExitError{Stderr: c.StderrTail()}
 		}
 	case <-ctx.Done():
-		forget()
+		// The request was sent and the agent may still answer it: remember the
+		// id so that answer is not counted as a stray one.
+		c.mu.Lock()
+		delete(c.pending, id)
+		if len(c.abandoned) < maxAbandoned {
+			c.abandoned[id] = struct{}{}
+		}
+		c.mu.Unlock()
 		return ctx.Err()
 	}
 	if r.err != nil {

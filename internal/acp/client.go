@@ -52,7 +52,8 @@ import (
 
 // Handler receives what the agent initiates. A panic in either method is
 // recovered: a failed Update is dropped and counted, a failed Permission
-// answers cancelled.
+// answers cancelled. Panics in the Config.Stderr and Config.OnProtocolError
+// callbacks are recovered and ignored.
 type Handler interface {
 	// Update receives each session/update on the client's read loop, in the
 	// order the agent sent them. It must not block: nothing else is read
@@ -64,7 +65,9 @@ type Handler interface {
 	// req.Options, or "" to answer cancelled. ctx is cancelled when the request
 	// no longer needs an answer: the session was cancelled, or the client is
 	// closing or has lost the agent. An answer returned after that is dropped,
-	// because the request was already answered cancelled.
+	// because the request was already answered cancelled. Permission must
+	// return soon after ctx is done: Close waits for it one second and then
+	// returns anyway, leaving the goroutine running.
 	Permission(ctx context.Context, req PermissionRequest) (optionID string)
 }
 
@@ -78,7 +81,9 @@ type Config struct {
 	// Dir is the working directory of the process. Env is its full
 	// environment. Nil means MinimalEnv, not the parent's: the agent is
 	// untrusted, and a caller that wants it to see more says so by passing a
-	// list.
+	// list. MinimalEnv has no HOME, USERPROFILE or APPDATA, so an agent that
+	// reads its login from there (opencode, for one) needs an Env from the
+	// caller that includes what it should see.
 	Dir string
 	Env []string
 
@@ -182,8 +187,11 @@ type Client struct {
 	nextID    atomic.Int64
 	protoErrs atomic.Int64
 
-	mu          sync.Mutex
-	pending     map[int64]chan reply
+	mu      sync.Mutex
+	pending map[int64]chan reply
+	// abandoned holds the ids of calls whose context ended before the answer
+	// came, so a late answer is not taken for a stray one. Bounded.
+	abandoned   map[int64]struct{}
 	perms       map[*permission]struct{}
 	inflight    int
 	handlers    sync.WaitGroup
@@ -266,6 +274,7 @@ func Start(cfg Config) (*Client, error) {
 		stop:       make(chan struct{}),
 		writerDone: make(chan struct{}),
 		pending:    map[int64]chan reply{},
+		abandoned:  map[int64]struct{}{},
 		perms:      map[*permission]struct{}{},
 		loopDone:   make(chan struct{}),
 		reaped:     make(chan struct{}),
@@ -298,6 +307,7 @@ func (c *Client) ProtocolErrors() int64 { return c.protoErrs.Load() }
 func (c *Client) protoErr(description string) {
 	c.protoErrs.Add(1)
 	if c.cfg.OnProtocolError != nil {
+		defer func() { _ = recover() }() // a callback that panics must not end the read loop
 		c.cfg.OnProtocolError(description)
 	}
 }
@@ -340,7 +350,10 @@ func (c *Client) drainStderr(r io.Reader) {
 		lines = make(chan string, 256)
 		go func() {
 			for l := range lines {
-				c.cfg.Stderr(l)
+				func() {
+					defer func() { _ = recover() }()
+					c.cfg.Stderr(l)
+				}()
 			}
 		}()
 		defer close(lines)
@@ -433,7 +446,12 @@ func (c *Client) dispatch(m rpcMsg) {
 		c.mu.Lock()
 		ch := c.pending[id]
 		delete(c.pending, id)
+		_, late := c.abandoned[id]
+		delete(c.abandoned, id)
 		c.mu.Unlock()
+		if ch == nil && late {
+			return // the caller gave up on this one; its answer is not an error
+		}
 		if ch == nil {
 			c.protoErr("a response to a request that is not waiting")
 			return

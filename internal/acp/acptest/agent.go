@@ -51,6 +51,7 @@ const (
 	envAuth   = "FLOCKDECK_ACPTEST_AUTH"
 	envMarker = "FLOCKDECK_ACPTEST_MARKER"
 	envMute   = "FLOCKDECK_ACPTEST_MUTE"
+	envDeaf   = "FLOCKDECK_ACPTEST_DEAF"
 )
 
 // RunIfAgent runs the fake agent and returns true when this process was
@@ -127,6 +128,9 @@ func (a *agent) chunk(sid, s string) {
 }
 
 func (a *agent) run() {
+	if os.Getenv(envDeaf) == "1" {
+		time.Sleep(time.Hour) // never reads its input at all
+	}
 	br := bufio.NewReaderSize(os.Stdin, 1<<20)
 	for {
 		if a.deaf.Load() {
@@ -450,6 +454,11 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 		}
 		_ = json.Unmarshal(r.Error, &e)
 		a.chunk(sid, "unknown-method error="+strconv.Itoa(e.Code))
+		done("end_turn")
+
+	case "delayed":
+		time.Sleep(400 * time.Millisecond)
+		a.chunk(sid, "late")
 		done("end_turn")
 
 	case "silent":

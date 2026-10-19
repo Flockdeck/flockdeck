@@ -430,3 +430,53 @@ func rawID(s string) *json.RawMessage {
 	m := json.RawMessage(s)
 	return &m
 }
+
+// TestTheWriteQueueIsBounded covers a client that keeps writing to an agent
+// that never reads. The writer is stuck on a large message, and the queue
+// behind it must fill and refuse, not grow or block the caller.
+func TestTheWriteQueueIsBounded(t *testing.T) {
+	r := newRecorder()
+	c := startRaw(t, r, nil, acptest.WithDeaf())
+
+	go func() { _, _ = c.Prompt(context.Background(), "s", strings.Repeat("z", 8<<20)) }()
+	time.Sleep(300 * time.Millisecond) // the writer is now inside that write
+
+	refused := 0
+	for i := 0; i < 300; i++ {
+		var err error
+		started := time.Now()
+		within(t, 2*time.Second, "Cancel", func() { err = c.Cancel("s") })
+		if took := time.Since(started); took > 500*time.Millisecond {
+			t.Fatalf("Cancel %d took %v", i, took)
+		}
+		if errors.Is(err, errOutboxFull) {
+			refused++
+		}
+	}
+	if refused == 0 {
+		t.Error("300 notifications queued behind a stuck write and none was refused")
+	}
+	within(t, 10*time.Second, "Close", func() { _ = c.Close() })
+}
+
+// TestALateAnswerToAnAbandonedCallIsNotAnError covers a caller whose context
+// ended while the agent was still working: the answer that follows is expected.
+func TestALateAnswerToAnAbandonedCallIsNotAnError(t *testing.T) {
+	r := newRecorder()
+	c, sid := start(t, r)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if _, err := c.Prompt(ctx, sid, "delayed"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want the deadline", err)
+	}
+	r.waitFor(t, "the late chunk", func(us []Update) bool { return len(us) == 1 })
+	time.Sleep(300 * time.Millisecond) // the response to the abandoned prompt follows the chunk
+	if n := c.ProtocolErrors(); n != 0 {
+		t.Errorf("a late answer to an abandoned call counted %d protocol errors", n)
+	}
+	// A response to nothing is still one.
+	c.dispatch(rpcMsg{ID: rawID("12345")})
+	if n := c.ProtocolErrors(); n != 1 {
+		t.Errorf("protocol errors = %d, want 1", n)
+	}
+}
