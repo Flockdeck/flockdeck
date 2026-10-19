@@ -67,3 +67,42 @@ func sendingNow(w *Workspace, p *Pane) bool {
 	defer w.mu.RUnlock()
 	return p.sending
 }
+
+// Text sent to a pane from the graph is Flockdeck's, not the user's. A wake
+// rule asks whether the user has been typing; it must not read Flockdeck's own
+// earlier line as a yes.
+func TestSendToPaneDoesNotCountAsTheUserTyping(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws, err := New(Options{Root: root})
+	if err != nil {
+		t.Fatalf("new workspace: %v", err)
+	}
+	t.Cleanup(ws.Close)
+	tab := ws.NewTab(session.KindShell, root, "shell")
+	p := ws.Pane(tab.Tree.Panes()[0])
+	if p == nil || !p.Alive() {
+		t.Fatal("the shell pane did not start")
+	}
+
+	if _, err := ws.SendToPane(p.ID, "echo hi", true); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); sendingNow(ws, p); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the write never finished")
+		}
+	}
+	if got := p.Sess.LastUserInput(); !got.IsZero() {
+		t.Errorf("SendToPane moved the user's input time to %v", got)
+	}
+	if p.Sess.LastFlockdeckInput().IsZero() {
+		t.Error("SendToPane did not record Flockdeck's own input time")
+	}
+
+	// The prompt bar is the user's, and does move it.
+	typeInto(p.Sess, "echo bar", false)
+	if p.Sess.LastUserInput().IsZero() {
+		t.Error("typeInto from the prompt bar did not record the user typing")
+	}
+}

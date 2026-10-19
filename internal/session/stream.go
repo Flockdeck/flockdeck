@@ -672,6 +672,7 @@ type ScreenTail struct {
 func (s *Session) ScreenTail() ScreenTail {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.tailAsked = time.Now()
 	if !s.tailWatched {
 		s.tailWatched = true
 		// Output that came before anyone asked is dated by the last chunk,
@@ -686,14 +687,51 @@ func (s *Session) ScreenTail() ScreenTail {
 	return ScreenTail{Lines: lines, ChangedAt: s.tailChanged}
 }
 
-// LastInput returns when something last typed into the pane, or the zero time
-// if nothing has. The user in the window, a remote device and Flockdeck's own
-// typeInto all arrive through Write and all count; a terminal's report of
-// focus or the mouse does not, for the reason Write gives.
-func (s *Session) LastInput() time.Time {
+// LastUserInput returns when the user last typed into the pane, or the zero
+// time if they have not: the window, a remote device, or an answer given by
+// the user. A wake rule's "has anyone been typing" check reads this one.
+// Text Flockdeck typed itself is not here, so that a line it wrote a moment ago
+// cannot hold off the next one; see LastFlockdeckInput. A terminal's report of
+// focus or the mouse is neither, for the reason Write gives.
+func (s *Session) LastUserInput() time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.lastInput
+	return s.lastUserInput
+}
+
+// LastFlockdeckInput returns when Flockdeck last typed into the pane on its
+// own account (WriteFrom with InputFlockdeck), or the zero time.
+func (s *Session) LastFlockdeckInput() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastFlockdeckInput
+}
+
+// tailIdleAfter is how long tail tracking goes on after the last ScreenTail
+// call. A pane the wake service has stopped asking about stops paying for it.
+const tailIdleAfter = 30 * time.Second
+
+// trimPartialRunes drops a UTF-8 sequence cut off at either end of raw. The
+// start is cut by the byte count of the tail, and the end by a chunk boundary:
+// a chunk can stop inside a character, which arrives whole in the next one. A
+// tail that showed the torn character would be invalid text, and would change
+// again when the rest came.
+func trimPartialRunes(raw []byte) []byte {
+	for i := 0; i < utf8.UTFMax-1 && len(raw) > 0 && !utf8.RuneStart(raw[0]); i++ {
+		raw = raw[1:]
+	}
+	// A lead byte near the end whose sequence is not all there.
+	for back := 1; back < utf8.UTFMax && back <= len(raw); back++ {
+		c := raw[len(raw)-back]
+		if !utf8.RuneStart(c) {
+			continue
+		}
+		if c >= 0xC0 && !utf8.FullRune(raw[len(raw)-back:]) {
+			return raw[:len(raw)-back]
+		}
+		break
+	}
+	return raw
 }
 
 // refreshTail recomputes the tail and dates a change at the last output. It is
@@ -703,6 +741,7 @@ func (s *Session) refreshTail() {
 	if truncated {
 		raw = dropPartialLine(raw)
 	}
+	raw = trimPartialRunes(raw)
 	lines := strings.Split(stripANSI(raw), "\n")
 	for i, l := range lines {
 		lines[i] = strings.TrimRight(l, " \t\r")

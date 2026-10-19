@@ -234,10 +234,15 @@ type Session struct {
 	// typedWrites counts the writes that were typing and not a terminal's own
 	// report. See TypedWrites.
 	typedWrites int
-	// lastInput is when something last typed into the pane: the user in the
-	// window, a remote device, or Flockdeck through typeInto. A terminal's own
-	// report is not typing and does not set it. See LastInput.
-	lastInput time.Time
+	// lastUserInput and lastFlockdeckInput are when the user, and when
+	// Flockdeck itself, last typed into the pane. They are kept apart because
+	// Flockdeck's own typed line must not read as the user being at the
+	// keyboard. A terminal's own report sets neither. See LastUserInput.
+	lastUserInput      time.Time
+	lastFlockdeckInput time.Time
+	// tailAsked is when ScreenTail was last called. Tracking stops after
+	// tailIdleAfter without a call, so a pane nobody watches stops paying.
+	tailAsked time.Time
 	// tailWatched is set by the first ScreenTail call. Until then the reader
 	// does no tail work at all; after it, every chunk refreshes the tail so
 	// that tailChanged is the time the text really changed and not the time
@@ -470,7 +475,14 @@ func (s *Session) publish(chunk []byte) {
 	s.modes = s.bell.modes
 	s.lastOutput = time.Now()
 	if s.tailWatched {
-		s.refreshTail()
+		if s.lastOutput.Sub(s.tailAsked) > tailIdleAfter {
+			// Nobody has asked for a while. The next ScreenTail starts it
+			// again and dates anything that changed meanwhile at the last
+			// output, the latest it could have been.
+			s.tailWatched = false
+		} else {
+			s.refreshTail()
+		}
 	}
 	// A pane nothing is reporting for is read from what it prints, in three
 	// ways that know progressively more. An agent's own patterns are the
@@ -847,10 +859,26 @@ func (s *Session) Unsubscribe(id int) {
 	}
 }
 
-// Write sends input to the process. Writing to a pane whose process has ended
-// reports that, rather than the closed-handle error the PTY would give, which
-// says nothing about which pane or why.
-func (s *Session) Write(p []byte) (int, error) {
+// InputSource says who a write into a pane is from.
+type InputSource int
+
+const (
+	// InputUser is the user, in the window or on a remote device, or an
+	// answer the user gave. It is what Write is.
+	InputUser InputSource = iota
+	// InputFlockdeck is text Flockdeck typed on its own account: a message
+	// sent to the pane from the graph, or a wake line.
+	InputFlockdeck
+)
+
+// Write sends input to the process as the user. Writing to a pane whose
+// process has ended reports that, rather than the closed-handle error the PTY
+// would give, which says nothing about which pane or why.
+func (s *Session) Write(p []byte) (int, error) { return s.WriteFrom(InputUser, p) }
+
+// WriteFrom is Write with the source of the input named, which decides which
+// of LastUserInput and LastFlockdeckInput it moves.
+func (s *Session) WriteFrom(src InputSource, p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
@@ -868,7 +896,11 @@ func (s *Session) Write(p []byte) (int, error) {
 	if typed {
 		s.sawInput = true
 		s.typedWrites++
-		s.lastInput = time.Now()
+		if src == InputFlockdeck {
+			s.lastFlockdeckInput = time.Now()
+		} else {
+			s.lastUserInput = time.Now()
+		}
 		// What the pane prints next may be its answer: see ownRedraw.
 		s.resizedAt = time.Time{}
 	}
@@ -1080,6 +1112,10 @@ func csiReply(p []byte) int {
 			switch {
 			case c == 'R', c == 'c', c == 'n', c == 't':
 				return i + 1
+			case c == 'u' && p[2] == '?':
+				// The kitty keyboard protocol's flags report, CSI ? ... u,
+				// answering a query for them. CSI 97 u, with no question mark, is a key.
+				return i + 1
 			case c == 'y' && p[i-1] == '$':
 				return i + 1
 			}
@@ -1093,9 +1129,15 @@ func csiReply(p []byte) int {
 	return 0
 }
 
-// WriteString sends text to the process.
+// WriteString sends text to the process as the user.
 func (s *Session) WriteString(text string) error {
 	_, err := s.Write([]byte(text))
+	return err
+}
+
+// WriteStringFrom is WriteString with the source named.
+func (s *Session) WriteStringFrom(src InputSource, text string) error {
+	_, err := s.WriteFrom(src, []byte(text))
 	return err
 }
 

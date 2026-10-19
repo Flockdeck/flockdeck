@@ -8,26 +8,26 @@ import (
 	"time"
 )
 
-func TestLastInputIsZeroUntilSomeoneTypes(t *testing.T) {
+func TestLastUserInputIsZeroUntilSomeoneTypes(t *testing.T) {
 	s := fakeSession(newFakePTY())
-	if got := s.LastInput(); !got.IsZero() {
-		t.Fatalf("LastInput on a new pane = %v, want the zero time", got)
+	if got := s.LastUserInput(); !got.IsZero() {
+		t.Fatalf("LastUserInput on a new pane = %v, want the zero time", got)
 	}
 }
 
-func TestLastInputIgnoresATerminalsOwnReports(t *testing.T) {
+func TestLastUserInputIgnoresATerminalsOwnReports(t *testing.T) {
 	s := fakeSession(newFakePTY())
 	_, _ = s.Write([]byte("\x1b[I")) // focus gained
 	_, _ = s.Write([]byte("\x1b[O")) // focus lost
-	if got := s.LastInput(); !got.IsZero() {
-		t.Fatalf("a focus report set LastInput to %v", got)
+	if got := s.LastUserInput(); !got.IsZero() {
+		t.Fatalf("a focus report set LastUserInput to %v", got)
 	}
 }
 
 // Each way text reaches a pane ends in Write: the window's input path and a
 // remote device call it with the bytes they were sent, and Flockdeck's own
 // typeInto goes through WriteString.
-func TestLastInputUpdatesForEachWriteSource(t *testing.T) {
+func TestLastUserInputUpdatesForEachWriteSource(t *testing.T) {
 	sources := []struct {
 		name string
 		send func(s *Session)
@@ -42,22 +42,22 @@ func TestLastInputUpdatesForEachWriteSource(t *testing.T) {
 			s := fakeSession(newFakePTY())
 			before := time.Now()
 			src.send(s)
-			got := s.LastInput()
+			got := s.LastUserInput()
 			if got.Before(before) || got.After(time.Now()) {
-				t.Fatalf("LastInput = %v, want a time between %v and now", got, before)
+				t.Fatalf("LastUserInput = %v, want a time between %v and now", got, before)
 			}
 		})
 	}
 }
 
-func TestLastInputMovesForwardOnEachWrite(t *testing.T) {
+func TestLastUserInputMovesForwardOnEachWrite(t *testing.T) {
 	s := fakeSession(newFakePTY())
 	_ = s.WriteString("a")
-	first := s.LastInput()
+	first := s.LastUserInput()
 	time.Sleep(15 * time.Millisecond)
 	_ = s.WriteString("b")
-	if second := s.LastInput(); !second.After(first) {
-		t.Fatalf("second write left LastInput at %v, first was %v", second, first)
+	if second := s.LastUserInput(); !second.After(first) {
+		t.Fatalf("second write left LastUserInput at %v, first was %v", second, first)
 	}
 }
 
@@ -156,7 +156,7 @@ func TestScreenTailFirstCallDatesEarlierOutputByItsLastChunk(t *testing.T) {
 	}
 }
 
-func TestScreenTailAndLastInputAreSafeFromAnyGoroutine(t *testing.T) {
+func TestScreenTailAndLastUserInputAreSafeFromAnyGoroutine(t *testing.T) {
 	s := fakeSession(newFakePTY())
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
@@ -178,7 +178,7 @@ func TestScreenTailAndLastInputAreSafeFromAnyGoroutine(t *testing.T) {
 				case 2:
 					_ = s.ScreenTail()
 				default:
-					_ = s.LastInput()
+					_ = s.LastUserInput()
 				}
 			}
 		}(i)

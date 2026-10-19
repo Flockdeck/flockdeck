@@ -3065,8 +3065,14 @@ func (w *Workspace) sendPrompt(targets []*Pane, text string, submit bool) {
 // presses Enter after it when submit is set. It blocks while the pane is not
 // reading, so callers run it on a goroutine of their own.
 func typeInto(s *session.Session, text string, submit bool) {
+	typeIntoFrom(s, session.InputUser, text, submit)
+}
+
+// typeIntoFrom is typeInto with the source of the input named, so a line
+// Flockdeck types itself is not recorded as the user at the keyboard.
+func typeIntoFrom(s *session.Session, src session.InputSource, text string, submit bool) {
 	typed, pasted := promptInput(text, s.BracketedPaste())
-	if err := s.WriteString(typed); err == nil && submit {
+	if err := s.WriteStringFrom(src, typed); err == nil && submit {
 		// The Enter waits a moment after a paste. A program can take
 		// a paste in on its own time -- Claude Code folds a long one
 		// into a placeholder first -- and an Enter arriving on the
@@ -3075,7 +3081,7 @@ func typeInto(s *session.Session, text string, submit bool) {
 		if pasted {
 			time.Sleep(pasteSettle)
 		}
-		_ = s.WriteString("\r")
+		_ = s.WriteStringFrom(src, "\r")
 	}
 }
 
