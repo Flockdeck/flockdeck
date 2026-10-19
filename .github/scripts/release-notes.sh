@@ -14,7 +14,8 @@
 #   - otherwise docs/releases/TAG.md, the customer notes written before the
 #     tag was pushed;
 #   - otherwise, for a candidate (v1.2.3-rc.1) that has no notes file,
-#     the notes GitHub generates from the pull request titles.
+#     the notes GitHub generates from the pull request titles. Any other tag
+#     with no notes file is an error.
 #
 # Only GitHub's answer that there is no such release counts as there being
 # none. Any other failure to ask stops the run: taken for none, a release
@@ -32,8 +33,16 @@ elif grep -Eq 'release not found|HTTP 404' "$err"; then
 	if [ -f "docs/releases/$tag.md" ]; then
 		cp "docs/releases/$tag.md" "$out"
 	else
-		echo "docs/releases/$tag.md does not exist, so the notes are the ones GitHub generates" >&2
-		gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$tag" --jq .body > "$out"
+		case $tag in
+		*-rc.*)
+			echo "docs/releases/$tag.md does not exist, so the notes are the ones GitHub generates" >&2
+			gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$tag" --jq .body > "$out"
+			;;
+		*)
+			echo "::error::docs/releases/$tag.md is missing" >&2
+			exit 1
+			;;
+		esac
 	fi
 else
 	cat "$err" >&2

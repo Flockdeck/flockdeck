@@ -111,6 +111,30 @@ func TestNotesOfACandidateWithoutAFileAreGenerated(t *testing.T) {
 	}
 }
 
+// A candidate that has a notes file uses it, not the generated notes.
+func TestNotesOfACandidateWithAFileAreTheFile(t *testing.T) {
+	got, out, err := runNotes(t, "v1.2.3-rc.1", func(work, _ string) {
+		write(t, filepath.Join(work, "docs", "releases", "v1.2.3-rc.1.md"), "candidate notes\n")
+	})
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if got != "candidate notes\n" {
+		t.Errorf("notes = %q, want the file", got)
+	}
+}
+
+// Any other tag without a notes file is an error, not generated notes.
+func TestNotesStopForAReleaseWithoutAFile(t *testing.T) {
+	got, out, err := runNotes(t, "v1.2.3", func(string, string) {})
+	if err == nil {
+		t.Fatalf("the script succeeded with notes %q, want it to stop", got)
+	}
+	if !strings.Contains(out, "docs/releases/v1.2.3.md is missing") {
+		t.Errorf("output = %q, want the missing file named", out)
+	}
+}
+
 // Failing to ask GitHub is not the same as there being no release.
 func TestNotesStopWhenGitHubCannotBeAsked(t *testing.T) {
 	got, out, err := runNotes(t, "v1.2.3", func(work, state string) {
