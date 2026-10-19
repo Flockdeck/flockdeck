@@ -270,7 +270,7 @@ func (c PaneContext) writeTeam(b *strings.Builder) {
 		"message is at most %d KB. It arrives at the receiver's next tool "+
 		"round, and has started an idle session's turn (manager to helper). Your task gives the manager's session "+
 		"name; if it does not resolve, the manager restarted, so look in ListAgents. Flockdeck notices (a helper exits or idles, a task changes) "+
-		"come only through the inbox. Do not answer a message only to acknowledge it: the reply wakes "+
+		"come only through the inbox. Do not answer a message only to acknowledge it, or to say you did what it asked: the reply wakes "+
 		"the sender for nothing.\n\n", flockdeck, team.MaxText/1024)
 	if !c.Notified {
 		fmt.Fprintf(b, "You are not told when an inbox message arrives. Run `%s inbox` when a session starts or resumes, "+
@@ -321,7 +321,7 @@ func (c PaneContext) writeTasks(b *strings.Builder) {
 		"The owner of a task moves it to in-progress, in-review or blocked, and hands finished work over with " +
 		"in-review: it cannot close its own task, and only the manager role, a reviewer or a tester moves a task from " +
 		"in-review to done, or sends it back to in-progress with `-note`. The creator of a task, or the manager role, may cancel it. " +
-		"A pane with no role has the manager role's powers only while no pane in the manager role is running. " +
+		"A pane with no role has the manager role's powers only while no pane in the manager role is running." +
 		" A refused move says why.\n")
 	if c.HasCounts {
 		when := "when you were briefed"
@@ -375,10 +375,10 @@ func writeSpawnFlags(b *strings.Builder, flockdeck string, roles bool) {
 		"- No placement flag: the agent opens in a new tab of its own, titled after the task.\n" +
 		"- `-split`: the agent opens beside you, in your tab. Several `-split` calls gather the group in " +
 		"front of the user at once.\n" +
-		"- `-tab <title>`: the agent joins the tab with that title, which is made if there is none. It takes " +
+		"- `-tab <title>`: the agent joins the tab with that title, which is made if there is none. Use one title for everything that belongs to one piece of work; it takes " +
 		"precedence over `-split`.\n" +
 		"- `-worktree <branch>`: the agent gets a git worktree and branch of its own, cut from yours; without it " +
-		"it shares this working tree.\n" +
+		"it shares this working tree, so use it when two agents would touch the same files.\n" +
 		"- `-shell`: a terminal rather than another conversation.\n" +
 		"- `-agent <id>` and `-model <model>`: another agent or model where it suits the work better than the " +
 		"project's default; `" + flockdeck + " agents` lists them. Neither goes with `-shell`.\n")
