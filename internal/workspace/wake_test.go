@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +22,17 @@ type wakeFakeSession struct {
 	sources []session.InputSource
 	// onWrite runs after each write, for a test that has the user type then.
 	onWrite func(n int)
+	// failFrom makes every write from the nth on fail; 0 is never.
+	failFrom  int
+	flockdeck time.Time
+}
+
+var errWakeWrite = errors.New("write failed")
+
+func (f *wakeFakeSession) LastFlockdeckInput() time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.flockdeck
 }
 
 func (f *wakeFakeSession) WakeReading() session.WakeReading {
@@ -45,9 +57,13 @@ func (f *wakeFakeSession) Exited() bool {
 }
 func (f *wakeFakeSession) WriteStringFrom(src session.InputSource, text string) error {
 	f.mu.Lock()
+	n := len(f.writes) + 1
+	if f.failFrom > 0 && n >= f.failFrom {
+		f.mu.Unlock()
+		return errWakeWrite
+	}
 	f.writes = append(f.writes, text)
 	f.sources = append(f.sources, src)
-	n := len(f.writes)
 	hook := f.onWrite
 	f.mu.Unlock()
 	if hook != nil {
@@ -254,6 +270,12 @@ func TestWakeSkipsEnterWhenUserTypesDuringSettle(t *testing.T) {
 	got := r.sess.written()
 	if len(got) != 1 || strings.Contains(got[0], "\r") {
 		t.Fatalf("typed %q", got)
+	}
+	if len(r.mail.woken) != 0 {
+		t.Fatalf("marked woken with no Enter: %v", r.mail.woken)
+	}
+	if len(r.events) != 1 || !r.events[0].Unsubmitted {
+		t.Fatalf("events = %+v, want one unsubmitted", r.events)
 	}
 }
 

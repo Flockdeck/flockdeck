@@ -2,10 +2,8 @@ package workspace
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -65,6 +63,7 @@ func (wakeAllOn) WakeEnabled(string, string) bool { return true }
 type wakeSession interface {
 	WakeReading() session.WakeReading
 	LastUserInput() time.Time
+	LastFlockdeckInput() time.Time
 	Status() (session.Status, string)
 	Exited() bool
 	WriteStringFrom(src session.InputSource, text string) error
@@ -88,6 +87,12 @@ type wakeCandidate struct {
 	Agent string
 	Root  string
 	Sess  wakeSession
+	// Claim takes the pane's send flag, the one SendToPane holds while it types
+	// a graph message, and says false if someone has it. Release gives it back.
+	// A line and its Enter are written under the claim, so a send of Flockdeck's
+	// own cannot land between them. Nil means no coordination, for a test.
+	Claim   func() bool
+	Release func()
 }
 
 // wakeService decides, for each agent pane with unread mail, whether to type
@@ -123,6 +128,11 @@ type wakePaneState struct {
 	streak     int
 	streakFrom time.Time
 	inFlight   bool
+	// stuck is set when a line was typed and its Enter was not, so it may still
+	// be in the input box. Nothing more is typed until the user has typed in
+	// the pane since typedAt.
+	stuck   bool
+	typedAt time.Time
 }
 
 func newWakeService(panes func() []wakeCandidate, mail wakeMail, notices wakeNotices,
@@ -216,6 +226,9 @@ func (s *wakeService) consider(c wakeCandidate) string {
 	if at := c.Sess.LastUserInput(); !at.IsZero() && now.Sub(at) < wakeUserQuiet {
 		return "the user is typing"
 	}
+	if at := c.Sess.LastFlockdeckInput(); !at.IsZero() && now.Sub(at) < wakeQuiet {
+		return "Flockdeck typed into the pane a moment ago"
+	}
 	r := c.Sess.WakeReading()
 	if r.Verdict != agent.WakeOK {
 		return "the rule does not allow it"
@@ -233,6 +246,14 @@ func (s *wakeService) consider(c wakeCandidate) string {
 	if st.inFlight {
 		s.mu.Unlock()
 		return "a line is being typed"
+	}
+	if st.stuck {
+		if at := c.Sess.LastUserInput(); at.After(st.typedAt) {
+			st.stuck = false
+		} else {
+			s.mu.Unlock()
+			return "an earlier line may still be in the input box"
+		}
 	}
 	if st.streak > 0 && s.readSince(c.ID, st.streakFrom) {
 		st.streak = 0
@@ -256,6 +277,11 @@ func (s *wakeService) consider(c wakeCandidate) string {
 		s.mu.Unlock()
 		return "project limit for the hour"
 	}
+	if c.Claim != nil && !c.Claim() {
+		s.projects[c.Root] = recent
+		s.mu.Unlock()
+		return "a send is in flight"
+	}
 	s.projects[c.Root] = append(recent, now)
 	st.lastWake = now
 	if st.streak == 0 {
@@ -268,7 +294,7 @@ func (s *wakeService) consider(c wakeCandidate) string {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.fire(c, id, r)
+		s.fire(c, id, r, now)
 	}()
 	return ""
 }
@@ -287,8 +313,18 @@ func (s *wakeService) readSince(pane string, t time.Time) bool {
 // fire types the line and its Enter. The user is looked for again just before
 // the line, and again before the Enter: someone starting to type in the pause
 // is not sent an Enter that would submit their half-written text with ours.
-func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading) {
+//
+// A message is marked woken, and the wake recorded as done, only when the Enter
+// was written. When it was not, the line may still be in the input box. It is
+// not taken back, because a key that clears the box would clear the user's text
+// as well. The event says the line was unsubmitted, the message stays unread
+// and unwoken, and nothing more is typed until the user has typed in the pane.
+// at is the time the limits were counted at.
+func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading, at time.Time) {
 	defer func() {
+		if c.Release != nil {
+			c.Release()
+		}
 		s.mu.Lock()
 		if st := s.state[c.ID]; st != nil {
 			st.inFlight = false
@@ -296,69 +332,74 @@ func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading) {
 		s.mu.Unlock()
 	}()
 	typing := func() bool {
-		at := c.Sess.LastUserInput()
-		return !at.IsZero() && s.now().Sub(at) < wakeUserQuiet
+		t := c.Sess.LastUserInput()
+		return !t.IsZero() && s.now().Sub(t) < wakeUserQuiet
 	}
 	if typing() {
-		s.undo(c.ID)
+		s.undo(c, at, false)
 		return
 	}
 	// The pane may have changed since it was judged.
 	if again := c.Sess.WakeReading(); again.Verdict != r.Verdict || !again.Tail.ChangedAt.Equal(r.Tail.ChangedAt) {
-		s.undo(c.ID)
+		s.undo(c, at, false)
 		return
 	}
 	line := wakeLine(id)
 	if err := c.Sess.WriteStringFrom(session.InputFlockdeck, line); err != nil {
-		s.undo(c.ID)
+		// Backed off, so a pane that cannot be written to is not tried every tick.
+		s.undo(c, at, true)
 		return
 	}
 	typedAt := s.now()
 	submitted := false
 	if s.sleep(s.settle, s.stop) {
-		if at := c.Sess.LastUserInput(); at.IsZero() || !at.After(typedAt) {
+		if t := c.Sess.LastUserInput(); t.IsZero() || !t.After(typedAt) {
 			submitted = c.Sess.WriteStringFrom(session.InputFlockdeck, "\r") == nil
 		}
 	}
-	_ = submitted
-	s.mail.MarkWoken(c.ID, id)
+	if submitted {
+		s.mail.MarkWoken(c.ID, id)
+	} else {
+		s.mu.Lock()
+		if st := s.state[c.ID]; st != nil {
+			st.stuck, st.typedAt = true, typedAt
+		}
+		s.mu.Unlock()
+	}
 	if s.record != nil {
 		s.record(team.Event{
 			Kind: team.EventWake, ID: id, Time: typedAt, Pane: c.ID, Agent: c.Agent,
 			Rule: r.Version, RuleSource: r.Source, Prompt: cleanPromptLine(r.Prompt), Line: line,
+			Unsubmitted: !submitted,
 		})
 	}
 }
 
-// undo takes back the limits a line that was never typed counted.
-func (s *wakeService) undo(pane string) {
+// undo takes back what an attempt that typed nothing counted: its place in the
+// project's hour, and in the pane's streak. With backoff the pane still waits
+// out the minute, for a write that failed.
+func (s *wakeService) undo(c wakeCandidate, at time.Time, backoff bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if st := s.state[pane]; st != nil {
-		st.lastWake = time.Time{}
+	times := s.projects[c.Root]
+	for i, t := range times {
+		if t.Equal(at) {
+			s.projects[c.Root] = append(times[:i:i], times[i+1:]...)
+			break
+		}
+	}
+	if st := s.state[c.ID]; st != nil {
+		if !backoff {
+			st.lastWake = time.Time{}
+		}
 		if st.streak > 0 {
 			st.streak--
 		}
 	}
 }
 
-// cleanPromptLine makes the matched prompt line fit for the event log: control
-// characters removed and cut to team.MaxPromptLine characters.
-func cleanPromptLine(line string) string {
-	var b strings.Builder
-	n := 0
-	for _, r := range line {
-		if unicode.IsControl(r) {
-			continue
-		}
-		if n == team.MaxPromptLine {
-			break
-		}
-		b.WriteRune(r)
-		n++
-	}
-	return b.String()
-}
+// cleanPromptLine makes the matched prompt line fit for the event log.
+func cleanPromptLine(line string) string { return team.CleanLine(line, team.MaxPromptLine) }
 
 // startWake starts the wake service on the workspace's panes.
 func (w *Workspace) startWake() {
@@ -388,7 +429,9 @@ func (w *Workspace) wakeCandidates() []wakeCandidate {
 		if p.Kind != session.KindAgent || p.Sess == nil {
 			continue
 		}
-		out = append(out, wakeCandidate{ID: p.ID, Agent: p.Agent, Root: p.Root, Sess: p.Sess})
+		p := p
+		out = append(out, wakeCandidate{ID: p.ID, Agent: p.Agent, Root: p.Root, Sess: p.Sess,
+			Claim: func() bool { return w.claimSend(p) }, Release: func() { w.releaseSend(p) }})
 	}
 	return out
 }

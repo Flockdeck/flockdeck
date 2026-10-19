@@ -3,8 +3,10 @@ package team
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // Kinds of Event.
@@ -51,11 +53,45 @@ type Event struct {
 	RuleSource string `json:"ruleSource,omitempty"`
 	Prompt     string `json:"prompt,omitempty"`
 	Line       string `json:"line,omitempty"`
+	// Unsubmitted is set when the line was typed but its Enter was not, so it
+	// may still sit in the pane's input box and the message was not marked woken.
+	Unsubmitted bool `json:"unsubmitted,omitempty"`
 }
 
 // MaxPromptLine is the most characters of a matched prompt line a wake event
 // keeps.
 const MaxPromptLine = 160
+
+// maxWakeField is the most characters of any other text field of a wake event.
+const maxWakeField = 64
+
+// CleanLine removes control characters from line and cuts it to max characters.
+func CleanLine(line string, max int) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range line {
+		if unicode.IsControl(r) {
+			continue
+		}
+		if n == max {
+			break
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return b.String()
+}
+
+// cleanWake applies the limits a wake event is written with, so that a file
+// that was damaged or edited cannot bring long or odd fields back.
+func cleanWake(e *Event) {
+	e.Pane = CleanLine(e.Pane, maxWakeField)
+	e.Agent = CleanLine(e.Agent, maxWakeField)
+	e.Rule = CleanLine(e.Rule, maxWakeField)
+	e.RuleSource = CleanLine(e.RuleSource, maxWakeField)
+	e.Prompt = CleanLine(e.Prompt, MaxPromptLine)
+	e.Line = CleanLine(e.Line, MaxPromptLine)
+}
 
 // EventLog is the record of events kept for a project: one JSON line for each,
 // oldest first, capped at MaxEvents lines and MaxEventBytes. It is safe for
@@ -126,6 +162,9 @@ func (l *EventLog) Load(data []byte) {
 		var e Event
 		if json.Unmarshal(raw, &e) != nil || e.ID <= 0 || (e.Kind != EventMessage && e.Kind != EventDelivery && e.Kind != EventWake) {
 			continue
+		}
+		if e.Kind == EventWake {
+			cleanWake(&e)
 		}
 		// Written again from the parsed event, so that a field the log does not
 		// know, text among them, is not kept.

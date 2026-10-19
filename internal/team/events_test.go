@@ -244,3 +244,21 @@ func TestNotifierLastNotice(t *testing.T) {
 		t.Fatal("another pane's notice")
 	}
 }
+
+func TestEventLogCleansAWakeOnLoad(t *testing.T) {
+	long := strings.Repeat("x", 500)
+	data := `{"kind":"wake","id":7,"time":"2026-10-19T10:00:00Z","pane":"p` + long + `","prompt":"a\u001b[31m` + long + `","line":"` + long + `"}`
+	var log EventLog
+	log.Load([]byte(data))
+	ev := log.Events()
+	if len(ev) != 1 {
+		t.Fatalf("loaded %d events", len(ev))
+	}
+	e := ev[0]
+	if len(e.Pane) != maxWakeField || len(e.Prompt) != MaxPromptLine || len(e.Line) != MaxPromptLine {
+		t.Fatalf("lengths %d %d %d", len(e.Pane), len(e.Prompt), len(e.Line))
+	}
+	if strings.ContainsRune(e.Prompt, 0x1b) {
+		t.Fatal("a control character was kept")
+	}
+}
