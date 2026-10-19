@@ -48,6 +48,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/proctree"
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // Handler receives what the agent initiates. A panic in either method is
@@ -246,6 +247,9 @@ func Start(cfg Config) (*Client, error) {
 	cmd := exec.Command(cfg.Path, cfg.Args...)
 	cmd.Dir = cfg.Dir
 	cmd.Env = cfg.Env
+	// An adapter is a console program run in the background; on Windows it
+	// would otherwise open a terminal window.
+	sysproc.NoWindow(cmd)
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
