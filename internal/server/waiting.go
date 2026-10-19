@@ -57,26 +57,49 @@ type permissionView struct {
 }
 
 // permissionOption is one choice of a permission prompt: an id a window can send
-// back and the words the agent's own prompt uses for it.
+// back, the words the agent's own prompt uses for it, and its kind. The kind
+// uses the names of the Agent Client Protocol and is the contract for later
+// structured panes; the id is what the terminal path sends.
 type permissionOption struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
 }
+
+// The kinds of a permission option. Terminal panes use only the first and the
+// third: allow_always and reject_always are for structured panes.
+const (
+	optionAllowOnce    = "allow_once"
+	optionAllowAlways  = "allow_always"
+	optionRejectOnce   = "reject_once"
+	optionRejectAlways = "reject_always"
+)
+
+// permissionOptionKinds lists every kind an option can have.
+func permissionOptionKinds() []string {
+	return []string{optionAllowOnce, optionAllowAlways, optionRejectOnce, optionRejectAlways}
+}
+
+// optionTools are the tools whose Claude Code prompt has the shape documented in
+// docs/status-matrix.md (B4 and B7), the ones permissionViewFor parses. Another
+// tool can offer other choices: the plan approval of ExitPlanMode does, and its
+// first choice is not a plain Yes.
+var optionTools = map[string]bool{"Bash": true, "Edit": true, "MultiEdit": true, "Write": true}
 
 // permissionOptions are the choices of a permission prompt that are documented
 // for the agent: Claude Code answers Yes with Enter, which is its default
 // choice, and "No, and tell Claude what to do differently" with Esc (see
 // docs/status-matrix.md, B4 and B7). Its middle choice, "Yes, and don't ask
 // again", names a rule that depends on the tool and the version, so it is not
-// listed. Any other agent, and a pane that has not recorded its agent, gets
-// none: its prompts are not parsed here.
-func permissionOptions(agent string) []permissionOption {
-	if agent != "claude" {
+// listed. Any other agent, a pane that has not recorded its agent, and any tool
+// outside optionTools gets none: those prompts are not parsed here.
+func permissionOptions(agent, tool string) []permissionOption {
+	if agent != "claude" || !optionTools[tool] {
 		return []permissionOption{}
 	}
 	return []permissionOption{
-		{ID: permissionYes, Label: "Yes"},
-		{ID: permissionNo, Label: "No, and tell Claude what to do differently"},
+		{ID: permissionYes, Name: "Yes", Kind: optionAllowOnce},
+		{ID: permissionNo, Name: "No, and tell Claude what to do differently", Kind: optionRejectOnce},
 	}
 }
 

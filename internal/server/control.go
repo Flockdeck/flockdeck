@@ -791,7 +791,7 @@ func (s *Server) snapshot() stateMsg {
 			if st == session.StatusWaiting && p.Sess != nil {
 				pv.Ask, pv.Permission = waitingViews(detail, p.Sess.ToolInput())
 				if pv.Permission != nil {
-					pv.Permission.Options = permissionOptions(p.Agent)
+					pv.Permission.Options = permissionOptions(p.Agent, pv.Permission.Tool)
 				}
 			}
 			if pv.Kind != "shell" {

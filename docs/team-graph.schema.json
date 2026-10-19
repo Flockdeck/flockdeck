@@ -149,17 +149,18 @@
         "description": { "type": "string", "minLength": 1, "description": "The agent's own description of the command, for Bash. Absent when it gave none." },
         "file": { "type": "string", "minLength": 1, "description": "The file, for Edit, MultiEdit and Write. Absent for other tools." },
         "diff": { "type": "string", "minLength": 1, "description": "What the edit would change, cut at 64 KiB (derived from the call's before and after text). Absent for other tools." },
-        "options": { "type": "array", "items": { "$ref": "#/$defs/permissionOption" }, "description": "The choices of the prompt that are documented for the agent (derived by permissionOptions). Claude Code panes list Yes and No; its 'Yes, and don't ask again' is not listed because the rule it names depends on the tool and version. Empty, never absent, for every other agent and for a pane that has not recorded its agent: the window then keeps to the terminal path." }
+        "options": { "type": "array", "items": { "$ref": "#/$defs/permissionOption" }, "description": "The choices of the prompt that are documented for the agent (derived by permissionOptions). Claude Code panes waiting on Bash, Edit, MultiEdit or Write list Yes and No (other tools, such as the plan approval of ExitPlanMode, list none); its 'Yes, and don't ask again' is not listed because the rule it names depends on the tool and version. Empty, never absent, for every other agent and for a pane that has not recorded its agent: the window then keeps to the terminal path." }
       }
     },
     "permissionOption": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "label"],
-      "description": "One choice of a permission prompt.",
+      "required": ["id", "name", "kind"],
+      "description": "One choice of a permission prompt. The kind uses the names of the Agent Client Protocol and is the contract for later structured panes; the id is what a window sends on the terminal path.",
       "properties": {
         "id": { "enum": ["yes", "no"], "description": "What a window sends back to choose it. Yes is answered with Enter, the prompt's default; no with Esc. Always written." },
-        "label": { "type": "string", "minLength": 1, "description": "The words the agent's own prompt uses for the choice. Always written." }
+        "name": { "type": "string", "minLength": 1, "description": "The words the agent's own prompt uses for the choice. Always written." },
+        "kind": { "enum": ["allow_once", "allow_always", "reject_once", "reject_always"], "description": "What choosing it does. Terminal panes list only allow_once (Yes) and reject_once (No); allow_always and reject_always are unused until structured panes exist. Always written." }
       }
     },
     "paneSend": {

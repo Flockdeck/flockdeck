@@ -268,6 +268,7 @@ func TestSchemaEnumsAreTheGoConstants(t *testing.T) {
 		{"edge", "kind", []string{graphEdgeSpawn, graphEdgeMessage}},
 		{"node", "kind", []string{graphKindTerminal, graphKindStructured}},
 		{"permissionOption", "id", permissionOptionIDs()},
+		{"permissionOption", "kind", permissionOptionKinds()},
 	}
 	for _, c := range cases {
 		want := append([]string(nil), c.want...)

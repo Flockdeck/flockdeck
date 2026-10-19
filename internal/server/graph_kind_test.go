@@ -22,13 +22,36 @@ func TestEveryNodeIsATerminal(t *testing.T) {
 }
 
 func TestPermissionOptionsAreOnlyThoseDocumentedForTheAgent(t *testing.T) {
-	want := []permissionOption{{ID: "yes", Label: "Yes"}, {ID: "no", Label: "No, and tell Claude what to do differently"}}
-	if got := permissionOptions("claude"); !reflect.DeepEqual(got, want) {
-		t.Errorf("claude = %+v", got)
+	want := []permissionOption{
+		{ID: "yes", Name: "Yes", Kind: "allow_once"},
+		{ID: "no", Name: "No, and tell Claude what to do differently", Kind: "reject_once"},
+	}
+	for _, tool := range []string{"Bash", "Edit", "MultiEdit", "Write"} {
+		if got := permissionOptions("claude", tool); !reflect.DeepEqual(got, want) {
+			t.Errorf("claude %s = %+v", tool, got)
+		}
 	}
 	for _, agent := range []string{"", "codex", "gemini", "Claude"} {
-		if got := permissionOptions(agent); got == nil || len(got) != 0 {
+		if got := permissionOptions(agent, "Bash"); got == nil || len(got) != 0 {
 			t.Errorf("agent %q = %#v, want an empty, non-nil list", agent, got)
+		}
+	}
+}
+
+// A tool whose prompt is not the Yes / No one has no options, even for Claude.
+func TestPermissionOptionsAreNotOfferedForOtherTools(t *testing.T) {
+	for _, tool := range []string{"ExitPlanMode", "WebFetch", "SomeNewTool", ""} {
+		if got := permissionOptions("claude", tool); got == nil || len(got) != 0 {
+			t.Errorf("tool %q = %#v, want an empty, non-nil list", tool, got)
+		}
+	}
+}
+
+// Terminal panes never list the always kinds.
+func TestTerminalOptionsUseOnlyTheOnceKinds(t *testing.T) {
+	for _, o := range permissionOptions("claude", "Bash") {
+		if o.Kind != optionAllowOnce && o.Kind != optionRejectOnce {
+			t.Errorf("option %+v has kind %q", o, o.Kind)
 		}
 	}
 }
@@ -59,7 +82,7 @@ func TestPermissionViewMatchesTheSchema(t *testing.T) {
 	schema := loadGraphSchema(t)
 	for _, agent := range []string{"claude", "codex"} {
 		v := permissionViewFor("Bash", waitingToolInput{Command: "ls", Description: "list"})
-		v.Options = permissionOptions(agent)
+		v.Options = permissionOptions(agent, "Bash")
 		b, err := json.Marshal(v)
 		if err != nil {
 			t.Fatal(err)
