@@ -7,13 +7,13 @@ import (
 )
 
 func TestWakeReadingUsesTheAgentsRule(t *testing.T) {
-	rule := &agent.WakeRule{Version: "v1", Tested: true, Prompts: []string{"you >"}, Forbid: []string{"[y] yes"}}
+	rule := &agent.WakeRule{Version: "v1", Tested: true, Source: agent.RuleBuiltIn, Prompts: []string{"you >"}, Forbid: []string{"[y] yes"}}
 	s := fakeSession(newFakePTY())
 	s.wake = rule
 
 	s.publish([]byte("answer\r\nyou > "))
 	r := s.WakeReading()
-	if r.Verdict != agent.WakeOK || r.Prompt != "you >" || r.Version != "v1" {
+	if r.Verdict != agent.WakeOK || r.Prompt != "you >" || r.Version != "v1" || r.Source != agent.RuleBuiltIn {
 		t.Fatalf("reading = %+v, want ok at \"you >\" from v1", r)
 	}
 	if r.Tail.ChangedAt.IsZero() {
@@ -41,5 +41,14 @@ func TestWakeReadingOfAnUntestedRuleIsUnknown(t *testing.T) {
 	s.publish([]byte("you > "))
 	if r := s.WakeReading(); r.Verdict != agent.WakeUnknown {
 		t.Fatalf("verdict = %v, want unknown for an untested rule", r.Verdict)
+	}
+}
+
+func TestWakeReadingOfAUsersRuleIsUnknownEvenWhenTested(t *testing.T) {
+	s := fakeSession(newFakePTY())
+	s.wake = &agent.WakeRule{Version: "v1", Tested: true, Source: agent.RuleUser, Prompts: []string{"you >"}}
+	s.publish([]byte("you > "))
+	if r := s.WakeReading(); r.Verdict != agent.WakeUnknown || r.Source != agent.RuleUser {
+		t.Fatalf("reading = %+v, want unknown from the user's rule", r)
 	}
 }

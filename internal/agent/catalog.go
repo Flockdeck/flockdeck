@@ -84,6 +84,11 @@ func Merge(f *File) *Catalog {
 	c.Defaults = f.Defaults
 	c.Projects = f.Projects
 
+	// The built-ins as shipped, which later entries are compared against.
+	pristine := make(map[string]Spec, len(c.Specs))
+	for _, s := range Builtins() {
+		pristine[s.ID] = s
+	}
 	index := make(map[string]int, len(c.Specs))
 	for i, s := range c.Specs {
 		index[s.ID] = i
@@ -132,7 +137,9 @@ func Merge(f *File) *Catalog {
 			merged.Args = orBuiltin(merged.Args, builtin.Args)
 			merged.ResumeArgs = orBuiltin(merged.ResumeArgs, builtin.ResumeArgs)
 			merged.Models = orBuiltin(merged.Models, builtin.Models)
-			mergeWake(&merged, builtin)
+			// Against the catalog's own spec and not the one built so far, so
+			// that a second entry for an agent is judged as the first was.
+			mergeWake(&merged, pristine[head.ID])
 			problems = append(problems, checkRunner(&merged)...)
 			problems = append(problems, checkTokens(&merged)...)
 			problems = append(problems, checkTiers(&merged)...)

@@ -71,8 +71,12 @@ type WakeRule struct {
 	// WakeOK into WakeUnknown. It can still say WakeNo, which is the safe way
 	// to be wrong. Merge takes it only from the catalog's own rule: an entry
 	// in agents.json cannot mark a built-in rule tested, because the file is
-	// not what proves a rule. A rule for an agent that exists only in
-	// agents.json carries what its entry says.
+	// not what proves a rule.
+	//
+	// Only a rule whose Source is RuleBuiltIn can allow a wake at all. A
+	// user's rule, and a built-in one the user edited, say WakeUnknown whatever
+	// they carry here, until an explicit setting in the app allows them. The
+	// gate is otherwise only as strong as who can write agents.json.
 	Tested bool `json:"tested,omitempty"`
 	// Prompts are the idle input prompt with nothing typed after it. A line
 	// matches when, with the vertical edges of a box and ordinary spaces
@@ -138,10 +142,11 @@ func (r *WakeRule) sameShape(o *WakeRule) bool {
 // verdict is WakeOK the second result is the prompt line that was matched, as
 // it appeared in the tail.
 //
-// A nil rule, or one with no prompts, is WakeUnknown.
+// A nil rule, or one with no prompts, is WakeUnknown. So is any rule that is
+// untested or whose Source is not RuleBuiltIn: see Tested.
 func (r *WakeRule) Judge(tail []string) (WakeVerdict, string) {
 	v, line := r.judge(tail)
-	if v == WakeOK && !r.Tested {
+	if v == WakeOK && (!r.Tested || r.Source != RuleBuiltIn) {
 		return WakeUnknown, ""
 	}
 	return v, line

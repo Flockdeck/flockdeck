@@ -148,7 +148,7 @@ func TestNoRuleIsUnknown(t *testing.T) {
 
 // An entry left empty by a typo must not match everything.
 func TestEmptyRuleStringsAreIgnored(t *testing.T) {
-	r := &WakeRule{Tested: true, Prompts: []string{">", " "}, Forbid: []string{"", "  "}}
+	r := &WakeRule{Tested: true, Source: RuleBuiltIn, Prompts: []string{">", " "}, Forbid: []string{"", "  "}}
 	if v, _ := r.Judge([]string{"some output", ">"}); v != WakeOK {
 		t.Errorf("verdict = %v, want ok: an empty forbid string blocked it", v)
 	}
@@ -215,8 +215,9 @@ func TestAUserForbidListAddsToTheBuiltInListAndNeverReplacesIt(t *testing.T) {
 	if len(got.Prompts) == 0 {
 		t.Error("the user left prompts out and lost the built-in's")
 	}
-	if got.Source != RuleBuiltIn {
-		t.Errorf("source = %q after only adding a forbid string", got.Source)
+	// The rule ran with a different forbid list, so it is labelled as edited.
+	if got.Source != RuleEdited {
+		t.Errorf("source = %q after adding a forbid string, want %q", got.Source, RuleEdited)
 	}
 	if slices.Contains(claudeWake().Forbid, "my own") {
 		t.Error("the entry reached into the built-in")
@@ -255,5 +256,68 @@ func TestAWakeRuleForABuiltInAgentWithoutOneIsTheUsers(t *testing.T) {
 	}})
 	if r := builtinSpec(t, c, "codex").Wake; r == nil || r.Source != RuleUser {
 		t.Fatalf("rule = %+v, want the user's", r)
+	}
+}
+
+// A rule that is not the catalog's own never allows a wake, whatever it says
+// about itself, until a setting in the app allows it.
+func TestOnlyAnUneditedBuiltInRuleCanAllowAWake(t *testing.T) {
+	idle := lines("done\n──────\n>\n──────\n  ? for shortcuts")
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "claude2", "exe": "claude", "wake": {"tested": true, "boxed": true, "requireFooter": true, "prompts": [">"], "footers": ["? for shortcuts"]}}`),
+		json.RawMessage(`{"id": "gemini", "wake": {"tested": true, "prompts": [">"]}}`),
+		json.RawMessage(`{"id": "anthropic", "wake": {"tested": true, "prompts": ["you >", "ask >"]}}`),
+	}})
+	for _, id := range []string{"claude2", "gemini"} {
+		r := builtinSpec(t, c, id).Wake
+		if !r.Tested || r.Source != RuleUser {
+			t.Fatalf("%s: tested = %v, source = %q, want the user's own", id, r.Tested, r.Source)
+		}
+		if v, _ := r.Judge(idle); v == WakeOK {
+			t.Errorf("%s: a user's tested rule allowed a wake (%v)", id, v)
+		}
+		if v, _ := r.judge(idle); id == "claude2" && v != WakeOK {
+			t.Errorf("%s: the shape check itself broke: %v", id, v)
+		}
+	}
+	// An edited built-in is untested and not the catalog's.
+	r := builtinSpec(t, c, "anthropic").Wake
+	if r.Source != RuleEdited || r.Tested {
+		t.Errorf("edited built-in: source = %q, tested = %v", r.Source, r.Tested)
+	}
+	forced := r.clone()
+	forced.Tested = true
+	if v, _ := forced.Judge([]string{"", "model", "you >"}); v != WakeUnknown {
+		t.Errorf("an edited built-in with Tested forced on judged %v, want unknown", v)
+	}
+	// Only the untouched built-in can, once it is tested.
+	if v, _ := tested(claudeWake()).Judge(idle); v != WakeOK {
+		t.Errorf("the built-in Claude rule judged %v on an idle prompt once tested", v)
+	}
+}
+
+// Each entry is compared with the rule as shipped, not with what an earlier
+// entry for the same agent made of it.
+func TestRepeatedEntriesAreEachJudgedAgainstTheShippedRule(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "claude", "wake": {"prompts": ["x>"]}}`),
+		json.RawMessage(`{"id": "claude"}`),
+	}})
+	if r := builtinSpec(t, c, "claude").Wake; r == nil || r.Source != RuleEdited || r.Tested {
+		t.Errorf("rule = %+v, want edited and untested", r)
+	}
+
+	// Switching the rule off and then writing a tested one back is the same
+	// as editing it: the gate does not reopen.
+	c = Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id": "claude", "wake": null}`),
+		json.RawMessage(`{"id": "claude", "wake": {"tested": true, "prompts": [">"], "boxed": true}}`),
+	}})
+	r := builtinSpec(t, c, "claude").Wake
+	if r == nil || r.Tested || r.Source != RuleEdited {
+		t.Fatalf("rule = %+v, want edited and untested", r)
+	}
+	if v, _ := r.Judge(lines("──────\n>\n──────")); v != WakeUnknown {
+		t.Errorf("verdict = %v, want unknown", v)
 	}
 }
