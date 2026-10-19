@@ -116,6 +116,9 @@ type graphTeamView struct {
 const (
 	graphEdgeSpawn   = "spawn"
 	graphEdgeMessage = "message"
+	// graphEdgeSent is a SendMessage call seen between two Claude sessions. It is
+	// drawn as sent and never as read: Flockdeck does not carry the message.
+	graphEdgeSent = "sent"
 )
 
 // graphEdge is a link between two panes: "spawn" from a parent to a helper it
@@ -149,6 +152,9 @@ type graphMsg struct {
 	NeedsHidden int              `json:"soloNeedsHidden,omitempty"`
 	// BoardError is why the board could not be read, if it could not.
 	BoardError string `json:"boardError,omitempty"`
+	// SendMessageUnread counts the SendMessage calls of the project's panes that
+	// were seen and not understood, so their arrows are missing.
+	SendMessageUnread int `json:"sendMessageUnread,omitempty"`
 	// PanesHidden counts the panes left out because a push holds only
 	// maxGraphPanes nodes.
 	PanesHidden int `json:"panesHidden,omitempty"`
@@ -430,6 +436,7 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		}
 	}
 	out.Edges = append(out.Edges, st.edges...)
+	out.Edges, out.SendMessageUnread = appendSentEdges(out.Edges, ws.Taps(), out.Nodes)
 	out.Solo = graph.Solo
 	if n, ok := needs[""]; ok {
 		out.SoloNeeds, out.NeedsHidden = n.Items, n.Hidden
@@ -662,4 +669,31 @@ func (s *Server) graphCommand(c *controlClient, cmd command) {
 	case "graphUnwatch":
 		s.do(func() { c.graphRoot, c.graphSent = "", nil })
 	}
+}
+
+// appendSentEdges adds an edge for each SendMessage call seen between two panes
+// of the graph, newest first, at most maxGraphEdges, and counts the calls of
+// the graph's panes that were not understood.
+func appendSentEdges(edges []graphEdge, taps []team.Tap, nodes []graphNodeView) ([]graphEdge, int) {
+	in := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		in[n.Pane] = true
+	}
+	unread, added := 0, 0
+	for i := len(taps) - 1; i >= 0; i-- {
+		t := taps[i]
+		if !in[t.From] {
+			continue
+		}
+		if !t.Understood {
+			unread++
+			continue
+		}
+		if t.To == "" || !in[t.To] || added >= maxGraphEdges {
+			continue
+		}
+		edges = append(edges, graphEdge{Kind: graphEdgeSent, From: t.From, To: t.To, Time: t.Time.Format(time.RFC3339)})
+		added++
+	}
+	return edges, unread
 }

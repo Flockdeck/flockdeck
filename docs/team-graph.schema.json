@@ -12,11 +12,12 @@
     "project": { "type": "string", "description": "The project's name as the project switcher shows it (stored by the workspace). Empty when the workspace has no name for the project." },
     "teams": { "type": "array", "items": { "$ref": "#/$defs/team" }, "description": "One entry for each team, in the order of their root panes in the tabs (derived). A team is a root pane that has children or the manager role, with every pane below it. Empty, never absent, when the project has none." },
     "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" }, "description": "One entry for each pane of the project, shells included, in the order the tabs show them (derived). A pane id appears once." },
-    "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" }, "description": "A spawn edge for each pane whose parent is open, then the last 100 messages between two panes of the project, newest first (stored: the inboxes). Messages from the person or from Flockdeck have no sending pane and are not edges." },
+    "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" }, "description": "A spawn edge for each pane whose parent is open, then the last 100 messages between two panes of the project, newest first (stored: the inboxes), then the last 100 SendMessage calls seen between two of its panes, newest first (stored: in memory). Messages from the person or from Flockdeck have no sending pane and are not edges." },
     "solo": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The ids of the panes in no team: a lone agent, a shell, a pane the person opened (derived). Empty, never absent." },
     "soloNeeds": { "type": "array", "items": { "$ref": "#/$defs/needsItem" }, "description": "What needs the person among the solo panes, most urgent first, at most 50 (derived). Empty, never absent." },
     "soloNeedsHidden": { "type": "integer", "minimum": 1, "description": "How many solo items the bound of 50 cut. Absent when none were." },
     "panesHidden": { "type": "integer", "minimum": 1, "description": "How many panes the bound of 500 nodes cut (derived). Absent when none were." },
+    "sendMessageUnread": { "type": "integer", "minimum": 1, "description": "How many SendMessage calls of the project's panes were seen and not understood (stored: the last 200 calls seen, in memory), so their arrows are missing. Absent when none were." },
     "boardError": { "type": "string", "minLength": 1, "description": "Why the task board could not be read (stored: the board file). Absent when it could. Task chips, waiting-on for tasks and returned items are then missing from the graph." }
   },
   "$defs": {
@@ -111,16 +112,17 @@
       "required": ["kind", "from", "to"],
       "description": "A link between two panes of the project.",
       "properties": {
-        "kind": { "enum": ["spawn", "message"], "description": "spawn goes from a parent to a helper it started; message from the sender to the pane whose inbox it went to. Always written." },
+        "kind": { "enum": ["spawn", "message", "sent"], "description": "spawn goes from a parent to a helper it started; message from the sender to the pane whose inbox it went to; sent from a Claude session to the pane its SendMessage call named. A sent edge is read from the sender's hook and is only ever sent: Flockdeck does not carry that message and cannot say it was read. Always written." },
         "from": { "type": "string", "minLength": 1, "description": "A pane id. Always written." },
         "to": { "type": "string", "minLength": 1, "description": "A pane id. Always written." },
         "id": { "type": "integer", "minimum": 1, "description": "The message's id in its inbox (stored). Written for message edges only." },
-        "time": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When the message was sent, RFC 3339 (stored). Written for message edges only." },
+        "time": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When the message was sent, RFC 3339 (stored). Written for message and sent edges only." },
         "text": { "type": "string", "description": "The first non-empty line of the message, cleaned of control characters and cut to 140 characters (derived). Written for message edges only; absent when the message has no text." },
         "delivery": { "enum": ["queued", "notified", "woken", "read"], "description": "The newest delivery state of the message (stored): queued when it is in the inbox, notified when the hook notice of it was given, woken when a line was typed into the pane for it, read when the agent ran inbox read. A state counts as newer by this order, not by when it was marked. Written for message edges only." }
       },
       "allOf": [
-        { "if": { "properties": { "kind": { "const": "message" } } }, "then": { "required": ["id", "time", "delivery"] } }
+        { "if": { "properties": { "kind": { "const": "message" } } }, "then": { "required": ["id", "time", "delivery"] } },
+        { "if": { "properties": { "kind": { "const": "sent" } } }, "then": { "required": ["time"], "not": { "anyOf": [{ "required": ["id"] }, { "required": ["text"] }, { "required": ["delivery"] }] } } }
       ]
     },
     "needsItem": {

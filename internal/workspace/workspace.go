@@ -757,6 +757,9 @@ func (w *Workspace) handleHook(ev hooks.Event) {
 	// how a /clear or a resume is noticed as soon as it happens rather than
 	// on the next fallback poll.
 	w.wakeConversation(paneID)
+	if p != nil {
+		w.tapSendMessage(paneID, ev)
+	}
 	if sess == nil {
 		return
 	}

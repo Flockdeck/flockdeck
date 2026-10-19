@@ -267,7 +267,7 @@ func TestSchemaEnumsAreTheGoConstants(t *testing.T) {
 		{"needsItem", "kind", []string{team.NeedPermission, team.NeedAsk, team.NeedReturned, team.NeedConflict, team.NeedDown, team.NeedStaleUnread}},
 		{"waitingOn", "kind", []string{team.WaitUser, team.WaitDown, team.WaitReviewer, team.WaitTask, team.WaitHelpers, team.WaitNone}},
 		{"taskChip", "state", states},
-		{"edge", "kind", []string{graphEdgeSpawn, graphEdgeMessage}},
+		{"edge", "kind", []string{graphEdgeSpawn, graphEdgeMessage, graphEdgeSent}},
 		{"node", "kind", []string{graphKindTerminal, graphKindStructured}},
 		{"permissionOption", "id", permissionOptionIDs()},
 		{"permissionOption", "kind", permissionOptionKinds()},

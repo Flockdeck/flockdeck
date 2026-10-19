@@ -48,6 +48,8 @@ type teamState struct {
 	// directory it is kept in. evMu orders the writes of its file.
 	events *team.EventLog
 	evMu   sync.Mutex
+	// taps are the SendMessage calls Claude sessions made, seen in their hooks.
+	taps team.TapLog
 
 	// saveMu makes taking a snapshot and writing it one step, so an older
 	// snapshot cannot be written after a newer one.
