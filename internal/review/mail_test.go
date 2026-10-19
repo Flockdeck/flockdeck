@@ -30,7 +30,6 @@ func TestMailReadAllowsTheExactForms(t *testing.T) {
 		"flockdeck inbox read 123456789",
 		"flockdeck inbox read 000000001",
 		"flockdeck inbox read -json 7",
-		"flockdeck inbox read 7 -json",
 	} {
 		d := MailRead("Bash", bashInput(t, cmd), dir)
 		if !d.Allow || d.Reason != "allow: reading Flockdeck mail" {
@@ -68,6 +67,7 @@ func TestMailReadRefuses(t *testing.T) {
 		"unicode digit id":     "flockdeck inbox read ١",
 		"no id":                "flockdeck inbox read",
 		"no id with json":      "flockdeck inbox read -json",
+		"json after the id":    "flockdeck inbox read 7 -json",
 		"id for the list form": "flockdeck inbox 12",
 		"follow":               "flockdeck inbox -follow",
 		"wait":                 "flockdeck inbox -wait 30s",
@@ -158,7 +158,7 @@ func TestMailReadChecksTheDirectory(t *testing.T) {
 
 	// A planted program of that name, of any kind a shell would run, in the
 	// directory the command runs in.
-	for _, name := range plantable {
+	for _, name := range []string{"flockdeck", "flockdeck.exe", "flockdeck.cmd", "flockdeck.bat", "flockdeck.com", "flockdeck.ps1", "flockdeck.vbs", "flockdeck.js", "flockdeck.wsf", "flockdeck.msc", "flockdeck.sh", "flockdeck.", "FLOCKDECK", "FlockDeck.EXE", "flockdeck.tar.gz"} {
 		planted := t.TempDir()
 		if err := os.WriteFile(filepath.Join(planted, name), []byte("#!/bin/sh\n"), 0o700); err != nil {
 			t.Fatal(err)
@@ -188,5 +188,19 @@ func TestMailReadIsSeparateFromDecide(t *testing.T) {
 	}
 	if d := MailRead("Bash", bashInput(t, "cat file"), dir); d.Allow {
 		t.Error("MailRead allowed cat")
+	}
+}
+
+// Names that only look like the program are not planted programs.
+func TestMailReadAllowsDirectoriesWithOnlyLookalikes(t *testing.T) {
+	in := bashInput(t, "flockdeck inbox")
+	dir := t.TempDir()
+	for _, name := range []string{"flockdecks", "my-flockdeck.exe", "flockdeck-notes.md", "notflockdeck", "flock.deck"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d := MailRead("Bash", in, dir); !d.Allow {
+		t.Error("a directory with only lookalike names was refused")
 	}
 }

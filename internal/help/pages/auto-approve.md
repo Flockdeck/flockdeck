@@ -73,14 +73,15 @@ on, and it does not count towards the pane's auto-approved calls. Only these
 forms are allowed, written exactly so:
 
 - `flockdeck inbox`, with `-all` and `-json` each at most once
-- `flockdeck inbox read <id>`, with `-json` at most once and an id of one to
-  nine digits
+- `flockdeck inbox read <id>`, with `-json` before the id if you want it, and an
+  id of one to nine digits
 
 Anything else is asked about as usual: `-wait`, `-follow`, any other flag or
 extra word, sending a message (`flockdeck msg send`), every other subcommand,
 a path to the program (`./flockdeck`), a variable set in front of it, a pipe,
 a quote, or a command over 4 KiB. It is also asked about when the folder the
-command runs in holds a file called `flockdeck`, since the shell could run that
+command runs in holds a file whose name starts with `flockdeck` (`flockdeck`,
+`flockdeck.ps1` and so on, in any letter case), since the shell could run that
 instead. Words must be separated by single spaces.
 
 This works for agents that report their tool calls to Flockdeck (Claude Code)

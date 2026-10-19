@@ -2,7 +2,6 @@ package review
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,13 +9,6 @@ import (
 
 // mailReadReason is the reason an allowed mail read carries.
 const mailReadReason = "allow: reading Flockdeck mail"
-
-// plantable are the names a program called flockdeck could have in a
-// directory. On Windows the shell looks in the working directory before PATH,
-// and tries each of the executable extensions.
-var plantable = []string{
-	"flockdeck", "flockdeck.exe", "flockdeck.com", "flockdeck.cmd", "flockdeck.bat",
-}
 
 // MailRead decides whether a PreToolUse call is the reading of Flockdeck mail
 // and nothing else, which an agent may do in any pane whatever its
@@ -40,7 +32,12 @@ var plantable = []string{
 // The command runs in cwd, and the word flockdeck is looked up from there by
 // some shells before PATH. A directory holding a program of that name (an
 // agent can write one) would make the command run it, so cwd must be given
-// and must not hold one. A directory that cannot be read is refused as well.
+// and must not hold one: no entry may be named flockdeck, or start with
+// "flockdeck.", in any letter case, whatever the extension. A directory that
+// cannot be read is refused as well.
+//
+// This covers cwd only. It does not cover a "." or relative entry in PATH, and
+// it is checked when the hook fires, not when the command runs.
 func MailRead(tool, toolInputJSON, cwd string) Decision {
 	if tool != "Bash" || toolInputJSON == "" {
 		return ask
@@ -103,20 +100,17 @@ func mailListForm(args []string) bool {
 	return true
 }
 
-// mailReadForm accepts one id and, before or after it, -json at most once.
+// mailReadForm accepts one id, with -json before it if wanted. The program's
+// flag parsing stops at the first word that is not a flag, so -json after the
+// id is a usage error and is not accepted.
 func mailReadForm(args []string) bool {
-	var asJSON, haveID bool
-	for _, a := range args {
-		switch {
-		case a == "-json" && !asJSON:
-			asJSON = true
-		case isMailID(a) && !haveID:
-			haveID = true
-		default:
-			return false
-		}
+	switch len(args) {
+	case 1:
+		return isMailID(args[0])
+	case 2:
+		return args[0] == "-json" && isMailID(args[1])
 	}
-	return haveID
+	return false
 }
 
 // isMailID reports whether s is one to nine ASCII digits.
@@ -141,9 +135,18 @@ func cwdHoldsNoFlockdeck(cwd string) bool {
 	if fi, err := os.Stat(cwd); err != nil || !fi.IsDir() {
 		return false
 	}
-	for _, name := range plantable {
-		_, err := os.Lstat(filepath.Join(cwd, name))
-		if err == nil || !errors.Is(err, os.ErrNotExist) {
+	d, err := os.Open(cwd)
+	if err != nil {
+		return false
+	}
+	defer d.Close()
+	names, err := d.Readdirnames(-1)
+	if err != nil {
+		return false
+	}
+	for _, name := range names {
+		n := strings.ToLower(name)
+		if n == "flockdeck" || strings.HasPrefix(n, "flockdeck.") {
 			return false
 		}
 	}
