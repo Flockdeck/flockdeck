@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // Prefs is what the interface remembers about the person using it, as opposed
@@ -104,6 +105,11 @@ type Prefs struct {
 	// relay reports. A device not listed is full. Read it with AccessFor, and
 	// never send it to a window: see ForWindow.
 	Devices map[string]DeviceAccess `json:"devices,omitempty"`
+	// Knowledge is, per project root (as MetaKey spells it), whether the pane
+	// briefing points agents at the project's knowledge bundle: "on" or "off".
+	// A project with no entry gets the default, which depends on whether its
+	// repository is known to be private. Set by `flockdeck knowledge`.
+	Knowledge map[string]string `json:"knowledge,omitempty"`
 
 	// extra is every top-level key the file held that this build does not
 	// know, as it was written. A newer build's setting would otherwise go at
@@ -284,4 +290,89 @@ func SavePrefs(p Prefs) error {
 		return fmt.Errorf("write prefs: %w", err)
 	}
 	return nil
+}
+
+// Knowledge states for a project's bundle pointer. See KnowledgeSetting.
+const (
+	KnowledgeOn  = "on"
+	KnowledgeOff = "off"
+)
+
+// KnowledgeSetting is what the user has said about pointing a project's agents
+// at its knowledge bundle (.flockdeck/knowledge): KnowledgeOn, KnowledgeOff, or
+// empty when they have not said. The default is worked out elsewhere, from
+// whether the repository is known to be private. root is the project root.
+func (p Prefs) KnowledgeSetting(root string) string {
+	return p.Knowledge[MetaKey(root)]
+}
+
+// SetKnowledge records the user's answer for a project and reports whether
+// that changed anything. The map is replaced rather than written into, because
+// a Prefs is copied by value and the copies share it.
+func (p *Prefs) SetKnowledge(root, state string) bool {
+	if state != KnowledgeOn && state != KnowledgeOff {
+		return false
+	}
+	key := MetaKey(root)
+	if p.Knowledge[key] == state {
+		return false
+	}
+	next := make(map[string]string, len(p.Knowledge)+1)
+	for k, v := range p.Knowledge {
+		next[k] = v
+	}
+	next[key] = state
+	p.Knowledge = next
+	return true
+}
+
+// prefsUpdate serialises UpdatePrefs within a process.
+var prefsUpdate sync.Mutex
+
+// UpdatePrefs reads the preferences, lets change alter them, and writes them
+// back when it reports a change. The read and the write are one step as far as
+// the other callers of UpdatePrefs in this process go, so a background lookup
+// and a command handler cannot overwrite each other's change. A separate
+// process, such as `flockdeck knowledge`, is not excluded; the window between
+// its read and its write is the same one every other command that edits this
+// file has.
+func UpdatePrefs(change func(*Prefs) bool) error {
+	prefsUpdate.Lock()
+	defer prefsUpdate.Unlock()
+	p, err := ReadPrefs()
+	if err != nil {
+		return fmt.Errorf("the preferences could not be read, so nothing was changed: %w", err)
+	}
+	if !change(&p) {
+		return nil
+	}
+	return SavePrefs(p)
+}
+
+// ProjectContaining returns the root of the open or recent project that dir is
+// in or is, the longest such root when there are several, and false when it is
+// in none. It is how a command run in a directory finds the project the window
+// keys its settings by, which is the folder the project was opened as: a
+// folder holding several repositories, or a subdirectory, is not the root of
+// any one repository.
+func ProjectContaining(dir string) (string, bool) {
+	list, err := Recents()
+	if err != nil {
+		return "", false
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", false
+	}
+	d := normalizeRoot(abs)
+	best, bestLen := "", -1
+	for _, p := range list {
+		r := normalizeRoot(p.Root)
+		if r == d || strings.HasPrefix(d, strings.TrimRight(r, string(filepath.Separator))+string(filepath.Separator)) {
+			if len(r) > bestLen {
+				best, bestLen = p.Root, len(r)
+			}
+		}
+	}
+	return best, bestLen >= 0
 }

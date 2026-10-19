@@ -148,6 +148,10 @@ type PaneContext struct {
 	// reports its lifecycle through hooks.
 	Notified bool
 
+	// KnowledgeDir is the project's knowledge bundle in this pane's own checkout,
+	// when the briefing should point at it. See knowledgeDir.
+	KnowledgeDir string
+
 	// Taken is when the snapshot was made. It is written out only for an agent
 	// briefed through its opening prompt, because that briefing arrives once
 	// and is never replaced: everything below it is true of the moment the
@@ -321,6 +325,9 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 	}
 	sort.Strings(c.OtherProjects)
 
+	if !c.Shell && p.IsAgent() && c.Cwd != "" {
+		c.KnowledgeDir = w.knowledgeDir(paneID, c.Cwd, c.ProjectRoot)
+	}
 	if p.IsAgent() && p.Agent != "" {
 		if spec, ok := w.agents().Find(p.Agent); ok && spec.Caps.Hooks {
 			c.Notified = true

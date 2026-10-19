@@ -133,5 +133,7 @@ func (p Prefs) WithAccess(deviceID string, a DeviceAccess) (Prefs, bool) {
 // paired or how they are limited.
 func (p Prefs) ForWindow() Prefs {
 	p.Devices = nil
+	// Project paths are not something a window needs for this.
+	p.Knowledge = nil
 	return p
 }
