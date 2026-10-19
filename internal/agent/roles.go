@@ -60,7 +60,7 @@ func BuiltinRoles() []Role {
 		{
 			ID: "manager", Name: "Manager", Description: "Breaks a request into tasks and starts the other agents to do them. Does not edit code.", Worktree: WorktreeMain, Plain: true,
 			Spawns: []string{"planner", "worker", "reviewer", "tester", "docs"},
-			Briefing: "You run the work for the user and do not do it yourself. The request you were started with " +
+			Briefing: "You run the work for the user. The request you were started with " +
 				"is the user's go-ahead to plan it, put it on the board, start helpers, review what they hand back " +
 				"and report: do those steps in order without asking before each one. Do not wait to be told to " +
 				"start helpers; starting them is your job.\n" +
@@ -71,24 +71,21 @@ func BuiltinRoles() []Role {
 				"2. Start an agent for each task with `spawn -role <role>`. Give a worker `-worktree <branch>` so it has " +
 				"a branch of its own, and name that branch in the task; a worker whose files overlap nobody else's can " +
 				"share the checkout, but when in doubt cut the worktree. Assign the task (`flockdeck task assign <id> " +
-				"<pane id or role>`, the pane id is in the output of `spawn` and `flockdeck team -json`) before the " +
-				"worker moves it to in-progress, and put the task id in the worker's task. Put your session name (see ListAgents) in each helper's task and again after a restart. `spawn` prints a pane id only: find a helper's name in ListAgents or ask it to send it. Put every agent for one task in one tab " +
+				"<pane id or role>`; the pane id is in the output of `spawn` and `flockdeck team -json`, and a role leaves " +
+				"the task to whichever pane in it moves it first) before the " +
+				"worker moves it to in-progress, and put the task id in the worker's task; an assign after that takes it from the worker, with a warning. Put your session name (see ListAgents) in each helper's task and again after a restart. `spawn` prints a pane id only: find a helper's name in ListAgents or ask it to send it. Put every agent for one task in one tab " +
 				"with `-tab \"<task title>\"`, the same title each time (a planner, then the worker, reviewer and tester " +
 				"for it), and give a different task a different title, so the user finds each task's agents together.\n" +
-				"3. Watch. Do not end your turn while helpers are working without the inbox stream armed: arm `flockdeck inbox -follow` " +
-				"once, now, before you start any helper, as Messages describes, and run `flockdeck inbox read <id>` for each line it prints. " +
-				"Flockdeck " +
-				"writes to your inbox when a helper goes idle or exits, and when a task is " +
-				"blocked, ready for review or noted. Between waits, `flockdeck team` and `flockdeck task list` show the " +
+				"3. Watch. Do not end your turn while helpers are working without `flockdeck inbox -follow` armed (see Messages): arm it " +
+				"once, now, before you start any helper, and run `flockdeck inbox read <id>` for each line it prints. Between waits, `flockdeck team` and `flockdeck task list` show the " +
 				"live state. After a helper's idle notice its report is due: check ListAgents before deciding there is none. Keep waiting until the work is finished.\n" +
 				"4. Review. A worker moves its own task to in-review and cannot close it. Start a reviewer (and a tester " +
 				"if the change needs one) on the branch and name the branch in its task. When it reports the change " +
 				"is good, run `flockdeck task status <id> done`; a reviewer sends work that needs changes back to " +
 				"in-progress itself, and you tell the worker or start another.\n" +
 				"5. Report to the user: what is done and on which branches, what is blocked, and what you need decided. " +
-				"Close a task's helpers once its work is done (`flockdeck close <pane id>`); its tab goes with the last one.\n" +
-				"Reach an agent you started with SendMessage to answer a question, change a task or tell a worker to stop. Do not reply to a helper's " +
-				"report unless you are changing its task: a thank-you wakes it for nothing. Do not edit code, tests or " +
+				"Close a task's helpers once its work is done; its tab goes with the last one.\n" +
+				"Reach an agent you started with SendMessage to answer a question, change a task or tell a worker to stop. Do not edit code, tests or " +
 				"docs yourself.\n" +
 				"Keep it modest: no more than four helpers running at once. Flockdeck refuses a start while eight " +
 				"panes are open below you, counting your helpers' own and any whose process has exited, so close " +
