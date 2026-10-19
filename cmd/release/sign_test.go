@@ -140,6 +140,37 @@ func testSigning(t *testing.T, out string) (signing, ed25519.PublicKey) {
 	}, pub
 }
 
+// Notes with quotes, a backslash, a newline and non-ASCII text come out of the
+// signed manifest as they went in.
+func TestSignKeepsAwkwardNotesIntact(t *testing.T) {
+	want := "# Flockdeck v9.9.9\n\nThe \"Fan out\" row is gone; C:\\Users\\x stays.\n\n- caf\u00e9, \u65e5\u672c\u8a9e, \u2192 done"
+	out := fakeRelease(t, "v9.9.9")
+	notes := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(notes, []byte(want+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, pub := testSigning(t, out)
+	s.notes = notes
+	if err := runSign(s); err != nil {
+		t.Fatalf("runSign: %v", err)
+	}
+	mdata, err := os.ReadFile(filepath.Join(out, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	msig, err := os.ReadFile(filepath.Join(out, "manifest.json.sig"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := selfupdate.CheckManifest([]ed25519.PublicKey{pub}, mdata, msig)
+	if err != nil {
+		t.Fatalf("the updater refuses the manifest: %v", err)
+	}
+	if m.Notes != want {
+		t.Errorf("notes = %q, want %q", m.Notes, want)
+	}
+}
+
 // What -sign writes is exactly what the updater accepts: a manifest signed by
 // the key, listing every archive, checksums.txt and its signature with the
 // site's URL, SHA-256 and size of each; a checksums.txt.sig that is the key's

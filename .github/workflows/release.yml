@@ -281,29 +281,21 @@ jobs:
       # published anywhere, and a missing key stops the run before GitHub
       # has a release every copy would refuse.
       #
-      # The notes GitHub generates go into the manifest, so the update chip
-      # shows them as it did when the updater read them from GitHub. They are
-      # generated here, before the release exists, and the release is made
-      # with the same notes; a release being published again keeps its own.
-      # Only GitHub's answer that there is no such release counts as there
-      # being none. Any other failure to ask stops the run: taken for none, a
-      # release published before would be given fresh notes, and below it
-      # would be created again.
+      # The notes go into the manifest, so the update chip shows them: the
+      # customer notes in docs/releases/$TAG.md, checked out with the tag.
+      # A candidate has no such file and gets the notes GitHub generates from
+      # pull request titles. The release is made with the same notes; a
+      # release being published again keeps its own. See
+      # .github/scripts/release-notes.sh. The notes are text inside the
+      # manifest, so signing is unchanged.
       - name: Sign
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
+          OUT: ${{ runner.temp }}/notes.md
           FLOCKDECK_SIGNING_KEY: ${{ secrets.FLOCKDECK_SIGNING_KEY }}
         run: |
-          if gh release view "$TAG" --json body --jq .body > "$RUNNER_TEMP/notes.md" 2> "$RUNNER_TEMP/gh.err"; then
-            echo "$TAG is already released on GitHub, and keeps its notes"
-          elif grep -Eq 'release not found|HTTP 404' "$RUNNER_TEMP/gh.err"; then
-            gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$TAG" --jq .body > "$RUNNER_TEMP/notes.md"
-          else
-            cat "$RUNNER_TEMP/gh.err" >&2
-            echo "::error::could not ask GitHub whether $TAG is released already, so nothing has been signed or published"
-            exit 1
-          fi
+          .github/scripts/release-notes.sh
           go run ./cmd/release -sign -version "$TAG" -out dist -notes "$RUNNER_TEMP/notes.md"
 
       # gh is already on the runner, so the release is made without a

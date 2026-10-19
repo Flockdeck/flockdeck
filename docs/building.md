@@ -117,7 +117,10 @@ in `internal/webui/assets/vendor/` from the `@xterm/xterm`, `@xterm/addon-fit`,
 
 Pushing a tag such as `v1.2.3` cuts a release. The tag is the version. Before you
 push it, add `docs/releases/v1.2.3.md`: the release workflow stops with an error when
-that notes file is missing. The workflow vets and tests, builds all six platforms,
+that notes file is missing. Its contents are the notes the update chip shows and the
+GitHub release carries.
+A `-rc.` pre-release without one gets GitHub's generated notes instead.
+The workflow vets and tests, builds all six platforms,
 publishes them on GitHub, signs them and uploads them to `dl.flockdeck.ai`
 (`scripts/publish-downloads.sh`). A tag with a suffix, such as `v1.2.3-rc.1`, is a
 pre-release. It is published under its own version and never becomes the latest.
