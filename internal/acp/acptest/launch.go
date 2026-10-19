@@ -85,3 +85,8 @@ func volumeRoot() string {
 	}
 	return ""
 }
+
+// WithMute makes the agent read everything and answer nothing.
+func WithMute() Option {
+	return func(l *launch) { l.env = append(l.env, envMute+"=1") }
+}

@@ -20,6 +20,15 @@
 //	stderr      1 MiB on stderr, then plain
 //	hold-perm   asks for permission and writes the outcome to the marker file
 //	exit        exits with status 3 and a message on stderr, mid-turn
+//	garbage     a line that is not JSON, a response to nothing, a malformed update, a second response
+//	unknown-method  a request for fs/read_text_file, reports the error code it got back
+//	silent      never answers
+//	flood       a stdout line with no end
+//	stderr-flood  4 MiB on stderr in one line, then plain
+//	spam-perm   fifty permission requests at once, reports how many were answered
+//	deaf-perm   asks for permission and stops reading stdin
+//
+// WithMute makes an agent that reads and never answers.
 //
 // Authentication is switched on with WithAuth.
 package acptest
@@ -33,6 +42,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -40,6 +50,7 @@ const (
 	envAgent  = "FLOCKDECK_ACPTEST_AGENT"
 	envAuth   = "FLOCKDECK_ACPTEST_AUTH"
 	envMarker = "FLOCKDECK_ACPTEST_MARKER"
+	envMute   = "FLOCKDECK_ACPTEST_MUTE"
 )
 
 // RunIfAgent runs the fake agent and returns true when this process was
@@ -57,10 +68,12 @@ type agent struct {
 	omu sync.Mutex
 
 	mu         sync.Mutex
-	waiters    map[string]chan json.RawMessage // request id (raw) -> its response
-	responses  map[string]int                  // request id (raw) -> responses seen
+	waiters    map[string]chan msg // request id (raw) -> its response
+	responses  map[string]int      // request id (raw) -> responses seen
 	cancels    chan struct{}
 	turns      sync.WaitGroup
+	deaf       atomic.Bool
+	mute       bool
 	authed     bool
 	reqSeq     int
 	authMode   string
@@ -70,10 +83,11 @@ type agent struct {
 func newAgent() *agent {
 	return &agent{
 		out:        bufio.NewWriterSize(os.Stdout, 1<<16),
-		waiters:    map[string]chan json.RawMessage{},
+		waiters:    map[string]chan msg{},
 		responses:  map[string]int{},
 		cancels:    make(chan struct{}, 8),
 		authMode:   os.Getenv(envAuth),
+		mute:       os.Getenv(envMute) == "1",
 		markerPath: os.Getenv(envMarker),
 	}
 }
@@ -115,7 +129,16 @@ func (a *agent) chunk(sid, s string) {
 func (a *agent) run() {
 	br := bufio.NewReaderSize(os.Stdin, 1<<20)
 	for {
+		if a.deaf.Load() {
+			time.Sleep(time.Hour) // stops reading stdin, as a wedged agent does (a bare select would trip the deadlock detector)
+		}
 		line, err := br.ReadBytes('\n')
+		if a.mute {
+			if err != nil {
+				return
+			}
+			continue
+		}
 		if len(bytes.TrimSpace(line)) > 0 {
 			var m msg
 			if json.Unmarshal(line, &m) == nil {
@@ -147,7 +170,7 @@ func (a *agent) handle(m msg) {
 		a.mu.Unlock()
 		if ch != nil {
 			select {
-			case ch <- m.Result:
+			case ch <- m:
 			default:
 			}
 		}
@@ -200,6 +223,9 @@ func (a *agent) handle(m msg) {
 		a.reqSeq++
 		n := a.reqSeq
 		a.mu.Unlock()
+		if strings.HasPrefix(promptText(m.Params), "deaf-perm") {
+			a.deaf.Store(true)
+		}
 		a.turns.Add(1)
 		go func() {
 			defer a.turns.Done()
@@ -216,8 +242,8 @@ func (a *agent) needsAuth(at string) bool {
 
 // askPermission sends a session/request_permission and returns the request's
 // key and the channel its response arrives on.
-func (a *agent) askPermission(sid string, id json.RawMessage) chan json.RawMessage {
-	ch := make(chan json.RawMessage, 1)
+func (a *agent) askPermission(sid string, id json.RawMessage) chan msg {
+	ch := make(chan msg, 1)
 	a.mu.Lock()
 	a.waiters[string(id)] = ch
 	a.mu.Unlock()
@@ -238,6 +264,20 @@ type outcome struct {
 		Outcome  string `json:"outcome"`
 		OptionID string `json:"optionId"`
 	} `json:"outcome"`
+}
+
+// promptText is the text of a session/prompt's first block.
+func promptText(params json.RawMessage) string {
+	var p struct {
+		Prompt []struct {
+			Text string `json:"text"`
+		} `json:"prompt"`
+	}
+	_ = json.Unmarshal(params, &p)
+	if len(p.Prompt) == 0 {
+		return ""
+	}
+	return p.Prompt[0].Text
 }
 
 func (a *agent) prompt(id, params json.RawMessage, n int) {
@@ -289,7 +329,7 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 			rid = json.RawMessage(strconv.Itoa(1000 + n))
 		}
 		a.update(sid, map[string]any{"sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Write notes.txt", "kind": "edit", "status": "pending"})
-		raw := <-a.askPermission(sid, rid)
+		raw := (<-a.askPermission(sid, rid)).Result
 		var o outcome
 		_ = json.Unmarshal(raw, &o)
 		switch o.Outcome.OptionID {
@@ -375,13 +415,85 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 
 	case "hold-perm":
 		ch := a.askPermission(sid, json.RawMessage(strconv.Itoa(3000+n)))
-		raw := <-ch
+		raw := (<-ch).Result
 		var o outcome
 		_ = json.Unmarshal(raw, &o)
 		if a.markerPath != "" {
 			_ = os.WriteFile(a.markerPath, []byte(o.Outcome.Outcome+" "+o.Outcome.OptionID), 0o600)
 		}
 		done("cancelled")
+
+	case "garbage":
+		// Lines a client must survive: not JSON, a response to a request it
+		// never made, a malformed update, and (after the real one) a second
+		// response to the prompt.
+		a.omu.Lock()
+		a.out.WriteString("this is not json\n")
+		a.out.Flush()
+		a.omu.Unlock()
+		a.send(map[string]any{"jsonrpc": "2.0", "id": 99999, "result": map[string]any{}})
+		a.send(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": "not an object"})
+		a.chunk(sid, "after garbage")
+		done("end_turn")
+		done("end_turn")
+
+	case "unknown-method":
+		// An agent-to-client request the client does not implement.
+		ch := make(chan msg, 1)
+		a.mu.Lock()
+		a.waiters[`"m1"`] = ch
+		a.mu.Unlock()
+		a.send(map[string]any{"jsonrpc": "2.0", "id": "m1", "method": "fs/read_text_file", "params": map[string]any{"sessionId": sid, "path": "/x"}})
+		r := <-ch
+		var e struct {
+			Code int `json:"code"`
+		}
+		_ = json.Unmarshal(r.Error, &e)
+		a.chunk(sid, "unknown-method error="+strconv.Itoa(e.Code))
+		done("end_turn")
+
+	case "silent":
+		select {} // never answers
+
+	case "flood":
+		// A line with no end.
+		a.omu.Lock()
+		chunk := strings.Repeat("x", 1<<20)
+		a.out.WriteString(`{"jsonrpc":"2.0","method":"x","params":"`)
+		for i := 0; i < 4; i++ {
+			a.out.WriteString(chunk)
+		}
+		a.out.Flush()
+		a.omu.Unlock()
+		select {}
+
+	case "stderr-flood":
+		// Four MiB on stderr in one line, then a normal turn.
+		fmt.Fprint(os.Stderr, strings.Repeat("e", 4<<20)+"\n")
+		a.chunk(sid, "after stderr flood")
+		done("end_turn")
+
+	case "spam-perm":
+		// Fifty permission requests at once.
+		for i := 0; i < 50; i++ {
+			a.askPermission(sid, json.RawMessage(strconv.Itoa(5000+i)))
+		}
+		time.Sleep(700 * time.Millisecond)
+		a.mu.Lock()
+		answered := len(a.responses)
+		a.mu.Unlock()
+		a.chunk(sid, "answered="+strconv.Itoa(answered))
+		select {
+		case <-a.cancels:
+			done("cancelled")
+		case <-time.After(30 * time.Second):
+			done("end_turn")
+		}
+
+	case "deaf-perm":
+		// Asks for permission; handle() has already stopped reading stdin.
+		a.askPermission(sid, json.RawMessage(strconv.Itoa(4000+n)))
+		select {}
 
 	case "exit":
 		fmt.Fprintln(os.Stderr, "acptest: exiting on request")
