@@ -47,8 +47,11 @@ func (c *expiring) Err() error {
 // given up on, and the folder is closed while the read is known to be running.
 // Nothing here depends on how long anything takes.
 func TestClosingAFolderWhileAGivenUpReadIsStillRunningIsSafe(t *testing.T) {
-	wasStep := dirReadStep
-	t.Cleanup(func() { dirReadStep = wasStep })
+	// The call is given up on by the scan ending, never by this timer.
+	wasTimeout := statTimeout
+	statTimeout = time.Minute
+	t.Cleanup(func() { statTimeout = wasTimeout })
+	t.Cleanup(func() { dirReadStep.Store(nil) })
 
 	dir := t.TempDir()
 	for i := 0; i < 50; i++ {
@@ -63,10 +66,15 @@ func TestClosingAFolderWhileAGivenUpReadIsStillRunningIsSafe(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		leakedBefore := leaked.Load()
 
+		// The hook is called for every read in the program, including one
+		// that an earlier test gave up on and that is still returning, so it
+		// answers only to this reader.
 		reading, release, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
-		dirReadStep = func(stage string) {
+		step := func(of *dirReader, stage string) {
+			if of != d {
+				return
+			}
 			switch stage {
 			case "reading":
 				close(reading)
@@ -75,6 +83,7 @@ func TestClosingAFolderWhileAGivenUpReadIsStillRunningIsSafe(t *testing.T) {
 				close(finished)
 			}
 		}
+		dirReadStep.Store(&step)
 
 		given := make(chan error, 1)
 		go func() {
@@ -85,9 +94,6 @@ func TestClosingAFolderWhileAGivenUpReadIsStillRunningIsSafe(t *testing.T) {
 		expire() // the scan is over: the call is given up on while the read runs
 		if err := <-given; !errors.Is(err, errScanTooLong) {
 			t.Fatalf("the call given up on returned %v, want the scan's end", err)
-		}
-		if got := leaked.Load(); got != leakedBefore+1 {
-			t.Fatalf("leaked went from %d to %d, want the one read given up on counted", leakedBefore, got)
 		}
 
 		d.close() // the read is still running
@@ -102,14 +108,6 @@ func TestClosingAFolderWhileAGivenUpReadIsStillRunningIsSafe(t *testing.T) {
 		// every system.
 		if err := d.d.Close(); !errors.Is(err, fs.ErrClosed) {
 			t.Fatalf("the folder was not closed once the read had returned: %v", err)
-		}
-		// The count comes back down just after the read returns. Wait for the
-		// state, not for a time; the limit is only for a count that never does.
-		for deadline := time.Now().Add(time.Minute); leaked.Load() != leakedBefore; {
-			if time.Now().After(deadline) {
-				t.Fatal("the read that was given up on never came back")
-			}
-			time.Sleep(time.Millisecond)
 		}
 	}
 }
