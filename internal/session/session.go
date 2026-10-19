@@ -14,6 +14,7 @@ import (
 	"github.com/aymanbagabas/go-pty"
 
 	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/proctree"
 )
 
 // Kind distinguishes an agent pane from a plain shell pane.
@@ -140,7 +141,7 @@ type Session struct {
 	cmd *pty.Cmd
 	// tree is what closing the pane ends besides its own process: see
 	// endTree.
-	tree procTree
+	tree *proctree.Tree
 
 	// OnChange is invoked (often from a reader goroutine) whenever the session
 	// changes state. It must be cheap and must not call back into the session.
@@ -383,7 +384,7 @@ func Start(cfg Config) (*Session, error) {
 		return nil, fmt.Errorf("start %s: %w", cfg.Argv[0], err)
 	}
 	s.cmd = cmd
-	s.tree = containTree(cmd.Process.Pid)
+	s.tree = proctree.Contain(cmd.Process.Pid)
 
 	go s.pumpOutput()
 	go s.wait()
