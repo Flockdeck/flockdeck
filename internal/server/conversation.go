@@ -178,21 +178,29 @@ type conversationDetailMsg struct {
 // refused exactly like an unknown pane anywhere else in the control
 // protocol: silently, since a client that could not see the pane is not told
 // anything about why.
+//
+// exists is true for a pane the workspace has, whether or not it runs an
+// agent. A shell is a pane that exists with no spec: found is false for it
+// too, but a window that asked about it has the pane in front of it and is
+// owed an answer. Only an id the workspace does not hold is answered with
+// nothing, so a client probing for ids learns nothing about ones it lacks.
 type resolvedPane struct {
 	spec      agent.Spec
 	sessionID string
 	found     bool
+	exists    bool
 }
 
 // resolvePane reads a pane's agent and conversation id on the workspace
 // goroutine, which PaneAgentSpec must run on.
 func (s *Server) resolvePane(paneID string) resolvedPane {
 	r, ok := ask(s, func() resolvedPane {
+		exists := s.ws.Pane(paneID) != nil
 		spec, ok := s.ws.PaneAgentSpec(paneID)
 		if !ok {
-			return resolvedPane{}
+			return resolvedPane{exists: exists}
 		}
-		return resolvedPane{spec: spec, sessionID: s.ws.ConversationOf(paneID), found: true}
+		return resolvedPane{spec: spec, sessionID: s.ws.ConversationOf(paneID), found: true, exists: true}
 	})
 	if !ok {
 		return resolvedPane{}
@@ -212,9 +220,18 @@ func (s *Server) conversationOpen(c *controlClient, paneID, after string) {
 		defer s.surviveFor(c, "opening a conversation")
 		r := s.resolvePane(paneID)
 		if !r.found {
+			// A pane that is open but runs no agent (a shell) has no
+			// conversation and no chat view: it is told so, the same way an
+			// agent without a transcript adapter is, so the window does not
+			// wait for a page that is never coming.
+			if r.exists {
+				c.sendJSON(conversationPageMsg{Type: "conversationPage", ID: paneID, Supported: false})
+				return
+			}
 			// A client asking for a pane it cannot see -- closed since it
 			// asked, or never open to it at all -- hears nothing back, the
-			// same way an unknown pane id is refused everywhere else here.
+			// same way an unknown pane id is refused everywhere else here,
+			// so a client probing for ids learns nothing.
 			return
 		}
 		pc := s.convos.get(paneID)
