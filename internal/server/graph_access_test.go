@@ -1,10 +1,13 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 // Who may use graphSnapshot, graphWatch, graphUnwatch and paneSend: the window on
@@ -15,6 +18,26 @@ import (
 // lift when it is.
 
 var graphAndSendCommands = []string{"graphSnapshot", "graphWatch", "graphUnwatch", "paneSend"}
+
+// readQuick is readUntil with a short wait, so a refusal that never comes fails
+// the test in a few seconds.
+func readQuick(t *testing.T, conn *websocket.Conn, typ string, out any) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("waiting for a %q message: %v", typ, err)
+		}
+		if typeOf(data) == typ {
+			if err := json.Unmarshal(data, out); err != nil {
+				t.Fatalf("decode %s: %v", typ, err)
+			}
+			return
+		}
+	}
+}
 
 func TestGraphAndPaneSendAreFullAccessOnly(t *testing.T) {
 	for _, cmd := range graphAndSendCommands {
@@ -73,6 +96,9 @@ func TestALocalWindowMayUseTheGraphCommandsAndPaneSend(t *testing.T) {
 	if err := json.Unmarshal(next("paneSend"), &sent); err != nil || sent.ID != pane {
 		t.Errorf("paneSend answered %+v (%v)", sent, err)
 	}
+	// The text is typed into the pane, which is what the relay test's check that
+	// none was typed relies on being visible.
+	waitForText(t, sessionOf(t, srv, ws, pane), "access-test")
 }
 
 // A window reached through the relay is refused each of the four, and nothing is
@@ -149,7 +175,7 @@ func TestAViewerDeviceIsRefusedTheGraphCommandsAndPaneSend(t *testing.T) {
 	for _, name := range graphAndSendCommands {
 		sendCmd(t, watcher, accessCommand(name, root, pane))
 		var note noticeMsg
-		readUntil(t, watcher, "notice", &note)
+		readQuick(t, watcher, "notice", &note)
 		if note.Text != viewerRefused {
 			t.Errorf("%s from a viewer was answered %+v", name, note)
 		}
@@ -173,20 +199,20 @@ func TestAFullRemoteDeviceIsRefusedTheGraphCommandsAndPaneSend(t *testing.T) {
 		sendCmd(t, phone, accessCommand(name, root, pane))
 		if name == "paneSend" {
 			var note noticeMsg
-			readUntil(t, phone, "notice", &note)
+			readQuick(t, phone, "notice", &note)
 			if !note.Error || note.Text != paneSendDeskOnly {
 				t.Errorf("paneSend from a full remote device = %+v", note)
 			}
 			continue
 		}
 		var res teamResultMsg
-		readUntil(t, phone, "teamResult", &res)
+		readQuick(t, phone, "teamResult", &res)
 		if res.OK || res.Error != teamDeskOnly || res.Op != name {
 			t.Errorf("%s from a full remote device = %+v", name, res)
 		}
 		// A refusal of a graph command is also told as a notice.
 		var note noticeMsg
-		readUntil(t, phone, "notice", &note)
+		readQuick(t, phone, "notice", &note)
 		if !note.Error || note.Text != teamDeskOnly {
 			t.Errorf("%s: the notice with the refusal = %+v", name, note)
 		}
