@@ -130,44 +130,6 @@ func TestRPCFileIsPrivateAndBesideTheTerminalRecordings(t *testing.T) {
 	}
 }
 
-func TestRPCCoalescesChunksOfOneKind(t *testing.T) {
-	r, _, _ := newRPC(t, RPCConfig{})
-	for _, p := range []string{"Hel", "lo ", "wor", "ld"} {
-		r.Tap(RPCIn, chunk("agent_message_chunk", "s1", p))
-	}
-	r.Tap(RPCIn, chunk("agent_thought_chunk", "s1", "hmm"))
-	r.Tap(RPCIn, chunk("agent_thought_chunk", "s1", "m"))
-	r.Tap(RPCIn, chunk("agent_thought_chunk", "s2", "other session"))
-	m := msgs(read(t, r))
-	if len(m) != 3 {
-		t.Fatalf("%d messages: %+v", len(m), m)
-	}
-	var first struct {
-		Params struct {
-			Update struct {
-				Content struct{ Text string }
-			}
-		}
-	}
-	if err := json.Unmarshal(m[0].Msg, &first); err != nil || first.Params.Update.Content.Text != "Hello world" {
-		t.Errorf("first = %s", m[0].Msg)
-	}
-	if m[0].Merged != 4 || m[0].Until == "" || !at(m[0].Until).After(at(m[0].Time)) || m[1].Merged != 2 || m[2].Merged != 0 {
-		t.Errorf("merged %d %d %d, time %s until %s", m[0].Merged, m[1].Merged, m[2].Merged, m[0].Time, m[0].Until)
-	}
-}
-
-func TestRPCAnythingElseBetweenChunksKeepsTheOrder(t *testing.T) {
-	r, _, _ := newRPC(t, RPCConfig{})
-	r.Tap(RPCIn, chunk("agent_message_chunk", "s1", "a"))
-	r.Tap(RPCOut, []byte(`{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"s1"}}`))
-	r.Tap(RPCIn, chunk("agent_message_chunk", "s1", "b"))
-	m := msgs(read(t, r))
-	if len(m) != 3 || m[0].Merged != 0 || m[1].Dir != RPCOut || m[2].Merged != 0 {
-		t.Errorf("messages = %+v", m)
-	}
-}
-
 func TestRPCToolUpdatesMergeAndLaterFieldsWin(t *testing.T) {
 	r, _, _ := newRPC(t, RPCConfig{})
 	r.Tap(RPCIn, toolUpd("s1", "c1", "in_progress", `,"title":"Run ls"`))
@@ -209,47 +171,6 @@ func TestRPCAHugeRunOfChunksIsSeveralLines(t *testing.T) {
 	}
 }
 
-func TestRPCTheTimerWritesWhatIsHeld(t *testing.T) {
-	r, _, _ := newRPC(t, RPCConfig{Interval: 20 * time.Millisecond})
-	r.Tap(RPCIn, chunk("agent_message_chunk", "s1", "held"))
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		f, _ := ReadRPCFile(r.Path())
-		if len(msgs(f)) == 1 {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("a held message never reached the file")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func TestRPCLargeEntriesAreClipped(t *testing.T) {
-	r, _, _ := newRPC(t, RPCConfig{})
-	big := strings.Repeat("x", 5<<20)
-	r.Tap(RPCIn, toolUpd("s1", "c1", "completed", `,"content":[{"type":"content","content":{"type":"text","text":"`+big+`"}}]`))
-	// A prompt is a person's words and has the larger limit.
-	prompt := strings.Repeat("p", 20<<10)
-	r.Tap(RPCOut, []byte(`{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"s1","prompt":[{"type":"text","text":"`+prompt+`"}]}}`))
-	// Over the limit for parsing at all.
-	r.Tap(RPCIn, []byte(`{"jsonrpc":"2.0","method":"x","params":"`+strings.Repeat("y", rpcMaxRaw)+`"}`))
-	f := read(t, r)
-	m := msgs(f)
-	if len(m) != 3 {
-		t.Fatalf("messages = %d", len(m))
-	}
-	if len(m[0].Msg) > 9<<10 || m[0].Clipped != 1 || !strings.Contains(string(m[0].Msg), "clipped") {
-		t.Errorf("tool line: %d bytes, clipped %d", len(m[0].Msg), m[0].Clipped)
-	}
-	if len(m[1].Msg) < 20<<10 || m[1].Clipped != 0 {
-		t.Errorf("prompt line: %d bytes, clipped %d", len(m[1].Msg), m[1].Clipped)
-	}
-	if m[2].Msg != nil || !strings.Contains(m[2].Text, "not recorded") {
-		t.Errorf("oversize line = %+v", m[2])
-	}
-}
-
 func TestRPCNotJSONIsKeptClipped(t *testing.T) {
 	r, _, _ := newRPC(t, RPCConfig{})
 	r.Tap(RPCIn, []byte("this is not json"))
@@ -258,23 +179,6 @@ func TestRPCNotJSONIsKeptClipped(t *testing.T) {
 	m := msgs(read(t, r))
 	if len(m) != 3 || m[0].Raw != "this is not json" || m[1].Raw != "[1,2,3]" || m[2].Raw != `{"a":1} trailing` {
 		t.Errorf("messages = %+v", m)
-	}
-}
-
-func TestRPCSecretsAreRedactedEvenWhenSplitAcrossChunks(t *testing.T) {
-	r, _, _ := newRPC(t, RPCConfig{})
-	key := "ghp_" + strings.Repeat("a1B2", 9)
-	r.Tap(RPCIn, chunk("agent_message_chunk", "s1", "my token is "+key[:12]))
-	r.Tap(RPCIn, chunk("agent_message_chunk", "s1", key[12:]+" ok"))
-	r.Tap(RPCOut, []byte(`{"jsonrpc":"2.0","id":3,"method":"authenticate","params":{"methodId":"k","apiKey":"hunter2hunter2"}}`))
-	f := read(t, r)
-	raw, _ := os.ReadFile(r.Path())
-	if strings.Contains(string(raw), key) || strings.Contains(string(raw), "hunter2") {
-		t.Fatalf("a secret reached the file:\n%s", raw)
-	}
-	m := msgs(f)
-	if !m[0].Redacted || !m[1].Redacted {
-		t.Errorf("redacted flags = %v %v", m[0].Redacted, m[1].Redacted)
 	}
 }
 

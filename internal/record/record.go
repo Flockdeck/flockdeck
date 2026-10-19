@@ -152,6 +152,8 @@ type Manager struct {
 	now  func() time.Time
 	max  int64
 	open map[string]*session
+	// rpcs are the stream recordings that are open (see StartRPC).
+	rpcs map[*RPCRecorder]bool
 	// closed is set by Close, which is final: a Manager that has been closed
 	// writes nothing more, whatever is still handed to it.
 	closed bool
@@ -192,7 +194,7 @@ type session struct {
 
 // NewManager returns a Manager writing under the state directory dir names.
 func NewManager(dir func() (string, error)) *Manager {
-	return &Manager{Dir: dir, now: time.Now, max: MaxFileBytes, open: map[string]*session{}}
+	return &Manager{Dir: dir, now: time.Now, max: MaxFileBytes, open: map[string]*session{}, rpcs: map[*RPCRecorder]bool{}}
 }
 
 var slugRe = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
@@ -461,11 +463,36 @@ func (m *Manager) finalPath(s *session) string {
 // writes its file again from the conversation's beginning.
 func (m *Manager) Close() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.closed = true
 	for id := range m.open {
 		m.dropLocked(id)
 	}
+	rpcs := make([]*RPCRecorder, 0, len(m.rpcs))
+	for r := range m.rpcs {
+		rpcs = append(rpcs, r)
+	}
+	m.mu.Unlock()
+	// Closed with the lock released: a recorder takes it to leave the set.
+	for _, r := range rpcs {
+		_ = r.Close()
+	}
+}
+
+// protectedLocked is the set of files retention must not remove: the one just
+// opened, and every transcript and stream recording that is still being
+// written. Call with m.mu held.
+func (m *Manager) protectedLocked(opened string) map[string]bool {
+	keep := map[string]bool{opened: true}
+	for _, s := range m.open {
+		keep[s.path] = true
+		if s.final != "" {
+			keep[s.final] = true
+		}
+	}
+	for r := range m.rpcs {
+		keep[r.path] = true
+	}
+	return keep
 }
 
 // Abandon closes the pane's transcript with no closing line, for one about to
@@ -569,7 +596,7 @@ func (m *Manager) openLocked(meta Meta, first time.Time) error {
 		m.sweepStale(folder)
 	}
 	if !m.export {
-		prune(folder, path, m.now())
+		prune(folder, m.protectedLocked(path), m.now())
 	}
 	return nil
 }
@@ -909,12 +936,13 @@ func withholdInput(in any) any {
 
 // prune applies the retention rule to one project's folder: files older than
 // RetainDays go, then the oldest until what is left is within RetainFiles and
-// RetainBytes. The file just opened is never removed.
-func prune(folder, keep string, now time.Time) {
+// RetainBytes. The files in keep, which are the one just opened and every other
+// that is still being written, are never removed.
+func prune(folder string, keep map[string]bool, now time.Time) {
 	cutoff := now.Add(-RetainDays * 24 * time.Hour)
 	var kept []Info
 	for _, in := range listFolder(folder) {
-		if in.Path != keep && in.Modified.Before(cutoff) {
+		if !keep[in.Path] && in.Modified.Before(cutoff) {
 			_ = os.Remove(in.Path)
 			continue
 		}
@@ -930,7 +958,7 @@ func prune(folder, keep string, now time.Time) {
 		if count <= RetainFiles && total <= RetainBytes {
 			break
 		}
-		if in.Path == keep {
+		if keep[in.Path] {
 			continue
 		}
 		if os.Remove(in.Path) == nil {

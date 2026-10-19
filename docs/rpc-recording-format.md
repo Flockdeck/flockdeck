@@ -24,9 +24,17 @@ recordings/<project>-<hash>/20261019T120000Z-conv1234.rpc.jsonl
 
 It is made readable by its owner only. It is counted with the terminal
 recordings in the folder by the same retention: files older than 30 days go,
-then the oldest until at most 100 files and 256 MiB are left. The recordings window does not offer a stream recording, because its
-first line is not the start of a transcript; `flockdeck recordings` lists the
-file with no project or conversation.
+then the oldest until at most 100 files and 256 MiB are left. A recording that
+is still being written, of either kind, is never the one removed. The
+recordings window does not offer a stream recording, because its first line is
+not the start of a transcript; `flockdeck recordings` lists the file with no
+project or conversation.
+
+Whether a stream recording is made is decided by whoever calls
+`Manager.StartRPC`, not by the recorder. A pane with recording off never calls
+it, and a relay window cannot turn it on: recording is a setting of the desktop
+app for a pane, like the terminal one. `StartRPC` opens nothing once the
+`Manager` is closed, and closing the `Manager` closes the recordings it opened.
 
 ## 2. Sensitive content
 
@@ -35,17 +43,29 @@ sensitive as a terminal recording. Before a line is written:
 
 - Every string goes through the same redaction as a transcript, and a value
   under a key that names a secret (`apiKey`, `token`, `password`...) is replaced
-  whole. Redaction runs on a coalesced message after its parts are joined, so a
-  secret split across two chunks is still found. It is best effort: see
-  `record.Redact`.
+  whole. So is a key that holds a secret: it is written as `[redacted]`
+  (`[redacted]#2` for a second one in the same object). Keys over 256 bytes are
+  cut. Redaction is best effort: see `record.Redact`.
+- A secret can be split between two chunks of text. The end of the text of a
+  line (its last two words, up to 256 bytes) is therefore not written until the
+  text that follows it arrives, and is redacted together with it, whether the
+  line was written in between by the timer, because it was full, or because
+  another message came in the middle. The end is written at the latest when the
+  recording closes. The result is that the last words of a run of text can be
+  written after later messages; each line's `time` is when it was seen. A key
+  that never gets finished cannot be recognised, and what there was of it is
+  written when the recording closes.
 - Every string is cut at 8 KiB, except the text of a prompt and of a message or
   thought chunk, which is cut at 32 KiB. A cut string ends in a marker saying
   how many bytes went.
-- A caller can set a hook that sees each message after both and may clip fields,
-  or drop the message (`record.RPCHook`).
+- A caller can set a hook that sees each message after all that and may clip
+  fields, or drop the message (`record.RPCHook`).
 
-A line of traffic longer than 8 MiB is not parsed; a line is written with a
-`text` saying how long it was. A message that is over a quarter of the size cap
+A line of traffic longer than 1 MiB, or with more than 50,000 array items and
+object members, is not parsed, because parsing costs about a hundred times its
+length in memory; a line is written with a `text` saying how long it was and
+nothing of its content. A message that is over a quarter of the size cap once
+redacted and clipped is replaced the same way.
 once redacted and clipped is replaced the same way.
 
 ## 3. Lines
@@ -111,7 +131,10 @@ If the file cannot be rewritten, recording stops and the error is returned from
 
 ## 6. Reading a file
 
-`record.ReadRPCFile` reads a file and returns its lines. A line that is not a
-JSON object, or is over 32 MiB, is skipped and counted in `Damaged`. A last line
-with no newline is what a crash leaves: it is kept if it is whole JSON, skipped
-if it is not, and `TornTail` is set either way.
+`record.ReadRPCFile` reads a file and returns its lines; `record.ScanRPC` calls
+a function for each line instead, for a caller that should not hold the file.
+Both stop with `ErrRPCTooLarge` at 32 MiB of input, which is twice what a
+recording can reach. A line that is not a JSON object, or is over 8 MiB, is
+skipped and counted in `Damaged`. A last line with no newline is what a crash
+leaves: it is kept if it is whole JSON, skipped if it is not, and `TornTail` is
+set either way.

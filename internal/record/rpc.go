@@ -9,10 +9,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // A stream recording is the JSON-RPC traffic between Flockdeck and a structured
@@ -53,8 +55,19 @@ const (
 	DefaultRPCInterval = 250 * time.Millisecond
 
 	// rpcMaxRaw is the most of one line of traffic that is parsed. A longer
-	// one is recorded as a note saying how long it was.
-	rpcMaxRaw = 8 << 20
+	// one is recorded as a note saying how long it was. Parsing costs about a
+	// hundred times the line's length in memory, so this is small.
+	rpcMaxRaw = 1 << 20
+	// rpcMaxElements is the most array items and object members a line may
+	// have outside its strings: a line of a million small numbers is under
+	// rpcMaxRaw and still costs far more to parse than a line of text.
+	rpcMaxElements = 50000
+	// rpcHoldBack is the most of the end of a message's text that is kept back
+	// when a held line is written, so that a secret split between two chunks is
+	// found whole when the second arrives.
+	rpcHoldBack = 256
+	// rpcMaxHeld bounds the kinds of message text with something held back.
+	rpcMaxHeld = 16
 	// rpcBufferBytes is how much is held before the file is written.
 	rpcBufferBytes = 64 << 10
 )
@@ -125,6 +138,19 @@ type RPCRecorder struct {
 	closed  bool
 	err     error
 	dropped int64 // lines dropped over the life of the file
+	// held is, for each kind of message text, the end of the last line written
+	// of it, kept back unwritten until more of that text arrives or the
+	// recording closes. See splitHeld.
+	held map[string]*held
+}
+
+// held is the unwritten end of a run of message text.
+type held struct {
+	tail        string
+	tmpl        map[string]any // the message the text was in, with its text emptied
+	dir         string
+	merged      int // the messages the text so far stands for
+	first, last time.Time
 }
 
 type pending struct {
@@ -149,6 +175,15 @@ func (m *Manager) StartRPC(cfg RPCConfig) (*RPCRecorder, error) {
 	}
 	if cfg.MaxBytes <= 0 || cfg.MaxBytes > MaxRPCFileBytes {
 		cfg.MaxBytes = MaxRPCFileBytes
+	}
+	// Nothing is opened after the Manager is closed. Whether a recording is to
+	// be made at all is the caller's to decide: a pane with recording off never
+	// calls this, and a relay window cannot turn it on (docs/rpc-recording-format.md).
+	m.mu.Lock()
+	closed := m.closed
+	m.mu.Unlock()
+	if closed {
+		return nil, errors.New("the recorder is closed")
 	}
 	base, err := m.Dir()
 	if err != nil {
@@ -177,12 +212,20 @@ func (m *Manager) StartRPC(cfg RPCConfig) (*RPCRecorder, error) {
 			return nil, fmt.Errorf("create the stream recording: %w", err)
 		}
 	}
+	r := &RPCRecorder{cfg: cfg, m: m, path: path, id: id, f: f, w: bufio.NewWriterSize(f, rpcBufferBytes), held: map[string]*held{}}
 	m.mu.Lock()
+	if m.closed {
+		// Closed while the file was being made.
+		m.mu.Unlock()
+		_ = f.Close()
+		_ = os.Remove(path)
+		return nil, errors.New("the recorder is closed")
+	}
+	m.rpcs[r] = true
 	m.sweepStale(folder)
-	prune(folder, path, m.now())
+	prune(folder, m.protectedLocked(path), m.now())
 	m.mu.Unlock()
 
-	r := &RPCRecorder{cfg: cfg, m: m, path: path, id: id, f: f, w: bufio.NewWriterSize(f, rpcBufferBytes)}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.commitLocked(RPCLine{Time: stamp(first), Type: TypeRPCStarted, Text: "start of the stream recording",
@@ -203,7 +246,8 @@ func (r *RPCRecorder) Tap(dir string, raw []byte) {
 	if r.closed || r.err != nil {
 		return
 	}
-	if len(raw) > rpcMaxRaw {
+	if len(raw) > rpcMaxRaw || elementsOver(raw, rpcMaxElements) {
+		// Not parsed: what it would cost is out of proportion to its worth.
 		r.flushPendingLocked()
 		r.commitLocked(RPCLine{Time: stamp(now), Type: TypeRPCMessage, Dir: dir, Clipped: 1,
 			Text: fmt.Sprintf("a message of %d bytes was not recorded", len(raw))})
@@ -261,12 +305,22 @@ func (r *RPCRecorder) Flush() error {
 
 // Close writes the closing line and closes the file. It is safe to call twice.
 func (r *RPCRecorder) Close() error {
+	err := r.closeOnce()
+	// Leave the Manager's set, after the recorder's own lock is released.
+	r.m.mu.Lock()
+	delete(r.m.rpcs, r)
+	r.m.mu.Unlock()
+	return err
+}
+
+func (r *RPCRecorder) closeOnce() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
 		return r.err
 	}
-	r.flushPendingLocked()
+	r.flushPendingFinalLocked()
+	r.emitHeldLocked()
 	r.commitLocked(RPCLine{Time: stamp(r.cfg.Now()), Type: TypeRPCStopped, Text: "end of the stream recording"})
 	r.closed = true
 	if r.timer != nil {
@@ -278,6 +332,22 @@ func (r *RPCRecorder) Close() error {
 		r.err = err
 	}
 	return r.err
+}
+
+// emitHeldLocked writes, for each kind of text with something kept back, a line
+// with the end of it, redacted.
+func (r *RPCRecorder) emitHeldLocked() {
+	keys := make([]string, 0, len(r.held))
+	for k := range r.held {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		h := r.held[k]
+		delete(r.held, k)
+		setChunkText(h.tmpl, h.tail)
+		r.commitMsgLocked(h.dir, h.tmpl, h.first, h.last, max(h.merged, 1))
+	}
 }
 
 // armLocked makes sure what is held reaches the file within Interval.
@@ -368,13 +438,168 @@ func (r *RPCRecorder) mergeLocked(p *pending, msg map[string]any, kind string, n
 	}
 }
 
-func (r *RPCRecorder) flushPendingLocked() {
+// flushPendingLocked writes the held line, except the end of its text (see
+// splitHeld), which waits for the text that follows it.
+func (r *RPCRecorder) flushPendingLocked() { r.flushPending(false) }
+
+// flushPendingFinalLocked writes the held line whole.
+func (r *RPCRecorder) flushPendingFinalLocked() { r.flushPending(true) }
+
+func (r *RPCRecorder) flushPending(final bool) {
 	p := r.pend
 	if p == nil {
 		return
 	}
 	r.pend = nil
-	r.commitMsgLocked(p.dir, p.msg, p.time, p.until, p.merged)
+	if p.kind != "chunk" {
+		r.commitMsgLocked(p.dir, p.msg, p.time, p.until, p.merged)
+		return
+	}
+	// A secret can begin in one chunk and end in the next, with this line
+	// written, or other messages, in between. So the end of every line of text
+	// is kept back, and put in front of the next piece of the same text before
+	// it is redacted. Nothing of a key that is still arriving is on the disk.
+	text, first, total := chunkTextOf(p.msg), p.time, p.merged
+	if prev := r.held[p.key]; prev != nil {
+		text, first, total = prev.tail+text, prev.first, total+prev.merged
+		delete(r.held, p.key)
+	}
+	head, tail := text, ""
+	if !final {
+		head, tail = splitHeld(text)
+	}
+	if tail != "" {
+		if len(r.held) >= rpcMaxHeld {
+			r.emitHeldLocked()
+		}
+		h := &held{tail: tail, tmpl: cloneMsg(p.msg), dir: p.dir, first: p.until, last: p.until}
+		if head == "" {
+			// Nothing is written, so the line that ends up carrying this text
+			// is the one that stands for all of it.
+			h.first, h.merged = first, total
+		}
+		r.held[p.key] = h
+	}
+	if head == "" {
+		return
+	}
+	setChunkText(p.msg, head)
+	r.commitMsgLocked(p.dir, p.msg, first, p.until, total)
+}
+
+// splitHeld cuts text into what can be written now and the end of it, which is
+// kept back: the last two words, so that "password: " and what follows it, or
+// half of a key, stay together, and never more than rpcHoldBack bytes.
+func splitHeld(text string) (head, tail string) {
+	isSpace := func(b byte) bool { return b == ' ' || b == '\t' || b == '\n' || b == '\r' }
+	i := len(text)
+	for words := 0; words < 2; words++ {
+		for i > 0 && isSpace(text[i-1]) {
+			i--
+		}
+		for i > 0 && !isSpace(text[i-1]) {
+			i--
+		}
+	}
+	if len(text)-i > rpcHoldBack {
+		i = len(text) - rpcHoldBack
+		for i < len(text) && !utf8.RuneStart(text[i]) {
+			i++
+		}
+	}
+	return text[:i], text[i:]
+}
+
+func setChunkText(msg map[string]any, s string) {
+	if content, _ := updateOf(msg)["content"].(map[string]any); content != nil {
+		content["text"] = s
+	}
+}
+
+// cloneMsg copies a decoded JSON value.
+func cloneMsg(m map[string]any) map[string]any {
+	out, _ := cloneValue(m).(map[string]any)
+	return out
+}
+
+func cloneValue(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, e := range x {
+			out[k] = cloneValue(e)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = cloneValue(e)
+		}
+		return out
+	}
+	return v
+}
+
+// elementsOver reports whether a JSON text has more than limit array items and
+// object members outside its strings, counted by its commas. It reads the text
+// once and builds nothing.
+func elementsOver(raw []byte, limit int) bool {
+	n, inString, escaped := 0, false, false
+	for _, c := range raw {
+		switch {
+		case escaped:
+			escaped = false
+		case inString:
+			if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inString = false
+			}
+		case c == '"':
+			inString = true
+		case c == ',':
+			if n++; n > limit {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// redactKeys redacts and clips the keys of every object in a decoded JSON
+// value: a key that holds a secret is replaced whole, and a key over 256 bytes
+// is cut. Keys that come out the same are told apart by a number.
+func redactKeys(v any, clipped *int) any {
+	switch x := v.(type) {
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = redactKeys(e, clipped)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, e := range x {
+			nk := k
+			if len(nk) > 256 {
+				nk = Clip(nk, 256)
+				*clipped++
+			}
+			if Redact(nk) != nk {
+				nk = Redacted
+			}
+			base := nk
+			for n := 2; ; n++ {
+				if _, taken := out[nk]; !taken {
+					break
+				}
+				nk = fmt.Sprintf("%s#%d", base, n)
+			}
+			out[nk] = redactKeys(e, clipped)
+		}
+		return out
+	}
+	return v
 }
 
 // commitMsgLocked redacts, clips and hooks a message and writes it.
@@ -387,8 +612,9 @@ func (r *RPCRecorder) commitMsgLocked(dir string, msg map[string]any, first, las
 	// Message text is the point of a chunk or a prompt and gets the larger limit,
 	// kept apart from the generic clip.
 	texts := takeMessageTexts(msg)
-	v = RedactValue(v)
 	clipped := 0
+	v = redactKeys(v, &clipped)
+	v = RedactValue(v)
 	v = clipCount(v, MaxFieldBytes, &clipped)
 	out, _ := v.(map[string]any)
 	for _, t := range texts {
@@ -596,7 +822,8 @@ func (r *RPCRecorder) rotateLocked() {
 		out.Write(b)
 	}
 	tmp := tempName(r.path)
-	if err := os.WriteFile(tmp, out.Bytes(), fileMode); err != nil {
+	if err := writeSynced(tmp, out.Bytes()); err != nil {
+		_ = os.Remove(tmp)
 		r.err = err
 		return
 	}
@@ -605,12 +832,32 @@ func (r *RPCRecorder) rotateLocked() {
 		r.err = err
 		return
 	}
+	syncDir(filepath.Dir(r.path))
 	f, err := os.OpenFile(r.path, os.O_WRONLY|os.O_APPEND, fileMode)
 	if err != nil {
 		r.err = err
 		return
 	}
 	r.f, r.w, r.size = f, bufio.NewWriterSize(f, rpcBufferBytes), int64(out.Len())
+}
+
+// writeSynced writes a new file and flushes it to the disk before returning, so
+// that the rename that puts it in place cannot leave an empty file after a
+// crash.
+func writeSynced(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // RPCFile is a stream recording read back.
@@ -626,39 +873,73 @@ type RPCFile struct {
 
 // MaxRPCLineBytes is the longest line ReadRPC will take; a longer one counts as
 // damaged and is skipped.
-const MaxRPCLineBytes = 32 << 20
+const MaxRPCLineBytes = 8 << 20
 
-// ReadRPC reads a stream recording. A line that cannot be read is counted and
-// skipped; one at the very end is the torn tail a crash leaves and is not an
-// error.
-func ReadRPC(r io.Reader) (RPCFile, error) {
-	var out RPCFile
-	br := bufio.NewReaderSize(r, 64<<10)
+// MaxRPCReadBytes is the most of one file the readers take. A recording is
+// capped at MaxRPCFileBytes when it is written; a file much larger than that
+// was not written by this recorder.
+const MaxRPCReadBytes = 2 * MaxRPCFileBytes
+
+// ErrRPCTooLarge is returned by the readers for input over MaxRPCReadBytes.
+var ErrRPCTooLarge = errors.New("the stream recording is larger than the reader takes")
+
+// RPCStats is what ScanRPC saw besides the lines.
+type RPCStats struct {
+	Damaged  int
+	TornTail bool
+}
+
+// ScanRPC reads a stream recording one line at a time, calling fn for each line
+// it can read, so that a caller need not hold the file. A line that cannot be
+// read is counted and skipped; one at the very end is the torn tail a crash
+// leaves and is not an error. Input over MaxRPCReadBytes ends with
+// ErrRPCTooLarge, after the lines before it. An error from fn ends the scan.
+func ScanRPC(r io.Reader, fn func(RPCLine) error) (RPCStats, error) {
+	var st RPCStats
+	lr := &io.LimitedReader{R: r, N: MaxRPCReadBytes + 1}
+	br := bufio.NewReaderSize(lr, 64<<10)
 	for {
 		line, err := readCapped(br, MaxRPCLineBytes)
+		if lr.N <= 0 {
+			return st, ErrRPCTooLarge
+		}
 		complete := err == nil
 		if len(line) > 0 {
 			var l RPCLine
 			if len(line) > MaxRPCLineBytes || json.Unmarshal(bytes.TrimSpace(line), &l) != nil || l.Type == "" || l.V == 0 {
-				out.Damaged++
+				st.Damaged++
 				if !complete {
-					out.TornTail = true
+					st.TornTail = true
 				}
-			} else if !complete {
-				// Complete JSON with no newline: keep it, but it is the tail.
-				out.Lines = append(out.Lines, l)
-				out.TornTail = true
 			} else {
-				out.Lines = append(out.Lines, l)
+				if !complete {
+					// Whole JSON with no newline: kept, but it is the tail.
+					st.TornTail = true
+				}
+				if ferr := fn(l); ferr != nil {
+					return st, ferr
+				}
 			}
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return out, nil
+				return st, nil
 			}
-			return out, err
+			return st, err
 		}
 	}
+}
+
+// ReadRPC reads a whole stream recording into memory, up to MaxRPCReadBytes.
+// For anything that may be larger, or a player, use ScanRPC.
+func ReadRPC(r io.Reader) (RPCFile, error) {
+	var out RPCFile
+	st, err := ScanRPC(r, func(l RPCLine) error {
+		out.Lines = append(out.Lines, l)
+		return nil
+	})
+	out.Damaged, out.TornTail = st.Damaged, st.TornTail
+	return out, err
 }
 
 // readCapped reads up to and including a newline. A line over max is read to
