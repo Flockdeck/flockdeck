@@ -49,6 +49,9 @@ type Probe struct {
 	Output func(ctx context.Context, path string, args ...string) (string, error)
 }
 
+// probeEnv is the environment a probe runs with; a test replaces it.
+var probeEnv = minimalEnv
+
 // SystemProbe looks at the real machine. Programs are run by full path, for a
 // few seconds, with only PATH in the environment.
 func SystemProbe() Probe {
@@ -58,7 +61,7 @@ func SystemProbe() Probe {
 			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, path, args...)
-			cmd.Env = minimalEnv()
+			cmd.Env = probeEnv()
 			sysproc.NoWindow(cmd)
 			var out capBuffer
 			cmd.Stdout = &out

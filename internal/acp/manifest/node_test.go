@@ -3,6 +3,7 @@ package manifest
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -112,5 +113,24 @@ func TestProbeOutputIsCappedAndShownSafely(t *testing.T) {
 	got := safeText("bad \x1b[31mred\x1b[0m\r\nline\u009b é"+strings.Repeat("é", 300), 50)
 	if strings.ContainsAny(got, "\x1b\r\n\u009b") || len(got) > 54 || !utf8.ValidString(got) {
 		t.Errorf("safeText = %q", got)
+	}
+}
+
+// SystemProbe keeps at most 4 KiB of what a program prints, however much it
+// prints. The program is the test binary run again as a fake node.
+func TestSystemProbeCapsWhatTheProgramPrints(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := probeEnv
+	probeEnv = func() []string { return append(minimalEnv(), fakeEnv+"=bigout") }
+	defer func() { probeEnv = old }()
+	out, err := SystemProbe().Output(context.Background(), exe, "--version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) == 0 || len(out) > maxProbeOutput {
+		t.Errorf("kept %d bytes, want 1 to %d", len(out), maxProbeOutput)
 	}
 }

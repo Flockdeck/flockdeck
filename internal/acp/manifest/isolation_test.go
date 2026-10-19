@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +26,20 @@ func TestMain(m *testing.M) {
 }
 
 func runFake(mode string) {
+	// These are descendants or never answer; they sleep without reading stdin,
+	// which a descendant started with no stdin would find already closed.
+	switch mode {
+	case "silent":
+		time.Sleep(time.Hour)
+	case "brief":
+		time.Sleep(20 * time.Second)
+	case "descendant":
+		time.Sleep(time.Hour)
+	case "bigout":
+		// What a program on PATH named node could print: a megabyte, no newline.
+		os.Stdout.WriteString(strings.Repeat("v22.0.0 ", 1<<17))
+		return
+	}
 	in := bufio.NewReader(os.Stdin)
 	if _, err := in.ReadString('\n'); err != nil {
 		os.Exit(0)
@@ -61,12 +76,6 @@ func runFake(mode string) {
 		leaveSession(c)
 		_ = c.Start()
 		fmt.Println(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}`)
-	case "brief":
-		time.Sleep(20 * time.Second)
-	case "descendant":
-		time.Sleep(time.Hour)
-	case "silent":
-		time.Sleep(time.Hour)
 	}
 	time.Sleep(50 * time.Millisecond)
 }
