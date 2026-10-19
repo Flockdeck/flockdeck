@@ -35,6 +35,9 @@ type Store struct {
 	changed func()
 	// rev counts the changes, for a reader that wants to know if any happened.
 	rev uint64
+	// event is told, outside the lock, of each message sent and each delivery
+	// state reached.
+	event func(Event)
 }
 
 // NewStore returns an empty store that reads the time from now (time.Now when
@@ -59,6 +62,28 @@ func (s *Store) OnChange(fn func()) {
 	s.mu.Lock()
 	s.changed = fn
 	s.mu.Unlock()
+}
+
+// OnEvent installs the function told of each message sent and each delivery
+// state a message reaches, for the event log. It must not call back into the
+// store.
+func (s *Store) OnEvent(fn func(Event)) {
+	s.mu.Lock()
+	s.event = fn
+	s.mu.Unlock()
+}
+
+// emit tells the event function of events, outside the lock.
+func (s *Store) emit(events ...Event) {
+	s.mu.Lock()
+	fn := s.event
+	s.mu.Unlock()
+	if fn == nil {
+		return
+	}
+	for _, e := range events {
+		fn(e)
+	}
 }
 
 func (s *Store) notify() {
@@ -100,6 +125,7 @@ func (s *Store) Send(from Sender, to, text string) (Message, error) {
 	s.next++
 	s.boxes[to] = append(box, m)
 	s.mu.Unlock()
+	s.emit(Event{Kind: EventMessage, ID: m.ID, From: from.Pane, To: to, Time: m.Time})
 	s.notify()
 	return m, nil
 }
@@ -159,8 +185,15 @@ func (s *Store) Read(pane string, id int) (Message, error) {
 		}
 		changed := !box[i].Read
 		box[i].Read = true
+		stamped := box[i].ReadAt.IsZero() && changed
+		if stamped {
+			box[i].ReadAt = s.now()
+		}
 		m := box[i]
 		s.mu.Unlock()
+		if stamped {
+			s.emit(Event{Kind: EventDelivery, ID: m.ID, State: DeliveryRead, Time: m.ReadAt})
+		}
 		if changed {
 			s.notify()
 		}
@@ -190,6 +223,46 @@ func (s *Store) MarkSeen(pane string, id int) (Message, error) {
 	}
 	s.mu.Unlock()
 	return Message{}, fmt.Errorf("no message #%d in that inbox", id)
+}
+
+// MarkNotified records that the hook notice of the pane's messages with these
+// ids was given to its agent. A message that was already notified keeps its
+// first time, and an id that is not in the inbox is skipped.
+func (s *Store) MarkNotified(pane string, ids ...int) {
+	s.mark(pane, DeliveryNotified, ids)
+}
+
+// MarkWoken records that a line was typed into the pane to wake its agent for
+// the messages with these ids. A message already woken keeps its first time.
+func (s *Store) MarkWoken(pane string, ids ...int) {
+	s.mark(pane, DeliveryWoken, ids)
+}
+
+// mark sets the time of one delivery state on the messages with the ids.
+func (s *Store) mark(pane, state string, ids []int) {
+	var events []Event
+	s.mu.Lock()
+	box := s.boxes[pane]
+	for i := range box {
+		if !slices.Contains(ids, box[i].ID) {
+			continue
+		}
+		at := &box[i].NotifiedAt
+		if state == DeliveryWoken {
+			at = &box[i].WokenAt
+		}
+		if !at.IsZero() {
+			continue
+		}
+		*at = s.now()
+		events = append(events, Event{Kind: EventDelivery, ID: box[i].ID, State: state, Time: *at})
+	}
+	s.mu.Unlock()
+	if len(events) == 0 {
+		return
+	}
+	s.emit(events...)
+	s.notify()
 }
 
 // Forget drops a pane's inbox, as when the pane is closed.

@@ -113,6 +113,8 @@ func TestSchemaRefusesWhatIsNotTheShape(t *testing.T) {
 		"an extra field on a node":          {"node", `{"pane":"a","depth":0,"waitingOn":{"kind":"none"},"name":"a","status":"idle","activity":"idle","colour":"red"}`},
 		"an unknown waiting-on kind":        {"node", `{"pane":"a","depth":0,"waitingOn":{"kind":"dozing"},"name":"a","status":"idle","activity":"idle"}`},
 		"a message edge without its id":     {"edge", `{"kind":"message","from":"a","to":"b","time":"2026-10-19T12:00:00Z"}`},
+		"a message edge without delivery":   {"edge", `{"kind":"message","from":"a","to":"b","id":1,"time":"2026-10-19T12:00:00Z"}`},
+		"a message edge with a bad state":   {"edge", `{"kind":"message","from":"a","to":"b","id":1,"time":"2026-10-19T12:00:00Z","delivery":"lost"}`},
 		"a needs item with an unknown kind": {"needsItem", `{"id":"x:a","kind":"nag","pane":"a","time":"2026-10-19T12:00:00Z"}`},
 		"a paneSend without queued":         {"paneSend", `{"type":"paneSend","id":"a","shell":false}`},
 	}

@@ -31,6 +31,10 @@ import (
 // messagesFile is where the inboxes are kept, next to the other workspace state.
 const messagesFile = "messages.json"
 
+// eventsFile is the team event log, one JSON line for each event, next to the
+// inboxes. It never holds message text.
+const eventsFile = "team-events.jsonl"
+
 // helperIdleDwell is how long a helper has to stay idle before its parent is
 // told its turn is over: a turn that ends and another that starts straight
 // after it is not a helper that has finished.
@@ -40,6 +44,10 @@ const helperIdleDwell = 5 * time.Second
 type teamState struct {
 	inbox    *team.Store
 	notifier *team.Notifier
+	// events is the team event log, nil until loadMessages has found the
+	// directory it is kept in. evMu orders the writes of its file.
+	events *team.EventLog
+	evMu   sync.Mutex
 
 	// saveMu makes taking a snapshot and writing it one step, so an older
 	// snapshot cannot be written after a newer one.
@@ -84,6 +92,7 @@ func (w *Workspace) loadMessages() {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return
 	}
+	w.loadEvents(filepath.Join(dir, eventsFile))
 	w.team.inbox.OnChange(func() {
 		w.wake()
 		w.team.saveMu.Lock()
@@ -95,6 +104,24 @@ func (w *Workspace) loadMessages() {
 		// A message that cannot be written down still reaches its pane: the
 		// inbox in memory is what `flockdeck inbox` reads.
 		_ = w.team.save(path, data)
+	})
+}
+
+// loadEvents reads the saved event log, skipping any line that is damaged, and
+// arranges for each event the inboxes report to be added and saved.
+func (w *Workspace) loadEvents(path string) {
+	t := &w.team
+	log := &team.EventLog{}
+	if data, err := store.ReadState(path); err == nil {
+		log.Load(data)
+	}
+	t.events = log
+	t.inbox.OnEvent(func(e team.Event) {
+		log.Append(e)
+		t.evMu.Lock()
+		defer t.evMu.Unlock()
+		// A log that cannot be written down is no reason to lose the message.
+		_ = t.save(path, log.Encode())
 	})
 }
 
@@ -514,7 +541,16 @@ func (w *Workspace) HookNotice(id string) string {
 	if !w.hooksCapable(id) {
 		return ""
 	}
-	return t.notifier.Take(id, t.inbox.List(id, false))
+	unread := t.inbox.List(id, false)
+	notice := t.notifier.Take(id, unread)
+	if notice != "" {
+		ids := make([]int, len(unread))
+		for i, m := range unread {
+			ids[i] = m.ID
+		}
+		t.inbox.MarkNotified(id, ids...)
+	}
+	return notice
 }
 
 // cleanPeerName is a pane's own report of its name, cut down to what can be shown

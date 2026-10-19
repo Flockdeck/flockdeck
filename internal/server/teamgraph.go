@@ -128,6 +128,9 @@ type graphEdge struct {
 	ID   int    `json:"id,omitempty"`
 	Time string `json:"time,omitempty"`
 	Text string `json:"text,omitempty"`
+	// Delivery is the newest delivery state of a message: queued, notified,
+	// woken or read.
+	Delivery string `json:"delivery,omitempty"`
 }
 
 // graphMsg is the graph view of a project: what graphSnapshot is answered with
@@ -305,7 +308,7 @@ func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic
 			continue
 		}
 		st.edges = append(st.edges, graphEdge{Kind: graphEdgeMessage, From: m.From.Pane, To: m.To, ID: m.ID,
-			Time: m.Time.Format(time.RFC3339), Text: graphLine(m.Text, graphEdgeCut)})
+			Time: m.Time.Format(time.RFC3339), Text: graphLine(m.Text, graphEdgeCut), Delivery: m.Delivery()})
 	}
 	if s.graphStatics == nil {
 		s.graphStatics = map[string]*graphStatic{}
