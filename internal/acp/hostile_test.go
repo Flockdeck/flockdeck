@@ -480,3 +480,89 @@ func TestALateAnswerToAnAbandonedCallIsNotAnError(t *testing.T) {
 		t.Errorf("protocol errors = %d, want 1", n)
 	}
 }
+
+func TestAPanickingCallbackDoesNotEndTheReadLoop(t *testing.T) {
+	r := newRecorder()
+	var protoCalls, stderrCalls atomic.Int64
+	c, sid := startWith(t, r, func(cfg *Config) {
+		cfg.OnProtocolError = func(string) { protoCalls.Add(1); panic("callback bug") }
+		cfg.Stderr = func(string) { stderrCalls.Add(1); panic("callback bug") }
+	})
+	// Garbage makes the protocol callback fire on the read loop.
+	if stop := prompt(t, c, sid, "garbage"); stop != StopEndTurn {
+		t.Fatalf("stop reason = %q", stop)
+	}
+	r.reset()
+	if stop := prompt(t, c, sid, "stderr"); stop != StopEndTurn {
+		t.Fatalf("stop reason after the callbacks panicked = %q", stop)
+	}
+	deadline := time.Now().Add(wait)
+	for stderrCalls.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if protoCalls.Load() == 0 || stderrCalls.Load() < 2 {
+		t.Errorf("callbacks ran %d and %d times; the panic stopped them", protoCalls.Load(), stderrCalls.Load())
+	}
+}
+
+// TestAPermissionAnswerThatMeetsAFullQueueIsCounted covers the cancelled or
+// selected answer to a permission request that cannot be sent because the
+// agent has stopped reading and the queue is full.
+func TestAPermissionAnswerThatMeetsAFullQueueIsCounted(t *testing.T) {
+	r := newRecorder()
+	release := make(chan struct{})
+	asked := make(chan struct{})
+	r.perm = func(ctx context.Context, req PermissionRequest) string {
+		close(asked)
+		select {
+		case <-release:
+		case <-time.After(wait):
+		}
+		return "allow-1"
+	}
+	c, sid := start(t, r)
+
+	go func() { _, _ = c.Prompt(context.Background(), sid, "deaf-perm") }()
+	select {
+	case <-asked:
+	case <-time.After(wait):
+		t.Fatal("no permission request")
+	}
+	// The agent no longer reads. Stick the writer, then fill the queue with
+	// notifications for a session that has no permission request open.
+	go func() { _, _ = c.Prompt(context.Background(), sid, strings.Repeat("z", 8<<20)) }()
+	time.Sleep(300 * time.Millisecond)
+	for i := 0; i < 300; i++ {
+		_ = c.Cancel("another-session")
+	}
+
+	before := c.ProtocolErrors()
+	close(release)
+	deadline := time.Now().Add(wait)
+	for c.ProtocolErrors() == before && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if c.ProtocolErrors() == before {
+		t.Error("an answer that could not be queued was dropped without being counted")
+	}
+	within(t, 10*time.Second, "Close", func() { _ = c.Close() })
+}
+
+func TestTheAbandonedSetForgetsTheOldestFirst(t *testing.T) {
+	c := &Client{abandoned: map[int64]struct{}{}}
+	for id := int64(1); id <= abandonedKept+50; id++ {
+		c.abandon(id)
+	}
+	if len(c.abandoned) != abandonedKept {
+		t.Fatalf("kept %d ids, want %d", len(c.abandoned), abandonedKept)
+	}
+	if _, ok := c.abandoned[1]; ok {
+		t.Error("the oldest id was kept")
+	}
+	if _, ok := c.abandoned[abandonedKept+50]; !ok {
+		t.Error("the newest id was dropped")
+	}
+	if _, ok := c.abandoned[51]; !ok {
+		t.Error("an id newer than the evicted ones was dropped")
+	}
+}
