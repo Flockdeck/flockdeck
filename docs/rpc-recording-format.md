@@ -61,7 +61,9 @@ sensitive as a terminal recording. Before a line is written:
   last 16 KiB of the text it has written, for each kind of text, and redacts
   what follows together with it, so that the label, or the first lines of a
   private key, are seen. Only the new part is written. A label or the start of
-  a key further back than 16 KiB is not seen, and when more than 16 kinds of
+  a key further back than 16 KiB is not seen (a private key is
+  1.7 to 3.4 KB, but one over 16 KiB loses its BEGIN line from the context and the
+  rest of it can be written), and when more than 16 kinds of
   text are open at once the context of all of them is let go.
 - Every string is cut at 8 KiB, except the text of a prompt and of a message or
   thought chunk, which is cut at 32 KiB. A cut string ends in a marker saying
