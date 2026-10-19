@@ -159,7 +159,9 @@ func TestEndAfterTheProcessHasExitedTouchesNothingElse(t *testing.T) {
 	// Another tree, standing in for what a reused id would belong to.
 	b := startParent(t)
 
-	// Twice after exit: nothing happens, and certainly nothing to b.
+	// Twice after exit. What keeps this from touching b is the reaped check
+	// (and, on Windows, the ended flag); this call does not tell them apart,
+	// and the zero Tree below is the one that exercises the id guard alone.
 	a.tree.End(a.cmd.Process, a.reaped, 3*time.Second)
 	a.tree.End(a.cmd.Process, a.reaped, 3*time.Second)
 	if !alive(b.cmd.Process.Pid) || !alive(b.child) {

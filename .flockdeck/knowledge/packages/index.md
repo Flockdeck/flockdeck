@@ -1,5 +1,6 @@
 # Packages
 
+* [acp](acp.md) - Client for the Agent Client Protocol v1 over stdio, with a fake agent for tests.
 * [agent](agent.md) - Catalog of the coding agents, roles and routing policy Flockdeck can start in a pane.
 * [appwindow](appwindow.md) - Opens Flockdeck's UI in a native Wails webview window and offers browser and file-manager helpers.
 * [artifacts](artifacts.md) - Path-confinement core that turns a file on this machine into something a remote device may be shown read-only.
