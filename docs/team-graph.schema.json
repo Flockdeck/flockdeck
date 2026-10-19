@@ -116,10 +116,11 @@
         "to": { "type": "string", "minLength": 1, "description": "A pane id. Always written." },
         "id": { "type": "integer", "minimum": 1, "description": "The message's id in its inbox (stored). Written for message edges only." },
         "time": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When the message was sent, RFC 3339 (stored). Written for message edges only." },
-        "text": { "type": "string", "description": "The first non-empty line of the message, cleaned of control characters and cut to 140 characters (derived). Written for message edges only; absent when the message has no text." }
+        "text": { "type": "string", "description": "The first non-empty line of the message, cleaned of control characters and cut to 140 characters (derived). Written for message edges only; absent when the message has no text." },
+        "delivery": { "enum": ["queued", "notified", "woken", "read"], "description": "The newest delivery state of the message (stored): queued when it is in the inbox, notified when the hook notice of it was given, woken when a line was typed into the pane for it, read when the agent ran inbox read. A state counts as newer by this order, not by when it was marked. Written for message edges only." }
       },
       "allOf": [
-        { "if": { "properties": { "kind": { "const": "message" } } }, "then": { "required": ["id", "time"] } }
+        { "if": { "properties": { "kind": { "const": "message" } } }, "then": { "required": ["id", "time", "delivery"] } }
       ]
     },
     "needsItem": {

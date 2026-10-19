@@ -285,6 +285,41 @@ type Message struct {
 	// have seen the message. It is not Read: the agent's inbox, its unread count
 	// and the notice that tells it of mail never look at it.
 	Seen bool `json:"seen,omitempty"`
+	// NotifiedAt, WokenAt and ReadAt are when the message reached each delivery
+	// state (see Delivery). A zero time means it has not. A snapshot from before
+	// they existed loads with all three zero, and a message that is Read but has
+	// no ReadAt still counts as read.
+	NotifiedAt time.Time `json:"notifiedAt,omitzero"`
+	WokenAt    time.Time `json:"wokenAt,omitzero"`
+	ReadAt     time.Time `json:"readAt,omitzero"`
+}
+
+// The delivery states of a message, in the order a message normally passes
+// through them.
+const (
+	// DeliveryQueued: the message is stored in the inbox.
+	DeliveryQueued = "queued"
+	// DeliveryNotified: the hook notice of it was given to the agent.
+	DeliveryNotified = "notified"
+	// DeliveryWoken: a line was typed into the agent's pane to wake it.
+	DeliveryWoken = "woken"
+	// DeliveryRead: the agent ran `inbox read` for it.
+	DeliveryRead = "read"
+)
+
+// Delivery is the newest state the message has reached. The states can be
+// reached out of order, a wake before the notice for instance, and the newest
+// is the furthest along in the order above, not the last one marked.
+func (m Message) Delivery() string {
+	switch {
+	case m.Read || !m.ReadAt.IsZero():
+		return DeliveryRead
+	case !m.WokenAt.IsZero():
+		return DeliveryWoken
+	case !m.NotifiedAt.IsZero():
+		return DeliveryNotified
+	}
+	return DeliveryQueued
 }
 
 // System reports that Flockdeck wrote the message, not another agent.

@@ -21,6 +21,7 @@
       "to": "helper2"
     },
     {
+      "delivery": "queued",
       "from": "helper2",
       "id": 1,
       "kind": "message",
