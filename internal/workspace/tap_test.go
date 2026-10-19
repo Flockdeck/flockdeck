@@ -93,3 +93,39 @@ func TestOnlyAFinishedSendMessageCallIsTapped(t *testing.T) {
 		t.Fatalf("%d taps", n)
 	}
 }
+
+// A restart clears the name the pane reported, so a message to the old name
+// reaches no pane until the new session reports its own.
+func TestARestartClearsThePeerNameTheTapResolvesBy(t *testing.T) {
+	ws, a, b, _ := tapPanes(t)
+	ws.SetPanePeerName(b, "researcher")
+	in := `{"to":"researcher","message":"hi"}`
+	ws.handleHook(sendMessageEvent(a, "SendMessage", in))
+	if got := ws.Taps()[0].To; got != b {
+		t.Fatalf("before the restart the tap went to %q, want %q", got, b)
+	}
+	if !ws.RestartPaneByID(b) {
+		t.Fatal("restart refused")
+	}
+	if name := ws.PeerNameOf(ws.Pane(b)); name != "" {
+		t.Fatalf("peer name after a restart = %q", name)
+	}
+	ws.handleHook(sendMessageEvent(a, "SendMessage", in))
+	if tp := ws.Taps()[1]; !tp.Understood || tp.To != "" {
+		t.Fatalf("tap after the restart = %+v, want understood with no pane", tp)
+	}
+}
+
+// A name in another project is not a recipient.
+func TestATapDoesNotResolveToAPaneOfAnotherProject(t *testing.T) {
+	ws, a, b, _ := tapPanes(t)
+	ws.SetPanePeerName(b, "researcher")
+	pb := ws.Pane(b)
+	ws.mu.Lock()
+	pb.Root = "another-project"
+	ws.mu.Unlock()
+	ws.handleHook(sendMessageEvent(a, "SendMessage", `{"to":"researcher","message":"hi"}`))
+	if tp := ws.Taps()[0]; tp.To != "" {
+		t.Fatalf("tap = %+v, want no pane", tp)
+	}
+}

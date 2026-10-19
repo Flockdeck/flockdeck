@@ -59,7 +59,13 @@ func SendMessageRecipient(input json.RawMessage) (to string, ok bool) {
 	// Field names are matched without regard to case.
 	lower := make(map[string]json.RawMessage, len(fields))
 	for k, v := range fields {
-		lower[strings.ToLower(k)] = v
+		k = strings.ToLower(k)
+		if _, dup := lower[k]; dup {
+			// Two keys that differ only in case: which one the sender meant is
+			// not something to guess at, and a map's order is not stable.
+			return "", false
+		}
+		lower[k] = v
 	}
 	hasText := false
 	for _, k := range sendMessageText {

@@ -1816,6 +1816,10 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 	// A turn of the last session says nothing of this one: a helper restarted
 	// mid-turn must not report that a turn it never finished is over.
 	p.turnSeen, p.idleArmed = false, false
+	// The name another session knew the last start by is not this one's: the new
+	// session reports its own, and until it does a message to the old name must
+	// reach no pane.
+	p.PeerName = ""
 	w.mu.Unlock()
 	// A new session has not been told of the mail waiting for the pane, whatever
 	// the last one was told.

@@ -112,7 +112,7 @@
       "required": ["kind", "from", "to"],
       "description": "A link between two panes of the project.",
       "properties": {
-        "kind": { "enum": ["spawn", "message", "sent"], "description": "spawn goes from a parent to a helper it started; message from the sender to the pane whose inbox it went to; sent from a Claude session to the pane its SendMessage call named. A sent edge is read from the sender's hook and is only ever sent: Flockdeck does not carry that message and cannot say it was read. Always written." },
+        "kind": { "enum": ["spawn", "message", "sent"], "description": "spawn goes from a parent to a helper it started; message from the sender to the pane whose inbox it went to; sent from a Claude session to the pane its SendMessage call named. A sent edge is read from the sender's hook and is only ever sent: Flockdeck does not carry that message and cannot say it was read. It is a claim by the sending session, not a fact Flockdeck checked: every pane's agent holds the same hook token, so a session could report a call it did not make. Always written." },
         "from": { "type": "string", "minLength": 1, "description": "A pane id. Always written." },
         "to": { "type": "string", "minLength": 1, "description": "A pane id. Always written." },
         "id": { "type": "integer", "minimum": 1, "description": "The message's id in its inbox (stored). Written for message edges only." },

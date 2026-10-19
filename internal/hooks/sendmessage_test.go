@@ -93,3 +93,14 @@ func TestPostToolUseDetailCarriesTheSendMessageInput(t *testing.T) {
 		t.Fatalf("recipient from the detail: %q, %v", to, ok)
 	}
 }
+
+// Keys that differ only in case are refused, so the answer does not depend on
+// the order a map is read in.
+func TestSendMessageRecipientRefusesKeysThatFoldTogether(t *testing.T) {
+	in := json.RawMessage(`{"to":"A","To":"B","TO":"C","message":"hi"}`)
+	for i := 0; i < 50; i++ {
+		if to, ok := SendMessageRecipient(in); ok || to != "" {
+			t.Fatalf("got %q, %v, want not understood", to, ok)
+		}
+	}
+}

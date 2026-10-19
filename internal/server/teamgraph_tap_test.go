@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/team"
 )
 
 func emitSendMessage(t *testing.T, e *graphEnv, pane, input string) {
@@ -60,5 +61,26 @@ func TestSentEdgesNeverClaimRead(t *testing.T) {
 	edges, unread := appendSentEdges(nil, nil, nodes)
 	if len(edges) != 0 || unread != 0 {
 		t.Fatalf("edges %v, unread %d", edges, unread)
+	}
+}
+
+// A tap is drawn only when both ends are panes of the graph, and a call from a
+// pane outside it is not counted as one of the project's.
+func TestSentEdgesNeedBothEndsInTheGraph(t *testing.T) {
+	nodes := []graphNodeView{{}, {}}
+	nodes[0].Pane, nodes[1].Pane = "a", "b"
+	taps := []team.Tap{
+		{From: "a", To: "b", Understood: true},
+		{From: "a", To: "elsewhere", Understood: true},
+		{From: "elsewhere", To: "b", Understood: true},
+		{From: "elsewhere", Understood: false},
+		{From: "a", Understood: false},
+	}
+	edges, unread := appendSentEdges(nil, taps, nodes)
+	if len(edges) != 1 || edges[0].From != "a" || edges[0].To != "b" {
+		t.Fatalf("edges = %+v, want only a to b", edges)
+	}
+	if unread != 1 {
+		t.Fatalf("unread = %d, want 1 (the pane outside the graph is not counted)", unread)
 	}
 }
