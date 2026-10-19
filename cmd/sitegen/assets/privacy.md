@@ -105,24 +105,27 @@ The app makes these network connections of its own.
   checks](#downloads-and-update-checks) describes. You can turn update checks
   off in Settings or with `FLOCKDECK_UPDATE=off`.
 - **The lens helper download**, only if you install the optional helper app
-  lens (Helper apps in the command palette, or `flockdeck helpers install lens`).
-  Flockdeck fetches it from dl.flockdeck.ai/lens, and from no other address:
-  it refuses redirects and any other host. Installing asks `latest.json` which
-  version is newest, then reads that release's signed manifest, its
-  checksums and their signatures, and downloads the archive for your
-  operating system once you confirm. Flockdeck checks the signatures and the
-  archive's SHA-256 and size before it unpacks anything. After that, it asks
-  the same address for a newer version only when you open the Helper apps
-  dialog while lens is installed, or run `flockdeck helpers list -check`,
-  and downloads nothing without your say-so. This is separate from the
-  update checks above, so the update setting does not turn it off; not
-  installing lens does. Requests send a user agent of `flockdeck-helpers`
-  and nothing else that identifies you, and dl.flockdeck.ai keeps access logs
-  for them as it does for any download. Once installed, lens runs on your
-  computer and listens on 127.0.0.1 only. Flockdeck gives it none of its tokens
-  or API keys. lens may contact whatever AI service you configure in its own
-  settings, under that service's terms; Flockdeck does not send anything
-  to that service itself.
+  lens (Helper apps in the command palette, or `flockdeck helpers install
+  lens`). lens reads your agent session transcripts from disk and shows what
+  they did in a page on your own computer. Flockdeck fetches it from
+  dl.flockdeck.ai/lens and from no other address: it refuses redirects and any
+  other host. An install asks `latest.json` which version is newest (unless
+  you name a version), reads that release's signed manifest, checksums and
+  their signatures, and downloads the archive for your operating system. It
+  asks you first, unless you pass `-yes`. Flockdeck checks the signatures and
+  the archive's SHA-256 and size before it unpacks anything. Once lens is
+  installed, Flockdeck asks the same address for a newer version while the
+  Helper apps dialog is open, and when you run `flockdeck helpers list
+  -check`. It downloads a newer version only when you confirm. These requests
+  send the user agent `flockdeck-helpers` and nothing else that identifies
+  you. The server sees the address they come from (your IP address, or your
+  network's outbound address if you use a gateway), as with any download, and
+  dl.flockdeck.ai keeps access logs for them. This is separate from the update checks above, so the
+  update setting does not turn it off; not installing lens does. Once
+  installed, lens runs on your computer and listens on 127.0.0.1 only.
+  Flockdeck gives it none of its tokens or API keys. lens may contact
+  whatever AI service you configure in its own settings, under that service's
+  terms; Flockdeck does not send anything to that service itself.
 - **The relay**, only after you turn on Flockdeck Remote. See below.
 - **Your git remotes**, when you push, pull or fetch from the review panel.
   These are the remotes your repository already has.

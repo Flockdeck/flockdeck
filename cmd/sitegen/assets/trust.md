@@ -32,15 +32,16 @@ because there is nothing to turn off:
   policy](privacy.html#the-desktop-app). Everything above holds while it is
   off.
 - **Downloads keep short-lived access logs.** The app, the installer scripts,
-  the update check and the optional lens helper app are served from dl.flockdeck.ai, which keeps standard
-  access logs (IP address, path, time, response code and user agent) for 30
-  days, stored privately and used only for security, abuse and fixing
-  problems: not for analytics, marketing or profiling, and not shared except
-  as the law requires. The desktop app itself still collects nothing, and
-  none of your code or terminal content is part of a download. lens is only
-  fetched if you choose to install it, and it runs on your computer; the
-  [privacy policy](privacy.html#the-desktop-app) lists what it may contact. See the
-  [privacy policy](privacy.html#downloads-and-update-checks).
+  the update check and the optional lens helper app are served from
+  dl.flockdeck.ai, which keeps standard access logs (IP address, path, time,
+  response code and user agent) for 30 days, stored privately and used only
+  for security, abuse and fixing problems: not for analytics, marketing or
+  profiling, and not shared except as the law requires. The desktop app itself
+  still collects nothing, and none of your code or terminal content is part of
+  a download. lens, which reads your agent session transcripts on your own
+  computer, is fetched only if you choose to install it. See the [privacy
+  policy](privacy.html#downloads-and-update-checks) for the logs and the
+  [lens download](privacy.html#the-desktop-app) for what it may contact.
 - **Nobody's data is sold**, and nothing is used to train a model, anyone
   else's or Flockdeck's own, and there is no model here to train.
 
