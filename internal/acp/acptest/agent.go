@@ -22,6 +22,8 @@
 //	exit        exits with status 3 and a message on stderr, mid-turn
 //	garbage     a line that is not JSON, a response to nothing, a malformed update, a second response
 //	unknown-method  a request for fs/read_text_file, reports the error code it got back
+//	perm-chunks chunks, a permission request, more chunks, then the tool update
+//	storm       a thousand 64 KiB rewrites of one tool call, then 8 MiB of thought chunks
 //	silent      never answers
 //	flood       a stdout line with no end
 //	stderr-flood  4 MiB on stderr in one line, then plain
@@ -401,6 +403,41 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 		a.update(sid, map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "completed",
 			"content": []any{map[string]any{"type": "content", "content": textBlock(strings.Repeat("x", 5<<20))}}})
 		a.chunk(sid, "after big")
+		done("end_turn")
+
+	case "perm-chunks":
+		a.update(sid, map[string]any{"sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Write notes.txt", "kind": "edit", "status": "pending"})
+		for i := 0; i < 20; i++ {
+			a.chunk(sid, "a")
+		}
+		raw := (<-a.askPermission(sid, json.RawMessage(strconv.Itoa(1000+n)))).Result
+		var o outcome
+		_ = json.Unmarshal(raw, &o)
+		for i := 0; i < 20; i++ {
+			a.chunk(sid, "b")
+		}
+		status := "failed"
+		if o.Outcome.OptionID == "allow-1" {
+			status = "completed"
+		}
+		a.update(sid, map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": status})
+		done("end_turn")
+
+	case "storm":
+		// Far more than a person could read: a thousand rewrites of one tool
+		// call, each with 64 KiB of output, then 8 MiB of thoughts in 1 KiB
+		// chunks.
+		blob := strings.Repeat("storm output line\n", 3600)
+		a.update(sid, map[string]any{"sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Run storm", "kind": "execute", "status": "pending"})
+		for i := 0; i < 1000; i++ {
+			a.update(sid, map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "in_progress",
+				"content": []any{map[string]any{"type": "content", "content": textBlock(blob)}}})
+		}
+		kb := strings.Repeat("t", 1024)
+		for i := 0; i < 8192; i++ {
+			a.update(sid, map[string]any{"sessionUpdate": "agent_thought_chunk", "content": textBlock(kb)})
+		}
+		a.update(sid, map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "completed"})
 		done("end_turn")
 
 	case "order":
