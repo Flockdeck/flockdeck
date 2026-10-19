@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -628,6 +629,95 @@ func (s *Session) RecentText(maxBytes int) string {
 		raw = dropPartialLine(raw)
 	}
 	return stripANSI(raw)
+}
+
+const (
+	// ScreenTailLines is how many lines ScreenTail returns.
+	ScreenTailLines = 12
+	// screenTailBytes is how much raw output the tail is cut from. Twelve
+	// lines of a wide terminal are a few kilobytes once the escape sequences
+	// that colour them are counted; a tail this size rarely holds fewer.
+	screenTailBytes = 8192
+)
+
+// ScreenTail is what ScreenTail returns.
+type ScreenTail struct {
+	// Lines are the last lines of the pane's output with escape sequences
+	// removed, oldest first, trailing spaces trimmed and trailing blank lines
+	// dropped. There are at most ScreenTailLines of them, and none when the
+	// pane has printed nothing.
+	Lines []string
+	// ChangedAt is when Lines last differed from what they were before. A
+	// chunk that leaves them as they were -- a spinner redrawn over itself, a
+	// cursor moved -- does not move it. It is the zero time for a pane that
+	// has printed nothing.
+	ChangedAt time.Time
+}
+
+// ScreenTail returns the last lines of the pane's output as plain text, and
+// the time they last changed.
+//
+// This is the tail of the raw output, not the rendered screen. There is no
+// terminal emulator in Go, so nothing here knows where the cursor is or what
+// is on screen right now. stripANSI folds a carriage return and an erase of
+// the current line into the text, which covers a prompt redrawn on its own
+// line, but a full-screen program that positions the cursor and repaints
+// regions (a menu, an editor, an alternate screen) leaves a tail of fragments
+// in the order they were sent. A caller must treat the tail as evidence that
+// something is not there, never as proof of what the user would see.
+//
+// The first call turns tracking on for the pane. From then on every chunk
+// refreshes the tail, which is what makes ChangedAt the moment of the change;
+// before it the reader pays nothing. It is safe from any goroutine.
+func (s *Session) ScreenTail() ScreenTail {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.tailWatched {
+		s.tailWatched = true
+		// Output that came before anyone asked is dated by the last chunk,
+		// which is the latest it could have changed.
+		s.tailChanged = s.lastOutput
+	}
+	s.refreshTail()
+	var lines []string
+	if s.tailText != "" {
+		lines = strings.Split(s.tailText, "\n")
+	}
+	return ScreenTail{Lines: lines, ChangedAt: s.tailChanged}
+}
+
+// LastInput returns when something last typed into the pane, or the zero time
+// if nothing has. The user in the window, a remote device and Flockdeck's own
+// typeInto all arrive through Write and all count; a terminal's report of
+// focus or the mouse does not, for the reason Write gives.
+func (s *Session) LastInput() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastInput
+}
+
+// refreshTail recomputes the tail and dates a change at the last output. It is
+// called with s.mu held.
+func (s *Session) refreshTail() {
+	raw, truncated := s.history.tail(screenTailBytes)
+	if truncated {
+		raw = dropPartialLine(raw)
+	}
+	lines := strings.Split(stripANSI(raw), "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " \t\r")
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) > ScreenTailLines {
+		lines = lines[len(lines)-ScreenTailLines:]
+	}
+	text := strings.Join(lines, "\n")
+	if text != s.tailText {
+		s.tailText = text
+		s.tailChanged = s.lastOutput
+	}
 }
 
 // patternStatus reads out of a pane's recent output the state the agent's own

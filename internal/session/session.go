@@ -234,6 +234,19 @@ type Session struct {
 	// typedWrites counts the writes that were typing and not a terminal's own
 	// report. See TypedWrites.
 	typedWrites int
+	// lastInput is when something last typed into the pane: the user in the
+	// window, a remote device, or Flockdeck through typeInto. A terminal's own
+	// report is not typing and does not set it. See LastInput.
+	lastInput time.Time
+	// tailWatched is set by the first ScreenTail call. Until then the reader
+	// does no tail work at all; after it, every chunk refreshes the tail so
+	// that tailChanged is the time the text really changed and not the time
+	// someone happened to look. See ScreenTail.
+	tailWatched bool
+	// tailText is the tail as of the last refresh, lines joined with a line
+	// feed, and tailChanged is when it last differed from the one before.
+	tailText    string
+	tailChanged time.Time
 	startedAt   time.Time
 	cols, rows  int
 	// marks is where in the output each size began, and sized is closed, and
@@ -456,6 +469,9 @@ func (s *Session) publish(chunk []byte) {
 	s.written += int64(len(chunk))
 	s.modes = s.bell.modes
 	s.lastOutput = time.Now()
+	if s.tailWatched {
+		s.refreshTail()
+	}
 	// A pane nothing is reporting for is read from what it prints, in three
 	// ways that know progressively more. An agent's own patterns are the
 	// sharpest: its Spec says what the lines it prints when it is blocked on
@@ -852,6 +868,7 @@ func (s *Session) Write(p []byte) (int, error) {
 	if typed {
 		s.sawInput = true
 		s.typedWrites++
+		s.lastInput = time.Now()
 		// What the pane prints next may be its answer: see ownRedraw.
 		s.resizedAt = time.Time{}
 	}
