@@ -136,6 +136,7 @@ var commandAccess = map[string]cmdAccess{
 	"fontFamily": accessFull, "railExpanded": accessFull, "railWidth": accessFull, "theme": accessFull,
 	"accentColor": accessFull, "autoReviewDefault": accessFull,
 	"jevStatus": accessFull, "conflictRadar": accessFull,
+	"graphSnapshot": accessFull, "graphWatch": accessFull, "graphUnwatch": accessFull,
 	"teamSnapshot": accessFull, "teamWatch": accessFull, "teamUnwatch": accessFull, "taskList": accessFull,
 	"taskGet": accessFull, "taskAdd": accessFull, "taskAssign": accessFull, "taskStatus": accessFull,
 	"taskNote": accessFull, "taskBranch": accessFull, "taskPrune": accessFull, "msgList": accessFull,

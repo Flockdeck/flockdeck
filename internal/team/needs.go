@@ -121,7 +121,7 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 		if p.Exited || p.Failed {
 			unexpected := p.Failed || !p.Shell && p.ExitCode != 0
 			if unexpected && !p.ClosedByUser {
-				text := "failed"
+				text := failedText(p)
 				if !p.Failed {
 					text = "exited with code " + strconv.Itoa(p.ExitCode)
 				}

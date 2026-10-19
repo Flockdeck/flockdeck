@@ -375,3 +375,16 @@ func TestNeedsStaleUnreadNeedsTime(t *testing.T) {
 		t.Errorf("got %+v", got)
 	}
 }
+
+func TestFailureReasonIsCarried(t *testing.T) {
+	ps := team2()
+	ps[1].Failed, ps[1].Exited, ps[1].FailureReason = true, true, "exit code 2"
+	g := BuildGraph(ps, nil)
+	if n, _ := g.Node("a"); n.WaitingOn.Text != "failed: exit code 2" {
+		t.Errorf("waiting on = %+v", n.WaitingOn)
+	}
+	got := needsFor(ps, nil, nil, nil)["m"]
+	if len(got) != 1 || got[0].Text != "failed: exit code 2" {
+		t.Errorf("items = %+v", got)
+	}
+}

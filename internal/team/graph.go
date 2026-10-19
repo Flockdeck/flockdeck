@@ -66,6 +66,9 @@ type GraphPane struct {
 	// Exited and Failed say the process is gone, and whether it ended in error.
 	Exited bool
 	Failed bool
+	// FailureReason says why a failed pane failed, such as "exit code 2" or "was
+	// killed", or why it could not start. Empty when unknown.
+	FailureReason string
 	// ExitCode is the process's exit code when Exited.
 	ExitCode int
 	// ClosedByUser says the person closed or killed the pane, so its exit is not a
@@ -254,11 +257,19 @@ func breakLoops(nodes []GraphNode, index map[string]int) {
 	}
 }
 
+// failedText is "failed", with the reason after it when it is known.
+func failedText(p GraphPane) string {
+	if p.FailureReason == "" {
+		return "failed"
+	}
+	return PlainText("failed: "+p.FailureReason, MaxWaitText)
+}
+
 func waitingOn(p GraphPane, n GraphNode, panes []GraphPane, index map[string]int, tasks []GraphTask) WaitingOn {
 	if p.Exited || p.Failed {
 		text := "exited"
 		if p.Failed {
-			text = "failed"
+			text = failedText(p)
 		}
 		return WaitingOn{Kind: WaitDown, Text: text, Ref: p.ID}
 	}
