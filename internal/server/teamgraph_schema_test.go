@@ -163,8 +163,7 @@ func schemaFields(t *testing.T, props, required any) (all, req []string) {
 
 // The schema and the Go structs name the same fields, and the same ones are
 // always written. A field added to a struct must be added to the schema, with its
-// description, in the same change. paneSend's struct is checked once that
-// command is on this branch's base.
+// description, in the same change.
 func TestSchemaAndStructsNameTheSameFields(t *testing.T) {
 	schema := loadGraphSchema(t)
 	defs, _ := schema["$defs"].(map[string]any)
@@ -174,8 +173,6 @@ func TestSchemaAndStructsNameTheSameFields(t *testing.T) {
 		m := d.(map[string]any)
 		shapes[name] = shape{m["properties"], m["required"]}
 	}
-	// TODO: add paneSend (paneSendMsg) here once #326 is merged; until then its
-	// schema is checked against a sample answer only.
 	cases := []struct {
 		def string
 		typ reflect.Type
@@ -188,6 +185,7 @@ func TestSchemaAndStructsNameTheSameFields(t *testing.T) {
 		{"edge", reflect.TypeOf(graphEdge{})},
 		{"needsItem", reflect.TypeOf(team.NeedsItem{})},
 		{"waitingOn", reflect.TypeOf(team.WaitingOn{})},
+		{"paneSend", reflect.TypeOf(paneSendMsg{})},
 	}
 	for _, c := range cases {
 		goAll, goAlways := jsonFields(c.typ)
