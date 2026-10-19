@@ -100,6 +100,34 @@ type Config struct {
 	// goroutines that serve the agent's requests. ProtocolErrors counts them
 	// either way.
 	OnProtocolError func(description string)
+	// Tap, if set, is given each line of JSON-RPC traffic: dir is TapIn for a
+	// line read from the agent and TapOut for a line written to it, raw is one
+	// message without its newline. A line from the agent is tapped before it is
+	// parsed, so a line that is not JSON is seen too; a line to the agent is
+	// tapped by the writer, once encoded and just before it is written, so a
+	// message the agent never reads is still recorded. Blank lines are not
+	// tapped.
+	//
+	// Tap runs on the read loop and on the writer goroutine, and both wait for
+	// it: it must not block. A slow Tap slows reading and writing as a slow
+	// Handler.Update does, and delays the limits (MaxLineBytes is checked as a
+	// line is read, MaxAgentRequests as it is dispatched) by the same time, but
+	// it never reorders anything: updates reach the Handler in the order they
+	// were read. Lines of the two directions are tapped from different
+	// goroutines, so their order relative to each other is not guaranteed.
+	//
+	// raw is only valid during the call and must not be changed: Tap copies what
+	// it keeps. A panic in
+	// Tap is recovered and counted in ProtocolErrors. A nil Tap costs one
+	// comparison per line.
+	//
+	// The client taps every line up to MaxLineBytes; a longer line ends the
+	// session and is not tapped. What a recorder does with a long line is the
+	// recorder's to decide: internal/record notes a message over 1 MiB and
+	// keeps none of it, and its reader takes files up to 32 MiB.
+	// internal/acp does not import internal/record; TapIn and TapOut have the
+	// values of its RPCIn and RPCOut.
+	Tap func(dir string, raw []byte)
 
 	// ClientName and ClientVersion go in initialize. Defaults: "flockdeck", "".
 	ClientName    string
@@ -309,6 +337,26 @@ func (c *Client) StderrTail() string {
 	return string(c.errTail)
 }
 
+// The directions Config.Tap is told. They are the values of record.RPCIn and
+// record.RPCOut, which this package does not import.
+const (
+	TapIn  = "in"
+	TapOut = "out"
+)
+
+// tap gives a line to Config.Tap, if there is one. A panic is counted.
+func (c *Client) tap(dir string, raw []byte) {
+	if c.cfg.Tap == nil {
+		return
+	}
+	defer func() {
+		if recover() != nil {
+			c.protoErrs.Add(1)
+		}
+	}()
+	c.cfg.Tap(dir, raw)
+}
+
 // ProtocolErrors counts what the agent sent that the client could not use.
 func (c *Client) ProtocolErrors() int64 { return c.protoErrs.Load() }
 
@@ -404,6 +452,7 @@ func (c *Client) readLoop() {
 			return
 		}
 		if len(bytes.TrimSpace(line)) > 0 {
+			c.tap(TapIn, bytes.TrimRight(line, "\r\n"))
 			var m rpcMsg
 			if json.Unmarshal(line, &m) != nil {
 				c.protoErr("a line that is not JSON")

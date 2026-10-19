@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -146,6 +147,7 @@ func (c *Client) writer() {
 	for {
 		select {
 		case b := <-c.outbox:
+			c.tap(TapOut, bytes.TrimRight(b, "\n"))
 			_, err := c.in.Write(b)
 			c.queued.Add(-1)
 			if err != nil {
