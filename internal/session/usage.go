@@ -4,6 +4,8 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/proctree"
 )
 
 const (
@@ -25,7 +27,7 @@ const (
 	// disagrees with itself -- which a table assembled from processes that are
 	// starting and exiting underneath it can -- costs a bounded amount rather
 	// than everything on the machine.
-	maxTreeProcs = 512
+	maxTreeProcs = proctree.MaxProcs
 )
 
 // Usage is what a pane is costing the machine: its process and everything that

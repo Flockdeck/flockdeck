@@ -1,10 +1,11 @@
 //go:build windows
 
-package session
+package proctree
 
 import (
 	"encoding/binary"
 	"os"
+	"os/exec"
 	"syscall"
 	"time"
 	"unsafe"
@@ -25,12 +26,12 @@ import (
 // screen, and closing a terminal does not close it. Nor are the console
 // programs such a program starts, since they are its and not the pane's: the
 // terminal in an editor started with `code .`, the language servers and git it
-// runs. For the same reason endTree clears JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+// runs. For the same reason End clears JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 // before it lets the job go: Flockdeck exiting in the ordinary way must not
 // close somebody's browser either.
 //
 // The job is created with that limit set, though, and it stays set until
-// endTree clears it. Flockdeck does not always get to run endTree: a crash, a
+// End clears it. Flockdeck does not always get to run End: a crash, a
 // `taskkill /F`, a wedged shutdown that forceQuit gives up on, a power cut,
 // all end the process without a line of Go running first, the same way they
 // would if the job had never been made. Windows itself closes every handle a
@@ -44,9 +45,10 @@ import (
 // already put its own children in a job, or simply not exist on an old
 // enough Windows. Nothing links the pane to what it started then, on a clean
 // close or a crash alike, and KILL_ON_JOB_CLOSE has nothing to act on. See
-// endTree's fallback to killDescendants for that case, and reap.go for the
+// End's fallback to killDescendants for that case, and reap.go for the
 // startup sweep that exists for whatever either safety net still misses.
 var (
+	kernel32                       = syscall.NewLazyDLL("kernel32.dll")
 	procCreateJobObjectW           = kernel32.NewProc("CreateJobObjectW")
 	procAssignProcessToJobObject   = kernel32.NewProc("AssignProcessToJobObject")
 	procSetInformationJobObject    = kernel32.NewProc("SetInformationJobObject")
@@ -126,9 +128,9 @@ func setKillOnClose(job syscall.Handle, on bool) bool {
 	return r != 0
 }
 
-// procTree is the job a pane's process was put in, or zero when it could not
+// tree is the job a pane's process was put in, or zero when it could not
 // be. A pane without one is ended the way it always was, one process alone.
-type procTree struct{ job syscall.Handle }
+type tree struct{ job syscall.Handle }
 
 // containTree puts a newly started process in a job of its own, which
 // everything it starts from then on joins.
@@ -136,32 +138,32 @@ type procTree struct{ job syscall.Handle }
 // What it starts before this runs is not in the job, but this runs the moment
 // the process has been created, and what a program starts first is not
 // started that soon.
-func containTree(pid int) procTree {
+func containTree(pid int) tree {
 	job, _, _ := procCreateJobObjectW.Call(0, 0)
 	if job == 0 {
-		return procTree{}
+		return tree{}
 	}
 	h, err := syscall.OpenProcess(processSetQuota|processTerminate, false, uint32(pid))
 	if err != nil {
 		_ = syscall.CloseHandle(syscall.Handle(job))
-		return procTree{}
+		return tree{}
 	}
 	defer syscall.CloseHandle(h)
 	if r, _, _ := procAssignProcessToJobObject.Call(job, uintptr(h)); r == 0 {
 		_ = syscall.CloseHandle(syscall.Handle(job))
-		return procTree{}
+		return tree{}
 	}
 	// Asked for from the moment the process is in the job, not only once
 	// something has gone wrong: Flockdeck dying is not an event it gets to
 	// react to first. See the package doc above for why this has to be here
-	// rather than only in endTree's ordinary path.
+	// rather than only in End's ordinary path.
 	setKillOnClose(syscall.Handle(job), true)
-	return procTree{job: syscall.Handle(job)}
+	return tree{job: syscall.Handle(job)}
 }
 
 // jobMemberIDs lists the processes a job holds, as many as a pane's tree is
 // ever walked to.
-func jobMemberIDs(job syscall.Handle) []uint32 { return listJob(job, maxTreeProcs) }
+func jobMemberIDs(job syscall.Handle) []uint32 { return listJob(job, MaxProcs) }
 
 // listJob lists up to room of the processes a job holds.
 //
@@ -219,7 +221,7 @@ func programSubsystem(h syscall.Handle) (sub uint16, ok bool) {
 	return peSubsystem(syscall.UTF16ToString(buf[:n]))
 }
 
-// jobMember is what endTree has read about a process in the pane's job.
+// jobMember is what End has read about a process in the pane's job.
 type jobMember struct {
 	windowed bool
 	// started is when the process was created, in file-time ticks.
@@ -233,7 +235,7 @@ func startedAt(h syscall.Handle) int64 {
 	if err := syscall.GetProcessTimes(h, &creation, &exit, &kernel, &user); err != nil {
 		return 0
 	}
-	return filetimeTicks(creation)
+	return FiletimeTicks(creation)
 }
 
 // underWindow reports whether a process in the pane's job was started,
@@ -252,7 +254,7 @@ func underWindow(pid uint32, pane int, parents map[int]int, members map[uint32]j
 	if !ok {
 		return false
 	}
-	for i := 0; i < maxTreeProcs; i++ {
+	for i := 0; i < MaxProcs; i++ {
 		ppid, ok := parents[int(pid)]
 		if !ok || ppid == pane || ppid == int(pid) {
 			return false
@@ -300,17 +302,20 @@ func peSubsystem(path string) (uint16, bool) {
 	return binary.LittleEndian.Uint16(opt[subsystemAt:]), true
 }
 
-// endTree ends the pane's process and every console program it started, and
-// waits for them to be gone, within closeGrace. Programs with windows of their
+// End ends the pane's process and every console program it started, and
+// waits for them to be gone, within grace. Programs with windows of their
 // own are left running.
-func (s *Session) endTree() {
-	deadline := time.Now().Add(closeGrace)
-	// Taken, so that a second Close neither ends the tree again nor closes a
+func (t *Tree) End(p *os.Process, reaped <-chan struct{}, grace time.Duration) {
+	if t == nil {
+		t = &Tree{}
+	}
+	deadline := time.Now().Add(grace)
+	// Taken, so that a second End neither ends the tree again nor closes a
 	// handle whose number may have been given to something else since.
-	s.mu.Lock()
-	job := s.tree.job
-	s.tree.job = 0
-	s.mu.Unlock()
+	t.mu.Lock()
+	job := t.tree.job
+	t.tree.job = 0
+	t.mu.Unlock()
 
 	// Each process ended is held open until it is gone, which also keeps its
 	// id from being handed to another process in the meantime. Terminating a
@@ -328,9 +333,9 @@ func (s *Session) endTree() {
 		// long after the pane working in it had been closed. Rather than
 		// fall back to that, the machine's whole process table stands in for
 		// the job that could not be made; see killDescendants.
-		ending = killDescendants(uint32(s.cmd.Process.Pid))
+		ending = killDescendants(uint32(p.Pid))
 	} else {
-		pane := s.cmd.Process.Pid
+		pane := p.Pid
 		seen := map[uint32]bool{}
 		members := map[uint32]jobMember{}
 		type console struct {
@@ -361,7 +366,7 @@ func (s *Session) endTree() {
 			}
 			// Taken after the listing, so every process listed and still
 			// running is in it.
-			parents := procParents()
+			parents := Parents()
 			more := false
 			for _, c := range consoles {
 				if underWindow(c.pid, pane, parents, members) {
@@ -378,8 +383,8 @@ func (s *Session) endTree() {
 		}
 	}
 	// The pane's own process ends whatever it is.
-	_ = s.cmd.Process.Kill()
-	waitClosed(s.reaped, time.Until(deadline))
+	_ = p.Kill()
+	waitClosed(reaped, time.Until(deadline))
 	for _, h := range ending {
 		if left := time.Until(deadline); left > 0 {
 			_, _ = syscall.WaitForSingleObject(h, uint32(left/time.Millisecond))
@@ -387,7 +392,7 @@ func (s *Session) endTree() {
 		_ = syscall.CloseHandle(h)
 	}
 	if job != 0 {
-		// This is the ordinary path -- endTree is running, which is what
+		// This is the ordinary path -- End is running, which is what
 		// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE is there for the absence of.
 		// Cleared first, closing the job below takes only what the walk above
 		// left running that was never meant to be spared: a windowed program
@@ -413,11 +418,11 @@ func openLimited(pid uint32) (syscall.Handle, bool) {
 // killDescendants finds every process the machine's whole process table shows
 // descended from root, starts ending each one that is not left for the user
 // to close by hand -- a program with windows of its own, or anything started
-// under one, by the same rule endTree applies to a job's own members -- and
+// under one, by the same rule End applies to a job's own members -- and
 // returns their handles, still open, for the caller to wait on. root itself
 // is not included; the caller ends that one its own way.
 //
-// It is where endTree falls back to when the pane's process could not be put
+// It is where End falls back to when the pane's process could not be put
 // in a job to track its children by, and it is how KillTree ends a past run's
 // own orphaned pane, once nothing links it to anything any more. Either way
 // the process table is all there is left to walk, the way Usage already
@@ -429,7 +434,7 @@ func openLimited(pid uint32) (syscall.Handle, bool) {
 // come round again quickly. Such a process, and anything under it, is left
 // alone rather than guessed about.
 func killDescendants(root uint32) []syscall.Handle {
-	parents := procParents()
+	parents := Parents()
 	if len(parents) == 0 {
 		return nil
 	}
@@ -447,7 +452,7 @@ func killDescendants(root uint32) []syscall.Handle {
 	seen := map[uint32]bool{root: true}
 	queue := []queued{{root, 0}}
 	var ending []syscall.Handle
-	for i := 0; i < len(queue) && len(queue) < maxTreeProcs; i++ {
+	for i := 0; i < len(queue) && len(queue) < MaxProcs; i++ {
 		for _, kid := range children[queue[i].pid] {
 			if seen[kid] {
 				continue
@@ -476,7 +481,7 @@ func killDescendants(root uint32) []syscall.Handle {
 }
 
 // KillTree ends pid and every process the machine's process table shows
-// descended from it -- the same thing endTree does for a pane's own tree when
+// descended from it -- the same thing End does for a pane's own tree when
 // it is still in a job, except pid belongs to no job this run can query:
 // whatever job it may once have held its children in died with the run that
 // made it, or was never made at all.
@@ -488,7 +493,7 @@ func killDescendants(root uint32) []syscall.Handle {
 // See killDescendants, and internal/workspace's reaper.
 func KillTree(pid int) {
 	root := uint32(pid)
-	deadline := time.Now().Add(closeGrace)
+	deadline := time.Now().Add(killGrace)
 
 	var ending []syscall.Handle
 	if h, ok := openLimited(root); ok {
@@ -503,4 +508,16 @@ func KillTree(pid int) {
 		}
 		_ = syscall.CloseHandle(h)
 	}
+}
+
+// prepare does nothing here: the job is made after the process has started,
+// by containTree.
+func prepare(*exec.Cmd) {}
+
+// Windowed reports whether the program at path draws windows of its own, in
+// its PE header's terms, rather than running in a console. ok is false when
+// the header cannot be read.
+func Windowed(path string) (windowed, ok bool) {
+	sub, ok := peSubsystem(path)
+	return ok && sub == imageSubsystemWindowsGUI, ok
 }

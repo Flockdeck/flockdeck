@@ -1,8 +1,10 @@
 //go:build !windows
 
-package session
+package proctree
 
 import (
+	"os"
+	"os/exec"
 	"syscall"
 	"time"
 )
@@ -13,14 +15,15 @@ import (
 // waited on for long.
 const hangupGrace = 500 * time.Millisecond
 
-// procTree is nothing on Unix. go-pty starts a pane's process as the leader of
+// tree is nothing on Unix. A process started with Prepare, or by go-pty for a
+// pane, is the leader of
 // a session of its own (Setsid), so its process id is also the id of that
 // session, which everything it starts stays in.
-type procTree struct{}
+type tree struct{}
 
-func containTree(int) procTree { return procTree{} }
+func containTree(int) tree { return tree{} }
 
-// endTree ends the pane's process and everything else in its session, and
+// End ends the pane's process and everything else in its session, and
 // waits for the process to be gone.
 //
 // Killing the process alone left the rest running: a shell pane's background
@@ -43,11 +46,14 @@ func containTree(int) procTree { return procTree{} }
 // While the pane's process has not been reaped its id cannot be anybody
 // else's. Once it has -- a shell told `exit`, with a job still running -- what
 // it left is found through signalLeftBehind instead.
-func (s *Session) endTree() {
-	pid := s.cmd.Process.Pid
-	if !closedChan(s.reaped) {
+func (t *Tree) End(p *os.Process, reaped <-chan struct{}, grace time.Duration) {
+	if t == nil {
+		t = &Tree{}
+	}
+	pid := p.Pid
+	if !closedChan(reaped) {
 		signalSession(pid, syscall.SIGHUP)
-		waitClosed(s.reaped, hangupGrace)
+		waitClosed(reaped, hangupGrace)
 		// Whatever ignored the hangup. The pane's process may have been reaped
 		// in the grace, but an id given back is not handed out again within it.
 		signalSession(pid, syscall.SIGKILL)
@@ -55,15 +61,15 @@ func (s *Session) endTree() {
 		time.Sleep(hangupGrace)
 		signalLeftBehind(pid, syscall.SIGKILL)
 	}
-	_ = s.cmd.Process.Kill()
-	waitClosed(s.reaped, closeGrace)
+	_ = p.Kill()
+	waitClosed(reaped, grace)
 }
 
 // signalSession sends sig to the process group sid leads and to every other
 // process in the session sid leads.
 func signalSession(sid int, sig syscall.Signal) {
 	_ = syscall.Kill(-sid, sig)
-	for _, pid := range sessionMembers(sid) {
+	for _, pid := range SessionMembers(sid) {
 		_ = syscall.Kill(pid, sig)
 	}
 }
@@ -81,7 +87,7 @@ func signalLeftBehind(sid int, sig syscall.Signal) bool {
 		return false
 	}
 	found := syscall.Kill(-sid, sig) == nil
-	for _, pid := range sessionMembers(sid) {
+	for _, pid := range SessionMembers(sid) {
 		if syscall.Kill(pid, sig) == nil {
 			found = true
 		}
@@ -89,9 +95,9 @@ func signalLeftBehind(sid int, sig syscall.Signal) bool {
 	return found
 }
 
-// KillTree ends pid and everything left in its session, the same way endTree
+// KillTree ends pid and everything left in its session, the same way End
 // ends a pane's own process tree -- see signalSession -- except that pid was
-// never this run's own process, so there is no s.reaped to wait on: SIGHUP is
+// never this run's own process, so there is no reaped channel to wait on: SIGHUP is
 // given hangupGrace to be noticed before SIGKILL follows.
 //
 // go-pty makes a pane's process the leader of a session of its own, and pid
@@ -104,4 +110,13 @@ func KillTree(pid int) {
 	signalSession(pid, syscall.SIGHUP)
 	time.Sleep(hangupGrace)
 	signalSession(pid, syscall.SIGKILL)
+}
+
+// prepare makes the process the leader of a session of its own, which
+// everything it starts stays in, so End and KillTree can find all of it.
+func prepare(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setsid = true
 }

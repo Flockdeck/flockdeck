@@ -17,8 +17,8 @@ const procStartSlack = 2 * time.Second
 // recordWorktreeProcess notes a pane's process as working in a git worktree,
 // once it has actually started, so that a run which never gets the chance to
 // close it -- killed outright, the machine losing power under it, an update
-// relaunching before the old run finished tearing down, a bug in containTree
-// or in endTree's own fallback -- leaves something the next run can still
+// relaunching before the old run finished tearing down, a bug in proctree.Contain
+// or in proctree's End fallback -- leaves something the next run can still
 // find it and end it by.
 //
 // Only a pane whose Cwd sits outside its own project is worth remembering
@@ -54,10 +54,10 @@ func forgetWorktreeProcess(paneID string) {
 // reports how many it found still running.
 //
 // It is the backstop for the whole class of bug a leak like that is, rather
-// than a fix for any one way it can happen: containTree's job object now sets
+// than a fix for any one way it can happen: proctree.Contain's job object now sets
 // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, so Windows itself takes a pane's tree
 // down within a moment of Flockdeck's own process disappearing, however that
-// happens, and endTree falls back to walking the machine's process table
+// happens, and proctree's End falls back to walking the machine's process table
 // itself when the job could never be made in the first place. What this
 // still catches is whatever slips past both of those -- a version of
 // Flockdeck built before either existed, security software that blocks a job

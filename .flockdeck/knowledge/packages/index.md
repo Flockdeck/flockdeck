@@ -23,6 +23,7 @@
 * [keybindings](keybindings.md) - User overrides for Flockdeck's own window shortcuts, kept in keybindings.json.
 * [layout](layout.md) - Tree of splits for a tab's panes, with operations and a Compute step that tiles the tree into cell rectangles.
 * [legacyenv](legacyenv.md) - Reads pane environment variables under the FLOCKDECK_ name or the old PERCH_ name.
+* [proctree](proctree.md) - Puts a started process in a job object (Windows) or a session (Unix) and ends it with everything it started.
 * [pricing](pricing.md) - The single table of per-model token prices, with the day and source each rate was read.
 * [radar](radar.md) - Predicts merge conflicts between panes working in one repository by merging their snapshots in memory.
 * [record](record.md) - Writes a pane's agent conversation to disk as a redacted, size-capped JSON Lines transcript, and exports stored conversations the same way.
