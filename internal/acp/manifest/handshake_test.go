@@ -81,3 +81,19 @@ func TestHandshakeRefusesRelativePathsAndNoEnv(t *testing.T) {
 		t.Error("a missing program started")
 	}
 }
+
+// A descendant that holds stdout and stderr open must not hold the handshake.
+func TestHandshakeDoesNotWaitForADescendantHoldingTheStreams(t *testing.T) {
+	cfg := fakeAdapter(t, "holdstderr")
+	started := time.Now()
+	res, err := Handshake(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ProtocolVersion != 1 {
+		t.Errorf("result = %+v", res)
+	}
+	if took := time.Since(started); took > 15*time.Second {
+		t.Errorf("took %v; it waited for the descendant", took)
+	}
+}

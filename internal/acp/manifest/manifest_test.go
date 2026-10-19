@@ -165,3 +165,50 @@ func TestTheDocsTableIsTheManifestsTable(t *testing.T) {
 		t.Errorf("the table on docs/acp-adapters.md is out of date. It should be:\n%s", want)
 	}
 }
+
+func TestExactVersionIsSemver2(t *testing.T) {
+	for _, ok := range []string{"1.2.3", "0.0.0", "1.2.3-rc.1", "1.2.3-0.alpha-1", "1.2.3+build.5", "1.2.3-x+y"} {
+		if !exactVersion(ok) {
+			t.Errorf("%q should be exact", ok)
+		}
+	}
+	for _, bad := range []string{"", "v1.2.3", "01.2.3", "1.02.3", "1.2.03", "1.2", "1.2.3-", "1.2.3-.a", "1.2.3-a..b", "1.2.3-01", "1.2.3+", "1.2.3 ", " 1.2.3", "^1.2.3", "1.2.3-rc.1\n", "latest", "1.2.x", "1.2.3 || 2.0.0"} {
+		if exactVersion(bad) {
+			t.Errorf("%q should not be exact", bad)
+		}
+	}
+}
+
+func TestParseChecksTheFieldsAProcessOrNpmReads(t *testing.T) {
+	base := func() Adapter {
+		a, _ := Default().Lookup("codex")
+		a.Args = append([]string{}, a.Args...)
+		return a
+	}
+	cases := map[string]func(*Adapter){
+		"package with a path":     func(a *Adapter) { a.Package = "../evil" },
+		"package with a space":    func(a *Adapter) { a.Package = "a b" },
+		"package as a url":        func(a *Adapter) { a.Package = "https://example.com/x.tgz" },
+		"package with a version":  func(a *Adapter) { a.Package = "pkg@1.0.0" },
+		"command as a path":       func(a *Adapter) { a.Command = "bin/run" },
+		"command as an option":    func(a *Adapter) { a.Command = "-rf" },
+		"command with a space":    func(a *Adapter) { a.Command = "a b" },
+		"arg with a space":        func(a *Adapter) { a.Args = []string{"a b"} },
+		"arg with a newline":      func(a *Adapter) { a.Args = []string{"a\nb"} },
+		"arg with a shell char":   func(a *Adapter) { a.Args = []string{"$(x)"} },
+		"too many args":           func(a *Adapter) { a.Args = make([]string, 17) },
+		"name with an escape":     func(a *Adapter) { a.Name = "x\x1b[2J" },
+		"long install":            func(a *Adapter) { a.Install = strings.Repeat("x", 401) },
+		"pin with a leading zero": func(a *Adapter) { a.Pin = "02.2.2" },
+	}
+	for name, mut := range cases {
+		a := base()
+		mut(&a)
+		if err := a.check(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if err := base().check(); err != nil {
+		t.Errorf("the codex entry: %v", err)
+	}
+}

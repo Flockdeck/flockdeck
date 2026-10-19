@@ -34,12 +34,13 @@ permissions:
 jobs:
   contract:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -54,22 +55,25 @@ jobs:
 
   handshake:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         adapter: [opencode, gemini, codex]
         channel: [pinned, latest]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: true
+          # No cache: this job runs code from the npm registry, and a cache it
+          # could write to is read by later runs of other jobs.
+          cache: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
 
@@ -97,10 +101,20 @@ jobs:
           if [ "${{ matrix.channel }}" = "pinned" ]; then
             VERSION="$PINNED"
           else
-            VERSION="$(HOME="$ISO/home" npm_config_cache="$ISO/npm-cache" npm view "$PKG" dist-tags.preview 2>/dev/null || true)"
+            VERSION="$(env -i PATH="$PATH" HOME="$ISO/home" npm_config_cache="$ISO/npm-cache" npm view "$PKG" dist-tags.preview 2>/dev/null || true)"
             if [ -z "$VERSION" ]; then
-              VERSION="$(HOME="$ISO/home" npm_config_cache="$ISO/npm-cache" npm view "$PKG" dist-tags.latest)"
+              VERSION="$(env -i PATH="$PATH" HOME="$ISO/home" npm_config_cache="$ISO/npm-cache" npm view "$PKG" dist-tags.latest)"
             fi
+          fi
+          # The version goes into a command line and the environment file, so it
+          # has to be a plain version (a tag from the registry is not trusted).
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::not a plain version: $(printf '%s' "$VERSION" | head -c 60 | tr -c '[:print:]' '?')"
+            exit 1
+          fi
+          if ! printf '%s' "$PKG" | grep -Eq '^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$'; then
+            echo "::error::not an npm package name"
+            exit 1
           fi
           {
             echo "PKG=$PKG"
@@ -111,8 +125,12 @@ jobs:
 
       - name: Install the adapter into the isolation folder
         run: |
-          HOME="$ISO/home" npm_config_cache="$ISO/npm-cache" \
-            npm install --prefix "$ISO/adapter" --no-audit --no-fund --loglevel=error "$PKG@$VERSION"
+          # --ignore-scripts: no install script of the adapter or of anything it
+          # depends on runs. An adapter that needs one to start fails the
+          # handshake, and that is what to look at then. env -i keeps the
+          # runner's environment (GITHUB_*, RUNNER_*, tokens) away from npm.
+          env -i PATH="$PATH" HOME="$ISO/home" npm_config_cache="$ISO/npm-cache" CI=1 \
+            npm install --prefix "$ISO/adapter" --ignore-scripts --no-audit --no-fund --loglevel=error "$PKG@$VERSION"
           echo "installed version: $(node -p "require('$ISO/adapter/node_modules/$PKG/package.json').version")"
           ls -l "$ISO/adapter/node_modules/.bin/$CMD"
 

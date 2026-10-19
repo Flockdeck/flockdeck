@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func probe(path string, lookErr error, out string, runErr error) Probe {
@@ -97,5 +98,19 @@ func TestMinimalEnvKeepsOnlyPath(t *testing.T) {
 	joined := strings.Join(got, "|")
 	if strings.Contains(joined, "KEY") || strings.Contains(joined, "HOME") || !strings.Contains(joined, "PATH=/bin") {
 		t.Errorf("env = %v", got)
+	}
+}
+
+func TestProbeOutputIsCappedAndShownSafely(t *testing.T) {
+	var c capBuffer
+	for i := 0; i < 100; i++ {
+		_, _ = c.Write([]byte(strings.Repeat("x", 1000)))
+	}
+	if len(c.String()) != maxProbeOutput {
+		t.Errorf("kept %d bytes", len(c.String()))
+	}
+	got := safeText("bad \x1b[31mred\x1b[0m\r\nline\u009b é"+strings.Repeat("é", 300), 50)
+	if strings.ContainsAny(got, "\x1b\r\n\u009b") || len(got) > 54 || !utf8.ValidString(got) {
+		t.Errorf("safeText = %q", got)
 	}
 }

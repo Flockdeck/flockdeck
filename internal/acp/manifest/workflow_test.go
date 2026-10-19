@@ -73,14 +73,35 @@ func TestCanaryShowsItsIsolation(t *testing.T) {
 		"mktemp -d \"${RUNNER_TEMP}/acp-canary.XXXXXX\"",
 		"echo \"isolation folder:",
 		"echo \"runner home (must not change):",
-		"HOME=\"$ISO/home\" npm_config_cache=\"$ISO/npm-cache\"",
-		"npm install --prefix \"$ISO/adapter\"",
+		"env -i PATH=\"$PATH\" HOME=\"$ISO/home\" npm_config_cache=\"$ISO/npm-cache\"",
+		"npm install --prefix \"$ISO/adapter\" --ignore-scripts",
 		"Show whether the runner home changed",
 		"-tags acp_canary",
 	} {
 		if !strings.Contains(w, want) {
 			t.Errorf("the workflow lacks %q", want)
 		}
+	}
+}
+
+// Every action is pinned to a commit, every job has a time limit, and the job
+// that runs registry code has no build cache to poison.
+func TestCanaryPinsAndLimits(t *testing.T) {
+	w := workflowText(t)
+	for _, m := range regexp.MustCompile(`uses: (\S+)`).FindAllStringSubmatch(w, -1) {
+		if !regexp.MustCompile(`@[0-9a-f]{40}$`).MatchString(m[1]) {
+			t.Errorf("%s is not pinned to a commit", m[1])
+		}
+	}
+	if n := strings.Count(w, "timeout-minutes:"); n != 2 {
+		t.Errorf("%d jobs have a time limit, want 2", n)
+	}
+	_, hs, _ := strings.Cut(w, "\n  handshake:")
+	if strings.Contains(hs, "cache: true") || !strings.Contains(hs, "cache: false") {
+		t.Error("the handshake job uses the Go build cache")
+	}
+	if !strings.Contains(w, "not a plain version") {
+		t.Error("the version from the registry is not checked")
 	}
 }
 

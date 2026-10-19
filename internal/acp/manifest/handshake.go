@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/proctree"
 )
 
 // HandshakeConfig says how to start an adapter for a handshake. Nothing is
@@ -40,6 +42,7 @@ type HandshakeResult struct {
 const (
 	maxHandshakeLine = 4 << 20
 	stderrTail       = 2 << 10
+	handshakeGrace   = 3 * time.Second
 )
 
 // Handshake starts the adapter, sends initialize with protocol version 1 and
@@ -63,7 +66,6 @@ func Handshake(ctx context.Context, cfg HandshakeConfig) (HandshakeResult, error
 
 	cmd := exec.Command(cfg.Path, cfg.Args...)
 	cmd.Dir, cmd.Env = cfg.Dir, cfg.Env
-	contain(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return res, err
@@ -77,27 +79,28 @@ func Handshake(ctx context.Context, cfg HandshakeConfig) (HandshakeResult, error
 		return res, err
 	}
 	started := time.Now()
-	if err := cmd.Start(); err != nil {
+	tree, err := proctree.Start(cmd)
+	if err != nil {
 		return res, fmt.Errorf("handshake: start: %w", err)
 	}
+	// The process is reaped here, not by cmd.Wait, which would wait for stdout
+	// and stderr to reach EOF: a descendant that holds them would hang it.
+	proc := cmd.Process
+	reaped := make(chan struct{})
+	go func() { _, _ = proc.Wait(); close(reaped) }()
+
 	var tail tailBuffer
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() { defer wg.Done(); _, _ = io.Copy(&tail, stderr) }()
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			kill(cmd)
-		case <-done:
-		}
-	}()
 	defer func() {
-		close(done)
 		_ = stdin.Close()
-		kill(cmd)
+		tree.End(proc, reaped, handshakeGrace)
+		// Closing the read ends frees the readers even if a descendant that
+		// got away still holds the other ends.
+		_ = stdout.Close()
+		_ = stderr.Close()
 		wg.Wait()
-		_ = cmd.Wait()
 	}()
 
 	req := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"flockdeck-canary","version":"0"}}}` + "\n"

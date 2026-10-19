@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Problems a NodeRequiredError reports.
@@ -77,11 +78,11 @@ func CheckNode(ctx context.Context, a Adapter, p Probe) error {
 	}
 	out, err := p.Output(ctx, path, "--version")
 	if err != nil {
-		return fail(NodeBroken, "", clipText(err.Error(), 200))
+		return fail(NodeBroken, "", safeText(err.Error(), 200))
 	}
 	have, err := ParseVersion(out)
 	if err != nil {
-		return fail(NodeBroken, "", clipText(err.Error(), 200))
+		return fail(NodeBroken, "", safeText(err.Error(), 200))
 	}
 	need, _ := ParseVersion(a.MinNode)
 	if Compare(have, need) < 0 {
@@ -102,4 +103,45 @@ func nodeFix(min string) string {
 // Windows the few variables a program cannot start without.
 func minimalEnv() []string {
 	return minimalEnvFrom(osEnviron())
+}
+
+// maxProbeOutput is all of a probe's output that is kept. `node --version`
+// prints a few bytes; a program that prints more is not node.
+const maxProbeOutput = 4 << 10
+
+// capBuffer keeps the first maxProbeOutput bytes written to it and drops the
+// rest, so a program on PATH named node cannot fill memory.
+type capBuffer struct{ b []byte }
+
+func (c *capBuffer) Write(p []byte) (int, error) {
+	if room := maxProbeOutput - len(c.b); room > 0 {
+		if len(p) < room {
+			room = len(p)
+		}
+		c.b = append(c.b, p[:room]...)
+	}
+	return len(p), nil
+}
+
+func (c *capBuffer) String() string { return string(c.b) }
+
+// safeText is s for showing to a person: control characters (an escape
+// sequence from a hostile program) become spaces, and it is cut to n bytes at
+// a character boundary.
+func safeText(s string, n int) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) || r == utf8.RuneError {
+			return ' '
+		}
+		return r
+	}, s)
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > n {
+		s = s[:n]
+		for len(s) > 0 && !utf8.ValidString(s) {
+			s = s[:len(s)-1]
+		}
+		s += "..."
+	}
+	return s
 }

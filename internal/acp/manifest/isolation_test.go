@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -42,6 +43,16 @@ func runFake(mode string) {
 	case "exit":
 		fmt.Fprintln(os.Stderr, "fatal: cannot start")
 		os.Exit(3)
+	case "holdstderr":
+		// A descendant that keeps stdout and stderr open after this one is gone.
+		exe, _ := os.Executable()
+		c := exec.Command(exe)
+		c.Env = append(os.Environ(), fakeEnv+"=descendant")
+		c.Stdout, c.Stderr = os.Stdout, os.Stderr
+		_ = c.Start()
+		fmt.Println(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}`)
+	case "descendant":
+		time.Sleep(time.Hour)
 	case "silent":
 		time.Sleep(time.Hour)
 	}

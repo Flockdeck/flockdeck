@@ -66,7 +66,15 @@ type Manifest struct {
 }
 
 var (
-	idRe   = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+	idRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+	// pkgRe is an npm package name, scoped or not. It has no slash apart from the
+	// one after a scope, no leading dot and nothing a shell reads.
+	pkgRe = regexp.MustCompile(`^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$`)
+	// cmdRe is a command name: letters, digits, dot, underscore, hyphen; not an
+	// option.
+	cmdRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]*$`)
+	// argRe is one argument: printable, no spaces or shell characters.
+	argRe  = regexp.MustCompile(`^[A-Za-z0-9._=:@/+-]+$`)
 	dateRe = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
 )
 
@@ -110,8 +118,12 @@ func (a Adapter) check() error {
 		return errors.New("there is no adapter for Claude Code")
 	case a.Name == "" || a.Command == "" || a.Install == "":
 		return errors.New("name, command and install are required")
-	case strings.ContainsAny(a.Command, `/\`):
-		return errors.New("command is a name looked up on PATH, not a path")
+	case len(a.Name) > 60 || len(a.Install) > 400 || len(a.Note) > 400 || hasControl(a.Name+a.Install+a.Note):
+		return errors.New("name, install or note is too long or holds a control character")
+	case !cmdRe.MatchString(a.Command) || len(a.Command) > 60:
+		return errors.New("command is a name looked up on PATH: letters, digits, dot, underscore and hyphen")
+	case a.Package != "" && (len(a.Package) > 214 || !pkgRe.MatchString(a.Package)):
+		return errors.New("package is not an npm package name")
 	case a.Args == nil:
 		return errors.New("args is required, [] if there are none")
 	case a.Pin == "" && a.MinVersion == "":
@@ -124,6 +136,14 @@ func (a Adapter) check() error {
 		return errors.New("needsNode needs minNode")
 	case !a.NeedsNode && a.MinNode != "":
 		return errors.New("minNode without needsNode")
+	}
+	if len(a.Args) > 16 {
+		return errors.New("too many args")
+	}
+	for _, arg := range a.Args {
+		if len(arg) > 100 || !argRe.MatchString(arg) {
+			return fmt.Errorf("arg %q is not a plain argument", clipText(arg, 40))
+		}
 	}
 	for name, v := range map[string]string{"pin": a.Pin, "minVersion": a.MinVersion, "minNode": a.MinNode, "testedWith": a.TestedWith} {
 		if v == "" {
@@ -220,10 +240,13 @@ func ParseVersion(s string) (SemVer, error) {
 	return SemVer{n(m[1]), n(m[2]), n(m[3]), m[4]}, nil
 }
 
-// exactVersion reports whether s is nothing but one version.
+// exactRe is semver 2.0 whole: no leading zeros in the numbers, and pre-release
+// identifiers that are non-empty, with no leading zero in a numeric one.
+var exactRe = regexp.MustCompile(`^(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
+
+// exactVersion reports whether s is nothing but one semver 2.0 version.
 func exactVersion(s string) bool {
-	loc := versionRe.FindStringIndex(s)
-	return loc != nil && loc[0] == 0 && loc[1] == len(s) && !strings.HasPrefix(s, "v")
+	return len(s) <= 100 && exactRe.MatchString(s)
 }
 
 // Compare orders two versions: -1, 0 or 1. A pre-release is below its release.
@@ -279,6 +302,15 @@ func comparePre(a, b string) int {
 		return 1
 	}
 	return 0
+}
+
+func hasControl(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return true
+		}
+	}
+	return false
 }
 
 func clipText(s string, n int) string {

@@ -55,6 +55,12 @@ environment that holds only `PATH` and those folders (no keys or tokens), and
 npm's cache inside it. The log prints that environment, and a closing step
 lists whether anything in the runner's real home changed.
 
+The adapter is installed with `--ignore-scripts` and from an `env -i` shell, so no install
+script runs and the runner's variables do not reach npm. The version to install is
+checked to be a plain version first, the job has no Go build cache, and every action
+is pinned to a commit. If an adapter needs an install script to start, the handshake
+fails and the manifest is what to change.
+
 The result is shown in the run's summary. To change what a release accepts, edit
 `adapters.json` and the table above in the same pull request, and set
 `testedWith` and `testedOn` to what the canary last passed with.
