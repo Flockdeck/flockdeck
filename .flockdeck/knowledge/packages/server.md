@@ -5,7 +5,7 @@ description: The loopback HTTP and WebSocket server that serves the embedded fro
 resource: internal/server/server.go
 tags: [server, http, websocket, remote]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/server.go]
+code_paths: [internal/server/server.go, internal/server/remote.go, internal/server/attach.go, internal/server/hostguard.go, internal/server/control.go, internal/server/helpers.go, internal/server/pty.go, internal/server/artifacts_socket.go, main.go]
 ---
 `internal/server` exposes the workspace to the browser front end. It listens on `127.0.0.1:0` (a free port), generates a 24-byte random hex token per run, and serves the page, assets, three WebSockets and a few action endpoints.
 

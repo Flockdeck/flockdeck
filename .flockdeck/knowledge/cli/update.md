@@ -5,7 +5,7 @@ description: Fetches the latest release, or a named one, verifies it and puts it
 resource: cli_update.go
 tags: [cli, update]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cli_update.go]
+code_paths: [cli_update.go, internal/selfupdate/selfupdate.go, internal/selfupdate/site.go]
 ---
 ## Synopsis
 

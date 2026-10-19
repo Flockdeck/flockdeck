@@ -5,7 +5,7 @@ description: Hidden subcommand a Claude Code pane runs on each lifecycle event t
 resource: main.go
 tags: [cli, hidden, pane]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [main.go]
+code_paths: [main.go, internal/hooks/hooks.go]
 ---
 ## Synopsis
 

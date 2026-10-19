@@ -5,7 +5,7 @@ description: Prints the catalog of agents Flockdeck can run, with models, instal
 resource: main.go
 tags: [cli]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [main.go]
+code_paths: [main.go, internal/agent/catalog.go, internal/agent/available.go, internal/agent/config.go, internal/agent/roles.go]
 ---
 ## Synopsis
 

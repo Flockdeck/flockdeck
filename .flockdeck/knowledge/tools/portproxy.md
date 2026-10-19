@@ -5,7 +5,7 @@ description: Fixed-port TCP forwarder sidecar for the Kubernetes deployment.
 resource: cmd/portproxy
 tags: [kubernetes, sidecar, network]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cmd/portproxy]
+code_paths: [cmd/portproxy/main.go, internal/store/store.go]
 ---
 The server binds 127.0.0.1 on a random port each start, so a Service has no stable target. `portproxy` listens on a fixed address and forwards every byte of every connection to whatever port the instance record names.
 

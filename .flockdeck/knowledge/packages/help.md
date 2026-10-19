@@ -5,7 +5,7 @@ description: Embedded help pages and the single table of UI actions and shortcut
 resource: internal/help/help.go
 tags: [help, keybindings, package]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/help/help.go]
+code_paths: [internal/help/help.go, internal/help/keys.go, internal/help/render.go]
 ---
 ## Pages
 

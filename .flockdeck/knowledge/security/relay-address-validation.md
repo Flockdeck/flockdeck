@@ -5,7 +5,7 @@ description: Rules that keep the host token from being sent to an unsafe or wron
 resource: internal/remote/config.go
 tags: [security, remote, tls]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/remote/config.go]
+code_paths: [internal/remote/config.go, internal/remote/enrol.go]
 ---
 `CheckRelay` (used by `RelayURL`, enrolment and move):
 

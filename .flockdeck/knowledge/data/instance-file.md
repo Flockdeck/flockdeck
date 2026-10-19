@@ -5,7 +5,7 @@ description: Record of the running Flockdeck process so later launches attach to
 resource: internal/store/store.go
 tags: [store, persistence, instance]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/store/store.go]
+code_paths: [internal/store/store.go, internal/store/startlock.go]
 ---
 `instance.json` in the config dir. Fields: `pid`, `url` (local server address), `token` (local server auth token; the value is never documented), `started`.
 

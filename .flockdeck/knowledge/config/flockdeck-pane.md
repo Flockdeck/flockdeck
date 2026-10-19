@@ -5,7 +5,7 @@ description: The id of the pane a process is running in; identifies the caller t
 resource: cli_team.go
 tags: [config, pane]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cli_team.go]
+code_paths: [cli_team.go, main.go, internal/chat/flags.go, internal/legacyenv/legacyenv.go]
 ---
 Set by the instance in each pane's environment.
 

@@ -5,7 +5,7 @@ description: A commit capturing a checkout's committed, uncommitted and untracke
 resource: internal/gitx/snapshot.go
 tags: [git, radar, worktree]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/gitx/snapshot.go]
+code_paths: [internal/gitx/snapshot.go, internal/gitx/bases.go]
 ---
 Used by the conflict radar to compare agents working in separate checkouts without touching them.
 

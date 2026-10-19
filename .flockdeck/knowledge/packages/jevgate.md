@@ -5,7 +5,7 @@ description: The single gated path for every question Flockdeck sends to Jev: sc
 resource: internal/jevgate
 tags: [jev, rate-limit, cache, gate]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/jevgate]
+code_paths: [internal/jevgate/jevgate.go, internal/session/assist.go]
 ---
 # internal/jevgate
 

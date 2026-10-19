@@ -5,7 +5,7 @@ description: Flockdeck's use of git: status, changes, diffs, commit, push/pull/f
 resource: internal/gitx/worktree.go
 tags: [git, worktree, package]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/gitx/worktree.go]
+code_paths: [internal/gitx/worktree.go, internal/gitx/bases.go, internal/gitx/commit.go, internal/gitx/status.go, internal/gitx/remote.go, internal/gitx/programs.go, internal/gitx/run.go, internal/gitx/snapshot.go, internal/gitx/indexrefresh.go, internal/gitx/changes.go, internal/gitx/since.go, internal/gitx/indexlock.go, internal/gitx/tree_windows.go]
 ---
 Every git call is an `exec` of the `git` binary through `run.go`; there is no libgit2.
 

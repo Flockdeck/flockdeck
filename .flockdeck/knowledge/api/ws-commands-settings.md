@@ -5,7 +5,7 @@ description: Commands on /ws/control that change saved preferences, manage helpe
 resource: internal/server/control.go
 tags: [websocket, control, prefs]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/control.go]
+code_paths: [internal/server/control.go, internal/server/viewerrole.go, internal/server/help.go]
 ---
 Part of [/ws/control](/api/ws-control.md). Each preference command goes through `updatePrefs`, which applies the change to the prefs file as it is on disk (not the start-up copy), saves, and broadcasts a `prefs` message to every window. Nothing is saved when the file cannot be read. See [prefs file](/data/prefs-file.md).
 

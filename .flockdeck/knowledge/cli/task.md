@@ -5,7 +5,7 @@ description: The project's shared task board, used by the agents of a team.
 resource: cli_task.go
 tags: [cli, pane, team]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cli_task.go]
+code_paths: [cli_task.go, internal/hooks/tasks.go, internal/tasks/tasks.go]
 ---
 ## Synopsis
 

@@ -5,7 +5,7 @@ description: Lists recorded pane transcripts and exports an agent's stored conve
 resource: cli_recordings.go
 tags: [cli, recordings]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cli_recordings.go]
+code_paths: [cli_recordings.go, cli_recordings_export.go, internal/record/record.go, internal/record/export.go]
 ---
 ## Synopsis
 

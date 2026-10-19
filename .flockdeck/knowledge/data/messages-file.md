@@ -5,7 +5,7 @@ description: Saved inboxes of messages between panes, written whenever an inbox 
 resource: internal/workspace/team.go
 tags: [workspace, team, persistence]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/workspace/team.go]
+code_paths: [internal/workspace/team.go, internal/team/store.go, internal/store/store.go]
 ---
 `messages.json` in the config dir. The contents are produced by `internal/team` (`Store.Snapshot`) and read back with `Store.Load`; this package only chooses the path and when to write.
 

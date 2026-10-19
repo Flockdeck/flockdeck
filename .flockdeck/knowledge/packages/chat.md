@@ -5,7 +5,7 @@ description: Flockdeck's own terminal chat client that talks straight to a model
 resource: internal/chat
 tags: [chat, api-runner, anthropic, openai, gemini]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/chat]
+code_paths: [internal/chat/anthropic.go, internal/chat/calls.go, internal/chat/commandname.go, internal/chat/commands.go, internal/chat/endpoint.go, internal/chat/flags.go, internal/chat/gemini.go, internal/chat/input.go, internal/chat/keycheck.go, internal/chat/keys.go, internal/chat/lifecycle.go, internal/chat/message.go, internal/chat/modelchoice.go, internal/chat/models.go, internal/chat/openai.go, internal/chat/price.go, internal/chat/render.go, internal/chat/session.go, internal/chat/termsize_other.go, internal/chat/termsize_unix.go, internal/chat/termsize_windows.go, internal/chat/transcript.go, internal/chat/width.go, internal/chat/wire.go]
 ---
 # internal/chat
 

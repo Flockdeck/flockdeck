@@ -5,7 +5,7 @@ description: Signed JSON files and directory layout the download site publishes 
 resource: internal/selfupdate/site.go
 tags: [release, update, signing]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/selfupdate/site.go]
+code_paths: [internal/selfupdate/site.go, internal/selfupdate/selfupdate.go]
 ---
 ## Site layout
 

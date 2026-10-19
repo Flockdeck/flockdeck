@@ -5,7 +5,7 @@ description: This machine's enrolment with a relay: relay address, host id, acco
 resource: internal/remote/config.go
 tags: [remote, state, secret]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/remote/config.go]
+code_paths: [internal/remote/config.go, internal/remote/client.go]
 ---
 Stored as `remote.json` in the state directory (the config dir), written atomically by `store.WriteAtomic` with owner-only permissions.
 

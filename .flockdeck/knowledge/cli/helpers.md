@@ -5,7 +5,7 @@ description: Installs, uninstalls, starts, stops and opens helper apps.
 resource: cli_helpers.go
 tags: [cli, helpers]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cli_helpers.go]
+code_paths: [cli_helpers.go, main.go, helpers_run.go, internal/server/helpers.go, internal/helpers/install.go, internal/helpers/supervisor.go]
 ---
 ## Synopsis
 

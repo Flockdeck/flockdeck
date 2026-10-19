@@ -5,7 +5,7 @@ description: TestMain helper that keeps tests off the real config directory, sto
 resource: internal/testiso
 tags: [testing, isolation]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/testiso]
+code_paths: [internal/testiso/testiso.go]
 ---
 A package adds `func TestMain(m *testing.M) { os.Exit(testiso.Main(m)) }`. `testiso.Main` sets `store.DirGuard = iso.DirGuard` and runs `iso.Main`. The store package's own tests use `internal/testiso/iso` directly (importing testiso would be a cycle).
 

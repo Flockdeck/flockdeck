@@ -5,7 +5,7 @@ description: The three question kinds Flockdeck can put to Jev and the answers t
 resource: internal/jev/question.go
 tags: [jev, questions]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/jev/question.go]
+code_paths: [internal/jev/question.go, internal/jev/jev.go]
 ---
 # Jev questions
 

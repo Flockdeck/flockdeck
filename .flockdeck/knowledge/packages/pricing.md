@@ -5,7 +5,7 @@ description: The single table of per-model token prices, with the day and source
 resource: internal/pricing
 tags: [cost, models]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/pricing]
+code_paths: [internal/pricing/pricing.go]
 ---
 Only place the app states a price. Used by `internal/chat`, `internal/route`, `internal/server`.
 

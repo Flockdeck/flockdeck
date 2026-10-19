@@ -5,7 +5,7 @@ description: This machine's long-term P-256 end-to-end identity used to encrypt 
 resource: internal/remote/e2ekey.go
 tags: [remote, e2e, state, secret]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/remote/e2ekey.go]
+code_paths: [internal/remote/e2ekey.go, internal/e2e/e2e.go, internal/store/store.go]
 ---
 Stored as `e2e_key.json` in the state directory, beside `remote.json`, written with `store.WriteAtomic` (owner-only).
 

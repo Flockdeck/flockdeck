@@ -5,7 +5,7 @@ description: One pane's process on a PTY: launch, output fan-out and replay, sta
 resource: internal/session/session.go
 tags: [session, pty, package]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/session/session.go]
+code_paths: [internal/session/session.go, internal/session/launch.go, internal/session/background.go, internal/session/trust.go, internal/session/claude.go, internal/session/status.go, internal/session/turn.go, internal/session/history.go, internal/session/assist.go, internal/session/statusline.go, internal/session/replies.go, internal/session/stream.go, internal/session/claudeshell.go, internal/session/shim_windows.go, internal/session/kill_unix.go, internal/session/kill_windows.go, internal/session/usage.go, internal/session/usage_linux.go, internal/session/usage_other.go, internal/session/usage_windows.go]
 ---
 Terminal emulation happens in the browser; this package owns the process, fans output out to viewers and tracks what the agent is doing. PTY via `go-pty`.
 

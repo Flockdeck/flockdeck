@@ -5,7 +5,7 @@ description: Per-socket authenticated key exchange and AEAD framing so the relay
 resource: internal/e2e
 tags: [security, crypto, remote]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/e2e]
+code_paths: [internal/e2e/e2e.go, internal/server/e2e.go, internal/remote/e2ekey.go]
 ---
 Implemented by [e2e](/packages/e2e.md).
 

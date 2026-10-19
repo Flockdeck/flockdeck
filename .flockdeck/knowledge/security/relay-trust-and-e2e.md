@@ -5,7 +5,7 @@ description: How requests through the relay tunnel are authorised, what the rela
 resource: internal/server/remote.go
 tags: [security, remote, relay, e2e]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/remote.go]
+code_paths: [internal/server/remote.go, internal/server/pty.go, internal/server/artifacts_socket.go, internal/server/viewerrole.go, internal/server/control.go]
 ---
 ## Authorisation
 

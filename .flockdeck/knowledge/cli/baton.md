@@ -5,7 +5,7 @@ description: Lists and prints batons, the handoff documents agents write for eac
 resource: cli_baton.go
 tags: [cli]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cli_baton.go]
+code_paths: [cli_baton.go, internal/baton/store.go, internal/baton/prune.go, internal/baton/clean.go]
 ---
 ## Synopsis
 

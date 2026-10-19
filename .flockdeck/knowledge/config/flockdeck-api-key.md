@@ -5,7 +5,7 @@ description: Fallback API key used by any agent that has no key of its own.
 resource: internal/agent/available.go
 tags: [secrets, keys, env]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/agent/available.go]
+code_paths: [internal/agent/available.go, internal/creds/creds.go]
 ---
 - **Default:** unset.
 - **Name constant:** `agent.FallbackKeyEnv`.

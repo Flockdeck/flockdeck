@@ -5,7 +5,7 @@ description: Resolves the API key an agent needs and keeps it out of logs, JSON 
 resource: internal/creds
 tags: [security, secrets, keys]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/creds]
+code_paths: [internal/creds/creds.go, internal/creds/jevkey.go, internal/creds/store.go]
 ---
 Finds the API key for an agent `Spec` and stores keys the user saves. Only one place ever receives the value: the environment of the `flockdeck chat` process for the pane that needs it.
 

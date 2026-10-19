@@ -5,7 +5,7 @@ description: User preferences, including device access roles and remote artifact
 resource: internal/store/prefs.go
 tags: [store, persistence, prefs]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/store/prefs.go]
+code_paths: [internal/store/prefs.go, internal/store/store.go, internal/store/deviceaccess.go]
 ---
 `prefs.json` in the config dir; `store.ReadPrefs` / `LoadPrefs` / `SavePrefs`. A missing file gives zero-value `Prefs`.
 

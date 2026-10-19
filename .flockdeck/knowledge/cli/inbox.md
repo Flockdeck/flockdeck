@@ -5,7 +5,7 @@ description: Lists, waits for, streams and reads the messages other agents sent 
 resource: cli_team.go
 tags: [cli, pane, team]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cli_team.go]
+code_paths: [cli_team.go, internal/hooks/team.go, internal/workspace/team.go]
 ---
 ## Synopsis
 

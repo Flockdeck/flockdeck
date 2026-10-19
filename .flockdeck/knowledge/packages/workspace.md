@@ -5,7 +5,7 @@ description: The mutable application state: open projects, tabs, pane trees and 
 resource: internal/workspace/workspace.go
 tags: [workspace, panes, package]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/workspace/workspace.go]
+code_paths: [internal/workspace/workspace.go, internal/workspace/move.go, internal/workspace/persist.go, internal/workspace/activity.go, internal/workspace/recording.go, internal/workspace/paneinfo.go, internal/workspace/groups.go, internal/workspace/team.go, internal/workspace/radar.go, internal/workspace/provider.go, internal/workspace/spawn.go, internal/workspace/reap.go, internal/workspace/background_check.go]
 ---
 No rendering or key handling; it can be exercised without a UI. `workspace.New(Options{Root, OnWake, HookBinary})` resolves the root, creates the hook server panes report to, sweeps settings and temp files older than 24 h (`store.SweepSessions`), reaps stale worktree processes, and uses the generated settings dir (`store.SessionsDir`).
 

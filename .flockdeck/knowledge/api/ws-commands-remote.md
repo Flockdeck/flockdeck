@@ -5,7 +5,7 @@ description: Commands on /ws/control for pairing devices, enabling the relay tun
 resource: internal/server/remote.go
 tags: [websocket, control, remote]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/remote.go]
+code_paths: [internal/server/remote.go, internal/server/viewerrole.go, internal/server/control.go, internal/server/artifacts_consent.go, internal/server/remote_verify.go]
 ---
 Part of [/ws/control](/api/ws-control.md). Files: `remote.go`, `remote_verify.go`, `viewerrole.go`, `artifacts_consent.go`. The mutating ones are refused when the sender is a relay window (artifacts commands via `refusedArtifactsThroughRelay`); all are `accessFull`.
 

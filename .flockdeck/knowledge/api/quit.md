@@ -5,7 +5,7 @@ description: Stops the running instance from outside, used by `flockdeck -quit`.
 resource: internal/server/attach.go
 tags: [http, cli]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/attach.go]
+code_paths: [internal/server/attach.go, internal/server/server.go]
 ---
 Handler: `Server.handleQuit`. `POST` only, URL token required, so no relay window can call it.
 

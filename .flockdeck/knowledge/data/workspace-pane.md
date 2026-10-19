@@ -5,7 +5,7 @@ description: In-memory pane record, with which fields are persisted and which ar
 resource: internal/workspace/workspace.go
 tags: [workspace, panes]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/workspace/workspace.go]
+code_paths: [internal/workspace/workspace.go, internal/workspace/paneinfo.go, internal/workspace/spawn.go]
 ---
 `workspace.Pane` couples a live `session.Session` with what is needed to restart it.
 

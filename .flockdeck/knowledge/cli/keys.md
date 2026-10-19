@@ -5,7 +5,7 @@ description: Stores, clears and checks the API keys that API agents use, and set
 resource: cli_keys.go
 tags: [cli, keys]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cli_keys.go]
+code_paths: [cli_keys.go, cli_keys_echo_unix.go, cli_keys_echo_windows.go, cli_keys_echo_darwin.go, cli_keys_echo_linux.go, cli_keys_echo_other.go, cli_keys_tty_windows.go, cli_keys_tty_other.go, internal/creds/creds.go, internal/creds/store.go, internal/agent/available.go, internal/agent/config.go]
 ---
 ## Synopsis
 

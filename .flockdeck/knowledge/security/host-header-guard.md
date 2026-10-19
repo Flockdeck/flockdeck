@@ -5,7 +5,7 @@ description: The loopback listener refuses any request whose Host is not 127.0.0
 resource: internal/server/hostguard.go
 tags: [security, http, dns-rebinding]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/hostguard.go]
+code_paths: [internal/server/hostguard.go, internal/server/remote.go]
 ---
 `guardHosts` wraps the mux on the loopback listener only. A request whose `Host` is not allowed gets `403` with a plain-text explanation, before any handler or WebSocket upgrade.
 

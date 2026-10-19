@@ -5,7 +5,7 @@ description: Commands on /ws/control that change tabs, panes, layout, projects a
 resource: internal/server/control.go
 tags: [websocket, control, workspace]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/control.go]
+code_paths: [internal/server/control.go, internal/server/viewerrole.go]
 ---
 Handled in `handleCommand` (`internal/server/control.go`). Part of [/ws/control](/api/ws-control.md). All are refused to viewer devices ([gate](/security/viewer-command-gate.md)). After each, the server wakes the state push, so the reply is a new [`state`](/api/ws-state.md).
 

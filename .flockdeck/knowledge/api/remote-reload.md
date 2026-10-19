@@ -5,7 +5,7 @@ description: Tells a running instance to reread the remote enrolment after `floc
 resource: internal/server/remote.go
 tags: [http, remote, cli]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/remote.go]
+code_paths: [internal/server/remote.go, internal/remote/manager.go]
 ---
 Handler: `Server.handleRemoteReload`. `POST` only, URL token required.
 

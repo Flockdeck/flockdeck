@@ -33,5 +33,6 @@
 * [Task](task.md) - One unit of work on a project's task board, with owner, state, notes and history.
 * [Team graph](team-graph.md) - The teams, nodes and waiting-on kinds derived from one project's panes and tasks.
 * [Team message and inbox snapshot](team-message.md) - A message in a pane's inbox, the Member roster entry, and the JSON snapshot the inboxes are saved as.
+* [Conversation stream entry](transcript-entry.md) - The agent-neutral entry shape that transcript streams produce for a pane's chat view, with its kinds, caps and detail bodies.
 * [workspace.Pane](workspace-pane.md) - In-memory pane record, with which fields are persisted and which are runtime only.
 * [Worktree process records (worktree-procs.json)](worktree-procs-file.md) - Pane processes running in git checkouts, so a later launch can reap ones it never started.

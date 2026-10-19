@@ -5,7 +5,7 @@ description: Path-confinement core that turns a file on this machine into someth
 resource: internal/artifacts
 tags: [security, remote, files]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/artifacts]
+code_paths: [internal/artifacts/doc.go, internal/artifacts/limits.go, internal/artifacts/names.go, internal/artifacts/registry.go, internal/artifacts/root.go, internal/artifacts/root_unix.go, internal/artifacts/root_windows.go, internal/artifacts/rootguard.go, internal/artifacts/rootpolicy.go, internal/artifacts/rootpolicy_home.go]
 ---
 Opens files for the read-only remote artifacts viewer. A remote client never names a path: the host issues an opaque id (`Registry`) and re-opens the file with `Root.Open` on every request.
 

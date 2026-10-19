@@ -5,7 +5,7 @@ description: Whether work that no rule matches is left alone (balanced) or sent 
 resource: internal/agent/routing.go
 tags: [routing, agents-json]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/agent/routing.go]
+code_paths: [internal/agent/routing.go, internal/route/route.go]
 ---
 - **Where:** `routing.strategy` in [agents.json](/data/agents-json.md).
 - **Values:** `balanced` (default; an empty value means this) and `cost`. Anything else is read as `balanced` with a notice.

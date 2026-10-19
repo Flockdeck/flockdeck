@@ -5,7 +5,7 @@ description: The lowest model tier routing may choose.
 resource: internal/agent/routing.go
 tags: [routing, agents-json]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/agent/routing.go]
+code_paths: [internal/agent/routing.go, internal/route/route.go]
 ---
 - **Where:** `routing.floor` in [agents.json](/data/agents-json.md) (shared or per project).
 - **Values:** `small` (default when empty), `mid`, `top`.

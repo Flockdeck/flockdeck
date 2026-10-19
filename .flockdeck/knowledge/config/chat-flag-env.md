@@ -5,7 +5,7 @@ description: Environment stand-ins for the flockdeck chat flags of the same name
 resource: internal/chat/flags.go
 tags: [chat, pane-env]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/chat/flags.go]
+code_paths: [internal/chat/flags.go, internal/legacyenv/legacyenv.go]
 ---
 Each variable is read only when the matching flag was not given, through `legacyenv.GetWarn`, which prefers `FLOCKDECK_<NAME>` and falls back to `PERCH_<NAME>` (a warning is printed once per name, naming the removal date).
 

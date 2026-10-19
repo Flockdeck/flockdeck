@@ -5,7 +5,7 @@ description: Client for TypeSafe's Jev structured-decision API, plus the scrubbe
 resource: internal/jev
 tags: [jev, typesafe, client, scrubbing]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/jev]
+code_paths: [internal/jev/jev.go, internal/jev/question.go, internal/jev/scrub.go]
 ---
 # internal/jev
 

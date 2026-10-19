@@ -5,7 +5,7 @@ description: Records of paired devices whose end-to-end key fingerprint the pers
 resource: internal/remote/verified.go
 tags: [remote, e2e, state]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/remote/verified.go]
+code_paths: [internal/remote/verified.go, internal/remote/verify.go]
 ---
 Stored as `remote_verified.json` in the state directory, owner-only. At most 1000 records (`maxVerifiedRecords`).
 

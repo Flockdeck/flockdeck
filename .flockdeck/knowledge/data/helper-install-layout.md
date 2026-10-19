@@ -5,7 +5,7 @@ description: On-disk layout of installed helpers under the config dir's apps fol
 resource: internal/helpers/layout.go
 tags: [helpers, store]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/helpers/layout.go]
+code_paths: [internal/helpers/layout.go, internal/helpers/run.go, internal/helpers/supervisor.go]
 ---
 Under `<config dir>/apps/<id>/`:
 

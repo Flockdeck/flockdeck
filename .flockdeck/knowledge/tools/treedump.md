@@ -5,7 +5,7 @@ description: Prints the tab and split structure a running instance is showing.
 resource: cmd/treedump
 tags: [dev-tool, control-socket]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cmd/treedump]
+code_paths: [cmd/treedump/main.go, cmd/internal/controlsock/controlsock.go]
 ---
 Development aid, not shipped.
 

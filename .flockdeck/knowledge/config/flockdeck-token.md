@@ -5,7 +5,7 @@ description: Shared secret a pane uses to authenticate to its instance.
 resource: main.go
 tags: [config, pane, secret]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [main.go]
+code_paths: [main.go, statusline.go, cli_team.go, internal/legacyenv/legacyenv.go]
 ---
 Set by the instance in each pane's environment. The pane subcommands send it to the instance with every call: [spawn](/cli/spawn.md), [peer-name](/cli/peer-name.md), [close](/cli/close.md), [team](/cli/team.md), [msg](/cli/msg.md), [inbox](/cli/inbox.md), [task](/cli/task.md) and [chat](/cli/chat.md).
 

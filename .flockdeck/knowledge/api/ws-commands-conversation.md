@@ -5,7 +5,7 @@ description: Commands on /ws/control for the chat view of a pane, session histor
 resource: internal/server/conversation.go
 tags: [websocket, control, conversation]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/conversation.go]
+code_paths: [internal/server/conversation.go, internal/server/viewerrole.go, internal/server/imageattach.go, internal/server/control.go, internal/server/conversation_search.go, internal/server/history.go]
 ---
 Part of [/ws/control](/api/ws-control.md). Files: `conversation.go`, `conversation_search.go`, `history.go`, `imageattach.go`.
 

@@ -5,7 +5,7 @@ description: The routing section of agents.json: mode, floor, strategy, crossAge
 resource: internal/agent/routing.go
 tags: [routing, agents-json]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/agent/routing.go]
+code_paths: [internal/agent/routing.go, internal/agent/catalog.go]
 ---
 # RoutingPolicy
 

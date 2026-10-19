@@ -5,7 +5,7 @@ description: Commands on /ws/control for agent catalog, API keys, batons, routin
 resource: internal/server/agents.go
 tags: [websocket, control, agents, team]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/agents.go]
+code_paths: [internal/server/agents.go, internal/server/baton.go, internal/server/control.go, internal/server/viewerrole.go, internal/server/teamui.go, internal/server/paneinfo.go, internal/server/spawn.go, internal/server/keys.go, internal/server/jevkey.go, internal/server/approval.go, internal/server/routing.go, internal/server/keybindings.go, internal/server/recording.go]
 ---
 Part of [/ws/control](/api/ws-control.md). All `accessFull`.
 

@@ -5,7 +5,7 @@ description: Auto-review decider that lets read-only Bash tool calls through wit
 resource: internal/review
 tags: [review, permissions, bash, git]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/review]
+code_paths: [internal/review/review.go, internal/review/bash.go, internal/review/gitcheck.go]
 ---
 # internal/review
 

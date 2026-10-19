@@ -5,7 +5,7 @@ description: Per-device full or viewer role stored in prefs, failing closed to v
 resource: internal/store/deviceaccess.go
 tags: [security, remote, devices, store]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/store/deviceaccess.go]
+code_paths: [internal/store/deviceaccess.go, internal/store/prefs.go]
 ---
 Devices paired through Flockdeck Remote each have a `DeviceAccess` in [prefs](/data/prefs-file.md) (`devices` map).
 

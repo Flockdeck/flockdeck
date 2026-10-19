@@ -5,7 +5,7 @@ description: How a local window proves it may drive the server: a per-run token,
 resource: internal/server/server.go
 tags: [security, auth, token]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/server.go]
+code_paths: [internal/server/server.go, internal/server/remote.go, internal/server/linkgone.go]
 ---
 ## Token
 

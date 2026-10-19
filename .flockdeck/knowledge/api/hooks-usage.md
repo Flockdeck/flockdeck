@@ -5,7 +5,7 @@ description: A pane reports what its agent has spent in tokens and cost, and sub
 resource: internal/hooks/usage.go
 tags: [hooks, usage, spend]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/hooks/usage.go]
+code_paths: [internal/hooks/usage.go, internal/spend/spend.go]
 ---
 # POST /usage
 

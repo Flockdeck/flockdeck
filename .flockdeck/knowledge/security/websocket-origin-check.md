@@ -5,7 +5,7 @@ description: The control, terminal and artifacts sockets accept only pages loade
 resource: internal/server/pty.go
 tags: [security, websocket, origin]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/pty.go]
+code_paths: [internal/server/pty.go, internal/server/control.go, internal/server/artifacts_socket.go]
 ---
 All three sockets call `websocket.Accept(w, r, opts)` with no `OriginPatterns`. The library's default then requires the `Origin` host to equal the request `Host` (a request with no `Origin`, such as a non-browser client, is allowed by the library, but still needs the token).
 

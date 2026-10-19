@@ -5,7 +5,7 @@ description: The Event struct a pane posts to /hook for each agent lifecycle eve
 resource: internal/hooks/hooks.go
 tags: [hooks, event, lifecycle]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/hooks/hooks.go]
+code_paths: [internal/hooks/hooks.go, internal/record/redact.go]
 ---
 # Event
 

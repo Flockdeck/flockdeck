@@ -5,7 +5,7 @@ description: Operating-system and peer checks that restrict the Unix socket or n
 resource: internal/channel
 tags: [security, ipc, socket, named-pipe]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/channel]
+code_paths: [internal/channel/channel.go, internal/channel/peer_darwin.go, internal/channel/peer_linux.go, internal/channel/peer_other.go, internal/channel/place_unix.go, internal/channel/place_windows.go]
 ---
 # Local channel access
 

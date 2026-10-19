@@ -5,7 +5,7 @@ description: User overrides for Flockdeck's own window shortcuts, kept in keybin
 resource: internal/keybindings/keybindings.go
 tags: [keybindings, settings, package]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/keybindings/keybindings.go]
+code_paths: [internal/keybindings/keybindings.go, internal/keybindings/signature.go]
 ---
 Remaps the window's shortcuts (defined in [help](/packages/help.md) `Keys`), not the Claude Code CLI's own `keybindings.json`, which a pane's agent reads.
 

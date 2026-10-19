@@ -5,7 +5,7 @@ description: Loopback address of the instance a pane belongs to; set in each pan
 resource: main.go
 tags: [config, pane]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [main.go]
+code_paths: [main.go, cli_team.go, internal/legacyenv/legacyenv.go, internal/workspace/workspace.go]
 ---
 Set by the instance in the environment of every pane it starts. Subcommands run inside a pane read it to find the instance to call back: [spawn](/cli/spawn.md), [peer-name](/cli/peer-name.md), [close](/cli/close.md), [team](/cli/team.md), [msg](/cli/msg.md), [inbox](/cli/inbox.md), [task](/cli/task.md) and [chat](/cli/chat.md).
 

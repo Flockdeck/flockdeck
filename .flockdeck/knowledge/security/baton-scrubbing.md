@@ -5,7 +5,7 @@ description: The layers that remove secrets from a baton and keep its text from 
 resource: internal/baton/scrub.go
 tags: [security, secrets, baton, prompt-injection]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/baton/scrub.go]
+code_paths: [internal/baton/scrub.go, internal/baton/shapes.go, internal/baton/shapes2.go, internal/baton/shapes3.go, internal/baton/shapes4.go, internal/baton/entropy.go, internal/baton/wrap.go, internal/baton/wraprun.go, internal/baton/clean.go, internal/baton/baton.go]
 ---
 # Baton scrubbing
 

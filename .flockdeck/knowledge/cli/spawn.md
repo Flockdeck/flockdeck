@@ -5,7 +5,7 @@ description: Starts another agent or a shell from inside a pane, optionally in a
 resource: main.go
 tags: [cli, pane]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [main.go]
+code_paths: [main.go, internal/hooks/hooks.go, internal/workspace/spawn.go]
 ---
 ## Synopsis
 

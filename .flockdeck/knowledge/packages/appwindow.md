@@ -5,7 +5,7 @@ description: Opens Flockdeck's UI in a native Wails webview window and offers br
 resource: internal/appwindow/appwindow.go
 tags: [appwindow, wails, desktop]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/appwindow/appwindow.go]
+code_paths: [internal/appwindow/appwindow.go, internal/appwindow/reveal.go, internal/appwindow/defaultbrowser.go, internal/appwindow/appwindow_nocgo.go, main.go, cli_recordings_export.go]
 ---
 ## Native window
 

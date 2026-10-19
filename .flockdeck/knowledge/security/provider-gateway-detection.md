@@ -5,7 +5,7 @@ description: How Flockdeck decides which company an agent sends data to, failing
 resource: internal/workspace/provider.go
 tags: [security, privacy, baton, workspace]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/workspace/provider.go]
+code_paths: [internal/workspace/provider.go, internal/workspace/readlimited.go, internal/workspace/spawn.go]
 ---
 `BatonProvider*` names where an agent sends what it is given, so a handoff to a different company can be flagged and approved.
 

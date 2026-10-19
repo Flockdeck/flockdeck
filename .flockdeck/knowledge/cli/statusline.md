@@ -5,7 +5,7 @@ description: Hidden bridge that reports a Claude pane's cost and rate limits to 
 resource: statusline.go
 tags: [cli, hidden, pane]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [statusline.go]
+code_paths: [statusline.go, internal/hooks/usage.go, internal/spend/spend.go, internal/session/claudeshell.go]
 ---
 ## Synopsis
 

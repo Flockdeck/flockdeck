@@ -5,7 +5,7 @@ description: Release signing key read by `release -sign`.
 resource: cmd/release/sign.go
 tags: [release, signing, secrets]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cmd/release/sign.go]
+code_paths: [cmd/release/sign.go, internal/selfupdate/sign.go]
 ---
 - **Default:** unset; `-sign` fails with a message if it is empty.
 - **Read by:** `cmd/release` (`signingKeyEnv`), passed to `selfupdate.ParseSigningKey`.

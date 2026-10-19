@@ -5,7 +5,7 @@ description: GitHub token used by deploydrift to read the sibling repositories.
 resource: cmd/deploydrift/main.go
 tags: [ci, secrets, github]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cmd/deploydrift/main.go]
+code_paths: [cmd/deploydrift/main.go, cmd/deploydrift/github.go, cmd/deploydrift/issue.go]
 ---
 - **Default:** unset, which is an error (never a pass).
 - **Read by:** `cmd/deploydrift` through `getenv`.

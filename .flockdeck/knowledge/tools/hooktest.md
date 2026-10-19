@@ -5,7 +5,7 @@ description: Starts one Claude pane and prints every status transition reported 
 resource: cmd/hooktest
 tags: [dev-tool, hooks]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cmd/hooktest]
+code_paths: [cmd/hooktest/main.go]
 ---
 Development aid, not shipped. Verifies end to end that a Claude pane reports its lifecycle to Flockdeck's hook server.
 

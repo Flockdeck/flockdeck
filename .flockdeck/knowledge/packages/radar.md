@@ -5,7 +5,7 @@ description: Predicts merge conflicts between panes working in one repository by
 resource: internal/radar
 tags: [radar, conflicts, git, worktrees]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/radar]
+code_paths: [internal/radar/radar.go, internal/radar/engine.go]
 ---
 # internal/radar
 

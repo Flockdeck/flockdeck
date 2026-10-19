@@ -5,7 +5,7 @@ description: Reports how long the machine has had no keyboard or mouse input and
 resource: internal/idle
 tags: [idle, platform, push]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/idle]
+code_paths: [internal/idle/idle.go, internal/idle/idle_darwin.go, internal/idle/idle_darwin_parse.go, internal/idle/idle_linux.go, internal/idle/idle_linux_parse.go, internal/idle/idle_other.go, internal/idle/idle_probe.go, internal/idle/idle_windows.go]
 ---
 # internal/idle
 

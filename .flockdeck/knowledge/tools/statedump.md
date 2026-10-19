@@ -5,7 +5,7 @@ description: Prints what a running instance reports about its panes.
 resource: cmd/statedump
 tags: [dev-tool, control-socket]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cmd/statedump]
+code_paths: [cmd/statedump/main.go, cmd/internal/controlsock/controlsock.go]
 ---
 Development aid, not shipped.
 

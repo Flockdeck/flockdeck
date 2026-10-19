@@ -5,7 +5,7 @@ description: Global list of projects the user has opened, with name, archive fla
 resource: internal/store/store.go
 tags: [store, persistence, projects]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/store/store.go]
+code_paths: [internal/store/store.go, internal/store/recentswriter.go]
 ---
 `projects.json` in the config dir. A JSON array of `Project`, kept apart from per-project layouts so the picker can list projects before any is opened.
 

@@ -7,6 +7,7 @@
 * [Background work counts only on evidence](background-work-verification.md) - An idle agent with background tasks reads as working only while the work is verified, and ends only on stored evidence.
 * [A baton must fit a Windows command line](baton-prompt-size-budget.md) - The baton prompt is a command-line argument, so its size is budgeted below the 32,767-character Windows cap.
 * [Unix socket path length and placement](channel-socket-path-length.md) - sun_path limits and logout behaviour decide where the local channel socket may live.
+* [Chat endpoint addresses](chat-endpoint-addresses.md) - How the chat client joins a configured base address with each API's path, and how it picks up a changed address.
 * [Claude session variables are stripped from panes](claude-env-stripping.md) - Variables a running Claude Code session injects are removed so a pane does not think it is a nested child.
 * [Conflict radar throttles and fail-safes](conflict-radar-limits.md) - When the workspace runs the conflict radar, and how it backs off on slow or vanished checkouts.
 * [The token cookie is named per port](cookie-named-per-port.md) - Cookies ignore ports, so each instance names its cookie flockdeck_token_<port>.

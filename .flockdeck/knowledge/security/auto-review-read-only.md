@@ -5,7 +5,7 @@ description: How internal/review decides a PreToolUse Bash call is safe to allow
 resource: internal/review
 tags: [security, permissions, bash, git]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/review]
+code_paths: [internal/review/review.go, internal/review/bash.go, internal/review/gitcheck.go]
 ---
 # Auto-review
 

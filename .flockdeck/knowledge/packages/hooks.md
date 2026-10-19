@@ -5,7 +5,7 @@ description: Loopback HTTP server and clients that carry agent lifecycle events 
 resource: internal/hooks
 tags: [hooks, loopback, lifecycle, callbacks]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/hooks]
+code_paths: [internal/hooks/hooks.go, internal/hooks/notification.go, internal/hooks/tasks.go, internal/hooks/team.go, internal/hooks/usage.go]
 ---
 # internal/hooks
 

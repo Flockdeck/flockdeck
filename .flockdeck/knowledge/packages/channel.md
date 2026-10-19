@@ -5,7 +5,7 @@ description: Private per-instance local channel (Unix socket or Windows named pi
 resource: internal/channel
 tags: [ipc, socket, named-pipe, security]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/channel]
+code_paths: [internal/channel/channel.go, internal/channel/peer_darwin.go, internal/channel/peer_linux.go, internal/channel/peer_other.go, internal/channel/place_unix.go, internal/channel/place_windows.go]
 ---
 # internal/channel
 

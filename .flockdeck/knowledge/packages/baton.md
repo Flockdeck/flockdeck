@@ -5,7 +5,7 @@ description: Builds, scrubs, stores and frames the handoff document that carries
 resource: internal/baton
 tags: [baton, handoff, scrubbing, secrets]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/baton]
+code_paths: [internal/baton/baton.go, internal/baton/build.go, internal/baton/clean.go, internal/baton/entropy.go, internal/baton/frame.go, internal/baton/normalise.go, internal/baton/prune.go, internal/baton/scrub.go, internal/baton/shapes.go, internal/baton/shapes2.go, internal/baton/shapes3.go, internal/baton/shapes4.go, internal/baton/shared_other.go, internal/baton/shared_windows.go, internal/baton/store.go, internal/baton/wrap.go, internal/baton/wraprun.go]
 ---
 # internal/baton
 

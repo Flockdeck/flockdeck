@@ -5,7 +5,7 @@ description: The one outbound call to TypeSafe's Jev API, carrying a scrubbed st
 resource: internal/jev/jev.go
 tags: [jev, typesafe, outbound]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/jev/jev.go]
+code_paths: [internal/jev/jev.go, internal/jev/question.go]
 ---
 # POST /v1/systemone
 

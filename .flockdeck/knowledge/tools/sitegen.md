@@ -5,7 +5,7 @@ description: Generates the public marketing site as plain files from this reposi
 resource: cmd/sitegen
 tags: [site, generator]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cmd/sitegen]
+code_paths: [cmd/sitegen/main.go]
 ---
 Writes the landing page and trust, privacy, terms, refunds and licences pages, plus install scripts, icons and fonts, so site claims come from the code beside them. Markdown pages are rendered with goldmark; the licences page is built from the notices files. Output is plain files; the site is served from a repository of its own.
 

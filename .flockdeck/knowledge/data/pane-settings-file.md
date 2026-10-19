@@ -5,7 +5,7 @@ description: Per-pane Claude Code settings file that makes the agent report life
 resource: internal/session/claude.go
 tags: [session, hooks, claude]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/session/claude.go]
+code_paths: [internal/session/claude.go, internal/session/statusline.go, internal/session/launch.go]
 ---
 Written by `WriteHookSettingsWith` to `<config dir>/sessions/<session id>.settings.json`, mode 0600, and passed to Claude Code as its settings file. Settings are additive: the user's own settings and hooks still load.
 

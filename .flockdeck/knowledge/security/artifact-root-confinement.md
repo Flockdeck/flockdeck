@@ -5,7 +5,7 @@ description: Rules that decide whether a file may be shown to a remote device by
 resource: internal/artifacts
 tags: [security, remote, files]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/artifacts]
+code_paths: [internal/artifacts/root.go, internal/artifacts/root_unix.go, internal/artifacts/root_windows.go, internal/artifacts/rootguard.go, internal/artifacts/rootpolicy.go, internal/artifacts/rootpolicy_home.go]
 ---
 Implemented by [artifacts](/packages/artifacts.md) with name checks from [secretname](/packages/secretname.md).
 

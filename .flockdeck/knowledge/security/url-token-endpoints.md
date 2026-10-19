@@ -5,7 +5,7 @@ description: /health, /open, /quit, /window, /remote/reload and /helpers/* requi
 resource: internal/server/attach.go
 tags: [security, http, csrf]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/attach.go]
+code_paths: [internal/server/attach.go, internal/server/helpers.go, internal/server/remote.go]
 ---
 `requireURLToken` accepts only a `t` query parameter that matches the token. `requirePost` rejects other methods with `405` and `Allow: POST`. Both are applied after `authorised`.
 

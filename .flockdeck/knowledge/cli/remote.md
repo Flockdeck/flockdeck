@@ -5,7 +5,7 @@ description: Enrols this machine with a relay so other devices can reach its age
 resource: cli_remote.go
 tags: [cli, remote]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cli_remote.go]
+code_paths: [cli_remote.go, cli_remote_artifacts.go, internal/remote/config.go, internal/remote/client.go, internal/server/remote.go, internal/store/prefs.go]
 ---
 ## Synopsis
 

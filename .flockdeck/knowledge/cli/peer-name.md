@@ -5,7 +5,7 @@ description: Tells the instance the name another Claude session would use to add
 resource: main.go
 tags: [cli, pane]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [main.go]
+code_paths: [main.go, internal/hooks/hooks.go]
 ---
 ## Synopsis
 

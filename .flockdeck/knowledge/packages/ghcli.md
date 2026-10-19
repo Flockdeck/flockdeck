@@ -5,7 +5,7 @@ description: GitHub access by running the gh command-line tool: PRs, issues, CI 
 resource: internal/ghcli/ghcli.go
 tags: [github, package]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/ghcli/ghcli.go]
+code_paths: [internal/ghcli/ghcli.go, internal/ghcli/pr.go, internal/ghcli/issue.go, internal/ghcli/ci.go, internal/ghcli/models.go, internal/ghcli/install.go, internal/ghcli/auth.go, internal/ghcli/repo.go]
 ---
 Runs the `gh` binary (found on PATH) and reads its `--json` output, the way [gitx](/packages/gitx.md) runs git. It stores no token; `gh` keeps its own login.
 

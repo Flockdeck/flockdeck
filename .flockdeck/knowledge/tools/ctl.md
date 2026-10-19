@@ -5,7 +5,7 @@ description: Sends JSON commands to a running instance over its control WebSocke
 resource: cmd/ctl
 tags: [dev-tool, control-socket]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cmd/ctl]
+code_paths: [cmd/ctl/main.go, cmd/internal/controlsock/controlsock.go]
 ---
 Development aid, not shipped.
 

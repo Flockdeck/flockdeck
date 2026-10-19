@@ -5,7 +5,7 @@ description: How the updater trusts a release: compiled-in Ed25519 keys, signed 
 resource: internal/selfupdate
 tags: [security, update, signing]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/selfupdate]
+code_paths: [internal/selfupdate/site.go, internal/selfupdate/sign.go, internal/selfupdate/selfupdate.go, internal/selfupdate/releasekey.go]
 ---
 Mechanism in [selfupdate](/packages/selfupdate.md); signing side in [release](/tools/release.md).
 

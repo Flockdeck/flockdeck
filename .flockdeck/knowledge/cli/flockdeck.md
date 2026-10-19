@@ -5,7 +5,7 @@ description: The root command: opens the workspace and window, or dispatches to 
 resource: main.go
 tags: [cli]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [main.go]
+code_paths: [main.go, cli_update.go, console_unix.go, console_windows.go, console_other.go, fail_other.go, fail_windows.go, internal/server/attach.go, internal/store/store.go]
 ---
 ## Synopsis
 

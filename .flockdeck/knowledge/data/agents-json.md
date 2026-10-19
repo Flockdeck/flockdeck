@@ -5,7 +5,7 @@ description: The user's own agents, roles, defaults and routing policy, merged o
 resource: internal/agent/config.go
 tags: [agent, config-file, routing]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/agent/config.go]
+code_paths: [internal/agent/config.go, internal/agent/catalog.go]
 ---
 # agents.json
 

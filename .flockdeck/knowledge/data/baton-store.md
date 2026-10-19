@@ -5,7 +5,7 @@ description: The batons folder in the state directory and the small bookkeeping 
 resource: internal/baton/store.go
 tags: [baton, store, retention]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/baton/store.go]
+code_paths: [internal/baton/store.go, internal/baton/shared_other.go, internal/baton/shared_windows.go, internal/baton/prune.go]
 ---
 # Baton store
 

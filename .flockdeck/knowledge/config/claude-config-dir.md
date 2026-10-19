@@ -5,7 +5,7 @@ description: Claude Code's own config directory override, read by Flockdeck to f
 resource: internal/session/transcript/claude.go
 tags: [claude, environment]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/session/transcript/claude.go]
+code_paths: [internal/session/transcript/claude.go, internal/session/trust.go, internal/workspace/provider.go]
 ---
 Not a Flockdeck setting: it is Claude Code's, which Flockdeck reads so it looks where Claude Code looks. Unset or empty means `~/.claude` (and `~/.claude.json` for the trust file).
 

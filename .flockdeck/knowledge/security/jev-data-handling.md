@@ -5,7 +5,7 @@ description: What may be sent to TypeSafe's Jev API, which key is used, and the 
 resource: internal/jev
 tags: [security, privacy, jev]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/jev]
+code_paths: [internal/jev/jev.go, internal/jev/scrub.go, internal/record/redact.go, internal/secretname/secretname.go]
 ---
 # Jev data handling
 

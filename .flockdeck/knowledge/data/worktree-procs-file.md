@@ -5,7 +5,7 @@ description: Pane processes running in git checkouts, so a later launch can reap
 resource: internal/store/worktreeprocs.go
 tags: [store, persistence, worktree]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/store/worktreeprocs.go]
+code_paths: [internal/store/worktreeprocs.go, internal/workspace/reap.go]
 ---
 `worktree-procs.json` in the config dir: a JSON object keyed by pane id, each value a `WorktreeProc` {`pid`, `started`, `path`}.
 

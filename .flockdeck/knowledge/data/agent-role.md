@@ -5,7 +5,7 @@ description: A job an agent can be started for: its briefing, worktree policy, d
 resource: internal/agent/roles.go
 tags: [agent, roles, spawn]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/agent/roles.go]
+code_paths: [internal/agent/roles.go, internal/agent/catalog.go]
 ---
 # Role
 

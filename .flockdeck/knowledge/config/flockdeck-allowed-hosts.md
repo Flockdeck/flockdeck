@@ -5,7 +5,7 @@ description: Extra Host header values the loopback server answers to, for reachi
 resource: internal/server/hostguard.go
 tags: [config, env, server, security]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/hostguard.go]
+code_paths: [internal/server/hostguard.go, internal/server/server.go]
 ---
 Read once in `server.New` via `os.Getenv(AllowedHostsEnv)`.
 

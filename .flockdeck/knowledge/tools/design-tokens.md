@@ -5,7 +5,7 @@ description: design/ folder holding tokens.css, the Go test helper for it and th
 resource: design
 tags: [design, ci, accessibility]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [design]
+code_paths: [design/tokens.css, design/tokens.go, design/check-contrast.mjs]
 ---
 `design/tokens.css` is the single source of truth for colour, type, space, shape and motion across the desktop app, site, docs and remote client. Dark is the default `:root`; light is `[data-theme="light"]` (or the system, under `[data-theme="system"]`). Custom properties use the `--fd-` prefix. Fonts: IBM Plex Sans and JetBrains Mono (variable woff2 in `design/fonts`, OFL licence texts beside them). Each surface ships its own copy of the fonts.
 

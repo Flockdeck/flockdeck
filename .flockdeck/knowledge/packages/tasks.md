@@ -5,7 +5,7 @@ description: The per-project task board, its state machine and permission rules,
 resource: internal/tasks
 tags: [tasks, board, state-machine, team]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/tasks]
+code_paths: [internal/tasks/tasks.go, internal/tasks/board.go, internal/tasks/exclude.go, internal/tasks/format.go, internal/tasks/notify.go, internal/tasks/rules.go]
 ---
 # internal/tasks
 

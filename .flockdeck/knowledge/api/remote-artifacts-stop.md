@@ -5,7 +5,7 @@ description: Closes every artifacts socket and reloads preferences after `flockd
 resource: internal/server/artifacts_consent.go
 tags: [http, remote, artifacts, cli]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/artifacts_consent.go]
+code_paths: [internal/server/artifacts_consent.go, internal/server/attach.go]
 ---
 Handler: `Server.handleArtifactsStop`.
 

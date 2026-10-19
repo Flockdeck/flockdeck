@@ -5,7 +5,7 @@ description: Cross-builds, packages, checksums and signs Flockdeck releases in t
 resource: cmd/release
 tags: [release, packaging, signing]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cmd/release]
+code_paths: [cmd/release/main.go, cmd/release/sign.go, cmd/release/nfpm.yaml]
 ---
 Packaging is Go code so that the archive layout lives next to the code that unpacks it ([selfupdate](/packages/selfupdate.md)) and `make package` yields the same bytes as CI, including on Windows.
 

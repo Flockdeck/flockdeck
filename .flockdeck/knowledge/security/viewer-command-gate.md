@@ -5,7 +5,7 @@ description: Default-deny filtering of control commands, outgoing messages, snap
 resource: internal/server/viewerrole.go
 tags: [security, remote, roles]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/viewerrole.go]
+code_paths: [internal/server/viewerrole.go, internal/server/control.go, internal/server/conversation.go]
 ---
 Role data lives in prefs ([device access roles](/security/device-access-roles.md)). This file's enforcement:
 

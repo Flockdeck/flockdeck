@@ -5,7 +5,7 @@ description: How stored and environment API keys are resolved, written and kept 
 resource: internal/creds
 tags: [security, secrets, keys]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/creds]
+code_paths: [internal/creds/creds.go, internal/creds/store.go, internal/creds/jevkey.go, internal/agent/available.go, internal/testiso/testiso.go]
 ---
 Mechanism in [creds](/packages/creds.md):
 

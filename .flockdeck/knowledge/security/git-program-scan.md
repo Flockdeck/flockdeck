@@ -5,7 +5,7 @@ description: Flockdeck lists the programs a repository's git config and hooks wo
 resource: internal/gitx/programs.go
 tags: [security, git, hooks]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/gitx/programs.go]
+code_paths: [internal/gitx/programs.go, internal/gitx/scanfs.go]
 ---
 Threat in the code's own words: an agent that can write inside `.git` can set hooks, `core.sshCommand`, credential helpers, filters or a gpg program, and Flockdeck would run them as the user outside the agent's permission prompts when Commit or Push is pressed.
 

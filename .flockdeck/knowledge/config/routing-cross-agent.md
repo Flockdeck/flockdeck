@@ -5,7 +5,7 @@ description: Lets a routing rule move a spawned helper to another agent, not onl
 resource: internal/agent/routing.go
 tags: [routing, agents-json]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/agent/routing.go]
+code_paths: [internal/agent/routing.go, internal/route/route.go]
 ---
 - **Where:** `routing.crossAgent` in [agents.json](/data/agents-json.md). Default false. `SetRouting` accepts `true`, `false` or empty.
 - **Why a separate switch:** writing a rule that names another agent's model must not by itself start spending through a different login.

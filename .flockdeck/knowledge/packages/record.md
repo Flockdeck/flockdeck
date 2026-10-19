@@ -5,7 +5,7 @@ description: Writes a pane's agent conversation to disk as a redacted, size-capp
 resource: internal/record/record.go
 tags: [recording, redaction, package]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/record/record.go]
+code_paths: [internal/record/record.go, internal/record/redact.go, internal/record/export.go]
 ---
 Off for every pane until the user turns it on. Never writes into a project repository. Input is the agent's stored conversation (via `session/transcript` followers and exporters), not the terminal screen.
 

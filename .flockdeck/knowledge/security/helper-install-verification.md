@@ -5,7 +5,7 @@ description: Signature, hash, version, archive and pre-start checks that keep a 
 resource: internal/helpers/install.go
 tags: [security, helpers, supply-chain]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/helpers/install.go]
+code_paths: [internal/helpers/install.go, internal/helpers/catalogue.go, internal/helpers/verify_install.go, internal/helpers/env.go, internal/helpers/extract.go, internal/helpers/fetch.go, internal/helpers/version.go, internal/helpers/layout.go]
 ---
 Nothing from a downloaded archive runs until the user starts the helper. An install must pass, in order: the signature on the release manifest and `checksums.txt` (compiled-in keys; a wrong signature is never overridable, only a missing one can be), the version rules, the archive's SHA-256, and the archive checks in `extract.go`.
 

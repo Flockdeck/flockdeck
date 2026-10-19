@@ -5,7 +5,7 @@ description: Pure model-routing engine that picks a model tier for a piece of wo
 resource: internal/route
 tags: [routing, models, cost]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/route]
+code_paths: [internal/route/route.go, internal/route/files.go, internal/route/log.go]
 ---
 # internal/route
 

@@ -5,7 +5,7 @@ description: Prints a one-time link and QR code that pairs a device, or a code t
 resource: cli_remote.go
 tags: [cli, remote]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cli_remote.go]
+code_paths: [cli_remote.go, internal/remote/client.go]
 ---
 ## Synopsis
 

@@ -5,7 +5,7 @@ description: The Spec struct that describes one agent, with its runner, argument
 resource: internal/agent/spec.go
 tags: [agent, spec, catalog]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/agent/spec.go]
+code_paths: [internal/agent/spec.go, internal/agent/catalog.go, internal/agent/config.go]
 ---
 # Spec
 

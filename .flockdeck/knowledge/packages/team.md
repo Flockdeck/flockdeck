@@ -5,7 +5,7 @@ description: Roster, inbox messages, mail notices and the derived team graph for
 resource: internal/team
 tags: [team, messaging, inbox, graph]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/team]
+code_paths: [internal/team/team.go, internal/team/block.go, internal/team/graph.go, internal/team/notify.go, internal/team/store.go]
 ---
 # internal/team
 

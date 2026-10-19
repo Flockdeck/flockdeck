@@ -5,7 +5,7 @@ description: Reports sibling repos whose main branch has shipping changes no ver
 resource: cmd/deploydrift
 tags: [ci, release, github]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cmd/deploydrift]
+code_paths: [cmd/deploydrift/main.go, cmd/deploydrift/drift.go, cmd/deploydrift/github.go, cmd/deploydrift/issue.go]
 ---
 For flockdeck-relay, -billing, -site and -docs, merging to main deploys nothing; a `v*` tag does. flockdeck-remote reaches users only through a remote tag, a relay dependency bump and a relay tag. `deploydrift` makes the gap visible.
 

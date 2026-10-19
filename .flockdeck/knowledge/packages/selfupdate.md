@@ -5,7 +5,7 @@ description: Finds, downloads, verifies, stages and applies new Flockdeck releas
 resource: internal/selfupdate
 tags: [update, security, release]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/selfupdate]
+code_paths: [internal/selfupdate/selfupdate.go, internal/selfupdate/releasekey.go, internal/selfupdate/sign.go, internal/selfupdate/site.go, internal/selfupdate/version.go]
 ---
 Three separate steps: `Latest`/`Newer` ask what is newest; `Stage` downloads, verifies and unpacks into the state dir; `Apply` swaps the staged binary in. Apply is never done under a running session.
 

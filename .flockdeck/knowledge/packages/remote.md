@@ -5,7 +5,7 @@ description: Client side of Flockdeck Remote: enrolment, the outbound tunnel to 
 resource: internal/remote/manager.go
 tags: [remote, relay, e2e, tunnel]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/remote/manager.go]
+code_paths: [internal/remote/manager.go, internal/remote/client.go, internal/remote/qr.go, internal/remote/e2ekey.go, internal/remote/connector.go, internal/remote/config.go, internal/remote/artifactkey.go, internal/remote/enrol.go, internal/remote/verified.go, internal/remote/verify.go, internal/remote/webpush.go, main.go, cli_remote.go]
 ---
 The desktop never listens for the network. It dials out to a relay, holds one WebSocket open, runs a `smux` multiplexer over it, and the relay opens a stream per browser connection. Each stream is served by the normal [server](/packages/server.md) handlers with the request marked remote (`Server.ServeRemote`). The relay itself is a separate private project and is not described here.
 

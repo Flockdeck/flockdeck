@@ -5,7 +5,7 @@ description: Reads pane environment variables under the FLOCKDECK_ name or the o
 resource: internal/legacyenv
 tags: [env, compatibility]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/legacyenv]
+code_paths: [internal/legacyenv/legacyenv.go]
 ---
 `Get(name)` returns `FLOCKDECK_<name>`, else `PERCH_<name>`, silently. `GetWarn(w, name)` does the same and, when the old name is the one used and `w` is not nil, writes one deprecation line per name per process. `RemovalDate` is "17 April 2027".
 

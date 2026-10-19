@@ -5,7 +5,7 @@ description: Catalog of the coding agents, roles and routing policy Flockdeck ca
 resource: internal/agent
 tags: [agent, catalog, roles, routing]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/agent]
+code_paths: [internal/agent/available.go, internal/agent/builtin.go, internal/agent/catalog.go, internal/agent/check.go, internal/agent/config.go, internal/agent/expand.go, internal/agent/roles.go, internal/agent/routing.go, internal/agent/spec.go]
 ---
 # internal/agent
 

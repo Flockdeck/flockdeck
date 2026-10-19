@@ -5,7 +5,7 @@ description: Returns a one-time window link so a second launch can open a window
 resource: internal/server/attach.go
 tags: [http, attach, auth]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/attach.go]
+code_paths: [internal/server/attach.go, internal/server/server.go]
 ---
 Handler: `Server.handleWindow`. `POST` only, URL token required.
 

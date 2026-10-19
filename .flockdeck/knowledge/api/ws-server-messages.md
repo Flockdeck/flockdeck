@@ -5,7 +5,7 @@ description: Every message type the server sends down /ws/control, with its sour
 resource: internal/server/control.go
 tags: [websocket, control, protocol]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/control.go]
+code_paths: [internal/server/control.go, internal/server/viewerrole.go, internal/server/baton.go, internal/server/conversation.go, internal/server/help.go, internal/server/approval.go, internal/server/agents.go, internal/server/remote.go, internal/server/imageattach.go, internal/server/ghcli.go, internal/server/teamui.go, internal/server/paneinfo.go, internal/server/spawn.go, internal/server/artifacts_consent.go, internal/server/keys.go, internal/server/jevkey.go, internal/server/browse.go, internal/server/changes.go, internal/server/gitprograms.go, internal/server/worktrees.go, internal/server/history.go, internal/server/conversation_search.go, internal/server/helpers_ui.go, internal/server/versions.go]
 ---
 Each message is a JSON object with a `type`. Sent by `controlClient.send`, which drops it unless `mayReceive` allows it; a viewer device receives only `hello` and `artifacts`, plus four chat types when it may watch panes ([gate](/security/viewer-command-gate.md)). The `state` snapshot is separate ([details](/api/ws-state.md)).
 

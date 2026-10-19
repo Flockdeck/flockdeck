@@ -5,7 +5,7 @@ description: The window's main WebSocket: JSON commands up, a state snapshot and
 resource: internal/server/control.go
 tags: [websocket, control, protocol]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/control.go]
+code_paths: [internal/server/control.go, internal/server/viewerrole.go, internal/server/ghcli.go, internal/server/server.go, internal/server/pty.go, internal/server/remote.go]
 ---
 Handler: `Server.handleControl` (`internal/server/control.go`). Route `GET /ws/control`.
 

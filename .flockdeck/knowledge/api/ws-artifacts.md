@@ -5,7 +5,7 @@ description: End-to-end encrypted, relay-only socket on which a paired device li
 resource: internal/server/artifacts_socket.go
 tags: [websocket, artifacts, remote, e2e]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/artifacts_socket.go]
+code_paths: [internal/server/artifacts_socket.go, internal/server/artifacts_consent.go]
 ---
 Handler: `Server.handleArtifacts`. Route `GET /ws/artifacts`.
 

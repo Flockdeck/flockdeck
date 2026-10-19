@@ -5,7 +5,7 @@ description: Per-start marker in a pane's environment that hooks send back so la
 resource: internal/hooks/hooks.go
 tags: [hooks, pane-env]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/hooks/hooks.go]
+code_paths: [internal/hooks/hooks.go, internal/workspace/workspace.go]
 ---
 - **Default:** unset (hooks from builds that predate it send an empty `launch`).
 - **Set by:** the workspace when it starts a pane process; the value is new at each start (`hooks.LaunchEnv`).

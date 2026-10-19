@@ -5,7 +5,10 @@
 * [Remote artifacts gates](artifacts-socket-gates.md) - The conditions a paired device must meet before the artifacts socket serves it anything.
 * [Auto-review of read-only Bash calls](auto-review-read-only.md) - How internal/review decides a PreToolUse Bash call is safe to allow without a permission prompt.
 * [Baton approval for another provider](baton-approval.md) - A baton leaving its provider needs a user click in a local window; the mechanism and its stated limits.
+* [Baton command-line secrets](baton-command-line-secrets.md) - Which command-line flags and arguments the baton scrubber reads as passwords, and how it reads shell words.
+* [Baton entropy detector](baton-entropy-detector.md) - The third scrubbing layer, which removes long random-looking runs while keeping paths, URLs, identifiers and hashes.
 * [Baton scrubbing and prompt fencing](baton-scrubbing.md) - The layers that remove secrets from a baton and keep its text from being read as instructions or markup.
+* [Baton secret shapes](baton-secret-shapes.md) - The second scrubbing layer's own patterns for config files, headers, URLs, cookies and code, and the exemptions that keep placeholders and amounts.
 * [Chat client key and endpoint safety](chat-api-key-handling.md) - Rules in the chat client and agent catalog that keep API keys from being sent to the wrong host or printed.
 * [Claude Code folder trust inheritance](claude-folder-trust-inheritance.md) - Flockdeck copies an existing trust answer from one directory to a new worktree and never invents one.
 * [Paired device access roles](device-access-roles.md) - Per-device full or viewer role stored in prefs, failing closed to viewer.

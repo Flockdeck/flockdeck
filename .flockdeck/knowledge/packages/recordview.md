@@ -5,7 +5,7 @@ description: Reads a recording transcript file and serves bounded, cleaned, re-r
 resource: internal/recordview/recordview.go
 tags: [recording, security, package]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/recordview/recordview.go]
+code_paths: [internal/recordview/recordview.go, internal/recordview/path.go, internal/recordview/clean.go]
 ---
 `recordview.Open(ctx, root, name)` returns a `Reader`; `Reader.Page` returns a `Page` {`entries`, `next`, `done`, `skipped`}. `Header` carries session, conversation, agent, project and start time from the first line. No file bytes leave the package, only `Entry` values (an allowlist of fields).
 

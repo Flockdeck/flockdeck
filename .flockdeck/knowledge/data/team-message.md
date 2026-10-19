@@ -5,7 +5,7 @@ description: A message in a pane's inbox, the Member roster entry, and the JSON 
 resource: internal/team/team.go
 tags: [team, messages, inbox]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/team/team.go]
+code_paths: [internal/team/team.go, internal/team/store.go]
 ---
 # Message
 

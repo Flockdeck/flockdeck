@@ -5,7 +5,7 @@ description: How agent-chosen names are sanitised so an agent cannot pass for th
 resource: internal/team/team.go
 tags: [security, messaging, spoofing, prompt-injection]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/team/team.go]
+code_paths: [internal/team/team.go, internal/team/notify.go, internal/team/block.go]
 ---
 # Sender labels and notices
 

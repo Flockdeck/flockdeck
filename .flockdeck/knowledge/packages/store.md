@@ -5,7 +5,7 @@ description: On-disk persistence of layouts, projects, session, preferences, ins
 resource: internal/store/store.go
 tags: [store, persistence]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/store/store.go]
+code_paths: [internal/store/store.go, internal/store/prefs.go, internal/store/startlock.go]
 ---
 All state lives in `<os.UserConfigDir>/flockdeck` (`store.Dir`, 0700). Only the workspace shape is saved; conversations stay in the agent's own store.
 

@@ -5,7 +5,7 @@ description: Per-project tasks.json in the main checkout, written atomically and
 resource: internal/tasks/board.go
 tags: [tasks, board, file]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/tasks/board.go]
+code_paths: [internal/tasks/board.go, internal/tasks/exclude.go]
 ---
 # Task board file
 

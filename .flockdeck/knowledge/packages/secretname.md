@@ -5,7 +5,7 @@ description: Decides from a file or folder name alone whether its contents are a
 resource: internal/secretname
 tags: [security, secrets]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/secretname]
+code_paths: [internal/secretname/secretname.go, internal/secretname/hashed.go, internal/secretname/hashes_gen.go]
 ---
 Leaf package (standard library only) so code that must not start processes or use the network can share it. Used by [artifacts](/packages/artifacts.md) and `internal/jev`.
 

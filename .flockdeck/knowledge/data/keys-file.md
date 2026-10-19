@@ -5,7 +5,7 @@ description: The state-dir file holding API keys the user saved, as a flat agent
 resource: internal/creds/store.go
 tags: [secrets, keys]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/creds/store.go]
+code_paths: [internal/creds/store.go, internal/store/store.go]
 ---
 Located in the state directory (see [state directory permissions](/security/state-dir-permissions.md)).
 

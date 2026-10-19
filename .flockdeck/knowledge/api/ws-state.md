@@ -5,7 +5,7 @@ description: The whole-workspace snapshot broadcast to every window on /ws/contr
 resource: internal/server/control.go
 tags: [websocket, control, state]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/control.go]
+code_paths: [internal/server/control.go, internal/server/viewerrole.go, internal/server/server.go]
 ---
 Struct `stateMsg` (`type: "state"`), built on the workspace goroutine by `snapshot()` and sent by `broadcastState`.
 

@@ -5,7 +5,7 @@ description: Downloads, verifies, installs, supervises and opens helper apps (sm
 resource: internal/helpers/doc.go
 tags: [helpers, supply-chain, package]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/helpers/doc.go]
+code_paths: [internal/helpers/doc.go, internal/helpers/install.go, internal/helpers/supervisor.go, internal/helpers/logwriter.go, internal/helpers/extract.go, internal/helpers/catalogue.go, internal/helpers/fetch.go, internal/helpers/layout.go]
 ---
 A helper is a separate process with an allowlisted environment and no access to the control server, hooks server or instance token. The catalogue is compiled into the binary (`Catalogue()`, `Lookup`); today it holds one entry, "lens", whose job is to show agent transcripts in a local page.
 

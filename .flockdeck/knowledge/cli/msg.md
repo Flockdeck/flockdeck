@@ -5,7 +5,7 @@ description: Sends a message to another agent in the same project.
 resource: cli_team.go
 tags: [cli, pane, team]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cli_team.go]
+code_paths: [cli_team.go, internal/hooks/team.go, internal/team/store.go]
 ---
 ## Synopsis
 

@@ -5,7 +5,7 @@ description: Commands on /ws/control for the review panel, git remotes, worktree
 resource: internal/server/changes.go
 tags: [websocket, control, git, github]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/changes.go]
+code_paths: [internal/server/changes.go, internal/server/control.go, internal/server/viewerrole.go, internal/server/ghcli.go, internal/server/worktrees.go, internal/server/gitprograms.go, internal/server/browse.go, internal/server/browse_windows.go]
 ---
 Part of [/ws/control](/api/ws-control.md). Files: `changes.go`, `worktrees.go`, `ghcli.go`, `gitprograms.go`, `browse.go`. All `accessFull` (refused to viewers).
 

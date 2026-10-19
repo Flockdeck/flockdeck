@@ -5,7 +5,7 @@ description: Record of which git hooks and config-launched programs the user acc
 resource: internal/store/gitseen.go
 tags: [store, persistence, git, security]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/store/gitseen.go]
+code_paths: [internal/store/gitseen.go, internal/gitx/programs.go]
 ---
 `git-programs.json` in the config dir. Per repository (keyed by the normalized common git directory) a `GitSeen` {`ids` (IDs from `gitx.ScanPrograms`), `accepted` (time)}. `LoadGitSeen` returns the value and whether one exists.
 
