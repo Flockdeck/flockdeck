@@ -119,6 +119,7 @@ func Merge(f *File) *Catalog {
 			merged.API.KeyEnv = slices.Clone(builtin.API.KeyEnv)
 			merged.Patterns.Waiting = slices.Clone(builtin.Patterns.Waiting)
 			merged.Patterns.Idle = slices.Clone(builtin.Patterns.Idle)
+			merged.Wake = builtin.Wake.clone()
 			if err := json.Unmarshal(raw, &merged); err != nil {
 				// One unusable entry costs the user that entry's changes and
 				// nothing else: the built-in it was written over stays as it

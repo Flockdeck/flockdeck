@@ -223,6 +223,9 @@ type Session struct {
 	// because the status machinery below runs on every chunk a pane prints and
 	// must not go looking anything up to do it.
 	patterns agent.Patterns
+	// wake is the agent's rule for judging whether a line may be typed into an
+	// idle prompt, or nil. See WakeReading.
+	wake *agent.WakeRule
 	// answeredAt is how much the pane had printed when it was last answered,
 	// as written counts it. The patterns are only read in what came after it:
 	// see patternStatus.
@@ -382,6 +385,7 @@ func Start(cfg Config) (*Session, error) {
 		rows:        cfg.Rows,
 		sized:       make(chan struct{}),
 		patterns:    foldPatterns(cfg.Spec.Patterns),
+		wake:        cfg.Spec.Wake,
 		assist:      assistFor(cfg),
 		idleAfter:   quietBeforeIdle,
 		answerQuiet: answeredQuiet,
