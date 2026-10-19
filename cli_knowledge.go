@@ -12,6 +12,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/ghcli"
 	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // `flockdeck knowledge` is the switch for pointing a project's agents at its
@@ -154,6 +155,7 @@ func projectRootOf(dir string) (string, error) {
 		return root, nil
 	}
 	cmd := exec.Command("git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	sysproc.NoWindow(cmd)
 	b, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("%s is not in a project Flockdeck has opened or in a git repository", dir)
