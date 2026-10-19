@@ -59,10 +59,17 @@ type GraphPane struct {
 	// the question or the command it shows.
 	HasPrompt  bool
 	PromptText string
+	// PromptKind is "ask" for a question and anything else, including empty,
+	// for a permission prompt.
+	PromptKind string
 	// Exited and Failed say the process is gone, and whether it ended in error.
 	Exited bool
 	Failed bool
-	Unread int
+	// ExitCode is the process's exit code when Exited.
+	ExitCode int
+	Unread   int
+	// UnreadSince is when the oldest unread message arrived, zero if unknown.
+	UnreadSince time.Time
 }
 
 // GraphTask is one task of the board.
