@@ -558,26 +558,60 @@ func TestARestartedHelperDoesNotReportATurnItNeverFinished(t *testing.T) {
 	}
 }
 
+// holdTimers keeps the timers the workspace arms instead of starting them, and
+// leaves the status of the panes as it really is. The dwell tests used a real
+// 150 ms timer, and a restart or a close that took longer than that under load
+// let it fire while the old session was still the pane's: that is a report, and
+// not the one these tests are about. Holding the timer makes "the restart is
+// done before the dwell runs out" true by construction.
+func holdTimers(c crew) *idleFake {
+	f := &idleFake{}
+	c.ws.team.after = func(d time.Duration, fn func()) { f.timers = append(f.timers, fn) }
+	return f
+}
+
+// runHeldTimers runs the timers held, and the ones those arm in turn, as the
+// clock would once the dwell had passed.
+func (f *idleFake) runHeldTimers(t *testing.T) {
+	t.Helper()
+	for i := 0; len(f.timers) > 0; i++ {
+		if i > 10 {
+			t.Fatal("the timers keep arming each other")
+		}
+		f.runTimers()
+	}
+}
+
 func TestARestartDuringTheDwellReportsNothing(t *testing.T) {
 	c := newCrew(t)
 	c.ws.team.dwell = 150 * time.Millisecond
+	f := holdTimers(c)
 	c.ws.Pane(c.w1).Sess.SetStatus(session.StatusWorking, "Edit")
 	c.ws.Pane(c.w1).Sess.SetStatus(session.StatusIdle, "")
+	if len(f.timers) != 1 {
+		t.Fatalf("%d dwell timers armed by a turn that ended, want 1", len(f.timers))
+	}
 	if !c.ws.RestartPaneByID(c.w1) {
 		t.Fatal("could not restart the helper")
 	}
-	if got := quietFor(t, c); len(got) != 0 {
-		t.Errorf("a restart during the dwell still reported: %q", got)
+	f.runHeldTimers(t)
+	if got := c.inbox(t, c.lead, true); len(got) != 0 {
+		t.Errorf("a restart during the dwell still reported: %+v", got)
 	}
 }
 
 func TestAPaneClosedDuringTheDwellReportsNothing(t *testing.T) {
 	c := newCrew(t)
 	c.ws.team.dwell = 150 * time.Millisecond
+	f := holdTimers(c)
 	c.ws.Pane(c.w1).Sess.SetStatus(session.StatusWorking, "Edit")
 	c.ws.Pane(c.w1).Sess.SetStatus(session.StatusIdle, "")
+	if len(f.timers) != 1 {
+		t.Fatalf("%d dwell timers armed by a turn that ended, want 1", len(f.timers))
+	}
 	c.ws.ClosePaneByID(c.w1)
-	if got := quietFor(t, c); len(got) != 0 {
-		t.Errorf("a pane closed during the dwell still reported: %q", got)
+	f.runHeldTimers(t)
+	if got := c.inbox(t, c.lead, true); len(got) != 0 {
+		t.Errorf("a pane closed during the dwell still reported: %+v", got)
 	}
 }
