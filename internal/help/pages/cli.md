@@ -605,6 +605,11 @@ list of names, and that list includes `HTTP_PROXY`, `HTTPS_PROXY` and
 `NO_PROXY`, passed on as they are on purpose so that it can reach the network
 the way you do; a proxy address can carry a username and password.
 
+The only address Flockdeck contacts for a helper is its source, `dl.flockdeck.ai/lens`
+for lens, over https, and only when you install it, open the Helper apps
+dialog with lens installed, or run `flockdeck helpers list -check`. The
+`FLOCKDECK_UPDATE=off` setting for Flockdeck's own updates does not cover these.
+
 `install` shows the name, version, source address, signature and what the helper
 may do, and asks first; `-yes` skips the question. The release's manifest is
 checked against Flockdeck's release key, and the archive against the SHA-256

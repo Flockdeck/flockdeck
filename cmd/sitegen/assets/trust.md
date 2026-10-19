@@ -1,6 +1,6 @@
 # Trust & privacy
 
-*Last updated: 18 October 2026*
+*Last updated: 19 October 2026*
 
 This is the plain-language version of Flockdeck's privacy story: what's
 collected, what isn't, and how that compares to what else is on the market.
@@ -31,13 +31,15 @@ because there is nothing to turn off:
   you supply yourself (in Settings, or as `TYPESAFE_API_KEY`), and is described in full in the [privacy
   policy](privacy.html#the-desktop-app). Everything above holds while it is
   off.
-- **Downloads keep short-lived access logs.** The app, the installer scripts
-  and the update check are served from dl.flockdeck.ai, which keeps standard
+- **Downloads keep short-lived access logs.** The app, the installer scripts,
+  the update check and the optional lens helper app are served from dl.flockdeck.ai, which keeps standard
   access logs (IP address, path, time, response code and user agent) for 30
   days, stored privately and used only for security, abuse and fixing
   problems: not for analytics, marketing or profiling, and not shared except
   as the law requires. The desktop app itself still collects nothing, and
-  none of your code or terminal content is part of a download. See the
+  none of your code or terminal content is part of a download. lens is only
+  fetched if you choose to install it, and it runs on your computer; the
+  [privacy policy](privacy.html#the-desktop-app) lists what it may contact. See the
   [privacy policy](privacy.html#downloads-and-update-checks).
 - **Nobody's data is sold**, and nothing is used to train a model, anyone
   else's or Flockdeck's own, and there is no model here to train.
