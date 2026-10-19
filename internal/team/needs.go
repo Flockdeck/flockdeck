@@ -17,11 +17,21 @@ const (
 	NeedStaleUnread = "stale-unread"
 )
 
+// Values of GraphPane.PromptKind.
 const (
-	// MaxNeeds is the most items kept for one team.
+	PromptAsk        = "ask"
+	PromptPermission = "permission"
+)
+
+const activityIdle = "idle"
+
+const (
+	// MaxNeeds is the most items kept for one team, or for the solo list.
 	MaxNeeds = 50
 	// MaxConflictPaths is the most paths a conflict item names.
 	MaxConflictPaths = 5
+	// maxConflictPath is the most characters of one path a conflict item keeps.
+	maxConflictPath = 80
 	// ReturnedWindow is how long after a task goes back from review that it
 	// still counts as returned.
 	ReturnedWindow = 24 * time.Hour
@@ -55,59 +65,86 @@ type NeedsItem struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
 	Pane string `json:"pane"`
-	// Other is the second pane of a conflict.
+	// Other is the second pane of a conflict. For a conflict, Pane and Other are
+	// the pair in sorted order, whichever way the radar listed it.
 	Other string    `json:"other,omitempty"`
 	Task  string    `json:"task,omitempty"`
 	Time  time.Time `json:"time"`
 	Text  string    `json:"text,omitempty"`
 }
 
+// TeamNeeds is the list for one team.
+type TeamNeeds struct {
+	Items []NeedsItem `json:"items"`
+	// Hidden counts the items left out because the list holds only MaxNeeds.
+	Hidden int `json:"hidden,omitempty"`
+}
+
 // NeedsYou lists, for each team, what needs the user, most urgent first. The
-// map is keyed by team id; panes in no team are listed under the empty key.
-// Teams and the empty key with nothing to show are left out.
+// map is keyed by team id; panes in no team are listed under the empty key, with
+// the same bound as a team. Teams and the empty key with nothing to show are
+// left out. A conflict between panes of two teams is listed in both.
 //
 // Order: permission and ask prompts, longest waiting first; then returned
 // tasks, newest first; then conflicts; then panes that are down; then stale
-// unread mail, oldest first. Each team keeps at most MaxNeeds items.
+// unread mail, oldest first. An item with an unknown time goes after the others
+// of its kind. Each list keeps at most MaxNeeds items and counts the rest.
 //
-// panes and tasks are the snapshot BuildGraph was given. moves is the task
-// history, and now is the time the lists are judged at.
-func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneConflict, moves []TaskMove, now time.Time) map[string][]NeedsItem {
+// panes and tasks are the snapshot BuildGraph was given, and the caller fills
+// them from the same view: Activity, not Status, is what idle and waiting mean
+// here. moves is the task history, and now is the time the lists are judged at.
+//
+// Down is a pane that failed, or that exited with a code other than zero. The
+// caller sets ClosedByUser on a pane the person closed or killed, which is not
+// listed. A shell is listed only when it failed. A pane that is down is never
+// listed as waiting on a prompt, since it cannot be answered. Stale unread
+// needs UnreadSince: a pane with unread mail and a zero UnreadSince is never
+// listed.
+func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneConflict, moves []TaskMove, now time.Time) map[string]TeamNeeds {
 	team := make(map[string]string, len(g.Nodes))
 	for _, n := range g.Nodes {
 		team[n.Pane] = n.Team
 	}
-	out := map[string][]NeedsItem{}
+	lists := map[string][]NeedsItem{}
 	add := func(pane string, it NeedsItem) {
-		if _, ok := team[pane]; !ok {
-			return
+		if t, ok := team[pane]; ok {
+			lists[t] = append(lists[t], it)
 		}
-		out[team[pane]] = append(out[team[pane]], it)
 	}
 
+	seen := map[string]bool{}
 	for _, p := range panes {
+		if seen[p.ID] {
+			continue
+		}
+		seen[p.ID] = true
+		if p.Exited || p.Failed {
+			unexpected := p.Failed || !p.Shell && p.ExitCode != 0
+			if unexpected && !p.ClosedByUser {
+				text := "failed"
+				if !p.Failed {
+					text = "exited with code " + strconv.Itoa(p.ExitCode)
+				}
+				add(p.ID, NeedsItem{ID: NeedDown + ":" + p.ID, Kind: NeedDown, Pane: p.ID, Time: p.StatusSince, Text: text})
+			}
+			continue
+		}
 		waiting := p.Activity == activityWaiting || p.Activity == activityBlocked
 		switch {
 		case waiting && p.HasPrompt:
-			kind := NeedPermission
-			if p.PromptKind == "ask" {
-				kind = NeedAsk
+			kind := NeedAsk
+			if p.PromptKind == PromptPermission {
+				kind = NeedPermission
 			}
-			add(p.ID, NeedsItem{ID: kind + ":" + p.ID, Kind: kind, Pane: p.ID, Time: p.StatusSince, Text: clip(p.PromptText, MaxWaitText)})
-		case p.Failed || p.Exited && p.ExitCode != 0:
-			text := "failed"
-			if !p.Failed {
-				text = "exited with code " + strconv.Itoa(p.ExitCode)
-			}
-			add(p.ID, NeedsItem{ID: NeedDown + ":" + p.ID, Kind: NeedDown, Pane: p.ID, Time: p.StatusSince, Text: text})
-		case p.Activity == "idle" && p.Unread > 0 && !p.UnreadSince.IsZero() && now.Sub(p.UnreadSince) > StaleUnreadAfter:
+			add(p.ID, NeedsItem{ID: kind + ":" + p.ID, Kind: kind, Pane: p.ID, Time: p.StatusSince, Text: PlainText(p.PromptText, MaxWaitText)})
+		case p.Activity == activityIdle && p.Unread > 0 && !p.UnreadSince.IsZero() && now.Sub(p.UnreadSince) > StaleUnreadAfter:
 			add(p.ID, NeedsItem{ID: NeedStaleUnread + ":" + p.ID, Kind: NeedStaleUnread, Pane: p.ID, Time: p.UnreadSince, Text: strconv.Itoa(p.Unread) + " unread"})
 		}
 	}
 
 	latest := map[string]TaskMove{}
 	for _, m := range moves {
-		if m.From != taskInReview || m.To != "in-progress" || now.Sub(m.Time) > ReturnedWindow {
+		if m.From != taskInReview || m.To != taskInProgress || m.Time.After(now) || now.Sub(m.Time) > ReturnedWindow {
 			continue
 		}
 		if cur, ok := latest[m.Task]; !ok || m.Time.After(cur.Time) {
@@ -116,38 +153,62 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 	}
 	for _, t := range tasks {
 		m, ok := latest[t.ID]
-		if !ok || t.State != "in-progress" || t.OwnerPane == "" {
+		if !ok || t.State != taskInProgress || t.OwnerPane == "" {
 			continue
 		}
-		add(t.OwnerPane, NeedsItem{ID: NeedReturned + ":" + t.ID, Kind: NeedReturned, Pane: t.OwnerPane, Task: t.ID, Time: m.Time, Text: clip(m.Note, MaxWaitText)})
+		add(t.OwnerPane, NeedsItem{ID: NeedReturned + ":" + t.ID, Kind: NeedReturned, Pane: t.OwnerPane, Task: t.ID, Time: m.Time, Text: PlainText(m.Note, MaxWaitText)})
 	}
 
+	pairs := map[string]bool{}
 	for _, c := range conflicts {
 		a, b := c.A, c.B
 		if a > b {
 			a, b = b, a
 		}
-		paths := c.Paths
-		more := 0
-		if len(paths) > MaxConflictPaths {
-			more = len(paths) - MaxConflictPaths
-			paths = paths[:MaxConflictPaths]
+		id := NeedConflict + ":" + a + ":" + b
+		if a == b || pairs[id] {
+			continue
 		}
-		text := strings.Join(paths, ", ")
-		if more > 0 {
-			text += " and " + strconv.Itoa(more) + " more"
+		pairs[id] = true
+		it := NeedsItem{ID: id, Kind: NeedConflict, Pane: a, Other: b, Time: c.Since, Text: conflictText(c.Paths)}
+		ta, aok := team[a]
+		tb, bok := team[b]
+		if aok {
+			add(a, it)
 		}
-		add(c.A, NeedsItem{ID: NeedConflict + ":" + a + ":" + b, Kind: NeedConflict, Pane: c.A, Other: c.B, Time: c.Since, Text: clip(text, MaxWaitText)})
+		if bok && !(aok && ta == tb) {
+			add(b, it)
+		}
 	}
 
-	for k, items := range out {
+	out := make(map[string]TeamNeeds, len(lists))
+	for k, items := range lists {
 		slices.SortFunc(items, compareNeeds)
+		n := TeamNeeds{Items: items}
 		if len(items) > MaxNeeds {
-			items = items[:MaxNeeds]
+			n.Items, n.Hidden = items[:MaxNeeds], len(items)-MaxNeeds
 		}
-		out[k] = items
+		out[k] = n
 	}
 	return out
+}
+
+// conflictText names at most MaxConflictPaths paths, each cut on its own, and
+// counts the rest, so the count is never cut off.
+func conflictText(paths []string) string {
+	shown := paths
+	if len(shown) > MaxConflictPaths {
+		shown = shown[:MaxConflictPaths]
+	}
+	parts := make([]string, len(shown))
+	for i, p := range shown {
+		parts[i] = PlainText(p, maxConflictPath)
+	}
+	text := strings.Join(parts, ", ")
+	if more := len(paths) - len(shown); more > 0 {
+		text += " and " + strconv.Itoa(more) + " more"
+	}
+	return text
 }
 
 // needRank is where a kind sits in the list. Permission and ask share a rank so
@@ -178,8 +239,7 @@ func compareNeeds(a, b NeedsItem) int {
 		return -1
 	}
 	if c := a.Time.Compare(b.Time); c != 0 {
-		// Prompts, conflicts, down and stale mail list the oldest first; returned
-		// tasks list the newest first.
+		// Everything lists the oldest first except returned tasks, newest first.
 		if a.Kind == NeedReturned {
 			return -c
 		}
