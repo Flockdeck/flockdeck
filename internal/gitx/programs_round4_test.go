@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // blackhole is an address nothing answers (TEST-NET-1, reserved for
@@ -15,16 +16,23 @@ import (
 // never comes; the checks below are that it is never opened.
 const blackhole = `\\192.0.2.1\x`
 
-// neverOpened runs f and fails if it opened the share. An open on the blackhole
-// address does not return, so the call that made it is given up on after
-// statTimeout and counted as leaked. That count is the evidence, not the time
-// f took, which grows with the load on the machine.
+// neverOpened runs f and fails if a file system call was given up on while it
+// ran. An open on the blackhole address does not return, so the call that made
+// it is given up on after statTimeout. That count is the evidence, not the time
+// f took, which grows with the load on the machine. gaveUp only goes up, so a
+// late return from an earlier test's call cannot cancel a new one.
+//
+// statTimeout is raised for the run, so that a local stat held up by a virus
+// scanner on a cold machine is not mistaken for the share.
 func neverOpened(t *testing.T, what string, f func()) {
 	t.Helper()
-	before := leaked.Load()
+	was := statTimeout
+	statTimeout = 5 * time.Second
+	defer func() { statTimeout = was }()
+	before := gaveUp.Load()
 	f()
-	if after := leaked.Load(); after > before {
-		t.Errorf("%s: %d calls were left waiting: something was opened on the share", what, after-before)
+	if n := gaveUp.Load() - before; n > 0 {
+		t.Errorf("%s: %d file system calls did not answer within %s. The usual cause is that something was opened on the share; a local stat held up for that long, by a virus scanner on a cold machine for instance, does the same", what, n, statTimeout)
 	}
 }
 
