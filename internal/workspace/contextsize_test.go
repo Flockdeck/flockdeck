@@ -100,8 +100,8 @@ func sections(text string) (heads []string, sizes []int) {
 var briefingCeiling = map[string]int{
 	"":         10500,
 	"manager":  14500, // was 15250 until the repeated paragraphs in the role and Starting agents were cut; was 15120: one sentence saying the two mail-reading commands need no approval; was 15050: how to find a helper's name and what its idle notice means; was 14750: SendMessage guidance replaces the msg send paragraph and the manager passes its name on; was 14500: the inbox stream the briefing teaches every agent to arm; was 13950: the manager role now carries the whole delegation loop
-	"worker":   10000,
-	"reviewer": 9700,
+	"worker":   10200, // was 10000: the line pointing at a knowledge bundle (224 bytes), which the size cases now include
+	"reviewer": 9900,  // was 9700: the same line
 }
 
 // TestBriefingStaysWithinItsCeiling checks the rendered size of the briefing for a
