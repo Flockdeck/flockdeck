@@ -19,7 +19,7 @@ Terminal emulation happens in the browser; this package owns the process, fans o
 | `Status` | starting, working, waiting, blocked, idle, exited; `NeedsAttention` is waiting or blocked |
 | `ApplyEvent(Event)`, `SetStatus*`, `ResolveBlocked`, `CompactionStatus` | Hook-driven status |
 | `NoteBackgroundWork`, `BackgroundWork`, `BackgroundEnded` | Background tasks; unverified after 30 minutes without a sign of life |
-| `Usage` | CPU share (15 s window, sampled every 5 s) and RSS across the process tree |
+| `Usage` | CPU share (exponentially weighted average, 15 s time constant, sampled every 5 s) and RSS across the process tree |
 | `Look`, `Settings`, `WriteHookSettings*`, `StatusLine` | Binary lookup, generated settings, status-line bridge |
 | `TrustedFor`, `InheritTrust*` | Claude Code folder trust, see [folder trust](/security/claude-folder-trust-inheritance.md) |
 | `StatusAssist` | Optional Jev-assisted idle vs waiting call, see [status assist privacy](/security/jev-status-assist-privacy.md) |
