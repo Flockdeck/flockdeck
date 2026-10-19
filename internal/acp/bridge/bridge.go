@@ -169,6 +169,8 @@ type Bridge struct {
 	detail   int
 	inline   int
 	dropped  int
+	// summaries counts the times a tool's output was taken in, for tests.
+	summaries int
 	// detailFrom is a seq: entries before it hold no detail.
 	detailFrom int
 	// windowStart and urgentUsed limit the entries handed out at once.
@@ -402,16 +404,26 @@ func (b *Bridge) open(req acp.PermissionRequest) (Card, map[string]string) {
 		Tool:      line(req.ToolCall.Title, labelCap),
 		Kind:      line(req.ToolCall.Kind, 40),
 	}
+	// The ids shown are unique and never empty, so that choosing one always
+	// means one option, and "" can only mean cancelled. An option whose own id
+	// is empty cannot be told apart from cancelled and is not offered.
 	own := map[string]string{}
 	for i, o := range req.Options {
-		if i == maxOptions {
+		if len(c.Options) == maxOptions {
 			break
 		}
-		shown := acp.PermissionOption{OptionID: line(o.OptionID, labelCap), Name: line(o.Name, labelCap), Kind: line(o.Kind, 40)}
-		c.Options = append(c.Options, shown)
-		if _, dup := own[shown.OptionID]; !dup {
-			own[shown.OptionID] = o.OptionID
+		if o.OptionID == "" {
+			continue
 		}
+		id := line(o.OptionID, labelCap)
+		if id == "" {
+			id = "option-" + strconv.Itoa(i+1)
+		}
+		for _, taken := own[id]; taken; _, taken = own[id] {
+			id += "~" + strconv.Itoa(i+1)
+		}
+		own[id] = o.OptionID
+		c.Options = append(c.Options, acp.PermissionOption{OptionID: id, Name: line(o.Name, labelCap), Kind: line(o.Kind, 40)})
 	}
 	c.Summary = line(c.Kind+": "+c.Tool, labelCap)
 	if len(req.ToolCall.Locations) > 0 {
@@ -463,10 +475,9 @@ func (h handler) Permission(ctx context.Context, req acp.PermissionRequest) stri
 	card, own := h.b.open(req)
 	defer h.b.PermissionClosed(card.RequestID)
 	answer := h.answer(ctx, card)
-	if id, ok := own[answer]; ok {
-		return id // the agent's own id, not the one shown
-	}
-	return answer
+	// The agent's own id for the option chosen. "" is cancelled, and so is
+	// anything that is not an id on the card.
+	return own[answer]
 }
 
 // Update folds one session/update into the state. It is called in wire order
@@ -664,6 +675,7 @@ func rawOutputText(raw json.RawMessage) string {
 }
 
 func (b *Bridge) setOutput(it *item, out, diff string) {
+	b.summaries++
 	b.detail -= it.detail
 	it.text, it.diff, it.detail = "", "", 0
 	e := &it.e

@@ -67,7 +67,9 @@ func dropRune(r rune) bool {
 	switch {
 	case r >= 0x80 && r <= 0x9f:
 		return true
-	case r == 0x061c, r == 0x200e, r == 0x200f, r == 0x2028, r == 0x2029, r == 0xfeff:
+	case r == 0x061c, r == 0x200b, r == 0x200c, r == 0x200d, r == 0x200e, r == 0x200f, r == 0x2028, r == 0x2029, r == 0x2060, r == 0xfeff:
+		return true
+	case r >= 0xfe00 && r <= 0xfe0f, r >= 0xe0000 && r <= 0xe01ef: // variation selectors, tag characters
 		return true
 	case r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
 		return true
@@ -109,7 +111,7 @@ func skipEscape(s string, i int) int {
 	for i < len(s) && s[i] >= 0x20 && s[i] <= 0x2f {
 		i++
 	}
-	if i < len(s) {
+	if i < len(s) && s[i] < 0x80 { // not the lead byte of a multibyte rune
 		i++
 	}
 	return i
