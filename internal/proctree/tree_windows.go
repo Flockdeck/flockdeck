@@ -130,7 +130,14 @@ func setKillOnClose(job syscall.Handle, on bool) bool {
 
 // tree is the job a pane's process was put in, or zero when it could not
 // be. A pane without one is ended the way it always was, one process alone.
-type tree struct{ job syscall.Handle }
+type tree struct {
+	job syscall.Handle
+	// pid is the process containTree was asked to contain, whether or not it
+	// could make a job. End walks the process table only for that process.
+	pid int
+	// ended is set by the first End, so a second does nothing.
+	ended bool
+}
 
 // containTree puts a newly started process in a job of its own, which
 // everything it starts from then on joins.
@@ -141,24 +148,24 @@ type tree struct{ job syscall.Handle }
 func containTree(pid int) tree {
 	job, _, _ := procCreateJobObjectW.Call(0, 0)
 	if job == 0 {
-		return tree{}
+		return tree{pid: pid}
 	}
 	h, err := syscall.OpenProcess(processSetQuota|processTerminate, false, uint32(pid))
 	if err != nil {
 		_ = syscall.CloseHandle(syscall.Handle(job))
-		return tree{}
+		return tree{pid: pid}
 	}
 	defer syscall.CloseHandle(h)
 	if r, _, _ := procAssignProcessToJobObject.Call(job, uintptr(h)); r == 0 {
 		_ = syscall.CloseHandle(syscall.Handle(job))
-		return tree{}
+		return tree{pid: pid}
 	}
 	// Asked for from the moment the process is in the job, not only once
 	// something has gone wrong: Flockdeck dying is not an event it gets to
 	// react to first. See the package doc above for why this has to be here
 	// rather than only in End's ordinary path.
 	setKillOnClose(syscall.Handle(job), true)
-	return tree{job: syscall.Handle(job)}
+	return tree{job: syscall.Handle(job), pid: pid}
 }
 
 // jobMemberIDs lists the processes a job holds, as many as a pane's tree is
@@ -315,7 +322,13 @@ func (t *Tree) End(p *os.Process, reaped <-chan struct{}, grace time.Duration) {
 	t.mu.Lock()
 	job := t.tree.job
 	t.tree.job = 0
+	already := t.tree.ended
+	t.tree.ended = true
+	contained := t.tree.pid == p.Pid
 	t.mu.Unlock()
+	if already {
+		return
+	}
 
 	// Each process ended is held open until it is gone, which also keeps its
 	// id from being handed to another process in the meantime. Terminating a
@@ -333,7 +346,13 @@ func (t *Tree) End(p *os.Process, reaped <-chan struct{}, grace time.Duration) {
 		// long after the pane working in it had been closed. Rather than
 		// fall back to that, the machine's whole process table stands in for
 		// the job that could not be made; see killDescendants.
-		ending = killDescendants(uint32(p.Pid))
+		// Only for the process this Tree was made for, and only while it
+		// has not been reaped: once it has, its id may be another process's,
+		// whose children would be ended instead. A nil reaped is unknown, and
+		// is treated the same.
+		if contained && reaped != nil && !closedChan(reaped) {
+			ending = killDescendants(uint32(p.Pid))
+		}
 	} else {
 		pane := p.Pid
 		seen := map[uint32]bool{}

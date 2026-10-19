@@ -146,3 +146,33 @@ func TestParentsSeesTheChild(t *testing.T) {
 		t.Errorf("the child's parent is %d, want %d", got, s.cmd.Process.Pid)
 	}
 }
+
+// TestEndAfterTheProcessHasExitedTouchesNothingElse covers a second End, and
+// End on a Tree that tracks nothing, once the process is reaped. The process's
+// id may by then be another process's, and the process table must not be
+// walked from it: that process's children were ended in its place.
+func TestEndAfterTheProcessHasExitedTouchesNothingElse(t *testing.T) {
+	a := startParent(t)
+	a.tree.End(a.cmd.Process, a.reaped, 3*time.Second)
+	waitGone(t, "the first End", a.cmd.Process.Pid, a.child)
+
+	// Another tree, standing in for what a reused id would belong to.
+	b := startParent(t)
+
+	// Twice after exit: nothing happens, and certainly nothing to b.
+	a.tree.End(a.cmd.Process, a.reaped, 3*time.Second)
+	a.tree.End(a.cmd.Process, a.reaped, 3*time.Second)
+	if !alive(b.cmd.Process.Pid) || !alive(b.child) {
+		t.Fatal("End on an ended Tree ended another tree")
+	}
+
+	// A Tree that tracks nothing, told its process was reaped: only the
+	// process it was given is ended, not what the process table shows under it.
+	closed := make(chan struct{})
+	close(closed)
+	(&Tree{}).End(b.cmd.Process, closed, 3*time.Second)
+	waitGone(t, "End of the process itself", b.cmd.Process.Pid)
+	if !alive(b.child) {
+		t.Fatal("End of a Tree that tracks nothing walked the process table from a reaped id")
+	}
+}

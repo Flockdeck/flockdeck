@@ -8,6 +8,25 @@
 // without running any Go. On Unix the process leads a session of its own and
 // End signals the session. Only console programs are ended on Windows; see
 // tree_windows.go for why windowed programs are left running.
+//
+// What to know before relying on it:
+//
+//   - End must always be called, also after the process has exited. On Windows
+//     the Tree holds a job handle until End, and what the process left running
+//     is only found through it. Call End with the channel closed when Wait
+//     returned; a second End does nothing.
+//   - On Unix End sends SIGHUP, waits 500 ms, then sends SIGKILL, to the
+//     process's group and to the other members of its session. It never sends
+//     SIGTERM, so a program that treats HUP as a reload is killed after 500 ms.
+//   - Containment has limits. A descendant that calls setsid or setpgid leaves
+//     the session and is not reached, as a closing terminal does not reach it.
+//     On macOS the standard library cannot list a session's members or the
+//     process table, so Parents and SessionMembers return nothing and only the
+//     process group is signalled. Unix has nothing like Windows'
+//     KILL_ON_JOB_CLOSE: if Flockdeck dies without running Go, the agent's tree
+//     is left running on Unix.
+//   - After the process has been reaped its id can belong to another process.
+//     Pass End the reaped channel so it can tell; the guards depend on it.
 package proctree
 
 import (

@@ -46,9 +46,14 @@ func containTree(int) tree { return tree{} }
 // While the pane's process has not been reaped its id cannot be anybody
 // else's. Once it has -- a shell told `exit`, with a job still running -- what
 // it left is found through signalLeftBehind instead.
+//
+// reaped must be non-nil and closed when the caller's Wait for p returns. That
+// is how End knows whether p's id can be someone else's. With a nil reaped
+// that is unknown, so only p is killed and nothing else is signalled.
 func (t *Tree) End(p *os.Process, reaped <-chan struct{}, grace time.Duration) {
-	if t == nil {
-		t = &Tree{}
+	if reaped == nil {
+		_ = p.Kill()
+		return
 	}
 	pid := p.Pid
 	if !closedChan(reaped) {
