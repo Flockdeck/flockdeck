@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/jmwri/flockdeck/internal/review"
 	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
@@ -83,6 +84,9 @@ func (t *runCommand) Approval(args json.RawMessage) string {
 	}
 	argv, err := splitCommand(a.Command)
 	if err != nil || len(argv) == 0 {
+		return ""
+	}
+	if readsFlockdeckMail(a.Command, t.root.Dir()) {
 		return ""
 	}
 	if batchUnsafe(t.program(argv[0]), argv[1:]) != nil {
@@ -733,4 +737,15 @@ func clipOutput(s string) string {
 	var c capture
 	c.Write([]byte(s))
 	return c.String()
+}
+
+// readsFlockdeckMail reports whether command is one of the two forms of
+// reading Flockdeck mail, which run without asking as they do for an agent in
+// a pane (see review.MailRead, the one matcher for both).
+func readsFlockdeckMail(command, dir string) bool {
+	in, err := json.Marshal(map[string]string{"command": command})
+	if err != nil {
+		return false
+	}
+	return review.MailRead("Bash", string(in), dir).Allow
 }

@@ -177,6 +177,19 @@ agent that has the capability but whose hooks have not reported in this session
 (`Session.HooksReported`), so a Claude pane whose hooks never fire is not promised a notice. A message to them can wait
 until the agent next looks, which is a real limit; it is not lost.
 
+Reading mail needs no approval. `review.MailRead` allows exactly `flockdeck inbox [-all] [-json]`
+and `flockdeck inbox read [-json] <id>` (the flag goes before the id, which is one to nine digits) in every pane, whether or not
+auto-approve is on, and the built-in chat client runs the same two forms without asking
+(`readsFlockdeckMail` in `internal/chat/tool/command.go` calls it). The briefing gives these forms
+when the program is run as `flockdeck`; with a path to the binary the command does not match and is
+asked about. `-wait`, `-follow`, sending, every other subcommand, any metacharacter or quote, a command
+over 4 KiB, and a working directory holding any entry named `flockdeck` or starting with `flockdeck.` (any letter
+case) are all asked about. The check covers the working directory only, not a relative entry in PATH, and runs when
+the hook fires, not when the command runs. The check
+sits in `Workspace.reviewTool` ahead of the auto-approve setting, for a known pane with a current launch
+id only, and does not count towards `AutoApproved`. It applies to agents whose hooks send PreToolUse
+reviews (Claude Code) and to the chat client; other CLI agents keep their own approval modes.
+
 ## The task board
 
 `flockdeck task` posts to the same loopback server, with the same `FLOCKDECK_API`,
