@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // Problems a NodeRequiredError reports.
@@ -57,8 +59,13 @@ func SystemProbe() Probe {
 			defer cancel()
 			cmd := exec.CommandContext(ctx, path, args...)
 			cmd.Env = minimalEnv()
-			out, err := cmd.Output()
-			return string(out), err
+			sysproc.NoWindow(cmd)
+			var out capBuffer
+			cmd.Stdout = &out
+			// Do not wait on a pipe a descendant of node still holds.
+			cmd.WaitDelay = time.Second
+			err := cmd.Run()
+			return out.String(), err
 		},
 	}
 }

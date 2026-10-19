@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/proctree"
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // HandshakeConfig says how to start an adapter for a handshake. Nothing is
@@ -66,6 +67,7 @@ func Handshake(ctx context.Context, cfg HandshakeConfig) (HandshakeResult, error
 
 	cmd := exec.Command(cfg.Path, cfg.Args...)
 	cmd.Dir, cmd.Env = cfg.Dir, cfg.Env
+	sysproc.NoWindow(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return res, err

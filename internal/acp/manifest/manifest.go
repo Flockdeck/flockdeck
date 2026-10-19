@@ -114,8 +114,8 @@ func (a Adapter) check() error {
 	switch {
 	case !idRe.MatchString(a.ID):
 		return errors.New("id must be lower case letters, digits and hyphens")
-	case a.ID == "claude" || strings.Contains(a.ID, "claude"):
-		return errors.New("there is no adapter for Claude Code")
+	case mentionsClaude(a):
+		return errors.New("there is no adapter for Claude Code: id, name, command, package and args may not name claude or anthropic")
 	case a.Name == "" || a.Command == "" || a.Install == "":
 		return errors.New("name, command and install are required")
 	case len(a.Name) > 60 || len(a.Install) > 400 || len(a.Note) > 400 || hasControl(a.Name+a.Install+a.Note):
@@ -302,6 +302,18 @@ func comparePre(a, b string) int {
 		return 1
 	}
 	return 0
+}
+
+// mentionsClaude reports whether any field that names or starts an adapter
+// mentions Claude or Anthropic, in any letter case.
+func mentionsClaude(a Adapter) bool {
+	for _, f := range append([]string{a.ID, a.Name, a.Command, a.Package}, a.Args...) {
+		f = strings.ToLower(f)
+		if strings.Contains(f, "claude") || strings.Contains(f, "anthropic") {
+			return true
+		}
+	}
+	return false
 }
 
 func hasControl(s string) bool {

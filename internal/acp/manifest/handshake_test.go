@@ -82,8 +82,9 @@ func TestHandshakeRefusesRelativePathsAndNoEnv(t *testing.T) {
 	}
 }
 
-// A descendant that holds stdout and stderr open must not hold the handshake.
-func TestHandshakeDoesNotWaitForADescendantHoldingTheStreams(t *testing.T) {
+// A descendant in the adapter's tree that holds stdout and stderr open must
+// not hold the handshake; the tree is ended and takes it along.
+func TestHandshakeDoesNotWaitForADescendantInsideTheTreeHoldingTheStreams(t *testing.T) {
 	cfg := fakeAdapter(t, "holdstderr")
 	started := time.Now()
 	res, err := Handshake(context.Background(), cfg)

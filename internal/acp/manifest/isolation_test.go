@@ -51,6 +51,18 @@ func runFake(mode string) {
 		c.Stdout, c.Stderr = os.Stdout, os.Stderr
 		_ = c.Start()
 		fmt.Println(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}`)
+	case "escape":
+		// A descendant that left the adapter's session and keeps the streams
+		// open, so the tree can not reach it. It ends itself after 20 seconds.
+		exe, _ := os.Executable()
+		c := exec.Command(exe)
+		c.Env = append(os.Environ(), fakeEnv+"=brief")
+		c.Stdout, c.Stderr = os.Stdout, os.Stderr
+		leaveSession(c)
+		_ = c.Start()
+		fmt.Println(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}`)
+	case "brief":
+		time.Sleep(20 * time.Second)
 	case "descendant":
 		time.Sleep(time.Hour)
 	case "silent":
