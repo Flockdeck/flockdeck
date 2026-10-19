@@ -628,7 +628,9 @@ func (s *Server) armGraphTick() {
 }
 
 // graphCommand answers the graph commands. A window reached through the relay
-// is refused all of them, as it is for the Team panel. If a later change opens
+// is refused all of them, as it is for the Team panel. Decision: the phone scope
+// of the graph is not decided, so the desk is the only place it is shown; this
+// refusal is the one place to lift when it is. If a later change opens
 // the graph to the relay, it must first scrub secrets from the command text a
 // permission prompt carries: neither this view nor paneView scrubs it today.
 func (s *Server) graphCommand(c *controlClient, cmd command) {
