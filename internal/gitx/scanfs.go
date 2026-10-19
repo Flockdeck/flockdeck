@@ -444,6 +444,19 @@ func (f *scanFS) OpenDir(p string) (*dirReader, error) {
 	return &dirReader{f: f, d: d}, nil
 }
 
+// dirReadStep is called by next while a read is under way, with the reader and
+// "reading" after it is marked busy and before the read, and with "read" after
+// the read is done and the reader's lock is let go. It is empty outside tests,
+// which hold a read still to close the folder under it. It is read from the
+// goroutine of a call that may outlive its caller, so it is an atomic pointer.
+var dirReadStep atomic.Pointer[func(d *dirReader, stage string)]
+
+func stepDirRead(d *dirReader, stage string) {
+	if f := dirReadStep.Load(); f != nil {
+		(*f)(d, stage)
+	}
+}
+
 func (d *dirReader) next(n int) ([]fs.DirEntry, error) {
 	return boxed(d.f, func() ([]fs.DirEntry, error) {
 		d.mu.Lock()
@@ -454,6 +467,7 @@ func (d *dirReader) next(n int) ([]fs.DirEntry, error) {
 		d.busy = true
 		d.mu.Unlock()
 
+		stepDirRead(d, "reading")
 		entries, err := d.d.ReadDir(n)
 
 		d.mu.Lock()
@@ -462,6 +476,7 @@ func (d *dirReader) next(n int) ([]fs.DirEntry, error) {
 			d.d.Close()
 		}
 		d.mu.Unlock()
+		stepDirRead(d, "read")
 		return entries, err
 	})
 }

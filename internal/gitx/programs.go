@@ -306,6 +306,12 @@ const (
 // test can shorten it.
 var scanTimeout = 15 * time.Second
 
+// scanContext makes the context a scan runs in, which ends after scanTimeout. A
+// test replaces it to end a scan at a chosen point instead of after a time.
+var scanContext = func() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), scanTimeout)
+}
+
 // submoduleStep is called as each submodule is scanned, with "start" before it
 // and "after" once it is done. It does nothing; a test uses it to let the
 // scan's time run out in or between submodules.
@@ -384,7 +390,7 @@ func ScanPrograms(dir string) (Report, error) {
 	if strings.TrimSpace(dir) == "" {
 		return Report{}, ErrNotRepository
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), scanTimeout)
+	ctx, cancel := scanContext()
 	defer cancel()
 	s := &scanner{ctx: ctx, budget: maxHashBudget, fs: newScanFS(ctx)}
 	defer func() { lastScanCalls.Store(int64(s.fs.calls)) }()

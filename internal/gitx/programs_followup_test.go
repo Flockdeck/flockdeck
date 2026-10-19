@@ -71,13 +71,24 @@ func TestAListedHookInAnotherCaseIsFoundAndOneSpellingIsOneItem(t *testing.T) {
 // is done and before the next).
 func runOutOfTime(t *testing.T, outer, stage string) Report {
 	t.Helper()
-	wasTimeout, wasStep := scanTimeout, submoduleStep
-	t.Cleanup(func() { scanTimeout, submoduleStep = wasTimeout, wasStep })
-	scanTimeout = 5 * time.Second
+	wasTimeout, wasStep, wasContext := scanTimeout, submoduleStep, scanContext
+	t.Cleanup(func() { scanTimeout, submoduleStep, scanContext = wasTimeout, wasStep, wasContext })
+	// The scan's time is ended by the step below, at the stage asked for, and
+	// not by a clock: a deadline of a few seconds was also reached on a loaded
+	// machine before the scan got that far. scanTimeout is long so that it
+	// only names the limit and bounds each git call.
+	scanTimeout = time.Minute
+	var end func()
+	scanContext = func() (context.Context, context.CancelFunc) {
+		var ctx context.Context
+		ctx, end = expiringContext()
+		return ctx, func() {}
+	}
 	waited := false
 	submoduleStep = func(ctx context.Context, at string) {
 		if at == stage && !waited {
 			waited = true
+			end()
 			<-ctx.Done()
 		}
 	}
