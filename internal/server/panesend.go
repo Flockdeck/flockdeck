@@ -20,9 +20,13 @@ type paneSendMsg struct {
 // A refusal comes back as an error notice, an accepted send as a paneSend
 // message.
 //
-// A window reached through the relay is refused for now: whether and how a
-// remote device may send text into a pane is decided with the remote work
-// that follows (T7), and until then the desk is the only place it is sent from.
+// A window reached through the relay is refused for now. Decision: whether and
+// how a remote device may send text into a pane is not decided (the phone
+// scope), so the desk is the only place it is sent from; this refusal is the
+// place to lift when it is.
+// Plan v8 locks this: structured (ACP) panes stay desktop-only until a sealed
+// team socket exists; a terminal pane can be approved from a phone only through
+// the drawer's choice buttons on the sealed terminal path; merges are desk-only.
 func (s *Server) paneSend(c *controlClient, cmd command) {
 	if c.remote {
 		c.notify(paneSendDeskOnly, true)

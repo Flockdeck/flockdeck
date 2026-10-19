@@ -628,9 +628,14 @@ func (s *Server) armGraphTick() {
 }
 
 // graphCommand answers the graph commands. A window reached through the relay
-// is refused all of them, as it is for the Team panel. If a later change opens
+// is refused all of them, as it is for the Team panel. Decision: the phone scope
+// of the graph is not decided, so the desk is the only place it is shown; this
+// refusal is the one place to lift when it is. If a later change opens
 // the graph to the relay, it must first scrub secrets from the command text a
 // permission prompt carries: neither this view nor paneView scrubs it today.
+// Plan v8 locks this: structured (ACP) panes stay desktop-only until a sealed
+// team socket exists; a terminal pane can be approved from a phone only through
+// the drawer's choice buttons on the sealed terminal path; merges are desk-only.
 func (s *Server) graphCommand(c *controlClient, cmd command) {
 	if c.remote {
 		c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, Error: teamDeskOnly})
