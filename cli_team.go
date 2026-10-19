@@ -319,7 +319,7 @@ func runInboxFollow(api, token, pane string, out io.Writer) error {
 				lastLine = time.Now()
 				if lines >= followMaxLines {
 					capped = true
-					fmt.Fprintf(out, "[flockdeck] The inbox stream has printed %d lines and now announces only messages from the user. Run: flockdeck inbox; start flockdeck inbox -follow again to hear of the rest.\n", lines)
+					fmt.Fprintf(out, "[flockdeck] The inbox stream has printed %d lines of agents' messages and now announces only messages from the user. Run: flockdeck inbox; start flockdeck inbox -follow again to hear of the rest.\n", lines)
 				}
 			}
 		}

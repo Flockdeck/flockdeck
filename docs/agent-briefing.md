@@ -74,8 +74,9 @@ exit, and a message that was all briefing would end the pane. An entry in
 ## Messages between panes
 
 The briefing is only where an agent learns the commands. The messages are Flockdeck's own
-channel for the notices it writes, and the fallback between agents, who are told to use the SendMessage tool of Claude Code first: a pane runs `flockdeck msg send`, which posts to the loopback server with
-`FLOCKDECK_API`, `FLOCKDECK_TOKEN` and its own `FLOCKDECK_PANE`, and reads with
+channel for the notices it writes, and the fallback between agents, who are told to use the
+SendMessage tool of Claude Code first: a pane runs `flockdeck msg send`, which posts to the
+loopback server with `FLOCKDECK_API`, `FLOCKDECK_TOKEN` and its own `FLOCKDECK_PANE`, and reads with
 `flockdeck inbox`. Nothing is sent through the terminal, and nothing from a message reaches
 a pane's input, except as described here. Targets, limits, retention and what the typed
 line says are on the command line page.
@@ -145,9 +146,10 @@ Mail is delivered on three channels instead.
   messages held, any from the person at the window are printed one by one and first, and more
   than three from agents are one digest line that names the latest sender, so two agents
   answering each other cost one line every five seconds at most. After 100
-  lines the stream announces only the person's messages, and says so; a stream started again
-  announces the agents' unread messages again. A message from the person never waits for the
-  five-second gap. It retries errors from the application without printing, ends after two minutes of
+  lines of agents' messages (the person's are not counted) the stream announces only the
+  person's messages, and says so; a stream started again announces the agents' unread messages
+  again. A message from the person never waits for the five-second gap. It retries errors from
+  the application without printing, ends after two minutes of
   errors, and ends with a line of its own when the application refuses the pane id with
   `no pane ... is open here` (`hooks.IsNoPane`), which means the pane was closed. If Flockdeck
   restarts, the process dies with its pane, and a restored pane has to arm it again.
@@ -168,7 +170,7 @@ Mail is delivered on three channels instead.
 
 The agent's catalog entry needs `caps.hooks` to be told. Agents without it (Codex, Gemini CLI,
 opencode, Cursor Agent, Aider) get no notice at all: their briefing says "You are not told when
-a message arrives" and asks them to run `flockdeck inbox` when a session starts and before they
+an inbox message arrives" and asks them to run `flockdeck inbox` when a session starts and before they
 report back, `flockdeck msg send` tells the sender when the receiver is one of them
 (`Sent.Notifies`), and the unread count shows on their pane. `Notifies` is also false for an
 agent that has the capability but whose hooks have not reported in this session

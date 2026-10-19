@@ -290,10 +290,13 @@ func TestHelperRolesSendTheirReportToTheManager(t *testing.T) {
 			t.Errorf("%s: the briefing does not send the report to the manager", id)
 		}
 	}
-	for _, id := range []string{"worker", "reviewer", "tester", "docs"} {
-		r, _ := cat.Role(id)
-		if !strings.Contains(r.Briefing, "SendMessage") {
-			t.Errorf("%s: the briefing does not say the report goes by message", id)
+	m, _ := cat.Role("manager")
+	for _, want := range []string{"SendMessage", "Put your session name", "find a helper's name in ListAgents", "idle notice its report is due"} {
+		if !strings.Contains(m.Briefing, want) {
+			t.Errorf("manager: the briefing lacks %q", want)
 		}
+	}
+	if strings.Contains(m.Briefing, "msg send") {
+		t.Error("manager: the briefing sends messages with `msg send`, which is the fallback and belongs in Messages")
 	}
 }

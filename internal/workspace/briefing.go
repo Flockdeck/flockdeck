@@ -270,10 +270,10 @@ func (c PaneContext) writeTeam(b *strings.Builder) {
 		"idles, a task changes) come only through the inbox. Do not answer a message only to acknowledge it: the reply wakes "+
 		"the sender for nothing.\n\n", flockdeck, team.MaxText/1024)
 	if !c.Notified {
-		fmt.Fprintf(b, "You are not told when a message arrives. Run `%s inbox` when a session starts or resumes, "+
+		fmt.Fprintf(b, "You are not told when an inbox message arrives. Run `%s inbox` when a session starts or resumes, "+
 			"when you finish a step and before you report back.\n\n", flockdeck)
 	} else {
-		fmt.Fprintf(b, "Run `%s inbox` when a session starts or resumes. A waiting message adds one line that holds no message text "+
+		fmt.Fprintf(b, "Run `%s inbox` when a session starts or resumes. A waiting inbox message adds one line that holds no message text "+
 			"to the next prompt or tool result you read, such as `[flockdeck] 1 new message from \"reviewer\" (role \"worker\") (#12). "+
 			"Run: flockdeck inbox.`. Nothing is typed into your input: check `%s inbox` before you report back.\n\n", flockdeck, flockdeck)
 	}

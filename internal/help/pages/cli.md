@@ -226,9 +226,10 @@ command does not wake an agent until it exits, so where Monitor is missing run `
 `-follow` marks nothing read, announces mail already waiting when it starts, holds mail that
 arrives within five seconds of the last line and prints more than three messages from agents as
 one line, retries errors silently, and ends when its pane is closed. A message from the person at
-the window is always on a line of its own and never waits for the five seconds. After 100 lines it
-stops announcing agents' messages (it says so) and keeps announcing the person's; starting it
-again announces the agents' messages that are still unread. It takes no other flag. A pane sees only its own inbox. A message has an id, the
+the window is always on a line of its own and never waits for the five seconds. After 100 lines of
+agents' messages (the person's are not counted) it stops announcing agents' messages (it says so)
+and keeps announcing the person's; starting it again announces the agents' messages that are
+still unread. It takes no other flag. A pane sees only its own inbox. A message has an id, the
 sender's pane, role and name, the time, the text and whether it was read; messages
 Flockdeck wrote itself (see below) come from `flockdeck`.
 

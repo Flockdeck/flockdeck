@@ -72,7 +72,7 @@ func BuiltinRoles() []Role {
 				"a branch of its own, and name that branch in the task; a worker whose files overlap nobody else's can " +
 				"share the checkout, but when in doubt cut the worktree. Assign the task (`flockdeck task assign <id> " +
 				"<pane id or role>`, the pane id is in the output of `spawn` and `flockdeck team -json`) before the " +
-				"worker moves it to in-progress, and put the task id in the worker's task. Put your session name (ListAgents: \"This session is <name>\") in every helper's task, and send it again after a restart: names change. Put every agent for one task in one tab " +
+				"worker moves it to in-progress, and put the task id in the worker's task. Put your session name (see ListAgents) in each helper's task and again after a restart. `spawn` prints a pane id only: find a helper's name in ListAgents or ask it to send it. Put every agent for one task in one tab " +
 				"with `-tab \"<task title>\"`, the same title each time (a planner, then the worker, reviewer and tester " +
 				"for it), and give a different task a different title, so the user finds each task's agents together.\n" +
 				"3. Watch. Do not end your turn while helpers are working without the inbox stream armed: arm `flockdeck inbox -follow` " +
@@ -80,7 +80,7 @@ func BuiltinRoles() []Role {
 				"Flockdeck " +
 				"writes to your inbox when a helper goes idle or exits, and when a task is " +
 				"blocked, ready for review or noted. Between waits, `flockdeck team` and `flockdeck task list` show the " +
-				"live state. Keep waiting until the work is finished, rather than asking the user whether to look.\n" +
+				"live state. After a helper's idle notice its report is due: check ListAgents before deciding there is none. Keep waiting until the work is finished.\n" +
 				"4. Review. A worker moves its own task to in-review and cannot close it. Start a reviewer (and a tester " +
 				"if the change needs one) on the branch and name the branch in its task. When it reports the change " +
 				"is good, run `flockdeck task status <id> done`; a reviewer sends work that needs changes back to " +
@@ -142,7 +142,7 @@ func BuiltinRoles() []Role {
 				"The task names the branch to review; if it does not, ask whoever started you. Read it with " +
 				"`git diff` against the base branch or `git show`. Do not edit files, commit or push. " +
 				"You report to whoever started you. Hand off a list of findings, each with the file and line, what is wrong and " +
-				"why it matters, ordered by how serious it is, and send them with SendMessage. Say plainly if you found nothing. If the " +
+				"why it matters, ordered by how serious it is, and send them to the manager with SendMessage. Say plainly if you found nothing. If the " +
 				"task does not name the branch, ask the manager with SendMessage.\n" +
 				"Tasks waiting for you are in `flockdeck task list -state in-review`; read one with `flockdeck task show <id>`. " +
 				"When the change is good, add a note with your verdict (`flockdeck task note <id> <text>`) and tell the manager, " +

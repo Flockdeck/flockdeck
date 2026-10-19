@@ -69,7 +69,7 @@ func TestBriefingExplainsMessagesAndSaysTheyAreNotTheUsers(t *testing.T) {
 	}
 
 	prompt := PaneContext{PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck", Team: members(3)}.OpeningPrompt()
-	if !strings.Contains(prompt, "You are not told when a message arrives") || strings.Contains(prompt, "Nothing is typed into your input") {
+	if !strings.Contains(prompt, "You are not told when an inbox message arrives") || strings.Contains(prompt, "Nothing is typed into your input") {
 		t.Errorf("an agent with no hooks is promised a notice:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, team.Disclaimer) {
