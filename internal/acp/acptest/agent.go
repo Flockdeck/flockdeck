@@ -30,6 +30,8 @@
 //	line N      one notification of exactly N bytes, then a chunk
 //	stderr-flood  4 MiB on stderr in one line, then plain
 //	spam-perm   fifty permission requests at once, reports how many were answered
+//	ratelimit   answers the prompt with the JSON-RPC error -32603 "rate limit exceeded"
+//	env         reports its whole environment, one NAME=VALUE per line, in one chunk
 //	deaf-perm   asks for permission and stops reading stdin
 //
 // WithMute makes an agent that reads and never answers.
@@ -43,6 +45,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,10 +61,21 @@ const (
 	envDeaf   = "FLOCKDECK_ACPTEST_DEAF"
 )
 
+// ArgAgent, as an argument, also makes a process the fake agent. A test of how
+// an environment is built starts the agent this way, since the environment it
+// asked for must not hold the variable that otherwise says so.
+const ArgAgent = "--acptest-agent"
+
 // RunIfAgent runs the fake agent and returns true when this process was
 // started as one. Call it first in TestMain and return when it reports true.
 func RunIfAgent() bool {
-	if os.Getenv(envAgent) != "1" {
+	asked := os.Getenv(envAgent) == "1"
+	for _, a := range os.Args[1:] {
+		if a == ArgAgent {
+			asked = true
+		}
+	}
+	if !asked {
 		return false
 	}
 	newAgent().run()
@@ -446,6 +460,15 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 		for i := 0; i < 200; i++ {
 			a.chunk(sid, strconv.Itoa(i))
 		}
+		done("end_turn")
+
+	case "ratelimit":
+		a.rpcError(id, -32603, "rate limit exceeded")
+
+	case "env":
+		env := os.Environ()
+		sort.Strings(env)
+		a.chunk(sid, strings.Join(env, "\n"))
 		done("end_turn")
 
 	case "stderr":

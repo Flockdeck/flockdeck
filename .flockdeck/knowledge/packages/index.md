@@ -43,6 +43,7 @@
 * [session](session.md) - One pane's process on a PTY: launch, output fan-out and replay, status tracking, hook settings, trust inheritance and process-tree shutdown.
 * [spend](spend.md) - In-memory book of per-pane token and cost totals and per-account usage windows.
 * [store](store.md) - On-disk persistence of layouts, projects, session, preferences, instance record and related state under the per-user config dir.
+* [structured](structured.md) - The runtime of one structured pane: an ACP agent, its turns, permission questions and transcript, with no terminal.
 * [sysproc](sysproc.md) - Starts background child processes without console windows on Windows, and reaps stale processes.
 * [tasks](tasks.md) - The per-project task board, its state machine and permission rules, and the notices a change sends.
 * [team](team.md) - Roster, inbox messages, mail notices and the derived team graph for the panes of one project.

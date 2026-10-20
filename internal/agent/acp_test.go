@@ -340,3 +340,20 @@ func TestLoginAdviceLosesFormatCharacters(t *testing.T) {
 		t.Errorf("notice %q", c.Notice)
 	}
 }
+
+// The same name in two cases: both pass on Windows, only the exact one
+// elsewhere.
+func TestACPPassEnvTwoCasesOfOneName(t *testing.T) {
+	environ := []string{"HOME=a", "Home=b"}
+	lower := Spec{ACP: ACPSpec{PassEnv: []string{"home"}}}.ACPPassEnv(environ)
+	exact := Spec{ACP: ACPSpec{PassEnv: []string{"HOME"}}}.ACPPassEnv(environ)
+	if runtime.GOOS == "windows" {
+		if !slices.Equal(lower, environ) || !slices.Equal(exact, environ) {
+			t.Errorf("on Windows: lower %v, exact %v, want both to pass both", lower, exact)
+		}
+		return
+	}
+	if len(lower) != 0 || !slices.Equal(exact, []string{"HOME=a"}) {
+		t.Errorf("on %s: lower %v, exact %v", runtime.GOOS, lower, exact)
+	}
+}
