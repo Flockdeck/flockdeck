@@ -63,6 +63,17 @@ The same folder also holds:
 - if you turn on Flockdeck Remote, the relay's address, the random identifiers
   of this desktop and its account, the name you gave the desktop, and the
   token it signs in to the relay with;
+- the messages agents in your panes send each other, until they are read and
+  for a week after, or for 30 days if never read, and a log of when each
+  message was sent, delivered and read. The log holds no message text. It also
+  holds a record of each line Flockdeck typed into an idle agent's terminal to
+  tell it that mail is waiting (the pane, the agent, the rule version, the
+  prompt line it matched and the line typed), and of each case where that line
+  was typed but not submitted. The line is fixed text with a message number. It names no
+  sender and holds none of the message. It is typed only where Flockdeck has a
+  tested rule for recognising that agent's prompt, and none has yet. None of
+  this is sent anywhere by Flockdeck. If you use Flockdeck Remote, the typed
+  line is part of the terminal contents it carries, like anything else typed;
 - a photo you attach to a message from a paired phone, removed after about a
   week;
 - if you turn on recording for a pane, or export a pane's transcript, a

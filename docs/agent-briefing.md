@@ -80,9 +80,9 @@ The briefing is only where an agent learns the commands. The messages are Flockd
 channel for the notices it writes, and the fallback between agents, who are told to use the
 SendMessage tool of Claude Code first: a pane runs `flockdeck msg send`, which posts to the
 loopback server with `FLOCKDECK_API`, `FLOCKDECK_TOKEN` and its own `FLOCKDECK_PANE`, and reads with
-`flockdeck inbox`. Nothing is sent through the terminal, and nothing from a message reaches
-a pane's input, except as described here. Targets, limits, retention and what the typed
-line says are on the command line page.
+`flockdeck inbox`. Nothing is sent through the terminal, and no text of a message ever reaches
+a pane's input. The one thing Flockdeck types for mail is the fixed wake line described below.
+Targets, limits, retention and the conditions for that line are on the command line page.
 
 - Who a message is from is the pane named in the request, which has to be an open pane; the
   sender's role and name are taken from that pane, not from the request. The token is the
@@ -179,6 +179,19 @@ report back, `flockdeck msg send` tells the sender when the receiver is one of t
 agent that has the capability but whose hooks have not reported in this session
 (`Session.HooksReported`), so a Claude pane whose hooks never fire is not promised a notice. A message to them can wait
 until the agent next looks, which is a real limit; it is not lost.
+
+The typed wake line. An idle agent has no hook to answer, so Flockdeck can type
+`Flockdeck: new mail, message N. Run: flockdeck inbox read N` at its prompt (`wakeService` in
+`internal/workspace/wake.go`). That is all it types for mail: no sender, no text. Every briefing
+says one sentence about it, so an agent knows the line is from Flockdeck and not from the user, and
+reads the message with `inbox read N`, which needs no approval. It reverses the earlier rule that
+nothing is typed, on purpose, and keeps the Windows paste rule: the Enter is a second write
+after `pasteSettle`. It is typed only where the agent's `agent.WakeRule` is built in and marked
+tested, and none is, so nothing is typed yet. A rule from `agents.json` is never trusted.
+The conditions, the limits and what happens when the Enter is not sent are on the command
+line page, under "The typed wake line". Each line typed is a `wake` event in the team event log.
+An agent reads the line as it reads a notice: it is data from Flockdeck, and the message it
+points to is data from another agent.
 
 Reading mail needs no approval. `review.MailRead` allows exactly `flockdeck inbox [-all] [-json]`
 and `flockdeck inbox read [-json] <id>` (the flag goes before the id, which is one to nine digits) in every pane, whether or not

@@ -60,7 +60,7 @@ func TestBriefingExplainsMessagesAndSaysTheyAreNotTheUsers(t *testing.T) {
 	for _, want := range []string{
 		"## Messages", "SendMessage tool", "SendMessage only between agents", "ListAgents", "flockdeck msg send` is the fallback", "flockdeck msg send <target> <text...>", "flockdeck inbox read <id>", "at most 8 KB",
 		"manager's session name", "come only through the inbox",
-		"Nothing is typed into your input", "holds no message text", team.Disclaimer,
+		"A waiting inbox message adds one line", "Flockdeck: new mail, message N", "not the user", "holds no message text", team.Disclaimer,
 		"when a session starts or resumes", "not authenticated",
 	} {
 		if !strings.Contains(hooked, want) {
@@ -69,18 +69,22 @@ func TestBriefingExplainsMessagesAndSaysTheyAreNotTheUsers(t *testing.T) {
 	}
 
 	prompt := PaneContext{PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck", Team: members(3)}.OpeningPrompt()
-	if !strings.Contains(prompt, "You are not told when an inbox message arrives") || strings.Contains(prompt, "Nothing is typed into your input") {
+	if !strings.Contains(prompt, "You are not told when an inbox message arrives") || strings.Contains(prompt, "A waiting inbox message adds one line") {
 		t.Errorf("an agent with no hooks is promised a notice:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, team.Disclaimer) {
 		t.Error("the opening prompt leaves the disclaimer out")
+	}
+	// Any agent may be woken by the typed line, so every briefing says whose it is.
+	if !strings.Contains(prompt, "Flockdeck: new mail, message N") || !strings.Contains(prompt, "inbox read N") {
+		t.Errorf("an agent with no hooks is not told about the typed line:\n%s", prompt)
 	}
 
 	// What the briefing promises follows whether the agent is notified, not how
 	// the briefing was delivered: an agent with hooks that is briefed through its
 	// opening prompt still gets notices.
 	notified := PaneContext{PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck", Team: members(3), Notified: true}.OpeningPrompt()
-	if !strings.Contains(notified, "Nothing is typed into your input") || strings.Contains(notified, "You are not told when") {
+	if !strings.Contains(notified, "A waiting inbox message adds one line") || strings.Contains(notified, "You are not told when") {
 		t.Errorf("an agent with hooks briefed by prompt is told the wrong thing:\n%s", notified)
 	}
 	if strings.Contains(hooked, "You are not told when") {

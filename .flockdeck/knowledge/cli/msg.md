@@ -27,4 +27,4 @@ Inside a pane; requires [FLOCKDECK_API](/config/flockdeck-api.md), [FLOCKDECK_TO
 
 ## Output
 
-For each recipient: `sent #<id> to <name> (pane <pane>)`, plus a warning line when the receiving agent has reported no hooks and may see the message only when it runs [inbox](/cli/inbox.md). Failures print `not sent: ...` on stderr; the exit status is still 0 unless the whole call fails. Wrong arguments print the usage and exit 1. Nothing is typed into the receiver's prompt.
+For each recipient: `sent #<id> to <name> (pane <pane>)`, plus a warning line when the receiving agent has reported no hooks and may see the message only when it runs [inbox](/cli/inbox.md). Failures print `not sent: ...` on stderr; the exit status is still 0 unless the whole call fails. Wrong arguments print the usage and exit 1. The message text is never typed into the receiver's prompt; see [the wake line](/gotchas/notices-not-typed.md) for the one fixed line that can be.

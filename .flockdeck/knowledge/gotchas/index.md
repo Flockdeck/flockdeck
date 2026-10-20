@@ -17,7 +17,7 @@
 * [Late hook events after a pane restart](hook-launch-token.md) - A restarted pane keeps its id, so each process start carries a launch marker to tell old hooks from new ones.
 * [Idle detection differs by platform and may give no answer](idle-probe-fallbacks.md) - Linux and macOS read idle time by running a short command, and any failure yields ok=false.
 * [Layout save and restore edge cases](layout-restore-rules.md) - Rules in persist.go that keep a restart from losing, duplicating or mis-sizing tabs and projects.
-* [Mail notices are never typed into a pane](notices-not-typed.md) - Messages reach an agent in the reply to its next hook, because typing into the input box leaves text the user did not write.
+* [Mail notices ride hook replies; only a fixed wake line is typed](notices-not-typed.md) - Messages reach an agent in the reply to its next hook. The one thing typed for mail is a fixed wake line, only where an agent has a tested rule, and none has.
 * [Closing a pane must end its whole process tree](pane-process-tree-shutdown.md) - Killing only the pane's process leaves children running and holding the worktree open, so each OS uses a session or job object.
 * [Prompt token expansion and the -- guard](prompt-token-expansion.md) - How BuildArgv expands tokens in one pass, drops value-less groups and guards prompts that start with a dash.
 * [Terminal socket resume, restart and slow viewers](pty-resume-and-restart.md) - How /ws/pty survives pane restarts, drops slow viewers and resumes by offset.

@@ -25,7 +25,7 @@ A tab belongs to a project and so does a pane, but the two can differ: a tab may
 - Persistence and restore: [layout file](/data/layout-file.md), [restore rules](/gotchas/layout-restore-rules.md). `SaveAll`, `SaveLayouts`, `SaveProject`, `Restore`, `RestoreSession`.
 - Spawn and worktrees: [spawn and worktree handling](/gotchas/worktree-spawn-and-cleanup.md), [helper limits](/security/spawn-approval-and-helper-limits.md).
 - Activity: `PaneActivity` is the only place a pane's displayed activity is decided (waiting, blocked, working, idle, starting, exited, failed). Idle agents with verified background work read as working. `Aggregate` ranks waiting/blocked above working above none; `Tally` counts them.
-- Team messages and tasks: [messages file](/data/messages-file.md); the board itself lives in `internal/tasks`, messages in `internal/team`. A pane is never typed into to announce mail; the notice rides the reply to its next hook (`HookNotice`).
+- Team messages and tasks: [messages file](/data/messages-file.md); the board itself lives in `internal/tasks`, messages in `internal/team`. No message text is typed into a pane. The notice rides the reply to its next hook (`HookNotice`), and an idle agent with a tested rule can be given one fixed wake line (`wakeService`).
 - Recording: `SetPaneRecording`, `ExportTranscript`; follows the stored conversation with `record.Sync`, looking again 1.5 s after the last hook event, doubling, and stopping after 3 empty looks. See [record](/packages/record.md).
 - Background work verification: [background work checks](/gotchas/background-work-verification.md).
 - Conflict radar: [radar behaviour](/gotchas/conflict-radar-limits.md), [snapshots](/data/radar-snapshot.md).

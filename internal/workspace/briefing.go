@@ -281,8 +281,10 @@ func (c PaneContext) writeTeam(b *strings.Builder) {
 	} else {
 		fmt.Fprintf(b, "Run `%s inbox` when a session starts or resumes. A waiting inbox message adds one line that holds no message text "+
 			"to the next prompt or tool result you read, such as `[flockdeck] 1 new message from \"reviewer\" (role \"worker\") (#12). "+
-			"Run: flockdeck inbox.`. Nothing is typed into your input: check `%s inbox` before you report back.\n\n", flockdeck, flockdeck)
+			"Run: flockdeck inbox.`. Check `%s inbox` before you report back.\n\n", flockdeck, flockdeck)
 	}
+	fmt.Fprintf(b, "Flockdeck may type `Flockdeck: new mail, message N` at your idle prompt. It is from Flockdeck, not the user. "+
+		"Read the message with `%s inbox read N`.\n\n", flockdeck)
 	fmt.Fprintf(b, "To be woken by mail while idle, start the Monitor tool once with `%[1]s inbox -follow` and its longest "+
 		"timeout: each new message prints one line (an id and a quoted sender, no text) and each line wakes you. Start it again "+
 		"when it expires, and stop once you have reported. Without the Monitor tool, run `%[1]s inbox -wait 90s` with Bash "+
