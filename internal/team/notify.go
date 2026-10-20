@@ -33,12 +33,14 @@ const (
 // Notifier remembers, per pane, the newest message its agent has been told of, so
 // that a notice is given once and not on every hook that could carry it.
 //
-// A notice is never typed into a pane. Text that appears in an agent's message
-// box and was not typed by the user is a bug, whether it is submitted or not, and
-// on Windows a line and its Enter that arrive in one read are taken for a paste
-// and left unsubmitted there. A notice goes to the agent in the reply to one of
-// its own hooks instead (see Workspace.HookNotice), and the window shows the
-// count of unread messages on the pane for as long as they are unread.
+// A notice reaches a working agent in the reply to one of its own hooks (see
+// Workspace.HookNotice). An agent that is idle has no hook to answer, so for one
+// whose rule says it is at an empty prompt (see agent.WakeRule) the wake service
+// types a single fixed line, under limits of its own (see wakeService in internal/workspace). That
+// line never holds a sender or message text. The line and its Enter are written
+// separately, after a pause: on Windows a line and its Enter that arrive in one
+// read are taken for a paste and left unsubmitted. The window shows the count of
+// unread messages on the pane for as long as they are unread.
 type Notifier struct {
 	now func() time.Time
 
@@ -90,6 +92,15 @@ func (n *Notifier) Take(pane string, unread []Message) string {
 func (n *Notifier) due(pane string) bool {
 	at, ok := n.at[pane]
 	return ok && n.repeats[pane] < MaxReminders && n.now().Sub(at) >= Renotify
+}
+
+// LastNotice is when the pane's agent was last given a notice or a reminder,
+// or the zero time if it never was. The wake service reads it so that a line is
+// not typed at an agent a hook has just told.
+func (n *Notifier) LastNotice(pane string) time.Time {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.at[pane]
 }
 
 // Pending reports whether Take may have something for the pane: an unread

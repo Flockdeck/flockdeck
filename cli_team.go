@@ -107,9 +107,11 @@ func runMsg(args []string, stdin io.Reader, out, errOut io.Writer) error {
 			"The text is the rest of the line, or read from standard input when it is\n"+
 			"`-`. It is at most 8 KB; for anything longer, write a file and send its\n"+
 			"path. `flockdeck team` lists who is here.\n\n"+
-			"The receiver reads it with `flockdeck inbox`. Nothing is typed into its\n"+
-			"prompt. An agent that reports hooks (Claude Code) is told with its next\n"+
-			"prompt or tool result, so an idle one is told only when it is next prompted.\n"+
+			"The receiver reads it with `flockdeck inbox`. The text itself is never typed\n"+
+			"into its prompt. An agent that reports hooks (Claude Code) is told with its\n"+
+			"next prompt or tool result. An idle one can instead be given one fixed line,\n"+
+			"naming only the message id, typed at its prompt, but only where Flockdeck has\n"+
+			"a tested rule for recognising that prompt and it has not been turned off.\n"+
 			"Any other agent has to run `flockdeck inbox` itself. The pane shows an unread\n"+
 			"count until it does.\n")
 	}

@@ -3,8 +3,10 @@ package team
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // Kinds of Event.
@@ -13,6 +15,8 @@ const (
 	EventMessage = "message"
 	// EventDelivery: a message reached a delivery state.
 	EventDelivery = "delivery"
+	// EventWake: a line was typed into a pane to wake its agent for a message.
+	EventWake = "wake"
 )
 
 const (
@@ -35,6 +39,58 @@ type Event struct {
 	To   string `json:"to,omitempty"`
 	// State is the delivery state of a delivery event.
 	State string `json:"state,omitempty"`
+
+	// The rest belong to a wake event, which is the record of a line Flockdeck
+	// typed into a pane. None of it is message text: ID names the message.
+	//
+	// Pane is the pane typed into and Agent its agent type. Rule is the wake
+	// rule's version and RuleSource where the rule came from. Prompt is the
+	// prompt line that was matched, control characters removed and cut to
+	// MaxPromptLine characters, and Line is what was typed.
+	Pane       string `json:"pane,omitempty"`
+	Agent      string `json:"agent,omitempty"`
+	Rule       string `json:"rule,omitempty"`
+	RuleSource string `json:"ruleSource,omitempty"`
+	Prompt     string `json:"prompt,omitempty"`
+	Line       string `json:"line,omitempty"`
+	// Unsubmitted is set when the line was typed but its Enter was not, so it
+	// may still sit in the pane's input box and the message was not marked woken.
+	Unsubmitted bool `json:"unsubmitted,omitempty"`
+}
+
+// MaxPromptLine is the most characters of a matched prompt line a wake event
+// keeps.
+const MaxPromptLine = 160
+
+// maxWakeField is the most characters of any other text field of a wake event.
+const maxWakeField = 64
+
+// CleanLine removes control characters from line and cuts it to max characters.
+func CleanLine(line string, max int) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range line {
+		if unicode.IsControl(r) {
+			continue
+		}
+		if n == max {
+			break
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return b.String()
+}
+
+// cleanWake applies the limits a wake event is written with, so that a file
+// that was damaged or edited cannot bring long or odd fields back.
+func cleanWake(e *Event) {
+	e.Pane = CleanLine(e.Pane, maxWakeField)
+	e.Agent = CleanLine(e.Agent, maxWakeField)
+	e.Rule = CleanLine(e.Rule, maxWakeField)
+	e.RuleSource = CleanLine(e.RuleSource, maxWakeField)
+	e.Prompt = CleanLine(e.Prompt, MaxPromptLine)
+	e.Line = CleanLine(e.Line, MaxPromptLine)
 }
 
 // EventLog is the record of events kept for a project: one JSON line for each,
@@ -104,8 +160,11 @@ func (l *EventLog) Load(data []byte) {
 	size := 0
 	for _, raw := range bytes.Split(data, []byte("\n")) {
 		var e Event
-		if json.Unmarshal(raw, &e) != nil || e.ID <= 0 || (e.Kind != EventMessage && e.Kind != EventDelivery) {
+		if json.Unmarshal(raw, &e) != nil || e.ID <= 0 || (e.Kind != EventMessage && e.Kind != EventDelivery && e.Kind != EventWake) {
 			continue
+		}
+		if e.Kind == EventWake {
+			cleanWake(&e)
 		}
 		// Written again from the parsed event, so that a field the log does not
 		// know, text among them, is not kept.

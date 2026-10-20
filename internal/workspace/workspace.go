@@ -409,6 +409,10 @@ type Workspace struct {
 
 	mu    sync.RWMutex
 	panes map[string]*Pane
+	// wakeSvc types the wake line into idle agent panes; wakeSettings says where
+	// it may.
+	wakeSvc      *wakeService
+	wakeSettings WakeSettings
 	// pendingTitles holds titles a pane asked for from the hook goroutine,
 	// waiting to be applied to its tab on the interface's own goroutine.
 	pendingTitles map[string]string
@@ -623,6 +627,8 @@ func New(opts Options) (*Workspace, error) {
 	w.ensureGroup(root)
 	w.initTeam()
 	w.loadMessages()
+	w.wakeSettings = wakeAllOn{}
+	w.startWake()
 	w.SetWake(opts.OnWake)
 	_ = store.TouchRecent(root)
 
@@ -3578,6 +3584,8 @@ func (w *Workspace) applyGit(key string, st gitx.Status, late bool) {
 
 // Close terminates every session and stops the hook server.
 func (w *Workspace) Close() {
+	// The wake service types into panes, so it stops before they are destroyed.
+	w.stopWake()
 	// Close stops waiting for a running index refresh; git finishes it by itself. Only
 	// this workspace's: each has a context of its own.
 	w.stopRefreshes()

@@ -52,3 +52,25 @@ func TestWakeReadingOfAUsersRuleIsUnknownEvenWhenTested(t *testing.T) {
 		t.Fatalf("reading = %+v, want unknown from the user's rule", r)
 	}
 }
+
+// The rule a real agent ships with is untested, so a session built from its spec
+// never reads as allowing a wake, even on a screen that looks like its prompt.
+func TestWakeReadingOfTheShippedClaudeRuleIsUnknown(t *testing.T) {
+	var spec agent.Spec
+	for _, sp := range agent.Builtins() {
+		if sp.ID == "claude" {
+			spec = sp
+		}
+	}
+	if spec.Wake == nil {
+		t.Fatal("the claude spec has no wake rule")
+	}
+	s := fakeSession(newFakePTY())
+	s.wake = spec.Wake
+	for _, rule := range spec.Wake.Prompts {
+		s.publish([]byte("done\r\n" + rule + " "))
+		if r := s.WakeReading(); r.Verdict == agent.WakeOK {
+			t.Fatalf("the shipped rule allowed a wake at %q", rule)
+		}
+	}
+}
