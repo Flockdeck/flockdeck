@@ -357,8 +357,8 @@ type RepoSummary struct {
 // Workspace is the whole application state.
 type Workspace struct {
 	// replyLookup is where a terminal pane's last reply is read from: see
-	// SetReplyLookup. It is guarded by mu.
-	replyLookup func(paneID string) (LastReply, bool)
+	// SetReplyLookup. It is atomic so that reading it takes no lock.
+	replyLookup atomic.Pointer[func(paneID string) (LastReply, bool)]
 	// bgChecks is what is remembered of each pane's background work checks,
 	// by pane id; guarded by backgroundChecksMu. See DueBackgroundChecks.
 	bgChecks map[string]*backgroundCheck
@@ -985,9 +985,6 @@ func (w *Workspace) Projects() []Project {
 				continue
 			}
 			out[i].Panes++
-			if pane.Sess == nil {
-				continue
-			}
 			tallies[i].Add(w.Runtime(pane).Activity())
 		}
 	}

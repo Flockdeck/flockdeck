@@ -842,10 +842,12 @@ func (s *Server) snapshot() stateMsg {
 			}
 			if p.Sess != nil {
 				pv.Cols, pv.Rows = p.Sess.Size()
-				pv.StatusSince = rt.StatusSince().Format(time.RFC3339)
 				if sampleUsage {
 					pv.CPU, pv.RSS, pv.Procs = shownUsage(usageOf(p.Sess))
 				}
+			}
+			if at := rt.StatusSince(); !at.IsZero() {
+				pv.StatusSince = at.Format(time.RFC3339)
 			}
 			pv.Dirty, pv.Untracked = p.Git.Dirty, p.Git.Untracked
 			pv.Ahead, pv.Behind = p.Git.Ahead, p.Git.Behind

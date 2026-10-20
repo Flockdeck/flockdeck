@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"sync"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -8,21 +9,23 @@ import (
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
-// PaneKind is what sort of pane something is: the thing the graph, the lists
-// and the phone are told, and the thing a consumer asks the pane for instead of
-// looking at which agent runs in it.
-type PaneKind string
+// Transport is how a pane's agent is run and read: in a terminal Flockdeck
+// reads the screen, hooks and transcript of, or over a protocol. It is not
+// Pane.Kind, which says agent or shell. On the wire, in the graph, it is the
+// pane's "kind". A consumer asks the pane for it and does not look at which
+// agent runs in it.
+type Transport string
 
 const (
-	// PaneKindTerminal is a pane whose agent or shell runs in a terminal that
+	// TransportTerminal is a pane whose agent or shell runs in a terminal that
 	// Flockdeck reads the screen, hooks and transcript of. Every pane is one.
-	PaneKindTerminal PaneKind = "terminal"
-	// PaneKindStructured is a pane whose agent speaks the Agent Client Protocol,
+	TransportTerminal Transport = "terminal"
+	// TransportStructured is a pane whose agent speaks the Agent Client Protocol,
 	// so its state is told and not read. No pane is one yet.
-	PaneKindStructured PaneKind = "structured"
+	TransportStructured Transport = "structured"
 )
 
-// PaneCaps are what a pane can do that depends on its kind.
+// PaneCaps are what a pane can do that depends on its transport.
 type PaneCaps struct {
 	// Structured says the pane's state comes from a protocol and not from a
 	// terminal, so it has no screen to read and no keys to type.
@@ -123,11 +126,11 @@ func (c ConversationSource) Readable() bool { return c.Exporter != nil }
 // agent a pane runs. The terminal implementation is the only real one; a pane
 // of another kind answers the same way.
 //
-// A runtime is read from several goroutines and must be safe for that. The
-// methods that read the pane's own fields do not take the workspace lock; the
-// ones documented as such are called by code that already holds it.
+// A runtime is read from several goroutines and must be safe for that. None of
+// its methods takes the workspace lock, except Conversation, which is called
+// with it held and so cannot.
 type PaneRuntime interface {
-	Kind() PaneKind
+	Transport() Transport
 	Caps() PaneCaps
 
 	// Status is the pane's status and its detail, StatusExited and "" for a
@@ -167,11 +170,21 @@ type PaneRuntime interface {
 	Conversation() ConversationSource
 }
 
+// runtimeMu guards every Pane.rt. It is a lock of its own and never the
+// workspace's, so a runtime can be read where the workspace lock is held.
+// Pane is copied by value in places, which rules out an atomic field in it.
+var runtimeMu sync.RWMutex
+
 // Runtime is the pane's runtime: the one set with SetRuntime, else the terminal
 // one.
 func (w *Workspace) Runtime(p *Pane) PaneRuntime {
-	if p != nil && p.rt != nil {
-		return p.rt
+	if p != nil {
+		runtimeMu.RLock()
+		rt := p.rt
+		runtimeMu.RUnlock()
+		if rt != nil {
+			return rt
+		}
 	}
 	return terminalRuntime{w: w, p: p}
 }
@@ -180,13 +193,15 @@ func (w *Workspace) Runtime(p *Pane) PaneRuntime {
 // reports whether the pane was found. A pane keeps the runtime it is given for
 // as long as it lives.
 func (w *Workspace) SetRuntime(id string, rt PaneRuntime) bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.mu.RLock()
 	p := w.panes[id]
+	w.mu.RUnlock()
 	if p == nil {
 		return false
 	}
+	runtimeMu.Lock()
 	p.rt = rt
+	runtimeMu.Unlock()
 	return true
 }
 
@@ -198,10 +213,16 @@ type terminalRuntime struct {
 	p *Pane
 }
 
-func (terminalRuntime) Kind() PaneKind { return PaneKindTerminal }
-func (terminalRuntime) Caps() PaneCaps { return PaneCaps{} }
+func (terminalRuntime) Transport() Transport { return TransportTerminal }
+func (terminalRuntime) Caps() PaneCaps       { return PaneCaps{} }
 
-func (t terminalRuntime) Status() (session.Status, string) { return t.p.Status() }
+func (t terminalRuntime) Status() (session.Status, string) {
+	// A pane that could not start has no session and reads as exited.
+	if t.p.Err != nil {
+		return session.StatusExited, ""
+	}
+	return t.p.Status()
+}
 
 func (t terminalRuntime) StatusSince() time.Time {
 	if t.p.Sess == nil || t.p.Err != nil {
@@ -247,13 +268,11 @@ func (t terminalRuntime) Background() BackgroundWork {
 
 // LastReply asks the lookup the server fills from the pane's transcript.
 func (t terminalRuntime) LastReply() (LastReply, bool) {
-	t.w.mu.RLock()
-	look := t.w.replyLookup
-	t.w.mu.RUnlock()
+	look := t.w.replyLookup.Load()
 	if look == nil {
 		return LastReply{}, false
 	}
-	return look(t.p.ID)
+	return (*look)(t.p.ID)
 }
 
 func (t terminalRuntime) Wake(message string) error {
@@ -284,9 +303,7 @@ func (t terminalRuntime) Conversation() ConversationSource {
 // SetReplyLookup sets where a terminal pane's last reply comes from: the
 // server's preview of the conversation it follows.
 func (w *Workspace) SetReplyLookup(fn func(paneID string) (LastReply, bool)) {
-	w.mu.Lock()
-	w.replyLookup = fn
-	w.mu.Unlock()
+	w.replyLookup.Store(&fn)
 }
 
 // conversationOfLocked is what the pane's conversation is made from, as its

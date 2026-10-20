@@ -137,14 +137,16 @@ func (s *Server) sendAgents(c *controlClient) {
 			if p.Parent != "" && s.ws.Pane(p.Parent) != nil {
 				av.Parent = p.Parent
 			}
-			if p.Sess != nil {
+			{
 				if bg := rt.Background(); bg.Tasks > 0 || len(bg.Running) > 0 || len(bg.Ended) > 0 {
 					av.Background = bg.Tasks
 					av.BackgroundWork = backgroundViews(bg.Running)
 					av.BackgroundEnded = backgroundEndedViews(bg.Ended)
 					av.BackgroundUnverified = av.Background - bg.Verified
 				}
-				av.For = humanAgo(time.Since(rt.StatusSince()))
+				if since := rt.StatusSince(); !since.IsZero() {
+					av.For = humanAgo(time.Since(since))
+				}
 				// What a waiting pane wants, in the same words a permission
 				// prompt would show: so a list of several waiting at once,
 				// several of them somebody else's helpers, says which are

@@ -41,8 +41,8 @@ const (
 // The kinds of pane. Structured is reserved for panes an agent drives over a
 // protocol rather than a terminal; nothing sets it yet.
 const (
-	graphKindTerminal   = string(workspace.PaneKindTerminal)
-	graphKindStructured = string(workspace.PaneKindStructured)
+	graphKindTerminal   = string(workspace.TransportTerminal)
+	graphKindStructured = string(workspace.TransportStructured)
 )
 
 // graphTaskChip is the task a node names as its current one.
@@ -413,7 +413,7 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 	for _, n := range graph.Nodes {
 		p, g := byID[n.Pane], gpByID[n.Pane]
 		nv := graphNodeView{
-			GraphNode: n, Kind: string(rts[n.Pane].Kind()), Name: g.Name, Peer: g.Peer, Role: g.Role, Agent: g.Agent, Shell: g.Shell,
+			GraphNode: n, Kind: string(rts[n.Pane].Transport()), Name: g.Name, Peer: g.Peer, Role: g.Role, Agent: g.Agent, Shell: g.Shell,
 			Status: g.Status, Activity: g.Activity, Branch: p.Branch, Live: live[n.Pane],
 			Dirty: p.Git.Dirty, Untracked: p.Git.Untracked, Ahead: p.Git.Ahead, Behind: p.Git.Behind,
 			Unread: g.Unread, AutoReview: p.AutoReview, AutoApproved: ws.AutoApprovedOf(p),
