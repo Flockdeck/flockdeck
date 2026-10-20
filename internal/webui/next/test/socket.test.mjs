@@ -11,7 +11,7 @@ function make() {
   const drops = [];
   const sock = createSocket({
     url: "ws-test", WebSocket: FakeWebSocket,
-    setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout,
+    setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout, now: () => clock.now,
     onFrame: (m) => frames.push(m),
     onPhase: (p, info) => phases.push([p, info.retryInMs]),
     onDrop: (raw) => drops.push(raw),
@@ -47,22 +47,79 @@ test("a dropped socket is retried after 1 s, 2 s and 4 s, by the clock", () => {
   assert.deepEqual(phases.filter(([p]) => p === "waiting").map(([, ms]) => ms), [1000, 2000, 4000]);
 });
 
-test("a good hello starts the backoff over; opening alone does not", () => {
-  const { sock, clock } = make();
+// waits is the retry delays the socket announced, in order.
+const waits = (phases) => phases.filter(([p]) => p === "waiting").map(([, ms]) => ms);
+
+test("opening alone does not start the backoff over: the third wait is 4 s", () => {
+  const { sock, clock, phases } = make();
   sock.start();
   for (const wait of [1000, 2000]) {
-    FakeWebSocket.last.open(); // opened, but no hello
+    FakeWebSocket.last.open(); // opened, even for a long time, but no hello
+    clock.advance(60000);
     FakeWebSocket.last.drop();
     clock.advance(wait);
   }
-  assert.equal(FakeWebSocket.instances.length, 3);
+  FakeWebSocket.last.open();
+  clock.advance(60000);
+  FakeWebSocket.last.drop();
+  assert.deepEqual(waits(phases), [1000, 2000, 4000]);
+});
+
+test("a hello that is followed by a drop at once does not start the backoff over", () => {
+  const { sock, clock, phases } = make();
+  sock.start();
+  for (const wait of [1000, 2000]) {
+    FakeWebSocket.last.open();
+    FakeWebSocket.last.frame({ type: "hello" });
+    clock.advance(4999); // not yet a connection that has lasted
+    FakeWebSocket.last.drop();
+    clock.advance(wait);
+  }
   FakeWebSocket.last.open();
   FakeWebSocket.last.frame({ type: "hello" });
   FakeWebSocket.last.drop();
+  assert.deepEqual(waits(phases), [1000, 2000, 4000]);
+});
+
+test("a connection that said hello and then lasted 5 s starts the backoff over", () => {
+  const { sock, clock, phases } = make();
+  sock.start();
+  for (const wait of [1000, 2000]) {
+    FakeWebSocket.last.open();
+    FakeWebSocket.last.drop();
+    clock.advance(wait);
+  }
+  FakeWebSocket.last.open();
+  FakeWebSocket.last.frame({ type: "hello" });
+  clock.advance(5000);
+  FakeWebSocket.last.drop();
+  assert.deepEqual(waits(phases), [1000, 2000, 1000]);
   clock.advance(999);
   assert.equal(FakeWebSocket.instances.length, 3);
   clock.advance(1);
-  assert.equal(FakeWebSocket.instances.length, 4, "the wait after a good hello was not 1 s");
+  assert.equal(FakeWebSocket.instances.length, 4);
+});
+
+// The old socket's close arrives after stop() and start() have made a new one.
+// It must not close or retry the new one: one socket is open, and no retry is
+// waiting.
+test("a late close of an old socket does nothing to the new one", () => {
+  const { sock, clock } = make();
+  sock.start();
+  const old = FakeWebSocket.last;
+  old.open();
+  sock.stop();
+  sock.start();
+  const fresh = FakeWebSocket.last;
+  assert.notEqual(fresh, old);
+  fresh.open();
+  old.onclose({}); // the late event
+  assert.equal(sock.phase, "open");
+  assert.equal(clock.pending, 0, "a retry was scheduled for a socket that is gone");
+  clock.advance(60000);
+  assert.equal(FakeWebSocket.instances.length, 2);
+  assert.equal(sock.send({ cmd: "x" }), true);
+  assert.equal(fresh.sent.length, 1);
 });
 
 test("a malformed frame is dropped and the socket stays open", () => {

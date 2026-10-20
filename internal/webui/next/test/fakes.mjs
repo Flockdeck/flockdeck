@@ -61,7 +61,7 @@ export async function harness(extra = {}) {
   const clock = new FakeClock();
   const store = createStore({
     url: "ws-test", WebSocket: FakeWebSocket,
-    setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout, ...extra,
+    setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout, now: () => clock.now, ...extra,
   });
   return { store, clock };
 }

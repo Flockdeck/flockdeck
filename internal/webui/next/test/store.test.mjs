@@ -44,9 +44,12 @@ test("a reconnect sends graphWatch again for the open project", async () => {
   ws.frame(hello());
   store.watchGraph("C:/repo");
   ws.frame(graph());
+  ws.frame({ type: "state", n: 1 });
   ws.drop();
   assert.equal(store.getState().connection, "waiting");
   assert.equal(store.getState().hello, null, "the old hello is still shown");
+  assert.equal(store.getState().state, null, "the old state is still shown");
+  assert.notEqual(store.getState().graph, null, "the graph is kept, for a view to show as out of date");
   clock.advance(1000);
   const next = FakeWebSocket.last;
   assert.notEqual(next, ws);
@@ -133,6 +136,7 @@ test("the desk-only refusal sets graphRefused and stops the retry; another failu
   assert.equal(store.getState().graphRefused, false);
   ws.frame({ type: "teamResult", op: "graphWatch", ok: false, error: "The Team panel is used on the " + DESK_ONLY_PHRASE + ", not from a window reached through the relay" });
   assert.equal(store.getState().graphRefused, true);
+  assert.equal(store.getState().graph, null);
   // A result for an unrelated command changes nothing.
   const before = store.getState();
   ws.frame({ type: "teamResult", op: "teamTaskAdd", ok: false, error: "no" });
@@ -233,4 +237,39 @@ test("useStore draws the current snapshot", async () => {
   }
   const out = renderToString(html`<${Line} />`);
   assert.equal(out, "<p>open: &lt;b>hi&lt;/b></p>");
+});
+
+test("the refusal's code is enough, and a refusal gives up the watch for good", async () => {
+  const { store, clock, ws } = await up();
+  ws.frame(hello());
+  store.watchGraph("C:/repo");
+  ws.frame({ type: "teamResult", op: "graphWatch", ok: false, error: "worded differently", code: "deskOnly" });
+  assert.equal(store.getState().graphRefused, true);
+  ws.drop();
+  clock.advance(1000);
+  FakeWebSocket.last.open();
+  FakeWebSocket.last.frame(hello());
+  assert.equal(FakeWebSocket.last.commands("graphWatch").length, 0, "asked again after a refusal");
+});
+
+test("a teamGone with no graph yet is taken only while a watch is open", async () => {
+  const { store, ws } = await up();
+  ws.frame(hello());
+  ws.frame({ type: "teamGone", root: "C:/x", error: "gone" });
+  assert.equal(store.getState().graphGone, null, "a teamGone nobody watched for was taken");
+  store.watchGraph("C:/x");
+  ws.frame({ type: "teamGone", root: "C:/x", error: "gone" });
+  assert.deepEqual(store.getState().graphGone, { root: "C:/x", error: "gone" });
+});
+
+test("a push of the project that was watched before is kept as it came, for a view to compare", async () => {
+  const { store, ws } = await up();
+  ws.frame(hello());
+  store.watchGraph("C:/a");
+  ws.frame(graph("C:/a"));
+  store.watchGraph("C:/b");
+  ws.frame(graph("C:/a")); // still on its way when the watch changed
+  assert.equal(store.getState().graph.root, "C:/a");
+  ws.frame(graph("C:/b"));
+  assert.equal(store.getState().graph.root, "C:/b");
 });

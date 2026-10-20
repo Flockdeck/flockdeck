@@ -21,11 +21,17 @@
 //   connection    "idle" | "connecting" | "open" | "waiting"
 //   retryInMs     the wait before the next attempt, while connection is "waiting"
 //   hello         the latest hello (keys, prefs, remote, e2ePublicKey, role...)
-//                 or null before the first one of this connection
+//                 or null before the first one of this connection. hello and
+//                 state are emptied when the connection drops. graph, graphGone
+//                 and notice are not: they stay as the last thing seen, so a
+//                 view reads connection and shows them as out of date while it
+//                 is not "open".
 //   remote        true when the window was reached through the relay
 //   state         the latest state push, or null
 //   graph         the latest graph push, or null. A graph is one whole project:
-//                 each push replaces the last. It can hold a permission that is
+//                 each push replaces the last. After watchGraph(B) a push of
+//                 project A may still arrive, so a view compares graph.root
+//                 with the project it asked for and does not draw another. It can hold a permission that is
 //                 scrubbed (redacted: true, no command, empty options), a pane
 //                 with detailsOnDesktop, a prompt with no ask, and a structured
 //                 pane that is only in the roster. The views draw what is there.
@@ -48,9 +54,11 @@
 
 import { createSocket } from "./socket.js";
 
-/** DESK_ONLY_PHRASE is part of the text the desktop gives a window it refuses a
- *  graph command (internal/server/teamui.go, teamDeskOnly). A refusal is told
- *  from another failure by it. */
+/** DESK_ONLY_CODE is the code the desktop puts on the refusal it gives a window
+ *  reached through the relay (internal/server/teamui.go, teamDeskOnlyCode).
+ *  DESK_ONLY_PHRASE is part of that refusal's text, which an older desktop sends
+ *  without the code. A Go test pins both against the server. */
+export const DESK_ONLY_CODE = "deskOnly";
 export const DESK_ONLY_PHRASE = "machine Flockdeck runs on";
 
 const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
@@ -126,10 +134,12 @@ export function createStore(opts) {
         if (watching !== null && !snap.remote) set({ graph: msg, graphGone: null, graphError: null });
         break;
       case "teamGone":
-        // Only the project that is shown. The watch is given up, so a
-        // reconnect does not ask for a project that is not there; the view
-        // calls watchGraph again when there is another one to show.
-        if (snap.graph === null || msg.root === snap.graph.root) {
+        // Only the project that is shown. With no graph yet its root cannot be
+        // compared (the server spells it its own way), so the message is taken
+        // for the watch that is open, and ignored when none is. The watch is
+        // given up, so a reconnect does not ask for a project that is not
+        // there; the view calls watchGraph again when there is another one.
+        if (snap.graph === null ? watching !== null : msg.root === snap.graph.root) {
           watching = null;
           set({ graph: null, graphGone: { root: String(msg.root || ""), error: String(msg.error || "") } });
         }
@@ -137,7 +147,7 @@ export function createStore(opts) {
       case "teamResult":
         if (!msg.ok && GRAPH_OPS.has(msg.op)) {
           const error = String(msg.error || "");
-          if (error.includes(DESK_ONLY_PHRASE)) {
+          if (msg.code === DESK_ONLY_CODE || error.includes(DESK_ONLY_PHRASE)) {
             watching = null;
             set({ graph: null, graphRefused: true, graphError: null });
           } else {

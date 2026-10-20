@@ -52,6 +52,9 @@ const (
 // teamDeskOnly is what a window reached through the relay is told.
 const teamDeskOnly = "The Team panel is used on the machine Flockdeck runs on, not from a window reached through the relay"
 
+// teamDeskOnlyCode is the Code of that refusal.
+const teamDeskOnlyCode = "deskOnly"
+
 // teamActorView is who did something, as the panel draws it. User is the person
 // at the window, whom the panel shows as "you".
 type teamActorView struct {
@@ -222,11 +225,14 @@ type teamMessagesMsg struct {
 // teamResultMsg answers a command that changes something, or any that was
 // refused. Error is a sentence for the panel to show beside what was asked.
 type teamResultMsg struct {
-	Type    string        `json:"type"`
-	Req     string        `json:"req,omitempty"`
-	Op      string        `json:"op"`
-	OK      bool          `json:"ok"`
-	Error   string        `json:"error,omitempty"`
+	Type  string `json:"type"`
+	Req   string `json:"req,omitempty"`
+	Op    string `json:"op"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+	// Code names why a command was refused, for a client that must not match
+	// on Error's wording. The only value is teamDeskOnlyCode.
+	Code    string        `json:"code,omitempty"`
 	Task    *teamTaskView `json:"task,omitempty"`
 	Told    int           `json:"told,omitempty"`
 	Pruned  int           `json:"pruned,omitempty"`
@@ -548,7 +554,7 @@ func taskNumber(id string) int {
 // the relay is refused all of them.
 func (s *Server) teamCommand(c *controlClient, cmd command) {
 	if c.remote {
-		c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, Error: teamDeskOnly})
+		c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, Error: teamDeskOnly, Code: teamDeskOnlyCode})
 		c.notify(teamDeskOnly, true)
 		return
 	}

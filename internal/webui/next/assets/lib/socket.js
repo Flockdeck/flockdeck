@@ -2,12 +2,18 @@
 // socket, hands every well-formed frame to a callback, sends commands, and
 // reconnects with a backoff when the socket drops. It knows nothing of what the
 // frames mean, except that a "hello" is the sign of a good connection: the
-// backoff starts over then and not when the socket merely opens, so a server
-// that accepts and drops at once is not retried once a second for ever.
+// backoff can start over after one: when a connection that said hello has then
+// lasted GOOD_AFTER_MS, the next retry waits the shortest time. A socket that
+// merely opens, or says hello and drops at once, keeps the delay growing, so a
+// server that does that is not retried once a second for ever.
 //
 // Everything it needs from outside (the WebSocket constructor and the timers)
 // can be passed in, which is how the tests drive it with a fake socket and a
 // fake clock.
+
+/** GOOD_AFTER_MS is how long a connection must last after its hello for the
+ *  backoff to start over when it drops. */
+export const GOOD_AFTER_MS = 5000;
 
 export const BACKOFF = Object.freeze({ baseMs: 1000, factor: 2, maxMs: 30000 });
 
@@ -38,7 +44,7 @@ const OPEN = 1; // WebSocket.OPEN, which a fake socket need not carry
  *    onPhase(phase, info) called when the phase changes; info has retryInMs
  *                 while the phase is "waiting"
  *    onDrop(raw)  optional, called with a frame that was dropped
- *    WebSocket, setTimeout, clearTimeout, backoff   for tests
+ *    WebSocket, setTimeout, clearTimeout, now, backoff   for tests
  *
  *  The phases are "idle" (not started or stopped), "connecting", "open" and
  *  "waiting" (between attempts). */
@@ -46,7 +52,9 @@ export function createSocket(opts) {
   const WS = opts.WebSocket || globalThis.WebSocket;
   const setT = opts.setTimeout || ((fn, ms) => globalThis.setTimeout(fn, ms));
   const clearT = opts.clearTimeout || ((id) => globalThis.clearTimeout(id));
+  const now = opts.now || (() => Date.now());
   const backoff = opts.backoff || BACKOFF;
+  let helloAt = null; // when this connection said hello
   let ws = null;
   let timer = null;
   let attempt = 0;
@@ -60,6 +68,8 @@ export function createSocket(opts) {
 
   const retry = () => {
     if (!running) return;
+    if (helloAt !== null && now() - helloAt >= GOOD_AFTER_MS) attempt = 0;
+    helloAt = null;
     const retryInMs = retryDelay(attempt++, backoff);
     setPhase("waiting", { retryInMs });
     timer = setT(connect, retryInMs);
@@ -69,6 +79,7 @@ export function createSocket(opts) {
     timer = null;
     if (!running) return;
     setPhase("connecting");
+    helloAt = null;
     let sock;
     try {
       sock = new WS(opts.url);
@@ -89,7 +100,7 @@ export function createSocket(opts) {
         if (opts.onDrop) opts.onDrop(ev.data);
         return;
       }
-      if (msg.type === "hello") attempt = 0;
+      if (msg.type === "hello") helloAt = now();
       opts.onFrame(msg);
     };
     sock.onclose = () => {
@@ -107,6 +118,7 @@ export function createSocket(opts) {
       if (running) return;
       running = true;
       attempt = 0;
+      helloAt = null;
       connect();
     },
     stop() {
