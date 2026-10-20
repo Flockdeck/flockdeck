@@ -652,7 +652,7 @@ func New(opts Options) (*Workspace, error) {
 	// shows the reason it could not start.
 	w.claudeExe, _ = session.LookClaude()
 	w.spawnCmd = spawnCommand(selfExe)
-	w.catalog = agent.Load()
+	w.catalog = loadCatalog()
 	// A damaged or absent list is not fatal: every project simply starts
 	// with none of these settings chosen, which is what a fresh install has
 	// anyway.
@@ -2146,11 +2146,19 @@ func (w *Workspace) resolveChoice(root, agentID, model string) (string, string) 
 	return spec.ID, model
 }
 
+// loadCatalog reads the catalog and sets the opt-in for structured agents from
+// the preferences, which is where the user turns it on.
+func loadCatalog() *agent.Catalog {
+	c := agent.Load()
+	c.Structured = store.LoadPrefs().StructuredPanes
+	return c
+}
+
 // ReloadAgents reads agents.json again, so that an edit made by hand takes
 // effect without restarting. It also returns what the file had to say for
 // itself, which is empty unless it could not be read.
 func (w *Workspace) ReloadAgents() string {
-	c := agent.Load()
+	c := loadCatalog()
 	w.catalogMu.Lock()
 	w.catalog = c
 	w.catalogMu.Unlock()
@@ -2195,7 +2203,7 @@ func (w *Workspace) agents() *agent.Catalog {
 	if c != nil {
 		return c
 	}
-	c = agent.Load()
+	c = loadCatalog()
 	w.catalogMu.Lock()
 	if w.catalog == nil {
 		w.catalog = c

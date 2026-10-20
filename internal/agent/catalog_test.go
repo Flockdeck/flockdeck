@@ -52,6 +52,13 @@ func TestBuiltinsAreWellFormed(t *testing.T) {
 				if !spec.Caps.Hooks || !spec.Caps.Resume || !spec.Caps.Transcript {
 					t.Errorf("`flockdeck chat` supports all three, so its agents should say so: %+v", spec.Caps)
 				}
+			case RunnerACP:
+				if _, ok := spec.ACPAdapter(); !ok {
+					t.Fatalf("a structured agent must name an adapter of the manifest, got %q", spec.ACP.Adapter)
+				}
+				if argv != nil {
+					t.Errorf("a structured agent has no terminal command line, got %q", argv)
+				}
 			default:
 				t.Fatalf("unknown runner %q", spec.Runner)
 			}

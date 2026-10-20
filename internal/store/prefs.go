@@ -55,6 +55,9 @@ type Prefs struct {
 	// RailWidth is how wide the rail is drawn while it is expanded, in
 	// pixels. Zero is the default width.
 	RailWidth int `json:"railWidth,omitempty"`
+	// StructuredPanes turns on the beta of agents that run in a structured pane
+	// rather than a terminal. Off, the picker does not offer them.
+	StructuredPanes bool `json:"structuredPanes,omitempty"`
 	// Spend is how the pane headers show what the agents spend and how near
 	// they are to their limits. Left out of the file while it is all defaults.
 	Spend SpendPrefs `json:"spend,omitzero"`

@@ -116,6 +116,16 @@ func probe(s Spec) bool {
 	if s.Runner == RunnerAPI {
 		return NeedsNoKey(s) || KeyProbe(s)
 	}
+	if s.Runner == RunnerACP {
+		// The command the manifest starts is what has to be there. Node, where
+		// the adapter needs it, is checked when the pane starts.
+		a, ok := s.ACPAdapter()
+		if !ok {
+			return false
+		}
+		_, err := lookPath(a.Command)
+		return err == nil
+	}
 	if s.Exe == "" {
 		return false
 	}

@@ -5,7 +5,7 @@ description: Catalog of the coding agents, roles and routing policy Flockdeck ca
 resource: internal/agent
 tags: [agent, catalog, roles, routing]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/agent/available.go, internal/agent/builtin.go, internal/agent/catalog.go, internal/agent/check.go, internal/agent/config.go, internal/agent/expand.go, internal/agent/roles.go, internal/agent/routing.go, internal/agent/spec.go]
+code_paths: [internal/agent/acp.go, internal/agent/available.go, internal/agent/builtin.go, internal/agent/catalog.go, internal/agent/check.go, internal/agent/config.go, internal/agent/expand.go, internal/agent/roles.go, internal/agent/routing.go, internal/agent/spec.go]
 ---
 # internal/agent
 
@@ -15,13 +15,14 @@ Describes what a pane can run. A pane is a shell or an agent; an agent is a `Spe
 
 | Name | Role |
 |---|---|
-| `Spec`, `Model`, `Caps`, `Arg`, `APISpec`, `Patterns` | One agent; see [agent spec](/data/agent-spec.md) |
-| `Builtins()` | Ten built-ins: `claude`, `codex`, `gemini`, `aider`, `opencode`, `cursor-agent` (CLI runners), then API runners `anthropic`, `openai`, `google`, `openai-compatible` |
+| `Spec`, `Model`, `Caps`, `Arg`, `APISpec`, `ACPSpec`, `Patterns` | One agent; see [agent spec](/data/agent-spec.md) |
+| `Builtins()` | Thirteen built-ins: `claude`, `codex`, `gemini`, `aider`, `opencode`, `cursor-agent` (CLI runners), the structured `opencode-acp`, `gemini-acp` (hidden) and `codex-acp` (hidden), then API runners `anthropic`, `openai`, `google`, `openai-compatible` |
 | `Catalog`, `Load()`, `LoadFrom(dir)`, `Merge(f)` | Built-ins with the user's [agents.json](/data/agents-json.md) merged over them. Never fails; problems go in `Catalog.Notice` |
 | `BuildArgv(spec, resume, tokens)` | Expands `{{session}}`, `{{model}}`, `{{settings}}`, `{{prompt}}`, `{{cwd}}`, `{{pane}}` into an argv in one pass |
 | `Role`, `BuiltinRoles()`, `Catalog.MayStart`, `Catalog.Choose` | Roles: [agent role](/data/agent-role.md) |
 | `RoutingPolicy`, `Catalog.RoutingFor`, `SetRouting` | Routing settings, consumed by [route](/packages/route.md); see [routing policy](/data/routing-policy.md) |
 | `Available`, `Refresh`, `KeyNames`, `OwnKeyEnv`, `VendorsOwn` | Whether an agent can start now (PATH lookup or key present), and API key lookup order |
+| `Spec.ACPAdapter()`, `Spec.ACPPassEnv(environ)` | A `RunnerACP` entry names a manifest adapter in `ACP.Adapter`; `ACPPassEnv` returns exactly the variables `ACP.PassEnv` lists. `Catalog.Structured` (set by the builder from the `structuredPanes` pref; agents.json does not carry it) is the opt-in that lets `Visible` list structured entries |
 | `SetDefaults`, `SetBaseURL`, `CheckBaseURL` | Atomic edits to agents.json |
 
 ## Touches
