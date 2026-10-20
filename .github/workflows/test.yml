@@ -1,16 +1,20 @@
 name: test
 
 # The tests every change is held to, on every platform a release is built for.
-# They run on each push to a branch and on each pull request, so a failure is
-# found where it was made rather than when a release is cut: five tags in a row
-# once stopped on a macOS or Windows test that no earlier run had reached. The
+# They run on each pull request and on each push to main, so a failure is found
+# where it was made rather than when a release is cut: five tags in a row once
+# stopped on a macOS or Windows test that no earlier run had reached. The
 # release workflow calls this same file before it builds anything, so what a
 # change is held to and what a release is held to cannot drift apart.
+#
+# A push to a branch is not tested on its own: the pull request for it is, and
+# running both put every change through all three platforms twice. A branch
+# with no pull request is therefore not tested until it has one.
 #
 # Tags are left to the release workflow, which runs these tests itself.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_call:
     inputs:
@@ -25,6 +29,18 @@ on:
 
 permissions:
   contents: read
+
+# A newer push to a pull request makes the run for the one before it pointless,
+# so that run is cancelled and its runners go to the new one. Nothing else is
+# ever cancelled: a run for main, a release or an image build gets a group of
+# its own, named by its run, so that no later push can cancel it or take its
+# place in the queue (a group holds one pending run, and a newer one replaces
+# it). The group name starts with "test-" so it cannot be the name of a group
+# the calling workflow, release.yml or docker-image.yml, uses itself. Those
+# callers are started by a tag or by hand, never by a pull request.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('test-pr-{0}', github.ref) || format('test-run-{0}-{1}', github.run_id, github.run_attempt) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -146,8 +162,15 @@ jobs:
       # -- how a process is watched, how a file is locked -- give races other
       # timings than Linux does. Windows is left out until a C toolchain on
       # its runner is known to work with the detector.
+      #
+      # On macOS the detector is the slowest step of the slowest queue, so it
+      # runs on pushes to main and in a release's run, and not on pull
+      # requests. Linux runs it on every pull request. A race only macOS's
+      # timings show is therefore found after the merge, not before it. A
+      # release's run is started by a tag or by hand, so the event it sees is
+      # never pull_request.
       - name: Race
-        if: runner.os == 'Linux' || runner.os == 'macOS'
+        if: runner.os == 'Linux' || (runner.os == 'macOS' && github.event_name != 'pull_request')
         shell: bash
         env:
           CGO_ENABLED: "1"
