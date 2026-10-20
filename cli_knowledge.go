@@ -149,7 +149,9 @@ func knowledgeStatus(env knowledgeEnv, p store.Prefs, root, dir string, out io.W
 // the folder it was opened as, when dir is in one that Flockdeck has open or
 // has opened. That folder is not always a repository (it may hold several), so
 // the repository's own root is only the answer for a directory no project
-// contains, and is the main checkout of the repository for a worktree.
+// contains, and is the main checkout of the repository for a worktree. So a
+// worktree outside the folder of a project holding several repositories gets
+// the main checkout of its repository, not that folder.
 func projectRootOf(dir string) (string, error) {
 	if root, ok := store.ProjectContaining(dir); ok {
 		return root, nil

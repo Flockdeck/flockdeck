@@ -382,9 +382,8 @@ func writeSpawnFlags(b *strings.Builder, flockdeck string, roles bool) {
 		"precedence over `-split`.\n" +
 		"- `-worktree <branch>`: the agent gets a git worktree and branch of its own, cut from yours; without it " +
 		"it shares this working tree, so use it when two agents would touch the same files.\n" +
-		"- `-shell`: a terminal rather than another conversation.\n" +
-		"- `-agent <id>` and `-model <model>`: another agent or model where it suits the work better than the " +
-		"project's default; `" + flockdeck + " agents` lists them. Neither goes with `-shell`.\n")
+		"- `-shell`: a terminal, not a conversation. `-agent <id>` and `-model <model>` pick another agent or " +
+		"model (`" + flockdeck + " agents` lists them); neither goes with `-shell`.\n")
 	if roles {
 		b.WriteString("- `-role <id>`: the role the helper works as, one of those above. It brings its own briefing and, " +
 			"where you name no agent or model, its own default for them. It does not go with `-shell`.\n\n")

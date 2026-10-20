@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -370,6 +371,11 @@ func UpdatePrefs(change func(*Prefs) bool) error {
 // keys its settings by, which is the folder the project was opened as: a
 // folder holding several repositories, or a subdirectory, is not the root of
 // any one repository.
+//
+// The paths are compared as spelled first. Only when none matches are the
+// symlinks in dir and in the roots resolved and the comparison made again, so a
+// project opened through a link is still found from the directory it points to.
+// A Windows network path is not resolved, since that can wait on the network.
 func ProjectContaining(dir string) (string, bool) {
 	list, err := Recents()
 	if err != nil {
@@ -379,10 +385,28 @@ func ProjectContaining(dir string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	d := normalizeRoot(abs)
+	if root, ok := longestRootContaining(list, abs, func(s string) string { return s }); ok {
+		return root, true
+	}
+	resolved, ok := resolveLinks(abs)
+	if !ok {
+		return "", false
+	}
+	return longestRootContaining(list, resolved, func(s string) string {
+		if r, ok := resolveLinks(s); ok {
+			return r
+		}
+		return s
+	})
+}
+
+// longestRootContaining returns the longest recent root that dir is in or is,
+// each root passed through spell before it is compared.
+func longestRootContaining(list []Project, dir string, spell func(string) string) (string, bool) {
+	d := normalizeRoot(dir)
 	best, bestLen := "", -1
 	for _, p := range list {
-		r := normalizeRoot(p.Root)
+		r := normalizeRoot(spell(p.Root))
 		if r == d || strings.HasPrefix(d, strings.TrimRight(r, string(filepath.Separator))+string(filepath.Separator)) {
 			if len(r) > bestLen {
 				best, bestLen = p.Root, len(r)
@@ -390,4 +414,26 @@ func ProjectContaining(dir string) (string, bool) {
 		}
 	}
 	return best, bestLen >= 0
+}
+
+// resolveLinks is p with its symlinks followed, and false when that cannot be
+// done or p is a Windows network path. A path that does not exist is resolved
+// as far as its nearest directory that does, since the directory a command is
+// run in may be one the project has not got yet.
+func resolveLinks(p string) (string, bool) {
+	if runtime.GOOS == "windows" && strings.HasPrefix(p, `\`) {
+		return "", false
+	}
+	rest := ""
+	for dir := p; ; {
+		if r, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(r, rest), true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+		dir = parent
+	}
 }
