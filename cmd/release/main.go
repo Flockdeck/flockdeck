@@ -614,15 +614,21 @@ func build(version, goos, goarch, out string) error {
 	return cmd.Run()
 }
 
+// releaseGOFLAGS is the GOFLAGS of a release build. The repository has no vendor
+// directory or workspace, so it changes nothing about the build.
+const releaseGOFLAGS = "-mod=readonly"
+
 // buildEnv is the environment of a release build: the runner's own, with the
-// target set. GOFLAGS is emptied so that nothing ambient on a runner, such as
-// a tag for the new shell, reaches a release binary; a release is built with no build tags.
+// target set. GOFLAGS is set to a fixed harmless value so that nothing ambient on
+// a runner, such as a tag for the new shell, reaches a release binary; a release
+// is built with no build tags. It is not left empty, because the go command
+// ignores an empty variable and reads GOFLAGS from its config file instead.
 func buildEnv(base []string, goos, goarch, cgo string) []string {
 	return append(slices.Clone(base),
 		"GOOS="+goos,
 		"GOARCH="+goarch,
 		"CGO_ENABLED="+cgo,
-		"GOFLAGS=",
+		"GOFLAGS="+releaseGOFLAGS,
 	)
 }
 
