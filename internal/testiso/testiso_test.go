@@ -113,3 +113,16 @@ func TestGuardAllowsLoopback(t *testing.T) {
 		t.Errorf("loopback was refused: %v", v)
 	}
 }
+
+// Main has cleared what a Flockdeck pane gives its processes, so that running the
+// tests from an agent in a pane does not make them depend on that pane. Run the
+// package with FLOCKDECK_LAUNCH=x go test to see it hold.
+func TestNoPaneIdentityInheritedFromTheEnvironment(t *testing.T) {
+	for _, name := range []string{"API", "TOKEN", "PANE", "PANE_NAME", "PROJECT", "ROLE", "AGENT", "MODEL", "LAUNCH"} {
+		for _, prefix := range []string{"FLOCKDECK_", "PERCH_"} {
+			if v, ok := os.LookupEnv(prefix + name); ok {
+				t.Errorf("%s%s is set to %q", prefix, name, v)
+			}
+		}
+	}
+}
