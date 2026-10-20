@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -1020,5 +1021,48 @@ func TestSetPanePeerNameRecordsWhatWasReported(t *testing.T) {
 
 	if ws.SetPanePeerName("no-such-pane", "flockdeck-x") {
 		t.Error("a report for an unknown pane was accepted")
+	}
+}
+
+// A report posted by the process before a restart, landing after the restart
+// cleared the name, is dropped. One from the current start, and one from a
+// client that sends no launch, are kept.
+func TestAPeerNameReportFromAnEarlierLaunchIsDropped(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "work")
+	id := ws.CurrentTab().Focus
+
+	ws.mu.RLock()
+	before := ws.panes[id].launch
+	ws.mu.RUnlock()
+	if before == "" {
+		t.Fatal("the pane has no launch id")
+	}
+	if !ws.RestartPaneByID(id) {
+		t.Fatal("could not restart the pane")
+	}
+	ws.mu.RLock()
+	after := ws.panes[id].launch
+	ws.mu.RUnlock()
+	if after == before {
+		t.Fatal("a restart kept the launch id")
+	}
+
+	if err := ws.peerNameReported(hooks.PeerNameRequest{Pane: id, Name: "old-name", Launch: before}); err == nil {
+		t.Error("a report from the earlier launch was accepted")
+	}
+	if got := ws.Pane(id).PeerName; got != "" {
+		t.Errorf("peer name = %q after a stale report, want none", got)
+	}
+	if err := ws.peerNameReported(hooks.PeerNameRequest{Pane: id, Name: "new-name", Launch: after}); err != nil {
+		t.Errorf("a report from the current launch: %v", err)
+	}
+	if err := ws.peerNameReported(hooks.PeerNameRequest{Pane: id, Name: "old-client"}); err != nil {
+		t.Errorf("a report with no launch id: %v", err)
+	}
+	if got := ws.Pane(id).PeerName; got != "old-client" {
+		t.Errorf("peer name = %q, want old-client", got)
 	}
 }

@@ -665,6 +665,17 @@ func New(opts Options) (*Workspace, error) {
 // peerNameReported applies a pane's own report of its peer name -- see
 // hooks.SetPeerNameHandler, which this is installed as.
 func (w *Workspace) peerNameReported(req hooks.PeerNameRequest) error {
+	// A restarted pane keeps its id, so a report posted by the process before the
+	// restart, and landing after it, names the pane like any other. The launch
+	// tells them apart, as for hook events. A report that names none predates the
+	// distinction.
+	w.mu.RLock()
+	p := w.panes[req.Pane]
+	stale := p != nil && req.Launch != "" && req.Launch != p.launch
+	w.mu.RUnlock()
+	if stale {
+		return fmt.Errorf("pane %q was restarted since this report was started, so it was dropped; report the name again from the new session", req.Pane)
+	}
 	if !w.SetPanePeerName(req.Pane, strings.TrimSpace(req.Name)) {
 		return fmt.Errorf("no pane %q is open here", req.Pane)
 	}
