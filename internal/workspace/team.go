@@ -453,11 +453,13 @@ func (w *Workspace) readIdle(p *Pane) idleReading {
 
 // armIdleReport tells the parent after helperIdleDwell if the helper is still idle
 // then, in the same session; otherwise it drops the report, and the next time the
-// helper goes idle arms it again.
+// helper goes idle arms it again. A session that is closing is not the same
+// session for this: Flockdeck is ending it, in a close or a restart that has not
+// yet replaced it, and a turn it was in the middle of is not one that finished.
 func (w *Workspace) armIdleReport(p *Pane, parent string, sess *session.Session) {
 	w.team.after(w.team.dwell, func() {
 		w.mu.RLock()
-		same := p.Sess == sess
+		same := p.Sess == sess && !sess.Closing()
 		w.mu.RUnlock()
 		r := w.team.idle(p)
 		if !same || w.Pane(p.ID) != p || !r.Eligible || r.Status != "idle" {
