@@ -56,6 +56,11 @@ and replaces it. `-solo` starts a separate instance instead.
 - Real PTYs. Every pane is a genuine pseudo-terminal
   ([`go-pty`](https://github.com/aymanbagabas/go-pty), ConPTY on Windows).
   Fidelity comes from running the CLI in a terminal, not from parsing its output.
+  The one exception is a structured pane: an agent that speaks the Agent Client
+  Protocol (`agent.RunnerACP`) is talked to over that protocol, has no terminal,
+  and shows a stub line in the current window. It is the `structuredPanes` beta
+  in `prefs.json`, off by default, and the picker does not offer these agents
+  until it is on (see [ACP adapters](acp-adapters.md)).
 - An agent is data, not a branch. Which program to run, which models it offers,
   how its status is known, where its transcript is and how its briefing reaches it
   are fields on one struct. Adding an agent is a table entry, and for a user it is
@@ -108,6 +113,23 @@ read from its terminal instead (the bell, a quiet timer and optional patterns),
 and a reported event always wins over that guess.
 [docs/status-matrix.md](status-matrix.md) lists every situation a pane can be in
 and the status it should show.
+
+## The team graph
+
+A window can ask for a picture of a project's team and keep it up to date. The
+`graphSnapshot` and `graphWatch` commands on the control WebSocket answer with a
+`graph` message: the project's panes placed in teams, what each is doing and what
+it is waiting on, who sent mail to whom, and what needs the person. It is derived
+from what the workspace, the task board and the inboxes already hold, by
+`team.BuildGraph` and `team.NeedsYou` in `internal/team`, and a watching window
+is pushed a new one when it changes, no more often than every 500 milliseconds.
+`paneSend` sends text to a pane by id, the conversation commands read a pane's
+conversation, and `permissionAnswer` answers a structured pane's permission
+request. The graph commands, `paneSend` and `permissionAnswer` are refused to a
+window reached through the relay. The conversation commands are not: a relay
+device with watch access can read a pane's conversation. Nothing in the desktop window calls any of
+these yet, so the window described above is unchanged. The messages are in the
+[team graph reference](team-graph.md).
 
 ## Conversation history
 
