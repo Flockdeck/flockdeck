@@ -478,16 +478,18 @@ func (h *heldTap) finish(t *testing.T) []string {
 	return append([]string(nil), h.seen...)
 }
 
-// The queue takes tapQueueLines lines behind the one the tap is stuck on, and
-// drops the next.
+// The queue takes 1024 lines behind the one the tap is stuck on, and drops the
+// next. The number is written out, as Config.Tap documents it, so that moving
+// tapQueueLines fails here and the documentation is changed with it.
 func TestTheTapQueueTakesExactlyTheLineCap(t *testing.T) {
+	const lineCap = 1024
 	h := newHeldTap(t)
 	h.stick(t)
-	for i := 0; i < tapQueueLines; i++ {
+	for i := 0; i < lineCap; i++ {
 		h.c.tap(TapOut, []byte("n"+strconv.Itoa(i)))
 	}
 	if d := h.c.TapDropped(); d != 0 {
-		t.Fatalf("%d lines dropped within the cap of %d", d, tapQueueLines)
+		t.Fatalf("%d lines dropped within the cap of %d", d, lineCap)
 	}
 	h.c.tap(TapOut, []byte("one too many"))
 	h.c.tap(TapOut, []byte("and another"))
@@ -495,7 +497,7 @@ func TestTheTapQueueTakesExactlyTheLineCap(t *testing.T) {
 		t.Errorf("%d lines dropped past the cap, want 2", d)
 	}
 	seen := h.finish(t)
-	if len(seen) != tapQueueLines+1 || seen[0] != "first" || seen[len(seen)-1] != "n"+strconv.Itoa(tapQueueLines-1) {
+	if len(seen) != lineCap+1 || seen[0] != "first" || seen[len(seen)-1] != "n"+strconv.Itoa(lineCap-1) {
 		t.Errorf("%d lines seen, first %q, last %q", len(seen), seen[0], seen[len(seen)-1])
 	}
 	if b := h.c.tapBytes.Load(); b != 0 {
