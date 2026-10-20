@@ -36,12 +36,10 @@ place to lift when the decision changes. They are there because:
 - A structured pane's permission requests are answered from the desk only (`permissionAnswer`), so
   a phone could show a request it cannot answer.
 
-These commands are refused to a relay window, but this is not the only way a structured pane's
-content could reach one: the general state push (`state`, `agents`, the team graph and the
-conversation messages) is a separate path and today still carries a structured pane's last reply,
-permission prompt and question to a relay window. Closing that is the work of the scrub of what goes
-to the relay (task X1), and until it ships the content of a structured pane does not stay on the
-desk.
+These commands are refused to a relay window, but the state push (`paneView`: the last reply, the
+permission card and the activity) still carries a structured pane's content to relay windows. The
+scrub of what goes to the relay (task X1) closes that; until it ships, the content of a structured
+pane does not stay on the desk.
 
 A pane that is not a structured pane (a terminal, a shell, an id that is not there, an empty id) is
 refused in the same words, so a window probing for ids learns nothing: the `teamResult` error is

@@ -560,3 +560,34 @@ func TestStructuredPushCapHoldsForEverySize(t *testing.T) {
 		}
 	}
 }
+
+// A reply cut in a push is fetched whole as well.
+func TestStructuredDetailReturnsACutReply(t *testing.T) {
+	e := newStructuredEnv(t, "plain")
+	e.status(t, session.StatusIdle)
+	if err, _ := ask(e.srv, func() error { _, err := e.ws.SendToPane(e.child, "long", false); return err }); err != nil {
+		t.Fatal(err)
+	}
+	e.status(t, session.StatusIdle)
+	var en structuredEntry
+	deadline := time.Now().Add(20 * time.Second)
+	for en.ID == "" && time.Now().Before(deadline) {
+		for _, x := range e.snapshotOf(t, e.child).Entries {
+			if x.Kind == "reply" && x.Clipped {
+				en = x
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if en.ID == "" || !en.HasDetail || len(en.Markdown) != structuredTextCut {
+		t.Fatalf("entry = %d bytes, hasDetail %v", len(en.Markdown), en.HasDetail)
+	}
+	var d structuredDetailMsg
+	raw := structuredReply(t, e.srv, e.c, command{Cmd: "structuredDetail", ID: e.child, Entry: en.ID, Req: "d"}, "structuredDetail")
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Text) != 12000 || d.Clipped {
+		t.Errorf("detail text %d bytes, clipped %v", len(d.Text), d.Clipped)
+	}
+}
