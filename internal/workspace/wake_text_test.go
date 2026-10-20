@@ -3,6 +3,7 @@ package workspace
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -298,5 +299,58 @@ func TestEscapeLenCoversTheThreeByteSequences(t *testing.T) {
 	}
 	if got := escapeLen("\x1b"); got != 1 {
 		t.Fatalf("a lone ESC: %d", got)
+	}
+}
+
+// flipText keeps wake on and answers the text switch from a script: calls
+// before flipAt see it on, calls from flipAt on see it off.
+type flipText struct {
+	wakeAllOn
+	mu     sync.Mutex
+	calls  int
+	flipAt int
+}
+
+func (f *flipText) WakeText(string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	return f.calls < f.flipAt
+}
+
+// Turning the text switch off after consider chose text types nothing: the
+// check just before the line holds it back.
+func TestTextSwitchOffBeforeTheLineTypesNothing(t *testing.T) {
+	r := rigWithMessage(t, "hello")
+	r.cand.TextOK = true
+	// Call 1 is consider's; call 2 is the one just before the line.
+	f := &flipText{flipAt: 2}
+	r.svc.settings = func() WakeSettings { return f }
+	r.try()
+	if n := len(r.sess.written()); n != 0 {
+		t.Fatalf("typed %q after the text switch went off", r.sess.written())
+	}
+	if len(r.mail.woken) != 0 || len(r.mail.read) != 0 || len(r.events) != 0 {
+		t.Fatal("recorded a wake that did not happen")
+	}
+}
+
+// Turning it off during the settle keeps the Enter back. The text stays typed,
+// and the message is neither woken nor read.
+func TestTextSwitchOffBeforeTheEnterKeepsTheEnterBack(t *testing.T) {
+	r := rigWithMessage(t, "hello")
+	r.cand.TextOK = true
+	f := &flipText{flipAt: 3}
+	r.svc.settings = func() WakeSettings { return f }
+	r.try()
+	got := r.sess.written()
+	if len(got) != 1 || strings.Contains(got[0], "\r") {
+		t.Fatalf("typed %q, want the line alone", got)
+	}
+	if len(r.mail.woken) != 0 || len(r.mail.read) != 0 {
+		t.Fatalf("marked woken %v or read %v with no Enter", r.mail.woken, r.mail.read)
+	}
+	if len(r.events) != 1 || !r.events[0].Unsubmitted {
+		t.Fatalf("events = %+v, want one unsubmitted", r.events)
 	}
 }

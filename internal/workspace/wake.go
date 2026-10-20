@@ -413,11 +413,12 @@ func (s *wakeService) fire(c wakeCandidate, id int, text bool, r session.WakeRea
 		}
 		s.mu.Unlock()
 	}()
-	// off is a read of the switches that is not the cached one.
+	// off is a read of the switches that is not the cached one. A line chosen
+	// as message text also needs the text switch to be on still.
 	off := func() bool {
 		set := s.settings()
 		set.Invalidate()
-		return !set.WakeEnabled(c.Agent, c.ID)
+		return !set.WakeEnabled(c.Agent, c.ID) || (text && !set.WakeText(c.Agent))
 	}
 	typing := func() bool {
 		t := c.Sess.LastUserInput()
@@ -458,11 +459,6 @@ func (s *wakeService) fire(c wakeCandidate, id int, text bool, r session.WakeRea
 			// ever clear it, and the same one would be typed again until the
 			// streak stopped the pane for good.
 			_, _ = s.mail.Read(c.ID, id)
-			s.mu.Lock()
-			if st := s.state[c.ID]; st != nil {
-				st.streak = 0
-			}
-			s.mu.Unlock()
 		}
 	} else {
 		s.mu.Lock()
