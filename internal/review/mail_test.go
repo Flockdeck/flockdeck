@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -18,6 +19,7 @@ func bashInput(t *testing.T, cmd string) string {
 }
 
 func TestMailReadAllowsTheExactForms(t *testing.T) {
+	env := runningEnv(t)
 	dir := t.TempDir()
 	for _, cmd := range []string{
 		"flockdeck inbox",
@@ -31,7 +33,7 @@ func TestMailReadAllowsTheExactForms(t *testing.T) {
 		"flockdeck inbox read 000000001",
 		"flockdeck inbox read -json 7",
 	} {
-		d := MailRead("Bash", bashInput(t, cmd), dir)
+		d := MailRead("Bash", bashInput(t, cmd), dir, env)
 		if !d.Allow || d.Reason != "allow: reading Flockdeck mail" {
 			t.Errorf("%q: got %+v, want it allowed with the mail reason", cmd, d)
 		}
@@ -39,6 +41,7 @@ func TestMailReadAllowsTheExactForms(t *testing.T) {
 }
 
 func TestMailReadRefuses(t *testing.T) {
+	env := runningEnv(t)
 	dir := t.TempDir()
 	long := "flockdeck inbox " + strings.Repeat("-all ", 1000)
 	for name, cmd := range map[string]string{
@@ -107,13 +110,14 @@ func TestMailReadRefuses(t *testing.T) {
 		"overlong":             long,
 		"empty":                "",
 	} {
-		if d := MailRead("Bash", bashInput(t, cmd), dir); d.Allow || d.Reason != "" {
+		if d := MailRead("Bash", bashInput(t, cmd), dir, env); d.Allow || d.Reason != "" {
 			t.Errorf("%s (%q): got %+v, want it refused", name, cmd, d)
 		}
 	}
 }
 
 func TestMailReadRefusesOtherToolsAndInputs(t *testing.T) {
+	env := runningEnv(t)
 	dir := t.TempDir()
 	good := bashInput(t, "flockdeck inbox")
 	for name, c := range map[string]struct{ tool, input string }{
@@ -127,32 +131,33 @@ func TestMailReadRefusesOtherToolsAndInputs(t *testing.T) {
 		"command list":   {"Bash", `{"command":["flockdeck","inbox"]}`},
 		"command null":   {"Bash", `{"command":null}`},
 	} {
-		if d := MailRead(c.tool, c.input, dir); d.Allow {
+		if d := MailRead(c.tool, c.input, dir, env); d.Allow {
 			t.Errorf("%s: allowed", name)
 		}
 	}
 }
 
 func TestMailReadChecksTheDirectory(t *testing.T) {
+	env := runningEnv(t)
 	in := bashInput(t, "flockdeck inbox")
-	if d := MailRead("Bash", in, ""); d.Allow {
+	if d := MailRead("Bash", in, "", env); d.Allow {
 		t.Error("an empty cwd was allowed")
 	}
-	if d := MailRead("Bash", in, "relative/dir"); d.Allow {
+	if d := MailRead("Bash", in, "relative/dir", env); d.Allow {
 		t.Error("a relative cwd was allowed")
 	}
 	dir := t.TempDir()
-	if d := MailRead("Bash", in, filepath.Join(dir, "missing")); d.Allow {
+	if d := MailRead("Bash", in, filepath.Join(dir, "missing"), env); d.Allow {
 		t.Error("a cwd that does not exist was allowed")
 	}
 	file := filepath.Join(dir, "afile")
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if d := MailRead("Bash", in, file); d.Allow {
+	if d := MailRead("Bash", in, file, env); d.Allow {
 		t.Error("a cwd that is a file was allowed")
 	}
-	if d := MailRead("Bash", in, dir); !d.Allow {
+	if d := MailRead("Bash", in, dir, env); !d.Allow {
 		t.Error("an empty directory was refused")
 	}
 
@@ -163,7 +168,7 @@ func TestMailReadChecksTheDirectory(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(planted, name), []byte("#!/bin/sh\n"), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if d := MailRead("Bash", in, planted); d.Allow {
+		if d := MailRead("Bash", in, planted, env); d.Allow {
 			t.Errorf("a directory holding %s was allowed", name)
 		}
 	}
@@ -172,7 +177,7 @@ func TestMailReadChecksTheDirectory(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(sub, "flockdeck"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if d := MailRead("Bash", in, sub); d.Allow {
+	if d := MailRead("Bash", in, sub, env); d.Allow {
 		t.Error("a directory holding a folder called flockdeck was allowed")
 	}
 }
@@ -180,19 +185,21 @@ func TestMailReadChecksTheDirectory(t *testing.T) {
 // MailRead does not widen Decide: the mail forms are not read-only commands,
 // and Decide's own answers are unchanged by its existence.
 func TestMailReadIsSeparateFromDecide(t *testing.T) {
+	env := runningEnv(t)
 	dir := t.TempDir()
 	for _, cmd := range []string{"flockdeck inbox", "flockdeck inbox read 1"} {
 		if d := Decide("Bash", bashInput(t, cmd), dir); d.Allow {
 			t.Errorf("Decide allowed %q", cmd)
 		}
 	}
-	if d := MailRead("Bash", bashInput(t, "cat file"), dir); d.Allow {
+	if d := MailRead("Bash", bashInput(t, "cat file"), dir, env); d.Allow {
 		t.Error("MailRead allowed cat")
 	}
 }
 
 // Names that only look like the program are not planted programs.
 func TestMailReadAllowsDirectoriesWithOnlyLookalikes(t *testing.T) {
+	env := runningEnv(t)
 	in := bashInput(t, "flockdeck inbox")
 	dir := t.TempDir()
 	for _, name := range []string{"flockdecks", "my-flockdeck.exe", "flockdeck-notes.md", "notflockdeck", "flock.deck"} {
@@ -200,7 +207,240 @@ func TestMailReadAllowsDirectoriesWithOnlyLookalikes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if d := MailRead("Bash", in, dir); !d.Allow {
+	if d := MailRead("Bash", in, dir, env); !d.Allow {
 		t.Error("a directory with only lookalike names was refused")
+	}
+}
+
+// selfName is the file name the running application has on this platform.
+func selfName() string {
+	if runtime.GOOS == "windows" {
+		return "flockdeck.exe"
+	}
+	return "flockdeck"
+}
+
+// plant writes an executable file called name in a new directory and returns
+// the directory.
+func plant(t *testing.T, name string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// runningEnv is an environment in which the application is on the PATH: the
+// word flockdeck resolves to Self.
+func runningEnv(t *testing.T) MailEnv {
+	t.Helper()
+	dir := plant(t, selfName())
+	return MailEnv{Path: dir, Self: filepath.Join(dir, selfName())}
+}
+
+func TestMailReadResolvesFlockdeckOnThePath(t *testing.T) {
+	in := bashInput(t, "flockdeck inbox")
+	cwd := t.TempDir()
+	self := runningEnv(t)
+	sep := string(os.PathListSeparator)
+	planted := plant(t, selfName())
+
+	cases := []struct {
+		name  string
+		path  string
+		self  string
+		allow bool
+	}{
+		{"the application", self.Path, self.Self, true},
+		{"the application after unrelated entries", t.TempDir() + sep + self.Path, self.Self, true},
+		{"a planted program first", planted + sep + self.Path, self.Self, false},
+		{"a planted program only", planted, self.Self, false},
+		{"nothing called flockdeck", t.TempDir(), self.Self, false},
+		{"an empty PATH", "", self.Self, false},
+		{"no application known", self.Path, "", false},
+		{"a planted program after the application", self.Path + sep + planted, self.Self, true},
+		{"a missing directory first", filepath.Join(cwd, "nope") + sep + self.Path, self.Self, true},
+	}
+	for _, c := range cases {
+		d := MailRead("Bash", in, cwd, MailEnv{Path: c.path, Self: c.self})
+		if d.Allow != c.allow {
+			t.Errorf("%s: allow = %v, want %v", c.name, d.Allow, c.allow)
+		}
+	}
+}
+
+// A file that is not the application but sits in its directory counts: the
+// application is found by its directory, as spawnCommand finds it.
+func TestMailReadAllowsTheApplicationsDirectory(t *testing.T) {
+	in := bashInput(t, "flockdeck inbox")
+	dir := plant(t, selfName())
+	other := filepath.Join(t.TempDir(), selfName())
+	if err := os.WriteFile(other, nil, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if d := MailRead("Bash", in, t.TempDir(), MailEnv{Path: dir, Self: other}); d.Allow {
+		t.Error("a copy in another directory was allowed")
+	}
+	// Self named by a different file in the same directory.
+	sibling := filepath.Join(dir, "flockdeck-desktop.exe")
+	if err := os.WriteFile(sibling, nil, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if d := MailRead("Bash", in, t.TempDir(), MailEnv{Path: dir, Self: sibling}); !d.Allow {
+		t.Error("a program in the application's directory was refused")
+	}
+}
+
+// An empty or relative PATH entry is the directory the command runs in.
+func TestMailReadTakesRelativePathEntriesFromTheDirectory(t *testing.T) {
+	in := bashInput(t, "flockdeck inbox")
+	self := runningEnv(t)
+	sep := string(os.PathListSeparator)
+	// A cwd holding a planted program is already refused; one holding it in a
+	// subdirectory is reached only through a relative entry.
+	cwd := t.TempDir()
+	if err := os.Mkdir(filepath.Join(cwd, "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, "bin", selfName()), nil, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"bin" + sep + self.Path, "./bin" + sep + self.Path} {
+		if d := MailRead("Bash", in, cwd, MailEnv{Path: path, Self: self.Self}); d.Allow {
+			t.Errorf("PATH %q: a program under a relative entry was allowed", path)
+		}
+	}
+	// An empty entry is the cwd, which holds nothing here, so the application
+	// after it is found.
+	if d := MailRead("Bash", in, cwd, MailEnv{Path: sep + self.Path, Self: self.Self}); !d.Allow {
+		t.Error("an empty entry with nothing in the directory was refused")
+	}
+}
+
+func TestMailReadFollowsSymbolicLinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symbolic links need privileges on Windows")
+	}
+	in := bashInput(t, "flockdeck inbox")
+	self := runningEnv(t)
+	link := t.TempDir()
+	if err := os.Symlink(self.Self, filepath.Join(link, "flockdeck")); err != nil {
+		t.Fatal(err)
+	}
+	if d := MailRead("Bash", in, t.TempDir(), MailEnv{Path: link, Self: self.Self}); !d.Allow {
+		t.Error("a link to the application was refused")
+	}
+	other := plant(t, "flockdeck")
+	bad := t.TempDir()
+	if err := os.Symlink(filepath.Join(other, "flockdeck"), filepath.Join(bad, "flockdeck")); err != nil {
+		t.Fatal(err)
+	}
+	if d := MailRead("Bash", in, t.TempDir(), MailEnv{Path: bad + string(os.PathListSeparator) + self.Path, Self: self.Self}); d.Allow {
+		t.Error("a link to another program was allowed")
+	}
+}
+
+func TestMailReadIgnoresFilesThatCannotRun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("any file with the extension runs on Windows")
+	}
+	in := bashInput(t, "flockdeck inbox")
+	self := runningEnv(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "flockdeck"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := dir + string(os.PathListSeparator) + self.Path
+	if d := MailRead("Bash", in, t.TempDir(), MailEnv{Path: path, Self: self.Self}); !d.Allow {
+		t.Error("a file without the execute bit shadowed the application")
+	}
+}
+
+// A symbolic link called flockdeck in the application's own directory that
+// points at a program elsewhere is that program, not the application.
+func TestMailReadResolvesALinkInTheApplicationsDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symbolic links need privileges on Windows")
+	}
+	in := bashInput(t, "flockdeck inbox")
+	appDir := plant(t, "flockdeck-real")
+	self := filepath.Join(appDir, "flockdeck-real")
+	elsewhere := plant(t, "evil")
+	if err := os.Symlink(filepath.Join(elsewhere, "evil"), filepath.Join(appDir, "flockdeck")); err != nil {
+		t.Fatal(err)
+	}
+	if d := MailRead("Bash", in, t.TempDir(), MailEnv{Path: appDir, Self: self}); d.Allow {
+		t.Error("a link in the application's directory to a program elsewhere was allowed")
+	}
+}
+
+// On Windows an extensionless file called flockdeck, which Git Bash runs, is
+// found ahead of the application in a later directory.
+func TestMailReadFindsAnExtensionlessProgramOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("extensions are a Windows matter")
+	}
+	in := bashInput(t, "flockdeck inbox")
+	self := runningEnv(t)
+	shim := plant(t, "flockdeck")
+	path := shim + string(os.PathListSeparator) + self.Path
+	if d := MailRead("Bash", in, t.TempDir(), MailEnv{Path: path, Self: self.Self}); d.Allow {
+		t.Error("an extensionless flockdeck ahead of the application was allowed")
+	}
+}
+
+func TestCandidatesStartWithTheBareNameOnWindows(t *testing.T) {
+	got := candidates("flockdeck")
+	if got[0] != "flockdeck" {
+		t.Errorf("first candidate = %q, want the bare name", got[0])
+	}
+	if runtime.GOOS != "windows" {
+		if len(got) != 1 {
+			t.Errorf("candidates = %v, want just the name", got)
+		}
+		return
+	}
+	t.Setenv("PATHEXT", ".EXE;.CMD")
+	got = candidates("flockdeck")
+	want := []string{"flockdeck", "flockdeck.EXE", "flockdeck.CMD"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("candidates = %v, want %v", got, want)
+	}
+}
+
+func TestMailReadAsksWhenThePathHasATilde(t *testing.T) {
+	in := bashInput(t, "flockdeck inbox")
+	self := runningEnv(t)
+	sep := string(os.PathListSeparator)
+	for _, path := range []string{"~/bin" + sep + self.Path, "~" + sep + self.Path, self.Path + sep + "~/bin"} {
+		if d := MailRead("Bash", in, t.TempDir(), MailEnv{Path: path, Self: self.Self}); d.Allow {
+			t.Errorf("PATH %q was allowed", path)
+		}
+	}
+}
+
+func TestMailEnvFrom(t *testing.T) {
+	got := MailEnvFrom([]string{"A=1", "PATH=/first", "novalue", "PATH=/last"}, "/app")
+	if got.Path != "/last" || got.Self != "/app" {
+		t.Errorf("got %+v, want the last PATH and the application", got)
+	}
+	lower := MailEnvFrom([]string{"Path=/win"}, "")
+	if runtime.GOOS == "windows" && lower.Path != "/win" {
+		t.Errorf("Path was not matched on Windows: %+v", lower)
+	}
+	if runtime.GOOS != "windows" && lower.Path != "" {
+		t.Errorf("Path was matched as PATH off Windows: %+v", lower)
+	}
+}
+
+func TestSameDirIgnoresCaseWhereVolumesDo(t *testing.T) {
+	got := sameDir(filepath.Join(string(filepath.Separator), "Tmp", "App"), filepath.Join(string(filepath.Separator), "tmp", "app"))
+	want := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+	if got != want {
+		t.Errorf("sameDir ignoring case = %v, want %v", got, want)
 	}
 }

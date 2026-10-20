@@ -202,8 +202,14 @@ auto-approve is on, and the built-in chat client runs the same two forms without
 when the program is run as `flockdeck`; with a path to the binary the command does not match and is
 asked about. `-wait`, `-follow`, sending, every other subcommand, any metacharacter or quote, a command
 over 4 KiB, and a working directory holding any entry named `flockdeck` or starting with `flockdeck.` (any letter
-case) are all asked about. The check covers the working directory only, not a relative entry in PATH, and runs when
-the hook fires, not when the command runs. The check
+case) are all asked about. A built flockdeck binary in the working directory therefore makes every mail read ask.
+The word `flockdeck` must also resolve to this application: it is looked up on the PATH the pane or chat client was
+started with (an empty or relative entry is taken from the working directory), and the command is allowed only if
+what is found is the running executable or sits in its directory. A program of that name earlier on the PATH (a
+writable directory, a virtual environment's or `node_modules` bin) is asked about, as is a PATH with no `flockdeck`
+on it. A `~` entry in the PATH is asked about, since a shell expands it to a directory the check does not know.
+The check runs when the hook fires, not when the command runs, and it sees the PATH the pane was launched with, not
+one the agent has set since; a shell function or alias named `flockdeck` cannot be seen from the command string. The check
 sits in `Workspace.reviewTool` ahead of the auto-approve setting, for a known pane with a current launch
 id only, and does not count towards `AutoApproved`. It applies to agents whose hooks send PreToolUse
 reviews (Claude Code) and to the chat client; other CLI agents keep their own approval modes.

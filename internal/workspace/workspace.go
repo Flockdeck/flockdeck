@@ -549,7 +549,8 @@ type Workspace struct {
 	// mailReader decides whether a call is the reading of Flockdeck mail,
 	// which is allowed in every pane whatever its AutoReview setting -- see
 	// reviewTool. It defaults to review.MailRead and is swapped by tests the
-	// way reviewer is.
+	// way reviewer is. The default looks flockdeck up on the PATH a pane is
+	// given and allows it only if that is this application.
 	mailReader func(tool, toolInputJSON, cwd string) review.Decision
 
 	// onWake is swapped rather than assigned. The server installs itself once
@@ -615,7 +616,6 @@ func New(opts Options) (*Workspace, error) {
 		selfExe:      selfExe,
 		settingsDir:  settingsDir,
 		reviewer:     review.Decide,
-		mailReader:   review.MailRead,
 		rec:          record.NewManager(store.Dir),
 		statusAssist: &session.StatusAssist{Enabled: func() bool { return store.LoadPrefs().JevStatus }},
 	}
@@ -651,6 +651,9 @@ func New(opts Options) (*Workspace, error) {
 	// A missing claude CLI is not fatal: shell panes still work, and the pane
 	// shows the reason it could not start.
 	w.claudeExe, _ = session.LookClaude()
+	w.mailReader = func(tool, toolInputJSON, cwd string) review.Decision {
+		return review.MailRead(tool, toolInputJSON, cwd, review.MailEnvFrom(w.environ(), w.selfExe))
+	}
 	w.spawnCmd = spawnCommand(selfExe)
 	w.catalog = loadCatalog()
 	// A damaged or absent list is not fatal: every project simply starts

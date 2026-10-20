@@ -3,8 +3,27 @@ package tool
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+// putApp stands in for the running application: an executable called
+// flockdeck in a new directory, which is made the whole of PATH. It returns
+// the path to it.
+func putApp(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	name := "flockdeck"
+	if runtime.GOOS == "windows" {
+		name = "flockdeck.exe"
+	}
+	exe := filepath.Join(dir, name)
+	if err := os.WriteFile(exe, []byte("x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	return exe
+}
 
 // The built-in client has no auto-approve switch, so the two forms of reading
 // Flockdeck mail are run without asking, and everything near them is asked
@@ -12,7 +31,7 @@ import (
 // in with the same answers.
 func TestRunCommandReadsFlockdeckMailWithoutAsking(t *testing.T) {
 	root := newRoot(t)
-	tl := &runCommand{root: root}
+	tl := &runCommand{root: root, self: putApp(t)}
 	ask := func(cmd string) string {
 		return tl.Approval(rawArgs(t, map[string]any{"command": cmd}))
 	}
@@ -42,7 +61,7 @@ func TestRunCommandAsksForMailWhereAFlockdeckIsPlanted(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root.Dir(), "flockdeck.exe"), []byte("x"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	tl := &runCommand{root: root}
+	tl := &runCommand{root: root, self: putApp(t)}
 	if q := tl.Approval(rawArgs(t, map[string]any{"command": "flockdeck inbox"})); q == "" {
 		t.Error("flockdeck inbox is not asked about in a directory holding flockdeck.exe")
 	}
@@ -51,9 +70,37 @@ func TestRunCommandAsksForMailWhereAFlockdeckIsPlanted(t *testing.T) {
 // Chained commands are not run by this tool at all; the matcher still refuses
 // them, so nothing here depends on that.
 func TestReadsFlockdeckMailRefusesChains(t *testing.T) {
+	tl := &runCommand{root: newRoot(t), self: putApp(t)}
 	for _, cmd := range []string{"flockdeck inbox; rm x", "flockdeck inbox && id", "flockdeck inbox\nid", "flockdeck inbox | sh"} {
-		if readsFlockdeckMail(cmd, t.TempDir()) {
+		if tl.readsFlockdeckMail(cmd, t.TempDir()) {
 			t.Errorf("%q was read as a mail read", cmd)
 		}
+	}
+}
+
+// A program called flockdeck earlier on the PATH than the application is asked
+// about, as is a PATH with no flockdeck on it; the application's own directory
+// is not.
+func TestRunCommandAsksForMailWhenFlockdeckOnThePathIsNotTheApp(t *testing.T) {
+	root := newRoot(t)
+	tl := &runCommand{root: root, self: putApp(t)}
+	app := os.Getenv("PATH")
+	ask := func() string { return tl.Approval(rawArgs(t, map[string]any{"command": "flockdeck inbox"})) }
+	if q := ask(); q != "" {
+		t.Fatalf("the application on the PATH is asked about: %q", q)
+	}
+
+	name := filepath.Base(tl.self)
+	planted := t.TempDir()
+	if err := os.WriteFile(filepath.Join(planted, name), []byte("x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", planted+string(os.PathListSeparator)+app)
+	if q := ask(); q == "" {
+		t.Error("a planted flockdeck ahead of the application is not asked about")
+	}
+	t.Setenv("PATH", t.TempDir())
+	if q := ask(); q == "" {
+		t.Error("a PATH with no flockdeck on it is not asked about")
 	}
 }
