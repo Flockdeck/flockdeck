@@ -7,6 +7,7 @@ import (
 	"go/build"
 	"io/fs"
 	"mime"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -33,10 +34,17 @@ func TestNextFSIsTheNewShellOverTheOldTree(t *testing.T) {
 		t.Error("index.html is the old one")
 	}
 
-	// Every old file the new tree lacks is served, and unchanged.
+	// Every old file the new tree lacks is served, and unchanged. A file the new
+	// tree has of its own (index.html, app.css) is served in its place.
 	have := files(t, FS())
+	own := files(t, os.DirFS("next/assets"))
 	for _, name := range files(t, oldTree()) {
-		if name == "index.html" {
+		if slices.Contains(own, name) {
+			a, _ := fs.ReadFile(FS(), name)
+			b, _ := fs.ReadFile(os.DirFS("next/assets"), name)
+			if !bytes.Equal(a, b) {
+				t.Errorf("%s is not the new tree's own file", name)
+			}
 			continue
 		}
 		if !slices.Contains(have, name) {

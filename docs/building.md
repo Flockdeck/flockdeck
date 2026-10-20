@@ -138,6 +138,8 @@ relay's `script-src 'self'`. Preact, its hooks and htm are vendored in
 `next/assets/vendor/` (versions, licences and hashes in `LICENSES.md` beside them and in
 `next/checksums.txt`). A component is written with htm: html`<${Hello} />`.
 
+The page frame is in `next/assets/shell/`: `app.js` (the shell: a rail of the open projects, a top strip for the manager bar, the main area, a region for the drawer and a notice area), `rail.js`, `palette.js` and `keys.js`. Key handling is driven by the key table in the server's hello, which comes from `internal/help/keys.go`, so a binding is changed there and nowhere in the new code; a test fails if the shell names a key of its own (key names are allowed only in the marked vocabulary block of `keys.js`). The palette lists every action of the table, runs the ones listed in `IMPLEMENTED` in `shell/app.js`, and marks the rest "not in this window yet". `next/assets/app.css` begins with the typefaces and tokens copied unchanged from `assets/app.css` and a test holds the copy equal; the layout under it uses the tokens and writes no colour or typeface. Below 641px wide the rail becomes a bar along the top and the main area a list; `NARROW_QUERY` in `app.js` and the media rule in the stylesheet are held together by a test.
+
 Its tests are Node's own `node:test`, in `internal/webui/next/test/`, run from
 `next_test.go` under the tag. Components are drawn with Preact to a string, so no browser
 or DOM is needed; `preact-render-to-string` is in `next/test/vendor/` and is never

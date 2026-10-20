@@ -1,0 +1,491 @@
+/* The two typefaces, shipped with the application so that no request leaves
+ * it and every platform draws the same letters: one sans for words, one mono
+ * for anything measured or machine-made. Latin subsets; the mono also holds
+ * the arrows and geometric shapes the interface types. The terminals keep
+ * the font chosen in Settings and do not use these. */
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("fonts/ibm-plex-sans.woff2") format("woff2");
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/jetbrains-mono.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* The values here are design/tokens.css's, under the names this sheet has
+ * always used. The dark palette stays in this first bare :root block, as
+ * six-digit colours: the contrast tests read it from here. */
+:root {
+  color-scheme: dark;
+  /* Ground: the page and the gaps between panes; bars, pane headers and
+   * cards; fields and the rail; dialogs, menus and toasts; a row under the
+   * pointer; a pressed or chosen neutral item. */
+  --bg: #0f1418;
+  --bg-raised: #161c21;
+  --bg-inset: #0a0e11;
+  --bg-overlay: #1b2329;
+  --bg-hover: #1d252b;
+  --bg-active: #252f36;
+  /* Lines: between related things, and the edge of a container. Both are
+   * decoration and under 3:1 on purpose. */
+  --line-subtle: #1f272d;
+  --line: #2c363d;
+  /* The edge of anything operable, a text field above all, which is what
+   * shows where the field is: 4.31:1 on the field, 3.82 on the panels, 4.12
+   * on the page and 3.54 on a dialog, where anything that is not text needs
+   * 3:1. One value under two names; the tests read --field-line. */
+  --line-strong: #6a7982;
+  --field-line: #6a7982;
+  --fg: #e6edf1;
+  --fg-dim: #93a1a9;
+  /* Glyphs and rules only, never words. */
+  --fg-faint: #738087;
+  /* The mark's cyan: focus, links, the primary action, the chosen row. */
+  --accent: #4fd1db;
+  --accent-strong: #7be0e8;
+  --accent-subtle: #0e2b2e;
+  --accent-line: #1f4e53;
+  --on-accent: #0f1418;
+  /* Status, only ever set from a state the application knows. --exited is
+   * the red of a failure, and keeps the name it has always had here; a pane
+   * that simply ended is --ended. */
+  --working: #4fd1db;
+  --waiting: #e2b341;
+  --waiting-subtle: #2a2110;
+  --waiting-line: #4e3d18;
+  --idle: #93a1a9;
+  --exited: #f0776a;
+  --exited-subtle: #2c1512;
+  --exited-line: #58251f;
+  --ended: #738087;
+  /* A verdict, not a state: passed, clean, lines added, ahead. */
+  --ok: #64c97f;
+  --ok-subtle: #10261a;
+  --ok-line: #24492f;
+  /* Broadcast is on: what is typed goes to every pane. */
+  --cast: #c98be0;
+  --on-cast: #170d1c;
+  --on-exited: #1f0907;
+  --on-ok: #06180c;
+  /* The terminal is the content, and an agent's colours are chosen for a
+   * dark ground, so it is the same in both themes. */
+  --term-bg: #0a0e11;
+  --term-fg: #d7dfe4;
+  --term-cursor: #4fd1db;
+
+  --scrim: rgb(5 8 10 / .62);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / .4);
+  --shadow-2: 0 8px 24px -8px rgb(0 0 0 / .6);
+  --shadow-3: 0 20px 56px -16px rgb(0 0 0 / .75);
+
+  --sans: "IBM Plex Sans", "Segoe UI", -apple-system, BlinkMacSystemFont, Ubuntu, "Helvetica Neue", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, "SF Mono", monospace;
+
+  /* Three radii and a pill: tags and keys; everything operable; containers;
+   * status pills, switches and count badges. */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --radius-full: 999px;
+
+  /* Colour under the pointer; a press, a switch, the rail's width; a dialog
+   * or a toast arriving; the working mark's breath. */
+  --dur-1: 80ms;
+  --dur-2: 140ms;
+  --dur-3: 220ms;
+  --pulse: 1.6s;
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-in: cubic-bezier(.7, 0, .84, 0);
+  --ease-in-out: cubic-bezier(.65, 0, .35, 1);
+
+  /* A pane header holds its buttons at 28px, the size a pointer target is
+   * meant to be on a desktop, plus the one-pixel rule under it and a pixel
+   * of air above. */
+  --header-h: 30px;
+}
+
+/* The accent swatches Settings › Appearance offers. Each reaches at least
+ * 4.5:1 on --bg-inset and --bg-raised, and --on-accent reaches it on each as
+ * a fill. The accent changes focus, links, the primary fill and the chosen
+ * row; it never changes a status. The default swatch is plain --accent above
+ * and gets no [data-accent] rule of its own. app.js's ACCENTS list repeats
+ * these colours for the swatches themselves. */
+:root[data-accent="blue"]   { --accent: #6cb0ff; }
+:root[data-accent="purple"] { --accent: #b99af5; }
+:root[data-accent="green"]  { --accent: #64c97f; }
+:root[data-accent="orange"] { --accent: #f0a552; }
+:root[data-accent="pink"]   { --accent: #f28fc0; }
+
+/* The light palette: Settings › Appearance's Light, forced with
+ * [data-theme="light"] regardless of the system's own setting, and Follow
+ * system's own light half, applied by the media query beneath this block to
+ * :root with no [data-theme] at all -- which is what "system" leaves on the
+ * root, so the OS decides between this and the plain dark :root above.
+ * "Dark" and the default (no preference made yet) are always the bare :root,
+ * whatever the system prefers: this used to be the only palette there was,
+ * and it stays what nobody has asked to change gets. The two copies below
+ * must be kept the same by hand. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #fafbfb;
+  --bg-raised: #ffffff;
+  --bg-inset: #f1f3f4;
+  --bg-overlay: #ffffff;
+  --bg-hover: #eef1f2;
+  --bg-active: #e3e7e9;
+  --line-subtle: #e3e7e9;
+  --line: #cbd2d6;
+  --line-strong: #7a868c;
+  --field-line: #7a868c;
+  --fg: #131a1e;
+  --fg-dim: #5c676d;
+  --fg-faint: #7a868c;
+  --accent: #0b6e77;
+  --accent-strong: #08575e;
+  --accent-subtle: #e6f3f4;
+  --accent-line: #a9d5d8;
+  --on-accent: #ffffff;
+  --working: #0b6e77;
+  --waiting: #875a08;
+  --waiting-subtle: #faf0dc;
+  --waiting-line: #e3ce96;
+  --idle: #5c676d;
+  --exited: #b02a1f;
+  --exited-subtle: #fbeae8;
+  --exited-line: #ebb8b1;
+  --ended: #7a868c;
+  --ok: #196634;
+  --ok-subtle: #e7f2ea;
+  --ok-line: #b4d6bf;
+  --cast: #7e3aa0;
+  --on-cast: #ffffff;
+  --on-exited: #ffffff;
+  --on-ok: #ffffff;
+  --scrim: rgb(19 26 30 / .38);
+  --shadow-1: 0 1px 2px rgb(19 26 30 / .08);
+  --shadow-2: 0 8px 24px -8px rgb(19 26 30 / .18);
+  --shadow-3: 0 20px 56px -16px rgb(19 26 30 / .28);
+}
+:root[data-theme="light"][data-accent="blue"]   { --accent: #1f5fa8; }
+:root[data-theme="light"][data-accent="purple"] { --accent: #7044c4; }
+:root[data-theme="light"][data-accent="green"]  { --accent: #196634; }
+:root[data-theme="light"][data-accent="orange"] { --accent: #9a4d08; }
+:root[data-theme="light"][data-accent="pink"]   { --accent: #a8327a; }
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --bg: #fafbfb;
+    --bg-raised: #ffffff;
+    --bg-inset: #f1f3f4;
+    --bg-overlay: #ffffff;
+    --bg-hover: #eef1f2;
+    --bg-active: #e3e7e9;
+    --line-subtle: #e3e7e9;
+    --line: #cbd2d6;
+    --line-strong: #7a868c;
+    --field-line: #7a868c;
+    --fg: #131a1e;
+    --fg-dim: #5c676d;
+    --fg-faint: #7a868c;
+    --accent: #0b6e77;
+    --accent-strong: #08575e;
+    --accent-subtle: #e6f3f4;
+    --accent-line: #a9d5d8;
+    --on-accent: #ffffff;
+    --working: #0b6e77;
+    --waiting: #875a08;
+    --waiting-subtle: #faf0dc;
+    --waiting-line: #e3ce96;
+    --idle: #5c676d;
+    --exited: #b02a1f;
+    --exited-subtle: #fbeae8;
+    --exited-line: #ebb8b1;
+    --ended: #7a868c;
+    --ok: #196634;
+    --ok-subtle: #e7f2ea;
+    --ok-line: #b4d6bf;
+    --cast: #7e3aa0;
+    --on-cast: #ffffff;
+    --on-exited: #ffffff;
+    --on-ok: #ffffff;
+    --scrim: rgb(19 26 30 / .38);
+    --shadow-1: 0 1px 2px rgb(19 26 30 / .08);
+    --shadow-2: 0 8px 24px -8px rgb(19 26 30 / .18);
+    --shadow-3: 0 20px 56px -16px rgb(19 26 30 / .28);
+  }
+  :root:not([data-theme])[data-accent="blue"]   { --accent: #1f5fa8; }
+  :root:not([data-theme])[data-accent="purple"] { --accent: #7044c4; }
+  :root:not([data-theme])[data-accent="green"]  { --accent: #196634; }
+  :root:not([data-theme])[data-accent="orange"] { --accent: #9a4d08; }
+  :root:not([data-theme])[data-accent="pink"]   { --accent: #a8327a; }
+}
+
+/* What goes with a chosen accent is made from it: brighter for hover (deeper
+ * on a light ground), and two tints of it on the page for the chosen row and
+ * its edge. The tint is fainter on a light ground, where the dim text on a
+ * chosen row would otherwise fall short of 4.5:1. After the palettes above,
+ * which would otherwise put the default accent's own tints back. */
+:root[data-accent] {
+  --accent-strong: color-mix(in srgb, var(--accent) 72%, #ffffff);
+  --accent-subtle: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  --accent-line: color-mix(in srgb, var(--accent) 34%, var(--bg));
+}
+:root[data-theme="light"][data-accent] {
+  --accent-strong: color-mix(in srgb, var(--accent) 80%, #000000);
+  --accent-subtle: color-mix(in srgb, var(--accent) 10%, var(--bg));
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme])[data-accent] {
+    --accent-strong: color-mix(in srgb, var(--accent) 80%, #000000);
+    --accent-subtle: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  }
+}
+
+/* ==== The new shell's layout ================================================
+ * Everything above this line is copied unchanged from the old app.css: the
+ * typefaces and the tokens. A test holds the two in step. Everything below uses
+ * those tokens and writes no colour or typeface of its own.
+ *
+ * The narrow rules repeat NARROW_QUERY in shell/app.js, and a test holds the
+ * two together. */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.4 var(--sans);
+}
+
+#app { height: 100%; }
+
+button { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.shell {
+  --rail-w: 220px;
+  --rail-w-collapsed: 48px;
+  --drawer-w: 420px;
+  display: grid;
+  height: 100%;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "rail top top"
+    "rail main drawer"
+    "rail notices notices";
+}
+.shell--rail-collapsed { --rail-w: var(--rail-w-collapsed); }
+
+/* The rail: the open projects, one under another. */
+.rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  overflow-y: auto;
+  background: var(--bg-inset);
+  border-right: 1px solid var(--line);
+}
+.rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.rail-item:hover { background: var(--bg-hover); }
+.rail-item.is-active {
+  background: var(--accent-subtle);
+  border-color: var(--accent-line);
+}
+.rail-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-empty { padding: 6px 8px; color: var(--fg-dim); }
+.rail-toggle {
+  margin-top: auto;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  cursor: pointer;
+}
+.rail-toggle:hover { background: var(--bg-hover); }
+.shell--rail-collapsed .rail-name { display: none; }
+
+.badge {
+  flex: 0 0 auto;
+  min-width: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  font: 11px/16px var(--mono);
+  text-align: center;
+}
+.badge--waiting {
+  color: var(--waiting);
+  background: var(--waiting-subtle);
+  border-color: var(--waiting-line);
+}
+.badge--working { color: var(--working); }
+
+/* The strip across the top holds the manager bar. */
+.top {
+  grid-area: top;
+  min-height: 36px;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--line);
+}
+.top-title { font-weight: 600; }
+
+.main {
+  grid-area: main;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+/* One agent, in a drawer beside the main area. Empty until something opens it. */
+.drawer {
+  grid-area: drawer;
+  width: var(--drawer-w);
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-raised);
+  border-left: 1px solid var(--line);
+}
+.drawer[hidden] { display: none; }
+
+.notices { grid-area: notices; }
+.notices:empty { display: none; }
+.notice {
+  margin: 0;
+  padding: 6px 12px;
+  background: var(--bg-overlay);
+  border-top: 1px solid var(--line);
+  color: var(--fg-dim);
+}
+
+/* The command palette. */
+.palette-scrim {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: var(--scrim);
+}
+.palette {
+  width: min(560px, calc(100vw - 24px));
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-overlay);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+}
+.palette-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-inset);
+  color: var(--fg);
+  font: inherit;
+}
+.palette-input:focus-visible { outline-offset: -2px; }
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+}
+.palette-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.palette-row.is-current { background: var(--accent-subtle); }
+.palette-row--off { color: var(--fg-dim); cursor: default; }
+.palette-name { flex: 1 1 auto; min-width: 0; }
+.palette-note { font-size: 11px; color: var(--fg-faint); }
+.palette-keys { font: 11px/1.4 var(--mono); color: var(--fg-dim); }
+.palette-empty { padding: 10px 12px; color: var(--fg-dim); }
+
+/* Narrow: the rail becomes a bar along the top and the main area a list. The
+ * drawer covers the window. */
+@media (max-width: 640px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "rail"
+      "top"
+      "main"
+      "notices";
+  }
+  .rail {
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .rail-list { flex-direction: row; }
+  .rail-item { width: auto; white-space: nowrap; }
+  .rail-toggle { display: none; }
+  .shell--rail-collapsed .rail-name { display: inline; }
+  .main--list { padding: 0; }
+  .drawer {
+    position: fixed;
+    inset: 0;
+    width: auto;
+    border-left: 0;
+    z-index: 2;
+  }
+}

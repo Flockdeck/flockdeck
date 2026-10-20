@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"io/fs"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/webui"
 )
 
@@ -337,6 +339,17 @@ func TestNodeTests(t *testing.T) {
 	cmd := exec.CommandContext(ctx, node, append([]string{"--test"}, files...)...)
 	// testiso.Main has already pointed the home and config variables at a
 	// throwaway directory and cleared the credentials; node inherits that.
+	// The server's own key table, as the hello sends it, so the shell's tests
+	// run against the bindings that ship and not a copy written out here.
+	table, err := json.Marshal(help.Keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keysFile := filepath.Join(t.TempDir(), "keys.json")
+	if err := os.WriteFile(keysFile, table, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd.Env = append(os.Environ(), "NEXT_KEYS_JSON="+keysFile)
 	cmd.WaitDelay = 5 * time.Second
 	out, err := cmd.CombinedOutput()
 	if err != nil {
