@@ -5,7 +5,9 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -1064,5 +1066,67 @@ func TestAPeerNameReportFromAnEarlierLaunchIsDropped(t *testing.T) {
 	}
 	if got := ws.Pane(id).PeerName; got != "old-client" {
 		t.Errorf("peer name = %q, want old-client", got)
+	}
+}
+
+// A pane that was never started has no launch id. A report that names one is
+// not from its current launch, so it is refused: accepting any report when the
+// pane's launch is empty would let a stale one through.
+func TestAPeerNameReportToAPaneThatWasNeverStartedIsRefused(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "work")
+	id := ws.CurrentTab().Focus
+	ws.mu.Lock()
+	ws.panes[id].launch = ""
+	ws.mu.Unlock()
+
+	if err := ws.peerNameReported(hooks.PeerNameRequest{Pane: id, Name: "late", Launch: "some-launch"}); err == nil {
+		t.Error("a report naming a launch was accepted by a pane with none")
+	}
+	if got := ws.Pane(id).PeerName; got != "" {
+		t.Errorf("peer name = %q, want none", got)
+	}
+	if err := ws.peerNameReported(hooks.PeerNameRequest{Pane: id, Name: "old-client"}); err != nil {
+		t.Errorf("a report with no launch id: %v", err)
+	}
+}
+
+// A restart that lands between a report's check and its write must not let the
+// old name stand. The restart is a new launch and a cleared name, taken under
+// the same lock as the report's check and write; whichever comes first, the
+// name is empty at the end.
+func TestAPeerNameReportRacingARestartNeverLeavesTheOldName(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTab(session.KindShell, root, "work")
+	id := ws.CurrentTab().Focus
+
+	for i := 0; i < 3000; i++ {
+		ws.mu.Lock()
+		p := ws.panes[id]
+		old := "launch-" + strconv.Itoa(i)
+		p.launch, p.PeerName = old, ""
+		ws.mu.Unlock()
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			ws.setPeerName(id, "old-name", old)
+		}()
+		go func() {
+			defer wg.Done()
+			// What startPane and a restart do: a new launch, and with #350 a cleared name.
+			ws.mu.Lock()
+			p.launch, p.PeerName = "next-"+strconv.Itoa(i), ""
+			ws.mu.Unlock()
+		}()
+		wg.Wait()
+		if got := ws.Pane(id).PeerName; got != "" {
+			t.Fatalf("round %d: the old name %q stood after the restart", i, got)
+		}
 	}
 }
