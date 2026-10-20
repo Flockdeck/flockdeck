@@ -88,3 +88,82 @@ func TestValidatePanicIsAnError(t *testing.T) {
 		t.Fatalf("errors = %v, want a schema error for the bad pattern", errs)
 	}
 }
+
+// A mistake anywhere in the schema is reported, whatever the document is and
+// however the keyword is reached: under anyOf, not or an if condition, in a then
+// that does not apply, in a property the document does not have, or in $defs.
+func TestMalformedKeywordsAreFoundWhereverTheyAre(t *testing.T) {
+	cases := map[string]string{
+		"anyOf inside not":                   `{"not":{"anyOf":[true]}}`,
+		"required inside not":                `{"not":{"required":[5]}}`,
+		"not inside an if condition":         `{"if":{"not":3},"then":{"required":["x"]}}`,
+		"not inside an anyOf alternative":    `{"anyOf":[{"not":3},{"type":"object"}]}`,
+		"then that does not apply":           `{"if":{"required":["zzz"]},"then":{"anyOf":[true]}}`,
+		"property the document lacks":        `{"properties":{"absent":{"not":false}}}`,
+		"in $defs nothing refers to":         `{"$defs":{"unused":{"allOf":7}}}`,
+		"in items":                           `{"items":{"anyOf":"x"}}`,
+		"required is a string":               `{"required":"a"}`,
+		"properties is an array":             `{"properties":[1]}`,
+		"pattern is a number":                `{"pattern":5}`,
+		"pattern is not an expression":       `{"pattern":"["}`,
+		"type is a number":                   `{"type":3}`,
+		"minimum is a string":                `{"minimum":"1"}`,
+		"additionalProperties is a string":   `{"additionalProperties":"no"}`,
+		"enum is an object":                  `{"enum":{"a":1}}`,
+		"$ref that does not resolve":         `{"$ref":"#/$defs/nowhere"}`,
+		"$ref that is not a string":          `{"$ref":4}`,
+		"unresolved $ref under an anyOf":     `{"anyOf":[{"$ref":"#/$defs/nowhere"},{}]}`,
+		"property that is not a schema":      `{"properties":{"a":"x"}}`,
+		"$defs member that is not an object": `{"$defs":{"a":[]}}`,
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := schemaOf(t, src)
+			for _, doc := range []string{`{}`, `{"a":1}`, `"text"`} {
+				if errs := s.Validate([]byte(doc)); !hasSchemaError(errs) {
+					t.Errorf("%s on %s: errors %v do not name a schema fault", src, doc, errs)
+				}
+			}
+		})
+	}
+}
+
+func hasSchemaError(errs []string) bool {
+	for _, e := range errs {
+		if strings.Contains(e, "schema:") {
+			return true
+		}
+	}
+	return false
+}
+
+// A schema that refers to itself without consuming the document ends in an
+// error, not a stack overflow, including where the result of the check is only
+// used to see whether it matched.
+func TestSelfReferencingRefEndsInAnError(t *testing.T) {
+	for name, src := range map[string]string{
+		"direct":             `{"$defs":{"a":{"$ref":"#/$defs/a"}},"$ref":"#/$defs/a"}`,
+		"two steps":          `{"$defs":{"a":{"$ref":"#/$defs/b"},"b":{"$ref":"#/$defs/a"}},"$ref":"#/$defs/a"}`,
+		"through allOf":      `{"$defs":{"a":{"allOf":[{"$ref":"#/$defs/a"}]}},"$ref":"#/$defs/a"}`,
+		"under anyOf":        `{"$defs":{"a":{"$ref":"#/$defs/a"}},"anyOf":[{"$ref":"#/$defs/a"},{}]}`,
+		"under not":          `{"$defs":{"a":{"$ref":"#/$defs/a"}},"not":{"$ref":"#/$defs/a"}}`,
+		"unevaluated fields": `{"$defs":{"a":{"$ref":"#/$defs/a"}},"unevaluatedProperties":false,"$ref":"#/$defs/a"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := schemaOf(t, src)
+			errs := s.Validate([]byte(`{"a":1}`))
+			if !hasSchemaError(errs) {
+				t.Fatalf("errors %v do not name a schema fault", errs)
+			}
+		})
+	}
+}
+
+// A $ref back to an ancestor through a property is ordinary recursion and ends
+// with the document.
+func TestRecursiveSchemaThroughAPropertyIsFine(t *testing.T) {
+	s := schemaOf(t, `{"$defs":{"node":{"type":"object","properties":{"next":{"$ref":"#/$defs/node"}}}},"$ref":"#/$defs/node"}`)
+	if errs := s.Validate([]byte(`{"next":{"next":{"next":{}}}}`)); len(errs) != 0 {
+		t.Fatalf("errors = %v", errs)
+	}
+}
