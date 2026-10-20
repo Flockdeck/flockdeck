@@ -138,6 +138,7 @@ var commandAccess = map[string]cmdAccess{
 	"jevStatus": accessFull, "conflictRadar": accessFull,
 	"permissionAnswer": accessFull, "wakeSwitch": accessFull,
 	"graphSnapshot": accessFull, "graphWatch": accessFull, "graphUnwatch": accessFull,
+	"structuredSnapshot": accessFull, "structuredWatch": accessFull, "structuredUnwatch": accessFull, "structuredDetail": accessFull,
 	"teamSnapshot": accessFull, "teamWatch": accessFull, "teamUnwatch": accessFull, "taskList": accessFull,
 	"taskGet": accessFull, "taskAdd": accessFull, "taskAssign": accessFull, "taskStatus": accessFull,
 	"taskNote": accessFull, "taskBranch": accessFull, "taskPrune": accessFull, "msgList": accessFull,

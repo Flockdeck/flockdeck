@@ -1072,6 +1072,7 @@ func (s *Server) broadcastState() {
 		// shares the push with changed: a task or a message does not show in it.
 		s.pushTeam()
 		s.pushGraph()
+		s.pushStructured()
 		snap := s.snapshot()
 		data, err := json.Marshal(snap)
 		if err != nil {
@@ -1119,6 +1120,11 @@ type controlClient struct {
 	// teamgraph.go), which is subscribed to apart from the Team panel.
 	graphRoot string
 	graphSent []byte
+	// structID is the structured pane the window watches (see structured.go), and
+	// structSent the message it was last sent. Both belong to the workspace
+	// goroutine.
+	structID   string
+	structSent []byte
 
 	// page marks a connection that opened with an Origin header, as a browser or
 	// a webview always does and a command-line client does not. Only such a
@@ -1535,6 +1541,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "graphSnapshot", "graphWatch", "graphUnwatch":
 		s.graphCommand(c, cmd)
+		return
+	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredDetail":
+		s.structuredCommand(c, cmd)
 		return
 	case "worktrees":
 		s.listWorktrees(c, cmd.Root)
