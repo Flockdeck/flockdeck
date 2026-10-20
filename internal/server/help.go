@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/keybindings"
@@ -538,7 +539,8 @@ func (s *Server) setJevStatus(c *controlClient, on bool) {
 
 // setWakeSwitch turns typed wake on or off for everything (Kind "global"), for
 // an agent type (Kind "agent", ID the agent id) or for one pane (Kind "pane",
-// ID the pane id). Text is "on" or "off"; anything else is ignored, so a
+// ID the pane id), and opts an agent type in or out of being typed the message
+// text (Kind "text", ID the agent id). Text is "on" or "off"; anything else is ignored, so a
 // malformed command can only leave things as they are. Whether wake may type
 // into a terminal is the desk's to say, so a window reached through the relay is
 // refused, switching off included, and told so; the window has already moved
@@ -552,6 +554,15 @@ func (s *Server) setWakeSwitch(c *controlClient, cmd command) {
 	}
 	if cmd.Text != "on" && cmd.Text != "off" {
 		return
+	}
+	// Kind "text" opts an agent type in to being typed the message text. Only an
+	// agent whose catalog entry offers it may be opted in; turning it off is
+	// always allowed.
+	if cmd.Kind == store.WakeText && cmd.Text == "on" {
+		if spec, ok := agent.Load().Find(cmd.ID); !ok || !spec.Caps.TextWake {
+			c.notify("Typed message text is only offered for agents that cannot run commands, and "+cmd.ID+" is not one", true)
+			return
+		}
 	}
 	s.updatePrefsThen(c, func(p *store.Prefs) bool { return p.SetWake(cmd.Kind, cmd.ID, cmd.Text == "on") }, func(r prefsResult) {
 		if r == prefsFailed {

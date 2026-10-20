@@ -57,12 +57,17 @@ type WakeSettings interface {
 	// window command that sets a switch calls it so that a click takes effect
 	// at once.
 	Invalidate()
+	// WakeText says the user has opted the agent type in to being typed the
+	// message text and not the fixed line. It is only asked for an agent whose
+	// catalog entry offers it.
+	WakeText(agentID string) bool
 }
 
 type wakeAllOn struct{}
 
 func (wakeAllOn) WakeEnabled(string, string) bool { return true }
 func (wakeAllOn) Invalidate()                     {}
+func (wakeAllOn) WakeText(string) bool            { return false }
 
 // wakeSettingsTTL is how long the preferences are kept before they are read
 // again. The service asks about every pane on every tick, and a switch changed
@@ -108,6 +113,16 @@ func (p *prefsWake) WakeEnabled(agentID, paneID string) bool {
 	return p.err == nil && p.prefs.WakeEnabled(agentID, paneID)
 }
 
+func (p *prefsWake) WakeText(agentID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if now := p.now(); p.at.IsZero() || now.Sub(p.at) >= wakeSettingsTTL {
+		p.prefs, p.err = p.read()
+		p.at = now
+	}
+	return p.err == nil && p.prefs.WakeText(agentID)
+}
+
 // wakeSession is what the service needs of a pane's session. *session.Session
 // is one; a test supplies another.
 type wakeSession interface {
@@ -143,6 +158,9 @@ type wakeCandidate struct {
 	// own cannot land between them. Nil means no coordination, for a test.
 	Claim   func() bool
 	Release func()
+	// TextOK says the agent's catalog entry offers the message text as the wake
+	// line (agent.Caps.TextWake). Without it the setting is never looked at.
+	TextOK bool
 }
 
 // wakeService decides, for each agent pane with unread mail, whether to type
@@ -401,6 +419,11 @@ func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading, at ti
 		return
 	}
 	line := wakeLine(id)
+	if c.TextOK && s.settings().WakeText(c.Agent) {
+		if m, ok := s.message(c.ID, id); ok {
+			line = wakeTextLine(m)
+		}
+	}
 	if err := c.Sess.WriteStringFrom(session.InputFlockdeck, line); err != nil {
 		// Backed off, so a pane that cannot be written to is not tried every tick.
 		s.undo(c, at, true)
@@ -429,6 +452,16 @@ func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading, at ti
 			Unsubmitted: !submitted,
 		})
 	}
+}
+
+// message finds an unread message of the pane by id.
+func (s *wakeService) message(pane string, id int) (team.Message, bool) {
+	for _, m := range s.mail.List(pane, false) {
+		if m.ID == id {
+			return m, true
+		}
+	}
+	return team.Message{}, false
 }
 
 // undo takes back what an attempt that typed nothing counted: its place in the
@@ -494,7 +527,8 @@ func (w *Workspace) wakeCandidates() []wakeCandidate {
 			continue
 		}
 		p := p
-		out = append(out, wakeCandidate{ID: p.ID, Agent: p.Agent, Root: p.Root, Sess: p.Sess,
+		spec, _ := w.agents().Find(p.Agent)
+		out = append(out, wakeCandidate{ID: p.ID, Agent: p.Agent, Root: p.Root, Sess: p.Sess, TextOK: spec.Caps.TextWake,
 			Claim: func() bool { return w.claimSend(p) }, Release: func() { w.releaseSend(p) }})
 	}
 	return out

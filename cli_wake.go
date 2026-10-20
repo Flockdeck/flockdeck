@@ -11,6 +11,7 @@ import (
 
 	"github.com/mattn/go-isatty"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/team"
 	"github.com/jmwri/flockdeck/internal/workspace"
@@ -35,14 +36,18 @@ import (
 
 func wakeUsage(w io.Writer) {
 	fmt.Fprint(w, "Usage: flockdeck wake [status] [-n count]\n"+
-		"       flockdeck wake on|off [-agent id | -pane id]\n\n"+
+		"       flockdeck wake on|off [-agent id | -pane id]\n"+
+		"       flockdeck wake text on|off -agent id\n\n"+
 		"Typed wake types one fixed line into an idle agent's input when it has unread\n"+
 		"mail. status shows the switches and the last wake events (no message text).\n"+
 		"on and off set the global switch, or with -agent or -pane the switch for an\n"+
 		"agent type or one pane. A wake needs every switch on. A switch takes effect\n"+
 		"within a second, and a wake already on its way stops before the line or its\n"+
-		"Enter if the switch is off by then. on and off must be run outside a Flockdeck\n"+
-		"pane, and on from a terminal you are typing in.\n")
+		"Enter if the switch is off by then. text on types the text of the message (one\n"+
+		"line, cleaned, at most 300 characters) instead of the fixed line, for an agent\n"+
+		"that cannot run commands; it is off for every agent and only offered where the\n"+
+		"agent's catalog entry says so (aider). on, off and text must be run outside a\n"+
+		"Flockdeck pane, and on and text on from a terminal you are typing in.\n")
 }
 
 // wakeEnv is what runWake depends on besides the preferences, so a test can
@@ -56,6 +61,8 @@ type wakeEnv struct {
 	paneAPI  func() bool
 	// read is store.ReadWake.
 	read func() (store.Prefs, error)
+	// offersText says the agent type can be typed message text.
+	offersText func(agentID string) bool
 }
 
 func runWake(args []string, out io.Writer) error {
@@ -65,6 +72,10 @@ func runWake(args []string, out io.Writer) error {
 		terminal: wakeTerminal,
 		paneAPI:  func() bool { return quietPaneEnv("API") != "" || quietPaneEnv("TOKEN") != "" },
 		read:     store.ReadWake,
+		offersText: func(id string) bool {
+			spec, ok := agent.Load().Find(id)
+			return ok && spec.Caps.TextWake
+		},
 	}, args, out)
 }
 
@@ -116,6 +127,12 @@ func runWakeWith(env wakeEnv, args []string, out io.Writer) error {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		action, args = args[0], args[1:]
 	}
+	// text takes on or off before its flags, which the flag package would
+	// otherwise take for the end of them.
+	textState := ""
+	if action == "text" && len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		textState, args = args[0], args[1:]
+	}
 	var f wakeFlags
 	fs := wakeFlagSet(&f)
 	agentID, paneID, count := &f.agent, &f.pane, &f.n
@@ -141,7 +158,7 @@ func runWakeWith(env wakeEnv, args []string, out io.Writer) error {
 			return errors.New("status takes no -agent or -pane")
 		}
 		return wakeStatus(env, *count, out)
-	case "on", "off":
+	case "on", "off", "text":
 	default:
 		wakeUsage(os.Stderr)
 		return fmt.Errorf("unknown action %q", action)
@@ -152,13 +169,16 @@ func runWakeWith(env wakeEnv, args []string, out io.Writer) error {
 	if env.inPane() {
 		return errors.New("this changes what is typed into panes, so it is not run from inside a pane; run it in a terminal outside Flockdeck")
 	}
-	if action == "on" {
+	if action == "on" || (action == "text" && textState == "on") {
 		if !env.terminal() {
 			return errors.New("on is run from a terminal you are typing in, and stdin here is not one")
 		}
 		if env.paneAPI() {
 			return errors.New("this environment has a pane's API address or token, so on is refused; run it in a terminal outside Flockdeck")
 		}
+	}
+	if action == "text" {
+		return wakeText(env, textState, *agentID, *paneID, out)
 	}
 	scope, id := store.WakeGlobal, ""
 	switch {
@@ -196,6 +216,23 @@ func runWakeWith(env wakeEnv, args []string, out io.Writer) error {
 	return nil
 }
 
+// wakeText is `wake text on|off -agent id`.
+func wakeText(env wakeEnv, state, agentID, paneID string, out io.Writer) error {
+	if (state != "on" && state != "off") || agentID == "" || paneID != "" {
+		wakeUsage(os.Stderr)
+		return errors.New("text takes on or off and -agent, and no -pane")
+	}
+	on := state == "on"
+	if on && !env.offersText(agentID) {
+		return fmt.Errorf("%s is not offered text mode: it is for an agent that cannot run commands, and the catalog entry for %s does not say it is one", agentID, agentID)
+	}
+	if err := store.UpdatePrefs(func(p *store.Prefs) bool { return p.SetWake(store.WakeText, agentID, on) }); err != nil {
+		return fmt.Errorf("could not save the setting: %w", err)
+	}
+	fmt.Fprintf(out, "Typed wake text for %s: %s\n", agentID, state)
+	return nil
+}
+
 func wakeStatus(env wakeEnv, count int, out io.Writer) error {
 	p, err := env.read()
 	damaged := errors.Is(err, store.ErrPrefsDamaged)
@@ -210,6 +247,7 @@ func wakeStatus(env wakeEnv, count int, out io.Writer) error {
 	fmt.Fprintf(out, "global: %s\n", onOff(!w.Off))
 	fmt.Fprintf(out, "agent types off: %s\n", listOr(w.Agents))
 	fmt.Fprintf(out, "panes off: %s\n", listOr(w.Panes))
+	fmt.Fprintf(out, "message text typed for: %s\n", listOr(w.TextAgents))
 	fmt.Fprintln(out, "A wake is typed only when every switch is on and the agent's wake rule is tested.")
 	evs, err := env.events()
 	if err != nil {

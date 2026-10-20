@@ -18,9 +18,10 @@ func testWakeEnv(inPane bool, events ...team.Event) wakeEnv {
 		inPane: func() bool { return inPane },
 		events: func() ([]team.Event, error) { return events, nil },
 		// A person at a terminal outside a pane, unless a test says otherwise.
-		terminal: func() bool { return true },
-		paneAPI:  func() bool { return false },
-		read:     store.ReadWake,
+		terminal:   func() bool { return true },
+		paneAPI:    func() bool { return false },
+		read:       store.ReadWake,
+		offersText: func(id string) bool { return id == "aider" },
 	}
 }
 
@@ -315,5 +316,53 @@ func TestWakeTerminalRefusesAPipeAndAFile(t *testing.T) {
 	os.Stdin = f
 	if wakeTerminal() {
 		t.Fatal("a file passed for a terminal")
+	}
+}
+
+func TestWakeTextIsOptInPerAgentAndOnlyWhereOffered(t *testing.T) {
+	isolateState(t)
+	env := testWakeEnv(false)
+	if p := store.LoadPrefs(); p.WakeText("aider") {
+		t.Fatal("text mode starts on")
+	}
+	if _, err := runW(t, env, "text", "on", "-agent", "claude"); err == nil || !strings.Contains(err.Error(), "not offered") {
+		t.Fatalf("an agent that does not offer it was opted in: %v", err)
+	}
+	if store.LoadPrefs().WakeText("claude") {
+		t.Fatal("claude was opted in")
+	}
+	if _, err := runW(t, env, "text", "on", "-agent", "aider"); err != nil {
+		t.Fatal(err)
+	}
+	if !store.LoadPrefs().WakeText("aider") {
+		t.Fatal("aider was not opted in")
+	}
+	out, err := runW(t, env, "status")
+	if err != nil || !strings.Contains(out, "message text typed for: aider") {
+		t.Fatalf("status = %q, %v", out, err)
+	}
+	// Off is always allowed, even for an agent that no longer offers it.
+	if _, err := runW(t, env, "text", "off", "-agent", "aider"); err != nil {
+		t.Fatal(err)
+	}
+	if store.LoadPrefs().WakeText("aider") {
+		t.Fatal("aider is still opted in")
+	}
+}
+
+func TestWakeTextRefusesBadArgumentsAndPanes(t *testing.T) {
+	isolateState(t)
+	for _, args := range [][]string{
+		{"text"}, {"text", "on"}, {"text", "maybe", "-agent", "aider"}, {"text", "on", "-pane", "p1"},
+	} {
+		if _, err := runW(t, testWakeEnv(false), args...); err == nil {
+			t.Errorf("%v was accepted", args)
+		}
+	}
+	if _, err := runW(t, testWakeEnv(true), "text", "on", "-agent", "aider"); err == nil || !strings.Contains(err.Error(), "inside a pane") {
+		t.Errorf("text on inside a pane: %v", err)
+	}
+	if store.LoadPrefs().WakeText("aider") {
+		t.Fatal("a refused command changed the setting")
 	}
 }

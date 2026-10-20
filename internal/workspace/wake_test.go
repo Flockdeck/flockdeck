@@ -111,6 +111,12 @@ type wakeOff struct{}
 
 func (wakeOff) WakeEnabled(string, string) bool { return false }
 func (wakeOff) Invalidate()                     {}
+func (wakeOff) WakeText(string) bool            { return false }
+
+// wakeTextOn opts every agent type in to text mode.
+type wakeTextOn struct{ wakeAllOn }
+
+func (wakeTextOn) WakeText(string) bool { return true }
 
 type wakeRig struct {
 	svc    *wakeService
@@ -419,7 +425,8 @@ func (f *flipSettings) WakeEnabled(string, string) bool {
 	f.calls++
 	return f.calls < f.flipAt
 }
-func (f *flipSettings) Invalidate() {}
+func (f *flipSettings) Invalidate()          {}
+func (f *flipSettings) WakeText(string) bool { return false }
 
 // A switch turned off after consider has passed does not get a line typed.
 func TestWakeReadsTheSwitchesAgainBeforeTheLine(t *testing.T) {
