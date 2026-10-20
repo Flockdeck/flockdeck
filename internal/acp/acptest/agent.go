@@ -414,6 +414,7 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 		for i := 0; i < 1024; i++ {
 			fmt.Fprint(os.Stderr, chunk)
 		}
+		fmt.Fprintln(os.Stderr, "acptest: last stderr line")
 		a.chunk(sid, "after stderr")
 		done("end_turn")
 
