@@ -138,7 +138,7 @@ func TestTheFontsShipWithTheApplication(t *testing.T) {
 			t.Errorf("app.css asks for %s, which is not a file shipped beside it", ref)
 			continue
 		}
-		if _, err := fs.Stat(FS(), ref); err != nil {
+		if _, err := fs.Stat(assets(), ref); err != nil {
 			t.Errorf("app.css asks for %s, which is not embedded: %v", ref, err)
 		}
 		if strings.HasSuffix(ref, ".woff2") {
@@ -149,7 +149,7 @@ func TestTheFontsShipWithTheApplication(t *testing.T) {
 		t.Errorf("app.css names %d font files; it should name the sans and the mono", fonts)
 	}
 	for _, name := range []string{"fonts/OFL-IBMPlexSans.txt", "fonts/OFL-JetBrainsMono.txt"} {
-		if _, err := fs.Stat(FS(), name); err != nil {
+		if _, err := fs.Stat(assets(), name); err != nil {
 			t.Errorf("the licence %s does not ship with its font: %v", name, err)
 		}
 	}
@@ -166,7 +166,7 @@ func TestTheFontsShipWithTheApplication(t *testing.T) {
 	if preload == nil {
 		t.Fatal("index.html does not preload the sans")
 	}
-	if _, err := fs.Stat(FS(), preload[1]); err != nil {
+	if _, err := fs.Stat(assets(), preload[1]); err != nil {
 		t.Errorf("index.html preloads %s, which is not embedded: %v", preload[1], err)
 	}
 }

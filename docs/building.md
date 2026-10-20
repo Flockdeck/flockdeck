@@ -113,6 +113,28 @@ The front end is vendored, not fetched at build time. To update it, replace the 
 in `internal/webui/assets/vendor/` from the `@xterm/xterm`, `@xterm/addon-fit`,
 `@xterm/addon-search` and `@xterm/addon-webgl` packages.
 
+### The next shell
+
+A second front end, the new shell, is built alongside the old one under the Go build
+tag `next`. It lives in `internal/webui/next/assets/`. The old front end in
+`internal/webui/assets/` is frozen and is what every default build embeds and serves.
+
+```sh
+go build -tags next -o flockdeck-next.exe .
+go test -tags next ./internal/webui/...
+```
+
+A tagged build serves a file from `next/assets` when it has one and otherwise the
+same file from the old tree, so `e2e.js`, `vendor/`, the fonts and the icons are
+shared and not copied. There is no runtime flag: which front end a binary has is
+decided when it is built. A default build embeds nothing from `next/`.
+
+A release is never built with the tag. The test workflow builds, vets and tests the
+tagged variant on all three platforms, and `internal/webui/release_tag_test.go`
+fails when the release workflow, the Dockerfile, the Makefile or `cmd/release`
+passes `-tags` with `next`. The release workflow runs the tests first, so a release
+with the tag does not get built.
+
 ## Cutting a release
 
 Pushing a tag such as `v1.2.3` cuts a release. The tag is the version. Before you

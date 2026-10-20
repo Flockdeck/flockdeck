@@ -92,6 +92,18 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # The new shell is built with the next tag and is never in a release. Only
+      # the packages it touches are built, vetted and tested under the tag, not
+      # the whole suite a second time.
+      - name: Build the next shell
+        run: go build -tags next ./...
+
+      - name: Vet the next shell
+        run: go vet -tags next ./internal/webui/... ./internal/server/...
+
+      - name: Test the next shell
+        run: go test -count=1 -tags next ./internal/webui/...
+
       # A release's run also fails while the release key is still the
       # placeholder (TestReleaseKeyIsInPlace), so a release can never ship
       # unable to check what it downloads. Other runs have no key to hold.

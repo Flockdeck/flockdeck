@@ -18,10 +18,12 @@ import (
 // frontEndDeadline bounds one front-end case run under node.
 const frontEndDeadline = 2 * time.Minute
 
-// readAsset returns one of the embedded front-end files.
+// readAsset returns one of the old front end's files. These tests are about that
+// tree in either build, so they read it directly and not through FS, which in a
+// build with -tags next serves the new shell over it.
 func readAsset(t *testing.T, name string) string {
 	t.Helper()
-	data, err := fs.ReadFile(FS(), name)
+	data, err := fs.ReadFile(assets(), name)
 	if err != nil {
 		t.Fatalf("read %s: %v", name, err)
 	}
