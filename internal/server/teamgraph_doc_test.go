@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/team"
 	"github.com/jmwri/flockdeck/internal/workspace"
@@ -279,5 +280,38 @@ func TestGraphPageExamplesMatchTheSchema(t *testing.T) {
 		if !seen[def] {
 			t.Errorf("docs/team-graph.md has no example of %s", def)
 		}
+	}
+}
+
+// The status enum in the schema is session.Status.String over the Status
+// constants: each string a constant gives is in the enum, and each value in the
+// enum is given by some constant. A value past the last constant gives "unknown".
+func TestGraphStatusEnumMatchesSessionStatus(t *testing.T) {
+	node, _ := loadGraphSchema(t)["$defs"].(map[string]any)["node"].(map[string]any)
+	status, _ := node["properties"].(map[string]any)["status"].(map[string]any)
+	list, _ := status["enum"].([]any)
+	if len(list) == 0 {
+		t.Fatal("the schema has no enum for a node's status")
+	}
+	inEnum := map[string]bool{}
+	for _, v := range list {
+		inEnum[v.(string)] = true
+	}
+	produced := map[string]bool{}
+	for s := session.StatusStarting; s <= session.StatusExited+1; s++ {
+		produced[s.String()] = true
+	}
+	for name := range produced {
+		if !inEnum[name] {
+			t.Errorf("session.Status gives %q, which the schema's status enum lacks", name)
+		}
+	}
+	for name := range inEnum {
+		if !produced[name] {
+			t.Errorf("the schema's status enum has %q, which no session.Status gives", name)
+		}
+	}
+	if session.Status(session.StatusExited+1).String() != "unknown" {
+		t.Error("a Status past StatusExited no longer reads \"unknown\"; update the enum and this test")
 	}
 }

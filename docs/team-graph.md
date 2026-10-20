@@ -78,7 +78,7 @@ window through the relay, and are not described here.
 | `paneSend` | A `paneSend` was accepted (section 6). A refusal is a notice and not this message. |
 | `notice` | A refusal or an error as a line of text: `{"type":"notice","text":"...","error":true}`. |
 | `conversationPage`, `conversationAppend`, `conversationDetail`, `conversationSearch` | The conversation commands (section 7). |
-| `permissionAnswer` | The result of a `permissionAnswer`: `ok`, or an `error` saying why not. It echoes `req`, `id`, `cardSeq` and `requestId`. A window through the relay gets it with an `error` and also a notice, because the command is refused to it. |
+| `permissionAnswer` | The result of a `permissionAnswer`: `ok`, or an `error` saying why not. It echoes `req`, `id`, `cardSeq` and `requestId`. A full device through the relay gets it with an `error` and also a notice, because the command is refused to it. A viewer is refused earlier, by the table of commands viewers may send, and gets only that notice. |
 
 Pushes skip a window that has not yet had its `hello` from the server.
 
