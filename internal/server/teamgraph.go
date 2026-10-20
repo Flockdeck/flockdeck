@@ -716,7 +716,7 @@ func (s *Server) armGraphTick() {
 // the drawer's choice buttons on the sealed terminal path; merges are desk-only.
 func (s *Server) graphCommand(c *controlClient, cmd command) {
 	if c.remote {
-		c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, Error: teamDeskOnly})
+		c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, Error: teamDeskOnly, Code: teamDeskOnlyCode})
 		c.notify(teamDeskOnly, true)
 		return
 	}

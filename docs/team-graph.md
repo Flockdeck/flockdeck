@@ -81,7 +81,7 @@ window through the relay, and are not described here.
 | Message | Sent when |
 | --- | --- |
 | `graph` | In reply to `graphSnapshot`, and as the first and later pushes after `graphWatch`. |
-| `teamResult` | A graph command could not be done: `{"type":"teamResult","req":"...","op":"graphWatch","ok":false,"error":"..."}`. The usual cause is `no project is open at <directory>`. A window through the relay that sends a graph command gets this and a notice; one that sends `paneSend` gets only a notice; one that sends `permissionAnswer` gets a `permissionAnswer` message and a notice. |
+| `teamResult` | A graph command could not be done: `{"type":"teamResult","req":"...","op":"graphWatch","ok":false,"error":"..."}`. The usual cause is `no project is open at <directory>`. A refusal of a window through the relay also carries `"code":"deskOnly"`, so that a client need not match the wording of `error`. A window through the relay that sends a graph command gets this and a notice; one that sends `paneSend` gets only a notice; one that sends `permissionAnswer` gets a `permissionAnswer` message and a notice. |
 | `teamGone` | To a window that is watching a project that can no longer be read, a closed one above all, so that it shows that and not the last picture: `{"type":"teamGone","root":"...","error":"..."}`. |
 | `paneSend` | A `paneSend` was accepted (section 6). A refusal is a notice and not this message. |
 | `notice` | A refusal or an error as a line of text: `{"type":"notice","text":"...","error":true}`. |

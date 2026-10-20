@@ -146,6 +146,15 @@ node on PATH the Go test skips, and fails when `CI` is set. Other Go tests there
 that no file under `next/assets` has an inline script or style, `eval`, `new Function`, an
 absolute URL or a bare import, and that the vendored files match `checksums.txt`.
 
+The new shell reaches the running Flockdeck through `assets/lib/`. `socket.js` is the client of
+`/ws/control`: it drops a frame that is not a JSON object with a string `type`, and reconnects after
+1 s, 2 s, 4 s and so on up to 30 s, starting over at the next `hello`. `store.js` is a plain store
+with `getState`, `subscribe`, `send`, `watchGraph` and `unwatchGraph`; its header comment lists
+everything in a snapshot (`hello`, `state`, `graph`, `graphGone`, `graphRefused`, `graphError`,
+`notice`). It never sends a graph command in a window reached through the relay, and sends
+`graphWatch` again after a reconnect for the project last asked for. `use-store.js` is the Preact
+hook. The tests drive them with a fake socket and a fake clock (`test/fakes.mjs`).
+
 A release is never built with the tag. The test workflow builds, vets and tests the
 tagged variant on all three platforms, and `internal/webui/release_tag_test.go`
 fails when the release workflow, the Dockerfile, the Makefile or `cmd/release`
