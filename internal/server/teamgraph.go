@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/spend"
 	"github.com/jmwri/flockdeck/internal/tasks"
 	"github.com/jmwri/flockdeck/internal/team"
 	"github.com/jmwri/flockdeck/internal/workspace"
@@ -459,7 +460,9 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 			if v != nil && v.Partial {
 				tv.SpendIncludesPartial = true
 			}
-			if v != nil && v.USD > 0 && !v.Unpriced {
+			// A figure that is not finite or is past what a session can cost is
+			// not added, so no pane can make the total overflow.
+			if v != nil && v.USD > 0 && v.USD <= spend.MaxSessionCost && !v.Unpriced {
 				tv.SpendUSD += v.USD
 			} else if rts[id].HasRun() && g.Status != session.StatusStarting.String() {
 				// An agent that has run and has no priced figure makes the total a

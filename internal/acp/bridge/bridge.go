@@ -41,6 +41,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"hash/maphash"
+	"math"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -565,7 +566,7 @@ func (b *Bridge) Update(u acp.Update) {
 		if u.Size != nil {
 			b.usage.Size = *u.Size
 		}
-		if u.Cost != nil {
+		if u.Cost != nil && !math.IsNaN(u.Cost.Amount) && !math.IsInf(u.Cost.Amount, 0) {
 			b.usage.Cost, b.usage.Currency = u.Cost.Amount, line(u.Cost.Currency, 16)
 		}
 	}

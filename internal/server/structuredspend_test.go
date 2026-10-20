@@ -1,6 +1,8 @@
 package server
 
 import (
+	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -114,6 +116,49 @@ func TestPaneSpendOfATerminalPaneIsNotPartial(t *testing.T) {
 	v := e.srv.paneSpend(e.boss, e.ws.Runtime(panePtr(e, e.boss)), time.Now())
 	if v == nil || v.USD != 2 || v.Partial || v.ContextUsed != 0 {
 		t.Errorf("view = %+v", v)
+	}
+}
+
+// A cost no session could have had does not break the pushes: the state and the
+// graph still marshal, and the total stays finite, whether one pane reports it
+// or two sum to more than a float holds.
+func TestUnbelievableCostsDoNotBreakStateOrGraph(t *testing.T) {
+	for name, cost := range map[string]float64{"inf": math.Inf(1), "1e305": 1e305, "1e308": 1e308} {
+		e := newGraphEnv(t)
+		e.reportUsage(t, e.dev, spend.Context{Used: 1, Size: 2, Cost: cost, Currency: "USD"}, true)
+		e.reportUsage(t, e.boss, spend.Context{Used: 1, Size: 2, Cost: cost, Currency: "USD"}, true)
+		msg, ok := ask(e.srv, e.srv.snapshot)
+		if !ok {
+			t.Fatalf("%s: no snapshot", name)
+		}
+		if _, err := json.Marshal(msg); err != nil {
+			t.Errorf("%s: state does not marshal: %v", name, err)
+		}
+		g := e.snapshotGraph(t)
+		if _, err := json.Marshal(g); err != nil {
+			t.Errorf("%s: graph does not marshal: %v", name, err)
+		}
+		if got := g.Teams[0].SpendUSD; got != 0 || math.IsInf(got, 0) {
+			t.Errorf("%s: team spend = %v, want 0", name, got)
+		}
+		if !g.Teams[0].SpendIncludesPartial {
+			t.Errorf("%s: the panes still report partly", name)
+		}
+	}
+}
+
+// The book's own dollars for a pane that is also structured are replaced by the
+// agent's figure, not added to it, in the pane view and in the team total.
+func TestStructuredCostReplacesTheBooksDollarsForThePane(t *testing.T) {
+	e := newGraphEnv(t)
+	e.terminalSpend(e.dev, 2)
+	e.reportUsage(t, e.dev, spend.Context{Used: 1, Size: 2, Cost: 0.5, Currency: "USD"}, true)
+	v := e.srv.paneSpend(e.dev, e.ws.Runtime(panePtr(e, e.dev)), time.Now())
+	if v == nil || v.USD != 0.5 {
+		t.Errorf("view = %+v, want 0.5", v)
+	}
+	if got := e.snapshotGraph(t).Teams[0].SpendUSD; got != 0.5 {
+		t.Errorf("team spend = %v, want 0.5", got)
 	}
 }
 
