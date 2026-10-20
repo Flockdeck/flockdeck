@@ -6,12 +6,25 @@ import (
 	"embed"
 	"errors"
 	"io/fs"
+	"mime"
 	"slices"
 )
 
 // Variant names the front end this binary carries: "next" in a build made with
 // -tags next, "default" otherwise.
 const Variant = "next"
+
+// The new shell is ES modules, and a browser refuses a module served with a
+// type other than JavaScript. Go takes the type of an extension from the
+// system first, and Windows' registry has none for .mjs, so the file server
+// answers text/plain there. The server's file handler and its gzip path both
+// ask the mime package, so this one registration covers them. It overrides the
+// system's answer.
+func init() {
+	if err := mime.AddExtensionType(".mjs", "text/javascript; charset=utf-8"); err != nil {
+		panic(err)
+	}
+}
 
 //go:embed next/assets
 var nextEmbedded embed.FS

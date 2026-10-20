@@ -970,7 +970,7 @@ func (s *Server) authFiles(fsys fs.FS) http.Handler {
 // compressed already.
 func compressible(name string) bool {
 	switch path.Ext(name) {
-	case ".js", ".css", ".html", ".json", ".svg":
+	case ".js", ".mjs", ".css", ".html", ".json", ".svg":
 		return true
 	}
 	return false

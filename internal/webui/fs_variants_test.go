@@ -80,3 +80,7 @@ func TestDefaultBuildCompilesNothingOfTheNextShell(t *testing.T) {
 		t.Errorf("embedded in the default build: %v, want only assets", pkg.EmbedPatterns)
 	}
 }
+
+// nextShellMarker is in the new shell's index.html and in nothing of the old
+// tree.
+const nextShellMarker = `<meta name="flockdeck-shell" content="next">`

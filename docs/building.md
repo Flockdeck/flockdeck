@@ -129,6 +129,23 @@ same file from the old tree, so `e2e.js`, `vendor/`, the fonts and the icons are
 shared and not copied. There is no runtime flag: which front end a binary has is
 decided when it is built. A default build embeds nothing from `next/`.
 
+`index.html` names its module by the relative path `assets/main.js`, so the page works only when it is served from `/`, where `assets/` is the server's `/assets/`. A module must be served as JavaScript: `internal/webui/fs_next.go` registers the type for `.mjs`, because on Windows Go takes it from the registry, which has none, and the file server would send `text/plain`.
+
+The new shell is plain ES modules that the browser loads as they are: no bundler and
+no build step. `index.html` loads `assets/main.js` with `<script type="module">`, every
+import is a relative path, and nothing is inline or evaluated, so the page runs under the
+relay's `script-src 'self'`. Preact, its hooks and htm are vendored in
+`next/assets/vendor/` (versions, licences and hashes in `LICENSES.md` beside them and in
+`next/checksums.txt`). A component is written with htm: html`<${Hello} />`.
+
+Its tests are Node's own `node:test`, in `internal/webui/next/test/`, run from
+`next_test.go` under the tag. Components are drawn with Preact to a string, so no browser
+or DOM is needed; `preact-render-to-string` is in `next/test/vendor/` and is never
+embedded. Node is a development and CI tool only and is not part of a release. Without
+node on PATH the Go test skips, and fails when `CI` is set. Other Go tests there check
+that no file under `next/assets` has an inline script or style, `eval`, `new Function`, an
+absolute URL or a bare import, and that the vendored files match `checksums.txt`.
+
 A release is never built with the tag. The test workflow builds, vets and tests the
 tagged variant on all three platforms, and `internal/webui/release_tag_test.go`
 fails when the release workflow, the Dockerfile, the Makefile or `cmd/release`

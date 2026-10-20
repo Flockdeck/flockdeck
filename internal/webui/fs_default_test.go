@@ -24,8 +24,8 @@ func TestDefaultFSIsExactlyTheOldTree(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(b), "flockdeck-next-placeholder") {
-			t.Errorf("%s carries the new shell's placeholder", name)
+		if strings.Contains(string(b), nextShellMarker) {
+			t.Errorf("%s carries the new shell's marker", name)
 		}
 	}
 }

@@ -3,10 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="flockdeck-shell" content="next">
 <title>Flockdeck</title>
 </head>
 <body>
-<!-- flockdeck-next-placeholder: the new shell starts here. Built with -tags next only. -->
-<p>The new shell is not built yet.</p>
+<!-- The module is the relative assets/main.js, so this page works only when it is
+     served from /, where assets/ is the server's /assets/. -->
+<div id="app"></div>
+<noscript>Flockdeck needs JavaScript.</noscript>
+<script type="module" src="assets/main.js"></script>
 </body>
 </html>
