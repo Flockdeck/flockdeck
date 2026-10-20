@@ -3,8 +3,12 @@
 // real recording lines against the published schema without a dependency.
 //
 // The subset: type, const, enum, pattern, minimum, minLength, minItems, minProperties, required,
-// properties, additionalProperties and unevaluatedProperties (false only), $ref to #/$defs, items, allOf and if/then. Anything else in a schema is ignored,
+// properties, additionalProperties and unevaluatedProperties (false only), $ref to #/$defs, items, allOf, anyOf, not and if/then. Anything else in a schema is ignored,
 // which is why the schema sticks to these.
+//
+// A schema that uses one of these keywords wrongly (an allOf that is not an array, a
+// not that is not an object, an entry that is not a schema) is reported as an error
+// in the result, prefixed "schema:", and never panics.
 package schemacheck
 
 import (
@@ -39,7 +43,18 @@ func (s Schema) Validate(doc []byte) []string {
 		return []string{"not JSON: " + err.Error()}
 	}
 	val := validator{root: map[string]any(s)}
-	return val.check(map[string]any(s), v, "$")
+	return val.checked(map[string]any(s), v, "$")
+}
+
+// checked is check with a backstop: a schema shape no check above anticipated
+// is reported as an error in place of a panic.
+func (val validator) checked(schema map[string]any, v any, path string) (errs []string) {
+	defer func() {
+		if r := recover(); r != nil {
+			errs = append(errs, fmt.Sprintf("%s: schema: not understood (%v)", path, r))
+		}
+	}()
+	return val.check(schema, v, path)
 }
 
 type validator struct{ root map[string]any }
@@ -100,16 +115,28 @@ func (val validator) check(schema map[string]any, v any, path string) []string {
 		}
 		if req, ok := schema["required"].([]any); ok {
 			for _, r := range req {
-				if _, there := x[r.(string)]; !there {
-					add("missing %q", r)
+				name, ok := r.(string)
+				if !ok {
+					add("schema: required entry %v is not a string", r)
+					continue
+				}
+				if _, there := x[name]; !there {
+					add("missing %q", name)
 				}
 			}
 		}
 		if props, ok := schema["properties"].(map[string]any); ok {
 			for name, sub := range props {
-				if member, there := x[name]; there {
-					errs = append(errs, val.check(sub.(map[string]any), member, path+"."+name)...)
+				member, there := x[name]
+				if !there {
+					continue
 				}
+				subSchema, ok := sub.(map[string]any)
+				if !ok {
+					add("schema: property %q must be an object, got %T", name, sub)
+					continue
+				}
+				errs = append(errs, val.check(subSchema, member, path+"."+name)...)
 			}
 		}
 		if un, ok := schema["unevaluatedProperties"].(bool); ok && !un {
@@ -129,15 +156,15 @@ func (val validator) check(schema map[string]any, v any, path string) []string {
 			}
 		}
 	}
-	if all, ok := schema["allOf"].([]any); ok {
+	if all, there := schemaList(schema, "allOf", add); there {
 		for _, sub := range all {
-			errs = append(errs, val.check(sub.(map[string]any), v, path)...)
+			errs = append(errs, val.check(sub, v, path)...)
 		}
 	}
-	if alts, ok := schema["anyOf"].([]any); ok {
+	if alts, there := schemaList(schema, "anyOf", add); there {
 		matched := false
 		for _, sub := range alts {
-			if len(val.check(sub.(map[string]any), v, path)) == 0 {
+			if len(val.check(sub, v, path)) == 0 {
 				matched = true
 				break
 			}
@@ -146,15 +173,55 @@ func (val validator) check(schema map[string]any, v any, path string) []string {
 			add("matches none of the anyOf alternatives")
 		}
 	}
-	if not, ok := schema["not"].(map[string]any); ok && len(val.check(not, v, path)) == 0 {
+	if not, there := subschema(schema, "not", add); there && len(val.check(not, v, path)) == 0 {
 		add("matches a schema it must not match")
 	}
-	if cond, ok := schema["if"].(map[string]any); ok && len(val.check(cond, v, path)) == 0 {
-		if then, ok := schema["then"].(map[string]any); ok {
-			errs = append(errs, val.check(then, v, path)...)
-		}
+	cond, hasIf := subschema(schema, "if", add)
+	then, hasThen := subschema(schema, "then", add)
+	if hasIf && hasThen && len(val.check(cond, v, path)) == 0 {
+		errs = append(errs, val.check(then, v, path)...)
 	}
 	return errs
+}
+
+// subschema reads a keyword whose value is a schema. It reports false when the
+// keyword is absent, and when it is not an object, which it also reports.
+func subschema(schema map[string]any, key string, add func(string, ...any)) (map[string]any, bool) {
+	raw, there := schema[key]
+	if !there {
+		return nil, false
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		add("schema: %s must be an object, got %T", key, raw)
+		return nil, false
+	}
+	return m, true
+}
+
+// schemaList reads a keyword whose value is an array of schemas. It reports
+// false when the keyword is absent, and when it is not an array, which it also
+// reports. An entry that is not an object is reported and left out.
+func schemaList(schema map[string]any, key string, add func(string, ...any)) ([]map[string]any, bool) {
+	raw, there := schema[key]
+	if !there {
+		return nil, false
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		add("schema: %s must be an array, got %T", key, raw)
+		return nil, false
+	}
+	var out []map[string]any
+	for i, e := range arr {
+		m, ok := e.(map[string]any)
+		if !ok {
+			add("schema: %s[%d] must be an object, got %T", key, i, e)
+			continue
+		}
+		out = append(out, m)
+	}
+	return out, true
 }
 
 func isType(v any, t string) bool {
@@ -207,9 +274,12 @@ func (val validator) evaluated(schema map[string]any, obj map[string]any) map[st
 		}
 	}
 	if all, ok := schema["allOf"].([]any); ok {
-		for _, sub := range all {
-			for k := range val.evaluated(sub.(map[string]any), obj) {
-				out[k] = true
+		for _, e := range all {
+			// A malformed entry is reported by check; here it names nothing.
+			if sub, ok := e.(map[string]any); ok {
+				for k := range val.evaluated(sub, obj) {
+					out[k] = true
+				}
 			}
 		}
 	}
