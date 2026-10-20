@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Flockdeck/flockdeck/blob/main/docs/structured-pane.schema.json",
+  "title": "Flockdeck structured pane push",
+  "description": "The message a window gets from structuredSnapshot, and as a push after structuredWatch, for one structured pane. The document root is that message; the answer to structuredDetail is $defs/detail. An object with a field not named here is not one Flockdeck writes. A field is either always present or absent for the reason its description gives; no field is null. Every text is untrusted: it is what the agent said, cleaned of control characters and cut on a character boundary, and a window shows it as plain text.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "id", "kind", "entries", "plan", "usage"],
+  "properties": {
+    "type": { "const": "structured", "description": "Message type. Always written." },
+    "req": { "type": "string", "minLength": 1, "description": "The token the window sent with the command, copied to the answer to structuredSnapshot and to the first message after structuredWatch. Absent on a later push." },
+    "id": { "type": "string", "minLength": 1, "description": "The pane's id. Always written." },
+    "kind": { "const": "structured", "description": "How the pane is run. Always written." },
+    "gone": { "const": true, "description": "Present, and true, on the last message of a watch whose pane has closed. The other fields are then empty. Absent otherwise." },
+    "phase": { "enum": ["starting", "needs setup", "ready", "exited", "failed", "closed"], "description": "Where the agent is in its life. Absent when gone." },
+    "status": { "enum": ["working", "waiting", "idle"], "description": "What a ready agent is doing: working on a turn, waiting on a permission request, or idle. Absent unless the phase is ready." },
+    "activity": { "type": "string", "minLength": 1, "description": "The line naming what a working agent is doing, as one line. Absent when there is none." },
+    "queued": { "type": "integer", "minimum": 1, "description": "How many prompts wait behind the running turn. Absent when none do." },
+    "err": { "type": "string", "minLength": 1, "description": "The last thing that went wrong, on one line, without control characters, cut to 200 characters. It says what last went wrong and not that something is wrong now: show it with the phase and status. Absent when nothing has." },
+    "setup": { "$ref": "#/$defs/setup" },
+    "entries": { "type": "array", "items": { "$ref": "#/$defs/entry" }, "description": "The last 50 entries, oldest first, fewer when the push would pass 128 KiB. Empty, never absent." },
+    "older": { "type": "integer", "minimum": 1, "description": "How many older entries this push does not list, because there were more than 50 or the cap left them out. Absent when none." },
+    "plan": { "type": "array", "items": { "$ref": "#/$defs/planRow" }, "description": "The agent's plan, at most 100 rows. Empty, never absent." },
+    "card": { "$ref": "#/$defs/card" },
+    "usage": { "$ref": "#/$defs/usage" }
+  },
+  "$defs": {
+    "setup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "description": "Present while the phase is needs setup: what the person has to do before the agent can start. Absent otherwise.",
+      "properties": {
+        "kind": { "type": "string", "minLength": 1, "description": "login, node or install. Always written." },
+        "message": { "type": "string", "minLength": 1, "description": "What the agent or the check said, on one line, cut to 300 bytes. Absent when it said nothing." },
+        "fix": { "type": "string", "minLength": 1, "description": "What to do about it (the catalog's advice for a login, the install advice for Node), on one line, cut to 300 bytes. Absent when there is none." }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "ts"],
+      "description": "One entry of the conversation, with the fields of the conversation commands' entries (docs/team-graph.md, section 7) and none of the heavy ones: a diff and a report are never in a push, and an entry that had one says hasDetail and clipped.",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "description": "The entry's id, stable while it is kept. Always written." },
+        "kind": { "enum": ["prompt", "reply", "thinking", "tool", "subagent", "compaction", "notice", "image"], "description": "Always written." },
+        "ts": { "type": "string", "description": "RFC 3339. Always written." },
+        "text": { "type": "string", "description": "A prompt's or a notice's text, cut to 4 KiB." },
+        "markdown": { "type": "string", "description": "A reply's text, cut to 4 KiB." },
+        "chars": { "type": "integer", "minimum": 0, "description": "A thinking block's length in characters. Its text is never in a push." },
+        "seconds": { "type": "integer", "minimum": 0, "description": "How long a thinking block took." },
+        "name": { "type": "string", "description": "A tool's name." },
+        "label": { "type": "string", "description": "A tool's label, cut to 1 KiB." },
+        "status": { "type": "string", "description": "A tool's or subagent's status: running, ok or error." },
+        "summary": { "type": "string", "description": "A tool's summary, cut to 1 KiB." },
+        "hasDetail": { "const": true, "description": "The entry has more than this push shows (a diff, a report, a tool's output, or a prompt, reply or notice cut at 4 KiB), and structuredDetail returns it." },
+        "description": { "type": "string", "description": "A subagent's description, cut to 1 KiB." },
+        "turns": { "type": "integer", "minimum": 0, "description": "A compaction's turns." },
+        "mediaType": { "type": "string", "description": "An image's media type." },
+        "bytes": { "type": "integer", "minimum": 0, "description": "An image's size." },
+        "width": { "type": "integer", "minimum": 0, "description": "An image's width." },
+        "height": { "type": "integer", "minimum": 0, "description": "An image's height." },
+        "clipped": { "const": true, "description": "Something of the entry was cut or left out: a text over its cut, or a diff or report. Absent when nothing was." }
+      }
+    },
+    "planRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content"],
+      "description": "One row of the agent's plan.",
+      "properties": {
+        "content": { "type": "string", "description": "The row, on one line, cut to 200 bytes." },
+        "priority": { "type": "string", "description": "As the agent gave it." },
+        "status": { "type": "string", "description": "As the agent gave it." }
+      }
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "kind"],
+      "description": "One choice on a permission card, as the agent named it. An answer to permissionAnswer uses its id.",
+      "properties": {
+        "id": { "type": "string", "description": "The agent's option id, cut to 100 bytes." },
+        "name": { "type": "string", "description": "The button's text, cut to 100 bytes." },
+        "kind": { "type": "string", "description": "allow_once, allow_always, reject_once, reject_always, or another the agent used." }
+      }
+    },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seq", "requestId", "options"],
+      "description": "The permission request that is open. Present while the status is waiting. It is answered with permissionAnswer from a window on this machine, and with nothing else.",
+      "properties": {
+        "seq": { "type": "integer", "minimum": 1, "description": "Made by Flockdeck, one more for each card. Sent back in permissionAnswer's cardSeq." },
+        "requestId": { "type": "string", "minLength": 1, "description": "The agent's request id, cut to 300 bytes." },
+        "tool": { "type": "string", "description": "The tool the request is for, on one line, cut to 300 bytes." },
+        "kind": { "type": "string", "description": "The tool's kind." },
+        "summary": { "type": "string", "description": "What the agent said it would do, on one line, cut to 300 bytes." },
+        "file": { "type": "string", "description": "The file it concerns, cut to 300 bytes." },
+        "command": { "type": "string", "description": "The command it would run, on one line, cut to 500 bytes. It is clipped and not scrubbed of secrets, which is why this push is for a window on this machine only." },
+        "options": { "type": "array", "items": { "$ref": "#/$defs/option" }, "description": "The agent's options, at most 16." },
+        "clipped": { "const": true, "description": "A field was cut. Absent when none was." }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["used", "size"],
+      "description": "What the agent reports of its context, and of its cost when it reports one. Zero while it has reported nothing.",
+      "properties": {
+        "used": { "type": "integer", "minimum": 0, "description": "Context used." },
+        "size": { "type": "integer", "minimum": 0, "description": "Context size." },
+        "cost": { "type": "number", "minimum": 0, "description": "The cost the agent reported, in currency. Absent when it reported none; a free tier reports 0, which is absent as well." },
+        "currency": { "type": "string", "minLength": 1, "description": "The currency of cost. Absent with it." }
+      }
+    },
+    "detail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "entry"],
+      "description": "The answer to structuredDetail: what one entry has beyond the push.",
+      "properties": {
+        "type": { "const": "structuredDetail", "description": "Always written." },
+        "req": { "type": "string", "minLength": 1, "description": "The token the window sent." },
+        "id": { "type": "string", "minLength": 1, "description": "The pane's id." },
+        "entry": { "type": "string", "minLength": 1, "description": "The entry's id." },
+        "text": { "type": "string", "description": "A tool's full output, a thinking block's text, or the text of a prompt, reply or notice a push cut, cut to 64 KiB. Absent when the entry has none." },
+        "diff": { "type": "string", "description": "A tool's diff, cut to 64 KiB. Absent when the entry has none." },
+        "clipped": { "const": true, "description": "The text or the diff was cut." },
+        "omitted": { "const": true, "description": "The entry has more that is not sent in this version: an image's bytes, or nested entries." }
+      }
+    }
+  }
+}

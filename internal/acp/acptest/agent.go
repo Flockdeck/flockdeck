@@ -415,6 +415,10 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 		a.update(sid, map[string]any{"sessionUpdate": "agent_message_chunk", "content": "not an object"})
 		done("end_turn")
 
+	case "long":
+		a.chunk(sid, strings.Repeat("r", 12000))
+		done("end_turn")
+
 	case "big":
 		a.update(sid, map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "completed",
 			"content": []any{map[string]any{"type": "content", "content": textBlock(strings.Repeat("x", 5<<20))}}})

@@ -46,6 +46,10 @@ fields these commands use are:
 | `paneSend` | Types text into one pane and presses Enter (section 6). | yes | refused |
 | `conversationOpen`, `conversationOlder`, `conversationDetail`, `conversationClose`, `conversationSearch` | Read a pane's conversation (section 7). | yes | yes, for a full device; for a viewer only if the desk has let that device watch panes |
 | `permissionAnswer` | Answers a structured agent's permission request with one of the options on its card. | yes | refused |
+| `structuredSnapshot`, `structuredWatch`, `structuredUnwatch`, `structuredDetail` | Show a structured pane to a window on the desk (`docs/structured-pane.md`). | yes | refused |
+
+The structured pane commands, their message and their limits are in
+[`structured-pane.md`](structured-pane.md).
 
 **A local window** is one on the machine Flockdeck runs on. **A window through the
 relay** is a paired phone or other device; the graph commands, `paneSend` and

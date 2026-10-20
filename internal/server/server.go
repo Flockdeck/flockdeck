@@ -154,6 +154,9 @@ type Server struct {
 	graphAt        time.Time
 	graphArmed     bool
 	graphTickArmed bool
+	// structAt and structArmed are the same for the structured pane pushes.
+	structAt    time.Time
+	structArmed bool
 	// graphStatics is each watched project's board and message part of the
 	// graph, and graphBuilds how many times one was built.
 	graphStatics map[string]*graphStatic
