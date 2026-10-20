@@ -525,6 +525,7 @@ func cliFlagNames() map[string]bool {
 		exportFlagSet(&exportFlags{}),
 		updateFlagSet(&updateFlags{}),
 		knowledgeFlagSet(new(string)),
+		wakeFlagSet(&wakeFlags{}),
 		helpersInstallFlagSet(&helpersInstallFlags{}),
 		helpersUninstallFlagSet(&helpersUninstallFlags{}),
 		helpersListFlagSet(&helpersListFlags{}),

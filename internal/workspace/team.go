@@ -585,3 +585,13 @@ func (w *Workspace) HookNotice(id string) string {
 // `flockdeck inbox` prints, so a newline in it would start a line of its own
 // there.
 func cleanPeerName(name string) string { return team.AgentLabel(name) }
+
+// EventsPath is where the team event log is kept, for a command that reads it
+// without a running instance.
+func EventsPath() (string, error) {
+	dir, err := store.Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, eventsFile), nil
+}

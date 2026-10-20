@@ -195,6 +195,17 @@ func main() {
 		}
 		return
 	}
+	// `wake` shows and sets the off switches for typed wake. It edits the
+	// preferences file and needs no running instance.
+	if len(os.Args) > 1 && os.Args[1] == "wake" {
+		if err := runWake(os.Args[2:], os.Stdout); err != nil {
+			if !errors.Is(err, errReported) {
+				fmt.Fprintln(os.Stderr, "flockdeck wake:", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
 	// `recordings` lists the transcripts panes have recorded. It reads the
 	// state directory and needs no running instance.
 	if len(os.Args) > 1 && os.Args[1] == "recordings" {
@@ -358,7 +369,7 @@ func helpArgs(rest []string) (args []string, top bool) {
 	switch {
 	case len(rest) == 0:
 		return nil, true
-	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "close": true, "team": true, "msg": true, "inbox": true, "task": true, "recordings": true, "agents": true, "chat": true, "keys": true, "knowledge": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
+	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "close": true, "team": true, "msg": true, "inbox": true, "task": true, "recordings": true, "agents": true, "chat": true, "keys": true, "knowledge": true, "wake": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
 		return []string{rest[0], "-h"}, false
 	}
 	return nil, true
@@ -484,6 +495,9 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  knowledge [status | on | off] [-project dir]\n")
 	fmt.Fprintf(out, "        whether agents' briefings point at the project's notes in .flockdeck/knowledge;\n")
 	fmt.Fprintf(out, "        on and off are refused inside a pane\n")
+	fmt.Fprintf(out, "  wake [status | on | off] [-agent id | -pane id]\n")
+	fmt.Fprintf(out, "        the off switches for typed wake (global, per agent type, per pane) and the\n")
+	fmt.Fprintf(out, "        last wake events; on and off are refused inside a pane\n")
 	fmt.Fprintf(out, "  agents\n")
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "  chat [flags]\n")

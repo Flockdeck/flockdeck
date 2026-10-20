@@ -627,7 +627,7 @@ func New(opts Options) (*Workspace, error) {
 	w.ensureGroup(root)
 	w.initTeam()
 	w.loadMessages()
-	w.wakeSettings = wakeAllOn{}
+	w.wakeSettings = newPrefsWake()
 	w.startWake()
 	w.SetWake(opts.OnWake)
 	_ = store.TouchRecent(root)

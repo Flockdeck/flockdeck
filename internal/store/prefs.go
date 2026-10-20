@@ -110,6 +110,11 @@ type Prefs struct {
 	// A project with no entry gets the default, which depends on whether its
 	// repository is known to be private. Set by `flockdeck knowledge`.
 	Knowledge map[string]string `json:"knowledge,omitempty"`
+	// Wake are the off switches for typed wake: global, per agent type and per
+	// pane. Left out of the file while everything is on. Set by `flockdeck wake`
+	// and the wakeSwitch command, and read each time the wake service looks at a
+	// pane.
+	Wake WakePrefs `json:"wake,omitzero"`
 
 	// extra is every top-level key the file held that this build does not
 	// know, as it was written. A newer build's setting would otherwise go at
@@ -249,7 +254,14 @@ func ReadPrefs() (Prefs, error) {
 		// Still the defaults, but the file is moved aside first, as every
 		// other damaged state file is: the next hint dismissed rewrites it
 		// from what was read, and what was read is nothing.
+		// The marker goes down first: between the move and the marker, a read
+		// of the wake switches would find neither a file nor a marker and read
+		// the defaults.
+		markWakeDamaged(dir)
 		quarantine(filepath.Join(dir, prefsFile), prefsWhat, KeptDamaged)
+		// The file is gone from where it was, so a later read finds none and
+		// reads the defaults. Typed wake would then be on again with the user's
+		// switches lost; this is what keeps it off. See ReadWake.
 		return Prefs{accessLost: true}, nil
 	}
 	p.extra = unknownPrefs(data)

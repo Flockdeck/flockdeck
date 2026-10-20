@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/team"
 )
 
@@ -107,6 +110,7 @@ func (n wakeFakeNotices) LastNotice(string) time.Time { return n.at }
 type wakeOff struct{}
 
 func (wakeOff) WakeEnabled(string, string) bool { return false }
+func (wakeOff) Invalidate()                     {}
 
 type wakeRig struct {
 	svc    *wakeService
@@ -349,5 +353,137 @@ func TestCleanPromptLine(t *testing.T) {
 	}
 	if got := cleanPromptLine(long); len(got) != team.MaxPromptLine {
 		t.Fatalf("len %d", len(got))
+	}
+}
+
+func TestPrefsWakeReadsSwitchesAndRefreshes(t *testing.T) {
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	var prefs store.Prefs
+	var err error
+	reads := 0
+	pw := &prefsWake{read: func() (store.Prefs, error) { reads++; return prefs, err }, now: func() time.Time { return now }}
+
+	if !pw.WakeEnabled("claude", "p1") {
+		t.Fatal("off with nothing switched off")
+	}
+	prefs.SetWake(store.WakePane, "p1", false)
+	if !pw.WakeEnabled("claude", "p1") || reads != 1 {
+		t.Fatalf("read again inside the interval (%d reads)", reads)
+	}
+	// A literal, so that lengthening the cache to an hour fails here.
+	now = now.Add(1100 * time.Millisecond)
+	if pw.WakeEnabled("claude", "p1") {
+		t.Fatal("a switched-off pane is still woken 1.1 seconds after the switch")
+	}
+	if !pw.WakeEnabled("claude", "p2") {
+		t.Fatal("another pane was switched off")
+	}
+	// A file that cannot be read turns wake off, not on.
+	prefs = store.Prefs{}
+	err = errors.New("unreadable")
+	now = now.Add(1100 * time.Millisecond)
+	if pw.WakeEnabled("claude", "p2") {
+		t.Fatal("woke with preferences that could not be read")
+	}
+}
+
+func TestWakeSettingsChangedDropsTheCache(t *testing.T) {
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	var prefs store.Prefs
+	pw := &prefsWake{read: func() (store.Prefs, error) { return prefs, nil }, now: func() time.Time { return now }}
+	w := &Workspace{wakeSettings: pw}
+	if !pw.WakeEnabled("claude", "p1") {
+		t.Fatal("off with nothing switched off")
+	}
+	prefs.SetWake(store.WakeGlobal, "", false)
+	if !pw.WakeEnabled("claude", "p1") {
+		t.Fatal("the cache was not used")
+	}
+	w.WakeSettingsChanged()
+	if pw.WakeEnabled("claude", "p1") {
+		t.Fatal("a switch just set is not in force")
+	}
+}
+
+// flipSettings answers from a script: calls before flipAt see wake on, and
+// calls from flipAt on see it off.
+type flipSettings struct {
+	mu     sync.Mutex
+	calls  int
+	flipAt int
+}
+
+func (f *flipSettings) WakeEnabled(string, string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	return f.calls < f.flipAt
+}
+func (f *flipSettings) Invalidate() {}
+
+// A switch turned off after consider has passed does not get a line typed.
+func TestWakeReadsTheSwitchesAgainBeforeTheLine(t *testing.T) {
+	r := newWakeRig(t)
+	// Call 1 is consider's; call 2 is the one just before the line.
+	f := &flipSettings{flipAt: 2}
+	r.svc.settings = func() WakeSettings { return f }
+	r.try()
+	if n := len(r.sess.written()); n != 0 {
+		t.Fatalf("typed %q after the switch went off", r.sess.written())
+	}
+	if len(r.mail.woken) != 0 || len(r.events) != 0 {
+		t.Fatal("recorded a wake that did not happen")
+	}
+}
+
+// A switch turned off while the line settles keeps the Enter back. The line
+// stays typed, which the service records as unsubmitted.
+func TestWakeReadsTheSwitchesAgainBeforeTheEnter(t *testing.T) {
+	r := newWakeRig(t)
+	f := &flipSettings{flipAt: 3}
+	r.svc.settings = func() WakeSettings { return f }
+	r.try()
+	got := r.sess.written()
+	if len(got) != 1 || strings.Contains(got[0], "\r") {
+		t.Fatalf("typed %q, want the line alone", got)
+	}
+	if len(r.mail.woken) != 0 {
+		t.Fatalf("marked woken with no Enter: %v", r.mail.woken)
+	}
+	if len(r.events) != 1 || !r.events[0].Unsubmitted {
+		t.Fatalf("events = %+v, want one unsubmitted", r.events)
+	}
+}
+
+// A damaged preferences file turns wake off, and stays off after the file has
+// been moved aside, which is what ReadPrefs does with it.
+func TestPrefsWakeIsOffForADamagedFileEvenAfterItIsMovedAside(t *testing.T) {
+	isolateConfig(t)
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(store.ClearWakeDamaged)
+	path := filepath.Join(dir, "prefs.json")
+	if err := os.WriteFile(path, []byte(`{"wake":{"off":true},"theme":5}x`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pw := newPrefsWake()
+	if pw.WakeEnabled("claude", "p1") {
+		t.Fatal("wake on with a damaged file")
+	}
+	// The rest of the program reads the preferences, and the file is moved aside.
+	store.ReadPrefs()
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("the damaged file was not moved aside")
+	}
+	pw.Invalidate()
+	if pw.WakeEnabled("claude", "p1") {
+		t.Fatal("wake came back on once the damaged file was moved aside")
+	}
+	store.ClearWakeDamaged()
+	pw.Invalidate()
+	if !pw.WakeEnabled("claude", "p1") {
+		t.Fatal("wake still off after the user set a switch")
 	}
 }
