@@ -14,6 +14,9 @@ import (
 // snapshot, so it must be read in a way that is safe against the write; run
 // with -race to see it.
 func TestPeerNameIsReadSafelyWhileReported(t *testing.T) {
+	// hooks.PeerName sends the launch id of the pane it runs in. A test run from
+	// an agent inside a Flockdeck pane would send that pane's, not this pane's.
+	t.Setenv(hooks.LaunchEnv, "")
 	srv, ws := newTestServer(t)
 	id := srv.firstPaneID(t)
 	hookSrv := ws.HookServer()
