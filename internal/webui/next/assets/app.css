@@ -500,3 +500,61 @@ button { font: inherit; color: inherit; }
     z-index: 2;
   }
 }
+
+/* A pane's terminal, for the drawer. These follow the old sheet's rules for the
+ * same parts so the two look alike: the terminal fills the pane, a note offers
+ * the pty's size when it differs from the box, and a pane that failed to start
+ * says why. */
+.terminal-pane {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--term-bg);
+}
+.terminal-pane .term-host {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: 4px 0 0 6px;
+  touch-action: none;
+  isolation: isolate;
+}
+.terminal-pane .term-host.cropped .xterm { position: absolute; left: 6px; bottom: 0; }
+.size-note {
+  position: absolute;
+  right: 18px;
+  top: 8px;
+  z-index: 3;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg-overlay);
+  color: var(--fg);
+  box-shadow: var(--shadow-1);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.size-note:hover { background: var(--bg-hover); }
+.pane-error {
+  position: absolute;
+  inset: 0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+  background: var(--bg-inset);
+  color: var(--fg-dim);
+  font-size: 13px;
+  overflow: auto;
+  overflow-wrap: break-word;
+}
+.pane-error > * { flex: 0 0 auto; max-width: 100%; }
+.pane-error-text { color: var(--fg); font-weight: 600; }
+.pane-error-text.error { color: var(--exited); font-weight: 400; }
+.pane-error-actions { display: flex; flex-wrap: wrap; gap: 8px; }
