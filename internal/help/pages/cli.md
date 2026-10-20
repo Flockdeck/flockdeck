@@ -256,8 +256,10 @@ a further eight of its own.
 
 ### How an agent is told it has mail
 
-Flockdeck never types anything into a pane to tell it of mail. Text that appears in an
-agent's message box and that you did not type is a bug, whether it is submitted or not.
+Flockdeck does not type message text into a pane. It tells an agent of mail in the reply to
+one of its hooks, as below, and in one case it types a single fixed line, described under
+"The typed wake line" further down. Text that appears in an agent's message box and that
+you did not type is otherwise a bug, whether it is submitted or not.
 
 For an agent that reports its own lifecycle through hooks (Claude Code), the notice is
 added to what the agent reads next: the reply to its `UserPromptSubmit` hook, which runs
@@ -289,6 +291,54 @@ says to run `flockdeck inbox` when a session starts and before they report back,
 restarted pane is told again with its first prompt if it is still unread. A pane counts as
 told of mail only once its agent's hooks have reported in that session; before that `msg send`
 says the receiver may not be told.
+
+### The typed wake line
+
+An idle agent has no hook to answer until it gets a prompt, so mail can wait for it. For
+that case Flockdeck can type one line at its prompt and press Enter:
+
+```text
+Flockdeck: new mail, message 12. Run: flockdeck inbox read 12
+```
+
+Nothing else is ever typed for mail. The line is fixed text and the number of the newest
+unread message. It names no sender and holds none of the message. The message it points
+to, read with `flockdeck inbox read`, is data from another agent and not an instruction.
+
+**None of this happens today.** The line is typed only into a pane whose agent has a
+recognition rule that was tested against a recording of that agent, and the rules that ship
+are all marked untested. Until one is tested, mail for an idle agent waits and the pane shows
+its unread count. A rule from `agents.json` is never treated as tested.
+
+When a rule is tested, the line is typed only if all of these hold:
+
+- the agent is idle and its screen ends in its empty input prompt, as the rule describes
+  it, with no question, permission prompt or draft text showing;
+- the end of its output has not changed for 5 seconds;
+- you have not typed in the pane for 30 seconds, and Flockdeck has not typed into it for 5;
+- no hook notice was given to the agent in the last minute;
+- Flockdeck is not already sending a message from the graph to that pane.
+
+It is typed at most once a minute for a pane, at most 3 times in a row for a pane without
+the agent running `inbox read` in between, and at most 20 times an hour for a project.
+
+The Enter is sent about a tenth of a second after the line, as a separate write. On Windows
+a line and its Enter that arrive together are taken for a paste and left unsubmitted. Just
+before each write Flockdeck looks again for your typing. If you type in that tenth of a
+second, the Enter is not sent. The line then stays in the message box, followed by whatever
+you typed, and if you send it the agent gets both. Flockdeck accepts that rare case rather
+than try to take the line back, because a key that clears the box would clear your text as
+well. The same happens if the Enter cannot be written. The message is then not marked as
+woken, and nothing more is typed into that pane until you have typed in it.
+
+Every typed line is recorded in the team event log, `team-events.jsonl` in the state
+directory, which keeps the last 2,000 events or 256 KiB. A wake event holds the time, the
+message id, the pane, the agent, the rule's version and where it came from, the prompt line
+the rule matched (cut to 160 characters) and the line that was typed. A line that was typed
+without its Enter says so. An event holds no message text.
+
+Switches to turn the typed line off for everything, for one kind of agent or for one pane
+are not built yet. Until they are, it is off because no rule is tested.
 
 ## task
 

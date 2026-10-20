@@ -388,9 +388,10 @@ type paneView struct {
 	// Unread is how many messages from other agents or from Flockdeck wait in
 	// this pane's inbox unread (workspace.Workspace.Unread). The header draws
 	// it for every agent, whether or not it has been told of them, because a
-	// notice is never typed into the pane: this count is how the person at the
-	// window sees mail waiting for an agent that is idle, or that has no hooks
-	// to be told through. Left out at zero.
+	// notice is not typed into the pane (only a fixed wake line can be, and only
+	// where a rule is tested): this count is how the person at the window sees
+	// mail waiting for an agent that is idle, or that has no hooks to be told
+	// through. Left out at zero.
 	Unread int `json:"unread,omitempty"`
 	// AutoReview says this pane's PreToolUse calls are put to auto-review
 	// approvals before Claude Code would otherwise show its own permission

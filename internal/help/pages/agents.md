@@ -373,8 +373,8 @@ nothing. Settings › Agents & models lists the roles to read; they are changed 
 
 Every agent's briefing has a "Your team" section, the other agent panes of its project
 as they were when the agent started, and a "Messages" section. Targets, limits, the
-one-line notice and what Flockdeck writes to an inbox itself are in
-[The command line](#cli).
+one-line notice, the fixed line that can wake an idle agent and what Flockdeck writes to an
+inbox itself are in [The command line](#cli).
 
 The built-in roles say when to use messages: the manager writes to the agents it started to
 answer a question or change a task, and planners, workers, reviewers, testers and docs agents
