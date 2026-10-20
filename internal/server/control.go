@@ -374,6 +374,11 @@ type paneView struct {
 	// screen. Both are left out for a pane not waiting on either.
 	Ask        *askView        `json:"ask,omitempty"`
 	Permission *permissionView `json:"permission,omitempty"`
+	// DetailsOnDesktop says something this pane is waiting on, or all of what a
+	// structured pane has said, was left out of this push because it went to a
+	// window reached through the relay. The window says to open the desktop (or
+	// the pane's terminal view) for it. Never set for a window on this machine.
+	DetailsOnDesktop bool `json:"detailsOnDesktop,omitempty"`
 	// Muted says a phone asked not to be pushed to about this pane's waits.
 	// It still shows waiting everywhere this view is drawn -- the mute is
 	// about the phone's own notifications, not the pane's status. See
@@ -1500,6 +1505,13 @@ func (c *controlClient) drainQueue(ctx context.Context) bool {
 
 // write sends one message and reports whether the connection is still usable.
 func (c *controlClient) write(ctx context.Context, data []byte) bool {
+	// The one place every message to this window passes, so the one place a
+	// relay window's messages are scrubbed (relayscrub.go).
+	if c.remote {
+		if data = scrubForRemote(data); data == nil {
+			return true
+		}
+	}
 	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	return c.conn.Write(writeCtx, websocket.MessageText, data) == nil

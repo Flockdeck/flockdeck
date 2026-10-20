@@ -187,8 +187,8 @@ its scroll position and any helper group you had open.
 On a phone, opening a pane shows a chat with the agent rather than its raw
 terminal, for a Claude Code pane and Flockdeck's own chat client (see
 **Your agents on your phone**, below). When an agent stops to ask a question
-with set answers, it appears as buttons, so you can answer with a tap rather
-than typing into the terminal.
+or for a permission, the phone says so and which tool it is; the question
+and the command are read, and answered, at the desk (see below).
 
 ## Your agents on your phone
 
@@ -218,10 +218,22 @@ arriving is never folded mid-stream; jumping to it from search opens
 whichever fold is in the way. Each turn's tool calls and thinking fold into
 one line, "12 steps · 3 files edited · 4 commands", tapped open to see each
 step; an edit shows its diff, with line numbers. A question
-or a permission prompt appears as a card with buttons in the chat, rather
-than needing the terminal. Multiple choice, a typed answer, and Yes/No for a
-permission are all covered, including a call that asks several questions at
-once: answer them one at a time on the card, then send them all together.
+or a permission prompt shows as a card that says what is waiting and for which
+tool, such as "Run a command, details on the desktop", and has no buttons. The
+command, the file, the diff and the question itself stay on the desktop, because
+they can hold a key or a password and the phone is reached through the relay.
+Answer at the desk, or open the pane's terminal view from the phone, where the
+whole prompt is shown and the answer is typed over the encrypted connection.
+Earlier versions answered a question with buttons on the phone; that is no
+longer done. Text that a tool row shows in the chat (a command's label, a
+summary or a diff) has secrets such as keys and tokens replaced with
+`[redacted]` before it is sent.
+
+This needs a phone app that hides Yes and No for a card marked `redacted`. An
+older app draws Yes and No whenever a card is there, and presses the terminal's
+answer without showing what it is. The change is flockdeck-remote #39, merged
+to main and not yet tagged; the app version that has it is filled in here when
+it is tagged. Update the app before relying on this.
 Each reply also carries its own **Copy**, for the whole thing as Markdown,
 and **Quote**, which drops a paragraph or so of it into the box, quoted,
 ahead of whatever you've already typed. A message you start and don't send
@@ -249,10 +261,9 @@ replies, agents that finished, and ones that started waiting, since this
 device last had it open. A tap on any of those jumps to and
 highlights the first row it counts, opening its helper group first if that
 was folded. It says nothing once there is nothing honest left to count. One
-waiting on a permission offers Yes and No right there in the list; one
-waiting on a single, short question offers a button for each option;
-anything more (several questions at once, a typed answer) still just
-opens the chat, the way tapping the row always has. Messages Flockdeck
+waiting on a permission or a question says so in the list, with the tool
+named; tapping the row opens the chat, and the answer is given at the desk or
+in the pane's terminal view. Messages Flockdeck
 itself injects (a background task finishing, a session notice) show as
 small notes, never as if you had typed them.
 

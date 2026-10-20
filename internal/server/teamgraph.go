@@ -34,6 +34,14 @@ const (
 	graphEdgeCut = 140
 	// graphGoalCut is how many characters a team's goal keeps.
 	graphGoalCut = 300
+	// graphNameCut, graphPeerCut, graphBranchCut and graphAgentCut are how many
+	// characters a node's own name, the name its agent reported, its branch and
+	// its agent id keep. They are text a person or an agent chose, so they are
+	// bounded like the rest.
+	graphNameCut   = 80
+	graphPeerCut   = 80
+	graphBranchCut = 120
+	graphAgentCut  = 80
 	// maxGraphPanes bounds the nodes in a push. A project has no more panes
 	// than a window can open, so this only guards against a runaway.
 	maxGraphPanes = 500
@@ -423,8 +431,8 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 	for _, n := range graph.Nodes {
 		p, g := byID[n.Pane], gpByID[n.Pane]
 		nv := graphNodeView{
-			GraphNode: n, Kind: string(rts[n.Pane].Transport()), Name: g.Name, Peer: g.Peer, Role: g.Role, Agent: g.Agent, Shell: g.Shell,
-			Status: g.Status, Activity: g.Activity, Branch: p.Branch, Live: live[n.Pane],
+			GraphNode: n, Kind: string(rts[n.Pane].Transport()), Name: team.PlainText(g.Name, graphNameCut), Peer: team.PlainText(g.Peer, graphPeerCut), Role: g.Role, Agent: team.PlainText(g.Agent, graphAgentCut), Shell: g.Shell,
+			Status: g.Status, Activity: g.Activity, Branch: team.PlainText(p.Branch, graphBranchCut), Live: live[n.Pane],
 			Dirty: p.Git.Dirty, Untracked: p.Git.Untracked, Ahead: p.Git.Ahead, Behind: p.Git.Behind,
 			Unread: g.Unread, AutoReview: p.AutoReview, AutoApproved: ws.AutoApprovedOf(p),
 		}

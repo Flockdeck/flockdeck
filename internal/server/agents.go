@@ -33,6 +33,9 @@ type agentView struct {
 	// same value the pane's own header is drawn from.
 	Activity workspace.Activity `json:"activity"`
 	Detail   string             `json:"detail"`
+	// Structured says the pane is driven over a protocol; a relay window is
+	// sent no Detail for it (relayscrub.go).
+	Structured bool `json:"structured,omitempty"`
 	// Failed marks an exited pane whose process ended in error or was killed.
 	Failed bool   `json:"failed,omitempty"`
 	For    string `json:"for"`
@@ -121,17 +124,18 @@ func (s *Server) sendAgents(c *controlClient) {
 				// revealing it has to switch to; Project says which
 				// project the agent is actually working in. They differ
 				// for a pane borrowed onto another project's tab.
-				Root:     t.Root,
-				Project:  projectLabel(names, s.ws.RootOf(p.ID)),
-				Name:     p.Name,
-				Branch:   p.Branch,
-				Kind:     kindName(p.Kind),
-				Role:     p.Role,
-				Status:   st.String(),
-				Activity: rt.Activity(),
-				Detail:   detail,
-				Dirty:    p.Git.Dirty + p.Git.Untracked,
-				Active:   p.ID == focused,
+				Root:       t.Root,
+				Project:    projectLabel(names, s.ws.RootOf(p.ID)),
+				Name:       p.Name,
+				Branch:     p.Branch,
+				Kind:       kindName(p.Kind),
+				Role:       p.Role,
+				Status:     st.String(),
+				Activity:   rt.Activity(),
+				Detail:     detail,
+				Dirty:      p.Git.Dirty + p.Git.Untracked,
+				Active:     p.ID == focused,
+				Structured: rt.Transport() == workspace.TransportStructured,
 			}
 			_, av.Failed = p.Failed()
 			if p.Parent != "" && s.ws.Pane(p.Parent) != nil {
