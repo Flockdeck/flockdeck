@@ -8,7 +8,7 @@ name: agent-compat
 # installed and asked for its own --help, a real API asked to accept a model,
 # and a real Claude pane run end to end -- which only ever changes when a
 # vendor changes something Flockdeck did not. So it runs on a schedule rather
-# than on every push the way test.yml does.
+# than on every pull request and every push to main the way test.yml does.
 #
 # The one PR-time exception is a change to internal/agent/builtin.go itself,
 # the file where a hand-edited flag or model id is most likely to go stale:
