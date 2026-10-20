@@ -1,9 +1,9 @@
 name: helm-chart
 
 # helm lint --strict, helm template, and kubeconform on the rendered
-# manifests -- none of which need a real cluster, so they run on every push
-# and pull request that touches the chart, the same as test.yml does for the
-# Go code. This is the toolchain flockdeck-relay's own chart was checked
+# manifests -- none of which need a real cluster, so they run on every pull
+# request and every push to main that touches the chart, the same as test.yml
+# does for the Go code. This is the toolchain flockdeck-relay's own chart was checked
 # with by hand (alpine/helm and ghcr.io/yannh/kubeconform, no local Helm
 # install needed); deploy/helm/flockdeck/README.md notes what this does not
 # yet cover -- an actual `kind`-based install, which flockdeck-relay's own
@@ -14,18 +14,31 @@ name: helm-chart
 # written in (see this repository's chart_test.go for what *was* checked:
 # the drift between the chart, the Dockerfile and flockdeck's actual flags
 # and environment, entirely in Go and run as part of `go test`).
+#
+# It runs on pull requests and on pushes to main. A push to a branch is not run
+# on its own, since the pull request for it is: running both put a change that
+# touched these paths through the workflow twice.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
     paths:
       - "deploy/helm/flockdeck/**"
       - ".github/workflows/helm-chart.yml"
   pull_request:
     paths:
       - "deploy/helm/flockdeck/**"
+      - ".github/workflows/helm-chart.yml"
 
 permissions:
   contents: read
+
+# A newer push to a pull request makes the run for the one before it pointless,
+# so that run is cancelled. A run for main gets a group of its own, named by its
+# run, so that no later push cancels it or takes its place in the queue (a group
+# holds one pending run, and a newer one replaces it). Same as test.yml.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('helm-chart-pr-{0}', github.ref) || format('helm-chart-run-{0}-{1}', github.run_id, github.run_attempt) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint-and-template:
