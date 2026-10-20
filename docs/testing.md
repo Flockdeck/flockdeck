@@ -21,10 +21,16 @@ func TestMain(m *testing.M) { os.Exit(testiso.Main(m)) }
 - points `APPDATA`, `LOCALAPPDATA`, `XDG_CONFIG_HOME`, `HOME` and `USERPROFILE` at a fresh
   temporary directory, so `os.UserConfigDir` and `os.UserHomeDir` (and so
   `store.Dir`) give a throwaway place on Windows, macOS and Linux, and unsets
-  `HOMEDRIVE` and `HOMEPATH`. It does **not** touch `CLAUDE_CONFIG_DIR`, which
-  the Claude Code transcript and status-line readers look at before `HOME`: run
-  the tests with it unset, or pointed at a temporary directory;
+  `HOMEDRIVE` and `HOMEPATH`. It also unsets `CLAUDE_CONFIG_DIR` and `CODEX_HOME`,
+  which the Claude Code and Codex readers look at before `HOME`;
 - unsets every `*_API_KEY`, `*_API_TOKEN` and `*_AUTH_TOKEN` in the environment;
+- unsets every `FLOCKDECK_*` and `PERCH_*` variable (the pane identity, the relay,
+  the update switch, the signing key and the rest) and `GIT_CONFIG_COUNT`, except
+  the `FLOCKDECK_TEST_*` and `FLOCKDECK_ACPTEST_*` helpers and the switches in
+  `keptEnv` in `internal/testiso/iso/iso.go` that a person or CI sets to steer
+  the tests (`FLOCKDECK_LIVE_AGENT_TESTS`, `FLOCKDECK_UPDATE_GOLDEN` and so on).
+  A test that reads another `FLOCKDECK_` variable from outside adds it there; a
+  test in `iso` fails until it does;
 - refuses any request or dial to a host that is not loopback, through
   `http.DefaultTransport` (so `http.DefaultClient` and any client without a
   `Transport` of its own);
