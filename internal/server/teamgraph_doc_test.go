@@ -103,10 +103,60 @@ func TestGraphPageNamesEveryCommandAndMessage(t *testing.T) {
 			t.Errorf("%s is not accessFull: update the table in section 1 of docs/team-graph.md", name)
 		}
 	}
-	for _, name := range []string{"conversationOpen", "conversationOlder", "conversationDetail", "conversationClose", "conversationSearch"} {
-		if commandAccess[name] != accessWatcher {
+	// The conversation commands are the entries of the access table named
+	// conversationX (not "conversations", the saved-session list), so a new one
+	// cannot be left off the page.
+	conv := 0
+	for name, a := range commandAccess {
+		if len(name) <= len("conversation") || !strings.HasPrefix(name, "conversation") || name[len("conversation")] < 'A' || name[len("conversation")] > 'Z' {
+			continue
+		}
+		conv++
+		if a != accessWatcher {
 			t.Errorf("%s is not accessWatcher: update section 1 of docs/team-graph.md", name)
 		}
+		if !strings.Contains(doc, "`"+name+"`") {
+			t.Errorf("docs/team-graph.md does not name %q", name)
+		}
+	}
+	if conv < 5 {
+		t.Errorf("found %d conversation commands in commandAccess", conv)
+	}
+}
+
+// Every field the page's field tables name is in the schema, so a field removed
+// from the schema cannot stay on the page. Sections 3 and 6 are the ones whose
+// first column holds field names; `req`, `cmd` and the like in section 1 are the
+// commands' own, not the graph's.
+func TestGraphPageTablesNameOnlySchemaFields(t *testing.T) {
+	doc := readGraphDoc(t)
+	props, enums := schemaNames(loadGraphSchema(t))
+	known := map[string]bool{}
+	for _, n := range append(props, enums...) {
+		known[n] = true
+	}
+	section := ""
+	rows := 0
+	for _, line := range strings.Split(doc, "\n") {
+		if strings.HasPrefix(line, "## ") {
+			section = strings.Fields(line)[1]
+			continue
+		}
+		if section != "3." && section != "6." || !strings.HasPrefix(line, "| `") {
+			continue
+		}
+		cell := strings.TrimPrefix(line, "| `")
+		end := strings.Index(cell, "`")
+		if end < 0 {
+			continue
+		}
+		rows++
+		if name := cell[:end]; !known[name] {
+			t.Errorf("section %s names %q, which the schema does not have", section, name)
+		}
+	}
+	if rows < 30 {
+		t.Errorf("read only %d field rows from sections 3 and 6", rows)
 	}
 }
 

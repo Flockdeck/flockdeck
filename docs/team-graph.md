@@ -30,9 +30,9 @@ fields these commands use are:
 | Field | Used by | Meaning |
 | --- | --- | --- |
 | `cmd` | all | The command's name. |
-| `req` | `graphSnapshot`, `graphWatch` | A token of the window's choosing. It is copied into the `teamResult` that refuses the command (section 2), so the window can tell which request failed. |
+| `req` | `graphSnapshot`, `graphWatch`, `permissionAnswer` | A token of the window's choosing. It is copied into the `teamResult` that refuses a graph command, or into the `permissionAnswer` reply (section 2), so the window can tell which request it answers. |
 | `root` | `graphSnapshot`, `graphWatch` | The directory of the project. Empty means the project on screen. It must name an open project. |
-| `id` | `paneSend`, the conversation commands | The pane's id. |
+| `id` | `paneSend`, `permissionAnswer`, the conversation commands | The pane's id. |
 | `text` | `paneSend` | The text to type. |
 | `allowShell` | `paneSend` | The caller means the text for a shell pane. |
 | `after`, `before`, `entry`, `q` | the conversation commands | A cursor, an entry id and a search string (section 7). |
@@ -73,12 +73,12 @@ window through the relay, and are not described here.
 | Message | Sent when |
 | --- | --- |
 | `graph` | In reply to `graphSnapshot`, and as the first and later pushes after `graphWatch`. |
-| `teamResult` | A graph command could not be done: `{"type":"teamResult","req":"...","op":"graphWatch","ok":false,"error":"..."}`. The usual cause is `no project is open at <directory>`. A window through the relay that sends a graph command gets this and a notice; one that sends `paneSend` gets only a notice. |
+| `teamResult` | A graph command could not be done: `{"type":"teamResult","req":"...","op":"graphWatch","ok":false,"error":"..."}`. The usual cause is `no project is open at <directory>`. A window through the relay that sends a graph command gets this and a notice; one that sends `paneSend` gets only a notice; one that sends `permissionAnswer` gets a `permissionAnswer` message and a notice. |
 | `teamGone` | To a window that is watching a project that can no longer be read, a closed one above all, so that it shows that and not the last picture: `{"type":"teamGone","root":"...","error":"..."}`. |
 | `paneSend` | A `paneSend` was accepted (section 6). A refusal is a notice and not this message. |
 | `notice` | A refusal or an error as a line of text: `{"type":"notice","text":"...","error":true}`. |
 | `conversationPage`, `conversationAppend`, `conversationDetail`, `conversationSearch` | The conversation commands (section 7). |
-| `permissionAnswer` | The result of a `permissionAnswer`: `ok`, or an `error` saying why not. |
+| `permissionAnswer` | The result of a `permissionAnswer`: `ok`, or an `error` saying why not. It echoes `req`, `id`, `cardSeq` and `requestId`. A window through the relay gets it with an `error` and also a notice, because the command is refused to it. |
 
 Pushes skip a window that has not yet had its `hello` from the server.
 
@@ -259,6 +259,12 @@ their own (`soloNeeds`).
 It works for any pane open in the workspace, whether or not its tab is on screen,
 and writes to that pane alone, whatever the broadcast is set to. Control
 characters other than tab, carriage return and line feed are removed first.
+
+The text is written as a prompt. In a pane whose program has not asked for
+bracketed paste, each line break types an Enter and so submits what came before
+it. In an agent pane, a line starting with `!` or `/` is read by the agent as a
+shell or slash command. `allowShell` guards shell panes only and does nothing
+about either.
 
 It is refused, with a notice, when:
 
