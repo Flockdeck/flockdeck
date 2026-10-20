@@ -1164,6 +1164,10 @@ type PeerNameRequest struct {
 	Pane  string `json:"pane"`
 	Name  string `json:"name"`
 	Token string `json:"token"`
+	// Launch names the start of the pane's process the report comes from: the
+	// pane's LaunchEnv, as Event.Launch does. A report from an earlier start is
+	// dropped. A client that sends none predates the distinction and is accepted.
+	Launch string `json:"launch,omitempty"`
 }
 
 // SetPeerNameHandler installs the function that records a pane's own report
@@ -1232,7 +1236,7 @@ func peerNameFailure(err error, api string) error {
 // PeerName is the client half, used by the `peer-name` subcommand inside a
 // pane.
 func PeerName(api, token, pane, name string) error {
-	body, err := json.Marshal(PeerNameRequest{Pane: pane, Name: name, Token: token})
+	body, err := json.Marshal(PeerNameRequest{Pane: pane, Name: name, Token: token, Launch: os.Getenv(LaunchEnv)})
 	if err != nil {
 		return err
 	}

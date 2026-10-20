@@ -665,8 +665,17 @@ func New(opts Options) (*Workspace, error) {
 // peerNameReported applies a pane's own report of its peer name -- see
 // hooks.SetPeerNameHandler, which this is installed as.
 func (w *Workspace) peerNameReported(req hooks.PeerNameRequest) error {
-	if !w.SetPanePeerName(req.Pane, strings.TrimSpace(req.Name)) {
+	// A restarted pane keeps its id, so a report posted by the process before the
+	// restart, and landing after it, names the pane like any other. The launch
+	// tells them apart, as for hook events. That guards against a stale session,
+	// not against forgery: any process in the pane has the launch id in its
+	// environment. A report that names none is accepted, for binaries that
+	// predate the launch id.
+	switch w.setPeerName(req.Pane, strings.TrimSpace(req.Name), req.Launch) {
+	case peerNameUnknownPane:
 		return fmt.Errorf("no pane %q is open here", req.Pane)
+	case peerNameStale:
+		return fmt.Errorf("pane %q was restarted since this report was started, so it was dropped; report the name again from the new session", req.Pane)
 	}
 	return nil
 }
@@ -2884,21 +2893,44 @@ func (w *Workspace) SetPaneAutoReview(id string, on bool) bool {
 // It writes under w.mu, the same as SetPaneAutoReview: the hook server calls
 // this directly from its own goroutine, not the one that owns the workspace.
 func (w *Workspace) SetPanePeerName(id, name string) bool {
+	return w.setPeerName(id, name, "") != peerNameUnknownPane
+}
+
+// What setPeerName did with a report.
+type peerNameResult int
+
+const (
+	peerNameSet peerNameResult = iota
+	peerNameUnknownPane
+	peerNameStale
+)
+
+// setPeerName records a pane's peer name if the report is from its current
+// launch, or names no launch. The launch is compared in the same critical
+// section as the write, so a restart cannot land between the two: it takes w.mu
+// to give the pane its new launch, and a report that passed the check has
+// finished writing before it, or is refused after it.
+func (w *Workspace) setPeerName(id, name, launch string) peerNameResult {
 	name = cleanPeerName(name)
 	w.mu.Lock()
 	p := w.panes[id]
-	changed := p != nil && p.PeerName != name
+	if p == nil {
+		w.mu.Unlock()
+		return peerNameUnknownPane
+	}
+	if launch != "" && launch != p.launch {
+		w.mu.Unlock()
+		return peerNameStale
+	}
+	changed := p.PeerName != name
 	if changed {
 		p.PeerName = name
 	}
 	w.mu.Unlock()
-	if p == nil {
-		return false
-	}
 	if changed {
 		w.wake()
 	}
-	return true
+	return peerNameSet
 }
 
 // The sizes a pane's terminal may be made, whoever asks. A terminal is never

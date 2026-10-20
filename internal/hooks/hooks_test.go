@@ -1241,3 +1241,20 @@ func TestAMessageNoticeRidesOnThePromptAndToolHooksOnly(t *testing.T) {
 		t.Errorf("the notice handler was asked on an event that carries none: %v", asked[before:])
 	}
 }
+
+// The launch id of the pane's environment travels with the report.
+func TestPeerNameCarriesTheLaunchID(t *testing.T) {
+	t.Setenv(LaunchEnv, "launch-7")
+	srv, _ := newServer(t)
+	var got PeerNameRequest
+	srv.SetPeerNameHandler(func(req PeerNameRequest) error {
+		got = req
+		return nil
+	})
+	if err := PeerName(srv.BaseURL(), srv.Token(), "pane-1", "flockdeck-8d"); err != nil {
+		t.Fatalf("peer name: %v", err)
+	}
+	if got.Launch != "launch-7" {
+		t.Errorf("handler saw launch %q, want launch-7", got.Launch)
+	}
+}
