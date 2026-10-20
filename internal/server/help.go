@@ -552,7 +552,15 @@ func (s *Server) setWakeSwitch(c *controlClient, cmd command) {
 	if cmd.Text != "on" && cmd.Text != "off" {
 		return
 	}
-	s.updatePrefs(c, func(p *store.Prefs) bool { return p.SetWake(cmd.Kind, cmd.ID, cmd.Text == "on") })
+	s.updatePrefsThen(c, func(p *store.Prefs) bool { return p.SetWake(cmd.Kind, cmd.ID, cmd.Text == "on") }, func(r prefsResult) {
+		if r == prefsSaved {
+			// A switch set by hand is the user having said what they want, so
+			// a damaged file no longer holds wake off, and the service is not
+			// to go on with what it read up to a second ago.
+			store.ClearWakeDamaged()
+			s.ws.WakeSettingsChanged()
+		}
+	})
 }
 
 // setConflictRadar records whether the header may name another pane whose work

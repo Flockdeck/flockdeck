@@ -1,6 +1,93 @@
 package store
 
-import "slices"
+import (
+	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"sync/atomic"
+)
+
+// ErrPrefsDamaged is what ReadWake returns when the preferences file is there
+// but cannot be read as preferences, or was found so and moved aside.
+var ErrPrefsDamaged = errors.New("the preferences file is damaged")
+
+// wakeDamagedFile is a marker kept beside the preferences file. ReadPrefs
+// writes it when it finds the file damaged and moves it aside; the file is not
+// where it was on the next read, or after a restart, and without the marker the
+// switches the user set would read as all on. ReadWake treats it as damage, and
+// a wake switch set afterwards removes it (ClearWakeDamaged).
+const wakeDamagedFile = "prefs.wake-damaged"
+
+// wakeDamaged is the same fact in memory, for when the marker could not be
+// written.
+var wakeDamaged atomic.Bool
+
+func markWakeDamaged(dir string) {
+	wakeDamaged.Store(true)
+	// Best effort: a directory that cannot take the marker could not take the
+	// preferences either, and the flag above still holds for this run.
+	_ = os.WriteFile(filepath.Join(dir, wakeDamagedFile), []byte("a damaged preferences file was moved aside"), 0o600)
+}
+
+func wakeIsDamaged(dir string) bool {
+	if wakeDamaged.Load() {
+		return true
+	}
+	_, err := os.Stat(filepath.Join(dir, wakeDamagedFile))
+	return err == nil
+}
+
+// ClearWakeDamaged says the user has set a wake switch since the preferences
+// were found damaged, so wake is theirs to have on again. It removes the marker.
+func ClearWakeDamaged() {
+	wakeDamaged.Store(false)
+	if dir, err := Dir(); err == nil {
+		_ = os.Remove(filepath.Join(dir, wakeDamagedFile))
+	}
+}
+
+// ReadWake reads only the wake switches from the preferences file, for the one
+// reader that has to fail closed. It differs from ReadPrefs in two ways. It
+// does not move a damaged file aside. And damage anywhere in the wake part of
+// the file, or a file that is not a JSON object at all, is an error
+// (ErrPrefsDamaged) with whatever switches did decode, where ReadPrefs gives
+// the defaults, which turn wake on. A bad value elsewhere in the file (a theme
+// of 5) leaves the wake switches readable, so it does not lose them. A file
+// that is not there is the defaults, unless a damaged one was moved aside (a
+// marker file records that, across restarts).
+func ReadWake() (Prefs, error) {
+	dir, err := Dir()
+	if err != nil {
+		return Prefs{}, err
+	}
+	data, err := readState(filepath.Join(dir, prefsFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		if wakeIsDamaged(dir) {
+			return Prefs{}, ErrPrefsDamaged
+		}
+		return Prefs{}, nil
+	}
+	if err != nil {
+		return Prefs{}, err
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(data, &top) != nil || top == nil {
+		return Prefs{}, ErrPrefsDamaged
+	}
+	var p Prefs
+	if raw, ok := top["wake"]; ok {
+		if err := json.Unmarshal(raw, &p.Wake); err != nil {
+			return p, ErrPrefsDamaged
+		}
+	}
+	if wakeIsDamaged(dir) {
+		return p, ErrPrefsDamaged
+	}
+	return p, nil
+}
 
 // Scopes of a wake switch. See WakePrefs.
 const (

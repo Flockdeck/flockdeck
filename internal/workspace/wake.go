@@ -52,21 +52,33 @@ func wakeLine(id int) string {
 // WakeSettings says whether the wake service may type into a pane.
 type WakeSettings interface {
 	WakeEnabled(agentID, paneID string) bool
+	// Invalidate drops anything kept, so the next WakeEnabled reads the
+	// switches afresh. The service calls it just before it types, and the
+	// window command that sets a switch calls it so that a click takes effect
+	// at once.
+	Invalidate()
 }
 
 type wakeAllOn struct{}
 
 func (wakeAllOn) WakeEnabled(string, string) bool { return true }
+func (wakeAllOn) Invalidate()                     {}
 
 // wakeSettingsTTL is how long the preferences are kept before they are read
 // again. The service asks about every pane on every tick, and a switch changed
-// by `flockdeck wake`, which is another process, takes effect within this.
+// by `flockdeck wake`, which is another process, takes effect within this. A
+// wake already past its checks types its line, and then its Enter, only after
+// reading the switches afresh each time, so one that is switched off between
+// is stopped there, and the line may stay typed.
 const wakeSettingsTTL = time.Second
 
 // prefsWake reads the off switches from the preferences file. A file that
-// cannot be read turns wake off, because the switches the user set are not
-// known and typing into a pane against one of them is the worse mistake; the
-// last good reading is not used, since it may be the one that has just changed.
+// cannot be read, or is damaged anywhere in its wake part, turns wake off,
+// because the switches the user set are not known and typing into a pane
+// against one of them is the worse mistake; the last good reading is not used,
+// since it may be the one that has just changed. It reads with store.ReadWake,
+// not ReadPrefs: ReadPrefs gives the defaults for a damaged file, which turn
+// wake on, after moving the file aside.
 type prefsWake struct {
 	mu    sync.Mutex
 	read  func() (store.Prefs, error)
@@ -77,7 +89,13 @@ type prefsWake struct {
 }
 
 func newPrefsWake() *prefsWake {
-	return &prefsWake{read: store.ReadPrefs, now: time.Now}
+	return &prefsWake{read: store.ReadWake, now: time.Now}
+}
+
+func (p *prefsWake) Invalidate() {
+	p.mu.Lock()
+	p.at = time.Time{}
+	p.mu.Unlock()
 }
 
 func (p *prefsWake) WakeEnabled(agentID, paneID string) bool {
@@ -363,11 +381,17 @@ func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading, at ti
 		}
 		s.mu.Unlock()
 	}()
+	// off is a read of the switches that is not the cached one.
+	off := func() bool {
+		set := s.settings()
+		set.Invalidate()
+		return !set.WakeEnabled(c.Agent, c.ID)
+	}
 	typing := func() bool {
 		t := c.Sess.LastUserInput()
 		return !t.IsZero() && s.now().Sub(t) < wakeUserQuiet
 	}
-	if typing() {
+	if typing() || off() {
 		s.undo(c, at, false)
 		return
 	}
@@ -385,7 +409,7 @@ func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading, at ti
 	typedAt := s.now()
 	submitted := false
 	if s.sleep(s.settle, s.stop) {
-		if t := c.Sess.LastUserInput(); t.IsZero() || !t.After(typedAt) {
+		if t := c.Sess.LastUserInput(); (t.IsZero() || !t.After(typedAt)) && !off() {
 			submitted = c.Sess.WriteStringFrom(session.InputFlockdeck, "\r") == nil
 		}
 	}
@@ -432,6 +456,14 @@ func (s *wakeService) undo(c wakeCandidate, at time.Time, backoff bool) {
 
 // cleanPromptLine makes the matched prompt line fit for the event log.
 func cleanPromptLine(line string) string { return team.CleanLine(line, team.MaxPromptLine) }
+
+// WakeSettingsChanged drops the cached wake switches, so a switch just set is
+// in force at once and not within the next second.
+func (w *Workspace) WakeSettingsChanged() {
+	if w.wakeSettings != nil {
+		w.wakeSettings.Invalidate()
+	}
+}
 
 // startWake starts the wake service on the workspace's panes.
 func (w *Workspace) startWake() {

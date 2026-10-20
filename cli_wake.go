@@ -23,6 +23,13 @@ import (
 // environment a pane is started with, which an agent can unset in the command
 // it runs. The real barrier is the agent's own permission prompt for running a
 // command. The refusal stops an agent doing it by accident, and says why.
+//
+// on is checked harder than off, because turning typing back on is the change
+// that matters. It is also refused when stdin is not a terminal (an agent runs
+// commands with none) and when the pane's API address or token is in the
+// environment (a variable the agent has to unset, as well as the pane's own,
+// to get past it). None of this is a barrier against an agent that edits the
+// preferences file, which it can do with any command that writes a file.
 
 func wakeUsage(w io.Writer) {
 	fmt.Fprint(w, "Usage: flockdeck wake [status] [-n count]\n"+
@@ -30,8 +37,10 @@ func wakeUsage(w io.Writer) {
 		"Typed wake types one fixed line into an idle agent's input when it has unread\n"+
 		"mail. status shows the switches and the last wake events (no message text).\n"+
 		"on and off set the global switch, or with -agent or -pane the switch for an\n"+
-		"agent type or one pane. A wake needs every switch on. on and off must be run\n"+
-		"outside a Flockdeck pane.\n")
+		"agent type or one pane. A wake needs every switch on. A switch takes effect\n"+
+		"within a second, and a wake already on its way stops before the line or its\n"+
+		"Enter if the switch is off by then. on and off must be run outside a Flockdeck\n"+
+		"pane, and on from a terminal you are typing in.\n")
 }
 
 // wakeEnv is what runWake depends on besides the preferences, so a test can
@@ -39,12 +48,21 @@ func wakeUsage(w io.Writer) {
 type wakeEnv struct {
 	inPane func() bool
 	events func() ([]team.Event, error)
+	// terminal says stdin is a terminal, and paneAPI that the address or token
+	// a pane is given is in the environment.
+	terminal func() bool
+	paneAPI  func() bool
+	// read is store.ReadWake.
+	read func() (store.Prefs, error)
 }
 
 func runWake(args []string, out io.Writer) error {
 	return runWakeWith(wakeEnv{
-		inPane: func() bool { return quietPaneEnv("PANE") != "" },
-		events: readWakeEvents,
+		inPane:   func() bool { return quietPaneEnv("PANE") != "" },
+		events:   readWakeEvents,
+		terminal: stdinIsTerminal,
+		paneAPI:  func() bool { return quietPaneEnv("API") != "" || quietPaneEnv("TOKEN") != "" },
+		read:     store.ReadWake,
 	}, args, out)
 }
 
@@ -122,6 +140,14 @@ func runWakeWith(env wakeEnv, args []string, out io.Writer) error {
 	if env.inPane() {
 		return errors.New("this changes what is typed into panes, so it is not run from inside a pane; run it in a terminal outside Flockdeck")
 	}
+	if action == "on" {
+		if !env.terminal() {
+			return errors.New("on is run from a terminal you are typing in, and stdin here is not one")
+		}
+		if env.paneAPI() {
+			return errors.New("this environment has a pane's API address or token, so on is refused; run it in a terminal outside Flockdeck")
+		}
+	}
 	scope, id := store.WakeGlobal, ""
 	switch {
 	case *agentID != "":
@@ -136,6 +162,9 @@ func runWakeWith(env wakeEnv, args []string, out io.Writer) error {
 	if err := store.UpdatePrefs(func(p *store.Prefs) bool { return p.SetWake(scope, id, on) }); err != nil {
 		return fmt.Errorf("could not save the setting: %w", err)
 	}
+	// A switch set by hand is the user saying what they want, so a damaged file
+	// no longer holds wake off.
+	store.ClearWakeDamaged()
 	what := "everything"
 	if id != "" {
 		what = scope + " " + id
@@ -149,11 +178,16 @@ func runWakeWith(env wakeEnv, args []string, out io.Writer) error {
 }
 
 func wakeStatus(env wakeEnv, count int, out io.Writer) error {
-	p, err := store.ReadPrefs()
-	if err != nil {
-		return fmt.Errorf("the preferences could not be read: %w", err)
+	p, err := env.read()
+	damaged := errors.Is(err, store.ErrPrefsDamaged)
+	if err != nil && !damaged {
+		return fmt.Errorf("the preferences could not be read, so wake is off: %w", err)
 	}
 	w := p.Wake
+	if damaged {
+		fmt.Fprintln(out, "preferences damaged, wake is off for every pane until you set a switch again")
+		fmt.Fprintln(out, "(the file may have been moved aside; switches below are what could be read from it)")
+	}
 	fmt.Fprintf(out, "global: %s\n", onOff(!w.Off))
 	fmt.Fprintf(out, "agent types off: %s\n", listOr(w.Agents))
 	fmt.Fprintf(out, "panes off: %s\n", listOr(w.Panes))

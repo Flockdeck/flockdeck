@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +17,10 @@ func testWakeEnv(inPane bool, events ...team.Event) wakeEnv {
 	return wakeEnv{
 		inPane: func() bool { return inPane },
 		events: func() ([]team.Event, error) { return events, nil },
+		// A person at a terminal outside a pane, unless a test says otherwise.
+		terminal: func() bool { return true },
+		paneAPI:  func() bool { return false },
+		read:     store.ReadWake,
 	}
 }
 
@@ -120,5 +127,82 @@ func TestWakeStatusShowsSwitchesAndTheLastEventsWithoutMessageText(t *testing.T)
 	out, err = runW(t, testWakeEnv(false))
 	if err != nil || !strings.Contains(out, "no wake events") {
 		t.Fatalf("out = %q, err = %v", out, err)
+	}
+}
+
+// on is the change that matters, so it is refused where an agent would run it:
+// with no terminal on stdin, or with a pane's API address or token in the
+// environment. off is not.
+func TestWakeOnIsRefusedWithoutATerminalOrWithAPaneAPI(t *testing.T) {
+	isolateState(t)
+	if _, err := runW(t, testWakeEnv(false), "off"); err != nil {
+		t.Fatal(err)
+	}
+	noTTY := testWakeEnv(false)
+	noTTY.terminal = func() bool { return false }
+	withAPI := testWakeEnv(false)
+	withAPI.paneAPI = func() bool { return true }
+	for name, env := range map[string]wakeEnv{"no terminal": noTTY, "pane API in the environment": withAPI} {
+		for _, args := range [][]string{{"on"}, {"on", "-agent", "claude"}, {"on", "-pane", "p1"}} {
+			if _, err := runW(t, env, args...); err == nil {
+				t.Errorf("%s: %v was accepted", name, args)
+			}
+		}
+		if !store.LoadPrefs().Wake.Off {
+			t.Fatalf("%s: a refused on turned wake on", name)
+		}
+	}
+	// Turning things off needs neither.
+	if _, err := runW(t, noTTY, "off", "-agent", "claude"); err != nil {
+		t.Errorf("off without a terminal: %v", err)
+	}
+	if _, err := runW(t, withAPI, "off", "-pane", "p1"); err != nil {
+		t.Errorf("off with a pane API: %v", err)
+	}
+	// And a person at a terminal outside a pane can turn it on.
+	if _, err := runW(t, testWakeEnv(false), "on"); err != nil {
+		t.Fatal(err)
+	}
+	if store.LoadPrefs().Wake.Off {
+		t.Fatal("on did not take")
+	}
+}
+
+func TestWakeStatusSaysWhenThePreferencesAreDamaged(t *testing.T) {
+	isolateState(t)
+	t.Cleanup(store.ClearWakeDamaged)
+	env := testWakeEnv(false)
+	env.read = func() (store.Prefs, error) { return store.Prefs{}, store.ErrPrefsDamaged }
+	out, err := runW(t, env, "status")
+	if err != nil || !strings.Contains(out, "preferences damaged, wake is off") {
+		t.Fatalf("out = %q, err = %v", out, err)
+	}
+	env.read = func() (store.Prefs, error) { return store.Prefs{}, errors.New("disk on fire") }
+	if _, err := runW(t, env, "status"); err == nil || !strings.Contains(err.Error(), "wake is off") {
+		t.Fatalf("an unreadable file was reported as %v", err)
+	}
+}
+
+// A switch set from the CLI lifts the damaged state a moved-aside file left.
+func TestWakeCommandLiftsTheDamagedMarker(t *testing.T) {
+	isolateState(t)
+	t.Cleanup(store.ClearWakeDamaged)
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "prefs.json"), []byte("{broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store.ReadPrefs()
+	if _, err := store.ReadWake(); !errors.Is(err, store.ErrPrefsDamaged) {
+		t.Fatalf("not damaged: %v", err)
+	}
+	if _, err := runW(t, testWakeEnv(false), "off", "-pane", "p1"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := store.ReadWake()
+	if err != nil || p.WakeEnabled("claude", "p1") || !p.WakeEnabled("claude", "p2") {
+		t.Fatalf("err = %v, wake = %+v", err, p.Wake)
 	}
 }

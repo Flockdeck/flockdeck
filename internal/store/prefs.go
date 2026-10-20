@@ -255,6 +255,10 @@ func ReadPrefs() (Prefs, error) {
 		// other damaged state file is: the next hint dismissed rewrites it
 		// from what was read, and what was read is nothing.
 		quarantine(filepath.Join(dir, prefsFile), prefsWhat, KeptDamaged)
+		// The file is gone from where it was, so a later read finds none and
+		// reads the defaults. Typed wake would then be on again with the user's
+		// switches lost; this is what keeps it off. See ReadWake.
+		markWakeDamaged(dir)
 		return Prefs{accessLost: true}, nil
 	}
 	p.extra = unknownPrefs(data)

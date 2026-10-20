@@ -598,15 +598,27 @@ off. A line is also typed only for an agent whose prompt rule has been tested.
 | `flockdeck wake off -pane <pane-id>` | Turn it off for one pane |
 | `flockdeck wake on [-agent id \| -pane id]` | Turn the same switch back on |
 
-The switches are kept with the other settings and read again each second, so a
-change reaches a running Flockdeck at once and needs no restart. If the settings
-cannot be read, nothing is typed. The window can set the same switches with the
-`wakeSwitch` command, from the machine Flockdeck runs on only: a window reached
-through the relay, and a device that may only view, are refused. `on` and `off` are
-refused inside a pane, because deciding what is typed into a terminal is yours and
-not an agent's; the refusal is advisory, since it reads an environment variable an
-agent could unset, and the barrier that holds is the agent's own permission prompt
-for running a command. The events shown never contain message text.
+The switches are kept with the other settings and read again each second, so a change
+reaches a running Flockdeck within a second, or at once when it is made from the window.
+A wake that is already on its way reads the switches again just before it types the line
+and again before its Enter. If a switch goes off in between, the Enter is held back, so
+the line can stay typed in the message box, and the pane is left alone until you type in
+it. If the settings file cannot be read, or is damaged in the part that holds these
+switches, nothing is typed: `flockdeck wake status` says "preferences damaged" and wake
+stays off, across restarts, until you set a switch again from the window or with
+`flockdeck wake`. A damaged file is moved aside and a small marker file,
+`prefs.wake-damaged`, is left beside it to hold wake off; setting a switch removes the
+marker. The switches that were in the damaged file are in the copy that was kept, and
+are not applied.
+
+The window can set the same switches with the `wakeSwitch` command, from the machine
+Flockdeck runs on only: a window reached through the relay, and a device that may only
+view, are refused. `on` and `off` are refused inside a pane, because deciding what is
+typed into a terminal is yours and not an agent's. `on` is also refused when stdin is not
+a terminal and when a pane's API address or token is in the environment. None of this
+stops an agent that edits the settings file, which any command that writes a file can do;
+the barrier that holds is the agent's own permission prompt for running a command. The
+events shown never contain message text.
 
 ## remote
 
