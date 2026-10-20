@@ -439,7 +439,17 @@ func TestTheWriteQueueIsBounded(t *testing.T) {
 	c := startRaw(t, r, nil, acptest.WithDeaf())
 
 	go func() { _, _ = c.Prompt(context.Background(), "s", strings.Repeat("z", 8<<20)) }()
-	time.Sleep(300 * time.Millisecond) // the writer is now inside that write
+	// The writer has taken the big line off the queue and is blocked writing
+	// it: one message counted, none waiting. A fixed sleep is not enough on a
+	// slow runner, where the Cancels could be sent before the big line is
+	// queued and fit in the pipe.
+	deadline := time.Now().Add(10 * time.Second)
+	for c.queued.Load() != 1 || len(c.outbox) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("the writer never got stuck: queued %d, waiting %d", c.queued.Load(), len(c.outbox))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 
 	refused := 0
 	for i := 0; i < 300; i++ {
