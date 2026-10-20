@@ -254,11 +254,39 @@ func TestASlowTapDoesNotReorderUpdates(t *testing.T) {
 			t.Fatalf("update %d is %+v", i, u.Content)
 		}
 	}
+	// The tap is behind: 203 lines read and 3 written at 2 ms each take about
+	// 0.4 s on a fast machine and more on a slow one, and Close waits only half
+	// a second for the queue. So wait until every line is either tapped or
+	// dropped before closing.
+	const total = 203 + 3
+	deadline := time.Now().Add(10 * time.Second)
+	for len(log.all())+int(c.TapDropped()) < total && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
 	_ = c.Close()
-	// The tap was behind and the queue held it: nothing was dropped, and the
-	// lines it kept are in order.
+	// The queue held what the tap was behind on: nothing was dropped, and the
+	// lines it kept are in the order they were read.
 	if n := len(log.dir(TapIn)); n+int(c.TapDropped()) != 203 {
 		t.Errorf("%d lines tapped, %d dropped", n, c.TapDropped())
+	}
+	next := 0
+	for _, raw := range log.dir(TapIn) {
+		if methodOf(raw) != "session/update" {
+			continue
+		}
+		var m struct {
+			Params struct {
+				Update struct{ Content struct{ Text string } }
+			}
+		}
+		if err := json.Unmarshal([]byte(raw), &m); err != nil {
+			t.Fatal(err)
+		}
+		n, err := strconv.Atoi(m.Params.Update.Content.Text)
+		if err != nil || n < next {
+			t.Fatalf("update %q was tapped after update %d", m.Params.Update.Content.Text, next-1)
+		}
+		next = n + 1
 	}
 }
 
