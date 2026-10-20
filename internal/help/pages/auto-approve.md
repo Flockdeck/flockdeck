@@ -85,7 +85,8 @@ command runs in holds a file named `flockdeck` or starting with `flockdeck.`
 shell could run that instead. A project that builds its own `flockdeck` binary
 into its root therefore never has mail reads allowed in that folder. The same
 goes when a `flockdeck` earlier on the pane's launch PATH than this application
-would run instead of it, or when the PATH has a `~` entry. Words must be
+would run instead of it, when no `flockdeck` is found on the PATH at all, or
+when the PATH has a `~` entry. Words must be
 separated by single spaces.
 
 This works for agents that report their tool calls to Flockdeck (Claude Code)

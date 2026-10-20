@@ -158,6 +158,11 @@ type Server struct {
 	// graph, and graphBuilds how many times one was built.
 	graphStatics map[string]*graphStatic
 	graphBuilds  int
+	// graphTickEvery is how often a watched graph is looked at with nothing
+	// else waking the server, and graphNow the clock it is read by (nil is the
+	// real one). Both are fields so that a test sets them for its own server.
+	graphTickEvery time.Duration
+	graphNow       func() time.Time
 	// teamCache is each watched project's encoded picture and what it was built
 	// from; see teamData.
 	teamCache map[string]teamCached
@@ -390,18 +395,19 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		closed:  make(chan struct{}),
 		rp:      defaultRepaintHooks(),
 
-		linkLife:      windowLinkLife,
-		loopDone:      make(chan struct{}),
-		paneLookup:    paneLookup,
-		usageRefresh:  usageRefresh,
-		saveInterval:  layoutSaveInterval,
-		pingInterval:  pingInterval,
-		pingTimeout:   pingTimeout,
-		gitEvery:      gitStatusInterval,
-		conversations: allConversations,
-		book:          spend.NewBook(),
-		convos:        newConversationHub(),
-		preview:       newPreviewCache(),
+		linkLife:       windowLinkLife,
+		loopDone:       make(chan struct{}),
+		paneLookup:     paneLookup,
+		usageRefresh:   usageRefresh,
+		saveInterval:   layoutSaveInterval,
+		pingInterval:   pingInterval,
+		pingTimeout:    pingTimeout,
+		gitEvery:       gitStatusInterval,
+		graphTickEvery: graphTickInterval,
+		conversations:  allConversations,
+		book:           spend.NewBook(),
+		convos:         newConversationHub(),
+		preview:        newPreviewCache(),
 	}
 
 	// A terminal pane's last reply is the preview of the conversation the

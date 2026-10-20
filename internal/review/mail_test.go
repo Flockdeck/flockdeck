@@ -525,9 +525,9 @@ func TestMailReadRefusesAnOverlargeDirectory(t *testing.T) {
 	}
 }
 
-// A directory that cannot be listed is refused. The cwd is a file here, which
-// the earlier stat check catches; a read error in the loop is a path no test
-// can reach without a file system that fails, so this pins the stat.
+// A directory that cannot be read is refused. The path does not exist here,
+// which either the stat guard or the open refuses; a read error inside the
+// batch loop cannot be reached without a file system that fails.
 func TestMailReadRefusesADirectoryThatCannotBeRead(t *testing.T) {
 	env := runningEnv(t)
 	in := bashInput(t, "flockdeck inbox")

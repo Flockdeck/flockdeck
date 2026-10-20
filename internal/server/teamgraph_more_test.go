@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -304,10 +305,8 @@ func TestGraphWatchCountsAsAPush(t *testing.T) {
 // What depends on the clock alone is looked at on a slow tick, with nothing
 // else waking the server.
 func TestGraphIsLookedAtOnATick(t *testing.T) {
-	old := graphTickEvery
-	graphTickEvery = 150 * time.Millisecond
-	t.Cleanup(func() { graphTickEvery = old })
 	e := newGraphEnv(t)
+	ask(e.srv, func() bool { e.srv.graphTickEvery = 150 * time.Millisecond; return true })
 	c := e.watcher(t, 64)
 	e.srv.graphCommand(c, command{Cmd: "graphWatch", Root: e.root})
 	e.graphPushes(c)
@@ -330,5 +329,142 @@ func TestGraphIsLookedAtOnATick(t *testing.T) {
 		case <-deadline:
 			t.Fatal("the tick did not push the change")
 		}
+	}
+}
+
+// What depends on the clock alone is pushed by the tick as the clock moves:
+// mail unread in an idle pane for more than five minutes, and a returned task
+// that ages out after 24 hours. The clock is the server's own, set here.
+func TestGraphTickPushesTimeDrivenItems(t *testing.T) {
+	e := newGraphEnv(t)
+	hookSrv := e.ws.HookServer()
+	if _, err := hooks.Msg(hookSrv.BaseURL(), hookSrv.Token(), e.dev, "manager", "are you there"); err != nil {
+		t.Fatal(err)
+	}
+	e.taskOp(t, e.boss, hooks.TaskRequest{Op: hooks.TaskAdd, Title: "Build it"})
+	e.taskOp(t, e.boss, hooks.TaskRequest{Op: hooks.TaskAssign, ID: "T1", Target: e.dev})
+	e.taskOp(t, e.dev, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-progress"})
+	e.taskOp(t, e.dev, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-review"})
+	e.taskOp(t, e.eyes, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "in-progress", Note: "again"})
+
+	start := time.Now()
+	var offset atomic.Int64
+	ask(e.srv, func() bool {
+		e.ws.Pane(e.dev).Sess.SetStatus(session.StatusIdle, "")
+		e.srv.graphTickEvery = 100 * time.Millisecond
+		e.srv.graphNow = func() time.Time { return start.Add(time.Duration(offset.Load())) }
+		return true
+	})
+
+	has := func(g graphMsg, kind string) bool {
+		for _, it := range g.Teams[0].Needs {
+			if it.Kind == kind {
+				return true
+			}
+		}
+		return false
+	}
+	c := e.watcher(t, 256)
+	e.srv.graphCommand(c, command{Cmd: "graphWatch", Root: e.root})
+	// next waits for a pushed graph for which ok holds, and fails if none comes.
+	next := func(what string, ok func(graphMsg) bool) {
+		t.Helper()
+		deadline := time.After(10 * time.Second)
+		for {
+			select {
+			case raw := <-c.out:
+				if typeOf(raw) != "graph" {
+					continue
+				}
+				var m graphMsg
+				if err := json.Unmarshal(raw, &m); err != nil {
+					t.Fatal(err)
+				}
+				if ok(m) {
+					return
+				}
+			case <-deadline:
+				t.Fatalf("no graph with %s", what)
+			}
+		}
+	}
+
+	next("the returned task and no stale mail", func(g graphMsg) bool {
+		return has(g, team.NeedReturned) && !has(g, team.NeedStaleUnread)
+	})
+	offset.Store(int64(6 * time.Minute))
+	next("the mail stale after six minutes", func(g graphMsg) bool {
+		return has(g, team.NeedStaleUnread) && has(g, team.NeedReturned)
+	})
+	offset.Store(int64(25 * time.Hour))
+	next("the returned task aged out after 25 hours", func(g graphMsg) bool {
+		return has(g, team.NeedStaleUnread) && !has(g, team.NeedReturned)
+	})
+}
+
+// A watch whose graph was sent arms no push of its own: a change arms one, and
+// the tick covers the clock. A watch whose send failed arms one to try again.
+func TestGraphWatchArmsAPushOnlyWhenTheSendFailed(t *testing.T) {
+	e := newGraphEnv(t)
+	armed := func() bool { v, _ := ask(e.srv, func() bool { return e.srv.graphArmed }); return v }
+	c := e.watcher(t, 16)
+	e.srv.graphCommand(c, command{Cmd: "graphWatch", Root: e.root})
+	if armed() {
+		t.Error("a push is armed after the graph was sent")
+	}
+
+	full := e.watcher(t, 1)
+	full.out <- []byte(`{"type":"filler"}`)
+	e.srv.graphCommand(full, command{Cmd: "graphWatch", Root: e.root})
+	if !armed() {
+		t.Error("no push is armed after the send failed")
+	}
+}
+
+// The board and message part of a project is dropped when the last window
+// watching it moves to another project.
+func TestGraphStaticsDroppedWhenTheLastWatcherMoves(t *testing.T) {
+	e := newGraphEnv(t)
+	e.withOtherProject(t)
+	count := func() int { v, _ := ask(e.srv, func() int { return len(e.srv.graphStatics) }); return v }
+	a, b := e.watcher(t, 64), e.watcher(t, 64)
+	e.srv.graphCommand(a, command{Cmd: "graphWatch", Root: e.root})
+	e.srv.graphCommand(b, command{Cmd: "graphWatch", Root: e.root})
+	if n := count(); n != 1 {
+		t.Fatalf("%d kept with two windows on one project, want 1", n)
+	}
+	e.srv.graphCommand(a, command{Cmd: "graphWatch", Root: e.otherRoot})
+	if n := count(); n != 2 {
+		t.Fatalf("%d kept with one window on each project, want 2", n)
+	}
+	e.srv.graphCommand(b, command{Cmd: "graphWatch", Root: e.otherRoot})
+	if n := count(); n != 1 {
+		t.Errorf("%d kept after the last window left the first project, want 1", n)
+	}
+	e.srv.graphCommand(a, command{Cmd: "graphUnwatch"})
+	e.srv.graphCommand(b, command{Cmd: "graphUnwatch"})
+	if n := count(); n != 0 {
+		t.Errorf("%d kept with no window watching, want 0", n)
+	}
+}
+
+// A window that closes without unwatching leaves its project's cached part
+// behind until the next push, which drops it.
+func TestGraphStaticsDroppedWhenAWindowClosesWithoutUnwatching(t *testing.T) {
+	e := newGraphEnv(t)
+	e.withOtherProject(t)
+	count := func() int { v, _ := ask(e.srv, func() int { return len(e.srv.graphStatics) }); return v }
+	gone, stays := e.watcher(t, 64), e.watcher(t, 64)
+	e.srv.graphCommand(gone, command{Cmd: "graphWatch", Root: e.root})
+	e.srv.graphCommand(stays, command{Cmd: "graphWatch", Root: e.otherRoot})
+	if n := count(); n != 2 {
+		t.Fatalf("%d kept with a window on each project, want 2", n)
+	}
+	e.srv.mu.Lock()
+	delete(e.srv.clients, gone)
+	e.srv.mu.Unlock()
+	ask(e.srv, func() bool { e.srv.pushGraph(); return true })
+	if n := count(); n != 1 {
+		t.Errorf("%d kept after a window closed and a push, want 1", n)
 	}
 }
