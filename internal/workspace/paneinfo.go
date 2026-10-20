@@ -86,7 +86,7 @@ func (w *Workspace) PaneDetailsOf(id string, files bool) (PaneDetails, bool) {
 	w.mu.RLock()
 	d.AgentID, d.Model, d.Role, d.Recording = p.Agent, p.Model, p.Role, p.Recording
 	conv := paneConversation(p)
-	spec, ex, ok := w.transcriptSourceLocked(p)
+	spec, ex, ok := w.conversationOfLocked(p)
 	w.mu.RUnlock()
 	d.Conversation = conv
 	d.Transcribable = ok

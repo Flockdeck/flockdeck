@@ -111,7 +111,8 @@ func (s *Server) sendAgents(c *controlClient) {
 			if p == nil {
 				continue
 			}
-			st, detail := p.Status()
+			rt := s.ws.Runtime(p)
+			st, detail := rt.Status()
 			av := agentView{
 				PaneID: p.ID,
 				TabID:  t.ID,
@@ -127,7 +128,7 @@ func (s *Server) sendAgents(c *controlClient) {
 				Kind:     kindName(p.Kind),
 				Role:     p.Role,
 				Status:   st.String(),
-				Activity: workspace.PaneActivity(p),
+				Activity: rt.Activity(),
 				Detail:   detail,
 				Dirty:    p.Git.Dirty + p.Git.Untracked,
 				Active:   p.ID == focused,
@@ -137,13 +138,13 @@ func (s *Server) sendAgents(c *controlClient) {
 				av.Parent = p.Parent
 			}
 			if p.Sess != nil {
-				if p.IsAgent() && st != session.StatusExited {
-					av.Background = p.Sess.BackgroundTasks()
-					av.BackgroundWork = backgroundViews(p.Sess.BackgroundWork())
-					av.BackgroundEnded = backgroundEndedViews(p.Sess.BackgroundEnded())
-					av.BackgroundUnverified = av.Background - p.Sess.BackgroundVerified()
+				if bg := rt.Background(); bg.Tasks > 0 || len(bg.Running) > 0 || len(bg.Ended) > 0 {
+					av.Background = bg.Tasks
+					av.BackgroundWork = backgroundViews(bg.Running)
+					av.BackgroundEnded = backgroundEndedViews(bg.Ended)
+					av.BackgroundUnverified = av.Background - bg.Verified
 				}
-				av.For = humanAgo(time.Since(p.Sess.StatusSince()))
+				av.For = humanAgo(time.Since(rt.StatusSince()))
 				// What a waiting pane wants, in the same words a permission
 				// prompt would show: so a list of several waiting at once,
 				// several of them somebody else's helpers, says which are
@@ -152,7 +153,8 @@ func (s *Server) sendAgents(c *controlClient) {
 				// push.
 				switch st {
 				case session.StatusWaiting:
-					if ask, perm := waitingViews(detail, p.Sess.ToolInput()); ask != nil {
+					on := rt.Waiting()
+					if ask, perm := waitingViews(on.Detail, on.ToolInput); ask != nil {
 						av.Waiting = "asking a question"
 					} else if perm != nil {
 						av.Waiting = perm.Summary

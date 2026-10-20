@@ -772,7 +772,8 @@ func (s *Server) snapshot() stateMsg {
 			if p == nil {
 				continue
 			}
-			st, detail := p.Status()
+			rt := ws.Runtime(p)
+			st, detail := rt.Status()
 			pv := paneView{
 				ID:           p.ID,
 				Kind:         kindName(p.Kind),
@@ -781,7 +782,7 @@ func (s *Server) snapshot() stateMsg {
 				Branch:       p.Branch,
 				Role:         p.Role,
 				Status:       st.String(),
-				Activity:     workspace.PaneActivity(p),
+				Activity:     rt.Activity(),
 				Detail:       detail,
 				Broadcast:    ws.InBroadcast(p.ID),
 				Muted:        p.Muted,
@@ -795,14 +796,16 @@ func (s *Server) snapshot() stateMsg {
 			}
 			pv.RemoteViewers = s.remoteViewersFor(p.ID)
 			pv.RemoteInsecure = remoteTermViewers.insecure(p.ID)
-			if st == session.StatusWaiting && p.Sess != nil {
-				pv.Ask, pv.Permission = waitingViews(detail, p.Sess.ToolInput())
+			if st == session.StatusWaiting {
+				on := rt.Waiting()
+				pv.Ask, pv.Permission = waitingViews(on.Detail, on.ToolInput)
 				if pv.Permission != nil {
-					pv.Permission.Options = permissionOptions(p.Agent, pv.Permission.Tool)
+					pv.Permission.Options = rt.PermissionOptions(pv.Permission.Tool)
 				}
 			}
 			if pv.Kind != "shell" {
-				if last, ok := s.preview.get(p.ID); ok {
+				if r, ok := rt.LastReply(); ok {
+					last := lastReplyView{Text: r.Text, TS: r.TS, Kind: r.Kind}
 					pv.Last = &last
 				}
 			}
@@ -831,15 +834,15 @@ func (s *Server) snapshot() stateMsg {
 			}
 			// Nothing is left running once the process has gone, whatever was
 			// last counted.
-			if p.Sess != nil && p.IsAgent() && st != session.StatusExited {
-				pv.Background = p.Sess.BackgroundTasks()
-				pv.BackgroundWork = backgroundViews(p.Sess.BackgroundWork())
-				pv.BackgroundEnded = backgroundEndedViews(p.Sess.BackgroundEnded())
-				pv.BackgroundUnverified = pv.Background - p.Sess.BackgroundVerified()
+			if bg := rt.Background(); bg.Tasks > 0 || len(bg.Running) > 0 || len(bg.Ended) > 0 {
+				pv.Background = bg.Tasks
+				pv.BackgroundWork = backgroundViews(bg.Running)
+				pv.BackgroundEnded = backgroundEndedViews(bg.Ended)
+				pv.BackgroundUnverified = bg.Tasks - bg.Verified
 			}
 			if p.Sess != nil {
 				pv.Cols, pv.Rows = p.Sess.Size()
-				pv.StatusSince = p.Sess.StatusSince().Format(time.RFC3339)
+				pv.StatusSince = rt.StatusSince().Format(time.RFC3339)
 				if sampleUsage {
 					pv.CPU, pv.RSS, pv.Procs = shownUsage(usageOf(p.Sess))
 				}

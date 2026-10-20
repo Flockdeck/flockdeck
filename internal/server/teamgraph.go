@@ -41,8 +41,8 @@ const (
 // The kinds of pane. Structured is reserved for panes an agent drives over a
 // protocol rather than a terminal; nothing sets it yet.
 const (
-	graphKindTerminal   = "terminal"
-	graphKindStructured = "structured"
+	graphKindTerminal   = string(workspace.PaneKindTerminal)
+	graphKindStructured = string(workspace.PaneKindStructured)
 )
 
 // graphTaskChip is the task a node names as its current one.
@@ -56,7 +56,7 @@ type graphTaskChip struct {
 // from team.BuildGraph, with the facts a node draws.
 type graphNodeView struct {
 	team.GraphNode
-	// Kind is how the pane is run: graphKindTerminal for every pane today.
+	// Kind is how the pane is run, as its runtime says: every pane is a terminal today.
 	Kind     string `json:"kind"`
 	Name     string `json:"name"`
 	Peer     string `json:"peer,omitempty"`
@@ -358,18 +358,17 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 	gp := make([]team.GraphPane, 0, len(panes))
 	byID := map[string]*workspace.Pane{}
 	live := map[string]string{}
+	rts := map[string]workspace.PaneRuntime{}
 	for _, p := range panes {
 		byID[p.ID] = p
+		rt := ws.Runtime(p)
+		rts[p.ID] = rt
 		// One read of the status serves the pane, its live line and its prompt.
-		stat, detail := session.StatusExited, ""
-		var since time.Time
-		if p.Sess != nil && p.Err == nil {
-			stat, detail = p.Sess.Status()
-			since = p.Sess.StatusSince()
-		}
+		stat, detail := rt.Status()
+		since := rt.StatusSince()
 		g := team.GraphPane{
 			ID: p.ID, Parent: p.Parent, Role: p.Role, Name: p.Name, Peer: ws.PeerNameOf(p), Agent: p.Agent,
-			Shell: !p.IsAgent(), Status: stat.String(), Activity: string(workspace.PaneActivity(p)),
+			Shell: !p.IsAgent(), Status: stat.String(), Activity: string(rt.Activity()),
 			StatusSince: since, Unread: ws.Unread(p.ID), UnreadSince: st.unreadSince[p.ID],
 			Exited: stat == session.StatusExited,
 		}
@@ -383,8 +382,9 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		case failed:
 			g.Failed, g.FailureReason = true, team.PlainText(why, 120)
 		}
-		if stat == session.StatusWaiting && p.Sess != nil {
-			a, perm := waitingViews(detail, p.Sess.ToolInput())
+		if stat == session.StatusWaiting {
+			on := rt.Waiting()
+			a, perm := waitingViews(on.Detail, on.ToolInput)
 			g.PromptText, g.PromptKind, g.HasPrompt = graphPrompt(a, perm)
 		}
 		if detail != "" && stat != session.StatusExited {
@@ -413,7 +413,7 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 	for _, n := range graph.Nodes {
 		p, g := byID[n.Pane], gpByID[n.Pane]
 		nv := graphNodeView{
-			GraphNode: n, Kind: graphKindTerminal, Name: g.Name, Peer: g.Peer, Role: g.Role, Agent: g.Agent, Shell: g.Shell,
+			GraphNode: n, Kind: string(rts[n.Pane].Kind()), Name: g.Name, Peer: g.Peer, Role: g.Role, Agent: g.Agent, Shell: g.Shell,
 			Status: g.Status, Activity: g.Activity, Branch: p.Branch, Live: live[n.Pane],
 			Dirty: p.Git.Dirty, Untracked: p.Git.Untracked, Ahead: p.Git.Ahead, Behind: p.Git.Behind,
 			Unread: g.Unread, AutoReview: p.AutoReview, AutoApproved: ws.AutoApprovedOf(p),
@@ -422,7 +422,7 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 			nv.Since = g.StatusSince.Format(time.RFC3339)
 		}
 		if nv.Live == "" && !g.Shell {
-			if last, ok := s.preview.get(p.ID); ok {
+			if last, ok := rts[p.ID].LastReply(); ok {
 				nv.Live = graphLine(last.Text, graphLiveCut)
 			}
 		}
@@ -446,14 +446,14 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		rootPane := byID[tm.Root]
 		tv := graphTeamView{ID: tm.ID, Manager: tm.Root, Members: tm.Members, Caps: []graphCap{}, Needs: []team.NeedsItem{}}
 		tv.Goal = team.PlainText(rootPane.Task, graphGoalCut)
-		if rootPane.Sess != nil && !rootPane.Sess.StartedAt().IsZero() {
-			tv.Started = rootPane.Sess.StartedAt().Format(time.RFC3339)
+		if at := rts[tm.Root].StartedAt(); !at.IsZero() {
+			tv.Started = at.Format(time.RFC3339)
 		}
 		for _, id := range tm.Members {
-			p, g := byID[id], gpByID[id]
+			g := gpByID[id]
 			if v := s.book.Pane(id, now); v != nil && v.USD > 0 && !v.Unpriced {
 				tv.SpendUSD += v.USD
-			} else if !g.Shell && p.Sess != nil && g.Status != session.StatusStarting.String() {
+			} else if rts[id].HasRun() && g.Status != session.StatusStarting.String() {
 				// An agent that has run and has no priced figure makes the total a
 				// floor. A shell, and an agent that has not started, report none by
 				// nature.
