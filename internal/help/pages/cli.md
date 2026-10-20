@@ -605,18 +605,21 @@ and again before its Enter. If a switch goes off in between, the Enter is held b
 the line can stay typed in the message box, and the pane is left alone until you type in
 it. If the settings file cannot be read, or is damaged in the part that holds these
 switches, nothing is typed: `flockdeck wake status` says "preferences damaged" and wake
-stays off, across restarts, until you set a switch again from the window or with
-`flockdeck wake`. A damaged file is moved aside and a small marker file,
-`prefs.wake-damaged`, is left beside it to hold wake off; setting a switch removes the
-marker. The switches that were in the damaged file are in the copy that was kept, and
+stays off, across restarts, until you set the global switch again from the window or with
+`flockdeck wake on` or `flockdeck wake off`. A damaged file is moved aside and a small
+marker file, `prefs.wake-damaged`, is left beside it to hold wake off. Setting the global
+switch removes the marker, even when it changes nothing. A switch for one agent type or
+one pane does not, and says so, because the global switch that was in the damaged file is
+gone and the rest of the panes would otherwise come back on. The switches that were in the damaged file are in the copy that was kept, and
 are not applied.
 
 The window can set the same switches with the `wakeSwitch` command, from the machine
 Flockdeck runs on only: a window reached through the relay, and a device that may only
 view, are refused. `on` and `off` are refused inside a pane, because deciding what is
 typed into a terminal is yours and not an agent's. `on` is also refused when stdin is not
-a terminal and when a pane's API address or token is in the environment. None of this
-stops an agent that edits the settings file, which any command that writes a file can do;
+a terminal (the null device does not count as one) and when a pane's API address or token
+is in the environment. These are speed bumps: none of this stops an agent that opens a
+pseudo-terminal, or that edits the settings file, which any command that writes a file can do;
 the barrier that holds is the agent's own permission prompt for running a command. The
 events shown never contain message text.
 

@@ -20,6 +20,9 @@ import (
 // isolateConfig points the state directory at a temporary location.
 func isolateConfig(t *testing.T) {
 	t.Helper()
+	// The in-memory damaged flag is package state; a test that sets it must not
+	// hand it to the next.
+	t.Cleanup(func() { wakeDamaged.Store(false) })
 	dir := t.TempDir()
 	t.Setenv("APPDATA", dir)         // Windows
 	t.Setenv("XDG_CONFIG_HOME", dir) // Linux

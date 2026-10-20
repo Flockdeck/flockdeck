@@ -1,6 +1,9 @@
 package server
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -96,4 +99,45 @@ func TestWakeSwitchIsRefusedToViewers(t *testing.T) {
 	if store.LoadPrefs().Wake.Off {
 		t.Fatal("a viewer turned wake off")
 	}
+}
+
+// damageWakePrefs leaves the preferences as a damaged file the rest of the
+// program has moved aside: the user's global off is in the copy kept, and only
+// the marker holds wake off.
+func damageWakePrefs(t *testing.T) {
+	t.Helper()
+	t.Cleanup(store.ClearWakeDamaged)
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "prefs.json"), []byte(`{"wake":{"off":true},"theme":5}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store.ReadPrefs()
+	if _, err := store.ReadWake(); !errors.Is(err, store.ErrPrefsDamaged) {
+		t.Fatalf("not damaged: %v", err)
+	}
+}
+
+// Only the global switch lifts a damaged file's hold, and it does even when it
+// changes nothing, since after damage everything reads as on.
+func TestWakeSwitchLiftsADamagedHoldOnlyForTheGlobalSwitch(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	nextHello(t, conn)
+	damageWakePrefs(t)
+
+	sendCmd(t, conn, command{Cmd: "wakeSwitch", Kind: "pane", ID: "p9", Text: "off"})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if !note.Error || !strings.Contains(note.Text, "still held off") {
+		t.Fatalf("a pane switch was answered %+v", note)
+	}
+	if _, err := store.ReadWake(); !errors.Is(err, store.ErrPrefsDamaged) {
+		t.Fatalf("a pane switch lifted the hold: %v", err)
+	}
+
+	sendCmd(t, conn, command{Cmd: "wakeSwitch", Kind: "global", Text: "on"})
+	waitFor(t, func() bool { _, err := store.ReadWake(); return err == nil })
 }

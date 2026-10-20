@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mattn/go-isatty"
+
 	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/team"
 	"github.com/jmwri/flockdeck/internal/workspace"
@@ -60,10 +62,20 @@ func runWake(args []string, out io.Writer) error {
 	return runWakeWith(wakeEnv{
 		inPane:   func() bool { return quietPaneEnv("PANE") != "" },
 		events:   readWakeEvents,
-		terminal: stdinIsTerminal,
+		terminal: wakeTerminal,
 		paneAPI:  func() bool { return quietPaneEnv("API") != "" || quietPaneEnv("TOKEN") != "" },
 		read:     store.ReadWake,
 	}, args, out)
+}
+
+// wakeTerminal says stdin is a terminal: a console or a pty (Git Bash's window
+// hands a program a pipe named for its pty), and not the null device, which
+// stdinIsTerminal takes for one because it is a character device. A person at
+// a keyboard passes it and an agent running a command does not, though a
+// program that opens a pty can pass it too: it is a speed bump, not a barrier.
+func wakeTerminal() bool {
+	fd := os.Stdin.Fd()
+	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
 }
 
 // readWakeEvents is the event log as it was last saved.
@@ -162,16 +174,23 @@ func runWakeWith(env wakeEnv, args []string, out io.Writer) error {
 	if err := store.UpdatePrefs(func(p *store.Prefs) bool { return p.SetWake(scope, id, on) }); err != nil {
 		return fmt.Errorf("could not save the setting: %w", err)
 	}
-	// A switch set by hand is the user saying what they want, so a damaged file
-	// no longer holds wake off.
-	store.ClearWakeDamaged()
+	// Only the global switch lifts a damaged file's hold on wake. One for an
+	// agent type or a pane says nothing about the rest, and the global switch
+	// that was in the damaged file is gone. Setting the global switch counts
+	// even when it changes nothing, since after damage everything reads as on.
+	if scope == store.WakeGlobal {
+		store.ClearWakeDamaged()
+	}
 	what := "everything"
 	if id != "" {
 		what = scope + " " + id
 	}
 	fmt.Fprintf(out, "Typed wake for %s: %s\n", what, action)
-	p, err := store.ReadPrefs()
-	if err == nil && on && !p.WakeEnabled(*agentID, *paneID) {
+	p, err := env.read()
+	switch {
+	case errors.Is(err, store.ErrPrefsDamaged):
+		fmt.Fprintln(out, "Wake is still off everywhere: the preferences file was damaged. Run flockdeck wake on or flockdeck wake off to say what you want.")
+	case err == nil && on && !p.WakeEnabled(*agentID, *paneID):
 		fmt.Fprintln(out, "Still held off by another switch; wake status shows which.")
 	}
 	return nil

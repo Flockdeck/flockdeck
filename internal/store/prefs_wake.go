@@ -1,12 +1,15 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync/atomic"
 )
 
@@ -21,15 +24,21 @@ var ErrPrefsDamaged = errors.New("the preferences file is damaged")
 // a wake switch set afterwards removes it (ClearWakeDamaged).
 const wakeDamagedFile = "prefs.wake-damaged"
 
-// wakeDamaged is the same fact in memory, for when the marker could not be
-// written.
+// wakeDamaged is the same fact in memory, set only when the marker could not
+// be written. When the marker is there it is the marker that counts, so that a
+// switch set by another process, which removes it, is seen here too.
 var wakeDamaged atomic.Bool
 
+// writeMarker is os.WriteFile, replaced by a test.
+var writeMarker = os.WriteFile
+
 func markWakeDamaged(dir string) {
-	wakeDamaged.Store(true)
-	// Best effort: a directory that cannot take the marker could not take the
-	// preferences either, and the flag above still holds for this run.
-	_ = os.WriteFile(filepath.Join(dir, wakeDamagedFile), []byte("a damaged preferences file was moved aside"), 0o600)
+	err := writeMarker(filepath.Join(dir, wakeDamagedFile), []byte("a damaged preferences file was moved aside"), 0o600)
+	if err != nil {
+		// A directory that cannot take the marker could hardly have taken the
+		// preferences either; the flag holds for this run.
+		wakeDamaged.Store(true)
+	}
 }
 
 func wakeIsDamaged(dir string) bool {
@@ -73,20 +82,59 @@ func ReadWake() (Prefs, error) {
 	if err != nil {
 		return Prefs{}, err
 	}
-	var top map[string]json.RawMessage
-	if json.Unmarshal(data, &top) != nil || top == nil {
+	wake, ok := wakeMembers(data)
+	if !ok {
 		return Prefs{}, ErrPrefsDamaged
 	}
 	var p Prefs
-	if raw, ok := top["wake"]; ok {
+	// More than one is merged by the decoder, as ReadPrefs merges them, which
+	// keeps an off switch that appears in either. The key is matched without
+	// regard to case, as encoding/json does for ReadPrefs.
+	for _, raw := range wake {
 		if err := json.Unmarshal(raw, &p.Wake); err != nil {
 			return p, ErrPrefsDamaged
 		}
+	}
+	if len(wake) > 1 {
+		// Two members of one name is not a file this program wrote.
+		return p, ErrPrefsDamaged
 	}
 	if wakeIsDamaged(dir) {
 		return p, ErrPrefsDamaged
 	}
 	return p, nil
+}
+
+// wakeMembers returns the values of the top-level members of data named wake,
+// in any case, and false if data is not a JSON object.
+func wakeMembers(data []byte) ([]json.RawMessage, bool) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil, false
+	}
+	var out []json.RawMessage
+	for dec.More() {
+		t, err := dec.Token()
+		key, isKey := t.(string)
+		if err != nil || !isKey {
+			return nil, false
+		}
+		var raw json.RawMessage
+		if dec.Decode(&raw) != nil {
+			return nil, false
+		}
+		if strings.EqualFold(key, "wake") {
+			out = append(out, raw)
+		}
+	}
+	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
+		return nil, false
+	}
+	// Anything after the object is damage, as it is to json.Unmarshal.
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, false
+	}
+	return out, true
 }
 
 // Scopes of a wake switch. See WakePrefs.

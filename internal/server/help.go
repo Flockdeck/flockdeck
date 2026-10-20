@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -553,13 +554,20 @@ func (s *Server) setWakeSwitch(c *controlClient, cmd command) {
 		return
 	}
 	s.updatePrefsThen(c, func(p *store.Prefs) bool { return p.SetWake(cmd.Kind, cmd.ID, cmd.Text == "on") }, func(r prefsResult) {
-		if r == prefsSaved {
-			// A switch set by hand is the user having said what they want, so
-			// a damaged file no longer holds wake off, and the service is not
-			// to go on with what it read up to a second ago.
-			store.ClearWakeDamaged()
-			s.ws.WakeSettingsChanged()
+		if r == prefsFailed {
+			return
 		}
+		// Only the global switch lifts a damaged file's hold. A switch for one
+		// agent type or pane says nothing about the rest, and the global switch
+		// that was in the damaged file is gone. Setting it counts even when it
+		// changes nothing: after damage the defaults are all on, so "on" is no
+		// change and is still the user's answer.
+		if cmd.Kind == store.WakeGlobal {
+			store.ClearWakeDamaged()
+		} else if _, err := store.ReadWake(); errors.Is(err, store.ErrPrefsDamaged) {
+			c.notify("Wake is still held off everywhere, because the preferences file was damaged. Set the global switch to say whether you want it on", true)
+		}
+		s.ws.WakeSettingsChanged()
 	})
 }
 

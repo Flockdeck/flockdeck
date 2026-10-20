@@ -280,3 +280,117 @@ func TestWakeStaysOffAcrossARestartAfterADamagedFile(t *testing.T) {
 		t.Fatal("the marker is still there")
 	}
 }
+
+// The marker is written before the file is moved, so a read of the switches
+// between the two does not see no file and no marker.
+func TestMarkerIsWrittenBeforeTheDamagedFileIsMoved(t *testing.T) {
+	isolateConfig(t)
+	t.Cleanup(ClearWakeDamaged)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, prefsFile)
+	if err := os.WriteFile(path, []byte(`{"wake":{"off":true},"theme":5}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fileThere := false
+	orig := writeMarker
+	t.Cleanup(func() { writeMarker = orig })
+	writeMarker = func(name string, data []byte, perm os.FileMode) error {
+		_, err := os.Stat(path)
+		fileThere = err == nil
+		return orig(name, data, perm)
+	}
+	ReadPrefs()
+	if !fileThere {
+		t.Fatal("the marker was written after the file was moved")
+	}
+}
+
+// With the marker in place it is the marker that counts, so that another
+// process removing it is seen at once. The in-memory flag stands in only when
+// the marker could not be written.
+func TestTheFlagMattersOnlyWhenTheMarkerCouldNotBeWritten(t *testing.T) {
+	isolateConfig(t)
+	t.Cleanup(ClearWakeDamaged)
+	dir, err := Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	damage := func() {
+		if err := os.WriteFile(filepath.Join(dir, prefsFile), []byte(`{broken`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		ReadPrefs()
+	}
+
+	damage()
+	if _, err := ReadWake(); !errors.Is(err, ErrPrefsDamaged) {
+		t.Fatalf("with the marker: %v", err)
+	}
+	// Another process sets a switch and removes the marker.
+	if err := os.Remove(filepath.Join(dir, wakeDamagedFile)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadWake(); err != nil {
+		t.Fatalf("this process kept holding wake off after the marker was removed: %v", err)
+	}
+
+	// No marker could be written: the flag holds, until a switch is set.
+	orig := writeMarker
+	t.Cleanup(func() { writeMarker = orig })
+	writeMarker = func(string, []byte, os.FileMode) error { return errors.New("read-only") }
+	damage()
+	if _, err := ReadWake(); !errors.Is(err, ErrPrefsDamaged) {
+		t.Fatalf("without a marker: %v", err)
+	}
+	ClearWakeDamaged()
+	if _, err := ReadWake(); err != nil {
+		t.Fatalf("after a switch was set: %v", err)
+	}
+}
+
+// ReadWake and ReadPrefs read the file the same way where it matters: a member
+// named wake in any case counts, and two of them are damage and not "the last
+// one wins".
+func TestReadWakeAgreesWithReadPrefsOnOddFiles(t *testing.T) {
+	cases := []struct {
+		name, content string
+		off           bool
+		damaged       bool
+	}{
+		{"capitalised", `{"Wake":{"off":true}}`, true, false},
+		{"upper case", `{"WAKE":{"panes":["p1"]}}`, false, false},
+		{"duplicate keeps off for both readers", `{"wake":{"off":true},"wake":{}}`, true, true},
+		{"duplicate, off last", `{"wake":{},"wake":{"off":true}}`, true, true},
+		{"trailing text", `{"wake":{"off":true}} x`, true, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			isolateConfig(t)
+			t.Cleanup(ClearWakeDamaged)
+			dir, err := Dir()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, prefsFile), []byte(c.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			p, err := ReadWake()
+			if c.damaged != errors.Is(err, ErrPrefsDamaged) {
+				t.Fatalf("ReadWake err = %v, damaged want %v", err, c.damaged)
+			}
+			if !c.damaged && p.Wake.Off != c.off {
+				t.Fatalf("ReadWake wake = %+v", p.Wake)
+			}
+			// Where ReadPrefs reads the file at all, it does not turn off
+			// something ReadWake has off.
+			if q, err := ReadPrefs(); err == nil && !q.AccessUnknown() {
+				if c.off && !q.Wake.Off {
+					t.Fatalf("ReadPrefs has wake on where ReadWake has it off: %+v", q.Wake)
+				}
+			}
+		})
+	}
+}

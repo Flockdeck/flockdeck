@@ -183,7 +183,7 @@ func TestWakeStatusSaysWhenThePreferencesAreDamaged(t *testing.T) {
 	}
 }
 
-// A switch set from the CLI lifts the damaged state a moved-aside file left.
+// The global switch set from the CLI lifts the damaged state a moved-aside file left.
 func TestWakeCommandLiftsTheDamagedMarker(t *testing.T) {
 	isolateState(t)
 	t.Cleanup(store.ClearWakeDamaged)
@@ -198,11 +198,74 @@ func TestWakeCommandLiftsTheDamagedMarker(t *testing.T) {
 	if _, err := store.ReadWake(); !errors.Is(err, store.ErrPrefsDamaged) {
 		t.Fatalf("not damaged: %v", err)
 	}
+	if _, err := runW(t, testWakeEnv(false), "on"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := runW(t, testWakeEnv(false), "off", "-pane", "p1"); err != nil {
 		t.Fatal(err)
 	}
 	p, err := store.ReadWake()
 	if err != nil || p.WakeEnabled("claude", "p1") || !p.WakeEnabled("claude", "p2") {
 		t.Fatalf("err = %v, wake = %+v", err, p.Wake)
+	}
+}
+
+// damagePrefs writes a preferences file with the user's global off in it and a
+// bad value elsewhere, and reads it as the rest of the program would, which
+// moves it aside and leaves the marker.
+func damagePrefs(t *testing.T) {
+	t.Helper()
+	t.Cleanup(store.ClearWakeDamaged)
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "prefs.json"), []byte(`{"wake":{"off":true},"theme":5}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store.ReadPrefs()
+	if _, err := store.ReadWake(); !errors.Is(err, store.ErrPrefsDamaged) {
+		t.Fatalf("not damaged: %v", err)
+	}
+}
+
+// A switch for one pane or agent type does not lift the hold a damaged file
+// has on wake, and says so. Only the global switch does, even when it changes
+// nothing.
+func TestOnlyTheGlobalSwitchLiftsTheDamagedHold(t *testing.T) {
+	isolateState(t)
+	damagePrefs(t)
+	for _, args := range [][]string{{"off", "-pane", "p9"}, {"off", "-agent", "aider"}, {"on", "-pane", "p9"}} {
+		out, err := runW(t, testWakeEnv(false), args...)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if !strings.Contains(out, "still off everywhere") {
+			t.Errorf("%v did not say wake is still held off: %q", args, out)
+		}
+		if _, err := store.ReadWake(); !errors.Is(err, store.ErrPrefsDamaged) {
+			t.Fatalf("%v lifted the hold: err = %v", args, err)
+		}
+	}
+	// The global switch, here "on" when everything already reads as on.
+	if _, err := runW(t, testWakeEnv(false), "on"); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := store.ReadWake(); err != nil || !p.WakeEnabled("claude", "p1") {
+		t.Fatalf("after the global switch: %v", err)
+	}
+}
+
+func TestWakeTerminalRefusesTheNullDevice(t *testing.T) {
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer null.Close()
+	orig := os.Stdin
+	os.Stdin = null
+	defer func() { os.Stdin = orig }()
+	if wakeTerminal() {
+		t.Fatal("the null device passed for a terminal")
 	}
 }
