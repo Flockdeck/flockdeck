@@ -553,18 +553,22 @@ func TestStderrIsDrained(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 1 MiB on stderr: an undrained pipe would hold the agent and the turn.
+	// 1 MiB on stderr: an undrained pipe would hold the agent and the turn, so
+	// the turn ending is the proof that it is read. The callback is given lines
+	// on a queue that drops what it can not keep up with, so how many of the
+	// 1024 lines arrive depends on the machine; the test needs some of them
+	// and the tail, not all.
 	prompt(t, c, sid, "stderr")
 	deadline := time.Now().Add(wait)
 	for {
 		mu.Lock()
 		n := lines
 		mu.Unlock()
-		if n >= 1024 {
+		if n >= 1 {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("only %d stderr lines arrived", n)
+			t.Fatalf("no stderr line arrived")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -620,5 +624,52 @@ func TestMCPServersAreArraysNeverNull(t *testing.T) {
 	b, err := json.Marshal(MCPServer{Name: "n", Command: "c"})
 	if err != nil || string(b) != `{"name":"n","command":"c","args":[],"env":[]}` {
 		t.Errorf("MCPServer = %s, %v", b, err)
+	}
+}
+
+// The agent's last words are on stderr, and its stdout can end before the
+// reader of stderr has them. The error for a lost agent waits a moment for the
+// end of stderr, so that it carries them.
+func TestALostAgentsErrorCarriesTheStderrStillBeingRead(t *testing.T) {
+	c := &Client{
+		pending:    map[int64]chan reply{},
+		perms:      map[*permission]struct{}{},
+		stderrDone: make(chan struct{}),
+	}
+	ch := make(chan reply, 1)
+	c.pending[1] = ch
+	go func() {
+		// The reader of stderr gets the line a little after stdout ended.
+		time.Sleep(60 * time.Millisecond)
+		c.mu.Lock()
+		c.errTail = append(c.errTail, "exiting on request\n"...)
+		c.mu.Unlock()
+		close(c.stderrDone)
+	}()
+	c.lost()
+	r := <-ch
+	var exit *ExitError
+	if !errors.As(r.err, &exit) || !strings.Contains(exit.Stderr, "exiting on request") {
+		t.Fatalf("err = %v, want an ExitError carrying the late stderr line", r.err)
+	}
+}
+
+// A stderr that stays open (a program the agent left running holds it) delays
+// the error by the grace and no more.
+func TestALostAgentsErrorDoesNotWaitForeverForStderr(t *testing.T) {
+	c := &Client{
+		pending:    map[int64]chan reply{},
+		perms:      map[*permission]struct{}{},
+		stderrDone: make(chan struct{}),
+	}
+	ch := make(chan reply, 1)
+	c.pending[1] = ch
+	start := time.Now()
+	c.lost()
+	if took := time.Since(start); took > 3*time.Second {
+		t.Errorf("lost took %v", took)
+	}
+	if r := <-ch; r.err == nil {
+		t.Error("the waiting call got no error")
 	}
 }

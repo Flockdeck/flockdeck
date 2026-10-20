@@ -126,6 +126,9 @@ const (
 	// treeGrace is how long Close waits for the agent to be gone once its
 	// tree has been ended.
 	treeGrace = 3 * time.Second
+	// stderrDrainGrace is how long a lost agent's error waits for the end of
+	// its stderr.
+	stderrDrainGrace = 250 * time.Millisecond
 	// handlerGrace is how long Close waits for Permission calls to return after
 	// their context is cancelled.
 	handlerGrace = time.Second
@@ -200,8 +203,9 @@ type Client struct {
 	authMethods []AuthMethod
 	errTail     []byte
 
-	loopDone chan struct{} // the read loop has ended
-	reaped   chan struct{} // the agent process has been waited for
+	loopDone   chan struct{} // the read loop has ended
+	stderrDone chan struct{} // the agent's stderr has been read to its end
+	reaped     chan struct{} // the agent process has been waited for
 
 	closeOnce sync.Once
 }
@@ -281,6 +285,7 @@ func Start(cfg Config) (*Client, error) {
 		abandoned:  map[int64]struct{}{},
 		perms:      map[*permission]struct{}{},
 		loopDone:   make(chan struct{}),
+		stderrDone: make(chan struct{}),
 		reaped:     make(chan struct{}),
 	}
 	// Process.Wait, not Cmd.Wait: Cmd.Wait would wait for the pipes to close
@@ -349,6 +354,7 @@ func readLine(br *bufio.Reader, max int, truncate bool) ([]byte, error) {
 }
 
 func (c *Client) drainStderr(r io.Reader) {
+	defer close(c.stderrDone)
 	var lines chan string
 	if c.cfg.Stderr != nil {
 		lines = make(chan string, 256)
@@ -417,6 +423,11 @@ func (c *Client) readLoop() {
 // lost is the agent's output ending: calls waiting are failed and requests
 // waiting on a person no longer need an answer.
 func (c *Client) lost() {
+	// The agent's last words are on stderr, and the pipe for stdout can reach
+	// its end before the reader of stderr has the line written just before the
+	// exit. Give it a moment, so the error carries them. A program the agent
+	// left running can hold stderr open, so the wait is bounded.
+	waitFor(c.stderrDone, stderrDrainGrace)
 	c.failPending(&ExitError{Stderr: c.StderrTail()})
 	c.mu.Lock()
 	perms := make([]*permission, 0, len(c.perms))
