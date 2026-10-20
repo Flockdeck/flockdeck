@@ -115,9 +115,9 @@ type Config struct {
 	// loop or the writer, and never costs a reply to the agent. A recorder that
 	// must not lose lines has to keep up, and whoever owns it has to read
 	// TapDropped: nothing here writes a marker where lines were dropped, so a
-	// recording with gaps looks complete unless the count is polled. Lines of the two directions are queued
-	// from different goroutines, so their order relative to each other is the
-	// order they reached the queue.
+	// recording with gaps looks complete unless the count is polled. Lines of
+	// the two directions are queued from different goroutines, so their order
+	// relative to each other is the order they reached the queue.
 	//
 	// raw is the client's copy, so Tap may change it, but it is reused: copy
 	// what you keep. A panic in Tap is recovered and counted in TapPanics, apart
