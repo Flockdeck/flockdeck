@@ -33,6 +33,10 @@ func FS() fs.FS {
 // overlay is two file trees seen as one, the first winning.
 type overlay struct{ top, base fs.FS }
 
+// Open returns the new shell's file when it has one. Open(".") is therefore the
+// new tree's root directory, and a ReadDir on that file lists only the new
+// tree. Callers that list a directory use fs.ReadDir(FS(), ...), which goes
+// through the merged method below; the server only opens files.
 func (o overlay) Open(name string) (fs.File, error) {
 	f, err := o.top.Open(name)
 	if err == nil {

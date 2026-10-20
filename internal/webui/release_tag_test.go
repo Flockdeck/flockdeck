@@ -47,6 +47,7 @@ func TestReleaseBuildsDoNotUseTheNextTag(t *testing.T) {
 	for _, rel := range []string{
 		".github/workflows/release.yml",
 		".github/workflows/docker-image.yml",
+		".github/workflows/linux-packages.yml",
 		"Dockerfile",
 		"Makefile",
 		"cmd/release/main.go",
@@ -67,7 +68,7 @@ func TestReleaseBuildsDoNotUseTheNextTag(t *testing.T) {
 			}
 		}
 	}
-	if checked < 5 {
+	if checked < 6 {
 		t.Errorf("only %d of the release build files were read", checked)
 	}
 }
