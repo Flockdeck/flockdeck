@@ -49,6 +49,13 @@ func (e MailEnv) runsThisApp(cwd string) bool {
 	if e.Self == "" {
 		return false
 	}
+	// A shell expands a leading ~ in a PATH entry to a home directory, which
+	// is not known here. Ask rather than guess where it points.
+	for _, dir := range filepath.SplitList(e.Path) {
+		if strings.HasPrefix(dir, "~") {
+			return false
+		}
+	}
 	found, ok := lookOn("flockdeck", e.Path, cwd)
 	if !ok {
 		return false
@@ -89,11 +96,13 @@ func candidates(name string) []string {
 	if runtime.GOOS != "windows" {
 		return []string{name}
 	}
+	// The bare name comes first: Git Bash runs an extensionless script (an npm
+	// shim, say) found on PATH, which PATHEXT does not list.
+	out := []string{name}
 	exts := os.Getenv("PATHEXT")
 	if exts == "" {
 		exts = ".COM;.EXE;.BAT;.CMD"
 	}
-	var out []string
 	for _, ext := range strings.Split(exts, ";") {
 		if ext != "" {
 			out = append(out, name+ext)
@@ -125,6 +134,9 @@ func realPath(p string) string {
 // sameDir reports whether two directory paths name one place.
 func sameDir(a, b string) bool {
 	a, b = filepath.Clean(a), filepath.Clean(b)
+	// Case-insensitive on macOS as well, where the default volume is; a
+	// case-sensitive volume would only make this allow a directory differing
+	// in case, which is theoretical.
 	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 		return strings.EqualFold(a, b)
 	}

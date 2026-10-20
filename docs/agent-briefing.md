@@ -207,7 +207,8 @@ The word `flockdeck` must also resolve to this application: it is looked up on t
 started with (an empty or relative entry is taken from the working directory), and the command is allowed only if
 what is found is the running executable or sits in its directory. A program of that name earlier on the PATH (a
 writable directory, a virtual environment's or `node_modules` bin) is asked about, as is a PATH with no `flockdeck`
-on it. The check runs when the hook fires, not when the command runs, and it sees the PATH the pane started with, not
+on it. A `~` entry in the PATH is asked about, since a shell expands it to a directory the check does not know.
+The check runs when the hook fires, not when the command runs, and it sees the PATH the pane was launched with, not
 one the agent has set since; a shell function or alias named `flockdeck` cannot be seen from the command string. The check
 sits in `Workspace.reviewTool` ahead of the auto-approve setting, for a known pane with a current launch
 id only, and does not count towards `AutoApproved`. It applies to agents whose hooks send PreToolUse
