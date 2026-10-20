@@ -114,18 +114,38 @@ func TestAgentSpecByIDRefusesAStructuredAgentWhileTheyAreOff(t *testing.T) {
 }
 
 // A broadcast is typed text, and a structured pane has no keys: it is left out
-// whether it is the focused pane or a member, and the terminal panes still get
-// it.
+// although it is a member of the broadcast, and the terminal agents beside it
+// still get the text. A helper is spawned into a tab of its own, so the structured pane joins the
+// terminal helper's tab and the test selects it; with the pane outside the
+// current tab the filter would never be reached.
 func TestABroadcastLeavesOutStructuredPanes(t *testing.T) {
 	ws, lead, _ := structuredCrew(t)
-	id := spawnStructured(t, ws, lead, "plain")
-	statusWithin(t, ws, id, session.StatusIdle)
-	if got := ws.BroadcastTargetsFor(id); len(got) != 0 {
-		t.Errorf("focused on the structured pane, the targets are %d panes", len(got))
+	terminal, err := ws.Spawn(lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true})
+	if err != nil {
+		t.Fatal(err)
 	}
-	got := ws.BroadcastTargetsFor(lead)
-	if len(got) != 1 || got[0].ID != lead {
-		t.Errorf("focused on the manager, the targets are %+v", got)
+	tab := ws.TabIDOf(terminal)
+	id, err := ws.Spawn(lead, SpawnOptions{Task: "plain", Role: "worker", Agent: "opencode-acp", Kind: session.KindClaude, SpawnedByAgent: true, Tab: tab})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusWithin(t, ws, id, session.StatusIdle)
+	if tab == "" || ws.TabIDOf(id) != tab {
+		t.Fatalf("the helpers are in tabs %q and %q", tab, ws.TabIDOf(id))
+	}
+	ws.SelectTab(tab)
+	ws.ToggleBroadcast()
+	if !ws.InBroadcast(id) || !ws.InBroadcast(terminal) {
+		t.Fatalf("in the broadcast: structured %v, terminal %v", ws.InBroadcast(id), ws.InBroadcast(terminal))
+	}
+	for _, focus := range []string{id, terminal} {
+		var got []string
+		for _, p := range ws.BroadcastTargetsFor(focus) {
+			got = append(got, p.ID)
+		}
+		if len(got) != 1 || got[0] != terminal {
+			t.Errorf("focused on %s, the targets are %v, want only %s", focus, got, terminal)
+		}
 	}
 }
 
