@@ -7,6 +7,7 @@ import (
 	"go/build"
 	"io/fs"
 	"mime"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -33,10 +34,23 @@ func TestNextFSIsTheNewShellOverTheOldTree(t *testing.T) {
 		t.Error("index.html is the old one")
 	}
 
-	// Every old file the new tree lacks is served, and unchanged.
+	// Every old file the new tree lacks is served, and unchanged. A file the new
+	// tree has of its own (index.html, app.css) is served in its place.
 	have := files(t, FS())
+	own := files(t, os.DirFS("next/assets"))
+	// The new tree may shadow these two files of the old one and no others: a
+	// stray app.js or e2e.js there would replace the shared script silently.
+	shadowed := []string{"index.html", "app.css"}
 	for _, name := range files(t, oldTree()) {
-		if name == "index.html" {
+		if slices.Contains(own, name) {
+			if !slices.Contains(shadowed, name) {
+				t.Errorf("next/assets holds %s, which shadows the old tree's file of the same name; only %v may", name, shadowed)
+			}
+			a, _ := fs.ReadFile(FS(), name)
+			b, _ := fs.ReadFile(os.DirFS("next/assets"), name)
+			if !bytes.Equal(a, b) {
+				t.Errorf("%s is not the new tree's own file", name)
+			}
 			continue
 		}
 		if !slices.Contains(have, name) {

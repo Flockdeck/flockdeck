@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"io/fs"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/webui"
 )
 
@@ -337,6 +339,17 @@ func TestNodeTests(t *testing.T) {
 	cmd := exec.CommandContext(ctx, node, append([]string{"--test"}, files...)...)
 	// testiso.Main has already pointed the home and config variables at a
 	// throwaway directory and cleared the credentials; node inherits that.
+	// The server's own key table, as the hello sends it, so the shell's tests
+	// run against the bindings that ship and not a copy written out here.
+	table, err := json.Marshal(help.Keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keysFile := filepath.Join(t.TempDir(), "keys.json")
+	if err := os.WriteFile(keysFile, table, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd.Env = append(os.Environ(), "NEXT_KEYS_JSON="+keysFile)
 	cmd.WaitDelay = 5 * time.Second
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -364,5 +377,60 @@ func TestE2EIsTheOldWindowsFileByteForByte(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join("assets", "e2e.js")); err == nil {
 		t.Error("next/assets has an e2e.js of its own; the shell is to use the shared one")
+	}
+}
+
+// The terminal component needs xterm, its fit addon and the end-to-end layer to
+// have run before the module does. Classic scripts without async or defer run in
+// order, as the parser reaches them, and a module script waits for the whole
+// page, so the three come first, in this order, and plain. They are served from
+// the old tree, shared and not copied.
+func TestClassicScriptsComeBeforeTheModule(t *testing.T) {
+	page, err := os.ReadFile(filepath.Join("assets", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags := scriptTag.FindAllString(string(page), -1)
+	want := []string{"assets/vendor/xterm.js", "assets/vendor/addon-fit.js", "assets/e2e.js", "assets/main.js"}
+	if len(tags) != len(want) {
+		t.Fatalf("the page has %d script tags, want %d: %v", len(tags), len(want), tags)
+	}
+	srcOf := regexp.MustCompile(`\bsrc="([^"]+)"`)
+	for i, tag := range tags {
+		m := srcOf.FindStringSubmatch(tag)
+		if m == nil || m[1] != want[i] {
+			t.Errorf("script %d is %s, want %s", i, tag, want[i])
+			continue
+		}
+		module := strings.Contains(tag, `type="module"`)
+		if module != (i == len(want)-1) {
+			t.Errorf("%s: only the last script is a module", tag)
+		}
+		if !module && regexp.MustCompile(`\b(?:async|defer)\b`).MatchString(tag) {
+			t.Errorf("%s has async or defer, which lets the module run before it", tag)
+		}
+		if module && regexp.MustCompile(`\bnomodule\b`).MatchString(tag) {
+			t.Errorf("%s", tag)
+		}
+	}
+	// And the files are served, as JavaScript, from the tagged build.
+	srv := serve(t)
+	for _, src := range want[:3] {
+		body, ct := get(t, srv.URL+"/"+src)
+		if !strings.Contains(ct, "javascript") || len(body) == 0 {
+			t.Errorf("%s is served as %q (%d bytes)", src, ct, len(body))
+		}
+	}
+	// The stylesheet for xterm comes with them.
+	if !strings.Contains(string(page), `href="assets/vendor/xterm.css"`) {
+		t.Error("the page does not load xterm's stylesheet")
+	}
+}
+
+func TestScriptOrderCheckCatchesWhatItIsFor(t *testing.T) {
+	for _, s := range []string{`<script async src="assets/e2e.js"></script>`, `<script src="assets/e2e.js" defer></script>`} {
+		if !regexp.MustCompile(`\b(?:async|defer)\b`).MatchString(scriptTag.FindString(s)) {
+			t.Errorf("the check misses %q", s)
+		}
 	}
 }

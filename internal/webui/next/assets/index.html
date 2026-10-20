@@ -5,12 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="flockdeck-shell" content="next">
 <title>Flockdeck</title>
+<link rel="stylesheet" href="assets/vendor/xterm.css">
+<link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
 <!-- The module is the relative assets/main.js, so this page works only when it is
      served from /, where assets/ is the server's /assets/. -->
 <div id="app"></div>
 <noscript>Flockdeck needs JavaScript.</noscript>
+<!-- The terminal's libraries and the end-to-end layer are classic scripts, which
+     run in order as the parser reaches them, and a module script waits until the
+     page is parsed. So these three, in this order and without async or defer,
+     have run by the time main.js does. They are served from the old tree. -->
+<script src="assets/vendor/xterm.js"></script>
+<script src="assets/vendor/addon-fit.js"></script>
+<script src="assets/e2e.js"></script>
 <script type="module" src="assets/main.js"></script>
 </body>
 </html>
