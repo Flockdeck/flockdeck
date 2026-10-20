@@ -1,0 +1,285 @@
+{
+  "type": "graph",
+  "root": "/work/04-eight-helpers-three-waiting",
+  "project": "04-eight-helpers-three-waiting",
+  "teams": [
+    {
+      "id": "0c501ed4",
+      "manager": "0c501ed4",
+      "members": [
+        "0c501ed4",
+        "e8c9aa4e",
+        "160d47b0",
+        "262e0b2b",
+        "d1faf784",
+        "73f13b59",
+        "0aa92d92",
+        "ee480bbd",
+        "ad682fde"
+      ],
+      "goal": "Ship 04-eight-helpers-three-waiting",
+      "started": "2026-10-21T07:00:00Z",
+      "spendUSD": 9.5,
+      "caps": [
+        {
+          "pane": "0c501ed4",
+          "used": 8,
+          "max": 8
+        }
+      ],
+      "needs": [
+        {
+          "id": "ask:160d47b0",
+          "kind": "ask",
+          "pane": "160d47b0",
+          "time": "2026-10-21T08:50:00Z",
+          "text": "Name the breaking change in the headline?"
+        },
+        {
+          "id": "permission:e8c9aa4e",
+          "kind": "permission",
+          "pane": "e8c9aa4e",
+          "time": "2026-10-21T08:58:00Z",
+          "text": "git push origin release/2.4"
+        },
+        {
+          "id": "returned:T1",
+          "kind": "returned",
+          "pane": "262e0b2b",
+          "task": "T1",
+          "time": "2026-10-21T08:45:00Z",
+          "text": "The installer fails on a path with a space. Reproduce and fix."
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "pane": "0c501ed4",
+      "children": [
+        "e8c9aa4e",
+        "160d47b0",
+        "262e0b2b",
+        "d1faf784",
+        "73f13b59",
+        "0aa92d92",
+        "ee480bbd",
+        "ad682fde"
+      ],
+      "depth": 0,
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "helpers",
+        "text": "5 helpers are busy",
+        "ref": "e8c9aa4e"
+      },
+      "kind": "terminal",
+      "name": "manager",
+      "role": "manager",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:20:00Z",
+      "branch": "main"
+    },
+    {
+      "pane": "e8c9aa4e",
+      "parent": "0c501ed4",
+      "depth": 1,
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "user",
+        "text": "git push origin release/2.4"
+      },
+      "kind": "terminal",
+      "name": "build",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:58:00Z",
+      "branch": "work/build"
+    },
+    {
+      "pane": "160d47b0",
+      "parent": "0c501ed4",
+      "depth": 1,
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "user",
+        "text": "Name the breaking change in the headline?"
+      },
+      "kind": "terminal",
+      "name": "notes",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:50:00Z",
+      "branch": "work/notes"
+    },
+    {
+      "pane": "262e0b2b",
+      "parent": "0c501ed4",
+      "depth": 1,
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "qa",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:45:00Z",
+      "live": "Reading the review note",
+      "branch": "work/qa",
+      "task": {
+        "id": "T1",
+        "title": "Smoke test the installer",
+        "state": "in-progress"
+      }
+    },
+    {
+      "pane": "d1faf784",
+      "parent": "0c501ed4",
+      "depth": 1,
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "deps",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:59:00Z",
+      "live": "Edit go.mod",
+      "branch": "work/deps"
+    },
+    {
+      "pane": "73f13b59",
+      "parent": "0c501ed4",
+      "depth": 1,
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "site",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:57:00Z",
+      "live": "Edit docs/download.md",
+      "branch": "work/site"
+    },
+    {
+      "pane": "0aa92d92",
+      "parent": "0c501ed4",
+      "depth": 1,
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "task",
+        "text": "the signing certificate has not arrived",
+        "ref": "T2"
+      },
+      "kind": "terminal",
+      "name": "signing",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:15:00Z",
+      "branch": "work/signing",
+      "task": {
+        "id": "T2",
+        "title": "Sign the Windows build",
+        "state": "blocked"
+      }
+    },
+    {
+      "pane": "ee480bbd",
+      "parent": "0c501ed4",
+      "depth": 1,
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "changelog",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:38:00Z",
+      "branch": "work/changelog"
+    },
+    {
+      "pane": "ad682fde",
+      "parent": "0c501ed4",
+      "depth": 1,
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "down",
+        "text": "exited",
+        "ref": "ad682fde"
+      },
+      "kind": "terminal",
+      "name": "old-branch",
+      "role": "worker",
+      "agent": "claude",
+      "status": "exited",
+      "activity": "exited",
+      "since": "2026-10-21T07:30:00Z",
+      "branch": "work/old-branch"
+    }
+  ],
+  "edges": [
+    {
+      "kind": "spawn",
+      "from": "0c501ed4",
+      "to": "e8c9aa4e"
+    },
+    {
+      "kind": "spawn",
+      "from": "0c501ed4",
+      "to": "160d47b0"
+    },
+    {
+      "kind": "spawn",
+      "from": "0c501ed4",
+      "to": "262e0b2b"
+    },
+    {
+      "kind": "spawn",
+      "from": "0c501ed4",
+      "to": "d1faf784"
+    },
+    {
+      "kind": "spawn",
+      "from": "0c501ed4",
+      "to": "73f13b59"
+    },
+    {
+      "kind": "spawn",
+      "from": "0c501ed4",
+      "to": "0aa92d92"
+    },
+    {
+      "kind": "spawn",
+      "from": "0c501ed4",
+      "to": "ee480bbd"
+    },
+    {
+      "kind": "spawn",
+      "from": "0c501ed4",
+      "to": "ad682fde"
+    }
+  ],
+  "solo": [],
+  "soloNeeds": []
+}

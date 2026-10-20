@@ -1,0 +1,285 @@
+{
+  "type": "graph",
+  "root": "/work/02-eight-helpers-permission-and-question",
+  "project": "02-eight-helpers-permission-and-question",
+  "teams": [
+    {
+      "id": "b206ac1a",
+      "manager": "b206ac1a",
+      "members": [
+        "b206ac1a",
+        "af5f14f7",
+        "48211787",
+        "f5b8f95d",
+        "3ecf0128",
+        "04ed9ffa",
+        "2a5c9085",
+        "476ff4dc",
+        "ea5e3f24"
+      ],
+      "goal": "Ship 02-eight-helpers-permission-and-question",
+      "started": "2026-10-21T07:00:00Z",
+      "spendUSD": 9.5,
+      "caps": [
+        {
+          "pane": "b206ac1a",
+          "used": 8,
+          "max": 8
+        }
+      ],
+      "needs": [
+        {
+          "id": "ask:48211787",
+          "kind": "ask",
+          "pane": "48211787",
+          "time": "2026-10-21T08:53:00Z",
+          "text": "Backfill invoices older than 2024, or leave them as they are?"
+        },
+        {
+          "id": "permission:af5f14f7",
+          "kind": "permission",
+          "pane": "af5f14f7",
+          "time": "2026-10-21T08:57:00Z",
+          "text": "psql -f migrations/0042_invoices.sql"
+        },
+        {
+          "id": "down:2a5c9085",
+          "kind": "down",
+          "pane": "2a5c9085",
+          "time": "2026-10-21T08:35:00Z",
+          "text": "exited with code 2"
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "pane": "b206ac1a",
+      "children": [
+        "af5f14f7",
+        "48211787",
+        "f5b8f95d",
+        "3ecf0128",
+        "04ed9ffa",
+        "2a5c9085",
+        "476ff4dc",
+        "ea5e3f24"
+      ],
+      "depth": 0,
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "helpers",
+        "text": "4 helpers are busy",
+        "ref": "af5f14f7"
+      },
+      "kind": "terminal",
+      "name": "manager",
+      "role": "manager",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:20:00Z",
+      "branch": "main"
+    },
+    {
+      "pane": "af5f14f7",
+      "parent": "b206ac1a",
+      "depth": 1,
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "user",
+        "text": "psql -f migrations/0042_invoices.sql"
+      },
+      "kind": "terminal",
+      "name": "schema",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:57:00Z",
+      "branch": "work/schema"
+    },
+    {
+      "pane": "48211787",
+      "parent": "b206ac1a",
+      "depth": 1,
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "user",
+        "text": "Backfill invoices older than 2024, or leave them as they are?"
+      },
+      "kind": "terminal",
+      "name": "backfill",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:53:00Z",
+      "branch": "work/backfill"
+    },
+    {
+      "pane": "f5b8f95d",
+      "parent": "b206ac1a",
+      "depth": 1,
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "ledger",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:59:00Z",
+      "live": "Edit ledger/post.go",
+      "branch": "work/ledger"
+    },
+    {
+      "pane": "3ecf0128",
+      "parent": "b206ac1a",
+      "depth": 1,
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "reports",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:59:00Z",
+      "live": "Bash go build ./...",
+      "branch": "work/reports"
+    },
+    {
+      "pane": "04ed9ffa",
+      "parent": "b206ac1a",
+      "depth": 1,
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "webhooks",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:46:00Z",
+      "branch": "work/webhooks"
+    },
+    {
+      "pane": "2a5c9085",
+      "parent": "b206ac1a",
+      "depth": 1,
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "down",
+        "text": "exited",
+        "ref": "2a5c9085"
+      },
+      "kind": "terminal",
+      "name": "fixtures",
+      "role": "worker",
+      "agent": "claude",
+      "status": "exited",
+      "activity": "exited",
+      "since": "2026-10-21T08:35:00Z",
+      "branch": "work/fixtures"
+    },
+    {
+      "pane": "476ff4dc",
+      "parent": "b206ac1a",
+      "depth": 1,
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "reviewer",
+        "text": "T1 is in review by reviewer",
+        "ref": "T1"
+      },
+      "kind": "terminal",
+      "name": "emails",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:54:00Z",
+      "branch": "work/emails",
+      "task": {
+        "id": "T1",
+        "title": "Receipt email copy",
+        "state": "in-review"
+      }
+    },
+    {
+      "pane": "ea5e3f24",
+      "parent": "b206ac1a",
+      "depth": 1,
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "task",
+        "text": "waiting on the payment sandbox keys",
+        "ref": "T2"
+      },
+      "kind": "terminal",
+      "name": "retries",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:40:00Z",
+      "branch": "work/retries",
+      "task": {
+        "id": "T2",
+        "title": "Retry failed charges",
+        "state": "blocked"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "kind": "spawn",
+      "from": "b206ac1a",
+      "to": "af5f14f7"
+    },
+    {
+      "kind": "spawn",
+      "from": "b206ac1a",
+      "to": "48211787"
+    },
+    {
+      "kind": "spawn",
+      "from": "b206ac1a",
+      "to": "f5b8f95d"
+    },
+    {
+      "kind": "spawn",
+      "from": "b206ac1a",
+      "to": "3ecf0128"
+    },
+    {
+      "kind": "spawn",
+      "from": "b206ac1a",
+      "to": "04ed9ffa"
+    },
+    {
+      "kind": "spawn",
+      "from": "b206ac1a",
+      "to": "2a5c9085"
+    },
+    {
+      "kind": "spawn",
+      "from": "b206ac1a",
+      "to": "476ff4dc"
+    },
+    {
+      "kind": "spawn",
+      "from": "b206ac1a",
+      "to": "ea5e3f24"
+    }
+  ],
+  "solo": [],
+  "soloNeeds": []
+}

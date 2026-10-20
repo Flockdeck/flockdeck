@@ -1,0 +1,238 @@
+{
+  "type": "graph",
+  "root": "/work/05-six-helpers-undelivered-message",
+  "project": "05-six-helpers-undelivered-message",
+  "teams": [
+    {
+      "id": "c2beaec2",
+      "manager": "c2beaec2",
+      "members": [
+        "c2beaec2",
+        "c2e39f87",
+        "bcaec151",
+        "e8918e34",
+        "2023df34",
+        "77843dc7",
+        "a2153c58"
+      ],
+      "goal": "Ship 05-six-helpers-undelivered-message",
+      "started": "2026-10-21T07:00:00Z",
+      "spendUSD": 8,
+      "caps": [
+        {
+          "pane": "c2beaec2",
+          "used": 6,
+          "max": 8
+        }
+      ],
+      "needs": [
+        {
+          "id": "ask:c2e39f87",
+          "kind": "ask",
+          "pane": "c2e39f87",
+          "time": "2026-10-21T08:54:00Z",
+          "text": "Make the phone number optional?"
+        },
+        {
+          "id": "stale-unread:c2beaec2",
+          "kind": "stale-unread",
+          "pane": "c2beaec2",
+          "time": "2026-10-21T08:53:00Z",
+          "text": "1 unread"
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "pane": "c2beaec2",
+      "children": [
+        "c2e39f87",
+        "bcaec151",
+        "e8918e34",
+        "2023df34",
+        "77843dc7",
+        "a2153c58"
+      ],
+      "depth": 0,
+      "team": "c2beaec2",
+      "waitingOn": {
+        "kind": "helpers",
+        "text": "2 helpers are busy",
+        "ref": "c2e39f87"
+      },
+      "kind": "terminal",
+      "name": "manager",
+      "role": "manager",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:20:00Z",
+      "branch": "main",
+      "unread": 1
+    },
+    {
+      "pane": "c2e39f87",
+      "parent": "c2beaec2",
+      "depth": 1,
+      "team": "c2beaec2",
+      "waitingOn": {
+        "kind": "user",
+        "text": "Make the phone number optional?"
+      },
+      "kind": "terminal",
+      "name": "forms",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:54:00Z",
+      "branch": "work/forms"
+    },
+    {
+      "pane": "bcaec151",
+      "parent": "c2beaec2",
+      "depth": 1,
+      "team": "c2beaec2",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "copy",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:58:00Z",
+      "live": "Edit onboarding/welcome.md",
+      "branch": "work/copy"
+    },
+    {
+      "pane": "e8918e34",
+      "parent": "c2beaec2",
+      "depth": 1,
+      "team": "c2beaec2",
+      "waitingOn": {
+        "kind": "reviewer",
+        "text": "T1 is in review by reviewer",
+        "ref": "T1"
+      },
+      "kind": "terminal",
+      "name": "auth",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:47:00Z",
+      "branch": "work/auth",
+      "task": {
+        "id": "T1",
+        "title": "Magic link sign-in",
+        "state": "in-review"
+      }
+    },
+    {
+      "pane": "2023df34",
+      "parent": "c2beaec2",
+      "depth": 1,
+      "team": "c2beaec2",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "tests",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:51:00Z",
+      "branch": "work/tests"
+    },
+    {
+      "pane": "77843dc7",
+      "parent": "c2beaec2",
+      "depth": 1,
+      "team": "c2beaec2",
+      "waitingOn": {
+        "kind": "down",
+        "text": "exited",
+        "ref": "77843dc7"
+      },
+      "kind": "terminal",
+      "name": "icons",
+      "role": "worker",
+      "agent": "claude",
+      "status": "exited",
+      "activity": "exited",
+      "since": "2026-10-21T08:25:00Z",
+      "branch": "work/icons"
+    },
+    {
+      "pane": "a2153c58",
+      "parent": "c2beaec2",
+      "depth": 1,
+      "team": "c2beaec2",
+      "waitingOn": {
+        "kind": "task",
+        "text": "waiting on the translation vendor's key format",
+        "ref": "T2"
+      },
+      "kind": "terminal",
+      "name": "i18n",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:35:00Z",
+      "branch": "work/i18n",
+      "task": {
+        "id": "T2",
+        "title": "Extract the new strings",
+        "state": "blocked"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "kind": "spawn",
+      "from": "c2beaec2",
+      "to": "c2e39f87"
+    },
+    {
+      "kind": "spawn",
+      "from": "c2beaec2",
+      "to": "bcaec151"
+    },
+    {
+      "kind": "spawn",
+      "from": "c2beaec2",
+      "to": "e8918e34"
+    },
+    {
+      "kind": "spawn",
+      "from": "c2beaec2",
+      "to": "2023df34"
+    },
+    {
+      "kind": "spawn",
+      "from": "c2beaec2",
+      "to": "77843dc7"
+    },
+    {
+      "kind": "spawn",
+      "from": "c2beaec2",
+      "to": "a2153c58"
+    },
+    {
+      "kind": "message",
+      "from": "2023df34",
+      "to": "c2beaec2",
+      "id": 1,
+      "time": "2026-10-21T08:53:00Z",
+      "text": "The sign-up form submits twice on a slow connection. Needs a decision before I write the fix.",
+      "delivery": "queued"
+    }
+  ],
+  "solo": [],
+  "soloNeeds": []
+}

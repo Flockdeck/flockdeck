@@ -1,0 +1,262 @@
+{
+  "type": "graph",
+  "root": "/work/03-nested-helper-question-and-returned-task",
+  "project": "03-nested-helper-question-and-returned-task",
+  "teams": [
+    {
+      "id": "6e7bb3af",
+      "manager": "6e7bb3af",
+      "members": [
+        "6e7bb3af",
+        "025b0446",
+        "839bba23",
+        "bf058d75",
+        "49e9335b",
+        "ef584c9e",
+        "ce2ebf6f",
+        "21c76d4a"
+      ],
+      "goal": "Ship 03-nested-helper-question-and-returned-task",
+      "started": "2026-10-21T07:00:00Z",
+      "spendUSD": 8.75,
+      "caps": [
+        {
+          "pane": "6e7bb3af",
+          "used": 7,
+          "max": 8
+        },
+        {
+          "pane": "025b0446",
+          "used": 1,
+          "max": 8
+        }
+      ],
+      "needs": [
+        {
+          "id": "ask:839bba23",
+          "kind": "ask",
+          "pane": "839bba23",
+          "time": "2026-10-21T08:55:00Z",
+          "text": "Boost exact title matches over body matches?"
+        },
+        {
+          "id": "returned:T1",
+          "kind": "returned",
+          "pane": "bf058d75",
+          "task": "T1",
+          "time": "2026-10-21T08:48:00Z",
+          "text": "Focus is lost after a page change. Please fix before it goes in."
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "pane": "6e7bb3af",
+      "children": [
+        "025b0446",
+        "839bba23",
+        "bf058d75",
+        "49e9335b",
+        "ef584c9e",
+        "ce2ebf6f"
+      ],
+      "depth": 0,
+      "team": "6e7bb3af",
+      "waitingOn": {
+        "kind": "helpers",
+        "text": "3 helpers are busy",
+        "ref": "025b0446"
+      },
+      "kind": "terminal",
+      "name": "manager",
+      "role": "manager",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:20:00Z",
+      "branch": "main"
+    },
+    {
+      "pane": "025b0446",
+      "parent": "6e7bb3af",
+      "children": [
+        "21c76d4a"
+      ],
+      "depth": 1,
+      "team": "6e7bb3af",
+      "waitingOn": {
+        "kind": "helpers",
+        "text": "1 helper is busy",
+        "ref": "21c76d4a"
+      },
+      "kind": "terminal",
+      "name": "indexer",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:58:00Z",
+      "live": "Edit search/index.go",
+      "branch": "work/indexer"
+    },
+    {
+      "pane": "21c76d4a",
+      "parent": "025b0446",
+      "depth": 2,
+      "team": "6e7bb3af",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "shards",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:59:00Z",
+      "live": "Bash go test ./search/shard",
+      "branch": "work/shards"
+    },
+    {
+      "pane": "839bba23",
+      "parent": "6e7bb3af",
+      "depth": 1,
+      "team": "6e7bb3af",
+      "waitingOn": {
+        "kind": "user",
+        "text": "Boost exact title matches over body matches?"
+      },
+      "kind": "terminal",
+      "name": "ranking",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:55:00Z",
+      "branch": "work/ranking"
+    },
+    {
+      "pane": "bf058d75",
+      "parent": "6e7bb3af",
+      "depth": 1,
+      "team": "6e7bb3af",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "ui",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:48:00Z",
+      "live": "Reading the review note",
+      "branch": "work/ui",
+      "task": {
+        "id": "T1",
+        "title": "Result list keyboard focus",
+        "state": "in-progress"
+      }
+    },
+    {
+      "pane": "49e9335b",
+      "parent": "6e7bb3af",
+      "depth": 1,
+      "team": "6e7bb3af",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "analytics",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:42:00Z",
+      "branch": "work/analytics"
+    },
+    {
+      "pane": "ef584c9e",
+      "parent": "6e7bb3af",
+      "depth": 1,
+      "team": "6e7bb3af",
+      "waitingOn": {
+        "kind": "down",
+        "text": "exited",
+        "ref": "ef584c9e"
+      },
+      "kind": "terminal",
+      "name": "synonyms",
+      "role": "worker",
+      "agent": "claude",
+      "status": "exited",
+      "activity": "exited",
+      "since": "2026-10-21T08:20:00Z",
+      "branch": "work/synonyms"
+    },
+    {
+      "pane": "ce2ebf6f",
+      "parent": "6e7bb3af",
+      "depth": 1,
+      "team": "6e7bb3af",
+      "waitingOn": {
+        "kind": "reviewer",
+        "text": "T2 is in review by reviewer",
+        "ref": "T2"
+      },
+      "kind": "terminal",
+      "name": "perf",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:52:00Z",
+      "branch": "work/perf",
+      "task": {
+        "id": "T2",
+        "title": "Cut query latency",
+        "state": "in-review"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "kind": "spawn",
+      "from": "6e7bb3af",
+      "to": "025b0446"
+    },
+    {
+      "kind": "spawn",
+      "from": "025b0446",
+      "to": "21c76d4a"
+    },
+    {
+      "kind": "spawn",
+      "from": "6e7bb3af",
+      "to": "839bba23"
+    },
+    {
+      "kind": "spawn",
+      "from": "6e7bb3af",
+      "to": "bf058d75"
+    },
+    {
+      "kind": "spawn",
+      "from": "6e7bb3af",
+      "to": "49e9335b"
+    },
+    {
+      "kind": "spawn",
+      "from": "6e7bb3af",
+      "to": "ef584c9e"
+    },
+    {
+      "kind": "spawn",
+      "from": "6e7bb3af",
+      "to": "ce2ebf6f"
+    }
+  ],
+  "solo": [],
+  "soloNeeds": []
+}
