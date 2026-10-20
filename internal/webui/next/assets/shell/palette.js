@@ -86,6 +86,8 @@ export function Palette({ keys, implemented, onRun, onClose }) {
     if (row && row.implemented && onRun) onRun(row.key.id);
   };
   const onKeyDown = (e) => {
+    // A key pressed while an input method is composing belongs to it.
+    if (e.isComposing || e.keyCode === 229) return;
     const move = listMove(e, at, rows.length);
     if (move === "") return;
     e.preventDefault();
@@ -126,10 +128,14 @@ export function Palette({ keys, implemented, onRun, onClose }) {
   `;
 }
 
+/** keepFocus stops a press on a row from taking the keyboard out of the field,
+ *  which a row (not a control) would otherwise do. */
+const keepFocus = (e) => e.preventDefault();
+
 function Row({ row, current, onRun }) {
   const cls = "palette-row" + (current ? " is-current" : "") + (row.implemented ? "" : " palette-row--off");
   return html`
-    <li id=${optionId(row.key.id)} class=${cls} role="option" aria-selected=${current ? "true" : "false"} aria-disabled=${row.implemented ? undefined : "true"} data-action=${row.key.id} onClick=${onRun}>
+    <li id=${optionId(row.key.id)} class=${cls} role="option" aria-selected=${current ? "true" : "false"} aria-disabled=${row.implemented ? undefined : "true"} data-action=${row.key.id} onMouseDown=${keepFocus} onClick=${onRun}>
       <span class="palette-name">${row.name}</span>
       ${row.implemented ? null : html`<span class="palette-note">${NOT_YET}</span>`}
       ${row.key.keys ? html`<span class="palette-keys">${keycaps(row.key.keys).join("+")}</span>` : null}

@@ -300,6 +300,42 @@ test("Enter on an action not in this window does nothing, and the palette stays"
     row.click();
     await settle();
     assert.ok(palette(m));
+    assert.equal(focused(m), input(m), "a press on a row took the keyboard out of the field");
+  });
+});
+
+test("keys pressed while an input method composes do not move or run anything", async () => {
+  await withShell({}, async (m) => {
+    await open(m);
+    input(m).enter("rail");
+    await settle();
+    for (const init of [{ isComposing: true }, { keyCode: 229 }]) {
+      assert.equal(input(m).keydown("Escape", init).defaultPrevented, false);
+      assert.equal(input(m).keydown("Enter", init).defaultPrevented, false);
+      assert.equal(input(m).keydown("ArrowDown", init).defaultPrevented, false);
+    }
+    await settle();
+    assert.ok(palette(m));
+    assert.ok(!m.container.find(".shell").attributes.class.includes("shell--rail-collapsed"));
+  });
+});
+
+test("a press inside the dialog does not close it, one on the scrim does", async () => {
+  await withShell({}, async (m) => {
+    await open(m);
+    m.container.find(".palette").dispatch("mousedown");
+    m.container.find(".palette-input").dispatch("mousedown");
+    await settle();
+    assert.ok(palette(m));
+  });
+});
+
+test("the palette says it is a modal dialog, with a name", async () => {
+  await withShell({}, async (m) => {
+    await open(m);
+    assert.equal(palette(m).attributes.role, "dialog");
+    assert.equal(palette(m).attributes["aria-modal"], "true");
+    assert.ok(palette(m).attributes["aria-label"]);
   });
 });
 
@@ -309,6 +345,39 @@ test("clicking outside the dialog closes it", async () => {
     m.container.find(".palette-scrim").dispatch("mousedown");
     await settle();
     assert.equal(palette(m), null);
+  });
+});
+
+// --- the regions ----------------------------------------------------------
+
+test("the regions can take the keyboard, and are named", async () => {
+  const drawer = html`<p>agent</p>`;
+  await withShell({ extra: { drawer } }, async (m) => {
+    const nav = m.container.find("nav");
+    const aside = m.container.find("aside");
+    for (const el of [nav, aside, m.container.find("main")]) assert.equal(el.attributes.tabindex, "-1");
+    assert.ok(aside.attributes["aria-label"]);
+    assert.ok(nav.attributes["aria-label"]);
+    // An element with no tabindex ignores focus, as a browser's does.
+    const plain = m.dom.document.createElement("div");
+    m.container.appendChild(plain);
+    plain.focus();
+    assert.notEqual(focused(m), plain);
+  });
+});
+
+test("a key the shell claims does not reach the page under it", async () => {
+  await withShell({}, async (m) => {
+    const main = m.container.find("main");
+    let seen = 0;
+    main.addEventListener("keydown", () => seen++);
+    main.keydown("K", CTRL_SHIFT);
+    main.keydown("F6", {});
+    await settle();
+    assert.equal(seen, 0, "the shell listens late, or does not stop the key");
+    // And one it leaves alone gets through.
+    main.keydown("q", {});
+    assert.equal(seen, 1);
   });
 });
 

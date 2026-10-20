@@ -99,9 +99,14 @@ class Element_ extends Node_ {
     this.childNodes = [];
     if (v !== "") this.appendChild(new Text_(this.ownerDocument, v));
   }
+  // Only what a browser lets take the keyboard: a control, or an element with
+  // a tabindex. Anything else ignores focus().
+  get focusable() {
+    return "tabindex" in this.attributes || ["button", "input", "a", "select", "textarea"].includes(this.localName);
+  }
   focus() {
     this.focusCalls++;
-    this.ownerDocument._active = this;
+    if (this.focusable) this.ownerDocument._active = this;
   }
   blur() {
     if (this.ownerDocument._active === this) this.ownerDocument._active = null;
@@ -151,7 +156,17 @@ class Element_ extends Node_ {
     if (win) run(win, false);
     return ev;
   }
+  // A press, as a mouse does it: mousedown, then the keyboard moves to the
+  // nearest focusable ancestor (or to nothing) unless mousedown was prevented,
+  // then click.
   click() {
+    const down = this.dispatch("mousedown");
+    if (!down.defaultPrevented) {
+      let n = this;
+      while (n && !(n.nodeType === 1 && n.focusable)) n = n.parentNode;
+      if (n && n !== this.ownerDocument.body) n.focus();
+      else this.ownerDocument._active = null;
+    }
     return this.dispatch("click");
   }
   keydown(key, init = {}) {
