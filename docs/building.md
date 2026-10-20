@@ -155,6 +155,16 @@ everything in a snapshot (`hello`, `state`, `graph`, `graphGone`, `graphRefused`
 `graphWatch` again after a reconnect for the project last asked for. `use-store.js` is the Preact
 hook. The tests drive them with a fake socket and a fake clock (`test/fakes.mjs`).
 
+`assets/lib/terminal.js` and `pty.js` show one pane's terminal. `pty.js` is the client of `/ws/pty`: it
+asks only for the output the terminal is missing, reconnects with a backoff, sends input in frames of at
+most 1 MiB, and, when the hello says the window is reached through the relay and carries the desktop's key,
+seals every frame with the shared `e2e.js` (the old window's file, served as it is) and closes rather than
+fall back to plain. `terminal.js` puts xterm on it and keeps the old window's size rule: the terminal takes
+the size of the pty, and nothing sends a resize when it opens, closes or its box changes. Only
+`fitToBox()` does, for a drag or a maximise. A structured pane gets a one-line stub and no socket, and a
+viewer that may not watch panes gets no socket. The page has to load `assets/vendor/xterm.js`,
+`assets/vendor/addon-fit.js` and `assets/e2e.js` as classic scripts before the module, as the old page does. The three must not be `async` or `defer`, or the module runs before they have: the terminal then shows "The terminal library is not loaded." and opens nothing.
+
 A release is never built with the tag. The test workflow builds, vets and tests the
 tagged variant on all three platforms, and `internal/webui/release_tag_test.go`
 fails when the release workflow, the Dockerfile, the Makefile or `cmd/release`
