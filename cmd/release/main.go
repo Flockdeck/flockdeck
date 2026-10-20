@@ -31,6 +31,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -607,14 +608,28 @@ func build(version, goos, goarch, out string) error {
 		cgo = "1"
 	}
 	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", ldflags, "-o", out, ".")
-	cmd.Env = append(os.Environ(),
-		"GOOS="+goos,
-		"GOARCH="+goarch,
-		"CGO_ENABLED="+cgo,
-	)
+	cmd.Env = buildEnv(os.Environ(), goos, goarch, cgo)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// releaseGOFLAGS is the GOFLAGS of a release build. The repository has no vendor
+// directory or workspace, so it changes nothing about the build.
+const releaseGOFLAGS = "-mod=readonly"
+
+// buildEnv is the environment of a release build: the runner's own, with the
+// target set. GOFLAGS is set to a fixed harmless value so that nothing ambient on
+// a runner, such as a tag for the new shell, reaches a release binary; a release
+// is built with no build tags. It is not left empty, because the go command
+// ignores an empty variable and reads GOFLAGS from its config file instead.
+func buildEnv(base []string, goos, goarch, cgo string) []string {
+	return append(slices.Clone(base),
+		"GOOS="+goos,
+		"GOARCH="+goarch,
+		"CGO_ENABLED="+cgo,
+		"GOFLAGS="+releaseGOFLAGS,
+	)
 }
 
 // extras are shipped inside every archive, beside the binary.
