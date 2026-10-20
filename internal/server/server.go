@@ -411,6 +411,8 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		return workspace.LastReply{Text: v.Text, TS: v.TS, Kind: v.Kind}, ok
 	})
 
+	s.structuredPane = s.workspaceStructuredPane
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
 	mux.Handle("/assets/", http.StripPrefix("/assets/", s.authFiles(webui.FS())))

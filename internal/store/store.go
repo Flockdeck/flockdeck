@@ -125,6 +125,10 @@ type Pane struct {
 	// Recording is set for a pane whose agent interaction is being written to
 	// a transcript. See workspace.Pane.Recording.
 	Recording bool `json:"recording,omitempty"`
+	// Transport is "structured" for a pane whose agent is driven over the Agent
+	// Client Protocol, and absent for a terminal pane. A restored structured pane
+	// starts a fresh session. See workspace.Transport.
+	Transport string `json:"transport,omitempty"`
 	// AutoReview is the pane's auto-review switch. A pointer so a layout saved
 	// before it was kept (absent) is told apart from an explicit off: absent
 	// takes Prefs.AutoReviewDefault on restore, false stays off. See

@@ -96,6 +96,12 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such pane", http.StatusNotFound)
 		return
 	}
+	// A structured pane has no terminal. A window that asks is told so, and is
+	// not left waiting for a process that will never be there.
+	if structured, ok := ask(s, func() bool { p := s.ws.Pane(id); return p != nil && p.Structured() }); ok && structured {
+		http.Error(w, "this pane has no terminal; it is a structured agent pane", http.StatusConflict)
+		return
+	}
 	if s.paneFound != nil {
 		s.paneFound()
 	}

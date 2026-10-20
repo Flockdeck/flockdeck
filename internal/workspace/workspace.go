@@ -42,6 +42,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/structured"
 )
 
 // orphanedSettingsAge is how old a generated settings file must be before it is
@@ -233,10 +234,34 @@ type Pane struct {
 	sending bool
 	// rt is the pane's runtime when it is not the terminal one: see Runtime.
 	rt PaneRuntime
+	// history is what a restarted structured pane shows from the sessions before
+	// this one; it is handed to the new runtime when the pane starts.
+	history []transcript.Entry
+	// savedTransport is the transport the layout the pane was restored from
+	// recorded, empty for a terminal pane.
+	savedTransport Transport
+	// structExit is the structured runtime whose unexpected end the parent has
+	// been told of.
+	structExit *structuredRuntime
 }
 
 // Alive reports whether the pane has a running process.
-func (p *Pane) Alive() bool { return p.Sess != nil && !p.Sess.Exited() }
+func (p *Pane) Alive() bool {
+	if rt := p.setRuntime(); rt != nil {
+		if a, ok := rt.(interface{ Alive() bool }); ok {
+			return a.Alive()
+		}
+	}
+	return p.Sess != nil && !p.Sess.Exited()
+}
+
+// Structured reports whether the pane's agent speaks a protocol and not a
+// terminal. Such a pane has no session, no screen and no keys: nothing types
+// into it, and a window draws a stub row for it. See PaneRuntime.
+func (p *Pane) Structured() bool {
+	rt := p.setRuntime()
+	return rt != nil && rt.Transport() == TransportStructured
+}
 
 // IsAgent reports whether the pane runs an agent rather than a plain shell.
 //
@@ -249,6 +274,14 @@ func (p *Pane) IsAgent() bool { return p.Kind != session.KindShell }
 // Status returns the pane's status and detail, accounting for panes that never
 // started.
 func (p *Pane) Status() (session.Status, string) {
+	if rt := p.setRuntime(); rt != nil {
+		return rt.Status()
+	}
+	return p.sessStatus()
+}
+
+// sessStatus is Status read from the pane's session alone.
+func (p *Pane) sessStatus() (session.Status, string) {
 	if p.Sess == nil {
 		return session.StatusExited, ""
 	}
@@ -260,6 +293,11 @@ func (p *Pane) Status() (session.Status, string) {
 // a process still running and one Close ended are not failures. A pane that
 // never started carries Err instead, and reads as failed the same way.
 func (p *Pane) Failed() (string, bool) {
+	if rt := p.setRuntime(); rt != nil {
+		if f, ok := rt.(interface{ Failed() (string, bool) }); ok {
+			return f.Failed()
+		}
+	}
 	if p.Sess == nil {
 		return "", false
 	}
@@ -358,7 +396,10 @@ type RepoSummary struct {
 type Workspace struct {
 	// replyLookup is where a terminal pane's last reply is read from: see
 	// SetReplyLookup. It is atomic so that reading it takes no lock.
-	replyLookup atomic.Pointer[func(paneID string) (LastReply, bool)]
+	// structuredCommand, when set, is the program a structured pane starts in
+	// place of its adapter; see UseStructuredCommand. It is guarded by mu.
+	structuredCommand func(agent.Spec) *structured.Command
+	replyLookup       atomic.Pointer[func(paneID string) (LastReply, bool)]
 	// bgChecks is what is remembered of each pane's background work checks,
 	// by pane id; guarded by backgroundChecksMu. See DueBackgroundChecks.
 	bgChecks map[string]*backgroundCheck
@@ -1877,6 +1918,16 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 			p.Err = fmt.Errorf("no agent named %q is configured on this machine, so this pane cannot start. Add it to agents.json and restart the pane, or close it", agentID)
 			return
 		}
+		// An agent driven over the Agent Client Protocol has no terminal and no
+		// session: its pane is read through a runtime of its own.
+		if p.savedTransport == TransportStructured && spec.Runner != agent.RunnerACP {
+			p.Err = fmt.Errorf("this pane was a structured agent pane, and %s now runs in a terminal. Restart it as the agent it was, or close it", spec.Name)
+			return
+		}
+		if spec.Runner == agent.RunnerACP {
+			w.startStructured(p, spec)
+			return
+		}
 		// A CLI runner is somebody else's program and may simply not be on the
 		// machine; an API runner is this binary, which is by definition here.
 		if spec.Runner != agent.RunnerAPI && spec.Exe != "" {
@@ -2782,7 +2833,7 @@ func (w *Workspace) paneFinished(id string) bool {
 		_, failed := p.Failed()
 		return !failed
 	case session.StatusIdle:
-		return p.IsAgent() && p.Sess.BackgroundTasks() == 0
+		return p.IsAgent() && w.Runtime(p).Background().Tasks == 0
 	default:
 		return false
 	}
@@ -2804,6 +2855,11 @@ func (w *Workspace) RestartPaneByID(id string) bool {
 	p := w.Pane(id)
 	if p == nil {
 		return false
+	}
+	if sr, ok := p.setRuntime().(*structuredRuntime); ok {
+		w.restartStructured(p, sr)
+		w.wake()
+		return true
 	}
 	if p.Sess != nil {
 		_ = p.Sess.Close()
@@ -3079,7 +3135,9 @@ func (w *Workspace) BroadcastTargetsFor(focus string) []*Pane {
 			continue
 		}
 		seen[id] = true
-		if p := w.Pane(id); p != nil && p.Alive() {
+		// A structured pane has no keys to type into, so a broadcast of a typed
+		// prompt never reaches it.
+		if p := w.Pane(id); p != nil && !p.Structured() && p.Alive() {
 			out = append(out, p)
 		}
 	}
