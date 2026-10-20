@@ -3,6 +3,7 @@ package iso
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -153,4 +154,91 @@ func TestKeepFreshRenewsTheHomesTime(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Error("the modification time was not renewed")
+}
+
+// The renewal has to come several times inside the age a home is swept at, or
+// one missed beat would let a live home go.
+func TestTouchEveryIsWellInsideStaleAfter(t *testing.T) {
+	if touchEvery > staleAfter/4 {
+		t.Errorf("touchEvery = %v, want at most %v (a quarter of staleAfter)", touchEvery, staleAfter/4)
+	}
+	if touchInterval != touchEvery {
+		t.Errorf("touchInterval = %v outside the child test, want touchEvery %v", touchInterval, touchEvery)
+	}
+}
+
+// sweepProbeEnv names the aged home the parent planted, in the scratch temp
+// directory the child was given. It is set only for the child that checks
+// Main's wiring, and has no FLOCKDECK_ prefix, which Main would clear.
+const sweepProbeEnv = "ISO_PROBE_SWEEP"
+
+func init() {
+	// Runs before TestMain, so Main in the child test binary renews its home
+	// in milliseconds, not hourly.
+	if os.Getenv(sweepProbeEnv) != "" {
+		touchInterval = 20 * time.Millisecond
+	}
+}
+
+// Main itself has to sweep and to keep its home fresh; the pieces tested alone
+// would pass if Main stopped calling them. The test starts this binary with
+// TMP and TEMP in a scratch directory holding an aged fake home, so nothing in
+// the real temp directory is touched, and the child reports what Main did.
+func TestMainSweepsAndRenewsItsHome(t *testing.T) {
+	if os.Getenv(sweepProbeEnv) != "" || os.Getenv(probeEnv) != "" {
+		return
+	}
+	scratch := t.TempDir()
+	aged := filepath.Join(scratch, homePrefix+"aged")
+	mkdirAged(t, aged, 48*time.Hour)
+	var env []string
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		switch strings.ToUpper(name) {
+		case "TMP", "TEMP", "TMPDIR", strings.ToUpper(realConfigEnv), strings.ToUpper(realHomeEnv):
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env, "TMP="+scratch, "TEMP="+scratch, "TMPDIR="+scratch, sweepProbeEnv+"="+aged)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(exe, "-test.run=^TestProbeSweepAndRenew$", "-test.v")
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "PASS: TestProbeSweepAndRenew") {
+		t.Fatalf("the child did not see Main sweep and renew: %v\n%s", err, out)
+	}
+	if exists(aged) {
+		t.Error("the aged home is still there after the child's Main")
+	}
+}
+
+// TestProbeSweepAndRenew is the child's half. Run on its own it checks nothing.
+func TestProbeSweepAndRenew(t *testing.T) {
+	aged := os.Getenv(sweepProbeEnv)
+	if aged == "" {
+		t.Skip("run by TestMainSweepsAndRenewsItsHome")
+	}
+	if exists(aged) {
+		t.Errorf("Main did not sweep %s", aged)
+	}
+	home := os.Getenv("HOME")
+	if !strings.HasPrefix(filepath.Base(home), homePrefix) {
+		t.Fatalf("HOME %q is not a test home", home)
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(home, old, old); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if fi, err := os.Stat(home); err == nil && time.Since(fi.ModTime()) < time.Hour {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Error("Main did not renew its home's modification time")
 }

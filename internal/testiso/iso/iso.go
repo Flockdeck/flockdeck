@@ -104,7 +104,7 @@ func Main(m *testing.M) int {
 			return 1
 		}
 		defer os.RemoveAll(dir)
-		stop := keepFresh(dir, touchEvery)
+		stop := keepFresh(dir, touchInterval)
 		defer stop()
 		redirect(dir)
 		clearKeys()
@@ -135,6 +135,9 @@ const staleAfter = 24 * time.Hour
 // is not mistaken for a dead one by another run's sweep.
 const touchEvery = time.Hour
 
+// touchInterval is what Main uses; a test binary started by a test shortens it.
+var touchInterval = touchEvery
+
 // keepFresh sets the modification time of dir to now every interval until the
 // returned function is called.
 func keepFresh(dir string, interval time.Duration) (stop func()) {
@@ -161,6 +164,10 @@ func keepFresh(dir string, interval time.Duration) (stop func()) {
 // homePrefix, not links, and not anything newer, so the home of a run still in
 // progress stays. Errors are ignored; a directory that cannot be removed now is
 // tried again by the next run.
+//
+// A home is taken for dead by its age alone, so a machine clock that jumps
+// forward by more than a day, or a run suspended for over 24 hours (a laptop
+// asleep), can still make a live home look stale.
 func sweepStale(root string, now time.Time, maxAge time.Duration) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
