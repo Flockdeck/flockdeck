@@ -91,7 +91,7 @@
         "role": { "type": "string", "minLength": 1, "description": "The id of the role the pane was started as (stored). Absent for none." },
         "agent": { "type": "string", "minLength": 1, "description": "The id of the agent the pane runs (stored). Absent for a shell and for a pane that never recorded one." },
         "shell": { "const": true, "description": "Present, and true, for a plain terminal with no agent in it. Absent for an agent." },
-        "status": { "type": "string", "minLength": 1, "description": "The status the session inferred (stored), as the Team panel's roster has it. Always written." },
+        "status": { "enum": ["starting", "working", "waiting", "blocked", "idle", "exited", "unknown"], "description": "The status the session inferred (stored), as the Team panel's roster has it (session.Status.String). Always written." },
         "activity": { "type": "string", "description": "What the pane is drawn as doing: waiting, blocked, working, idle, starting, exited or failed; empty for none (derived by workspace.PaneActivity). Always written." },
         "since": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When the current status began, RFC 3339 (stored: the session). Absent for a pane with no session." },
         "live": { "type": "string", "minLength": 1, "description": "The agent's current tool detail, or else its latest reply, on one line cut to 140 characters (stored). Absent when it has neither." },
