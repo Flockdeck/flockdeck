@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -70,6 +71,27 @@ func TestProjectContainingFindsTheFolderAProjectWasOpenedAs(t *testing.T) {
 	}
 }
 
+// A project opened through a symlink is found from the directory the link
+// points to, and the other way round.
+func TestProjectContainingFollowsSymlinks(t *testing.T) {
+	isolateConfig(t)
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks are not available here: %v", err)
+	}
+	if err := TouchRecents(link); err != nil {
+		t.Fatal(err)
+	}
+	FlushRecents()
+	if got, ok := ProjectContaining(filepath.Join(real, "pkg")); !ok || got != link {
+		t.Errorf("ProjectContaining(real/pkg) = %q, %v, want %q", got, ok, link)
+	}
+	if got, ok := ProjectContaining(filepath.Join(link, "pkg")); !ok || got != link {
+		t.Errorf("ProjectContaining(link/pkg) = %q, %v, want %q", got, ok, link)
+	}
+}
+
 func TestUpdatePrefsIsOneStepAndSkipsAnUnchangedWrite(t *testing.T) {
 	isolateConfig(t)
 	var wg sync.WaitGroup
@@ -86,5 +108,34 @@ func TestUpdatePrefsIsOneStepAndSkipsAnUnchangedWrite(t *testing.T) {
 	}
 	if err := UpdatePrefs(func(p *Prefs) bool { return false }); err != nil {
 		t.Errorf("an unchanged update failed: %v", err)
+	}
+}
+
+// The comparison made after links are resolved picks the longest root, with the
+// roots spelled the way the caller says. This needs no symlink, so it runs
+// everywhere.
+func TestLongestRootContainingUsesTheSpelledRoots(t *testing.T) {
+	sep := string(filepath.Separator)
+	list := []Project{{Root: sep + "links" + sep + "a"}, {Root: sep + "links" + sep + "a" + sep + "b"}}
+	spell := func(s string) string { return sep + "real" + s[len(sep+"links"):] }
+	got, ok := longestRootContaining(list, sep+"real"+sep+"a"+sep+"b"+sep+"c", spell)
+	if !ok || got != list[1].Root {
+		t.Errorf("got %q, %v, want %q", got, ok, list[1].Root)
+	}
+	if _, ok := longestRootContaining(list, sep+"links"+sep+"a", spell); ok {
+		t.Error("a directory spelled through the link matched a root spelled through the target")
+	}
+}
+
+// A path that does not exist is resolved as far as the directory that does.
+func TestResolveLinksKeepsTheMissingTail(t *testing.T) {
+	dir := t.TempDir()
+	want, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := resolveLinks(filepath.Join(dir, "no", "such"))
+	if !ok || got != filepath.Join(want, "no", "such") {
+		t.Errorf("resolveLinks = %q, %v, want %q", got, ok, filepath.Join(want, "no", "such"))
 	}
 }
