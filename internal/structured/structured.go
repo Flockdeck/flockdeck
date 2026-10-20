@@ -130,7 +130,7 @@ type Options struct {
 	Cwd string
 	// Environ is where Spec.ACP.PassEnv is read from. Nil means os.Environ().
 	Environ []string
-	// MCPServers are given to the session when Entry.MCP says the agent
+	// MCPServers are given to the session when Spec.ACP.MCP says the agent
 	// takes them; otherwise they are not sent.
 	MCPServers []acp.MCPServer
 
@@ -185,7 +185,10 @@ type Snapshot struct {
 	// Queued is how many prompts wait behind the running turn.
 	Queued int
 	// Err is the last thing that went wrong, cleaned. After an exit it holds
-	// the last line the agent wrote to stderr.
+	// the last three lines the agent wrote to stderr, joined with " / ". It is
+	// kept after later turns succeed, so it says what last went wrong and not
+	// that something is wrong now: a UI shows it with the phase and status,
+	// never alone as the current state.
 	Err   string
 	Setup *Setup
 	// Agent is the name the agent gave itself.
