@@ -752,8 +752,9 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		answered = true
 	}
 	// A message waiting for the pane's agent is told in the reply to the next
-	// prompt or tool result it reads, never typed into its input; see
-	// SetNoticeHandler.
+	// prompt or tool result it reads, not typed into its input; only a fixed
+	// wake line is ever typed, for an idle agent (see wakeService in
+	// internal/workspace); see SetNoticeHandler.
 	if noticeFn != nil && p.SessionID != "" && slices.Contains(NoticeEvents, p.Event.Event) {
 		if text := noticeFn(p.SessionID); text != "" {
 			rep.Context = text

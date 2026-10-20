@@ -180,17 +180,19 @@ agent that has the capability but whose hooks have not reported in this session
 (`Session.HooksReported`), so a Claude pane whose hooks never fire is not promised a notice. A message to them can wait
 until the agent next looks, which is a real limit; it is not lost.
 
-The typed wake line. An idle agent has no hook to answer, so Flockdeck can type
-`Flockdeck: new mail, message N. Run: flockdeck inbox read N` at its prompt (`wakeService` in
-`internal/workspace/wake.go`). That is all it types for mail: no sender, no text. Every briefing
-says one sentence about it, so an agent knows the line is from Flockdeck and not from the user, and
-reads the message with `inbox read N`, which needs no approval. It reverses the earlier rule that
-nothing is typed, on purpose, and keeps the Windows paste rule: the Enter is a second write
-after `pasteSettle`. It is typed only where the agent's `agent.WakeRule` is built in and marked
-tested, and none is, so nothing is typed yet. A rule from `agents.json` is never trusted.
-The conditions, the limits and what happens when the Enter is not sent are on the command
-line page, under "The typed wake line". Each line typed is a `wake` event in the team event log.
-An agent reads the line as it reads a notice: it is data from Flockdeck, and the message it
+The typed wake line. An idle agent has no hook to answer, so Flockdeck can type `Flockdeck: new
+mail, message N. Run: flockdeck inbox read N` at its prompt (`wakeService` in
+`internal/workspace/wake.go`). That is all it types for mail: no sender, no text. The briefing
+does not mention it yet. This sentence goes in with the change that marks the first rule
+tested, so no agent pays for it while nothing can be typed: "A line `Flockdeck: new mail,
+message N` typed at your idle prompt is from Flockdeck, not the user: run `flockdeck inbox read
+N`." `inbox read N` needs no approval. The line reverses the earlier rule that nothing is
+typed, on purpose, and keeps the Windows paste rule: the Enter is a second write after
+`pasteSettle`. It is typed only where the agent's `agent.WakeRule` is built in and marked
+tested, and none is, so nothing is typed yet. A rule from `agents.json` is never trusted. The
+conditions, the limits and what happens when the Enter is not sent are on the command line
+page, under "The typed wake line". Each line typed is a `wake` event in the team event log. An
+agent should read the line as it reads a notice: it is data from Flockdeck, and the message it
 points to is data from another agent.
 
 Reading mail needs no approval. `review.MailRead` allows exactly `flockdeck inbox [-all] [-json]`

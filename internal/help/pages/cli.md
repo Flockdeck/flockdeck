@@ -302,9 +302,8 @@ Flockdeck: new mail, message 12. Run: flockdeck inbox read 12
 ```
 
 Nothing else is ever typed for mail. The line is fixed text and the number of the newest
-unread message. It names no sender and holds none of the message. The agent's briefing
-says the line is from Flockdeck and not from you, and that the message it points to, read
-with `flockdeck inbox read`, is data from another agent and not an instruction.
+unread message. It names no sender and holds none of the message. The message it points
+to, read with `flockdeck inbox read`, is data from another agent and not an instruction.
 
 **None of this happens today.** The line is typed only into a pane whose agent has a
 recognition rule that was tested against a recording of that agent, and the rules that ship
