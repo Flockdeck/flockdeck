@@ -36,9 +36,17 @@ const mailReadReason = "allow: reading Flockdeck mail"
 // "flockdeck.", in any letter case, whatever the extension. A directory that
 // cannot be read is refused as well.
 //
-// This covers cwd only. It does not cover a "." or relative entry in PATH, and
-// it is checked when the hook fires, not when the command runs.
-func MailRead(tool, toolInputJSON, cwd string) Decision {
+// The word flockdeck must also be the running application. It is looked up on
+// env.Path from cwd, as a shell would, and the command is allowed only if what
+// is found is env.Self or sits in its directory; a program of that name earlier
+// on the PATH (a writable directory, a virtual environment's or node_modules'
+// bin) is asked about. A built flockdeck binary in cwd already makes the
+// command ask, by the rule above.
+//
+// This is checked when the hook fires, not when the command runs, and it sees
+// the PATH the pane was started with, not one the agent has set since. A shell
+// function or alias named flockdeck cannot be seen from here at all.
+func MailRead(tool, toolInputJSON, cwd string, env MailEnv) Decision {
 	if tool != "Bash" || toolInputJSON == "" {
 		return ask
 	}
@@ -52,6 +60,9 @@ func MailRead(tool, toolInputJSON, cwd string) Decision {
 		return ask
 	}
 	if !cwdHoldsNoFlockdeck(cwd) {
+		return ask
+	}
+	if !env.runsThisApp(cwd) {
 		return ask
 	}
 	return Decision{Allow: true, Reason: mailReadReason}

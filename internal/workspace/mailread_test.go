@@ -2,6 +2,9 @@ package workspace
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
@@ -18,19 +21,39 @@ func bashEvent(t *testing.T, ws *Workspace, p *Pane, cmd string) hooks.Event {
 	return hooks.Event{Tool: "Bash", ToolInput: string(in), Cwd: t.TempDir(), Launch: p.launch}
 }
 
+// fakeApp writes an executable called flockdeck in a new directory and returns
+// the directory and the path to it.
+func fakeApp(t *testing.T) (dir, exe string) {
+	t.Helper()
+	dir = t.TempDir()
+	name := "flockdeck"
+	if runtime.GOOS == "windows" {
+		name = "flockdeck.exe"
+	}
+	exe = filepath.Join(dir, name)
+	if err := os.WriteFile(exe, []byte("x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir, exe
+}
+
 // Reading Flockdeck mail is allowed in a pane whether or not auto-approve is
 // on, without counting as an auto-approval, and nothing else is let through by
 // it.
 func TestReviewToolAllowsReadingMailInEveryPane(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	ws, err := New(Options{Root: root})
+	appDir, app := fakeApp(t)
+	ws, err := New(Options{Root: root, HookBinary: app})
 	if err != nil {
 		t.Fatalf("new workspace: %v", err)
 	}
 	t.Cleanup(ws.Close)
 	tab := ws.NewTab(session.KindShell, root, "shell")
 	p := ws.Pane(tab.Tree.Panes()[0])
+	// The pane's PATH is read when a call is checked, so it is set once the
+	// pane is running, and has the application on it.
+	t.Setenv("PATH", appDir)
 	// An auto-approve reviewer that would allow anything it was asked, so
 	// that a pane with the switch on is seen to reach it for other commands.
 	ws.reviewer = func(tool, input, cwd string) review.Decision {
@@ -115,7 +138,45 @@ func TestMailReaderDefaultsToMailRead(t *testing.T) {
 		t.Fatal("no mail check by default")
 	}
 	in := `{"command":"flockdeck inbox"}`
-	if got, want := ws.mailReader("Bash", in, t.TempDir()), review.MailRead("Bash", in, t.TempDir()); got != want {
-		t.Errorf("default = %+v, want review.MailRead's %+v", got, want)
+	appDir, app := fakeApp(t)
+	ws.selfExe = app
+	t.Setenv("PATH", appDir)
+	env := review.MailEnv{Path: appDir, Self: app}
+	if got, want := ws.mailReader("Bash", in, t.TempDir()), review.MailRead("Bash", in, t.TempDir(), env); got != want || !got.Allow {
+		t.Errorf("default = %+v, want review.MailRead's %+v, allowed", got, want)
+	}
+}
+
+// A flockdeck earlier on the pane's PATH than the application, or none on it,
+// is asked about, with auto-approve off, and the application's own is not.
+func TestReviewToolAsksAboutMailWhenFlockdeckOnThePathIsNotTheApp(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	appDir, app := fakeApp(t)
+	ws, err := New(Options{Root: root, HookBinary: app})
+	if err != nil {
+		t.Fatalf("new workspace: %v", err)
+	}
+	t.Cleanup(ws.Close)
+	tab := ws.NewTab(session.KindShell, root, "shell")
+	p := ws.Pane(tab.Tree.Panes()[0])
+	planted, _ := fakeApp(t)
+	sep := string(os.PathListSeparator)
+
+	for name, c := range map[string]struct {
+		path  string
+		allow bool
+	}{
+		"the application":           {appDir, true},
+		"a planted program first":   {planted + sep + appDir, false},
+		"a planted program only":    {planted, false},
+		"no flockdeck on the PATH":  {t.TempDir(), false},
+		"the application then more": {appDir + sep + planted, true},
+	} {
+		t.Setenv("PATH", c.path)
+		ok, _ := ws.reviewTool(p.ID, bashEvent(t, ws, p, "flockdeck inbox"))
+		if ok != c.allow {
+			t.Errorf("%s: allowed = %v, want %v", name, ok, c.allow)
+		}
 	}
 }

@@ -46,6 +46,9 @@ type runCommand struct {
 	root *Root
 	// hide names variables kept out of a command's environment.
 	hide []string
+	// self is the running application's executable, for a test to set. Empty
+	// means os.Executable.
+	self string
 }
 
 func (t *runCommand) Name() string { return "run_command" }
@@ -86,7 +89,7 @@ func (t *runCommand) Approval(args json.RawMessage) string {
 	if err != nil || len(argv) == 0 {
 		return ""
 	}
-	if readsFlockdeckMail(a.Command, t.root.Dir()) {
+	if t.readsFlockdeckMail(a.Command, t.root.Dir()) {
 		return ""
 	}
 	if batchUnsafe(t.program(argv[0]), argv[1:]) != nil {
@@ -742,10 +745,16 @@ func clipOutput(s string) string {
 // readsFlockdeckMail reports whether command is one of the two forms of
 // reading Flockdeck mail, which run without asking as they do for an agent in
 // a pane (see review.MailRead, the one matcher for both).
-func readsFlockdeckMail(command, dir string) bool {
+func (t *runCommand) readsFlockdeckMail(command, dir string) bool {
 	in, err := json.Marshal(map[string]string{"command": command})
 	if err != nil {
 		return false
 	}
-	return review.MailRead("Bash", string(in), dir).Allow
+	// The word is looked up on the PATH the command would run with, and must
+	// be the running application, as for a pane.
+	self := t.self
+	if self == "" {
+		self, _ = os.Executable()
+	}
+	return review.MailRead("Bash", string(in), dir, review.MailEnvFrom(t.environ(), self)).Allow
 }
