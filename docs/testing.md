@@ -31,6 +31,11 @@ func TestMain(m *testing.M) { os.Exit(testiso.Main(m)) }
   the tests (`FLOCKDECK_LIVE_AGENT_TESTS`, `FLOCKDECK_UPDATE_GOLDEN` and so on).
   A test that reads another `FLOCKDECK_` variable from outside adds it there; a
   test in `iso` fails until it does;
+- sets `GOCACHE` and `GOMODCACHE`, where they are unset, to where the go command
+  would have put them before the redirect, so a test that runs `go build` does
+  not compile everything into an empty cache;
+- removes `flockdeck-test-home-*`, `flockdeck-state-*` and `flockdeck-wait-*` directories in the system temp directory that
+  are over a day old, which a run that was killed leaves behind;
 - refuses any request or dial to a host that is not loopback, through
   `http.DefaultTransport` (so `http.DefaultClient` and any client without a
   `Transport` of its own);
