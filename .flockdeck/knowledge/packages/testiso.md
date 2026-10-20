@@ -16,6 +16,7 @@ A package adds `func TestMain(m *testing.M) { os.Exit(testiso.Main(m)) }`. `test
 - Unsets every `FLOCKDECK_*` and `PERCH_*` variable and `GIT_CONFIG_COUNT`, except the names in `keptEnv` (switches CI or a person sets to steer tests), `FLOCKDECK_TEST_*`, `FLOCKDECK_ACPTEST_*` and the two real-dir variables. A test that reads a new variable from outside must add it to `keptEnv`; `TestEveryVariableATestReadsFromOutsideIsKept` fails until it does.
 - Sets GOCACHE and GOMODCACHE to their real defaults when unset, so tests that run `go build` keep the real caches.
 - Removes `flockdeck-test-home-*`, `flockdeck-state-*` and `flockdeck-wait-*` directories (plain directories only, never links) in `os.TempDir()` last changed over 24 hours ago, left by runs that were killed.
+- Puts stubs for the catalog's CLI agents (`iso.StubNames`) first on PATH: links of the test binary that `Main` recognises by the name it was started as; they answer `--version`/`--help` and idle until stdin ends. Off when `FLOCKDECK_LIVE_AGENT_TESTS` is set. `ISO_STUB_LOG` makes them log each run. A new catalog agent must be added to `StubNames` (a test fails until it is).
 - Replaces `http.DefaultTransport` with a guard that refuses any host but loopback (`ErrNonLoopback`), before name lookup.
 - Records every refusal; if the run otherwise passed but a guard tripped, it exits 1.
 - `DirGuard` panics when `store` resolves the real config dir or anything under it.
