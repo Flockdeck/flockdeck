@@ -99,6 +99,18 @@ export function terminalKey(term, ev, env = {}) {
   return false;
 }
 
+/** safeLink says a link a program printed may be opened: http and https only.
+ *  The text of a link is whatever the program wrote, so a javascript: or file:
+ *  address is not followed. */
+export function safeLink(uri) {
+  try {
+    const u = new URL(String(uri));
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /** createTerminal builds the controller of one pane's terminal.
  *
  *  Options:
@@ -137,7 +149,10 @@ export function createTerminal(opts) {
   let unsub = null;
   let observer = null;
   let started = false;
-  let decided = false;
+  let structuredShown = false;
+  // Listeners put on the host, kept so dispose can take them off.
+  let hostListeners = [];
+  let textareaFocus = null;
   let replaying = false;
   let replayGen = 0;
   let box = null; // the size the box would take, from the fit addon
@@ -159,7 +174,7 @@ export function createTerminal(opts) {
       // A program can print a link whose text is not its address (OSC 8). The
       // default asks with the browser's confirm box and then navigates, which
       // in an app window is the application gone.
-      linkHandler: { activate: (_ev, uri) => { if (opts.openExternal) opts.openExternal(uri); } },
+      linkHandler: { activate: (_ev, uri) => { if (safeLink(uri) && opts.openExternal) opts.openExternal(uri); } },
       theme: { background: "#0a0e11", foreground: "#d7dfe4", cursor: "#4fd1db", selectionBackground: "#1f4e53" },
       ...opts.termOptions,
     });
@@ -172,14 +187,16 @@ export function createTerminal(opts) {
     // was typed at the program as keys. Text with a control character is
     // pasted without them; text with none is left to xterm. Caught on the way
     // down to xterm's own textarea.
-    host.addEventListener("paste", (ev) => {
+    const onPaste = (ev) => {
       const text = ev.clipboardData && ev.clipboardData.getData("text/plain");
       if (!text || !pasteControls.test(text)) return;
       ev.preventDefault();
       ev.stopPropagation();
       const clean = stripPasteControls(text);
-      if (clean) term.paste(clean);
-    }, true);
+      if (clean && term) term.paste(clean);
+    };
+    host.addEventListener("paste", onPaste, true);
+    hostListeners.push(["paste", onPaste, true]);
     // While the replay is drawn, what the terminal says of its own accord is
     // its answer to history, not to the program running now.
     term.onData((data) => {
@@ -193,8 +210,12 @@ export function createTerminal(opts) {
     });
     // Focusing or tapping the terminal is using the pane in this window.
     const focus = () => { if (pty) pty.sendFocus(); };
-    if (term.textarea) term.textarea.addEventListener("focus", focus);
+    if (term.textarea) {
+      textareaFocus = [term.textarea, focus];
+      term.textarea.addEventListener("focus", focus);
+    }
     host.addEventListener("pointerdown", focus);
+    hostListeners.push(["pointerdown", focus, false]);
     // The box changing (the drawer opening, the window resized) measures the
     // box and updates the note. It never sends a resize.
     const RO = opts.ResizeObserver || G.ResizeObserver;
@@ -249,45 +270,83 @@ export function createTerminal(opts) {
     });
   }
 
-  /** tryConnect decides, once the hello and the first state are in, whether
-   *  this pane has a terminal to open, and opens it. */
-  function tryConnect() {
-    if (decided || !term) return;
+  /** plan says what this pane's terminal should be, from the store's hello and
+   *  state as they are now, or null while either is missing (the control
+   *  socket is reconnecting, or the state has not come yet). It is read again
+   *  on every change, so a role or a key that changes is acted on. */
+  function plan() {
     const s = store.getState();
-    if (!s.hello || !s.state || !s.state.panes) return;
+    if (!s.hello || !s.state || !s.state.panes) return null;
     const pane = s.state.panes[paneId];
-    if (!pane) return; // not (yet) a pane of this project
-    decided = true;
-    if (unsub) { unsub(); unsub = null; }
-    if (pane.structured) {
-      term.write("\x1b[2m" + STRUCTURED_STUB + "\x1b[0m");
-      set({ phase: "structured" });
-      return;
-    }
+    if (!pane) return null; // not (yet) a pane of this project
+    if (pane.structured) return { kind: "structured" };
     const hello = s.hello;
-    const viewer = hello.role === "viewer";
-    if (viewer && !hello.watchPanes) {
-      set({ phase: "blocked", reason: "This device may not watch panes." });
+    if (hello.role === "viewer" && !hello.watchPanes) {
+      return { kind: "blocked", reason: "This device may not watch panes." };
+    }
+    if (keyOf(hello) && !e2e) return { kind: "blocked", reason: "The end-to-end layer is not loaded." };
+    return { kind: "connect" };
+  }
+
+  const keyOf = (hello) => (hello && hello.remote && hello.e2ePublicKey ? hello.e2ePublicKey : null);
+
+  // The key the socket being made should use. Read when a socket opens, and
+  // kept while the control socket has no hello, so a drop of that socket
+  // does not turn a sealed terminal plain.
+  let lastKey = null;
+  const currentKey = () => {
+    const h = store.getState().hello;
+    if (h) lastKey = keyOf(h);
+    return lastKey;
+  };
+
+  function stopPty() {
+    if (pty) { pty.stop(); pty = null; }
+  }
+
+  /** reconcile brings the terminal in line with plan(). */
+  function reconcile() {
+    if (!term) return;
+    const p = plan();
+    if (!p) return;
+    if (p.kind === "structured") {
+      stopPty();
+      if (!structuredShown) {
+        structuredShown = true;
+        term.write("[2m" + STRUCTURED_STUB + "[0m");
+      }
+      set({ phase: "structured", reason: "" });
       return;
     }
-    const remoteKey = hello.remote && hello.e2ePublicKey ? hello.e2ePublicKey : null;
-    if (remoteKey && !e2e) {
-      set({ phase: "blocked", reason: "The end-to-end layer is not loaded." });
+    if (p.kind === "blocked") {
+      stopPty();
+      set({ phase: "blocked", reason: p.reason });
+      return;
+    }
+    if (pty) {
+      // A socket let go quietly when the device was limited is dialled again
+      // once the role says it may watch.
+      if (pty.phase === "idle") pty.retryNow();
       return;
     }
     pty = createPty({
       paneId,
       url: (held) => ptyUrl(opts.location || G.location, paneId, held),
-      hostKey: remoteKey,
+      hostKey: currentKey,
       e2e,
       WebSocket: opts.WebSocket,
-      viewOnly: () => viewer,
+      // Read when it is asked, so a device the desk has limited since the
+      // socket opened is let go quietly.
+      viewOnly: () => {
+        const h = store.getState().hello;
+        return !!h && h.role === "viewer";
+      },
       onSize: setPtySize,
       onRun({ reset, replayEnd }) {
         // Reset in the stream's own order, as RIS written to it: reset() acts at
         // once while write() only queues, so bytes of the old run still queued
         // would be drawn after it, on the fresh screen.
-        if (reset) term.write("\x1bc");
+        if (reset) term.write("c");
         replayGen++;
         replaying = replayEnd > 0;
       },
@@ -304,8 +363,8 @@ export function createTerminal(opts) {
       onOpen() {
         if (focused() && pty) pty.sendFocus();
       },
-      onState(p) {
-        set({ phase: p.phase, reason: p.reason });
+      onState(st) {
+        set({ phase: st.phase, reason: st.reason });
       },
       ...opts.ptyOptions,
     });
@@ -321,16 +380,25 @@ export function createTerminal(opts) {
   return {
     start() {
       if (started) return;
-      started = true;
+      if (!Terminal || !FitAddon) {
+        // The page's classic scripts did not load (or are async and did not
+        // run yet): say so and leave the tree standing.
+        set({ phase: "blocked", reason: "The terminal library is not loaded." });
+        return;
+      }
       open();
-      unsub = store.subscribe(tryConnect);
-      tryConnect();
+      started = true;
+      unsub = store.subscribe(reconcile);
+      reconcile();
     },
     dispose() {
       started = false;
       if (unsub) { unsub(); unsub = null; }
       if (observer) { observer.disconnect(); observer = null; }
-      if (pty) { pty.stop(); pty = null; }
+      for (const [type, fn, capture] of hostListeners) host.removeEventListener(type, fn, capture);
+      hostListeners = [];
+      if (textareaFocus) { textareaFocus[0].removeEventListener("focus", textareaFocus[1]); textareaFocus = null; }
+      stopPty();
       if (term) { term.dispose(); term = null; }
     },
     /** fitToBox makes the pty the size of this terminal's box and tells the

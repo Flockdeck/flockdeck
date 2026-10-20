@@ -293,6 +293,8 @@ test("more frames held than the cap closes the socket and installs no session", 
   const { response } = await h.host.answer(h.ws.sent[0]);
   const quiet = console.error;
   console.error = () => {};
+  const reasons = [];
+  console.error = (m) => reasons.push(String(m));
   try {
     h.ws.bin(response);
     for (let i = 0; i <= EARLY_MAX_FRAMES + 1; i++) h.ws.bin(new Uint8Array(20));
@@ -300,6 +302,7 @@ test("more frames held than the cap closes the socket and installs no session", 
   } finally {
     console.error = quiet;
   }
+  assert.ok(reasons.some((m) => m.includes("too many frames")), "closed for another reason: " + reasons.join(" | "));
   assert.deepEqual(h.log.bytes, []);
   await sleep(20);
   h.pty.sendInput("x");
@@ -350,4 +353,37 @@ test("a window with no identity of its own does not fall back to plain", async (
     console.error = quiet;
   }
   assert.deepEqual(ws.sent, []);
+});
+
+test("more held bytes than 8 MiB closes the socket, though there are few frames", async () => {
+  const h = await sealed();
+  const { response } = await h.host.answer(h.ws.sent[0]);
+  const quiet = console.error;
+  const reasons = [];
+  console.error = (m) => reasons.push(String(m));
+  try {
+    h.ws.bin(response);
+    for (let i = 0; i < 9; i++) h.ws.bin(new Uint8Array(1024 * 1024)); // 9 MiB in 9 frames
+    await waitFor(() => h.ws.closed, "the socket to close");
+  } finally {
+    console.error = quiet;
+  }
+  assert.ok(reasons.some((m) => m.includes("too many frames")), reasons.join(" | "));
+  assert.deepEqual(h.log.bytes, []);
+});
+
+test("a text frame on an established session closes the socket", async () => {
+  const h = await sealed();
+  await finish(h);
+  const quiet = console.error;
+  const reasons = [];
+  console.error = (m) => reasons.push(String(m));
+  try {
+    h.ws.text(header());
+  } finally {
+    console.error = quiet;
+  }
+  assert.equal(h.ws.closed, true);
+  assert.ok(reasons.some((m) => m.includes("non-binary frame")), reasons.join(" | "));
+  assert.deepEqual(h.log.runs, []);
 });

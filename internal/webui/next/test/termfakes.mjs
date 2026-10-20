@@ -91,6 +91,8 @@ export class FakeObserver {
 export class FakeHost {
   constructor() { this.listeners = {}; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+  removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] || []).filter((f) => f !== fn); }
+  get listenerCount() { return Object.values(this.listeners).reduce((n, l) => n + l.length, 0); }
   contains() { return false; }
   emit(type, ev) { for (const fn of this.listeners[type] || []) fn(ev); }
 }

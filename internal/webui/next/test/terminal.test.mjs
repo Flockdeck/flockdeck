@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../assets/html.js";
 import {
-  createTerminal, TerminalChrome, isTerminalReply, stripPasteControls, terminalKey, STRUCTURED_STUB,
+  createTerminal, TerminalChrome, isTerminalReply, stripPasteControls, terminalKey, safeLink, STRUCTURED_STUB,
 } from "../assets/lib/terminal.js";
+import { FakeClock } from "./fakes.mjs";
 import {
   PtySocket, FakeTerm, FakeFit, FakeObserver, FakeHost, fakeStore, paneState, loadE2E, hostSide, waitFor,
 } from "./termfakes.mjs";
@@ -46,7 +47,8 @@ test("a pane with a terminal opens the socket for it once the hello and the stat
   h.store.set({ state: paneState({ p1: { status: "idle" } }) });
   assert.equal(PtySocket.instances.length, 1);
   assert.match(PtySocket.last.url, /\/ws\/pty\?id=p1&size=1&from=-1$/);
-  assert.equal(h.store.subscribers, 0, "still subscribed after deciding");
+  h.ctl.dispose();
+  assert.equal(h.store.subscribers, 0);
 });
 
 test("a pane that is not in the state is not opened", () => {
@@ -240,12 +242,126 @@ test("Shift+Enter is a pasted newline; Ctrl+C copies a selection and is ^C other
   assert.equal(notices[0][1], true);
 });
 
-test("an OSC 8 link goes to openExternal and not the browser's confirm box", () => {
+test("an OSC 8 link goes to openExternal, for http and https only", () => {
   const opened = [];
   const h = build({ openExternal: (u) => opened.push(u) });
   h.ctl.start();
-  h.term().options.linkHandler.activate({}, "https://example.test/x");
-  assert.deepEqual(opened, ["https://example.test/x"]);
+  const go = (u) => h.term().options.linkHandler.activate({}, u);
+  go("https://example.test/x");
+  go("http://example.test/y");
+  for (const bad of ["javascript:alert(1)", "JaVaScRiPt:alert(1)", "file:///etc/passwd", "data:text/html,x", "vbscript:x", "//example.test", "not a url", "", "ftp://example.test"]) go(bad);
+  assert.deepEqual(opened, ["https://example.test/x", "http://example.test/y"]);
+  assert.equal(safeLink("https://a.test"), true);
+  assert.equal(safeLink("javascript:1"), false);
+});
+
+// ------------------------------------------------------------ listeners and dispose
+
+test("disposing takes every listener off the host, and a paste after it does nothing", () => {
+  const h = build();
+  const before = h.host.listenerCount;
+  h.ctl.start();
+  assert.ok(h.host.listenerCount > before);
+  const paste = h.host.listeners.paste[0];
+  h.ctl.dispose();
+  assert.equal(h.host.listenerCount, before, "listeners are left on the host");
+  // A handler that is still held somewhere must not throw with no terminal.
+  assert.doesNotThrow(() => paste({
+    clipboardData: { getData: () => "ab" }, preventDefault() {}, stopPropagation() {},
+  }));
+});
+
+test("controllers made one after another on one host leave no listeners behind", () => {
+  const host = new FakeHost();
+  for (let i = 0; i < 3; i++) {
+    const h = build({ host });
+    h.ctl.start();
+    h.ctl.dispose();
+  }
+  assert.equal(host.listenerCount, 0);
+});
+
+// ------------------------------------------------------------ the library and the role
+
+test("a page whose terminal library did not load shows a reason and throws nothing", () => {
+  const had = globalThis.Terminal;
+  globalThis.Terminal = undefined;
+  try {
+    const h = build({ Terminal: null });
+    assert.doesNotThrow(() => h.ctl.start());
+    assert.equal(h.ctl.state.phase, "blocked");
+    assert.equal(h.ctl.state.reason, "The terminal library is not loaded.");
+    assert.equal(PtySocket.instances.length, 0);
+    // Started again once the script has run.
+    const h2 = build({ FitAddon: null });
+    assert.doesNotThrow(() => h2.ctl.start());
+    assert.equal(h2.ctl.state.phase, "blocked");
+  } finally {
+    globalThis.Terminal = had;
+  }
+});
+
+test("a viewer later allowed to watch panes gets its terminal", () => {
+  const h = build({ snap: { hello: hello({ role: "viewer", watchPanes: false }), state: paneState({ p1: {} }) } });
+  h.ctl.start();
+  assert.equal(PtySocket.instances.length, 0);
+  assert.equal(h.ctl.state.phase, "blocked");
+  h.store.set({ hello: hello({ role: "viewer", watchPanes: true }) });
+  assert.equal(PtySocket.instances.length, 1);
+  assert.notEqual(h.ctl.state.phase, "blocked");
+  // And back: the desk takes it away again.
+  h.store.set({ hello: hello({ role: "viewer", watchPanes: false }) });
+  assert.equal(PtySocket.last.closed, true);
+  assert.equal(h.ctl.state.phase, "blocked");
+});
+
+test("a device the desk limits to viewer is let go quietly, and dialled again when it may watch", () => {
+  const h = build({ snap: { hello: hello(), state: paneState({ p1: {} }) } });
+  h.ctl.start();
+  const ws = PtySocket.last;
+  ws.open();
+  // The desk limits the device: the control socket's hello says so, and the
+  // pty socket is closed with 1008.
+  h.store.set({ hello: hello({ role: "viewer", watchPanes: true }) });
+  ws.serverClose(1008, "limited");
+  assert.equal(h.ctl.state.phase, "idle", "a limited device was shown refused with Try again");
+  assert.equal(PtySocket.instances.length, 1);
+  h.store.set({ hello: hello({ role: "viewer", watchPanes: true, prefs: {} }) });
+  assert.equal(PtySocket.instances.length, 2, "not dialled again once the role was told");
+});
+
+test("the key is read when a socket opens, and kept while the control socket has no hello", async () => {
+  const E2E = loadE2E();
+  const host = await hostSide(E2E);
+  const clock = new FakeClock();
+  const h = build({
+    snap: { hello: hello({ remote: true }), state: paneState({ p1: {} }) }, e2e: E2E,
+    ptyOptions: { setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout, now: () => clock.now },
+  });
+  h.ctl.start();
+  const first = PtySocket.last;
+  first.open();
+  h.term().type("a");
+  assert.equal(new TextDecoder().decode(first.sent[0]), "a", "a socket with no key on file is plain");
+  // The desktop's key arrives with a later hello: the next socket is sealed.
+  h.store.set({ hello: hello({ remote: true, e2ePublicKey: host.pub }) });
+  first.serverClose(1006);
+  clock.advance(250);
+  const second = PtySocket.last;
+  assert.notEqual(second, first);
+  second.open();
+  await waitFor(() => second.sent.length > 0, "the handshake hello");
+  assert.equal(second.sent.length, 1);
+  assert.equal(typeof second.sent[0], "object", "the sealed socket's first message was text");
+  // The control socket drops and has no hello for a while: the key is kept.
+  h.store.set({ hello: null });
+  second.serverClose(1006);
+  clock.advance(500);
+  const third = PtySocket.last;
+  third.open();
+  await waitFor(() => third.sent.length > 0, "a handshake hello without a hello in the store");
+  assert.equal(typeof third.sent[0], "object");
+  h.ctl.dispose();
 });
 
 // ------------------------------------------------------------ through the relay
@@ -268,6 +384,7 @@ test("a remote hello with the desktop's key seals the terminal socket", async ()
   await waitFor(() => ws.sent.length >= 2, "the held keystroke, sealed");
   const opened = await session.open(ws.sent[1]);
   assert.equal(new TextDecoder().decode(opened.subarray(1)), "typed before the handshake ended\r");
+  h.ctl.dispose();
 });
 
 test("a remote hello with a key and no end-to-end layer loaded opens nothing", () => {

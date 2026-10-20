@@ -19,7 +19,9 @@
 //
 // Options (all but paneId and url are optional):
 //   paneId, url        the pane and the address of /ws/pty (ptyUrl builds it)
-//   hostKey            the desktop's end-to-end public key, or null for a plain socket
+//   hostKey            the desktop's end-to-end public key, or null for a plain socket;
+//                      a function is called each time a socket is made, so a key that
+//                      changes is picked up by the next one
 //   e2e                FlockdeckE2E, needed when hostKey is set
 //   viewOnly()         true for a viewer: its keystrokes are not sent
 //   onSize(cols,rows)  the server says the pty is this size
@@ -91,7 +93,7 @@ export function createPty(opts) {
   const setT = opts.setTimeout || ((fn, ms) => globalThis.setTimeout(fn, ms));
   const clearT = opts.clearTimeout || ((id) => globalThis.clearTimeout(id));
   const now = opts.now || (() => Date.now());
-  const hostKey = opts.hostKey || null;
+  let hostKey = null; // for the socket being made or in use; see connect
   const e2e = opts.e2e;
   const enc = new TextEncoder();
   const dec = new TextDecoder();
@@ -147,6 +149,7 @@ export function createPty(opts) {
     clearT(retryTimer);
     retryTimer = null;
     resetSocketState();
+    hostKey = (typeof opts.hostKey === "function" ? opts.hostKey() : opts.hostKey) || null;
     setPhase("connecting");
     let sock;
     try {

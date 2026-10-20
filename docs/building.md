@@ -163,7 +163,7 @@ fall back to plain. `terminal.js` puts xterm on it and keeps the old window's si
 the size of the pty, and nothing sends a resize when it opens, closes or its box changes. Only
 `fitToBox()` does, for a drag or a maximise. A structured pane gets a one-line stub and no socket, and a
 viewer that may not watch panes gets no socket. The page has to load `assets/vendor/xterm.js`,
-`assets/vendor/addon-fit.js` and `assets/e2e.js` as classic scripts before the module, as the old page does.
+`assets/vendor/addon-fit.js` and `assets/e2e.js` as classic scripts before the module, as the old page does. The three must not be `async` or `defer`, or the module runs before they have: the terminal then shows "The terminal library is not loaded." and opens nothing.
 
 A release is never built with the tag. The test workflow builds, vets and tests the
 tagged variant on all three platforms, and `internal/webui/release_tag_test.go`
