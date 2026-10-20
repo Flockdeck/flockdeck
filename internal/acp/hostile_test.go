@@ -438,21 +438,26 @@ func TestTheWriteQueueIsBounded(t *testing.T) {
 	r := newRecorder()
 	c := startRaw(t, r, nil, acptest.WithDeaf())
 
-	go func() { _, _ = c.Prompt(context.Background(), "s", strings.Repeat("z", 8<<20)) }()
-	// The writer has taken the big line off the queue and is blocked writing
-	// it: one message counted, none waiting. A fixed sleep is not enough on a
-	// slow runner, where the Cancels could be sent before the big line is
-	// queued and fit in the pipe.
+	// Queue the big line here, not from another goroutine, so it is known to be
+	// in the queue when notify returns. The queue is then empty only once the
+	// writer has taken the line, and it stays blocked in that write because
+	// the agent never reads.
+	if err := c.notify("big", map[string]any{"text": strings.Repeat("z", 8<<20)}); err != nil {
+		t.Fatal(err)
+	}
 	deadline := time.Now().Add(10 * time.Second)
-	for c.queued.Load() != 1 || len(c.outbox) != 0 {
+	for len(c.outbox) != 0 {
 		if time.Now().After(deadline) {
-			t.Fatalf("the writer never got stuck: queued %d, waiting %d", c.queued.Load(), len(c.outbox))
+			t.Fatalf("the writer never took the big line: %d waiting", len(c.outbox))
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	refused := 0
-	for i := 0; i < 300; i++ {
+	// Send until one is refused, however many that takes within the limit,
+	// then check how many the queue took: its size, not much more.
+	accepted, refused := 0, false
+	limit := time.Now().Add(10 * time.Second)
+	for i := 0; i < 5000 && time.Now().Before(limit); i++ {
 		var err error
 		started := time.Now()
 		within(t, 2*time.Second, "Cancel", func() { err = c.Cancel("s") })
@@ -460,11 +465,17 @@ func TestTheWriteQueueIsBounded(t *testing.T) {
 			t.Fatalf("Cancel %d took %v", i, took)
 		}
 		if errors.Is(err, errOutboxFull) {
-			refused++
+			refused = true
+			break
 		}
+		accepted++
 	}
-	if refused == 0 {
-		t.Error("300 notifications queued behind a stuck write and none was refused")
+	if !refused {
+		t.Fatalf("%d notifications queued behind a stuck write and none was refused", accepted)
+	}
+	// A literal, so that raising outboxSize has to change this test too.
+	if accepted > 256+2 {
+		t.Errorf("%d notifications were accepted before the first refusal; the queue holds 256", accepted)
 	}
 	within(t, 10*time.Second, "Close", func() { _ = c.Close() })
 }
