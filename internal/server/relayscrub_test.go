@@ -1,0 +1,522 @@
+package server
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/coder/websocket"
+
+	"github.com/jmwri/flockdeck/internal/record"
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/team"
+	"github.com/jmwri/flockdeck/internal/workspace"
+)
+
+// These tests hold the scrub of what goes to a window reached through the relay
+// (relayscrub.go): a command, a diff, a file or a question does not leave the
+// desk, a secret in a tool row is redacted, a structured pane says nothing but
+// its roster fields, and a window on this machine is sent what it always was.
+
+// Secrets of the forms record.Redact knows. Each test checks that it still
+// finds them, so a change to the redactor cannot empty the table.
+var relaySecrets = []string{
+	"sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH",
+	"ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+	"AKIAIOSFODNN7EXAMPLE",
+	"https://deploy:hunter2hunter2@git.example.com/org/repo.git",
+}
+
+func TestRelaySecretsAreOnesTheRedactorFinds(t *testing.T) {
+	for _, s := range relaySecrets {
+		if record.Redact(s) == s {
+			t.Errorf("record.Redact leaves %q alone: change the table", s)
+		}
+	}
+}
+
+// relayLeaks says which of the secrets, and which other strings, are in raw.
+func relayLeaks(raw []byte, others ...string) []string {
+	var found []string
+	for _, s := range append(slices.Clone(relaySecrets), others...) {
+		if s != "" && bytes.Contains(raw, []byte(s)) {
+			found = append(found, s)
+		}
+	}
+	return found
+}
+
+// A prompt as a waiting pane's hooks give it.
+type relayPrompt struct {
+	name, tool, input string
+	// others are strings from the input that must not be sent either.
+	others []string
+	// summary is the summary a relay window is told.
+	summary string
+}
+
+func relayPrompts() []relayPrompt {
+	secret := strings.Join(relaySecrets, " ")
+	return []relayPrompt{
+		{"bash", "Bash", `{"command":"curl -H 'Authorization: ` + relaySecrets[0] + `' ` + relaySecrets[3] + ` && echo done","description":"call the api with ` + relaySecrets[1] + `"}`,
+			[]string{"curl -H", "call the api", "echo done"}, "Run a command, " + detailsOnDesktop},
+		{"edit", "Edit", `{"filePath":"/home/dev/app/config.go","oldString":"key := \"\"","newString":"key := \"` + relaySecrets[2] + `\""}`,
+			[]string{"/home/dev/app", "key :="}, "Edit config.go, " + detailsOnDesktop},
+		{"write", "Write", `{"filePath":"/home/dev/.env","content":"TOKEN=` + relaySecrets[1] + `"}`,
+			[]string{"/home/dev", "TOKEN="}, "Write .env, " + detailsOnDesktop},
+		{"mcp", "mcp__vault__read", `{"command":"read ` + secret + `"}`, nil, "Use mcp__vault__read, " + detailsOnDesktop},
+		{"ask", "AskUserQuestion",
+			`{"questions":[{"header":"Key","question":"Use ` + relaySecrets[0] + ` for prod?","options":[{"label":"Yes, ` + relaySecrets[1] + `","description":"` + relaySecrets[2] + `"}]}]}`,
+			[]string{"for prod?"}, ""},
+	}
+}
+
+// readFor reads a socket until a state message satisfies cond, and returns every
+// message read on the way (raw) and that state.
+func readStateFor(t *testing.T, conn *websocket.Conn, cond func(stateMsg) bool) (all [][]byte, st stateMsg) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		_, data, err := conn.Read(ctx)
+		cancel()
+		if err != nil {
+			t.Fatalf("read control: %v", err)
+		}
+		all = append(all, data)
+		if messageType(data) != "state" {
+			continue
+		}
+		var s stateMsg
+		if json.Unmarshal(data, &s) == nil && cond(s) {
+			return all, s
+		}
+	}
+	t.Fatal("no state satisfied the condition")
+	return nil, st
+}
+
+// The state push to a window through the relay never carries the text of a
+// prompt: not to a device with the full role, and not to a viewer, whether or
+// not the desk lets it watch panes.
+func TestRelayStatePushCarriesNoPromptText(t *testing.T) {
+	srv, ws := newTestServer(t)
+	id := firstPane(t, srv, ws)
+	setAccess(t, srv, "full-dev", "full", false)
+	setAccess(t, srv, "viewer-dev", "viewer", false)
+	setAccess(t, srv, "watch-dev", "viewer", true)
+	ts := remoteServer(t, srv)
+	local := dialControl(t, srv)
+	nextState(t, local, nil)
+
+	p, _ := ask(srv, func() *workspace.Pane { return ws.Pane(id) })
+	for _, dev := range []string{"full-dev", "viewer-dev", "watch-dev"} {
+		conn, err := dialRemoteControlDevice(ts, ts.URL, dev)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = conn.CloseNow() })
+		for _, pr := range relayPrompts() {
+			p.Sess.SetStatusFull(session.StatusWorking, "", "")
+			p.Sess.SetStatusFull(session.StatusWaiting, pr.tool, pr.input)
+
+			// What the desk is sent is the whole prompt.
+			lst := nextState(t, local, func(s stateMsg) bool {
+				pv, ok := s.Panes[id]
+				return ok && pv.Status == "waiting" && (pv.Permission != nil && pv.Permission.Tool == pr.tool || pr.tool == "AskUserQuestion" && pv.Ask != nil)
+			})
+			if lpv := lst.Panes[id]; lpv.DetailsOnDesktop || (lpv.Permission != nil && lpv.Permission.Redacted) {
+				t.Fatalf("%s: a window on this machine was sent the scrubbed form: %+v", pr.name, lpv)
+			}
+
+			if dev == "viewer-dev" {
+				// A viewer the desk has not let watch panes is sent none, and
+				// whatever it is sent holds nothing of the prompt.
+				_, raws := collectTypes(t, conn, 300*time.Millisecond)
+				for _, raw := range raws {
+					if leaks := relayLeaks(raw, pr.others...); len(leaks) > 0 {
+						t.Fatalf("%s to %s: the push holds %q", pr.name, dev, leaks)
+					}
+				}
+				continue
+			}
+			all, st := readStateFor(t, conn, func(s stateMsg) bool {
+				pv, ok := s.Panes[id]
+				if pr.tool == "AskUserQuestion" {
+					return ok && pv.Status == "waiting" && pv.DetailsOnDesktop && pv.Permission == nil
+				}
+				return ok && pv.Status == "waiting" && pv.Permission != nil && pv.Permission.Tool == pr.tool
+			})
+			for _, raw := range all {
+				if leaks := relayLeaks(raw, pr.others...); len(leaks) > 0 {
+					t.Fatalf("%s to %s: the push holds %q:\n%.400s", pr.name, dev, leaks, raw)
+				}
+			}
+			pv := st.Panes[id]
+			if pv.Ask != nil {
+				t.Errorf("%s to %s: ask = %+v", pr.name, dev, pv.Ask)
+			}
+			if pr.tool == "AskUserQuestion" {
+				if pv.Permission != nil {
+					t.Errorf("%s to %s: permission = %+v", pr.name, dev, pv.Permission)
+				}
+				continue
+			}
+			perm := pv.Permission
+			if perm == nil || !perm.Redacted || perm.Tool != pr.tool || perm.Summary != pr.summary || len(perm.Options) != 0 ||
+				perm.Command != "" || perm.Description != "" || perm.File != "" || perm.Diff != "" {
+				t.Errorf("%s to %s: permission = %+v", pr.name, dev, perm)
+			}
+		}
+	}
+}
+
+// The agents list says the same of a waiting pane as the card does.
+func TestRelayAgentsListSaysWhatTheCardSays(t *testing.T) {
+	srv, ws := newTestServer(t)
+	id := firstPane(t, srv, ws)
+	setAccess(t, srv, "full-dev", "full", false)
+	ts := remoteServer(t, srv)
+	conn, err := dialRemoteControlDevice(ts, ts.URL, "full-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.CloseNow() })
+	p, _ := ask(srv, func() *workspace.Pane { return ws.Pane(id) })
+
+	for _, pr := range relayPrompts() {
+		p.Sess.SetStatusFull(session.StatusWaiting, pr.tool, pr.input)
+		want := pr.summary
+		if pr.tool == "AskUserQuestion" {
+			want = "asking a question"
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			sendCmd(t, conn, command{Cmd: "agents"})
+			var ag agentsMsg
+			readUntil(t, conn, "agents", &ag)
+			var got string
+			for _, a := range ag.Items {
+				if a.PaneID == id {
+					got = a.Waiting
+				}
+			}
+			raw, _ := json.Marshal(ag)
+			if leaks := relayLeaks(raw, pr.others...); len(leaks) > 0 {
+				t.Fatalf("%s: the list holds %q", pr.name, leaks)
+			}
+			if got == want {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: waiting = %q, want %q", pr.name, got, want)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
+// Everything that is not a prompt in a state push is sent as it was: the scrub
+// of a state with nothing to scrub gives back the same bytes.
+func TestRelayScrubLeavesAStateWithNoPromptAlone(t *testing.T) {
+	srv, ws := newTestServer(t)
+	conn := dialControl(t, srv)
+	firstPane(t, srv, ws)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	for i := 0; i < 20; i++ {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if messageType(data) != "state" {
+			continue
+		}
+		if got := scrubForRemote(data); !bytes.Equal(got, data) {
+			t.Fatalf("the scrub changed a state with no prompt:\n%.300s\n%.300s", data, got)
+		}
+		return
+	}
+	t.Fatal("no state")
+}
+
+// The scrub of a message it cannot read drops it, and a type with none is let
+// through.
+func TestRelayScrubFailsClosed(t *testing.T) {
+	for typ := range relayScrubs {
+		if got := scrubForRemote([]byte(`{"type":"` + typ + `","panes":"not an object","items":7,"entries":3,"detail":4,"teams":5}`)); got != nil {
+			t.Errorf("%s: a message the scrub cannot read was sent: %s", typ, got)
+		}
+	}
+	other := []byte(`{"type":"notice","text":"hello"}`)
+	if got := scrubForRemote(other); !bytes.Equal(got, other) {
+		t.Errorf("a notice was changed: %s", got)
+	}
+}
+
+// A structured pane's content is for the desk: a relay window is sent its
+// roster fields and the flag, and a structured message is not sent at all.
+func TestRelayStatePushCarriesNoStructuredPaneContent(t *testing.T) {
+	e := newStructuredEnv(t, "hold-perm")
+	e.status(t, session.StatusWaiting)
+	setAccess(t, e.srv, "full-dev", "full", false)
+	setAccess(t, e.srv, "watch-dev", "viewer", true)
+	ts := remoteServer(t, e.srv)
+	local := dialControl(t, e.srv)
+
+	lst := nextState(t, local, func(s stateMsg) bool {
+		pv, ok := s.Panes[e.child]
+		return ok && pv.Structured && pv.Permission != nil
+	})
+	lpv := lst.Panes[e.child]
+	if lpv.Task == "" {
+		t.Fatalf("the desk's view has no task: %+v", lpv)
+	}
+
+	for _, dev := range []string{"full-dev", "watch-dev"} {
+		conn, err := dialRemoteControlDevice(ts, ts.URL, dev)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = conn.CloseNow() })
+		all, st := readStateFor(t, conn, func(s stateMsg) bool {
+			pv, ok := s.Panes[e.child]
+			return ok && pv.Structured
+		})
+		pv := st.Panes[e.child]
+		if pv.Permission != nil || pv.Ask != nil || pv.Last != nil || pv.Detail != "" || pv.Task != "" || pv.Err != "" || !pv.DetailsOnDesktop {
+			t.Errorf("%s: structured pane view = %+v", dev, pv)
+		}
+		if pv.Name != lpv.Name || pv.Status != "waiting" || pv.Activity != lpv.Activity {
+			t.Errorf("%s: the roster fields changed: %+v", dev, pv)
+		}
+		for _, raw := range all {
+			if bytes.Contains(raw, []byte(lpv.Permission.Tool+`","summary"`)) && bytes.Contains(raw, []byte(lpv.Task)) {
+				t.Errorf("%s: the push holds the pane's task and card: %.300s", dev, raw)
+			}
+		}
+	}
+
+	for _, typ := range []string{"structured", "structuredDetail"} {
+		if got := scrubForRemote([]byte(`{"type":"` + typ + `","id":"p"}`)); got != nil {
+			t.Errorf("%s was not dropped", typ)
+		}
+	}
+}
+
+// A tool row's label, summary and diff are redacted for the relay, the words of
+// the conversation are not, and a page, an append and a detail are all covered.
+func TestRelayConversationMessagesAreRedacted(t *testing.T) {
+	secret := relaySecrets[0]
+	entries := []transcript.Entry{
+		{ID: "1", Kind: transcript.KindPrompt, TS: "t", Text: "please use " + secret},
+		{ID: "2", Kind: transcript.KindTool, TS: "t", Name: "Bash", Label: "curl " + secret, Summary: "ran " + relaySecrets[1], Diff: "+key=" + relaySecrets[2], HasDetail: true},
+	}
+	check := func(what string, raw []byte, got []transcript.Entry) {
+		t.Helper()
+		if len(got) != 2 {
+			t.Fatalf("%s: %d entries", what, len(got))
+		}
+		if got[0].Text != entries[0].Text {
+			t.Errorf("%s: the prompt was changed: %q", what, got[0].Text)
+		}
+		tool := got[1]
+		for _, f := range []string{tool.Label, tool.Summary, tool.Diff} {
+			if leaks := relayLeaks([]byte(f)); len(leaks) > 0 {
+				t.Errorf("%s: %q in %q", what, leaks, f)
+			}
+		}
+		if tool.Name != "Bash" || !tool.HasDetail || !strings.Contains(tool.Label, "curl ") || !strings.Contains(tool.Label, record.Redacted) {
+			t.Errorf("%s: the row = %+v", what, tool)
+		}
+	}
+
+	raw, _ := json.Marshal(conversationPageMsg{Type: "conversationPage", ID: "p", Supported: true, Entries: entries})
+	var page conversationPageMsg
+	out := scrubForRemote(raw)
+	if err := json.Unmarshal(out, &page); err != nil {
+		t.Fatal(err)
+	}
+	check("page", out, page.Entries)
+
+	raw, _ = json.Marshal(conversationAppendMsg{Type: "conversationAppend", ID: "p", Entries: entries})
+	var app conversationAppendMsg
+	out = scrubForRemote(raw)
+	if err := json.Unmarshal(out, &app); err != nil {
+		t.Fatal(err)
+	}
+	check("append", out, app.Entries)
+
+	raw, _ = json.Marshal(conversationDetailMsg{Type: "conversationDetail", ID: "p", Entry: "2",
+		Detail: transcript.Detail{Text: "out " + secret, Diff: "+ " + relaySecrets[3], Entries: entries}})
+	var det conversationDetailMsg
+	out = scrubForRemote(raw)
+	if err := json.Unmarshal(out, &det); err != nil {
+		t.Fatal(err)
+	}
+	check("detail", out, det.Detail.Entries)
+	if leaks := relayLeaks([]byte(det.Detail.Text + det.Detail.Diff)); len(leaks) > 0 {
+		t.Errorf("detail text and diff hold %q", leaks)
+	}
+}
+
+// A graph that is ever sent to a relay window has its prompt text replaced and
+// its free text redacted. The graph commands are refused to a relay window all
+// the same (graph_access_test.go); this is the second lock.
+func TestRelayGraphIsScrubbed(t *testing.T) {
+	g := graphMsg{Type: "graph", Root: "/r", Project: "p",
+		Teams: []graphTeamView{{ID: "a", Manager: "a", Members: []string{"a"}, Goal: "ship with " + relaySecrets[0], Caps: []graphCap{},
+			Needs: []team.NeedsItem{{ID: "x", Kind: team.NeedPermission, Pane: "a", Text: "rm -rf /home " + relaySecrets[1]}, {ID: "y", Kind: team.NeedReturned, Pane: "a", Text: "done " + relaySecrets[2]}}}},
+		Nodes: []graphNodeView{{GraphNode: team.GraphNode{Pane: "a", WaitingOn: team.WaitingOn{Kind: team.WaitUser, Text: "rm -rf /home " + relaySecrets[3]}},
+			Name: "n " + relaySecrets[0], Peer: "p " + relaySecrets[1], Branch: "b " + relaySecrets[2], Agent: "g " + relaySecrets[3], Live: "tool " + relaySecrets[0],
+			Task: &graphTaskChip{ID: "t", Title: "title " + relaySecrets[1], State: "doing"}}},
+		Edges: []graphEdge{{Kind: graphEdgeMessage, From: "a", To: "b", Text: "see " + relaySecrets[2]}},
+		Solo:  []string{}, SoloNeeds: []team.NeedsItem{{ID: "z", Kind: team.NeedAsk, Pane: "b", Text: "which? " + relaySecrets[0]}}}
+	raw, _ := json.Marshal(g)
+	out := scrubForRemote(raw)
+	if out == nil {
+		t.Fatal("the graph was dropped")
+	}
+	if leaks := relayLeaks(out, "rm -rf", "which?"); len(leaks) > 0 {
+		t.Errorf("the graph holds %q:\n%s", leaks, out)
+	}
+	var back graphMsg
+	if err := json.Unmarshal(out, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Nodes[0].WaitingOn.Text != detailsOnDesktop || back.Teams[0].Needs[0].Text != detailsOnDesktop || back.SoloNeeds[0].Text != detailsOnDesktop {
+		t.Errorf("prompt text = %q, %q, %q", back.Nodes[0].WaitingOn.Text, back.Teams[0].Needs[0].Text, back.SoloNeeds[0].Text)
+	}
+	if !strings.Contains(back.Teams[0].Needs[1].Text, "done ") {
+		t.Errorf("a need that is not a prompt lost its text: %q", back.Teams[0].Needs[1].Text)
+	}
+}
+
+// A relay window is refused the graph commands, whatever its role, and is not
+// subscribed. Lifting this needs the scrub above and a sealed channel (X1).
+func TestRelayWindowCannotWatchTheGraph(t *testing.T) {
+	srv, _ := newTestServer(t)
+	for _, c := range []*controlClient{
+		{out: make(chan []byte, 8), remote: true, device: "full-dev"},
+		{out: make(chan []byte, 8), remote: true, device: "watch-dev"},
+	} {
+		srv.handleCommand(c, command{Cmd: "graphWatch", Req: "r"})
+		var res teamResultMsg
+		if err := json.Unmarshal(<-c.out, &res); err != nil || res.OK || res.Error != teamDeskOnly {
+			t.Errorf("%s: %+v", c.device, res)
+		}
+		if root, _ := ask(srv, func() string { return c.graphRoot }); root != "" {
+			t.Errorf("%s is subscribed", c.device)
+		}
+	}
+}
+
+// The decision is made on the connection being a relay one, not on a device's
+// role: a full device is scrubbed, a window on this machine is not.
+func TestRelayScrubKeysOnTheConnection(t *testing.T) {
+	src, err := os.ReadFile("control.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := bytes.Index(src, []byte("func (c *controlClient) write("))
+	if i < 0 || !bytes.Contains(src[i:i+600], []byte("if c.remote {")) || !bytes.Contains(src[i:i+600], []byte("scrubForRemote(data)")) {
+		t.Error("controlClient.write does not scrub when c.remote")
+	}
+}
+
+// Everything that builds a permission or a question for a window is covered by
+// a scrub. The non-test files are scanned: a struct with a *permissionView or
+// *askView field, and each file that calls waitingViews, must be in a table
+// that names the message type carrying it, and that type must be registered. A
+// new message that holds a prompt fails here until it is.
+func TestRelayScrubCoversEveryCarrier(t *testing.T) {
+	structs := map[string]string{"paneView": "state"}
+	callers := map[string]string{"agents.go": "agents", "control.go": "state", "teamgraph.go": "graph"}
+
+	fset := token.NewFileSet()
+	files, err := filepath.Glob("*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no files: %v", err)
+	}
+	foundStruct := false
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, f, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.TypeSpec:
+				st, ok := x.Type.(*ast.StructType)
+				if !ok || x.Name.Name == "permissionView" || x.Name.Name == "askView" {
+					return true
+				}
+				for _, fld := range st.Fields.List {
+					if carriesPrompt(fld.Type) {
+						typ, ok := structs[x.Name.Name]
+						foundStruct = foundStruct || x.Name.Name == "paneView"
+						if !ok {
+							t.Errorf("%s (%s) holds a permission or a question and is not in the carrier table: add it and register the scrub of its message in relayscrub.go", x.Name.Name, f)
+						} else if _, ok := relayScrubs[typ]; !ok {
+							t.Errorf("%s is carried by %q, which has no scrub registered", x.Name.Name, typ)
+						}
+					}
+				}
+			case *ast.CallExpr:
+				if id, ok := x.Fun.(*ast.Ident); ok && id.Name == "waitingViews" {
+					typ, ok := callers[f]
+					if !ok {
+						t.Errorf("%s calls waitingViews and is not in the carrier table: add it and register the scrub of its message in relayscrub.go", f)
+					} else if _, ok := relayScrubs[typ]; !ok {
+						t.Errorf("%s feeds %q, which has no scrub registered", f, typ)
+					}
+				}
+			}
+			return true
+		})
+	}
+	if !foundStruct {
+		t.Error("the scan did not find paneView: it is looking in the wrong place")
+	}
+}
+
+// carriesPrompt says whether a field is a *permissionView or *askView.
+func carriesPrompt(e ast.Expr) bool {
+	star, ok := e.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	id, ok := star.X.(*ast.Ident)
+	return ok && (id.Name == "permissionView" || id.Name == "askView")
+}
+
+// The text a person or an agent chose for a node is cut when the graph is built.
+func TestGraphCutsNamePeerBranchAndAgent(t *testing.T) {
+	e := newGraphEnv(t)
+	long := strings.Repeat("日", 400)
+	ask(e.srv, func() bool {
+		p := e.ws.Pane(e.eyes)
+		p.Name, p.Branch, p.Agent, p.PeerName = long, long, long, long
+		return true
+	})
+	g := e.snapshotGraph(t)
+	n, _ := g.node(e.eyes)
+	for what, c := range map[string][2]any{"name": {n.Name, graphNameCut}, "peer": {n.Peer, graphPeerCut}, "branch": {n.Branch, graphBranchCut}, "agent": {n.Agent, graphAgentCut}} {
+		if got := len([]rune(c[0].(string))); got == 0 || got > c[1].(int) {
+			t.Errorf("%s has %d characters, limit %d", what, got, c[1])
+		}
+	}
+}

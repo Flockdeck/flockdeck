@@ -60,6 +60,10 @@ place to lift when the decision changes. They are there because:
 - A graph carries the text of the prompts panes are waiting on, such as the
   command a permission prompt asks about. That text is clipped but not scrubbed
   of secrets, and team data does not cross the relay in a sealed channel yet.
+  The push is scrubbed for a relay window on its way out (`internal/server/relayscrub.go`):
+  a prompt's text becomes "details on the desktop" and the free text is redacted.
+  That scrub is the condition for lifting this refusal, with the sealed channel; it
+  does not lift it.
 - A permission prompt of a terminal pane is answered with its choice buttons over
   the end-to-end encrypted terminal connection, and that stays the only way to
   answer one from a phone.
@@ -192,6 +196,7 @@ describes it as `permission`:
 | `file` | For Edit, MultiEdit and Write, the file. |
 | `diff` | What the edit would change, cut at 64 KiB. |
 | `options` | The choices of the prompt that are documented for the agent. Claude Code panes waiting on Bash, Edit, MultiEdit or Write list two: Yes and No. Every other agent, every other tool (the plan approval of `ExitPlanMode` among them) and a pane that has not recorded its agent list none, and a window then keeps to the terminal path. Its "Yes, and don't ask again" is not listed, because the rule it names depends on the tool and version. |
+| `redacted` | `true` on a card sent to a window reached through the relay: the command, description, file and diff are left out, `options` is empty, and `summary` says what kind of thing was asked and that the rest is on the desktop. Never present for a window on this machine. |
 
 Each option has an `id`, a `name` and a `kind`. The `id` is what a window sends on
 the terminal path: `yes` is answered with Enter, the prompt's default, and `no`
@@ -369,7 +374,7 @@ session.
 | Edges | 100 `message` edges and 100 `sent` edges. |
 | `SendMessage` calls remembered | The last 200, in memory only. |
 | Needs-you items | 50 for each team and 50 for the solo panes. |
-| Text | A waiting-on text 200 characters; a live line 140; an edge's first line 140; a task title 120; a team's goal 300. All are cut by characters and have control characters and runs of white space turned into single spaces. |
+| Text | A waiting-on text 200 characters; a live line 140; an edge's first line 140; a task title 120; a team's goal 300; a pane's name 80, its peer name 80, its branch 120 and its agent id 80. All are cut by characters and have control characters and runs of white space turned into single spaces. |
 | `paneSend` text | 16 KiB, one write in progress for each pane. |
 | Helper cap | `max` is 8 for each pane. |
 

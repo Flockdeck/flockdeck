@@ -55,6 +55,11 @@ type permissionView struct {
 	// without reading the screen: see permissionOptions. Empty, never left out,
 	// where it cannot, and a window then keeps to the terminal path.
 	Options []permissionOption `json:"options"`
+	// Redacted says this card was made fit for a window reached through the
+	// relay: the command, description, file and diff are left out and Options is
+	// empty, so the card is not answered from there. Summary says what kind of
+	// thing was asked and that the rest is on the desktop (relayscrub.go).
+	Redacted bool `json:"redacted,omitempty"`
 }
 
 // permissionOption is one choice of a permission prompt; see
