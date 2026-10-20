@@ -115,6 +115,10 @@ func TestSchemaRefusesWhatIsNotTheShape(t *testing.T) {
 		"a message edge without its id":     {"edge", `{"kind":"message","from":"a","to":"b","time":"2026-10-19T12:00:00Z"}`},
 		"a message edge without delivery":   {"edge", `{"kind":"message","from":"a","to":"b","id":1,"time":"2026-10-19T12:00:00Z"}`},
 		"a message edge with a bad state":   {"edge", `{"kind":"message","from":"a","to":"b","id":1,"time":"2026-10-19T12:00:00Z","delivery":"lost"}`},
+		"a sent edge with a delivery state": {"edge", `{"kind":"sent","from":"a","to":"b","time":"2026-10-19T12:00:00Z","delivery":"read"}`},
+		"a sent edge with a message id":     {"edge", `{"kind":"sent","from":"a","to":"b","time":"2026-10-19T12:00:00Z","id":1}`},
+		"a sent edge with text":             {"edge", `{"kind":"sent","from":"a","to":"b","time":"2026-10-19T12:00:00Z","text":"hi"}`},
+		"a sent edge without a time":        {"edge", `{"kind":"sent","from":"a","to":"b"}`},
 		"a needs item with an unknown kind": {"needsItem", `{"id":"x:a","kind":"nag","pane":"a","time":"2026-10-19T12:00:00Z"}`},
 		"a paneSend without queued":         {"paneSend", `{"type":"paneSend","id":"a","shell":false}`},
 	}
@@ -122,6 +126,10 @@ func TestSchemaRefusesWhatIsNotTheShape(t *testing.T) {
 		if errs := validateDef(schema, c.def, []byte(c.doc)); len(errs) == 0 {
 			t.Errorf("%s was accepted", name)
 		}
+	}
+	sent := `{"kind":"sent","from":"a","to":"b","time":"2026-10-19T12:00:00Z"}`
+	if errs := validateDef(schema, "edge", []byte(sent)); len(errs) != 0 {
+		t.Errorf("a sent edge was refused: %v", errs)
 	}
 	good := `{"type":"paneSend","id":"a","queued":false,"shell":true,"waiting":true}`
 	if errs := validateDef(schema, "paneSend", []byte(good)); len(errs) != 0 {
@@ -267,7 +275,7 @@ func TestSchemaEnumsAreTheGoConstants(t *testing.T) {
 		{"needsItem", "kind", []string{team.NeedPermission, team.NeedAsk, team.NeedReturned, team.NeedConflict, team.NeedDown, team.NeedStaleUnread}},
 		{"waitingOn", "kind", []string{team.WaitUser, team.WaitDown, team.WaitReviewer, team.WaitTask, team.WaitHelpers, team.WaitNone}},
 		{"taskChip", "state", states},
-		{"edge", "kind", []string{graphEdgeSpawn, graphEdgeMessage}},
+		{"edge", "kind", []string{graphEdgeSpawn, graphEdgeMessage, graphEdgeSent}},
 		{"node", "kind", []string{graphKindTerminal, graphKindStructured}},
 		{"permissionOption", "id", permissionOptionIDs()},
 		{"permissionOption", "kind", permissionOptionKinds()},
