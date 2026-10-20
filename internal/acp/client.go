@@ -113,7 +113,9 @@ type Config struct {
 	// 1024 lines and 32 MiB; a line that does not fit is dropped and counted
 	// (TapDropped), so a Tap that is slow, or stuck, never holds up the read
 	// loop or the writer, and never costs a reply to the agent. A recorder that
-	// must not lose lines has to keep up. Lines of the two directions are queued
+	// must not lose lines has to keep up, and whoever owns it has to read
+	// TapDropped: nothing here writes a marker where lines were dropped, so a
+	// recording with gaps looks complete unless the count is polled. Lines of the two directions are queued
 	// from different goroutines, so their order relative to each other is the
 	// order they reached the queue.
 	//
@@ -337,7 +339,7 @@ func Start(cfg Config) (*Client, error) {
 		close(c.reaped)
 	}()
 	if cfg.Tap != nil {
-		c.tapQ, c.tapStop, c.tapDone = make(chan tapItem, tapQueueLines), make(chan struct{}), make(chan struct{})
+		c.initTap()
 		go c.tapLoop()
 	}
 	go c.writer()
@@ -373,6 +375,11 @@ const (
 type tapItem struct {
 	dir string
 	raw []byte
+}
+
+// initTap makes the queue and the channels the tap loop uses.
+func (c *Client) initTap() {
+	c.tapQ, c.tapStop, c.tapDone = make(chan tapItem, tapQueueLines), make(chan struct{}), make(chan struct{})
 }
 
 // tap queues a line for Config.Tap, if there is one. It never waits: a line that

@@ -299,6 +299,26 @@ func TestASlowTapKeepsTheRequestLimit(t *testing.T) {
 	<-stop
 }
 
+// cancelRetrying is Cancel that waits for room in the writer's queue. A tight
+// loop of Cancel calls can fill the 256-slot queue before the writer has taken
+// them, with no tap at all, and Cancel then returns errOutboxFull. That is not
+// what these tests are about, so it is retried; any other error, and a queue
+// that stays full for two seconds, is a failure.
+func cancelRetrying(t *testing.T, c *Client, sid string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := c.Cancel(sid)
+		if err == nil {
+			return
+		}
+		if !errors.Is(err, errOutboxFull) || time.Now().After(deadline) {
+			t.Fatalf("Cancel: %v", err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // A tap that is stuck must not cost the agent a reply. Every Cancel is a line
 // written; with the tap held they would fill the writer's queue if the writer
 // waited for the tap, and enqueue gives up on a full queue.
@@ -316,9 +336,7 @@ func TestAStuckTapCostsNoReplies(t *testing.T) {
 	t.Cleanup(release)
 	// More than the writer's queue (256) and, below, more than the tap's own.
 	for i := 0; i < 600; i++ {
-		if err := c.Cancel(sid); err != nil {
-			t.Fatalf("Cancel %d with the tap stuck: %v", i, err)
-		}
+		cancelRetrying(t, c, sid)
 	}
 	// The agent still answers: a turn runs to the end with the tap stuck.
 	if stop := prompt(t, c, sid, "order"); stop != StopEndTurn {
@@ -340,9 +358,7 @@ func TestATapThatIsFarBehindDropsLinesAndCountsThem(t *testing.T) {
 	r := newRecorder()
 	c, sid := startWith(t, r, func(cfg *Config) { cfg.Tap = log.tap })
 	for i := 0; i < 3*tapQueueLines; i++ {
-		if err := c.Cancel(sid); err != nil {
-			t.Fatalf("Cancel %d: %v", i, err)
-		}
+		cancelRetrying(t, c, sid)
 	}
 	if c.TapDropped() == 0 {
 		t.Error("nothing was dropped although the tap was stuck")
@@ -367,5 +383,139 @@ func TestAStuckTapDoesNotHoldUpClose(t *testing.T) {
 	case <-c.Done():
 	case <-time.After(wait):
 		t.Fatal("the read loop did not end")
+	}
+}
+
+// heldTap is a Client with only the tap parts, whose Tap is stuck on its first
+// line until release is called. The caps are tested on it directly, without an
+// agent: the tests are about how many lines and bytes the queue takes, and an
+// agent's timing has no part in that.
+type heldTap struct {
+	c       *Client
+	mu      sync.Mutex
+	seen    []string
+	entered chan struct{}
+	hold    chan struct{}
+	once    sync.Once
+}
+
+func newHeldTap(t *testing.T) *heldTap {
+	t.Helper()
+	h := &heldTap{entered: make(chan struct{}), hold: make(chan struct{})}
+	h.c = &Client{}
+	h.c.initTap()
+	h.c.cfg.Tap = func(dir string, raw []byte) {
+		h.once.Do(func() { close(h.entered); <-h.hold })
+		h.mu.Lock()
+		h.seen = append(h.seen, string(raw))
+		h.mu.Unlock()
+	}
+	go h.c.tapLoop()
+	t.Cleanup(h.release)
+	return h
+}
+
+// stick sends one line and waits until the tap has it and is stuck on it, so
+// that the queue is empty and full-sized from here on.
+func (h *heldTap) stick(t *testing.T) {
+	t.Helper()
+	h.c.tap(TapIn, []byte("first"))
+	select {
+	case <-h.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the tap was never called")
+	}
+}
+
+func (h *heldTap) release() {
+	select {
+	case <-h.hold:
+	default:
+		close(h.hold)
+	}
+}
+
+// finish lets the tap go and waits for the queue to empty.
+func (h *heldTap) finish(t *testing.T) []string {
+	t.Helper()
+	h.release()
+	close(h.c.tapStop)
+	select {
+	case <-h.c.tapDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the tap loop did not end")
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.seen...)
+}
+
+// The queue takes tapQueueLines lines behind the one the tap is stuck on, and
+// drops the next.
+func TestTheTapQueueTakesExactlyTheLineCap(t *testing.T) {
+	h := newHeldTap(t)
+	h.stick(t)
+	for i := 0; i < tapQueueLines; i++ {
+		h.c.tap(TapOut, []byte("n"+strconv.Itoa(i)))
+	}
+	if d := h.c.TapDropped(); d != 0 {
+		t.Fatalf("%d lines dropped within the cap of %d", d, tapQueueLines)
+	}
+	h.c.tap(TapOut, []byte("one too many"))
+	h.c.tap(TapOut, []byte("and another"))
+	if d := h.c.TapDropped(); d != 2 {
+		t.Errorf("%d lines dropped past the cap, want 2", d)
+	}
+	seen := h.finish(t)
+	if len(seen) != tapQueueLines+1 || seen[0] != "first" || seen[len(seen)-1] != "n"+strconv.Itoa(tapQueueLines-1) {
+		t.Errorf("%d lines seen, first %q, last %q", len(seen), seen[0], seen[len(seen)-1])
+	}
+	if b := h.c.tapBytes.Load(); b != 0 {
+		t.Errorf("the queue still counts %d bytes after it emptied", b)
+	}
+}
+
+// The queue takes tapQueueBytes of lines and drops the line that would go over.
+func TestTheTapQueueTakesExactlyTheByteCap(t *testing.T) {
+	h := newHeldTap(t)
+	h.stick(t)
+	const each = 1 << 20
+	line := make([]byte, each)
+	for i := 0; i < tapQueueBytes/each; i++ {
+		h.c.tap(TapIn, line)
+	}
+	if d := h.c.TapDropped(); d != 0 {
+		t.Fatalf("%d lines dropped within the byte cap", d)
+	}
+	if b := h.c.tapBytes.Load(); b != tapQueueBytes {
+		t.Fatalf("the queue counts %d bytes, want %d", b, tapQueueBytes)
+	}
+	h.c.tap(TapIn, []byte("x"))
+	if d := h.c.TapDropped(); d != 1 {
+		t.Errorf("%d lines dropped past the byte cap, want 1", d)
+	}
+	if b := h.c.tapBytes.Load(); b != tapQueueBytes {
+		t.Errorf("a dropped line changed the count to %d", b)
+	}
+	seen := h.finish(t)
+	if len(seen) != tapQueueBytes/each+1 {
+		t.Errorf("%d lines seen", len(seen))
+	}
+	if b := h.c.tapBytes.Load(); b != 0 {
+		t.Errorf("the queue still counts %d bytes after it emptied", b)
+	}
+}
+
+// The tap is given the client's copy of a line, not the buffer the line was read
+// into, which the client goes on using.
+func TestTheTapGetsACopyOfTheLine(t *testing.T) {
+	h := newHeldTap(t)
+	h.stick(t)
+	buf := []byte("original")
+	h.c.tap(TapIn, buf)
+	copy(buf, "XXXXXXXX")
+	seen := h.finish(t)
+	if len(seen) != 2 || seen[1] != "original" {
+		t.Errorf("seen = %q", seen)
 	}
 }
