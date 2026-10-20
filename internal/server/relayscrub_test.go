@@ -445,10 +445,19 @@ func TestRelayScrubCoversEveryCarrier(t *testing.T) {
 		"conversationPageMsg":   "conversationPage",
 		"conversationAppendMsg": "conversationAppend",
 		"conversationDetailMsg": "conversationDetail",
-		"structuredMsg":         "structured",
-		"structuredEntry":       "structured",
-		"structuredDetailMsg":   "structuredDetail",
 	}
+	// The structured pane messages arrive with the structured pane commands
+	// (internal/server/structured.go). They are listed so that the day they are
+	// there they are covered; until then they are not a stale key.
+	optional := map[string]string{
+		"structuredMsg":       "structured",
+		"structuredEntry":     "structured",
+		"structuredDetailMsg": "structuredDetail",
+	}
+	for k, v := range optional {
+		structs[k] = v
+	}
+	seen := map[string]bool{}
 	callers := map[string]string{"agents.go": "agents", "control.go": "state", "teamgraph.go": "graph"}
 
 	fset := token.NewFileSet()
@@ -475,6 +484,7 @@ func TestRelayScrubCoversEveryCarrier(t *testing.T) {
 				for _, fld := range st.Fields.List {
 					if carriesPrompt(fld.Type) || carriesText(fld.Type) {
 						typ, ok := structs[x.Name.Name]
+						seen[x.Name.Name] = true
 						foundStruct = foundStruct || x.Name.Name == "paneView"
 						if !ok {
 							t.Errorf("%s (%s) holds a permission or a question and is not in the carrier table: add it and register the scrub of its message in relayscrub.go", x.Name.Name, f)
@@ -495,6 +505,11 @@ func TestRelayScrubCoversEveryCarrier(t *testing.T) {
 			}
 			return true
 		})
+	}
+	for k := range structs {
+		if _, opt := optional[k]; !seen[k] && !opt {
+			t.Errorf("the carrier table lists %s, which holds no prompt or conversation text in this package: drop the key", k)
+		}
 	}
 	if !foundStruct {
 		t.Error("the scan did not find paneView: it is looking in the wrong place")
@@ -624,4 +639,67 @@ func TestRelayRedactsSubagentReportAndDescription(t *testing.T) {
 	if e := back.Entries[0]; !strings.HasPrefix(e.Description, "look at ") || !strings.HasPrefix(e.Report, "found ") {
 		t.Errorf("entry = %+v", e)
 	}
+}
+
+// The scan knows each shape of a field that holds text, so removing a branch of
+// carriesText fails here.
+func TestRelayCarriesTextRecognisesEveryShape(t *testing.T) {
+	for _, src := range []string{"*lastReplyView", "lastReplyView", "[]transcript.Entry", "transcript.Entry", "*transcript.Entry", "transcript.Detail", "[]*transcript.Entry"} {
+		e, err := parser.ParseExpr(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !carriesText(e) {
+			t.Errorf("%s is not recognised as a field that holds text", src)
+		}
+	}
+	for _, src := range []string{"string", "[]string", "*stateMsg", "time.Time", "transcript.Kind"} {
+		e, _ := parser.ParseExpr(src)
+		if carriesText(e) {
+			t.Errorf("%s is recognised as a field that holds text", src)
+		}
+	}
+}
+
+// The agents list reaches a relay window with the structured flag set for a
+// structured pane. That flag is what keeps the pane's detail off the phone, so
+// it is checked in the bytes sent, and the detail is empty.
+func TestRelayAgentsListMarksAStructuredPane(t *testing.T) {
+	e := newStructuredEnv(t, "plain")
+	e.status(t, session.StatusIdle)
+	setAccess(t, e.srv, "full-dev", "full", false)
+	ts := remoteServer(t, e.srv)
+	conn, err := dialRemoteControlDevice(ts, ts.URL, "full-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.CloseNow() })
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		sendCmd(t, conn, command{Cmd: "agents"})
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, data, err := conn.Read(ctx)
+		cancel()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if messageType(data) != "agents" {
+			continue
+		}
+		var ag agentsMsg
+		if json.Unmarshal(data, &ag) != nil {
+			continue
+		}
+		for _, it := range ag.Items {
+			if it.PaneID != e.child {
+				continue
+			}
+			if !it.Structured || it.Detail != "" || !bytes.Contains(data, []byte(`"structured":true`)) {
+				t.Fatalf("the structured pane in the list = %+v\n%s", it, data)
+			}
+			return
+		}
+	}
+	t.Fatal("the structured pane was not listed")
 }
