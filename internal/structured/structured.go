@@ -431,6 +431,11 @@ func (r *Runtime) ask(ctx context.Context, card bridge.Card) string {
 	return ""
 }
 
+// Detail returns what an entry has beyond what Snapshot shows: a tool's full
+// output and diff, a thinking block's text. It reports false for an entry the
+// bridge no longer holds the detail of, or never had one for.
+func (r *Runtime) Detail(id string) (transcript.Detail, bool) { return r.br.Detail(id) }
+
 // Snapshot returns the state now.
 func (r *Runtime) Snapshot() Snapshot {
 	r.mu.Lock()

@@ -742,3 +742,34 @@ func TestCleanAndExitText(t *testing.T) {
 		t.Errorf("exitText of nothing = %q", got)
 	}
 }
+
+// Detail gives a tool's full output, and nothing for an entry that has none.
+func TestDetailIsTheBridgesDetail(t *testing.T) {
+	rt := begin(t, fakeOptions(t))
+	if err := rt.Send("big"); err != nil {
+		t.Fatal(err)
+	}
+	until(t, rt, "the big turn", func(s Snapshot) bool {
+		for _, e := range s.Entries {
+			if e.Kind == "reply" && e.Markdown != "" {
+				return true
+			}
+		}
+		return false
+	})
+	var withDetail string
+	for _, e := range rt.Snapshot().Entries {
+		if e.HasDetail {
+			withDetail = e.ID
+		}
+	}
+	if withDetail == "" {
+		t.Fatal("no entry has detail after a tool with a 5 MiB result")
+	}
+	if d, ok := rt.Detail(withDetail); !ok || d.Text == "" {
+		t.Errorf("detail = %d bytes, %v", len(d.Text), ok)
+	}
+	if _, ok := rt.Detail("no-such-entry"); ok {
+		t.Error("detail for an entry that is not there")
+	}
+}
