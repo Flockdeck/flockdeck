@@ -96,6 +96,9 @@ func TestStructuredMessagesFitTheSchema(t *testing.T) {
 			t.Fatal(err)
 		}
 		checkStructured(t, name, schema, raw)
+		if name == "setup" && !strings.Contains(string(raw), `"fix":"Install Node 20 from nodejs.org"`) {
+			t.Errorf("the setup message has no fix: %s", raw)
+		}
 	}
 }
 

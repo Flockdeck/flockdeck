@@ -440,6 +440,7 @@ func TestStructuredFieldsAreBounded(t *testing.T) {
 		Pending: &bridge.Card{Seq: 3, RequestID: "r", Tool: long, Command: long, Summary: long, File: long,
 			Options: []acp.PermissionOption{{OptionID: long, Name: long, Kind: long}}},
 		Entries: []transcript.Entry{{ID: "t1", Kind: transcript.KindTool, Name: long, Label: long, Summary: long, Diff: long, Report: long, Description: long}},
+		Setup:   &structured.Setup{Kind: structured.SetupInstall, Message: long + "\nmore", Login: strings.Repeat("x", 1000) + "\nsecond line"},
 	}
 	for i := range sn.Plan {
 		sn.Plan[i] = acp.PlanEntry{Content: long, Status: "pending"}
@@ -451,6 +452,9 @@ func TestStructuredFieldsAreBounded(t *testing.T) {
 	raw, _ := json.Marshal(m)
 	if !utf8.Valid(raw) || strings.ContainsRune(string(raw), utf8.RuneError) {
 		t.Fatal("the push is not clean UTF-8")
+	}
+	if s := m.Setup; s == nil || s.Fix == "" || len(s.Fix) > structuredCardCut || len(s.Message) > structuredCardCut || strings.ContainsAny(s.Fix+s.Message, "\n") {
+		t.Errorf("setup = %+v", s)
 	}
 	en := m.Entries[0]
 	if en.Diff != "" || en.Report != "" || !en.HasDetail || !en.Clipped || len(en.Label) > structuredLabelCut || len(en.Description) > structuredNoteCut {
