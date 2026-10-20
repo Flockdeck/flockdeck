@@ -288,7 +288,7 @@ func (s *structuredRuntime) LastReply() (LastReply, bool) {
 
 // Setup is what the person has to do before this pane can run, once the runtime
 // has stopped for it. The state is final: nothing is retried after the fix, so
-// every text ends by saying the pane has to be started again.
+// every text ends with the one step to take next.
 func (s *structuredRuntime) Setup() (SetupNeeded, bool) {
 	sn := s.rt.Snapshot()
 	if sn.Phase != structured.PhaseSetup || sn.Setup == nil {
@@ -308,8 +308,10 @@ func setupText(agentID string, st *structured.Setup) string {
 	var head, tail string
 	switch st.Kind {
 	case structured.SetupNode:
+		// The fix already ends by saying to restart Flockdeck, which is what a
+		// new Node on PATH needs; a second instruction would only compete.
 		head = st.Message
-		tail = st.Login + " Then start the pane again."
+		tail = st.Login
 	case structured.SetupInstall:
 		head = st.Message
 		if st.Login != "" {

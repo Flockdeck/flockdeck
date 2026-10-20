@@ -253,8 +253,9 @@ their own (`soloNeeds`).
   sign in with the agent's own tool. Flockdeck does not read, store or pass
   credentials. The agent's program is not installed: the text is the install
   instruction from the agent's entry. The state is final. Nothing is retried after
-  the fix, so every text ends by saying the pane has to be started again, and the
-  item goes when the new pane starts.
+  the fix, so every text ends with the one step to take next: start the pane again, or for
+  Node restart Flockdeck, which has to see the new install. The item goes when
+  the new pane starts.
 - **Conflict.** `pane` and `other` are the pair in sorted order, whichever way the
   radar listed it. A conflict between panes of two teams is listed in both.
 - **Ids.** An item's `id` is made from its kind and its pane (for `returned` its
