@@ -30,6 +30,7 @@
 //	line N      one notification of exactly N bytes, then a chunk
 //	stderr-flood  4 MiB on stderr in one line, then plain
 //	spam-perm   fifty permission requests at once, reports how many were answered
+//	ratelimit   answers the prompt with the JSON-RPC error -32603 "rate limit exceeded"
 //	env         reports its whole environment, one NAME=VALUE per line, in one chunk
 //	deaf-perm   asks for permission and stops reading stdin
 //
@@ -460,6 +461,9 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 			a.chunk(sid, strconv.Itoa(i))
 		}
 		done("end_turn")
+
+	case "ratelimit":
+		a.rpcError(id, -32603, "rate limit exceeded")
 
 	case "env":
 		env := os.Environ()

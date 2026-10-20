@@ -37,7 +37,7 @@ func fakeOptions(t *testing.T, aopts ...acptest.Option) Options {
 	return Options{
 		Entry:   Entry{ID: "fake", Login: "sign in with the fake agent's own tool"},
 		Cwd:     acptest.SessionDir(t),
-		Command: &Command{Path: path, Args: args, Env: env},
+		Command: &Command{Path: path, Args: args, env: env},
 	}
 }
 
@@ -439,7 +439,7 @@ func TestAMissingProgramIsAFailureThatSaysHowToGetIt(t *testing.T) {
 	}
 
 	o = fakeOptions(t)
-	o.Command = &Command{Path: filepath.Join(t.TempDir(), "nothing-here"), Env: []string{}}
+	o.Command = &Command{Path: filepath.Join(t.TempDir(), "nothing-here"), env: []string{}}
 	r2 := begin(t, o)
 	until(t, r2, "the failure", func(s Snapshot) bool { return s.Phase == PhaseFailed })
 
@@ -753,7 +753,7 @@ func TestCleanAndExitText(t *testing.T) {
 			t.Errorf("clean(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
-	if got := exitText("noise\n\x1b[2Jthe real last line\x07\n\n"); got != "the agent exited: [2Jthe real last line" {
+	if got := exitText("noise\n\x1b[2Jthe real last line\x07\n\n"); got != "the agent exited: noise / [2Jthe real last line" {
 		t.Errorf("exitText = %q", got)
 	}
 	if got := exitText(""); got != "the agent exited" {

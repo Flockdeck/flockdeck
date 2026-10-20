@@ -29,6 +29,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/acp"
@@ -47,7 +48,9 @@ const (
 	// PhaseReady: there is a session. Snapshot.Status says whether it is working.
 	PhaseReady Phase = "ready"
 	// PhaseSetup: the agent cannot run until the person does something: sign in
-	// to it, or install Node. Snapshot.Setup says what.
+	// to it, or install Node. Snapshot.Setup says what. The state is final: the
+	// runtime does not retry after the person has signed in, and the pane must
+	// be started again.
 	PhaseSetup Phase = "needs setup"
 	// PhaseExited: the agent's process ended. Snapshot.Err says how.
 	PhaseExited Phase = "exited"
@@ -92,12 +95,13 @@ var (
 )
 
 // Command is a program to start in place of the one the manifest names. It is
-// for tests, which start the fake agent. A nil Env means the environment built
-// from the entry, as for a program the manifest names.
+// for tests, which start the fake agent. Its environment is always the one
+// built from the entry; the unexported env field lets a test in this package
+// give another, and nothing outside it can, so the allowlist cannot be bypassed.
 type Command struct {
 	Path string
 	Args []string
-	Env  []string
+	env  []string
 }
 
 // Recorder takes the agent's traffic. *record.RPCRecorder is one.
@@ -122,8 +126,10 @@ type Entry struct {
 	Install string
 	Login   string
 	// PassEnv names the variables of Options.Environ the agent is given beyond
-	// acp.MinimalEnv, and nothing else. Names starting FLOCKDECK_ are refused
-	// here as well as in the catalog.
+	// acp.MinimalEnv, and nothing else. Names starting FLOCKDECK_ or PERCH_ (in
+	// any case) are never passed, and neither are names MinimalEnv gives; at
+	// most 64 names are read. This is the catalog's ACP.PassEnv; the rules are
+	// the same ones, applied here again.
 	PassEnv []string
 	// MCP says the agent takes per-session mcpServers.
 	MCP bool
@@ -613,8 +619,8 @@ func (r *Runtime) run() {
 func (r *Runtime) resolve() (Command, *Setup, error) {
 	if c := r.opts.Command; c != nil {
 		cmd := *c
-		if cmd.Env == nil {
-			cmd.Env = r.env()
+		if cmd.env == nil {
+			cmd.env = r.env()
 		}
 		return cmd, nil, nil
 	}
@@ -652,7 +658,7 @@ func (r *Runtime) resolve() (Command, *Setup, error) {
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
-	return Command{Path: path, Args: append([]string(nil), a.Args...), Env: r.env()}, nil, nil
+	return Command{Path: path, Args: append([]string(nil), a.Args...), env: r.env()}, nil, nil
 }
 
 // launch gets the agent to a session. It reports whether there is one.
@@ -687,7 +693,7 @@ func (r *Runtime) launch() bool {
 		Path:            cmd.Path,
 		Args:            cmd.Args,
 		Dir:             r.opts.Cwd,
-		Env:             cmd.Env,
+		Env:             cmd.env,
 		Handler:         handler{Handler: r.br.Handler(r.ask), r: r},
 		OnProtocolError: func(string) { r.protoErrs.Add(1); r.notify() },
 		ClientName:      "flockdeck",
@@ -774,6 +780,23 @@ func (r *Runtime) fail(c *acp.Client, err error) {
 	}
 }
 
+// endsPane reports whether an error from a prompt ends the pane: the agent
+// asked for a login (ACP gives -32000 to "authentication required", which the
+// client reads as acp.AuthRequiredError), exited, or the client was closed.
+// Any other error, such as an RPC error for a rate limit, ends only the turn.
+func (r *Runtime) endsPane(c *acp.Client, err error) bool {
+	var exit *acp.ExitError
+	if acp.IsAuthRequired(err) || errors.As(err, &exit) || errors.Is(err, acp.ErrClosed) {
+		return true
+	}
+	select {
+	case <-c.Done():
+		return true
+	default:
+		return false
+	}
+}
+
 // loop sends the queued prompts one at a time.
 func (r *Runtime) loop() {
 	c := r.client
@@ -794,15 +817,25 @@ func (r *Runtime) loop() {
 		r.notify()
 		stop, err := c.Prompt(r.ctx, r.session, text)
 		if err != nil {
-			r.br.TurnEnd("failed")
-			r.fail(c, err)
-			r.mu.Lock()
-			over := r.phase != PhaseReady
-			r.mu.Unlock()
-			if over {
+			if r.ctx.Err() != nil {
 				return
 			}
-			continue
+			if !r.endsPane(c, err) {
+				// The agent refused this prompt (a rate limit, an internal error)
+				// but is still there. The turn ends with a notice that says so and
+				// the session stays ready for the next prompt, whose place in the
+				// queue is kept.
+				reason := clean(err.Error(), fieldCap)
+				r.br.TurnEnd("failed: " + reason)
+				r.mu.Lock()
+				r.err = reason
+				r.mu.Unlock()
+				r.notify()
+				continue
+			}
+			r.br.TurnEnd("failed")
+			r.fail(c, err)
+			return
 		}
 		r.br.TurnEnd(stop)
 		r.notify()
@@ -879,32 +912,40 @@ func (r *Runtime) finalPhase() Phase {
 	return r.phase
 }
 
-// exitText is what a pane shows of an agent that ended: its last line on
-// stderr, cleaned. stderr is the agent's, so nothing in it is trusted.
+// exitText is what a pane shows of an agent that ended: the last three lines
+// it wrote to stderr, cleaned, joined with " / ", and the end of them if they
+// are longer than the cap. stderr is the agent's, so nothing in it is trusted.
 func exitText(stderr string) string {
-	last := ""
+	var lines []string
 	for _, l := range strings.Split(stderr, "\n") {
-		if t := strings.TrimSpace(l); t != "" {
-			last = t
+		if t := clean(l, errCap); t != "" {
+			lines = append(lines, t)
 		}
 	}
-	last = clean(last, errCap)
-	if last == "" {
+	if len(lines) > 3 {
+		lines = lines[len(lines)-3:]
+	}
+	text := strings.Join(lines, " / ")
+	if r := []rune(text); len(r) > errCap {
+		text = "…" + string(r[len(r)-errCap:])
+	}
+	if text == "" {
 		return "the agent exited"
 	}
-	return "the agent exited: " + last
+	return "the agent exited: " + text
 }
 
-// clean makes a string from the agent fit to show: invalid UTF-8 and control
-// characters removed (a tab or newline becomes a space), cut at n runes.
+// clean makes a string from the agent fit to show: invalid UTF-8, control
+// characters and Unicode format characters (bidi overrides, zero-width marks)
+// removed, a tab or newline made a space, cut at n runes. It is the same rule
+// as agent's cleanLine, plus the whitespace.
 func clean(s string, n int) string {
-	s = strings.ToValidUTF8(s, "")
 	var b strings.Builder
-	for _, r := range s {
+	for _, r := range strings.ToValidUTF8(s, "") {
 		switch {
 		case r == '\n' || r == '\t' || r == '\r':
 			b.WriteByte(' ')
-		case r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) || r == 0x2028 || r == 0x2029 || (r >= 0x200b && r <= 0x200f) || (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) || r == 0xfeff:
+		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == 0x2028 || r == 0x2029:
 		default:
 			b.WriteRune(r)
 		}
