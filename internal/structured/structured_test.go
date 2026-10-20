@@ -507,17 +507,26 @@ func TestThePoisonedParentEnvironmentDoesNotReachTheChild(t *testing.T) {
 		name, _, _ := strings.Cut(kv, "=")
 		allowed[strings.ToUpper(name)] = true
 	}
+	seen := map[string]bool{}
 	for _, line := range strings.Split(got, "\n") {
 		name, _, ok := strings.Cut(line, "=")
 		if !ok || name == "" {
 			continue
 		}
+		seen[strings.ToUpper(name)] = true
 		if !allowed[strings.ToUpper(name)] {
 			// The Go runtime may add a few of its own on Windows.
 			if runtime.GOOS == "windows" && strings.HasPrefix(name, "=") {
 				continue
 			}
 			t.Errorf("the child has %q, which neither MinimalEnv nor the entry gives", name)
+		}
+	}
+	// And the lower bound: everything MinimalEnv gives reaches the child.
+	for _, kv := range acp.MinimalEnv() {
+		name, _, _ := strings.Cut(kv, "=")
+		if !seen[strings.ToUpper(name)] {
+			t.Errorf("the child did not report %s, which MinimalEnv gives", name)
 		}
 	}
 }
