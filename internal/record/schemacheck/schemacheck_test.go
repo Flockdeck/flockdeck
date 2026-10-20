@@ -2,8 +2,10 @@ package schemacheck
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func schemaOf(t *testing.T, src string) Schema {
@@ -164,6 +166,93 @@ func TestSelfReferencingRefEndsInAnError(t *testing.T) {
 func TestRecursiveSchemaThroughAPropertyIsFine(t *testing.T) {
 	s := schemaOf(t, `{"$defs":{"node":{"type":"object","properties":{"next":{"$ref":"#/$defs/node"}}}},"$ref":"#/$defs/node"}`)
 	if errs := s.Validate([]byte(`{"next":{"next":{"next":{}}}}`)); len(errs) != 0 {
+		t.Fatalf("errors = %v", errs)
+	}
+}
+
+// A $ref cycle that branches doubles its work at every level. It must end in a
+// handful of errors, quickly, not after 2^100 calls.
+func TestBranchingRefCycleEndsQuickly(t *testing.T) {
+	for name, src := range map[string]string{
+		"two branches":   `{"$defs":{"a":{"allOf":[{"$ref":"#/$defs/a"},{"$ref":"#/$defs/a"}]}},"$ref":"#/$defs/a"}`,
+		"three branches": `{"$defs":{"a":{"allOf":[{"$ref":"#/$defs/a"},{"$ref":"#/$defs/a"},{"$ref":"#/$defs/a"}]}},"$ref":"#/$defs/a"}`,
+		"two names":      `{"$defs":{"a":{"allOf":[{"$ref":"#/$defs/b"},{"$ref":"#/$defs/b"}]},"b":{"allOf":[{"$ref":"#/$defs/a"},{"$ref":"#/$defs/a"}]}},"$ref":"#/$defs/a"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := schemaOf(t, src)
+			start := time.Now()
+			errs := s.Validate([]byte(`{"a":1}`))
+			if d := time.Since(start); d > 5*time.Second {
+				t.Fatalf("took %v", d)
+			}
+			if !hasSchemaError(errs) {
+				t.Fatalf("errors %v do not name a schema fault", errs)
+			}
+			if len(errs) > maxSink+5 {
+				t.Fatalf("%d errors", len(errs))
+			}
+		})
+	}
+}
+
+// The work budget alone ends a schema that never repeats a $ref at the same
+// place: a long fan-out of distinct definitions.
+func TestWorkBudgetEndsWideSchemas(t *testing.T) {
+	var defs []string
+	var refs []string
+	for i := 0; i < 30; i++ {
+		refs = append(refs, fmt.Sprintf(`{"$ref":"#/$defs/d%d"}`, i+1))
+	}
+	for i := 0; i < 30; i++ {
+		defs = append(defs, fmt.Sprintf(`"d%d":{"allOf":[%s,%s]}`, i, refs[i], refs[i]))
+	}
+	defs = append(defs, `"d30":{}`)
+	s := schemaOf(t, `{"$defs":{`+strings.Join(defs, ",")+`},"$ref":"#/$defs/d0"}`)
+	start := time.Now()
+	errs := s.Validate([]byte(`{}`))
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("took %v", d)
+	}
+	if !hasSchemaError(errs) {
+		t.Fatalf("errors %v do not name a schema fault", errs)
+	}
+}
+
+// Only $ref hops count toward the depth limit, so a recursive schema over a
+// document well past 100 levels deep is fine.
+func TestDeepDocumentUnderRecursiveRef(t *testing.T) {
+	s := schemaOf(t, `{"$defs":{"node":{"type":"object","properties":{"next":{"$ref":"#/$defs/node"}}}},"$ref":"#/$defs/node"}`)
+	doc := strings.Repeat(`{"next":`, 150) + `{}` + strings.Repeat(`}`, 150)
+	if errs := s.Validate([]byte(doc)); len(errs) != 0 {
+		t.Fatalf("errors = %v", errs)
+	}
+}
+
+// evaluated follows a $ref the way check does and needs its own guard: here
+// check stops at the cycle but evaluated is reached by unevaluatedProperties
+// and has to stop on its own, at the depth limit and not only by running out of budget.
+func TestUnevaluatedPropertiesOverASelfRef(t *testing.T) {
+	s := schemaOf(t, `{"$defs":{"a":{"$ref":"#/$defs/a"}},"unevaluatedProperties":false,"allOf":[{"$ref":"#/$defs/a"}]}`)
+	errs := s.Validate([]byte(`{"a":1}`))
+	if !strings.Contains(strings.Join(errs, "\n"), "hops deep") {
+		t.Fatalf("errors %v do not say the chain was cut at the depth limit", errs)
+	}
+}
+
+func TestLintRefMessagesAreDistinct(t *testing.T) {
+	s := schemaOf(t, `{"$ref":5}`)
+	if errs := s.Validate([]byte(`{}`)); !strings.Contains(strings.Join(errs, "\n"), "must be a string") {
+		t.Fatalf("errors = %v", errs)
+	}
+	s = schemaOf(t, `{"$ref":"#/$defs/missing"}`)
+	if errs := s.Validate([]byte(`{}`)); !strings.Contains(strings.Join(errs, "\n"), "does not resolve") {
+		t.Fatalf("errors = %v", errs)
+	}
+}
+
+func TestUnknownTypeNameIsRefused(t *testing.T) {
+	s := schemaOf(t, `{"type":"nul"}`)
+	if errs := s.Validate([]byte(`null`)); !strings.Contains(strings.Join(errs, "\n"), "not one of") {
 		t.Fatalf("errors = %v", errs)
 	}
 }

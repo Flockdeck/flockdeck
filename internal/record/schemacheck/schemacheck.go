@@ -11,6 +11,15 @@
 // expression, a $ref that does not resolve) is reported as an error in the result,
 // prefixed "schema:", wherever in the schema it is and whether or not the document
 // reaches it. Validate does not panic.
+//
+// The checking of a schema is for this subset only, and refuses what is outside it
+// where it could be mistaken for it: type as an array or a name that is not one of
+// the six, a boolean as a schema in properties or items, items as an array,
+// additionalProperties as a schema, and a $ref other than "#/$defs/name" ("#",
+// "#/definitions/x", another file) are errors, not features. A pattern is Go's
+// syntax. One Validate stops after 100000 schema checks, and a $ref entered again at
+// the same place in the document is a cycle and an error; a recursive schema over a
+// document nested more than 200 $ref levels deep is refused.
 package schemacheck
 
 import (
@@ -51,7 +60,7 @@ func (s Schema) Validate(doc []byte) []string {
 	// report them: a sub-check under anyOf, not or if only says whether the
 	// document matched, so an error raised there would be lost.
 	errs := lint(root, root, "#")
-	val := validator{root: root, depth: new(int), sink: new([]string)}
+	val := validator{root: root, depth: new(int), calls: new(int), active: map[string]bool{}, sink: new([]string)}
 	errs = append(errs, val.checked(root, v, "$")...)
 	// Schema errors raised where their result is thrown away, such as a $ref
 	// chain that never ends under an anyOf.
@@ -81,26 +90,64 @@ func (val validator) checked(schema map[string]any, v any, path string) (errs []
 	return val.check(schema, v, path)
 }
 
-// maxDepth is how many schemas deep one check may go, through $ref and through
-// nesting. A schema that refers to itself without consuming the document would
-// otherwise overflow the stack, which no recover catches.
-const maxDepth = 200
+// Bounds on one Validate. A schema that refers to itself would otherwise run
+// forever or overflow the stack, which no recover catches.
+const (
+	// maxRefDepth is how many $ref hops deep one check may go. Only $ref counts,
+	// so a document nested more than this many levels under a recursive $ref is
+	// refused, and an ordinary schema never comes near it.
+	maxRefDepth = 200
+	// maxCalls is how many schemas one Validate may check in all. A $ref cycle
+	// that branches (an allOf with two references to itself) multiplies, and
+	// this is what ends it.
+	maxCalls = 100000
+	// maxSink is how many schema errors raised out of sight are kept.
+	maxSink = 100
+)
 
 type validator struct {
 	root map[string]any
-	// depth is how deep the current check is, and sink collects the schema
-	// errors raised where a check's own result is thrown away.
-	depth *int
-	sink  *[]string
+	// depth is how many $ref hops deep the current check is, calls how many
+	// schemas were checked, and active the $refs being followed, each at the
+	// document location it was entered at.
+	depth  *int
+	calls  *int
+	active map[string]bool
+	// sink collects the schema errors raised where a check's own result is
+	// thrown away, such as under anyOf, not or an if condition.
+	sink *[]string
+}
+
+// fail records a schema error where it will be found and returns it as the
+// result of a check.
+func (val validator) fail(msg string) []string {
+	if len(*val.sink) < maxSink {
+		for _, e := range *val.sink {
+			if e == msg {
+				return []string{msg}
+			}
+		}
+		*val.sink = append(*val.sink, msg)
+	}
+	return []string{msg}
+}
+
+// spent says the work budget is used up, once, and after that returns true for
+// every call so that the checks above unwind without doing more.
+func (val validator) spent(path string) bool {
+	*val.calls++
+	if *val.calls <= maxCalls {
+		return false
+	}
+	if *val.calls == maxCalls+1 {
+		val.fail(fmt.Sprintf("%s: schema: too much work, over %d checks (does a $ref refer to itself?)", path, maxCalls))
+	}
+	return true
 }
 
 func (val validator) check(schema map[string]any, v any, path string) []string {
-	*val.depth++
-	defer func() { *val.depth-- }()
-	if *val.depth > maxDepth {
-		msg := fmt.Sprintf("%s: schema: more than %d schemas deep (does a $ref refer to itself?)", path, maxDepth)
-		*val.sink = append(*val.sink, msg)
-		return []string{msg}
+	if val.spent(path) {
+		return nil
 	}
 	var errs []string
 	if ref, ok := schema["$ref"].(string); ok {
@@ -110,6 +157,21 @@ func (val validator) check(schema map[string]any, v any, path string) []string {
 		if !found || target == nil {
 			return []string{path + ": unresolved $ref " + ref}
 		}
+		// The same $ref entered again at the same place in the document consumes
+		// nothing: it is a cycle, however many steps it takes to come round.
+		key := name + "@" + path
+		if val.active[key] {
+			return val.fail(path + ": schema: $ref " + ref + " refers to itself without reading more of the document")
+		}
+		if *val.depth >= maxRefDepth {
+			return val.fail(fmt.Sprintf("%s: schema: more than %d $ref hops deep", path, maxRefDepth))
+		}
+		val.active[key] = true
+		*val.depth++
+		defer func() {
+			delete(val.active, key)
+			*val.depth--
+		}()
 		return val.check(target, v, path)
 	}
 	add := func(format string, a ...any) { errs = append(errs, path+": "+fmt.Sprintf(format, a...)) }
@@ -224,6 +286,9 @@ func (val validator) check(schema map[string]any, v any, path string) []string {
 	return errs
 }
 
+// knownType is the type names isType understands.
+var knownType = map[string]bool{"object": true, "array": true, "string": true, "boolean": true, "number": true, "integer": true}
+
 func isType(v any, t string) bool {
 	switch t {
 	case "object":
@@ -259,19 +324,24 @@ func equal(a, b any) bool {
 // definition: what unevaluatedProperties false measures against.
 func (val validator) evaluated(schema map[string]any, obj map[string]any) map[string]bool {
 	out := map[string]bool{}
-	*val.depth++
-	defer func() { *val.depth-- }()
-	if *val.depth > maxDepth {
-		*val.sink = append(*val.sink, fmt.Sprintf("$: schema: more than %d schemas deep (does a $ref refer to itself?)", maxDepth))
+	if val.spent("$") {
 		return out
 	}
 	if ref, ok := schema["$ref"].(string); ok {
 		name, _ := strings.CutPrefix(ref, "#/$defs/")
 		defs, _ := val.root["$defs"].(map[string]any)
 		if target, ok := defs[name].(map[string]any); ok {
+			// Only a $ref can come round to the same schema, so it alone is
+			// counted; a chain that does not end stops at maxRefDepth.
+			if *val.depth >= maxRefDepth {
+				val.fail(fmt.Sprintf("$: schema: more than %d $ref hops deep", maxRefDepth))
+				return out
+			}
+			*val.depth++
 			for k := range val.evaluated(target, obj) {
 				out[k] = true
 			}
+			*val.depth--
 		}
 	}
 	if props, ok := schema["properties"].(map[string]any); ok {
@@ -330,6 +400,9 @@ func lint(root, schema map[string]any, path string) []string {
 		}
 	}
 	kind("type", "a string", isString)
+	if t, ok := schema["type"].(string); ok && !knownType[t] {
+		bad("type %q is not one of object, array, string, boolean, number, integer", t)
+	}
 	for _, key := range []string{"minimum", "minLength", "minItems", "minProperties"} {
 		kind(key, "a number", isNumber)
 	}
