@@ -159,6 +159,12 @@ func clearKeys() {
 // from an agent inside a Flockdeck pane inherits them, and the hook client reads
 // them as its own identity, so a test that does not set them itself passes on CI
 // and fails there. A test that needs one sets it with t.Setenv.
+//
+// The list matches workspace.paneEnv and hooks.LaunchEnv, which this package
+// cannot import. A variable newly given to panes is added here as well, and to
+// wantCleared in iso_test.go, which starts a child test binary to check that
+// Main clears all of them. Nothing compares the list with workspace.paneEnv
+// itself, so a variable added there and nowhere else is not noticed.
 var paneEnv = []string{"API", "TOKEN", "PANE", "PANE_NAME", "PROJECT", "ROLE", "AGENT", "MODEL", "LAUNCH"}
 
 // clearPaneEnv unsets the variables a pane is started with.
