@@ -182,3 +182,44 @@ func TestEachCardHasASequenceNumberOfItsOwn(t *testing.T) {
 		t.Errorf("seq = %d", long.Seq)
 	}
 }
+
+// A pane that is restarted gets a new Bridge. Its first card must not look like
+// the first card of the one before, or an answer made for the old card is taken
+// for the new.
+func TestCardNumbersAreNotReusedByANewBridge(t *testing.T) {
+	opts := []acp.PermissionOption{{OptionID: "a", Name: "Allow", Kind: "allow_once"}}
+	req := acp.PermissionRequest{RequestID: "1", SessionID: "s", Options: opts}
+	first := New(Config{}).PermissionOpen(req)
+	second := New(Config{}).PermissionOpen(req)
+	if first.Seq == 0 || second.Seq == 0 || first.Seq == second.Seq {
+		t.Errorf("two bridges gave the cards %d and %d", first.Seq, second.Seq)
+	}
+	if first.RequestID != second.RequestID {
+		t.Fatal("the cards should have the same request id for this test to mean anything")
+	}
+	if first.Seq >= 1<<53 || second.Seq >= 1<<53 {
+		t.Errorf("a number over 2^53 is not kept exactly by a browser: %d, %d", first.Seq, second.Seq)
+	}
+	if first.Seq>>32 != second.Seq>>32 {
+		t.Errorf("the process tag changed within a process: %x, %x", first.Seq>>32, second.Seq>>32)
+	}
+	if first.Seq>>32 == 0 {
+		t.Error("the process tag is empty, so a restart would reuse the numbers")
+	}
+}
+
+// A card is closed by its own number: finishing the second of two cards with the
+// same request id leaves the first pending.
+func TestFinishingOneOfTwoCardsWithTheSameRequestIdClosesThatOne(t *testing.T) {
+	b := New(Config{})
+	opts := []acp.PermissionOption{{OptionID: "a", Name: "Allow", Kind: "allow_once"}}
+	first := b.PermissionOpen(acp.PermissionRequest{RequestID: "9", SessionID: "s", Options: opts})
+	h := b.Handler(func(context.Context, Card) string { return "a" })
+	if got := h.Permission(context.Background(), acp.PermissionRequest{RequestID: "9", SessionID: "s", Options: opts}); got != "a" {
+		t.Fatalf("the second request was answered %q", got)
+	}
+	p := b.Pending()
+	if p == nil || p.Seq != first.Seq {
+		t.Errorf("pending = %+v, want the first card (%d)", p, first.Seq)
+	}
+}

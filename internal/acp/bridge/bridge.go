@@ -36,7 +36,9 @@ package bridge
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"hash/maphash"
 	"path/filepath"
@@ -44,6 +46,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -173,7 +176,6 @@ type Bridge struct {
 	seq      int
 	inFlight bool
 	pending  []Card
-	cardSeq  uint64 // the Seq of the last card opened
 	plan     []acp.PlanEntry
 	usage    Usage
 	detail   int
@@ -398,6 +400,27 @@ func (b *Bridge) closeMerges() {
 	}
 }
 
+// cardSeqs numbers the cards of the whole process, not of one Bridge: a pane
+// that is restarted gets a new Bridge, and a click made for a card of the old
+// one must not match a card of the new one. The high bits are a tag chosen when
+// the process starts, so that a window kept open across a restart of Flockdeck
+// does not match either. The number stays under 2^53, which a browser keeps
+// exactly.
+var (
+	cardSeqTag = func() uint64 {
+		var b [4]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			t := uint64(time.Now().UnixNano())
+			b = [4]byte{byte(t), byte(t >> 8), byte(t >> 16), byte(t >> 24)}
+		}
+		// 21 bits, never zero.
+		return (uint64(binary.LittleEndian.Uint32(b[:]))&(1<<21-1) | 1) << 32
+	}()
+	cardSeqNext atomic.Uint64
+)
+
+func nextCardSeq() uint64 { return cardSeqTag | (cardSeqNext.Add(1) & (1<<32 - 1)) }
+
 // PermissionOpen records a permission request and returns its card. Every
 // string on the card is cleaned and capped, and at most 16 options are kept.
 func (b *Bridge) PermissionOpen(req acp.PermissionRequest) Card {
@@ -447,8 +470,7 @@ func (b *Bridge) open(req acp.PermissionRequest) (Card, map[string]string) {
 		c.Command = line(in.Command, 4<<10)
 	}
 	b.mu.Lock()
-	b.cardSeq++
-	c.Seq = b.cardSeq
+	c.Seq = nextCardSeq()
 	cp := c
 	cp.Options = append([]acp.PermissionOption(nil), c.Options...)
 	b.pending = append(b.pending, cp)

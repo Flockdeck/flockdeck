@@ -2,6 +2,7 @@ package structuredtest
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -41,5 +42,35 @@ func TestTheConformanceTestCatchesAPaneThatIgnoresTheSeq(t *testing.T) {
 func TestAWellBehavedPaneHasNoFailures(t *testing.T) {
 	if f := Failures(errStale, func() Harness { return (&Memory{ErrStale: errStale}).Harness() }); len(f) != 0 {
 		t.Errorf("failures: %v", f)
+	}
+}
+
+// seqOnly takes an answer when the card number matches, whatever request id it
+// names.
+type seqOnly struct{ Memory }
+
+func (s *seqOnly) AnswerPermission(seq uint64, _ string, optionID string) error {
+	c := s.Memory.PendingPermission()
+	if c == nil {
+		return s.Memory.AnswerPermission(seq, "", optionID)
+	}
+	return s.Memory.AnswerPermission(seq, c.RequestID, optionID)
+}
+
+func TestTheConformanceTestCatchesAPaneThatComparesOnlyTheSeq(t *testing.T) {
+	failures := Failures(errStale, func() Harness {
+		p := &seqOnly{Memory{ErrStale: errStale}}
+		h := p.Memory.Harness()
+		h.Pane = p
+		return h
+	})
+	var found bool
+	for _, f := range failures {
+		if strings.Contains(f, "wrong request id") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("a pane that ignores the request id passed that check: %v", failures)
 	}
 }

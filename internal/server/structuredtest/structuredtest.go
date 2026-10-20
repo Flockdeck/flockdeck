@@ -190,6 +190,22 @@ var checks = []check{
 		return nil
 	}},
 
+	{"the right card number with the wrong request id is stale", func(stale error, h Harness, _ func() Harness) []string {
+		var out []string
+		card := h.Open("7", opts)
+		var err error
+		if f := within("the answer", func() { err = h.Pane.AnswerPermission(card.Seq, "8", "opt-a") }); f != "" {
+			return []string{f}
+		}
+		if !errors.Is(err, stale) {
+			out = append(out, fmt.Sprintf("err = %v, want the stale error", err))
+		}
+		if len(h.Answered()) != 0 || h.Pane.PendingPermission() == nil {
+			out = append(out, "an answer with the wrong request id changed the card")
+		}
+		return out
+	}},
+
 	{"an option that is not on the card is refused and leaves it pending", func(stale error, h Harness, _ func() Harness) []string {
 		var out []string
 		card := h.Open("7", opts)
