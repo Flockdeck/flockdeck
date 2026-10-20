@@ -104,6 +104,10 @@ type graphTeamView struct {
 	// total is a floor.
 	SpendUSD     float64 `json:"spendUSD"`
 	SpendPartial bool    `json:"spendPartial,omitempty"`
+	// SpendIncludesPartial says a pane of the team reports its spend in part (a
+	// structured agent: context use and perhaps a cost, no token split), so the
+	// total includes panes that report partly and a window should say so.
+	SpendIncludesPartial bool `json:"spendIncludesPartial,omitempty"`
 	// Caps are the helper cap use of the manager and of every pane with children.
 	Caps []graphCap `json:"caps"`
 	// Needs is the needs-you list of the team, most urgent first, and
@@ -451,7 +455,11 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		}
 		for _, id := range tm.Members {
 			g := gpByID[id]
-			if v := s.book.Pane(id, now); v != nil && v.USD > 0 && !v.Unpriced {
+			v := s.paneSpend(id, rts[id], now)
+			if v != nil && v.Partial {
+				tv.SpendIncludesPartial = true
+			}
+			if v != nil && v.USD > 0 && !v.Unpriced {
 				tv.SpendUSD += v.USD
 			} else if rts[id].HasRun() && g.Status != session.StatusStarting.String() {
 				// An agent that has run and has no priced figure makes the total a

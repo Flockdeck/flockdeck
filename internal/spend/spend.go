@@ -18,6 +18,7 @@ package spend
 import (
 	"math"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -296,6 +297,63 @@ type PaneView struct {
 	CacheRead int64        `json:"cacheRead,omitempty"`
 	Reasoning int64        `json:"reasoning,omitempty"`
 	Windows   []WindowView `json:"windows,omitempty"`
+	// ContextUsed and ContextSize are how much of the model's context window the
+	// conversation fills, in tokens, for an agent that reports it through the
+	// Agent Client Protocol. Size is 0 when the agent has not said.
+	ContextUsed int64 `json:"contextUsed,omitempty"`
+	ContextSize int64 `json:"contextSize,omitempty"`
+	// Cost and Currency are a cost the agent reported in a currency other than
+	// dollars. It is shown as it came and added to nothing; USD holds only dollars.
+	Cost     float64 `json:"cost,omitempty"`
+	Currency string  `json:"currency,omitempty"`
+	// Partial says the agent reports its spend in part: how full its context is
+	// and, if it chooses, a cost, with no split of tokens into read, written and
+	// cached, and no window of the account's. Any figure missing from the view
+	// is then unknown, not zero, and a total that includes this pane is a floor.
+	Partial bool `json:"partial,omitempty"`
+}
+
+// Context is what an agent says about its spend through the Agent Client
+// Protocol's usage_update: how much of its context window is used, how big the
+// window is, and optionally a cost. It carries no token split and no account
+// windows, which is why a pane that reports only this is Partial.
+type Context struct {
+	Used, Size int64
+	// Cost is a running total for the session, 0 when the agent gave none (a
+	// free tier reports 0, and so does an agent that does not price). Currency
+	// is its ISO 4217 code; empty is taken for dollars.
+	Cost     float64
+	Currency string
+}
+
+// WithContext adds a structured pane's usage_update report to what the book
+// holds for it, which is nothing unless it is also a pane the hook server hears
+// from. It returns nil when the report says nothing and v is nil. The report
+// replaces rather than adds: the agent's figures are the session's own running
+// ones.
+func WithContext(v *PaneView, c Context) *PaneView {
+	if v == nil {
+		v = &PaneView{}
+	} else {
+		cp := *v
+		v = &cp
+	}
+	v.Partial = true
+	v.ContextUsed, v.ContextSize = c.Used, c.Size
+	if c.Cost > 0 {
+		switch strings.ToUpper(strings.TrimSpace(c.Currency)) {
+		case "", "USD":
+			// A ten-thousandth of a dollar is finer than the header writes.
+			v.USD = math.Round(c.Cost*1e4) / 1e4
+			v.Source = "agent"
+		default:
+			v.Cost, v.Currency = c.Cost, strings.ToUpper(strings.TrimSpace(c.Currency))
+		}
+	}
+	if v.USD == 0 && v.Cost == 0 && v.ContextUsed == 0 && v.ContextSize == 0 && v.Tokens == 0 && len(v.Windows) == 0 {
+		return nil
+	}
+	return v
 }
 
 // WindowView is one window as the header draws it.

@@ -124,6 +124,7 @@ root need not be a manager: any pane that started helpers is one.
 | `started` | When the root pane's process started (RFC 3339). Absent while the root has no session. |
 | `spendUSD` | The estimated spend in dollars of the team's panes that reported a priced figure. 0 when none did. |
 | `spendPartial` | `true` when some agent pane that has run reported no priced figure (a figure of zero counts as none), so `spendUSD` is a floor. A shell and an agent that has not started are not counted as missing. |
+| `spendIncludesPartial` | `true` when some pane of the team is a structured (ACP) agent that has reported through `usage_update`. That gives the context used, the context size and, if the agent chooses, a cost; it gives no split of tokens into read, written and cached, and no account windows. The total then includes panes that report partly, and a window should say so. A cost of zero (opencode's free tier) adds nothing. Absent when no pane does. |
 | `caps` | The helper cap use of the root and of every pane with children: `pane`, `used` (open panes below it, nested ones included and exited ones until closed) and `max` (`workspace.MaxHelpers`, 8). The count is the workspace's own, the one that refuses a ninth helper. |
 | `needs`, `needsHidden` | The needs-you list for the team (section 5), at most 50, and how many the bound cut. |
 
