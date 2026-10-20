@@ -1,0 +1,505 @@
+package server
+
+import (
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+// The consumers of a pane (the team graph, the needs-you list, a window's pane
+// view, the agents list, helper counting, spend and recording start) ask the
+// pane's runtime (workspace.PaneRuntime) and do not look at which agent runs in
+// it, or at anything that exists only on a terminal pane. This file keeps that
+// true. It parses a named list of consumer files and fails on
+//
+//   - a pane's agent id, kind, type, runner or id compared (== or !=), or used
+//     as a switch tag, against a string literal or a constant ("claude",
+//     session.KindShell, agentClaude, agent.RunnerACP), including a switch that
+//     binds the value first (switch a := p.Agent; a),
+//   - such a value passed to strings.HasPrefix, HasSuffix, Contains or EqualFold
+//     with a literal or constant, to slices.Contains or Index, or used to index
+//     a map,
+//   - any use of the pane's terminal session (the Sess field).
+//
+// A window's command (a variable named cmd) has a Kind word of its own and is not
+// a pane, so its fields are not counted. Comparing with "" asks only whether there is one and is not counted. A check
+// on the transport (Transport(), Structured, the pane's Caps) is the
+// runtime's own answer and is not counted: it is what a consumer should ask.
+//
+// The check is syntactic and so is fragile in two ways. It goes by names: any
+// Kind-named (or Agent-, Type-, Runner-, ID-named) variable compared with a
+// literal needs an entry below, whether it is a pane's or not. And it does not
+// follow values: an alias (k := p.Kind; k == "shell"), or an accessor that
+// returns the session, is out of scope. A reviewer reads the consumer files for
+// those; this catches the plain forms before they get there.
+//
+// To add a consumer file, put its path (from the module root) in
+// agentTypeConsumers. If a place in it must still know the agent or reach the
+// session, add it to agentTypeAllowed under the file, keyed by the enclosing
+// function and the expression as the failure prints them, with how many
+// there are and why. The count means a second use of an allowed expression in
+// the same function fails, and so does a count that is too high.
+//
+// Left out on purpose: reap.go, baton.go, activity.go, background_check.go and
+// spawn.go in internal/workspace and spawn.go in internal/server. They start,
+// end and watch the process, or choose the agent from the catalog, which is
+// terminal work by nature and is where an agent id is meant to be read.
+
+// agentTypeConsumers are the files that read panes to show or count them.
+var agentTypeConsumers = []string{
+	"internal/server/teamgraph.go",
+	"internal/server/waiting.go",
+	"internal/server/paneinfo.go",
+	"internal/server/agents.go",
+	"internal/server/spend.go",
+	"internal/server/push.go",
+	"internal/server/control.go",
+	"internal/team/graph.go",
+	"internal/team/needs.go",
+	"internal/workspace/teamui.go",
+	"internal/workspace/paneinfo.go",
+	"internal/workspace/recording.go",
+	"internal/workspace/wake.go",
+}
+
+// agentTypeAllow is one allowed expression in one function.
+type agentTypeAllow struct {
+	N   int
+	Why string
+}
+
+// agentTypeAllowed are the places allowed to name an agent type or reach a
+// session, by file, then "function | expression". See the comment above.
+var agentTypeAllowed = map[string]map[string]agentTypeAllow{
+	"internal/server/agents.go": {
+		// The agents list describes the catalog, which is where an agent's runner
+		// and id are meant to be read. It does not read a pane.
+		"modelViews | spec.Runner == agent.RunnerAPI":         {1, "the catalog entry's runner, to list its models"},
+		"addressNotice | spec.ID == agent.OpenAICompatibleID": {1, "the catalog entry's id, for the endpoint address notice"},
+	},
+	"internal/server/control.go": {
+		"Server.snapshot | pv.Kind != \"shell\"": {1, "the pane view's own kind word, shell or agent, set from the pane; T51 moves it to the runtime"},
+		"Server.snapshot | p.Sess":               {3, "the terminal's size and usage figures; a pane without a session shows none"},
+	},
+	"internal/server/paneinfo.go": {
+		"paneInfoFields | map[bool]string{true: \"Agent\", false: \"Shell\"}[d.Agent]": {1, "d.Agent is a bool here, and the map is a label"},
+	},
+	"internal/server/push.go": {
+		"Server.pushDue | p.Sess": {1, "skips a pane that has no session to read a due time from; T51 converts it"},
+	},
+	"internal/team/needs.go": {
+		// Kind here is a needs item's kind (ask, permission, down), which names
+		// what the person has to do. It is not an agent's.
+		"needRank | NeedAsk":                    {1, "a needs item's kind, not a pane's"},
+		"needRank | NeedPermission":             {1, "a needs item's kind, not a pane's"},
+		"needRank | NeedReturned":               {1, "a needs item's kind, not a pane's"},
+		"needRank | NeedConflict":               {1, "a needs item's kind, not a pane's"},
+		"needRank | NeedDown":                   {1, "a needs item's kind, not a pane's"},
+		"compareNeeds | a.Kind == NeedReturned": {1, "a needs item's kind, not a pane's"},
+	},
+	"internal/workspace/paneinfo.go": {
+		// The process id is a terminal fact the drawer shows. A pane of another
+		// transport has none to show and the field stays 0.
+		"Workspace.PaneDetailsOf | p.Sess": {2, "reads the process id of a terminal pane for the drawer; a pane without a session shows none"},
+	},
+	"internal/workspace/teamui.go": {
+		// Closing finished helpers hands the session on to noteFinished, which
+		// records how it ended.
+		"Workspace.CloseFinishedIn | p.Sess": {1, "the session noteFinished reports on; nil for a pane without one"},
+	},
+	"internal/workspace/wake.go": {
+		// Typed wake reads and writes a terminal's input and screen. T51 gives
+		// the pane runtime a Wake and these move behind it.
+		"wakeService.consider | c.Sess":                          {7, "the terminal's status, input times and screen reading; T51 converts it"},
+		"wakeService.fire | c.Sess":                              {5, "types into the terminal; T51 converts it"},
+		"Workspace.wakeCandidates | p.Sess":                      {2, "candidates are terminal panes with a session; T51 converts it"},
+		"Workspace.wakeCandidates | p.Kind != session.KindAgent": {1, "only agent panes are woken; T51 converts it"},
+	},
+}
+
+// agentTypeNames are the names a pane's agent id, kind, type, runner or id goes
+// by. mapKeyNames are the ones a map index or a slice search is counted for; ID
+// is left out of those, since maps of panes by id are everywhere.
+var (
+	agentTypeNames = map[string]bool{
+		"Agent": true, "AgentID": true, "Kind": true, "Type": true, "Runner": true, "ID": true,
+		"agent": true, "agentID": true, "kind": true, "agentType": true, "runner": true,
+	}
+	mapKeyNames = map[string]bool{
+		"Agent": true, "AgentID": true, "Kind": true, "Type": true, "Runner": true,
+		"agent": true, "agentID": true, "kind": true, "agentType": true, "runner": true,
+	}
+)
+
+type agentTypeUse struct {
+	Pos  token.Position
+	Func string
+	Expr string
+	Why  string
+}
+
+func (u agentTypeUse) key() string { return u.Func + " | " + u.Expr }
+
+func (u agentTypeUse) String() string {
+	return fmt.Sprintf("%s: %s (%s)", u.Pos, u.key(), u.Why)
+}
+
+// packageConsts are the names declared by const at the top level of the Go files
+// in dir, tests left out.
+func packageConsts(dir string) map[string]bool {
+	out := map[string]bool{}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, e.Name()), nil, 0)
+		if err != nil {
+			continue
+		}
+		addFileConsts(f, out)
+	}
+	return out
+}
+
+func addFileConsts(f *ast.File, into map[string]bool) {
+	for _, d := range f.Decls {
+		g, ok := d.(*ast.GenDecl)
+		if !ok || g.Tok != token.CONST {
+			continue
+		}
+		for _, s := range g.Specs {
+			for _, n := range s.(*ast.ValueSpec).Names {
+				into[n.Name] = true
+			}
+		}
+	}
+}
+
+// findAgentTypeUses parses src and returns each place it sets an agent id or
+// kind against a literal or constant, or uses a pane's session. consts are the
+// constants of the file's package; the file's own are added.
+func findAgentTypeUses(filename string, src []byte, consts map[string]bool) ([]agentTypeUse, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filename, src, 0)
+	if err != nil {
+		return nil, err
+	}
+	known := map[string]bool{}
+	for k := range consts {
+		known[k] = true
+	}
+	addFileConsts(f, known)
+	imports := map[string]bool{}
+	for _, im := range f.Imports {
+		p, _ := strconv.Unquote(im.Path.Value)
+		name := path.Base(p)
+		if im.Name != nil {
+			name = im.Name.Name
+		}
+		imports[name] = true
+	}
+
+	var out []agentTypeUse
+	fn := "<package>"
+	add := func(n ast.Node, why string) {
+		out = append(out, agentTypeUse{Pos: fset.Position(n.Pos()), Func: fn, Expr: exprString(fset, src, n), Why: why})
+	}
+	// namedLit says e is a non-empty string literal, or names a constant: one of
+	// the package's or the file's, or a name from another package.
+	namedLit := func(e ast.Expr) bool {
+		switch x := e.(type) {
+		case *ast.BasicLit:
+			return x.Kind == token.STRING && x.Value != `""` && x.Value != "``"
+		case *ast.Ident:
+			return known[x.Name]
+		case *ast.SelectorExpr:
+			id, ok := x.X.(*ast.Ident)
+			return ok && imports[id.Name]
+		}
+		return false
+	}
+
+	for _, d := range f.Decls {
+		fn = "<package>"
+		if fd, ok := d.(*ast.FuncDecl); ok {
+			fn = fd.Name.Name
+			if fd.Recv != nil && len(fd.Recv.List) == 1 {
+				fn = recvName(fd.Recv.List[0].Type) + "." + fn
+			}
+		}
+		aliases := map[string]bool{}
+		typed := func(e ast.Expr, names map[string]bool) bool {
+			if id, ok := unparen(e).(*ast.Ident); ok && aliases[id.Name] {
+				return true
+			}
+			return isNamed(e, names)
+		}
+		ast.Inspect(d, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.BinaryExpr:
+				if x.Op == token.EQL || x.Op == token.NEQ {
+					if (typed(x.X, agentTypeNames) && namedLit(x.Y)) || (typed(x.Y, agentTypeNames) && namedLit(x.X)) {
+						add(x, "an agent id or kind is compared with a literal or constant")
+					}
+				}
+			case *ast.SwitchStmt:
+				if as, ok := x.Init.(*ast.AssignStmt); ok && len(as.Lhs) == 1 && len(as.Rhs) == 1 && isNamed(as.Rhs[0], agentTypeNames) {
+					if id, ok := as.Lhs[0].(*ast.Ident); ok {
+						aliases[id.Name] = true
+					}
+				}
+				if x.Tag != nil && typed(x.Tag, agentTypeNames) {
+					for _, s := range x.Body.List {
+						cc, _ := s.(*ast.CaseClause)
+						for _, e := range cc.List {
+							if namedLit(e) {
+								add(e, "a switch on an agent id or kind has a literal or constant case")
+							}
+						}
+					}
+				}
+			case *ast.CallExpr:
+				sel, ok := x.Fun.(*ast.SelectorExpr)
+				if !ok {
+					break
+				}
+				pkg, ok := sel.X.(*ast.Ident)
+				if !ok {
+					break
+				}
+				switch pkg.Name + "." + sel.Sel.Name {
+				case "strings.HasPrefix", "strings.HasSuffix", "strings.Contains", "strings.EqualFold":
+					hasType, hasLit := false, false
+					for _, a := range x.Args {
+						hasType = hasType || typed(a, agentTypeNames)
+						hasLit = hasLit || namedLit(a)
+					}
+					if hasType && hasLit {
+						add(x, "an agent id or kind is matched against a literal by a strings function")
+					}
+				case "slices.Contains", "slices.Index":
+					for _, a := range x.Args {
+						if typed(a, mapKeyNames) {
+							add(x, "an agent id or kind is searched for in a list")
+							break
+						}
+					}
+				}
+			case *ast.IndexExpr:
+				if typed(x.Index, mapKeyNames) {
+					add(x, "a map is indexed by an agent id or kind")
+				}
+			case *ast.SelectorExpr:
+				if x.Sel.Name == "Sess" {
+					add(x, "the terminal session is read")
+				}
+			}
+			return true
+		})
+	}
+	return out, nil
+}
+
+func recvName(e ast.Expr) string {
+	switch x := e.(type) {
+	case *ast.StarExpr:
+		return recvName(x.X)
+	case *ast.Ident:
+		return x.Name
+	case *ast.IndexExpr:
+		return recvName(x.X)
+	}
+	return "?"
+}
+
+func rootIdent(e ast.Expr) (*ast.Ident, bool) {
+	for {
+		switch x := e.(type) {
+		case *ast.Ident:
+			return x, true
+		case *ast.SelectorExpr:
+			e = x.X
+		case *ast.ParenExpr:
+			e = x.X
+		default:
+			return nil, false
+		}
+	}
+}
+
+func unparen(e ast.Expr) ast.Expr {
+	for {
+		p, ok := e.(*ast.ParenExpr)
+		if !ok {
+			return e
+		}
+		e = p.X
+	}
+}
+
+// isNamed says e is a name, or a field selected from something, in names.
+func isNamed(e ast.Expr, names map[string]bool) bool {
+	switch x := unparen(e).(type) {
+	case *ast.Ident:
+		return names[x.Name]
+	case *ast.SelectorExpr:
+		// A window's command (cmd) has a Kind word of its own, and is not a pane.
+		if root, ok := rootIdent(x); ok && root.Name == "cmd" {
+			return false
+		}
+		return names[x.Sel.Name]
+	case *ast.CallExpr:
+		// string(x.Kind) and the like.
+		if len(x.Args) == 1 {
+			if id, ok := x.Fun.(*ast.Ident); ok && id.Name == "string" {
+				return isNamed(x.Args[0], names)
+			}
+		}
+	}
+	return false
+}
+
+func exprString(fset *token.FileSet, src []byte, n ast.Node) string {
+	a, b := fset.Position(n.Pos()).Offset, fset.Position(n.End()).Offset
+	if a < 0 || b > len(src) || a >= b {
+		return ""
+	}
+	return strings.Join(strings.Fields(string(src[a:b])), " ")
+}
+
+func moduleRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for d := dir; ; d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, "go.mod")); err == nil {
+			return d
+		}
+		if filepath.Dir(d) == d {
+			t.Fatalf("no go.mod above %s", dir)
+		}
+	}
+}
+
+func TestConsumersDoNotBranchOnAgentType(t *testing.T) {
+	root := moduleRoot(t)
+	found := map[string]map[string]int{}
+	var problems []string
+	for _, rel := range agentTypeConsumers {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		src, err := os.ReadFile(full)
+		if err != nil {
+			t.Errorf("%s: %v (it is in agentTypeConsumers)", rel, err)
+			continue
+		}
+		uses, err := findAgentTypeUses(rel, src, packageConsts(filepath.Dir(full)))
+		if err != nil {
+			t.Errorf("%s: %v", rel, err)
+			continue
+		}
+		for _, u := range uses {
+			if found[rel] == nil {
+				found[rel] = map[string]int{}
+			}
+			found[rel][u.key()]++
+			if found[rel][u.key()] > agentTypeAllowed[rel][u.key()].N {
+				problems = append(problems, u.String())
+			}
+		}
+	}
+	// An allowance that is not used up is lowered or dropped, so the list cannot
+	// hold a place for a new violation.
+	for rel, keys := range agentTypeAllowed {
+		for key, a := range keys {
+			if n := found[rel][key]; n < a.N {
+				problems = append(problems, fmt.Sprintf("%s: %q is allowed %d times but found %d; lower or remove it in agentTypeAllowed", rel, key, a.N, n))
+			}
+		}
+	}
+	sort.Strings(problems)
+	for _, p := range problems {
+		t.Error(p)
+	}
+}
+
+// The checker finds each form in a copy of a real consumer with one planted at
+// the end, and finds nothing in the copy without it.
+func TestAgentTypeCheckFindsAPlantedViolation(t *testing.T) {
+	root := moduleRoot(t)
+	dir := filepath.Join(root, "internal", "server")
+	orig, err := os.ReadFile(filepath.Join(dir, "teamgraph.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	consts := packageConsts(dir)
+	count := func(planted string) int {
+		t.Helper()
+		src := append(append([]byte{}, orig...), []byte("\n"+planted+"\n")...)
+		// The planted code may name packages the consumer does not import.
+		src = []byte(strings.Replace(string(src), "\nimport (", "\nimport agent \"github.com/jmwri/flockdeck/internal/agent\"\nimport (", 1))
+		uses, err := findAgentTypeUses("teamgraph.go", src, consts)
+		if err != nil {
+			t.Fatalf("%v in:\n%s", err, planted)
+		}
+		return len(uses)
+	}
+	if n := count(""); n != 0 {
+		t.Fatalf("the real consumer has %d uses; the planted ones below are counted against none", n)
+	}
+	for name, planted := range map[string]string{
+		"literal":        `func planted(p paneView) bool { return p.Agent == "claude" }`,
+		"not equal":      `func planted(p paneView) bool { return p.Kind != "shell" }`,
+		"reversed":       `func planted(agentID string) bool { return "aider" == agentID }`,
+		"switch":         `func planted(p paneView) int { switch p.Agent { case "claude": return 1 }; return 0 }`,
+		"session":        `func planted(p *workspace.Pane) int { return p.Sess.Pid() }`,
+		"conversion":     `func planted(p paneView) bool { return string(p.Kind) == "agent" }`,
+		"package const":  `func planted(p paneView) bool { return p.Kind == session.KindShell }`,
+		"local const":    "const agentClaude = \"claude\"\nfunc planted(p paneView) bool { return p.Agent == agentClaude }",
+		"switch const":   `func planted(p paneView) int { switch p.Kind { case session.KindShell: return 1 }; return 0 }`,
+		"switch binding": `func planted(p paneView) int { switch a := p.Agent; a { case "claude": return 1 }; return 0 }`,
+		"runner":         `func planted(spec agentSpec) bool { return spec.Runner == agent.RunnerACP }`,
+		"type name":      `func planted(c conv) bool { return c.Type == "acp" }`,
+		"id name":        `func planted(spec agentSpec) bool { return spec.ID == "claude" }`,
+		"has prefix":     `func planted(p paneView) bool { return strings.HasPrefix(p.Agent, "cla") }`,
+		"contains":       `func planted(p paneView) bool { return strings.Contains(p.Agent, "cla") }`,
+		"equal fold":     `func planted(p paneView) bool { return strings.EqualFold(p.Agent, "Claude") }`,
+		"slices":         `func planted(p paneView, ids []string) bool { return slices.Contains(ids, p.Agent) }`,
+		"map index":      `func planted(p paneView, m map[string]int) int { return m[p.Agent] }`,
+	} {
+		if n := count(planted); n != 1 {
+			t.Errorf("%s: %d violations found in the planted copy, want 1", name, n)
+		}
+	}
+	// A second use of the same expression in the same function is a second
+	// violation, which a count in the allowlist is checked against.
+	if n := count(`func planted(p *workspace.Pane) bool { return p.Sess.Exited() || p.Sess.Closing() }`); n != 2 {
+		t.Errorf("two reads of the session in one function: %d violations, want 2", n)
+	}
+	// Not violations: an emptiness check, a literal against another name, a
+	// comparison of two panes, a transport check, a plain variable.
+	for name, fine := range map[string]string{
+		"empty":     `func ok(p paneView) bool { return p.Agent == "" }`,
+		"other":     `func ok(p paneView) bool { return p.Status == "waiting" }`,
+		"variable":  `func ok(p paneView, k string) bool { return p.Kind == k }`,
+		"two panes": `func ok(p, q paneView) bool { return p.Kind == q.Kind }`,
+		"transport": `func ok(rt workspace.PaneRuntime) bool { return rt.Transport() == workspace.TransportStructured && rt.Caps().Structured }`,
+		"command":   `func ok(cmd command) bool { return cmd.Kind == "off" }`,
+		"nil":       `func ok(p *workspace.Pane) bool { return p.Agent != "" && p != nil }`,
+		"pane map":  `func ok(p paneView, m map[string]int) int { return m[p.ID] }`,
+	} {
+		if n := count(fine); n != 0 {
+			t.Errorf("%s: %d violations found in a copy with none planted", name, n)
+		}
+	}
+}
