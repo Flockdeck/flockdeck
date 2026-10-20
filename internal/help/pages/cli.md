@@ -338,8 +338,9 @@ message id, the pane, the agent, the rule's version and where it came from, the 
 the rule matched (cut to 160 characters) and the line that was typed. A line that was typed
 without its Enter says so. An event holds no message text.
 
-Switches to turn the typed line off for everything, for one kind of agent or for one pane
-are not built yet. Until they are, it is off because no rule is tested.
+Switches turn the typed line off for everything, for one kind of agent or for one pane;
+`flockdeck wake`, described under wake below, sets them. It is also off for every agent
+whose rule is not tested, which is all of them for now.
 
 ## task
 
@@ -610,8 +611,8 @@ stays off, across restarts, until you set the global switch again from the windo
 marker file, `prefs.wake-damaged`, is left beside it to hold wake off. Setting the global
 switch removes the marker, even when it changes nothing. A switch for one agent type or
 one pane does not, and says so, because the global switch that was in the damaged file is
-gone and the rest of the panes would otherwise come back on. The switches that were in the damaged file are in the copy that was kept, and
-are not applied.
+gone and the rest of the panes would otherwise come back on. The switches that were in
+the damaged file are in the copy that was kept, and are not applied.
 
 The window can set the same switches with the `wakeSwitch` command, from the machine
 Flockdeck runs on only: a window reached through the relay, and a device that may only

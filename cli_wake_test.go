@@ -269,3 +269,51 @@ func TestWakeTerminalRefusesTheNullDevice(t *testing.T) {
 		t.Fatal("the null device passed for a terminal")
 	}
 }
+
+// A scoped switch leaves the marker file itself in place, not only the
+// reading of it.
+func TestScopedSwitchLeavesTheDamagedMarkerFile(t *testing.T) {
+	isolateState(t)
+	damagePrefs(t)
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(dir, "prefs.wake-damaged")
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("no marker after the file was damaged: %v", err)
+	}
+	if _, err := runW(t, testWakeEnv(false), "off", "-pane", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("a pane switch removed the marker: %v", err)
+	}
+}
+
+// wakeTerminal is false for a pipe and for a file, as well as the null device.
+func TestWakeTerminalRefusesAPipeAndAFile(t *testing.T) {
+	orig := os.Stdin
+	defer func() { os.Stdin = orig }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	os.Stdin = r
+	if wakeTerminal() {
+		t.Fatal("a pipe passed for a terminal")
+	}
+
+	f, err := os.Create(filepath.Join(t.TempDir(), "in"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	os.Stdin = f
+	if wakeTerminal() {
+		t.Fatal("a file passed for a terminal")
+	}
+}
