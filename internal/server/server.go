@@ -76,6 +76,10 @@ type Server struct {
 	ws    *workspace.Workspace
 	token string
 
+	// structuredPane turns a pane id into a pane an agent drives over ACP, for
+	// permissionAnswer; nil until the workspace sets it, and then no pane is one.
+	structuredPane func(paneID string) (StructuredPane, bool)
+
 	// hosts is the set of Host header values the loopback listener answers to,
 	// and hostLog limits how often a refusal is written to stderr; see
 	// guardHosts. The relay window does not use them.
