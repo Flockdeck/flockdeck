@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -25,6 +26,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // ErrNonLoopback is what a refused request or connection fails with.
@@ -94,6 +96,8 @@ func Main(m *testing.M) int {
 		realHome, _ = os.UserHomeDir()
 		os.Setenv(realConfigEnv, realConfig)
 		os.Setenv(realHomeEnv, realHome)
+		sweepStale(os.TempDir(), time.Now(), staleAfter)
+		keepGoDirs()
 		dir, err := os.MkdirTemp("", "flockdeck-test-home-")
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "testiso:", err)
@@ -113,6 +117,74 @@ func Main(m *testing.M) int {
 		code = 1
 	}
 	return code
+}
+
+// homePrefix starts the name of the directory Main makes, and is the only kind
+// of directory sweepStale removes.
+const homePrefix = "flockdeck-test-home-"
+
+// staleAfter is how old a test home is before a later run removes it. A run
+// that is killed (a timeout, Ctrl-C, the system out of memory) never reaches
+// the deferred removal, and nothing else would clear what it left.
+const staleAfter = 24 * time.Hour
+
+// sweepStale removes the test homes in root that were last changed more than
+// maxAge before now. It looks at nothing else: only directories named with
+// homePrefix, not links, and not anything newer, so the home of a run still in
+// progress stays. Errors are ignored; a directory that cannot be removed now is
+// tried again by the next run.
+func sweepStale(root string, now time.Time, maxAge time.Duration) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), homePrefix) || e.Type() != fs.ModeDir {
+			continue
+		}
+		path := filepath.Join(root, e.Name())
+		fi, err := os.Lstat(path)
+		if err != nil || !fi.IsDir() || fi.Mode()&fs.ModeSymlink != 0 {
+			continue
+		}
+		if now.Sub(fi.ModTime()) > maxAge {
+			_ = os.RemoveAll(path)
+		}
+	}
+}
+
+// keepGoDirs sets GOCACHE and GOMODCACHE, where they are not set, to where the go
+// command would have put them before redirect moved the home and cache
+// directories. A test that runs `go build` or `go list` then uses the real
+// caches instead of compiling and downloading everything into an empty one.
+func keepGoDirs() {
+	for _, kv := range goDirs(os.Getenv, os.UserCacheDir, os.UserHomeDir) {
+		os.Setenv(kv[0], kv[1])
+	}
+}
+
+// goDirs returns the GOCACHE and GOMODCACHE settings to add, as name and value
+// pairs, from the environment as getenv sees it. A variable already set is not
+// returned, and neither is one whose default cannot be found.
+func goDirs(getenv func(string) string, cacheDir, homeDir func() (string, error)) [][2]string {
+	var out [][2]string
+	if getenv("GOCACHE") == "" {
+		if c, err := cacheDir(); err == nil && c != "" {
+			out = append(out, [2]string{"GOCACHE", filepath.Join(c, "go-build")})
+		}
+	}
+	if getenv("GOMODCACHE") == "" {
+		gopath := getenv("GOPATH")
+		if gopath == "" {
+			if h, err := homeDir(); err == nil && h != "" {
+				gopath = filepath.Join(h, "go")
+			}
+		}
+		if first := filepath.SplitList(gopath); len(first) > 0 && first[0] != "" {
+			out = append(out, [2]string{"GOMODCACHE", filepath.Join(first[0], "pkg", "mod")})
+		}
+	}
+	return out
 }
 
 // redirect points every variable the config and home directories are found
