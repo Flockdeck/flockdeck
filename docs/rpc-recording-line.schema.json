@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Flockdeck/flockdeck/blob/main/docs/rpc-recording-line.schema.json",
+  "title": "Flockdeck stream recording line, format version 1",
+  "description": "One line of a Flockdeck stream recording (JSON Lines): the JSON-RPC traffic between Flockdeck and a structured agent. This file is the definition of the format: a line is valid if it validates here, and a line with a field not named for its type is not one Flockdeck writes. No field is ever null. docs/rpc-recording-format.md explains the rest.",
+  "type": "object",
+  "unevaluatedProperties": false,
+  "required": ["v", "seq", "time", "session", "type"],
+  "properties": {
+    "v": { "const": 1, "description": "Format version. Always written." },
+    "seq": { "type": "integer", "minimum": 1, "description": "Line number within the file, from 1. It rises on every line and never repeats. It has gaps only after a rpc_dropped line, whose own seq is that of the last line dropped." },
+    "time": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$", "description": "When the message was seen by Flockdeck, RFC 3339, UTC. For a coalesced message, when the first of them was." },
+    "session": { "type": "string", "pattern": "^[0-9]{8}T[0-9]{6}Z-.+\\.rpc(-[0-9]+)?$", "description": "The recording's id: its file name without .jsonl." },
+    "type": {
+      "type": "string",
+      "enum": ["rpc_started", "rpc_message", "rpc_dropped", "rpc_stopped"],
+      "description": "The line type. Always written."
+    },
+    "dir": { "type": "string", "enum": ["in", "out"], "description": "in: the agent sent it. out: Flockdeck sent it. On rpc_message lines only." },
+    "msg": { "type": "object", "description": "The JSON-RPC message as it was, after redaction and clipping, and for a coalesced message the merged one. Numbers keep their exact digits." },
+    "raw": { "type": "string", "description": "A line of traffic that was not a JSON object, redacted and cut at 8 KiB." },
+    "text": { "type": "string", "minLength": 1, "description": "A sentence saying what a rpc_started, rpc_dropped or rpc_stopped line is, or what became of a message that was too long to keep." },
+    "until": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$", "description": "When the last of a coalesced message's parts was seen. Present only when merged is." },
+    "merged": { "type": "integer", "minimum": 2, "description": "How many messages a coalesced line stands for. Absent for a message that stands alone." },
+    "project": { "type": "string", "minLength": 1, "description": "The project's name. On rpc_started only." },
+    "agent": { "type": "string", "minLength": 1, "description": "The agent's id. On rpc_started only." },
+    "conversation": { "type": "string", "minLength": 1, "description": "The conversation id Flockdeck had for the pane, cut at 256 bytes. On rpc_started only, and absent when there was none." },
+    "dropped": { "type": "integer", "minimum": 1, "description": "How many lines were dropped from the start of the file so far, to keep it within its size cap. On rpc_dropped only." },
+    "redacted": { "const": true, "description": "Present, and true, when redaction replaced something in the line." },
+    "clipped": { "type": "integer", "minimum": 1, "description": "How many strings in the line were cut, or 1 for a message that was not kept because it was too long." }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "rpc_message" } }, "required": ["type"] },
+      "then": { "required": ["dir"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "rpc_started" } }, "required": ["type"] },
+      "then": { "required": ["text"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "rpc_dropped" } }, "required": ["type"] },
+      "then": { "required": ["dropped", "text"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "rpc_stopped" } }, "required": ["type"] },
+      "then": { "required": ["text"] }
+    }
+  ]
+}
