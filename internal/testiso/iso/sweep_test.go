@@ -32,10 +32,14 @@ func TestSweepStaleRemovesOnlyOldTestHomes(t *testing.T) {
 	root := t.TempDir()
 	old := filepath.Join(root, homePrefix+"111")
 	recent := filepath.Join(root, homePrefix+"222")
-	other := filepath.Join(root, "flockdeck-state-333")
+	state := filepath.Join(root, "flockdeck-state-333")
+	wait := filepath.Join(root, "flockdeck-wait-334")
+	other := filepath.Join(root, "flockdeck-keep-335")
 	similar := filepath.Join(root, "my-"+homePrefix+"444")
 	mkdirAged(t, old, 48*time.Hour)
 	mkdirAged(t, recent, time.Hour)
+	mkdirAged(t, state, 48*time.Hour)
+	mkdirAged(t, wait, 48*time.Hour)
 	mkdirAged(t, other, 48*time.Hour)
 	mkdirAged(t, similar, 48*time.Hour)
 	file := filepath.Join(root, homePrefix+"555")
@@ -49,8 +53,10 @@ func TestSweepStaleRemovesOnlyOldTestHomes(t *testing.T) {
 
 	sweepStale(root, time.Now(), staleAfter)
 
-	if exists(old) {
-		t.Error("the old test home was not removed")
+	for name, p := range map[string]string{"old test home": old, "old state folder": state, "old wait folder": wait} {
+		if exists(p) {
+			t.Errorf("the %s was not removed", name)
+		}
 	}
 	for name, p := range map[string]string{"recent test home": recent, "other directory": other, "similar name": similar, "file": file} {
 		if !exists(p) {

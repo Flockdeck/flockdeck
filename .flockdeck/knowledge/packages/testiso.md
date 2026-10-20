@@ -15,7 +15,7 @@ A package adds `func TestMain(m *testing.M) { os.Exit(testiso.Main(m)) }`. `test
 - Unsets every environment variable ending `_API_KEY`, `_API_TOKEN` or `_AUTH_TOKEN`.
 - Unsets every `FLOCKDECK_*` and `PERCH_*` variable and `GIT_CONFIG_COUNT`, except the names in `keptEnv` (switches CI or a person sets to steer tests), `FLOCKDECK_TEST_*`, `FLOCKDECK_ACPTEST_*` and the two real-dir variables. A test that reads a new variable from outside must add it to `keptEnv`; `TestEveryVariableATestReadsFromOutsideIsKept` fails until it does.
 - Sets GOCACHE and GOMODCACHE to their real defaults when unset, so tests that run `go build` keep the real caches.
-- Removes `flockdeck-test-home-*` directories (plain directories only, never links) in `os.TempDir()` last changed over 24 hours ago, left by runs that were killed.
+- Removes `flockdeck-test-home-*`, `flockdeck-state-*` and `flockdeck-wait-*` directories (plain directories only, never links) in `os.TempDir()` last changed over 24 hours ago, left by runs that were killed.
 - Replaces `http.DefaultTransport` with a guard that refuses any host but loopback (`ErrNonLoopback`), before name lookup.
 - Records every refusal; if the run otherwise passed but a guard tripped, it exits 1.
 - `DirGuard` panics when `store` resolves the real config dir or anything under it.

@@ -121,9 +121,23 @@ func Main(m *testing.M) int {
 	return code
 }
 
-// homePrefix starts the name of the directory Main makes, and is the only kind
-// of directory sweepStale removes.
+// homePrefix starts the name of the directory Main makes.
 const homePrefix = "flockdeck-test-home-"
+
+// sweptPrefixes are the names of the directories sweepStale removes: the home
+// Main makes, and the state and wait folders that tests make in the temp
+// directory themselves (internal/workspace, internal/server and
+// internal/chat/tool) and that a killed run leaves behind just the same.
+var sweptPrefixes = []string{homePrefix, "flockdeck-state-", "flockdeck-wait-"}
+
+func sweepable(name string) bool {
+	for _, p := range sweptPrefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
 
 // staleAfter is how old a test home is before a later run removes it. A run
 // that is killed (a timeout, Ctrl-C, the system out of memory) never reaches
@@ -159,9 +173,9 @@ func keepFresh(dir string, interval time.Duration) (stop func()) {
 	return func() { close(done); <-finished }
 }
 
-// sweepStale removes the test homes in root that were last changed more than
+// sweepStale removes the test homes and test state folders (sweptPrefixes) in root that were last changed more than
 // maxAge before now. It looks at nothing else: only directories named with
-// homePrefix, not links, and not anything newer, so the home of a run still in
+// one of those prefixes, not links, and not anything newer, so the home of a run still in
 // progress stays. Errors are ignored; a directory that cannot be removed now is
 // tried again by the next run.
 //
@@ -174,7 +188,7 @@ func sweepStale(root string, now time.Time, maxAge time.Duration) {
 		return
 	}
 	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), homePrefix) || e.Type() != fs.ModeDir {
+		if !sweepable(e.Name()) || e.Type() != fs.ModeDir {
 			continue
 		}
 		path := filepath.Join(root, e.Name())
