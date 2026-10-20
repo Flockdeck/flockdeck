@@ -44,7 +44,7 @@ func TestADefaultHooksDirectoryThatLinksToAShareIsNeverOpened(t *testing.T) {
 	}
 	links(t, map[string]string{hooks: t.TempDir()}, map[string]string{"hooks": blackhole + `\hooks`})
 	var rep Report
-	quickly(t, "a scan whose .git/hooks links to a share", func() { rep = scan(t, repo) })
+	neverOpened(t, "a scan whose .git/hooks links to a share", func() { rep = scan(t, repo) })
 	if !hasNetworkItem(rep) {
 		t.Errorf("no item says the share was not touched: %+v", rep.Items)
 	}
@@ -82,7 +82,7 @@ func chainOfLinks(t *testing.T, shareAtEnd bool) {
 	}
 	gitRun(t, repo, "config", "core.hooksPath", filepath.ToSlash(filepath.Join(dir, name(1))))
 	var rep Report
-	quickly(t, "a scan whose hooks path is a chain of links", func() { rep = scan(t, repo) })
+	neverOpened(t, "a scan whose hooks path is a chain of links", func() { rep = scan(t, repo) })
 	if !hasItem(rep, "too many links") {
 		t.Errorf("a chain past the depth limit was resolved: %+v", rep.Items)
 	}
@@ -103,7 +103,7 @@ func TestARemotesGitFileThatLeadsToAShareIsNeverOpened(t *testing.T) {
 	}
 	gitRun(t, repo, "config", "remote.origin.url", filepath.ToSlash(remote))
 	var rep Report
-	quickly(t, "a scan of a remote whose .git file leads to a share", func() { rep = scan(t, repo) })
+	neverOpened(t, "a scan of a remote whose .git file leads to a share", func() { rep = scan(t, repo) })
 	if !hasNetworkItem(rep) {
 		t.Errorf("no item says the share was not touched: %+v", rep.Items)
 	}
@@ -120,7 +120,7 @@ func TestASubmodulesGitFileThatLeadsToAShareThroughALinkIsNeverOpened(t *testing
 		t.Fatal(err)
 	}
 	var rep Report
-	quickly(t, "a scan of a submodule whose .git file leads to a share", func() { rep = scan(t, outer) })
+	neverOpened(t, "a scan of a submodule whose .git file leads to a share", func() { rep = scan(t, outer) })
 	if !hasNetworkItem(rep) {
 		t.Errorf("no item says the share was not touched: %+v", rep.Items)
 	}
@@ -133,7 +133,7 @@ func TestAModulesDirectoryThatLinksToAShareIsNeverOpened(t *testing.T) {
 	modules := filepath.Join(repo, ".git", "modules")
 	links(t, map[string]string{modules: t.TempDir()}, map[string]string{"modules": blackhole + `\m`})
 	var rep Report
-	quickly(t, "a scan whose .git/modules links to a share", func() { rep = scan(t, repo) })
+	neverOpened(t, "a scan whose .git/modules links to a share", func() { rep = scan(t, repo) })
 	if !hasNetworkItem(rep) {
 		t.Errorf("no item says the share was not touched: %+v", rep.Items)
 	}
@@ -189,7 +189,7 @@ func TestEveryCallInTheLayerRefusesAPathThroughALinkToAShare(t *testing.T) {
 		"fsCanonical": func() error { _, err := tfs().Canonical(through); return err },
 	}
 	for name, call := range calls {
-		quickly(t, name, func() {
+		neverOpened(t, name, func() {
 			if err := call(); !errors.Is(err, errNetworkPath) {
 				t.Errorf("%s through a link to a share = %v, want errNetworkPath", name, err)
 			}

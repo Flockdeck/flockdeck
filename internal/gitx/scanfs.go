@@ -98,6 +98,10 @@ var (
 var (
 	leaked  atomic.Int64
 	leakLog sync.Once
+	// gaveUp counts, for the life of the process, the calls boxed gave up on.
+	// Unlike leaked it never goes down when such a call returns, so a test can
+	// tell that a call was given up on during its own run.
+	gaveUp atomic.Int64
 )
 
 // readLink and evalSymlinks are variables so a test can stand in for a link to a
@@ -218,6 +222,7 @@ func boxed[T any](f *scanFS, fn func() (T, error)) (T, error) {
 	}
 	if state.CompareAndSwap(0, 2) {
 		leaked.Add(1)
+		gaveUp.Add(1)
 		return zero, giveUp
 	}
 	r := <-ch // it returned just as the wait ended

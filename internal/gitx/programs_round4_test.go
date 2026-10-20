@@ -16,12 +16,23 @@ import (
 // never comes; the checks below are that it is never opened.
 const blackhole = `\\192.0.2.1\x`
 
-func quickly(t *testing.T, what string, f func()) {
+// neverOpened runs f and fails if a file system call was given up on while it
+// ran. An open on the blackhole address does not return, so the call that made
+// it is given up on after statTimeout. That count is the evidence, not the time
+// f took, which grows with the load on the machine. gaveUp only goes up, so a
+// late return from an earlier test's call cannot cancel a new one.
+//
+// statTimeout is raised for the run, so that a local stat held up by a virus
+// scanner on a cold machine is not mistaken for the share.
+func neverOpened(t *testing.T, what string, f func()) {
 	t.Helper()
-	start := time.Now()
+	was := statTimeout
+	statTimeout = 5 * time.Second
+	defer func() { statTimeout = was }()
+	before := gaveUp.Load()
 	f()
-	if d := time.Since(start); d > 5*time.Second {
-		t.Errorf("%s took %s: something was opened on the share", what, d)
+	if n := gaveUp.Load() - before; n > 0 {
+		t.Errorf("%s: %d file system calls did not answer within %s. The usual cause is that something was opened on the share; a local stat held up for that long, by a virus scanner on a cold machine for instance, does the same", what, n, statTimeout)
 	}
 }
 
@@ -82,7 +93,7 @@ func TestAHooksPathOnAShareIsNeverOpened(t *testing.T) {
 	repo := newRepo(t)
 	gitRun(t, repo, "config", "core.hooksPath", blackhole+`\hooks`)
 	var rep Report
-	quickly(t, "a scan with core.hooksPath on a share", func() { rep = scan(t, repo) })
+	neverOpened(t, "a scan with core.hooksPath on a share", func() { rep = scan(t, repo) })
 	if !hasNetworkItem(rep) {
 		t.Errorf("no item says the share was not touched: %+v", rep.Items)
 	}
@@ -96,7 +107,7 @@ func TestAHooksPathThroughALinkToAShareIsNeverOpened(t *testing.T) {
 	linkToShare(t, link)
 	gitRun(t, repo, "config", "core.hooksPath", filepath.ToSlash(link))
 	var rep Report
-	quickly(t, "a scan with a hooks path that links to a share", func() { rep = scan(t, repo) })
+	neverOpened(t, "a scan with a hooks path that links to a share", func() { rep = scan(t, repo) })
 	if !hasNetworkItem(rep) {
 		t.Errorf("no item says the share was not touched: %+v", rep.Items)
 	}
@@ -112,7 +123,7 @@ func TestAHookThatLinksToAShareIsNeverOpened(t *testing.T) {
 	}
 	linkToShare(t, filepath.Join(hooks, "pre-commit"))
 	var rep Report
-	quickly(t, "a scan with a hook that links to a share", func() { rep = scan(t, repo) })
+	neverOpened(t, "a scan with a hook that links to a share", func() { rep = scan(t, repo) })
 	if !hasNetworkItem(rep) {
 		t.Errorf("no item says the share was not touched: %+v", rep.Items)
 	}
@@ -127,7 +138,7 @@ func TestASubmodulesGitFileOnAShareIsNeverOpened(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rep Report
-	quickly(t, "a scan with a submodule whose git directory is on a share", func() { rep = scan(t, outer) })
+	neverOpened(t, "a scan with a submodule whose git directory is on a share", func() { rep = scan(t, outer) })
 	if !hasNetworkItem(rep) {
 		t.Errorf("no item says the share was not touched: %+v", rep.Items)
 	}
@@ -142,7 +153,7 @@ func TestARemotesHooksPathOnAShareIsNeverOpened(t *testing.T) {
 	gitRun(t, bare, "config", "core.hooksPath", blackhole+`\hooks`)
 	gitRun(t, repo, "remote", "add", "origin", filepath.ToSlash(bare))
 	var rep Report
-	quickly(t, "a scan whose remote has its hooks on a share", func() { rep = scan(t, repo) })
+	neverOpened(t, "a scan whose remote has its hooks on a share", func() { rep = scan(t, repo) })
 	if !hasNetworkItem(rep) {
 		t.Errorf("no item says the share was not touched: %+v", rep.Items)
 	}

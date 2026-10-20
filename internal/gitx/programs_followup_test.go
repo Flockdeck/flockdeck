@@ -170,7 +170,7 @@ func TestASubmoduleConfigThatLinksToAShareIsNeverOpened(t *testing.T) {
 	}
 	links(t, map[string]string{cfg: t.TempDir()}, map[string]string{"config": blackhole + `\config`})
 	var rep Report
-	quickly(t, "a scan with a submodule whose config links to a share", func() { rep = scan(t, outer) })
+	neverOpened(t, "a scan with a submodule whose config links to a share", func() { rep = scan(t, outer) })
 	if !hasNetworkItem(rep) {
 		t.Errorf("no item says the share was not touched: %+v", rep.Items)
 	}
