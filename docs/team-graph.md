@@ -215,7 +215,7 @@ first in this list:
 | Order | `kind` | Applies when | `text` | `ref` |
 | --- | --- | --- | --- | --- |
 | 1 | `down` | the pane has exited or failed | `exited`, or `failed` and the reason | the pane's own id |
-| 2 | `user` | its activity is `waiting` or `blocked` and it has a question or a permission prompt | the question or command, cut to 200 characters | none |
+| 2 | `user` | its activity is `waiting` or `blocked` and it has a question or a permission prompt, or it needs setup (see Setup below) | the question or command, or the setup fix, cut to 200 characters | none |
 | 3 | `reviewer` | it owns a task in review (not for a shell) | the task and who it is in review by, or that nobody is set to review it | the task id |
 | 4 | `task` | it owns a blocked task (not for a shell) | the task's latest note, cut to 200 characters; absent if it has none | the task id |
 | 5 | `helpers` | at least one of its open helpers is working or waiting | how many helpers are busy | the first busy helper's pane id |
@@ -237,14 +237,24 @@ their own (`soloNeeds`).
 | `returned` | a task went from in review back to in progress in the last 24 hours and is still in progress | when it came back | the note it came back with; absent when it had none |
 | `conflict` | the conflict radar reports that two panes' work would conflict | when the radar first reported the pair, if known | up to 5 paths, each cut to 80 characters, and "and N more" for the rest |
 | `down` | a pane failed, or exited with a code other than 0, and was not closed by the person | when its status began | `failed` and the reason, or `exited with code N` |
+| `setup` | a structured pane could not start and needs something from the person: Node, a sign-in, or the agent's program | when its status began | the fix, cut to 200 characters |
 | `stale-unread` | a pane that is idle has had unread mail for more than 5 minutes | when the oldest unread message arrived | how many are unread |
 
 - **Order.** Permission and ask first, by how long they have waited, longest first;
-  then returned, newest first; then conflict; then down; then stale-unread, oldest
+  then returned, newest first; then conflict; then down; then setup; then stale-unread, oldest
   first. An item whose time is not known (`0001-01-01T00:00:00Z`) is listed after
   the others of its kind.
 - **Down.** A shell is listed only when it failed. A pane that is down is never
   listed as waiting on a prompt, since it cannot be answered.
+- **Setup.** The pane stays in the project, with status `blocked`, and the text is
+  the fix. There are three causes. Node is missing or too old: the text gives the
+  version needed and how to install it, since Flockdeck does not bundle Node. The
+  agent wants a sign-in: the text names the methods the agent offered and says to
+  sign in with the agent's own tool. Flockdeck does not read, store or pass
+  credentials. The agent's program is not installed: the text is the install
+  instruction from the agent's entry. The state is final. Nothing is retried after
+  the fix, so every text ends by saying the pane has to be started again, and the
+  item goes when the new pane starts.
 - **Conflict.** `pane` and `other` are the pair in sorted order, whichever way the
   radar listed it. A conflict between panes of two teams is listed in both.
 - **Ids.** An item's `id` is made from its kind and its pane (for `returned` its

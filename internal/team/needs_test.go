@@ -388,3 +388,48 @@ func TestFailureReasonIsCarried(t *testing.T) {
 		t.Errorf("items = %+v", got)
 	}
 }
+
+func TestNeedsSetup(t *testing.T) {
+	ps := []GraphPane{
+		pane("m", "", "manager", "idle"),
+		pane("unread", "m", "", "idle"),
+		pane("down", "m", "", "failed"),
+		pane("setup", "m", "", "blocked"),
+	}
+	ps[1].Unread, ps[1].UnreadSince = 1, t0.Add(-time.Hour)
+	ps[2].Failed, ps[2].Exited = true, true
+	ps[3].SetupText = strings.Repeat("Install Node. ", 40)
+	ps[3].StatusSince = t0.Add(-time.Minute)
+
+	got := needsFor(ps, nil, nil, nil)["m"]
+	if want := []string{"down:down", "setup:setup", "stale-unread:unread"}; !reflect.DeepEqual(kinds(got), want) {
+		t.Fatalf("order = %v, want %v", kinds(got), want)
+	}
+	s := got[1]
+	if s.ID != "setup:setup" || !s.Time.Equal(t0.Add(-time.Minute)) {
+		t.Errorf("item = %+v", s)
+	}
+	if n := len([]rune(s.Text)); n == 0 || n > MaxWaitText {
+		t.Errorf("text is %d characters, want 1 to %d", n, MaxWaitText)
+	}
+
+	// The same pane gives the same id on the next read, and the item is gone
+	// once the pane no longer needs setup.
+	if again := needsFor(ps, nil, nil, nil)["m"]; again[1].ID != s.ID {
+		t.Errorf("id changed: %q then %q", s.ID, again[1].ID)
+	}
+	ps[3].SetupText, ps[3].Activity = "", "working"
+	if left := kinds(needsFor(ps, nil, nil, nil)["m"]); !reflect.DeepEqual(left, []string{"down:down", "stale-unread:unread"}) {
+		t.Errorf("after the start = %v", left)
+	}
+}
+
+func TestASetupPaneWaitsOnTheUser(t *testing.T) {
+	ps := team2()
+	ps[1].Activity, ps[1].SetupText = "blocked", "Install Node 20 or later. Then start the pane again."
+	for _, n := range BuildGraph(ps, nil).Nodes {
+		if n.Pane == "a" && (n.WaitingOn.Kind != WaitUser || n.WaitingOn.Text != ps[1].SetupText) {
+			t.Errorf("waiting on = %+v", n.WaitingOn)
+		}
+	}
+}

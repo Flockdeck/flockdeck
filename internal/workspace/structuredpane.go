@@ -15,6 +15,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/structured"
+	"github.com/jmwri/flockdeck/internal/team"
 )
 
 // A structured pane is an agent Flockdeck talks to over the Agent Client
@@ -283,6 +284,62 @@ func (s *structuredRuntime) LastReply() (LastReply, bool) {
 		}
 	}
 	return LastReply{}, false
+}
+
+// Setup is what the person has to do before this pane can run, once the runtime
+// has stopped for it. The state is final: nothing is retried after the fix, so
+// every text ends by saying the pane has to be started again.
+func (s *structuredRuntime) Setup() (SetupNeeded, bool) {
+	sn := s.rt.Snapshot()
+	if sn.Phase != structured.PhaseSetup || sn.Setup == nil {
+		return SetupNeeded{}, false
+	}
+	return SetupNeeded{Kind: sn.Setup.Kind, Text: setupText(s.p.Agent, sn.Setup)}, true
+}
+
+// setupText is the fix for a setup state, on one line of at most
+// team.MaxWaitText characters. The end of it, which says to start the pane
+// again, is kept; the front is cut first.
+func setupText(agentID string, st *structured.Setup) string {
+	name := team.PlainText(agentID, 40)
+	if name == "" {
+		name = "the agent"
+	}
+	var head, tail string
+	switch st.Kind {
+	case structured.SetupNode:
+		head = st.Message
+		tail = st.Login + " Then start the pane again."
+	case structured.SetupInstall:
+		head = st.Message
+		if st.Login != "" {
+			head += ". " + st.Login
+		}
+		tail = "Then start the pane again."
+	default: // structured.SetupLogin
+		head = "Sign in to " + name + " with its own tool"
+		if len(st.Methods) > 0 {
+			var names []string
+			for _, m := range st.Methods {
+				if m.Name != "" {
+					names = append(names, m.Name)
+				}
+			}
+			if len(names) > 0 {
+				head += " (" + strings.Join(names, ", ") + ")"
+			}
+		}
+		if st.Login != "" {
+			head += ". " + st.Login
+		}
+		tail = "Flockdeck does not sign in for you. Then start the pane again."
+	}
+	tail = team.PlainText(tail, team.MaxWaitText)
+	room := team.MaxWaitText - len([]rune(tail)) - 1
+	if room < 0 {
+		return tail
+	}
+	return strings.TrimSpace(team.PlainText(head, room) + " " + tail)
 }
 
 // Wake sends message to the agent as a prompt. That is a request over the

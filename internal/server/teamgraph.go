@@ -382,6 +382,11 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		case failed:
 			g.Failed, g.FailureReason = true, team.PlainText(why, 120)
 		}
+		if stat == session.StatusBlocked {
+			if su, ok := rt.Setup(); ok {
+				g.SetupText = su.Text
+			}
+		}
 		if stat == session.StatusWaiting {
 			on := rt.Waiting()
 			a, perm := waitingViews(on.Detail, on.ToolInput)

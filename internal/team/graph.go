@@ -63,6 +63,10 @@ type GraphPane struct {
 	// PromptKind is PromptPermission for a permission prompt and PromptAsk for a
 	// question. Empty is read as a question.
 	PromptKind string
+	// SetupText is the fix for a pane that cannot run until the person signs in
+	// to its agent, installs Node, or installs the agent. It is empty for every
+	// other pane. The caller reads it from the pane's runtime.
+	SetupText string
 	// Exited and Failed say the process is gone, and whether it ended in error.
 	Exited bool
 	Failed bool
@@ -275,6 +279,9 @@ func waitingOn(p GraphPane, n GraphNode, panes []GraphPane, index map[string]int
 	}
 	if (p.Activity == activityWaiting || p.Activity == activityBlocked) && p.HasPrompt {
 		return WaitingOn{Kind: WaitUser, Text: PlainText(p.PromptText, MaxWaitText)}
+	}
+	if p.SetupText != "" {
+		return WaitingOn{Kind: WaitUser, Text: PlainText(p.SetupText, MaxWaitText)}
 	}
 	if !p.Shell {
 		for _, t := range tasks {

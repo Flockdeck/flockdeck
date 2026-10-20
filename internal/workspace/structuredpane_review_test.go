@@ -12,6 +12,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/structured"
+	"github.com/jmwri/flockdeck/internal/team"
 )
 
 // goroutinesBelow waits for the number of goroutines to come down to limit, and
@@ -250,4 +251,25 @@ func TestAStateFileWithNoTransportRestores(t *testing.T) {
 		t.Fatalf("the structured agent's pane: %+v", p)
 	}
 	statusWithin(t, restored, id, session.StatusIdle)
+}
+
+func TestSetupTextKeepsTheEndAndFitsTheLine(t *testing.T) {
+	long := strings.Repeat("x", 400)
+	cases := []structured.Setup{
+		{Kind: structured.SetupNode, Message: "Node 20 or later is needed", Login: "Install it from nodejs.org."},
+		{Kind: structured.SetupLogin, Message: long, Login: "Run claude login.", Methods: []structured.AuthMethod{{Name: "Claude account"}, {Name: "API key"}}},
+		{Kind: structured.SetupInstall, Message: long, Login: "npm i -g agent"},
+	}
+	for _, c := range cases {
+		got := setupText("claude", &c)
+		if n := len([]rune(got)); n == 0 || n > team.MaxWaitText {
+			t.Errorf("%s: %d characters", c.Kind, n)
+		}
+		if !strings.HasSuffix(got, "Then start the pane again.") {
+			t.Errorf("%s: %q lost the end", c.Kind, got)
+		}
+	}
+	if got := setupText("claude", &cases[1]); !strings.Contains(got, "does not sign in for you") {
+		t.Errorf("login text = %q", got)
+	}
 }

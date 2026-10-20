@@ -129,10 +129,10 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "kind", "pane", "time"],
-      "description": "One thing that needs the person (derived by team.NeedsYou). Listed in this order: permission and ask by waiting time, longest first; returned, newest first; conflict; down; stale-unread, oldest first.",
+      "description": "One thing that needs the person (derived by team.NeedsYou). Listed in this order: permission and ask by waiting time, longest first; returned, newest first; conflict; down; setup; stale-unread, oldest first.",
       "properties": {
         "id": { "type": "string", "minLength": 3, "description": "Stable while the item stands: the kind and the pane (returned: the task; conflict: the two panes in sorted order). A window can keep its selection by it. Always written." },
-        "kind": { "enum": ["permission", "ask", "returned", "conflict", "down", "stale-unread"], "description": "Always written." },
+        "kind": { "enum": ["permission", "ask", "returned", "conflict", "down", "setup", "stale-unread"], "description": "Always written." },
         "pane": { "type": "string", "minLength": 1, "description": "The pane concerned. For a conflict, the first of the pair in sorted order. Always written." },
         "other": { "type": "string", "minLength": 1, "description": "The second pane of a conflict. Written for conflicts only." },
         "task": { "type": "string", "pattern": "^T[0-9]+$", "description": "The task of a returned item. Written for returned items only." },
