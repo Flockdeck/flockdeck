@@ -93,7 +93,7 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		"paneInfoFields | map[bool]string{true: \"Agent\", false: \"Shell\"}[d.Agent]": {1, "d.Agent is a bool here, and the map is a label"},
 	},
 	"internal/server/push.go": {
-		"Server.pushDue | p.Sess": {1, "skips a pane that has no session to read a due time from; T51 converts it"},
+		"Server.pushDue | p.Sess": {1, "skips a pane that has no session. A waiting structured pane gets no phone push: it is answered at the desk only (decided in #378)"},
 	},
 	"internal/team/needs.go": {
 		// Kind here is a needs item's kind (ask, permission, down), which names
@@ -116,12 +116,16 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		"Workspace.CloseFinishedIn | p.Sess": {1, "the session noteFinished reports on; nil for a pane without one"},
 	},
 	"internal/workspace/wake.go": {
-		// Typed wake reads and writes a terminal's input and screen. T51 gives
-		// the pane runtime a Wake and these move behind it.
-		"wakeService.consider | c.Sess":                          {7, "the terminal's status, input times and screen reading; T51 converts it"},
-		"wakeService.fire | c.Sess":                              {5, "types into the terminal; T51 converts it"},
-		"Workspace.wakeCandidates | p.Sess":                      {2, "candidates are terminal panes with a session; T51 converts it"},
-		"Workspace.wakeCandidates | p.Kind != session.KindAgent": {1, "only agent panes are woken; T51 converts it"},
+		// Typed wake reads and writes a terminal's input and screen through
+		// wakeSession. A structured pane implements it too (wakeStructured) and is
+		// sent its line through wakeCandidate.Deliver, so the c.Sess reads are not
+		// terminal-only. wakeCandidates branches on the kind of runtime with a type
+		// assertion (w.Runtime(p).(*structuredRuntime)), which this checker does not
+		// catch.
+		"wakeService.consider | c.Sess":                          {7, "the status, input times and reading of a wakeSession, a terminal or a structured pane"},
+		"wakeService.fire | c.Sess":                              {5, "types into a terminal; a structured pane is delivered to before this (wakeCandidate.Deliver)"},
+		"Workspace.wakeCandidates | p.Sess":                      {2, "the skip of a pane with no session, which a structured pane passes because it has a runtime, and the session of a terminal candidate"},
+		"Workspace.wakeCandidates | p.Kind != session.KindAgent": {1, "only agent panes are woken"},
 	},
 }
 
