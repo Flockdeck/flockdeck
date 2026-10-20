@@ -524,3 +524,14 @@ func TestMailReadRefusesAnOverlargeDirectory(t *testing.T) {
 		t.Error("a directory over the bound was allowed")
 	}
 }
+
+// A directory that cannot be listed is refused. The cwd is a file here, which
+// the earlier stat check catches; a read error in the loop is a path no test
+// can reach without a file system that fails, so this pins the stat.
+func TestMailReadRefusesADirectoryThatCannotBeRead(t *testing.T) {
+	env := runningEnv(t)
+	in := bashInput(t, "flockdeck inbox")
+	if d := MailRead("Bash", in, filepath.Join(t.TempDir(), "gone"), env); d.Allow {
+		t.Error("a directory that cannot be read was allowed")
+	}
+}
