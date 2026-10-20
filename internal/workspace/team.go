@@ -48,6 +48,8 @@ type teamState struct {
 	// directory it is kept in. evMu orders the writes of its file.
 	events *team.EventLog
 	evMu   sync.Mutex
+	// addEvent adds an event to the log and saves it; nil until loadEvents.
+	addEvent func(team.Event)
 	// taps are the SendMessage calls Claude sessions made, seen in their hooks.
 	taps team.TapLog
 
@@ -118,13 +120,14 @@ func (w *Workspace) loadEvents(path string) {
 		log.Load(data)
 	}
 	t.events = log
-	t.inbox.OnEvent(func(e team.Event) {
+	t.addEvent = func(e team.Event) {
 		log.Append(e)
 		t.evMu.Lock()
 		defer t.evMu.Unlock()
 		// A log that cannot be written down is no reason to lose the message.
 		_ = t.save(path, log.Encode())
-	})
+	}
+	t.inbox.OnEvent(t.addEvent)
 }
 
 // forgetTeam drops what delivery remembers of a pane that is gone, or whose
