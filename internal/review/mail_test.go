@@ -2,6 +2,7 @@ package review
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -442,5 +443,84 @@ func TestSameDirIgnoresCaseWhereVolumesDo(t *testing.T) {
 	want := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 	if got != want {
 		t.Errorf("sameDir ignoring case = %v, want %v", got, want)
+	}
+}
+
+func TestMailReadIgnoresTrailingDotsAndSpacesInNames(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not keep a trailing dot or space in a name")
+	}
+	in := bashInput(t, "flockdeck inbox")
+	env := runningEnv(t)
+	for _, name := range []string{"flockdeck ", "flockdeck. ", "flockdeck.exe.", "FlockDeck  "} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if d := MailRead("Bash", in, dir, env); d.Allow {
+			t.Errorf("a directory holding %q was allowed", name)
+		}
+	}
+}
+
+func TestNamesFlockdeck(t *testing.T) {
+	for name, want := range map[string]bool{
+		"flockdeck": true, "FLOCKDECK": true, "flockdeck.exe": true, "flockdeck ": true, "flockdeck.": true,
+		"flockdeck. .": true, "flockdecks": false, "xflockdeck": false, "flock deck": false, "": false,
+	} {
+		if got := namesFlockdeck(name); got != want {
+			t.Errorf("namesFlockdeck(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// A directory is read past the first batch, and a hit after it is found.
+func TestMailReadFindsAPlantedFileAfterTheFirstBatch(t *testing.T) {
+	in := bashInput(t, "flockdeck inbox")
+	env := runningEnv(t)
+	dir := t.TempDir()
+	for i := 0; i < mailDirBatch*2+10; i++ {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("file%04d", i)), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d := MailRead("Bash", in, dir, env); !d.Allow {
+		t.Error("a directory of many unrelated files was refused")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "zzz-flockdeck.exe"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if d := MailRead("Bash", in, dir, env); !d.Allow {
+		t.Error("a lookalike name was refused")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "flockdeck.exe"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if d := MailRead("Bash", in, dir, env); d.Allow {
+		t.Error("a planted file in a large directory was allowed")
+	}
+}
+
+// A directory above the bound is refused whatever it holds.
+func TestMailReadRefusesAnOverlargeDirectory(t *testing.T) {
+	old := mailDirMax
+	mailDirMax = 20
+	t.Cleanup(func() { mailDirMax = old })
+	in := bashInput(t, "flockdeck inbox")
+	env := runningEnv(t)
+	dir := t.TempDir()
+	for i := 0; i < 20; i++ {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%d", i)), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d := MailRead("Bash", in, dir, env); !d.Allow {
+		t.Error("a directory at the bound was refused")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "one-more"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if d := MailRead("Bash", in, dir, env); d.Allow {
+		t.Error("a directory over the bound was allowed")
 	}
 }

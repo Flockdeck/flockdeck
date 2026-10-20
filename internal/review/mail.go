@@ -2,6 +2,7 @@ package review
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,15 +152,40 @@ func cwdHoldsNoFlockdeck(cwd string) bool {
 		return false
 	}
 	defer d.Close()
-	names, err := d.Readdirnames(-1)
-	if err != nil {
-		return false
-	}
-	for _, name := range names {
-		n := strings.ToLower(name)
-		if n == "flockdeck" || strings.HasPrefix(n, "flockdeck.") {
+	// Read in batches and stopped at the first hit, and refused past a bound,
+	// so a directory of millions of entries is neither read whole nor trusted.
+	for seen := 0; ; {
+		names, err := d.Readdirnames(mailDirBatch)
+		for _, name := range names {
+			if namesFlockdeck(name) {
+				return false
+			}
+		}
+		seen += len(names)
+		if seen > mailDirMax {
+			return false
+		}
+		if err == io.EOF {
+			return true
+		}
+		if err != nil {
 			return false
 		}
 	}
-	return true
+}
+
+// mailDirBatch is how many names are read from the directory at a time.
+const mailDirBatch = 256
+
+// mailDirMax is the most entries a directory may hold and still be trusted. It
+// is a variable for a test to lower.
+var mailDirMax = 100000
+
+// namesFlockdeck reports whether a directory entry is, or could run as, a
+// program called flockdeck: the name, or the name with an extension, in any
+// letter case. Trailing dots and spaces are dropped first, since Windows does
+// not keep them.
+func namesFlockdeck(name string) bool {
+	n := strings.ToLower(strings.TrimRight(name, ". "))
+	return n == "flockdeck" || strings.HasPrefix(n, "flockdeck.")
 }

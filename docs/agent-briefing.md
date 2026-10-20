@@ -202,7 +202,7 @@ auto-approve is on, and the built-in chat client runs the same two forms without
 when the program is run as `flockdeck`; with a path to the binary the command does not match and is
 asked about. `-wait`, `-follow`, sending, every other subcommand, any metacharacter or quote, a command
 over 4 KiB, and a working directory holding any entry named `flockdeck` or starting with `flockdeck.` (any letter
-case) are all asked about. A built flockdeck binary in the working directory therefore makes every mail read ask.
+case) are all asked about. A built flockdeck binary in the working directory therefore makes every mail read ask, and so does any `flockdeck.*` file there: a project that builds a binary into its root, or keeps such files in it, switches the allowance off for that directory. The directory is read in batches and refused above 100,000 entries, and trailing dots and spaces in a name are ignored.
 The word `flockdeck` must also resolve to this application: it is looked up on the PATH the pane or chat client was
 started with (an empty or relative entry is taken from the working directory), and the command is allowed only if
 what is found is the running executable or sits in its directory. A program of that name earlier on the PATH (a
