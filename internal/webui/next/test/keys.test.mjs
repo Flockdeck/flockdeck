@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { signatureOf, signatureOfEvent, bindingsFrom, actionFor, keycaps, listMove, LIST } from "../assets/shell/keys.js";
+import { signatureOf, signatureOfEvent, bindingsFrom, actionFor, keyAction, unreadable, keycaps, listMove, LIST } from "../assets/shell/keys.js";
 import { fakeKeys, realKeys } from "./util.mjs";
 
 const ev = (key, mods = {}) => ({ key, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
@@ -81,4 +81,32 @@ test("every binding of the server's own table reads, and no two actions clash", 
     seen.set(sig, k.id);
   }
   assert.equal(bindingsFrom(table).get(signatureOf("Ctrl+Shift+K")), "palette");
+});
+
+test("keyAction runs only the actions this window implements", () => {
+  const b = bindingsFrom(fakeKeys);
+  const k = ev("k", { ctrlKey: true, shiftKey: true });
+  assert.equal(keyAction(b, k, ["palette"]), "palette");
+  assert.equal(keyAction(b, k, ["toggleRail"]), null);
+  assert.equal(keyAction(b, ev("g", { ctrlKey: true, shiftKey: true }), ["palette"]), null, "worktrees is bound but not implemented");
+  assert.equal(keyAction(b, ev("q"), ["palette"]), null);
+});
+
+test("a binding the reader cannot turn into a key is reported, a range or an unbound action is not", () => {
+  const t = [
+    { id: "ok", keys: "Ctrl+B" },
+    { id: "range", keys: "Alt+1 … Alt+9" },
+    { id: "none", keys: "" },
+    { id: "hyper", keys: "Hyper+X" },
+  ];
+  assert.deepEqual(unreadable(t), ["hyper"]);
+  assert.deepEqual(unreadable(fakeKeys), []);
+});
+
+test("Tab is a list key the dialog keeps", () => {
+  assert.equal(listMove(ev(LIST.tab), 0, 3), "tab");
+});
+
+test("the server's own table has no binding this reader cannot read", { skip: realKeys() ? false : "NEXT_KEYS_JSON is not set" }, () => {
+  assert.deepEqual(unreadable(realKeys()), []);
 });

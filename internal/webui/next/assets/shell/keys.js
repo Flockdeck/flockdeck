@@ -18,7 +18,7 @@ const EQUALS = "=";
 const IME = 229;
 
 /** LIST are the keys that move through, choose from and leave a list. */
-export const LIST = { up: "ArrowUp", down: "ArrowDown", accept: "Enter", cancel: "Escape" };
+export const LIST = { up: "ArrowUp", down: "ArrowDown", accept: "Enter", cancel: "Escape", tab: "Tab" };
 // vocabulary:end
 
 /** signature is the shape a binding and a keydown are both reduced to, so that
@@ -81,16 +81,33 @@ export function actionFor(bindings, e) {
   return bindings.get(signatureOfEvent(e)) || "";
 }
 
+/** keyAction is the action to run for a keydown: the table's action for it if
+ *  this window runs that action, otherwise null and the key is left alone. */
+export function keyAction(bindings, e, implemented) {
+  const id = actionFor(bindings, e);
+  return id && implemented.includes(id) ? id : null;
+}
+
+/** unreadable are the ids of actions the table binds to something this reader
+ *  cannot turn into a key (an unknown modifier in a remap, say), so a window
+ *  can say so and not leave the person pressing a key that does nothing. A
+ *  range and an unbound action are fine. */
+export function unreadable(table) {
+  return (table || []).filter((k) => k.keys && !k.keys.includes("…") && signatureOf(k.keys) === "").map((k) => k.id);
+}
+
 /** keycaps splits a binding into the parts to draw as keys. */
 export function keycaps(spec) {
   return spec ? spec.split("+").map((p) => p.trim()).filter(Boolean) : [];
 }
 
 /** listMove is what a keydown does in a list: the index it moves to, "accept",
- *  "cancel", or "" when it is none of those. */
+ *  "cancel", "tab" (which a dialog keeps inside itself), or "" when it is none
+ *  of those. */
 export function listMove(e, index, count) {
   if (e.key === LIST.down) return count ? (index + 1) % count : 0;
   if (e.key === LIST.up) return count ? (index - 1 + count) % count : 0;
+  if (e.key === LIST.tab) return "tab";
   if (e.key === LIST.accept) return "accept";
   if (e.key === LIST.cancel) return "cancel";
   return "";

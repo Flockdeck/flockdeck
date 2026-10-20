@@ -1,5 +1,12 @@
 import { html } from "../html.js";
 
+/** initialOf is the letter that stands for a project when the rail is narrow
+ *  and its name is hidden. */
+export function initialOf(name) {
+  const first = [...String(name || "").trim()][0];
+  return first ? first.toUpperCase() : "?";
+}
+
 /** Rail is the open projects, from the state push, one button each. Choosing one
  *  makes it the project the window watches. At phone width it is a bar along the
  *  top (the CSS lays it out; narrow only drops the collapse button, which has no
@@ -24,19 +31,24 @@ export function Rail({ projects = [], active = "", collapsed = false, narrow = f
 
 function RailItem({ project, active, onSelect }) {
   const { root, name, waiting = 0, working = 0 } = project;
+  // The name is hidden when the rail is narrow, so the button carries it, and
+  // the counts, in its label.
+  const label = [name, waiting > 0 ? waiting + " waiting" : "", working > 0 ? working + " working" : ""].filter(Boolean).join(", ");
   return html`
     <li>
       <button
         type="button"
         class=${"rail-item" + (active ? " is-active" : "")}
         aria-current=${active ? "true" : undefined}
+        aria-label=${label}
         title=${name}
         data-root=${root}
         onClick=${() => onSelect && onSelect(root)}
       >
+        <span class="rail-initial" aria-hidden="true">${initialOf(name)}</span>
         <span class="rail-name">${name}</span>
-        ${waiting > 0 ? html`<span class="badge badge--waiting" aria-label=${waiting + " waiting"}>${waiting}</span>` : null}
-        ${working > 0 ? html`<span class="badge badge--working" aria-label=${working + " working"}>${working}</span>` : null}
+        ${waiting > 0 ? html`<span class="badge badge--waiting" aria-hidden="true">${waiting}</span>` : null}
+        ${working > 0 ? html`<span class="badge badge--working" aria-hidden="true">${working}</span>` : null}
       </button>
     </li>
   `;

@@ -5,6 +5,7 @@ import { html } from "../assets/html.js";
 import { Shell, initial, reduce, regionsOf, IMPLEMENTED, NARROW_QUERY } from "../assets/shell/app.js";
 import { Rail } from "../assets/shell/rail.js";
 import { expand, find, text, fakeKeys, fakeState } from "./util.mjs";
+import { initialOf } from "../assets/shell/rail.js";
 
 const hello = { keys: fakeKeys };
 
@@ -59,8 +60,11 @@ test("a project name that holds markup is drawn as text", () => {
 
 test("waiting and working counts are on the rail", () => {
   const out = draw({ narrow: false });
-  assert.match(out, /badge badge--waiting" aria-label="2 waiting">2</);
-  assert.match(out, /badge badge--working" aria-label="3 working">3</);
+  assert.match(out, /badge badge--waiting" aria-hidden="true">2</);
+  assert.match(out, /badge badge--working" aria-hidden="true">3</);
+  // The button carries the name and the counts, since the name can be hidden.
+  assert.match(out, /aria-label="alpha, 2 waiting"/);
+  assert.match(out, /aria-label="beta, 3 working"/);
 });
 
 test("an empty state says no project is open", () => {
@@ -136,6 +140,49 @@ test("the region keys go round the parts of the window, the drawer only when it 
   assert.equal(step("nextRegion", { drawerOpen: true }).focus, "rail");
   assert.equal(step("prevRegion", { drawerOpen: true }).focus, "drawer");
   assert.deepEqual(regionsOf({}), ["rail", "main"]);
+});
+
+test("the notice area is there when it is empty, so a notice is read out when it comes", () => {
+  assert.match(draw({ narrow: false }), /<div class="notices" role="status" aria-live="polite"><\/div>/);
+});
+
+test("a collapsed rail shows each project's initial and the button still has its name", () => {
+  assert.equal(initialOf("alpha"), "A");
+  assert.equal(initialOf("  éclair"), "É");
+  assert.equal(initialOf(""), "?");
+  const out = draw({ narrow: false });
+  assert.match(out, /rail-initial" aria-hidden="true">A</);
+  assert.match(out, /aria-label="alpha, 2 waiting"/);
+});
+
+test("a state push naming another active project moves the selection; a repeat does not", () => {
+  const s0 = initial({ state: fakeState });
+  const chosen = reduce(s0, { type: "select", root: "/work/a" });
+  const same = reduce(chosen, { type: "state", root: "/work/b", projects: fakeState.projects });
+  assert.equal(same, chosen);
+  const moved = reduce(chosen, { type: "state", root: "/work/c", projects: fakeState.projects });
+  assert.equal(moved.selected, "/work/c");
+  assert.equal(moved.seenRoot, "/work/c");
+});
+
+test("state arriving after the first render sets the selection", () => {
+  const s0 = initial({ state: { root: "", projects: [] } });
+  assert.equal(s0.selected, "");
+  assert.equal(reduce(s0, { type: "state", root: "/work/b", projects: fakeState.projects }).selected, "/work/b");
+  // No active root: the first project.
+  assert.equal(reduce(s0, { type: "state", root: "", projects: fakeState.projects }).selected, "/work/a");
+});
+
+test("a watched project that is closed gives way", () => {
+  const s0 = reduce(initial({ state: fakeState }), { type: "select", root: "/work/a" });
+  const gone = reduce(s0, { type: "state", root: "/work/b", projects: fakeState.projects.filter((p) => p.root !== "/work/a") });
+  assert.equal(gone.selected, "/work/b");
+});
+
+test("the region keys close the palette", () => {
+  const open = { ...initial({}), paletteOpen: true };
+  assert.equal(reduce(open, { type: "action", id: "nextRegion" }).paletteOpen, false);
+  assert.equal(reduce(open, { type: "action", id: "prevRegion" }).paletteOpen, false);
 });
 
 test("an action this window does not run changes nothing", () => {

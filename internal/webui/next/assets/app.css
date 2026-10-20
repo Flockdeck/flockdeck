@@ -326,6 +326,13 @@ button { font: inherit; color: inherit; }
 .rail-item.is-active {
   background: var(--accent-subtle);
   border-color: var(--accent-line);
+  box-shadow: inset 3px 0 0 var(--accent);
+  font-weight: 600;
+}
+.rail-initial {
+  display: none;
+  width: 20px;
+  text-align: center;
 }
 .rail-name {
   flex: 1 1 auto;
@@ -345,6 +352,7 @@ button { font: inherit; color: inherit; }
 }
 .rail-toggle:hover { background: var(--bg-hover); }
 .shell--rail-collapsed .rail-name { display: none; }
+.shell--rail-collapsed .rail-initial { display: inline-block; }
 
 .badge {
   flex: 0 0 auto;
@@ -406,6 +414,7 @@ button { font: inherit; color: inherit; }
 
 /* The command palette. */
 .palette-scrim {
+  z-index: 3;
   position: fixed;
   inset: 0;
   display: flex;
@@ -477,7 +486,9 @@ button { font: inherit; color: inherit; }
     border-bottom: 1px solid var(--line);
   }
   .rail-list { flex-direction: row; }
-  .rail-item { width: auto; white-space: nowrap; }
+  .rail-item { width: auto; min-height: 40px; white-space: nowrap; }
+  .rail-item.is-active { box-shadow: inset 0 -3px 0 var(--accent); }
+  .palette-input { font-size: 16px; }
   .rail-toggle { display: none; }
   .shell--rail-collapsed .rail-name { display: inline; }
   .main--list { padding: 0; }
