@@ -174,7 +174,7 @@ func TestGraphPageQuotesTheCodesLimits(t *testing.T) {
 		{team.MaxNeeds == 50, "50 for each team"},
 		{team.MaxTaps == 200, "The last 200"},
 		{teamInterval == 500*time.Millisecond, "500 milliseconds"},
-		{graphTickEvery == 30*time.Second, "Every 30 seconds"},
+		{graphTickInterval == 30*time.Second, "Every 30 seconds"},
 		{team.StaleUnreadAfter == 5*time.Minute, "more than 5 minutes"},
 		{team.ReturnedWindow == 24*time.Hour, "last 24 hours"},
 		{team.MaxWaitText == 200, "waiting-on text 200 characters"},

@@ -447,3 +447,24 @@ func TestGraphStaticsDroppedWhenTheLastWatcherMoves(t *testing.T) {
 		t.Errorf("%d kept with no window watching, want 0", n)
 	}
 }
+
+// A window that closes without unwatching leaves its project's cached part
+// behind until the next push, which drops it.
+func TestGraphStaticsDroppedWhenAWindowClosesWithoutUnwatching(t *testing.T) {
+	e := newGraphEnv(t)
+	e.withOtherProject(t)
+	count := func() int { v, _ := ask(e.srv, func() int { return len(e.srv.graphStatics) }); return v }
+	gone, stays := e.watcher(t, 64), e.watcher(t, 64)
+	e.srv.graphCommand(gone, command{Cmd: "graphWatch", Root: e.root})
+	e.srv.graphCommand(stays, command{Cmd: "graphWatch", Root: e.otherRoot})
+	if n := count(); n != 2 {
+		t.Fatalf("%d kept with a window on each project, want 2", n)
+	}
+	e.srv.mu.Lock()
+	delete(e.srv.clients, gone)
+	e.srv.mu.Unlock()
+	ask(e.srv, func() bool { e.srv.pushGraph(); return true })
+	if n := count(); n != 1 {
+		t.Errorf("%d kept after a window closed and a push, want 1", n)
+	}
+}
