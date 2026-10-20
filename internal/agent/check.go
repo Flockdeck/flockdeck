@@ -176,7 +176,7 @@ var anyToken = regexp.MustCompile(`\{\{\s*([^{}]*?)\s*\}\}`)
 // tokenNames lists the tokens for a notice that has to name them.
 const tokenNames = "session, model, settings, prompt, cwd and pane"
 
-// checkRunner settles a runner written by hand into one of the two there are.
+// checkRunner settles a runner written by hand into one of the three there are.
 //
 // Anything else was taken at its word and matched neither: "API" in capitals
 // started a pane whose command line began "--agent", with no program in front
@@ -186,10 +186,10 @@ const tokenNames = "session, model, settings, prompt, cwd and pane"
 func checkRunner(s *Spec) []string {
 	r := Runner(strings.ToLower(strings.TrimSpace(string(s.Runner))))
 	switch r {
-	case RunnerCLI, RunnerAPI, "":
+	case RunnerCLI, RunnerAPI, RunnerACP, "":
 		s.Runner = r
 		return nil
 	}
 	s.Runner = ""
-	return []string{fmt.Sprintf("agent %q: runner %q is neither \"cli\" nor \"api\"", s.ID, r)}
+	return []string{fmt.Sprintf("agent %q: runner %q is none of \"cli\", \"api\" and \"acp\"", s.ID, r)}
 }

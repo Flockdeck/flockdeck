@@ -42,6 +42,9 @@ func Builtins() []Spec {
 		aiderSpec(),
 		opencodeSpec(),
 		cursorAgentSpec(),
+		opencodeACPSpec(),
+		geminiACPSpec(),
+		codexACPSpec(),
 		anthropicAPISpec(),
 		openAIAPISpec(),
 		googleAPISpec(),
@@ -194,6 +197,48 @@ func opencodeSpec() Spec {
 		},
 		Caps:    Caps{Context: ContextPrompt},
 		Install: "https://opencode.ai",
+	}
+}
+
+// homeEnv is what an agent that keeps its settings and logins in the user's
+// home needs to find them: the home directory itself, on each platform, and the
+// folders the XDG convention and Windows put under it. It is not a secret and it
+// is not the whole environment; keys and tokens are never in it.
+func homeEnv() []string {
+	return []string{"HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"}
+}
+
+// opencodeACPSpec is opencode in a structured pane: `opencode acp`, which ran a
+// whole turn with no login in the spike, on its free model. It is a separate
+// entry from the terminal one, so that choosing a pane's kind never changes
+// what an existing layout means. It is listed only for somebody who has opted
+// in to structured panes.
+func opencodeACPSpec() Spec {
+	return Spec{
+		ID: "opencode-acp", Name: "opencode (structured)", Runner: RunnerACP,
+		ACP:     ACPSpec{Adapter: "opencode", Auth: AuthNone, PassEnv: homeEnv(), MCP: true},
+		Install: "https://opencode.ai",
+	}
+}
+
+// geminiACPSpec is Gemini CLI over ACP, hidden until the task that checks it
+// end to end has landed. Its session needs a Gemini login, made with its own
+// tool.
+func geminiACPSpec() Spec {
+	return Spec{
+		ID: "gemini-acp", Name: "Gemini CLI (structured)", Runner: RunnerACP, Hidden: true,
+		ACP:     ACPSpec{Adapter: "gemini", Auth: AuthExternal, Login: "Run `gemini` once in a terminal and sign in.", PassEnv: homeEnv()},
+		Install: "npm install -g @google/gemini-cli",
+	}
+}
+
+// codexACPSpec is Codex through its ACP adapter, hidden until the task that
+// checks it end to end has landed. Its session needs a Codex login.
+func codexACPSpec() Spec {
+	return Spec{
+		ID: "codex-acp", Name: "Codex (structured)", Runner: RunnerACP, Hidden: true,
+		ACP:     ACPSpec{Adapter: "codex", Auth: AuthExternal, Login: "Run `codex login` in a terminal.", PassEnv: homeEnv()},
+		Install: "npm install --prefix <folder> @agentclientprotocol/codex-acp@2.2.2",
 	}
 }
 

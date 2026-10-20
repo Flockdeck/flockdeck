@@ -32,6 +32,9 @@ type Catalog struct {
 	ProjectRouting map[string]RoutingPolicy
 	// Roles are the built-in roles with the user's merged over them.
 	Roles []Role
+	// Structured is the opt-in for structured agents (RunnerACP): they are
+	// listed only when it is on.
+	Structured bool
 	// Notice is empty unless the user's file could not be used in full. It is
 	// something for the interface to show, never a reason not to start: a
 	// mistyped agents.json leaves somebody with the built-in agents, not with
@@ -83,6 +86,7 @@ func Merge(f *File) *Catalog {
 	}
 	c.Defaults = f.Defaults
 	c.Projects = f.Projects
+	c.Structured = f.StructuredPanes
 
 	// The built-ins as shipped, which later entries are compared against.
 	pristine := make(map[string]Spec, len(c.Specs))
@@ -125,6 +129,7 @@ func Merge(f *File) *Catalog {
 			merged.Patterns.Waiting = slices.Clone(builtin.Patterns.Waiting)
 			merged.Patterns.Idle = slices.Clone(builtin.Patterns.Idle)
 			merged.Wake = builtin.Wake.clone()
+			merged.ACP.PassEnv = slices.Clone(builtin.ACP.PassEnv)
 			if err := json.Unmarshal(raw, &merged); err != nil {
 				// One unusable entry costs the user that entry's changes and
 				// nothing else: the built-in it was written over stays as it
@@ -141,6 +146,12 @@ func Merge(f *File) *Catalog {
 			// that a second entry for an agent is judged as the first was.
 			mergeWake(&merged, pristine[head.ID])
 			problems = append(problems, checkRunner(&merged)...)
+			acpProblems, usable := checkACP(&merged)
+			problems = append(problems, acpProblems...)
+			if !usable {
+				// The built-in it was written over stays as it was.
+				continue
+			}
 			problems = append(problems, checkTokens(&merged)...)
 			problems = append(problems, checkTiers(&merged)...)
 			c.Specs[i] = merged
@@ -165,6 +176,11 @@ func Merge(f *File) *Catalog {
 			fresh.Wake.Source = RuleUser
 		}
 		problems = append(problems, checkRunner(&fresh)...)
+		acpProblems, usable := checkACP(&fresh)
+		problems = append(problems, acpProblems...)
+		if !usable {
+			continue
+		}
 		problems = append(problems, checkTokens(&fresh)...)
 		problems = append(problems, checkTiers(&fresh)...)
 		index[fresh.ID] = len(c.Specs)
@@ -251,6 +267,11 @@ func normalize(s *Spec) {
 			s.Runner = RunnerCLI
 		}
 	}
+	if s.Runner == RunnerACP {
+		// What it starts is the manifest's, and what it is given is its ACP
+		// block's; there is no command line or endpoint to settle here.
+		return
+	}
 	if s.Runner == RunnerCLI {
 		if s.Exe == "" {
 			// Somebody writing `{"id": "amp"}` by hand means the command of
@@ -310,7 +331,7 @@ func (c *Catalog) Find(id string) (Spec, bool) {
 func (c *Catalog) Visible() []Spec {
 	out := make([]Spec, 0, len(c.Specs))
 	for _, s := range c.Specs {
-		if !s.Hidden {
+		if c.listed(s) {
 			out = append(out, s)
 		}
 	}
@@ -375,7 +396,13 @@ func (c *Catalog) DefaultsFor(project string) Defaults {
 // offered returns the spec with an id if the picker offers it.
 func (c *Catalog) offered(id string) (Spec, bool) {
 	s, ok := c.Find(id)
-	return s, ok && !s.Hidden
+	return s, ok && c.listed(s)
+}
+
+// listed reports whether the picker offers s: it is not hidden, and if it runs
+// in a structured pane, the user has opted in to those.
+func (c *Catalog) listed(s Spec) bool {
+	return !s.Hidden && (s.Runner != RunnerACP || c.Structured)
 }
 
 // Resolve answers what a new pane should start: the spec and the model id.

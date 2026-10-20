@@ -54,6 +54,9 @@ type File struct {
 	// Routing is the routing policy every project without one of its own is
 	// routed by, kept as written for the same reason a project's is.
 	Routing json.RawMessage `json:"routing,omitempty"`
+	// StructuredPanes is the opt-in for agents that run in a structured pane
+	// (RunnerACP). Without it the picker does not offer them.
+	StructuredPanes bool `json:"structuredPanes,omitempty"`
 	// Extra is every other top-level key the file held. It is kept so that
 	// writing a default back from the picker cannot quietly delete something a
 	// later build, or the user, put there.
@@ -61,7 +64,7 @@ type File struct {
 }
 
 // knownFields are the keys File decodes itself; everything else is Extra.
-var knownFields = []string{"version", "defaults", "projects", "agents", "roles", "routing"}
+var knownFields = []string{"version", "defaults", "projects", "agents", "roles", "routing", "structuredPanes"}
 
 func (f *File) UnmarshalJSON(data []byte) error {
 	type plain File

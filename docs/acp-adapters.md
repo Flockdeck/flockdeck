@@ -64,3 +64,45 @@ fails and the manifest is what to change.
 The result is shown in the run's summary. To change what a release accepts, edit
 `adapters.json` and the table above in the same pull request, and set
 `testedWith` and `testedOn` to what the canary last passed with.
+
+## Structured entries in agents.json
+
+A structured agent is an entry with `"runner": "acp"`. It names an adapter of the
+manifest instead of a program, and says what the agent may see:
+
+```json
+{
+  "id": "opencode-acp",
+  "name": "opencode (structured)",
+  "runner": "acp",
+  "acp": {
+    "adapter": "opencode",
+    "auth": "none",
+    "passEnv": ["HOME", "USERPROFILE", "APPDATA"],
+    "mcp": true
+  }
+}
+```
+
+- `adapter` is an id from the manifest. The command, its arguments, the pinned
+  version and the Node requirement come from there. An id the build does not
+  know is refused with a notice, and the entry is not added; on a built-in
+  entry, the built-in stays as it was.
+- `auth` is `none` for an agent that answers without a login, or `external`
+  (also the default) for one you sign in to with its own tool. Flockdeck never
+  logs in. When the agent asks, the pane shows the methods it offered and the
+  entry's `login` text.
+- `passEnv` is the whole list of variables the agent gets from Flockdeck's
+  environment, on top of the few that let it find programs and a temp folder
+  (`acp.MinimalEnv`). Keys and tokens are not passed unless an entry names them,
+  and a name starting `FLOCKDECK_` is dropped with a notice whatever the entry
+  says.
+- `mcp` says whether the agent takes per-session `mcpServers`.
+
+The built-in entries are `opencode-acp`, and `gemini-acp` and `codex-acp`, which
+are hidden until the tasks that check them end to end have landed. They are
+separate ids from the terminal entries for the same tools, so a saved layout
+keeps meaning what it did. There is no entry for Claude Code.
+
+Structured entries are not offered in the picker until `"structuredPanes": true`
+is set at the top level of `agents.json`. They can still be found by id.

@@ -20,6 +20,11 @@ const (
 	// RunnerAPI runs Flockdeck's own chat client in the pane, talking directly to
 	// a model API. The command is `flockdeck chat`; the Spec says which endpoint.
 	RunnerAPI Runner = "api"
+	// RunnerACP runs an agent that speaks the Agent Client Protocol on its
+	// standard input and output, in a structured pane with no terminal. What to
+	// start comes from the adapter manifest through Spec.ACP, not from Exe and
+	// Args.
+	RunnerACP Runner = "acp"
 )
 
 // ContextMode is how a pane's briefing -- which pane it is, who else is
@@ -124,6 +129,37 @@ type APISpec struct {
 	KeyEnv []string `json:"keyEnv,omitempty"`
 }
 
+// Authentication of a structured agent, as ACPSpec.Auth says it.
+const (
+	// AuthNone is an agent that answers without a login.
+	AuthNone = "none"
+	// AuthExternal is an agent whose login is made with its own tool. Flockdeck
+	// never logs in for anybody: when the agent asks, the pane shows the
+	// methods the agent offered and ACPSpec.Login, and waits.
+	AuthExternal = "external"
+)
+
+// ACPSpec describes how a structured agent is started and what it may see.
+type ACPSpec struct {
+	// Adapter is the id of an entry in the adapter manifest
+	// (internal/acp/manifest), which holds the command, its arguments, the
+	// pinned version and the Node requirement.
+	Adapter string `json:"adapter,omitempty"`
+	// Auth is AuthNone or AuthExternal; empty means AuthExternal, the careful
+	// reading of an agent nobody has checked.
+	Auth string `json:"auth,omitempty"`
+	// Login is what to tell somebody whose agent asked for a login, for
+	// instance the command that signs in. It is shown beside the methods the
+	// agent offers.
+	Login string `json:"login,omitempty"`
+	// PassEnv names the variables of Flockdeck's own environment that the agent
+	// is given beyond acp.MinimalEnv. It is the whole list: the rest of the
+	// environment is not passed, and no name starting FLOCKDECK_ is accepted.
+	PassEnv []string `json:"passEnv,omitempty"`
+	// MCP reports that the agent takes per-session mcpServers.
+	MCP bool `json:"mcp,omitempty"`
+}
+
 // Patterns recognise, in what an agent prints, the two states its own
 // lifecycle would have reported. They are used only when Caps.Hooks is false.
 type Patterns struct {
@@ -156,6 +192,8 @@ type Spec struct {
 	Env      []string `json:"env,omitempty"`
 	StripEnv []string `json:"stripEnv,omitempty"`
 	API      APISpec  `json:"api,omitempty"`
+	// ACP is read for RunnerACP only.
+	ACP      ACPSpec  `json:"acp,omitempty"`
 	Caps     Caps     `json:"caps,omitempty"`
 	Patterns Patterns `json:"patterns,omitempty"`
 	// Wake says how to recognise an idle, empty prompt, so that mail can be
@@ -254,6 +292,11 @@ func BuildArgv(s Spec, resume bool, t Tokens) []string {
 	// An API runner is Flockdeck's own chat client: the caller puts its binary and
 	// the "chat" subcommand in front, because only the caller knows where the
 	// running binary lives.
+	if s.Runner == RunnerACP {
+		// A structured pane has no terminal and no command line of this kind:
+		// the adapter manifest says what to start.
+		return nil
+	}
 	if s.Runner != RunnerAPI && s.Exe != "" {
 		out = append(out, s.Exe)
 	}
