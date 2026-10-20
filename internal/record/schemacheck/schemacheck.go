@@ -134,6 +134,21 @@ func (val validator) check(schema map[string]any, v any, path string) []string {
 			errs = append(errs, val.check(sub.(map[string]any), v, path)...)
 		}
 	}
+	if alts, ok := schema["anyOf"].([]any); ok {
+		matched := false
+		for _, sub := range alts {
+			if len(val.check(sub.(map[string]any), v, path)) == 0 {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			add("matches none of the anyOf alternatives")
+		}
+	}
+	if not, ok := schema["not"].(map[string]any); ok && len(val.check(not, v, path)) == 0 {
+		add("matches a schema it must not match")
+	}
 	if cond, ok := schema["if"].(map[string]any); ok && len(val.check(cond, v, path)) == 0 {
 		if then, ok := schema["then"].(map[string]any); ok {
 			errs = append(errs, val.check(then, v, path)...)
