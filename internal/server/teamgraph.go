@@ -354,7 +354,7 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 	st := s.graphStaticFor(root, members)
 	out.BoardError = st.boardError
 
-	now := time.Now()
+	now := s.graphClock()
 	gp := make([]team.GraphPane, 0, len(panes))
 	byID := map[string]*workspace.Pane{}
 	live := map[string]string{}
@@ -545,10 +545,14 @@ func (s *Server) graphWatch(c *controlClient, cmd command) {
 		if c.trySend(data) {
 			c.graphSent = data
 			// This counts as a push, so a change in the next interval waits for it
-			// instead of making a second one at once.
+			// instead of making a second one at once. Nothing is armed for it: a
+			// change arms its own push, and the tick covers the clock.
 			s.graphAt = time.Now()
+		} else {
+			// The window's queue was full, so it has not been sent the graph.
+			s.armGraph()
 		}
-		s.armGraph()
+		s.dropUnwatchedStatics()
 		s.armGraphTick()
 	})
 }
@@ -586,6 +590,7 @@ func (s *Server) pushGraph() {
 		s.graphStatics = nil
 		return
 	}
+	s.dropUnwatchedStatics()
 	s.armGraphTick()
 	if time.Since(s.graphAt) < teamInterval {
 		s.armGraph()
@@ -626,11 +631,41 @@ func (s *Server) pushGraph() {
 	}
 }
 
-// graphTickEvery is how often a watched graph is looked at when nothing else
+// dropUnwatchedStatics forgets the board and message part of every project no
+// window watches, so a project the last window moved away from does not stay
+// in memory until nothing is watched at all. It must run on the workspace
+// goroutine.
+func (s *Server) dropUnwatchedStatics() {
+	if len(s.graphStatics) == 0 {
+		return
+	}
+	watched := map[string]bool{}
+	for _, c := range s.greetedClients() {
+		if c.graphRoot != "" {
+			watched[c.graphRoot] = true
+		}
+	}
+	for root := range s.graphStatics {
+		if !watched[root] {
+			delete(s.graphStatics, root)
+		}
+	}
+}
+
+// graphTickInterval is how often a watched graph is looked at when nothing else
 // has woken the server. Some of what it shows depends on the clock alone: mail
 // that has waited five minutes in an idle pane, and a returned task that is
-// older than a day.
-var graphTickEvery = 30 * time.Second
+// older than a day. A server holds its own, graphTickEvery, which a test sets.
+const graphTickInterval = 30 * time.Second
+
+// graphClock is the time the graph is read at: the real one, unless a test has
+// set graphNow. It must run on the workspace goroutine.
+func (s *Server) graphClock() time.Time {
+	if s.graphNow != nil {
+		return s.graphNow()
+	}
+	return time.Now()
+}
 
 // armGraphTick arranges for a look at the graph in graphTickEvery, once.
 func (s *Server) armGraphTick() {
@@ -638,7 +673,7 @@ func (s *Server) armGraphTick() {
 		return
 	}
 	s.graphTickArmed = true
-	time.AfterFunc(graphTickEvery, func() {
+	time.AfterFunc(s.graphTickEvery, func() {
 		s.do(func() {
 			s.graphTickArmed = false
 			s.pushGraph()
@@ -667,7 +702,10 @@ func (s *Server) graphCommand(c *controlClient, cmd command) {
 	case "graphWatch":
 		s.graphWatch(c, cmd)
 	case "graphUnwatch":
-		s.do(func() { c.graphRoot, c.graphSent = "", nil })
+		s.do(func() {
+			c.graphRoot, c.graphSent = "", nil
+			s.dropUnwatchedStatics()
+		})
 	}
 }
 
