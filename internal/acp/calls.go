@@ -376,6 +376,13 @@ func (c *Client) Close() error {
 		waitFor(c.writerDone, treeGrace)
 		c.failPending(ErrClosed)
 
+		// Everything is read and written by now: let the tap have what is
+		// queued, for a moment.
+		if c.tapStop != nil {
+			close(c.tapStop)
+			waitFor(c.tapDone, tapGrace)
+		}
+
 		handlers := make(chan struct{})
 		go func() { c.handlers.Wait(); close(handlers) }()
 		waitFor(handlers, handlerGrace)

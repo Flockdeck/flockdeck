@@ -26,6 +26,8 @@
 //	storm       a thousand 64 KiB rewrites of one tool call, then 8 MiB of thought chunks
 //	silent      never answers
 //	flood       a stdout line with no end
+//	blank       empty and whitespace-only lines, then a chunk
+//	line N      one notification of exactly N bytes, then a chunk
 //	stderr-flood  4 MiB on stderr in one line, then plain
 //	spam-perm   fifty permission requests at once, reports how many were answered
 //	deaf-perm   asks for permission and stops reading stdin
@@ -512,6 +514,33 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 		a.out.Flush()
 		a.omu.Unlock()
 		select {}
+
+	case "blank":
+		// Lines with nothing in them, between real ones.
+		a.omu.Lock()
+		a.out.WriteString("\n   \r\n\n")
+		a.out.Flush()
+		a.omu.Unlock()
+		a.chunk(sid, "after blank")
+		done("end_turn")
+
+	case "line":
+		// "line N": one notification of exactly N bytes without its newline, then
+		// a chunk and the end of the turn.
+		_, arg, _ := strings.Cut(ask, " ")
+		n, _ := strconv.Atoi(arg)
+		const open, shut = `{"jsonrpc":"2.0","method":"x","params":"`, `"}`
+		if n < len(open)+len(shut) {
+			n = len(open) + len(shut)
+		}
+		a.omu.Lock()
+		a.out.WriteString(open)
+		a.out.WriteString(strings.Repeat("p", n-len(open)-len(shut)))
+		a.out.WriteString(shut + "\n")
+		a.out.Flush()
+		a.omu.Unlock()
+		a.chunk(sid, "after line")
+		done("end_turn")
 
 	case "stderr-flood":
 		// Four MiB on stderr in one line, then a normal turn.
