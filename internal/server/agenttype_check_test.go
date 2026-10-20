@@ -103,6 +103,8 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		"needRank | NeedReturned":               {1, "a needs item's kind, not a pane's"},
 		"needRank | NeedConflict":               {1, "a needs item's kind, not a pane's"},
 		"needRank | NeedDown":                   {1, "a needs item's kind, not a pane's"},
+		"needRank | NeedSetup":                  {1, "a needs item's kind, not a pane's"},
+		"needRank | NeedStaleUnread":            {1, "a needs item's kind, not a pane's"},
 		"compareNeeds | a.Kind == NeedReturned": {1, "a needs item's kind, not a pane's"},
 	},
 	"internal/workspace/paneinfo.go": {

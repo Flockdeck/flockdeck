@@ -48,7 +48,7 @@ const (
 	// PhaseReady: there is a session. Snapshot.Status says whether it is working.
 	PhaseReady Phase = "ready"
 	// PhaseSetup: the agent cannot run until the person does something: sign in
-	// to it, or install Node. Snapshot.Setup says what. The state is final: the
+	// to it, install Node, or install the agent. Snapshot.Setup says what. The state is final: the
 	// runtime does not retry after the person has signed in, and the pane must
 	// be started again.
 	PhaseSetup Phase = "needs setup"
@@ -64,6 +64,8 @@ const (
 const (
 	SetupLogin = "login"
 	SetupNode  = "node"
+	// SetupInstall is an agent whose program is not on PATH.
+	SetupInstall = "install"
 )
 
 const (
@@ -162,12 +164,13 @@ type AuthMethod struct {
 
 // Setup is what the person has to do before the agent can run.
 type Setup struct {
-	Kind string // SetupLogin or SetupNode
+	Kind string // SetupLogin, SetupNode or SetupInstall
 	// Message is what the agent or the check said.
 	Message string
 	// Methods are the ways of signing in the agent offered.
 	Methods []AuthMethod
-	// Login is the catalog entry's own advice, or Fix for Node, what to do.
+	// Login is what to do: the catalog entry's own advice for a login, Fix for
+	// Node, and the install text for a program that is not there.
 	Login string
 }
 
@@ -567,12 +570,15 @@ func (r *Runtime) resolve() (Command, *Setup, error) {
 	path, err := look(a.Command)
 	if err != nil {
 		msg := fmt.Sprintf("%s was not found on PATH", a.Command)
-		if r.opts.Spec.Install != "" {
-			msg += ". " + r.opts.Spec.Install
-		} else if a.Install != "" {
-			msg += ". " + a.Install
+		install := r.opts.Spec.Install
+		if install == "" {
+			install = a.Install
 		}
-		return Command{}, nil, errors.New(msg)
+		full := msg
+		if install != "" {
+			full += ". " + install
+		}
+		return Command{}, &Setup{Kind: SetupInstall, Message: clean(msg, errCap), Login: clean(install, errCap)}, errors.New(full)
 	}
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs

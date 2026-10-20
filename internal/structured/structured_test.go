@@ -427,15 +427,18 @@ func TestNodeMissingIsASetupState(t *testing.T) {
 	}
 }
 
-func TestAMissingProgramIsAFailureThatSaysHowToGetIt(t *testing.T) {
+func TestAMissingProgramIsASetupStateThatSaysHowToGetIt(t *testing.T) {
 	o := fakeOptions(t)
 	o.Command = nil
 	o.Spec.Runner, o.Spec.ACP.Adapter = agent.RunnerACP, "opencode"
 	o.Spec.Install = "Install it from the vendor."
 	o.Probe = &manifest.Probe{LookPath: func(string) (string, error) { return "", errors.New("not found") }}
 	r := begin(t, o)
-	s := until(t, r, "the failure", func(s Snapshot) bool { return s.Phase == PhaseFailed })
-	if !strings.Contains(s.Err, "opencode was not found on PATH") || !strings.Contains(s.Err, "Install it from the vendor.") {
+	s := until(t, r, "the setup state", func(s Snapshot) bool { return s.Phase == PhaseSetup })
+	if s.Setup == nil || s.Setup.Kind != SetupInstall || !strings.Contains(s.Setup.Message, "opencode was not found on PATH") || s.Setup.Login != "Install it from the vendor." {
+		t.Errorf("setup = %+v", s.Setup)
+	}
+	if !strings.Contains(s.Err, "opencode was not found on PATH") {
 		t.Errorf("err = %q", s.Err)
 	}
 

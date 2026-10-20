@@ -14,6 +14,7 @@ const (
 	NeedReturned    = "returned"
 	NeedConflict    = "conflict"
 	NeedDown        = "down"
+	NeedSetup       = "setup"
 	NeedStaleUnread = "stale-unread"
 )
 
@@ -137,6 +138,8 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 				kind = NeedPermission
 			}
 			add(p.ID, NeedsItem{ID: kind + ":" + p.ID, Kind: kind, Pane: p.ID, Time: p.StatusSince, Text: PlainText(p.PromptText, MaxWaitText)})
+		case p.SetupText != "":
+			add(p.ID, NeedsItem{ID: NeedSetup + ":" + p.ID, Kind: NeedSetup, Pane: p.ID, Time: p.StatusSince, Text: PlainText(p.SetupText, MaxWaitText)})
 		case p.Activity == activityIdle && p.Unread > 0 && !p.UnreadSince.IsZero() && now.Sub(p.UnreadSince) > StaleUnreadAfter:
 			add(p.ID, NeedsItem{ID: NeedStaleUnread + ":" + p.ID, Kind: NeedStaleUnread, Pane: p.ID, Time: p.UnreadSince, Text: strconv.Itoa(p.Unread) + " unread"})
 		}
@@ -223,8 +226,12 @@ func needRank(kind string) int {
 		return 2
 	case NeedDown:
 		return 3
+	case NeedSetup:
+		return 4
+	case NeedStaleUnread:
+		return 5
 	}
-	return 4
+	return 6
 }
 
 func compareNeeds(a, b NeedsItem) int {

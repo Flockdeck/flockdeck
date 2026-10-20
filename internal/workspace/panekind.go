@@ -120,6 +120,13 @@ type ConversationSource struct {
 // Readable says the conversation can be recorded and exported.
 func (c ConversationSource) Readable() bool { return c.Exporter != nil }
 
+// SetupNeeded is what a pane that cannot start says the person has to do. Kind
+// is the cause ("login", "node" or "install") and Text the fix, on one line.
+type SetupNeeded struct {
+	Kind string
+	Text string
+}
+
 // PaneRuntime is everything the rest of Flockdeck reads from, or asks of, a pane.
 // The graph, the needs-you list, a window's pane view, the agents list, spend
 // rollups and recording start all go through it and none of them looks at which
@@ -157,6 +164,12 @@ type PaneRuntime interface {
 	// LastReply is the latest reply of the pane's conversation, if one has been
 	// seen.
 	LastReply() (LastReply, bool)
+
+	// Setup says the pane cannot run until the person does something, and what.
+	// It is the state of a pane that needs a sign-in, Node or its program, and is
+	// final: the pane must be started again after the fix. A pane that is running,
+	// or that failed for any other reason, answers false.
+	Setup() (SetupNeeded, bool)
 
 	// Wake types message into the pane as Flockdeck's own input, to bring an
 	// idle agent back to its mail.
@@ -281,6 +294,10 @@ func (t terminalRuntime) LastReply() (LastReply, bool) {
 	}
 	return (*look)(t.p.ID)
 }
+
+// Setup is never needed by a terminal pane: a program that is missing is a
+// pane that failed to start, and a login is the agent's own screen.
+func (terminalRuntime) Setup() (SetupNeeded, bool) { return SetupNeeded{}, false }
 
 func (t terminalRuntime) Wake(message string) error {
 	if t.p.Sess == nil {

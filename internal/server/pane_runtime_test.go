@@ -1,10 +1,12 @@
 package server
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/team"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
@@ -23,6 +25,9 @@ type fakeRuntime struct {
 	tasks int
 	// sess is the process the pane was made with, which closing it still ends.
 	sess *session.Session
+	// setup is what a pane that cannot start says it needs; the zero value is a
+	// pane that needs nothing.
+	setup workspace.SetupNeeded
 }
 
 func (f fakeRuntime) Transport() workspace.Transport { return workspace.TransportStructured }
@@ -37,8 +42,12 @@ func (f fakeRuntime) Activity() workspace.Activity {
 	if f.status == session.StatusWaiting {
 		return workspace.ActivityWaiting
 	}
+	if f.status == session.StatusBlocked {
+		return workspace.ActivityBlocked
+	}
 	return workspace.ActivityWorking
 }
+func (f fakeRuntime) Setup() (workspace.SetupNeeded, bool) { return f.setup, f.setup.Text != "" }
 func (f fakeRuntime) Waiting() workspace.WaitingOn {
 	return workspace.WaitingOn{Detail: f.detail, ToolInput: f.input}
 }
@@ -168,4 +177,54 @@ func hasNeed(g graphMsg, pane string) bool {
 		}
 	}
 	return false
+}
+
+// A pane that cannot start for want of Node, a sign-in or the agent's program is
+// listed once, with the fix as its text, after a pane that is down and before
+// the ones with unread mail. Its id is the same on every read, and it goes when
+// the pane starts.
+func TestAPaneThatNeedsSetupIsOneNeedsItem(t *testing.T) {
+	e := newGraphEnv(t)
+	start := time.Now().Add(-time.Minute).Truncate(time.Second)
+	causes := map[string]workspace.SetupNeeded{
+		e.dev:    {Kind: "node", Text: "Install Node 20 or later from nodejs.org. Then start the pane again."},
+		e.eyes:   {Kind: "login", Text: "Sign in to claude with its own tool. Flockdeck does not sign in for you. Then start the pane again."},
+		e.nested: {Kind: "install", Text: strings.Repeat("Install the agent. ", 40)},
+	}
+	for id, su := range causes {
+		e.detach(id, fakeRuntime{status: session.StatusBlocked, detail: "needs setup", started: start, setup: su})
+	}
+
+	g := e.snapshotGraph(t)
+	var setups []team.NeedsItem
+	for _, n := range g.Teams[0].Needs {
+		if n.Kind == team.NeedSetup {
+			setups = append(setups, n)
+		}
+	}
+	if len(setups) != len(causes) {
+		t.Fatalf("setup items = %+v, want one for each of %d panes", setups, len(causes))
+	}
+	for _, n := range setups {
+		if n.ID != "setup:"+n.Pane || n.Text == "" || len([]rune(n.Text)) > team.MaxWaitText {
+			t.Errorf("item = %+v", n)
+		}
+		if want := causes[n.Pane].Text; len([]rune(want)) <= team.MaxWaitText && n.Text != want {
+			t.Errorf("text for %s = %q, want %q", n.Pane, n.Text, want)
+		}
+	}
+	again := e.snapshotGraph(t)
+	for i, n := range again.Teams[0].Needs {
+		if n.ID != g.Teams[0].Needs[i].ID {
+			t.Errorf("item %d id %q then %q", i, g.Teams[0].Needs[i].ID, n.ID)
+		}
+	}
+
+	// Started: the pane works, and its item is gone.
+	e.detach(e.dev, fakeRuntime{status: session.StatusWorking, started: start})
+	for _, n := range e.snapshotGraph(t).Teams[0].Needs {
+		if n.ID == "setup:"+e.dev {
+			t.Errorf("the item stayed after the pane started: %+v", n)
+		}
+	}
 }
