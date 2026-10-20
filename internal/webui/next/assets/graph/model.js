@@ -13,6 +13,11 @@
 // - Every text is untrusted. It is copied as a string and never read as markup or
 //   code. A value of the wrong type becomes an empty string or a zero.
 // - A message that is not a graph gives an empty model, not a throw.
+// - Nothing is recursive and no list of the message is spread into a call, so a
+//   chain of 20000 panes or 300000 needs is built, not thrown on.
+// - A team whose manager is not a node has tree null. A member the tree does not
+//   reach (that case, or a member not linked to its manager) is in the team's
+//   unlinked list, so it does not vanish.
 //
 // Gap in the backend: the graph carries the team of a pane (team, parent,
 // children) but not the tab a helper was started in with `spawn -tab`, so there
@@ -160,14 +165,24 @@ function teamOf(raw, byPane) {
     needsHidden: num(t.needsHidden),
     tree: null,
   };
-  team.tree = treeOf(team.manager || team.id, byPane, team.members);
+  const built = treeOf(team.manager || team.id, byPane, team.members);
+  team.tree = built.tree;
+  // A member the tree does not reach: the manager is not a node, or a member is
+  // not linked to it. It is listed here so that it does not vanish.
+  team.unlinked = [];
+  for (const m of team.members) {
+    const n = byPane.get(m);
+    if (n && !built.seen.has(m)) team.unlinked.push(n);
+  }
   return team;
 }
 
 // The tree of a team, built from each node's children, with a pane that names
 // the node as its parent added when the node does not list it. A pane appears
 // once: a loop or a second parent in a message that is not as the schema says
-// cannot repeat a node or run forever.
+// cannot repeat a node or run forever. It is built with a loop and a stack, not
+// by recursion, so a chain of any length is built. tree is null when the root is
+// not a node; seen is every pane the tree holds.
 function treeOf(rootId, byPane, members) {
   const seen = new Set();
   const childrenOf = new Map();
@@ -178,20 +193,34 @@ function treeOf(rootId, byPane, members) {
       childrenOf.get(n.parent).push(id);
     }
   }
-  const build = (id, depth) => {
+  const frameOf = (id, depth) => {
     const n = byPane.get(id);
-    if (!n || seen.has(id)) return null;
-    seen.add(id);
-    const order = [...n.children];
-    for (const extra of childrenOf.get(id) || []) if (!order.includes(extra)) order.push(extra);
-    const kids = [];
-    for (const c of order) {
-      const k = build(c, depth + 1);
-      if (k) kids.push(k);
+    const order = n.children.slice();
+    const extra = childrenOf.get(id);
+    if (extra) {
+      const listed = new Set(order);
+      for (const e of extra) if (!listed.has(e)) order.push(e);
     }
-    return { pane: id, depth, children: kids };
+    return { node: { pane: id, depth, children: [] }, order, next: 0 };
   };
-  return build(rootId, 0);
+  if (!byPane.has(rootId)) return { tree: null, seen };
+  seen.add(rootId);
+  const root = frameOf(rootId, 0);
+  const stack = [root];
+  while (stack.length > 0) {
+    const top = stack[stack.length - 1];
+    if (top.next >= top.order.length) {
+      stack.pop();
+      continue;
+    }
+    const c = top.order[top.next++];
+    if (!byPane.has(c) || seen.has(c)) continue;
+    seen.add(c);
+    const f = frameOf(c, top.node.depth + 1);
+    top.node.children.push(f.node);
+    stack.push(f);
+  }
+  return { tree: root.node, seen };
 }
 
 /** A model of nothing, for a message that is not a graph. */
@@ -219,7 +248,8 @@ export function emptyModel() {
 /**
  * buildGraphModel turns a graph message into what the views draw.
  *
- * - teams: each team with its needs and a tree (pane, depth, children).
+ * - teams: each team with its needs, a tree (pane, depth, children) and the
+ *   members the tree does not reach (unlinked).
  * - nodes and byPane: every node, in the message's order, by pane id.
  * - solo: the panes in no team, as nodes. soloNeeds: their needs.
  * - needs: every need, the teams' lists in the teams' order and then the solo
@@ -237,8 +267,9 @@ export function buildGraphModel(msg) {
   const teams = list(msg.teams).map((t) => teamOf(t, byPane));
   const soloNeeds = list(msg.soloNeeds).map((n) => needOf(n, ""));
   const needs = [];
-  for (const t of teams) needs.push(...t.needs);
-  needs.push(...soloNeeds);
+  // Loops, not needs.push(...list): a spread of a very long list throws.
+  for (const t of teams) for (const n of t.needs) needs.push(n);
+  for (const n of soloNeeds) needs.push(n);
 
   const needsByPane = new Map();
   const note = (id, item) => {

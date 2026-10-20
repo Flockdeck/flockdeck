@@ -285,7 +285,7 @@ test("promptOf reads a full card, a scrubbed card, a withheld question and a str
   assert.equal(promptOf({ permission: "x" }).kind, "none");
 });
 
-test("500 nodes build in bounded time", () => {
+test("500 nodes build in under 100 ms", () => {
   const nodes = [nodeOf("root", { team: "t", children: [] })];
   const members = ["root"];
   const edges = [];
@@ -316,5 +316,111 @@ test("500 nodes build in bounded time", () => {
   };
   walk(m.teams[0].tree);
   assert.equal(count, 500);
-  assert.ok(took < 1000, `500 nodes took ${took} ms`);
+  assert.ok(took < 100, `500 nodes took ${took} ms`);
+});
+
+test("promptOf: a redacted card and a detailsOnDesktop pane are hidden and cannot be answered here", () => {
+  const redacted = promptOf({ status: "waiting", permission: { tool: "Bash", summary: "s", redacted: true, options: [{ id: "yes" }] } });
+  assert.deepEqual([redacted.hidden, redacted.canAnswerHere], [true, false]);
+  const onDesktop = promptOf({ status: "waiting", detailsOnDesktop: true, permission: { tool: "Bash", summary: "s", options: [{ id: "yes" }] } });
+  assert.deepEqual([onDesktop.hidden, onDesktop.canAnswerHere], [true, false]);
+  // Without either, a card with choices is answerable, and a card with none is not.
+  assert.equal(promptOf({ permission: { tool: "Bash", summary: "s", options: [{ id: "yes" }] } }).canAnswerHere, true);
+  assert.equal(promptOf({ permission: { tool: "Bash", summary: "s", options: [] } }).canAnswerHere, false);
+  assert.equal(promptOf({ permission: { tool: "Bash", summary: "s" } }).canAnswerHere, false);
+  assert.equal(promptOf({ structured: true, permission: { tool: "Bash", summary: "s", options: [{ id: "yes" }] } }).canAnswerHere, false);
+});
+
+test("undelivered holds the message edges that are not read, and not the read ones", () => {
+  const edge = (id, delivery) => ({ kind: "message", from: "a", to: "b", id, time: "2026-10-21T09:00:00Z", delivery });
+  const m = buildGraphModel({
+    type: "graph", root: "/r", project: "", teams: [], solo: ["a", "b"], soloNeeds: [],
+    nodes: [nodeOf("a"), nodeOf("b")],
+    edges: [edge(1, "read"), edge(2, "queued"), edge(3, "woken"), edge(4, "read")],
+  });
+  assert.equal(m.edges.message.length, 4);
+  assert.deepEqual(m.undelivered.map((e) => e.id), [2, 3]);
+});
+
+test("the label of a setup need is its words", () => {
+  assert.equal(needLabel("setup"), "Needs setting up");
+  const m = buildGraphModel({
+    type: "graph", root: "/r", project: "", teams: [], nodes: [nodeOf("a")], edges: [], solo: ["a"],
+    soloNeeds: [{ id: "setup:a", kind: "setup", pane: "a", time: "2026-10-21T09:00:00Z", text: "Node is missing" }],
+  });
+  assert.equal(m.needs[0].label, "Needs setting up");
+  assert.equal(m.needs[0].known, true);
+  assert.equal(attentionOf(m, "a").level, "needs-you");
+});
+
+test("a need with no kind is kept and is not known", () => {
+  const m = buildGraphModel({
+    type: "graph", root: "/r", project: "", teams: [], nodes: [nodeOf("a")], edges: [], solo: ["a"],
+    soloNeeds: [{ id: "x:a", pane: "a", time: "t" }],
+  });
+  assert.equal(m.needs.length, 1);
+  assert.deepEqual([m.needs[0].kind, m.needs[0].known, m.needs[0].label], ["", false, ""]);
+});
+
+test("textHidden is set from a waiting-on-user text alone", () => {
+  const m = buildGraphModel({
+    type: "graph", root: "/r", project: "", teams: [], edges: [], solo: ["a", "b"], soloNeeds: [],
+    nodes: [nodeOf("a", { waitingOn: { kind: "user", text: DETAILS_ON_DESKTOP } }), nodeOf("b", { waitingOn: { kind: "user", text: "ls" } })],
+  });
+  assert.equal(attentionOf(m, "a").textHidden, true);
+  assert.equal(attentionOf(m, "b").textHidden, false);
+});
+
+test("a pane that names its parent is a child even when the parent does not list it", () => {
+  const nodes = [nodeOf("m", { team: "m", children: ["a"] }), nodeOf("a", { parent: "m", team: "m", depth: 1 }), nodeOf("b", { parent: "m", team: "m", depth: 1 }), nodeOf("c", { parent: "b", team: "m", depth: 2 })];
+  const m = buildGraphModel({
+    type: "graph", root: "/r", project: "", edges: [], solo: [], soloNeeds: [], nodes,
+    teams: [{ id: "m", manager: "m", members: ["m", "a", "b", "c"], spendUSD: 0, caps: [], needs: [] }],
+  });
+  const t = m.teams[0].tree;
+  assert.deepEqual(t.children.map((c) => c.pane), ["a", "b"]);
+  assert.deepEqual(t.children[1].children.map((c) => c.pane), ["c"]);
+  assert.equal(t.children[1].children[0].depth, 2);
+  assert.deepEqual(m.teams[0].unlinked, []);
+});
+
+test("a manager that is not a node gives no tree, and its members are listed as unlinked", () => {
+  const m = buildGraphModel({
+    type: "graph", root: "/r", project: "", edges: [], solo: [], soloNeeds: [],
+    nodes: [nodeOf("a", { team: "m" }), nodeOf("b", { team: "m" })],
+    teams: [{ id: "m", manager: "gone", members: ["gone", "a", "b"], spendUSD: 0, caps: [], needs: [] }],
+  });
+  assert.equal(m.teams[0].tree, null);
+  assert.deepEqual(m.teams[0].unlinked.map((n) => n.pane), ["a", "b"]);
+  // A member not linked to the manager is listed too, and a linked one is not.
+  const k = buildGraphModel({
+    type: "graph", root: "/r", project: "", edges: [], solo: [], soloNeeds: [],
+    nodes: [nodeOf("m", { children: ["a"] }), nodeOf("a", { parent: "m" }), nodeOf("z")],
+    teams: [{ id: "m", manager: "m", members: ["m", "a", "z"], spendUSD: 0, caps: [], needs: [] }],
+  });
+  assert.deepEqual(k.teams[0].unlinked.map((n) => n.pane), ["z"]);
+});
+
+test("a chain of 20000 panes and 300000 needs are built without a throw", () => {
+  const n = 20000;
+  const nodes = [];
+  const members = [];
+  for (let i = 0; i < n; i++) {
+    nodes.push(nodeOf(`p${i}`, { children: i + 1 < n ? [`p${i + 1}`] : [], parent: i > 0 ? `p${i - 1}` : "", depth: i }));
+    members.push(`p${i}`);
+  }
+  const needs = [];
+  for (let i = 0; i < 300000; i++) needs.push({ id: `ask:${i}`, kind: "ask", pane: "p0", time: "2026-10-21T09:00:00Z" });
+  const m = buildGraphModel({
+    type: "graph", root: "/r", project: "", edges: [], solo: [], soloNeeds: [], nodes,
+    teams: [{ id: "t", manager: "p0", members, spendUSD: 0, caps: [], needs }],
+  });
+  assert.equal(m.needs.length, 300000);
+  let depth = 0;
+  for (let node = m.teams[0].tree; node.children.length > 0; node = node.children[0]) depth++;
+  assert.equal(depth, n - 1);
+  assert.deepEqual(m.teams[0].unlinked, []);
+  // And the same needs as solo needs, which go through the other loop.
+  const s = buildGraphModel({ type: "graph", root: "/r", project: "", teams: [], edges: [], solo: [], nodes: [], soloNeeds: needs });
+  assert.equal(s.needs.length, 300000);
 });
