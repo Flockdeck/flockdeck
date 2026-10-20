@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/testiso/iso"
 )
 
 // TestBuiltinCLIFlagsAreStillReal is the live half of the compatibility check
@@ -30,6 +32,9 @@ func TestBuiltinCLIFlagsAreStillReal(t *testing.T) {
 			path, err := exec.LookPath(spec.Exe)
 			if err != nil {
 				t.Skipf("%s is not installed here: %v", spec.Exe, err)
+			}
+			if iso.IsStub(path) {
+				t.Skipf("%s here is the test stub, not the real program; set FLOCKDECK_LIVE_AGENT_TESTS to check the real one", spec.Exe)
 			}
 			help := cliHelp(t, path)
 			for _, flag := range flagsOf(spec) {

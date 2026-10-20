@@ -16,16 +16,19 @@ import (
 func TestACommandThatLeavesAChildBehindStillReturns(t *testing.T) {
 	line := `sh -c "sleep 20 & echo started"`
 	if runtime.GOOS == "windows" {
-		line = `cmd /c start /b ping -n 20 127.0.0.1`
+		// The child starts in the system directory, not in the test's, which
+		// Windows would refuse to remove for as long as the child ran.
+		line = `cmd /c start /b /d "` + os.Getenv("SystemRoot") + `" ping -n 20 127.0.0.1`
 	}
-	// Not t.TempDir: the child left behind is still working in the directory
-	// when the test ends, which is the point, and Windows will not remove a
-	// directory a running program is in.
 	dir, err := os.MkdirTemp("", "flockdeck-wait-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("the test's folder could not be removed: %v", err)
+		}
+	})
 	set, err := New(dir)
 	if err != nil {
 		t.Fatal(err)

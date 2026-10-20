@@ -87,6 +87,10 @@ func record(format string, args ...any) string {
 
 // Main is a TestMain body: os.Exit(iso.Main(m)).
 func Main(m *testing.M) int {
+	if name := stubName(filepath.Base(os.Args[0])); name != "" {
+		// This binary was started as an agent, through a stub: see StubNames.
+		return runStub(name, os.Args[1:])
+	}
 	if cfg, ok := os.LookupEnv(realConfigEnv); ok {
 		// A test binary a test started, with the environment it chose for it:
 		// that environment stays, and "real" is still what the first one found.
@@ -106,6 +110,14 @@ func Main(m *testing.M) int {
 		defer os.RemoveAll(dir)
 		stop := keepFresh(dir, touchInterval)
 		defer stop()
+		if os.Getenv(liveAgentsEnv) == "" {
+			stubs, err := installStubs(dir)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "testiso: the agent stubs could not be made, so a test could start a real agent:", err)
+				return 1
+			}
+			prependPath(stubs)
+		}
 		redirect(dir)
 		clearKeys()
 		clearOwnEnv()

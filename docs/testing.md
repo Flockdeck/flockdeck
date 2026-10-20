@@ -36,6 +36,14 @@ func TestMain(m *testing.M) { os.Exit(testiso.Main(m)) }
   not compile everything into an empty cache;
 - removes `flockdeck-test-home-*`, `flockdeck-state-*` and `flockdeck-wait-*` directories in the system temp directory that
   are over a day old, which a run that was killed leaves behind;
+- puts a stub of each agent the catalog launches by name (`claude`, `codex`,
+  `gemini`, `aider`, `opencode`, `cursor-agent`) first on `PATH`, so a test that
+  opens a pane starts a program that only idles, never the real agent installed
+  on the machine. Set `ISO_STUB_LOG` to a file to have each stub record its
+  arguments, directory and home. The stubs are left out when
+  `FLOCKDECK_LIVE_AGENT_TESTS` is set, for the live tests. A test checks the
+  list against the catalog, so a new agent needs a name in
+  `iso.StubNames`;
 - refuses any request or dial to a host that is not loopback, through
   `http.DefaultTransport` (so `http.DefaultClient` and any client without a
   `Transport` of its own);
