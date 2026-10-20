@@ -85,6 +85,7 @@ type wakeFakeMail struct {
 	unread int
 	msgs   []team.Message
 	woken  []int
+	read   []int
 }
 
 func (m *wakeFakeMail) List(string, bool) []team.Message {
@@ -96,6 +97,12 @@ func (m *wakeFakeMail) NewestUnread(string) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.unread
+}
+func (m *wakeFakeMail) Read(_ string, id int) (team.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.read = append(m.read, id)
+	return team.Message{ID: id}, nil
 }
 func (m *wakeFakeMail) MarkWoken(_ string, ids ...int) {
 	m.mu.Lock()

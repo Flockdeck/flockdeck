@@ -139,6 +139,9 @@ type wakeMail interface {
 	List(pane string, all bool) []team.Message
 	NewestUnread(pane string) int
 	MarkWoken(pane string, ids ...int)
+	// Read marks a message read, which text mode does for a message whose text
+	// it has typed.
+	Read(pane string, id int) (team.Message, error)
 }
 
 // wakeNotices is what it needs of the hook notifier. *team.Notifier is one.
@@ -273,7 +276,18 @@ func (s *wakeService) tick() {
 // consider checks every condition for one pane and, if all hold, types the
 // line. It returns why not, or "" when a line was started, for the tests.
 func (s *wakeService) consider(c wakeCandidate) string {
-	id := s.mail.NewestUnread(c.ID)
+	// In text mode every unread message is typed in turn, oldest first, at the
+	// normal limits; otherwise only the newest is named, and the agent reads
+	// the rest with `inbox`.
+	text := c.TextOK && s.settings().WakeText(c.Agent)
+	id := 0
+	if text {
+		if unread := s.mail.List(c.ID, false); len(unread) > 0 {
+			id = unread[0].ID
+		}
+	} else {
+		id = s.mail.NewestUnread(c.ID)
+	}
 	if id == 0 {
 		return "no unread mail"
 	}
@@ -362,7 +376,7 @@ func (s *wakeService) consider(c wakeCandidate) string {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.fire(c, id, r, now)
+		s.fire(c, id, text, r, now)
 	}()
 	return ""
 }
@@ -388,7 +402,7 @@ func (s *wakeService) readSince(pane string, t time.Time) bool {
 // as well. The event says the line was unsubmitted, the message stays unread
 // and unwoken, and nothing more is typed until the user has typed in the pane.
 // at is the time the limits were counted at.
-func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading, at time.Time) {
+func (s *wakeService) fire(c wakeCandidate, id int, text bool, r session.WakeReading, at time.Time) {
 	defer func() {
 		if c.Release != nil {
 			c.Release()
@@ -419,7 +433,7 @@ func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading, at ti
 		return
 	}
 	line := wakeLine(id)
-	if c.TextOK && s.settings().WakeText(c.Agent) {
+	if text {
 		if m, ok := s.message(c.ID, id); ok {
 			line = wakeTextLine(m)
 		}
@@ -438,6 +452,18 @@ func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading, at ti
 	}
 	if submitted {
 		s.mail.MarkWoken(c.ID, id)
+		if text {
+			// The agent cannot run `inbox read`, and the text is now in its
+			// input, so the message counts as read: nothing would otherwise
+			// ever clear it, and the same one would be typed again until the
+			// streak stopped the pane for good.
+			_, _ = s.mail.Read(c.ID, id)
+			s.mu.Lock()
+			if st := s.state[c.ID]; st != nil {
+				st.streak = 0
+			}
+			s.mu.Unlock()
+		}
 	} else {
 		s.mu.Lock()
 		if st := s.state[c.ID]; st != nil {

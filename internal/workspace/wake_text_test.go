@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/store"
@@ -172,5 +173,130 @@ func TestPrefsWakeTextIsOffUntilOptedIn(t *testing.T) {
 	pw.read = func() (store.Prefs, error) { return prefs, errors.New("unreadable") }
 	if pw.WakeText("aider") {
 		t.Fatal("text mode on with unreadable preferences")
+	}
+}
+
+// With a real inbox, text mode types each unread message in turn, oldest
+// first, one a minute, marks each read once its text and Enter are typed, and
+// never types one twice. The fake inbox hides this: it never marks anything
+// read, so a message stays the newest unread forever.
+func TestTextModeTypesEachUnreadMessageOnceOldestFirst(t *testing.T) {
+	r := newWakeRig(t)
+	store := team.NewStore(func() time.Time { return r.svc.now() })
+	r.svc.mail = store
+	r.cand.TextOK = true
+	r.svc.settings = func() WakeSettings { return wakeTextOn{} }
+
+	sender := team.Sender{Pane: "p2", Role: "reviewer"}
+	for _, text := range []string{"first", "second"} {
+		if _, err := store.Send(sender, "p1", text); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	line := func(text string) string { return "Flockdeck message from reviewer: " + text }
+	typed := func() []string {
+		var lines []string
+		for _, w := range r.sess.written() {
+			if w != "\r" {
+				lines = append(lines, w)
+			}
+		}
+		return lines
+	}
+
+	if why := r.try(); why != "" {
+		t.Fatalf("first: %s", why)
+	}
+	if got := typed(); len(got) != 1 || got[0] != line("first") {
+		t.Fatalf("typed %q", got)
+	}
+	if unread := store.List("p1", false); len(unread) != 1 || unread[0].Text != "second" {
+		t.Fatalf("unread after the first = %+v", unread)
+	}
+
+	// A minute has not passed.
+	if r.try() == "" {
+		t.Fatal("a second line inside a minute")
+	}
+	r.advance(61 * time.Second)
+	if why := r.try(); why != "" {
+		t.Fatalf("second: %s", why)
+	}
+	if got := typed(); len(got) != 2 || got[1] != line("second") {
+		t.Fatalf("typed %q", got)
+	}
+
+	// Nothing is left, and nothing is typed again however often it looks.
+	for i := 0; i < 6; i++ {
+		r.advance(61 * time.Second)
+		if why := r.try(); why != "no unread mail" {
+			t.Fatalf("round %d: %q", i, why)
+		}
+	}
+	if got := typed(); len(got) != 2 {
+		t.Fatalf("typed %q", got)
+	}
+}
+
+// More messages than the streak limit are all delivered: typing the text is
+// the reading, so the count of lines in a row without a read does not stop it.
+func TestTextModeIsNotStoppedByTheStreakLimit(t *testing.T) {
+	r := newWakeRig(t)
+	store := team.NewStore(func() time.Time { return r.svc.now() })
+	r.svc.mail = store
+	r.cand.TextOK = true
+	r.svc.settings = func() WakeSettings { return wakeTextOn{} }
+	for i := 0; i < wakeStreakMax+3; i++ {
+		if _, err := store.Send(team.Sender{Pane: "p2", Role: "w"}, "p1", "m"+strings.Repeat("x", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < wakeStreakMax+3; i++ {
+		if why := r.try(); why != "" {
+			t.Fatalf("message %d: %s", i, why)
+		}
+		r.advance(61 * time.Second)
+	}
+	if n := len(store.List("p1", false)); n != 0 {
+		t.Fatalf("%d messages left unread", n)
+	}
+}
+
+// A message whose Enter was not sent is not marked read, so it is not lost.
+func TestTextModeDoesNotMarkReadWithoutTheEnter(t *testing.T) {
+	r := newWakeRig(t)
+	store := team.NewStore(func() time.Time { return r.svc.now() })
+	r.svc.mail = store
+	r.cand.TextOK = true
+	r.svc.settings = func() WakeSettings { return wakeTextOn{} }
+	if _, err := store.Send(team.Sender{Pane: "p2", Role: "w"}, "p1", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	r.svc.sleep = func(time.Duration, <-chan struct{}) bool {
+		r.sess.mu.Lock()
+		r.sess.user = r.svc.now().Add(time.Second)
+		r.sess.mu.Unlock()
+		return true
+	}
+	r.try()
+	if n := len(store.List("p1", false)); n != 1 {
+		t.Fatalf("%d unread, want the message kept", n)
+	}
+}
+
+func TestEscapeLenCoversTheThreeByteSequences(t *testing.T) {
+	// ESC ( B selects a character set: three bytes, and the B is not text.
+	if got := cleanWakeText("a\x1b(Bb"); got != "ab" {
+		t.Fatalf("got %q", got)
+	}
+	if got := escapeLen("\x1b(Bb"); got != 3 {
+		t.Fatalf("escapeLen = %d", got)
+	}
+	if got := escapeLen("\x1bM"); got != 2 {
+		t.Fatalf("a two byte escape: %d", got)
+	}
+	if got := escapeLen("\x1b"); got != 1 {
+		t.Fatalf("a lone ESC: %d", got)
 	}
 }

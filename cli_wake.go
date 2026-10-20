@@ -178,7 +178,7 @@ func runWakeWith(env wakeEnv, args []string, out io.Writer) error {
 		}
 	}
 	if action == "text" {
-		return wakeText(env, textState, *agentID, *paneID, out)
+		return wakeText(env, textState, *agentID, out)
 	}
 	scope, id := store.WakeGlobal, ""
 	switch {
@@ -217,10 +217,10 @@ func runWakeWith(env wakeEnv, args []string, out io.Writer) error {
 }
 
 // wakeText is `wake text on|off -agent id`.
-func wakeText(env wakeEnv, state, agentID, paneID string, out io.Writer) error {
-	if (state != "on" && state != "off") || agentID == "" || paneID != "" {
+func wakeText(env wakeEnv, state, agentID string, out io.Writer) error {
+	if (state != "on" && state != "off") || agentID == "" {
 		wakeUsage(os.Stderr)
-		return errors.New("text takes on or off and -agent, and no -pane")
+		return errors.New("text takes on or off and -agent")
 	}
 	on := state == "on"
 	if on && !env.offersText(agentID) {

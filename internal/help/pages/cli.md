@@ -644,6 +644,18 @@ mode is off for every agent until you turn it on, and it can only be turned on f
 agent whose catalog entry offers it, which today is Aider alone. The wake event keeps the
 line that was typed, so with text mode on the event log holds that much of the message.
 
+The fixed line names only the newest unread message, and the agent reads the rest with
+`inbox`. An agent in text mode cannot, so every unread message is typed in turn, oldest
+first, at the normal limits: one line a minute for a pane, and twenty an hour for a
+project. When a message's text and its Enter have both been typed, the message is marked
+read, since the agent has it and nothing else would ever clear it. A message whose Enter
+was not sent stays unread. The limit on lines in a row with no read does not apply, because
+each line counts as a read.
+
+If a switch goes off between the line and its Enter, the Enter is held back and the text
+stays in the agent's input box, where it joins whatever you type there next. The message
+stays unread, and nothing more is typed to that pane until you have typed in it.
+
 ## remote
 
 Reach this machine's agents from another device, through a relay.
