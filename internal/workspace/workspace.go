@@ -231,6 +231,8 @@ type Pane struct {
 	// this pane is in flight, so a pane that has stopped reading cannot collect
 	// a goroutine per send.
 	sending bool
+	// rt is the pane's runtime when it is not the terminal one: see Runtime.
+	rt PaneRuntime
 }
 
 // Alive reports whether the pane has a running process.
@@ -354,6 +356,9 @@ type RepoSummary struct {
 
 // Workspace is the whole application state.
 type Workspace struct {
+	// replyLookup is where a terminal pane's last reply is read from: see
+	// SetReplyLookup. It is atomic so that reading it takes no lock.
+	replyLookup atomic.Pointer[func(paneID string) (LastReply, bool)]
 	// bgChecks is what is remembered of each pane's background work checks,
 	// by pane id; guarded by backgroundChecksMu. See DueBackgroundChecks.
 	bgChecks map[string]*backgroundCheck
@@ -983,10 +988,7 @@ func (w *Workspace) Projects() []Project {
 				continue
 			}
 			out[i].Panes++
-			if pane.Sess == nil {
-				continue
-			}
-			tallies[i].Add(PaneActivity(pane))
+			tallies[i].Add(w.Runtime(pane).Activity())
 		}
 	}
 	for i := range out {
@@ -2512,8 +2514,8 @@ func (w *Workspace) destroyPane(id string) {
 	if recording {
 		w.stopRecorderAsync(id, true)
 	}
-	if p != nil && p.Sess != nil {
-		_ = p.Sess.Close()
+	if p != nil {
+		_ = w.Runtime(p).Close()
 	}
 	// The pane's process has now been asked to end the ordinary way, so the
 	// record that would have a future run chase it down again is no longer
@@ -3287,7 +3289,7 @@ func (w *Workspace) AttentionCount() (waiting, working int) {
 	defer w.mu.RUnlock()
 	var tally Tally
 	for _, p := range w.panes {
-		tally.Add(PaneActivity(p))
+		tally.Add(w.Runtime(p).Activity())
 	}
 	return tally.Waiting, tally.Working
 }

@@ -139,7 +139,7 @@ func (t Tally) Activity() Activity {
 func (w *Workspace) TabActivity(t *Tab) Activity {
 	var tally Tally
 	for _, id := range t.Tree.Panes() {
-		tally.Add(PaneActivity(w.Pane(id)))
+		tally.Add(w.Runtime(w.Pane(id)).Activity())
 	}
 	return tally.Activity()
 }

@@ -315,7 +315,7 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 					names[pr.Root] = pr.Name
 				}
 			}
-			w := waitingAgent{id: id, name: p.Name, project: projectLabel(names, s.ws.RootOf(id)), since: p.Sess.StatusSince()}
+			w := waitingAgent{id: id, name: p.Name, project: projectLabel(names, s.ws.RootOf(id)), since: s.ws.Runtime(p).StatusSince()}
 			waits = append(waits, w)
 			if now.Sub(w.since) >= delay && !s.push.pushed[id].Equal(w.since) {
 				fresh = true

@@ -404,6 +404,13 @@ func New(ws *workspace.Workspace) (*Server, error) {
 		preview:       newPreviewCache(),
 	}
 
+	// A terminal pane's last reply is the preview of the conversation the
+	// server follows for it.
+	s.ws.SetReplyLookup(func(id string) (workspace.LastReply, bool) {
+		v, ok := s.preview.get(id)
+		return workspace.LastReply{Text: v.Text, TS: v.TS, Kind: v.Kind}, ok
+	})
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
 	mux.Handle("/assets/", http.StripPrefix("/assets/", s.authFiles(webui.FS())))

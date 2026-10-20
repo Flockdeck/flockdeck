@@ -339,7 +339,7 @@ func (s *Server) teamRosterBase(root string) (members []team.Member, rows []team
 			rv.Peer = m.Name
 		}
 		if p := ws.Pane(m.Pane); p != nil {
-			rv.Activity = workspace.PaneActivity(p)
+			rv.Activity = ws.Runtime(p).Activity()
 			rv.Branch = p.Branch
 			rv.Locked = p.Locked
 			rv.Finished = ws.PaneFinished(m.Pane)

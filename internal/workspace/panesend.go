@@ -102,7 +102,7 @@ func (w *Workspace) SendToPane(id, text string, allowShell bool) (SendResult, er
 	if !w.claimSend(p) {
 		return res, ErrSendInFlight
 	}
-	res.Queued = PaneActivity(p) == ActivityWorking
+	res.Queued = w.Runtime(p).Activity() == ActivityWorking
 	if w.routeFirstTurn(p, text) {
 		w.releaseSend(p)
 		res.Routed, res.Queued = true, false

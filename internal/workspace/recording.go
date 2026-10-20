@@ -190,7 +190,7 @@ func (w *Workspace) PaneTranscriptSupported(id string) (name string, ok bool) {
 	if p == nil || !p.IsAgent() {
 		return "", false
 	}
-	spec, _, ok := w.transcriptSourceLocked(p)
+	spec, _, ok := w.conversationOfLocked(p)
 	return specLabel(spec), ok
 }
 
@@ -214,7 +214,7 @@ func (w *Workspace) SetPaneRecording(id string, on bool) (found bool, err error)
 	}
 	conv := ""
 	if on {
-		if spec, _, ok := w.transcriptSourceLocked(p); !ok {
+		if spec, _, ok := w.conversationOfLocked(p); !ok {
 			w.mu.Unlock()
 			return true, fmt.Errorf("%s stores no conversation Flockdeck can read, so there is nothing to record", specLabel(spec))
 		}
@@ -452,7 +452,7 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 		return
 	}
 	conv := paneConversation(p)
-	spec, ex, ok := w.transcriptSourceLocked(p)
+	spec, ex, ok := w.conversationOfLocked(p)
 	w.mu.RUnlock()
 	if !ok {
 		// Nothing to follow, as for a pane restored or spawned recording whose
@@ -842,7 +842,7 @@ func (w *Workspace) PrepareExport(id string) (*ExportJob, error) {
 	if root == "" {
 		root = p.Cwd
 	}
-	spec, ex, ok := w.transcriptSourceLocked(p)
+	spec, ex, ok := w.conversationOfLocked(p)
 	max := w.recMax
 	w.mu.RUnlock()
 	if !ok {
@@ -926,7 +926,7 @@ func (w *Workspace) TranscriptFile(id string) (string, error) {
 		return "", errors.New("only an agent pane has a transcript, and that pane is not one or is no longer open")
 	}
 	conv, recording := paneConversation(p), p.Recording
-	spec, ex, ok := w.transcriptSourceLocked(p)
+	spec, ex, ok := w.conversationOfLocked(p)
 	w.mu.RUnlock()
 	if !ok {
 		return "", fmt.Errorf("%s stores no conversation Flockdeck can read, so it has no transcript", specLabel(spec))

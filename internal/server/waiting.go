@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // This file turns a waiting pane's tool and ToolInput (internal/hooks.Event,
@@ -56,23 +57,19 @@ type permissionView struct {
 	Options []permissionOption `json:"options"`
 }
 
-// permissionOption is one choice of a permission prompt: an id a window can send
-// back, the words the agent's own prompt uses for it, and its kind. The kind
-// uses the names of the Agent Client Protocol and is the contract for later
-// structured panes; the id is what the terminal path sends.
-type permissionOption struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Kind string `json:"kind"`
-}
+// permissionOption is one choice of a permission prompt; see
+// workspace.PermissionOption. The kind uses the names of the Agent Client
+// Protocol and is the contract for structured panes; the id is what the
+// terminal path sends.
+type permissionOption = workspace.PermissionOption
 
 // The kinds of a permission option. Terminal panes use only the first and the
 // third: allow_always and reject_always are for structured panes.
 const (
-	optionAllowOnce    = "allow_once"
-	optionAllowAlways  = "allow_always"
-	optionRejectOnce   = "reject_once"
-	optionRejectAlways = "reject_always"
+	optionAllowOnce    = workspace.OptionAllowOnce
+	optionAllowAlways  = workspace.OptionAllowAlways
+	optionRejectOnce   = workspace.OptionRejectOnce
+	optionRejectAlways = workspace.OptionRejectAlways
 )
 
 // permissionOptionKinds lists every kind an option can have.
@@ -80,33 +77,17 @@ func permissionOptionKinds() []string {
 	return []string{optionAllowOnce, optionAllowAlways, optionRejectOnce, optionRejectAlways}
 }
 
-// optionTools are the tools whose Claude Code prompt has the shape documented in
-// docs/status-matrix.md (B4 and B7), the ones permissionViewFor parses. Another
-// tool can offer other choices: the plan approval of ExitPlanMode does, and its
-// first choice is not a plain Yes.
-var optionTools = map[string]bool{"Bash": true, "Edit": true, "MultiEdit": true, "Write": true}
-
-// permissionOptions are the choices of a permission prompt that are documented
-// for the agent: Claude Code answers Yes with Enter, which is its default
-// choice, and "No, and tell Claude what to do differently" with Esc (see
-// docs/status-matrix.md, B4 and B7). Its middle choice, "Yes, and don't ask
-// again", names a rule that depends on the tool and the version, so it is not
-// listed. Any other agent, a pane that has not recorded its agent, and any tool
-// outside optionTools gets none: those prompts are not parsed here.
+// permissionOptions are the choices of a terminal pane's permission prompt for
+// agent and tool. A pane says its own through its runtime, and a window's
+// view does not call this; it stays for the terminal rule's tests.
 func permissionOptions(agent, tool string) []permissionOption {
-	if agent != "claude" || !optionTools[tool] {
-		return []permissionOption{}
-	}
-	return []permissionOption{
-		{ID: permissionYes, Name: "Yes", Kind: optionAllowOnce},
-		{ID: permissionNo, Name: "No, and tell Claude what to do differently", Kind: optionRejectOnce},
-	}
+	return workspace.TerminalPermissionOptions(agent, tool)
 }
 
-// The ids of a permission prompt's options.
+// The ids of a terminal permission prompt's options.
 const (
-	permissionYes = "yes"
-	permissionNo  = "no"
+	permissionYes = workspace.PermissionYes
+	permissionNo  = workspace.PermissionNo
 )
 
 // permissionOptionIDs lists every id an option can have.
