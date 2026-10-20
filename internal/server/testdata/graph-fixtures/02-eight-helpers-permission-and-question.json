@@ -1,0 +1,278 @@
+{
+  "type": "graph",
+  "root": "/work/02-eight-helpers-permission-and-question",
+  "project": "02-eight-helpers-permission-and-question",
+  "teams": [
+    {
+      "id": "02-eight-helpers-permission-and-question-manager",
+      "manager": "02-eight-helpers-permission-and-question-manager",
+      "members": [
+        "02-eight-helpers-permission-and-question-manager",
+        "02-eight-helpers-permission-and-question-schema",
+        "02-eight-helpers-permission-and-question-backfill",
+        "02-eight-helpers-permission-and-question-ledger",
+        "02-eight-helpers-permission-and-question-reports",
+        "02-eight-helpers-permission-and-question-webhooks",
+        "02-eight-helpers-permission-and-question-fixtures",
+        "02-eight-helpers-permission-and-question-emails",
+        "02-eight-helpers-permission-and-question-retries"
+      ],
+      "goal": "Ship 02-eight-helpers-permission-and-question",
+      "started": "2026-10-21T07:00:00Z",
+      "spendUSD": 9.5,
+      "caps": [
+        {
+          "pane": "02-eight-helpers-permission-and-question-manager",
+          "used": 8,
+          "max": 8
+        }
+      ],
+      "needs": [
+        {
+          "id": "ask:02-eight-helpers-permission-and-question-backfill",
+          "kind": "ask",
+          "pane": "02-eight-helpers-permission-and-question-backfill",
+          "time": "2026-10-21T08:53:00Z",
+          "text": "Backfill invoices older than 2024, or leave them as they are?"
+        },
+        {
+          "id": "permission:02-eight-helpers-permission-and-question-schema",
+          "kind": "permission",
+          "pane": "02-eight-helpers-permission-and-question-schema",
+          "time": "2026-10-21T08:57:00Z",
+          "text": "psql -f migrations/0042_invoices.sql"
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "pane": "02-eight-helpers-permission-and-question-manager",
+      "children": [
+        "02-eight-helpers-permission-and-question-schema",
+        "02-eight-helpers-permission-and-question-backfill",
+        "02-eight-helpers-permission-and-question-ledger",
+        "02-eight-helpers-permission-and-question-reports",
+        "02-eight-helpers-permission-and-question-webhooks",
+        "02-eight-helpers-permission-and-question-fixtures",
+        "02-eight-helpers-permission-and-question-emails",
+        "02-eight-helpers-permission-and-question-retries"
+      ],
+      "depth": 0,
+      "team": "02-eight-helpers-permission-and-question-manager",
+      "waitingOn": {
+        "kind": "helpers",
+        "text": "4 helpers are busy",
+        "ref": "02-eight-helpers-permission-and-question-schema"
+      },
+      "kind": "terminal",
+      "name": "manager",
+      "role": "manager",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:20:00Z",
+      "branch": "main"
+    },
+    {
+      "pane": "02-eight-helpers-permission-and-question-schema",
+      "parent": "02-eight-helpers-permission-and-question-manager",
+      "depth": 1,
+      "team": "02-eight-helpers-permission-and-question-manager",
+      "waitingOn": {
+        "kind": "user",
+        "text": "psql -f migrations/0042_invoices.sql"
+      },
+      "kind": "terminal",
+      "name": "schema",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:57:00Z",
+      "branch": "work/schema"
+    },
+    {
+      "pane": "02-eight-helpers-permission-and-question-backfill",
+      "parent": "02-eight-helpers-permission-and-question-manager",
+      "depth": 1,
+      "team": "02-eight-helpers-permission-and-question-manager",
+      "waitingOn": {
+        "kind": "user",
+        "text": "Backfill invoices older than 2024, or leave them as they are?"
+      },
+      "kind": "terminal",
+      "name": "backfill",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:53:00Z",
+      "branch": "work/backfill"
+    },
+    {
+      "pane": "02-eight-helpers-permission-and-question-ledger",
+      "parent": "02-eight-helpers-permission-and-question-manager",
+      "depth": 1,
+      "team": "02-eight-helpers-permission-and-question-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "ledger",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:59:00Z",
+      "live": "Edit ledger/post.go",
+      "branch": "work/ledger"
+    },
+    {
+      "pane": "02-eight-helpers-permission-and-question-reports",
+      "parent": "02-eight-helpers-permission-and-question-manager",
+      "depth": 1,
+      "team": "02-eight-helpers-permission-and-question-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "reports",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:59:00Z",
+      "live": "Bash go build ./...",
+      "branch": "work/reports"
+    },
+    {
+      "pane": "02-eight-helpers-permission-and-question-webhooks",
+      "parent": "02-eight-helpers-permission-and-question-manager",
+      "depth": 1,
+      "team": "02-eight-helpers-permission-and-question-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "webhooks",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:46:00Z",
+      "branch": "work/webhooks"
+    },
+    {
+      "pane": "02-eight-helpers-permission-and-question-fixtures",
+      "parent": "02-eight-helpers-permission-and-question-manager",
+      "depth": 1,
+      "team": "02-eight-helpers-permission-and-question-manager",
+      "waitingOn": {
+        "kind": "down",
+        "text": "exited",
+        "ref": "02-eight-helpers-permission-and-question-fixtures"
+      },
+      "kind": "terminal",
+      "name": "fixtures",
+      "role": "worker",
+      "agent": "claude",
+      "status": "exited",
+      "activity": "exited",
+      "since": "2026-10-21T08:35:00Z",
+      "branch": "work/fixtures"
+    },
+    {
+      "pane": "02-eight-helpers-permission-and-question-emails",
+      "parent": "02-eight-helpers-permission-and-question-manager",
+      "depth": 1,
+      "team": "02-eight-helpers-permission-and-question-manager",
+      "waitingOn": {
+        "kind": "reviewer",
+        "text": "T1 is in review by reviewer",
+        "ref": "T1"
+      },
+      "kind": "terminal",
+      "name": "emails",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:54:00Z",
+      "branch": "work/emails",
+      "task": {
+        "id": "T1",
+        "title": "Receipt email copy",
+        "state": "in-review"
+      }
+    },
+    {
+      "pane": "02-eight-helpers-permission-and-question-retries",
+      "parent": "02-eight-helpers-permission-and-question-manager",
+      "depth": 1,
+      "team": "02-eight-helpers-permission-and-question-manager",
+      "waitingOn": {
+        "kind": "task",
+        "text": "waiting on the payment sandbox keys",
+        "ref": "T2"
+      },
+      "kind": "terminal",
+      "name": "retries",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:40:00Z",
+      "branch": "work/retries",
+      "task": {
+        "id": "T2",
+        "title": "Retry failed charges",
+        "state": "blocked"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "kind": "spawn",
+      "from": "02-eight-helpers-permission-and-question-manager",
+      "to": "02-eight-helpers-permission-and-question-schema"
+    },
+    {
+      "kind": "spawn",
+      "from": "02-eight-helpers-permission-and-question-manager",
+      "to": "02-eight-helpers-permission-and-question-backfill"
+    },
+    {
+      "kind": "spawn",
+      "from": "02-eight-helpers-permission-and-question-manager",
+      "to": "02-eight-helpers-permission-and-question-ledger"
+    },
+    {
+      "kind": "spawn",
+      "from": "02-eight-helpers-permission-and-question-manager",
+      "to": "02-eight-helpers-permission-and-question-reports"
+    },
+    {
+      "kind": "spawn",
+      "from": "02-eight-helpers-permission-and-question-manager",
+      "to": "02-eight-helpers-permission-and-question-webhooks"
+    },
+    {
+      "kind": "spawn",
+      "from": "02-eight-helpers-permission-and-question-manager",
+      "to": "02-eight-helpers-permission-and-question-fixtures"
+    },
+    {
+      "kind": "spawn",
+      "from": "02-eight-helpers-permission-and-question-manager",
+      "to": "02-eight-helpers-permission-and-question-emails"
+    },
+    {
+      "kind": "spawn",
+      "from": "02-eight-helpers-permission-and-question-manager",
+      "to": "02-eight-helpers-permission-and-question-retries"
+    }
+  ],
+  "solo": [],
+  "soloNeeds": []
+}

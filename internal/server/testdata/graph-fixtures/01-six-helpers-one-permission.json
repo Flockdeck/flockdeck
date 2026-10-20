@@ -1,0 +1,221 @@
+{
+  "type": "graph",
+  "root": "/work/01-six-helpers-one-permission",
+  "project": "01-six-helpers-one-permission",
+  "teams": [
+    {
+      "id": "01-six-helpers-one-permission-manager",
+      "manager": "01-six-helpers-one-permission-manager",
+      "members": [
+        "01-six-helpers-one-permission-manager",
+        "01-six-helpers-one-permission-cart",
+        "01-six-helpers-one-permission-tax",
+        "01-six-helpers-one-permission-docs",
+        "01-six-helpers-one-permission-migrate",
+        "01-six-helpers-one-permission-api",
+        "01-six-helpers-one-permission-search"
+      ],
+      "goal": "Ship 01-six-helpers-one-permission",
+      "started": "2026-10-21T07:00:00Z",
+      "spendUSD": 8,
+      "caps": [
+        {
+          "pane": "01-six-helpers-one-permission-manager",
+          "used": 6,
+          "max": 8
+        }
+      ],
+      "needs": [
+        {
+          "id": "permission:01-six-helpers-one-permission-tax",
+          "kind": "permission",
+          "pane": "01-six-helpers-one-permission-tax",
+          "time": "2026-10-21T08:56:00Z",
+          "text": "go test ./tax/... -run TestRounding -count=1"
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "pane": "01-six-helpers-one-permission-manager",
+      "children": [
+        "01-six-helpers-one-permission-cart",
+        "01-six-helpers-one-permission-tax",
+        "01-six-helpers-one-permission-docs",
+        "01-six-helpers-one-permission-migrate",
+        "01-six-helpers-one-permission-api",
+        "01-six-helpers-one-permission-search"
+      ],
+      "depth": 0,
+      "team": "01-six-helpers-one-permission-manager",
+      "waitingOn": {
+        "kind": "helpers",
+        "text": "2 helpers are busy",
+        "ref": "01-six-helpers-one-permission-cart"
+      },
+      "kind": "terminal",
+      "name": "manager",
+      "role": "manager",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:20:00Z",
+      "branch": "main"
+    },
+    {
+      "pane": "01-six-helpers-one-permission-cart",
+      "parent": "01-six-helpers-one-permission-manager",
+      "depth": 1,
+      "team": "01-six-helpers-one-permission-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "cart",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:58:00Z",
+      "live": "Edit cart/total.go",
+      "branch": "work/cart"
+    },
+    {
+      "pane": "01-six-helpers-one-permission-tax",
+      "parent": "01-six-helpers-one-permission-manager",
+      "depth": 1,
+      "team": "01-six-helpers-one-permission-manager",
+      "waitingOn": {
+        "kind": "user",
+        "text": "go test ./tax/... -run TestRounding -count=1"
+      },
+      "kind": "terminal",
+      "name": "tax",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:56:00Z",
+      "branch": "work/tax"
+    },
+    {
+      "pane": "01-six-helpers-one-permission-docs",
+      "parent": "01-six-helpers-one-permission-manager",
+      "depth": 1,
+      "team": "01-six-helpers-one-permission-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "docs",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:49:00Z",
+      "branch": "work/docs"
+    },
+    {
+      "pane": "01-six-helpers-one-permission-migrate",
+      "parent": "01-six-helpers-one-permission-manager",
+      "depth": 1,
+      "team": "01-six-helpers-one-permission-manager",
+      "waitingOn": {
+        "kind": "down",
+        "text": "exited",
+        "ref": "01-six-helpers-one-permission-migrate"
+      },
+      "kind": "terminal",
+      "name": "migrate",
+      "role": "worker",
+      "agent": "claude",
+      "status": "exited",
+      "activity": "exited",
+      "since": "2026-10-21T08:30:00Z",
+      "branch": "work/migrate"
+    },
+    {
+      "pane": "01-six-helpers-one-permission-api",
+      "parent": "01-six-helpers-one-permission-manager",
+      "depth": 1,
+      "team": "01-six-helpers-one-permission-manager",
+      "waitingOn": {
+        "kind": "reviewer",
+        "text": "T1 is in review by reviewer",
+        "ref": "T1"
+      },
+      "kind": "terminal",
+      "name": "api",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:51:00Z",
+      "branch": "work/api",
+      "task": {
+        "id": "T1",
+        "title": "Add the totals endpoint",
+        "state": "in-review"
+      }
+    },
+    {
+      "pane": "01-six-helpers-one-permission-search",
+      "parent": "01-six-helpers-one-permission-manager",
+      "depth": 1,
+      "team": "01-six-helpers-one-permission-manager",
+      "waitingOn": {
+        "kind": "task",
+        "text": "needs the staging index, which only the person can create",
+        "ref": "T2"
+      },
+      "kind": "terminal",
+      "name": "search",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:44:00Z",
+      "branch": "work/search",
+      "task": {
+        "id": "T2",
+        "title": "Index the new fields",
+        "state": "blocked"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "kind": "spawn",
+      "from": "01-six-helpers-one-permission-manager",
+      "to": "01-six-helpers-one-permission-cart"
+    },
+    {
+      "kind": "spawn",
+      "from": "01-six-helpers-one-permission-manager",
+      "to": "01-six-helpers-one-permission-tax"
+    },
+    {
+      "kind": "spawn",
+      "from": "01-six-helpers-one-permission-manager",
+      "to": "01-six-helpers-one-permission-docs"
+    },
+    {
+      "kind": "spawn",
+      "from": "01-six-helpers-one-permission-manager",
+      "to": "01-six-helpers-one-permission-migrate"
+    },
+    {
+      "kind": "spawn",
+      "from": "01-six-helpers-one-permission-manager",
+      "to": "01-six-helpers-one-permission-api"
+    },
+    {
+      "kind": "spawn",
+      "from": "01-six-helpers-one-permission-manager",
+      "to": "01-six-helpers-one-permission-search"
+    }
+  ],
+  "solo": [],
+  "soloNeeds": []
+}

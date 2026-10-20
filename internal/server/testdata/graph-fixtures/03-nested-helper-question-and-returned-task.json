@@ -1,0 +1,262 @@
+{
+  "type": "graph",
+  "root": "/work/03-nested-helper-question-and-returned-task",
+  "project": "03-nested-helper-question-and-returned-task",
+  "teams": [
+    {
+      "id": "03-nested-helper-question-and-returned-task-manager",
+      "manager": "03-nested-helper-question-and-returned-task-manager",
+      "members": [
+        "03-nested-helper-question-and-returned-task-manager",
+        "03-nested-helper-question-and-returned-task-indexer",
+        "03-nested-helper-question-and-returned-task-ranking",
+        "03-nested-helper-question-and-returned-task-ui",
+        "03-nested-helper-question-and-returned-task-analytics",
+        "03-nested-helper-question-and-returned-task-synonyms",
+        "03-nested-helper-question-and-returned-task-perf",
+        "03-nested-helper-question-and-returned-task-shards"
+      ],
+      "goal": "Ship 03-nested-helper-question-and-returned-task",
+      "started": "2026-10-21T07:00:00Z",
+      "spendUSD": 8.75,
+      "caps": [
+        {
+          "pane": "03-nested-helper-question-and-returned-task-manager",
+          "used": 7,
+          "max": 8
+        },
+        {
+          "pane": "03-nested-helper-question-and-returned-task-indexer",
+          "used": 1,
+          "max": 8
+        }
+      ],
+      "needs": [
+        {
+          "id": "ask:03-nested-helper-question-and-returned-task-ranking",
+          "kind": "ask",
+          "pane": "03-nested-helper-question-and-returned-task-ranking",
+          "time": "2026-10-21T08:55:00Z",
+          "text": "Boost exact title matches over body matches?"
+        },
+        {
+          "id": "returned:T1",
+          "kind": "returned",
+          "pane": "03-nested-helper-question-and-returned-task-ui",
+          "task": "T1",
+          "time": "2026-10-21T08:48:00Z",
+          "text": "Focus is lost after a page change. Please fix before it goes in."
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "pane": "03-nested-helper-question-and-returned-task-manager",
+      "children": [
+        "03-nested-helper-question-and-returned-task-indexer",
+        "03-nested-helper-question-and-returned-task-ranking",
+        "03-nested-helper-question-and-returned-task-ui",
+        "03-nested-helper-question-and-returned-task-analytics",
+        "03-nested-helper-question-and-returned-task-synonyms",
+        "03-nested-helper-question-and-returned-task-perf"
+      ],
+      "depth": 0,
+      "team": "03-nested-helper-question-and-returned-task-manager",
+      "waitingOn": {
+        "kind": "helpers",
+        "text": "3 helpers are busy",
+        "ref": "03-nested-helper-question-and-returned-task-indexer"
+      },
+      "kind": "terminal",
+      "name": "manager",
+      "role": "manager",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:20:00Z",
+      "branch": "main"
+    },
+    {
+      "pane": "03-nested-helper-question-and-returned-task-indexer",
+      "parent": "03-nested-helper-question-and-returned-task-manager",
+      "children": [
+        "03-nested-helper-question-and-returned-task-shards"
+      ],
+      "depth": 1,
+      "team": "03-nested-helper-question-and-returned-task-manager",
+      "waitingOn": {
+        "kind": "helpers",
+        "text": "1 helper is busy",
+        "ref": "03-nested-helper-question-and-returned-task-shards"
+      },
+      "kind": "terminal",
+      "name": "indexer",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:58:00Z",
+      "live": "Edit search/index.go",
+      "branch": "work/indexer"
+    },
+    {
+      "pane": "03-nested-helper-question-and-returned-task-shards",
+      "parent": "03-nested-helper-question-and-returned-task-indexer",
+      "depth": 2,
+      "team": "03-nested-helper-question-and-returned-task-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "shards",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:59:00Z",
+      "live": "Bash go test ./search/shard",
+      "branch": "work/shards"
+    },
+    {
+      "pane": "03-nested-helper-question-and-returned-task-ranking",
+      "parent": "03-nested-helper-question-and-returned-task-manager",
+      "depth": 1,
+      "team": "03-nested-helper-question-and-returned-task-manager",
+      "waitingOn": {
+        "kind": "user",
+        "text": "Boost exact title matches over body matches?"
+      },
+      "kind": "terminal",
+      "name": "ranking",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:55:00Z",
+      "branch": "work/ranking"
+    },
+    {
+      "pane": "03-nested-helper-question-and-returned-task-ui",
+      "parent": "03-nested-helper-question-and-returned-task-manager",
+      "depth": 1,
+      "team": "03-nested-helper-question-and-returned-task-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "ui",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:48:00Z",
+      "live": "Reading the review note",
+      "branch": "work/ui",
+      "task": {
+        "id": "T1",
+        "title": "Result list keyboard focus",
+        "state": "in-progress"
+      }
+    },
+    {
+      "pane": "03-nested-helper-question-and-returned-task-analytics",
+      "parent": "03-nested-helper-question-and-returned-task-manager",
+      "depth": 1,
+      "team": "03-nested-helper-question-and-returned-task-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "analytics",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:42:00Z",
+      "branch": "work/analytics"
+    },
+    {
+      "pane": "03-nested-helper-question-and-returned-task-synonyms",
+      "parent": "03-nested-helper-question-and-returned-task-manager",
+      "depth": 1,
+      "team": "03-nested-helper-question-and-returned-task-manager",
+      "waitingOn": {
+        "kind": "down",
+        "text": "exited",
+        "ref": "03-nested-helper-question-and-returned-task-synonyms"
+      },
+      "kind": "terminal",
+      "name": "synonyms",
+      "role": "worker",
+      "agent": "claude",
+      "status": "exited",
+      "activity": "exited",
+      "since": "2026-10-21T08:20:00Z",
+      "branch": "work/synonyms"
+    },
+    {
+      "pane": "03-nested-helper-question-and-returned-task-perf",
+      "parent": "03-nested-helper-question-and-returned-task-manager",
+      "depth": 1,
+      "team": "03-nested-helper-question-and-returned-task-manager",
+      "waitingOn": {
+        "kind": "reviewer",
+        "text": "T2 is in review by reviewer",
+        "ref": "T2"
+      },
+      "kind": "terminal",
+      "name": "perf",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:52:00Z",
+      "branch": "work/perf",
+      "task": {
+        "id": "T2",
+        "title": "Cut query latency",
+        "state": "in-review"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "kind": "spawn",
+      "from": "03-nested-helper-question-and-returned-task-manager",
+      "to": "03-nested-helper-question-and-returned-task-indexer"
+    },
+    {
+      "kind": "spawn",
+      "from": "03-nested-helper-question-and-returned-task-indexer",
+      "to": "03-nested-helper-question-and-returned-task-shards"
+    },
+    {
+      "kind": "spawn",
+      "from": "03-nested-helper-question-and-returned-task-manager",
+      "to": "03-nested-helper-question-and-returned-task-ranking"
+    },
+    {
+      "kind": "spawn",
+      "from": "03-nested-helper-question-and-returned-task-manager",
+      "to": "03-nested-helper-question-and-returned-task-ui"
+    },
+    {
+      "kind": "spawn",
+      "from": "03-nested-helper-question-and-returned-task-manager",
+      "to": "03-nested-helper-question-and-returned-task-analytics"
+    },
+    {
+      "kind": "spawn",
+      "from": "03-nested-helper-question-and-returned-task-manager",
+      "to": "03-nested-helper-question-and-returned-task-synonyms"
+    },
+    {
+      "kind": "spawn",
+      "from": "03-nested-helper-question-and-returned-task-manager",
+      "to": "03-nested-helper-question-and-returned-task-perf"
+    }
+  ],
+  "solo": [],
+  "soloNeeds": []
+}

@@ -1,0 +1,231 @@
+{
+  "type": "graph",
+  "root": "/work/05-six-helpers-undelivered-message",
+  "project": "05-six-helpers-undelivered-message",
+  "teams": [
+    {
+      "id": "05-six-helpers-undelivered-message-manager",
+      "manager": "05-six-helpers-undelivered-message-manager",
+      "members": [
+        "05-six-helpers-undelivered-message-manager",
+        "05-six-helpers-undelivered-message-forms",
+        "05-six-helpers-undelivered-message-copy",
+        "05-six-helpers-undelivered-message-auth",
+        "05-six-helpers-undelivered-message-tests",
+        "05-six-helpers-undelivered-message-icons",
+        "05-six-helpers-undelivered-message-i18n"
+      ],
+      "goal": "Ship 05-six-helpers-undelivered-message",
+      "started": "2026-10-21T07:00:00Z",
+      "spendUSD": 8,
+      "caps": [
+        {
+          "pane": "05-six-helpers-undelivered-message-manager",
+          "used": 6,
+          "max": 8
+        }
+      ],
+      "needs": [
+        {
+          "id": "ask:05-six-helpers-undelivered-message-forms",
+          "kind": "ask",
+          "pane": "05-six-helpers-undelivered-message-forms",
+          "time": "2026-10-21T08:54:00Z",
+          "text": "Make the phone number optional?"
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "pane": "05-six-helpers-undelivered-message-manager",
+      "children": [
+        "05-six-helpers-undelivered-message-forms",
+        "05-six-helpers-undelivered-message-copy",
+        "05-six-helpers-undelivered-message-auth",
+        "05-six-helpers-undelivered-message-tests",
+        "05-six-helpers-undelivered-message-icons",
+        "05-six-helpers-undelivered-message-i18n"
+      ],
+      "depth": 0,
+      "team": "05-six-helpers-undelivered-message-manager",
+      "waitingOn": {
+        "kind": "helpers",
+        "text": "2 helpers are busy",
+        "ref": "05-six-helpers-undelivered-message-forms"
+      },
+      "kind": "terminal",
+      "name": "manager",
+      "role": "manager",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:20:00Z",
+      "branch": "main",
+      "unread": 1
+    },
+    {
+      "pane": "05-six-helpers-undelivered-message-forms",
+      "parent": "05-six-helpers-undelivered-message-manager",
+      "depth": 1,
+      "team": "05-six-helpers-undelivered-message-manager",
+      "waitingOn": {
+        "kind": "user",
+        "text": "Make the phone number optional?"
+      },
+      "kind": "terminal",
+      "name": "forms",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:54:00Z",
+      "branch": "work/forms"
+    },
+    {
+      "pane": "05-six-helpers-undelivered-message-copy",
+      "parent": "05-six-helpers-undelivered-message-manager",
+      "depth": 1,
+      "team": "05-six-helpers-undelivered-message-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "copy",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:58:00Z",
+      "live": "Edit onboarding/welcome.md",
+      "branch": "work/copy"
+    },
+    {
+      "pane": "05-six-helpers-undelivered-message-auth",
+      "parent": "05-six-helpers-undelivered-message-manager",
+      "depth": 1,
+      "team": "05-six-helpers-undelivered-message-manager",
+      "waitingOn": {
+        "kind": "reviewer",
+        "text": "T1 is in review by reviewer",
+        "ref": "T1"
+      },
+      "kind": "terminal",
+      "name": "auth",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:47:00Z",
+      "branch": "work/auth",
+      "task": {
+        "id": "T1",
+        "title": "Magic link sign-in",
+        "state": "in-review"
+      }
+    },
+    {
+      "pane": "05-six-helpers-undelivered-message-tests",
+      "parent": "05-six-helpers-undelivered-message-manager",
+      "depth": 1,
+      "team": "05-six-helpers-undelivered-message-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "tests",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:51:00Z",
+      "branch": "work/tests"
+    },
+    {
+      "pane": "05-six-helpers-undelivered-message-icons",
+      "parent": "05-six-helpers-undelivered-message-manager",
+      "depth": 1,
+      "team": "05-six-helpers-undelivered-message-manager",
+      "waitingOn": {
+        "kind": "down",
+        "text": "exited",
+        "ref": "05-six-helpers-undelivered-message-icons"
+      },
+      "kind": "terminal",
+      "name": "icons",
+      "role": "worker",
+      "agent": "claude",
+      "status": "exited",
+      "activity": "exited",
+      "since": "2026-10-21T08:25:00Z",
+      "branch": "work/icons"
+    },
+    {
+      "pane": "05-six-helpers-undelivered-message-i18n",
+      "parent": "05-six-helpers-undelivered-message-manager",
+      "depth": 1,
+      "team": "05-six-helpers-undelivered-message-manager",
+      "waitingOn": {
+        "kind": "task",
+        "text": "waiting on the translation vendor's key format",
+        "ref": "T2"
+      },
+      "kind": "terminal",
+      "name": "i18n",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:35:00Z",
+      "branch": "work/i18n",
+      "task": {
+        "id": "T2",
+        "title": "Extract the new strings",
+        "state": "blocked"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "kind": "spawn",
+      "from": "05-six-helpers-undelivered-message-manager",
+      "to": "05-six-helpers-undelivered-message-forms"
+    },
+    {
+      "kind": "spawn",
+      "from": "05-six-helpers-undelivered-message-manager",
+      "to": "05-six-helpers-undelivered-message-copy"
+    },
+    {
+      "kind": "spawn",
+      "from": "05-six-helpers-undelivered-message-manager",
+      "to": "05-six-helpers-undelivered-message-auth"
+    },
+    {
+      "kind": "spawn",
+      "from": "05-six-helpers-undelivered-message-manager",
+      "to": "05-six-helpers-undelivered-message-tests"
+    },
+    {
+      "kind": "spawn",
+      "from": "05-six-helpers-undelivered-message-manager",
+      "to": "05-six-helpers-undelivered-message-icons"
+    },
+    {
+      "kind": "spawn",
+      "from": "05-six-helpers-undelivered-message-manager",
+      "to": "05-six-helpers-undelivered-message-i18n"
+    },
+    {
+      "kind": "message",
+      "from": "05-six-helpers-undelivered-message-tests",
+      "to": "05-six-helpers-undelivered-message-manager",
+      "id": 1,
+      "time": "2026-10-21T08:53:00Z",
+      "text": "The sign-up form submits twice on a slow connection. Needs a decision before I write the fix.",
+      "delivery": "queued"
+    }
+  ],
+  "solo": [],
+  "soloNeeds": []
+}

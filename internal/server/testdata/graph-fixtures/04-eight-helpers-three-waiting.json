@@ -1,0 +1,285 @@
+{
+  "type": "graph",
+  "root": "/work/04-eight-helpers-three-waiting",
+  "project": "04-eight-helpers-three-waiting",
+  "teams": [
+    {
+      "id": "04-eight-helpers-three-waiting-manager",
+      "manager": "04-eight-helpers-three-waiting-manager",
+      "members": [
+        "04-eight-helpers-three-waiting-manager",
+        "04-eight-helpers-three-waiting-build",
+        "04-eight-helpers-three-waiting-notes",
+        "04-eight-helpers-three-waiting-qa",
+        "04-eight-helpers-three-waiting-deps",
+        "04-eight-helpers-three-waiting-site",
+        "04-eight-helpers-three-waiting-signing",
+        "04-eight-helpers-three-waiting-changelog",
+        "04-eight-helpers-three-waiting-old-branch"
+      ],
+      "goal": "Ship 04-eight-helpers-three-waiting",
+      "started": "2026-10-21T07:00:00Z",
+      "spendUSD": 9.5,
+      "caps": [
+        {
+          "pane": "04-eight-helpers-three-waiting-manager",
+          "used": 8,
+          "max": 8
+        }
+      ],
+      "needs": [
+        {
+          "id": "ask:04-eight-helpers-three-waiting-notes",
+          "kind": "ask",
+          "pane": "04-eight-helpers-three-waiting-notes",
+          "time": "2026-10-21T08:50:00Z",
+          "text": "Name the breaking change in the headline?"
+        },
+        {
+          "id": "permission:04-eight-helpers-three-waiting-build",
+          "kind": "permission",
+          "pane": "04-eight-helpers-three-waiting-build",
+          "time": "2026-10-21T08:58:00Z",
+          "text": "git push origin release/2.4"
+        },
+        {
+          "id": "returned:T1",
+          "kind": "returned",
+          "pane": "04-eight-helpers-three-waiting-qa",
+          "task": "T1",
+          "time": "2026-10-21T08:45:00Z",
+          "text": "The installer fails on a path with a space. Reproduce and fix."
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "pane": "04-eight-helpers-three-waiting-manager",
+      "children": [
+        "04-eight-helpers-three-waiting-build",
+        "04-eight-helpers-three-waiting-notes",
+        "04-eight-helpers-three-waiting-qa",
+        "04-eight-helpers-three-waiting-deps",
+        "04-eight-helpers-three-waiting-site",
+        "04-eight-helpers-three-waiting-signing",
+        "04-eight-helpers-three-waiting-changelog",
+        "04-eight-helpers-three-waiting-old-branch"
+      ],
+      "depth": 0,
+      "team": "04-eight-helpers-three-waiting-manager",
+      "waitingOn": {
+        "kind": "helpers",
+        "text": "5 helpers are busy",
+        "ref": "04-eight-helpers-three-waiting-build"
+      },
+      "kind": "terminal",
+      "name": "manager",
+      "role": "manager",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:20:00Z",
+      "branch": "main"
+    },
+    {
+      "pane": "04-eight-helpers-three-waiting-build",
+      "parent": "04-eight-helpers-three-waiting-manager",
+      "depth": 1,
+      "team": "04-eight-helpers-three-waiting-manager",
+      "waitingOn": {
+        "kind": "user",
+        "text": "git push origin release/2.4"
+      },
+      "kind": "terminal",
+      "name": "build",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:58:00Z",
+      "branch": "work/build"
+    },
+    {
+      "pane": "04-eight-helpers-three-waiting-notes",
+      "parent": "04-eight-helpers-three-waiting-manager",
+      "depth": 1,
+      "team": "04-eight-helpers-three-waiting-manager",
+      "waitingOn": {
+        "kind": "user",
+        "text": "Name the breaking change in the headline?"
+      },
+      "kind": "terminal",
+      "name": "notes",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:50:00Z",
+      "branch": "work/notes"
+    },
+    {
+      "pane": "04-eight-helpers-three-waiting-qa",
+      "parent": "04-eight-helpers-three-waiting-manager",
+      "depth": 1,
+      "team": "04-eight-helpers-three-waiting-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "qa",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:45:00Z",
+      "live": "Reading the review note",
+      "branch": "work/qa",
+      "task": {
+        "id": "T1",
+        "title": "Smoke test the installer",
+        "state": "in-progress"
+      }
+    },
+    {
+      "pane": "04-eight-helpers-three-waiting-deps",
+      "parent": "04-eight-helpers-three-waiting-manager",
+      "depth": 1,
+      "team": "04-eight-helpers-three-waiting-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "deps",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:59:00Z",
+      "live": "Edit go.mod",
+      "branch": "work/deps"
+    },
+    {
+      "pane": "04-eight-helpers-three-waiting-site",
+      "parent": "04-eight-helpers-three-waiting-manager",
+      "depth": 1,
+      "team": "04-eight-helpers-three-waiting-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "site",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:57:00Z",
+      "live": "Edit docs/download.md",
+      "branch": "work/site"
+    },
+    {
+      "pane": "04-eight-helpers-three-waiting-signing",
+      "parent": "04-eight-helpers-three-waiting-manager",
+      "depth": 1,
+      "team": "04-eight-helpers-three-waiting-manager",
+      "waitingOn": {
+        "kind": "task",
+        "text": "the signing certificate has not arrived",
+        "ref": "T2"
+      },
+      "kind": "terminal",
+      "name": "signing",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:15:00Z",
+      "branch": "work/signing",
+      "task": {
+        "id": "T2",
+        "title": "Sign the Windows build",
+        "state": "blocked"
+      }
+    },
+    {
+      "pane": "04-eight-helpers-three-waiting-changelog",
+      "parent": "04-eight-helpers-three-waiting-manager",
+      "depth": 1,
+      "team": "04-eight-helpers-three-waiting-manager",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "changelog",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:38:00Z",
+      "branch": "work/changelog"
+    },
+    {
+      "pane": "04-eight-helpers-three-waiting-old-branch",
+      "parent": "04-eight-helpers-three-waiting-manager",
+      "depth": 1,
+      "team": "04-eight-helpers-three-waiting-manager",
+      "waitingOn": {
+        "kind": "down",
+        "text": "exited",
+        "ref": "04-eight-helpers-three-waiting-old-branch"
+      },
+      "kind": "terminal",
+      "name": "old-branch",
+      "role": "worker",
+      "agent": "claude",
+      "status": "exited",
+      "activity": "exited",
+      "since": "2026-10-21T07:30:00Z",
+      "branch": "work/old-branch"
+    }
+  ],
+  "edges": [
+    {
+      "kind": "spawn",
+      "from": "04-eight-helpers-three-waiting-manager",
+      "to": "04-eight-helpers-three-waiting-build"
+    },
+    {
+      "kind": "spawn",
+      "from": "04-eight-helpers-three-waiting-manager",
+      "to": "04-eight-helpers-three-waiting-notes"
+    },
+    {
+      "kind": "spawn",
+      "from": "04-eight-helpers-three-waiting-manager",
+      "to": "04-eight-helpers-three-waiting-qa"
+    },
+    {
+      "kind": "spawn",
+      "from": "04-eight-helpers-three-waiting-manager",
+      "to": "04-eight-helpers-three-waiting-deps"
+    },
+    {
+      "kind": "spawn",
+      "from": "04-eight-helpers-three-waiting-manager",
+      "to": "04-eight-helpers-three-waiting-site"
+    },
+    {
+      "kind": "spawn",
+      "from": "04-eight-helpers-three-waiting-manager",
+      "to": "04-eight-helpers-three-waiting-signing"
+    },
+    {
+      "kind": "spawn",
+      "from": "04-eight-helpers-three-waiting-manager",
+      "to": "04-eight-helpers-three-waiting-changelog"
+    },
+    {
+      "kind": "spawn",
+      "from": "04-eight-helpers-three-waiting-manager",
+      "to": "04-eight-helpers-three-waiting-old-branch"
+    }
+  ],
+  "solo": [],
+  "soloNeeds": []
+}
