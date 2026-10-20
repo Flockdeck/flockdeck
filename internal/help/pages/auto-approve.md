@@ -80,9 +80,13 @@ Anything else is asked about as usual: `-wait`, `-follow`, any other flag or
 extra word, sending a message (`flockdeck msg send`), every other subcommand,
 a path to the program (`./flockdeck`), a variable set in front of it, a pipe,
 a quote, or a command over 4 KiB. It is also asked about when the folder the
-command runs in holds a file whose name starts with `flockdeck` (`flockdeck`,
-`flockdeck.ps1` and so on, in any letter case), since the shell could run that
-instead. Words must be separated by single spaces.
+command runs in holds a file named `flockdeck` or starting with `flockdeck.`
+(`flockdeck.exe`, `flockdeck.ps1` and so on, in any letter case), since the
+shell could run that instead. A project that builds its own `flockdeck` binary
+into its root therefore never has mail reads allowed in that folder. The same
+goes when a `flockdeck` earlier on the pane's launch PATH than this application
+would run instead of it, or when the PATH has a `~` entry. Words must be
+separated by single spaces.
 
 This works for agents that report their tool calls to Flockdeck (Claude Code)
 and for the built-in chat client. Other command-line agents have approval
