@@ -19,7 +19,7 @@ func TestNextFSIsTheNewShellOverTheOldTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(idx, []byte("flockdeck-next-placeholder")) {
+	if !bytes.Contains(idx, []byte(nextShellMarker)) {
 		t.Error("index.html is not the new shell's")
 	}
 	old, err := fs.ReadFile(oldTree(), "index.html")
