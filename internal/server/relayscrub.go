@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/jmwri/flockdeck/internal/record"
@@ -126,11 +127,13 @@ func scrubPane(pv *paneView) {
 		// A structured pane has no sealed terminal connection yet, so nothing
 		// it said leaves the desk: only the roster fields stay.
 		pv.DetailsOnDesktop = true
+		scrubPaneNames(pv)
 		pv.Permission = nil
 		pv.Detail, pv.Task, pv.Err = "", "", ""
 		pv.Last = nil
 		return
 	}
+	scrubPaneNames(pv)
 	pv.Detail = record.Redact(pv.Detail)
 	pv.Task = record.Redact(pv.Task)
 	pv.Err = record.Redact(pv.Err)
@@ -138,6 +141,27 @@ func scrubPane(pv *paneView) {
 		last := *pv.Last
 		last.Text = record.Redact(last.Text)
 		pv.Last = &last
+	}
+}
+
+// scrubPaneNames redacts the text of a pane view that a person or an agent chose:
+// its name, its peer name, its project, its branch, its directory and what the
+// conflict radar names. A secret in a directory name or a branch is as much a
+// secret on the phone. The graph does the same for its nodes.
+func scrubPaneNames(pv *paneView) {
+	pv.Name, pv.PeerName = record.Redact(pv.Name), record.Redact(pv.PeerName)
+	pv.Project, pv.Branch, pv.Cwd = record.Redact(pv.Project), record.Redact(pv.Branch), record.Redact(pv.Cwd)
+	if len(pv.Conflicts) > 0 {
+		cs := make([]conflictView, len(pv.Conflicts))
+		for i, c := range pv.Conflicts {
+			c.Name, c.Branch = record.Redact(c.Name), record.Redact(c.Branch)
+			c.Paths = slices.Clone(c.Paths)
+			for j := range c.Paths {
+				c.Paths[j] = record.Redact(c.Paths[j])
+			}
+			cs[i] = c
+		}
+		pv.Conflicts = cs
 	}
 }
 
@@ -164,7 +188,15 @@ func scrubAgentsMsg(data []byte) []byte {
 	}
 	for i := range m.Items {
 		m.Items[i].Waiting = scrubSummary(m.Items[i].Waiting)
-		m.Items[i].Detail = record.Redact(m.Items[i].Detail)
+		it := &m.Items[i]
+		it.Name, it.Branch = record.Redact(it.Name), record.Redact(it.Branch)
+		it.Project, it.Tab, it.Root = record.Redact(it.Project), record.Redact(it.Tab), record.Redact(it.Root)
+		if it.Structured {
+			// The same as the state push: a structured pane says nothing but its roster fields.
+			it.Detail = ""
+		} else {
+			it.Detail = record.Redact(it.Detail)
+		}
 	}
 	out, err := json.Marshal(m)
 	if err != nil {
@@ -231,6 +263,8 @@ func scrubEntries(entries []transcript.Entry) {
 		e := &entries[i]
 		e.Label = record.Redact(e.Label)
 		e.Summary = record.Redact(e.Summary)
+		e.Description = record.Redact(e.Description)
+		e.Report = record.Redact(e.Report)
 		e.Diff = record.Redact(e.Diff)
 	}
 }

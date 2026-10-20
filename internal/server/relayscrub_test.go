@@ -440,7 +440,15 @@ func TestRelayScrubKeysOnTheConnection(t *testing.T) {
 // that names the message type carrying it, and that type must be registered. A
 // new message that holds a prompt fails here until it is.
 func TestRelayScrubCoversEveryCarrier(t *testing.T) {
-	structs := map[string]string{"paneView": "state"}
+	structs := map[string]string{
+		"paneView":              "state",
+		"conversationPageMsg":   "conversationPage",
+		"conversationAppendMsg": "conversationAppend",
+		"conversationDetailMsg": "conversationDetail",
+		"structuredMsg":         "structured",
+		"structuredEntry":       "structured",
+		"structuredDetailMsg":   "structuredDetail",
+	}
 	callers := map[string]string{"agents.go": "agents", "control.go": "state", "teamgraph.go": "graph"}
 
 	fset := token.NewFileSet()
@@ -461,11 +469,11 @@ func TestRelayScrubCoversEveryCarrier(t *testing.T) {
 			switch x := n.(type) {
 			case *ast.TypeSpec:
 				st, ok := x.Type.(*ast.StructType)
-				if !ok || x.Name.Name == "permissionView" || x.Name.Name == "askView" {
+				if !ok || x.Name.Name == "permissionView" || x.Name.Name == "askView" || x.Name.Name == "lastReplyView" {
 					return true
 				}
 				for _, fld := range st.Fields.List {
-					if carriesPrompt(fld.Type) {
+					if carriesPrompt(fld.Type) || carriesText(fld.Type) {
 						typ, ok := structs[x.Name.Name]
 						foundStruct = foundStruct || x.Name.Name == "paneView"
 						if !ok {
@@ -493,6 +501,24 @@ func TestRelayScrubCoversEveryCarrier(t *testing.T) {
 	}
 }
 
+// carriesText says whether a field holds conversation text that is scrubbed: a
+// transcript.Entry or transcript.Detail (alone, behind a pointer or in a slice,
+// embedded or named) or a lastReplyView.
+func carriesText(e ast.Expr) bool {
+	switch x := e.(type) {
+	case *ast.StarExpr:
+		return carriesText(x.X)
+	case *ast.ArrayType:
+		return carriesText(x.Elt)
+	case *ast.Ident:
+		return x.Name == "lastReplyView"
+	case *ast.SelectorExpr:
+		pkg, ok := x.X.(*ast.Ident)
+		return ok && pkg.Name == "transcript" && (x.Sel.Name == "Entry" || x.Sel.Name == "Detail")
+	}
+	return false
+}
+
 // carriesPrompt says whether a field is a *permissionView or *askView.
 func carriesPrompt(e ast.Expr) bool {
 	star, ok := e.(*ast.StarExpr)
@@ -518,5 +544,84 @@ func TestGraphCutsNamePeerBranchAndAgent(t *testing.T) {
 		if got := len([]rune(c[0].(string))); got == 0 || got > c[1].(int) {
 			t.Errorf("%s has %d characters, limit %d", what, got, c[1])
 		}
+	}
+}
+
+// A structured pane's view is cut to its roster fields, whatever it held, and a
+// card of another pane has empty options in the bytes, not only after decoding.
+func TestRelayPaneScrubUnit(t *testing.T) {
+	secret := relaySecrets[0]
+	structured := paneView{ID: "s", Name: "n " + secret, Status: "waiting", Structured: true,
+		Detail: "d", Task: "t", Err: "e", Last: &lastReplyView{Text: "reply " + secret, Kind: "reply"},
+		Permission: &permissionView{Tool: "Bash", Summary: "Run: x", Command: "x", Options: []permissionOption{{ID: "yes"}}},
+		Ask:        &askView{Questions: []askQuestionView{{Question: "q"}}}}
+	plain := paneView{ID: "p", Name: "n", Status: "waiting", Detail: "d " + secret, Task: "t " + secret,
+		Last: &lastReplyView{Text: "reply " + secret, Kind: "reply"},
+		Cwd:  "/home/" + secret, Branch: "b-" + secret, PeerName: "peer " + secret, Project: "pr " + secret,
+		Conflicts:  []conflictView{{ID: "c", Name: "c " + secret, Branch: "x " + secret, Paths: []string{"f-" + secret}}},
+		Permission: &permissionView{Tool: "Bash", Summary: "Run: x", Command: "x", Options: []permissionOption{{ID: "yes"}}}}
+	st := scrubStateMsg(mustJSON(t, stateMsg{Type: "state", Panes: map[string]paneView{"s": structured, "p": plain}}))
+	if leaks := relayLeaks(st); len(leaks) > 0 {
+		t.Errorf("the state holds %q:\n%s", leaks, st)
+	}
+	var back stateMsg
+	if err := json.Unmarshal(st, &back); err != nil {
+		t.Fatal(err)
+	}
+	s := back.Panes["s"]
+	if s.Last != nil || s.Detail != "" || s.Task != "" || s.Err != "" || s.Permission != nil || s.Ask != nil || !s.DetailsOnDesktop || s.Status != "waiting" {
+		t.Errorf("structured = %+v", s)
+	}
+	p := back.Panes["p"]
+	if p.Last == nil || p.Last.Kind != "reply" || !strings.Contains(p.Detail, "d ") || !p.DetailsOnDesktop {
+		t.Errorf("plain = %+v", p)
+	}
+	if !bytes.Contains(st, []byte(`"options":[]`)) {
+		t.Errorf("the scrubbed card does not have empty options:\n%s", st)
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// The agents list says nothing of a structured pane's detail, as the state push
+// does not, and redacts the rest.
+func TestRelayAgentsScrubUnit(t *testing.T) {
+	secret := relaySecrets[1]
+	raw := scrubAgentsMsg(mustJSON(t, agentsMsg{Type: "agents", Items: []agentView{
+		{PaneID: "s", Structured: true, Detail: "typed " + secret, Name: "n " + secret},
+		{PaneID: "p", Detail: "typed " + secret, Branch: "b-" + secret, Root: "/r/" + secret}}}))
+	if leaks := relayLeaks(raw); len(leaks) > 0 {
+		t.Errorf("the list holds %q:\n%s", leaks, raw)
+	}
+	var back agentsMsg
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Items[0].Detail != "" || !strings.HasPrefix(back.Items[1].Detail, "typed ") {
+		t.Errorf("details = %q, %q", back.Items[0].Detail, back.Items[1].Detail)
+	}
+}
+
+// A subagent's report and description are agent output, redacted like a tool row.
+func TestRelayRedactsSubagentReportAndDescription(t *testing.T) {
+	entries := []transcript.Entry{{ID: "1", Kind: transcript.KindSubagent, TS: "t",
+		Description: "look at " + relaySecrets[0], Report: "found " + relaySecrets[1], HasDetail: true}}
+	out := scrubForRemote(mustJSON(t, conversationAppendMsg{Type: "conversationAppend", ID: "p", Entries: entries}))
+	if leaks := relayLeaks(out); len(leaks) > 0 {
+		t.Errorf("the entry holds %q:\n%s", leaks, out)
+	}
+	var back conversationAppendMsg
+	if err := json.Unmarshal(out, &back); err != nil {
+		t.Fatal(err)
+	}
+	if e := back.Entries[0]; !strings.HasPrefix(e.Description, "look at ") || !strings.HasPrefix(e.Report, "found ") {
+		t.Errorf("entry = %+v", e)
 	}
 }

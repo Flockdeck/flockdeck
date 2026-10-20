@@ -231,7 +231,9 @@ summary or a diff) has secrets such as keys and tokens replaced with
 
 This needs a phone app that hides Yes and No for a card marked `redacted`. An
 older app draws Yes and No whenever a card is there, and presses the terminal's
-answer without showing what it is. Update the app before relying on this.
+answer without showing what it is. The change is flockdeck-remote #39, merged
+to main and not yet tagged; the app version that has it is filled in here when
+it is tagged. Update the app before relying on this.
 Each reply also carries its own **Copy**, for the whole thing as Markdown,
 and **Quote**, which drops a paragraph or so of it into the box, quoted,
 ahead of whatever you've already typed. A message you start and don't send
