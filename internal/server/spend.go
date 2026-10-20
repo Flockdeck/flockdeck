@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/spend"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // installUsageHandler takes what the panes' agents say they have spent -- a
@@ -22,6 +23,20 @@ func (s *Server) installUsageHandler() {
 		s.book.Add(r, time.Now())
 		s.Wake()
 	})
+}
+
+// paneSpend is what a pane's header and its team's rollup show of its spend: the
+// book's figures for a terminal pane, and for a structured one what its agent
+// reported through usage_update, marked partial because it has no token split
+// and no account windows.
+func (s *Server) paneSpend(id string, rt workspace.PaneRuntime, now time.Time) *spend.PaneView {
+	v := s.book.Pane(id, now)
+	if rep, ok := rt.(workspace.SpendReporter); ok {
+		if c, said := rep.ReportedSpend(); said {
+			v = spend.WithContext(v, c)
+		}
+	}
+	return v
 }
 
 // spendAt is the moment a snapshot's spend is read as of, which is when a

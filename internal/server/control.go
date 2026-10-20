@@ -857,7 +857,7 @@ func (s *Server) snapshot() stateMsg {
 			pv.Ahead, pv.Behind = p.Git.Ahead, p.Git.Behind
 			pv.GitTimedOut = p.GitTimedOut
 			pv.Conflicts, pv.ConflictsMore = conflictViews(ws, p)
-			pv.Spend = s.book.Pane(p.ID, spendNow)
+			pv.Spend = s.paneSpend(p.ID, rt, spendNow)
 			msg.Panes[p.ID] = pv
 		}
 	}

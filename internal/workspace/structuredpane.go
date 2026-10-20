@@ -14,6 +14,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/spend"
 	"github.com/jmwri/flockdeck/internal/structured"
 )
 
@@ -168,7 +169,23 @@ func statusOfSnapshot(sn structured.Snapshot) (session.Status, string) {
 	return session.StatusExited, ""
 }
 
+// SpendReporter is a runtime that can say what its agent reported of its spend
+// through the protocol, as opposed to the hook server's reports a terminal pane
+// makes. Only a structured pane has it.
+type SpendReporter interface {
+	ReportedSpend() (spend.Context, bool)
+}
+
 func (s *structuredRuntime) Transport() Transport { return TransportStructured }
+
+// ReportedSpend is what the agent last said about its context and cost through
+// usage_update, and whether it said anything yet. See spend.Context for what it
+// leaves out.
+func (s *structuredRuntime) ReportedSpend() (spend.Context, bool) {
+	u := s.rt.Snapshot().Usage
+	c := spend.Context{Used: u.Used, Size: u.Size, Cost: u.Cost, Currency: u.Currency}
+	return c, c.Used != 0 || c.Size != 0 || c.Cost != 0
+}
 
 func (s *structuredRuntime) Caps() PaneCaps {
 	return PaneCaps{Structured: true, AnswerPermission: true}

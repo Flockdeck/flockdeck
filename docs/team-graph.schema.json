@@ -34,6 +34,7 @@
         "started": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When the root pane's process started, RFC 3339 (stored: the session). Absent while the root has no session." },
         "spendUSD": { "type": "number", "minimum": 0, "description": "The estimated spend in dollars of the team's panes that reported a priced one (stored: the spend book). 0 when none did. Always written." },
         "spendPartial": { "const": true, "description": "Present, and true, when some pane of the team reported no priced spend, so spendUSD is a floor. Absent when every pane did." },
+        "spendIncludesPartial": { "const": true, "description": "Present, and true, when some pane of the team reports its spend in part: a structured (ACP) agent gives how full its context is and perhaps a cost, with no split of tokens and no account windows. spendUSD then includes panes that report partly. Absent when none does." },
         "caps": { "type": "array", "items": { "$ref": "#/$defs/cap" }, "description": "Helper cap use of the root and of every pane with children (derived). Always written." },
         "needs": { "type": "array", "items": { "$ref": "#/$defs/needsItem" }, "description": "What needs the person in this team, most urgent first, at most 50 (derived). Empty, never absent." },
         "needsHidden": { "type": "integer", "minimum": 1, "description": "How many items the bound of 50 cut. Absent when none were." }
