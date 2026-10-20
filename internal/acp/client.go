@@ -96,7 +96,9 @@ type Config struct {
 	// OnProtocolError, if set, is told of each thing the agent sent that the
 	// client could not use: a line that is not JSON, an update it could not
 	// read, a response to nothing. It is called on the read loop and must not
-	// block. ProtocolErrors counts them either way.
+	// block, and must be safe for concurrent use: it is also called from the
+	// goroutines that serve the agent's requests. ProtocolErrors counts them
+	// either way.
 	OnProtocolError func(description string)
 
 	// ClientName and ClientVersion go in initialize. Defaults: "flockdeck", "".
@@ -191,14 +193,16 @@ type Client struct {
 	mu      sync.Mutex
 	pending map[int64]chan reply
 	// abandoned holds the ids of calls whose context ended before the answer
-	// came, so a late answer is not taken for a stray one. Bounded.
-	abandoned   map[int64]struct{}
-	perms       map[*permission]struct{}
-	inflight    int
-	handlers    sync.WaitGroup
-	closed      bool
-	authMethods []AuthMethod
-	errTail     []byte
+	// came, so a late answer is not taken for a stray one. Bounded by a ring (abandonedKept).
+	abandoned     map[int64]struct{}
+	abandonedRing []int64
+	abandonedNext int
+	perms         map[*permission]struct{}
+	inflight      int
+	handlers      sync.WaitGroup
+	closed        bool
+	authMethods   []AuthMethod
+	errTail       []byte
 
 	loopDone chan struct{} // the read loop has ended
 	reaped   chan struct{} // the agent process has been waited for

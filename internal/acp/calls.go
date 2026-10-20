@@ -98,8 +98,21 @@ func (c *Client) cancelPermissions(sessionID string) {
 	}
 }
 
-// maxAbandoned bounds the ids remembered for calls that gave up waiting.
-const maxAbandoned = 1024
+// abandonedKept is how many abandoned ids are remembered; the oldest is
+// forgotten first.
+const abandonedKept = 256
+
+// abandon remembers the id of a call that gave up waiting. Call with c.mu held.
+func (c *Client) abandon(id int64) {
+	if len(c.abandonedRing) < abandonedKept {
+		c.abandonedRing = append(c.abandonedRing, id)
+	} else {
+		delete(c.abandoned, c.abandonedRing[c.abandonedNext])
+		c.abandonedRing[c.abandonedNext] = id
+		c.abandonedNext = (c.abandonedNext + 1) % abandonedKept
+	}
+	c.abandoned[id] = struct{}{}
+}
 
 var errOutboxFull = errors.New("acp: the agent is not reading its input")
 
@@ -206,9 +219,9 @@ func (c *Client) call(ctx context.Context, method string, params, result any) er
 		// The request was sent and the agent may still answer it: remember the
 		// id so that answer is not counted as a stray one.
 		c.mu.Lock()
-		delete(c.pending, id)
-		if len(c.abandoned) < maxAbandoned {
-			c.abandoned[id] = struct{}{}
+		if _, waiting := c.pending[id]; waiting {
+			delete(c.pending, id)
+			c.abandon(id)
 		}
 		c.mu.Unlock()
 		return ctx.Err()
