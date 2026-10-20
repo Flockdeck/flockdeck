@@ -406,6 +406,11 @@ func (b *Bridge) closeMerges() {
 // the process starts, so that a window kept open across a restart of Flockdeck
 // does not match either. The number stays under 2^53, which a browser keeps
 // exactly.
+//
+// The tag has 21 bits, the lowest always set, so 20 of them are random and the
+// tag is never zero. The count below it has 32 bits and wraps after 2^32 cards
+// of one process, which is accepted: a click would have to name a card that old
+// and still be open.
 var (
 	cardSeqTag = func() uint64 {
 		var b [4]byte
@@ -413,11 +418,16 @@ var (
 			t := uint64(time.Now().UnixNano())
 			b = [4]byte{byte(t), byte(t >> 8), byte(t >> 16), byte(t >> 24)}
 		}
-		// 21 bits, never zero.
-		return (uint64(binary.LittleEndian.Uint32(b[:]))&(1<<21-1) | 1) << 32
+		return cardTag(b)
 	}()
 	cardSeqNext atomic.Uint64
 )
+
+// cardTag is the high part of a card number, made from four bytes: 21 bits of
+// them with the lowest set, shifted above the 32 bits of the count.
+func cardTag(b [4]byte) uint64 {
+	return (uint64(binary.LittleEndian.Uint32(b[:]))&(1<<21-1) | 1) << 32
+}
 
 func nextCardSeq() uint64 { return cardSeqTag | (cardSeqNext.Add(1) & (1<<32 - 1)) }
 
