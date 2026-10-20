@@ -473,9 +473,12 @@ func TestTheWriteQueueIsBounded(t *testing.T) {
 	if !refused {
 		t.Fatalf("%d notifications queued behind a stuck write and none was refused", accepted)
 	}
-	// A literal, so that raising outboxSize has to change this test too.
-	if accepted > 256+2 {
-		t.Errorf("%d notifications were accepted before the first refusal; the queue holds 256", accepted)
+	// The count is exact: the writer is stuck on the big line, which it has
+	// already taken, and this test is the only sender, so the queue takes
+	// precisely its 256 slots and refuses the next. It is a literal so that
+	// changing outboxSize has to change this test too.
+	if accepted != 256 {
+		t.Errorf("%d notifications were accepted before the first refusal; want exactly 256", accepted)
 	}
 	within(t, 10*time.Second, "Close", func() { _ = c.Close() })
 }
