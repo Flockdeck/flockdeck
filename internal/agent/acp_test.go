@@ -153,10 +153,10 @@ func TestUnknownRunnerAndAdapterAreRefused(t *testing.T) {
 // The environment is exactly what the entry lists, from what is there, and
 // never a FLOCKDECK_ variable, whatever the entry says.
 func TestACPEnvironmentIsExactlyTheAllowlist(t *testing.T) {
-	environ := []string{"PATH=/bin", "HOME=/h", "ANTHROPIC_API_KEY=secret", "FLOCKDECK_TOKEN=tok", "Appdata=C:\\a", "BROKEN"}
+	environ := []string{"PATH=/bin", "HOME=/h", "ANTHROPIC_API_KEY=secret", "FLOCKDECK_TOKEN=tok", "APPDATA=C:\\a", "BROKEN"}
 	s := Spec{ACP: ACPSpec{PassEnv: []string{"HOME", "APPDATA"}}}
 	got := s.ACPPassEnv(environ)
-	if !slices.Equal(got, []string{"HOME=/h", "Appdata=C:\\a"}) {
+	if !slices.Equal(got, []string{"HOME=/h", "APPDATA=C:\\a"}) {
 		t.Errorf("got %v", got)
 	}
 	if len(Spec{}.ACPPassEnv(environ)) != 0 {
