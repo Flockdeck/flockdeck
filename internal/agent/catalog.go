@@ -33,7 +33,8 @@ type Catalog struct {
 	// Roles are the built-in roles with the user's merged over them.
 	Roles []Role
 	// Structured is the opt-in for structured agents (RunnerACP): they are
-	// listed only when it is on.
+	// listed only when it is on. It is not read from agents.json: whoever builds
+	// the catalog sets it from the user's preferences.
 	Structured bool
 	// Notice is empty unless the user's file could not be used in full. It is
 	// something for the interface to show, never a reason not to start: a
@@ -86,7 +87,6 @@ func Merge(f *File) *Catalog {
 	}
 	c.Defaults = f.Defaults
 	c.Projects = f.Projects
-	c.Structured = f.StructuredPanes
 
 	// The built-ins as shipped, which later entries are compared against.
 	pristine := make(map[string]Spec, len(c.Specs))

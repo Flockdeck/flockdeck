@@ -22,7 +22,7 @@ Describes what a pane can run. A pane is a shell or an agent; an agent is a `Spe
 | `Role`, `BuiltinRoles()`, `Catalog.MayStart`, `Catalog.Choose` | Roles: [agent role](/data/agent-role.md) |
 | `RoutingPolicy`, `Catalog.RoutingFor`, `SetRouting` | Routing settings, consumed by [route](/packages/route.md); see [routing policy](/data/routing-policy.md) |
 | `Available`, `Refresh`, `KeyNames`, `OwnKeyEnv`, `VendorsOwn` | Whether an agent can start now (PATH lookup or key present), and API key lookup order |
-| `Spec.ACPAdapter()`, `Spec.ACPPassEnv(environ)` | A `RunnerACP` entry names a manifest adapter in `ACP.Adapter`; `ACPPassEnv` returns exactly the variables `ACP.PassEnv` lists. `Catalog.Structured` (agents.json `structuredPanes`) is the opt-in that lets `Visible` list structured entries |
+| `Spec.ACPAdapter()`, `Spec.ACPPassEnv(environ)` | A `RunnerACP` entry names a manifest adapter in `ACP.Adapter`; `ACPPassEnv` returns exactly the variables `ACP.PassEnv` lists. `Catalog.Structured` (set by the builder from the `structuredPanes` pref; agents.json does not carry it) is the opt-in that lets `Visible` list structured entries |
 | `SetDefaults`, `SetBaseURL`, `CheckBaseURL` | Atomic edits to agents.json |
 
 ## Touches

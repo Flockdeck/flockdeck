@@ -2344,6 +2344,7 @@ func notInstalledWarning(id string) string {
 // missing from the rest, and a name that is not found has to say why.
 var agentCatalog = func() ([]agent.Spec, string, string) {
 	c := agent.Load()
+	c.Structured = store.LoadPrefs().StructuredPanes
 	// The command line is not standing in any one project, so what it checks a
 	// name against is the installation's default rather than a project's. A
 	// project that runs something else of its own is answered where the pane is

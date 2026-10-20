@@ -3,12 +3,25 @@ package agent
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jmwri/flockdeck/internal/acp"
 )
 
 func raw(s string) []json.RawMessage { return []json.RawMessage{json.RawMessage(s)} }
+
+// optedIn is a catalog with the beta turned on, as the workspace builds it from
+// the preferences.
+func optedIn(f *File) *Catalog {
+	c := Merge(f)
+	c.Structured = true
+	return c
+}
 
 func ids(specs []Spec) []string {
 	var out []string
@@ -21,7 +34,7 @@ func ids(specs []Spec) []string {
 // The structured entries ship: opencode listed once opted in, Gemini and Codex
 // hidden, and no entry for Claude.
 func TestBuiltinStructuredEntries(t *testing.T) {
-	c := Merge(&File{StructuredPanes: true})
+	c := optedIn(&File{})
 	if s, ok := c.Find("opencode-acp"); !ok || s.Runner != RunnerACP || s.ACP.Adapter != "opencode" || s.ACP.Auth != AuthNone {
 		t.Fatalf("opencode-acp = %+v, %v", s, ok)
 	}
@@ -54,7 +67,7 @@ func TestStructuredEntriesAreListedOnlyOnOptIn(t *testing.T) {
 	if _, ok := off.offered("opencode-acp"); ok {
 		t.Error("offered() should refuse a structured entry without the opt-in")
 	}
-	on := Merge(&File{StructuredPanes: true})
+	on := optedIn(&File{})
 	if !slices.Contains(ids(on.Visible()), "opencode-acp") {
 		t.Error("opencode-acp should be offered with the opt-in")
 	}
@@ -66,28 +79,25 @@ func TestStructuredEntriesAreListedOnlyOnOptIn(t *testing.T) {
 	}
 }
 
-// The setting is read from agents.json and survives a round trip.
-func TestStructuredPanesSettingRoundTrips(t *testing.T) {
+// agents.json does not carry the opt-in: a copy of it from another machine
+// cannot turn the beta on.
+func TestAgentsJSONCannotSwitchTheBetaOn(t *testing.T) {
 	var f File
-	if err := json.Unmarshal([]byte(`{"version":1,"structuredPanes":true,"future":1}`), &f); err != nil {
+	if err := json.Unmarshal([]byte(`{"version":1,"structuredPanes":true}`), &f); err != nil {
 		t.Fatal(err)
 	}
-	if !f.StructuredPanes || !Merge(&f).Structured {
-		t.Fatal("structuredPanes was not read")
+	if Merge(&f).Structured {
+		t.Fatal("the opt-in was read from agents.json")
 	}
-	if _, stray := f.Extra["structuredPanes"]; stray {
-		t.Error("structuredPanes is a known key and should not be kept as an extra")
-	}
-	out, err := json.Marshal(f)
-	if err != nil || !strings.Contains(string(out), `"structuredPanes":true`) || !strings.Contains(string(out), `"future":1`) {
-		t.Errorf("round trip lost a key: %s, %v", out, err)
+	if _, kept := f.Extra["structuredPanes"]; !kept {
+		t.Error("an unknown key should still be kept as an extra")
 	}
 }
 
 // A user's catalog can carry an ACP entry of its own, and can edit a built-in
 // one field by field.
 func TestACPEntryParseAndMerge(t *testing.T) {
-	c := Merge(&File{StructuredPanes: true, Agents: []json.RawMessage{
+	c := optedIn(&File{Agents: []json.RawMessage{
 		json.RawMessage(`{"id":"mine","name":"Mine","runner":"ACP","acp":{"adapter":"gemini","auth":"none","passEnv":["HOME","MY_VAR"]}}`),
 		json.RawMessage(`{"id":"opencode-acp","acp":{"passEnv":["HOME"]}}`),
 	}})
@@ -153,12 +163,12 @@ func TestACPEnvironmentIsExactlyTheAllowlist(t *testing.T) {
 		t.Error("an entry that lists nothing passes nothing")
 	}
 
-	c := Merge(&File{Agents: raw(`{"id":"x","runner":"acp","acp":{"adapter":"opencode","passEnv":["HOME","FLOCKDECK_TOKEN","flockdeck_relay","A B","1X"]}}`)})
+	c := Merge(&File{Agents: raw(`{"id":"x","runner":"acp","acp":{"adapter":"opencode","passEnv":["HOME","FLOCKDECK_TOKEN","flockdeck_relay","PERCH_TOKEN","perch_api","A B","1X"]}}`)})
 	x, _ := c.Find("x")
 	if !slices.Equal(x.ACP.PassEnv, []string{"HOME"}) {
 		t.Errorf("PassEnv = %v", x.ACP.PassEnv)
 	}
-	for _, want := range []string{`"FLOCKDECK_TOKEN" is dropped`, `"flockdeck_relay" is dropped`, `"A B" is not a variable name`, `"1X" is not a variable name`} {
+	for _, want := range []string{`"FLOCKDECK_TOKEN" is dropped`, `"flockdeck_relay" is dropped`, `"PERCH_TOKEN" is dropped`, `"perch_api" is dropped`, `"A B" is not a variable name`, `"1X" is not a variable name`} {
 		if !strings.Contains(c.Notice, want) {
 			t.Errorf("notice %q should say %s", c.Notice, want)
 		}
@@ -169,7 +179,7 @@ func TestACPEnvironmentIsExactlyTheAllowlist(t *testing.T) {
 		}
 		for _, name := range s.ACP.PassEnv {
 			up := strings.ToUpper(name)
-			if strings.HasPrefix(up, "FLOCKDECK_") || strings.Contains(up, "KEY") || strings.Contains(up, "TOKEN") {
+			if strings.HasPrefix(up, "FLOCKDECK_") || strings.HasPrefix(up, "PERCH_") || strings.Contains(up, "KEY") || strings.Contains(up, "TOKEN") {
 				t.Errorf("%s passes %s", s.ID, name)
 			}
 		}
@@ -207,5 +217,111 @@ func TestStructuredAvailabilityFollowsTheManifestCommand(t *testing.T) {
 	}
 	if asked != "opencode" {
 		t.Errorf("looked for %q, want the manifest's command", asked)
+	}
+}
+
+// ACPPassEnv holds the line itself: a Spec built any other way than through
+// the catalog is still refused the reserved names, whatever their case.
+func TestACPPassEnvEnforcesTheRulesOnItsOwn(t *testing.T) {
+	environ := []string{"HOME=/h", "FLOCKDECK_TOKEN=a", "PERCH_TOKEN=b", "perch_api=c", "Flockdeck_x=d", "ANTHROPIC_API_KEY=k", "PATH=/bin"}
+	s := Spec{Runner: RunnerACP, ACP: ACPSpec{Adapter: "opencode", PassEnv: []string{"HOME", "FLOCKDECK_TOKEN", "PERCH_TOKEN", "perch_api", "Flockdeck_x", "PATH"}}}
+	got := s.ACPPassEnv(environ)
+	if !slices.Equal(got, []string{"HOME=/h"}) {
+		t.Errorf("got %v, want only HOME (PATH is MinimalEnv's)", got)
+	}
+}
+
+// Case counts on Linux and macOS and not on Windows.
+func TestACPPassEnvCaseFollowsThePlatform(t *testing.T) {
+	s := Spec{ACP: ACPSpec{PassEnv: []string{"path_extra", "Home"}}}
+	got := s.ACPPassEnv([]string{"PATH_EXTRA=1", "HOME=/h", "Home=/w"})
+	want := []string{"Home=/w"}
+	if runtime.GOOS == "windows" {
+		want = []string{"PATH_EXTRA=1", "HOME=/h", "Home=/w"}
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("on %s got %v, want %v", runtime.GOOS, got, want)
+	}
+}
+
+// Names that MinimalEnv already gives are not passed again, and the list here
+// is MinimalEnv's own.
+func TestACPPassEnvSkipsWhatMinimalEnvGives(t *testing.T) {
+	for _, n := range minimalEnvNames {
+		t.Setenv(n, "x")
+	}
+	var fromAcp []string
+	for _, kv := range acp.MinimalEnv() {
+		name, _, _ := strings.Cut(kv, "=")
+		fromAcp = append(fromAcp, name)
+	}
+	slices.Sort(fromAcp)
+	have := slices.Clone(minimalEnvNames)
+	slices.Sort(have)
+	// On Windows the two spellings of SystemRoot are one variable.
+	if runtime.GOOS != "windows" && !slices.Equal(fromAcp, slices.Compact(have)) {
+		t.Errorf("acp.MinimalEnv gives %v, minimalEnvNames is %v", fromAcp, have)
+	}
+	s := Spec{ACP: ACPSpec{PassEnv: minimalEnvNames}}
+	if got := s.ACPPassEnv(os.Environ()); len(got) != 0 {
+		t.Errorf("passed %v", got)
+	}
+}
+
+func TestPassEnvIsCapped(t *testing.T) {
+	var names []string
+	for i := 0; i < maxPassEnv+10; i++ {
+		names = append(names, fmt.Sprintf("V%d", i))
+	}
+	entry, _ := json.Marshal(map[string]any{"id": "big", "runner": "acp", "acp": map[string]any{"adapter": "opencode", "passEnv": names}})
+	c := Merge(&File{Agents: raw(string(entry))})
+	big, _ := c.Find("big")
+	if len(big.ACP.PassEnv) != maxPassEnv || !strings.Contains(c.Notice, "at most 64 names") {
+		t.Errorf("kept %d, notice %q", len(big.ACP.PassEnv), c.Notice)
+	}
+	// And in the function itself, for a Spec made another way.
+	var environ []string
+	for _, n := range names {
+		environ = append(environ, n+"=1")
+	}
+	if got := (Spec{ACP: ACPSpec{PassEnv: names}}).ACPPassEnv(environ); len(got) != maxPassEnv {
+		t.Errorf("ACPPassEnv read %d names", len(got))
+	}
+}
+
+// The login advice is shown to the person, so it is cleaned.
+func TestLoginAdviceIsCleaned(t *testing.T) {
+	dirty := "run \x1b[2Jthis\x07\nnow " + strings.Repeat("x", 1<<20)
+	entry, _ := json.Marshal(map[string]any{"id": "l", "runner": "acp", "acp": map[string]any{"adapter": "opencode", "login": dirty}})
+	c := Merge(&File{Agents: raw(string(entry))})
+	l, _ := c.Find("l")
+	if strings.ContainsAny(l.ACP.Login, "\x1b\x07\n") || len([]rune(l.ACP.Login)) > 300 {
+		t.Errorf("login has a control character or is %d runes", len([]rune(l.ACP.Login)))
+	}
+	if !strings.HasPrefix(l.ACP.Login, "run [2Jthisnow ") || !strings.Contains(c.Notice, "login was cleaned") {
+		t.Errorf("login starts %q, notice %q", l.ACP.Login[:20], c.Notice)
+	}
+	// Advice that needs nothing done is left alone, with no notice.
+	if g := Merge(&File{}); g.Notice != "" {
+		t.Errorf("the built-ins gave a notice: %s", g.Notice)
+	}
+}
+
+// The authentication mode is settled into one of two.
+func TestAuthModeIsSettled(t *testing.T) {
+	for _, tc := range []struct{ in, want, notice string }{
+		{`""`, AuthExternal, ""},
+		{`"EXTERNAL "`, AuthExternal, ""},
+		{`" None"`, AuthNone, ""},
+		{`"bogus"`, AuthExternal, `acp auth "bogus" is neither`},
+	} {
+		c := Merge(&File{Agents: raw(`{"id":"a","runner":"acp","acp":{"adapter":"opencode","auth":` + tc.in + `}}`)})
+		a, _ := c.Find("a")
+		if a.ACP.Auth != tc.want {
+			t.Errorf("auth %s became %q, want %q", tc.in, a.ACP.Auth, tc.want)
+		}
+		if tc.notice == "" && c.Notice != "" || tc.notice != "" && !strings.Contains(c.Notice, tc.notice) {
+			t.Errorf("auth %s: notice %q, want %q", tc.in, c.Notice, tc.notice)
+		}
 	}
 }
