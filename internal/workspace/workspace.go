@@ -3236,7 +3236,10 @@ func typeIntoFrom(s *session.Session, src session.InputSource, text string, subm
 // StartAgent gives a freshly spawned pane its task -- so the caller must not
 // also type it.
 func (w *Workspace) routeFirstTurn(p *Pane, text string) bool {
-	if !p.IsAgent() || !p.Alive() {
+	// A structured pane is never rerouted: restarting it on another model would
+	// start a second agent beside the first, and its prompt goes over the
+	// protocol and not into a terminal.
+	if !p.IsAgent() || !p.Alive() || p.Structured() {
 		return false
 	}
 	c := w.agents()

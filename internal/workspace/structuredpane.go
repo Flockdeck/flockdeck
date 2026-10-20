@@ -27,7 +27,9 @@ import (
 // It is opt-in. A catalog entry with RunnerACP is only usable when the
 // structuredPanes preference is on (agent.Catalog.Structured), and a pane whose
 // agent is not usable reports that in place, as any pane with an agent that is
-// not configured does.
+// not configured does. Turning the preference off takes effect when the catalog
+// is read again (ReloadAgents) or a pane is restarted; a running pane is not
+// ended by it.
 
 // maxPaneHistory bounds the entries a restarted structured pane keeps from the
 // sessions before it.
@@ -348,6 +350,11 @@ func (w *Workspace) StructuredEntries(id string) ([]transcript.Entry, bool) {
 // restartStructured ends the pane's agent and starts a fresh session. The
 // entries of the old session stay as history, with a line saying where it was
 // restarted. Resuming the agent's own conversation is not done.
+//
+// Closing the old agent waits for it to end, for at most structured's
+// closeWait (15 seconds), on the goroutine that called and not under the
+// workspace lock. Between the close and the new runtime p.rt is nil, so the
+// pane reads as exited for that moment.
 func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime) {
 	history := old.Entries()
 	_ = old.Close()

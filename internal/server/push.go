@@ -290,6 +290,9 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 	for _, t := range s.ws.Tabs {
 		for _, id := range t.Tree.Panes() {
 			p := s.ws.Pane(id)
+			// A structured pane has no session and is skipped: a request it is
+			// waiting on is answered at the desk only, so a phone push for it
+			// would send the user to something they cannot answer there.
 			if p == nil || p.Sess == nil {
 				continue
 			}
