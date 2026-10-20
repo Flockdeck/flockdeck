@@ -866,3 +866,32 @@ func dropPartialLine(p []byte) []byte {
 	}
 	return p
 }
+
+// WakeReading is what the pane's agent rule makes of the pane right now.
+type WakeReading struct {
+	// Verdict is WakeUnknown for a pane whose agent has no rule or an untested
+	// one.
+	Verdict agent.WakeVerdict
+	// Prompt is the matched prompt line when Verdict is WakeOK.
+	Prompt string
+	// Version is the rule's version, empty when there is no rule.
+	Version string
+	// Source is where the rule came from (agent.RuleBuiltIn, RuleEdited or
+	// RuleUser), for the audit record of a wake. Empty when there is no rule.
+	Source string
+	// Tail is the output the verdict was drawn from, with the time it last
+	// changed, for the caller to require a quiet period.
+	Tail ScreenTail
+}
+
+// WakeReading reads the tail of the pane through its agent's wake rule. It
+// starts tail tracking, as ScreenTail does. It is safe from any goroutine.
+func (s *Session) WakeReading() WakeReading {
+	tail := s.ScreenTail()
+	r := WakeReading{Tail: tail}
+	if s.wake != nil {
+		r.Version, r.Source = s.wake.Version, s.wake.Source
+	}
+	r.Verdict, r.Prompt = s.wake.Judge(tail.Lines)
+	return r
+}

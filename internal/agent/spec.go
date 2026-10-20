@@ -158,6 +158,9 @@ type Spec struct {
 	API      APISpec  `json:"api,omitempty"`
 	Caps     Caps     `json:"caps,omitempty"`
 	Patterns Patterns `json:"patterns,omitempty"`
+	// Wake says how to recognise an idle, empty prompt, so that mail can be
+	// typed into the pane. Nil means the agent is never typed into.
+	Wake *WakeRule `json:"wake,omitempty"`
 	// Install is what to tell somebody who picked an agent their machine does
 	// not have.
 	Install string `json:"install,omitempty"`

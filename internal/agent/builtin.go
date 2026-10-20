@@ -79,6 +79,7 @@ func claudeSpec() Spec {
 			Group("model", "--model", "{{model}}"),
 		},
 		Caps: Caps{Hooks: true, Resume: true, Transcript: true, Trust: true, Context: ContextHook},
+		Wake: claudeWake(),
 		Models: []Model{
 			{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
 			{ID: "opus", Name: "Opus", Note: "most capable", Tier: TierTop},
@@ -278,6 +279,7 @@ func anthropicAPISpec() Spec {
 		},
 		DefaultModel: "claude-sonnet-5",
 		Caps:         chatCaps(),
+		Wake:         chatWake(),
 		Install:      "set a key with `flockdeck keys set anthropic`",
 	}
 }
@@ -293,6 +295,7 @@ func openAIAPISpec() Spec {
 		Models:       openAIModels("for complex work"),
 		DefaultModel: "gpt-5.6-terra",
 		Caps:         chatCaps(),
+		Wake:         chatWake(),
 		Install:      "set a key with `flockdeck keys set openai`",
 	}
 }
@@ -316,6 +319,7 @@ func googleAPISpec() Spec {
 		},
 		DefaultModel: "gemini-3.8-flash",
 		Caps:         chatCaps(),
+		Wake:         chatWake(),
 		Install:      "set a key with `flockdeck keys set google`",
 	}
 }
@@ -332,6 +336,7 @@ func openAICompatibleSpec() Spec {
 		ID: OpenAICompatibleID, Name: "OpenAI-compatible endpoint", Runner: RunnerAPI,
 		API:  APISpec{Wire: "openai"},
 		Caps: chatCaps(),
+		Wake: chatWake(),
 		// The picker is named first because it is where this line is read, and
 		// it takes the address there and then. The command is for `flockdeck
 		// agents`, which prints the same line in a terminal.
