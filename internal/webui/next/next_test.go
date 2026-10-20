@@ -346,3 +346,23 @@ func TestNodeTests(t *testing.T) {
 		t.Errorf("node reported no passes:\n%s", out)
 	}
 }
+
+// The end-to-end layer is the old window's file, served as it is. The terminal
+// module uses it through FlockdeckE2E, so a copy that drifted from the old one
+// would seal frames the desktop cannot open.
+func TestE2EIsTheOldWindowsFileByteForByte(t *testing.T) {
+	served, err := fs.ReadFile(webui.FS(), "e2e.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := os.ReadFile(filepath.Join("..", "assets", "e2e.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(served) != string(old) {
+		t.Error("the e2e.js the new shell is served is not the old window's file")
+	}
+	if _, err := os.Stat(filepath.Join("assets", "e2e.js")); err == nil {
+		t.Error("next/assets has an e2e.js of its own; the shell is to use the shared one")
+	}
+}
