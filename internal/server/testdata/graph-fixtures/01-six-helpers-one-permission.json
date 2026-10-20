@@ -4,55 +4,63 @@
   "project": "01-six-helpers-one-permission",
   "teams": [
     {
-      "id": "01-six-helpers-one-permission-manager",
-      "manager": "01-six-helpers-one-permission-manager",
+      "id": "0c96cbe9",
+      "manager": "0c96cbe9",
       "members": [
-        "01-six-helpers-one-permission-manager",
-        "01-six-helpers-one-permission-cart",
-        "01-six-helpers-one-permission-tax",
-        "01-six-helpers-one-permission-docs",
-        "01-six-helpers-one-permission-migrate",
-        "01-six-helpers-one-permission-api",
-        "01-six-helpers-one-permission-search"
+        "0c96cbe9",
+        "6fb40971",
+        "366c9143",
+        "ec776492",
+        "dccc34a5",
+        "5dc771c1",
+        "1ce36fdc"
       ],
       "goal": "Ship 01-six-helpers-one-permission",
       "started": "2026-10-21T07:00:00Z",
       "spendUSD": 8,
       "caps": [
         {
-          "pane": "01-six-helpers-one-permission-manager",
+          "pane": "0c96cbe9",
           "used": 6,
           "max": 8
         }
       ],
       "needs": [
         {
-          "id": "permission:01-six-helpers-one-permission-tax",
+          "id": "permission:366c9143",
           "kind": "permission",
-          "pane": "01-six-helpers-one-permission-tax",
+          "pane": "366c9143",
           "time": "2026-10-21T08:56:00Z",
           "text": "go test ./tax/... -run TestRounding -count=1"
+        },
+        {
+          "id": "conflict:366c9143:6fb40971",
+          "kind": "conflict",
+          "pane": "366c9143",
+          "other": "6fb40971",
+          "time": "2026-10-21T08:48:00Z",
+          "text": "cart/total.go"
         }
       ]
     }
   ],
   "nodes": [
     {
-      "pane": "01-six-helpers-one-permission-manager",
+      "pane": "0c96cbe9",
       "children": [
-        "01-six-helpers-one-permission-cart",
-        "01-six-helpers-one-permission-tax",
-        "01-six-helpers-one-permission-docs",
-        "01-six-helpers-one-permission-migrate",
-        "01-six-helpers-one-permission-api",
-        "01-six-helpers-one-permission-search"
+        "6fb40971",
+        "366c9143",
+        "ec776492",
+        "dccc34a5",
+        "5dc771c1",
+        "1ce36fdc"
       ],
       "depth": 0,
-      "team": "01-six-helpers-one-permission-manager",
+      "team": "0c96cbe9",
       "waitingOn": {
         "kind": "helpers",
         "text": "2 helpers are busy",
-        "ref": "01-six-helpers-one-permission-cart"
+        "ref": "6fb40971"
       },
       "kind": "terminal",
       "name": "manager",
@@ -64,10 +72,10 @@
       "branch": "main"
     },
     {
-      "pane": "01-six-helpers-one-permission-cart",
-      "parent": "01-six-helpers-one-permission-manager",
+      "pane": "6fb40971",
+      "parent": "0c96cbe9",
       "depth": 1,
-      "team": "01-six-helpers-one-permission-manager",
+      "team": "0c96cbe9",
       "waitingOn": {
         "kind": "none"
       },
@@ -82,10 +90,10 @@
       "branch": "work/cart"
     },
     {
-      "pane": "01-six-helpers-one-permission-tax",
-      "parent": "01-six-helpers-one-permission-manager",
+      "pane": "366c9143",
+      "parent": "0c96cbe9",
       "depth": 1,
-      "team": "01-six-helpers-one-permission-manager",
+      "team": "0c96cbe9",
       "waitingOn": {
         "kind": "user",
         "text": "go test ./tax/... -run TestRounding -count=1"
@@ -100,10 +108,10 @@
       "branch": "work/tax"
     },
     {
-      "pane": "01-six-helpers-one-permission-docs",
-      "parent": "01-six-helpers-one-permission-manager",
+      "pane": "ec776492",
+      "parent": "0c96cbe9",
       "depth": 1,
-      "team": "01-six-helpers-one-permission-manager",
+      "team": "0c96cbe9",
       "waitingOn": {
         "kind": "none"
       },
@@ -117,14 +125,14 @@
       "branch": "work/docs"
     },
     {
-      "pane": "01-six-helpers-one-permission-migrate",
-      "parent": "01-six-helpers-one-permission-manager",
+      "pane": "dccc34a5",
+      "parent": "0c96cbe9",
       "depth": 1,
-      "team": "01-six-helpers-one-permission-manager",
+      "team": "0c96cbe9",
       "waitingOn": {
         "kind": "down",
         "text": "exited",
-        "ref": "01-six-helpers-one-permission-migrate"
+        "ref": "dccc34a5"
       },
       "kind": "terminal",
       "name": "migrate",
@@ -136,10 +144,10 @@
       "branch": "work/migrate"
     },
     {
-      "pane": "01-six-helpers-one-permission-api",
-      "parent": "01-six-helpers-one-permission-manager",
+      "pane": "5dc771c1",
+      "parent": "0c96cbe9",
       "depth": 1,
-      "team": "01-six-helpers-one-permission-manager",
+      "team": "0c96cbe9",
       "waitingOn": {
         "kind": "reviewer",
         "text": "T1 is in review by reviewer",
@@ -160,10 +168,10 @@
       }
     },
     {
-      "pane": "01-six-helpers-one-permission-search",
-      "parent": "01-six-helpers-one-permission-manager",
+      "pane": "1ce36fdc",
+      "parent": "0c96cbe9",
       "depth": 1,
-      "team": "01-six-helpers-one-permission-manager",
+      "team": "0c96cbe9",
       "waitingOn": {
         "kind": "task",
         "text": "needs the staging index, which only the person can create",
@@ -187,33 +195,33 @@
   "edges": [
     {
       "kind": "spawn",
-      "from": "01-six-helpers-one-permission-manager",
-      "to": "01-six-helpers-one-permission-cart"
+      "from": "0c96cbe9",
+      "to": "6fb40971"
     },
     {
       "kind": "spawn",
-      "from": "01-six-helpers-one-permission-manager",
-      "to": "01-six-helpers-one-permission-tax"
+      "from": "0c96cbe9",
+      "to": "366c9143"
     },
     {
       "kind": "spawn",
-      "from": "01-six-helpers-one-permission-manager",
-      "to": "01-six-helpers-one-permission-docs"
+      "from": "0c96cbe9",
+      "to": "ec776492"
     },
     {
       "kind": "spawn",
-      "from": "01-six-helpers-one-permission-manager",
-      "to": "01-six-helpers-one-permission-migrate"
+      "from": "0c96cbe9",
+      "to": "dccc34a5"
     },
     {
       "kind": "spawn",
-      "from": "01-six-helpers-one-permission-manager",
-      "to": "01-six-helpers-one-permission-api"
+      "from": "0c96cbe9",
+      "to": "5dc771c1"
     },
     {
       "kind": "spawn",
-      "from": "01-six-helpers-one-permission-manager",
-      "to": "01-six-helpers-one-permission-search"
+      "from": "0c96cbe9",
+      "to": "1ce36fdc"
     }
   ],
   "solo": [],

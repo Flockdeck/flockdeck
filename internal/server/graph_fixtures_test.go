@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -34,6 +36,7 @@ const (
 	fxWorking   = "working"          // mid-turn, editing
 	fxIdle      = "idle"             // finished its turn, nothing owed
 	fxExited    = "exited"           // process ended cleanly
+	fxCrashed   = "crashed"          // process ended with exit code 2
 	fxPerm      = "permission"       // waiting on the person to allow a command
 	fxAsk       = "question"         // waiting on the person's answer
 	fxReturned  = "returned"         // task came back from review with a note
@@ -60,6 +63,12 @@ type fxMessage struct {
 	minutesAgo int
 }
 
+// fxConflict is two helpers that change the same files.
+type fxConflict struct {
+	a, b  string
+	paths []string
+}
+
 // fxExpect is one thing that wants the person, as the answer key says it.
 type fxExpect struct {
 	pane, kind, why string
@@ -69,16 +78,26 @@ type fxSpec struct {
 	name, description string
 	helpers           []fxHelper
 	message           *fxMessage
+	// managerIdle makes the manager idle between turns, so unread mail it has not
+	// read is a stale-unread item.
+	managerIdle bool
+	// conflict is a pair of helpers the conflict radar lists.
+	conflict *fxConflict
 	// expect is the answer key: every item that wants the person.
 	expect []fxExpect
 }
 
-func fxID(spec fxSpec, name string) string { return spec.name + "-" + name }
+// fxID is the pane id: eight hex characters, as short as a real graph shows. The
+// name field keeps the readable name.
+func fxID(spec fxSpec, name string) string {
+	sum := sha1.Sum([]byte(spec.name + "/" + name))
+	return hex.EncodeToString(sum[:4])
+}
 
 var graphFixtureSpecs = []fxSpec{
 	{
 		name:        "01-six-helpers-one-permission",
-		description: "Six helpers on a checkout rewrite. One is asking to run a command.",
+		description: "Six helpers on a checkout rewrite. One is asking to run a command, and two of the helpers change the same file.",
 		helpers: []fxHelper{
 			{name: "cart", state: fxWorking, text: "Edit cart/total.go", since: 2},
 			{name: "tax", state: fxPerm, text: "go test ./tax/... -run TestRounding -count=1", since: 4},
@@ -87,24 +106,29 @@ var graphFixtureSpecs = []fxSpec{
 			{name: "api", state: fxInReview, task: "Add the totals endpoint", since: 9},
 			{name: "search", state: fxBlocked, task: "Index the new fields", text: "needs the staging index, which only the person can create", since: 16},
 		},
-		expect: []fxExpect{{"tax", "permission", "asks to run go test ./tax/... -run TestRounding -count=1"}},
+		conflict: &fxConflict{a: "cart", b: "tax", paths: []string{"cart/total.go"}},
+		expect: []fxExpect{
+			{"tax", "permission", "asks to run go test ./tax/... -run TestRounding -count=1"},
+			{"cart", "conflict", "cart and tax both change cart/total.go"},
+		},
 	},
 	{
 		name:        "02-eight-helpers-permission-and-question",
-		description: "Eight helpers on a billing migration. One asks to run a command, one asks a question.",
+		description: "Eight helpers on a billing migration. One asks to run a command, one asks a question, and one ended in error.",
 		helpers: []fxHelper{
 			{name: "schema", state: fxPerm, text: "psql -f migrations/0042_invoices.sql", since: 3},
 			{name: "backfill", state: fxAsk, text: "Backfill invoices older than 2024, or leave them as they are?", since: 7},
 			{name: "ledger", state: fxWorking, text: "Edit ledger/post.go", since: 1},
 			{name: "reports", state: fxWorking, text: "Bash go build ./...", since: 1},
 			{name: "webhooks", state: fxIdle, since: 14},
-			{name: "fixtures", state: fxExited, since: 25},
+			{name: "fixtures", state: fxCrashed, since: 25},
 			{name: "emails", state: fxInReview, task: "Receipt email copy", since: 6},
 			{name: "retries", state: fxBlocked, task: "Retry failed charges", text: "waiting on the payment sandbox keys", since: 20},
 		},
 		expect: []fxExpect{
 			{"backfill", "ask", "asks: Backfill invoices older than 2024, or leave them as they are?"},
 			{"schema", "permission", "asks to run psql -f migrations/0042_invoices.sql"},
+			{"fixtures", "down", "exited with code 2, so the helper ended in error"},
 		},
 	},
 	{
@@ -145,7 +169,7 @@ var graphFixtureSpecs = []fxSpec{
 	},
 	{
 		name:        "05-six-helpers-undelivered-message",
-		description: "Six helpers on an onboarding flow. One asks a question. The manager has an unread message from a helper that has waited seven minutes.",
+		description: "Six helpers on an onboarding flow. One asks a question. The manager is idle with an unread message from a helper that has waited seven minutes.",
 		helpers: []fxHelper{
 			{name: "forms", state: fxAsk, text: "Make the phone number optional?", since: 6},
 			{name: "copy", state: fxWorking, text: "Edit onboarding/welcome.md", since: 2},
@@ -154,8 +178,12 @@ var graphFixtureSpecs = []fxSpec{
 			{name: "icons", state: fxExited, since: 35},
 			{name: "i18n", state: fxBlocked, task: "Extract the new strings", text: "waiting on the translation vendor's key format", since: 25},
 		},
-		message: &fxMessage{from: "tests", text: "The sign-up form submits twice on a slow connection. Needs a decision before I write the fix.", minutesAgo: 7},
-		expect:  []fxExpect{{"forms", "ask", "asks: Make the phone number optional?"}},
+		message:     &fxMessage{from: "tests", text: "The sign-up form submits twice on a slow connection. Needs a decision before I write the fix.", minutesAgo: 7},
+		managerIdle: true,
+		expect: []fxExpect{
+			{"forms", "ask", "asks: Make the phone number optional?"},
+			{"manager", "stale-unread", "1 unread: the message from tests has waited seven minutes and the manager is idle"},
+		},
 	},
 }
 
@@ -166,6 +194,9 @@ func buildGraphFixture(spec fxSpec) graphMsg {
 		ID: mgr, Role: team.ManagerRole, Name: "manager", Agent: "claude", Status: "working", Activity: "working",
 		StatusSince: fxNow.Add(-40 * time.Minute),
 	}}
+	if spec.managerIdle {
+		panes[0].Status, panes[0].Activity = "idle", "idle"
+	}
 	byName := map[string]string{}
 	var tasks []team.GraphTask
 	var moves []team.TaskMove
@@ -200,6 +231,8 @@ func buildGraphFixture(spec fxSpec) graphMsg {
 		case fxIdle:
 		case fxExited:
 			p.Status, p.Activity, p.Exited = "exited", "exited", true
+		case fxCrashed:
+			p.Status, p.Activity, p.Exited, p.ExitCode = "exited", "exited", true, 2
 		case fxPerm:
 			p.Status, p.Activity = "waiting", "waiting"
 			p.HasPrompt, p.PromptKind, p.PromptText = true, team.PromptPermission, h.text
@@ -227,7 +260,11 @@ func buildGraphFixture(spec fxSpec) graphMsg {
 	}
 
 	graph := team.BuildGraph(panes, tasks)
-	needs := team.NeedsYou(graph, panes, tasks, nil, moves, fxNow)
+	var conflicts []team.PaneConflict
+	if c := spec.conflict; c != nil {
+		conflicts = append(conflicts, team.PaneConflict{A: fxID(spec, c.a), B: fxID(spec, c.b), Paths: c.paths, Since: fxNow.Add(-12 * time.Minute)})
+	}
+	needs := team.NeedsYou(graph, panes, tasks, conflicts, moves, fxNow)
 	pane := map[string]team.GraphPane{}
 	for _, p := range panes {
 		pane[p.ID] = p
@@ -289,9 +326,9 @@ func fxAnswerKey(spec fxSpec) string {
 		}
 	}
 	b.WriteString(". The graph is judged at 2026-10-21T09:00:00Z.\n\n")
-	fmt.Fprintf(&b, "## Waiting on the person (%d)\n\n", len(spec.expect))
+	fmt.Fprintf(&b, "## Needs the person (%d)\n\n", len(spec.expect))
 	for _, e := range spec.expect {
-		fmt.Fprintf(&b, "- %s: %s\n", e.pane, e.why)
+		fmt.Fprintf(&b, "- %s: %s\n", fxLabel(spec, e), e.why)
 	}
 	b.WriteString("\n## The other helpers\n\n")
 	asked := map[string]bool{}
@@ -302,12 +339,20 @@ func fxAnswerKey(spec fxSpec) string {
 		if asked[h.name] {
 			continue
 		}
-		fmt.Fprintf(&b, "- %s: %s\n", h.name, fxOtherState(h))
+		fmt.Fprintf(&b, "- %s (%s): %s\n", h.name, fxID(spec, h.name), fxOtherState(h))
 	}
 	if m := spec.message; m != nil {
-		fmt.Fprintf(&b, "\n## The message\n\n%s sent the manager a message %d minutes before the graph's time, and it is still queued: the manager has not been shown it, woken for it or read it. The graph does not list it as waiting on the person, because the manager is working. The message edge says `queued`; stage 0a had no delivery field, and the schema now requires one on a message edge.\n", m.from, m.minutesAgo)
+		fmt.Fprintf(&b, "\n## The message\n\n%s sent the manager a message %d minutes before the graph's time, and it is still queued: the manager has not been shown it, woken for it or read it. The manager is idle and has not read it, so after five minutes it is a stale-unread item for the person. The message edge says `queued`; stage 0a had no delivery field, and the schema now requires one on a message edge.\n", m.from, m.minutesAgo)
 	}
 	return b.String()
+}
+
+// fxLabel names the pane or panes of a key entry with their ids.
+func fxLabel(spec fxSpec, e fxExpect) string {
+	if c := spec.conflict; c != nil && e.kind == "conflict" {
+		return fmt.Sprintf("%s (%s) and %s (%s)", c.a, fxID(spec, c.a), c.b, fxID(spec, c.b))
+	}
+	return fmt.Sprintf("%s (%s)", e.pane, fxID(spec, e.pane))
 }
 
 func fxOtherState(h fxHelper) string {
@@ -318,6 +363,8 @@ func fxOtherState(h fxHelper) string {
 		return "idle, nothing owed"
 	case fxExited:
 		return "exited cleanly"
+	case fxCrashed:
+		return "exited with code 2"
 	case fxInReview:
 		return "idle, its task \"" + h.task + "\" is in review and waits on a reviewer"
 	case fxBlocked:
@@ -362,17 +409,41 @@ func TestGraphFixturesMatchTheSchemaAndTheirAnswers(t *testing.T) {
 			if c := g.Teams[0].Caps[0]; c.Used != len(spec.helpers) || c.Max != workspace.MaxHelpers {
 				t.Errorf("manager cap %+v", c)
 			}
-			if w := len(spec.expect); w < 1 || w > 3 {
-				t.Errorf("%d waiting on the person", w)
+			// One to three helpers wait on the person for a prompt or a returned task;
+			// the key may add down, conflict and stale-unread items.
+			waiters := 0
+			for _, e := range spec.expect {
+				if e.kind == "permission" || e.kind == "ask" || e.kind == "returned" {
+					waiters++
+				}
+			}
+			if waiters < 1 || waiters > 3 {
+				t.Errorf("%d helpers wait on the person", waiters)
 			}
 
-			// The answer key is what the needs list says, and each waiting-on-user
-			// node is one of its permission or question items.
-			var got []fxExpect
-			for _, it := range g.Teams[0].Needs {
-				got = append(got, fxExpect{pane: strings.TrimPrefix(it.Pane, spec.name+"-"), kind: it.Kind})
+			// The answer key is what the needs list says: the same panes and kinds,
+			// and each why contains the item's own text.
+			name := map[string]string{fxID(spec, fxManagerID): fxManagerID}
+			for _, h := range spec.helpers {
+				name[fxID(spec, h.name)] = h.name
 			}
-			var want []fxExpect
+			var got, want []fxExpect
+			for _, it := range g.Teams[0].Needs {
+				pane := name[it.Pane]
+				if it.Kind == "conflict" {
+					c := spec.conflict
+					if c == nil || !(pane == c.a && name[it.Other] == c.b || pane == c.b && name[it.Other] == c.a) {
+						t.Fatalf("conflict item %+v is not the fixture's pair", it)
+					}
+					pane = c.a
+				}
+				got = append(got, fxExpect{pane: pane, kind: it.Kind})
+				for _, e := range spec.expect {
+					if e.pane == pane && e.kind == it.Kind && it.Text != "" && !strings.Contains(e.why, it.Text) {
+						t.Errorf("%s %s: the key says %q, the needs item says %q", pane, it.Kind, e.why, it.Text)
+					}
+				}
+			}
 			for _, e := range spec.expect {
 				want = append(want, fxExpect{pane: e.pane, kind: e.kind})
 			}
@@ -381,20 +452,41 @@ func TestGraphFixturesMatchTheSchemaAndTheirAnswers(t *testing.T) {
 			if fmt.Sprint(got) != fmt.Sprint(want) {
 				t.Errorf("needs list %v, answer key %v", got, want)
 			}
-			userNodes := 0
+
+			// Each node says what it waits on.
+			userNodes, prompts := 0, 0
+			for _, e := range spec.expect {
+				if e.kind == "permission" || e.kind == "ask" {
+					prompts++
+				}
+			}
 			for _, n := range g.Nodes {
 				if n.WaitingOn.Kind == team.WaitUser {
 					userNodes++
 				}
 			}
-			prompts := 0
-			for _, e := range spec.expect {
-				if e.kind != "returned" {
-					prompts++
-				}
-			}
 			if userNodes != prompts {
 				t.Errorf("%d nodes wait on the user, the key has %d prompts", userNodes, prompts)
+			}
+			for _, h := range spec.helpers {
+				n, _ := g.node(fxID(spec, h.name))
+				switch h.state {
+				case fxInReview:
+					if n.WaitingOn.Kind != team.WaitReviewer || n.Task == nil || n.WaitingOn.Ref != n.Task.ID || !strings.Contains(n.WaitingOn.Text, "in review") {
+						t.Errorf("%s waits on %+v", h.name, n.WaitingOn)
+					}
+				case fxBlocked:
+					if n.WaitingOn.Kind != team.WaitTask || n.WaitingOn.Text != h.text {
+						t.Errorf("%s waits on %+v, want its task note", h.name, n.WaitingOn)
+					}
+				case fxCrashed:
+					if n.WaitingOn.Kind != team.WaitDown {
+						t.Errorf("%s waits on %+v", h.name, n.WaitingOn)
+					}
+				}
+			}
+			for _, it := range g.Teams[0].Needs {
+				seen["need:"+it.Kind] = true
 			}
 			for _, n := range g.Nodes {
 				seen[n.WaitingOn.Kind] = true
@@ -411,9 +503,9 @@ func TestGraphFixturesMatchTheSchemaAndTheirAnswers(t *testing.T) {
 		})
 	}
 	// Between them the fixtures cover every state the test names.
-	for _, k := range []string{"helper:" + fxWorking, "helper:" + fxIdle, "helper:" + fxExited, "helper:" + fxPerm,
+	for _, k := range []string{"helper:" + fxWorking, "helper:" + fxIdle, "helper:" + fxExited, "helper:" + fxCrashed, "helper:" + fxPerm,
 		"helper:" + fxAsk, "helper:" + fxReturned, "helper:" + fxInReview, "helper:" + fxBlocked,
-		team.WaitUser, team.WaitDown, team.WaitReviewer, team.WaitTask, "nested", "message"} {
+		team.WaitUser, team.WaitDown, team.WaitReviewer, team.WaitTask, "nested", "message", "need:conflict", "need:stale-unread", "need:down", "need:returned", "need:permission", "need:ask"} {
 		if !seen[k] {
 			t.Errorf("no fixture has %s", k)
 		}

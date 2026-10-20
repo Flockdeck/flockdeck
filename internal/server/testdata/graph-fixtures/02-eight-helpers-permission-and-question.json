@@ -4,66 +4,73 @@
   "project": "02-eight-helpers-permission-and-question",
   "teams": [
     {
-      "id": "02-eight-helpers-permission-and-question-manager",
-      "manager": "02-eight-helpers-permission-and-question-manager",
+      "id": "b206ac1a",
+      "manager": "b206ac1a",
       "members": [
-        "02-eight-helpers-permission-and-question-manager",
-        "02-eight-helpers-permission-and-question-schema",
-        "02-eight-helpers-permission-and-question-backfill",
-        "02-eight-helpers-permission-and-question-ledger",
-        "02-eight-helpers-permission-and-question-reports",
-        "02-eight-helpers-permission-and-question-webhooks",
-        "02-eight-helpers-permission-and-question-fixtures",
-        "02-eight-helpers-permission-and-question-emails",
-        "02-eight-helpers-permission-and-question-retries"
+        "b206ac1a",
+        "af5f14f7",
+        "48211787",
+        "f5b8f95d",
+        "3ecf0128",
+        "04ed9ffa",
+        "2a5c9085",
+        "476ff4dc",
+        "ea5e3f24"
       ],
       "goal": "Ship 02-eight-helpers-permission-and-question",
       "started": "2026-10-21T07:00:00Z",
       "spendUSD": 9.5,
       "caps": [
         {
-          "pane": "02-eight-helpers-permission-and-question-manager",
+          "pane": "b206ac1a",
           "used": 8,
           "max": 8
         }
       ],
       "needs": [
         {
-          "id": "ask:02-eight-helpers-permission-and-question-backfill",
+          "id": "ask:48211787",
           "kind": "ask",
-          "pane": "02-eight-helpers-permission-and-question-backfill",
+          "pane": "48211787",
           "time": "2026-10-21T08:53:00Z",
           "text": "Backfill invoices older than 2024, or leave them as they are?"
         },
         {
-          "id": "permission:02-eight-helpers-permission-and-question-schema",
+          "id": "permission:af5f14f7",
           "kind": "permission",
-          "pane": "02-eight-helpers-permission-and-question-schema",
+          "pane": "af5f14f7",
           "time": "2026-10-21T08:57:00Z",
           "text": "psql -f migrations/0042_invoices.sql"
+        },
+        {
+          "id": "down:2a5c9085",
+          "kind": "down",
+          "pane": "2a5c9085",
+          "time": "2026-10-21T08:35:00Z",
+          "text": "exited with code 2"
         }
       ]
     }
   ],
   "nodes": [
     {
-      "pane": "02-eight-helpers-permission-and-question-manager",
+      "pane": "b206ac1a",
       "children": [
-        "02-eight-helpers-permission-and-question-schema",
-        "02-eight-helpers-permission-and-question-backfill",
-        "02-eight-helpers-permission-and-question-ledger",
-        "02-eight-helpers-permission-and-question-reports",
-        "02-eight-helpers-permission-and-question-webhooks",
-        "02-eight-helpers-permission-and-question-fixtures",
-        "02-eight-helpers-permission-and-question-emails",
-        "02-eight-helpers-permission-and-question-retries"
+        "af5f14f7",
+        "48211787",
+        "f5b8f95d",
+        "3ecf0128",
+        "04ed9ffa",
+        "2a5c9085",
+        "476ff4dc",
+        "ea5e3f24"
       ],
       "depth": 0,
-      "team": "02-eight-helpers-permission-and-question-manager",
+      "team": "b206ac1a",
       "waitingOn": {
         "kind": "helpers",
         "text": "4 helpers are busy",
-        "ref": "02-eight-helpers-permission-and-question-schema"
+        "ref": "af5f14f7"
       },
       "kind": "terminal",
       "name": "manager",
@@ -75,10 +82,10 @@
       "branch": "main"
     },
     {
-      "pane": "02-eight-helpers-permission-and-question-schema",
-      "parent": "02-eight-helpers-permission-and-question-manager",
+      "pane": "af5f14f7",
+      "parent": "b206ac1a",
       "depth": 1,
-      "team": "02-eight-helpers-permission-and-question-manager",
+      "team": "b206ac1a",
       "waitingOn": {
         "kind": "user",
         "text": "psql -f migrations/0042_invoices.sql"
@@ -93,10 +100,10 @@
       "branch": "work/schema"
     },
     {
-      "pane": "02-eight-helpers-permission-and-question-backfill",
-      "parent": "02-eight-helpers-permission-and-question-manager",
+      "pane": "48211787",
+      "parent": "b206ac1a",
       "depth": 1,
-      "team": "02-eight-helpers-permission-and-question-manager",
+      "team": "b206ac1a",
       "waitingOn": {
         "kind": "user",
         "text": "Backfill invoices older than 2024, or leave them as they are?"
@@ -111,10 +118,10 @@
       "branch": "work/backfill"
     },
     {
-      "pane": "02-eight-helpers-permission-and-question-ledger",
-      "parent": "02-eight-helpers-permission-and-question-manager",
+      "pane": "f5b8f95d",
+      "parent": "b206ac1a",
       "depth": 1,
-      "team": "02-eight-helpers-permission-and-question-manager",
+      "team": "b206ac1a",
       "waitingOn": {
         "kind": "none"
       },
@@ -129,10 +136,10 @@
       "branch": "work/ledger"
     },
     {
-      "pane": "02-eight-helpers-permission-and-question-reports",
-      "parent": "02-eight-helpers-permission-and-question-manager",
+      "pane": "3ecf0128",
+      "parent": "b206ac1a",
       "depth": 1,
-      "team": "02-eight-helpers-permission-and-question-manager",
+      "team": "b206ac1a",
       "waitingOn": {
         "kind": "none"
       },
@@ -147,10 +154,10 @@
       "branch": "work/reports"
     },
     {
-      "pane": "02-eight-helpers-permission-and-question-webhooks",
-      "parent": "02-eight-helpers-permission-and-question-manager",
+      "pane": "04ed9ffa",
+      "parent": "b206ac1a",
       "depth": 1,
-      "team": "02-eight-helpers-permission-and-question-manager",
+      "team": "b206ac1a",
       "waitingOn": {
         "kind": "none"
       },
@@ -164,14 +171,14 @@
       "branch": "work/webhooks"
     },
     {
-      "pane": "02-eight-helpers-permission-and-question-fixtures",
-      "parent": "02-eight-helpers-permission-and-question-manager",
+      "pane": "2a5c9085",
+      "parent": "b206ac1a",
       "depth": 1,
-      "team": "02-eight-helpers-permission-and-question-manager",
+      "team": "b206ac1a",
       "waitingOn": {
         "kind": "down",
         "text": "exited",
-        "ref": "02-eight-helpers-permission-and-question-fixtures"
+        "ref": "2a5c9085"
       },
       "kind": "terminal",
       "name": "fixtures",
@@ -183,10 +190,10 @@
       "branch": "work/fixtures"
     },
     {
-      "pane": "02-eight-helpers-permission-and-question-emails",
-      "parent": "02-eight-helpers-permission-and-question-manager",
+      "pane": "476ff4dc",
+      "parent": "b206ac1a",
       "depth": 1,
-      "team": "02-eight-helpers-permission-and-question-manager",
+      "team": "b206ac1a",
       "waitingOn": {
         "kind": "reviewer",
         "text": "T1 is in review by reviewer",
@@ -207,10 +214,10 @@
       }
     },
     {
-      "pane": "02-eight-helpers-permission-and-question-retries",
-      "parent": "02-eight-helpers-permission-and-question-manager",
+      "pane": "ea5e3f24",
+      "parent": "b206ac1a",
       "depth": 1,
-      "team": "02-eight-helpers-permission-and-question-manager",
+      "team": "b206ac1a",
       "waitingOn": {
         "kind": "task",
         "text": "waiting on the payment sandbox keys",
@@ -234,43 +241,43 @@
   "edges": [
     {
       "kind": "spawn",
-      "from": "02-eight-helpers-permission-and-question-manager",
-      "to": "02-eight-helpers-permission-and-question-schema"
+      "from": "b206ac1a",
+      "to": "af5f14f7"
     },
     {
       "kind": "spawn",
-      "from": "02-eight-helpers-permission-and-question-manager",
-      "to": "02-eight-helpers-permission-and-question-backfill"
+      "from": "b206ac1a",
+      "to": "48211787"
     },
     {
       "kind": "spawn",
-      "from": "02-eight-helpers-permission-and-question-manager",
-      "to": "02-eight-helpers-permission-and-question-ledger"
+      "from": "b206ac1a",
+      "to": "f5b8f95d"
     },
     {
       "kind": "spawn",
-      "from": "02-eight-helpers-permission-and-question-manager",
-      "to": "02-eight-helpers-permission-and-question-reports"
+      "from": "b206ac1a",
+      "to": "3ecf0128"
     },
     {
       "kind": "spawn",
-      "from": "02-eight-helpers-permission-and-question-manager",
-      "to": "02-eight-helpers-permission-and-question-webhooks"
+      "from": "b206ac1a",
+      "to": "04ed9ffa"
     },
     {
       "kind": "spawn",
-      "from": "02-eight-helpers-permission-and-question-manager",
-      "to": "02-eight-helpers-permission-and-question-fixtures"
+      "from": "b206ac1a",
+      "to": "2a5c9085"
     },
     {
       "kind": "spawn",
-      "from": "02-eight-helpers-permission-and-question-manager",
-      "to": "02-eight-helpers-permission-and-question-emails"
+      "from": "b206ac1a",
+      "to": "476ff4dc"
     },
     {
       "kind": "spawn",
-      "from": "02-eight-helpers-permission-and-question-manager",
-      "to": "02-eight-helpers-permission-and-question-retries"
+      "from": "b206ac1a",
+      "to": "ea5e3f24"
     }
   ],
   "solo": [],

@@ -4,16 +4,16 @@ Eight helpers on a release. One asks to run a command, one asks a question and o
 
 The team is a manager and 8 helpers. The graph is judged at 2026-10-21T09:00:00Z.
 
-## Waiting on the person (3)
+## Needs the person (3)
 
-- build: asks to run git push origin release/2.4
-- notes: asks: Name the breaking change in the headline?
-- qa: task returned from review: The installer fails on a path with a space. Reproduce and fix.
+- build (e8c9aa4e): asks to run git push origin release/2.4
+- notes (160d47b0): asks: Name the breaking change in the headline?
+- qa (262e0b2b): task returned from review: The installer fails on a path with a space. Reproduce and fix.
 
 ## The other helpers
 
-- deps: working (Edit go.mod)
-- site: working (Edit docs/download.md)
-- signing: idle, its task "Sign the Windows build" is blocked: the signing certificate has not arrived
-- changelog: idle, nothing owed
-- old-branch: exited cleanly
+- deps (d1faf784): working (Edit go.mod)
+- site (73f13b59): working (Edit docs/download.md)
+- signing (0aa92d92): idle, its task "Sign the Windows build" is blocked: the signing certificate has not arrived
+- changelog (ee480bbd): idle, nothing owed
+- old-branch (ad682fde): exited cleanly

@@ -4,48 +4,48 @@
   "project": "04-eight-helpers-three-waiting",
   "teams": [
     {
-      "id": "04-eight-helpers-three-waiting-manager",
-      "manager": "04-eight-helpers-three-waiting-manager",
+      "id": "0c501ed4",
+      "manager": "0c501ed4",
       "members": [
-        "04-eight-helpers-three-waiting-manager",
-        "04-eight-helpers-three-waiting-build",
-        "04-eight-helpers-three-waiting-notes",
-        "04-eight-helpers-three-waiting-qa",
-        "04-eight-helpers-three-waiting-deps",
-        "04-eight-helpers-three-waiting-site",
-        "04-eight-helpers-three-waiting-signing",
-        "04-eight-helpers-three-waiting-changelog",
-        "04-eight-helpers-three-waiting-old-branch"
+        "0c501ed4",
+        "e8c9aa4e",
+        "160d47b0",
+        "262e0b2b",
+        "d1faf784",
+        "73f13b59",
+        "0aa92d92",
+        "ee480bbd",
+        "ad682fde"
       ],
       "goal": "Ship 04-eight-helpers-three-waiting",
       "started": "2026-10-21T07:00:00Z",
       "spendUSD": 9.5,
       "caps": [
         {
-          "pane": "04-eight-helpers-three-waiting-manager",
+          "pane": "0c501ed4",
           "used": 8,
           "max": 8
         }
       ],
       "needs": [
         {
-          "id": "ask:04-eight-helpers-three-waiting-notes",
+          "id": "ask:160d47b0",
           "kind": "ask",
-          "pane": "04-eight-helpers-three-waiting-notes",
+          "pane": "160d47b0",
           "time": "2026-10-21T08:50:00Z",
           "text": "Name the breaking change in the headline?"
         },
         {
-          "id": "permission:04-eight-helpers-three-waiting-build",
+          "id": "permission:e8c9aa4e",
           "kind": "permission",
-          "pane": "04-eight-helpers-three-waiting-build",
+          "pane": "e8c9aa4e",
           "time": "2026-10-21T08:58:00Z",
           "text": "git push origin release/2.4"
         },
         {
           "id": "returned:T1",
           "kind": "returned",
-          "pane": "04-eight-helpers-three-waiting-qa",
+          "pane": "262e0b2b",
           "task": "T1",
           "time": "2026-10-21T08:45:00Z",
           "text": "The installer fails on a path with a space. Reproduce and fix."
@@ -55,23 +55,23 @@
   ],
   "nodes": [
     {
-      "pane": "04-eight-helpers-three-waiting-manager",
+      "pane": "0c501ed4",
       "children": [
-        "04-eight-helpers-three-waiting-build",
-        "04-eight-helpers-three-waiting-notes",
-        "04-eight-helpers-three-waiting-qa",
-        "04-eight-helpers-three-waiting-deps",
-        "04-eight-helpers-three-waiting-site",
-        "04-eight-helpers-three-waiting-signing",
-        "04-eight-helpers-three-waiting-changelog",
-        "04-eight-helpers-three-waiting-old-branch"
+        "e8c9aa4e",
+        "160d47b0",
+        "262e0b2b",
+        "d1faf784",
+        "73f13b59",
+        "0aa92d92",
+        "ee480bbd",
+        "ad682fde"
       ],
       "depth": 0,
-      "team": "04-eight-helpers-three-waiting-manager",
+      "team": "0c501ed4",
       "waitingOn": {
         "kind": "helpers",
         "text": "5 helpers are busy",
-        "ref": "04-eight-helpers-three-waiting-build"
+        "ref": "e8c9aa4e"
       },
       "kind": "terminal",
       "name": "manager",
@@ -83,10 +83,10 @@
       "branch": "main"
     },
     {
-      "pane": "04-eight-helpers-three-waiting-build",
-      "parent": "04-eight-helpers-three-waiting-manager",
+      "pane": "e8c9aa4e",
+      "parent": "0c501ed4",
       "depth": 1,
-      "team": "04-eight-helpers-three-waiting-manager",
+      "team": "0c501ed4",
       "waitingOn": {
         "kind": "user",
         "text": "git push origin release/2.4"
@@ -101,10 +101,10 @@
       "branch": "work/build"
     },
     {
-      "pane": "04-eight-helpers-three-waiting-notes",
-      "parent": "04-eight-helpers-three-waiting-manager",
+      "pane": "160d47b0",
+      "parent": "0c501ed4",
       "depth": 1,
-      "team": "04-eight-helpers-three-waiting-manager",
+      "team": "0c501ed4",
       "waitingOn": {
         "kind": "user",
         "text": "Name the breaking change in the headline?"
@@ -119,10 +119,10 @@
       "branch": "work/notes"
     },
     {
-      "pane": "04-eight-helpers-three-waiting-qa",
-      "parent": "04-eight-helpers-three-waiting-manager",
+      "pane": "262e0b2b",
+      "parent": "0c501ed4",
       "depth": 1,
-      "team": "04-eight-helpers-three-waiting-manager",
+      "team": "0c501ed4",
       "waitingOn": {
         "kind": "none"
       },
@@ -142,10 +142,10 @@
       }
     },
     {
-      "pane": "04-eight-helpers-three-waiting-deps",
-      "parent": "04-eight-helpers-three-waiting-manager",
+      "pane": "d1faf784",
+      "parent": "0c501ed4",
       "depth": 1,
-      "team": "04-eight-helpers-three-waiting-manager",
+      "team": "0c501ed4",
       "waitingOn": {
         "kind": "none"
       },
@@ -160,10 +160,10 @@
       "branch": "work/deps"
     },
     {
-      "pane": "04-eight-helpers-three-waiting-site",
-      "parent": "04-eight-helpers-three-waiting-manager",
+      "pane": "73f13b59",
+      "parent": "0c501ed4",
       "depth": 1,
-      "team": "04-eight-helpers-three-waiting-manager",
+      "team": "0c501ed4",
       "waitingOn": {
         "kind": "none"
       },
@@ -178,10 +178,10 @@
       "branch": "work/site"
     },
     {
-      "pane": "04-eight-helpers-three-waiting-signing",
-      "parent": "04-eight-helpers-three-waiting-manager",
+      "pane": "0aa92d92",
+      "parent": "0c501ed4",
       "depth": 1,
-      "team": "04-eight-helpers-three-waiting-manager",
+      "team": "0c501ed4",
       "waitingOn": {
         "kind": "task",
         "text": "the signing certificate has not arrived",
@@ -202,10 +202,10 @@
       }
     },
     {
-      "pane": "04-eight-helpers-three-waiting-changelog",
-      "parent": "04-eight-helpers-three-waiting-manager",
+      "pane": "ee480bbd",
+      "parent": "0c501ed4",
       "depth": 1,
-      "team": "04-eight-helpers-three-waiting-manager",
+      "team": "0c501ed4",
       "waitingOn": {
         "kind": "none"
       },
@@ -219,14 +219,14 @@
       "branch": "work/changelog"
     },
     {
-      "pane": "04-eight-helpers-three-waiting-old-branch",
-      "parent": "04-eight-helpers-three-waiting-manager",
+      "pane": "ad682fde",
+      "parent": "0c501ed4",
       "depth": 1,
-      "team": "04-eight-helpers-three-waiting-manager",
+      "team": "0c501ed4",
       "waitingOn": {
         "kind": "down",
         "text": "exited",
-        "ref": "04-eight-helpers-three-waiting-old-branch"
+        "ref": "ad682fde"
       },
       "kind": "terminal",
       "name": "old-branch",
@@ -241,43 +241,43 @@
   "edges": [
     {
       "kind": "spawn",
-      "from": "04-eight-helpers-three-waiting-manager",
-      "to": "04-eight-helpers-three-waiting-build"
+      "from": "0c501ed4",
+      "to": "e8c9aa4e"
     },
     {
       "kind": "spawn",
-      "from": "04-eight-helpers-three-waiting-manager",
-      "to": "04-eight-helpers-three-waiting-notes"
+      "from": "0c501ed4",
+      "to": "160d47b0"
     },
     {
       "kind": "spawn",
-      "from": "04-eight-helpers-three-waiting-manager",
-      "to": "04-eight-helpers-three-waiting-qa"
+      "from": "0c501ed4",
+      "to": "262e0b2b"
     },
     {
       "kind": "spawn",
-      "from": "04-eight-helpers-three-waiting-manager",
-      "to": "04-eight-helpers-three-waiting-deps"
+      "from": "0c501ed4",
+      "to": "d1faf784"
     },
     {
       "kind": "spawn",
-      "from": "04-eight-helpers-three-waiting-manager",
-      "to": "04-eight-helpers-three-waiting-site"
+      "from": "0c501ed4",
+      "to": "73f13b59"
     },
     {
       "kind": "spawn",
-      "from": "04-eight-helpers-three-waiting-manager",
-      "to": "04-eight-helpers-three-waiting-signing"
+      "from": "0c501ed4",
+      "to": "0aa92d92"
     },
     {
       "kind": "spawn",
-      "from": "04-eight-helpers-three-waiting-manager",
-      "to": "04-eight-helpers-three-waiting-changelog"
+      "from": "0c501ed4",
+      "to": "ee480bbd"
     },
     {
       "kind": "spawn",
-      "from": "04-eight-helpers-three-waiting-manager",
-      "to": "04-eight-helpers-three-waiting-old-branch"
+      "from": "0c501ed4",
+      "to": "ad682fde"
     }
   ],
   "solo": [],
