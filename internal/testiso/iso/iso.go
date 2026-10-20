@@ -102,7 +102,7 @@ func Main(m *testing.M) int {
 		defer os.RemoveAll(dir)
 		redirect(dir)
 		clearKeys()
-		clearPaneEnv()
+		clearOwnEnv()
 	}
 	InstallNetworkGuard()
 
@@ -154,25 +154,63 @@ func clearKeys() {
 	}
 }
 
-// paneEnv are the variables Flockdeck gives each pane it starts (see
-// workspace.paneEnv), under both of the prefixes it writes them with. A test run
-// from an agent inside a Flockdeck pane inherits them, and the hook client reads
-// them as its own identity, so a test that does not set them itself passes on CI
-// and fails there. A test that needs one sets it with t.Setenv.
-//
-// The list matches workspace.paneEnv and hooks.LaunchEnv, which this package
-// cannot import. A variable newly given to panes is added here as well, and to
-// wantCleared in iso_test.go, which starts a child test binary to check that
-// Main clears all of them. Nothing compares the list with workspace.paneEnv
-// itself, so a variable added there and nowhere else is not noticed.
-var paneEnv = []string{"API", "TOKEN", "PANE", "PANE_NAME", "PROJECT", "ROLE", "AGENT", "MODEL", "LAUNCH"}
+// keptEnv are the FLOCKDECK_ variables that a person or a CI job sets from
+// outside to steer the tests themselves (to run the live ones, to rewrite the
+// golden files, to say it is a release build), and so survive Main.
+// FLOCKDECK_TEST_ names are kept as a group, and so are the two this package
+// sets. A variable a test reads from outside is added here; the test
+// TestEveryVariableATestReadsFromOutsideIsKept fails until it is.
+var keptEnv = map[string]bool{
+	"FLOCKDECK_ACP_OPENCODE":        true,
+	"FLOCKDECK_BUILD_DATE":          true,
+	"FLOCKDECK_CANARY_ADAPTER":      true,
+	"FLOCKDECK_CANARY_BIN":          true,
+	"FLOCKDECK_CANARY_ISO":          true,
+	"FLOCKDECK_LIVE_AGENT_TESTS":    true,
+	"FLOCKDECK_RADAR_BENCH_EDITS":   true,
+	"FLOCKDECK_RADAR_BENCH_PANES":   true,
+	"FLOCKDECK_RADAR_BENCH_REPO":    true,
+	"FLOCKDECK_RELEASE_BUILD":       true,
+	"FLOCKDECK_SLOW":                true,
+	"FLOCKDECK_STATUS_BUGS":         true,
+	"FLOCKDECK_UPDATE_GOLDEN":       true,
+	"FLOCKDECK_VALIDATE_TRANSCRIPT": true,
+}
 
-// clearPaneEnv unsets the variables a pane is started with.
-func clearPaneEnv() {
-	for _, name := range paneEnv {
-		os.Unsetenv("FLOCKDECK_" + name)
-		os.Unsetenv("PERCH_" + name)
+// keptEnvPrefixes are groups of names that survive Main: the test helpers' own
+// (FLOCKDECK_TEST_, FLOCKDECK_ACPTEST_) and the pair this package sets.
+var keptEnvPrefixes = []string{"FLOCKDECK_TEST_", "FLOCKDECK_ACPTEST_", "FLOCKDECK_TESTISO_REAL_"}
+
+func kept(name string) bool {
+	if keptEnv[name] {
+		return true
 	}
+	for _, p := range keptEnvPrefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// clearOwnEnv unsets every FLOCKDECK_ and PERCH_ variable but the kept ones.
+// Those are the pane identity a test run from an agent inside a Flockdeck pane
+// inherits (the hook client reads it as its own, so a test that does not set it
+// passes on CI and fails there), and the switches the program reads (the relay,
+// the update setting, the signing key), which would otherwise send a test to
+// whatever a developer has set. A test that needs one sets it with t.Setenv.
+// Going by prefix means a variable added later is cleared without a list to
+// keep in step. CODEX_HOME and GIT_CONFIG_COUNT are cleared too: the first
+// points at Codex's real config, the second adds git settings of the developer's.
+func clearOwnEnv() {
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if (strings.HasPrefix(name, "FLOCKDECK_") || strings.HasPrefix(name, "PERCH_")) && !kept(name) {
+			os.Unsetenv(name)
+		}
+	}
+	os.Unsetenv("CODEX_HOME")
+	os.Unsetenv("GIT_CONFIG_COUNT")
 }
 
 // UnderRealConfig reports whether dir is the user's real config directory or

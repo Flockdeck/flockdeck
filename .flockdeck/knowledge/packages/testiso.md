@@ -11,8 +11,9 @@ A package adds `func TestMain(m *testing.M) { os.Exit(testiso.Main(m)) }`. `test
 
 ## What `iso.Main` does
 
-- Creates a temp dir (`flockdeck-test-home-*`) and points APPDATA, LOCALAPPDATA, XDG_CONFIG_HOME, HOME and USERPROFILE at it; unsets CLAUDE_CONFIG_DIR (and HOMEDRIVE/HOMEPATH on Windows).
+- Creates a temp dir (`flockdeck-test-home-*`) and points APPDATA, LOCALAPPDATA, XDG_CONFIG_HOME, HOME and USERPROFILE at it; unsets CLAUDE_CONFIG_DIR and CODEX_HOME (and HOMEDRIVE/HOMEPATH on Windows).
 - Unsets every environment variable ending `_API_KEY`, `_API_TOKEN` or `_AUTH_TOKEN`.
+- Unsets every `FLOCKDECK_*` and `PERCH_*` variable and `GIT_CONFIG_COUNT`, except the names in `keptEnv` (switches CI or a person sets to steer tests), `FLOCKDECK_TEST_*`, `FLOCKDECK_ACPTEST_*` and the two real-dir variables. A test that reads a new variable from outside must add it to `keptEnv`; `TestEveryVariableATestReadsFromOutsideIsKept` fails until it does.
 - Replaces `http.DefaultTransport` with a guard that refuses any host but loopback (`ErrNonLoopback`), before name lookup.
 - Records every refusal; if the run otherwise passed but a guard tripped, it exits 1.
 - `DirGuard` panics when `store` resolves the real config dir or anything under it.
