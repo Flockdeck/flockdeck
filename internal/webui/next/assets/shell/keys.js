@@ -17,6 +17,9 @@ const EQUALS = "=";
 /** keyCode of a key pressed while an input method is composing. */
 const IME = 229;
 
+/** composing is whether a keydown belongs to an input method, not to the page. */
+export const composing = (e) => !!(e.isComposing || e.keyCode === IME);
+
 /** LIST are the keys that move through, choose from and leave a list. */
 export const LIST = { up: "ArrowUp", down: "ArrowDown", accept: "Enter", cancel: "Escape", tab: "Tab" };
 // vocabulary:end
@@ -77,7 +80,7 @@ export function bindingsFrom(table) {
 /** actionFor is the id of the action a keydown is, or "". A key pressed while
  *  an input method is composing belongs to it. */
 export function actionFor(bindings, e) {
-  if (e.isComposing || e.keyCode === IME) return "";
+  if (composing(e)) return "";
   return bindings.get(signatureOfEvent(e)) || "";
 }
 

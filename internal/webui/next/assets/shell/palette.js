@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
-import { keycaps, listMove } from "./keys.js";
+import { composing, keycaps, listMove } from "./keys.js";
 
 /** NOT_YET is what a row says when the action is in the key table and this
  *  window does not implement it. */
@@ -87,7 +87,7 @@ export function Palette({ keys, implemented, onRun, onClose }) {
   };
   const onKeyDown = (e) => {
     // A key pressed while an input method is composing belongs to it.
-    if (e.isComposing || e.keyCode === 229) return;
+    if (composing(e)) return;
     const move = listMove(e, at, rows.length);
     if (move === "") return;
     e.preventDefault();
