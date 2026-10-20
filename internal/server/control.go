@@ -526,8 +526,10 @@ type command struct {
 	Rows    int       `json:"rows"`
 	Weights []float64 `json:"weights"`
 	Submit  bool      `json:"submit"`
-	// RequestID and OptionID are permissionAnswer's: the request being answered
-	// and the option chosen, both as the pane's permission card showed them.
+	// CardSeq, RequestID and OptionID are permissionAnswer's: the card being
+	// answered, the agent's request id on it, and the option chosen, all as the
+	// pane's permission card showed them.
+	CardSeq   uint64 `json:"cardSeq"`
 	RequestID string `json:"requestId"`
 	OptionID  string `json:"optionId"`
 	Base      string `json:"base"`
