@@ -1,6 +1,7 @@
 package acp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -146,6 +147,7 @@ func (c *Client) writer() {
 	for {
 		select {
 		case b := <-c.outbox:
+			c.tap(TapOut, bytes.TrimRight(b, "\n"))
 			_, err := c.in.Write(b)
 			c.queued.Add(-1)
 			if err != nil {
@@ -373,6 +375,13 @@ func (c *Client) Close() error {
 		waitFor(c.loopDone, treeGrace)
 		waitFor(c.writerDone, treeGrace)
 		c.failPending(ErrClosed)
+
+		// Everything is read and written by now: let the tap have what is
+		// queued, for a moment.
+		if c.tapStop != nil {
+			close(c.tapStop)
+			waitFor(c.tapDone, tapGrace)
+		}
 
 		handlers := make(chan struct{})
 		go func() { c.handlers.Wait(); close(handlers) }()

@@ -100,6 +100,42 @@ type Config struct {
 	// goroutines that serve the agent's requests. ProtocolErrors counts them
 	// either way.
 	OnProtocolError func(description string)
+	// Tap, if set, is given each line of JSON-RPC traffic: dir is TapIn for a
+	// line read from the agent and TapOut for a line written to it, raw is one
+	// message without its newline. A line from the agent is tapped before it is
+	// parsed, so a line that is not JSON is seen too; a line to the agent is
+	// tapped as the writer takes it, once encoded and before it is written, so
+	// a message the agent never reads is still recorded. Blank lines are not
+	// tapped.
+	//
+	// Tap is called on a goroutine of its own, one line at a time, in the order
+	// the lines were read or taken for writing. The lines wait in a queue of
+	// 1024 lines and 32 MiB; a line that does not fit is dropped and counted
+	// (TapDropped), so a Tap that is slow, or stuck, never holds up the read
+	// loop or the writer, and never costs a reply to the agent. A recorder that
+	// must not lose lines has to keep up, and whoever owns it has to read
+	// TapDropped: nothing here writes a marker where lines were dropped, so a
+	// recording with gaps looks complete unless the count is polled. Lines of the two directions are queued
+	// from different goroutines, so their order relative to each other is the
+	// order they reached the queue.
+	//
+	// raw is the client's copy, so Tap may change it, but it is reused: copy
+	// what you keep. A panic in Tap is recovered and counted in TapPanics, apart
+	// from ProtocolErrors, which counts what the agent did. A nil Tap costs one
+	// comparison per line.
+	//
+	// Tap must not call Close: Close waits half a second for the queue to
+	// empty, which a Tap that is waiting for Close would make a long wait. A
+	// Tap that blocks for ever leaves its goroutine running after Close; Close
+	// does not wait for it.
+	//
+	// The client taps every line up to MaxLineBytes; a longer line ends the
+	// session and is not tapped. What a recorder does with a long line is the
+	// recorder's to decide: internal/record notes a message over 1 MiB and
+	// keeps none of it, and its reader takes files up to 32 MiB.
+	// internal/acp does not import internal/record; TapIn and TapOut have the
+	// values of its RPCIn and RPCOut.
+	Tap func(dir string, raw []byte)
 
 	// ClientName and ClientVersion go in initialize. Defaults: "flockdeck", "".
 	ClientName    string
@@ -192,6 +228,15 @@ type Client struct {
 
 	nextID    atomic.Int64
 	protoErrs atomic.Int64
+
+	// Config.Tap is given lines through tapQ by tapLoop. tapBytes is what the
+	// queue holds; tapStop ends the loop once the queue is empty.
+	tapQ       chan tapItem
+	tapBytes   atomic.Int64
+	tapDropped atomic.Int64
+	tapPanics  atomic.Int64
+	tapStop    chan struct{}
+	tapDone    chan struct{}
 
 	mu      sync.Mutex
 	pending map[int64]chan reply
@@ -298,6 +343,10 @@ func Start(cfg Config) (*Client, error) {
 		_, _ = cmd.Process.Wait()
 		close(c.reaped)
 	}()
+	if cfg.Tap != nil {
+		c.initTap()
+		go c.tapLoop()
+	}
 	go c.writer()
 	go c.drainStderr(errp)
 	go c.readLoop()
@@ -313,6 +362,86 @@ func (c *Client) StderrTail() string {
 	defer c.mu.Unlock()
 	return string(c.errTail)
 }
+
+// The directions Config.Tap is told. They are the values of record.RPCIn and
+// record.RPCOut, which this package does not import.
+const (
+	TapIn  = "in"
+	TapOut = "out"
+)
+
+const (
+	tapQueueLines = 1024
+	tapQueueBytes = 32 << 20
+	// tapGrace is how long Close waits for the queue of tapped lines to empty.
+	tapGrace = 500 * time.Millisecond
+)
+
+type tapItem struct {
+	dir string
+	raw []byte
+}
+
+// initTap makes the queue and the channels the tap loop uses.
+func (c *Client) initTap() {
+	c.tapQ, c.tapStop, c.tapDone = make(chan tapItem, tapQueueLines), make(chan struct{}), make(chan struct{})
+}
+
+// tap queues a line for Config.Tap, if there is one. It never waits: a line that
+// does not fit in the queue is dropped and counted.
+func (c *Client) tap(dir string, raw []byte) {
+	if c.cfg.Tap == nil {
+		return
+	}
+	if c.tapBytes.Add(int64(len(raw))) > tapQueueBytes {
+		c.tapBytes.Add(-int64(len(raw)))
+		c.tapDropped.Add(1)
+		return
+	}
+	select {
+	case c.tapQ <- tapItem{dir, append([]byte(nil), raw...)}:
+	default:
+		c.tapBytes.Add(-int64(len(raw)))
+		c.tapDropped.Add(1)
+	}
+}
+
+// tapLoop gives the queued lines to Config.Tap, one at a time. It ends once the
+// client is stopped and the queue is empty.
+func (c *Client) tapLoop() {
+	defer close(c.tapDone)
+	call := func(it tapItem) {
+		defer func() {
+			if recover() != nil {
+				c.tapPanics.Add(1)
+			}
+		}()
+		c.cfg.Tap(it.dir, it.raw)
+	}
+	for {
+		select {
+		case it := <-c.tapQ:
+			c.tapBytes.Add(-int64(len(it.raw)))
+			call(it)
+		case <-c.tapStop:
+			for {
+				select {
+				case it := <-c.tapQ:
+					c.tapBytes.Add(-int64(len(it.raw)))
+					call(it)
+				default:
+					return
+				}
+			}
+		}
+	}
+}
+
+// TapDropped counts the lines Config.Tap was not given because it was behind.
+func (c *Client) TapDropped() int64 { return c.tapDropped.Load() }
+
+// TapPanics counts the panics recovered in Config.Tap.
+func (c *Client) TapPanics() int64 { return c.tapPanics.Load() }
 
 // ProtocolErrors counts what the agent sent that the client could not use.
 func (c *Client) ProtocolErrors() int64 { return c.protoErrs.Load() }
@@ -410,6 +539,7 @@ func (c *Client) readLoop() {
 			return
 		}
 		if len(bytes.TrimSpace(line)) > 0 {
+			c.tap(TapIn, bytes.TrimRight(line, "\r\n"))
 			var m rpcMsg
 			if json.Unmarshal(line, &m) != nil {
 				c.protoErr("a line that is not JSON")
