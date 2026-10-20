@@ -16,7 +16,7 @@ code_paths: [internal/workspace/team.go, internal/team/store.go, internal/store/
 
 ## Team event log (team-events.jsonl)
 
-Next to `messages.json`, `loadEvents` keeps the team event log (`team.EventLog`): one JSON line for each message sent and each delivery state a message reaches (notified, woken, read). A line holds ids, panes, a state and a time, never message text.
+Next to `messages.json`, `loadEvents` keeps the team event log (`team.EventLog`): one JSON line for each message sent and each delivery state a message reaches (notified, woken, read). A line holds ids, panes, a state and a time, never message text. The one exception is a wake event for an agent the user opted in to text mode (`WakePrefs.TextAgents`, only for `Caps.TextWake` agents): its `line` is the cleaned text typed, up to 300 characters.
 
 - It is one file for the whole config dir, shared by every project. It is not one log for each project.
 - Ids are the inbox ids. If `messages.json` is lost, the ids start again from 1, so the same id can appear for two different messages in one log.

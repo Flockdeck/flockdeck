@@ -597,6 +597,7 @@ off. A line is also typed only for an agent whose prompt rule has been tested.
 | `flockdeck wake off` | Turn typed wake off for every pane |
 | `flockdeck wake off -agent claude` | Turn it off for one kind of agent |
 | `flockdeck wake off -pane <pane-id>` | Turn it off for one pane |
+| `flockdeck wake text on -agent aider` | Type the message text, not the fixed line, to an agent that cannot run commands (`text off` undoes it) |
 | `flockdeck wake on [-agent id \| -pane id]` | Turn the same switch back on |
 
 The switches are kept with the other settings and read again each second, so a change
@@ -622,7 +623,38 @@ a terminal (the null device does not count as one) and when a pane's API address
 is in the environment. These are speed bumps: none of this stops an agent that opens a
 pseudo-terminal, or that edits the settings file, which any command that writes a file can do;
 the barrier that holds is the agent's own permission prompt for running a command. The
-events shown never contain message text.
+events shown never contain message text, except for an agent you have opted in to text
+mode (below).
+
+### Text mode
+
+The fixed line tells an agent to run `flockdeck inbox read`. An agent that cannot run
+commands, such as Aider, cannot do that. For such an agent, and only if you turn it on
+with `flockdeck wake text on -agent <id>`, the line is the message itself:
+`Flockdeck message from <role>: <text>`. Everything else about the wake is the same: the
+same conditions, limits, Enter written separately off switches and the hardening of `on`, and a pane switched off is not typed to in
+either mode. `wake text on` is refused where `wake on` is.
+
+What is typed is cut down first. Terminal escape sequences are removed whole, every run
+of white space including newlines becomes one space, control, invisible and
+direction-changing characters are dropped, and other text, non-ASCII included, is kept as
+written. The line is at most 300 characters. The fixed start means the line cannot begin
+with the slash or exclamation mark that some programs read as a command of their own. Text
+mode is off for every agent until you turn it on, and it can only be turned on for an
+agent whose catalog entry offers it, which today is Aider alone. The wake event keeps the
+line that was typed, so with text mode on the event log holds that much of the message.
+
+The fixed line names only the newest unread message, and the agent reads the rest with
+`inbox`. An agent in text mode cannot, so every unread message is typed in turn, oldest
+first, at the normal limits: one line a minute for a pane, and twenty an hour for a
+project. When a message's text and its Enter have both been typed, the message is marked
+read, since the agent has it and nothing else would ever clear it. A message whose Enter
+was not sent stays unread. The limit on lines in a row with no read does not apply, because
+each line counts as a read.
+
+If a switch goes off between the line and its Enter, the Enter is held back and the text
+stays in the agent's input box, where it joins whatever you type there next. The message
+stays unread, and nothing more is typed to that pane until you have typed in it.
 
 ## remote
 

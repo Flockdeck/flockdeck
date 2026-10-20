@@ -96,6 +96,9 @@ func TestUnverifiedAgentsClaimNothing(t *testing.T) {
 			// pins which mode each one has.
 			caps := spec.Caps
 			caps.Context = ""
+			// TextWake is a setting Flockdeck offers, not something the tool
+			// reports.
+			caps.TextWake = false
 			if caps != (Caps{}) {
 				t.Errorf("%q claims %+v; verify it against `%s --help` before claiming anything", id, spec.Caps, spec.Exe)
 			}
@@ -785,5 +788,16 @@ func TestAnIdDifferingOnlyInCaseIsPointedOut(t *testing.T) {
 	}
 	if s, _ := c.Find("claude"); s.DefaultModel != "" {
 		t.Error("ids are still matched exactly")
+	}
+}
+
+// Only the agents that cannot run a command offer text wake, and a user's
+// agents.json entry gets it only by asking.
+func TestOnlyAiderOffersTextWake(t *testing.T) {
+	catalog := &Catalog{Specs: normalizeAll(Builtins())}
+	for _, spec := range catalog.Specs {
+		if want := spec.ID == "aider"; spec.Caps.TextWake != want {
+			t.Errorf("%q: TextWake = %v, want %v", spec.ID, spec.Caps.TextWake, want)
+		}
 	}
 }

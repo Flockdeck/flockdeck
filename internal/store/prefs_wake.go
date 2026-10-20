@@ -142,6 +142,9 @@ const (
 	WakeGlobal = "global"
 	WakeAgent  = "agent"
 	WakePane   = "pane"
+	// WakeText is not an off switch: it is the opt-in for typing a message's
+	// text instead of the fixed line, per agent type. See WakePrefs.TextAgents.
+	WakeText = "text"
 )
 
 // maxWakeOff is the most agent types, and the most panes, a WakePrefs lists.
@@ -160,6 +163,17 @@ type WakePrefs struct {
 	Agents []string `json:"agents,omitempty"`
 	// Panes are the pane ids wake is off for.
 	Panes []string `json:"panes,omitempty"`
+	// TextAgents are the agent ids that are typed the message text, not the fixed
+	// line, because they cannot run a command to read it. Off for every agent
+	// until the user adds one, and only for an agent whose catalog entry has
+	// Caps.TextWake. The other switches still apply first.
+	TextAgents []string `json:"textAgents,omitempty"`
+}
+
+// WakeText says whether the agent type has been opted in to being typed the
+// message text. Whether the agent can be is for the catalog to say.
+func (p Prefs) WakeText(agentID string) bool {
+	return agentID != "" && slices.Contains(p.Wake.TextAgents, agentID)
 }
 
 // WakeEnabled says whether wake may type into the pane. agentID is the pane's
@@ -199,6 +213,13 @@ func (p *Prefs) SetWake(scope, id string, on bool) bool {
 		list, changed := withWakeOff(p.Wake.Panes, id, on)
 		if changed {
 			p.Wake.Panes = list
+		}
+		return changed
+	case WakeText:
+		// Opting in is the opposite sense to the off switches: on adds the id.
+		list, changed := withWakeOff(p.Wake.TextAgents, id, !on)
+		if changed {
+			p.Wake.TextAgents = list
 		}
 		return changed
 	}

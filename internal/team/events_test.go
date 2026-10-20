@@ -255,7 +255,7 @@ func TestEventLogCleansAWakeOnLoad(t *testing.T) {
 		t.Fatalf("loaded %d events", len(ev))
 	}
 	e := ev[0]
-	if len(e.Pane) != maxWakeField || len(e.Prompt) != MaxPromptLine || len(e.Line) != MaxPromptLine {
+	if len(e.Pane) != maxWakeField || len(e.Prompt) != MaxPromptLine || len(e.Line) != MaxTextLine {
 		t.Fatalf("lengths %d %d %d", len(e.Pane), len(e.Prompt), len(e.Line))
 	}
 	if strings.ContainsRune(e.Prompt, 0x1b) {

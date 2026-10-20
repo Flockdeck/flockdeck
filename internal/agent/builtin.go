@@ -175,7 +175,9 @@ func aiderSpec() Spec {
 		// returns straight after coder.run(with_message=...)), so a
 		// bare-briefing message would start a pane that answers the briefing
 		// and closes.
-		Caps: Caps{Context: ContextTask},
+		// TextWake is an offer, not a claim about the tool: the model behind
+		// aider has no way to run flockdeck, so it can be sent the text.
+		Caps: Caps{Context: ContextTask, TextWake: true},
 		Models: []Model{
 			{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
 		},

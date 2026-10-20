@@ -99,6 +99,12 @@ type Caps struct {
 	Trust bool `json:"trust,omitempty"`
 	// Context is how the pane briefing reaches the agent.
 	Context ContextMode `json:"context,omitempty"`
+	// TextWake says the agent cannot run a command, so the fixed typed wake line
+	// ("Run: flockdeck inbox read 7") is no use to it. The user may then choose,
+	// per agent type, to have the message text typed instead (see
+	// store.WakePrefs.TextAgents). It only makes the choice available: it is off
+	// until the user turns it on.
+	TextWake bool `json:"textWake,omitempty"`
 }
 
 // Arg is one entry in a Spec's argument list: a literal, or a group used only

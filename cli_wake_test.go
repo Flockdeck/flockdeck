@@ -18,9 +18,10 @@ func testWakeEnv(inPane bool, events ...team.Event) wakeEnv {
 		inPane: func() bool { return inPane },
 		events: func() ([]team.Event, error) { return events, nil },
 		// A person at a terminal outside a pane, unless a test says otherwise.
-		terminal: func() bool { return true },
-		paneAPI:  func() bool { return false },
-		read:     store.ReadWake,
+		terminal:   func() bool { return true },
+		paneAPI:    func() bool { return false },
+		read:       store.ReadWake,
+		offersText: func(id string) bool { return id == "aider" },
 	}
 }
 
@@ -315,5 +316,96 @@ func TestWakeTerminalRefusesAPipeAndAFile(t *testing.T) {
 	os.Stdin = f
 	if wakeTerminal() {
 		t.Fatal("a file passed for a terminal")
+	}
+}
+
+func TestWakeTextIsOptInPerAgentAndOnlyWhereOffered(t *testing.T) {
+	isolateState(t)
+	env := testWakeEnv(false)
+	if p := store.LoadPrefs(); p.WakeText("aider") {
+		t.Fatal("text mode starts on")
+	}
+	if _, err := runW(t, env, "text", "on", "-agent", "claude"); err == nil || !strings.Contains(err.Error(), "not offered") {
+		t.Fatalf("an agent that does not offer it was opted in: %v", err)
+	}
+	if store.LoadPrefs().WakeText("claude") {
+		t.Fatal("claude was opted in")
+	}
+	if _, err := runW(t, env, "text", "on", "-agent", "aider"); err != nil {
+		t.Fatal(err)
+	}
+	if !store.LoadPrefs().WakeText("aider") {
+		t.Fatal("aider was not opted in")
+	}
+	out, err := runW(t, env, "status")
+	if err != nil || !strings.Contains(out, "message text typed for: aider") {
+		t.Fatalf("status = %q, %v", out, err)
+	}
+	// Off is always allowed, even for an agent that no longer offers it.
+	if _, err := runW(t, env, "text", "off", "-agent", "aider"); err != nil {
+		t.Fatal(err)
+	}
+	if store.LoadPrefs().WakeText("aider") {
+		t.Fatal("aider is still opted in")
+	}
+}
+
+func TestWakeTextRefusesBadArgumentsAndPanes(t *testing.T) {
+	isolateState(t)
+	for _, args := range [][]string{
+		{"text"}, {"text", "on"}, {"text", "maybe", "-agent", "aider"}, {"text", "on", "-pane", "p1"},
+	} {
+		if _, err := runW(t, testWakeEnv(false), args...); err == nil {
+			t.Errorf("%v was accepted", args)
+		}
+	}
+	if _, err := runW(t, testWakeEnv(true), "text", "on", "-agent", "aider"); err == nil || !strings.Contains(err.Error(), "inside a pane") {
+		t.Errorf("text on inside a pane: %v", err)
+	}
+	if store.LoadPrefs().WakeText("aider") {
+		t.Fatal("a refused command changed the setting")
+	}
+}
+
+// text on is held to the same checks as on, one by one: the terminal, the
+// pane API in the environment, and a pane. text off is not.
+func TestWakeTextOnIsHeldToTheChecksOfOn(t *testing.T) {
+	isolateState(t)
+	noTTY := testWakeEnv(false)
+	noTTY.terminal = func() bool { return false }
+	withAPI := testWakeEnv(false)
+	withAPI.paneAPI = func() bool { return true }
+	for name, env := range map[string]wakeEnv{"no terminal": noTTY, "pane API in the environment": withAPI} {
+		if _, err := runW(t, env, "text", "on", "-agent", "aider"); err == nil {
+			t.Errorf("%s: text on was accepted", name)
+		}
+		if store.LoadPrefs().WakeText("aider") {
+			t.Fatalf("%s: a refused text on opted aider in", name)
+		}
+	}
+	if _, err := runW(t, testWakeEnv(false), "text", "on", "-agent", "aider"); err != nil {
+		t.Fatal(err)
+	}
+	// Turning it off needs neither.
+	if _, err := runW(t, noTTY, "text", "off", "-agent", "aider"); err != nil {
+		t.Errorf("text off without a terminal: %v", err)
+	}
+	if store.LoadPrefs().WakeText("aider") {
+		t.Fatal("text off did not take")
+	}
+}
+
+func TestWakeTextRefusesAPaneAndAgentTogether(t *testing.T) {
+	isolateState(t)
+	for _, args := range [][]string{
+		{"text", "on", "-agent", "aider", "-pane", "p1"},
+		{"text", "off", "-agent", "aider", "-pane", "p1"},
+	} {
+		if _, err := runW(t, testWakeEnv(false), args...); err == nil {
+			t.Errorf("%v was accepted", args)
+		}
+	}
+	if store.LoadPrefs().WakeText("aider") {
+		t.Fatal("a refused command changed the setting")
 	}
 }

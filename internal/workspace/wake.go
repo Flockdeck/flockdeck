@@ -57,12 +57,17 @@ type WakeSettings interface {
 	// window command that sets a switch calls it so that a click takes effect
 	// at once.
 	Invalidate()
+	// WakeText says the user has opted the agent type in to being typed the
+	// message text and not the fixed line. It is only asked for an agent whose
+	// catalog entry offers it.
+	WakeText(agentID string) bool
 }
 
 type wakeAllOn struct{}
 
 func (wakeAllOn) WakeEnabled(string, string) bool { return true }
 func (wakeAllOn) Invalidate()                     {}
+func (wakeAllOn) WakeText(string) bool            { return false }
 
 // wakeSettingsTTL is how long the preferences are kept before they are read
 // again. The service asks about every pane on every tick, and a switch changed
@@ -108,6 +113,16 @@ func (p *prefsWake) WakeEnabled(agentID, paneID string) bool {
 	return p.err == nil && p.prefs.WakeEnabled(agentID, paneID)
 }
 
+func (p *prefsWake) WakeText(agentID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if now := p.now(); p.at.IsZero() || now.Sub(p.at) >= wakeSettingsTTL {
+		p.prefs, p.err = p.read()
+		p.at = now
+	}
+	return p.err == nil && p.prefs.WakeText(agentID)
+}
+
 // wakeSession is what the service needs of a pane's session. *session.Session
 // is one; a test supplies another.
 type wakeSession interface {
@@ -124,6 +139,9 @@ type wakeMail interface {
 	List(pane string, all bool) []team.Message
 	NewestUnread(pane string) int
 	MarkWoken(pane string, ids ...int)
+	// Read marks a message read, which text mode does for a message whose text
+	// it has typed.
+	Read(pane string, id int) (team.Message, error)
 }
 
 // wakeNotices is what it needs of the hook notifier. *team.Notifier is one.
@@ -143,6 +161,9 @@ type wakeCandidate struct {
 	// own cannot land between them. Nil means no coordination, for a test.
 	Claim   func() bool
 	Release func()
+	// TextOK says the agent's catalog entry offers the message text as the wake
+	// line (agent.Caps.TextWake). Without it the setting is never looked at.
+	TextOK bool
 }
 
 // wakeService decides, for each agent pane with unread mail, whether to type
@@ -255,7 +276,18 @@ func (s *wakeService) tick() {
 // consider checks every condition for one pane and, if all hold, types the
 // line. It returns why not, or "" when a line was started, for the tests.
 func (s *wakeService) consider(c wakeCandidate) string {
-	id := s.mail.NewestUnread(c.ID)
+	// In text mode every unread message is typed in turn, oldest first, at the
+	// normal limits; otherwise only the newest is named, and the agent reads
+	// the rest with `inbox`.
+	text := c.TextOK && s.settings().WakeText(c.Agent)
+	id := 0
+	if text {
+		if unread := s.mail.List(c.ID, false); len(unread) > 0 {
+			id = unread[0].ID
+		}
+	} else {
+		id = s.mail.NewestUnread(c.ID)
+	}
 	if id == 0 {
 		return "no unread mail"
 	}
@@ -344,7 +376,7 @@ func (s *wakeService) consider(c wakeCandidate) string {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.fire(c, id, r, now)
+		s.fire(c, id, text, r, now)
 	}()
 	return ""
 }
@@ -370,7 +402,7 @@ func (s *wakeService) readSince(pane string, t time.Time) bool {
 // as well. The event says the line was unsubmitted, the message stays unread
 // and unwoken, and nothing more is typed until the user has typed in the pane.
 // at is the time the limits were counted at.
-func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading, at time.Time) {
+func (s *wakeService) fire(c wakeCandidate, id int, text bool, r session.WakeReading, at time.Time) {
 	defer func() {
 		if c.Release != nil {
 			c.Release()
@@ -381,11 +413,12 @@ func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading, at ti
 		}
 		s.mu.Unlock()
 	}()
-	// off is a read of the switches that is not the cached one.
+	// off is a read of the switches that is not the cached one. A line chosen
+	// as message text also needs the text switch to be on still.
 	off := func() bool {
 		set := s.settings()
 		set.Invalidate()
-		return !set.WakeEnabled(c.Agent, c.ID)
+		return !set.WakeEnabled(c.Agent, c.ID) || (text && !set.WakeText(c.Agent))
 	}
 	typing := func() bool {
 		t := c.Sess.LastUserInput()
@@ -401,6 +434,11 @@ func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading, at ti
 		return
 	}
 	line := wakeLine(id)
+	if text {
+		if m, ok := s.message(c.ID, id); ok {
+			line = wakeTextLine(m)
+		}
+	}
 	if err := c.Sess.WriteStringFrom(session.InputFlockdeck, line); err != nil {
 		// Backed off, so a pane that cannot be written to is not tried every tick.
 		s.undo(c, at, true)
@@ -415,6 +453,13 @@ func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading, at ti
 	}
 	if submitted {
 		s.mail.MarkWoken(c.ID, id)
+		if text {
+			// The agent cannot run `inbox read`, and the text is now in its
+			// input, so the message counts as read: nothing would otherwise
+			// ever clear it, and the same one would be typed again until the
+			// streak stopped the pane for good.
+			_, _ = s.mail.Read(c.ID, id)
+		}
 	} else {
 		s.mu.Lock()
 		if st := s.state[c.ID]; st != nil {
@@ -429,6 +474,16 @@ func (s *wakeService) fire(c wakeCandidate, id int, r session.WakeReading, at ti
 			Unsubmitted: !submitted,
 		})
 	}
+}
+
+// message finds an unread message of the pane by id.
+func (s *wakeService) message(pane string, id int) (team.Message, bool) {
+	for _, m := range s.mail.List(pane, false) {
+		if m.ID == id {
+			return m, true
+		}
+	}
+	return team.Message{}, false
 }
 
 // undo takes back what an attempt that typed nothing counted: its place in the
@@ -494,7 +549,8 @@ func (w *Workspace) wakeCandidates() []wakeCandidate {
 			continue
 		}
 		p := p
-		out = append(out, wakeCandidate{ID: p.ID, Agent: p.Agent, Root: p.Root, Sess: p.Sess,
+		spec, _ := w.agents().Find(p.Agent)
+		out = append(out, wakeCandidate{ID: p.ID, Agent: p.Agent, Root: p.Root, Sess: p.Sess, TextOK: spec.Caps.TextWake,
 			Claim: func() bool { return w.claimSend(p) }, Release: func() { w.releaseSend(p) }})
 	}
 	return out

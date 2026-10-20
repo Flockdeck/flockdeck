@@ -141,3 +141,48 @@ func TestWakeSwitchLiftsADamagedHoldOnlyForTheGlobalSwitch(t *testing.T) {
 	sendCmd(t, conn, command{Cmd: "wakeSwitch", Kind: "global", Text: "on"})
 	waitFor(t, func() bool { _, err := store.ReadWake(); return err == nil })
 }
+
+// Text mode is opted in per agent type, only for an agent whose catalog entry
+// offers it, and off by default.
+func TestWakeTextSwitchIsOptInAndOnlyForAgentsThatOfferIt(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	if hello := nextHello(t, conn); hello.Prefs.WakeText("aider") {
+		t.Fatal("text mode starts on")
+	}
+
+	sendCmd(t, conn, command{Cmd: "wakeSwitch", Kind: "text", ID: "claude", Text: "on"})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if !note.Error || !strings.Contains(note.Text, "claude") {
+		t.Fatalf("opting claude in was answered %+v", note)
+	}
+	if store.LoadPrefs().WakeText("claude") {
+		t.Fatal("claude was opted in")
+	}
+
+	sendCmd(t, conn, command{Cmd: "wakeSwitch", Kind: "text", ID: "aider", Text: "on"})
+	nextPrefs(t, conn, func(p store.Prefs) bool { return p.WakeText("aider") })
+	sendCmd(t, conn, command{Cmd: "wakeSwitch", Kind: "text", ID: "aider", Text: "off"})
+	nextPrefs(t, conn, func(p store.Prefs) bool { return !p.WakeText("aider") })
+}
+
+// A window reached through the relay cannot opt an agent in either.
+func TestWakeTextSwitchIsRefusedToRelayWindows(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ts := remoteServer(t, srv)
+	phone, err := dialRemoteControl(ts, ts.URL)
+	if err != nil {
+		t.Fatalf("dial through the tunnel: %v", err)
+	}
+	defer phone.CloseNow()
+	sendCmd(t, phone, command{Cmd: "wakeSwitch", Kind: "text", ID: "aider", Text: "on"})
+	var note noticeMsg
+	readUntil(t, phone, "notice", &note)
+	if !note.Error {
+		t.Fatalf("answered %+v", note)
+	}
+	if store.LoadPrefs().WakeText("aider") {
+		t.Fatal("a relay window opted aider in")
+	}
+}

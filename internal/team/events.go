@@ -46,7 +46,9 @@ type Event struct {
 	// Pane is the pane typed into and Agent its agent type. Rule is the wake
 	// rule's version and RuleSource where the rule came from. Prompt is the
 	// prompt line that was matched, control characters removed and cut to
-	// MaxPromptLine characters, and Line is what was typed.
+	// MaxPromptLine characters, and Line is what was typed: the fixed line, or for
+	// an agent the user opted in to text mode, the prefix and the message text
+	// (see MaxTextLine). Only then does an event hold any of a message's text.
 	Pane       string `json:"pane,omitempty"`
 	Agent      string `json:"agent,omitempty"`
 	Rule       string `json:"rule,omitempty"`
@@ -61,6 +63,10 @@ type Event struct {
 // MaxPromptLine is the most characters of a matched prompt line a wake event
 // keeps.
 const MaxPromptLine = 160
+
+// MaxTextLine is the most characters a text mode wake line has, and so the most
+// of it a wake event keeps.
+const MaxTextLine = 300
 
 // maxWakeField is the most characters of any other text field of a wake event.
 const maxWakeField = 64
@@ -90,7 +96,7 @@ func cleanWake(e *Event) {
 	e.Rule = CleanLine(e.Rule, maxWakeField)
 	e.RuleSource = CleanLine(e.RuleSource, maxWakeField)
 	e.Prompt = CleanLine(e.Prompt, MaxPromptLine)
-	e.Line = CleanLine(e.Line, MaxPromptLine)
+	e.Line = CleanLine(e.Line, MaxTextLine)
 }
 
 // EventLog is the record of events kept for a project: one JSON line for each,

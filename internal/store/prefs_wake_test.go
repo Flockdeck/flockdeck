@@ -394,3 +394,23 @@ func TestReadWakeAgreesWithReadPrefsOnOddFiles(t *testing.T) {
 		})
 	}
 }
+
+func TestWakeTextIsOffByDefaultAndPerAgent(t *testing.T) {
+	var p Prefs
+	if p.WakeText("aider") || p.WakeText("") {
+		t.Fatal("text mode starts on")
+	}
+	if !p.SetWake(WakeText, "aider", true) || p.SetWake(WakeText, "aider", true) {
+		t.Error("opting in twice should report a change once")
+	}
+	if !p.WakeText("aider") || p.WakeText("claude") {
+		t.Fatalf("text agents = %v", p.Wake.TextAgents)
+	}
+	// It is not an off switch: wake itself is still on.
+	if !p.WakeEnabled("aider", "p1") {
+		t.Error("opting in turned wake off")
+	}
+	if !p.SetWake(WakeText, "aider", false) || p.WakeText("aider") {
+		t.Error("opting out did not take")
+	}
+}
