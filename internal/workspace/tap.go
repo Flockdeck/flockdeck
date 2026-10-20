@@ -19,7 +19,7 @@ func (w *Workspace) tapSendMessage(from string, ev hooks.Event) {
 	if ev.Event != "PostToolUse" || !hooks.IsSendMessage(ev.Tool) {
 		return
 	}
-	tap := team.Tap{Time: time.Now(), From: from, Tool: team.CleanTool(ev.Tool)}
+	tap := team.Tap{Time: time.Now(), From: from, Tool: ev.Tool}
 	if ev.Detail != nil {
 		if name, ok := hooks.SendMessageRecipient(ev.Detail.Input); ok {
 			tap.Understood = true
@@ -27,14 +27,6 @@ func (w *Workspace) tapSendMessage(from string, ev hooks.Event) {
 		}
 	}
 	w.team.taps.Add(tap)
-	// The event log gets the same record: who, to whom, when and the tool name.
-	if add := w.team.addEvent; add != nil {
-		state := team.TapUnread
-		if tap.Understood {
-			state = team.TapSent
-		}
-		add(team.Event{Kind: team.EventTap, Time: tap.Time, From: tap.From, To: tap.To, State: state, Tool: tap.Tool})
-	}
 	w.wake()
 }
 

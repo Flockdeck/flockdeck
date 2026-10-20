@@ -2,12 +2,10 @@ package workspace
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/session"
-	"github.com/jmwri/flockdeck/internal/team"
 )
 
 func tapPanes(t *testing.T) (ws *Workspace, a, b, c string) {
@@ -129,29 +127,5 @@ func TestATapDoesNotResolveToAPaneOfAnotherProject(t *testing.T) {
 	ws.handleHook(sendMessageEvent(a, "SendMessage", `{"to":"researcher","message":"hi"}`))
 	if tp := ws.Taps()[0]; tp.To != "" {
 		t.Fatalf("tap = %+v, want no pane", tp)
-	}
-}
-
-// Each tap is also an event in the team event log, with no message text.
-func TestATapIsRecordedInTheEventLog(t *testing.T) {
-	ws, a, b, _ := tapPanes(t)
-	ws.SetPanePeerName(b, "researcher")
-	ws.handleHook(sendMessageEvent(a, "SendMessage", `{"to":"researcher","message":"secret words"}`))
-	ws.handleHook(sendMessageEvent(a, "SendMessage", `{"odd":"shape"}`))
-	if ws.team.events == nil {
-		t.Skip("the event log is not open")
-	}
-	var taps []team.Event
-	for _, e := range ws.team.events.Events() {
-		if e.Kind == team.EventTap {
-			taps = append(taps, e)
-		}
-	}
-	if len(taps) != 2 || taps[0].State != team.TapSent || taps[0].From != a || taps[0].To != b ||
-		taps[1].State != team.TapUnread || taps[1].To != "" {
-		t.Fatalf("tap events = %+v", taps)
-	}
-	if strings.Contains(string(ws.team.events.Encode()), "secret words") {
-		t.Fatal("message text in the event log")
 	}
 }

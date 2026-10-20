@@ -192,20 +192,3 @@ func TestEventLogSkipsDamagedLinesAndKeepsNoText(t *testing.T) {
 		t.Errorf("an empty log encodes to %q", got)
 	}
 }
-
-func TestEventLogKeepsATapWithNoMessageIDOrText(t *testing.T) {
-	data := strings.Join([]string{
-		`{"kind":"tap","id":0,"time":"2026-10-19T10:00:00Z","from":"a","to":"b","state":"sent","tool":"SendMessage","text":"smuggled"}`,
-		`{"kind":"tap","id":9,"time":"2026-10-19T10:00:00Z","from":"a","state":"unread","tool":"SendMessage"}`,
-		`{"kind":"tap","time":"2026-10-19T10:00:00Z","from":"a","state":"read","tool":"SendMessage"}`,
-	}, "\n")
-	var log EventLog
-	log.Load([]byte(data))
-	ev := log.Events()
-	if len(ev) != 2 || ev[0].Kind != EventTap || ev[0].To != "b" || ev[1].State != TapUnread || ev[1].ID != 0 {
-		t.Fatalf("loaded %+v, want two taps and the one claiming read dropped", ev)
-	}
-	if strings.Contains(string(log.Encode()), "smuggled") {
-		t.Error("a text field was kept")
-	}
-}

@@ -43,7 +43,7 @@ type TapLog struct {
 
 // Add records a tap, dropping the oldest over MaxTaps.
 func (l *TapLog) Add(t Tap) {
-	t.Tool = CleanTool(t.Tool)
+	t.Tool = cleanTool(t.Tool)
 	if !t.Understood {
 		t.To = ""
 	}
@@ -70,9 +70,9 @@ func (l *TapLog) Rev() int {
 	return l.rev
 }
 
-// CleanTool is a tool name with control characters removed, cut to MaxTapTool
+// cleanTool is a tool name with control characters removed, cut to MaxTapTool
 // characters.
-func CleanTool(name string) string {
+func cleanTool(name string) string {
 	var b strings.Builder
 	n := 0
 	for _, r := range name {
