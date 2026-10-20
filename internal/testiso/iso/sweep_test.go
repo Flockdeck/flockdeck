@@ -134,3 +134,23 @@ func TestMainKeepsTheGoCachesOutOfTheTestHome(t *testing.T) {
 		}
 	}
 }
+
+// A home whose run is still going has its modification time renewed, so the
+// sweep of another run does not take it for one left by a run that died.
+func TestKeepFreshRenewsTheHomesTime(t *testing.T) {
+	dir := t.TempDir()
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(dir, old, old); err != nil {
+		t.Fatal(err)
+	}
+	stop := keepFresh(dir, 5*time.Millisecond)
+	defer stop()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if fi, err := os.Stat(dir); err == nil && time.Since(fi.ModTime()) < time.Hour {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Error("the modification time was not renewed")
+}

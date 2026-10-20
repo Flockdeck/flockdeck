@@ -104,6 +104,8 @@ func Main(m *testing.M) int {
 			return 1
 		}
 		defer os.RemoveAll(dir)
+		stop := keepFresh(dir, touchEvery)
+		defer stop()
 		redirect(dir)
 		clearKeys()
 		clearOwnEnv()
@@ -127,6 +129,32 @@ const homePrefix = "flockdeck-test-home-"
 // that is killed (a timeout, Ctrl-C, the system out of memory) never reaches
 // the deferred removal, and nothing else would clear what it left.
 const staleAfter = 24 * time.Hour
+
+// touchEvery is how often a running Main refreshes the modification time of its
+// home, well inside staleAfter, so that a run which lasts longer than staleAfter
+// is not mistaken for a dead one by another run's sweep.
+const touchEvery = time.Hour
+
+// keepFresh sets the modification time of dir to now every interval until the
+// returned function is called.
+func keepFresh(dir string, interval time.Duration) (stop func()) {
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case now := <-t.C:
+				_ = os.Chtimes(dir, now, now)
+			}
+		}
+	}()
+	return func() { close(done); <-finished }
+}
 
 // sweepStale removes the test homes in root that were last changed more than
 // maxAge before now. It looks at nothing else: only directories named with
