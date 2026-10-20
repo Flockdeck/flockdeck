@@ -48,12 +48,13 @@ func sameEnvName(a, b string) bool {
 	return a == b
 }
 
-// cleanLine removes every control character from s, so that advice an entry
-// carries cannot move the cursor or ring a bell where it is shown, and cuts it
-// at n runes.
+// cleanLine removes every control character and every Unicode format character
+// (bidi overrides, zero-width marks) from s, so that advice an entry carries
+// cannot move the cursor, ring a bell or reorder the text where it is shown, and
+// cuts it at n runes.
 func cleanLine(s string, n int) string {
 	s = strings.Map(func(r rune) rune {
-		if r == ' ' || !unicode.IsControl(r) {
+		if r == ' ' || !unicode.IsControl(r) && !unicode.Is(unicode.Cf, r) {
 			return r
 		}
 		return -1

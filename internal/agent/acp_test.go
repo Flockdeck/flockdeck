@@ -325,3 +325,18 @@ func TestAuthModeIsSettled(t *testing.T) {
 		}
 	}
 }
+
+// Format characters are removed from the login advice too: a bidi override
+// would show the advice in an order other than the one written.
+func TestLoginAdviceLosesFormatCharacters(t *testing.T) {
+	entry, _ := json.Marshal(map[string]any{"id": "f", "runner": "acp", "acp": map[string]any{
+		"adapter": "opencode", "login": "run " + string(rune(0x202e)) + "txet" + string(rune(0x202c)) + " the" + string(rune(0x200b)) + "command" + string(rune(0xfeff))}})
+	c := Merge(&File{Agents: raw(string(entry))})
+	f, _ := c.Find("f")
+	if f.ACP.Login != "run txet thecommand" {
+		t.Errorf("login = %q", f.ACP.Login)
+	}
+	if !strings.Contains(c.Notice, "login was cleaned") {
+		t.Errorf("notice %q", c.Notice)
+	}
+}
