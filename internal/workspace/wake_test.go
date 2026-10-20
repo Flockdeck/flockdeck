@@ -9,6 +9,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/team"
 )
 
@@ -349,5 +350,35 @@ func TestCleanPromptLine(t *testing.T) {
 	}
 	if got := cleanPromptLine(long); len(got) != team.MaxPromptLine {
 		t.Fatalf("len %d", len(got))
+	}
+}
+
+func TestPrefsWakeReadsSwitchesAndRefreshes(t *testing.T) {
+	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	var prefs store.Prefs
+	var err error
+	reads := 0
+	pw := &prefsWake{read: func() (store.Prefs, error) { reads++; return prefs, err }, now: func() time.Time { return now }}
+
+	if !pw.WakeEnabled("claude", "p1") {
+		t.Fatal("off with nothing switched off")
+	}
+	prefs.SetWake(store.WakePane, "p1", false)
+	if !pw.WakeEnabled("claude", "p1") || reads != 1 {
+		t.Fatalf("read again inside the interval (%d reads)", reads)
+	}
+	now = now.Add(wakeSettingsTTL)
+	if pw.WakeEnabled("claude", "p1") {
+		t.Fatal("a switched-off pane is still woken after the interval")
+	}
+	if !pw.WakeEnabled("claude", "p2") {
+		t.Fatal("another pane was switched off")
+	}
+	// A file that cannot be read turns wake off, not on.
+	prefs = store.Prefs{}
+	err = errors.New("unreadable")
+	now = now.Add(wakeSettingsTTL)
+	if pw.WakeEnabled("claude", "p2") {
+		t.Fatal("woke with preferences that could not be read")
 	}
 }

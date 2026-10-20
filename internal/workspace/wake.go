@@ -7,6 +7,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/team"
 )
 
@@ -17,9 +18,9 @@ import (
 // message text, only at a prompt a tested built-in rule recognises, and only
 // while nobody is at the keyboard.
 //
-// Settings for the service (global, per agent type, per pane) are B6's. The
-// service reads them through WakeSettings and, until that exists, everything is
-// on for an agent whose rule is tested, which none is yet.
+// Three off switches (global, per agent type, per pane) are kept in the
+// preferences and read through WakeSettings. Everything is on until one is
+// switched off, and still only for an agent whose rule is tested.
 
 // Conditions and limits. All conditions must hold.
 const (
@@ -48,8 +49,7 @@ func wakeLine(id int) string {
 	return fmt.Sprintf("Flockdeck: new mail, message %d. Run: flockdeck inbox read %d", id, id)
 }
 
-// WakeSettings says whether the wake service may type into a pane. B6 supplies
-// the real one; the default allows everything.
+// WakeSettings says whether the wake service may type into a pane.
 type WakeSettings interface {
 	WakeEnabled(agentID, paneID string) bool
 }
@@ -57,6 +57,38 @@ type WakeSettings interface {
 type wakeAllOn struct{}
 
 func (wakeAllOn) WakeEnabled(string, string) bool { return true }
+
+// wakeSettingsTTL is how long the preferences are kept before they are read
+// again. The service asks about every pane on every tick, and a switch changed
+// by `flockdeck wake`, which is another process, takes effect within this.
+const wakeSettingsTTL = time.Second
+
+// prefsWake reads the off switches from the preferences file. A file that
+// cannot be read turns wake off, because the switches the user set are not
+// known and typing into a pane against one of them is the worse mistake; the
+// last good reading is not used, since it may be the one that has just changed.
+type prefsWake struct {
+	mu    sync.Mutex
+	read  func() (store.Prefs, error)
+	now   func() time.Time
+	at    time.Time
+	prefs store.Prefs
+	err   error
+}
+
+func newPrefsWake() *prefsWake {
+	return &prefsWake{read: store.ReadPrefs, now: time.Now}
+}
+
+func (p *prefsWake) WakeEnabled(agentID, paneID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if now := p.now(); p.at.IsZero() || now.Sub(p.at) >= wakeSettingsTTL {
+		p.prefs, p.err = p.read()
+		p.at = now
+	}
+	return p.err == nil && p.prefs.WakeEnabled(agentID, paneID)
+}
 
 // wakeSession is what the service needs of a pane's session. *session.Session
 // is one; a test supplies another.

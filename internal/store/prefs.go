@@ -110,6 +110,11 @@ type Prefs struct {
 	// A project with no entry gets the default, which depends on whether its
 	// repository is known to be private. Set by `flockdeck knowledge`.
 	Knowledge map[string]string `json:"knowledge,omitempty"`
+	// Wake are the off switches for typed wake: global, per agent type and per
+	// pane. Left out of the file while everything is on. Set by `flockdeck wake`
+	// and the wakeSwitch command, and read each time the wake service looks at a
+	// pane.
+	Wake WakePrefs `json:"wake,omitzero"`
 
 	// extra is every top-level key the file held that this build does not
 	// know, as it was written. A newer build's setting would otherwise go at

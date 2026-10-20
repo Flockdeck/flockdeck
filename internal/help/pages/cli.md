@@ -23,6 +23,7 @@ switched from inside the window. These are what is left.
 | `flockdeck inbox` | From inside a pane: list unread messages, `-all` for every one; `inbox read <id>` prints one in full |
 | `flockdeck task` | From inside a pane: the project's shared task board (`add`, `list`, `show`, `assign`, `status`, `note`, `branch`, `baton`, `prune`) |
 | `flockdeck knowledge` | From a terminal outside Flockdeck: show (`status`) or set (`on`, `off`) whether a project's agents are pointed at the notes in `.flockdeck/knowledge` |
+| `flockdeck wake` | From a terminal outside Flockdeck: show (`status`) or set (`on`, `off`) the switches for typed wake, globally, per agent type or per pane |
 | `flockdeck agents` | List the agents and models that `-agent` and `spawn` accept, and which are installed here |
 | `flockdeck help` | Print the usage; `flockdeck help spawn` (or any subcommand below) prints that subcommand's usage instead |
 
@@ -579,6 +580,33 @@ prompt for running a command. The briefing is rebuilt at each session start, com
 resume, so a change reaches a running agent then. The first briefing in a
 project does not wait for the `gh` lookup, so in a private repository the line
 appears from the next one.
+
+## wake
+
+Typed wake is the one line Flockdeck types into an idle agent's message box when
+the agent has unread mail and no hook to tell it. It has three off switches: one
+for everything, one for each kind of agent and one for each pane. Everything is
+on until you switch it off, and a line is typed only when all three are on, so
+turning a pane on does not override its agent type or the global switch being
+off. A line is also typed only for an agent whose prompt rule has been tested.
+
+| Command | What it does |
+| --- | --- |
+| `flockdeck wake` | Show the switches and the last ten wake events (`status` is the same; `-n` sets how many) |
+| `flockdeck wake off` | Turn typed wake off for every pane |
+| `flockdeck wake off -agent claude` | Turn it off for one kind of agent |
+| `flockdeck wake off -pane <pane-id>` | Turn it off for one pane |
+| `flockdeck wake on [-agent id \| -pane id]` | Turn the same switch back on |
+
+The switches are kept with the other settings and read again each second, so a
+change reaches a running Flockdeck at once and needs no restart. If the settings
+cannot be read, nothing is typed. The window can set the same switches with the
+`wakeSwitch` command, from the machine Flockdeck runs on only: a window reached
+through the relay, and a device that may only view, are refused. `on` and `off` are
+refused inside a pane, because deciding what is typed into a terminal is yours and
+not an agent's; the refusal is advisory, since it reads an environment variable an
+agent could unset, and the barrier that holds is the agent's own permission prompt
+for running a command. The events shown never contain message text.
 
 ## remote
 

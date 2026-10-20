@@ -1836,6 +1836,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "conflictRadar":
 		s.setConflictRadar(c, cmd.Kind == "on")
 		return
+	case "wakeSwitch":
+		s.setWakeSwitch(c, cmd)
+		return
 	case "recordPane":
 		s.recordPane(c, cmd)
 		return
