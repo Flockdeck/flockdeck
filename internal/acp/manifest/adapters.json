@@ -1,0 +1,46 @@
+{
+  "manifest": 1,
+  "adapters": [
+    {
+      "id": "opencode",
+      "name": "opencode",
+      "command": "opencode",
+      "args": ["acp"],
+      "package": "opencode-ai",
+      "minVersion": "1.19.3",
+      "needsNode": false,
+      "testedWith": "1.19.3",
+      "testedOn": "2026-10-19",
+      "install": "Install opencode from https://opencode.ai and make sure `opencode` is on PATH.",
+      "note": "A single executable. It answered a full turn with no login, using its free model."
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini CLI",
+      "command": "gemini",
+      "args": ["--acp"],
+      "package": "@google/gemini-cli",
+      "minVersion": "0.64.0",
+      "needsNode": true,
+      "minNode": "20.0.0",
+      "testedWith": "0.64.0",
+      "testedOn": "2026-10-19",
+      "install": "npm install -g @google/gemini-cli",
+      "note": "--acp is a flag of the CLI itself. Answers initialize; session/new needs a Gemini login or key."
+    },
+    {
+      "id": "codex",
+      "name": "Codex (ACP adapter)",
+      "command": "codex-acp",
+      "args": [],
+      "package": "@agentclientprotocol/codex-acp",
+      "pin": "2.2.2",
+      "needsNode": true,
+      "minNode": "20.0.0",
+      "testedWith": "2.2.2",
+      "testedOn": "2026-10-19",
+      "install": "npm install --prefix <folder> @agentclientprotocol/codex-acp@2.2.2",
+      "note": "Pinned to an exact release; the adapter ships previews almost daily. session/new needs a Codex login."
+    }
+  ]
+}

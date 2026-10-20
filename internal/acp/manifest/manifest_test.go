@@ -1,0 +1,224 @@
+package manifest
+
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
+func TestTheEmbeddedManifestParses(t *testing.T) {
+	m := Default()
+	want := []string{"codex", "gemini", "opencode"}
+	got := m.IDs()
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("ids = %v, want %v", got, want)
+	}
+	for _, a := range m.Adapters {
+		if strings.Contains(a.ID, "claude") || strings.Contains(strings.ToLower(a.Package), "claude") {
+			t.Errorf("%s: there is no Claude adapter", a.ID)
+		}
+	}
+	codex, _ := m.Lookup("codex")
+	if codex.Package != "@agentclientprotocol/codex-acp" || codex.Pin != "2.2.2" || !codex.NeedsNode {
+		t.Errorf("codex = %+v", codex)
+	}
+	gem, _ := m.Lookup("gemini")
+	if len(gem.Args) != 1 || gem.Args[0] != "--acp" || gem.MinVersion != "0.64.0" || gem.Pin != "" {
+		t.Errorf("gemini = %+v", gem)
+	}
+	oc, _ := m.Lookup("opencode")
+	if oc.NeedsNode || oc.Args[0] != "acp" {
+		t.Errorf("opencode = %+v", oc)
+	}
+	if _, ok := m.Lookup("claude"); ok {
+		t.Error("a Claude adapter is listed")
+	}
+}
+
+func TestRawIsACopy(t *testing.T) {
+	a := Raw()
+	a[0] = 'X'
+	if Raw()[0] == 'X' {
+		t.Error("Raw shares the embedded bytes")
+	}
+}
+
+const goodAdapter = `{"id":"x","name":"X","command":"x","args":[],"minVersion":"1.0.0","needsNode":false,"testedWith":"1.0.0","testedOn":"2026-10-19","install":"get x"}`
+
+func wrap(adapters ...string) string {
+	return `{"manifest":1,"adapters":[` + strings.Join(adapters, ",") + `]}`
+}
+
+func TestParseRefusesWhatItShould(t *testing.T) {
+	if _, err := Parse([]byte(wrap(goodAdapter))); err != nil {
+		t.Fatalf("a good manifest: %v", err)
+	}
+	cases := map[string]string{
+		"not json":            `nope`,
+		"trailing text":       wrap(goodAdapter) + ` {}`,
+		"wrong format":        strings.Replace(wrap(goodAdapter), `"manifest":1`, `"manifest":2`, 1),
+		"no adapters":         `{"manifest":1,"adapters":[]}`,
+		"unknown field":       strings.Replace(wrap(goodAdapter), `"id":"x"`, `"id":"x","surprise":1`, 1),
+		"duplicate id":        wrap(goodAdapter, goodAdapter),
+		"bad id":              strings.Replace(wrap(goodAdapter), `"id":"x"`, `"id":"X Y"`, 1),
+		"claude":              strings.Replace(wrap(goodAdapter), `"id":"x"`, `"id":"claude"`, 1),
+		"claude in id":        strings.Replace(wrap(goodAdapter), `"id":"x"`, `"id":"claude-acp"`, 1),
+		"command is a path":   strings.Replace(wrap(goodAdapter), `"command":"x"`, `"command":"/usr/bin/x"`, 1),
+		"no args":             strings.Replace(wrap(goodAdapter), `"args":[],`, ``, 1),
+		"no version rule":     strings.Replace(wrap(goodAdapter), `"minVersion":"1.0.0",`, ``, 1),
+		"range floor":         strings.Replace(wrap(goodAdapter), `"minVersion":"1.0.0"`, `"minVersion":"^1.0.0"`, 1),
+		"latest":              strings.Replace(wrap(goodAdapter), `"minVersion":"1.0.0"`, `"minVersion":"latest"`, 1),
+		"v prefix":            strings.Replace(wrap(goodAdapter), `"minVersion":"1.0.0"`, `"minVersion":"v1.0.0"`, 1),
+		"short version":       strings.Replace(wrap(goodAdapter), `"minVersion":"1.0.0"`, `"minVersion":"1.0"`, 1),
+		"pin without package": strings.Replace(wrap(goodAdapter), `"minVersion":"1.0.0"`, `"pin":"1.0.0"`, 1),
+		"bad date":            strings.Replace(wrap(goodAdapter), `2026-10-19`, `19 Oct`, 1),
+		"node without floor":  strings.Replace(wrap(goodAdapter), `"needsNode":false`, `"needsNode":true`, 1),
+		"floor without node":  strings.Replace(wrap(goodAdapter), `"needsNode":false`, `"needsNode":false,"minNode":"20.0.0"`, 1),
+		"no install text":     strings.Replace(wrap(goodAdapter), `"install":"get x"`, `"install":""`, 1),
+	}
+	for name, in := range cases {
+		if _, err := Parse([]byte(in)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	// A pin with its package, and a pre-release pin, are fine.
+	pinned := strings.Replace(wrap(goodAdapter), `"minVersion":"1.0.0"`, `"pin":"2.2.3-preview.15","package":"@a/b"`, 1)
+	if _, err := Parse([]byte(pinned)); err != nil {
+		t.Errorf("a pre-release pin: %v", err)
+	}
+}
+
+func TestVersions(t *testing.T) {
+	good := map[string]string{
+		"0.64.0": "0.64.0", "v20.11.1": "20.11.1", "Gemini CLI 0.64.0\n": "0.64.0",
+		"2.2.3-preview.15": "2.2.3-preview.15", "1.19.3+build.5": "1.19.3", "node v24.20.0": "24.20.0",
+	}
+	for in, want := range good {
+		v, err := ParseVersion(in)
+		if err != nil || v.String() != want {
+			t.Errorf("ParseVersion(%q) = %v, %v; want %s", in, v, err, want)
+		}
+	}
+	for _, in := range []string{"", "latest", "1.2", "version one"} {
+		if _, err := ParseVersion(in); err == nil {
+			t.Errorf("ParseVersion(%q) succeeded", in)
+		}
+	}
+	order := []string{"1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0", "1.0.1", "1.1.0", "2.0.0", "10.0.0"}
+	for i := range order {
+		for j := range order {
+			a, _ := ParseVersion(order[i])
+			b, _ := ParseVersion(order[j])
+			want := 0
+			if i < j {
+				want = -1
+			} else if i > j {
+				want = 1
+			}
+			if got := Compare(a, b); got != want {
+				t.Errorf("Compare(%s, %s) = %d, want %d", order[i], order[j], got, want)
+			}
+		}
+	}
+}
+
+func TestAccepts(t *testing.T) {
+	m := Default()
+	gem, _ := m.Lookup("gemini")
+	codex, _ := m.Lookup("codex")
+	cases := []struct {
+		a    Adapter
+		have string
+		want bool
+	}{
+		{gem, "0.64.0", true}, {gem, "0.64.1", true}, {gem, "1.0.0", true}, {gem, "0.63.9", false}, {gem, "0.65.0-nightly.1", true}, {gem, "0.64.0-nightly.1", false},
+		{codex, "2.2.2", true}, {codex, "2.2.3", false}, {codex, "2.2.1", false}, {codex, "2.2.3-preview.15", false},
+	}
+	for _, c := range cases {
+		got, err := c.a.Accepts(c.have)
+		if err != nil || got != c.want {
+			t.Errorf("%s accepts %s = %v, %v; want %v", c.a.ID, c.have, got, err, c.want)
+		}
+	}
+	if _, err := gem.Accepts("unknown"); err == nil {
+		t.Error("an unreadable version was accepted")
+	}
+	if codex.Want() != "2.2.2" || gem.Want() != "0.64.0" {
+		t.Errorf("want = %s, %s", codex.Want(), gem.Want())
+	}
+}
+
+// The "tested with" table on the docs page is the manifest's table, so the two
+// cannot disagree.
+func TestTheDocsTableIsTheManifestsTable(t *testing.T) {
+	page, err := os.ReadFile("../../../docs/acp-adapters.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const begin, end = "<!-- adapters:begin -->\n", "<!-- adapters:end -->"
+	s := string(page)
+	i, j := strings.Index(s, begin), strings.Index(s, end)
+	if i < 0 || j < i {
+		t.Fatal("the page has no table markers")
+	}
+	if got, want := s[i+len(begin):j], Default().Table(); got != want {
+		t.Errorf("the table on docs/acp-adapters.md is out of date. It should be:\n%s", want)
+	}
+}
+
+func TestExactVersionIsSemver2(t *testing.T) {
+	for _, ok := range []string{"1.2.3", "0.0.0", "1.2.3-rc.1", "1.2.3-0.alpha-1", "1.2.3+build.5", "1.2.3-x+y"} {
+		if !exactVersion(ok) {
+			t.Errorf("%q should be exact", ok)
+		}
+	}
+	for _, bad := range []string{"", "v1.2.3", "01.2.3", "1.02.3", "1.2.03", "1.2", "1.2.3-", "1.2.3-.a", "1.2.3-a..b", "1.2.3-01", "1.2.3+", "1.2.3 ", " 1.2.3", "^1.2.3", "1.2.3-rc.1\n", "latest", "1.2.x", "1.2.3 || 2.0.0"} {
+		if exactVersion(bad) {
+			t.Errorf("%q should not be exact", bad)
+		}
+	}
+}
+
+func TestParseChecksTheFieldsAProcessOrNpmReads(t *testing.T) {
+	base := func() Adapter {
+		a, _ := Default().Lookup("codex")
+		a.Args = append([]string{}, a.Args...)
+		return a
+	}
+	cases := map[string]func(*Adapter){
+		"package with a path":      func(a *Adapter) { a.Package = "../evil" },
+		"package with a space":     func(a *Adapter) { a.Package = "a b" },
+		"package as a url":         func(a *Adapter) { a.Package = "https://example.com/x.tgz" },
+		"package with a version":   func(a *Adapter) { a.Package = "pkg@1.0.0" },
+		"command as a path":        func(a *Adapter) { a.Command = "bin/run" },
+		"command as an option":     func(a *Adapter) { a.Command = "-rf" },
+		"command with a space":     func(a *Adapter) { a.Command = "a b" },
+		"arg with a space":         func(a *Adapter) { a.Args = []string{"a b"} },
+		"arg with a newline":       func(a *Adapter) { a.Args = []string{"a\nb"} },
+		"arg with a shell char":    func(a *Adapter) { a.Args = []string{"$(x)"} },
+		"claude in the id":         func(a *Adapter) { a.ID = "Claude-helper" },
+		"claude in the package":    func(a *Adapter) { a.ID = "helper"; a.Package = "@zed-industries/claude-agent-acp" },
+		"anthropic package":        func(a *Adapter) { a.ID = "helper"; a.Package = "@anthropic-ai/claude-code" },
+		"anthropic in the package": func(a *Adapter) { a.Package = "@Anthropic-AI/sdk" },
+		"claude in the name":       func(a *Adapter) { a.Name = "My CLAUDE helper" },
+		"anthropic in the name":    func(a *Adapter) { a.Name = "Anthropic Agent" },
+		"claude as the command":    func(a *Adapter) { a.Command = "Claude" },
+		"anthropic in the command": func(a *Adapter) { a.Command = "anthropic-cli" },
+		"claude in an arg":         func(a *Adapter) { a.Args = []string{"--agent=ClaudeCode"} },
+		"anthropic in an arg":      func(a *Adapter) { a.Args = []string{"anthropic"} },
+		"too many args":            func(a *Adapter) { a.Args = make([]string, 17) },
+		"name with an escape":      func(a *Adapter) { a.Name = "x\x1b[2J" },
+		"long install":             func(a *Adapter) { a.Install = strings.Repeat("x", 401) },
+		"pin with a leading zero":  func(a *Adapter) { a.Pin = "02.2.2" },
+	}
+	for name, mut := range cases {
+		a := base()
+		mut(&a)
+		if err := a.check(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if err := base().check(); err != nil {
+		t.Errorf("the codex entry: %v", err)
+	}
+}
