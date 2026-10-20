@@ -3,6 +3,7 @@ package schemacheck
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -328,5 +329,22 @@ func TestSchemaErrorSinkIsCapped(t *testing.T) {
 	}
 	if len(errs) > 110 {
 		t.Errorf("%d errors returned, the cap is 100", len(errs))
+	}
+}
+
+// The budget grows with the document but has a ceiling, and a value count
+// large enough to overflow the arithmetic is not computed with: no document
+// of that size is built.
+func TestWorkBudgetHasAnAbsoluteCeiling(t *testing.T) {
+	if got, want := budgetFor(0), maxCalls; got != want {
+		t.Errorf("budgetFor(0) = %d, want %d", got, want)
+	}
+	if got, want := budgetFor(1000), maxCalls+50*1000; got != want {
+		t.Errorf("budgetFor(1000) = %d, want %d", got, want)
+	}
+	for _, n := range []int{1 << 20, 1 << 40, math.MaxInt / 2, math.MaxInt} {
+		if got := budgetFor(n); got != 10_000_000 {
+			t.Errorf("budgetFor(%d) = %d, want the ceiling of 10000000", n, got)
+		}
 	}
 }

@@ -17,10 +17,11 @@
 // the six, a boolean as a schema in properties or items, items as an array,
 // additionalProperties as a schema, and a $ref other than "#/$defs/name" ("#",
 // "#/definitions/x", another file) are errors, not features. A pattern is Go's
-// syntax. One Validate stops after 100000 schema checks plus 50 for each value in the
-// document, and a $ref entered again at the same place in the document is a cycle
-// and an error; a recursive schema over a
-// document nested more than 200 $ref levels deep is refused.
+// syntax. One Validate stops after 100000 schema checks plus 50 for each value in
+// the document, and never after more than 10000000 whatever the document, and a
+// $ref entered again at the same place in the document is a cycle and an error; a
+// recursive schema over a document nested more than 200 $ref levels deep is
+// refused.
 package schemacheck
 
 import (
@@ -61,7 +62,7 @@ func (s Schema) Validate(doc []byte) []string {
 	// report them: a sub-check under anyOf, not or if only says whether the
 	// document matched, so an error raised there would be lost.
 	errs := lint(root, root, "#")
-	limit := maxCalls + callsPerValue*countValues(v)
+	limit := budgetFor(countValues(v))
 	val := validator{root: root, depth: new(int), calls: new(int), limit: limit, active: map[string]bool{}, sink: new([]string)}
 	errs = append(errs, val.checked(root, v, "$")...)
 	// Schema errors raised where their result is thrown away, such as a $ref
@@ -77,6 +78,15 @@ func (s Schema) Validate(doc []byte) []string {
 		}
 	}
 	return errs
+}
+
+// budgetFor is how many schema checks one Validate may make over a document of
+// n values: maxCalls and callsPerValue for each, never more than maxBudget.
+func budgetFor(n int) int {
+	if n >= (maxBudget-maxCalls)/callsPerValue {
+		return maxBudget
+	}
+	return maxCalls + callsPerValue*n
 }
 
 // countValues is how many values a decoded document holds, itself included.
@@ -123,6 +133,10 @@ const (
 	// that a large document that is valid is not refused for its size alone:
 	// an array of 60000 small objects needs several checks for each.
 	callsPerValue = 50
+	// maxBudget is the most checks one Validate may make whatever the size of the
+	// document, so that a huge document under a schema that branches cannot run
+	// for minutes before it is refused.
+	maxBudget = 10_000_000
 	// maxSink is how many schema errors raised out of sight are kept.
 	maxSink = 100
 )
