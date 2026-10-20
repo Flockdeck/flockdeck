@@ -74,7 +74,7 @@ func TestStructuredMessagesFitTheSchema(t *testing.T) {
 	secs := 3
 	turns := 2
 	for name, sn := range map[string]structured.Snapshot{
-		"setup":  {Phase: structured.PhaseSetup, Setup: &structured.Setup{Kind: structured.SetupNode, Message: "Node 20 or newer is needed"}},
+		"setup":  {Phase: structured.PhaseSetup, Setup: &structured.Setup{Kind: structured.SetupNode, Message: "Node 20 or newer is needed", Login: "Install Node 20 from nodejs.org"}},
 		"failed": {Phase: structured.PhaseFailed, Err: "the agent ended: exit status 1"},
 		"busy": {Phase: structured.PhaseReady, Status: bridge.StatusWorking, Activity: "Run go test", Queued: 2,
 			Plan:  []acp.PlanEntry{{Content: "write the test", Status: "in_progress", Priority: "high"}},

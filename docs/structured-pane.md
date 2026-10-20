@@ -60,7 +60,7 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `activity` | A line naming what a working agent is doing. |
 | `queued` | How many prompts wait behind the running turn. |
 | `err` | The last thing that went wrong, as one cleaned line. It says what last went wrong and not that something is wrong now; show it with the phase and status. |
-| `setup` | While the phase is `needs setup`: `kind` (`login` or `node`) and a `message`. |
+| `setup` | While the phase is `needs setup`: `kind` (`login` or `node`), a `message` (the cause) and a `fix` (what to do about it, when there is advice). |
 | `entries` | The newest entries, oldest first. |
 | `older` | How many older entries this push leaves out. |
 | `plan` | The agent's plan rows. |

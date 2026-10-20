@@ -114,6 +114,7 @@ type structuredUsage struct {
 type structuredSetup struct {
 	Kind    string `json:"kind"`
 	Message string `json:"message,omitempty"`
+	Fix     string `json:"fix,omitempty"`
 }
 
 // structuredMsg is what structuredSnapshot answers with and what a watching
@@ -234,7 +235,8 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 	m.Err = team.CleanLine(sn.Err, structuredErrCut)
 	if s := sn.Setup; s != nil {
 		msg, _ := clipLine(s.Message, structuredCardCut)
-		m.Setup = &structuredSetup{Kind: s.Kind, Message: msg}
+		fix, _ := clipLine(s.Login, structuredCardCut)
+		m.Setup = &structuredSetup{Kind: s.Kind, Message: msg, Fix: fix}
 	}
 	for i, p := range sn.Plan {
 		if i == structuredPlanMax {
