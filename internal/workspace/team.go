@@ -306,6 +306,14 @@ func (w *Workspace) ReadMessage(id string, msg int) (team.Message, error) {
 	return w.team.inbox.Read(id, msg)
 }
 
+// MarkMessagesWoken records that a line was typed into the pane to wake its
+// agent for the messages with these ids. Ids not in its inbox are skipped.
+func (w *Workspace) MarkMessagesWoken(id string, msgs ...int) {
+	if w.team.inbox != nil {
+		w.team.inbox.MarkWoken(id, msgs...)
+	}
+}
+
 // notifyParent tells the pane that started p what happened to it, as a message
 // from Flockdeck. A parent that is no longer open is told nothing.
 func (w *Workspace) notifyParent(p *Pane, parent, what string) {

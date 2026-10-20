@@ -117,7 +117,7 @@
         "id": { "type": "integer", "minimum": 1, "description": "The message's id in its inbox (stored). Written for message edges only." },
         "time": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When the message was sent, RFC 3339 (stored). Written for message edges only." },
         "text": { "type": "string", "description": "The first non-empty line of the message, cleaned of control characters and cut to 140 characters (derived). Written for message edges only; absent when the message has no text." },
-        "delivery": { "enum": ["queued", "notified", "woken", "read"], "description": "The newest delivery state of the message (stored): queued when it is in the inbox, notified when the hook notice of it was given, woken when a line was typed into the pane for it, read when the agent ran inbox read. A state counts as newer by this order, not by when it was marked. Written for message edges only." }
+        "delivery": { "enum": ["queued", "notified", "woken", "read"], "description": "The newest delivery state of the message (stored): queued when it is in the inbox, notified when the hook notice of it was given, woken when a line was typed into the pane for it, read when the agent ran inbox read. A state counts as newer by this order, not by when it was marked. Written for message edges only. A push or fixture saved before delivery states existed has no such field on its message edges; a reader of old data treats a missing value as unknown, not as queued." }
       },
       "allOf": [
         { "if": { "properties": { "kind": { "const": "message" } } }, "then": { "required": ["id", "time", "delivery"] } }
