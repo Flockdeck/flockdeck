@@ -52,7 +52,7 @@
         "label": { "type": "string", "description": "A tool's label, cut to 1 KiB." },
         "status": { "type": "string", "description": "A tool's or subagent's status: running, ok or error." },
         "summary": { "type": "string", "description": "A tool's summary, cut to 1 KiB." },
-        "hasDetail": { "const": true, "description": "The entry has more than this push shows, and structuredDetail returns it." },
+        "hasDetail": { "const": true, "description": "The entry has more than this push shows (a diff, a report, a tool's output, or a prompt, reply or notice cut at 4 KiB), and structuredDetail returns it." },
         "description": { "type": "string", "description": "A subagent's description, cut to 1 KiB." },
         "turns": { "type": "integer", "minimum": 0, "description": "A compaction's turns." },
         "mediaType": { "type": "string", "description": "An image's media type." },
@@ -123,7 +123,7 @@
         "req": { "type": "string", "minLength": 1, "description": "The token the window sent." },
         "id": { "type": "string", "minLength": 1, "description": "The pane's id." },
         "entry": { "type": "string", "minLength": 1, "description": "The entry's id." },
-        "text": { "type": "string", "description": "A tool's full output or a thinking block's text, cut to 64 KiB. Absent when the entry has none." },
+        "text": { "type": "string", "description": "A tool's full output, a thinking block's text, or the text of a prompt, reply or notice a push cut, cut to 64 KiB. Absent when the entry has none." },
         "diff": { "type": "string", "description": "A tool's diff, cut to 64 KiB. Absent when the entry has none." },
         "clipped": { "const": true, "description": "The text or the diff was cut." },
         "omitted": { "const": true, "description": "The entry has more that is not sent in this version: an image's bytes, or nested entries." }

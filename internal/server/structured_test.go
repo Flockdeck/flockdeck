@@ -212,22 +212,38 @@ func TestStructuredUnwatchAndAClosedPane(t *testing.T) {
 	if got := drain(b); len(got) != 0 {
 		t.Errorf("%d messages after the pane was gone", len(got))
 	}
+	// A dead id no longer counts toward the bound.
+	if id, _ := ask(e.srv, func() string { return b.structID }); id != "" {
+		t.Errorf("still watching %q after gone", id)
+	}
 }
 
 // No more than maxStructuredWatches panes are watched at once.
 func TestStructuredWatchesAreBounded(t *testing.T) {
 	e := newStructuredEnv(t, "plain")
 	e.status(t, session.StatusIdle)
-	ask(e.srv, func() bool {
-		for i := 0; i < maxStructuredWatches; i++ {
-			c := &controlClient{out: make(chan []byte, 4), structID: "pane-" + string(rune('a'+i))}
-			e.srv.mu.Lock()
-			e.srv.clients[c] = true
-			e.srv.mu.Unlock()
-			t.Cleanup(func() { e.srv.mu.Lock(); delete(e.srv.clients, c); e.srv.mu.Unlock() })
-		}
-		return true
-	})
+	fill := func(from, to int) {
+		ask(e.srv, func() bool {
+			for i := from; i < to; i++ {
+				c := &controlClient{out: make(chan []byte, 4), structID: "pane-" + string(rune('a'+i))}
+				e.srv.mu.Lock()
+				e.srv.clients[c] = true
+				e.srv.mu.Unlock()
+				t.Cleanup(func() { e.srv.mu.Lock(); delete(e.srv.clients, c); e.srv.mu.Unlock() })
+			}
+			return true
+		})
+	}
+	// With 15 other panes watched, the 16th is allowed.
+	fill(0, maxStructuredWatches-1)
+	first := e.watcher(t, 8)
+	if raw := structuredReply(t, e.srv, first, command{Cmd: "structuredWatch", ID: e.child, Req: "w0"}, "structured", "teamResult"); typeOf(raw) != "structured" {
+		t.Fatalf("the 16th watch was refused: %s", raw)
+	}
+	e.srv.handleCommand(first, command{Cmd: "structuredUnwatch"})
+	ask(e.srv, func() bool { return true })
+	// With 16 others, the 17th is not.
+	fill(maxStructuredWatches-1, maxStructuredWatches)
 	c := e.watcher(t, 8)
 	var res teamResultMsg
 	raw := structuredReply(t, e.srv, c, command{Cmd: "structuredWatch", ID: e.child, Req: "w"}, "teamResult")
@@ -486,4 +502,61 @@ func (e *structuredEnv) waitFor(t *testing.T, id, text string) {
 		time.Sleep(25 * time.Millisecond)
 	}
 	t.Fatalf("pane %s never showed %q", id, text)
+}
+
+// A prompt cut in a push is fetched whole, to the detail cut, by structuredDetail.
+func TestStructuredDetailReturnsACutPrompt(t *testing.T) {
+	e := newStructuredEnv(t, "plain")
+	e.status(t, session.StatusIdle)
+	long := strings.Repeat("p", 12000)
+	if err, _ := ask(e.srv, func() error { _, err := e.ws.SendToPane(e.child, long, false); return err }); err != nil {
+		t.Fatal(err)
+	}
+	e.status(t, session.StatusIdle)
+	var en structuredEntry
+	deadline := time.Now().Add(20 * time.Second)
+	for en.ID == "" && time.Now().Before(deadline) {
+		for _, x := range e.snapshotOf(t, e.child).Entries {
+			if x.Kind == "prompt" && x.Clipped {
+				en = x
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if en.ID == "" || !en.HasDetail || len(en.Text) != structuredTextCut {
+		t.Fatalf("entry = %d bytes, hasDetail %v", len(en.Text), en.HasDetail)
+	}
+	var d structuredDetailMsg
+	raw := structuredReply(t, e.srv, e.c, command{Cmd: "structuredDetail", ID: e.child, Entry: en.ID, Req: "d"}, "structuredDetail")
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Text) != 12000 || d.Clipped {
+		t.Errorf("detail text %d bytes, clipped %v", len(d.Text), d.Clipped)
+	}
+}
+
+// A push never passes its cap, whatever the size and characters of the entries.
+func TestStructuredPushCapHoldsForEverySize(t *testing.T) {
+	for _, ch := range []string{"a", "<", "é", "日"} {
+		step := 11
+		if ch == "a" {
+			step = 1
+		}
+		for size := 100; size <= 4200; size += step {
+			var entries []transcript.Entry
+			for i := 0; i < 80; i++ {
+				entries = append(entries, transcript.Entry{ID: "e" + string(rune('A'+i%26)) + strings.Repeat("0", i%7),
+					Kind: transcript.KindReply, TS: "2026-10-20T12:00:00Z",
+					Markdown: strings.Repeat(ch, size/len(ch)+1)})
+			}
+			raw, err := json.Marshal(buildStructured("p1", structured.Snapshot{Phase: structured.PhaseReady, Entries: entries}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(raw) > structuredPushCap {
+				t.Fatalf("%q at %d bytes: push is %d, cap %d", ch, size, len(raw), structuredPushCap)
+			}
+		}
+	}
 }

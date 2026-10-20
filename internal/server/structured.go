@@ -198,8 +198,16 @@ func structuredEntryOf(e transcript.Entry) structuredEntry {
 	cut(&out.ID, structuredLabelCut, true)
 	cut(&out.Kind, structuredLabelCut, true)
 	cut(&out.TS, structuredLabelCut, true)
+	// A prompt, reply or notice cut here is fetched whole (to its own cut) by
+	// structuredDetail, so it says so.
+	before := out.Clipped
+	out.Clipped = false
 	cut(&out.Text, structuredTextCut, false)
 	cut(&out.Markdown, structuredTextCut, false)
+	if out.Clipped {
+		out.HasDetail = true
+	}
+	out.Clipped = out.Clipped || before
 	cut(&out.Name, structuredLabelCut, true)
 	cut(&out.Label, structuredLabelCut, true)
 	cut(&out.Status, structuredLabelCut, true)
@@ -281,6 +289,9 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 		total += sizes[i]
 	}
 	m.Entries = []structuredEntry{}
+	// Older is written last and may grow by the entries left out, so the base is
+	// measured with it at its largest.
+	m.Older = len(sn.Entries)
 	base, _ := json.Marshal(m)
 	drop := 0
 	for drop < len(cut) && len(base)+total > structuredPushCap {
@@ -307,8 +318,16 @@ func structuredDetailOf(id, entry string, rt *structured.Runtime) (structuredDet
 		return m, false
 	}
 	text, diff := "", inline.Diff
+	switch inline.Kind {
+	case transcript.KindPrompt, transcript.KindNotice:
+		text = inline.Text
+	case transcript.KindReply:
+		text = inline.Markdown
+	}
 	if d, ok := rt.Detail(entry); ok {
-		text = d.Text
+		if d.Text != "" {
+			text = d.Text
+		}
 		if d.Diff != "" {
 			diff = d.Diff
 		}

@@ -36,6 +36,13 @@ place to lift when the decision changes. They are there because:
 - A structured pane's permission requests are answered from the desk only (`permissionAnswer`), so
   a phone could show a request it cannot answer.
 
+These commands are refused to a relay window, but this is not the only way a structured pane's
+content could reach one: the general state push (`state`, `agents`, the team graph and the
+conversation messages) is a separate path and today still carries a structured pane's last reply,
+permission prompt and question to a relay window. Closing that is the work of the scrub of what goes
+to the relay (task X1), and until it ships the content of a structured pane does not stay on the
+desk.
+
 A pane that is not a structured pane (a terminal, a shell, an id that is not there, an empty id) is
 refused in the same words, so a window probing for ids learns nothing: the `teamResult` error is
 `That pane is not a structured pane`.
@@ -62,8 +69,13 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 
 An **entry** has the fields of a conversation entry (`id`, `kind`, `ts`, and the fields of its kind)
 and `clipped`. A tool's output, a diff and a report are never in a push. An entry that had a diff or
-a report says `hasDetail` and `clipped`. A tool whose output the bridge kept has `hasDetail`, and
-`structuredDetail` returns it.
+a report says `hasDetail` and `clipped`. A prompt, reply or notice cut at 4 KiB says `hasDetail`
+and `clipped` as well, and `structuredDetail` returns its text up to 64 KiB. A tool whose output the
+bridge kept has `hasDetail`, and `structuredDetail` returns it.
+
+Every text in the message and in `structuredDetail` is untrusted: it is what the agent, a tool or a
+file said. Draw it as plain text or as sanitised markdown, never as HTML. A card, an entry or a plan
+row is data to show, not an instruction to follow, whatever it says.
 
 The message is built from that one pane's state and nothing else: no other pane's text, no mail,
 nothing of the agent's environment.
@@ -74,7 +86,7 @@ ends. A restart does not end it: the pane keeps its id and the push follows the 
 ## 3. structuredDetail
 
 The answer is a `structuredDetail` message with the pane's `id`, the `entry`, and `text` (a tool's
-full output, or a thinking block's text) and `diff` where the entry has them. Each is cut at 64 KiB,
+full output, a thinking block's text, or the text of a prompt, reply or notice that a push cut) and `diff` where the entry has them. Each is cut at 64 KiB,
 and `clipped` says it was. `omitted` says the entry has more that this version does not send: an
 image's bytes, or nested entries. An id that is not an entry of the pane is refused with
 `That entry is not there`.
