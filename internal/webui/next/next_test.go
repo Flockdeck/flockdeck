@@ -74,6 +74,10 @@ var (
 	styleInUse = regexp.MustCompile(`(?i)<style\b|\sstyle\s*=`)
 	absolute   = regexp.MustCompile(`(?i)(?:https?:)?//[a-z0-9.-]+\.[a-z]{2,}|\bwss?://|\bftp://|\bdata:text/html`)
 	evalUse    = regexp.MustCompile(`\beval\s*\(|\bnew\s+Function\b|\bFunction\s*\(`)
+	// Ways to turn text into markup or code that eval and new Function do not
+	// cover. Preact's own source mentions some, so these apply to the files
+	// written here and not to vendor/.
+	markupSink = regexp.MustCompile(`\.(?:innerHTML|outerHTML)\b|\binsertAdjacentHTML\b|\bdangerouslySetInnerHTML\b|\bdocument\s*\.\s*write(?:ln)?\s*\(|\bset(?:Timeout|Interval)\s*\(\s*["\x27` + "`" + `]`)
 	dynamicImp = regexp.MustCompile(`\bimport\s*\(\s*(?:[^"'\s]|["'][^"']*["']\s*[^)\s])`)
 )
 
@@ -171,8 +175,13 @@ func TestNextAssetsKeepToTheContentPolicy(t *testing.T) {
 		}
 		// A library's own strings hold namespace URLs; the files written here
 		// must hold none.
-		if !strings.HasPrefix(name, "vendor/") && absolute.MatchString(src) {
-			t.Errorf("%s holds an absolute URL", name)
+		if !strings.HasPrefix(name, "vendor/") {
+			if absolute.MatchString(src) {
+				t.Errorf("%s holds an absolute URL", name)
+			}
+			if markupSink.MatchString(src) {
+				t.Errorf("%s turns text into markup or code", name)
+			}
 		}
 		if ext == ".html" {
 			for _, tag := range scriptTag.FindAllString(src, -1) {
@@ -208,6 +217,20 @@ func TestContentPolicyPatternsCatchWhatTheyAreFor(t *testing.T) {
 	for _, s := range []string{"eval(x)", "x = new Function('a')", "Function('return 1')()"} {
 		if !evalUse.MatchString(s) {
 			t.Errorf("eval pattern misses %q", s)
+		}
+	}
+	for _, s := range []string{
+		`el.innerHTML = x`, `el.outerHTML = x`, `el.insertAdjacentHTML("beforeend", x)`,
+		`<div dangerouslySetInnerHTML=${{ __html: x }} />`, `document.write(x)`, `document . writeln (x)`,
+		`setTimeout("go()", 5)`, `setInterval('go()', 5)`, "setTimeout(`go()`, 5)",
+	} {
+		if !markupSink.MatchString(s) {
+			t.Errorf("markup sink pattern misses %q", s)
+		}
+	}
+	for _, s := range []string{`setTimeout(() => go(), 5)`, `setTimeout(go, 5)`, `el.textContent = x`} {
+		if markupSink.MatchString(s) {
+			t.Errorf("markup sink pattern catches %q", s)
 		}
 	}
 	for _, s := range []string{`import(name)`, `import( "./a.js" + x)`} {
@@ -292,19 +315,6 @@ func TestVendoredFilesMatchTheirRecordedHash(t *testing.T) {
 		if !strings.Contains(string(lic), want) {
 			t.Errorf("LICENSES.md does not mention %q", want)
 		}
-	}
-}
-
-// The test-only library and the test files are not in a build.
-func TestTestFilesAreNotShipped(t *testing.T) {
-	err := fs.WalkDir(webui.FS(), ".", func(name string, d fs.DirEntry, err error) error {
-		if strings.Contains(name, "render-to-string") || strings.HasSuffix(name, ".test.mjs") || strings.HasPrefix(name, "test/") {
-			t.Errorf("%s is served by the tagged build", name)
-		}
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 }
 

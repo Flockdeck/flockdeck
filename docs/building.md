@@ -129,6 +129,8 @@ same file from the old tree, so `e2e.js`, `vendor/`, the fonts and the icons are
 shared and not copied. There is no runtime flag: which front end a binary has is
 decided when it is built. A default build embeds nothing from `next/`.
 
+`index.html` names its module by the relative path `assets/main.js`, so the page works only when it is served from `/`, where `assets/` is the server's `/assets/`. A module must be served as JavaScript: `internal/webui/fs_next.go` registers the type for `.mjs`, because on Windows Go takes it from the registry, which has none, and the file server would send `text/plain`.
+
 The new shell is plain ES modules that the browser loads as they are: no bundler and
 no build step. `index.html` loads `assets/main.js` with `<script type="module">`, every
 import is a relative path, and nothing is inline or evaluated, so the page runs under the
