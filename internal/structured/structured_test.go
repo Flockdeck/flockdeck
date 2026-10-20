@@ -16,6 +16,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
 	"github.com/jmwri/flockdeck/internal/acp/bridge"
 	"github.com/jmwri/flockdeck/internal/acp/manifest"
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/testiso"
@@ -35,7 +36,7 @@ func fakeOptions(t *testing.T, aopts ...acptest.Option) Options {
 	t.Helper()
 	path, args, env := acptest.Command(t, aopts...)
 	return Options{
-		Entry:   Entry{ID: "fake", Login: "sign in with the fake agent's own tool"},
+		Spec:    agent.Spec{ID: "fake", ACP: agent.ACPSpec{Login: "sign in with the fake agent's own tool"}},
 		Cwd:     acptest.SessionDir(t),
 		Command: &Command{Path: path, Args: args, env: env},
 	}
@@ -417,7 +418,7 @@ func TestAMissingLoginIsASetupState(t *testing.T) {
 func TestNodeMissingIsASetupState(t *testing.T) {
 	o := fakeOptions(t)
 	o.Command = nil
-	o.Entry.Adapter = "gemini"
+	o.Spec.Runner, o.Spec.ACP.Adapter = agent.RunnerACP, "gemini"
 	o.Probe = &manifest.Probe{LookPath: func(string) (string, error) { return "", errors.New("not found") }}
 	r := begin(t, o)
 	s := until(t, r, "the setup state", func(s Snapshot) bool { return s.Phase == PhaseSetup })
@@ -429,8 +430,8 @@ func TestNodeMissingIsASetupState(t *testing.T) {
 func TestAMissingProgramIsAFailureThatSaysHowToGetIt(t *testing.T) {
 	o := fakeOptions(t)
 	o.Command = nil
-	o.Entry.Adapter = "opencode"
-	o.Entry.Install = "Install it from the vendor."
+	o.Spec.Runner, o.Spec.ACP.Adapter = agent.RunnerACP, "opencode"
+	o.Spec.Install = "Install it from the vendor."
 	o.Probe = &manifest.Probe{LookPath: func(string) (string, error) { return "", errors.New("not found") }}
 	r := begin(t, o)
 	s := until(t, r, "the failure", func(s Snapshot) bool { return s.Phase == PhaseFailed })
@@ -444,7 +445,7 @@ func TestAMissingProgramIsAFailureThatSaysHowToGetIt(t *testing.T) {
 	until(t, r2, "the failure", func(s Snapshot) bool { return s.Phase == PhaseFailed })
 
 	o.Command = nil
-	o.Entry.Adapter = "not-in-the-manifest"
+	o.Spec.Runner, o.Spec.ACP.Adapter = agent.RunnerACP, "not-in-the-manifest"
 	r3 := begin(t, o)
 	s = until(t, r3, "the failure", func(s Snapshot) bool { return s.Phase == PhaseFailed })
 	if !strings.Contains(s.Err, "not in the manifest") {
@@ -459,7 +460,7 @@ func TestStartRefusesWhatCannotRun(t *testing.T) {
 		t.Error("a relative working directory was taken")
 	}
 	o = fakeOptions(t)
-	o.Command, o.Entry.Adapter = nil, ""
+	o.Command = nil
 	if _, err := Start(context.Background(), o); err == nil {
 		t.Error("an entry with no adapter was taken")
 	}
@@ -481,8 +482,8 @@ func TestThePoisonedParentEnvironmentDoesNotReachTheChild(t *testing.T) {
 	}
 	o := Options{
 		// Listing the reserved names must not pass them either.
-		Entry: Entry{ID: "fake", PassEnv: []string{"KEEP_ME", "FLOCKDECK_TOKEN", "PERCH_TOKEN", "perch_api", "PATH"}},
-		Cwd:   acptest.SessionDir(t),
+		Spec: agent.Spec{ID: "fake", ACP: agent.ACPSpec{PassEnv: []string{"KEEP_ME", "FLOCKDECK_TOKEN", "PERCH_TOKEN", "perch_api", "PATH"}}},
+		Cwd:  acptest.SessionDir(t),
 		// A nil Env is the environment built from the entry.
 		Command: &Command{Path: exe, Args: []string{acptest.ArgAgent}},
 	}
@@ -517,37 +518,6 @@ func TestThePoisonedParentEnvironmentDoesNotReachTheChild(t *testing.T) {
 				continue
 			}
 			t.Errorf("the child has %q, which neither MinimalEnv nor the entry gives", name)
-		}
-	}
-}
-
-func TestPassEnvRules(t *testing.T) {
-	environ := []string{"HOME=/h", "FLOCKDECK_A=1", "PERCH_B=2", "perch_c=3", "KEY=k", "PATH=/bin"}
-	e := Entry{PassEnv: []string{"HOME", "FLOCKDECK_A", "PERCH_B", "perch_c", "PATH", "NOT_SET"}}
-	if got := e.passEnv(environ); !slices.Equal(got, []string{"HOME=/h"}) {
-		t.Errorf("got %v", got)
-	}
-	var many []string
-	var env []string
-	for i := 0; i < maxPassEnv+5; i++ {
-		n := "V" + string(rune('A'+i%26)) + string(rune('a'+i/26))
-		many = append(many, n)
-		env = append(env, n+"=1")
-	}
-	if got := (Entry{PassEnv: many}).passEnv(env); len(got) != maxPassEnv {
-		t.Errorf("read %d names, want %d", len(got), maxPassEnv)
-	}
-	for _, n := range minimalEnvNames {
-		t.Setenv(n, "x")
-	}
-	var fromAcp []string
-	for _, kv := range acp.MinimalEnv() {
-		name, _, _ := strings.Cut(kv, "=")
-		fromAcp = append(fromAcp, name)
-	}
-	for _, n := range fromAcp {
-		if !slices.Contains(minimalEnvNames, n) {
-			t.Errorf("acp.MinimalEnv gives %s, which minimalEnvNames lacks", n)
 		}
 	}
 }
@@ -627,7 +597,7 @@ func (f *fakeRecorder) Tap(dir string, raw []byte) {
 }
 func (f *fakeRecorder) Flush() error { return nil }
 func (f *fakeRecorder) Close() error { f.mu.Lock(); f.closed = true; f.mu.Unlock(); return nil }
-func (f *fakeRecorder) Gap(n int64)  { f.mu.Lock(); f.gaps += n; f.mu.Unlock() }
+func (f *fakeRecorder) Gap(n int)    { f.mu.Lock(); f.gaps += int64(n); f.mu.Unlock() }
 func (f *fakeRecorder) gapCount() int64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()

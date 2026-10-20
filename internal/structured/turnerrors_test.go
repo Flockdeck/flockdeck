@@ -2,13 +2,16 @@ package structured
 
 import (
 	"context"
-	"runtime"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/acp"
 	"github.com/jmwri/flockdeck/internal/acp/bridge"
+	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/record"
 )
 
 // An error answering a prompt that is not an exit, a login or a close ends that
@@ -53,7 +56,7 @@ func TestSetupTextFromTheAgentIsCleaned(t *testing.T) {
 		phase: PhaseStarting,
 		subs:  map[int]chan struct{}{},
 		br:    bridge.New(bridge.Config{}),
-		opts:  Options{Entry: Entry{Login: dirty("")}},
+		opts:  Options{Spec: agent.Spec{ACP: agent.ACPSpec{Login: dirty("")}}},
 	}
 	r.fail(nil, &acp.AuthRequiredError{
 		Method:  "session/new",
@@ -101,22 +104,53 @@ func TestExitTextKeepsTheLastThreeLines(t *testing.T) {
 	}
 }
 
-// Case counts on Linux and macOS and does not on Windows.
-func TestPassEnvCaseFollowsThePlatform(t *testing.T) {
-	got := Entry{PassEnv: []string{"home"}}.passEnv([]string{"HOME=a", "Home=b"})
-	want := []string{}
-	if runtime.GOOS == "windows" {
-		want = []string{"HOME=a", "Home=b"}
+// stuckTap is a real recording whose Tap is held up, so the client's queue for
+// it overflows; Gap goes to the real recorder.
+type stuckTap struct {
+	*record.RPCRecorder
+	release chan struct{}
+}
+
+func (s *stuckTap) Tap(dir string, raw []byte) { <-s.release }
+
+// The lines the client could not hand to the recording are written into it as
+// rpc_gap lines, and they add up to the count the client kept.
+func TestLinesTheRecordingMissedAreWrittenAsGaps(t *testing.T) {
+	dir := t.TempDir()
+	m := record.NewManager(func() (string, error) { return dir, nil })
+	defer m.Close()
+	rec, err := m.StartRPC(record.RPCConfig{Meta: record.Meta{Project: "demo", ProjectRoot: filepath.Join(dir, "demo"), Agent: "fake", Conversation: "c"}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !slices.Equal(got, want) && !(len(got) == 0 && len(want) == 0) {
-		t.Errorf("on %s got %v, want %v", runtime.GOOS, got, want)
+	release := make(chan struct{})
+	o := fakeOptions(t)
+	o.Recorder = &stuckTap{RPCRecorder: rec, release: release}
+	r, err := Start(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
 	}
-	got = Entry{PassEnv: []string{"HOME"}}.passEnv([]string{"HOME=a", "Home=b"})
-	wantExact := []string{"HOME=a"}
-	if runtime.GOOS == "windows" {
-		wantExact = []string{"HOME=a", "Home=b"}
+	if err := r.Send("storm"); err != nil {
+		t.Fatal(err)
 	}
-	if !slices.Equal(got, wantExact) {
-		t.Errorf("on %s got %v, want %v", runtime.GOOS, got, wantExact)
+	untilFor(t, 3*time.Minute, r, "the turn to end", func(s Snapshot) bool { return idle(s) && s.TapDropped > 0 })
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	lost := r.Snapshot().TapDropped
+
+	f, err := record.ReadRPCFile(rec.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var noted int64
+	for _, l := range f.Lines {
+		if l.Type == record.TypeRPCGap {
+			noted += l.Dropped
+		}
+	}
+	if noted != lost {
+		t.Errorf("the recording notes %d lost lines, the client dropped %d", noted, lost)
 	}
 }

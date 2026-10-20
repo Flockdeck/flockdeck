@@ -24,7 +24,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,6 +34,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/acp"
 	"github.com/jmwri/flockdeck/internal/acp/bridge"
 	"github.com/jmwri/flockdeck/internal/acp/manifest"
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
@@ -107,109 +107,25 @@ type Command struct {
 // Recorder takes the agent's traffic. *record.RPCRecorder is one.
 type Recorder interface {
 	Tap(dir string, raw []byte)
+	// Gap notes n lines of traffic that never reached Tap, because the
+	// client's queue for them was full.
+	Gap(n int)
 	Flush() error
 	Close() error
-}
-
-// Gapper is a Recorder that can note lines it was never given, because the
-// client's queue for them was full. Gap is called with how many.
-type Gapper interface{ Gap(n int64) }
-
-// Entry is the part of a structured catalog entry that starting the agent uses.
-type Entry struct {
-	// ID is the catalog id, for messages.
-	ID string
-	// Adapter is the id of an entry of the adapter manifest.
-	Adapter string
-	// Install and Login are the entry's advice for a missing program and for a
-	// missing login.
-	Install string
-	Login   string
-	// PassEnv names the variables of Options.Environ the agent is given beyond
-	// acp.MinimalEnv, and nothing else. Names starting FLOCKDECK_ or PERCH_ (in
-	// any case) are never passed, and neither are names MinimalEnv gives; at
-	// most 64 names are read. This is the catalog's ACP.PassEnv; the rules are
-	// the same ones, applied here again.
-	PassEnv []string
-	// MCP says the agent takes per-session mcpServers.
-	MCP bool
-}
-
-// reservedEnvPrefixes are the prefixes of Flockdeck's own variables, which carry
-// its tokens and the pane's identity. They are never passed to an agent,
-// whatever an entry lists, and whatever the case.
-var reservedEnvPrefixes = []string{"FLOCKDECK_", "PERCH_"}
-
-// maxPassEnv is the most names read from an entry.
-const maxPassEnv = 64
-
-// minimalEnvNames are the variables acp.MinimalEnv gives already; a test keeps
-// the list equal to it.
-var minimalEnvNames = []string{"PATH", "SYSTEMROOT", "SystemRoot", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL"}
-
-func sameEnvName(a, b string) bool {
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(a, b)
-	}
-	return a == b
-}
-
-func reservedEnv(name string) bool {
-	up := strings.ToUpper(name)
-	for _, p := range reservedEnvPrefixes {
-		if strings.HasPrefix(up, p) {
-			return true
-		}
-	}
-	return false
-}
-
-// passEnv returns the variables of environ that the entry lists, with the same
-// rules as agent.Spec.ACPPassEnv, which this repeats so that the runtime does
-// not depend on the catalog: reserved names are refused, names MinimalEnv gives
-// are skipped, at most 64 names are read, and case counts except on Windows.
-func (e Entry) passEnv(environ []string) []string {
-	want := e.PassEnv
-	if len(want) > maxPassEnv {
-		want = want[:maxPassEnv]
-	}
-	var out []string
-	for _, kv := range environ {
-		name, _, ok := strings.Cut(kv, "=")
-		if !ok || reservedEnv(name) || inMinimalEnv(name) {
-			continue
-		}
-		for _, w := range want {
-			if !reservedEnv(w) && sameEnvName(name, w) {
-				out = append(out, kv)
-				break
-			}
-		}
-	}
-	return out
-}
-
-func inMinimalEnv(name string) bool {
-	for _, m := range minimalEnvNames {
-		if sameEnvName(name, m) {
-			return true
-		}
-	}
-	return false
 }
 
 // env is the environment the agent is started with: acp.MinimalEnv and exactly
 // the variables the entry lists, from the environment given in the options.
 func (r *Runtime) env() []string {
-	return append(acp.MinimalEnv(), r.opts.Entry.passEnv(r.opts.Environ)...)
+	return append(acp.MinimalEnv(), r.opts.Spec.ACPPassEnv(r.opts.Environ)...)
 }
 
 // Options describes the pane to start.
 type Options struct {
-	// Entry is the agent, taken from its catalog entry (agent.Spec with Runner
-	// agent.RunnerACP). It is a struct of its own so that this package does not
-	// depend on the catalog; the workspace fills it in.
-	Entry Entry
+	// Spec is the agent: a catalog entry with Runner agent.RunnerACP. The
+	// environment the agent gets is acp.MinimalEnv plus Spec.ACPPassEnv, and
+	// nothing else.
+	Spec agent.Spec
 	// Cwd is the session's working directory, absolute.
 	Cwd string
 	// Environ is where Spec.ACP.PassEnv is read from. Nil means os.Environ().
@@ -322,8 +238,8 @@ type waiter struct {
 // Start begins starting the agent and returns at once; Snapshot says how it is
 // going. ctx ending closes the Runtime.
 func Start(ctx context.Context, opts Options) (*Runtime, error) {
-	if opts.Entry.Adapter == "" && opts.Command == nil {
-		return nil, fmt.Errorf("structured: agent %q names no adapter", opts.Entry.ID)
+	if opts.Command == nil && opts.Spec.Runner != agent.RunnerACP {
+		return nil, fmt.Errorf("structured: agent %q is not a structured agent", opts.Spec.ID)
 	}
 	if !filepath.IsAbs(opts.Cwd) {
 		return nil, fmt.Errorf("structured: the working directory %q is not absolute", opts.Cwd)
@@ -624,9 +540,9 @@ func (r *Runtime) resolve() (Command, *Setup, error) {
 		}
 		return cmd, nil, nil
 	}
-	a, ok := manifest.Default().Lookup(r.opts.Entry.Adapter)
+	a, ok := r.opts.Spec.ACPAdapter()
 	if !ok {
-		return Command{}, nil, fmt.Errorf("the adapter %q is not in the manifest", clean(r.opts.Entry.Adapter, fieldCap))
+		return Command{}, nil, fmt.Errorf("the adapter %q is not in the manifest", clean(r.opts.Spec.ACP.Adapter, fieldCap))
 	}
 	probe := manifest.SystemProbe()
 	if r.opts.Probe != nil {
@@ -648,8 +564,8 @@ func (r *Runtime) resolve() (Command, *Setup, error) {
 	path, err := look(a.Command)
 	if err != nil {
 		msg := fmt.Sprintf("%s was not found on PATH", a.Command)
-		if r.opts.Entry.Install != "" {
-			msg += ". " + r.opts.Entry.Install
+		if r.opts.Spec.Install != "" {
+			msg += ". " + r.opts.Spec.Install
 		} else if a.Install != "" {
 			msg += ". " + a.Install
 		}
@@ -733,7 +649,7 @@ func (r *Runtime) launch() bool {
 		r.mu.Unlock()
 	}
 	var mcp []acp.MCPServer
-	if r.opts.Entry.MCP {
+	if r.opts.Spec.ACP.MCP {
 		mcp = r.opts.MCPServers
 	}
 	sid, err := c.NewSession(r.ctx, r.opts.Cwd, mcp)
@@ -761,7 +677,7 @@ func (r *Runtime) fail(c *acp.Client, err error) {
 	var exit *acp.ExitError
 	switch {
 	case errors.As(err, &auth):
-		s := &Setup{Kind: SetupLogin, Message: clean(auth.Message, errCap), Login: clean(r.opts.Entry.Login, errCap)}
+		s := &Setup{Kind: SetupLogin, Message: clean(auth.Message, errCap), Login: clean(r.opts.Spec.ACP.Login, errCap)}
 		for _, m := range auth.Methods {
 			s.Methods = append(s.Methods, AuthMethod{ID: clean(m.ID, fieldCap), Name: clean(m.Name, fieldCap), Description: clean(m.Description, errCap)})
 		}
@@ -873,9 +789,7 @@ func (r *Runtime) noteGap(c *acp.Client, rec Recorder) {
 	if total <= r.tapSeen {
 		return
 	}
-	if g, ok := rec.(Gapper); ok {
-		g.Gap(total - r.tapSeen)
-	}
+	rec.Gap(int(total - r.tapSeen))
 	r.tapSeen = total
 }
 
