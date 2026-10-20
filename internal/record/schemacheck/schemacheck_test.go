@@ -256,3 +256,77 @@ func TestUnknownTypeNameIsRefused(t *testing.T) {
 		t.Fatalf("errors = %v", errs)
 	}
 }
+
+// The budget grows with the document, so a large valid document is not refused
+// for its size: an array of 60000 small objects used to use up the fixed budget
+// and be reported as a $ref cycle.
+func TestALargeValidDocumentIsNotRefusedForItsSize(t *testing.T) {
+	s := schemaOf(t, `{"type":"array","items":{"type":"object","required":["a"],"properties":{"a":{"type":"integer"}}}}`)
+	doc := "[" + strings.TrimSuffix(strings.Repeat(`{"a":1},`, 60000), ",") + "]"
+	if errs := s.Validate([]byte(doc)); len(errs) != 0 {
+		t.Fatalf("errors = %.200v", errs)
+	}
+}
+
+// A document that does not match is still reported, however large.
+func TestALargeInvalidDocumentIsStillReported(t *testing.T) {
+	s := schemaOf(t, `{"type":"array","items":{"type":"object","required":["a"]}}`)
+	doc := "[" + strings.TrimSuffix(strings.Repeat(`{"a":1},`, 60000), ",") + `,{}]`
+	errs := s.Validate([]byte(doc))
+	if len(errs) != 1 || !strings.Contains(errs[0], `missing "a"`) {
+		t.Fatalf("errors = %.200v", errs)
+	}
+}
+
+// The budget message names both causes.
+func TestWorkBudgetMessageNamesBothCauses(t *testing.T) {
+	var defs []string
+	for i := 0; i < 30; i++ {
+		ref := fmt.Sprintf(`{"$ref":"#/$defs/d%d"}`, i+1)
+		defs = append(defs, fmt.Sprintf(`"d%d":{"allOf":[%s,%s]}`, i, ref, ref))
+	}
+	defs = append(defs, `"d30":{}`)
+	s := schemaOf(t, `{"$defs":{`+strings.Join(defs, ",")+`},"$ref":"#/$defs/d0"}`)
+	got := strings.Join(s.Validate([]byte(`{}`)), "\n")
+	if !strings.Contains(got, "refer to itself") || !strings.Contains(got, "very large") {
+		t.Errorf("errors %q name only one cause", got)
+	}
+}
+
+// A chain of $ref hops longer than the depth limit is refused, with the hop
+// count named, and 250 levels of a recursive schema are over it.
+func TestRefDepthLimitRefusesADocumentNestedPastIt(t *testing.T) {
+	s := schemaOf(t, `{"$defs":{"node":{"type":"object","properties":{"next":{"$ref":"#/$defs/node"}}}},"$ref":"#/$defs/node"}`)
+	doc := strings.Repeat(`{"next":`, 250) + `{}` + strings.Repeat(`}`, 250)
+	errs := s.Validate([]byte(doc))
+	if !strings.Contains(strings.Join(errs, "\n"), "hops deep") {
+		t.Fatalf("250 levels were not refused at the depth limit: %.300v", errs)
+	}
+	// 150 levels, under the limit, are fine (TestDeepDocumentUnderRecursiveRef).
+}
+
+// Schema errors raised where a check's result is thrown away are kept up to a
+// cap, so a schema that raises hundreds of distinct ones does not return them
+// all.
+func TestSchemaErrorSinkIsCapped(t *testing.T) {
+	var defs, alts []string
+	for i := 0; i < 300; i++ {
+		defs = append(defs, fmt.Sprintf(`"a%d":{"$ref":"#/$defs/a%d"}`, i, i))
+		alts = append(alts, fmt.Sprintf(`{"$ref":"#/$defs/a%d"}`, i))
+	}
+	s := schemaOf(t, `{"$defs":{`+strings.Join(defs, ",")+`},"anyOf":[`+strings.Join(alts, ",")+`]}`)
+	errs := s.Validate([]byte(`{}`))
+	cycles := 0
+	for _, e := range errs {
+		if strings.Contains(e, "refers to itself") {
+			cycles++
+		}
+	}
+	// The documented cap, written out so that changing the constant fails here.
+	if cycles == 0 || cycles > 100 {
+		t.Errorf("%d cycle errors, want between 1 and 100", cycles)
+	}
+	if len(errs) > 110 {
+		t.Errorf("%d errors returned, the cap is 100", len(errs))
+	}
+}
