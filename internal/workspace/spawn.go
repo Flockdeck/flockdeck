@@ -52,6 +52,9 @@ func (w *Workspace) AgentSpecByID(id string) (agent.Spec, error) {
 	if !ok {
 		return agent.Spec{}, fmt.Errorf("there is no agent called %q", id)
 	}
+	if spec.Runner == agent.RunnerACP && !w.agents().Structured {
+		return spec, fmt.Errorf("%s is a structured agent, and structured panes are turned off", spec.Name)
+	}
 	if w.agentAvailable(spec) {
 		return spec, nil
 	}

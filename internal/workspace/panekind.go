@@ -175,6 +175,13 @@ type PaneRuntime interface {
 // Pane is copied by value in places, which rules out an atomic field in it.
 var runtimeMu sync.RWMutex
 
+// setRuntime is the runtime set on the pane, nil for a terminal pane.
+func (p *Pane) setRuntime() PaneRuntime {
+	runtimeMu.RLock()
+	defer runtimeMu.RUnlock()
+	return p.rt
+}
+
 // Runtime is the pane's runtime: the one set with SetRuntime, else the terminal
 // one.
 func (w *Workspace) Runtime(p *Pane) PaneRuntime {
@@ -221,7 +228,7 @@ func (t terminalRuntime) Status() (session.Status, string) {
 	if t.p.Err != nil {
 		return session.StatusExited, ""
 	}
-	return t.p.Status()
+	return t.p.sessStatus()
 }
 
 func (t terminalRuntime) StatusSince() time.Time {
@@ -243,7 +250,7 @@ func (t terminalRuntime) Activity() Activity { return PaneActivity(t.p) }
 func (t terminalRuntime) HasRun() bool { return t.p.IsAgent() && t.p.Sess != nil }
 
 func (t terminalRuntime) Waiting() WaitingOn {
-	st, detail := t.p.Status()
+	st, detail := t.Status()
 	if st != session.StatusWaiting || t.p.Sess == nil {
 		return WaitingOn{Detail: detail}
 	}
@@ -257,7 +264,7 @@ func (t terminalRuntime) PermissionOptions(tool string) []PermissionOption {
 func (t terminalRuntime) Background() BackgroundWork {
 	// Nothing is left running once the process has gone, whatever was last
 	// counted, and a shell has none to count.
-	st, _ := t.p.Status()
+	st, _ := t.Status()
 	if t.p.Sess == nil || !t.p.IsAgent() || st == session.StatusExited {
 		return BackgroundWork{}
 	}

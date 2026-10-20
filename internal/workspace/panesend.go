@@ -108,6 +108,13 @@ func (w *Workspace) SendToPane(id, text string, allowShell bool) (SendResult, er
 		res.Routed, res.Queued = true, false
 		return res, nil
 	}
+	if p.Structured() {
+		// A prompt over the protocol, queued behind a running turn; no keys are
+		// typed, because there is no terminal.
+		err := w.Runtime(p).Wake(text)
+		w.releaseSend(p)
+		return res, err
+	}
 	sess := p.Sess
 	go w.writeToPane(p, sess, text, typeIntoAsFlockdeck)
 	return res, nil

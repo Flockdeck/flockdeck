@@ -154,6 +154,9 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 		// when the default is on; a layout without it takes the default.
 		ar := p.AutoReview
 		out.Pane.AutoReview = &ar
+		if p.Structured() || p.savedTransport == TransportStructured {
+			out.Pane.Transport = string(TransportStructured)
+		}
 		// Only a pane borrowed from another project needs its project written
 		// down; leaving it out otherwise keeps the file as it has always been
 		// for the ordinary case, which is every pane in a one-project tab.
@@ -551,6 +554,7 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 			Parent:          n.Pane.Parent,
 			Locked:          n.Pane.Locked,
 			Recording:       n.Pane.Recording,
+			savedTransport:  Transport(n.Pane.Transport),
 		}
 		if n.Pane.AutoReview != nil {
 			p.AutoReview = *n.Pane.AutoReview

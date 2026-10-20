@@ -431,6 +431,9 @@ type paneView struct {
 	// whole. Left out for a shell, and for an agent pane started with no
 	// opening prompt at all.
 	Task string `json:"task,omitempty"`
+	// Structured says the pane's agent is driven over a protocol, so it has no
+	// terminal: the old window draws a stub for it and types nothing into it.
+	Structured bool `json:"structured,omitempty"`
 	// RemoteViewers is the device name of every window reached through the
 	// relay that has this pane open right now, in its chat view or its
 	// terminal -- so a window at the desk can show that a phone, its own
@@ -793,6 +796,7 @@ func (s *Server) snapshot() stateMsg {
 				AutoApproved: ws.AutoApprovedOf(p),
 				PeerName:     ws.PeerNameOf(p),
 				Task:         p.Task,
+				Structured:   rt.Transport() == workspace.TransportStructured,
 			}
 			pv.RemoteViewers = s.remoteViewersFor(p.ID)
 			pv.RemoteInsecure = remoteTermViewers.insecure(p.ID)

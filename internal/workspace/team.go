@@ -236,12 +236,11 @@ func (w *Workspace) projectPanes(myRoot, self string, agentsOnly bool) []*Pane {
 // memberOf describes a pane for the roster.
 func (w *Workspace) memberOf(p *Pane, self bool) team.Member {
 	w.mu.RLock()
-	sess, peer := p.Sess, p.PeerName
+	peer := p.PeerName
 	w.mu.RUnlock()
-	status := session.StatusExited
-	if sess != nil && p.Err == nil {
-		status, _ = sess.Status()
-	}
+	// A pane that never started has no session and reads as exited; a
+	// structured pane has none either and says its status itself.
+	status, _ := w.Runtime(p).Status()
 	agentID, model := paneAgent(p)
 	return team.Member{
 		Pane: p.ID, Name: p.Name, Peer: peer, Role: p.Role,
@@ -401,6 +400,7 @@ func (w *Workspace) paneChanged(id string) {
 	}
 	w.noteExit(id)
 	w.noteIdle(id)
+	w.noteStructured(id)
 }
 
 // noteIdle tells a pane's parent that the pane has finished a turn and stayed

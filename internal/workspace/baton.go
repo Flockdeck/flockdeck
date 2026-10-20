@@ -374,6 +374,9 @@ func (w *Workspace) RestartWithBaton(paneID string, bp BatonPrompt, task string)
 	if !p.IsAgent() {
 		return errors.New("a baton starts an agent, and this pane is a shell")
 	}
+	if p.Structured() {
+		return errors.New("a baton restarts a terminal agent, and this pane is a structured agent")
+	}
 	task = strings.TrimSpace(task)
 	if len(task) > maxTaskBytes {
 		return errTaskTooLong(task)

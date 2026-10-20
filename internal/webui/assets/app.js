@@ -4021,6 +4021,7 @@
   const INPUT_FRAME = 1 << 20;
   function sendBytes(p, bytes) {
     if (viewOnly) return; // a viewer's keystrokes are refused by the server anyway
+    if (isStructuredPane(p.id)) return; // a structured pane has no terminal to type into
     if (bytes.length <= INPUT_FRAME) { ptySend(p, bytes, false); return; }
     for (let at = 0; at < bytes.length; at += INPUT_FRAME) ptySend(p, bytes.subarray(at, at + INPUT_FRAME), false);
   }
@@ -4264,7 +4265,21 @@
     p.term.write(bytes);
   }
 
+  /** isStructuredPane says the pane's agent is driven over a protocol. It has
+   *  no terminal: the old window shows a stub line and sends it nothing. */
+  function isStructuredPane(id) {
+    const v = state && state.panes && state.panes[id];
+    return !!(v && v.structured);
+  }
+
   function connectPTY(p) {
+    if (isStructuredPane(p.id)) {
+      if (!p.stubbed) {
+        p.stubbed = true;
+        p.term.write(String.fromCharCode(27) + "[2mStructured pane, open in the new interface" + String.fromCharCode(27) + "[0m");
+      }
+      return;
+    }
     // A viewer that may not watch panes is refused the terminal socket with a
     // 403, which a page sees only as a socket that failed. Not opening it is
     // what stops it being retried for ever.

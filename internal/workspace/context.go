@@ -267,13 +267,7 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 			// on several goroutines at once, and one briefed through its
 			// opening prompt is described while the others' sessions are
 			// still being put in place.
-			w.mu.RLock()
-			sess := sib.Sess
-			w.mu.RUnlock()
-			st := session.StatusExited
-			if sess != nil {
-				st, _ = sess.Status()
-			}
+			st, _ := w.Runtime(sib).Status()
 			if st == session.StatusExited {
 				continue
 			}
