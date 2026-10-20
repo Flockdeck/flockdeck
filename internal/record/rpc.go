@@ -36,6 +36,7 @@ const (
 	TypeRPCStarted = "rpc_started"
 	TypeRPCMessage = "rpc_message"
 	TypeRPCDropped = "rpc_dropped"
+	TypeRPCGap     = "rpc_gap"
 	TypeRPCStopped = "rpc_stopped"
 )
 
@@ -94,13 +95,13 @@ type RPCLine struct {
 	Msg json.RawMessage `json:"msg,omitempty"`
 	// Raw is a line that was not a JSON object, clipped.
 	Raw string `json:"raw,omitempty"`
-	// Text says what a rpc_started, rpc_dropped or rpc_stopped line is, or what
+	// Text says what a rpc_started, rpc_dropped, rpc_gap or rpc_stopped line is, or what
 	// became of a message too long to keep.
 	Text         string `json:"text,omitempty"`
 	Project      string `json:"project,omitempty"`
 	Agent        string `json:"agent,omitempty"`
 	Conversation string `json:"conversation,omitempty"`
-	// Dropped is the number of lines a rpc_dropped line stands for.
+	// Dropped is the number of lines a rpc_dropped or rpc_gap line stands for.
 	Dropped int64 `json:"dropped,omitempty"`
 	// Redacted says Redact replaced something in the message. Clipped is the
 	// number of strings that were cut.
@@ -123,7 +124,8 @@ type RPCConfig struct {
 	// Interval is the longest a coalesced message is held. Default 250ms.
 	Interval time.Duration
 	Hook     RPCHook
-	// Now is the clock for the lines' times, for tests.
+	// Now is the clock for the lines' times, for tests. It must be safe for
+	// concurrent calls: Tap and Gap read it before they take the recorder's lock.
 	Now func() time.Time
 }
 
@@ -302,6 +304,32 @@ func (r *RPCRecorder) Tap(dir string, raw []byte) {
 	r.commitMsgLocked(dir, msg, now, now, 1, "")
 }
 
+// Gap records that n lines of traffic were not given to Tap, as when the
+// client had to drop lines it could not hand over in time (acp.Client.TapDropped).
+// It writes one rpc_gap line at the place in the stream where they were lost,
+// after any text held back, which ends the run of text it was in. What was
+// written of that text stays as the context the text after the gap is redacted
+// with, so a label before the gap still finds its value after it.
+// It writes nothing for n of zero or less, and nothing once the recording is
+// closed or has failed.
+func (r *RPCRecorder) Gap(n int) {
+	if n <= 0 {
+		return
+	}
+	now := r.cfg.Now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed || r.err != nil {
+		return
+	}
+	// Text on the two sides of the gap is not one run: what came before it is
+	// written first, so that the gap sits where the lines were lost.
+	r.flushPendingLocked()
+	r.emitHeldLocked(true)
+	r.commitLocked(RPCLine{Time: stamp(now), Type: TypeRPCGap, Dropped: int64(n),
+		Text: fmt.Sprintf("%d lines of traffic were not recorded", n)})
+}
+
 // Flush writes whatever is held to the file.
 func (r *RPCRecorder) Flush() error {
 	r.mu.Lock()
@@ -328,7 +356,7 @@ func (r *RPCRecorder) closeOnce() error {
 		return r.err
 	}
 	r.flushPendingFinalLocked()
-	r.emitHeldLocked()
+	r.emitHeldLocked(false)
 	r.commitLocked(RPCLine{Time: stamp(r.cfg.Now()), Type: TypeRPCStopped, Text: "end of the stream recording"})
 	r.closed = true
 	if r.timer != nil {
@@ -343,8 +371,11 @@ func (r *RPCRecorder) closeOnce() error {
 }
 
 // emitHeldLocked writes, for each kind of text with something kept back, a line
-// with the end of it, redacted.
-func (r *RPCRecorder) emitHeldLocked() {
+// with the end of it, redacted. With keepCtx the kind stays in r.held with what
+// has been written of it as its context and nothing kept back, so that text
+// which arrives later is redacted with that in view; without it the kind is let
+// go.
+func (r *RPCRecorder) emitHeldLocked(keepCtx bool) {
 	keys := make([]string, 0, len(r.held))
 	for k := range r.held {
 		keys = append(keys, k)
@@ -353,11 +384,14 @@ func (r *RPCRecorder) emitHeldLocked() {
 	for _, k := range keys {
 		h := r.held[k]
 		delete(r.held, k)
-		if h.tail == "" {
-			continue
+		if h.tail != "" {
+			setChunkText(h.tmpl, h.tail)
+			r.commitMsgLocked(h.dir, h.tmpl, h.first, h.last, max(h.merged, 1), h.ctx)
 		}
-		setChunkText(h.tmpl, h.tail)
-		r.commitMsgLocked(h.dir, h.tmpl, h.first, h.last, max(h.merged, 1), h.ctx)
+		if keepCtx && h.ctx+h.tail != "" {
+			// first is zero: the next piece of this text has its own time.
+			r.held[k] = &held{ctx: tailBytes(h.ctx+h.tail, rpcContextBytes), dir: h.dir}
+		}
 	}
 }
 
@@ -472,7 +506,10 @@ func (r *RPCRecorder) flushPending(final bool) {
 	// it is redacted. Nothing of a key that is still arriving is on the disk.
 	text, first, total, ctx := chunkTextOf(p.msg), p.time, p.merged, ""
 	if prev := r.held[p.key]; prev != nil {
-		text, first, total, ctx = prev.tail+text, prev.first, total+prev.merged, prev.ctx
+		text, total, ctx = prev.tail+text, total+prev.merged, prev.ctx
+		if !prev.first.IsZero() {
+			first = prev.first
+		}
 		delete(r.held, p.key)
 	}
 	head, tail := text, ""
@@ -483,16 +520,24 @@ func (r *RPCRecorder) flushPending(final bool) {
 		if len(r.held) >= rpcMaxHeld {
 			// Too many kinds of text at once: what is held is written, and the
 			// context of every kind is let go.
-			r.emitHeldLocked()
+			r.emitHeldLocked(false)
 		}
 		h := &held{ctx: tailBytes(ctx+head, rpcContextBytes), tail: tail, dir: p.dir, first: p.until, last: p.until}
 		if tail != "" {
 			h.tmpl = cloneMsg(p.msg)
 		}
-		if head == "" {
+		switch {
+		case head == "":
 			// Nothing is written, so the line that ends up carrying this text
 			// is the one that stands for all of it.
 			h.first, h.merged = first, total
+		case tail != "" && total > 1:
+			// The text is written as two lines, this one and the one the end of
+			// it will be in. Each message is counted once: the last one, whose
+			// text the end belongs to, goes to that line. A single message split
+			// in two is counted by both, since a line cannot stand for none.
+			h.merged = 1
+			total--
 		}
 		r.held[p.key] = h
 	}

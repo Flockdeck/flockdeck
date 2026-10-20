@@ -90,6 +90,7 @@ One JSON object per line, in the order the traffic was seen.
 | `rpc_started` | First line. `project`, `agent`, `conversation` and a `text`. |
 | `rpc_message` | One message, in `msg`, with `dir` `in` (from the agent) or `out` (to it). |
 | `rpc_dropped` | Second line, only once the cap has dropped old lines. `dropped` counts them. |
+| `rpc_gap` | Anywhere after the first line, where lines of traffic were never recorded. `dropped` counts them. |
 | `rpc_stopped` | Last line, when the recording is closed. A file without one was cut short. |
 
 Every line has `v`, `seq`, `time`, `session` and `type`. `seq` rises on every
@@ -114,6 +115,15 @@ Example, a message stream broken into three lines (`msg` shortened):
 {"v":1,"seq":2,"time":"2026-10-19T12:00:00.100Z","session":"20261019T120000Z-conv1234.rpc","type":"rpc_message","dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"s1","prompt":[{"type":"text","text":"hello"}]}}}
 {"v":1,"seq":3,"time":"2026-10-19T12:00:00.300Z","until":"2026-10-19T12:00:00.420Z","merged":4,"session":"20261019T120000Z-conv1234.rpc","type":"rpc_message","dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hello there"}}}}}
 ```
+
+A `rpc_gap` line is written when the client that taps the traffic had to drop
+lines it could not hand over in time (`acp.Client.TapDropped`), by
+`RPCRecorder.Gap`. It sits at the place in the stream where they were lost, has
+its own `seq`, and carries `dropped`, the number of lines, and a `text`. It is
+not a `rpc_dropped` line: those say the cap removed old lines from the file,
+this says lines never reached it, and a file can have any number of them. A
+reader gets it like any other line; it does not skip it, and a player should
+show a break there. Nothing is written for a count of zero or less.
 
 ## 4. Coalescing
 

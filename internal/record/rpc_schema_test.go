@@ -40,6 +40,7 @@ func TestRPCEmittedLinesMatchTheSchema(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		r.Tap(RPCOut, []byte(`{"jsonrpc":"2.0","id":2,"method":"m","params":{"pad":"`+strings.Repeat("z", 100)+`"}}`))
 	}
+	r.Gap(2)
 	f := read(t, r)
 	raw, err := os.ReadFile(r.Path())
 	if err != nil {
@@ -54,7 +55,7 @@ func TestRPCEmittedLinesMatchTheSchema(t *testing.T) {
 		_ = json.Unmarshal([]byte(line), &l)
 		seen[l.Type] = true
 	}
-	for _, ty := range []string{TypeRPCStarted, TypeRPCMessage, TypeRPCDropped, TypeRPCStopped} {
+	for _, ty := range []string{TypeRPCStarted, TypeRPCMessage, TypeRPCDropped, TypeRPCGap, TypeRPCStopped} {
 		if !seen[ty] {
 			t.Errorf("the test never emitted a %s line", ty)
 		}
@@ -106,7 +107,7 @@ func TestRPCSchemaAndPageNameTheFieldsAndTypes(t *testing.T) {
 			t.Errorf("the page never names the field %q", f)
 		}
 	}
-	for _, ty := range []string{TypeRPCStarted, TypeRPCMessage, TypeRPCDropped, TypeRPCStopped} {
+	for _, ty := range []string{TypeRPCStarted, TypeRPCMessage, TypeRPCDropped, TypeRPCGap, TypeRPCStopped} {
 		if !strings.Contains(page, "`"+ty+"`") || !strings.Contains(string(b), `"`+ty+`"`) {
 			t.Errorf("the type %s is missing from the page or the schema", ty)
 		}
