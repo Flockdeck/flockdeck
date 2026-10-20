@@ -311,6 +311,13 @@ recognition rule that was tested against a recording of that agent, and the rule
 are all marked untested. Until one is tested, mail for an idle agent waits and the pane shows
 its unread count. A rule from `agents.json` is never treated as tested.
 
+A structured pane is the exception, and only while structured panes are a beta you have turned
+on. It has no screen to read, so no rule applies: Flockdeck knows it is idle because the agent
+reported the end of its turn over the protocol. The same line is then sent to it as a prompt,
+with no Enter, only when it is idle, has been for 5 seconds, and is not waiting on a permission
+request. The limits and switches below apply to it, and the wake event names the rule as
+`structured`.
+
 When a rule is tested, the line is typed only if all of these hold:
 
 - the agent is idle and its screen ends in its empty input prompt, as the rule describes
@@ -340,7 +347,8 @@ without its Enter says so. An event holds no message text.
 
 Switches turn the typed line off for everything, for one kind of agent or for one pane;
 `flockdeck wake`, described under wake below, sets them. It is also off for every agent
-whose rule is not tested, which is all of them for now.
+whose rule is not tested, which is all of them for now. A structured pane has no rule and is
+woken as described above.
 
 ## task
 

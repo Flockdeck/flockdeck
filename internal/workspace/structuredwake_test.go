@@ -2,12 +2,16 @@ package workspace
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/structured"
 	"github.com/jmwri/flockdeck/internal/team"
 )
 
@@ -260,4 +264,186 @@ func TestAStructuredPaneThatEndedIsNotWokenOrSentTo(t *testing.T) {
 	if _, err := ws.SendToPane(id, "plain", false); err != ErrSendExited {
 		t.Errorf("a send to an ended pane: %v", err)
 	}
+}
+
+// stubStructured is a structured runtime that says what the test tells it to, to
+// reach states the fake agent cannot be made to show.
+type stubStructured struct {
+	PaneRuntime
+	status session.Status
+	detail string
+	err    error
+	sent   []string
+}
+
+func (s *stubStructured) Transport() Transport             { return TransportStructured }
+func (s *stubStructured) Status() (session.Status, string) { return s.status, s.detail }
+func (s *stubStructured) Alive() bool                      { return true }
+func (s *stubStructured) Activity() Activity               { return ActivityIdle }
+func (s *stubStructured) Close() error                     { return nil }
+func (s *stubStructured) Wake(m string) error              { s.sent = append(s.sent, m); return s.err }
+
+// stubbedPane puts a stub runtime in the manager's pane. The terminal one comes
+// back at the end of the test so that the workspace can close it.
+func stubbedPane(t *testing.T, ws *Workspace, id string, s *stubStructured) {
+	t.Helper()
+	ws.SetRuntime(id, s)
+	t.Cleanup(func() { ws.SetRuntime(id, nil) })
+}
+
+// A structured pane waiting on a request takes no text, whatever the tool is
+// called: a terminal's AskUserQuestion takes typed text, and this does not.
+func TestAStructuredPaneWaitingOnAnyToolTakesNoText(t *testing.T) {
+	ws, lead, _ := structuredCrew(t)
+	stub := &stubStructured{status: session.StatusWaiting, detail: "AskUserQuestion"}
+	stubbedPane(t, ws, lead, stub)
+	if _, err := ws.SendToPane(lead, "an answer", false); err != ErrSendPermission {
+		t.Errorf("text to a waiting structured pane: %v", err)
+	}
+	if len(stub.sent) != 0 {
+		t.Errorf("%q reached the agent", stub.sent)
+	}
+}
+
+// The runtime's refusals are told in the send errors, and a refused send is not
+// counted as queued.
+func TestSendToAStructuredPaneTellsWhyItWasRefused(t *testing.T) {
+	ws, lead, _ := structuredCrew(t)
+	stub := &stubStructured{status: session.StatusIdle}
+	stubbedPane(t, ws, lead, stub)
+	for _, c := range []struct {
+		from error
+		want error
+	}{{structured.ErrQueueFull, ErrSendQueueFull}, {structured.ErrNotRunning, ErrSendExited}} {
+		stub.err = c.from
+		res, err := ws.SendToPane(lead, "text", false)
+		if err != c.want || res.Queued {
+			t.Errorf("%v: got %+v, %v; want %v", c.from, res, err, c.want)
+		}
+	}
+	stub.err = nil
+	if _, err := ws.SendToPane(lead, "text", false); err != nil {
+		t.Errorf("an accepted send: %v", err)
+	}
+}
+
+// A prompt Flockdeck sends is the last input it made, which holds the wake back
+// for the quiet period.
+func TestASentPromptMovesTheStructuredPanesLastFlockdeckInput(t *testing.T) {
+	ws, lead, _ := structuredCrew(t)
+	id := spawnStructured(t, ws, lead, "plain")
+	statusWithin(t, ws, id, session.StatusIdle)
+	sr, ok := ws.Runtime(ws.Pane(id)).(*structuredRuntime)
+	if !ok {
+		t.Fatal("not a structured runtime")
+	}
+	a := wakeStructured{sr}
+	if !a.LastFlockdeckInput().IsZero() {
+		t.Fatal("Flockdeck had sent nothing")
+	}
+	before := time.Now()
+	if _, err := ws.SendToPane(id, "plain", false); err != nil {
+		t.Fatal(err)
+	}
+	if at := a.LastFlockdeckInput(); at.Before(before) || time.Since(at) > time.Minute {
+		t.Errorf("last Flockdeck input is %v", at)
+	}
+	if !a.LastUserInput().IsZero() {
+		t.Error("the user typed nothing into a pane without a terminal")
+	}
+}
+
+// A prompt that is refused is not a wake: the message stays unwoken, nothing is
+// recorded, and the pane waits out the minute.
+func TestARefusedWakePromptLeavesTheMessageUnwoken(t *testing.T) {
+	r := newWakeRig(t)
+	r.cand.Deliver = func(string) error { return structured.ErrNotRunning }
+	if why := r.try(); why != "" {
+		t.Fatalf("not tried: %s", why)
+	}
+	if len(r.mail.woken) != 0 || len(r.events) != 0 {
+		t.Errorf("woken %v, events %v", r.mail.woken, r.events)
+	}
+	if why := r.try(); why != "one line a minute" {
+		t.Errorf("tried again at once: %q", why)
+	}
+}
+
+// A pane that is sent a prompt gets the fixed line even if its candidate offers
+// the message text and the user switched text on for the agent: the text is only
+// ever typed into a terminal.
+func TestAPromptedPaneIsNeverGivenTheMessageText(t *testing.T) {
+	r := newWakeRig(t)
+	const body = "the body of the message"
+	r.mail.msgs = []team.Message{{ID: 7, Text: body}}
+	r.svc.settings = func() WakeSettings { return wakeTextOn{} }
+	var sent []string
+	r.cand.TextOK = true
+	r.cand.Deliver = func(line string) error { sent = append(sent, line); return nil }
+	if why := r.try(); why != "" {
+		t.Fatalf("not woken: %s", why)
+	}
+	if len(sent) != 1 || sent[0] != wakeLine(7) || strings.Contains(sent[0], body) {
+		t.Errorf("sent %q", sent)
+	}
+	if len(r.mail.read) != 0 {
+		t.Errorf("messages marked read: %v", r.mail.read)
+	}
+	if len(r.sess.written()) != 0 {
+		t.Errorf("typed %q", r.sess.written())
+	}
+}
+
+// Each wake switch holds a structured pane back, and a damaged preferences file
+// does too; with the switch back on the pane is woken.
+func TestTheWakeSwitchesHoldBackAStructuredPane(t *testing.T) {
+	ws, lead, _ := structuredCrew(t)
+	t.Cleanup(store.ClearWakeDamaged)
+	id := spawnStructured(t, ws, lead, "plain")
+	statusWithin(t, ws, id, session.StatusIdle)
+	rig := newStructuredWakeRig(t, ws)
+	rig.svc.settings = func() WakeSettings { return ws.wakeSettings }
+	rig.advance(time.Hour)
+	mailTo(t, ws, id, "mail")
+
+	set := func(scope, who string, on bool) {
+		t.Helper()
+		p := store.Prefs{StructuredPanes: true}
+		p.SetWake(scope, who, on)
+		if err := store.SavePrefs(p); err != nil {
+			t.Fatal(err)
+		}
+		ws.WakeSettingsChanged()
+	}
+	for _, c := range []struct{ name, scope, who string }{
+		{"global", store.WakeGlobal, ""},
+		{"agent type", store.WakeAgent, "opencode-acp"},
+		{"pane", store.WakePane, id},
+	} {
+		set(c.scope, c.who, false)
+		if why := rig.try(id); why != "switched off" {
+			t.Errorf("%s off: %q", c.name, why)
+		}
+	}
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "prefs.json"), []byte(`{"wake":{"off":false},"theme":5}x`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ws.WakeSettingsChanged()
+	if why := rig.try(id); why != "switched off" {
+		t.Errorf("damaged preferences: %q", why)
+	}
+	if n, _ := prompts(ws, id); n != 1 {
+		t.Fatalf("%d prompts reached the agent while it was switched off", n)
+	}
+
+	store.ClearWakeDamaged()
+	set(store.WakeGlobal, "", true)
+	if why := rig.try(id); why != "" {
+		t.Errorf("with everything on: %q", why)
+	}
+	waitForPrompts(t, ws, id, 2)
 }

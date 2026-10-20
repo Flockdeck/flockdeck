@@ -18,9 +18,16 @@ import (
 // message text, only at a prompt a tested built-in rule recognises, and only
 // while nobody is at the keyboard.
 //
+// A structured pane is the one exception to the rule. It has no screen to read:
+// it is idle when the protocol says its turn has ended, so no recognition rule is
+// needed or tested, and the line goes as a prompt (wakeStructured). That is
+// intended while structured panes are a beta and opt-in (the structuredPanes
+// preference). Every other condition, limit and switch below applies to it.
+//
 // Three off switches (global, per agent type, per pane) are kept in the
 // preferences and read through WakeSettings. Everything is on until one is
-// switched off, and still only for an agent whose rule is tested.
+// switched off, and still only for an agent whose rule is tested, or a structured
+// pane.
 
 // Conditions and limits. All conditions must hold.
 const (
@@ -282,7 +289,9 @@ func (s *wakeService) consider(c wakeCandidate) string {
 	// In text mode every unread message is typed in turn, oldest first, at the
 	// normal limits; otherwise only the newest is named, and the agent reads
 	// the rest with `inbox`.
-	text := c.TextOK && s.settings().WakeText(c.Agent)
+	// A pane that is sent a prompt takes the fixed line whatever the text setting
+	// says: the message text is only ever typed into a terminal.
+	text := c.TextOK && c.Deliver == nil && s.settings().WakeText(c.Agent)
 	id := 0
 	if text {
 		if unread := s.mail.List(c.ID, false); len(unread) > 0 {

@@ -249,6 +249,7 @@ func wakeStatus(env wakeEnv, count int, out io.Writer) error {
 	fmt.Fprintf(out, "panes off: %s\n", listOr(w.Panes))
 	fmt.Fprintf(out, "message text typed for: %s\n", listOr(w.TextAgents))
 	fmt.Fprintln(out, "A wake is typed only when every switch is on and the agent's wake rule is tested.")
+	fmt.Fprintln(out, "A structured pane has no screen and no rule: it is woken with a prompt when it is idle.")
 	evs, err := env.events()
 	if err != nil {
 		return fmt.Errorf("the event log could not be read: %w", err)
