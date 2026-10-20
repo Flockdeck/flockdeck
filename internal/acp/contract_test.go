@@ -553,23 +553,35 @@ func TestStderrIsDrained(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 1 MiB on stderr: an undrained pipe would hold the agent and the turn.
+	// 1 MiB on stderr: an undrained pipe would hold the agent and the turn, so
+	// the turn ending is the proof that it is read. The callback is given lines
+	// on a queue that drops what it can not keep up with, so how many of the
+	// 1024 lines arrive depends on the machine; the test needs some of them
+	// and the tail, not all.
 	prompt(t, c, sid, "stderr")
 	deadline := time.Now().Add(wait)
 	for {
 		mu.Lock()
 		n := lines
 		mu.Unlock()
-		if n >= 1024 {
+		if n >= 1 {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("only %d stderr lines arrived", n)
+			t.Fatalf("no stderr line arrived")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if tail := c.StderrTail(); len(tail) == 0 || len(tail) > 4096 {
+	// The turn can end a moment before the reader of stderr has the last line.
+	for !strings.Contains(c.StderrTail(), "acptest: last stderr line") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	tail := c.StderrTail()
+	if len(tail) == 0 || len(tail) > 4096 {
 		t.Errorf("stderr tail is %d bytes", len(tail))
+	}
+	if !strings.HasSuffix(strings.TrimSpace(tail), "acptest: last stderr line") {
+		t.Errorf("the tail does not end with the last line written: %.80q", tail[max(0, len(tail)-80):])
 	}
 }
 
@@ -620,5 +632,82 @@ func TestMCPServersAreArraysNeverNull(t *testing.T) {
 	b, err := json.Marshal(MCPServer{Name: "n", Command: "c"})
 	if err != nil || string(b) != `{"name":"n","command":"c","args":[],"env":[]}` {
 		t.Errorf("MCPServer = %s, %v", b, err)
+	}
+}
+
+// The agent's last words are on stderr, and its stdout can end before the
+// reader of stderr has them. The error for a lost agent waits a moment for the
+// end of stderr, so that it carries them.
+func TestALostAgentsErrorCarriesTheStderrStillBeingRead(t *testing.T) {
+	c := &Client{
+		pending:    map[int64]chan reply{},
+		perms:      map[*permission]struct{}{},
+		stderrDone: make(chan struct{}),
+	}
+	ch := make(chan reply, 1)
+	c.pending[1] = ch
+	go func() {
+		// The reader of stderr gets the line a little after stdout ended.
+		time.Sleep(60 * time.Millisecond)
+		c.mu.Lock()
+		c.errTail = append(c.errTail, "exiting on request\n"...)
+		c.mu.Unlock()
+		close(c.stderrDone)
+	}()
+	c.lost()
+	r := <-ch
+	var exit *ExitError
+	if !errors.As(r.err, &exit) || !strings.Contains(exit.Stderr, "exiting on request") {
+		t.Fatalf("err = %v, want an ExitError carrying the late stderr line", r.err)
+	}
+}
+
+// A stderr that stays open (a program the agent left running holds it) delays
+// the error by the grace and no more.
+func TestALostAgentsErrorDoesNotWaitForeverForStderr(t *testing.T) {
+	c := &Client{
+		pending:    map[int64]chan reply{},
+		perms:      map[*permission]struct{}{},
+		stderrDone: make(chan struct{}),
+	}
+	ch := make(chan reply, 1)
+	c.pending[1] = ch
+	start := time.Now()
+	c.lost()
+	// It waits for the grace, and no longer: a removed wait is as wrong as one
+	// that is ten times too long.
+	if took := time.Since(start); took < stderrDrainGrace*8/10 || took > time.Second {
+		t.Errorf("lost took %v, want about %v", took, stderrDrainGrace)
+	}
+	if r := <-ch; r.err == nil {
+		t.Error("the waiting call got no error")
+	}
+}
+
+// With a real agent: it writes a last line to stderr and exits. The error
+// carries that line, and the reader of stderr has ended by the time the read
+// loop has (drainStderr closes stderrDone), so the error did not have to wait
+// out the grace for it.
+func TestARealAgentsLastStderrLineIsInItsExitError(t *testing.T) {
+	r := newRecorder()
+	c, sid := start(t, r)
+	began := time.Now()
+	_, err := c.Prompt(ctxT(t), sid, "exit")
+	var exit *ExitError
+	if !errors.As(err, &exit) || !strings.Contains(exit.Stderr, "exiting on request") {
+		t.Fatalf("prompt error = %v, want an ExitError carrying the last stderr line", err)
+	}
+	select {
+	case <-c.Done():
+	case <-time.After(wait):
+		t.Fatal("Done was not closed")
+	}
+	select {
+	case <-c.stderrDone:
+	default:
+		t.Error("the reader of stderr did not end, or did not say so")
+	}
+	if took := time.Since(began); took > stderrDrainGrace+2*time.Second {
+		t.Errorf("the call took %v", took)
 	}
 }
