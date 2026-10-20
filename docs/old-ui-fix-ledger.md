@@ -23,7 +23,7 @@ code the old window depends on and not in `internal/webui`; the one change under
 
 | Pull request | Merged | Behaviour it protects |
 | --- | --- | --- |
-| #322 | 19 Oct | Giving up on a slow folder scan while closing it no longer ends the program on Windows. Browsing a very large folder and leaving it must not crash the app. |
+| #322 | 19 Oct | Giving up on a slow folder scan while closing it no longer ends the program on Windows. Closing a folder while a slow read of it has timed out does not crash. |
 | #353 | 20 Oct | A helper being closed or restarted is not reported to its parent as having finished its turn. |
 | #354 | 20 Oct | A pane keeps the name its current process reported. A late report from the process before a restart does not put the old name back in the pane title. |
 | #373, #376 | 20 Oct | Reading Flockdeck mail is allowed without a prompt only when the command runs the Flockdeck app itself, from a directory with no `flockdeck*` files. Any other program called `flockdeck` still asks. |
