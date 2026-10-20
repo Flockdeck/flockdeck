@@ -36,6 +36,7 @@ const (
 	TypeRPCStarted = "rpc_started"
 	TypeRPCMessage = "rpc_message"
 	TypeRPCDropped = "rpc_dropped"
+	TypeRPCGap     = "rpc_gap"
 	TypeRPCStopped = "rpc_stopped"
 )
 
@@ -94,13 +95,13 @@ type RPCLine struct {
 	Msg json.RawMessage `json:"msg,omitempty"`
 	// Raw is a line that was not a JSON object, clipped.
 	Raw string `json:"raw,omitempty"`
-	// Text says what a rpc_started, rpc_dropped or rpc_stopped line is, or what
+	// Text says what a rpc_started, rpc_dropped, rpc_gap or rpc_stopped line is, or what
 	// became of a message too long to keep.
 	Text         string `json:"text,omitempty"`
 	Project      string `json:"project,omitempty"`
 	Agent        string `json:"agent,omitempty"`
 	Conversation string `json:"conversation,omitempty"`
-	// Dropped is the number of lines a rpc_dropped line stands for.
+	// Dropped is the number of lines a rpc_dropped or rpc_gap line stands for.
 	Dropped int64 `json:"dropped,omitempty"`
 	// Redacted says Redact replaced something in the message. Clipped is the
 	// number of strings that were cut.
@@ -300,6 +301,30 @@ func (r *RPCRecorder) Tap(dir string, raw []byte) {
 	}
 	r.flushPendingLocked()
 	r.commitMsgLocked(dir, msg, now, now, 1, "")
+}
+
+// Gap records that n lines of traffic were not given to Tap, as when the
+// client had to drop lines it could not hand over in time (acp.Client.TapDropped).
+// It writes one rpc_gap line at the place in the stream where they were lost,
+// after any text held back, which ends the run of text it was in.
+// It writes nothing for n of zero or less, and nothing once the recording is
+// closed or has failed.
+func (r *RPCRecorder) Gap(n int) {
+	if n <= 0 {
+		return
+	}
+	now := r.cfg.Now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed || r.err != nil {
+		return
+	}
+	// Text on the two sides of the gap is not one run: what came before it is
+	// written first, so that the gap sits where the lines were lost.
+	r.flushPendingLocked()
+	r.emitHeldLocked()
+	r.commitLocked(RPCLine{Time: stamp(now), Type: TypeRPCGap, Dropped: int64(n),
+		Text: fmt.Sprintf("%d lines of traffic were not recorded", n)})
 }
 
 // Flush writes whatever is held to the file.
