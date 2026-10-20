@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/structured"
 )
 
 // MaxPaneSendBytes is the longest text SendToPane takes.
@@ -19,6 +20,7 @@ var (
 	ErrSendShell      = errors.New("That pane is a shell, and a shell runs whatever it is sent, so the text was not sent")
 	ErrSendPermission = errors.New("That pane is waiting on a permission prompt, which is answered with its choice buttons and not by text, so the text was not sent")
 	ErrSendInFlight   = errors.New("The pane is still taking in the last text sent to it, so this was not sent. Try again in a moment")
+	ErrSendQueueFull  = errors.New("That pane already has as many prompts waiting as it takes, so the text was not sent. Try again when it has worked through them")
 )
 
 // SendResult says how a SendToPane went.
@@ -94,7 +96,9 @@ func (w *Workspace) SendToPane(id, text string, allowShell bool) (SendResult, er
 		return res, ErrSendShell
 	}
 	if st, detail := p.Status(); st == session.StatusWaiting {
-		if detail != "AskUserQuestion" {
+		// A structured pane waits on a request that its buttons answer, whatever
+		// the tool is called.
+		if p.Structured() || detail != "AskUserQuestion" {
 			return res, ErrSendPermission
 		}
 		res.Waiting = true
@@ -113,6 +117,15 @@ func (w *Workspace) SendToPane(id, text string, allowShell bool) (SendResult, er
 		// typed, because there is no terminal.
 		err := w.Runtime(p).Wake(text)
 		w.releaseSend(p)
+		switch {
+		case errors.Is(err, structured.ErrNotRunning):
+			err = ErrSendExited
+		case errors.Is(err, structured.ErrQueueFull):
+			err = ErrSendQueueFull
+		}
+		if err != nil {
+			res.Queued = false
+		}
 		return res, err
 	}
 	sess := p.Sess
