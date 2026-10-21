@@ -4,6 +4,72 @@
 </rect>
 <text class="gteam-title" x="16" y="24">Ship 05-six-helpers-undelivered-message</text>
 </g>
+<defs>
+<marker id="gedge-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path class="gedge-head" d="M0 0L10 5L0 10z">
+</path>
+</marker>
+<marker id="gedge-arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path class="gedge-head gedge-head--amber" d="M0 0L10 5L0 10z">
+</path>
+</marker>
+<marker id="gedge-arrow-wait" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path class="gedge-head gedge-head--wait" d="M0 0L10 5L0 10z">
+</path>
+</marker>
+</defs>
+<g class="gedges">
+<g class="gedge gedge--waiting" data-from="c2beaec2" data-to="c2e39f87">
+<title>waiting on a helper: 2 helpers are busy</title>
+<path d="M376 184.8Q304 220 232 255.2" marker-end="url(#gedge-arrow-wait)">
+</path>
+<g class="gedge-label gedge-label--wait">
+<rect x="238" y="211" width="132" height="16" rx="4">
+</rect>
+<text x="304" y="223" text-anchor="middle">waiting on a helper</text>
+</g>
+</g>
+<g class="gedge gedge--message gedge--undelivered" data-from="2023df34" data-to="c2beaec2" data-delivery="queued">
+<title>The sign-up form submits twice on a slow connection. Needs a decision before I write the fix. (not told yet)</title>
+<path d="M736 255.2Q664 220 592 184.8" marker-end="url(#gedge-arrow-amber)">
+</path>
+<g class="gedge-label gedge-label--amber">
+<rect x="620.5" y="211" width="87" height="16" rx="4">
+</rect>
+<text x="664" y="223" text-anchor="middle">not told yet</text>
+</g>
+</g>
+<g class="gedge gedge--tag" data-tagged="c2e39f87" data-holder="user">
+<title>waiting on you: Make the phone number optional?</title>
+<path d="M28 372v8">
+</path>
+<g class="gedge-label gedge-label--wait">
+<rect x="27.80000000000001" y="379" width="100" height="16" rx="4">
+</rect>
+<text x="77.80000000000001" y="391" text-anchor="middle">waiting on you</text>
+</g>
+</g>
+<g class="gedge gedge--tag" data-tagged="e8918e34" data-holder="reviewer">
+<title>waiting on a reviewer: T1 is in review by reviewer</title>
+<path d="M508 372v8">
+</path>
+<g class="gedge-label gedge-label--wait">
+<rect x="508.20000000000005" y="379" width="144" height="16" rx="4">
+</rect>
+<text x="580.2" y="391" text-anchor="middle">waiting on a reviewer</text>
+</g>
+</g>
+<g class="gedge gedge--tag" data-tagged="a2153c58" data-holder="task">
+<title>waiting on a task: waiting on the translation vendor's key format</title>
+<path d="M508 548v8">
+</path>
+<g class="gedge-label gedge-label--wait">
+<rect x="507.9" y="555" width="119" height="16" rx="4">
+</rect>
+<text x="567.4" y="567" text-anchor="middle">waiting on a task</text>
+</g>
+</g>
+</g>
 <g class="gslot">
 <g class="gnode gnode--idle gnode--manager" data-pane="c2beaec2" transform="translate(376 68)" role="group" aria-label="manager, manager, idle, branch main, $8.00">
 <title>manager, manager, idle, branch main, $8.00</title>

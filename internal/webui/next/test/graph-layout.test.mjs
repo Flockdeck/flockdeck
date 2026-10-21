@@ -251,3 +251,33 @@ test("a message that is not a graph gives an empty layout", () => {
   assert.equal(lay.ok, false);
   assert.deepEqual(lay.nodes, []);
 });
+
+// Rows of loose boxes (the solo strip, and a team's members its tree does not
+// reach) are a full gapY apart. The frame and the page must be as tall as the
+// lowest box, or the last row and the needs-you badges on it hang outside.
+test("rows of loose boxes lie inside their frame and inside the page", () => {
+  const plain = (pane, extra = {}) => ({ pane, depth: 0, name: pane, status: "idle", activity: "idle", ...extra });
+  const solo = Array.from({ length: 13 }, (_, i) => plain("s" + i));
+  const loose = Array.from({ length: 9 }, (_, i) => plain("u" + i, { parent: "gone", depth: 1, team: "gone" }));
+  const model = buildGraphModel({
+    type: "graph",
+    teams: [{ id: "gone", manager: "gone", members: loose.map((n) => n.pane) }],
+    nodes: [...loose, ...solo],
+    edges: [],
+    solo: solo.map((n) => n.pane),
+  });
+  const lay = layoutGraph(model);
+  check(model, lay, "loose rows");
+  const lowest = Math.max(...lay.nodes.map((b) => b.y + b.h));
+  assert.ok(lay.solo, "there is a strip");
+  assert.ok(lay.height >= lowest, `the page is ${lay.height} tall and a box ends at ${lowest}`);
+  const strip = lay.nodes.filter((b) => b.team === "");
+  assert.ok(strip.length === 13);
+  for (const b of strip) assert.ok(inside(b, lay.solo), `${b.pane} is outside the strip's frame`);
+  const frame = lay.teams[0];
+  for (const b of lay.nodes.filter((n) => n.team === "gone")) assert.ok(inside(b, frame), `${b.pane} is outside its team's frame`);
+  // The frames end where the last row does, no earlier and not far after.
+  assert.ok(lay.solo.y + lay.solo.h >= Math.max(...strip.map((b) => b.y + b.h)));
+  const rows = new Set(strip.map((b) => b.y)).size;
+  assert.ok(rows >= 3, "the strip is more than two rows");
+});

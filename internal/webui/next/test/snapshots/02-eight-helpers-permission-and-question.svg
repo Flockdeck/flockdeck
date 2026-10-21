@@ -4,6 +4,72 @@
 </rect>
 <text class="gteam-title" x="16" y="24">Ship 02-eight-helpers-permission-and-question</text>
 </g>
+<defs>
+<marker id="gedge-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path class="gedge-head" d="M0 0L10 5L0 10z">
+</path>
+</marker>
+<marker id="gedge-arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path class="gedge-head gedge-head--amber" d="M0 0L10 5L0 10z">
+</path>
+</marker>
+<marker id="gedge-arrow-wait" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path class="gedge-head gedge-head--wait" d="M0 0L10 5L0 10z">
+</path>
+</marker>
+</defs>
+<g class="gedges">
+<g class="gedge gedge--waiting" data-from="b206ac1a" data-to="af5f14f7">
+<title>waiting on a helper: 4 helpers are busy</title>
+<path d="M376 184.8Q304 220 232 255.2" marker-end="url(#gedge-arrow-wait)">
+</path>
+<g class="gedge-label gedge-label--wait">
+<rect x="238" y="211" width="132" height="16" rx="4">
+</rect>
+<text x="304" y="223" text-anchor="middle">waiting on a helper</text>
+</g>
+</g>
+<g class="gedge gedge--tag" data-tagged="af5f14f7" data-holder="user">
+<title>waiting on you: psql -f migrations/0042_invoices.sql</title>
+<path d="M28 372v8">
+</path>
+<g class="gedge-label gedge-label--wait">
+<rect x="27.80000000000001" y="379" width="100" height="16" rx="4">
+</rect>
+<text x="77.80000000000001" y="391" text-anchor="middle">waiting on you</text>
+</g>
+</g>
+<g class="gedge gedge--tag" data-tagged="48211787" data-holder="user">
+<title>waiting on you: Backfill invoices older than 2024, or leave them as they are?</title>
+<path d="M268 372v8">
+</path>
+<g class="gedge-label gedge-label--wait">
+<rect x="267.8" y="379" width="100" height="16" rx="4">
+</rect>
+<text x="317.8" y="391" text-anchor="middle">waiting on you</text>
+</g>
+</g>
+<g class="gedge gedge--tag" data-tagged="476ff4dc" data-holder="reviewer">
+<title>waiting on a reviewer: T1 is in review by reviewer</title>
+<path d="M508 548v8">
+</path>
+<g class="gedge-label gedge-label--wait">
+<rect x="508.20000000000005" y="555" width="144" height="16" rx="4">
+</rect>
+<text x="580.2" y="567" text-anchor="middle">waiting on a reviewer</text>
+</g>
+</g>
+<g class="gedge gedge--tag" data-tagged="ea5e3f24" data-holder="task">
+<title>waiting on a task: waiting on the payment sandbox keys</title>
+<path d="M748 548v8">
+</path>
+<g class="gedge-label gedge-label--wait">
+<rect x="747.9" y="555" width="119" height="16" rx="4">
+</rect>
+<text x="807.4" y="567" text-anchor="middle">waiting on a task</text>
+</g>
+</g>
+</g>
 <g class="gslot">
 <g class="gnode gnode--working gnode--manager" data-pane="b206ac1a" transform="translate(376 68)" role="group" aria-label="manager, manager, working, branch main, $9.50">
 <title>manager, manager, working, branch main, $9.50</title>
