@@ -218,6 +218,7 @@ test("paneAt finds the pane of an element inside a box", () => {
 // --- in the page ---------------------------------------------------------
 
 const FALLBACK = [
+  { id: "palette", keys: "Ctrl+Shift+K", label: "Command palette", section: "Finding your way", noPalette: true },
   { id: "nextNeedsYou", keys: "Ctrl+Shift+U", label: "Next agent that needs you", section: "Finding your way" },
   { id: "managerBar", keys: "Ctrl+Shift+H", label: "Message the manager", section: "Finding your way" },
 ];
@@ -344,4 +345,17 @@ test("when the project can no longer be read the jump does nothing", () =>
     await settle();
     assert.equal(m.container.find(".graph"), null, "the graph is gone");
     assert.notEqual(m.active(), m.container.find("main"), "the keyboard was not pulled to the main area");
+  }));
+
+test("both graph actions are in the palette, and running one from it works", () =>
+  withPage("04-eight-helpers-three-waiting", async (m) => {
+    press(m, "palette");
+    await settle();
+    const row = (id) => m.container.findAll("li").find((e) => e.getAttribute("data-action") === id);
+    assert.ok(row("managerBar"), "Message the manager is not in the palette");
+    assert.equal(row("managerBar").getAttribute("aria-disabled"), null, "it is marked as not in this window");
+    assert.equal(row("nextNeedsYou").getAttribute("aria-disabled"), null);
+    row("nextNeedsYou").click();
+    await settle();
+    assert.equal(m.activePane(), "160d47b0", "running it from the palette did not go to the first agent that needs you");
   }));

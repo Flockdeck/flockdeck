@@ -2930,6 +2930,12 @@ const labels = h.$("palette-list").children.filter((r) => r.classList.contains("
 assert.ok(labels.length > 0);
 assert.ok(!labels.includes("Next agent that needs you"), "the palette offers an action that does nothing here");
 assert.ok(!labels.includes("Message the manager"), "the palette offers an action that does nothing here");
+h.key({ key: "Escape" });
+h.press("settings");
+h.click(h.$("settings-tab-keybindings"));
+assert.ok(h.$("set-keybind-closePane"), "the keyboard settings have no rows");
+assert.ok(!h.$("set-keybind-nextNeedsYou"), "the keyboard settings offer to rebind an action that does nothing here");
+assert.ok(!h.$("set-keybind-managerBar"), "the keyboard settings offer to rebind an action that does nothing here");
 `)
 }
 

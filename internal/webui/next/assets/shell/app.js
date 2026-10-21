@@ -183,9 +183,21 @@ export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, match
     if (s.selected && onWatch) onWatch(s.selected);
   }, [s.selected]);
 
+  // A view's own action chosen in the palette runs once the palette is gone: the
+  // palette puts the keyboard back where it was as it closes, and would take it
+  // from an action that had moved it.
+  const afterPalette = useRef("");
+  useEffect(() => {
+    const id = afterPalette.current;
+    if (s.paletteOpen || !id) return;
+    afterPalette.current = "";
+    if (own.current[id]) own.current[id]();
+  }, [s.paletteOpen]);
   const run = (id) => {
     dispatch({ type: "closePalette" });
-    if (implemented.includes(id)) act({ type: "action", id });
+    if (!implemented.includes(id)) return;
+    if (own.current[id]) afterPalette.current = id;
+    else act({ type: "action", id });
   };
 
   const current = projects.find((p) => p.root === s.selected);

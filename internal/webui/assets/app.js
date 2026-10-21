@@ -8744,7 +8744,14 @@
     // window's, so they go on to the terminal, which is where Ctrl+Shift+U
     // and Ctrl+Shift+H would otherwise be swallowed (readline's kill-line and
     // backspace).
-    return id === "nextNeedsYou" || id === "managerBar" ? "" : id;
+    return newInterfaceOnly(id) ? "" : id;
+  }
+
+  /** newInterfaceOnly says an action is one of the new interface's team graph,
+   *  which this window has nothing to do for: its key is left to the terminal,
+   *  and the palette and the keyboard settings do not list it. */
+  function newInterfaceOnly(id) {
+    return id === "nextNeedsYou" || id === "managerBar";
   }
 
   // -------------------------------------------------------- command palette
@@ -8827,7 +8834,7 @@
       return k.label;
     };
     const cmds = keyTable
-      .filter((k) => !k.noPalette && ACTIONS[k.id])
+      .filter((k) => !k.noPalette && ACTIONS[k.id] && !newInterfaceOnly(k.id))
       .map((k) => mk(k.id, paletteLabel(k), { keys: k.keys, short: k.short, group: PAGE_ACTIONS.includes(k.id) ? "Go to" : k.section }));
     // The picker's own entries belong in the action table with everything
     // else, and are offered here only for as long as the table has not caught
@@ -14522,7 +14529,7 @@
     pane.append(settingRow("Every shortcut", "Undoes every remapping made here, for every action at once.", resetAll));
 
     let section = "";
-    keyTable.forEach((k) => {
+    keyTable.filter((k) => !newInterfaceOnly(k.id)).forEach((k) => {
       if (k.section !== section) {
         section = k.section;
         pane.append(el("div", "set-sub", section));
