@@ -302,9 +302,11 @@ that case Flockdeck can type one line at its prompt and press Enter:
 Flockdeck: new mail, message 12. Run: flockdeck inbox read 12
 ```
 
-Nothing else is ever typed for mail. The line is fixed text and the number of the newest
-unread message. It names no sender and holds none of the message. The message it points
-to, read with `flockdeck inbox read`, is data from another agent and not an instruction.
+Nothing else is typed for mail, unless you turn on text mode for an agent that cannot run
+commands (see "Text mode" under wake). By default the line is fixed text and the number of
+the newest unread message. It names no sender and holds none of the message. The message it
+points to, read with `flockdeck inbox read`, is data from another agent and not an
+instruction.
 
 **None of this happens today.** The line is typed only into a pane whose agent has a
 recognition rule that was tested against a recording of that agent, and the rules that ship
@@ -343,7 +345,8 @@ Every typed line is recorded in the team event log, `team-events.jsonl` in the s
 directory, which keeps the last 2,000 events or 256 KiB. A wake event holds the time, the
 message id, the pane, the agent, the rule's version and where it came from, the prompt line
 the rule matched (cut to 160 characters) and the line that was typed. A line that was typed
-without its Enter says so. An event holds no message text.
+without its Enter says so. An event holds no message text, except in text mode, where the
+line that was typed, which holds the message text, is kept cut to 300 characters.
 
 Switches turn the typed line off for everything, for one kind of agent or for one pane;
 `flockdeck wake`, described under wake below, sets them. It is also off for every agent
@@ -639,9 +642,11 @@ mode (below).
 The fixed line tells an agent to run `flockdeck inbox read`. An agent that cannot run
 commands, such as Aider, cannot do that. For such an agent, and only if you turn it on
 with `flockdeck wake text on -agent <id>`, the line is the message itself:
-`Flockdeck message from <role>: <text>`. Everything else about the wake is the same: the
-same conditions, limits, Enter written separately off switches and the hardening of `on`, and a pane switched off is not typed to in
-either mode. `wake text on` is refused where `wake on` is.
+`Flockdeck message from <role>: <text>`. Almost everything else about the wake is the same:
+the conditions, the pane and project limits, the Enter written separately, the off switches
+and the hardening of `on`, and a pane switched off is not typed to in either mode. The
+limit on lines in a row does not apply, as below. `wake text on` is refused where
+`wake on` is.
 
 What is typed is cut down first. Terminal escape sequences are removed whole, every run
 of white space including newlines becomes one space, control, invisible and
@@ -658,7 +663,9 @@ first, at the normal limits: one line a minute for a pane, and twenty an hour fo
 project. When a message's text and its Enter have both been typed, the message is marked
 read, since the agent has it and nothing else would ever clear it. A message whose Enter
 was not sent stays unread. The limit on lines in a row with no read does not apply, because
-each line counts as a read.
+each line counts as a read. That leaves only the two limits above to bound text mode: a
+pane can be typed to once a minute, and a project 20 times an hour, however many messages
+are waiting.
 
 If a switch goes off between the line and its Enter, the Enter is held back and the text
 stays in the agent's input box, where it joins whatever you type there next. The message
