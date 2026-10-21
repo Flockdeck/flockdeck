@@ -81,6 +81,10 @@ nothing of the agent's environment.
 
 When a watched pane closes, the window is sent one last message with `gone: true`, and the watch
 ends. A restart does not end it: the pane keeps its id and the push follows the new session.
+The entries a restart leaves behind are kept: a snapshot, a push and a detail show the earlier
+sessions' entries first, then a notice that the agent was restarted, then the new session's. The ids
+of an earlier session's entries are prefixed with `r<n>-`, so no id is shown twice. The detail of an
+earlier entry is only what the entry carried, since the agent that held the rest is gone.
 
 ## 3. structuredDetail
 
