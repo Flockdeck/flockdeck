@@ -4,10 +4,15 @@
 // and the drawer slot holds the one agent a click or key on a graph box opened.
 // main.js makes the store and renders this; it is a component of its own so a
 // test can render it on a fake socket.
+//
+// The strip along the top holds the manager bar, for the project whose graph is
+// on screen. It is not one of the keyboard regions: it is reached with Tab like
+// any control, and takes the keyboard once when the graph first names a manager.
 import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { useStore } from "../lib/use-store.js";
 import { Drawer, useDrawer } from "../drawer/Drawer.js";
+import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
 import { Shell } from "./app.js";
 import { Home } from "./Home.js";
 
@@ -51,10 +56,19 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
   const node = drawer.pane && shown ? shown.byPane.get(drawer.pane) : null;
   const pane = node ? (kept.current.state.panes || {})[node.pane] || null : null;
 
+  // The manager of the project on screen, from the picture Home draws: a push
+  // that cannot be read leaves the last good one, and another project's does not
+  // count. Before any graph there is no bar, so "no manager" is not said while
+  // the graph is still being read.
+  const bar = shown && !snap.graphGone
+    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(shown)} send=${(c) => store.send(c)} />`
+    : null;
+
   return html`<${Shell}
     hello=${kept.current.hello}
     state=${kept.current.state}
     onWatch=${onWatch}
+    top=${bar}
     matchMedia=${matchMedia}
     window=${win}
     mainRef=${mainRef}
