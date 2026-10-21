@@ -66,12 +66,12 @@ export function GraphList({ model, onOpen = null, open = "" }) {
       <${NeedsYou} model=${model} onSelect=${onOpen ? (pane) => onOpen(pane, "strip") : null} />
       ${teams.map(({ t, rows }) => html`<section class="list-team" data-team=${t.id} key=${t.id}>
         <h3 class="list-head">${clip(t.goal || "Team", 80)}</h3>
-        <ul class="list-rows">${rows.map((r) => html`<${Row} node=${model.byPane.get(r.pane)} depth=${r.depth} onOpen=${onOpen} open=${open} />`)}</ul>
+        <ul class="list-rows">${rows.map((r) => html`<${Row} key=${r.pane} node=${model.byPane.get(r.pane)} depth=${r.depth} onOpen=${onOpen} open=${open} />`)}</ul>
       </section>`)}
       ${last.length > 0
         ? html`<section class="list-team list-team--solo">
             <h3 class="list-head">Not in a team</h3>
-            <ul class="list-rows">${last.map((n) => html`<${Row} node=${model.byPane.get(n.pane)} depth=${0} onOpen=${onOpen} open=${open} />`)}</ul>
+            <ul class="list-rows">${last.map((n) => html`<${Row} key=${n.pane} node=${model.byPane.get(n.pane)} depth=${0} onOpen=${onOpen} open=${open} />`)}</ul>
           </section>`
         : null}
     </div>
@@ -89,6 +89,7 @@ export function needsOfRoster(state) {
   for (const p of panes) {
     if (!p || typeof p !== "object" || !p.id) continue;
     const id = String(p.id);
+    if (byPane.has(id)) continue; // one entry for an id, the first
     byPane.set(id, { name: String(p.name || id) });
     const q = p.ask && Array.isArray(p.ask.questions) && p.ask.questions[0];
     if (p.permission && typeof p.permission === "object") {

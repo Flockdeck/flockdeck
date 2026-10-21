@@ -35,11 +35,14 @@ export function sameProject(a, b) {
 }
 
 /** rosterOf is the agents of the project in the state push, in the order the
- *  push has them: id, name and what each is doing. */
+ *  push has them: id, name and what each is doing. An entry without an id is
+ *  skipped, and an id that comes twice is listed once. */
 export function rosterOf(state) {
   const panes = state && state.panes && typeof state.panes === "object" ? Object.values(state.panes) : [];
+  const seen = new Set();
   return panes
-    .filter((p) => p && typeof p === "object")
+    .filter((p) => p && typeof p === "object" && p.id)
+    .filter((p) => !seen.has(String(p.id)) && seen.add(String(p.id)))
     .map((p) => ({
       id: String(p.id || ""),
       name: String(p.name || p.id || ""),

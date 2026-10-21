@@ -12,7 +12,7 @@ import { render } from "../assets/vendor/preact.mjs";
 import { html } from "../assets/html.js";
 import { Live } from "../assets/shell/Live.js";
 import { buildGraphModel } from "../assets/graph/model.js";
-import { rowsOf, needsOfRoster } from "../assets/graph/List.js";
+import { rowsOf, needsOfRoster, GraphList } from "../assets/graph/List.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { PtySocket, FakeTerm, FakeFit, FakeObserver } from "./termfakes.mjs";
@@ -227,4 +227,63 @@ test("needsOfRoster reads the push as the relay makes it, and skips what is not 
   const model = needsOfRoster({ panes: { ...ROSTER, bad: 5, none: { name: "no id" } } });
   assert.deepEqual(model.needs.map((n) => [n.pane, n.kind, n.text]), [["p2", "permission", "Bash: the details are on the desktop"], ["p3", "ask", "Which heading?"]]);
   assert.deepEqual(needsOfRoster(null).needs, []);
+});
+
+// ----------------------------------------------------------- what the list must not lose
+
+test("a lone agent, a stray node and a member the tree does not reach are each a row", () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const model = buildGraphModel({
+      type: "graph", root: "/x", edges: [],
+      nodes: [
+        { pane: "m", name: "mgr", team: "t", children: ["h"] },
+        { pane: "h", name: "helper", team: "t", parent: "m" },
+        { pane: "u", name: "unlinked", team: "t" },
+        { pane: "s", name: "lone shell", shell: true },
+        { pane: "x", name: "stray" },
+      ],
+      teams: [{ id: "t", manager: "m", members: ["m", "h", "u"] }],
+      solo: ["s"],
+    });
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    render(html`<${GraphList} model=${model} onOpen=${() => {}} open="h" />`, box);
+    const panes = (sel) => box.find(sel).findAll(".list-row").map((r) => r.getAttribute("data-pane"));
+    assert.deepEqual(panes(".list-team"), ["m", "h", "u"], "the team's rows, with its unlinked member last");
+    assert.deepEqual(panes(".list-team--solo"), ["s", "x"], "the lone agent, then the stray node");
+    // The open row says so, and no other does.
+    const expanded = (pane) => box.findAll(".list-row").find((r) => r.getAttribute("data-pane") === pane).find(".list-pick").getAttribute("aria-expanded");
+    assert.equal(expanded("h"), "true");
+    assert.equal(expanded("m"), "false");
+    render(null, box);
+  } finally {
+    restore();
+  }
+});
+
+test("the roster row of the open agent says it is expanded", async () => {
+  await withPage({ narrow: true, remote: true }, async (m) => {
+    await m.connect();
+    await m.push(stateMsg(ROSTER));
+    const expanded = (id) => m.container.findAll(".list-pick").find((b) => b.parentNode.getAttribute("data-pane") === id).getAttribute("aria-expanded");
+    assert.equal(expanded("p1"), "false");
+    m.container.findAll(".list-pick").find((b) => b.parentNode.getAttribute("data-pane") === "p1").click();
+    await settle();
+    assert.equal(expanded("p1"), "true");
+    assert.equal(expanded("p2"), "false");
+  });
+});
+
+test("an entry without an id is no row, and an id that comes twice is one row", async () => {
+  await withPage({ narrow: true, remote: true }, async (m) => {
+    await m.connect();
+    await m.push(stateMsg({ a: { id: "p1", name: "one", activity: "working" }, b: { name: "no id" }, c: { id: "p1", name: "again", activity: "working" }, d: { id: "p2", name: "two" } }));
+    assert.deepEqual(m.container.findAll(".home-agent").map((r) => r.getAttribute("data-pane")), ["p1", "p2"]);
+  });
+  const model = needsOfRoster({ panes: {
+    a: { id: "p1", permission: { summary: "first" } }, b: { permission: { summary: "no id" } }, c: { id: "p1", permission: { summary: "second" } },
+  } });
+  assert.deepEqual(model.needs.map((n) => [n.pane, n.text]), [["p1", "first"]]);
 });
