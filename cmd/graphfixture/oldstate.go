@@ -19,8 +19,8 @@ import "fmt"
 //     The tab's and the project's activity, and the "attention" flag, come from
 //     the same counts, as the desk derives them.
 //   - A parent is sent only while the parent is a pane of the push.
-//   - A waiting terminal pane carries a permission or an ask view, made from the
-//     graph's item for it. A structured pane's card does not come with the push.
+//   - A terminal pane whose status is waiting carries a permission or an ask view,
+//     made from the graph's item for it, as snapshot does. A structured pane's card does not come with the push.
 //
 // What the graph does not hold is made up and is the same on every run: the
 // working directory (the root), the size of a terminal (80 by 24), and how the
@@ -122,7 +122,9 @@ func (f *fixture) paneState(n fixtureNode, perms, asks map[string]string) map[st
 	if n.Unread > 0 {
 		p["unread"] = n.Unread
 	}
-	if !structured {
+	// Only a pane whose status is waiting has the views (snapshot attaches them
+	// under that condition), whatever the graph lists for it.
+	if !structured && n.Status == "waiting" {
 		if text, ok := perms[n.Pane]; ok {
 			p["permission"] = permissionView(text)
 		} else if text, ok := asks[n.Pane]; ok {

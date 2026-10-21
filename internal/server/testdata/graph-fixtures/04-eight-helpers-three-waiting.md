@@ -1,6 +1,6 @@
 # 04-eight-helpers-three-waiting
 
-Eight helpers on a release. One asks to run a command, one asks a question and one has a task back from review.
+Eight helpers on a release. One asks to run a command, one asks a question and one has a task back from review. Three need the person but only two are waiting: the one with the returned task (qa) is working, so the tiled page marks two panes and the graph lists three.
 
 The team is a manager and 8 helpers. The graph is judged at 2026-10-21T09:00:00Z.
 
