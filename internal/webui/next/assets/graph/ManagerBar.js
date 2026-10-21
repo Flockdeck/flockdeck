@@ -93,9 +93,10 @@ export function outcomeOf(snap, pending) {
  * managerOf(model) for the project on screen, and send is the store's send.
  * inputRef, if given, holds the text box for a view that moves the keyboard to
  * it. The keyboard goes to the box once on its own when nothing else holds it
- * (autoFocus, on by default).
+ * (autoFocus, on by default). verb starts the box's hint: "Tell" the manager, and
+ * "Answer" an agent that asked a question.
  */
-export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true }) {
+export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, verb = "Tell" }) {
   const own = useRef(null);
   const box = inputRef || own;
   const [draft, setDraft] = useState("");
@@ -169,7 +170,7 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true }) 
       type="text"
       autocomplete="off"
       aria-label=${"Message " + clip(manager.name, 40)}
-      placeholder=${"Tell " + clip(manager.name, 40) + "… (one line, Enter sends)"}
+      placeholder=${verb + " " + clip(manager.name, 40) + "… (one line, Enter sends)"}
       readOnly=${sending}
       aria-busy=${sending ? "true" : undefined}
       value=${draft}

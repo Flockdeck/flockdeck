@@ -54,6 +54,18 @@ const inTerminal = (target) => {
   return false;
 };
 
+/** keysFor is the function that types into the terminal held in ref for a pane,
+ *  or null when the ref holds none for that pane. The terminal is made and torn
+ *  down by TerminalView's effects, which run after a render, so for a moment
+ *  after the drawer moves to another pane the ref still holds the last pane's
+ *  terminal. Checking the pane here, when the key is sent, is what keeps a choice
+ *  from being typed into it. */
+export function keysFor(ref, pane) {
+  const held = ref && ref.current;
+  if (!held || held.pane !== pane || !held.ctl || !held.ctl.sendKeys) return null;
+  return (text, done) => held.ctl.sendKeys(text, done);
+}
+
 /** hasTerminal says whether a pane can have a terminal. A structured pane is
  *  driven over a protocol and has none. */
 export function hasTerminal(node, pane) {
@@ -111,7 +123,10 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
     const el = tabRefs.current[next];
     if (el && el.focus) el.focus();
   };
-  const sendKeys = (text) => !!terminalRef.current && terminalRef.current.sendKeys(text);
+  const sendKeys = (text, done) => {
+    const send = keysFor(terminalRef, node.pane);
+    return !!send && send(text, done);
+  };
   return html`
     <section class=${"drawer-body" + (maximised ? " drawer-body--max" : "")} data-drawer-pane=${node.pane} tabindex="-1" ref=${rootRef} onKeyDown=${onKeyDown}>
       <${Header} node=${node} pane=${pane} now=${now} maximised=${maximised} onClose=${onClose} onToggleMax=${onToggleMax} />
@@ -124,7 +139,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
       </div>
       <div class="drawer-panel" role="tabpanel" id="drawer-panel-terminal" aria-labelledby="drawer-tab-terminal" hidden=${shown !== "terminal"}>
         ${terminal
-          ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} onReady=${(c) => { terminalRef.current = c; }} ...${terminalOptions || {}} />`
+          ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} onReady=${(c) => { terminalRef.current = { pane: node.pane, ctl: c }; }} ...${terminalOptions || {}} />`
           : html`<p class="drawer-stub">${STRUCTURED_STUB}</p>`}
       </div>
       ${hasConv

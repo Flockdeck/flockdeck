@@ -9,7 +9,7 @@ import { html } from "../assets/html.js";
 import { Shell, keysOf } from "../assets/shell/app.js";
 import { Graph } from "../assets/graph/Graph.js";
 import { buildGraphModel } from "../assets/graph/model.js";
-import { Drawer, useDrawer, hasTerminal } from "../assets/drawer/Drawer.js";
+import { Drawer, useDrawer, hasTerminal, keysFor } from "../assets/drawer/Drawer.js";
 import { Header, sinceOf, spendText, countsOf } from "../assets/drawer/Header.js";
 import { initialDrawer, reduceDrawer } from "../assets/drawer/state.js";
 import { STRUCTURED_STUB } from "../assets/lib/terminal.js";
@@ -369,4 +369,19 @@ test("the drawer remembers a strip row opened it, and says so after it closes", 
   s = reduceDrawer(reduceDrawer(closed, { type: "open", pane: "p1" }), { type: "close" });
   assert.equal(s.returnVia, "", "a box opened it, so the keyboard goes back to the box");
   assert.equal(reduceDrawer(initialDrawer(), { type: "open", pane: "p1", via: "other" }).via, "");
+});
+
+test("keys are typed into the terminal of the pane asked for and no other", () => {
+  const typed = [];
+  const ref = { current: { pane: "p1", ctl: { sendKeys: (t, done) => { typed.push([t, done]); return true; } } } };
+  const send = keysFor(ref, "p1");
+  assert.equal(typeof send, "function");
+  const done = () => {};
+  assert.equal(send("y", done), true);
+  assert.deepEqual(typed, [["y", done]]);
+  // The drawer has moved to another pane and the new terminal is not made yet.
+  assert.equal(keysFor(ref, "p2"), null, "a choice for p2 would be typed into p1");
+  assert.equal(keysFor({ current: null }, "p1"), null);
+  assert.equal(keysFor({ current: { pane: "p1", ctl: null } }, "p1"), null);
+  assert.equal(keysFor(null, "p1"), null);
 });
