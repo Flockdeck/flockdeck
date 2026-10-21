@@ -64,6 +64,12 @@ type Program struct {
 	// Machine is set when it comes from the system or global configuration,
 	// which is not in the repository. Everything else lives in the repository.
 	Machine bool
+
+	// timedOut is set on an item that was made because the scan ran out of
+	// time. It is not part of the ID and is never set from what a repository
+	// says, which is why the one-item rule at the end of a slow scan tests it
+	// and not the words of Value.
+	timedOut bool
 }
 
 // ID is a stable name for the program as it is configured: it changes when the
@@ -374,6 +380,15 @@ func unscannable(where, why string, submodule string) Program {
 	return Program{Kind: "unscannable", Where: where, Value: why, Submodule: submodule}
 }
 
+// unscannableBecause is an unscannable item for a step that failed with err,
+// worded "what" followed by the start of the error. It remembers when the error
+// was the scan running out of time.
+func unscannableBecause(where, what string, err error, submodule string) Program {
+	p := unscannable(where, what+firstWords(err), submodule)
+	p.timedOut = errors.Is(err, errScanTooLong)
+	return p
+}
+
 // ScanPrograms finds what git would run, in dir, for a commit, push, pull or
 // fetch: the configuration git itself would read (system, global, repository,
 // worktree, and whatever they include), the hooks it would find, where a remote
@@ -400,7 +415,12 @@ func ScanPrograms(dir string) (Report, error) {
 		if strings.Contains(err.Error(), "not a git repository") {
 			return Report{}, ErrNotRepository
 		}
-		return Report{Repo: s.fs.canonical(dir), Items: []Program{unscannable(dir, "git rev-parse failed: "+firstWords(err), "")}}, nil
+		// rev-parse is a git process, not a call of the scan's file system, so
+		// when the time runs out it fails as git not answering, which is not
+		// errScanTooLong and is not folded into the one item (see firstWords). The
+		// step goes through unscannableBecause all the same, so that it stays right if
+		// that changes.
+		return Report{Repo: s.fs.canonical(dir), Items: []Program{unscannableBecause(dir, "git rev-parse failed: ", err, "")}}, nil
 	}
 	for _, d := range []string{paths.gitDir, paths.common, paths.topdir} {
 		if d == "" {
@@ -427,7 +447,7 @@ func ScanPrograms(dir string) (Report, error) {
 
 	entries, err := s.listConfig(dir, paths.topdirOr(), nil)
 	if err != nil {
-		rep.Items = append(rep.Items, unscannable(dir, "git config could not be read: "+firstWords(err), ""))
+		rep.Items = append(rep.Items, unscannableBecause(dir, "git config could not be read: ", err, ""))
 	} else {
 		items, hooksPath := s.settingsIn(entries, "", paths.topdirOr(), true, false)
 		rep.Items = append(rep.Items, items...)
@@ -441,7 +461,7 @@ func ScanPrograms(dir string) (Report, error) {
 
 	subs, truncated, err := s.submoduleGitDirs(dir, paths)
 	if err != nil {
-		rep.Items = append(rep.Items, unscannable(dir, "the submodules could not be listed: "+firstWords(err), ""))
+		rep.Items = append(rep.Items, unscannableBecause(dir, "the submodules could not be listed: ", err, ""))
 	}
 	for _, sub := range subs {
 		if ctx.Err() != nil {
@@ -452,16 +472,7 @@ func ScanPrograms(dir string) (Report, error) {
 	}
 	rep.Items = append(rep.Items, s.fsItems...)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		// One item says it, always the same: which paths a slow scan got to
-		// depends on how far it got, and an item that changed from one scan to the
-		// next would make the same repository look different every time.
-		kept := rep.Items[:0]
-		for _, p := range rep.Items {
-			if p.Kind != "unscannable" || p.Value != errScanTooLong.Error() {
-				kept = append(kept, p)
-			}
-		}
-		rep.Items = append(kept, unscannable(dir, errScanTooLong.Error()+" ("+scanTimeout.String()+"), so some of it was not looked at", ""))
+		rep.Items = oneTimeoutItem(rep.Items, dir)
 	}
 	if truncated {
 		rep.Items = append(rep.Items, Program{
@@ -763,7 +774,7 @@ func (s *scanner) remoteHooks(u, base, submodule string, machine bool) []Program
 		}
 		entries, err := s.readConfig(cfg, gd)
 		if err != nil {
-			return []Program{unscannable(cfg, "the remote's configuration could not be read: "+firstWords(err), submodule)}
+			return []Program{unscannableBecause(cfg, "the remote's configuration could not be read: ", err, submodule)}
 		}
 		found, hooksPath := s.settingsIn(entries, submodule, gd, false, true)
 		items = append(items, found...)
@@ -1302,6 +1313,26 @@ func (f *finder) walkModules(base string, depth int) {
 	}
 }
 
+// oneTimeoutItem leaves one item that says the scan ran out of time, always the
+// same: which paths a slow scan got to depends on how far it got, and an item
+// that changed from one scan to the next would make the same repository look
+// different every time. The items the time running out made are the ones marked
+// timedOut, whatever words they have: a step that gave up words them in its own
+// way ("git could not read it: the scan took too long"), and which step noticed
+// first is a matter of timing, because a call that has finished and a context
+// that has ended are both ready to be chosen. The mark and not the words are
+// tested because a value from the repository can end in any words, and an item
+// that only quotes them (a hooksPath that cannot be worked out) must stay.
+func oneTimeoutItem(items []Program, dir string) []Program {
+	kept := items[:0]
+	for _, p := range items {
+		if !p.timedOut && !(p.Kind == "unscannable" && p.Value == errScanTooLong.Error()) {
+			kept = append(kept, p)
+		}
+	}
+	return append(kept, unscannable(dir, errScanTooLong.Error()+" ("+scanTimeout.String()+"), so some of it was not looked at", ""))
+}
+
 // scanSubmodule is ScanPrograms for a submodule's own git directory. A
 // hooksPath that is relative is relative to the submodule's working tree. Its
 // configuration is read every time and not remembered between scans: anything
@@ -1331,7 +1362,7 @@ func (s *scanner) scanSubmodule(sub submodule) []Program {
 		s.spent += fi.Size()
 		entries, err := s.readConfig(cfg, sub.gitDir)
 		if err != nil {
-			items = append(items, unscannable(cfg, "git could not read it: "+firstWords(err), name))
+			items = append(items, unscannableBecause(cfg, "git could not read it: ", err, name))
 		} else {
 			var found []Program
 			found, hooksPath = s.settingsIn(entries, name, sub.gitDir, false, false)

@@ -3,10 +3,14 @@ package gitx
 import (
 	"context"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -222,4 +226,222 @@ func TestAHooksFolderOverTheLimitIsLookedThroughByNameAndOneAtItIsListed(t *test
 			}
 		})
 	}
+}
+
+// Which step of a scan notices first that the time has run out is a matter of
+// timing, so the items it makes come in more than one spelling: the bare words,
+// and the words after what the step was doing ("git could not read it: ...").
+// All of them (the ones made from the time running out, which are marked) are
+// replaced by the one item, and an unrelated item is kept.
+func TestEveryItemTheTimeRunningOutMadeIsReplacedByOne(t *testing.T) {
+	bare := errScanTooLong.Error()
+	items := []Program{
+		{Kind: "unscannable", Value: bare, Where: "/r/a"},
+		{Kind: "unscannable", Value: "git could not read it: " + bare, Where: "/r/.git/modules/s/config", Submodule: "s", timedOut: true},
+		{Kind: "unscannable", Value: "git config could not be read: " + bare, Where: "/r", timedOut: true},
+		{Kind: "unscannable", Value: "the file is a link to a share", Where: "/r/b"},
+		{Kind: "setting", Name: "core.sshcommand", Value: "ssh -i " + bare},
+	}
+	got := oneTimeoutItem(items, "/r")
+	var long, other int
+	for _, p := range got {
+		if p.Kind == "unscannable" && strings.Contains(p.Value, bare) {
+			long++
+		} else {
+			other++
+		}
+	}
+	if long != 1 {
+		t.Errorf("%d items say the scan took too long: %+v", long, got)
+	}
+	if other != 2 {
+		t.Errorf("an item that is not about the time was dropped or kept twice: %+v", got)
+	}
+	// Whichever spelling was made first, the result is the same.
+	again := oneTimeoutItem([]Program{{Kind: "unscannable", Value: bare}}, "/r")
+	if len(again) != 1 || again[0].ID() != got[len(got)-1].ID() {
+		t.Errorf("the item depends on which spelling was made: %+v and %+v", again, got[len(got)-1])
+	}
+}
+
+// lateContext is a context whose time ran out while the scan was between two
+// calls: after expire, Err says the deadline passed, the first call to Done
+// gets a channel that never closes (so a call already in hand finishes and wins
+// its race), and every later call gets a closed one (so the next call gives up
+// as soon as it is made). That is one of the orders a loaded machine produces
+// at random, made to happen every time.
+type lateContext struct {
+	context.Context
+	expired atomic.Bool
+	doneAt  atomic.Int32
+	closed  chan struct{}
+}
+
+func newLateContext() *lateContext {
+	c := &lateContext{Context: context.Background(), closed: make(chan struct{})}
+	close(c.closed)
+	return c
+}
+
+func (c *lateContext) Err() error {
+	if c.expired.Load() {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+func (c *lateContext) Done() <-chan struct{} {
+	if !c.expired.Load() {
+		return nil
+	}
+	if c.doneAt.Add(1) == 1 {
+		return nil
+	}
+	return c.closed
+}
+
+// A submodule whose configuration is looked at (and found) just before the time
+// runs out and is read just after it has: the read says "git could not read it:
+// the scan took too long", which is not the bare words. The report has one item
+// about the time, as it has for every other order.
+func TestAScanWhoseTimeRunsOutBetweenLookingAndReadingHasOneItemAboutTheTime(t *testing.T) {
+	outer := submoduleFarm(t, 2)
+	wasTimeout, wasStep, wasContext := scanTimeout, submoduleStep, scanContext
+	t.Cleanup(func() { scanTimeout, submoduleStep, scanContext = wasTimeout, wasStep, wasContext })
+	scanTimeout = time.Minute
+	ctx := newLateContext()
+	scanContext = func() (context.Context, context.CancelFunc) { return ctx, func() {} }
+	stepped := false
+	submoduleStep = func(_ context.Context, at string) {
+		if at == "start" && !stepped {
+			stepped = true
+			ctx.expired.Store(true)
+		}
+	}
+	rep, err := ScanPrograms(outer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stepped {
+		t.Fatal("the scan did not reach a submodule")
+	}
+	var about []Program
+	for _, p := range rep.Items {
+		if p.Kind == "unscannable" && strings.Contains(p.Value, errScanTooLong.Error()) {
+			about = append(about, p)
+		}
+	}
+	if len(about) != 1 {
+		t.Fatalf("%d items are about the time running out, want one: %+v", len(about), about)
+	}
+	if !strings.HasPrefix(about[0].Value, errScanTooLong.Error()+" (") {
+		t.Errorf("the one item is not the usual one: %+v", about[0])
+	}
+}
+
+// A value from the repository can end in the words that say the scan took too
+// long. An item that only quotes it is not about the time and must stay, or a
+// repository could hide a warning by arranging for the scan to be slow.
+func TestAHooksPathThatEndsInTheWordsAboutTheTimeIsNotTakenForTheTime(t *testing.T) {
+	outer := submoduleFarm(t, 2)
+	hostile := "%(prefix)/hooks: " + errScanTooLong.Error()
+	gitRun(t, outer, "config", "core.hooksPath", hostile)
+	rep := runOutOfTime(t, outer, "after")
+	var worked, about int
+	for _, p := range rep.Items {
+		if p.Kind != "unscannable" {
+			continue
+		}
+		if strings.Contains(p.Value, "core.hooksPath cannot be worked out") && strings.HasSuffix(p.Value, hostile) {
+			worked++
+		} else if strings.Contains(p.Value, errScanTooLong.Error()) {
+			about++
+		}
+	}
+	if worked != 1 {
+		t.Errorf("the item for the hooksPath was dropped or doubled (%d): %+v", worked, rep.Items)
+	}
+	if about != 1 {
+		t.Errorf("%d items are about the time running out, want one: %+v", about, rep.Items)
+	}
+}
+
+// The same, one step down: the value is only quoted, so it is not marked.
+func TestAnItemThatQuotesTheWordsAboutTheTimeIsKept(t *testing.T) {
+	quote := Program{Kind: "unscannable", Value: "core.hooksPath cannot be worked out: ~x: " + errScanTooLong.Error(), Where: "/r/config"}
+	got := oneTimeoutItem([]Program{quote}, "/r")
+	if len(got) != 2 || got[0].ID() != quote.ID() {
+		t.Errorf("an item that quotes the words was dropped: %+v", got)
+	}
+}
+
+// The one-item rule at the end of a slow scan folds the items that are marked as
+// made by the time running out, and the mark is set only by fsItem and
+// unscannableBecause. An item worded from an error anywhere else would be
+// unmarked, and the flake the rule was made for (two items about the time,
+// depending on which step noticed first) could come back at that step with no
+// test noticing. So in the scan's own files an error's words reach an
+// "unscannable" item only through unscannableBecause, and nothing else makes
+// one by hand.
+func TestAnUnscannableItemIsWordedFromAnErrorOnlyByUnscannableBecause(t *testing.T) {
+	fset := token.NewFileSet()
+	for _, name := range []string{"programs.go", "scanfs.go"} {
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			in := fn.Name.Name
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				at := func() string { return fset.Position(n.Pos()).String() + " in " + in }
+				switch x := n.(type) {
+				case *ast.CallExpr:
+					id, ok := x.Fun.(*ast.Ident)
+					if !ok {
+						return true
+					}
+					if id.Name == "firstWords" && in != "unscannableBecause" {
+						t.Errorf("%s: firstWords is called; use unscannableBecause, which marks an item made by the time running out", at())
+					}
+					if id.Name == "unscannable" && in != "unscannableBecause" && len(x.Args) >= 2 && mentionsErr(x.Args[1]) {
+						t.Errorf("%s: an unscannable item is worded from an error; use unscannableBecause", at())
+					}
+				case *ast.CompositeLit:
+					if tid, ok := x.Type.(*ast.Ident); !ok || tid.Name != "Program" || in == "unscannable" {
+						return true
+					}
+					for _, el := range x.Elts {
+						kv, ok := el.(*ast.KeyValueExpr)
+						if !ok {
+							continue
+						}
+						if k, ok := kv.Key.(*ast.Ident); ok && k.Name == "Kind" {
+							if lit, ok := kv.Value.(*ast.BasicLit); ok && lit.Value == `"unscannable"` {
+								t.Errorf("%s: an unscannable item is built by hand; use unscannable or unscannableBecause", at())
+							}
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+}
+
+// mentionsErr says whether an expression uses a variable called err, which is
+// where the words of a failure come from. The package's own error values
+// (errScanTooLong and the like) are named differently and are fixed words.
+func mentionsErr(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && (id.Name == "err" || id.Name == "e") {
+			found = true
+		}
+		return !found
+	})
+	return found
 }
