@@ -6,9 +6,11 @@ import { render } from "../assets/vendor/preact.mjs";
 import { html } from "../assets/html.js";
 import { Drawer } from "../assets/drawer/Drawer.js";
 import { Header } from "../assets/drawer/Header.js";
-import { MAX_ENTRIES, contextText, costText, fileOf, activityOf, lastEntries } from "../assets/drawer/Structured.js";
+import { MAX_ENTRIES, STOP_NOT_SENT_WORDS, contextText, costText, fileOf, activityOf, lastEntries } from "../assets/drawer/Structured.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore, paneState } from "./termfakes.mjs";
+import { FakeWebSocket, harness, hello } from "./fakes.mjs";
+import { Structured } from "../assets/drawer/Structured.js";
 
 const NOW = Date.parse("2026-10-21T09:20:00Z");
 const node = { pane: "p3", kind: "structured", structured: true, name: "shop-w2", role: "worker", agent: "gemini", status: "working", activity: "working", since: "2026-10-21T09:14:02Z" };
@@ -151,6 +153,54 @@ test("Stop sends structuredCancel for this pane, and a refusal is shown", () =>
     await m.set({ cancelError: { id: "p3", error: "That pane has nothing running to stop" } });
     assert.equal(m.container.find(".structured-note").textContent, "That pane has nothing running to stop");
   }));
+
+test("a Stop the store did not send says so, and the words go when a Stop is sent or another pane is opened", () =>
+  with_(push(), {}, async (m) => {
+    let up = false;
+    m.store.send = (cmd) => { m.store.sent.push(cmd); return up; };
+    m.container.find(".structured-stop").click();
+    await settle();
+    assert.equal(m.container.find(".structured-note--unsent").textContent, STOP_NOT_SENT_WORDS);
+    up = true;
+    m.container.find(".structured-stop").click();
+    await settle();
+    assert.equal(m.container.find(".structured-note--unsent"), null, "the words stayed after a Stop that was sent");
+    up = false;
+    m.container.find(".structured-stop").click();
+    await settle();
+    assert.ok(m.container.find(".structured-note--unsent"));
+    await m.set({ structured: push({ id: "p4" }) }, { ...node, pane: "p4" });
+    assert.equal(m.container.find(".structured-note--unsent"), null, "the words followed the drawer to another pane");
+  }));
+
+test("on the real store, a Stop pressed between the socket opening and the hello says it was not sent, and one after it is sent", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  const { store } = await harness();
+  const container = dom.document.createElement("div");
+  dom.body.appendChild(container);
+  store.start();
+  const ws = FakeWebSocket.last;
+  ws.open();
+  try {
+    render(html`<${Structured} pane="p3" st=${push()} store=${store} />`, container);
+    await settle();
+    container.find(".structured-stop").click();
+    await settle();
+    assert.equal(container.find(".structured-note--unsent").textContent, STOP_NOT_SENT_WORDS);
+    assert.deepEqual(ws.sent, [], "a command went out before the hello");
+    ws.frame(hello());
+    await settle();
+    container.find(".structured-stop").click();
+    await settle();
+    assert.equal(ws.commands("structuredCancel").length, 1);
+    assert.equal(container.find(".structured-note--unsent"), null);
+  } finally {
+    render(null, container);
+    store.stop();
+    restore();
+  }
+});
 
 test("a relay window draws the view but no prompt box and no Stop", () =>
   with_(push({ entries: [entry(1)] }), { remote: true }, async (m) => {
