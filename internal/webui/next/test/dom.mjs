@@ -6,6 +6,8 @@
 // of it: elements with attributes, children, event listeners, focus and
 // document.activeElement.
 
+import { options } from "../assets/vendor/preact.mjs";
+
 const EVENT_PROPS = ["onclick", "oninput", "onkeydown", "onmousedown", "onchange", "onfocus", "onblur"];
 
 // The links between nodes are not enumerable. A failing assert.equal on two
@@ -233,13 +235,34 @@ export function createDom() {
   return { document: doc, window: win, body: doc.body };
 }
 
+// Preact runs a component's effects after the next frame. It asks for the frame
+// through options.requestAnimationFrame when that is set, and otherwise waits
+// on a timer of 35 ms (there is no animation frame here), which is a time a
+// loaded machine can overrun before a test looks. So install() sets the hook to
+// run the effects at the next turn of the event loop and counts what is waiting,
+// and settle() waits for that count to be empty, not for a time.
+let waiting = 0;
+let installed = 0;
+
 /** install makes the fake document the global one for Preact, and returns what
  *  puts the globals back. */
 export function install(dom) {
   const had = { document: globalThis.document, window: globalThis.window };
+  const hadFrame = Object.prototype.hasOwnProperty.call(options, "requestAnimationFrame") ? options.requestAnimationFrame : undefined;
   globalThis.document = dom.document;
   globalThis.window = dom.window;
+  options.requestAnimationFrame = (run) => {
+    waiting++;
+    setTimeout(() => {
+      waiting--;
+      run();
+    }, 0);
+  };
+  installed++;
   return () => {
+    installed--;
+    if (hadFrame === undefined) delete options.requestAnimationFrame;
+    else options.requestAnimationFrame = hadFrame;
     globalThis.document = had.document;
     globalThis.window = had.window;
     if (had.document === undefined) delete globalThis.document;
@@ -247,8 +270,23 @@ export function install(dom) {
   };
 }
 
-/** settle waits for Preact to apply state changes and run effects, which it
- *  does after a frame (a short timer here, as there is no animation frame). */
-export function settle(ms = 160) {
-  return new Promise((r) => setTimeout(r, ms));
+/** settle waits for Preact to apply state changes and run effects, and for the
+ *  state changes those make in turn. With a fake DOM installed it waits until
+ *  no effect is waiting for a frame, over several turns of the event loop, so
+ *  it does not depend on how fast the machine is. ms, when given, is a time to
+ *  wait first, for a test that stands for a timer of its own. */
+export async function settle(ms) {
+  if (ms !== undefined) await new Promise((r) => setTimeout(r, ms));
+  if (installed === 0) {
+    // No hook is set, so Preact's own timers decide, and only a time helps.
+    if (ms === undefined) await new Promise((r) => setTimeout(r, 160));
+    return;
+  }
+  // A turn can run an effect, whose state change renders in a microtask and
+  // asks for a frame of its own, so the count is read again after each turn and
+  // must stay empty over three in a row.
+  for (let quiet = 0; quiet < 3; ) {
+    await new Promise((r) => setTimeout(r, 1));
+    quiet = waiting === 0 ? quiet + 1 : 0;
+  }
 }
