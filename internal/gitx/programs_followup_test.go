@@ -223,3 +223,38 @@ func TestAHooksFolderOverTheLimitIsLookedThroughByNameAndOneAtItIsListed(t *test
 		})
 	}
 }
+
+// Which step of a scan notices first that the time has run out is a matter of
+// timing, so the items it makes come in more than one spelling: the bare words,
+// and the words after what the step was doing ("git could not read it: ...").
+// All of them are replaced by the one item, and an unrelated item is kept.
+func TestEveryItemTheTimeRunningOutMadeIsReplacedByOne(t *testing.T) {
+	bare := errScanTooLong.Error()
+	items := []Program{
+		{Kind: "unscannable", Value: bare, Where: "/r/a"},
+		{Kind: "unscannable", Value: "git could not read it: " + bare, Where: "/r/.git/modules/s/config", Submodule: "s"},
+		{Kind: "unscannable", Value: "git config could not be read: " + bare, Where: "/r"},
+		{Kind: "unscannable", Value: "the file is a link to a share", Where: "/r/b"},
+		{Kind: "setting", Name: "core.sshcommand", Value: "ssh -i " + bare},
+	}
+	got := oneTimeoutItem(items, "/r")
+	var long, other int
+	for _, p := range got {
+		if p.Kind == "unscannable" && strings.Contains(p.Value, bare) {
+			long++
+		} else {
+			other++
+		}
+	}
+	if long != 1 {
+		t.Errorf("%d items say the scan took too long: %+v", long, got)
+	}
+	if other != 2 {
+		t.Errorf("an item that is not about the time was dropped or kept twice: %+v", got)
+	}
+	// Whichever spelling was made first, the result is the same.
+	again := oneTimeoutItem([]Program{{Kind: "unscannable", Value: bare}}, "/r")
+	if len(again) != 1 || again[0].ID() != got[len(got)-1].ID() {
+		t.Errorf("the item depends on which spelling was made: %+v and %+v", again, got[len(got)-1])
+	}
+}

@@ -452,16 +452,7 @@ func ScanPrograms(dir string) (Report, error) {
 	}
 	rep.Items = append(rep.Items, s.fsItems...)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		// One item says it, always the same: which paths a slow scan got to
-		// depends on how far it got, and an item that changed from one scan to the
-		// next would make the same repository look different every time.
-		kept := rep.Items[:0]
-		for _, p := range rep.Items {
-			if p.Kind != "unscannable" || p.Value != errScanTooLong.Error() {
-				kept = append(kept, p)
-			}
-		}
-		rep.Items = append(kept, unscannable(dir, errScanTooLong.Error()+" ("+scanTimeout.String()+"), so some of it was not looked at", ""))
+		rep.Items = oneTimeoutItem(rep.Items, dir)
 	}
 	if truncated {
 		rep.Items = append(rep.Items, Program{
@@ -1300,6 +1291,25 @@ func (f *finder) walkModules(base string, depth int) {
 			return
 		}
 	}
+}
+
+// oneTimeoutItem leaves one item that says the scan ran out of time, always the
+// same: which paths a slow scan got to depends on how far it got, and an item
+// that changed from one scan to the next would make the same repository look
+// different every time. The items the time running out made are found by the
+// error's words anywhere in the value, not only when the value is just those
+// words: a step that gave up wraps them ("git could not read it: the scan took
+// too long"), and which step noticed first is a matter of timing, because a
+// call that has finished and a context that has ended are both ready to be
+// chosen.
+func oneTimeoutItem(items []Program, dir string) []Program {
+	kept := items[:0]
+	for _, p := range items {
+		if p.Kind != "unscannable" || !strings.Contains(p.Value, errScanTooLong.Error()) {
+			kept = append(kept, p)
+		}
+	}
+	return append(kept, unscannable(dir, errScanTooLong.Error()+" ("+scanTimeout.String()+"), so some of it was not looked at", ""))
 }
 
 // scanSubmodule is ScanPrograms for a submodule's own git directory. A

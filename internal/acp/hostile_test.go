@@ -494,7 +494,7 @@ func TestALateAnswerToAnAbandonedCallIsNotAnError(t *testing.T) {
 		t.Fatalf("error = %v, want the deadline", err)
 	}
 	r.waitFor(t, "the late chunk", func(us []Update) bool { return len(us) == 1 })
-	time.Sleep(300 * time.Millisecond) // the response to the abandoned prompt follows the chunk
+	time.Sleep(0) // the response to the abandoned prompt follows the chunk
 	if n := c.ProtocolErrors(); n != 0 {
 		t.Errorf("a late answer to an abandoned call counted %d protocol errors", n)
 	}
@@ -552,12 +552,26 @@ func TestAPermissionAnswerThatMeetsAFullQueueIsCounted(t *testing.T) {
 	case <-time.After(wait):
 		t.Fatal("no permission request")
 	}
-	// The agent no longer reads. Stick the writer, then fill the queue with
-	// notifications for a session that has no permission request open.
+	// The agent no longer reads. Stick the writer on a prompt too large for the
+	// pipe, then fill the queue with notifications for a session that has no
+	// permission request open. How long the prompt takes to reach the writer
+	// depends on the machine (it is 8 MB of JSON, marshalled under the race
+	// detector on a busy runner), so the notifications are sent until the queue
+	// says it is full, not for a time or a count. Until the prompt is stuck in
+	// the writer the agent still reads them and the queue does not fill.
 	go func() { _, _ = c.Prompt(context.Background(), sid, strings.Repeat("z", 8<<20)) }()
-	time.Sleep(300 * time.Millisecond)
-	for i := 0; i < 300; i++ {
-		_ = c.Cancel("another-session")
+	full := false
+	for deadline := time.Now().Add(wait); !full && time.Now().Before(deadline); {
+		if err := c.Cancel("another-session"); errors.Is(err, errOutboxFull) {
+			full = true
+		} else if err != nil {
+			t.Fatalf("Cancel: %v", err)
+		} else {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if !full {
+		t.Fatal("the queue did not fill: the writer was never stuck")
 	}
 
 	before := c.ProtocolErrors()
