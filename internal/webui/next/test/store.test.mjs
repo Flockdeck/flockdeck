@@ -273,3 +273,16 @@ test("a push of the project that was watched before is kept as it came, for a vi
   ws.frame(graph("C:/b"));
   assert.equal(store.getState().graph.root, "C:/b");
 });
+
+test("an accepted paneSend is kept as sent, with a sequence number that grows", async () => {
+  const { store, ws } = await up();
+  ws.frame(hello());
+  assert.equal(store.getState().sent, null);
+  ws.frame({ type: "paneSend", id: "p1", queued: true, shell: false });
+  const a = store.getState().sent;
+  assert.deepEqual({ id: a.id, queued: a.queued, shell: a.shell }, { id: "p1", queued: true, shell: false });
+  ws.frame({ type: "paneSend", id: "p1", queued: false, shell: false, waiting: true });
+  const b = store.getState().sent;
+  assert.ok(b.seq > a.seq);
+  assert.equal(b.waiting, true);
+});

@@ -44,6 +44,9 @@
 //   notice        the latest notice as { seq, text, error, ... }, or null. seq
 //                 grows with each one, so a view can tell a new notice from a
 //                 repeat of the same text.
+//   sent          the latest accepted paneSend as { seq, id, queued, shell,
+//                 waiting, routed }, or null. A refused one arrives as a notice
+//                 with error true. seq grows with each one.
 //   dropped       how many frames were dropped as malformed
 //
 // The graph is never asked for when remote is true, and never before the hello
@@ -67,7 +70,7 @@ const initial = () => ({
   connection: "idle", retryInMs: 0,
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
-  notice: null, dropped: 0,
+  notice: null, sent: null, dropped: 0,
 });
 
 export function createStore(opts) {
@@ -78,6 +81,7 @@ export function createStore(opts) {
   let watching = null;
   let reqSeq = 0;
   let noticeSeq = 0;
+  let sentSeq = 0;
 
   const notify = () => {
     for (const fn of [...listeners]) {
@@ -154,6 +158,10 @@ export function createStore(opts) {
             set({ graphError: { op: msg.op, error } });
           }
         }
+        break;
+      case "paneSend":
+        // The answer to an accepted paneSend. A refusal comes as a notice.
+        set({ sent: { ...msg, seq: ++sentSeq } });
         break;
       case "notice":
         set({ notice: { ...msg, seq: ++noticeSeq } });
