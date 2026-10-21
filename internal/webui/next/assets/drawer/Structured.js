@@ -22,6 +22,10 @@ import { clip } from "../graph/Node.js";
 import { Row, Icon, toolKind } from "./Conversation.js";
 
 export const MAX_ENTRIES = 50;
+/** SEND_NOT_SENT_WORDS is what the prompt box says when the store did not send the text; the draft stays. */
+export const SEND_NOT_SENT_WORDS = "Not connected to Flockdeck, so the text was not sent.";
+/** STOP_NOT_SENT_WORDS is what Stop says when the store did not send it: the socket is down or the hello is not in. */
+export const STOP_NOT_SENT_WORDS = "Not connected to Flockdeck, so Stop was not sent.";
 // Each Stop carries its own req, so the store can tell which pane a refusal is for.
 let cancelSeq = 0;
 
@@ -81,6 +85,9 @@ export function lastEntries(st) {
  *  reached through the relay. */
 export function Structured({ pane, st, error = null, cancelError = null, desk = true, store }) {
   const [draft, setDraft] = useState("");
+  // The pane a Stop that was not sent was pressed for, so the words do not follow the drawer to another pane.
+  const [stopFailed, setStopFailed] = useState("");
+  const [sendFailed, setSendFailed] = useState("");
   if (error) return html`<p class="drawer-stub conv-refused" role="status">${clip(String(error.error || ""), 300)}</p>`;
   if (!st || st.id !== pane) return html`<p class="drawer-stub">Loading the agent.</p>`;
   const act = activityOf(st);
@@ -91,10 +98,15 @@ export function Structured({ pane, st, error = null, cancelError = null, desk = 
     if (e && e.preventDefault) e.preventDefault();
     const text = draft.trim();
     if (!text) return;
-    if (store.send({ cmd: "paneSend", id: pane, text })) setDraft("");
+    if (store.send({ cmd: "paneSend", id: pane, text })) {
+      setDraft("");
+      setSendFailed("");
+    } else {
+      setSendFailed(pane);
+    }
   };
   const stop = () => {
-    store.send({ cmd: "structuredCancel", id: pane, req: "c" + ++cancelSeq });
+    setStopFailed(store.send({ cmd: "structuredCancel", id: pane, req: "c" + ++cancelSeq }) ? "" : pane);
   };
   return html`
     <div class="structured" data-structured-pane=${pane}>
@@ -118,6 +130,8 @@ export function Structured({ pane, st, error = null, cancelError = null, desk = 
             <textarea class="structured-input" aria-label="Message to the agent" rows="2" value=${draft} onInput=${(e) => setDraft(e.target.value)}></textarea>
             <button type="submit" class="drawer-btn structured-send" disabled=${draft.trim() === ""}>Send</button>
             <button type="button" class="drawer-btn structured-stop" onClick=${stop}>Stop</button>
+            ${sendFailed === pane ? html`<p class="structured-note structured-note--unsent structured-note--send" role="status">${SEND_NOT_SENT_WORDS}</p>` : null}
+            ${stopFailed === pane ? html`<p class="structured-note structured-note--unsent" role="status">${STOP_NOT_SENT_WORDS}</p>` : null}
             ${cancelError && cancelError.id === pane ? html`<p class="structured-note" role="status">${clip(String(cancelError.error || ""), 300)}</p>` : null}
           </form>`
         : null}

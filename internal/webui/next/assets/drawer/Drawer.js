@@ -141,7 +141,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
       <div class="drawer-panel" role="tabpanel" id="drawer-panel-terminal" aria-labelledby="drawer-tab-terminal" hidden=${shown !== "terminal"}>
         ${terminal
           ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} onReady=${(c) => { terminalRef.current = { pane: node.pane, ctl: c }; }} ...${terminalOptions || {}} />`
-          : html`<${Structured} pane=${node.pane} st=${state.structured} error=${state.structuredError} cancelError=${state.cancelError} desk=${!state.remote} store=${store} />`}
+          : html`<${Structured} key=${node.pane} pane=${node.pane} st=${state.structured} error=${state.structuredError} cancelError=${state.cancelError} desk=${!state.remote} store=${store} />`}
       </div>
       ${hasConv
         ? html`<div class="drawer-panel" role="tabpanel" id="drawer-panel-conversation" aria-labelledby="drawer-tab-conversation" hidden=${shown !== "conversation"}>
