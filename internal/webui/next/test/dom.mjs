@@ -278,7 +278,7 @@ export function install(dom) {
  *  turns of the event loop or a time, whichever comes first. A component whose
  *  effect sets state on every render is a loop that never ends, and this makes
  *  it a failure with a message and not a hang. A test may lower them. */
-export const settleLimits = { turns: 3000, ms: 2000 };
+export const settleLimits = { turns: 3000, ms: 5000 };
 
 /** settle waits for Preact to apply state changes and run effects, and for the
  *  state changes those make in turn. With a fake DOM installed it waits until

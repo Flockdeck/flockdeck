@@ -72,11 +72,14 @@ test("settle says so when the page never goes quiet", async () => {
   const box = dom.document.createElement("div");
   dom.body.appendChild(box);
   const was = { ...settleLimits };
-  settleLimits.turns = 200;
+  settleLimits.turns = 20;
   settleLimits.ms = 5000;
   try {
     render(html`<${Runaway} />`, box);
+    // The turns limit stops a runaway well before the time one does.
+    const started = Date.now();
     await assert.rejects(settle(), /settle: still busy after \d+ turns/);
+    assert.ok(Date.now() - started < 1000, "the first rejection came from the turns limit, not the clock");
     // And by time, when the turns are not reached first.
     settleLimits.turns = 1e9;
     settleLimits.ms = 50;
