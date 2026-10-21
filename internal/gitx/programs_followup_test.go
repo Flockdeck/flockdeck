@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -256,5 +257,80 @@ func TestEveryItemTheTimeRunningOutMadeIsReplacedByOne(t *testing.T) {
 	again := oneTimeoutItem([]Program{{Kind: "unscannable", Value: bare}}, "/r")
 	if len(again) != 1 || again[0].ID() != got[len(got)-1].ID() {
 		t.Errorf("the item depends on which spelling was made: %+v and %+v", again, got[len(got)-1])
+	}
+}
+
+// lateContext is a context whose time ran out while the scan was between two
+// calls: after expire, Err says the deadline passed, the first call to Done
+// gets a channel that never closes (so a call already in hand finishes and wins
+// its race), and every later call gets a closed one (so the next call gives up
+// as soon as it is made). That is one of the orders a loaded machine produces
+// at random, made to happen every time.
+type lateContext struct {
+	context.Context
+	expired atomic.Bool
+	doneAt  atomic.Int32
+	closed  chan struct{}
+}
+
+func newLateContext() *lateContext {
+	c := &lateContext{Context: context.Background(), closed: make(chan struct{})}
+	close(c.closed)
+	return c
+}
+
+func (c *lateContext) Err() error {
+	if c.expired.Load() {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+func (c *lateContext) Done() <-chan struct{} {
+	if !c.expired.Load() {
+		return nil
+	}
+	if c.doneAt.Add(1) == 1 {
+		return nil
+	}
+	return c.closed
+}
+
+// A submodule whose configuration is looked at (and found) just before the time
+// runs out and is read just after it has: the read says "git could not read it:
+// the scan took too long", which is not the bare words. The report has one item
+// about the time, as it has for every other order.
+func TestAScanWhoseTimeRunsOutBetweenLookingAndReadingHasOneItemAboutTheTime(t *testing.T) {
+	outer := submoduleFarm(t, 2)
+	wasTimeout, wasStep, wasContext := scanTimeout, submoduleStep, scanContext
+	t.Cleanup(func() { scanTimeout, submoduleStep, scanContext = wasTimeout, wasStep, wasContext })
+	scanTimeout = time.Minute
+	ctx := newLateContext()
+	scanContext = func() (context.Context, context.CancelFunc) { return ctx, func() {} }
+	stepped := false
+	submoduleStep = func(_ context.Context, at string) {
+		if at == "start" && !stepped {
+			stepped = true
+			ctx.expired.Store(true)
+		}
+	}
+	rep, err := ScanPrograms(outer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stepped {
+		t.Fatal("the scan did not reach a submodule")
+	}
+	var about []Program
+	for _, p := range rep.Items {
+		if p.Kind == "unscannable" && strings.Contains(p.Value, errScanTooLong.Error()) {
+			about = append(about, p)
+		}
+	}
+	if len(about) != 1 {
+		t.Fatalf("%d items are about the time running out, want one: %+v", len(about), about)
+	}
+	if !strings.HasPrefix(about[0].Value, errScanTooLong.Error()+" (") {
+		t.Errorf("the one item is not the usual one: %+v", about[0])
 	}
 }
