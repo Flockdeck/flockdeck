@@ -4,12 +4,17 @@
 // and the drawer slot holds the one agent a click or key on a graph box opened.
 // main.js makes the store and renders this; it is a component of its own so a
 // test can render it on a fake socket.
+//
+// The strip along the top holds the manager bar, for the project whose graph is
+// on screen. It is not one of the keyboard regions: it is reached with Tab like
+// any control, and takes the keyboard once when the graph first names a manager.
 import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { useStore } from "../lib/use-store.js";
 import { Drawer, useDrawer } from "../drawer/Drawer.js";
+import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
 import { Shell } from "./app.js";
-import { Home } from "./Home.js";
+import { Home, sameProject } from "./Home.js";
 
 // What the shell is given before the first hello and state. Constants, so the
 // shell does not take them for a change on every render.
@@ -45,16 +50,30 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     last.current = snap.connection;
   }, [snap.connection]);
 
+  // The picture on screen, for the project the window is on. Home reports it
+  // from an effect, so for one render after a switch it is still the old
+  // project's: nothing is bound to it until it is this project's.
+  const current = shown && selected && sameProject(shown.root, selected) ? shown : null;
+
   const mainRef = useRef(null);
   const paneIds = useMemo(() => (shown ? new Set(shown.nodes.map((n) => n.pane)) : NO_PANES), [shown]);
   const drawer = useDrawer({ mainRef, paneIds });
-  const node = drawer.pane && shown ? shown.byPane.get(drawer.pane) : null;
+  const node = drawer.pane && current ? current.byPane.get(drawer.pane) : null;
   const pane = node ? (kept.current.state.panes || {})[node.pane] || null : null;
+
+  // The manager of the project on screen, from the picture Home draws: a push
+  // that cannot be read leaves the last good one, and another project's does not
+  // count. Before any graph there is no bar, so "no manager" is not said while
+  // the graph is still being read.
+  const bar = current && !snap.graphGone
+    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} />`
+    : null;
 
   return html`<${Shell}
     hello=${kept.current.hello}
     state=${kept.current.state}
     onWatch=${onWatch}
+    top=${bar}
     matchMedia=${matchMedia}
     window=${win}
     mainRef=${mainRef}
