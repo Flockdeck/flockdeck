@@ -107,12 +107,13 @@ func TestContextOfKeepsAFixedBeginLineOfAnOpenKeyOnly(t *testing.T) {
 
 	plain := strings.Repeat("z", rpcContextBytes+500)
 	for name, s := range map[string]string{
-		"short":                    "short",
-		"no key":                   plain,
-		"a closed key":             keyBegin + body(rpcContextBytes+500) + keyEnd + plain,
-		"a key closed at the end":  keyBegin + body(rpcContextBytes+500) + keyEnd,
-		"a key begun in the tail":  plain + keyBegin + body(500),
-		"a BEGIN that is no label": "-----BEGIN CERTIFICATE-----\n" + body(rpcContextBytes+500),
+		"short":                   "short",
+		"no key":                  plain,
+		"a closed key":            keyBegin + body(rpcContextBytes+500) + keyEnd + plain,
+		"a key closed at the end": keyBegin + body(rpcContextBytes+500) + keyEnd,
+		"a fake END and then the real one at the end": keyBegin + body(rpcContextBytes+500) + "-----END CERTIFICATE-----\n" + body(100) + keyEnd,
+		"a key begun in the tail":                     plain + keyBegin + body(500),
+		"a BEGIN that is no label":                    "-----BEGIN CERTIFICATE-----\n" + body(rpcContextBytes+500),
 	} {
 		ctx, open := contextOf("", 0, s)
 		if ctx != tailBytes(s, rpcContextBytes) {
@@ -183,4 +184,18 @@ func TestContextOfCountsEachKeyFromItsOwnBegin(t *testing.T) {
 		t.Errorf("the second key is counted as %d bytes", open)
 	}
 	_ = ctx
+}
+
+// Lines lost in the middle of the text after a BEGIN line do not start the
+// bound again: the count of the open key is carried across each gap.
+func TestTheBoundOfAnOpenKeyRunsOnAcrossGaps(t *testing.T) {
+	parts := []string{"the regexp is " + rpcBeginLine + " and so on\n" + body(8<<10)}
+	for i := 0; i < 20; i++ {
+		parts = append(parts, strings.Repeat("plain words here. ", 450), gapMark)
+	}
+	parts = append(parts, "LASTWORDSOFTHESTREAM and nothing more")
+	got := recorded(t, parts...)
+	if !strings.Contains(got, "LASTWORDSOFTHESTREAM") {
+		t.Errorf("text 160 KB after an unended BEGIN line, with gaps, was still redacted")
+	}
 }
