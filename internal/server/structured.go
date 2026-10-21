@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 	"unicode"
@@ -14,7 +15,8 @@ import (
 )
 
 // This file is what a window is told about a structured pane: structuredSnapshot,
-// structuredWatch, structuredUnwatch and structuredDetail. They are the backend
+// structuredWatch, structuredUnwatch and structuredDetail, and what it may ask of
+// it: structuredCancel. They are the backend
 // of the minimal drawer. The conversation hub of stage 3 replaces them later, so
 // the entries keep the fields of transcript.Entry and add nothing to that
 // vocabulary but a flag that says text was cut.
@@ -68,6 +70,8 @@ const (
 	structuredNotPane  = "That pane is not a structured pane"
 	structuredTooMany  = "Too many structured panes are being watched. Stop watching one first"
 	structuredNoEntry  = "That entry is not there"
+	// structuredIdle is what structuredCancel says when the pane has no turn to stop.
+	structuredIdle = "That pane has nothing running to stop"
 )
 
 // structuredEntry is a transcript entry cut down to what a push carries: no
@@ -374,6 +378,8 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 			return
 		}
 		c.send(r.data)
+	case "structuredCancel":
+		s.do(func() { s.structuredCancel(c, cmd) })
 	case "structuredWatch":
 		s.do(func() { s.structuredWatch(c, cmd) })
 	case "structuredUnwatch":
@@ -415,6 +421,28 @@ func (e errStructured) Error() string { return string(e) }
 
 // structuredWatch subscribes the window to one pane, replacing any it watched.
 // It must run on the workspace goroutine.
+// structuredCancel ends the running turn of the one structured pane named by
+// cmd.ID, and drops the prompts waiting behind it; an open permission request
+// of that pane is answered cancelled. It touches that pane's own runtime and
+// nothing else. A window reached through the relay was refused above, and a
+// viewer by the table of commands. The answer is a teamResult for the op.
+func (s *Server) structuredCancel(c *controlClient, cmd command) {
+	rt := s.ws.StructuredRuntime(cmd.ID)
+	if rt == nil {
+		refuse(c, cmd, errStructured(structuredNotPane))
+		return
+	}
+	if err := rt.Cancel(); err != nil {
+		if errors.Is(err, structured.ErrNotRunning) {
+			refuse(c, cmd, errStructured(structuredIdle))
+			return
+		}
+		refuse(c, cmd, errStructured("The turn could not be stopped: "+cleanForNotice(err.Error())))
+		return
+	}
+	c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, OK: true})
+}
+
 func (s *Server) structuredWatch(c *controlClient, cmd command) {
 	rt := s.ws.StructuredRuntime(cmd.ID)
 	if rt == nil {

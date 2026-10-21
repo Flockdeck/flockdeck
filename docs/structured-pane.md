@@ -18,6 +18,7 @@ A window sends a command as one JSON object with a `cmd` field, over its control
 | `structuredWatch` | `id`, `req` | Answers with the `structured` message now, and sends it again whenever it changes. One pane at a time: watching another replaces the first. | yes | refused |
 | `structuredUnwatch` | none | Stops the pushes. | yes | refused |
 | `structuredDetail` | `id`, `entry`, `req` | Answers with a `structuredDetail` message for one entry. | yes | refused |
+| `structuredCancel` | `id`, `req` | Ends the running turn of that pane and drops the prompts waiting behind it; an open permission request of the pane is answered cancelled. Answers with a `teamResult` (`ok`), or an error if the pane is not a structured pane or has nothing running. Only that pane's own session is touched. | yes | refused |
 
 `id` is the pane's id. `req` is a token of the window's choosing; it is copied into the answer.
 
