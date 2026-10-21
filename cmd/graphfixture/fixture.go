@@ -26,6 +26,16 @@ type fixture struct {
 	proj string
 	// nodes are the panes of the graph, in the order the file has them.
 	nodes []fixtureNode
+	// needs are the items the graph says need the person, by pane: the
+	// permission and the question items the state push's views are made from.
+	needs []fixtureNeed
+}
+
+// fixtureNeed is one item of a team's needs list, or of the solo list.
+type fixtureNeed struct {
+	Kind string `json:"kind"`
+	Pane string `json:"pane"`
+	Text string `json:"text"`
 }
 
 type fixtureNode struct {
@@ -111,6 +121,10 @@ func loadFixture(dir, which string) (*fixture, error) {
 		Root    string        `json:"root"`
 		Project string        `json:"project"`
 		Nodes   []fixtureNode `json:"nodes"`
+		Teams   []struct {
+			Needs []fixtureNeed `json:"needs"`
+		} `json:"teams"`
+		SoloNeeds []fixtureNeed `json:"soloNeeds"`
 	}
 	if err := json.Unmarshal(raw, &g); err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
@@ -118,7 +132,12 @@ func loadFixture(dir, which string) (*fixture, error) {
 	if g.Type != "graph" || g.Root == "" || len(g.Nodes) == 0 {
 		return nil, fmt.Errorf("%s is not a graph message", name)
 	}
-	return &fixture{name: name, raw: raw, root: g.Root, proj: g.Project, nodes: g.Nodes}, nil
+	fx := &fixture{name: name, raw: raw, root: g.Root, proj: g.Project, nodes: g.Nodes}
+	for _, t := range g.Teams {
+		fx.needs = append(fx.needs, t.Needs...)
+	}
+	fx.needs = append(fx.needs, g.SoloNeeds...)
+	return fx, nil
 }
 
 func (f *fixture) has(pane string) bool {
@@ -128,6 +147,39 @@ func (f *fixture) has(pane string) bool {
 		}
 	}
 	return false
+}
+
+// The words of a terminal permission prompt's two options, with the ids and kinds
+// the desk gives them for Claude's Bash prompt. They are copied here, and not
+// read from internal/workspace, for the reason the limits in server.go are; a
+// test pins them to workspace.
+const (
+	optionYesID    = "yes"
+	optionYesName  = "Yes"
+	optionNoID     = "no"
+	optionNoName   = "No, and tell Claude what to do differently"
+	kindAllowOnce  = "allow_once"
+	kindRejectOnce = "reject_once"
+)
+
+// permissionView is the permission view the desk puts on a waiting terminal
+// pane, made from the fixture's permission item: the item's text is the Bash
+// command, as it is in the graph the desk sends. Its text there is cut to a
+// line, so this is the whole of what the fixture holds.
+func permissionView(command string) map[string]any {
+	return map[string]any{
+		"tool": "Bash", "summary": "Run: " + command, "command": command,
+		"options": []any{
+			map[string]any{"id": optionYesID, "name": optionYesName, "kind": kindAllowOnce},
+			map[string]any{"id": optionNoID, "name": optionNoName, "kind": kindRejectOnce},
+		},
+	}
+}
+
+// askView is the ask view of a waiting pane: one question with the item's text.
+// The fixture holds no options for a question, so the view carries none.
+func askView(question string) map[string]any {
+	return map[string]any{"questions": []any{map[string]any{"question": question, "options": []any{}}}}
 }
 
 // helloMsg is what a window is greeted with: the key table as the desk has it
@@ -154,6 +206,21 @@ func (f *fixture) stateMsg() map[string]any {
 	waiting, working := 0, 0
 	panes := map[string]any{}
 	var leaves []map[string]any
+	// The first permission and the first question of each terminal pane become its
+	// views. A structured pane's card does not come with the state push.
+	perms, asks := map[string]string{}, map[string]string{}
+	for _, nd := range f.needs {
+		switch nd.Kind {
+		case "permission":
+			if _, ok := perms[nd.Pane]; !ok {
+				perms[nd.Pane] = nd.Text
+			}
+		case "ask":
+			if _, ok := asks[nd.Pane]; !ok {
+				asks[nd.Pane] = nd.Text
+			}
+		}
+	}
 	for i, n := range f.nodes {
 		act := n.Activity
 		if act == "" {
@@ -184,6 +251,13 @@ func (f *fixture) stateMsg() map[string]any {
 		}
 		if n.Unread > 0 {
 			p["unread"] = n.Unread
+		}
+		if kind == "terminal" {
+			if text, ok := perms[n.Pane]; ok {
+				p["permission"] = permissionView(text)
+			} else if text, ok := asks[n.Pane]; ok {
+				p["ask"] = askView(text)
+			}
 		}
 		panes[n.Pane] = p
 		leaves = append(leaves, map[string]any{"id": fmt.Sprintf("n%d", i), "pane": n.Pane, "weight": 1.0})
