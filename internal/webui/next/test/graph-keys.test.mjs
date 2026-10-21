@@ -359,3 +359,19 @@ test("both graph actions are in the palette, and running one from it works", () 
     await settle();
     assert.equal(m.activePane(), "160d47b0", "running it from the palette did not go to the first agent that needs you");
   }));
+
+test("an action chosen from the palette runs once: opening and closing the palette again does not run it again", () =>
+  withPage("04-eight-helpers-three-waiting", async (m) => {
+    const row = (id) => m.container.findAll("li").find((e) => e.getAttribute("data-action") === id);
+    press(m, "palette");
+    await settle();
+    row("nextNeedsYou").click();
+    await settle();
+    assert.equal(m.activePane(), "160d47b0");
+    m.box("d1faf784").focus();
+    press(m, "palette");
+    await settle();
+    m.active().keydown("Escape");
+    await settle();
+    assert.equal(m.activePane(), "d1faf784", "closing the palette ran the earlier choice again");
+  }));
