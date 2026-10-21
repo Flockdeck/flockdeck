@@ -258,6 +258,9 @@ async function mount(name, edit = (g) => g) {
   await settle();
   ws().frame(edit(load(name)));
   await settle();
+  // A fixed pause is not enough on a slow runner (the first page test on macOS
+  // CI found no boxes after 160 ms), so wait for the graph, up to 10 s.
+  for (let i = 0; i < 500 && container.findAll("[data-pane]").length === 0; i++) await settle(20);
   return {
     dom, container, ws,
     box: (pane) => container.findAll("[data-pane]").find((e) => e.localName === "g" && e.getAttribute("data-pane") === pane && e.getAttribute("role") === "button"),
