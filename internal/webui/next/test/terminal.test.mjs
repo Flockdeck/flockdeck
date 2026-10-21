@@ -637,8 +637,51 @@ test("every class the terminal's chrome draws for its host and pane has a rule i
   const css = readFileSync(new URL("../assets/app.css", import.meta.url), "utf8");
   const out = renderToString(html`<${TerminalChrome} state=${{ phase: "open", reason: "", ptySize: null, sizeNote: null }} hostRef=${{ current: null }} />`);
   const classes = [...out.matchAll(/class="([^"]+)"/g)].flatMap((m) => m[1].split(/\s+/));
-  for (const c of ["terminal-pane", "terminal-host"]) {
+  // The rule that lays each out, by its selector at the start of a line and what
+  // its body says, so a rule for another selector that mentions the class does not count.
+  const rules = [
+    ["terminal-pane", /^\.terminal-pane \{[^}]*position: relative/m],
+    ["terminal-host", /^\.terminal-pane \.terminal-host \{[^}]*position: absolute[^}]*inset: 0/m],
+  ];
+  for (const [c, rule] of rules) {
     assert.ok(classes.includes(c), `the chrome no longer draws ${c}`);
-    assert.ok(new RegExp("\\." + c + "(?![\\w-])").test(css), `app.css has no rule for .${c}`);
+    assert.ok(rule.test(css), `app.css has no rule that lays out .${c}`);
   }
+});
+
+test("after a keyless hello the cover offers no Try again, and tryAgain dials nothing", async () => {
+  const { h } = await refusedUnderKey();
+  h.store.set({ hello: hello({ remote: true }) });
+  assert.equal(h.ctl.state.reason, NO_KEY_REASON);
+  const out = renderToString(html`<${TerminalChrome} state=${h.ctl.state} hostRef=${{ current: null }} />`);
+  assert.ok(out.includes(NO_KEY_REASON));
+  assert.ok(!out.includes("Try again"), "the cover offers a button that would dial in plain");
+  h.ctl.tryAgain();
+  assert.equal(PtySocket.instances.length, 1, "tryAgain made a plain socket");
+  h.ctl.dispose();
+});
+
+test("a refusal under no key keeps the server's own reason through a keyless hello", () => {
+  const h = build({ snap: { hello: hello({ remote: true }), state: paneState({ p1: {} }) } });
+  h.ctl.start();
+  const ws = PtySocket.last;
+  ws.open();
+  ws.serverClose(1008, "not allowed here");
+  assert.equal(h.ctl.state.reason, "not allowed here");
+  h.store.set({ hello: hello({ remote: true, prefs: {} }) });
+  assert.equal(h.ctl.state.reason, "not allowed here");
+  h.ctl.tryAgain();
+  assert.equal(PtySocket.instances.length, 2, "Try again on an ordinary refusal stopped working");
+  h.ctl.dispose();
+});
+
+test("when the key comes back the refusal's own reason is shown again, without a redial", async () => {
+  const { h, host } = await refusedUnderKey();
+  const own = h.ctl.state.reason;
+  h.store.set({ hello: hello({ remote: true }) });
+  assert.equal(h.ctl.state.reason, NO_KEY_REASON);
+  h.store.set({ hello: hello({ remote: true, e2ePublicKey: host.pub }) });
+  assert.equal(h.ctl.state.reason, own);
+  assert.equal(PtySocket.instances.length, 1);
+  h.ctl.dispose();
 });
