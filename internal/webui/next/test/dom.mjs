@@ -243,12 +243,14 @@ export function createDom() {
 // and settle() waits for that count to be empty, not for a time.
 let waiting = 0;
 let installed = 0;
+// What the hook was when this file was loaded, which is what it goes back to
+// when the last install is undone, whatever order the undoing comes in.
+const originalFrame = Object.prototype.hasOwnProperty.call(options, "requestAnimationFrame") ? options.requestAnimationFrame : undefined;
 
 /** install makes the fake document the global one for Preact, and returns what
  *  puts the globals back. */
 export function install(dom) {
   const had = { document: globalThis.document, window: globalThis.window };
-  const hadFrame = Object.prototype.hasOwnProperty.call(options, "requestAnimationFrame") ? options.requestAnimationFrame : undefined;
   globalThis.document = dom.document;
   globalThis.window = dom.window;
   options.requestAnimationFrame = (run) => {
@@ -260,9 +262,11 @@ export function install(dom) {
   };
   installed++;
   return () => {
-    installed--;
-    if (hadFrame === undefined) delete options.requestAnimationFrame;
-    else options.requestAnimationFrame = hadFrame;
+    // The hook is shared, so it goes back only when the last install is undone.
+    if (--installed === 0) {
+      if (originalFrame === undefined) delete options.requestAnimationFrame;
+      else options.requestAnimationFrame = originalFrame;
+    }
     globalThis.document = had.document;
     globalThis.window = had.window;
     if (had.document === undefined) delete globalThis.document;
@@ -270,11 +274,22 @@ export function install(dom) {
   };
 }
 
+/** How long settle waits before it says the page never went quiet: a number of
+ *  turns of the event loop or a time, whichever comes first. A component whose
+ *  effect sets state on every render is a loop that never ends, and this makes
+ *  it a failure with a message and not a hang. A test may lower them. */
+export const settleLimits = { turns: 3000, ms: 2000 };
+
 /** settle waits for Preact to apply state changes and run effects, and for the
  *  state changes those make in turn. With a fake DOM installed it waits until
  *  no effect is waiting for a frame, over several turns of the event loop, so
- *  it does not depend on how fast the machine is. ms, when given, is a time to
- *  wait first, for a test that stands for a timer of its own. */
+ *  it does not depend on how fast the machine is.
+ *
+ *  What it does not wait for is work that starts a timer or a request of its
+ *  own: an effect that calls setTimeout, a store that delays a notification, a
+ *  socket that answers later. Nothing here can see those, so a test that has
+ *  one gives ms, a time to wait first, as it did before this waited on Preact.
+ *  It throws when the page has not gone quiet within settleLimits. */
 export async function settle(ms) {
   if (ms !== undefined) await new Promise((r) => setTimeout(r, ms));
   if (installed === 0) {
@@ -283,9 +298,16 @@ export async function settle(ms) {
     return;
   }
   // A turn can run an effect, whose state change renders in a microtask and
-  // asks for a frame of its own, so the count is read again after each turn and
-  // must stay empty over three in a row.
-  for (let quiet = 0; quiet < 3; ) {
+  // asks for a frame of its own, so the count is read after each turn. Work
+  // that Preact starts shows in the count by the end of the turn that starts
+  // it, so one empty turn would do; two are a margin, not something a case
+  // needs.
+  const until = Date.now() + settleLimits.ms;
+  let turns = 0;
+  for (let quiet = 0; quiet < 2; ) {
+    if (++turns > settleLimits.turns || Date.now() > until) {
+      throw new Error(`settle: still busy after ${turns} turns (${waiting} effect${waiting === 1 ? "" : "s"} waiting): is an effect setting state on every render?`);
+    }
     await new Promise((r) => setTimeout(r, 1));
     quiet = waiting === 0 ? quiet + 1 : 0;
   }

@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { render } from "../assets/vendor/preact.mjs";
 import { useEffect, useState } from "../assets/vendor/hooks.mjs";
 import { html } from "../assets/html.js";
-import { createDom, install, settle } from "./dom.mjs";
+import { createDom, install, settle, settleLimits } from "./dom.mjs";
 
 function Chain({ depth }) {
   const [n, setN] = useState(0);
@@ -54,5 +54,54 @@ test("install puts Preact's frame hook back", async () => {
   const restore = install(createDom());
   assert.equal(typeof options.requestAnimationFrame, "function");
   restore();
+  assert.equal(options.requestAnimationFrame, before);
+});
+
+test("settle says so when the page never goes quiet", async () => {
+  // An effect that sets state on every render is a loop with no end.
+  let stop = false;
+  function Runaway() {
+    const [n, setN] = useState(0);
+    useEffect(() => {
+      if (!stop) setN(n + 1);
+    });
+    return html`<p>${n}</p>`;
+  }
+  const dom = createDom();
+  const restore = install(dom);
+  const box = dom.document.createElement("div");
+  dom.body.appendChild(box);
+  const was = { ...settleLimits };
+  settleLimits.turns = 200;
+  settleLimits.ms = 5000;
+  try {
+    render(html`<${Runaway} />`, box);
+    await assert.rejects(settle(), /settle: still busy after \d+ turns/);
+    // And by time, when the turns are not reached first.
+    settleLimits.turns = 1e9;
+    settleLimits.ms = 50;
+    await assert.rejects(settle(), /settle: still busy/);
+  } finally {
+    stop = true;
+    Object.assign(settleLimits, was);
+    await settle();
+    render(null, box);
+    restore();
+  }
+});
+
+test("install puts the hook back when the last one is undone, in any order", async () => {
+  const { options } = await import("../assets/vendor/preact.mjs");
+  const before = options.requestAnimationFrame;
+  const a = install(createDom());
+  const b = install(createDom());
+  a();
+  assert.equal(typeof options.requestAnimationFrame, "function", "b is still installed");
+  b();
+  assert.equal(options.requestAnimationFrame, before);
+  const c = install(createDom());
+  const d = install(createDom());
+  d();
+  c();
   assert.equal(options.requestAnimationFrame, before);
 });
