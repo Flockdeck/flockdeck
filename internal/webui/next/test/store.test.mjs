@@ -162,6 +162,41 @@ test("a local window still unwatches on stop and when the watch is replaced", as
   assert.equal(ws.commands("structuredUnwatch").length, 2);
 });
 
+test("a desk-only command waits for the hello, and other commands do not", async () => {
+  const { store, ws } = await up();
+  for (const cmd of [{ cmd: "graphWatch", root: "x" }, { cmd: "graphSnapshot" }, { cmd: "permissionAnswer", id: "p1" }, { cmd: "structuredWatch", id: "p1" }, { cmd: "paneSend", id: "p1", text: "x" }]) {
+    assert.equal(store.send(cmd), false, cmd.cmd + " went out before the hello");
+  }
+  assert.deepEqual(ws.sent, []);
+  assert.equal(store.send({ cmd: "listAgents" }), true);
+  ws.frame(hello());
+  assert.equal(store.send({ cmd: "graphSnapshot" }), true);
+  assert.equal(store.send({ cmd: "paneSend", id: "p1", text: "x" }), true);
+});
+
+test("a conversation never opened is not closed: nothing goes out between open and the hello", async () => {
+  const { store, ws } = await up();
+  store.watchConversation("p1");
+  store.watchConversation("p2");
+  store.unwatchConversation();
+  store.watchConversation("p3");
+  store.stop();
+  assert.deepEqual(ws.sent, []);
+});
+
+test("a conversation that was opened is closed when it is replaced, unwatched and on stop", async () => {
+  const { store, ws } = await up();
+  ws.frame(hello());
+  store.watchConversation("p1");
+  store.watchConversation("p2");
+  assert.equal(ws.commands("conversationClose").length, 1);
+  store.unwatchConversation();
+  assert.equal(ws.commands("conversationClose").length, 2);
+  store.watchConversation("p3");
+  store.stop();
+  assert.equal(ws.commands("conversationClose").length, 3);
+});
+
 test("the desk-only refusal sets graphRefused and stops the retry; another failure sets graphError", async () => {
   const { store, ws } = await up();
   ws.frame(hello());
