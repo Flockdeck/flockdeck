@@ -98,6 +98,20 @@ export function branchLine(branch, dirty, limit) {
   return branch && room >= 4 ? clip(branch, room) + "  " + dirty : clip(dirty, limit);
 }
 
+/** opener is the attributes and handlers that make a box open its pane. */
+function opener(onOpen, pane, open) {
+  return {
+    tabindex: 0,
+    "aria-expanded": open ? "true" : "false",
+    onClick: () => onOpen(pane),
+    onKeyDown: (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      onOpen(pane);
+    },
+  };
+}
+
 function Mark({ shape, x, y }) {
   const cls = "gmark gmark--" + shape;
   switch (shape) {
@@ -121,9 +135,11 @@ function Mark({ shape, x, y }) {
 /**
  * Node draws one pane at the position the layout gave it. box is { x, y, w, h }.
  * team is the node's team from the model, given for a manager so that the box
- * shows the team's spend; other nodes ignore it.
+ * shows the team's spend; other nodes ignore it. With onOpen the box is a
+ * button that opens the pane's drawer, by a click or Enter or Space; open says
+ * this pane's drawer is the one open.
  */
-export function Node({ node, box, team = null }) {
+export function Node({ node, box, team = null, onOpen = null, open = false }) {
   const state = stateOf(node);
   const isManager = team !== null && team.manager === node.pane;
   const spend = isManager ? spendOf(team) : "";
@@ -131,11 +147,18 @@ export function Node({ node, box, team = null }) {
   const w = box.w;
   const label = describe(node, state, spend);
   const chip = node.task ? chipOf(node.task) : null;
-  const cls = ["gnode", "gnode--" + state.key, node.structured ? "gnode--structured" : "", node.shell ? "gnode--shell" : "", isManager ? "gnode--manager" : ""]
+  const cls = ["gnode", "gnode--" + state.key, node.structured ? "gnode--structured" : "", node.shell ? "gnode--shell" : "", isManager ? "gnode--manager" : "", open ? "gnode--open" : ""]
     .filter(Boolean)
     .join(" ");
   return html`
-    <g class=${cls} data-pane=${node.pane} transform=${`translate(${box.x} ${box.y})`} role="group" aria-label=${label}>
+    <g
+      class=${cls}
+      data-pane=${node.pane}
+      transform=${`translate(${box.x} ${box.y})`}
+      role=${onOpen ? "button" : "group"}
+      aria-label=${label}
+      ...${onOpen ? opener(onOpen, node.pane, open) : {}}
+    >
       <title>${label}</title>
       <rect class="gnode-box" x="0" y="0" width=${w} height=${box.h} rx="6" />
       <${Mark} shape=${state.shape} x=${18} y=${22} />

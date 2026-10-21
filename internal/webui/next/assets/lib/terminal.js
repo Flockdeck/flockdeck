@@ -32,6 +32,10 @@ import { loadTerminalLibs } from "./load-script.js";
 
 /** STRUCTURED_STUB is what a structured pane's terminal says, as the old
  *  window does. */
+/** NO_KEY_REASON is said of a terminal refused under the desktop's key when
+ *  the desktop then stops offering one. */
+export const NO_KEY_REASON = "The desktop no longer offers an encrypted terminal.";
+
 export const STRUCTURED_STUB = "Structured pane, open in the new interface";
 
 /** The smallest and largest sizes taken from the server for a terminal: a
@@ -308,9 +312,16 @@ export function createTerminal(opts) {
   // kept while the control socket has no hello, so a drop of that socket
   // does not turn a sealed terminal plain.
   let lastKey = null;
+  // The key the latest dial used, so a refusal can be told from one the new key
+  // would not have met.
+  let dialKey = null;
+  // The server's words for the last refusal, kept for when NO_KEY_REASON has
+  // covered them and the key comes back.
+  let refusedReason = "";
   const currentKey = () => {
     const h = store.getState().hello;
     if (h) lastKey = keyOf(h);
+    dialKey = lastKey;
     return lastKey;
   };
 
@@ -341,6 +352,21 @@ export function createTerminal(opts) {
       // A socket let go quietly when the device was limited is dialled again
       // once the role says it may watch.
       if (pty.phase === "idle") pty.retryNow();
+      // A refusal under one key is not final under another: the desktop's key
+      // changes when it is reinstalled, and the hello that says so arrives after
+      // the dial that was refused. Only a hello can get here, so a gap in the
+      // control socket does not redial. A hello with no key is not a new key: a
+      // socket made for it would be a plain one, and the refusal stands.
+      else if (pty.phase === "refused") {
+        const key = keyOf(store.getState().hello);
+        if (key && key !== dialKey) pty.retryNow();
+        else if (!key && dialKey) {
+          if (state.reason !== NO_KEY_REASON) set({ reason: NO_KEY_REASON });
+        } else if (key === dialKey && state.reason === NO_KEY_REASON) {
+          // The key is back and the refusal under it stands, in the server's words.
+          set({ reason: refusedReason });
+        }
+      }
       return;
     }
     pty = createPty({
@@ -378,6 +404,7 @@ export function createTerminal(opts) {
         if (focused() && pty) pty.sendFocus();
       },
       onState(st) {
+        if (st.phase === "refused") refusedReason = st.reason;
         set({ phase: st.phase, reason: st.reason });
       },
       ...opts.ptyOptions,
@@ -466,8 +493,11 @@ export function createTerminal(opts) {
       return true;
     },
     tryAgain() {
-      if (state.phase === "load-failed") this.start();
-      else if (pty) pty.retryNow();
+      if (state.phase === "load-failed") { this.start(); return; }
+      // A desktop that stopped offering its key is not tried again in plain: the
+      // only way back is a hello that carries a key, which redials by itself.
+      if (state.reason === NO_KEY_REASON) return;
+      if (pty) pty.retryNow();
     },
     focus() { if (term) term.focus(); },
     get state() { return state; },
@@ -513,7 +543,7 @@ export function TerminalChrome({ state, hostRef, onTryAgain, onTakeOver }) {
     ${state.phase === "refused" || state.phase === "blocked" || state.phase === "load-failed"
       ? html`<div class="pane-error" role="alert">
           <div class="pane-error-text error">${state.reason}</div>
-          ${state.phase === "refused" || state.phase === "load-failed"
+          ${(state.phase === "refused" && state.reason !== NO_KEY_REASON) || state.phase === "load-failed"
             ? html`<button type="button" class="chip primary" onClick=${onTryAgain}>Try again</button>`
             : null}
         </div>`

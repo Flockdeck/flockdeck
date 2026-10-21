@@ -14,9 +14,11 @@ import { Edges, EdgeDefs, EdgeNotice, edgesOf } from "./Edges.js";
 
 /**
  * Graph draws a graph model. layout may be given when the caller has laid the
- * model out already (the same model always gives the same layout).
+ * model out already (the same model always gives the same layout). onOpen, if
+ * given, is called with a pane id when its box is clicked or opened from the
+ * keyboard; open is the pane whose drawer is open.
  */
-export function Graph({ model, layout = null }) {
+export function Graph({ model, layout = null, onOpen = null, open = "" }) {
   const lay = layout || layoutGraph(model);
   if (!lay.ok || lay.nodes.length === 0) {
     return html`<p class="graph-empty">No agents in this project yet.</p>`;
@@ -58,7 +60,7 @@ export function Graph({ model, layout = null }) {
         const needs = model.needsByPane.get(b.pane);
         return html`
           <g class="gslot" key=${b.pane}>
-            <${Node} node=${node} box=${b} team=${teamOf.get(b.team) || null} />
+            <${Node} node=${node} box=${b} team=${teamOf.get(b.team) || null} onOpen=${onOpen} open=${open === b.pane} />
             ${needs && needs.length > 0
               ? html`<g class="gneed" data-pane=${b.pane} transform=${`translate(${b.x} ${b.y})`}><${Badge} needs=${needs} /></g>`
               : null}
@@ -71,11 +73,11 @@ export function Graph({ model, layout = null }) {
 }
 
 /** GraphView is the strip of what needs the person above the graph, drawn from one model, so that a new model changes both in the same frame. */
-export function GraphView({ model, layout = null, onSelect }) {
+export function GraphView({ model, layout = null, onSelect, onOpen = null, open = "" }) {
   return html`
     <div class="graph-view">
       <${NeedsYou} model=${model} onSelect=${onSelect} />
-      <${Graph} model=${model} layout=${layout} />
+      <${Graph} model=${model} layout=${layout} onOpen=${onOpen} open=${open} />
     </div>
   `;
 }

@@ -191,14 +191,19 @@ class Element_ extends Node_ {
   findAll(selector) {
     return this.query(matcher(selector));
   }
+  querySelectorAll(selector) {
+    return this.findAll(selector);
+  }
 }
 
-// Only what the tests ask for: tag, .class, #id and [attr=value], one of them.
+// Only what the tests ask for: tag, .class, #id, [attr] and [attr=value], one of them.
 function matcher(sel) {
   if (sel.startsWith(".")) return (n) => (n.attributes.class || "").split(/\s+/).includes(sel.slice(1));
   if (sel.startsWith("#")) return (n) => n.attributes.id === sel.slice(1);
   const m = /^\[([\w-]+)="([^"]*)"\]$/.exec(sel);
   if (m) return (n) => n.attributes[m[1]] === m[2];
+  const has = /^\[([\w-]+)\]$/.exec(sel);
+  if (has) return (n) => has[1] in n.attributes;
   return (n) => n.localName === sel;
 }
 

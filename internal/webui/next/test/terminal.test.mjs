@@ -1,9 +1,10 @@
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../assets/html.js";
 import {
-  createTerminal, TerminalChrome, isTerminalReply, stripPasteControls, terminalKey, safeLink, STRUCTURED_STUB,
+  createTerminal, TerminalChrome, isTerminalReply, stripPasteControls, terminalKey, safeLink, STRUCTURED_STUB, NO_KEY_REASON,
 } from "../assets/lib/terminal.js";
 import { FakeClock } from "./fakes.mjs";
 import {
@@ -567,4 +568,120 @@ test("disposing closes the socket and stops the retry", () => {
   h.ctl.dispose();
   assert.equal(ws.closed, true);
   assert.equal(h.store.subscribers, 0);
+});
+
+test("a refused socket is dialled again when a later hello brings another key, across a gap with no hello", async () => {
+  const E2E = loadE2E();
+  const host = await hostSide(E2E);
+  const h = build({ snap: { hello: hello({ remote: true }), state: paneState({ p1: {} }) }, e2e: E2E });
+  h.ctl.start();
+  const first = PtySocket.last;
+  first.open();
+  first.serverClose(1008, "wrong key");
+  assert.equal(h.ctl.state.phase, "refused");
+  // A hello that repeats the same (no) key is no reason to try again.
+  h.store.set({ hello: hello({ remote: true, prefs: {} }) });
+  assert.equal(PtySocket.instances.length, 1, "redialled under the key that was refused");
+  // The control socket drops; nothing is dialled while there is no hello.
+  h.store.set({ hello: null });
+  assert.equal(PtySocket.instances.length, 1);
+  assert.equal(h.ctl.state.phase, "refused");
+  // The next hello carries the desktop's new key.
+  h.store.set({ hello: hello({ remote: true, e2ePublicKey: host.pub }) });
+  assert.equal(PtySocket.instances.length, 2, "not dialled again with the new key");
+  const second = PtySocket.last;
+  second.open();
+  await waitFor(() => second.sent.length > 0, "the handshake hello");
+  assert.equal(typeof second.sent[0], "object", "the new socket was not sealed");
+  h.ctl.dispose();
+});
+
+// A socket refused under the desktop's key K, ready for the hello that follows.
+async function refusedUnderKey() {
+  const E2E = loadE2E();
+  const host = await hostSide(E2E);
+  const h = build({ snap: { hello: hello({ remote: true, e2ePublicKey: host.pub }), state: paneState({ p1: {} }) }, e2e: E2E });
+  h.ctl.start();
+  const ws = PtySocket.last;
+  ws.open();
+  ws.serverClose(1008, "refused");
+  assert.equal(h.ctl.state.phase, "refused");
+  assert.equal(PtySocket.instances.length, 1);
+  return { h, host, E2E };
+}
+
+test("a hello with no key after a refusal under a key does not make a plain socket, and says why", async () => {
+  const { h } = await refusedUnderKey();
+  h.store.set({ hello: hello({ remote: true }) });
+  assert.equal(PtySocket.instances.length, 1, "a plain terminal was opened for a desktop that had a key");
+  assert.equal(h.ctl.state.phase, "refused");
+  assert.equal(h.ctl.state.reason, NO_KEY_REASON);
+  h.ctl.dispose();
+});
+
+test("a refusal under a key is not dialled again by the same key, with or without a hello between", async () => {
+  const { h, host } = await refusedUnderKey();
+  h.store.set({ hello: hello({ remote: true, e2ePublicKey: host.pub, prefs: {} }) });
+  assert.equal(PtySocket.instances.length, 1, "the same key redialled");
+  h.store.set({ hello: null });
+  h.store.set({ hello: hello({ remote: true, e2ePublicKey: host.pub }) });
+  assert.equal(PtySocket.instances.length, 1, "the same key redialled after a gap");
+  // And a null hello between does not make the key look new.
+  h.store.set({ hello: hello({ remote: true }) });
+  h.store.set({ hello: hello({ remote: true, e2ePublicKey: host.pub }) });
+  assert.equal(PtySocket.instances.length, 1, "the same key redialled after a hello with none");
+  h.ctl.dispose();
+});
+
+test("every class the terminal's chrome draws for its host and pane has a rule in app.css", () => {
+  const css = readFileSync(new URL("../assets/app.css", import.meta.url), "utf8");
+  const out = renderToString(html`<${TerminalChrome} state=${{ phase: "open", reason: "", ptySize: null, sizeNote: null }} hostRef=${{ current: null }} />`);
+  const classes = [...out.matchAll(/class="([^"]+)"/g)].flatMap((m) => m[1].split(/\s+/));
+  // The rule that lays each out, by its selector at the start of a line and what
+  // its body says, so a rule for another selector that mentions the class does not count.
+  const rules = [
+    ["terminal-pane", /^\.terminal-pane \{[^}]*position: relative/m],
+    ["terminal-host", /^\.terminal-pane \.terminal-host \{[^}]*position: absolute[^}]*inset: 0/m],
+  ];
+  for (const [c, rule] of rules) {
+    assert.ok(classes.includes(c), `the chrome no longer draws ${c}`);
+    assert.ok(rule.test(css), `app.css has no rule that lays out .${c}`);
+  }
+});
+
+test("after a keyless hello the cover offers no Try again, and tryAgain dials nothing", async () => {
+  const { h } = await refusedUnderKey();
+  h.store.set({ hello: hello({ remote: true }) });
+  assert.equal(h.ctl.state.reason, NO_KEY_REASON);
+  const out = renderToString(html`<${TerminalChrome} state=${h.ctl.state} hostRef=${{ current: null }} />`);
+  assert.ok(out.includes(NO_KEY_REASON));
+  assert.ok(!out.includes("Try again"), "the cover offers a button that would dial in plain");
+  h.ctl.tryAgain();
+  assert.equal(PtySocket.instances.length, 1, "tryAgain made a plain socket");
+  h.ctl.dispose();
+});
+
+test("a refusal under no key keeps the server's own reason through a keyless hello", () => {
+  const h = build({ snap: { hello: hello({ remote: true }), state: paneState({ p1: {} }) } });
+  h.ctl.start();
+  const ws = PtySocket.last;
+  ws.open();
+  ws.serverClose(1008, "not allowed here");
+  assert.equal(h.ctl.state.reason, "not allowed here");
+  h.store.set({ hello: hello({ remote: true, prefs: {} }) });
+  assert.equal(h.ctl.state.reason, "not allowed here");
+  h.ctl.tryAgain();
+  assert.equal(PtySocket.instances.length, 2, "Try again on an ordinary refusal stopped working");
+  h.ctl.dispose();
+});
+
+test("when the key comes back the refusal's own reason is shown again, without a redial", async () => {
+  const { h, host } = await refusedUnderKey();
+  const own = h.ctl.state.reason;
+  h.store.set({ hello: hello({ remote: true }) });
+  assert.equal(h.ctl.state.reason, NO_KEY_REASON);
+  h.store.set({ hello: hello({ remote: true, e2ePublicKey: host.pub }) });
+  assert.equal(h.ctl.state.reason, own);
+  assert.equal(PtySocket.instances.length, 1);
+  h.ctl.dispose();
 });

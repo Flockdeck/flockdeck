@@ -17,6 +17,15 @@ export const IMPLEMENTED = ["palette", "toggleRail", "projects", "nextRegion", "
 const REGIONS = ["rail", "main", "drawer"];
 
 const NONE = [];
+
+/** NO_KEYS stands for a hello with no key table, so the bindings are not made
+ *  again on each render for want of one array being the same as the last. */
+const NO_KEYS = Object.freeze([]);
+
+/** keysOf is the key table of a hello, or NO_KEYS. */
+export function keysOf(hello) {
+  return (hello && hello.keys) || NO_KEYS;
+}
 const firstRoot = (state) => (state && state.projects && state.projects[0] && state.projects[0].root) || "";
 
 /** initial is the shell's own state: the open palette, the rail's width, which
@@ -127,16 +136,19 @@ export function useNarrow(matchMedia, override) {
  *  notice area. onWatch is called with the root of the project being watched:
  *  when the window first has one, when the rail chooses another, and when the
  *  state names a different active one. top, children and drawer are what the
- *  views put in the regions. window is the page's, passed in for a test. */
-export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, window: win }) {
-  const keys = (hello && hello.keys) || [];
+ *  views put in the regions. maximised, with a drawer, gives the drawer the main
+ *  area; mainRef is the main area's element for a view that returns the keyboard
+ *  to a box in it. window is the page's, passed in for a test. */
+export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win }) {
+  const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
   const narrow = useNarrow(matchMedia, narrowProp);
   const drawerOpen = !!drawer;
   const [s, dispatch] = useReducer((cur, ev) => reduce(cur, ev, { drawerOpen }), { state }, initial);
 
-  const regions = { rail: useRef(null), main: useRef(null), drawer: useRef(null) };
+  const ownMain = useRef(null);
+  const regions = { rail: useRef(null), main: mainRef || ownMain, drawer: useRef(null) };
 
   useEffect(() => {
     const target = win || (typeof window !== "undefined" ? window : null);
@@ -164,7 +176,7 @@ export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, match
   };
 
   const current = projects.find((p) => p.root === s.selected);
-  const cls = "shell" + (narrow ? " shell--narrow" : "") + (s.railCollapsed && !narrow ? " shell--rail-collapsed" : "");
+  const cls = "shell" + (narrow ? " shell--narrow" : "") + (s.railCollapsed && !narrow ? " shell--rail-collapsed" : "") + (maximised && drawerOpen ? " shell--max" : "");
   const said = notice || (broken.length ? "These key bindings could not be read, so they do nothing: " + broken.join(", ") : "");
 
   return html`
