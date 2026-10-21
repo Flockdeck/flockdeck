@@ -326,6 +326,23 @@ func TestVendoredFilesMatchTheirRecordedHash(t *testing.T) {
 
 // The node tests run from here. Node is a development and CI tool only: it is
 // not bundled and is not part of any release.
+//
+// Each test file is its own node process and its own subtest, so a failure or a
+// hang names the file, and the suite is no longer one process whose limit is the
+// sum of all of them. At most nodeTestProcesses run at once: node's own default
+// is one fewer than the machine's cores, which on a many-core machine held about
+// 25 GB between the processes, and on a three-core CI runner is not the same
+// number as on another. The step's time on CI was 38 to 66 s for the whole
+// package (Linux, macOS and Windows), and one macOS run was killed at the old
+// single limit of 120 s, so a file gets nodeFileLimit, well past the longest
+// file, and a single test in it gets nodeTestLimit so a hung one is reported by
+// name before the file's limit.
+const (
+	nodeTestProcesses = 2
+	nodeFileLimit     = 4 * time.Minute
+	nodeTestLimitMS   = "60000"
+)
+
 func TestNodeTests(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -338,11 +355,6 @@ func TestNodeTests(t *testing.T) {
 	if err != nil || len(files) < 2 {
 		t.Fatalf("test files %v, %v", files, err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, node, append([]string{"--test"}, files...)...)
-	// testiso.Main has already pointed the home and config variables at a
-	// throwaway directory and cleared the credentials; node inherits that.
 	// The server's own key table, as the hello sends it, so the shell's tests
 	// run against the bindings that ship and not a copy written out here.
 	table, err := json.Marshal(help.Keys)
@@ -353,14 +365,29 @@ func TestNodeTests(t *testing.T) {
 	if err := os.WriteFile(keysFile, table, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd.Env = append(os.Environ(), "NEXT_KEYS_JSON="+keysFile)
-	cmd.WaitDelay = 5 * time.Second
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("node tests failed: %v\n%s", err, out)
-	}
-	if !strings.Contains(string(out), "pass ") {
-		t.Errorf("node reported no passes:\n%s", out)
+	slots := make(chan struct{}, nodeTestProcesses)
+	for _, file := range files {
+		t.Run(filepath.Base(file), func(t *testing.T) {
+			t.Parallel()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			ctx, cancel := context.WithTimeout(context.Background(), nodeFileLimit)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, node, "--test", "--test-timeout="+nodeTestLimitMS, file)
+			// testiso.Main has already pointed the home and config variables at a
+			// throwaway directory and cleared the credentials; node inherits that.
+			cmd.Env = append(os.Environ(), "NEXT_KEYS_JSON="+keysFile)
+			cmd.WaitDelay = 5 * time.Second
+			start := time.Now()
+			out, err := cmd.CombinedOutput()
+			t.Logf("%s took %s", file, time.Since(start).Round(100*time.Millisecond))
+			if err != nil {
+				t.Fatalf("node tests failed: %v\n%s", err, out)
+			}
+			if !strings.Contains(string(out), "pass ") {
+				t.Errorf("node reported no passes:\n%s", out)
+			}
+		})
 	}
 }
 
