@@ -8543,7 +8543,8 @@
     findInTerminal: () => openSearch(),
     history: () => openHistory(),
     projects: () => openProjects(),
-    // The team graph is in the new interface only; here these have nothing to move to.
+    // Only the new interface has a team graph. actionFor never returns these, so
+    // no key reaches them; the table needs an entry for every id.
     nextNeedsYou: () => {},
     managerBar: () => {},
     help: () => openHelp(),
@@ -8738,7 +8739,12 @@
       const m = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(e.code || "");
       if (m) key = (m[1] || m[2]).toLowerCase();
     }
-    return bindings.get(signature(e.ctrlKey, shift, e.altKey, key)) || "";
+    const id = bindings.get(signature(e.ctrlKey, shift, e.altKey, key)) || "";
+    // The team graph is in the new interface only. Its keys are not this
+    // window's, so they go on to the terminal, which is where Ctrl+Shift+U
+    // and Ctrl+Shift+H would otherwise be swallowed (readline's kill-line and
+    // backspace).
+    return id === "nextNeedsYou" || id === "managerBar" ? "" : id;
   }
 
   // -------------------------------------------------------- command palette

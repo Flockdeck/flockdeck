@@ -2903,6 +2903,36 @@ const paletteRun = (words) => {
 };
 `
 
+// The team graph is in the new interface only. Its two keys, Ctrl+Shift+U and
+// Ctrl+Shift+H, reach a terminal as Ctrl+U and Ctrl+H (readline's kill-line and
+// backspace), so this window must leave them to the terminal, and the palette
+// must not offer actions that do nothing here.
+func TestTheGraphKeysGoToTheTerminalAndNotThePalette(t *testing.T) {
+	runFrontEnd(t, `
+h.hello();
+h.recv(fixture());
+const typing = h.doc.createElement("textarea");
+typing.className = "xterm-helper-textarea";
+h.terms[0].host.append(typing);
+const reached = [];
+typing.addEventListener("keydown", (e) => reached.push(e.key.toLowerCase()));
+typing.focus();
+const before = h.commands().length;
+for (const id of ["nextNeedsYou", "managerBar"]) {
+  const ev = h.press(id);
+  assert.ok(!ev.defaultPrevented, id + " was kept from the terminal");
+}
+assert.deepStrictEqual(reached, ["u", "h"], "the keys did not reach the terminal");
+assert.deepStrictEqual(h.commands().slice(before), [], "the keys sent a command");
+
+h.press("palette");
+const labels = h.$("palette-list").children.filter((r) => r.classList.contains("pal-row")).map((r) => r.querySelector(".pal-label").textContent);
+assert.ok(labels.length > 0);
+assert.ok(!labels.includes("Next agent that needs you"), "the palette offers an action that does nothing here");
+assert.ok(!labels.includes("Message the manager"), "the palette offers an action that does nothing here");
+`)
+}
+
 // The key dialog has an implementation and no entry in the action table, so
 // the palette, which lists the table, never offered it and nothing else opened
 // it either.

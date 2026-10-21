@@ -193,6 +193,8 @@ test("the key handler leaves other keys, modifiers and composing alone", () => {
     ev(LIST.right, { defaultPrevented: true }),
     ev(LIST.right, { target: { getAttribute: () => null } }),
   ];
+  // An arrow with no box to land on is not kept either.
+  others.push(ev(LIST.right));
   for (const e of others) {
     onGraphKey(nav, e);
     assert.ok(!e.prevented, JSON.stringify(Object.keys(e)));

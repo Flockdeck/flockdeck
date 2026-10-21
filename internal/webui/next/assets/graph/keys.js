@@ -112,6 +112,9 @@ export function onGraphKey(nav, e) {
   if (!target || !target.getAttribute || target.getAttribute("role") !== "button") return false;
   const to = stepFrom(nav, target.getAttribute("data-pane") || "", e.key);
   if (!to) return false;
-  e.preventDefault();
-  return focusNode(e.currentTarget, to);
+  // The key is kept only when a box took it, so a target that cannot be focused
+  // does not swallow it.
+  const moved = focusNode(e.currentTarget, to);
+  if (moved) e.preventDefault();
+  return moved;
 }
