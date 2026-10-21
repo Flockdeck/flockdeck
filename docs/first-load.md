@@ -27,8 +27,27 @@ First meaningful paint is the first time the app's own markup is inserted into t
 
 - The shell as shipped is 7 to 10 percent over the budget (3.2 s to first paint, 3.3 s interactive), which is near it. The finished-app figures are for a stand-in that imports modules nothing uses yet, not for a real app. With the stand-in the modules case is over by about 0.7 s (24 percent).
 - Concatenating the same code into one file saves about 1 s now and 1.35 s with the finished app, and is under the budget in both. The bytes sent barely change; the saving is round trips. With 3 round trips per request and a cap of 6 streams, the 17 or 24 files go out in waves, and the module graph also finds its files one level at a time.
-- The terminal libraries are the larger cost. xterm.js, its fit addon and the end-to-end layer are three classic scripts that stop the parser until they have arrived: 131 KB of the 200 KB, and about 1.1 s in both the module and the concatenated case. Loading them when a terminal is first opened, not at page load, would save that without a build step. That is a change to `index.html` and `terminal.js`, not part of this task.
+- The terminal libraries are the larger cost. xterm.js, its fit addon and the end-to-end layer are three classic scripts that stop the parser until they have arrived: 131 KB of the 200 KB, and about 1.1 s in both the module and the concatenated case. Loading them when a terminal is first opened, not at page load, would save that without a build step. That was done in T99; see the section after the result.
 - Without gzip the page is 6.5 s. The relay path compresses (`authFiles`), so this is the figure for any path that does not.
+
+## After the terminal libraries moved (T99)
+
+The three scripts are no longer in `index.html`. The first terminal that opens loads them (`lib/load-script.js`: xterm, the fit addon, then e2e.js), and a window reached through the relay loads e2e.js when its hello arrives (`lib/e2e-boot.js`). Both share one load of e2e.js. The same tool, same settings and a fresh run of five, on main after #399. The eager rows are the old page, rebuilt by putting the three scripts back in front of the module; they match the earlier table within about 1 percent.
+
+| Case | Requests | Bytes sent | First meaningful paint | Interactive |
+| --- | --- | --- | --- | --- |
+| Modules, libraries on first use | 15 | 72 KB | 2055 | 2152 |
+| Modules, libraries in the page (before) | 18 | 201 KB | 3197 | 3278 |
+| Concatenated, libraries on first use | 6 | 68 KB | 1115 | 1204 |
+| Concatenated, libraries in the page (before) | 9 | 197 KB | 2242 | 2328 |
+| Modules, finished app, on first use | 23 | 98 KB | 2591 | 2677 |
+| Modules, finished app, in the page (before) | 26 | 226 KB | 3710 | 3800 |
+| Concatenated, finished app, on first use | 6 | 81 KB | 1221 | 1304 |
+| Concatenated, finished app, in the page (before) | 9 | 209 KB | 2333 | 2418 |
+
+First paint falls by 1142 ms for the modules as shipped and by 1127 ms concatenated. The module graph is now under the 3 s budget on its own, including the finished-app stand-in (2.6 s), so the case for a concatenation tool is weaker than the first table made it. It is still 1.4 s faster, and the module graph is the case that grows with the stream cap, so step two on a phone still decides.
+
+The cost moves to the first terminal: it now waits for 131 KB (gzipped) fetched as three requests in a row, with "Loading terminal" showing meanwhile. By arithmetic from the link (a first byte after 3 round trips per request, 200 KB/s) that is about 2 s; it was not measured, and the table measures the page before any terminal opens. The three files could be fetched together and run in order if that wait matters.
 
 ## Sensitivity
 
@@ -53,7 +72,7 @@ The module graph is sensitive to how many streams the relay carries at once; the
 
 ## Decision
 
-Left to the manager. Over the budget by a clear margin, the task calls for a follow-up task for a small Go concatenation tool, run for release builds only. Here the shell as shipped is near the budget (7 to 10 percent over) and the stand-in for the finished app is 24 percent over, and the concatenated page is well under, so the numbers lean towards writing the follow-up. Step two on a real phone would confirm the stream cap and the round-trip cost before that.
+Left to the manager. When this was first measured the shell as shipped was near the budget (7 to 10 percent over) and the stand-in for the finished app 24 percent over, which leaned towards the follow-up task for a small Go concatenation tool, run for release builds only. With the terminal libraries moved out (T99) both are under 3 s without it. Step two on a real phone would confirm the stream cap and the round-trip cost before deciding.
 
 ## Running it
 
@@ -64,4 +83,4 @@ node scripts/firstload/measure.mjs --esbuild <scratch>/node_modules/@esbuild/win
 
 The esbuild path above is the Windows x64 build; use the matching `@esbuild/<platform>` package elsewhere. The browser search in `findBrowser` lists mostly Windows paths (a Playwright Chromium, Chrome, Edge) and a few Linux and macOS ones, so on another system pass `--browser`.
 
-Without `--esbuild` only the module cases run. The tool needs Node 22 or later and a Chromium (`--browser` names one). Options for the link speed, round trip, setup round trips, stream cap and CPU slowdown are listed at the top of the script. It reads only the source tree, writes only to a temporary folder that it removes at the end, and does not start Flockdeck.
+The cases are the module graph and the concatenated one, each for the shipped page, for the finished-app stand-in, and for the old page with the three libraries in it (`-eager`), which the first table's figures came from before T99. Without `--esbuild` only the module cases run. The tool needs Node 22 or later and a Chromium (`--browser` names one). Options for the link speed, round trip, setup round trips, stream cap and CPU slowdown are listed at the top of the script. It reads only the source tree, writes only to a temporary folder that it removes at the end, and does not start Flockdeck.
