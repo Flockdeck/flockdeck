@@ -111,6 +111,10 @@ var Keys = []Key{
 	{ID: "findPane", Keys: "Ctrl+Shift+L", Label: "Find pane", Section: "Finding your way", Page: "panes"},
 	{ID: "history", Keys: "Ctrl+Shift+R", Label: "Resume — reopen a past conversation", Section: "Finding your way", Page: "history"},
 	{ID: "projects", Keys: "Ctrl+Shift+O", Label: "Projects", Section: "Finding your way", Page: "projects"},
+	// The team graph: arrows, Enter and Esc move through it as they do in a list,
+	// and these two reach the parts that no arrow does.
+	{ID: "nextNeedsYou", Keys: "Ctrl+Shift+U", Label: "Next agent that needs you", Section: "Finding your way"},
+	{ID: "managerBar", Keys: "Ctrl+Shift+H", Label: "Message the manager", Section: "Finding your way"},
 	{ID: "help", Keys: "F1", Label: "Help", Section: "Finding your way", Page: "getting-started"},
 
 	// --- the window --------------------------------------------------------

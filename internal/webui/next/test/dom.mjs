@@ -8,11 +8,18 @@
 
 const EVENT_PROPS = ["onclick", "oninput", "onkeydown", "onmousedown", "onchange", "onfocus", "onblur"];
 
+// The links between nodes are not enumerable. A failing assert.equal on two
+// elements prints both, and node's assertion message does not honour a custom
+// inspect, so with the parent and child links enumerable it walked the whole
+// tree through them in both directions and ran out of memory. Without them
+// an element prints as its own few fields.
+const hidden = (o, props) => {
+  for (const [k, v] of Object.entries(props)) Object.defineProperty(o, k, { value: v, writable: true, configurable: true, enumerable: false });
+};
+
 class Node_ {
   constructor(doc) {
-    this.ownerDocument = doc;
-    this.parentNode = null;
-    this.childNodes = [];
+    hidden(this, { ownerDocument: doc, parentNode: null, childNodes: [] });
   }
   get firstChild() {
     return this.childNodes[0] || null;
@@ -70,7 +77,7 @@ class Element_ extends Node_ {
     this.localName = name.toLowerCase();
     this.nodeName = name.toUpperCase();
     this.attributes = {};
-    this.listeners = {};
+    hidden(this, { listeners: {} });
     this.style = { setProperty() {}, removeProperty() {} };
     this.focusCalls = 0;
     // Preact decides whether an on* prop is a property or an event name by

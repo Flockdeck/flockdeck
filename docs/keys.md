@@ -80,6 +80,8 @@ table, run `go test ./internal/help -run TestKeysDocShortcuts -update`.
 | `Ctrl+Shift+L` | Find pane |
 | `Ctrl+Shift+R` | Resume — reopen a past conversation |
 | `Ctrl+Shift+O` | Projects |
+| `Ctrl+Shift+U` | Next agent that needs you |
+| `Ctrl+Shift+H` | Message the manager |
 | `F1` | Help |
 
 ## The window
