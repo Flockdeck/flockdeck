@@ -127,6 +127,16 @@ test("a remote hello never produces a graphWatch, before or after it", async () 
   assert.equal(store.send({ cmd: "listAgents" }), true);
 });
 
+test("stop() in a remote window sends no unwatch for a watch asked for before the hello", async () => {
+  const { store, ws } = await up();
+  store.watchGraph("C:/repo");
+  store.watchStructured("p1");
+  ws.frame(hello({ remote: true }));
+  store.stop();
+  const bad = ws.sent.filter((c) => c.cmd === "graphUnwatch" || c.cmd === "structuredUnwatch" || String(c.cmd).startsWith("graph"));
+  assert.deepEqual(bad, [], "a graph command went to the relay on stop");
+});
+
 test("the desk-only refusal sets graphRefused and stops the retry; another failure sets graphError", async () => {
   const { store, ws } = await up();
   ws.frame(hello());

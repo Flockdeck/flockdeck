@@ -55,6 +55,15 @@ export function focusNode(root, pane) {
   if (!root) return false;
   if (pane && root.querySelectorAll) {
     for (const el of root.querySelectorAll("[data-pane]")) {
+      // A row of the narrow list or the roster: its button takes the keyboard.
+      if (el.localName === "li" && el.getAttribute("data-pane") === pane) {
+        const pick = el.querySelectorAll ? el.querySelectorAll(".list-pick")[0] : null;
+        if (pick && pick.localName === "button" && pick.focus) {
+          pick.focus();
+          return true;
+        }
+        continue;
+      }
       if (el.getAttribute("data-pane") === pane && el.getAttribute("tabindex") !== null && el.focus) {
         el.focus();
         return true;

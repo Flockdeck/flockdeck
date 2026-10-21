@@ -18,6 +18,7 @@ import { useEffect, useMemo, useRef } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { buildGraphModel } from "../graph/model.js";
 import { GraphView } from "../graph/Graph.js";
+import { GraphList, RosterList } from "../graph/List.js";
 import { clip } from "../graph/Node.js";
 
 /** usable says a graph push can be drawn: it is a graph, and its lists are lists. */
@@ -34,11 +35,14 @@ export function sameProject(a, b) {
 }
 
 /** rosterOf is the agents of the project in the state push, in the order the
- *  push has them: id, name and what each is doing. */
+ *  push has them: id, name and what each is doing. An entry without an id is
+ *  skipped, and an id that comes twice is listed once. */
 export function rosterOf(state) {
   const panes = state && state.panes && typeof state.panes === "object" ? Object.values(state.panes) : [];
+  const seen = new Set();
   return panes
-    .filter((p) => p && typeof p === "object")
+    .filter((p) => p && typeof p === "object" && p.id)
+    .filter((p) => !seen.has(String(p.id)) && seen.add(String(p.id)))
     .map((p) => ({
       id: String(p.id || ""),
       name: String(p.name || p.id || ""),
@@ -51,18 +55,6 @@ function Line({ children, kind }) {
   return html`<p class=${"home-line" + (kind ? " home-line--" + kind : "")} role="status">${children}</p>`;
 }
 
-function Roster({ state }) {
-  const rows = rosterOf(state);
-  if (rows.length === 0) return null;
-  return html`<ul class="home-roster" aria-label="Agents in this project">
-    ${rows.map((r) => html`<li class="home-agent" key=${r.id}>
-      <span class="home-agent-name">${clip(r.name, 60)}</span>
-      ${r.role ? html`<span class="home-agent-role">${clip(r.role, 30)}</span>` : null}
-      <span class="home-agent-doing">${clip(r.doing, 20)}</span>
-    </li>`)}
-  </ul>`;
-}
-
 /**
  * Home draws the main area. snap is the store's snapshot; selected is the root
  * of the project the window is watching ("" when there is none). onShown is
@@ -70,7 +62,7 @@ function Roster({ state }) {
  * the page can open a drawer for a node of it; onOpen and open are the graph's
  * (a click or key on a box, and the pane whose drawer is open).
  */
-export function Home({ snap, selected, onShown, onOpen = null, open = "" }) {
+export function Home({ snap, selected, onShown, onOpen = null, open = "", narrow = false }) {
   const last = useRef(null); // { root, model } of the last graph push that could be drawn
   const g = snap.graph;
   const model = useMemo(() => (usable(g) ? buildGraphModel(g) : null), [g]);
@@ -101,7 +93,7 @@ export function Home({ snap, selected, onShown, onOpen = null, open = "" }) {
       <${Line}>${snap.remote
         ? "The team graph is shown on the desktop."
         : "The desktop would not send the team graph to this window. It is shown on the desktop itself."}<//>
-      <${Roster} state=${snap.state} />
+      ${rosterOf(snap.state).length > 0 ? html`<${RosterList} state=${snap.state} rows=${rosterOf(snap.state)} onOpen=${onOpen} open=${open} />` : null}
     </div>`;
   }
   if (snap.state && !selected && projects.length === 0) {
@@ -125,6 +117,8 @@ export function Home({ snap, selected, onShown, onOpen = null, open = "" }) {
   return html`<div class="home home--graph">
     ${snap.connection !== "open" ? html`<${Line} kind="stale">Out of date. Reconnecting.<//>` : null}
     ${snap.graphError ? html`<${Line} kind="error">The team graph could not be updated: ${clip(snap.graphError.error || "the desktop gave no reason", 200)}<//>` : null}
-    <${GraphView} model=${shown} onOpen=${onOpen} onSelect=${onOpen ? (pane) => onOpen(pane, "strip") : undefined} open=${open} />
+    ${narrow
+      ? html`<${GraphList} model=${shown} onOpen=${onOpen} open=${open} />`
+      : html`<${GraphView} model=${shown} onOpen=${onOpen} onSelect=${onOpen ? (pane) => onOpen(pane, "strip") : undefined} open=${open} />`}
   </div>`;
 }

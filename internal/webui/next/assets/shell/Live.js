@@ -15,8 +15,8 @@ import { Drawer, useDrawer } from "../drawer/Drawer.js";
 import { focusNode } from "../drawer/state.js";
 import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
 import { nextNeedsYou, paneAt } from "../graph/keys.js";
-import { Shell } from "./app.js";
-import { Home, sameProject } from "./Home.js";
+import { Shell, useNarrow } from "./app.js";
+import { Home, sameProject, rosterOf } from "./Home.js";
 
 // What the shell is given before the first hello and state. Constants, so the
 // shell does not take them for a change on every render.
@@ -24,10 +24,25 @@ const NO_HELLO = Object.freeze({ keys: Object.freeze([]) });
 const NO_STATE = Object.freeze({ root: "", projects: Object.freeze([]) });
 const NO_PANES = new Set();
 
+/** nodeOfPane is a node for the drawer from the state push's entry for a pane, for
+ *  a window with no graph: what the push says of the agent and nothing it does
+ *  not (no branch, task or live line). */
+function nodeOfPane(p) {
+  const id = String(p.id || "");
+  return {
+    pane: id, kind: p.structured ? "structured" : "terminal", structured: !!p.structured,
+    name: String(p.name || id), role: String(p.role || ""), agent: String(p.agent || ""), shell: !!p.shell,
+    status: String(p.status || "unknown"), activity: String(p.activity || ""), since: "", live: "", branch: "",
+    dirty: 0, untracked: 0, ahead: 0, behind: 0, task: null, unread: 0,
+    waitingOn: { kind: p.permission || (p.ask && p.ask.questions) ? "user" : "none", text: "", ref: "" },
+  };
+}
+
 /** Live draws the shell for a store. matchMedia and window are the page's,
  *  passed for a test, and terminalOptions reach the drawer's terminal (a test
  *  gives it fakes for xterm and the socket). */
 export function Live({ store, matchMedia, window: win, terminalOptions = null }) {
+  const narrow = useNarrow(matchMedia);
   const snap = useStore(store);
   const [selected, setSelected] = useState("");
   const [shown, setShown] = useState(null);
@@ -58,10 +73,18 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
   const current = shown && selected && sameProject(shown.root, selected) ? shown : null;
 
   const mainRef = useRef(null);
-  const paneIds = useMemo(() => (shown ? new Set(shown.nodes.map((n) => n.pane)) : NO_PANES), [shown]);
+  // A window the graph is not sent to has the agents of the state push, and its
+  // drawer opens on one of those.
+  const statePanes = kept.current.state.panes;
+  const rosterOnly = snap.graphRefused && !current;
+  const paneIds = useMemo(() => {
+    if (rosterOnly) return new Set(rosterOf(kept.current.state).map((r) => r.id));
+    return shown ? new Set(shown.nodes.map((n) => n.pane)) : NO_PANES;
+  }, [shown, rosterOnly, statePanes]);
   const drawer = useDrawer({ mainRef, paneIds });
-  const node = drawer.pane && current ? current.byPane.get(drawer.pane) : null;
-  const pane = node ? (kept.current.state.panes || {})[node.pane] || null : null;
+  const pane = drawer.pane ? (statePanes || {})[drawer.pane] || null : null;
+  let node = drawer.pane && current ? current.byPane.get(drawer.pane) : null;
+  if (!node && rosterOnly && pane) node = nodeOfPane(pane);
 
   // The manager of the project on screen, from the picture Home draws: a push
   // that cannot be read leaves the last good one, and another project's does not
@@ -94,6 +117,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     state=${kept.current.state}
     onWatch=${onWatch}
     top=${bar}
+    narrow=${narrow}
     matchMedia=${matchMedia}
     window=${win}
     mainRef=${mainRef}
@@ -103,5 +127,5 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${terminalOptions} />`
       : null}
-  ><${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} /><//>`;
+  ><${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} /><//>`;
 }
