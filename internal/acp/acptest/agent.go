@@ -74,6 +74,9 @@ const ArgMarker = "--acptest-marker"
 // started as one. Call it first in TestMain and return when it reports true.
 func RunIfAgent() bool {
 	asked := os.Getenv(envAgent) == "1"
+	if len(os.Args) > 1 && os.Args[1] == ArgTee {
+		os.Exit(runTee(os.Args[2:]))
+	}
 	for _, a := range os.Args[1:] {
 		if a == ArgAgent {
 			asked = true

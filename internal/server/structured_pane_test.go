@@ -37,6 +37,27 @@ func newStructuredEnv(t *testing.T, task string) *structuredEnv {
 // newStructuredEnvArgs is newStructuredEnv with more arguments for the fake agent.
 func newStructuredEnvArgs(t *testing.T, task string, more ...string) *structuredEnv {
 	t.Helper()
+	return newStructuredEnvWith(t, task, structuredEnvOpts{Args: more})
+}
+
+// structuredEnvOpts are the ways a test can change the structured helper
+// newStructuredEnv starts. The zero value is the fake agent in the temporary
+// directory.
+type structuredEnvOpts struct {
+	// Args follow acptest.ArgAgent when the program is this binary.
+	Args []string
+	// Program, when set, is started in place of this binary, with ProgramArgs.
+	Program     string
+	ProgramArgs []string
+	// Cwd is where the pane works; empty is the boss's directory.
+	Cwd string
+	// BeforeSpawn runs after the workspace is made and before the pane starts,
+	// for a test that changes the environment the agent is given.
+	BeforeSpawn func()
+}
+
+func newStructuredEnvWith(t *testing.T, task string, o structuredEnvOpts) *structuredEnv {
+	t.Helper()
 	e := &structuredEnv{graphEnv: newGraphEnv(t)}
 	if err := store.SavePrefs(store.Prefs{StructuredPanes: true}); err != nil {
 		t.Fatal(err)
@@ -56,11 +77,17 @@ func newStructuredEnvArgs(t *testing.T, task string, more ...string) *structured
 
 	exe, _ := os.Executable()
 	e.ws.UseStructuredCommand(func(agent.Spec) *structured.Command {
-		return &structured.Command{Path: exe, Args: append([]string{acptest.ArgAgent}, more...)}
+		if o.Program != "" {
+			return &structured.Command{Path: o.Program, Args: o.ProgramArgs}
+		}
+		return &structured.Command{Path: exe, Args: append([]string{acptest.ArgAgent}, o.Args...)}
 	})
 	ask(e.srv, func() bool { e.ws.ReloadAgents(); return true })
+	if o.BeforeSpawn != nil {
+		o.BeforeSpawn()
+	}
 	id, ok := ask(e.srv, func() string {
-		id, err := e.ws.Spawn(e.boss, workspace.SpawnOptions{Task: task, Role: "worker", Agent: "opencode-acp",
+		id, err := e.ws.Spawn(e.boss, workspace.SpawnOptions{Task: task, Cwd: o.Cwd, Role: "worker", Agent: "opencode-acp",
 			Kind: session.KindClaude, SpawnedByAgent: true})
 		if err != nil {
 			t.Errorf("spawn: %v", err)
