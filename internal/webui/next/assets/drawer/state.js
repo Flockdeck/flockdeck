@@ -4,9 +4,11 @@
 
 /** initialDrawer is a closed drawer. returnTo and seq say where the keyboard
  *  goes after a close: seq grows with each close, so a close of the same pane
- *  twice is two requests. */
+ *  twice is two requests. via is where the drawer was opened from: "strip" for a
+ *  row of the needs-you strip, "" for a box of the graph; returnVia is the via of
+ *  the drawer that closed. */
 export function initialDrawer() {
-  return { pane: "", maximised: false, returnTo: "", seq: 0 };
+  return { pane: "", via: "", maximised: false, returnTo: "", returnVia: "", seq: 0 };
 }
 
 /** reduceDrawer is every change to the drawer's state. Events: open (pane),
@@ -14,19 +16,37 @@ export function initialDrawer() {
  *  has left it closes). */
 export function reduceDrawer(s, ev) {
   switch (ev.type) {
-    case "open":
-      if (!ev.pane || ev.pane === s.pane) return s;
-      return { ...s, pane: ev.pane };
+    case "open": {
+      if (!ev.pane) return s;
+      const via = ev.via === "strip" ? "strip" : "";
+      if (ev.pane === s.pane) return via === s.via ? s : { ...s, via };
+      return { ...s, pane: ev.pane, via };
+    }
     case "close":
       if (!s.pane) return s;
-      return { pane: "", maximised: false, returnTo: s.pane, seq: s.seq + 1 };
+      return { pane: "", via: "", maximised: false, returnTo: s.pane, returnVia: s.via, seq: s.seq + 1 };
     case "toggleMax":
       return s.pane ? { ...s, maximised: !s.maximised } : s;
     case "panes":
-      return s.pane && !ev.ids.has(s.pane) ? { pane: "", maximised: false, returnTo: "", seq: s.seq + 1 } : s;
+      return s.pane && !ev.ids.has(s.pane) ? { pane: "", via: "", maximised: false, returnTo: "", returnVia: "", seq: s.seq + 1 } : s;
     default:
       return s;
   }
+}
+
+/** focusRow puts the keyboard on the strip row of a pane inside root, the first one
+ *  if the pane has more than one. It returns false when there is none. */
+export function focusRow(root, pane) {
+  if (!root || !pane || !root.querySelectorAll) return false;
+  for (const el of root.querySelectorAll("[data-pane]")) {
+    if (el.getAttribute("data-pane") !== pane || el.localName !== "li") continue;
+    const pick = el.querySelectorAll ? el.querySelectorAll(".needs-pick")[0] : null;
+    if (pick && pick.localName === "button" && pick.focus) {
+      pick.focus();
+      return true;
+    }
+  }
+  return false;
 }
 
 /** focusNode puts the keyboard on the graph box of a pane inside root, or on

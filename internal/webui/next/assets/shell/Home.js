@@ -125,6 +125,6 @@ export function Home({ snap, selected, onShown, onOpen = null, open = "" }) {
   return html`<div class="home home--graph">
     ${snap.connection !== "open" ? html`<${Line} kind="stale">Out of date. Reconnecting.<//>` : null}
     ${snap.graphError ? html`<${Line} kind="error">The team graph could not be updated: ${clip(snap.graphError.error || "the desktop gave no reason", 200)}<//>` : null}
-    <${GraphView} model=${shown} onOpen=${onOpen} open=${open} />
+    <${GraphView} model=${shown} onOpen=${onOpen} onSelect=${onOpen ? (pane) => onOpen(pane, "strip") : undefined} open=${open} />
   </div>`;
 }
