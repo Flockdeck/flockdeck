@@ -348,12 +348,45 @@ const (
 	nodeTestLimitMS   = "60000"
 )
 
-// nodePassed reads the count of passes. A file with no tests in it is reported by
-// node as one pass, of the file itself, and nodeFileOnly names that line.
+// node reports a run in one of two forms, by version and by whether the output
+// is a terminal: the spec form ("ℹ pass 28", "✔ file.test.mjs (5ms)") and the
+// TAP form ("# pass 28", "ok 1 - file.test.mjs"; the CI runners' node prints it).
+// A file with no tests in it is reported as one pass, of the file itself.
 var (
-	nodePassed   = regexp.MustCompile(`(?m)^ℹ pass (\d+)`)
-	nodeFileOnly = regexp.MustCompile(`(?m)^✔ .*\.test\.mjs \(`)
+	nodePassed   = regexp.MustCompile(`(?m)^(?:ℹ|#) pass (\d+)`)
+	nodeFileOnly = regexp.MustCompile(`(?m)^(?:✔ \S*\.test\.mjs \(|ok \d+ - \S*\.test\.mjs$)`)
 )
+
+// nodeRanTests says whether node's report holds at least one test that passed
+// besides the file itself.
+func nodeRanTests(out []byte) bool {
+	m := nodePassed.FindSubmatch(out)
+	if m == nil || string(m[1]) == "0" {
+		return false
+	}
+	return !(string(m[1]) == "1" && nodeFileOnly.Match(out))
+}
+
+func TestNodeRanTests(t *testing.T) {
+	for _, c := range []struct {
+		name, out string
+		want      bool
+	}{
+		{"spec, tests", "✔ one (1ms)\n✔ two (1ms)\nℹ tests 2\nℹ suites 0\nℹ pass 2\nℹ fail 0\n", true},
+		{"spec, one test", "✔ only one (1ms)\nℹ tests 1\nℹ pass 1\nℹ fail 0\n", true},
+		{"spec, empty file", "✔ zz.test.mjs (48.7919ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\n", false},
+		{"spec, none passed", "ℹ tests 1\nℹ pass 0\nℹ fail 1\n", false},
+		{"tap, tests", "TAP version 13\n# Subtest: the palette key, read from the table, opens the palette and is claimed\nok 1 - the palette key, read from the table, opens the palette and is claimed\n  ---\n  duration_ms: 548.6287\n  type: 'test'\n  ...\nok 28 - a binding that cannot be read is said, not silently dead\n1..28\n# tests 28\n# suites 0\n# pass 28\n# fail 0\n", true},
+		{"tap, one test", "TAP version 13\n# Subtest: one\nok 1 - one\n1..1\n# tests 1\n# pass 1\n# fail 0\n", true},
+		{"tap, empty file", "TAP version 13\n# Subtest: zz.test.mjs\nok 1 - zz.test.mjs\n  ---\n  duration_ms: 119.4751\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n", false},
+		{"tap, empty file with a path", "TAP version 13\n# Subtest: test\\zz.test.mjs\nok 1 - test\\zz.test.mjs\n1..1\n# tests 1\n# pass 1\n# fail 0\n", false},
+		{"no summary", "", false},
+	} {
+		if got := nodeRanTests([]byte(c.out)); got != c.want {
+			t.Errorf("%s: nodeRanTests = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
 
 func TestNodeTests(t *testing.T) {
 	node, err := exec.LookPath("node")
@@ -420,7 +453,7 @@ func TestNodeTests(t *testing.T) {
 			}
 			// An empty file exits 0 and node counts the file itself as the one pass,
 			// so the count is read, not the word "pass".
-			if m := nodePassed.FindSubmatch(out); m == nil || string(m[1]) == "0" || (string(m[1]) == "1" && nodeFileOnly.Match(out)) {
+			if !nodeRanTests(out) {
 				t.Errorf("node reported no passes:\n%s", out)
 			}
 		})
