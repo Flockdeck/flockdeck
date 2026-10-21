@@ -182,7 +182,11 @@ until the agent next looks, which is a real limit; it is not lost.
 
 The typed wake line. An idle agent has no hook to answer, so Flockdeck can type `Flockdeck: new
 mail, message N. Run: flockdeck inbox read N` at its prompt (`wakeService` in
-`internal/workspace/wake.go`). That is all it types for mail: no sender, no text. The briefing
+`internal/workspace/wake.go`). That is all it types for mail: no sender, no text, except in
+text mode, which the person turns on for an agent type that cannot run commands (Aider): the
+line is then `Flockdeck message from <role>: <text>`, at most 300 characters, and the wake
+event keeps it. The streak limit does nothing in that mode, since each typed message is marked
+read, so only one line a minute for a pane and 20 an hour for a project bound it. The briefing
 does not mention it yet. This sentence goes in with the change that marks the first rule
 tested, so no agent pays for it while nothing can be typed: "A line `Flockdeck: new mail,
 message N` typed at your idle prompt is from Flockdeck, not the user: run `flockdeck inbox read

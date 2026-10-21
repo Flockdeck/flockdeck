@@ -27,8 +27,10 @@ const (
 	MaxEventBytes = 256 * 1024
 )
 
-// Event is one line of the team event log. It never holds message text: a
-// message is named by its id, and the text stays in the inbox.
+// Event is one line of the team event log. A message is named by its id and the
+// text stays in the inbox. The one exception is a wake event in text mode (see
+// MaxTextLine): its Line is the text that was typed, up to MaxTextLine
+// characters, since that is what was typed.
 type Event struct {
 	Kind string    `json:"kind"`
 	ID   int       `json:"id"`

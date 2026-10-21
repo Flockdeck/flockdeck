@@ -50,8 +50,10 @@ const (
 	wakeStreakMax = 3
 )
 
-// wakeLine is exactly what is typed: a fixed sentence and the digits of the
-// newest unread message's id. Never a sender, never message text.
+// wakeLine is exactly what is typed by default: a fixed sentence and the digits
+// of the newest unread message's id. Never a sender, never message text. Text
+// mode, which the person turns on for an agent that cannot run commands, types
+// wakeTextLine instead, and that does hold the sender's role and text.
 func wakeLine(id int) string {
 	return fmt.Sprintf("Flockdeck: new mail, message %d. Run: flockdeck inbox read %d", id, id)
 }
