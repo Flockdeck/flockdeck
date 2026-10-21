@@ -14,7 +14,7 @@
 //
 // Every text here came from the desktop, an agent or a person, and is drawn as
 // text.
-import { useMemo, useRef } from "../vendor/hooks.mjs";
+import { useEffect, useMemo, useRef } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { buildGraphModel } from "../graph/model.js";
 import { GraphView } from "../graph/Graph.js";
@@ -65,9 +65,12 @@ function Roster({ state }) {
 
 /**
  * Home draws the main area. snap is the store's snapshot; selected is the root
- * of the project the window is watching ("" when there is none).
+ * of the project the window is watching ("" when there is none). onShown is
+ * called with the model of the picture on screen (or null) when it changes, so
+ * the page can open a drawer for a node of it; onOpen and open are the graph's
+ * (a click or key on a box, and the pane whose drawer is open).
  */
-export function Home({ snap, selected }) {
+export function Home({ snap, selected, onShown, onOpen = null, open = "" }) {
   const last = useRef(null); // { root, model } of the last graph push that could be drawn
   const g = snap.graph;
   const model = useMemo(() => (usable(g) ? buildGraphModel(g) : null), [g]);
@@ -79,6 +82,9 @@ export function Home({ snap, selected }) {
     last.current = null;
   }
   const shown = last.current ? last.current.model : null;
+  useEffect(() => {
+    if (onShown) onShown(shown);
+  }, [shown]);
 
   const projects = (snap.state && snap.state.projects) || [];
 
@@ -92,7 +98,9 @@ export function Home({ snap, selected }) {
   }
   if (snap.graphRefused) {
     return html`<div class="home home--roster">
-      <${Line}>The team graph is shown on the desktop.<//>
+      <${Line}>${snap.remote
+        ? "The team graph is shown on the desktop."
+        : "The desktop would not send the team graph to this window. It is shown on the desktop itself."}<//>
       <${Roster} state=${snap.state} />
     </div>`;
   }
@@ -116,6 +124,7 @@ export function Home({ snap, selected }) {
   }
   return html`<div class="home home--graph">
     ${snap.connection !== "open" ? html`<${Line} kind="stale">Out of date. Reconnecting.<//>` : null}
-    <${GraphView} model=${shown} />
+    ${snap.graphError ? html`<${Line} kind="error">The team graph could not be updated: ${clip(snap.graphError.error || "the desktop gave no reason", 200)}<//>` : null}
+    <${GraphView} model=${shown} onOpen=${onOpen} open=${open} />
   </div>`;
 }
