@@ -277,3 +277,67 @@ test("a tag's position is rounded", () => {
   assert.equal(t.x, Math.round(t.x * 10) / 10);
   assert.equal(t.y, Math.round(t.y * 10) / 10);
 });
+
+// ------------------------------------------------------------ the stylesheets are well formed
+
+// A rule that is never closed nests every rule after it in a browser, which
+// drops them. The checks above read each rule's text and cannot see that.
+// Reports the problems of a stylesheet's braces, outside comments and strings:
+// a close with nothing open, a rule inside a rule (these files use no
+// @media nesting in graph.css, so depth above 1 is a missing brace), a comment
+// that starts inside a rule, and braces left open at the end.
+export function braceProblems(text, { maxDepth = 1, topLevelComments = true } = {}) {
+  const problems = [];
+  let depth = 0;
+  let line = 1;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "\n") line++;
+    else if (c === "/" && text[i + 1] === "*") {
+      if (topLevelComments && depth !== 0) problems.push(`line ${line}: a comment starts inside a rule`);
+      const end = text.indexOf("*/", i + 2);
+      if (end < 0) { problems.push(`line ${line}: a comment is never closed`); break; }
+      for (const ch of text.slice(i, end)) if (ch === "\n") line++;
+      i = end + 1;
+    } else if (c === '"' || c === "'") {
+      const end = text.indexOf(c, i + 1);
+      if (end < 0) break;
+      i = end;
+    } else if (c === "{") {
+      depth++;
+      if (depth > maxDepth) problems.push(`line ${line}: a rule inside a rule`);
+    } else if (c === "}") {
+      depth--;
+      if (depth < 0) { problems.push(`line ${line}: a closing brace with nothing open`); depth = 0; }
+    }
+  }
+  if (depth !== 0) problems.push(`${depth} brace(s) left open at the end`);
+  return problems;
+}
+
+test("the graph's stylesheet and the shell's are well formed: braces balance and no rule sits inside another", () => {
+  for (const file of ["graph/graph.css", "app.css"]) {
+    const text = readFileSync(join(here, "..", "assets", file), "utf8");
+    // app.css has @media blocks, which hold rules one level down.
+    // graph.css keeps its comments between rules; app.css also has some inside.
+    const problems = braceProblems(text, { maxDepth: file === "app.css" ? 2 : 1, topLevelComments: file !== "app.css" });
+    assert.deepEqual(problems, [], file);
+  }
+});
+
+test("the brace check sees the defect it is for", () => {
+  const broken = ".a {\n  stroke: x;\n\n/* Edges. */\n.b {\n  fill: y;\n}\n";
+  const problems = braceProblems(broken);
+  assert.ok(problems.some((p) => /comment starts inside a rule/.test(p)), problems.join("; "));
+  assert.ok(problems.some((p) => /rule inside a rule/.test(p)), problems.join("; "));
+  assert.ok(problems.some((p) => /left open/.test(p)), problems.join("; "));
+  assert.deepEqual(braceProblems(".a { x: y; }\n/* c */\n.b { z: w; }\n"), []);
+  assert.ok(braceProblems("}\n").some((p) => /nothing open/.test(p)));
+});
+
+test("only a told message is dimmed: not a read one, a queued one or an unknown one", () => {
+  const dimmed = (delivery) => draw(graph([node("a"), node("b")], [msg("a", "b", delivery)])).includes("gedge--told");
+  assert.equal(dimmed("notified"), true);
+  assert.equal(dimmed("woken"), true);
+  for (const d of ["read", "queued", "", "teleported"]) assert.equal(dimmed(d), false, d || "(none)");
+});

@@ -227,6 +227,8 @@
 
 .needs-icon .gicon {
   stroke: currentColor;
+}
+
 
 /* Edges. A line is never the only sign of its state: each carries a word. The
  * amber one is a message that has not been told to its pane yet. */
