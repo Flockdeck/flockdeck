@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +12,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/structured"
 )
@@ -454,5 +456,104 @@ func TestARestartThatCannotStartKeepsTheHistory(t *testing.T) {
 				t.Errorf("the lines after the history are %q and %q", entries[len(before)].Text, entries[len(before)+1].Text)
 			}
 		})
+	}
+}
+
+// fakeHistory is n entries standing for an earlier session.
+func fakeHistory(n int) []transcript.Entry {
+	var out []transcript.Entry
+	for i := 0; i < n; i++ {
+		out = append(out, transcript.Entry{ID: fmt.Sprintf("old-%d", i), Kind: transcript.KindNotice, Text: fmt.Sprintf("earlier %d", i)})
+	}
+	return out
+}
+
+func idsOf(entries []transcript.Entry) []string {
+	var out []string
+	for _, e := range entries {
+		out = append(out, e.ID)
+	}
+	return out
+}
+
+// The error structured.Start returns, which is only for an agent that does not
+// speak the protocol and has no command given for it, also keeps the history.
+func TestAStartErrorKeepsTheHistory(t *testing.T) {
+	ws, lead, _ := structuredCrew(t)
+	id := spawnStructured(t, ws, lead, "plain")
+	statusWithin(t, ws, id, session.StatusIdle)
+	p := ws.Pane(id)
+	p.history = fakeHistory(3)
+	ws.UseStructuredCommand(nil)
+
+	ws.startStructured(p, agent.Spec{Name: "not-acp", Runner: agent.RunnerCLI})
+	if p.Err == nil {
+		t.Fatal("the start did not fail, so this test proves nothing")
+	}
+	if len(p.history) != 4 || p.history[0].Text != "earlier 0" || !strings.Contains(p.history[3].Text, "could not be started") {
+		t.Errorf("history after the failed start: %v", idsOf(p.history))
+	}
+}
+
+// Two failures in a row leave one failure line, the later one, after the history.
+func TestFailuresInARowLeaveOneLine(t *testing.T) {
+	ws, lead, root := structuredCrew(t)
+	id := spawnStructured(t, ws, lead, "plain")
+	statusWithin(t, ws, id, session.StatusIdle)
+	p := ws.Pane(id)
+	p.history = fakeHistory(3)
+	p.Cwd = filepath.Join(root, "gone")
+
+	for i := 0; i < 4; i++ {
+		ws.startStructured(p, agent.Spec{Name: "x", Runner: agent.RunnerACP})
+	}
+	if len(p.history) != 4 {
+		t.Fatalf("%d entries after four failures in a row, want the 3 and one line: %v", len(p.history), idsOf(p.history))
+	}
+	if got := p.history[3].ID; got != "restart-failed-4" {
+		t.Errorf("the line is %q, want the fourth failure's", got)
+	}
+}
+
+// At the cap the history is cut from the front, and the failure lines still get
+// ids of their own.
+func TestFailureLinesAtTheCapKeepUniqueIDs(t *testing.T) {
+	old := maxPaneHistory
+	maxPaneHistory = 6
+	t.Cleanup(func() { maxPaneHistory = old })
+
+	ws, lead, root := structuredCrew(t)
+	id := spawnStructured(t, ws, lead, "plain")
+	statusWithin(t, ws, id, session.StatusIdle)
+	p := ws.Pane(id)
+	p.history = fakeHistory(6)
+	p.Cwd = filepath.Join(root, "gone")
+
+	seen := map[string]bool{}
+	for i := 0; i < 5; i++ {
+		// A session that ran in between, so the failures are not in a row.
+		p.history = append(p.history, transcript.Entry{ID: fmt.Sprintf("ran-%d", i), Kind: transcript.KindNotice, Text: "ran"})
+		ws.startStructured(p, agent.Spec{Name: "x", Runner: agent.RunnerACP})
+		if len(p.history) > maxPaneHistory {
+			t.Fatalf("%d entries, the cap is %d", len(p.history), maxPaneHistory)
+		}
+		last := p.history[len(p.history)-1]
+		if seen[last.ID] {
+			t.Errorf("failure line id %q repeats", last.ID)
+		}
+		seen[last.ID] = true
+	}
+	if len(p.history) != 6 {
+		t.Errorf("%d entries at the cap, want 6", len(p.history))
+	}
+	if p.history[0].Text == "earlier 0" {
+		t.Error("the oldest entry was not cut")
+	}
+	ids := map[string]bool{}
+	for _, e := range p.history {
+		if ids[e.ID] {
+			t.Errorf("entry id %q is shown twice: %v", e.ID, idsOf(p.history))
+		}
+		ids[e.ID] = true
 	}
 }
