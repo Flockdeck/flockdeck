@@ -1,117 +1,117 @@
-<svg class="graph" viewBox="0 0 968 660" width="968" height="660" role="group" aria-label="Team graph of 03-nested-helper-question-and-returned-task">
+<svg class="graph" viewBox="0 0 968 724" width="968" height="724" role="group" aria-label="Team graph of 03-nested-helper-question-and-returned-task">
 <g class="gteam" data-team="6e7bb3af">
-<rect class="gteam-frame" x="0" y="0" width="968" height="660" rx="10">
+<rect class="gteam-frame" x="0" y="0" width="968" height="724" rx="10">
 </rect>
 <text class="gteam-title" x="16" y="24">Ship 03-nested-helper-question-and-returned-task</text>
 </g>
 <g class="gnode gnode--working gnode--manager" data-pane="6e7bb3af" transform="translate(376 52)" role="group" aria-label="manager, manager, working, branch main, $8.75">
 <title>manager, manager, working, branch main, $8.75</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="112" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
 <circle class="gmark gmark--circle" cx="18" cy="22" r="6">
 </circle>
 <text class="gnode-name" x="32" y="27">manager</text>
-<text class="gnode-state" x="206" y="27" text-anchor="end">working</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">working</text>
 <text class="gnode-role" x="12" y="47">manager · claude</text>
 <text class="gnode-live" x="12" y="67">
 </text>
 <text class="gnode-branch" x="12" y="87">main</text>
-<text class="gnode-spend" x="206" y="105" text-anchor="end">$8.75</text>
+<text class="gnode-spend" x="12" y="123">$8.75</text>
 </g>
-<g class="gnode gnode--working" data-pane="025b0446" transform="translate(16 212)" role="group" aria-label="indexer, worker, working, Edit search/index.go, branch work/indexer">
+<g class="gnode gnode--working" data-pane="025b0446" transform="translate(16 228)" role="group" aria-label="indexer, worker, working, Edit search/index.go, branch work/indexer">
 <title>indexer, worker, working, Edit search/index.go, branch work/indexer</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="112" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
 <circle class="gmark gmark--circle" cx="18" cy="22" r="6">
 </circle>
 <text class="gnode-name" x="32" y="27">indexer</text>
-<text class="gnode-state" x="206" y="27" text-anchor="end">working</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">working</text>
 <text class="gnode-role" x="12" y="47">worker · claude</text>
 <text class="gnode-live" x="12" y="67">Edit search/index.go</text>
 <text class="gnode-branch" x="12" y="87">work/indexer</text>
 </g>
-<g class="gnode gnode--working" data-pane="21c76d4a" transform="translate(16 372)" role="group" aria-label="shards, worker, working, Bash go test ./search/shard, branch work/shards">
+<g class="gnode gnode--working" data-pane="21c76d4a" transform="translate(16 404)" role="group" aria-label="shards, worker, working, Bash go test ./search/shard, branch work/shards">
 <title>shards, worker, working, Bash go test ./search/shard, branch work/shards</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="112" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
 <circle class="gmark gmark--circle" cx="18" cy="22" r="6">
 </circle>
 <text class="gnode-name" x="32" y="27">shards</text>
-<text class="gnode-state" x="206" y="27" text-anchor="end">working</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">working</text>
 <text class="gnode-role" x="12" y="47">worker · claude</text>
-<text class="gnode-live" x="12" y="67">Bash go test ./search/shard</text>
+<text class="gnode-live" x="12" y="67">Bash go test ./search/sh…</text>
 <text class="gnode-branch" x="12" y="87">work/shards</text>
 </g>
-<g class="gnode gnode--waiting" data-pane="839bba23" transform="translate(256 212)" role="group" aria-label="ranking, worker, waiting, branch work/ranking">
+<g class="gnode gnode--waiting" data-pane="839bba23" transform="translate(256 228)" role="group" aria-label="ranking, worker, waiting, branch work/ranking">
 <title>ranking, worker, waiting, branch work/ranking</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="112" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
 <polygon class="gmark gmark--diamond" points="18,15 25,22 18,29 11,22">
 </polygon>
 <text class="gnode-name" x="32" y="27">ranking</text>
-<text class="gnode-state" x="206" y="27" text-anchor="end">waiting</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">waiting</text>
 <text class="gnode-role" x="12" y="47">worker · claude</text>
 <text class="gnode-live" x="12" y="67">
 </text>
 <text class="gnode-branch" x="12" y="87">work/ranking</text>
 </g>
-<g class="gnode gnode--working" data-pane="bf058d75" transform="translate(496 212)" role="group" aria-label="ui, worker, working, Reading the review note, branch work/ui, task T1 in-progress">
+<g class="gnode gnode--working" data-pane="bf058d75" transform="translate(496 228)" role="group" aria-label="ui, worker, working, Reading the review note, branch work/ui, task T1 in-progress">
 <title>ui, worker, working, Reading the review note, branch work/ui, task T1 in-progress</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="112" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
 <circle class="gmark gmark--circle" cx="18" cy="22" r="6">
 </circle>
 <text class="gnode-name" x="32" y="27">ui</text>
-<text class="gnode-state" x="206" y="27" text-anchor="end">working</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">working</text>
 <text class="gnode-role" x="12" y="47">worker · claude</text>
 <text class="gnode-live" x="12" y="67">Reading the review note</text>
 <text class="gnode-branch" x="12" y="87">work/ui</text>
 <g class="gchip" transform="translate(12 94)">
-<rect x="0" y="0" width="118" height="14" rx="7">
+<rect x="0" y="0" width="112" height="14" rx="7">
 </rect>
 <text x="8" y="11">T1 in-progress</text>
 </g>
 </g>
-<g class="gnode gnode--idle" data-pane="49e9335b" transform="translate(736 212)" role="group" aria-label="analytics, worker, idle, branch work/analytics">
+<g class="gnode gnode--idle" data-pane="49e9335b" transform="translate(736 228)" role="group" aria-label="analytics, worker, idle, branch work/analytics">
 <title>analytics, worker, idle, branch work/analytics</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="112" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
 <circle class="gmark gmark--ring" cx="18" cy="22" r="5">
 </circle>
 <text class="gnode-name" x="32" y="27">analytics</text>
-<text class="gnode-state" x="206" y="27" text-anchor="end">idle</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">idle</text>
 <text class="gnode-role" x="12" y="47">worker · claude</text>
 <text class="gnode-live" x="12" y="67">
 </text>
 <text class="gnode-branch" x="12" y="87">work/analytics</text>
 </g>
-<g class="gnode gnode--exited" data-pane="ef584c9e" transform="translate(256 532)" role="group" aria-label="synonyms, worker, down, branch work/synonyms">
+<g class="gnode gnode--exited" data-pane="ef584c9e" transform="translate(256 580)" role="group" aria-label="synonyms, worker, down, branch work/synonyms">
 <title>synonyms, worker, down, branch work/synonyms</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="112" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
 <path class="gmark gmark--cross" d="M13 17 L23 27 M23 17 L13 27">
 </path>
 <text class="gnode-name" x="32" y="27">synonyms</text>
-<text class="gnode-state" x="206" y="27" text-anchor="end">down</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">down</text>
 <text class="gnode-role" x="12" y="47">worker · claude</text>
 <text class="gnode-live" x="12" y="67">
 </text>
 <text class="gnode-branch" x="12" y="87">work/synonyms</text>
 </g>
-<g class="gnode gnode--idle" data-pane="ce2ebf6f" transform="translate(496 532)" role="group" aria-label="perf, worker, idle, branch work/perf, task T2 in-review">
+<g class="gnode gnode--idle" data-pane="ce2ebf6f" transform="translate(496 580)" role="group" aria-label="perf, worker, idle, branch work/perf, task T2 in-review">
 <title>perf, worker, idle, branch work/perf, task T2 in-review</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="112" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
 <circle class="gmark gmark--ring" cx="18" cy="22" r="5">
 </circle>
 <text class="gnode-name" x="32" y="27">perf</text>
-<text class="gnode-state" x="206" y="27" text-anchor="end">idle</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">idle</text>
 <text class="gnode-role" x="12" y="47">worker · claude</text>
 <text class="gnode-live" x="12" y="67">
 </text>
 <text class="gnode-branch" x="12" y="87">work/perf</text>
 <g class="gchip" transform="translate(12 94)">
-<rect x="0" y="0" width="118" height="14" rx="7">
+<rect x="0" y="0" width="98" height="14" rx="7">
 </rect>
 <text x="8" y="11">T2 in-review</text>
 </g>

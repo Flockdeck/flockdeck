@@ -39,6 +39,17 @@ function inside(inner, outer) {
 function check(model, lay, label) {
   assert.equal(lay.ok, true, label);
   assert.deepEqual(overlapping(lay.nodes), [], label + ": boxes overlap");
+  // Every member of a team is drawn in that team's frame, whether or not its
+  // tree reaches it, and not left to the solo strip.
+  for (const t of model.teams) {
+    const f = lay.teams.find((x) => x.id === t.id);
+    for (const m of t.members) {
+      const b = lay.byPane.get(m);
+      if (!b) continue;
+      assert.equal(b.team, t.id, `${label}: ${m} is not in its team's frame`);
+      assert.ok(inside(b, f), `${label}: ${m} is outside its team's frame`);
+    }
+  }
   // Every pane has exactly one box.
   assert.equal(lay.nodes.length, model.nodes.length, label + ": box count");
   assert.equal(new Set(lay.nodes.map((b) => b.pane)).size, model.nodes.length, label + ": a pane has two boxes");
@@ -199,7 +210,10 @@ test("a team whose manager is not a node still shows its members", () => {
     { pane: "b", parent: "gone", depth: 1, team: "gone", name: "b", status: "idle", activity: "idle" },
   ];
   const model = buildGraphModel({ type: "graph", teams: [{ id: "gone", manager: "gone", members: ["a", "b"] }], nodes, edges: [], solo: [] });
-  check(model, layoutGraph(model), "unlinked");
+  const lay = layoutGraph(model);
+  check(model, lay, "unlinked");
+  for (const id of ["a", "b"]) assert.equal(lay.byPane.get(id).team, "gone");
+  assert.equal(lay.solo, null);
 });
 
 test("a node that no team or solo list names goes in the strip", () => {

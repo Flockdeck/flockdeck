@@ -168,3 +168,165 @@ test("every mark stays inside the corner of its box", () => {
     }
   }
 });
+
+// The words each state is drawn with, pinned one by one, so that a change of a
+// word fails here and not only in a snapshot nobody reads.
+test("each state is drawn with its own word", () => {
+  const want = { working: "working", idle: "idle", waiting: "waiting", blocked: "blocked", starting: "starting", exited: "down", failed: "down" };
+  for (const [activity, word] of Object.entries(want)) {
+    const out = draw({
+      type: "graph",
+      teams: [],
+      nodes: [{ pane: "p", depth: 0, name: "p", status: activity === "failed" ? "exited" : activity, activity }],
+      edges: [],
+      solo: ["p"],
+    });
+    assert.match(out, new RegExp(`<text class="gnode-state"[^>]*>${word}</text>`), activity);
+    assert.equal(stateOf({ activity, status: activity }).word, word, activity);
+  }
+});
+
+// A width estimate for every text run in a box, from the typefaces' average
+// character widths (the mono face is 0.6 em wide; the sans faces are a little
+// narrower than 0.6 em on average, bold more so). Each run must fit inside its
+// box with a margin, and runs on one line must not meet.
+const EM = { mono: 0.6, sans: 0.56, bold: 0.58 };
+const RUNS = {
+  "gnode-name": { size: 14, face: "bold" },
+  "gnode-state": { size: 12, face: "bold" },
+  "gnode-role": { size: 12, face: "sans" },
+  "gnode-live": { size: 12, face: "mono" },
+  "gnode-branch": { size: 12, face: "mono" },
+  "gnode-spend": { size: 12, face: "mono" },
+};
+const BOX_W = 216;
+const BOX_H = 128;
+const unescape = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+
+// The runs of every node drawn: { pane, kind, x0, x1, y }, and each chip.
+function runsOf(out) {
+  const found = [];
+  for (const g of out.split('<g class="gnode ').slice(1)) {
+    const pane = /data-pane="([^"]*)"/.exec(g)[1];
+    const box = g.slice(0, g.indexOf("</g></g>") >= 0 && g.includes('class="gchip"') ? g.indexOf("</g></g>") + 8 : g.length);
+    for (const m of box.matchAll(/<text class="(gnode-[a-z]+)" x="(-?[\d.]+)" y="([\d.]+)"( text-anchor="end")?>([^<]*)<\/text>/g)) {
+      const spec = RUNS[m[1]];
+      const text = unescape(m[5]);
+      const width = Array.from(text).length * EM[spec.face] * spec.size;
+      const x = Number(m[2]);
+      const anchoredEnd = m[4] !== undefined;
+      found.push({ pane, kind: m[1], y: Number(m[3]), text, x0: anchoredEnd ? x - width : x, x1: anchoredEnd ? x : x + width });
+    }
+    const chip = /<g class="gchip" transform="translate\((\d+) (\d+)\)"><rect x="0" y="0" width="(\d+)" height="(\d+)"[^>]*><\/rect><text x="(\d+)" y="(\d+)">([^<]*)<\/text>/.exec(g);
+    if (chip) {
+      const text = unescape(chip[7]);
+      const textW = Array.from(text).length * EM.mono * 11;
+      found.push({ pane, kind: "chip", y: Number(chip[2]), text, x0: Number(chip[1]), x1: Number(chip[1]) + Number(chip[3]), textFits: Number(chip[5]) + textW <= Number(chip[3]) });
+    }
+  }
+  return found;
+}
+
+// Boxes that stress every line: long text everywhere, long states, partial spend.
+function crowded() {
+  const long = (c, n) => c.repeat(n);
+  const states = ["waiting", "starting", "blocked", "working", "exited", "idle"];
+  const nodes = [
+    {
+      pane: "m",
+      depth: 0,
+      team: "m",
+      children: states.map((_, i) => "w" + i),
+      name: "flockdeck-planning-manager",
+      role: "manager",
+      agent: "claude",
+      status: "working",
+      activity: "working",
+      live: long("e", 80),
+      branch: long("b", 80),
+      dirty: 12,
+      untracked: 3,
+      task: { id: "T1234", title: "x", state: "in-progress" },
+    },
+  ];
+  states.forEach((st, i) => {
+    nodes.push({
+      pane: "w" + i,
+      parent: "m",
+      depth: 1,
+      team: "m",
+      name: "flockdeck-planning-worker",
+      role: "reviewer-and-tester",
+      agent: "claude-sonnet",
+      status: st,
+      activity: st,
+      live: long("e", 80),
+      branch: "work/" + long("b", 60),
+      dirty: 120,
+      task: { id: "T12345678", title: "x", state: "in-progress" },
+    });
+  });
+  return { type: "graph", teams: [{ id: "m", manager: "m", members: nodes.map((n) => n.pane), spendUSD: 12.4, spendPartial: true }], nodes, edges: [], solo: [] };
+}
+
+function assertFits(runs, label) {
+  assert.ok(runs.length > 0, label + ": no text runs found");
+  for (const r of runs) {
+    assert.ok(r.x0 >= 4 && r.x1 <= BOX_W - 4, `${label}: ${r.pane} ${r.kind} "${r.text}" runs from ${r.x0.toFixed(0)} to ${r.x1.toFixed(0)} in a ${BOX_W} box`);
+    if (r.kind === "gnode-spend") assert.ok(r.y <= BOX_H - 2, `${label}: spend is below the box`);
+    if (r.textFits !== undefined) assert.ok(r.textFits, `${label}: ${r.pane} chip text is wider than its pill`);
+  }
+  // Runs that share a line, or a chip and the line it could meet, must not touch.
+  const byPane = new Map();
+  for (const r of runs) {
+    if (!byPane.has(r.pane)) byPane.set(r.pane, []);
+    byPane.get(r.pane).push(r);
+  }
+  for (const [pane, list] of byPane) {
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i];
+        const b = list[j];
+        // A text spans from 12 above its baseline to 3 below; a chip is its pill.
+        const span = (r) => (r.kind === "chip" ? [r.y, r.y + 14] : [r.y - 12, r.y + 3]);
+        const [a0, a1] = span(a);
+        const [b0, b1] = span(b);
+        if (a1 <= b0 || b1 <= a0) continue;
+        assert.ok(a.x1 + 4 <= b.x0 || b.x1 + 4 <= a.x0, `${label}: ${pane} ${a.kind} "${a.text}" meets ${b.kind} "${b.text}"`);
+      }
+    }
+  }
+}
+
+test("every text in a crowded box fits the box and keeps clear of its neighbours", () => {
+  assertFits(runsOf(draw(crowded())), "crowded");
+});
+
+test("every text in the fixtures fits its box", () => {
+  for (const name of names) assertFits(runsOf(draw(load(name))), name);
+});
+
+test("a partial spend does not meet the task chip", () => {
+  const msg = crowded();
+  const runs = runsOf(draw(msg)).filter((r) => r.pane === "m");
+  const spend = runs.find((r) => r.kind === "gnode-spend");
+  const chip = runs.find((r) => r.kind === "chip");
+  assert.ok(spend && chip);
+  assert.ok(spend.y - 12 > chip.y + 14, "the spend is on a line of its own, below the chip");
+});
+
+test("a long name is cut so that it stops before the state word", () => {
+  const runs = runsOf(draw(crowded()));
+  for (const w of ["w0", "w1"]) {
+    const name = runs.find((r) => r.pane === w && r.kind === "gnode-name");
+    const state = runs.find((r) => r.pane === w && r.kind === "gnode-state");
+    assert.ok(name.x1 + 4 <= state.x0, `${w}: "${name.text}" meets "${state.text}"`);
+    assert.ok(name.text.endsWith("…"));
+  }
+});
+
+test("the estimate in this test fails for a line that is too long", () => {
+  // The same estimate applied to an uncut 31-character mono line, which the first version drew.
+  const out = '<g class="gnode x" data-pane="q"><text class="gnode-live" x="12" y="67">' + "e".repeat(31) + "</text></g>";
+  assert.throws(() => assertFits(runsOf(out), "uncut"));
+});

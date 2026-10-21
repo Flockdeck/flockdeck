@@ -61,6 +61,43 @@ export function describe(node, state, spend) {
   return bits.filter(Boolean).join(", ");
 }
 
+// How wide a character is, per unit of font size, for the three faces the
+// stylesheet uses, rounded up so a text is cut a little early rather than late:
+// the mono face (JetBrains Mono, 0.6 em), the sans face and its bold. The box
+// is 216 wide, so these decide how many characters each line can hold. The
+// layout of a line is pinned by a test that estimates each text's width the
+// same way.
+export const CHAR_EM = { mono: 0.62, sans: 0.56, bold: 0.58 };
+export const SIZES = { name: 14, state: 12, role: 12, mono: 12, chip: 11 };
+export const PAD = 12;
+export const NAME_X = 32;
+
+/** limitOf is how many characters of a line fit between the box's padding. */
+export function limitOf(w, kind) {
+  const em = kind === "mono" ? CHAR_EM.mono * SIZES.mono : CHAR_EM.sans * SIZES.role;
+  return Math.max(1, Math.floor((w - 2 * PAD) / em));
+}
+
+/** nameLimit is how many characters of the name fit between the mark and the state word, which is drawn at the right edge. */
+export function nameLimit(word, w) {
+  const stateW = Array.from(word).length * CHAR_EM.bold * SIZES.state;
+  const room = w - PAD - stateW - 8 - NAME_X;
+  return Math.max(1, Math.floor(room / (CHAR_EM.bold * SIZES.name)));
+}
+
+/** chipOf is the task chip's text, cut to fit, and the width of its pill. */
+export function chipOf(task) {
+  const text = clip(task.id + " " + task.state, 22);
+  return { text, w: Math.ceil(Array.from(text).length * CHAR_EM.mono * SIZES.chip) + 16 };
+}
+
+/** branchLine is the branch and the changed-file count. The count is kept whole and the branch is cut to leave room for it. */
+export function branchLine(branch, dirty, limit) {
+  if (!dirty) return clip(branch, limit);
+  const room = limit - Array.from(dirty).length - 2;
+  return branch && room >= 4 ? clip(branch, room) + "  " + dirty : clip(dirty, limit);
+}
+
 function Mark({ shape, x, y }) {
   const cls = "gmark gmark--" + shape;
   switch (shape) {
@@ -93,6 +130,7 @@ export function Node({ node, box, team = null }) {
   const dirty = dirtyOf(node);
   const w = box.w;
   const label = describe(node, state, spend);
+  const chip = node.task ? chipOf(node.task) : null;
   const cls = ["gnode", "gnode--" + state.key, node.structured ? "gnode--structured" : "", node.shell ? "gnode--shell" : "", isManager ? "gnode--manager" : ""]
     .filter(Boolean)
     .join(" ");
@@ -101,18 +139,18 @@ export function Node({ node, box, team = null }) {
       <title>${label}</title>
       <rect class="gnode-box" x="0" y="0" width=${w} height=${box.h} rx="6" />
       <${Mark} shape=${state.shape} x=${18} y=${22} />
-      <text class="gnode-name" x="32" y="27">${clip(node.name || node.pane, 18)}</text>
-      <text class="gnode-state" x=${w - 10} y="27" text-anchor="end">${state.word}</text>
-      <text class="gnode-role" x="12" y="47">${clip([node.role || (node.shell ? "shell" : ""), node.agent].filter(Boolean).join(" · "), 32)}</text>
-      <text class="gnode-live" x="12" y="67">${node.live ? clip(node.live, 31) : ""}</text>
-      <text class="gnode-branch" x="12" y="87">${clip([node.branch, dirty].filter(Boolean).join("  "), 31)}</text>
-      ${node.task
-        ? html`<g class="gchip" transform="translate(12 94)">
-            <rect x="0" y="0" width="118" height="14" rx="7" />
-            <text x="8" y="11">${clip(node.task.id + " " + node.task.state, 18)}</text>
+      <text class="gnode-name" x=${NAME_X} y="27">${clip(node.name || node.pane, nameLimit(state.word, w))}</text>
+      <text class="gnode-state" x=${w - PAD} y="27" text-anchor="end">${state.word}</text>
+      <text class="gnode-role" x=${PAD} y="47">${clip([node.role || (node.shell ? "shell" : ""), node.agent].filter(Boolean).join(" · "), limitOf(w, "role"))}</text>
+      <text class="gnode-live" x=${PAD} y="67">${node.live ? clip(node.live, limitOf(w, "mono")) : ""}</text>
+      <text class="gnode-branch" x=${PAD} y="87">${branchLine(node.branch, dirty, limitOf(w, "mono"))}</text>
+      ${chip
+        ? html`<g class="gchip" transform=${`translate(${PAD} 94)`}>
+            <rect x="0" y="0" width=${chip.w} height="14" rx="7" />
+            <text x="8" y="11">${chip.text}</text>
           </g>`
         : null}
-      ${spend ? html`<text class="gnode-spend" x=${w - 10} y="105" text-anchor="end">${spend}</text>` : null}
+      ${spend ? html`<text class="gnode-spend" x=${PAD} y="123">${clip(spend, limitOf(w, "mono"))}</text>` : null}
     </g>
   `;
 }
