@@ -228,3 +228,70 @@
 .needs-icon .gicon {
   stroke: currentColor;
 }
+
+
+/* Edges. A line is never the only sign of its state: each carries a word. The
+ * amber one is a message that has not been told to its pane yet. */
+.graph {
+  overflow: visible;
+}
+
+.gedge path {
+  fill: none;
+  stroke: var(--fg-dim);
+  stroke-width: 1.5;
+}
+
+.gedge--waiting path,
+.gedge--tag path {
+  stroke: var(--line-strong);
+  stroke-dasharray: 6 3;
+}
+
+.gedge--sent path {
+  stroke-dasharray: 1 5;
+  stroke-linecap: round;
+}
+
+.gedge--undelivered path {
+  stroke: var(--waiting);
+  stroke-width: 2;
+}
+
+.gedge-head {
+  fill: var(--fg-dim);
+  stroke: none;
+}
+
+.gedge-head--wait {
+  fill: var(--line-strong);
+}
+
+.gedge-head--amber {
+  fill: var(--waiting);
+}
+
+.gedge-label rect {
+  fill: var(--bg-raised);
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.gedge-label--amber rect {
+  stroke: var(--waiting);
+}
+
+.gedge-label text {
+  fill: var(--fg);
+  font-size: 11px;
+}
+
+.gedge-notice text {
+  fill: var(--fg-dim);
+  font-size: 12px;
+}
+
+/* Told (notified or woken) but not yet read: the same line, dimmer. */
+.gedge--told path {
+  stroke-opacity: 0.6;
+}

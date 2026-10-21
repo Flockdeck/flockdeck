@@ -4,6 +4,62 @@
 </rect>
 <text class="gteam-title" x="16" y="24">Ship 03-nested-helper-question-and-returned-task</text>
 </g>
+<defs>
+<marker id="gedge-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path class="gedge-head" d="M0 0L10 5L0 10z">
+</path>
+</marker>
+<marker id="gedge-arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path class="gedge-head gedge-head--amber" d="M0 0L10 5L0 10z">
+</path>
+</marker>
+<marker id="gedge-arrow-wait" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path class="gedge-head gedge-head--wait" d="M0 0L10 5L0 10z">
+</path>
+</marker>
+</defs>
+<g class="gedges">
+<g class="gedge gedge--waiting" data-from="6e7bb3af" data-to="025b0446">
+<title>waiting on a helper: 3 helpers are busy</title>
+<path d="M376 184.8Q304 220 232 255.2" marker-end="url(#gedge-arrow-wait)">
+</path>
+<g class="gedge-label gedge-label--wait">
+<rect x="238" y="211" width="132" height="16" rx="4">
+</rect>
+<text x="304" y="223" text-anchor="middle">waiting on a helper</text>
+</g>
+</g>
+<g class="gedge gedge--waiting" data-from="025b0446" data-to="21c76d4a">
+<title>waiting on a helper: 1 helper is busy</title>
+<path d="M124 372Q124 396 124 420" marker-end="url(#gedge-arrow-wait)">
+</path>
+<g class="gedge-label gedge-label--wait">
+<rect x="58" y="387" width="132" height="16" rx="4">
+</rect>
+<text x="124" y="399" text-anchor="middle">waiting on a helper</text>
+</g>
+</g>
+<g class="gedge gedge--tag" data-tagged="839bba23" data-holder="user">
+<title>waiting on you: Boost exact title matches over body matches?</title>
+<path d="M268 372v8">
+</path>
+<g class="gedge-label gedge-label--wait">
+<rect x="267.8" y="379" width="100" height="16" rx="4">
+</rect>
+<text x="317.8" y="391" text-anchor="middle">waiting on you</text>
+</g>
+</g>
+<g class="gedge gedge--tag" data-tagged="ce2ebf6f" data-holder="reviewer">
+<title>waiting on a reviewer: T2 is in review by reviewer</title>
+<path d="M508 724v8">
+</path>
+<g class="gedge-label gedge-label--wait">
+<rect x="508.20000000000005" y="731" width="144" height="16" rx="4">
+</rect>
+<text x="580.2" y="743" text-anchor="middle">waiting on a reviewer</text>
+</g>
+</g>
+</g>
 <g class="gslot">
 <g class="gnode gnode--working gnode--manager" data-pane="6e7bb3af" transform="translate(376 68)" role="group" aria-label="manager, manager, working, branch main, $8.75">
 <title>manager, manager, working, branch main, $8.75</title>
