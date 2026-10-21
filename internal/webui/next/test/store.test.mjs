@@ -137,6 +137,31 @@ test("stop() in a remote window sends no unwatch for a watch asked for before th
   assert.deepEqual(bad, [], "a graph command went to the relay on stop");
 });
 
+test("an unwatch is sent only for a watch that went out: nothing between open and the hello", async () => {
+  const { store, ws } = await up();
+  store.watchGraph("C:/repo");
+  store.watchStructured("p1");
+  store.watchStructured("p2");
+  store.unwatchStructured();
+  store.unwatchGraph();
+  store.watchGraph("C:/repo");
+  store.watchStructured("p3");
+  store.stop();
+  assert.deepEqual(ws.sent, [], "a command went out before the hello");
+});
+
+test("a local window still unwatches on stop and when the watch is replaced", async () => {
+  const { store, ws } = await up();
+  ws.frame(hello());
+  store.watchGraph("C:/repo");
+  store.watchStructured("p1");
+  store.watchStructured("p2");
+  assert.equal(ws.commands("structuredUnwatch").length, 1);
+  store.stop();
+  assert.equal(ws.commands("graphUnwatch").length, 1);
+  assert.equal(ws.commands("structuredUnwatch").length, 2);
+});
+
 test("the desk-only refusal sets graphRefused and stops the retry; another failure sets graphError", async () => {
   const { store, ws } = await up();
   ws.frame(hello());

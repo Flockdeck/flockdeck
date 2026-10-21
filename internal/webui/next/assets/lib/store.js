@@ -200,6 +200,10 @@ export function createStore(opts) {
     return socket.send(cmd);
   }
 
+  // A watch goes out only with the hello, and never in a remote window, so an unwatch
+  // is sent only when the hello is in and says this window is not remote.
+  const watchSent = () => !!snap.hello && !snap.remote;
+
   function handle(msg) {
     switch (msg.type) {
       case "hello": {
@@ -324,8 +328,8 @@ export function createStore(opts) {
   return {
     start() { socket.start(); },
     stop() {
-      if (watching !== null && !snap.remote) socket.send({ cmd: "graphUnwatch" });
-      if (watchingPane !== null && !snap.remote) socket.send({ cmd: "structuredUnwatch", id: watchingPane });
+      if (watching !== null && watchSent()) socket.send({ cmd: "graphUnwatch" });
+      if (watchingPane !== null && watchSent()) socket.send({ cmd: "structuredUnwatch", id: watchingPane });
       watching = null;
       watchingPane = null;
       if (watchingConv !== null) socket.send({ cmd: "conversationClose", id: watchingConv });
@@ -371,7 +375,7 @@ export function createStore(opts) {
       if (snap.remote || !id) return false;
       const was = watchingPane;
       if (was === id) return true;
-      if (was !== null) socket.send({ cmd: "structuredUnwatch", id: was });
+      if (was !== null && watchSent()) socket.send({ cmd: "structuredUnwatch", id: was });
       watchingPane = id;
       set({ structured: null, structuredError: null });
       if (snap.hello) sendStructuredWatch();
@@ -381,7 +385,7 @@ export function createStore(opts) {
       if (watchingPane === null) return;
       const was = watchingPane;
       watchingPane = null;
-      if (!snap.remote) socket.send({ cmd: "structuredUnwatch", id: was });
+      if (watchSent()) socket.send({ cmd: "structuredUnwatch", id: was });
       set({ structured: null, structuredError: null });
     },
     /** watchConversation asks for the conversation of one pane, now and as it
@@ -414,7 +418,7 @@ export function createStore(opts) {
     unwatchGraph() {
       if (watching === null) return;
       watching = null;
-      if (!snap.remote) socket.send({ cmd: "graphUnwatch" });
+      if (watchSent()) socket.send({ cmd: "graphUnwatch" });
       set({ graph: null, graphGone: null, graphError: null });
     },
   };
