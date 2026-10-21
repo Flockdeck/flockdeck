@@ -53,6 +53,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 const (
@@ -630,6 +632,7 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 		}
 		cmd := exec.Command(exe, argSleeper)
 		cmd.Env = []string{} // not the agent's variables, so it is not taken for an agent
+		sysproc.NoWindow(cmd)
 		if err := cmd.Start(); err != nil {
 			a.chunk(sid, "start: "+err.Error())
 			done("end_turn")
