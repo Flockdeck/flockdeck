@@ -18,10 +18,12 @@ type Transport string
 
 const (
 	// TransportTerminal is a pane whose agent or shell runs in a terminal that
-	// Flockdeck reads the screen, hooks and transcript of. Every pane is one.
+	// Flockdeck reads the screen, hooks and transcript of. A pane is one unless
+	// it is structured.
 	TransportTerminal Transport = "terminal"
 	// TransportStructured is a pane whose agent speaks the Agent Client Protocol,
-	// so its state is told and not read. No pane is one yet.
+	// so its state is told and not read. It has no terminal and no session; the
+	// pane has a structured runtime instead (structuredpane.go).
 	TransportStructured Transport = "structured"
 )
 
