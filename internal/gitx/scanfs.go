@@ -137,7 +137,9 @@ func fsItem(err error, where, submodule string) Program {
 	case errors.Is(err, errScanTooLarge):
 		return unscannable(where, errScanTooLarge.Error(), submodule)
 	case errors.Is(err, errScanTooLong):
-		return unscannable(where, errScanTooLong.Error(), submodule)
+		p := unscannable(where, errScanTooLong.Error(), submodule)
+		p.timedOut = true
+		return p
 	}
 	return unreadable(where, err, submodule)
 }

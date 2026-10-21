@@ -228,13 +228,14 @@ func TestAHooksFolderOverTheLimitIsLookedThroughByNameAndOneAtItIsListed(t *test
 // Which step of a scan notices first that the time has run out is a matter of
 // timing, so the items it makes come in more than one spelling: the bare words,
 // and the words after what the step was doing ("git could not read it: ...").
-// All of them are replaced by the one item, and an unrelated item is kept.
+// All of them (the ones made from the time running out, which are marked) are
+// replaced by the one item, and an unrelated item is kept.
 func TestEveryItemTheTimeRunningOutMadeIsReplacedByOne(t *testing.T) {
 	bare := errScanTooLong.Error()
 	items := []Program{
 		{Kind: "unscannable", Value: bare, Where: "/r/a"},
-		{Kind: "unscannable", Value: "git could not read it: " + bare, Where: "/r/.git/modules/s/config", Submodule: "s"},
-		{Kind: "unscannable", Value: "git config could not be read: " + bare, Where: "/r"},
+		{Kind: "unscannable", Value: "git could not read it: " + bare, Where: "/r/.git/modules/s/config", Submodule: "s", timedOut: true},
+		{Kind: "unscannable", Value: "git config could not be read: " + bare, Where: "/r", timedOut: true},
 		{Kind: "unscannable", Value: "the file is a link to a share", Where: "/r/b"},
 		{Kind: "setting", Name: "core.sshcommand", Value: "ssh -i " + bare},
 	}
@@ -332,5 +333,41 @@ func TestAScanWhoseTimeRunsOutBetweenLookingAndReadingHasOneItemAboutTheTime(t *
 	}
 	if !strings.HasPrefix(about[0].Value, errScanTooLong.Error()+" (") {
 		t.Errorf("the one item is not the usual one: %+v", about[0])
+	}
+}
+
+// A value from the repository can end in the words that say the scan took too
+// long. An item that only quotes it is not about the time and must stay, or a
+// repository could hide a warning by arranging for the scan to be slow.
+func TestAHooksPathThatEndsInTheWordsAboutTheTimeIsNotTakenForTheTime(t *testing.T) {
+	outer := submoduleFarm(t, 2)
+	hostile := "%(prefix)/hooks: " + errScanTooLong.Error()
+	gitRun(t, outer, "config", "core.hooksPath", hostile)
+	rep := runOutOfTime(t, outer, "after")
+	var worked, about int
+	for _, p := range rep.Items {
+		if p.Kind != "unscannable" {
+			continue
+		}
+		if strings.Contains(p.Value, "core.hooksPath cannot be worked out") && strings.HasSuffix(p.Value, hostile) {
+			worked++
+		} else if strings.Contains(p.Value, errScanTooLong.Error()) {
+			about++
+		}
+	}
+	if worked != 1 {
+		t.Errorf("the item for the hooksPath was dropped or doubled (%d): %+v", worked, rep.Items)
+	}
+	if about != 1 {
+		t.Errorf("%d items are about the time running out, want one: %+v", about, rep.Items)
+	}
+}
+
+// The same, one step down: the value is only quoted, so it is not marked.
+func TestAnItemThatQuotesTheWordsAboutTheTimeIsKept(t *testing.T) {
+	quote := Program{Kind: "unscannable", Value: "core.hooksPath cannot be worked out: ~x: " + errScanTooLong.Error(), Where: "/r/config"}
+	got := oneTimeoutItem([]Program{quote}, "/r")
+	if len(got) != 2 || got[0].ID() != quote.ID() {
+		t.Errorf("an item that quotes the words was dropped: %+v", got)
 	}
 }

@@ -494,7 +494,7 @@ func TestALateAnswerToAnAbandonedCallIsNotAnError(t *testing.T) {
 		t.Fatalf("error = %v, want the deadline", err)
 	}
 	r.waitFor(t, "the late chunk", func(us []Update) bool { return len(us) == 1 })
-	time.Sleep(0) // the response to the abandoned prompt follows the chunk
+	time.Sleep(300 * time.Millisecond) // the response to the abandoned prompt follows the chunk
 	if n := c.ProtocolErrors(); n != 0 {
 		t.Errorf("a late answer to an abandoned call counted %d protocol errors", n)
 	}
