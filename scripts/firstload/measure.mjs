@@ -437,9 +437,10 @@ async function main() {
     }
   }
   const out = opt("out", "");
-  if (out && out !== true) fs.writeFileSync(out, JSON.stringify({ browser: browser.version, params: { KBIT, RTT, CONNECT_RTTS, STREAMS, CPU, SLOW_START, RUNS }, results }, null, 2));
+  if (out && out !== true) fs.writeFileSync(out, JSON.stringify({ browser: browser.version, esbuild: ESBUILD ? execFileSync(ESBUILD, ["--version"]).toString().trim() : null, params: { KBIT, RTT, CONNECT_RTTS, STREAMS, CPU, SLOW_START, RUNS }, results }, null, 2));
   cdp.close();
   browser.child.kill();
+  try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* in use */ }
   setTimeout(() => { try { fs.rmSync(browser.dir, { recursive: true, force: true }); } catch { /* in use */ } process.exit(0); }, 1500);
 }
 
