@@ -21,13 +21,13 @@ For all five fixtures, with the drawer closed on load:
 - A window reached the way the relay reaches it, with the hello made remote in the page (the same page, a changed hello): no `graph`, `structured`, `paneSend` or `permissionAnswer` command goes out, the line "The team graph is shown on the desktop." shows, the roster lists every agent, and there is no graph, manager bar or drawer.
 - The configuration directory (`%APPDATA%\flockdeck`) was listed before and after the whole run: 84 files both times, no difference. The temporary directory the server ran in was left empty. A Flockdeck was running on the same machine; it changed nothing in the window of the run.
 
-## What fails
+## First run: what failed
 
-The second week-10 step fails on the real page, for all five fixtures at both slowdowns.
+This is the record of the first run, kept as it was. The second week-10 step failed on the real page, for all five fixtures at both slowdowns.
 
 From the strip, one click or key should open the drawer for the named agent and show the real command or question in under 2 s. A strip row is not a control on the page: `shell/Home.js` renders `GraphView` without `onSelect`, and `NeedsYou` draws a row as a button only when it has one. A click on a row opens nothing. The row cannot take focus, so Enter on it opens nothing either. Result for the first permission or question of each fixture: 0 of 3 runs opened the drawer, at 1x and at 4x, by click and by key.
 
-Follow-up: T100, pass `onSelect` from Home to `GraphView`, make a row reachable by Tab, and rerun this check. The check is not changed to pass.
+Follow-up: T100, pass `onSelect` from Home to `GraphView`, make a row reachable by Tab, and rerun this check. The check is not changed to pass. The rerun is below.
 
 For comparison, and not the strip path: a click on the agent's box in the graph opens the drawer and puts the text on the screen. Time from the pointer event to the text, three runs each:
 
@@ -40,6 +40,24 @@ For comparison, and not the strip path: a click on the agent's box in the graph 
 | 5 | forms (question) | 4.1, 4.1, 5 | 18.5, 20.9, 21.9 |
 
 The time is from the browser's `pointerdown` to the first moment the drawer holds the first 30 characters of the item's text. It does not include the person finding the box.
+
+## Rerun against T100 (#412)
+
+Same check, machine and Chrome, run on the tree of #412 (branch `strip-select`, head `1bfc48d5`), three runs of each timed step. All five fixtures pass every check, including both strip ways of the second step. The configuration directory was 84 files before and after.
+
+Time from the pointer event or key to the first 30 characters of the item's text in the drawer. Each cell is the range over the five fixtures, three runs each:
+
+| Way | 1x CPU slowdown (ms) | 4x CPU slowdown (ms) |
+| --- | --- | --- |
+| Click on the strip row | 2.7 to 4.4 | 15.2 to 22.2 |
+| Enter on the strip row | 2.4 to 3.9 | 8.6 to 17.1 |
+| Click on the box, for comparison | 3.3 to 5.1 | 17.6 to 23.4 |
+
+The bar is under 2 s. The slowest strip run was 22.2 ms.
+
+The check had a defect that showed up on the way: the first rerun sent Enter to Chrome without the character that makes a focused button act, so the key way read 0 of 3 although the row was a focusable control and the click way passed. The check now sends the key with its character. That is a fix to the check, not to the page. In the first run the key way failed for a real reason (the row was not a control).
+
+Esc returning the keyboard to the strip row is covered by #412's node tests. This script does not press Esc in the real page.
 
 ## What was not checked
 

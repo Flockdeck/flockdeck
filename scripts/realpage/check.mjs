@@ -356,7 +356,7 @@ async function secondCheck(browser, url, ex, rate) {
   await way("stripKey", async (page) => {
     const sel = `.needs-row[data-pane="${target.pane}"][data-kind="${target.kind}"] .needs-pick`;
     const focusable = await page.eval(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return false; e.focus(); return document.activeElement === e; })()`);
-    await page.S("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await page.S("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", text: "\r", windowsVirtualKeyCode: 13 });
     await page.S("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
     return { rowFocusable: focusable };
   });
