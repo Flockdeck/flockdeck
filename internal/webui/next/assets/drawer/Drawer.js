@@ -1,5 +1,6 @@
 // The drawer for one agent: a header, the card for what it is waiting on when it
-// is waiting on the person (Prompt.js), and a Terminal tab. It shows the pane it
+// is waiting on the person (Prompt.js), and a Terminal tab and, for a pane with a
+// stored conversation, a Conversation tab (Conversation.js). It shows the pane it
 // is given and nothing else, and the shell puts it beside the graph, which keeps
 // drawing and keeps updating behind it.
 //
@@ -10,10 +11,11 @@
 // Maximise fills the main area with the drawer and Restore puts it back. Neither
 // touches the terminal's size: the pty is resized only by fitToBox, which
 // nothing here calls.
-import { useEffect, useReducer, useRef } from "../vendor/hooks.mjs";
+import { useEffect, useReducer, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { Header } from "./Header.js";
 import { Prompt } from "./Prompt.js";
+import { Conversation } from "./Conversation.js";
 import { TerminalView, STRUCTURED_STUB } from "../lib/terminal.js";
 import { initialDrawer, reduceDrawer, focusNode, focusRow } from "./state.js";
 import { LIST } from "../shell/keys.js";
@@ -77,6 +79,17 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
     store.watchStructured(node.pane);
     return () => store.unwatchStructured();
   }, [store, node.pane, terminal]);
+  // The pane's conversation is asked for while its drawer is open, to know whether
+  // it has one (a shell has none) and to keep the tab current. Closing the drawer,
+  // or opening another pane, closes it.
+  useEffect(() => {
+    store.watchConversation(node.pane);
+    return () => store.unwatchConversation();
+  }, [store, node.pane]);
+  const [tab, setTab] = useState("terminal");
+  useEffect(() => {
+    setTab("terminal");
+  }, [node.pane]);
   const onKeyDown = (e) => {
     if (e.key !== LIST.cancel || e.defaultPrevented || inTerminal(e.target)) return;
     e.preventDefault();
@@ -84,19 +97,41 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
     if (onClose) onClose();
   };
   const state = snap || store.getState();
+  const conv = state.conversation && state.conversation.id === node.pane ? state.conversation : null;
+  // The tab is there for a pane with a conversation, and for one the desktop
+  // refused this device, so the refusal is said where the conversation would be.
+  const hasConv = !!conv && (conv.supported === true || !!conv.refused);
+  const shown = tab === "conversation" && hasConv ? "conversation" : "terminal";
+  const tabRefs = useRef({});
+  const tabKeys = (e) => {
+    if (!hasConv || (e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+    e.preventDefault();
+    const next = shown === "terminal" ? "conversation" : "terminal";
+    setTab(next);
+    const el = tabRefs.current[next];
+    if (el && el.focus) el.focus();
+  };
   const sendKeys = (text) => !!terminalRef.current && terminalRef.current.sendKeys(text);
   return html`
     <section class=${"drawer-body" + (maximised ? " drawer-body--max" : "")} data-drawer-pane=${node.pane} tabindex="-1" ref=${rootRef} onKeyDown=${onKeyDown}>
       <${Header} node=${node} pane=${pane} now=${now} maximised=${maximised} onClose=${onClose} onToggleMax=${onToggleMax} />
       <${Prompt} node=${node} pane=${pane} snap=${state} store=${store} sendKeys=${sendKeys} terminal=${terminal} />
-      <div class="drawer-tabs" role="tablist" aria-label="Views of this agent">
-        <button type="button" role="tab" id="drawer-tab-terminal" aria-selected="true" aria-controls="drawer-panel-terminal" class="drawer-tab is-active">Terminal</button>
+      <div class="drawer-tabs" role="tablist" aria-label="Views of this agent" onKeyDown=${tabKeys}>
+        <button type="button" role="tab" id="drawer-tab-terminal" aria-selected=${shown === "terminal" ? "true" : "false"} aria-controls="drawer-panel-terminal" tabindex=${shown === "terminal" ? 0 : -1} ref=${(el) => { tabRefs.current.terminal = el; }} class=${"drawer-tab" + (shown === "terminal" ? " is-active" : "")} onClick=${() => setTab("terminal")}>Terminal</button>
+        ${hasConv
+          ? html`<button type="button" role="tab" id="drawer-tab-conversation" aria-selected=${shown === "conversation" ? "true" : "false"} aria-controls="drawer-panel-conversation" tabindex=${shown === "conversation" ? 0 : -1} ref=${(el) => { tabRefs.current.conversation = el; }} class=${"drawer-tab" + (shown === "conversation" ? " is-active" : "")} onClick=${() => setTab("conversation")}>Conversation</button>`
+          : null}
       </div>
-      <div class="drawer-panel" role="tabpanel" id="drawer-panel-terminal" aria-labelledby="drawer-tab-terminal">
+      <div class="drawer-panel" role="tabpanel" id="drawer-panel-terminal" aria-labelledby="drawer-tab-terminal" hidden=${shown !== "terminal"}>
         ${terminal
           ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} onReady=${(c) => { terminalRef.current = c; }} ...${terminalOptions || {}} />`
           : html`<p class="drawer-stub">${STRUCTURED_STUB}</p>`}
       </div>
+      ${hasConv
+        ? html`<div class="drawer-panel" role="tabpanel" id="drawer-panel-conversation" aria-labelledby="drawer-tab-conversation" hidden=${shown !== "conversation"}>
+            <${Conversation} conv=${conv} onOlder=${() => store.olderConversation()} />
+          </div>`
+        : null}
     </section>
   `;
 }
