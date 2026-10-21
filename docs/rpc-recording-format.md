@@ -63,8 +63,8 @@ sensitive as a terminal recording. Before a line is written:
   private key, are seen. Only the new part is written. A label or the start of
   a key further back than 16 KiB is not seen, with one exception: a private key
   that has no END yet keeps a BEGIN line in the context, so the rest of it is
-  redacted however long it runs. A key is 1.7 to 3.4 KB, so the line is held for
-  64 KiB of text after the BEGIN and then let go. A BEGIN line that is not a key,
+  redacted. A key is 1.7 to 3.4 KB, so the line is held for 64 KiB of text
+  after the BEGIN and then let go. A BEGIN line that is not a key,
   such as one quoted in prose, therefore hides the next 64 KiB of that kind of
   text and no more. When more than 16 kinds of text are open at once the context
   of all of them is let go.
