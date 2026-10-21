@@ -89,9 +89,9 @@ export function Badge({ needs }) {
     <g class=${"gbadge gbadge--" + (r.kind === "down" ? "down" : "ask")} data-kind=${r.kind} role="img" aria-label=${"Needs you: " + r.word}>
       <rect class="gbadge-box" x=${BADGE.x} y=${-BADGE.lift} width=${BADGE.w} height=${BADGE.h} rx="6" />
       <${Icon} kind=${r.kind} x=${BADGE.x + 16} y=${-BADGE.lift + 14} />
-      <text class="gbadge-word" x=${BADGE.x + 32} y=${-BADGE.lift + 18}>${r.word}</text>
-      ${more > 0 ? html`<text class="gbadge-more" x=${BADGE.x + BADGE.w - 8} y=${-BADGE.lift + 30} text-anchor="end">+${more}</text>` : null}
-      ${detail !== "" ? html`<text class="gbadge-detail" x=${BADGE.x + 32} y=${-BADGE.lift + 30}>${detail}</text>` : null}
+      <text class="gbadge-word" x=${BADGE.x + 32} y=${-BADGE.lift + 16}>${r.word}</text>
+      ${more > 0 ? html`<text class="gbadge-more" x=${BADGE.x + BADGE.w - 8} y=${-BADGE.lift + 28} text-anchor="end">+${more}</text>` : null}
+      ${detail !== "" ? html`<text class="gbadge-detail" x=${BADGE.x + 32} y=${-BADGE.lift + 28}>${detail}</text>` : null}
     </g>
   `;
 }

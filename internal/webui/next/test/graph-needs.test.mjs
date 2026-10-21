@@ -50,6 +50,7 @@ const WORDS = {
   returned: "task returned from review",
   conflict: "files overlap",
   "stale-unread": "has unread mail",
+  setup: "needs setting up",
 };
 
 const unescape = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
@@ -169,6 +170,23 @@ test("a badge shows the first line of the text, clipped, never the whole command
   assert.ok(!out.includes("--force --verbose"), "nor in the strip, which cuts the line at 40 characters");
   // The strip shows the first line too, clipped at its own, longer, limit, and not the second.
   assert.ok(!rowsOf(out).some((r) => r.join(" ").includes("curl")));
+});
+
+test("only the first line of a multi-line command is in the badge and in the strip", () => {
+  const msg = {
+    type: "graph",
+    teams: [{ id: "m", manager: "m", members: ["m"], needs: [{ id: "p", kind: "permission", pane: "m", text: "ls\nrm -rf /" }] }],
+    nodes: [{ pane: "m", depth: 0, team: "m", name: "boss", status: "waiting", activity: "waiting" }],
+    edges: [],
+    solo: [],
+  };
+  const out = draw(msg);
+  const badge = out.slice(out.indexOf('<g class="gneed"'), out.indexOf("</g></g>", out.indexOf('<g class="gneed"')));
+  assert.ok(badge.includes(">ls<"), badge);
+  assert.ok(!badge.includes("rm -rf"), "the second line is in the badge");
+  const row = out.slice(out.indexOf('<li class="needs-row'), out.indexOf("</li>", out.indexOf('<li class="needs-row')));
+  assert.ok(row.includes(">ls<"), row);
+  assert.ok(!row.includes("rm -rf"), "the second line is in the strip");
 });
 
 test("a need cleared by a new push takes its badge and its row with it, in the same render", () => {
@@ -341,6 +359,40 @@ test("every text in a badge fits the badge and clears its neighbours", () => {
       }
     }
   }
+});
+
+// A badge is a rectangle hung above its box; none may cover any box.
+test("no badge covers a box, in a strip or an unlinked set of several rows", () => {
+  const many = (n) => Array.from({ length: n }, (_, i) => ({ pane: "p" + i, depth: 0, name: "n" + i, status: "waiting", activity: "waiting" }));
+  const solo = many(14);
+  const team = many(14).map((n) => ({ ...n, pane: "t" + n.pane, team: "m" }));
+  const needsOf = (nodes) => nodes.map((n) => ({ id: "n" + n.pane, kind: "permission", pane: n.pane, text: "ls" }));
+  const manager = { pane: "m", depth: 0, team: "m", name: "boss", status: "working", activity: "working" };
+  const msg = {
+    type: "graph",
+    teams: [{ id: "m", manager: "m", members: ["m", ...team.map((n) => n.pane)], needs: needsOf(team) }],
+    nodes: [manager, ...team, ...solo],
+    edges: [],
+    solo: solo.map((n) => n.pane),
+    soloNeeds: needsOf(solo),
+  };
+  const model = buildGraphModel(msg);
+  const lay = layoutGraph(model);
+  const rows = new Set(lay.nodes.filter((b) => b.team === "").map((b) => b.y));
+  assert.ok(rows.size > 1, "the strip has one row only, so the test checks nothing");
+  const teamRows = new Set(lay.nodes.filter((b) => b.team === "m" && b.pane !== "m").map((b) => b.y));
+  assert.ok(teamRows.size > 1, "the team has one row only");
+  let badges = 0;
+  for (const b of lay.nodes) {
+    if (!model.needsByPane.has(b.pane)) continue;
+    badges++;
+    const r = { x: b.x + BADGE.x, y: b.y - BADGE.lift, w: BADGE.w, h: BADGE.h };
+    for (const o of lay.nodes) {
+      const hit = r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h && o.y < r.y + r.h;
+      assert.ok(!hit, `the badge on ${b.pane} covers the box of ${o.pane}`);
+    }
+  }
+  assert.ok(badges >= 28, "badges: " + badges);
 });
 
 test("a badge hangs inside its team's frame, below the team's title", () => {

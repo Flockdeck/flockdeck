@@ -27,8 +27,8 @@
 <path d="M-6 -4 H6 V4 H-6 Z M-6 -4 L0 1 L6 -4">
 </path>
 </g>
-<text class="gbadge-word" x="40" y="-18">has unread mail</text>
-<text class="gbadge-detail" x="40" y="-6">1 unread</text>
+<text class="gbadge-word" x="40" y="-20">has unread mail</text>
+<text class="gbadge-detail" x="40" y="-8">1 unread</text>
 </g>
 </g>
 </g>
@@ -56,8 +56,8 @@
 <path d="M-2.5 -2 Q-2.5 -4.5 0 -4.5 Q2.5 -4.5 2.5 -2 Q2.5 0 0 1 V2.5 M0 4.5 V5">
 </path>
 </g>
-<text class="gbadge-word" x="40" y="-18">asks a question</text>
-<text class="gbadge-detail" x="40" y="-6">Make the phone numb…</text>
+<text class="gbadge-word" x="40" y="-20">asks a question</text>
+<text class="gbadge-detail" x="40" y="-8">Make the phone numb…</text>
 </g>
 </g>
 </g>
