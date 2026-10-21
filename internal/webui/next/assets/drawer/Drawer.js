@@ -15,7 +15,7 @@ import { html } from "../html.js";
 import { Header } from "./Header.js";
 import { Prompt } from "./Prompt.js";
 import { TerminalView, STRUCTURED_STUB } from "../lib/terminal.js";
-import { initialDrawer, reduceDrawer, focusNode } from "./state.js";
+import { initialDrawer, reduceDrawer, focusNode, focusRow } from "./state.js";
 import { LIST } from "../shell/keys.js";
 
 /** useDrawer holds the drawer's state for a view. mainRef is the main area, where
@@ -27,12 +27,16 @@ export function useDrawer({ mainRef, paneIds }) {
     if (paneIds) dispatch({ type: "panes", ids: paneIds });
   }, [paneIds]);
   useEffect(() => {
-    if (s.seq > 0 && s.pane === "") focusNode(mainRef && mainRef.current, s.returnTo);
+    if (s.seq > 0 && s.pane === "") {
+      const root = mainRef && mainRef.current;
+      // Back to where it was opened from: the strip row, or the graph's box.
+      if (!(s.returnVia === "strip" && focusRow(root, s.returnTo))) focusNode(root, s.returnTo);
+    }
   }, [s.seq]);
   return {
     pane: s.pane,
     maximised: s.maximised,
-    open: (pane) => dispatch({ type: "open", pane }),
+    open: (pane, via = "") => dispatch({ type: "open", pane, via }),
     close: () => dispatch({ type: "close" }),
     toggleMax: () => dispatch({ type: "toggleMax" }),
   };

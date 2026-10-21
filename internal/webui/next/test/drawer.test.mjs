@@ -35,7 +35,7 @@ test("closing returns the keyboard to the pane, each time, and restores the size
   s = reduceDrawer(s, { type: "toggleMax" });
   assert.equal(s.maximised, true);
   const closed = reduceDrawer(s, { type: "close" });
-  assert.deepEqual({ ...closed }, { pane: "", maximised: false, returnTo: "p1", seq: 1 });
+  assert.deepEqual({ ...closed }, { pane: "", via: "", maximised: false, returnTo: "p1", returnVia: "", seq: 1 });
   assert.equal(reduceDrawer(closed, { type: "close" }), closed, "closing a closed drawer asked for the keyboard again");
   assert.equal(reduceDrawer(closed, { type: "toggleMax" }), closed, "a closed drawer was maximised");
   const again = reduceDrawer(reduceDrawer(closed, { type: "open", pane: "p1" }), { type: "close" });
@@ -359,3 +359,14 @@ test("closing a maximised drawer brings the graph back", () =>
     await settle();
     assert.equal(a.container.find(".drawer-max").textContent.trim(), "Maximise", "the drawer reopened maximised");
   }));
+
+test("the drawer remembers a strip row opened it, and says so after it closes", () => {
+  let s = reduceDrawer(initialDrawer(), { type: "open", pane: "p1", via: "strip" });
+  assert.equal(s.via, "strip");
+  const closed = reduceDrawer(s, { type: "close" });
+  assert.equal(closed.returnVia, "strip");
+  assert.equal(closed.via, "");
+  s = reduceDrawer(reduceDrawer(closed, { type: "open", pane: "p1" }), { type: "close" });
+  assert.equal(s.returnVia, "", "a box opened it, so the keyboard goes back to the box");
+  assert.equal(reduceDrawer(initialDrawer(), { type: "open", pane: "p1", via: "other" }).via, "");
+});

@@ -123,6 +123,53 @@ test("Esc closes the drawer and the keyboard goes to the box, not to the needs-y
     assert.equal(m.active(), m.box(TAX), "the keyboard did not return to the box");
   }));
 
+const pick = (m, pane) => m.container.findAll(".needs-pick").find((b) => {
+  let p = b.parentNode;
+  while (p && !(p.getAttribute && p.getAttribute("data-pane"))) p = p.parentNode;
+  return p && p.getAttribute("data-pane") === pane;
+});
+
+test("a click on a strip row opens one drawer for the named pane", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    const b = pick(m, TAX);
+    assert.ok(b, "the strip has no button for the pane");
+    assert.equal(b.localName, "button");
+    b.click();
+    await settle();
+    assert.equal(m.name(), "tax");
+    assert.equal(m.bodies().length, 1);
+    assert.equal(m.bodies()[0].getAttribute("data-drawer-pane"), TAX);
+    pick(m, CART) && pick(m, CART).click();
+    await settle();
+    assert.equal(m.container.findAll(".drawer").length, 1, "two drawers");
+  }));
+
+test("Enter on a strip row opens the drawer, and a strip row can take the keyboard", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    const b = pick(m, TAX);
+    b.focus();
+    assert.equal(m.active(), b);
+    assert.notEqual(b.getAttribute("tabindex"), "-1");
+    b.click();
+    await settle();
+    assert.equal(m.name(), "tax");
+  }));
+
+test("Esc after opening from the strip returns the keyboard to that strip row, not the box", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    const b = pick(m, TAX);
+    b.click();
+    await settle();
+    m.bodies()[0].keydown("Escape");
+    await settle();
+    assert.equal(m.bodies().length, 0);
+    const a = m.active();
+    assert.ok(a === pick(m, TAX), "the keyboard did not return to the strip row; it is on " + (a && a.localName + "." + a.getAttribute("class")));
+  }));
+
 test("focus returns to the box after a push that drew the graph again", () =>
   withPage({}, async (m) => {
     await m.connect();
