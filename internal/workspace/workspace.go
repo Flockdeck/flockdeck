@@ -243,6 +243,9 @@ type Pane struct {
 	// structExit is the structured runtime whose unexpected end the parent has
 	// been told of.
 	structExit *structuredRuntime
+	// failedSeq counts the restarts of a structured pane that could not start the
+	// agent, to name their notices. It is never reset.
+	failedSeq int
 }
 
 // Alive reports whether the pane has a running process.

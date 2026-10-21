@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +12,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/structured"
 )
@@ -368,5 +370,190 @@ func TestTheParentOfAStructuredHelperIsToldWhatItDid(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("the manager was not told: %+v", msgs)
+	}
+}
+
+// A restart whose new agent cannot start keeps what the earlier session showed,
+// with the line that marks the restart and one that says why it failed, and a
+// later restart that works shows all of it. The ways a start fails before the
+// agent is run are the ones that used to lose the history: the directory the
+// pane works in is gone, and structured panes turned off since.
+func TestARestartThatCannotStartKeepsTheHistory(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		break_  func(t *testing.T, ws *Workspace, p *Pane, root string)
+		restore func(t *testing.T, ws *Workspace, p *Pane, cwd string)
+	}{
+		{"the directory is gone",
+			func(t *testing.T, ws *Workspace, p *Pane, root string) { p.Cwd = filepath.Join(root, "gone") },
+			func(t *testing.T, ws *Workspace, p *Pane, cwd string) { p.Cwd = cwd }},
+		{"structured panes are turned off",
+			func(t *testing.T, ws *Workspace, p *Pane, root string) {
+				if err := store.SavePrefs(store.Prefs{}); err != nil {
+					t.Fatal(err)
+				}
+				ws.ReloadAgents()
+			},
+			func(t *testing.T, ws *Workspace, p *Pane, cwd string) {
+				if err := store.SavePrefs(store.Prefs{StructuredPanes: true}); err != nil {
+					t.Fatal(err)
+				}
+				ws.ReloadAgents()
+			}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ws, lead, root := structuredCrew(t)
+			id := spawnStructured(t, ws, lead, "plain")
+			statusWithin(t, ws, id, session.StatusIdle)
+			before, _ := ws.StructuredEntries(id)
+			if len(before) == 0 {
+				t.Fatal("the first session showed nothing")
+			}
+			p := ws.Pane(id)
+			cwd := p.Cwd
+
+			c.break_(t, ws, p, root)
+			if !ws.RestartPaneByID(id) {
+				t.Fatal("restart refused")
+			}
+			if p.Err == nil {
+				t.Fatal("the new agent started, so this test proves nothing")
+			}
+			if len(p.history) < len(before)+2 {
+				t.Fatalf("%d history entries after the failed restart, want the %d before, the restart line and the failure", len(p.history), len(before))
+			}
+			for i := range before {
+				if p.history[i].Text != before[i].Text || p.history[i].Kind != before[i].Kind {
+					t.Errorf("history entry %d changed: %+v then %+v", i, before[i], p.history[i])
+				}
+			}
+			if note := p.history[len(before)]; !strings.Contains(note.Text, "restarted") {
+				t.Errorf("no line marks the restart: %+v", note)
+			}
+			if note := p.history[len(before)+1]; !strings.Contains(note.Text, "could not be started") {
+				t.Errorf("no line says the start failed: %+v", note)
+			}
+
+			// Put right, and restarted again: the new session shows all of it.
+			c.restore(t, ws, p, cwd)
+			if !ws.RestartPaneByID(id) {
+				t.Fatal("second restart refused")
+			}
+			statusWithin(t, ws, id, session.StatusIdle)
+			if len(p.history) != 0 {
+				t.Errorf("%d history entries are still held on the pane after the session started with them", len(p.history))
+			}
+			entries, _ := ws.StructuredEntries(id)
+			if len(entries) < len(before)+2 {
+				t.Fatalf("%d entries after the second restart, want at least %d", len(entries), len(before)+2)
+			}
+			for i := range before {
+				if entries[i].Text != before[i].Text {
+					t.Errorf("entry %d lost: %q then %q", i, before[i].Text, entries[i].Text)
+				}
+			}
+			if !strings.Contains(entries[len(before)].Text, "restarted") || !strings.Contains(entries[len(before)+1].Text, "could not be started") {
+				t.Errorf("the lines after the history are %q and %q", entries[len(before)].Text, entries[len(before)+1].Text)
+			}
+		})
+	}
+}
+
+// fakeHistory is n entries standing for an earlier session.
+func fakeHistory(n int) []transcript.Entry {
+	var out []transcript.Entry
+	for i := 0; i < n; i++ {
+		out = append(out, transcript.Entry{ID: fmt.Sprintf("old-%d", i), Kind: transcript.KindNotice, Text: fmt.Sprintf("earlier %d", i)})
+	}
+	return out
+}
+
+func idsOf(entries []transcript.Entry) []string {
+	var out []string
+	for _, e := range entries {
+		out = append(out, e.ID)
+	}
+	return out
+}
+
+// The error structured.Start returns, which is only for an agent that does not
+// speak the protocol and has no command given for it, also keeps the history.
+func TestAStartErrorKeepsTheHistory(t *testing.T) {
+	ws, lead, _ := structuredCrew(t)
+	id := spawnStructured(t, ws, lead, "plain")
+	statusWithin(t, ws, id, session.StatusIdle)
+	p := ws.Pane(id)
+	p.history = fakeHistory(3)
+	ws.UseStructuredCommand(nil)
+
+	ws.startStructured(p, agent.Spec{Name: "not-acp", Runner: agent.RunnerCLI})
+	if p.Err == nil {
+		t.Fatal("the start did not fail, so this test proves nothing")
+	}
+	if len(p.history) != 4 || p.history[0].Text != "earlier 0" || !strings.Contains(p.history[3].Text, "could not be started") {
+		t.Errorf("history after the failed start: %v", idsOf(p.history))
+	}
+}
+
+// Two failures in a row leave one failure line, the later one, after the history.
+func TestFailuresInARowLeaveOneLine(t *testing.T) {
+	ws, lead, root := structuredCrew(t)
+	id := spawnStructured(t, ws, lead, "plain")
+	statusWithin(t, ws, id, session.StatusIdle)
+	p := ws.Pane(id)
+	p.history = fakeHistory(3)
+	p.Cwd = filepath.Join(root, "gone")
+
+	for i := 0; i < 4; i++ {
+		ws.startStructured(p, agent.Spec{Name: "x", Runner: agent.RunnerACP})
+	}
+	if len(p.history) != 4 {
+		t.Fatalf("%d entries after four failures in a row, want the 3 and one line: %v", len(p.history), idsOf(p.history))
+	}
+	if got := p.history[3].ID; got != "restart-failed-4" {
+		t.Errorf("the line is %q, want the fourth failure's", got)
+	}
+}
+
+// At the cap the history is cut from the front, and the failure lines still get
+// ids of their own.
+func TestFailureLinesAtTheCapKeepUniqueIDs(t *testing.T) {
+	old := maxPaneHistory
+	maxPaneHistory = 6
+	t.Cleanup(func() { maxPaneHistory = old })
+
+	ws, lead, root := structuredCrew(t)
+	id := spawnStructured(t, ws, lead, "plain")
+	statusWithin(t, ws, id, session.StatusIdle)
+	p := ws.Pane(id)
+	p.history = fakeHistory(6)
+	p.Cwd = filepath.Join(root, "gone")
+
+	seen := map[string]bool{}
+	for i := 0; i < 5; i++ {
+		// A session that ran in between, so the failures are not in a row.
+		p.history = append(p.history, transcript.Entry{ID: fmt.Sprintf("ran-%d", i), Kind: transcript.KindNotice, Text: "ran"})
+		ws.startStructured(p, agent.Spec{Name: "x", Runner: agent.RunnerACP})
+		if len(p.history) > maxPaneHistory {
+			t.Fatalf("%d entries, the cap is %d", len(p.history), maxPaneHistory)
+		}
+		last := p.history[len(p.history)-1]
+		if seen[last.ID] {
+			t.Errorf("failure line id %q repeats", last.ID)
+		}
+		seen[last.ID] = true
+	}
+	if len(p.history) != 6 {
+		t.Errorf("%d entries at the cap, want 6", len(p.history))
+	}
+	if p.history[0].Text == "earlier 0" {
+		t.Error("the oldest entry was not cut")
+	}
+	ids := map[string]bool{}
+	for _, e := range p.history {
+		if ids[e.ID] {
+			t.Errorf("entry id %q is shown twice: %v", e.ID, idsOf(p.history))
+		}
+		ids[e.ID] = true
 	}
 }

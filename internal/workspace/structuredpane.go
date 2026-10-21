@@ -35,7 +35,7 @@ import (
 
 // maxPaneHistory bounds the entries a restarted structured pane keeps from the
 // sessions before it.
-const maxPaneHistory = 2000
+var maxPaneHistory = 2000
 
 // ErrStructuredPane is what an operation that needs a terminal says when asked
 // of a structured pane.
@@ -69,19 +69,40 @@ type structuredRuntime struct {
 // runtime. It reports a failure to start in p.Err, as startPane does for a
 // terminal.
 func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
+	// The history stays on the pane until the new session has started. A start
+	// that fails keeps it, with a line saying so, for the next restart to show.
 	prior := p.history
-	p.history = nil
+	failed := func(err error) {
+		p.Err = err
+		if len(prior) == 0 {
+			return
+		}
+		// The notice is named by a count of failures that trimming never lowers, so
+		// two are never given one id. A failure straight after a failure takes its
+		// place, so a pane that cannot start does not push the conversation out.
+		p.failedSeq++
+		note := transcript.Entry{ID: fmt.Sprintf("restart-failed-%d", p.failedSeq), Kind: transcript.KindNotice,
+			TS: time.Now().UTC().Format(time.RFC3339), Text: "The agent could not be started again: " + err.Error()}
+		keep := prior
+		if n := len(keep); n > 0 && strings.HasPrefix(keep[n-1].ID, "restart-failed-") {
+			keep = keep[:n-1]
+		}
+		p.history = append(keep[:len(keep):len(keep)], note)
+		if n := len(p.history); n > maxPaneHistory {
+			p.history = p.history[n-maxPaneHistory:]
+		}
+	}
 	// Kept for the layout even if the agent cannot start, so a restore still
 	// knows what the pane was.
 	w.mu.Lock()
 	p.savedTransport = TransportStructured
 	w.mu.Unlock()
 	if !w.agents().Structured {
-		p.Err = fmt.Errorf("%s is a structured agent, and structured panes are turned off. Turn on structuredPanes in prefs.json and restart the pane, or close it", spec.Name)
+		failed(fmt.Errorf("%s is a structured agent, and structured panes are turned off. Turn on structuredPanes in prefs.json and restart the pane, or close it", spec.Name))
 		return
 	}
 	if _, err := os.Stat(p.Cwd); err != nil {
-		p.Err = fmt.Errorf("the directory this pane works in, %s, is not there: %w. Put it back and restart the pane, or close it", p.Cwd, err)
+		failed(fmt.Errorf("the directory this pane works in, %s, is not there: %w. Put it back and restart the pane, or close it", p.Cwd, err))
 		return
 	}
 	w.mu.RLock()
@@ -93,9 +114,10 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	}
 	rt, err := structured.Start(context.Background(), opts)
 	if err != nil {
-		p.Err = fmt.Errorf("%w (working directory %s)", err, p.Cwd)
+		failed(fmt.Errorf("%w (working directory %s)", err, p.Cwd))
 		return
 	}
+	p.history = nil
 	sr := &structuredRuntime{w: w, p: p, rt: rt, started: time.Now(), prior: prior,
 		status: session.StatusStarting, since: time.Now(), stop: make(chan struct{})}
 	w.mu.Lock()
