@@ -200,6 +200,8 @@ export function createStore(opts) {
         // A new hello starts the connection over. What a graph command
         // refused before is tried again unless this window is remote.
         set({ hello: msg, remote, graphRefused: remote, graphError: null });
+        // A watch asked for before this hello was known is dropped in a remote window, so stop() sends nothing for it.
+        if (remote) { watching = null; watchingPane = null; }
         if (!remote && watching !== null) sendGraphWatch();
         if (!remote && watchingPane !== null) sendStructuredWatch();
         if (watchingConv !== null) {
@@ -310,8 +312,8 @@ export function createStore(opts) {
   return {
     start() { socket.start(); },
     stop() {
-      if (watching !== null) socket.send({ cmd: "graphUnwatch" });
-      if (watchingPane !== null) socket.send({ cmd: "structuredUnwatch", id: watchingPane });
+      if (watching !== null && !snap.remote) socket.send({ cmd: "graphUnwatch" });
+      if (watchingPane !== null && !snap.remote) socket.send({ cmd: "structuredUnwatch", id: watchingPane });
       watching = null;
       watchingPane = null;
       if (watchingConv !== null) socket.send({ cmd: "conversationClose", id: watchingConv });
