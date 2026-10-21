@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -221,9 +222,10 @@ type fakeRelay struct {
 	// refuse, when set, is the status the tunnel endpoint answers with.
 	refuse int
 	// closeWith, when set, closes each tunnel as soon as it is open.
-	closeWith websocket.StatusCode
-	connects  int
-	version   string
+	closeWith  websocket.StatusCode
+	connects   int
+	version    string
+	capability string
 
 	sessions chan *smux.Session
 	calls    []string
@@ -282,6 +284,7 @@ func (f *fakeRelay) connect(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.connects++
 	f.version = r.Header.Get("Flockdeck-Version")
+	f.capability = r.Header.Get("Flockdeck-Capability")
 	refuse, closeWith := f.refuse, f.closeWith
 	f.mu.Unlock()
 	if refuse != 0 {
@@ -504,10 +507,13 @@ func TestTunnelCarriesRequestsToTheHandler(t *testing.T) {
 		t.Errorf("the handler saw host %v and device %v", sawHost.Load(), sawDevice.Load())
 	}
 	f.mu.Lock()
-	version := f.version
+	version, capability := f.version, f.capability
 	f.mu.Unlock()
 	if version != "v1.2.3" {
 		t.Errorf("the relay was told version %q", version)
+	}
+	if capability != strconv.Itoa(Capability) {
+		t.Errorf("the relay was told capability %q", capability)
 	}
 	if changes.Load() == 0 {
 		t.Error("nobody was told the status changed")

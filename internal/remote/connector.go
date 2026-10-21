@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -18,6 +19,12 @@ import (
 // Subprotocol is what the tunnel is spoken as. A relay that does not know it
 // is not one this build can talk to.
 const Subprotocol = "flockdeck-relay.v1"
+
+// Capability is the level of remote features this build offers, sent to the
+// relay as Flockdeck-Capability when the tunnel opens. It goes up when a
+// build can do something a browser may need to know about; the relay only
+// records it.
+const Capability = 1
 
 // The relay closes the tunnel with one of these when retrying would be wrong.
 const (
@@ -354,6 +361,7 @@ func (c *Connector) dial(ctx context.Context) (*websocket.Conn, error) {
 	defer cancel()
 	h := http.Header{}
 	h.Set("Authorization", "Bearer "+c.cfg.Token)
+	h.Set("Flockdeck-Capability", strconv.Itoa(Capability))
 	if c.version != "" {
 		h.Set("Flockdeck-Version", c.version)
 	}
