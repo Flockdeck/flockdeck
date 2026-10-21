@@ -59,9 +59,15 @@ The check had a defect that showed up on the way: the first rerun sent Enter to 
 
 Esc returning the keyboard to the strip row is covered by #412's node tests. This script does not press Esc in the real page.
 
+## The card (T101, #413)
+
+The check now also reads the card the strip click opened. For a permission it needs the whole command in the card and both a Yes and a No button; for a question it needs the whole question and not the "choices are in the terminal" fallback. Run on a tree with #412 and #413, at 1x with one run: fixture 1 (tax, permission) shows `go test ./tax/... -run TestRounding -count=1` with Yes and No, and fixtures 2 to 5 show their question in full. Run on a tree with #412 and without #413 the same check fails on fixture 1 (command empty, no buttons, the fallback line shown), so it does look at the card.
+
+The Yes and No buttons are drawn and not pressed: the fixture server has no `/ws/pty`, so a press has nowhere to go.
+
 ## What was not checked
 
-- The card the drawer shows is not the card a real desk sends. The fixture server builds the state push from the graph's nodes and has no permission or question view, so the drawer shows the graph's text (cut to 200 characters) and "The choices are in the terminal below." The full command, the options and the Yes and No buttons are not in this run. Follow-up: T101, then add them to this check.
+- The card on a tree without T101 (#413): the fixture server had no permission or question view, so the drawer showed the graph's text cut to 200 characters and "The choices are in the terminal below." With #413 the check reads the card (below). It still reads the card of the first permission or question of each fixture only, so fixture 2's permission and fixture 4's permission are not opened.
 - The terminal body is empty: the fixture server has no `/ws/pty`.
 - A real remote window: the hello is made remote in the page, so the sealed socket, the key and `e2e.js` are not exercised, and the relay is not involved.
 - The old page. This check is of the new shell only.

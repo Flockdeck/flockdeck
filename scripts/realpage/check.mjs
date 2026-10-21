@@ -334,8 +334,25 @@ async function secondCheck(browser, url, ex, rate) {
     await sleep(LIMIT_MS + 500);
     const t = await page.eval("window.__t");
     const drawer = await page.eval(`(() => { const d = document.querySelector("[data-drawer-pane]"); return d ? d.getAttribute("data-drawer-pane") : null; })()`);
-    out[label] = { ...r, opened: drawer, ms: t.down !== null && t.shown !== null ? Math.round((t.shown - t.down) * 10) / 10 : null };
+    const card = await page.eval(`(() => {
+      const t = (e) => (e ? e.textContent.trim() : "");
+      const d = document.querySelector(".drawer");
+      return {
+        command: t(document.querySelector(".drawer .prompt-command")),
+        yes: !!document.querySelector('.drawer button[data-option="yes"]'),
+        no: !!document.querySelector('.drawer button[data-option="no"]'),
+        question: t(document.querySelector(".drawer .prompt-question .prompt-text")),
+        fallback: !!d && d.textContent.includes("The choices are in the terminal below."),
+      };
+    })()`);
+    out[label] = { ...r, opened: drawer, card, ms: t.down !== null && t.shown !== null ? Math.round((t.shown - t.down) * 10) / 10 : null };
     out[label].pass = out[label].opened === target.pane && out[label].ms !== null && out[label].ms < LIMIT_MS;
+    // The card is the one a real desk sends: the whole command and both choices of
+    // a permission, the whole question of an ask, and not the graph's cut text.
+    const c = out[label].card;
+    out[label].cardOk = target.kind === "permission"
+      ? c.command === target.text.trim() && c.yes && c.no
+      : c.question === target.text.trim() && !c.fallback;
     await page.close();
   };
   const click = async (page, sel) => {
@@ -474,6 +491,11 @@ for (const f of report.fixtures) {
       lines.push(`  ${passes === list.length ? "ok  " : "FAIL"} second step by ${way} at ${rate}x CPU slowdown: ${passes}/${list.length} opened ${list[0].name} within 2 s; ms ${ms.length ? ms.join(", ") : "none"}${detail}`);
       if (way !== "box" && passes !== list.length) failed++;
     }
+    const cards = list.map((s) => s.strip && s.strip.cardOk);
+    const cardOk = cards.length > 0 && cards.every(Boolean);
+    const c0 = (list[0].strip && list[0].strip.card) || {};
+    lines.push(`  ${cardOk ? "ok  " : "FAIL"} the card at ${rate}x shows ${list[0].kind === "permission" ? "the whole command and the Yes and No buttons" : "the whole question"}: command=${JSON.stringify(c0.command)} yes=${c0.yes} no=${c0.no} question=${JSON.stringify(c0.question)} fallback=${c0.fallback}`);
+    if (!cardOk) failed++;
   }
 }
 lines.push(`\nbrowser ${report.browser}`);
