@@ -35,7 +35,10 @@ export function useDrawer({ mainRef, paneIds }) {
   };
 }
 
+/** inTerminal says the keyboard is in the terminal's own input, where Esc is
+ *  the program's. A button beside it (the size note, Try again) is not. */
 const inTerminal = (target) => {
+  if (!target || target.localName !== "textarea") return false;
   for (let n = target; n; n = n.parentNode) {
     if (n.getAttribute && /(^|\s)terminal-pane(\s|$)/.test(n.getAttribute("class") || "")) return true;
   }
@@ -51,7 +54,7 @@ export function hasTerminal(node, pane) {
 /** Drawer is the component. store is the store of store.js; node and pane are the
  *  graph node and the state push's entry for it. terminalOptions reach the
  *  terminal, which is how a test gives it fakes for xterm and the socket. */
-export function Drawer({ store, node, pane = null, now, maximised = false, onClose, onToggleMax, terminalOptions = null }) {
+function DrawerBody({ store, node, pane = null, now, maximised = false, onClose, onToggleMax, terminalOptions = null }) {
   const rootRef = useRef(null);
   // Opening, or opening another pane, takes the keyboard into the drawer.
   useEffect(() => {
@@ -77,4 +80,10 @@ export function Drawer({ store, node, pane = null, now, maximised = false, onClo
       </div>
     </section>
   `;
+}
+
+/** Drawer draws nothing for a node that is not there: the graph can drop a pane
+ *  a render before the state that closes its drawer is applied. */
+export function Drawer(props) {
+  return props.node ? html`<${DrawerBody} ...${props} />` : null;
 }

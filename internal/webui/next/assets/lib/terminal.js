@@ -32,6 +32,10 @@ import { loadTerminalLibs } from "./load-script.js";
 
 /** STRUCTURED_STUB is what a structured pane's terminal says, as the old
  *  window does. */
+/** NO_KEY_REASON is said of a terminal refused under the desktop's key when
+ *  the desktop then stops offering one. */
+export const NO_KEY_REASON = "The desktop no longer offers an encrypted terminal.";
+
 export const STRUCTURED_STUB = "Structured pane, open in the new interface";
 
 /** The smallest and largest sizes taken from the server for a terminal: a
@@ -348,8 +352,13 @@ export function createTerminal(opts) {
       // A refusal under one key is not final under another: the desktop's key
       // changes when it is reinstalled, and the hello that says so arrives after
       // the dial that was refused. Only a hello can get here, so a gap in the
-      // control socket does not redial.
-      else if (pty.phase === "refused" && keyOf(store.getState().hello) !== dialKey) pty.retryNow();
+      // control socket does not redial. A hello with no key is not a new key: a
+      // socket made for it would be a plain one, and the refusal stands.
+      else if (pty.phase === "refused") {
+        const key = keyOf(store.getState().hello);
+        if (key && key !== dialKey) pty.retryNow();
+        else if (!key && dialKey && state.reason !== NO_KEY_REASON) set({ reason: NO_KEY_REASON });
+      }
       return;
     }
     pty = createPty({

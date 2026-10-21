@@ -250,11 +250,31 @@ test("Esc typed into the terminal is the program's and does not close the drawer
     await settle();
     const host = a.container.find(".terminal-host");
     assert.ok(host, "no terminal host");
-    const ev = host.keydown("Escape");
+    // xterm's own input is a textarea inside the host.
+    const input = a.dom.document.createElement("textarea");
+    host.appendChild(input);
+    const ev = input.keydown("Escape");
     assert.equal(ev.defaultPrevented, false);
     await settle();
     assert.equal(a.drawerBodies().length, 1);
   }));
+
+test("Esc from a button in the terminal pane (Try again, the size note) still closes the drawer", () =>
+  withApp(async (a) => {
+    a.box("p2").click();
+    await settle();
+    const button = a.dom.document.createElement("button");
+    a.container.find(".terminal-pane").appendChild(button);
+    const ev = button.keydown("Escape");
+    assert.equal(ev.defaultPrevented, true);
+    await settle();
+    assert.equal(a.drawerBodies().length, 0);
+  }));
+
+test("a drawer given a node the graph just dropped draws nothing and does not throw", () => {
+  assert.equal(renderToString(html`<${Drawer} store=${store} node=${null} now=${NOW} />`), "");
+  assert.equal(renderToString(html`<${Drawer} store=${store} node=${undefined} now=${NOW} />`), "");
+});
 
 test("the Close button closes and returns the keyboard too", () =>
   withApp(async (a) => {

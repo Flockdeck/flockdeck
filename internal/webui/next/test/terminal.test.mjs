@@ -1,9 +1,10 @@
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../assets/html.js";
 import {
-  createTerminal, TerminalChrome, isTerminalReply, stripPasteControls, terminalKey, safeLink, STRUCTURED_STUB,
+  createTerminal, TerminalChrome, isTerminalReply, stripPasteControls, terminalKey, safeLink, STRUCTURED_STUB, NO_KEY_REASON,
 } from "../assets/lib/terminal.js";
 import { FakeClock } from "./fakes.mjs";
 import {
@@ -593,4 +594,51 @@ test("a refused socket is dialled again when a later hello brings another key, a
   await waitFor(() => second.sent.length > 0, "the handshake hello");
   assert.equal(typeof second.sent[0], "object", "the new socket was not sealed");
   h.ctl.dispose();
+});
+
+// A socket refused under the desktop's key K, ready for the hello that follows.
+async function refusedUnderKey() {
+  const E2E = loadE2E();
+  const host = await hostSide(E2E);
+  const h = build({ snap: { hello: hello({ remote: true, e2ePublicKey: host.pub }), state: paneState({ p1: {} }) }, e2e: E2E });
+  h.ctl.start();
+  const ws = PtySocket.last;
+  ws.open();
+  ws.serverClose(1008, "refused");
+  assert.equal(h.ctl.state.phase, "refused");
+  assert.equal(PtySocket.instances.length, 1);
+  return { h, host, E2E };
+}
+
+test("a hello with no key after a refusal under a key does not make a plain socket, and says why", async () => {
+  const { h } = await refusedUnderKey();
+  h.store.set({ hello: hello({ remote: true }) });
+  assert.equal(PtySocket.instances.length, 1, "a plain terminal was opened for a desktop that had a key");
+  assert.equal(h.ctl.state.phase, "refused");
+  assert.equal(h.ctl.state.reason, NO_KEY_REASON);
+  h.ctl.dispose();
+});
+
+test("a refusal under a key is not dialled again by the same key, with or without a hello between", async () => {
+  const { h, host } = await refusedUnderKey();
+  h.store.set({ hello: hello({ remote: true, e2ePublicKey: host.pub, prefs: {} }) });
+  assert.equal(PtySocket.instances.length, 1, "the same key redialled");
+  h.store.set({ hello: null });
+  h.store.set({ hello: hello({ remote: true, e2ePublicKey: host.pub }) });
+  assert.equal(PtySocket.instances.length, 1, "the same key redialled after a gap");
+  // And a null hello between does not make the key look new.
+  h.store.set({ hello: hello({ remote: true }) });
+  h.store.set({ hello: hello({ remote: true, e2ePublicKey: host.pub }) });
+  assert.equal(PtySocket.instances.length, 1, "the same key redialled after a hello with none");
+  h.ctl.dispose();
+});
+
+test("every class the terminal's chrome draws for its host and pane has a rule in app.css", () => {
+  const css = readFileSync(new URL("../assets/app.css", import.meta.url), "utf8");
+  const out = renderToString(html`<${TerminalChrome} state=${{ phase: "open", reason: "", ptySize: null, sizeNote: null }} hostRef=${{ current: null }} />`);
+  const classes = [...out.matchAll(/class="([^"]+)"/g)].flatMap((m) => m[1].split(/\s+/));
+  for (const c of ["terminal-pane", "terminal-host"]) {
+    assert.ok(classes.includes(c), `the chrome no longer draws ${c}`);
+    assert.ok(new RegExp("\\." + c + "(?![\\w-])").test(css), `app.css has no rule for .${c}`);
+  }
 });
