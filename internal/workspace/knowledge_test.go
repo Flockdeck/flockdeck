@@ -266,3 +266,42 @@ func TestABundleLinkedToAnotherPlaceInTheCheckoutIsOffered(t *testing.T) {
 		t.Error("a link that stays inside the checkout was refused")
 	}
 }
+
+// Only the word "private" turns the pointer on. Any other answer GitHub could
+// give, "internal" (an organisation's repository, visible to all its members)
+// included, leaves it off and asks once.
+func TestKnowledgePointerIsOffForAnyAnswerButPrivate(t *testing.T) {
+	for _, v := range []string{"internal", "public", "", "unknown", "privately", "private-ish", "not private"} {
+		t.Run("answer_"+v, func(t *testing.T) {
+			answerVisibility(t, v, nil)
+			ws, pane, _, notices := knowledgePane(t)
+			ws.PaneContext(pane)
+			select {
+			case notice := <-notices:
+				if !strings.Contains(notice, "flockdeck knowledge on") {
+					t.Errorf("notice does not say how to answer: %q", notice)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("a repository that GitHub calls %q was not asked about", v)
+			}
+			if c, _ := ws.PaneContext(pane); c.KnowledgeDir != "" {
+				t.Errorf("the pointer is on for a repository that GitHub calls %q", v)
+			}
+		})
+	}
+}
+
+// A lookup that failed is not an answer, even if it came back with the word.
+func TestKnowledgePointerIsOffWhenTheLookupFailedWithPrivateInHand(t *testing.T) {
+	answerVisibility(t, "private", errors.New("gh: timed out"))
+	ws, pane, _, notices := knowledgePane(t)
+	ws.PaneContext(pane)
+	select {
+	case <-notices:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a failed lookup was not asked about")
+	}
+	if c, _ := ws.PaneContext(pane); c.KnowledgeDir != "" {
+		t.Error("the pointer is on after a failed lookup")
+	}
+}
