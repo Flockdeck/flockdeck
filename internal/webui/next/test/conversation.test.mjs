@@ -372,3 +372,31 @@ test("long text on a row is cut", () => {
   assert.ok(out.includes("a".repeat(100)));
   assert.ok(!out.includes("a".repeat(MAX_TEXT + 1)), "the whole text was drawn");
 });
+
+test("a refusal after the conversation was shown does not replace it", async () => {
+  const { store, ws } = await up();
+  store.watchConversation("p1");
+  ws.frame(page("p1", range(1, 3), { atStart: true }));
+  // A refused paneSend, say, comes back as the same notice.
+  ws.frame({ type: "notice", text: VIEWER_REFUSED_PHRASE + ". Ask for it to be made a full device", error: true });
+  const c = store.getState().conversation;
+  assert.equal(c.supported, true);
+  assert.equal(c.refused, "");
+  assert.deepEqual(ids(c), ["e1", "e2", "e3"]);
+});
+
+test("long reply text is cut, from the markdown field and from the text field", () => {
+  for (const field of ["markdown", "text"]) {
+    const out = renderToString(html`<${Row} entry=${entry(1, { kind: "reply", text: "", markdown: "", [field]: "b".repeat(MAX_TEXT + 500) })} />`);
+    assert.ok(out.includes("b".repeat(100)), field + " was not drawn");
+    assert.ok(!out.includes("b".repeat(MAX_TEXT + 1)), "the whole " + field + " was drawn");
+  }
+});
+
+test("a hidden drawer panel is not displayed, whatever display the panel sets", () => {
+  const css = readFileSync(join(here, "..", "assets", "drawer", "drawer.css"), "utf8");
+  const panel = css.indexOf(".drawer-panel {");
+  const hidden = css.search(/\.drawer-panel\[hidden\]\s*\{[^}]*display:\s*none/);
+  assert.ok(panel >= 0 && /\.drawer-panel \{[^}]*display:\s*flex/.test(css), "the panel no longer sets display, so this test proves nothing");
+  assert.ok(hidden > panel, "a hidden panel would show beside the shown one");
+});
