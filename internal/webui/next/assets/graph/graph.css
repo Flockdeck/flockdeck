@@ -302,3 +302,42 @@
 .gnode[role="button"]:focus { outline: none; }
 .gnode[role="button"]:focus-visible .gnode-box { stroke: var(--accent); stroke-width: 3; }
 .gnode--open .gnode-box { stroke: var(--accent); stroke-width: 2; }
+
+/* The graph as a list, for a narrow window, and the roster of a window the graph
+ * is not sent to. A row is a button; the depth of a helper is its indent. */
+.list { display: flex; flex-direction: column; gap: 12px; padding: 12px; }
+.list-team { margin: 0; }
+.list-head { color: var(--fg); font-size: 14px; font-weight: 600; margin: 0 0 6px; overflow-wrap: anywhere; }
+.list-rows { list-style: none; margin: 0; padding: 0; }
+.list-row + .list-row { border-top: 1px solid var(--line-subtle); }
+.list-row--d1 { padding-left: 16px; }
+.list-row--d2 { padding-left: 32px; }
+.list-row--d3 { padding-left: 48px; }
+.list-row--d4 { padding-left: 64px; }
+.list-row--d5 { padding-left: 80px; }
+.list-row--d6 { padding-left: 96px; }
+.list-pick {
+  align-items: baseline;
+  background: none;
+  border: 0;
+  color: var(--fg);
+  display: flex;
+  flex-wrap: wrap;
+  font: inherit;
+  gap: 4px 10px;
+  min-height: 44px;
+  padding: 8px 4px;
+  text-align: left;
+  width: 100%;
+}
+.list-pick.is-open { box-shadow: inset 3px 0 0 var(--accent); }
+.list-name { font-weight: 600; overflow-wrap: anywhere; }
+.list-state, .list-who { color: var(--fg-dim); font-size: 12px; }
+.list-live { color: var(--fg-dim); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; width: 100%; }
+.list-mark { align-self: center; border: 2px solid var(--fg-dim); border-radius: 50%; flex: 0 0 auto; height: 10px; width: 10px; }
+.list-mark--working { background: var(--working); border-color: var(--working); }
+.list-mark--waiting, .list-mark--blocked { border-color: var(--waiting); }
+.list-mark--exited, .list-mark--failed { border-color: var(--exited); }
+.list--roster .home-roster { gap: 0; }
+.list--roster .home-agent { background: none; border: 0; border-radius: 0; padding: 0; }
+.list--roster .home-agent + .home-agent { border-top: 1px solid var(--line-subtle); }
