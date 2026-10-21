@@ -1,0 +1,55 @@
+# The real-page check
+
+This is the dry run of the week-10 test on the page users get (T98). It loads the tagged page (`go build -tags next`), served by `cmd/graphfixture` with no workspace and no configuration directory, in headless Chromium, once for each of the five fixtures in `internal/server/testdata/graph-fixtures`. It reads the page and nothing else. It does not replace the people-based test.
+
+Run it with `node scripts/realpage/check.mjs [--out result.json] [--slowdown 1,4] [--repeat 3] [--only N]`. It builds the server, starts one for each fixture with every home and configuration variable pointed at an empty temporary directory, and exits 1 when a check fails.
+
+Result of the run recorded here: main at `dc2b3966`, Chrome 153.0.8010.12 (headless, a Playwright Chromium) on Windows 11, Node 24.20.0, CPU slowdown 1x and 4x, three runs of each timed step.
+
+## What passes
+
+For all five fixtures, with the drawer closed on load:
+
+- Every node is a box, and the drawer is closed.
+- The strip has the rows the fixture's `.md` lists under "Needs the person" and no others. A conflict is compared as the sorted pair of its panes, since the `.md` names them in either order.
+- Each row has the reason word of docs/team-graph.md section 5 and the pane's name.
+- The strip order is the order of the graph's `needs` (the teams' lists, then the solo one), not the order of the `.md`. Fixture 4 differs: the `.md` lists the permission first and the graph the question first.
+- A badge is on each pane the `.md` names and on no other, with the reason word of that pane's first item. A pane with two items (fixture 1's tax) shows the first and "+1".
+- Fixture 3: the nested helper (shards) is drawn below its parent (indexer). No line is drawn from parent to helper; the tree shows by position.
+- Fixture 5: the undelivered message edge is drawn from tests to the manager in amber, with "not told yet".
+- No exceptions or console errors on load.
+- A window reached the way the relay reaches it, with the hello made remote in the page (the same page, a changed hello): no `graph`, `structured`, `paneSend` or `permissionAnswer` command goes out, the line "The team graph is shown on the desktop." shows, the roster lists every agent, and there is no graph, manager bar or drawer.
+- The configuration directory (`%APPDATA%\flockdeck`) was listed before and after the whole run: 84 files both times, no difference. The temporary directory the server ran in was left empty. A Flockdeck was running on the same machine; it changed nothing in the window of the run.
+
+## What fails
+
+The second week-10 step fails on the real page, for all five fixtures at both slowdowns.
+
+From the strip, one click or key should open the drawer for the named agent and show the real command or question in under 2 s. A strip row is not a control on the page: `shell/Home.js` renders `GraphView` without `onSelect`, and `NeedsYou` draws a row as a button only when it has one. A click on a row opens nothing. The row cannot take focus, so Enter on it opens nothing either. Result for the first permission or question of each fixture: 0 of 3 runs opened the drawer, at 1x and at 4x, by click and by key.
+
+Follow-up: T100, pass `onSelect` from Home to `GraphView`, make a row reachable by Tab, and rerun this check. The check is not changed to pass.
+
+For comparison, and not the strip path: a click on the agent's box in the graph opens the drawer and puts the text on the screen. Time from the pointer event to the text, three runs each:
+
+| Fixture | Agent | 1x CPU slowdown (ms) | 4x CPU slowdown (ms) |
+| --- | --- | --- | --- |
+| 1 | tax (permission) | 3.2, 3.7, 4.2 | 19.5, 20.3, 23.4 |
+| 2 | backfill (question) | 3.1, 3.7, 3.9 | 16.7, 17.5, 19 |
+| 3 | ranking (question) | 3.3, 3.6, 4 | 17.2, 19.4, 20.3 |
+| 4 | notes (question) | 4.1, 4.1, 4.2 | 17.4, 20.7, 21.6 |
+| 5 | forms (question) | 4.1, 4.1, 5 | 18.5, 20.9, 21.9 |
+
+The time is from the browser's `pointerdown` to the first moment the drawer holds the first 30 characters of the item's text. It does not include the person finding the box.
+
+## What was not checked
+
+- The card the drawer shows is not the card a real desk sends. The fixture server builds the state push from the graph's nodes and has no permission or question view, so the drawer shows the graph's text (cut to 200 characters) and "The choices are in the terminal below." The full command, the options and the Yes and No buttons are not in this run. Follow-up: T101, then add them to this check.
+- The terminal body is empty: the fixture server has no `/ws/pty`.
+- A real remote window: the hello is made remote in the page, so the sealed socket, the key and `e2e.js` are not exercised, and the relay is not involved.
+- The old page. This check is of the new shell only.
+- Narrow (phone) width, dark and light themes, and a screen reader.
+- Whether a person finds who needs them and why in about five seconds. That is W3.
+
+## How the check was tested
+
+The check was run against changes that should make it fail, and failed each time: the strip rows reversed (fixture 2, the order check), the phrase of the `ask` reason changed (fixture 4, the strip word and the badge word) and the badges not drawn (fixture 1, the badge check).
