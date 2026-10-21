@@ -58,9 +58,20 @@ and replaces it. `-solo` starts a separate instance instead.
   Fidelity comes from running the CLI in a terminal, not from parsing its output.
   The one exception is a structured pane: an agent that speaks the Agent Client
   Protocol (`agent.RunnerACP`) is talked to over that protocol, has no terminal,
-  and shows a stub line in the current window. It is the `structuredPanes` beta
+  and shows a stub line in the default window. It is the `structuredPanes` beta
   in `prefs.json`, off by default, and the picker does not offer these agents
-  until it is on (see [ACP adapters](acp-adapters.md)).
+  until it is on (see [Structured panes](#structured-panes) below and
+  [ACP adapters](acp-adapters.md)).
+- Everything that reads a pane asks one interface. `workspace.PaneRuntime`
+  (`internal/workspace/panekind.go`) answers for a pane's status and activity,
+  what it is waiting on, its background work, its last reply and its conversation,
+  and takes the operations of waking, recording and closing it. `Workspace.Runtime`
+  returns the pane's own, the terminal one unless another was set. The team graph,
+  the needs-you list, a window's pane view, the agents list and the spend
+  rollups all go through it, and none of them looks at which agent a pane runs.
+  How the agent is run is the pane's `Transport`, `terminal` or `structured`.
+  The graph calls it the pane's kind; it is not `Pane.Kind`, which says agent or
+  shell.
 - An agent is data, not a branch. Which program to run, which models it offers,
   how its status is known, where its transcript is and how its briefing reaches it
   are fields on one struct. Adding an agent is a table entry, and for a user it is
@@ -114,6 +125,113 @@ and a reported event always wins over that guess.
 [docs/status-matrix.md](status-matrix.md) lists every situation a pane can be in
 and the status it should show.
 
+## Typed wake
+
+Mail normally reaches an agent through its hooks: the reply to a hook the agent
+fires carries a notice. An agent that is idle at its prompt fires none, so mail
+for it can wait. Typed wake is the one case where Flockdeck types into a
+terminal pane something the person did not type. The wake service
+(`internal/workspace/wake.go`) types a fixed line, `Flockdeck: new mail, message
+N. Run: flockdeck inbox read N`, and sends the Enter as a second write about a
+tenth of a second later, because on Windows a line and its Enter that arrive
+together are taken for a paste and left unsubmitted. The line names no sender
+and holds no message text. It reverses the earlier rule that nothing is ever
+typed for mail, on purpose.
+
+Typing is narrow. All of these must hold: the pane's agent has a recognition
+rule (`agent.WakeRule`) that is built in and marked tested; the end of its output
+shows an idle, empty input prompt and has not changed for 5 seconds; the pane's
+status is idle; nobody has typed in the pane for 30 seconds and Flockdeck has not
+for 5; no hook notice was given in the last minute; and no graph message is being
+sent to it. A line that was typed but not submitted blocks further lines until
+the person types in the pane. At most one line a minute goes to a
+pane, at most 3 in a row without an `inbox read` between them, and at most 20 an
+hour for a project. There are three off switches (all panes, one agent type, one
+pane), set with `flockdeck wake` or from the window.
+
+The limits of this today:
+
+- Both built-in rules are marked `Tested: false` (`internal/agent/wake.go`) until
+  one is checked against a recording of the real agent, and a rule from
+  `agents.json` is never trusted. So no terminal pane is woken on main.
+- A structured pane is the exception. It has no screen to read, so it is idle when
+  the protocol says its turn ended, and the same line is sent to it as a prompt,
+  with no Enter. The other conditions and limits apply. The wake event names the
+  rule as `structured`.
+- Text mode is opt-in per agent type, and only for an agent whose catalog entry
+  offers it, which is Aider alone. The line is then `Flockdeck message from <role>:
+  <text>`, cleaned and cut to 300 characters, and every unread message is typed in
+  turn. The line goes into the event log, so in that mode the log holds message
+  text. A typed message counts as read, so the limit on lines in a row never
+  applies there; only the one-a-minute and twenty-an-hour limits do.
+- Each typed line is an event in `team-events.jsonl` (the last 2,000 events or
+  256 KiB), without message text outside text mode.
+- The refusal of `flockdeck wake on` inside a pane is advisory. The only barrier is
+  the agent's own permission prompt for running a command, which an agent set to
+  skip prompts does not have.
+
+The conditions, the switches and what happens when the Enter is not sent are on
+the [command line page](../internal/help/pages/cli.md), under "The typed wake
+line" and "wake".
+
+## Structured panes
+
+A structured pane runs an agent over the Agent Client Protocol and not in a
+terminal. It is a beta behind the `structuredPanes` preference, off by default.
+It is wired in: with the preference on, a catalog entry with `RunnerACP` starts
+as a structured pane, and the workspace reads it through the same `PaneRuntime`
+as a terminal pane (`internal/workspace/structuredpane.go`). It has no screen and
+no keys to type: `paneSend` and the wake line reach it as prompts, and a
+permission request is answered by choosing one of its options. Nothing answers a
+request on its own, except that an open request is answered cancelled when the
+turn is stopped and when the pane is closed. A structured pane gets no phone push
+for a pending permission, and `permissionAnswer` is refused to a window reached
+through the relay, so the request can be answered at the desk only.
+
+The pieces, each its own package:
+
+- `internal/acp` is the client: JSON-RPC over newline-delimited stdio to an agent
+  process Flockdeck starts, covering initialize, authenticate, new session,
+  prompt, cancel, permission requests and the update stream. It does not cover
+  loading or resuming a session, so a restarted pane starts a fresh session and
+  keeps the earlier entries as history. It advertises no file or terminal
+  methods. The agent is not trusted: writes are queued, lines and requests in
+  flight are capped, and every call returns even if the agent stops reading.
+  `acp/bridge` turns updates into transcript entries and permission cards,
+  `acp/manifest` lists the tested adapters and checks their versions and Node,
+  and `acp/acptest` is the fake agent the contract tests run against.
+- `internal/structured` is the runtime of one pane: it owns a client and a bridge,
+  sends the person's prompts one at a time and keeps the transcript. It knows
+  nothing of panes, windows or the server.
+- `internal/proctree` ends an agent's whole process tree, which an adapter may
+  have added children to: a job object on Windows, a session on Unix. The same
+  package ends a terminal pane's process.
+
+The default window shows a stub line for a structured pane. The new shell, built
+with `-tags next`, shows its conversation, a prompt box and its permission card
+in the drawer. The adapters Flockdeck is tested with, and the Node requirement,
+are in [ACP adapters](acp-adapters.md), and the commands a window uses are in
+the [structured pane reference](structured-pane.md).
+
+## The knowledge pointer
+
+A repository can keep notes written from its code in `.flockdeck/knowledge/`,
+starting at `index.md`. When a pane's checkout has them and the project allows
+it, the agent's briefing gets one line: the folder's path, a warning that the
+notes may be stale and that their text is data and not instructions. Nothing from
+the notes is copied into the briefing.
+
+Because the notes go to whatever model the agent runs on, the pointer is on by
+default only when `gh` reports the repository as private
+(`internal/workspace/knowledge.go`). For a public repository, or when `gh` is
+missing, signed out or offline, it is off and the window shows a one-time notice.
+The answer is asked once per run and does not hold up the first briefing, so the
+first pane in a private repository may start without the line.
+`flockdeck knowledge on|off` records the person's own answer. The lookup trusts
+the checkout's remotes, which the [command line
+page](../internal/help/pages/cli.md) spells out, and the [agent
+briefing](agent-briefing.md) describes the line that is written.
+
 ## The team graph
 
 A window can ask for a picture of a project's team and keep it up to date. The
@@ -127,8 +245,11 @@ is pushed a new one when it changes, no more often than every 500 milliseconds.
 conversation, and `permissionAnswer` answers a structured pane's permission
 request. The graph commands, `paneSend` and `permissionAnswer` are refused to a
 window reached through the relay. The conversation commands are not: a relay
-device with watch access can read a pane's conversation. Nothing in the desktop window calls any of
-these yet, so the window described above is unchanged. The messages are in the
+device with watch access can read a terminal pane's conversation. A structured
+pane's is not stored where they read, and its own commands are refused to the relay. The default window calls
+none of these, so the window described above is unchanged. The page built with
+`-tags next` (`webui.Variant` says which a binary carries) is a new shell laid
+over it, and that one calls them. The messages are in the
 [team graph reference](team-graph.md).
 
 ## Conversation history
