@@ -8543,6 +8543,9 @@
     findInTerminal: () => openSearch(),
     history: () => openHistory(),
     projects: () => openProjects(),
+    // The team graph is in the new interface only; here these have nothing to move to.
+    nextNeedsYou: () => {},
+    managerBar: () => {},
     help: () => openHelp(),
 
     settings: () => openSettings(),

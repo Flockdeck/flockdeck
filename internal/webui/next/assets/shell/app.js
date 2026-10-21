@@ -17,6 +17,7 @@ export const IMPLEMENTED = ["palette", "toggleRail", "projects", "nextRegion", "
 const REGIONS = ["rail", "main", "drawer"];
 
 const NONE = [];
+const NO_ACTIONS = Object.freeze({});
 
 /** NO_KEYS stands for a hello with no key table, so the bindings are not made
  *  again on each render for want of one array being the same as the last. */
@@ -139,7 +140,7 @@ export function useNarrow(matchMedia, override) {
  *  views put in the regions. maximised, with a drawer, gives the drawer the main
  *  area; mainRef is the main area's element for a view that returns the keyboard
  *  to a box in it. window is the page's, passed in for a test. */
-export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win }) {
+export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS }) {
   const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
@@ -147,13 +148,25 @@ export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, match
   const drawerOpen = !!drawer;
   const [s, dispatch] = useReducer((cur, ev) => reduce(cur, ev, { drawerOpen }), { state }, initial);
 
+  // The actions a view runs itself, by id (the graph's), kept in a ref so the
+  // key listener always runs the latest. Their ids are implemented as well.
+  const own = useRef(actions);
+  own.current = actions;
+  const ids = Object.keys(actions).sort().join(",");
+  const implemented = useMemo(() => (ids ? IMPLEMENTED.concat(ids.split(",")) : IMPLEMENTED), [ids]);
+  const act = (ev) => {
+    const fn = ev.type === "action" ? own.current[ev.id] : null;
+    if (fn) fn();
+    else dispatch(ev);
+  };
+
   const ownMain = useRef(null);
   const regions = { rail: useRef(null), main: mainRef || ownMain, drawer: useRef(null) };
 
   useEffect(() => {
     const target = win || (typeof window !== "undefined" ? window : null);
-    return target ? attachKeys(target, bindings, IMPLEMENTED, dispatch) : undefined;
-  }, [bindings, win]);
+    return target ? attachKeys(target, bindings, implemented, act) : undefined;
+  }, [bindings, win, implemented]);
 
   useEffect(() => {
     if (s.focusSeq > 0) focusRegion(regions, s.focus);
@@ -172,7 +185,7 @@ export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, match
 
   const run = (id) => {
     dispatch({ type: "closePalette" });
-    if (IMPLEMENTED.includes(id)) dispatch({ type: "action", id });
+    if (implemented.includes(id)) act({ type: "action", id });
   };
 
   const current = projects.find((p) => p.root === s.selected);
@@ -199,7 +212,7 @@ export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, match
         ${said ? html`<p class="notice">${said}</p>` : null}
       </div>
       ${s.paletteOpen
-        ? html`<${Palette} keys=${keys} implemented=${IMPLEMENTED} onRun=${run} onClose=${() => dispatch({ type: "closePalette" })} />`
+        ? html`<${Palette} keys=${keys} implemented=${implemented} onRun=${run} onClose=${() => dispatch({ type: "closePalette" })} />`
         : null}
     </div>
   `;
