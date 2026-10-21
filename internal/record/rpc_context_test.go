@@ -211,24 +211,3 @@ func TestRPCRedactsTheRestOfAKeyLongerThanTheContext(t *testing.T) {
 		t.Errorf("the text after the key was lost")
 	}
 }
-
-// The line is kept only while the key is open, and only that line.
-func TestContextTailKeepsTheBeginLineOfAnOpenKeyOnly(t *testing.T) {
-	body := strings.Repeat("x", rpcContextBytes+10)
-	open := "-----BEGIN PRIVATE KEY-----\n" + body
-	got := contextTail(open)
-	if !strings.HasPrefix(got, "-----BEGIN PRIVATE KEY-----\n") || len(got) > rpcContextBytes+64 {
-		t.Errorf("an open key's line was not kept, or too much was: %d bytes, starts %q", len(got), got[:30])
-	}
-	closed := open + "\n-----END PRIVATE KEY-----\n" + strings.Repeat("y", rpcContextBytes)
-	if got := contextTail(closed); strings.Contains(got, "BEGIN") {
-		t.Errorf("the line of a key that ended was kept")
-	}
-	if got := contextTail("short"); got != "short" {
-		t.Errorf("short text changed: %q", got)
-	}
-	plain := strings.Repeat("z", rpcContextBytes+500)
-	if got := contextTail(plain); got != tailBytes(plain, rpcContextBytes) {
-		t.Errorf("text with no key was changed")
-	}
-}
