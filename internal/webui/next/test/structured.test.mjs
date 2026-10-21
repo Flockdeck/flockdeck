@@ -212,6 +212,7 @@ test("a Send the store did not send says so and keeps the draft; the words go wh
     m.container.find(".structured-prompt").dispatch("submit");
     await settle();
     assert.equal(words().textContent, SEND_NOT_SENT_WORDS);
+    assert.equal(SEND_NOT_SENT_WORDS, "Not connected to Flockdeck, so the text was not sent.");
     assert.equal(m.container.find(".structured-input").value, "run the tests", "the draft was lost");
     up = true;
     m.container.find(".structured-prompt").dispatch("submit");
@@ -226,6 +227,33 @@ test("a Send the store did not send says so and keeps the draft; the words go wh
     assert.ok(words());
     await m.set({ structured: push({ id: "p4" }) }, { ...node, pane: "p4" });
     assert.equal(words(), null, "the words followed the drawer to another pane");
+  }));
+
+test("the words and the draft stay with their pane: p3, p4, p3 shows nothing that was not pressed, and a draft is sent to the pane it was typed in", () =>
+  with_(push(), {}, async (m) => {
+    m.store.send = (cmd) => { m.store.sent.push(cmd); return cmd.cmd !== "structuredCancel" && cmd.id === "p4"; };
+    const to = (id) => m.set({ structured: push({ id }) }, { ...node, pane: id });
+    // Stop fails on p3, then p4 is opened, then p3 again: the words are not pressed for p3 the second time.
+    m.container.find(".structured-stop").click();
+    await settle();
+    assert.equal(m.container.find(".structured-note--unsent").textContent, "Not connected to Flockdeck, so Stop was not sent.");
+    await to("p4");
+    assert.equal(m.container.find(".structured-note--unsent"), null);
+    await to("p3");
+    assert.equal(m.container.find(".structured-note--unsent"), null, "the words came back with nothing pressed");
+    // A draft typed in p3 is not in p4's box, and what is typed in p4 goes to p4.
+    m.container.find(".structured-input").enter("for p3");
+    await settle();
+    await to("p4");
+    assert.equal(m.container.find(".structured-input").value || "", "", "p3's draft followed the drawer to p4");
+    m.container.find(".structured-input").enter("for p4");
+    await settle();
+    m.container.find(".structured-prompt").dispatch("submit");
+    await settle();
+    assert.deepEqual(m.store.sent.filter((c) => c.cmd === "paneSend"), [{ cmd: "paneSend", id: "p4", text: "for p4" }]);
+    await to("p3");
+    assert.equal(m.container.find(".structured-note--send"), null);
+    assert.equal(m.container.find(".structured-input").value || "", "");
   }));
 
 test("a relay window draws the view but no prompt box and no Stop", () =>
