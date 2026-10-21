@@ -226,10 +226,22 @@ func TestRestartingAStructuredPaneKeepsItsHistory(t *testing.T) {
 	if len(entries) < len(before)+1 {
 		t.Fatalf("%d entries after the restart, %d before", len(entries), len(before))
 	}
+	// The session's entries are renamed as they become history, so the next
+	// session's e1... do not repeat them; what they said does not change.
+	seen := map[string]bool{}
 	for i := range before {
-		if entries[i].ID != before[i].ID {
-			t.Errorf("history entry %d changed", i)
+		if entries[i].Kind != before[i].Kind || entries[i].Text != before[i].Text || entries[i].Markdown != before[i].Markdown {
+			t.Errorf("history entry %d changed: %+v then %+v", i, before[i], entries[i])
 		}
+		if want := "r0-" + before[i].ID; entries[i].ID != want {
+			t.Errorf("history entry %d is %q, want %q", i, entries[i].ID, want)
+		}
+	}
+	for _, en := range entries {
+		if seen[en.ID] {
+			t.Errorf("entry id %q is shown twice", en.ID)
+		}
+		seen[en.ID] = true
 	}
 	if note := entries[len(before)]; !strings.Contains(note.Text, "restarted") {
 		t.Errorf("no line marks the restart: %+v", note)

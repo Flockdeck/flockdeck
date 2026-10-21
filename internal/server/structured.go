@@ -309,11 +309,31 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 	return m
 }
 
-// structuredDetailOf is the answer for one entry of a runtime.
-func structuredDetailOf(id, entry string, rt *structured.Runtime) (structuredDetailMsg, bool) {
+// structuredSnapshotOf is the state of the structured pane id for a window: the
+// runtime's own snapshot with the conversation the pane shows, which is the
+// sessions before its last restart and then the current one. The runtime knows
+// only the current session, so a window given its snapshot alone would lose the
+// earlier conversation at a restart. It must run on the workspace goroutine.
+func (s *Server) structuredSnapshotOf(id string) (structured.Snapshot, bool) {
+	rt := s.ws.StructuredRuntime(id)
+	if rt == nil {
+		return structured.Snapshot{}, false
+	}
+	sn := rt.Snapshot()
+	if entries, ok := s.ws.StructuredEntries(id); ok {
+		sn.Entries = entries
+	}
+	return sn, true
+}
+
+// structuredDetailOf is the answer for one entry of a runtime. entries are the
+// pane's entries as structuredSnapshotOf gives them. An entry of an earlier
+// session has only what its entry carried: the runtime holds the detail of the
+// current session alone.
+func structuredDetailOf(id, entry string, rt *structured.Runtime, entries []transcript.Entry) (structuredDetailMsg, bool) {
 	m := structuredDetailMsg{Type: "structuredDetail", ID: id, Entry: entry}
 	var inline *transcript.Entry
-	for _, e := range rt.Snapshot().Entries {
+	for _, e := range entries {
 		if e.ID == entry {
 			e := e
 			inline = &e
@@ -365,7 +385,8 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 			if rt == nil {
 				return out{}
 			}
-			m := buildStructured(cmd.ID, rt.Snapshot())
+			sn, _ := s.structuredSnapshotOf(cmd.ID)
+			m := buildStructured(cmd.ID, sn)
 			m.Req = cmd.Req
 			data, err := json.Marshal(m)
 			return out{data, err == nil}
@@ -394,7 +415,8 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 			if rt == nil {
 				return out{ok: -1}
 			}
-			m, found := structuredDetailOf(cmd.ID, cmd.Entry, rt)
+			sn, _ := s.structuredSnapshotOf(cmd.ID)
+			m, found := structuredDetailOf(cmd.ID, cmd.Entry, rt, sn.Entries)
 			if !found {
 				return out{ok: 0}
 			}
@@ -461,7 +483,8 @@ func (s *Server) structuredWatch(c *controlClient, cmd command) {
 		refuse(c, cmd, errStructured(structuredTooMany))
 		return
 	}
-	m := buildStructured(cmd.ID, rt.Snapshot())
+	sn, _ := s.structuredSnapshotOf(cmd.ID)
+	m := buildStructured(cmd.ID, sn)
 	plain, err := json.Marshal(m)
 	if err != nil {
 		return
@@ -528,8 +551,8 @@ func (s *Server) pushStructured() {
 		}
 		data, ok := cache[id]
 		if !ok {
-			if rt := s.ws.StructuredRuntime(id); rt != nil {
-				data, _ = json.Marshal(buildStructured(id, rt.Snapshot()))
+			if sn, ok := s.structuredSnapshotOf(id); ok {
+				data, _ = json.Marshal(buildStructured(id, sn))
 			} else {
 				data, _ = json.Marshal(structuredMsg{Type: "structured", ID: id, Kind: "structured", Gone: true,
 					Entries: []structuredEntry{}, Plan: []structuredPlanRow{}})

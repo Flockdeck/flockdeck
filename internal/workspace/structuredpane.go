@@ -444,7 +444,15 @@ func (w *Workspace) StructuredEntries(id string) ([]transcript.Entry, bool) {
 // workspace lock. Between the close and the new runtime p.rt is nil, so the
 // pane reads as exited for that moment.
 func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime) {
-	history := old.Entries()
+	// The old session's entries are numbered e1, e2... like the next session's,
+	// so they take the generation as a prefix on becoming history.
+	cur := old.rt.Snapshot().Entries
+	history := append([]transcript.Entry(nil), old.prior...)
+	for _, e := range cur {
+		e.ID = fmt.Sprintf("r%d-%s", p.generation, e.ID)
+		history = append(history, e)
+	}
+	p.generation++
 	_ = old.Close()
 	history = append(history, transcript.Entry{ID: fmt.Sprintf("restart-%d", len(history)), Kind: transcript.KindNotice,
 		TS: time.Now().UTC().Format(time.RFC3339), Text: "The agent was restarted. This is a new session."})
