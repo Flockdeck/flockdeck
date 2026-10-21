@@ -140,9 +140,11 @@ typed for mail, on purpose.
 
 Typing is narrow. All of these must hold: the pane's agent has a recognition
 rule (`agent.WakeRule`) that is built in and marked tested; the end of its output
-shows an idle, empty input prompt and has not changed for 5 seconds; nobody has
-typed in the pane for 30 seconds; no hook notice was given in the last minute;
-and no graph message is being sent to it. At most one line a minute goes to a
+shows an idle, empty input prompt and has not changed for 5 seconds; the pane's
+status is idle; nobody has typed in the pane for 30 seconds and Flockdeck has not
+for 5; no hook notice was given in the last minute; and no graph message is being
+sent to it. A line that was typed but not submitted blocks further lines until
+the person types in the pane. At most one line a minute goes to a
 pane, at most 3 in a row without an `inbox read` between them, and at most 20 an
 hour for a project. There are three off switches (all panes, one agent type, one
 pane), set with `flockdeck wake` or from the window.
@@ -164,8 +166,9 @@ The limits of this today:
   applies there; only the one-a-minute and twenty-an-hour limits do.
 - Each typed line is an event in `team-events.jsonl` (the last 2,000 events or
   256 KiB), without message text outside text mode.
-- The refusal of `flockdeck wake on` inside a pane is advisory. The barrier that
-  holds is the agent's own permission prompt for running a command.
+- The refusal of `flockdeck wake on` inside a pane is advisory. The only barrier is
+  the agent's own permission prompt for running a command, which an agent set to
+  skip prompts does not have.
 
 The conditions, the switches and what happens when the Enter is not sent are on
 the [command line page](../internal/help/pages/cli.md), under "The typed wake
@@ -180,7 +183,10 @@ as a structured pane, and the workspace reads it through the same `PaneRuntime`
 as a terminal pane (`internal/workspace/structuredpane.go`). It has no screen and
 no keys to type: `paneSend` and the wake line reach it as prompts, and a
 permission request is answered by choosing one of its options. Nothing answers a
-request on its own.
+request on its own, except that an open request is answered cancelled when the
+turn is stopped and when the pane is closed. A structured pane gets no phone push
+for a pending permission, and `permissionAnswer` is refused to a window reached
+through the relay, so the request can be answered at the desk only.
 
 The pieces, each its own package:
 
@@ -239,7 +245,8 @@ is pushed a new one when it changes, no more often than every 500 milliseconds.
 conversation, and `permissionAnswer` answers a structured pane's permission
 request. The graph commands, `paneSend` and `permissionAnswer` are refused to a
 window reached through the relay. The conversation commands are not: a relay
-device with watch access can read a pane's conversation. The default window calls
+device with watch access can read a terminal pane's conversation. A structured
+pane's is not stored where they read, and its own commands are refused to the relay. The default window calls
 none of these, so the window described above is unchanged. The page built with
 `-tags next` (`webui.Variant` says which a binary carries) is a new shell laid
 over it, and that one calls them. The messages are in the
