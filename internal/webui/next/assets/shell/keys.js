@@ -21,7 +21,7 @@ const IME = 229;
 export const composing = (e) => !!(e.isComposing || e.keyCode === IME);
 
 /** LIST are the keys that move through, choose from and leave a list. */
-export const LIST = { up: "ArrowUp", down: "ArrowDown", accept: "Enter", cancel: "Escape", tab: "Tab" };
+export const LIST = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", accept: "Enter", cancel: "Escape", tab: "Tab" };
 // vocabulary:end
 
 /** signature is the shape a binding and a keydown are both reduced to, so that

@@ -12,7 +12,9 @@ import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { useStore } from "../lib/use-store.js";
 import { Drawer, useDrawer } from "../drawer/Drawer.js";
+import { focusNode } from "../drawer/state.js";
 import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
+import { nextNeedsYou, paneAt } from "../graph/keys.js";
 import { Shell } from "./app.js";
 import { Home, sameProject } from "./Home.js";
 
@@ -65,9 +67,27 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
   // that cannot be read leaves the last good one, and another project's does not
   // count. Before any graph there is no bar, so "no manager" is not said while
   // the graph is still being read.
+  const barRef = useRef(null);
   const bar = current && !snap.graphGone
-    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} />`
+    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} />`
     : null;
+
+  // The graph's two keys that no arrow does. The next agent that needs the person
+  // goes on from the box the keyboard is on, or from the open drawer's pane, and
+  // the manager bar takes the keyboard where it is.
+  const actions = useMemo(() => ({
+    nextNeedsYou: () => {
+      if (!current || snap.graphGone) return;
+      const doc = (win || (typeof window !== "undefined" ? window : null) || {}).document;
+      const at = (doc && paneAt(doc.activeElement)) || drawer.pane;
+      const to = nextNeedsYou(current, at);
+      if (to) focusNode(mainRef.current, to);
+    },
+    managerBar: () => {
+      const el = barRef.current;
+      if (el && el.focus) el.focus();
+    },
+  }), [current, snap.graphGone, win, drawer.pane]);
 
   return html`<${Shell}
     hello=${kept.current.hello}
@@ -77,6 +97,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     matchMedia=${matchMedia}
     window=${win}
     mainRef=${mainRef}
+    actions=${actions}
     maximised=${drawer.maximised}
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}

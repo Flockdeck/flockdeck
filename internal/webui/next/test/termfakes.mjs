@@ -109,6 +109,10 @@ export function fakeStore(snap) {
     send(cmd) { sent.push(cmd); return true; },
     watchStructured(id) { watched.push(id); return true; },
     unwatchStructured() { watched.push(null); },
+    // The conversation tab's watch: the drawer asks, and these tests do not answer.
+    watchConversation() { return true; },
+    olderConversation() { return false; },
+    unwatchConversation() {},
     get sent() { return sent; },
     get watched() { return watched; },
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
