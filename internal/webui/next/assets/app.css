@@ -557,4 +557,12 @@ button { font: inherit; color: inherit; }
 .pane-error > * { flex: 0 0 auto; max-width: 100%; }
 .pane-error-text { color: var(--fg); font-weight: 600; }
 .pane-error-text.error { color: var(--exited); font-weight: 400; }
+.pane-loading {
+  position: absolute;
+  inset: 0;
+  padding: 16px;
+  background: var(--bg-inset);
+  color: var(--fg-dim);
+  font-size: 13px;
+}
 .pane-error-actions { display: flex; flex-wrap: wrap; gap: 8px; }

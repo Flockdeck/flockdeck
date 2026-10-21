@@ -20,12 +20,15 @@
 // sees only as a socket that failed, and the retry would never stop.
 //
 // xterm and e2e.js are classic scripts that put Terminal, FitAddon and
-// FlockdeckE2E on the global object; the page loads them before the module and
-// they are passed in here so a test can supply its own.
+// FlockdeckE2E on the global object. They are not in the page: the first
+// terminal loads them (load-script.js), shows "loading terminal" meanwhile, and
+// shows an error with Try again if they cannot be had. They can also be passed
+// in, so a test can supply its own.
 
 import { html } from "../html.js";
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { createPty, ptyUrl } from "./pty.js";
+import { loadTerminalLibs } from "./load-script.js";
 
 /** STRUCTURED_STUB is what a structured pane's terminal says, as the old
  *  window does. */
@@ -125,7 +128,9 @@ export function safeLink(uri) {
  *    ptyOptions     globals and test seams (ptyOptions reaches createPty)
  *
  *  The state:
- *    phase     "waiting for the page" before there is a hello and a state, then
+ *    phase     "loading terminal" while the libraries load, "load-failed" if they
+ *              could not be had, "waiting for the page" before there is a hello
+ *              and a state, then
  *              "structured", "blocked", or the socket's phase: "connecting",
  *              "open", "waiting" (between attempts), "refused", "idle"
  *    reason    why the socket was refused, or why it was not opened (blocked)
@@ -135,9 +140,18 @@ export function safeLink(uri) {
  *  Methods: start(), dispose(), fitToBox(), takeOver(), tryAgain(), focus(). */
 export function createTerminal(opts) {
   const G = globalThis;
-  const Terminal = opts.Terminal || G.Terminal;
-  const FitAddon = opts.FitAddon || (G.FitAddon && G.FitAddon.FitAddon);
-  const e2e = opts.e2e || G.FlockdeckE2E;
+  // Read again after the libraries have loaded: they are not in the page at
+  // first, see load-script.js.
+  let Terminal, FitAddon, e2e;
+  const readLibs = () => {
+    Terminal = opts.Terminal || G.Terminal;
+    FitAddon = opts.FitAddon || (G.FitAddon && G.FitAddon.FitAddon);
+    e2e = opts.e2e || G.FlockdeckE2E;
+  };
+  readLibs();
+  const loadLibs = opts.loadLibs || loadTerminalLibs;
+  let loading = false;
+  let disposed = false;
   const store = opts.store;
   const host = opts.host;
   const paneId = opts.paneId;
@@ -377,21 +391,50 @@ export function createTerminal(opts) {
     return !!d && typeof d.hasFocus === "function" && d.hasFocus() && host.contains(d.activeElement);
   }
 
+  // go opens the terminal once the libraries are here.
+  function go() {
+    open();
+    started = true;
+    unsub = store.subscribe(reconcile);
+    reconcile();
+  }
+
   return {
     start() {
-      if (started) return;
+      if (started || loading || disposed) return;
       if (!Terminal || !FitAddon) {
-        // The page's classic scripts did not load (or are async and did not
-        // run yet): say so and leave the tree standing.
-        set({ phase: "blocked", reason: "The terminal library is not loaded." });
+        // The libraries are not in the page until the first terminal opens.
+        // Say so while they load, and say so if they cannot be had, with a
+        // button to try again. The socket is not opened until they have run,
+        // so a sealed terminal never starts without the end-to-end layer.
+        loading = true;
+        set({ phase: "loading terminal", reason: "" });
+        let asked;
+        try { asked = Promise.resolve(loadLibs()); } catch (err) { asked = Promise.reject(err); }
+        asked.then(
+          () => {
+            loading = false;
+            if (disposed) return;
+            readLibs();
+            if (!Terminal || !FitAddon) {
+              set({ phase: "load-failed", reason: "The terminal library did not load. Try again." });
+              return;
+            }
+            go();
+          },
+          (err) => {
+            loading = false;
+            if (disposed) return;
+            console.error("terminal: the libraries did not load", err);
+            set({ phase: "load-failed", reason: "The terminal could not be loaded. Try again." });
+          },
+        );
         return;
       }
-      open();
-      started = true;
-      unsub = store.subscribe(reconcile);
-      reconcile();
+      go();
     },
     dispose() {
+      disposed = true;
       started = false;
       if (unsub) { unsub(); unsub = null; }
       if (observer) { observer.disconnect(); observer = null; }
@@ -417,7 +460,10 @@ export function createTerminal(opts) {
       term.focus();
       return true;
     },
-    tryAgain() { if (pty) pty.retryNow(); },
+    tryAgain() {
+      if (state.phase === "load-failed") this.start();
+      else if (pty) pty.retryNow();
+    },
     focus() { if (term) term.focus(); },
     get state() { return state; },
   };
@@ -458,10 +504,11 @@ export function TerminalChrome({ state, hostRef, onTryAgain, onTakeOver }) {
   const note = state.sizeNote;
   return html`<div class="terminal-pane" data-phase=${state.phase}>
     <div class="terminal-host" ref=${hostRef}></div>
-    ${state.phase === "refused" || state.phase === "blocked"
+    ${state.phase === "loading terminal" ? html`<div class="pane-loading" role="status">Loading terminal…</div>` : null}
+    ${state.phase === "refused" || state.phase === "blocked" || state.phase === "load-failed"
       ? html`<div class="pane-error" role="alert">
           <div class="pane-error-text error">${state.reason}</div>
-          ${state.phase === "refused"
+          ${state.phase === "refused" || state.phase === "load-failed"
             ? html`<button type="button" class="chip primary" onClick=${onTryAgain}>Try again</button>`
             : null}
         </div>`
