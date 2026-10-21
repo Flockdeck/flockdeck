@@ -4,7 +4,7 @@ This is the dry run of the week-10 test on the page users get (T98). It loads th
 
 Run it with `node scripts/realpage/check.mjs [--out result.json] [--slowdown 1,4] [--repeat 3] [--only N] [--allow-config-change] [--ceiling 20]`. It builds the server, starts one for each fixture with every home and configuration variable pointed at an empty temporary directory, and exits 1 when a check fails.
 
-It also exits 1 when the listing of `%APPDATA%lockdeck` differs after the run or when the sandbox directory is not empty, because either means the page's server wrote outside its sandbox. If another Flockdeck is running on the machine and changes that directory on its own, pass `--allow-config-change`; the change is then still printed. The temporary directories (build, sandbox and Chrome profile, about 19 MB) are removed when the run ends, and so are the server and the browser, on success, on an error, on SIGINT or SIGTERM, and when `--ceiling` minutes pass (20 by default). A DevTools call that gets no answer in 30 s, a socket that closes mid-run, and a `go build` over 3 minutes each end the run with exit 1.
+It also exits 1 when the listing of `%APPDATA%\flockdeck` differs after the run or when the sandbox directory is not empty, because either means the page's server wrote outside its sandbox. If another Flockdeck is running on the machine and changes that directory on its own, pass `--allow-config-change`; the change is then still printed. The temporary directories (build, sandbox and Chrome profile, about 19 MB) are removed when the run ends, and so are the server and the browser, on success, on an error, on SIGINT or SIGTERM, and when `--ceiling` minutes pass (20 by default). A DevTools call that gets no answer in 30 s, a socket that closes mid-run, and a `go build` over 3 minutes each end the run with exit 1.
 
 Results recorded here, each on the tree named in its section: Chrome 153.0.8010.12 (headless, a Playwright Chromium) on Windows 11, Node 24.20.0, CPU slowdown 1x and 4x, three runs of each timed step. The first run was on main at `dc2b3966`, the rerun on #412's head `1bfc48d5`, the card on a tree with #412 and #413, and the last on current main.
 
@@ -65,12 +65,6 @@ Esc returning the keyboard to the strip row is covered by #412's node tests. Thi
 
 The check now also reads the card the strip click opened. For a permission it needs the whole command in the card and both a Yes and a No button; for a question it needs the whole question and not the "choices are in the terminal" fallback. Run on a tree with #412 and #413, at 1x with one run: fixture 1 (tax, permission) shows `go test ./tax/... -run TestRounding -count=1` with Yes and No, and fixtures 2 to 5 show their question in full. Run on a tree with #412 and without #413 the same check fails on fixture 1 (command empty, no buttons, the fallback line shown), so it does look at the card.
 
-## Current main
-
-The check was also run on current main twice (by a reviewer, not by the author), after #412 and #413 had merged. Both runs merged cleanly and passed every check, including the strip click, the strip key, the box click and the card.
-
-The Yes and No buttons are drawn and not pressed: the fixture server has no `/ws/pty`, so a press has nowhere to go.
-
 ## What was not checked
 
 - The card of every item. The check reads the card of the first permission or question of each fixture only, so fixture 2's permission and fixture 4's permission are not opened. (Before #413 the fixture server had no permission or question view, so the first run's drawer showed the graph's text cut to 200 characters; that is the tree of the first run, not a gap now.)
@@ -79,6 +73,12 @@ The Yes and No buttons are drawn and not pressed: the fixture server has no `/ws
 - The old page. This check is of the new shell only.
 - Narrow (phone) width, dark and light themes, and a screen reader.
 - Whether a person finds who needs them and why in about five seconds. That is W3.
+
+## Current main
+
+The check was also run on current main twice (by a reviewer, not by the author), after #412 and #413 had merged. Both runs merged cleanly and passed every check, including the strip click, the strip key, the box click and the card.
+
+The Yes and No buttons are drawn and not pressed: the fixture server has no `/ws/pty`, so a press has nowhere to go.
 
 ## How the check was tested
 
