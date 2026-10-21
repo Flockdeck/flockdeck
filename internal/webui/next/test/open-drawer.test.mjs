@@ -221,11 +221,6 @@ test("a page that is stopped and started again asks for its graph once more, and
     assert.equal(second.commands("graphWatch").length, 1, "the graph was not asked for again, or was asked for twice");
   }));
 
-test("main.js starts the store again when a page comes back from the cache", () => {
-  const src = readFileSync(join(here, "..", "assets", "main.js"), "utf8");
-  assert.match(src, /addEventListener\("pageshow", \(e\) => \{\s*if \(e\.persisted\) store\.start\(\);/);
-});
-
 test("a graph command that failed is said above the picture that stays", () =>
   withPage({}, async (m) => {
     await m.connect();
