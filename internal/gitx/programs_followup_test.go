@@ -3,6 +3,9 @@ package gitx
 import (
 	"context"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -370,4 +373,75 @@ func TestAnItemThatQuotesTheWordsAboutTheTimeIsKept(t *testing.T) {
 	if len(got) != 2 || got[0].ID() != quote.ID() {
 		t.Errorf("an item that quotes the words was dropped: %+v", got)
 	}
+}
+
+// The one-item rule at the end of a slow scan folds the items that are marked as
+// made by the time running out, and the mark is set only by fsItem and
+// unscannableBecause. An item worded from an error anywhere else would be
+// unmarked, and the flake the rule was made for (two items about the time,
+// depending on which step noticed first) could come back at that step with no
+// test noticing. So in the scan's own files an error's words reach an
+// "unscannable" item only through unscannableBecause, and nothing else makes
+// one by hand.
+func TestAnUnscannableItemIsWordedFromAnErrorOnlyByUnscannableBecause(t *testing.T) {
+	fset := token.NewFileSet()
+	for _, name := range []string{"programs.go", "scanfs.go"} {
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			in := fn.Name.Name
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				at := func() string { return fset.Position(n.Pos()).String() + " in " + in }
+				switch x := n.(type) {
+				case *ast.CallExpr:
+					id, ok := x.Fun.(*ast.Ident)
+					if !ok {
+						return true
+					}
+					if id.Name == "firstWords" && in != "unscannableBecause" {
+						t.Errorf("%s: firstWords is called; use unscannableBecause, which marks an item made by the time running out", at())
+					}
+					if id.Name == "unscannable" && in != "unscannableBecause" && len(x.Args) >= 2 && mentionsErr(x.Args[1]) {
+						t.Errorf("%s: an unscannable item is worded from an error; use unscannableBecause", at())
+					}
+				case *ast.CompositeLit:
+					if tid, ok := x.Type.(*ast.Ident); !ok || tid.Name != "Program" || in == "unscannable" {
+						return true
+					}
+					for _, el := range x.Elts {
+						kv, ok := el.(*ast.KeyValueExpr)
+						if !ok {
+							continue
+						}
+						if k, ok := kv.Key.(*ast.Ident); ok && k.Name == "Kind" {
+							if lit, ok := kv.Value.(*ast.BasicLit); ok && lit.Value == `"unscannable"` {
+								t.Errorf("%s: an unscannable item is built by hand; use unscannable or unscannableBecause", at())
+							}
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+}
+
+// mentionsErr says whether an expression uses a variable called err, which is
+// where the words of a failure come from. The package's own error values
+// (errScanTooLong and the like) are named differently and are fixed words.
+func mentionsErr(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && (id.Name == "err" || id.Name == "e") {
+			found = true
+		}
+		return !found
+	})
+	return found
 }

@@ -415,6 +415,11 @@ func ScanPrograms(dir string) (Report, error) {
 		if strings.Contains(err.Error(), "not a git repository") {
 			return Report{}, ErrNotRepository
 		}
+		// rev-parse is a git process, not a call of the scan's file system, so
+		// when the time runs out it fails as git not answering, which is not
+		// errScanTooLong and is not folded into the one item (see firstWords). The
+		// step goes through unscannableBecause all the same, so that it stays right if
+		// that changes.
 		return Report{Repo: s.fs.canonical(dir), Items: []Program{unscannableBecause(dir, "git rev-parse failed: ", err, "")}}, nil
 	}
 	for _, d := range []string{paths.gitDir, paths.common, paths.topdir} {
