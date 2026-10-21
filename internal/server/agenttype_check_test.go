@@ -30,10 +30,11 @@ import (
 //     a map,
 //   - any use of the pane's terminal session (the Sess field).
 //
-// A window's command (a variable named cmd) has a Kind word of its own and is not
-// a pane, so its fields are not counted. Comparing with "" asks only whether there is one and is not counted. A check
-// on the transport (Transport(), Structured, the pane's Caps) is the
-// runtime's own answer and is not counted: it is what a consumer should ask.
+// A window's command (a variable named cmd) has a Kind word of its own and is
+// not a pane, so its fields are not counted. Comparing with "" asks only whether
+// there is one and is not counted. A check on the transport (Transport(),
+// Structured, the pane's Caps) is the runtime's own answer and is not counted:
+// it is what a consumer should ask.
 //
 // The check is syntactic and so is fragile in two ways. It goes by names: any
 // Kind-named (or Agent-, Type-, Runner-, ID-named) variable compared with a
@@ -57,19 +58,27 @@ var agentTypePackages = []string{"internal/server", "internal/team", "internal/w
 // agentTypeExempt are the files that are not scanned, each with why. They start,
 // end and watch the process, are the terminal's own side of the runtime, or
 // choose the agent from the catalog, which is terminal work by nature and is
-// where an agent id is meant to be read. A file here can plant a violation
-// unseen, so the list is short and a new file does not belong on it because it
-// has uses to allow: add those to agentTypeAllowed.
+// where an agent id is meant to be read.
+//
+// These files do contain real agent-type branches, and nothing guards them: for
+// instance TerminalPermissionOptions in panekind.go (agentID != "claude"),
+// Pane.IsAgent in workspace.go (p.Kind != session.KindShell) and the Runner
+// checks in startPane. A violation planted in one is not seen. So the list is
+// kept short (agentTypeExemptCount pins its length) and a new file does not
+// belong on it because it has uses to allow: add those to agentTypeAllowed.
+// agentTypeExemptCount is how many files are exempt. Adding one changes it, so a
+// new exemption is a decision made here and not a side effect.
+const agentTypeExemptCount = 9
+
 var agentTypeExempt = map[string]string{
 	"internal/workspace/reap.go":             "ends the processes of a pane and its worktree",
 	"internal/workspace/baton.go":            "restarts a pane with a baton, which is a terminal restart; chooses the agent from the catalog",
 	"internal/workspace/activity.go":         "reads the terminal's activity",
 	"internal/workspace/background_check.go": "reads an agent's own background work files and transcript",
 	"internal/workspace/spawn.go":            "chooses the agent from the catalog and starts the pane",
-	"internal/server/spawn.go":               "chooses the agent from the catalog and starts the pane",
-	"internal/workspace/workspace.go":        "the Pane type and its terminal operations: status, resize, restart, hooks, start",
-	"internal/workspace/panekind.go":         "terminalRuntime, the terminal's implementation of PaneRuntime",
-	"internal/workspace/structuredpane.go":   "structuredRuntime, the structured implementation of PaneRuntime, and its start",
+	"internal/workspace/workspace.go":        "the Pane type and its terminal operations: status, resize, restart, hooks, start. Unguarded: Pane.IsAgent compares the kind, startPane checks the runner",
+	"internal/workspace/panekind.go":         "terminalRuntime, the terminal's implementation of PaneRuntime. Unguarded: TerminalPermissionOptions compares the agent id with \"claude\"",
+	"internal/workspace/structuredpane.go":   "structuredRuntime, the structured implementation of PaneRuntime, and its start. Unguarded: it reads the pane's session to start",
 	"internal/workspace/team.go":             "idle and exit notes read off a pane's session",
 }
 
@@ -523,7 +532,7 @@ func TestConsumersDoNotBranchOnAgentType(t *testing.T) {
 		full := filepath.Join(root, filepath.FromSlash(rel))
 		src, err := os.ReadFile(full)
 		if err != nil {
-			t.Errorf("%s: %v (it is in agentTypeConsumers)", rel, err)
+			t.Errorf("%s: %v", rel, err)
 			continue
 		}
 		uses, err := findAgentTypeUses(rel, src, packageConsts(filepath.Dir(full)))
@@ -662,6 +671,9 @@ func TestAgentTypeCheckScansEveryFileButTheExemptOnes(t *testing.T) {
 		if !scanned[f] {
 			t.Errorf("%s has allowances but is not scanned", f)
 		}
+	}
+	if len(agentTypeExempt) != agentTypeExemptCount {
+		t.Errorf("%d files are exempt, agentTypeExemptCount says %d: an exemption is added on purpose", len(agentTypeExempt), agentTypeExemptCount)
 	}
 	// Every Go file in the three packages is either scanned or exempt.
 	total := 0
