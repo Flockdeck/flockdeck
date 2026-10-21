@@ -14,13 +14,21 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-
-	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // A reader of the page's files is told the same things the real server tells
 // it: nothing is cached, and nothing frames the page.
 const cookieName = "graphfixture"
+
+// The desk's limit on a paneSend text and its words for the two texts it refuses
+// before anything else. They are copied here, and not read from
+// internal/workspace, so that the tool links nothing that could look for the
+// configuration directory; a test pins them to workspace.
+const (
+	maxPaneSendBytes = 16 * 1024
+	sendTooLongWords = "That text is over 16 KB, so it was not sent"
+	sendEmptyWords   = "There was no text to send"
+)
 
 // sentText is one paneSend the fake socket took.
 type sentText struct {
@@ -212,8 +220,8 @@ func (s *fixtureServer) paneSend(id, text string) []any {
 	notice := func(msg string) []any {
 		return []any{map[string]any{"type": "notice", "text": msg, "error": true}}
 	}
-	if len(text) > workspace.MaxPaneSendBytes {
-		return notice(workspace.ErrSendTooLong.Error())
+	if len(text) > maxPaneSendBytes {
+		return notice(sendTooLongWords)
 	}
 	if strings.TrimSpace(strings.Map(func(r rune) rune {
 		if r < 0x20 && r != '\t' && r != '\r' && r != '\n' || r >= 0x7f && r <= 0x9f {
@@ -221,7 +229,7 @@ func (s *fixtureServer) paneSend(id, text string) []any {
 		}
 		return r
 	}, text)) == "" {
-		return notice(workspace.ErrSendEmpty.Error())
+		return notice(sendEmptyWords)
 	}
 	if !s.fx.has(id) {
 		return notice("That pane is no longer open")

@@ -20,6 +20,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/testiso"
 	"github.com/jmwri/flockdeck/internal/webui"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // TestMain keeps these tests off the real config directory, the stored API
@@ -415,4 +416,57 @@ func TestEachFixtureLoadsInTheNodeHarness(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The limit and the words copied into the tool are the desk's.
+func TestDeskValuesArePinnedToWorkspace(t *testing.T) {
+	if maxPaneSendBytes != workspace.MaxPaneSendBytes {
+		t.Errorf("maxPaneSendBytes %d, workspace has %d", maxPaneSendBytes, workspace.MaxPaneSendBytes)
+	}
+	if sendTooLongWords != workspace.ErrSendTooLong.Error() {
+		t.Errorf("sendTooLongWords %q, workspace has %q", sendTooLongWords, workspace.ErrSendTooLong)
+	}
+	if sendEmptyWords != workspace.ErrSendEmpty.Error() {
+		t.Errorf("sendEmptyWords %q, workspace has %q", sendEmptyWords, workspace.ErrSendEmpty)
+	}
+}
+
+// The built tool links none of the packages that keep or look for the person's
+// configuration, so what the tool does not read cannot change by one of them
+// gaining a lookup. The list is of the tool alone: this test's own imports are
+// not in it.
+func TestToolLinksNoPackageThatKeepsConfiguration(t *testing.T) {
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("go is not on PATH, and CI is set")
+		}
+		t.Skip("go is not on PATH")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, goBin, "list", "-deps", "-f", "{{.ImportPath}}", ".")
+	cmd.WaitDelay = 5 * time.Second
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list: %v", err)
+	}
+	const mod = "github.com/jmwri/flockdeck/internal/"
+	var deps []string
+	for _, p := range strings.Fields(string(out)) {
+		if strings.HasPrefix(p, mod) {
+			deps = append(deps, strings.TrimPrefix(p, mod))
+		}
+	}
+	if len(deps) == 0 {
+		t.Fatalf("no internal package in the list, so the check proves nothing: %s", out)
+	}
+	for _, d := range deps {
+		for _, bad := range []string{"store", "record", "session", "agent", "workspace", "server", "keybindings"} {
+			if d == bad || strings.HasPrefix(d, bad+"/") {
+				t.Errorf("the tool links internal/%s", d)
+			}
+		}
+	}
+	t.Logf("internal packages linked: %v", deps)
 }
