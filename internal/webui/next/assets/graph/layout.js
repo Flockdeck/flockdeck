@@ -26,10 +26,10 @@ export const DEFAULTS = {
   gapX: 24,
   gapY: 48,
   pad: 16,
-  teamHead: 36,
+  teamHead: 52,
   teamGap: 40,
   stripGap: 48,
-  stripHead: 28,
+  stripHead: 52,
   // The widest a row of blocks gets before the next block starts a new row.
   rowWidth: 4 * 216 + 3 * 24,
 };

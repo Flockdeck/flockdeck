@@ -1,10 +1,11 @@
-<svg class="graph" viewBox="0 0 968 548" width="968" height="548" role="group" aria-label="Team graph of 02-eight-helpers-permission-and-question">
+<svg class="graph" viewBox="0 0 968 564" width="968" height="564" role="group" aria-label="Team graph of 02-eight-helpers-permission-and-question">
 <g class="gteam" data-team="b206ac1a">
-<rect class="gteam-frame" x="0" y="0" width="968" height="548" rx="10">
+<rect class="gteam-frame" x="0" y="0" width="968" height="564" rx="10">
 </rect>
 <text class="gteam-title" x="16" y="24">Ship 02-eight-helpers-permission-and-question</text>
 </g>
-<g class="gnode gnode--working gnode--manager" data-pane="b206ac1a" transform="translate(376 52)" role="group" aria-label="manager, manager, working, branch main, $9.50">
+<g class="gslot">
+<g class="gnode gnode--working gnode--manager" data-pane="b206ac1a" transform="translate(376 68)" role="group" aria-label="manager, manager, working, branch main, $9.50">
 <title>manager, manager, working, branch main, $9.50</title>
 <rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
@@ -18,7 +19,9 @@
 <text class="gnode-branch" x="12" y="87">main</text>
 <text class="gnode-spend" x="12" y="123">$9.50</text>
 </g>
-<g class="gnode gnode--waiting" data-pane="af5f14f7" transform="translate(16 228)" role="group" aria-label="schema, worker, waiting, branch work/schema">
+</g>
+<g class="gslot">
+<g class="gnode gnode--waiting" data-pane="af5f14f7" transform="translate(16 244)" role="group" aria-label="schema, worker, waiting, branch work/schema">
 <title>schema, worker, waiting, branch work/schema</title>
 <rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
@@ -31,7 +34,21 @@
 </text>
 <text class="gnode-branch" x="12" y="87">work/schema</text>
 </g>
-<g class="gnode gnode--waiting" data-pane="48211787" transform="translate(256 228)" role="group" aria-label="backfill, worker, waiting, branch work/backfill">
+<g class="gneed" data-pane="af5f14f7" transform="translate(16 244)">
+<g class="gbadge gbadge--ask" data-kind="permission" role="img" aria-label="Needs you: asks to run a command">
+<rect class="gbadge-box" x="8" y="-36" width="200" height="34" rx="6">
+</rect>
+<g class="gicon gicon--permission" transform="translate(24 -22)" aria-hidden="true">
+<path d="M-6 -5 H6 V5 H-6 Z M-3 -2 L0 0 L-3 2 M1 2 H4">
+</path>
+</g>
+<text class="gbadge-word" x="40" y="-18">asks to run a command</text>
+<text class="gbadge-detail" x="40" y="-6">psql -f migrations/…</text>
+</g>
+</g>
+</g>
+<g class="gslot">
+<g class="gnode gnode--waiting" data-pane="48211787" transform="translate(256 244)" role="group" aria-label="backfill, worker, waiting, branch work/backfill">
 <title>backfill, worker, waiting, branch work/backfill</title>
 <rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
@@ -44,7 +61,23 @@
 </text>
 <text class="gnode-branch" x="12" y="87">work/backfill</text>
 </g>
-<g class="gnode gnode--working" data-pane="f5b8f95d" transform="translate(496 228)" role="group" aria-label="ledger, worker, working, Edit ledger/post.go, branch work/ledger">
+<g class="gneed" data-pane="48211787" transform="translate(256 244)">
+<g class="gbadge gbadge--ask" data-kind="ask" role="img" aria-label="Needs you: asks a question">
+<rect class="gbadge-box" x="8" y="-36" width="200" height="34" rx="6">
+</rect>
+<g class="gicon gicon--ask" transform="translate(24 -22)" aria-hidden="true">
+<circle r="7">
+</circle>
+<path d="M-2.5 -2 Q-2.5 -4.5 0 -4.5 Q2.5 -4.5 2.5 -2 Q2.5 0 0 1 V2.5 M0 4.5 V5">
+</path>
+</g>
+<text class="gbadge-word" x="40" y="-18">asks a question</text>
+<text class="gbadge-detail" x="40" y="-6">Backfill invoices o…</text>
+</g>
+</g>
+</g>
+<g class="gslot">
+<g class="gnode gnode--working" data-pane="f5b8f95d" transform="translate(496 244)" role="group" aria-label="ledger, worker, working, Edit ledger/post.go, branch work/ledger">
 <title>ledger, worker, working, Edit ledger/post.go, branch work/ledger</title>
 <rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
@@ -56,7 +89,9 @@
 <text class="gnode-live" x="12" y="67">Edit ledger/post.go</text>
 <text class="gnode-branch" x="12" y="87">work/ledger</text>
 </g>
-<g class="gnode gnode--working" data-pane="3ecf0128" transform="translate(736 228)" role="group" aria-label="reports, worker, working, Bash go build ./..., branch work/reports">
+</g>
+<g class="gslot">
+<g class="gnode gnode--working" data-pane="3ecf0128" transform="translate(736 244)" role="group" aria-label="reports, worker, working, Bash go build ./..., branch work/reports">
 <title>reports, worker, working, Bash go build ./..., branch work/reports</title>
 <rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
@@ -68,7 +103,9 @@
 <text class="gnode-live" x="12" y="67">Bash go build ./...</text>
 <text class="gnode-branch" x="12" y="87">work/reports</text>
 </g>
-<g class="gnode gnode--idle" data-pane="04ed9ffa" transform="translate(16 404)" role="group" aria-label="webhooks, worker, idle, branch work/webhooks">
+</g>
+<g class="gslot">
+<g class="gnode gnode--idle" data-pane="04ed9ffa" transform="translate(16 420)" role="group" aria-label="webhooks, worker, idle, branch work/webhooks">
 <title>webhooks, worker, idle, branch work/webhooks</title>
 <rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
@@ -81,7 +118,9 @@
 </text>
 <text class="gnode-branch" x="12" y="87">work/webhooks</text>
 </g>
-<g class="gnode gnode--exited" data-pane="2a5c9085" transform="translate(256 404)" role="group" aria-label="fixtures, worker, down, branch work/fixtures">
+</g>
+<g class="gslot">
+<g class="gnode gnode--exited" data-pane="2a5c9085" transform="translate(256 420)" role="group" aria-label="fixtures, worker, down, branch work/fixtures">
 <title>fixtures, worker, down, branch work/fixtures</title>
 <rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
@@ -94,7 +133,22 @@
 </text>
 <text class="gnode-branch" x="12" y="87">work/fixtures</text>
 </g>
-<g class="gnode gnode--idle" data-pane="476ff4dc" transform="translate(496 404)" role="group" aria-label="emails, worker, idle, branch work/emails, task T1 in-review">
+<g class="gneed" data-pane="2a5c9085" transform="translate(256 420)">
+<g class="gbadge gbadge--down" data-kind="down" role="img" aria-label="Needs you: exited with code 2">
+<rect class="gbadge-box" x="8" y="-36" width="200" height="34" rx="6">
+</rect>
+<g class="gicon gicon--down" transform="translate(24 -22)" aria-hidden="true">
+<circle r="7">
+</circle>
+<path d="M-3 -3 L3 3 M3 -3 L-3 3">
+</path>
+</g>
+<text class="gbadge-word" x="40" y="-18">exited with code 2</text>
+</g>
+</g>
+</g>
+<g class="gslot">
+<g class="gnode gnode--idle" data-pane="476ff4dc" transform="translate(496 420)" role="group" aria-label="emails, worker, idle, branch work/emails, task T1 in-review">
 <title>emails, worker, idle, branch work/emails, task T1 in-review</title>
 <rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
@@ -112,7 +166,9 @@
 <text x="8" y="11">T1 in-review</text>
 </g>
 </g>
-<g class="gnode gnode--idle" data-pane="ea5e3f24" transform="translate(736 404)" role="group" aria-label="retries, worker, idle, branch work/retries, task T2 blocked">
+</g>
+<g class="gslot">
+<g class="gnode gnode--idle" data-pane="ea5e3f24" transform="translate(736 420)" role="group" aria-label="retries, worker, idle, branch work/retries, task T2 blocked">
 <title>retries, worker, idle, branch work/retries, task T2 blocked</title>
 <rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
 </rect>
@@ -128,6 +184,7 @@
 <rect x="0" y="0" width="85" height="14" rx="7">
 </rect>
 <text x="8" y="11">T2 blocked</text>
+</g>
 </g>
 </g>
 </svg>

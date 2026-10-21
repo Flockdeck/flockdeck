@@ -122,3 +122,109 @@
 .gnode--failed .gnode-box {
   stroke: var(--exited);
 }
+
+/* Needs-you: the badge on a box and the strip above the graph. The icon's
+ * shape differs per reason, and the words are always drawn. */
+.gbadge-box {
+  fill: var(--waiting-subtle);
+  stroke: var(--waiting);
+  stroke-width: 1.5;
+}
+
+.gbadge--down .gbadge-box {
+  fill: var(--exited-subtle);
+  stroke: var(--exited);
+}
+
+.gbadge-word {
+  fill: var(--fg);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.gbadge-detail,
+.gbadge-more {
+  fill: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.gicon {
+  fill: none;
+  stroke: var(--waiting);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.gicon--down {
+  stroke: var(--exited);
+}
+
+.gicon--unknown circle {
+  stroke-dasharray: 2 2;
+}
+
+.needs {
+  margin: 0 0 12px;
+}
+
+.needs-head {
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.needs-none,
+.needs-more {
+  color: var(--fg-dim);
+  margin: 0;
+}
+
+.needs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.needs-row + .needs-row {
+  border-top: 1px solid var(--line-subtle);
+}
+
+.needs-pick {
+  align-items: center;
+  background: none;
+  border: 0;
+  color: var(--fg);
+  display: flex;
+  font: inherit;
+  gap: 10px;
+  padding: 6px 4px;
+  text-align: left;
+  width: 100%;
+}
+
+.needs-who {
+  font-weight: 600;
+}
+
+.needs-word {
+  color: var(--waiting);
+}
+
+.needs-row--down .needs-word {
+  color: var(--exited);
+}
+
+.needs-detail {
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.needs-icon .gicon {
+  stroke: currentColor;
+}

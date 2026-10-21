@@ -46,7 +46,7 @@ for (const name of names) {
     const msg = load(name);
     const out = draw(msg);
     for (const n of msg.nodes) {
-      assert.equal(out.split(`data-pane="${n.pane}"`).length - 1, 1, `${n.pane} is not drawn once`);
+      assert.equal(out.split(`class="gnode gnode--`).filter((g) => g.includes(`data-pane="${n.pane}"`) && g.indexOf(`data-pane="${n.pane}"`) < g.indexOf(">")).length, 1, `${n.pane} is not drawn once`);
     }
     const words = { waiting: "waiting", blocked: "blocked", exited: "down", failed: "down" };
     for (const n of msg.nodes) {

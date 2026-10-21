@@ -8,6 +8,8 @@
 import { html } from "../html.js";
 import { layoutGraph } from "./layout.js";
 import { Node, clip } from "./Node.js";
+import { Badge } from "./Badge.js";
+import { NeedsYou } from "./NeedsYou.js";
 
 /**
  * Graph draws a graph model. layout may be given when the caller has laid the
@@ -49,8 +51,26 @@ export function Graph({ model, layout = null }) {
       ${lay.nodes.map((b) => {
         const node = model.byPane.get(b.pane);
         if (!node) return null;
-        return html`<${Node} key=${b.pane} node=${node} box=${b} team=${teamOf.get(b.team) || null} />`;
+        const needs = model.needsByPane.get(b.pane);
+        return html`
+          <g class="gslot" key=${b.pane}>
+            <${Node} node=${node} box=${b} team=${teamOf.get(b.team) || null} />
+            ${needs && needs.length > 0
+              ? html`<g class="gneed" data-pane=${b.pane} transform=${`translate(${b.x} ${b.y})`}><${Badge} needs=${needs} /></g>`
+              : null}
+          </g>
+        `;
       })}
     </svg>
+  `;
+}
+
+/** GraphView is the strip of what needs the person above the graph, drawn from one model, so that a new model changes both in the same frame. */
+export function GraphView({ model, layout = null, onSelect }) {
+  return html`
+    <div class="graph-view">
+      <${NeedsYou} model=${model} onSelect=${onSelect} />
+      <${Graph} model=${model} layout=${layout} />
+    </div>
   `;
 }
