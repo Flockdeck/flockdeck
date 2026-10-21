@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -326,6 +327,67 @@ func TestVendoredFilesMatchTheirRecordedHash(t *testing.T) {
 
 // The node tests run from here. Node is a development and CI tool only: it is
 // not bundled and is not part of any release.
+//
+// Each test file is its own node process and its own subtest, so a failure or a
+// hang names the file, and the suite is no longer one process whose limit is the
+// sum of all of them. At most nodeTestProcesses run at once: node's own default
+// is one fewer than the machine's cores, which on a many-core machine held about
+// 25 GB between the processes, and on a three-core CI runner is not the same
+// number as on another. The step's time on CI was 38 to 66 s for the whole
+// package (Linux, macOS and Windows), and one macOS run was killed at the old
+// single limit of 120 s, so a file gets nodeFileLimit, well past the longest
+// file, and a single test in it gets nodeTestLimit so a hung one is reported by
+// name before the file's limit.
+//
+// Killing the Go test binary itself (the go test -timeout panic) does not stop
+// the node processes it started on Windows: they stay alive until they finish or
+// are ended by hand.
+const (
+	nodeTestProcesses = 2
+	nodeFileLimit     = 4 * time.Minute
+	nodeTestLimitMS   = "60000"
+)
+
+// node reports a run in one of two forms, by version and by whether the output
+// is a terminal: the spec form ("ℹ pass 28", "✔ file.test.mjs (5ms)") and the
+// TAP form ("# pass 28", "ok 1 - file.test.mjs"; the CI runners' node prints it).
+// A file with no tests in it is reported as one pass, of the file itself.
+var (
+	nodePassed   = regexp.MustCompile(`(?m)^(?:ℹ|#) pass (\d+)`)
+	nodeFileOnly = regexp.MustCompile(`(?m)^(?:✔ \S*\.test\.mjs \(|ok \d+ - \S*\.test\.mjs$)`)
+)
+
+// nodeRanTests says whether node's report holds at least one test that passed
+// besides the file itself.
+func nodeRanTests(out []byte) bool {
+	m := nodePassed.FindSubmatch(out)
+	if m == nil || string(m[1]) == "0" {
+		return false
+	}
+	return !(string(m[1]) == "1" && nodeFileOnly.Match(out))
+}
+
+func TestNodeRanTests(t *testing.T) {
+	for _, c := range []struct {
+		name, out string
+		want      bool
+	}{
+		{"spec, tests", "✔ one (1ms)\n✔ two (1ms)\nℹ tests 2\nℹ suites 0\nℹ pass 2\nℹ fail 0\n", true},
+		{"spec, one test", "✔ only one (1ms)\nℹ tests 1\nℹ pass 1\nℹ fail 0\n", true},
+		{"spec, empty file", "✔ zz.test.mjs (48.7919ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\n", false},
+		{"spec, none passed", "ℹ tests 1\nℹ pass 0\nℹ fail 1\n", false},
+		{"tap, tests", "TAP version 13\n# Subtest: the palette key, read from the table, opens the palette and is claimed\nok 1 - the palette key, read from the table, opens the palette and is claimed\n  ---\n  duration_ms: 548.6287\n  type: 'test'\n  ...\nok 28 - a binding that cannot be read is said, not silently dead\n1..28\n# tests 28\n# suites 0\n# pass 28\n# fail 0\n", true},
+		{"tap, one test", "TAP version 13\n# Subtest: one\nok 1 - one\n1..1\n# tests 1\n# pass 1\n# fail 0\n", true},
+		{"tap, empty file", "TAP version 13\n# Subtest: zz.test.mjs\nok 1 - zz.test.mjs\n  ---\n  duration_ms: 119.4751\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n", false},
+		{"tap, empty file with a path", "TAP version 13\n# Subtest: test\\zz.test.mjs\nok 1 - test\\zz.test.mjs\n1..1\n# tests 1\n# pass 1\n# fail 0\n", false},
+		{"no summary", "", false},
+	} {
+		if got := nodeRanTests([]byte(c.out)); got != c.want {
+			t.Errorf("%s: nodeRanTests = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestNodeTests(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -338,11 +400,24 @@ func TestNodeTests(t *testing.T) {
 	if err != nil || len(files) < 2 {
 		t.Fatalf("test files %v, %v", files, err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, node, append([]string{"--test"}, files...)...)
-	// testiso.Main has already pointed the home and config variables at a
-	// throwaway directory and cleared the credentials; node inherits that.
+	// Every test file in the directory must become a subtest, so a loop that
+	// skipped or stopped early cannot pass as a smaller suite.
+	entries, err := os.ReadDir("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".test.mjs") {
+			want++
+		}
+	}
+	var ran atomic.Int32
+	t.Cleanup(func() {
+		if got := int(ran.Load()); got != want && !t.Failed() {
+			t.Errorf("%d node test files ran, the directory has %d", got, want)
+		}
+	})
 	// The server's own key table, as the hello sends it, so the shell's tests
 	// run against the bindings that ship and not a copy written out here.
 	table, err := json.Marshal(help.Keys)
@@ -353,14 +428,35 @@ func TestNodeTests(t *testing.T) {
 	if err := os.WriteFile(keysFile, table, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd.Env = append(os.Environ(), "NEXT_KEYS_JSON="+keysFile)
-	cmd.WaitDelay = 5 * time.Second
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("node tests failed: %v\n%s", err, out)
-	}
-	if !strings.Contains(string(out), "pass ") {
-		t.Errorf("node reported no passes:\n%s", out)
+	slots := make(chan struct{}, nodeTestProcesses)
+	for _, file := range files {
+		t.Run(filepath.Base(file), func(t *testing.T) {
+			t.Parallel()
+			ran.Add(1)
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			ctx, cancel := context.WithTimeout(context.Background(), nodeFileLimit)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, node, "--test", "--test-timeout="+nodeTestLimitMS, file)
+			// testiso.Main has already pointed the home and config variables at a
+			// throwaway directory and cleared the credentials; node inherits that.
+			cmd.Env = append(os.Environ(), "NEXT_KEYS_JSON="+keysFile)
+			cmd.WaitDelay = 5 * time.Second
+			start := time.Now()
+			out, err := cmd.CombinedOutput()
+			t.Logf("%s took %s", file, time.Since(start).Round(100*time.Millisecond))
+			if ctx.Err() == context.DeadlineExceeded {
+				t.Fatalf("killed after %s\n%s", nodeFileLimit, out)
+			}
+			if err != nil {
+				t.Fatalf("node tests failed: %v\n%s", err, out)
+			}
+			// An empty file exits 0 and node counts the file itself as the one pass,
+			// so the count is read, not the word "pass".
+			if !nodeRanTests(out) {
+				t.Errorf("node reported no passes:\n%s", out)
+			}
+		})
 	}
 }
 
